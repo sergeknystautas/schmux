@@ -136,4 +136,35 @@ describe('AdvancedTab', () => {
     render(<AdvancedTab {...defaultProps} />);
     expect(screen.getByLabelText('Enable terminal desync diagnostics')).not.toBeChecked();
   });
+
+  it('dispatches desyncEnabled toggle', async () => {
+    dispatch.mockClear();
+    render(<AdvancedTab {...defaultProps} desyncEnabled={false} />);
+    await userEvent.click(screen.getByLabelText('Enable terminal desync diagnostics'));
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'SET_FIELD', field: 'desyncEnabled', value: true })
+    );
+  });
+
+  it('dispatches loreCurateOnDispose change', async () => {
+    dispatch.mockClear();
+    render(<AdvancedTab {...defaultProps} loreCurateOnDispose="session" />);
+    await userEvent.selectOptions(screen.getByDisplayValue('Every session'), 'never');
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'SET_FIELD', field: 'loreCurateOnDispose', value: 'never' })
+    );
+  });
+
+  it('dispatches dashboardPollInterval on typing', async () => {
+    dispatch.mockClear();
+    render(<AdvancedTab {...defaultProps} dashboardPollInterval={5000} />);
+    // Multiple inputs share value "5000" — use the label to find the right one
+    const label = screen.getByText('Dashboard Poll Interval (ms)');
+    const input = label.closest('.form-group')!.querySelector('input')!;
+    await userEvent.clear(input);
+    await userEvent.type(input, '3000');
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'SET_FIELD', field: 'dashboardPollInterval' })
+    );
+  });
 });

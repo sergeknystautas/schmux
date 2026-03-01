@@ -174,6 +174,75 @@ describe('useSessionsWebSocket', () => {
     expect(result.current.remoteAccessStatus.state).toBe('connected');
   });
 
+  it('handles ws.onerror gracefully', () => {
+    const { result } = renderHook(() => useSessionsWebSocket());
+    const ws = lastWS();
+    openWS(ws);
+
+    // Send initial data so we can verify state is preserved
+    act(() => {
+      sendMsg(ws, {
+        type: 'sessions',
+        workspaces: [{ id: 'ws-1', repo: 'r', branch: 'main', path: '/tmp', sessions: [] }],
+      });
+    });
+    expect(result.current.workspaces).toHaveLength(1);
+
+    // Trigger onerror — should not crash or corrupt state
+    act(() => {
+      ws.onerror?.();
+    });
+
+    // State should be preserved (onerror is a no-op; onclose handles reconnect)
+    expect(result.current.workspaces).toHaveLength(1);
+  });
+
+  it('handles malformed JSON without crashing', () => {
+    const { result } = renderHook(() => useSessionsWebSocket());
+    const ws = lastWS();
+    openWS(ws);
+
+    // Send valid data first
+    act(() => {
+      sendMsg(ws, {
+        type: 'sessions',
+        workspaces: [{ id: 'ws-1', repo: 'r', branch: 'main', path: '/tmp', sessions: [] }],
+      });
+    });
+    expect(result.current.workspaces).toHaveLength(1);
+
+    // Send malformed JSON directly via onmessage (bypass sendMsg which JSON.stringifies)
+    act(() => {
+      ws.onmessage?.({ data: '{invalid json' });
+    });
+
+    // State should be unchanged — the try/catch in the hook swallows the parse error
+    expect(result.current.workspaces).toHaveLength(1);
+  });
+
+  it('ignores unknown message types', () => {
+    const { result } = renderHook(() => useSessionsWebSocket());
+    const ws = lastWS();
+    openWS(ws);
+
+    // Send valid data first
+    act(() => {
+      sendMsg(ws, {
+        type: 'sessions',
+        workspaces: [{ id: 'ws-1', repo: 'r', branch: 'main', path: '/tmp', sessions: [] }],
+      });
+    });
+    const before = result.current.workspaces;
+
+    // Send unknown message type
+    act(() => {
+      sendMsg(ws, { type: 'unknown_type', data: { foo: 'bar' } });
+    });
+
+    // State reference should be identical — no re-render triggered
+    expect(result.current.workspaces).toBe(before);
+  });
+
   it('handles monitor event ring buffer', () => {
     const { result } = renderHook(() => useSessionsWebSocket());
     const ws = lastWS();

@@ -213,4 +213,89 @@ describe('ModalProvider', () => {
 
     expect(() => render(<Orphan />)).toThrow('useModal must be used within ModalProvider');
   });
+
+  it('prompt: type and confirm returns input value', async () => {
+    let result: string | null | undefined;
+    render(
+      <ModalProvider>
+        <ModalTrigger
+          action={(modal) => {
+            modal.prompt('Enter name', { placeholder: 'Type here' }).then((r) => {
+              result = r;
+            });
+          }}
+        />
+      </ModalProvider>
+    );
+
+    await act(async () => {
+      screen.getByText('trigger').click();
+    });
+
+    const input = document.getElementById('modal-prompt-input') as HTMLInputElement;
+    await userEvent.type(input, 'hello world');
+    await act(async () => {
+      screen.getByText('Save').click();
+    });
+
+    expect(result).toBe('hello world');
+  });
+
+  it('sequential modals: second modal renders after first is dismissed', async () => {
+    let firstResult: boolean | null | undefined;
+    let secondOpened = false;
+
+    function SequentialTrigger() {
+      const modal = useModal();
+      return (
+        <>
+          <button
+            onClick={() => {
+              modal.confirm('First?').then((r) => {
+                firstResult = r;
+              });
+            }}
+          >
+            first
+          </button>
+          <button
+            onClick={() => {
+              secondOpened = true;
+              modal.alert('Second', 'Second modal content');
+            }}
+          >
+            second
+          </button>
+        </>
+      );
+    }
+
+    render(
+      <ModalProvider>
+        <SequentialTrigger />
+      </ModalProvider>
+    );
+
+    // Open and dismiss first modal
+    await act(async () => {
+      screen.getByText('first').click();
+    });
+    expect(screen.getByText('First?')).toBeInTheDocument();
+
+    await act(async () => {
+      screen.getByText('Cancel').click();
+    });
+    expect(firstResult).toBeNull();
+
+    // First modal should be gone
+    expect(screen.queryByText('First?')).not.toBeInTheDocument();
+
+    // Open second modal — state should be clean
+    await act(async () => {
+      screen.getByText('second').click();
+    });
+    expect(secondOpened).toBe(true);
+    expect(screen.getByText('Second')).toBeInTheDocument();
+    expect(screen.getByText('Second modal content')).toBeInTheDocument();
+  });
 });

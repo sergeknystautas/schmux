@@ -108,4 +108,19 @@ describe('CodeReviewTab', () => {
       expect.objectContaining({ type: 'SET_FIELD', field: 'externalDiffCleanupMinutes' })
     );
   });
+
+  it('dispatches SET_FIELD for newDiffName on typing', async () => {
+    dispatch.mockClear();
+    render(<CodeReviewTab {...defaultProps} />);
+    const nameInput = screen.getByPlaceholderText('e.g., Kaleidoscope');
+    await userEvent.type(nameInput, 'K');
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'SET_FIELD', field: 'newDiffName' })
+    );
+  });
+
+  it('disables Add Diff Tool button when inputs are empty', () => {
+    render(<CodeReviewTab {...defaultProps} newDiffName="" newDiffCommand="" />);
+    expect(screen.getByText('Add Diff Tool')).toBeDisabled();
+  });
 });
