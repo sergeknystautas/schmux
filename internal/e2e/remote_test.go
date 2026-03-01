@@ -117,22 +117,15 @@ func TestE2ERemoteBasicLifecycle(t *testing.T) {
 		env.DisposeSession(sessionID)
 
 		// Poll until session is gone
-		deadline := time.Now().Add(5 * time.Second)
-		for time.Now().Before(deadline) {
+		env.PollUntil(5*time.Second, "session disposed", func() bool {
 			sessions := env.GetAPISessions()
-			found := false
 			for _, sess := range sessions {
 				if sess.ID == sessionID {
-					found = true
-					break
+					return false
 				}
 			}
-			if !found {
-				return
-			}
-			time.Sleep(200 * time.Millisecond)
-		}
-		t.Error("Session still exists after dispose")
+			return true
+		})
 	})
 }
 
@@ -260,22 +253,15 @@ func TestE2ERemoteMultipleSessions(t *testing.T) {
 
 		// Poll until all disposed sessions are gone
 		disposedIDs := map[string]bool{session1ID: true, session2ID: true, session3ID: true}
-		deadline := time.Now().Add(5 * time.Second)
-		for time.Now().Before(deadline) {
+		env.PollUntil(5*time.Second, "sessions disposed", func() bool {
 			sessions := env.GetAPISessions()
-			anyFound := false
 			for _, sess := range sessions {
 				if disposedIDs[sess.ID] {
-					anyFound = true
-					break
+					return false
 				}
 			}
-			if !anyFound {
-				return
-			}
-			time.Sleep(200 * time.Millisecond)
-		}
-		t.Error("Some sessions still exist after dispose")
+			return true
+		})
 	})
 }
 
@@ -542,20 +528,13 @@ func TestE2ERemoteHooksProvisioning(t *testing.T) {
 	t.Run("VerifyHooksFileCreated", func(t *testing.T) {
 		settingsPath := filepath.Join(remoteWorkspacePath, ".claude", "settings.local.json")
 
-		// Wait briefly for the file to be written (the mkdir+printf runs before the command)
+		// Poll until the hooks file is created
 		var data []byte
-		var readErr error
-		deadline := time.Now().Add(5 * time.Second)
-		for time.Now().Before(deadline) {
-			data, readErr = os.ReadFile(settingsPath)
-			if readErr == nil {
-				break
-			}
-			time.Sleep(200 * time.Millisecond)
-		}
-		if readErr != nil {
-			t.Fatalf("Hooks file not created at %s: %v", settingsPath, readErr)
-		}
+		env.PollUntil(5*time.Second, "hooks file created", func() bool {
+			var err error
+			data, err = os.ReadFile(settingsPath)
+			return err == nil
+		})
 
 		t.Logf("Hooks file content: %s", string(data))
 
