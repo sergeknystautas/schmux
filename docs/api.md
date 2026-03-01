@@ -690,7 +690,7 @@ Errors:
 
 ### POST /api/workspaces/{workspaceId}/dispose
 
-Dispose a workspace (fails if workspace has active sessions).
+Dispose a workspace (fails if workspace has active sessions). Disposal runs with an independent server-side timeout and will complete even if the client disconnects.
 
 Response:
 
@@ -706,7 +706,7 @@ Errors:
 
 Dispose a workspace and all its sessions.
 
-Disposes all sessions in the workspace first, then disposes the workspace itself.
+Disposes all sessions in the workspace first, then disposes the workspace itself. Both phases run with independent server-side timeouts and will complete even if the client disconnects.
 
 Response:
 

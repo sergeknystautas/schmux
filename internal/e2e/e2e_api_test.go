@@ -491,7 +491,9 @@ func TestE2EWorkspaceDisposeAll(t *testing.T) {
 	}
 
 	// Dispose all sessions + workspace
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Use a generous timeout: handler disposes sessions (each up to DisposeGracePeriod+10s)
+	// then workspace (git operations), all sequentially
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, env.DaemonURL+"/api/workspaces/"+workspaceID+"/dispose-all", nil)
 	resp, err := http.DefaultClient.Do(req)
 	cancel()
