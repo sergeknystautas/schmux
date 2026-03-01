@@ -917,15 +917,11 @@ func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedT
 	}
 
 	if target, found := m.config.GetRunTarget(targetName); found {
-		kind := TargetKindUser
-		if target.Source == config.RunTargetSourceDetected {
-			kind = TargetKindDetected
-		}
 		return ResolvedTarget{
 			Name:       target.Name,
-			Kind:       kind,
+			Kind:       TargetKindUser,
 			Command:    target.Command,
-			Promptable: target.Type == config.RunTargetTypePromptable,
+			Promptable: false,
 		}, nil
 	}
 

@@ -77,9 +77,7 @@ export interface RepoResponse {
 
 export interface RunTargetResponse {
   name: string;
-  type: string;
   command: string;
-  source?: string;
 }
 
 export interface QuickLaunchPreset {

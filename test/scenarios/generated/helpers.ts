@@ -29,7 +29,6 @@ export async function seedConfig(opts: SetupOptions = {}): Promise<void> {
     })),
     run_targets: (opts.agents || []).map((a) => ({
       name: a.name,
-      type: a.promptable !== false ? 'promptable' : 'command',
       command: a.command,
     })),
     quick_launch: (opts.quickLaunch || []).map((ql) => ({

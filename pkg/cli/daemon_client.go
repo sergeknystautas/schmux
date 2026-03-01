@@ -295,7 +295,6 @@ type Repo struct {
 // RunTarget represents a user-supplied run target.
 type RunTarget struct {
 	Name    string `json:"name"`
-	Type    string `json:"type"`
 	Command string `json:"command"`
 }
 

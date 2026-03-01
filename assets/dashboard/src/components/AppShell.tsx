@@ -894,11 +894,11 @@ export default function AppShell() {
                           ? formatRelativeTime(sess.last_output_at)
                           : '-';
 
-                      // Check if this session's target is promptable
-                      const runTarget = (config?.run_targets || []).find(
+                      // run_targets are command-only now; if not in run_targets, it's a model = promptable
+                      const isCommand = (config?.run_targets || []).some(
                         (t) => t.name === sess.target
                       );
-                      const isPromptable = runTarget ? runTarget.type === 'promptable' : true;
+                      const isPromptable = !isCommand;
 
                       const nudgeSummary = formatNudgeSummary(sess.nudge_summary, 40);
 

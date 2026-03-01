@@ -32,7 +32,7 @@ func TestNew(t *testing.T) {
 	cfg := &config.Config{
 		WorkspacePath: "/tmp/workspaces",
 		RunTargets: []config.RunTarget{
-			{Name: "test", Type: config.RunTargetTypeCommand, Command: "test"},
+			{Name: "test", Command: "test"},
 		},
 	}
 	st := state.New("", nil)

@@ -22,7 +22,6 @@ test.describe.serial('Lore status warning banner', () => {
         {
           name: 'echo-agent',
           command: "sh -c 'echo hello; sleep 600'",
-          promptable: true,
         },
       ],
     });

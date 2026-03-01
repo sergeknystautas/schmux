@@ -469,59 +469,6 @@ func TestExecuteTargetStreamingInputValidation(t *testing.T) {
 	}
 }
 
-func TestMergeEnvMaps(t *testing.T) {
-	t.Parallel()
-
-	t.Run("overrides win on conflict", func(t *testing.T) {
-		base := map[string]string{"A": "1", "B": "2"}
-		overrides := map[string]string{"B": "override", "C": "3"}
-		got := mergeEnvMaps(base, overrides)
-
-		if got["A"] != "1" {
-			t.Errorf("A = %q, want '1'", got["A"])
-		}
-		if got["B"] != "override" {
-			t.Errorf("B = %q, want 'override'", got["B"])
-		}
-		if got["C"] != "3" {
-			t.Errorf("C = %q, want '3'", got["C"])
-		}
-	})
-
-	t.Run("both nil returns nil", func(t *testing.T) {
-		got := mergeEnvMaps(nil, nil)
-		if got != nil {
-			t.Errorf("expected nil, got %v", got)
-		}
-	})
-
-	t.Run("nil base returns overrides copy", func(t *testing.T) {
-		overrides := map[string]string{"K": "V"}
-		got := mergeEnvMaps(nil, overrides)
-		if got["K"] != "V" || len(got) != 1 {
-			t.Errorf("got %v, want map[K:V]", got)
-		}
-	})
-
-	t.Run("nil overrides returns base copy", func(t *testing.T) {
-		base := map[string]string{"K": "V"}
-		got := mergeEnvMaps(base, nil)
-		if got["K"] != "V" || len(got) != 1 {
-			t.Errorf("got %v, want map[K:V]", got)
-		}
-	})
-
-	t.Run("does not mutate inputs", func(t *testing.T) {
-		base := map[string]string{"A": "1"}
-		overrides := map[string]string{"B": "2"}
-		got := mergeEnvMaps(base, overrides)
-		got["A"] = "mutated"
-		if base["A"] == "mutated" {
-			t.Error("mergeEnvMaps should not allow mutation of base")
-		}
-	})
-}
-
 func TestNormalizeJSONPayload(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

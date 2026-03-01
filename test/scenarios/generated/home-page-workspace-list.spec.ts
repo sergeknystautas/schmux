@@ -21,7 +21,6 @@ test.describe.serial('View active workspaces on the home page', () => {
         {
           name: 'echo-agent',
           command: "sh -c 'echo hello from agent; sleep 600'",
-          promptable: true,
         },
       ],
     });
@@ -30,7 +29,6 @@ test.describe.serial('View active workspaces on the home page', () => {
     const resultsA = await spawnSession({
       repo: repoPath,
       branch: 'branch-a',
-      prompt: 'test',
       targets: { 'echo-agent': 1 },
     });
     workspaceIdA = resultsA[0].workspace_id;
@@ -38,7 +36,6 @@ test.describe.serial('View active workspaces on the home page', () => {
     await spawnSession({
       repo: repoPath,
       branch: 'branch-b',
-      prompt: 'test',
       targets: { 'echo-agent': 1 },
     });
 

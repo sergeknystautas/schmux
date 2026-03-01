@@ -130,7 +130,6 @@ RESPONSE
       run_targets: [
         {
           name: 'echo-agent',
-          type: 'promptable',
           command: "sh -c 'echo hello; sleep 600'",
         },
       ],
@@ -143,7 +142,6 @@ RESPONSE
     // We need to also add the cr-resolver as a run target so resolveTarget can find it
     (config.run_targets as Array<Record<string, unknown>>).push({
       name: 'cr-resolver',
-      type: 'promptable',
       command: resolverScript,
     });
 
@@ -159,7 +157,6 @@ RESPONSE
     const results = await spawnSession({
       repo: repoDir,
       branch: 'test-cr-terminal',
-      prompt: 'test',
       targets: { 'echo-agent': 1 },
     });
     sessionId = results[0].session_id;

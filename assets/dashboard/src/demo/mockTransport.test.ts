@@ -38,9 +38,8 @@ describe('createDemoTransport', () => {
 
       const response = await dt.fetch('/api/config');
       const data = await response.json();
-      // SpawnPage filters run_targets for type === 'promptable' (models and detected tools)
-      const promptable = (data.run_targets || []).filter((t: any) => t.type === 'promptable');
-      expect(promptable.length).toBeGreaterThan(0);
+      // Models are in the models array, not run_targets
+      expect((data.models || []).length).toBeGreaterThan(0);
     });
 
     it('returns demo config with remote_access disabled', async () => {

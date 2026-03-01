@@ -244,9 +244,9 @@ export default function SessionDetailPage() {
     const diagTarget = config.desync?.target || '';
     let target = diagTarget;
     if (!target) {
-      // Fall back to first promptable run target
-      const promptable = config.run_targets?.find((t) => t.type === 'promptable');
-      target = promptable?.name || '';
+      // Fall back to first enabled model
+      const firstModel = config.models?.find((m) => config.enabled_models?.[m.id]);
+      target = firstModel?.id || '';
     }
 
     // Find the workspace for this session
@@ -301,8 +301,8 @@ export default function SessionDetailPage() {
     const diagTarget = config.io_workspace_telemetry?.target || '';
     let target = diagTarget;
     if (!target) {
-      const promptable = config.run_targets?.find((t) => t.type === 'promptable');
-      target = promptable?.name || '';
+      const firstModel = config.models?.find((m) => config.enabled_models?.[m.id]);
+      target = firstModel?.id || '';
     }
 
     const ws = workspaces?.find((w) => w.id === sessionData?.workspace_id);

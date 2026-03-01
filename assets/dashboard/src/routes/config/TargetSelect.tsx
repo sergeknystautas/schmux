@@ -1,5 +1,5 @@
 import React from 'react';
-import type { Model, RunTargetResponse } from '../../lib/types';
+import type { Model } from '../../lib/types';
 
 type TargetSelectProps = {
   value: string;
@@ -7,7 +7,6 @@ type TargetSelectProps = {
   disabled?: boolean;
   includeDisabledOption?: boolean;
   includeNoneOption?: string;
-  detectedTargets: RunTargetResponse[];
   models: Model[];
   className?: string;
 };
@@ -18,7 +17,6 @@ export default function TargetSelect({
   disabled,
   includeDisabledOption = true,
   includeNoneOption,
-  detectedTargets,
   models,
   className = 'input',
 }: TargetSelectProps) {
@@ -31,22 +29,11 @@ export default function TargetSelect({
     >
       {includeDisabledOption && <option value="">Disabled</option>}
       {includeNoneOption && <option value="">{includeNoneOption}</option>}
-      <optgroup label="Detected Tools">
-        {detectedTargets.map((target) => (
-          <option key={target.name} value={target.name}>
-            {target.name}
-          </option>
-        ))}
-      </optgroup>
-      <optgroup label="Models">
-        {models
-          .filter((model) => model.configured)
-          .map((model) => (
-            <option key={model.id} value={model.id}>
-              {model.display_name}
-            </option>
-          ))}
-      </optgroup>
+      {models.map((model) => (
+        <option key={model.id} value={model.id}>
+          {model.display_name}
+        </option>
+      ))}
     </select>
   );
 }

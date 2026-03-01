@@ -2,12 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TargetSelect from './TargetSelect';
-import type { Model, RunTargetResponse } from '../../lib/types';
-
-const detectedTargets: RunTargetResponse[] = [
-  { name: 'claude', command: 'claude', type: 'promptable', source: 'detected' },
-  { name: 'codex', command: 'codex', type: 'promptable', source: 'detected' },
-];
+import type { Model } from '../../lib/types';
 
 const models: Model[] = [
   {
@@ -30,34 +25,14 @@ const models: Model[] = [
 
 describe('TargetSelect', () => {
   it('renders Disabled option by default', () => {
-    render(
-      <TargetSelect
-        value=""
-        onChange={() => {}}
-        detectedTargets={detectedTargets}
-        models={models}
-      />
-    );
+    render(<TargetSelect value="" onChange={() => {}} models={models} />);
     expect(screen.getByText('Disabled')).toBeInTheDocument();
   });
 
-  it('renders detected targets in optgroup', () => {
-    render(
-      <TargetSelect
-        value=""
-        onChange={() => {}}
-        detectedTargets={detectedTargets}
-        models={models}
-      />
-    );
-    expect(screen.getByText('claude')).toBeInTheDocument();
-    expect(screen.getByText('codex')).toBeInTheDocument();
-  });
-
-  it('renders only configured models', () => {
-    render(<TargetSelect value="" onChange={() => {}} detectedTargets={[]} models={models} />);
+  it('renders all models passed to it', () => {
+    render(<TargetSelect value="" onChange={() => {}} models={models} />);
     expect(screen.getByText('GPT-4')).toBeInTheDocument();
-    expect(screen.queryByText('Unconfigured')).not.toBeInTheDocument();
+    expect(screen.getByText('Unconfigured')).toBeInTheDocument();
   });
 
   it('renders None option when includeNoneOption is provided', () => {
@@ -67,7 +42,6 @@ describe('TargetSelect', () => {
         onChange={() => {}}
         includeDisabledOption={false}
         includeNoneOption="None (capture only)"
-        detectedTargets={[]}
         models={[]}
       />
     );
@@ -77,32 +51,20 @@ describe('TargetSelect', () => {
 
   it('calls onChange when value changes', async () => {
     const onChange = vi.fn();
-    render(
-      <TargetSelect value="" onChange={onChange} detectedTargets={detectedTargets} models={[]} />
-    );
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'claude');
-    expect(onChange).toHaveBeenCalledWith('claude');
+    render(<TargetSelect value="" onChange={onChange} models={models} />);
+    await userEvent.selectOptions(screen.getByRole('combobox'), 'gpt-4');
+    expect(onChange).toHaveBeenCalledWith('gpt-4');
   });
 
   it('calls onChange with empty string when Disabled is selected', async () => {
     const onChange = vi.fn();
-    render(
-      <TargetSelect
-        value="claude"
-        onChange={onChange}
-        detectedTargets={detectedTargets}
-        models={[]}
-        promptableTargets={[]}
-      />
-    );
+    render(<TargetSelect value="gpt-4" onChange={onChange} models={models} />);
     await userEvent.selectOptions(screen.getByRole('combobox'), '');
     expect(onChange).toHaveBeenCalledWith('');
   });
 
   it('respects disabled prop', () => {
-    render(
-      <TargetSelect value="" onChange={() => {}} disabled={true} detectedTargets={[]} models={[]} />
-    );
+    render(<TargetSelect value="" onChange={() => {}} disabled={true} models={[]} />);
     expect(screen.getByRole('combobox')).toBeDisabled();
   });
 });

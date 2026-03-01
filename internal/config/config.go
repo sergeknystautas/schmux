@@ -418,9 +418,7 @@ type Repo struct {
 // RunTarget represents a user-supplied run target.
 type RunTarget struct {
 	Name    string `json:"name"`
-	Type    string `json:"type"`    // "promptable" or "command"
-	Command string `json:"command"` // shell command to run
-	Source  string `json:"source,omitempty"`
+	Command string `json:"command"`
 }
 
 // QuickLaunch represents a saved run preset.
@@ -442,14 +440,6 @@ type ExternalDiffCommand struct {
 type ModelsConfig struct {
 	Enabled map[string]string `json:"enabled,omitempty"` // modelID -> preferred tool
 }
-
-const (
-	RunTargetTypePromptable = "promptable"
-	RunTargetTypeCommand    = "command"
-	RunTargetSourceUser     = "user"
-	RunTargetSourceDetected = "detected"
-	RunTargetSourceModel    = "model"
-)
 
 // Migration represents a single config transformation.
 type Migration struct {
@@ -514,28 +504,104 @@ var migrations = []Migration{
 		},
 	},
 	{
-		Name: "convert_user_promptable_to_command",
-		Detect: func(_ map[string]json.RawMessage, cfg *Config) bool {
-			for _, t := range cfg.RunTargets {
-				source := t.Source
-				if source == "" {
-					source = RunTargetSourceUser
-				}
-				if source == RunTargetSourceUser && t.Type == RunTargetTypePromptable {
-					return true
+		Name: "drop_run_target_bridge_fields",
+		Detect: func(raw map[string]json.RawMessage, _ *Config) bool {
+			type legacyTarget struct {
+				Source string `json:"source"`
+				Type   string `json:"type"`
+			}
+			var targets []legacyTarget
+			if data, ok := raw["run_targets"]; ok {
+				if json.Unmarshal(data, &targets) == nil {
+					for _, t := range targets {
+						if t.Source != "" || t.Type != "" {
+							return true
+						}
+					}
 				}
 			}
 			return false
 		},
-		Apply: func(_ map[string]json.RawMessage, cfg *Config) error {
-			for i := range cfg.RunTargets {
-				source := cfg.RunTargets[i].Source
+		Apply: func(raw map[string]json.RawMessage, cfg *Config) error {
+			type legacyTarget struct {
+				Name    string `json:"name"`
+				Command string `json:"command"`
+				Source  string `json:"source"`
+			}
+			var old []legacyTarget
+			if data, ok := raw["run_targets"]; ok {
+				if err := json.Unmarshal(data, &old); err != nil {
+					return err
+				}
+			}
+			var cleaned []RunTarget
+			for _, t := range old {
+				source := t.Source
 				if source == "" {
-					source = RunTargetSourceUser
+					source = "user"
 				}
-				if source == RunTargetSourceUser && cfg.RunTargets[i].Type == RunTargetTypePromptable {
-					cfg.RunTargets[i].Type = RunTargetTypeCommand
+				if source == "detected" || source == "model" {
+					continue // drop bridge-injected entries
 				}
+				if t.Name != "" && t.Command != "" {
+					cleaned = append(cleaned, RunTarget{Name: t.Name, Command: t.Command})
+				}
+			}
+			cfg.RunTargets = cleaned
+			return nil
+		},
+	},
+	{
+		Name: "rewrite_tool_name_targets_to_model_ids",
+		Detect: func(_ map[string]json.RawMessage, cfg *Config) bool {
+			for _, ql := range cfg.QuickLaunch {
+				if detect.IsBuiltinToolName(ql.Target) {
+					return true
+				}
+			}
+			if cfg.Nudgenik != nil && detect.IsBuiltinToolName(cfg.Nudgenik.Target) {
+				return true
+			}
+			if cfg.Compound != nil && detect.IsBuiltinToolName(cfg.Compound.Target) {
+				return true
+			}
+			return false
+		},
+		Apply: func(_ map[string]json.RawMessage, cfg *Config) error {
+			resolve := func(toolName string) string {
+				allModels := detect.GetBuiltinModels()
+				var enabled map[string]string
+				if cfg.Models != nil {
+					enabled = cfg.Models.Enabled
+				}
+				// Prefer highest-tier enabled model with this tool
+				for _, m := range allModels {
+					if _, ok := m.RunnerFor(toolName); !ok {
+						continue
+					}
+					if preferred, isEnabled := enabled[m.ID]; isEnabled && preferred == toolName {
+						return m.ID
+					}
+				}
+				// Fall back to first model that supports this tool
+				for _, m := range allModels {
+					if _, ok := m.RunnerFor(toolName); ok {
+						return m.ID
+					}
+				}
+				return toolName // keep as-is if can't resolve
+			}
+
+			for i := range cfg.QuickLaunch {
+				if detect.IsBuiltinToolName(cfg.QuickLaunch[i].Target) {
+					cfg.QuickLaunch[i].Target = resolve(cfg.QuickLaunch[i].Target)
+				}
+			}
+			if cfg.Nudgenik != nil && detect.IsBuiltinToolName(cfg.Nudgenik.Target) {
+				cfg.Nudgenik.Target = resolve(cfg.Nudgenik.Target)
+			}
+			if cfg.Compound != nil && detect.IsBuiltinToolName(cfg.Compound.Target) {
+				cfg.Compound.Target = resolve(cfg.Compound.Target)
 			}
 			return nil
 		},
@@ -682,10 +748,13 @@ func (c *Config) validate(strict bool) ([]string, error) {
 	if err := validateRunTargets(c.RunTargets); err != nil {
 		return nil, err
 	}
-	if err := validateQuickLaunch(c.QuickLaunch, c.RunTargets); err != nil {
+	if err := validateQuickLaunch(c.QuickLaunch); err != nil {
 		return nil, err
 	}
-	if err := validateRunTargetDependencies(c.RunTargets, c.QuickLaunch, c.Nudgenik, c.Compound); err != nil {
+	if err := validateNudgenikConfig(c.Nudgenik); err != nil {
+		return nil, err
+	}
+	if err := validateCompoundConfig(c.Compound); err != nil {
 		return nil, err
 	}
 	warnings, err := c.validateAccessControl(strict)
@@ -1212,31 +1281,6 @@ func (c *Config) GetSuggestDisposeAfterPush() bool {
 	return *c.Notifications.SuggestDisposeAfterPush
 }
 
-// GetDetectedRunTarget finds a detected run target by name.
-func (c *Config) GetDetectedRunTarget(name string) (RunTarget, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	for _, target := range c.RunTargets {
-		if target.Name == name && target.Source == RunTargetSourceDetected {
-			return target, true
-		}
-	}
-	return RunTarget{}, false
-}
-
-// GetDetectedRunTargets returns detected run targets.
-func (c *Config) GetDetectedRunTargets() []RunTarget {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	var out []RunTarget
-	for _, target := range c.RunTargets {
-		if target.Source == RunTargetSourceDetected {
-			out = append(out, target)
-		}
-	}
-	return out
-}
-
 // FindRepo finds a repository by name.
 func (c *Config) FindRepo(name string) (Repo, bool) {
 	c.mu.RLock()
@@ -1308,7 +1352,6 @@ func (c *Config) Reload() error {
 	}
 
 	// Validate before applying (matches Load behavior)
-	normalizeRunTargets(newCfg.RunTargets)
 	if err := newCfg.Validate(); err != nil {
 		return err
 	}
@@ -1433,8 +1476,6 @@ func Load(configPath string) (*Config, error) {
 	if err := cfg.Migrate(rawJSON); err != nil {
 		return nil, fmt.Errorf("config migration failed: %w", err)
 	}
-
-	normalizeRunTargets(cfg.RunTargets)
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -2031,17 +2072,6 @@ func offsetToLineCol(data []byte, offset int64) (line, col int) {
 		}
 	}
 	return line, col
-}
-
-// DetectedToolsFromConfig returns detected tools as detect.Tool slices from the config.
-// This is a shared helper used by multiple packages (session, oneshot, nudgenik).
-func DetectedToolsFromConfig(cfg *Config) []detect.Tool {
-	detectedTargets := cfg.GetDetectedRunTargets()
-	tools := make([]detect.Tool, 0, len(detectedTargets))
-	for _, target := range detectedTargets {
-		tools = append(tools, detect.Tool{Name: target.Name, Command: target.Command})
-	}
-	return tools
 }
 
 // EnsureModelSecrets validates that all required secrets for a model are non-empty.

@@ -57,7 +57,7 @@ Always run frontend tests from the repository root using the test wrapper:
 - Packages: lowercase, short, domain-based (`dashboard`, `workspace`, `session`).
 - Identifiers: exported `CamelCase`, unexported `camelCase`; errors as `err`.
 - Frontend assets live in `assets/dashboard/`; **build via `go run ./cmd/build-dashboard` only — never npm directly**; keep HTML/CSS/TypeScript minimal and consistent with `docs/dev/react.md`.
-- Always run `git` commands (`git add`, `git diff`, etc.) from the **repository root**, not from subdirectories.
+- Always run all commands (`git`, `./test.sh`, `./format.sh`, `go build`, `go run`, etc.) from the **repository root**, not from subdirectories.
 
 ## Testing Guidelines
 

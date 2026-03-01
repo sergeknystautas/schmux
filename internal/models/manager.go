@@ -14,12 +14,13 @@ import (
 
 // Manager owns the model catalog, availability, enablement, and resolution.
 type Manager struct {
-	config *config.Config
+	config        *config.Config
+	detectedTools []detect.Tool
 }
 
 // New creates a ModelManager backed by the given config.
-func New(cfg *config.Config) *Manager {
-	return &Manager{config: cfg}
+func New(cfg *config.Config, detectedTools []detect.Tool) *Manager {
+	return &Manager{config: cfg, detectedTools: detectedTools}
 }
 
 // GetCatalog returns all models that have at least one available (detected) runner,
@@ -27,7 +28,7 @@ func New(cfg *config.Config) *Manager {
 // for the dashboard model list.
 func (m *Manager) GetCatalog() ([]contracts.Model, error) {
 	allModels := detect.GetBuiltinModels()
-	detectedTools := config.DetectedToolsFromConfig(m.config)
+	detectedTools := m.detectedTools
 	detected := make(map[string]bool, len(detectedTools))
 	for _, t := range detectedTools {
 		detected[t.Name] = true
@@ -125,8 +126,14 @@ func (m *Manager) ResolveModel(modelID string) (*ResolvedModel, error) {
 	spec, _ := model.RunnerFor(toolName)
 
 	// Verify the tool is detected and get its command
-	baseTarget, found := m.config.GetDetectedRunTarget(toolName)
-	if !found {
+	toolCommand := ""
+	for _, t := range m.detectedTools {
+		if t.Name == toolName {
+			toolCommand = t.Command
+			break
+		}
+	}
+	if toolCommand == "" {
 		return nil, fmt.Errorf("model %s requires tool %s which is not available", model.ID, toolName)
 	}
 
@@ -153,7 +160,7 @@ func (m *Manager) ResolveModel(modelID string) (*ResolvedModel, error) {
 	return &ResolvedModel{
 		Model:    model,
 		ToolName: toolName,
-		Command:  baseTarget.Command,
+		Command:  toolCommand,
 		Env:      env,
 	}, nil
 }
@@ -169,7 +176,7 @@ func (m *Manager) ResolveToolForModel(model detect.Model) string {
 	}
 
 	// 2. Fall back to first detected runner
-	detectedTools := config.DetectedToolsFromConfig(m.config)
+	detectedTools := m.detectedTools
 	detected := make(map[string]bool, len(detectedTools))
 	for _, t := range detectedTools {
 		detected[t.Name] = true
@@ -259,51 +266,24 @@ func (m *Manager) IsTargetInUse(targetName string) bool {
 
 // IsModel returns whether the named target is a model (or detected tool) that
 // accepts prompts, and whether it exists at all. Models and detected tools are
-// promptable; user-defined targets are always commands.
+// promptable; user-defined command targets are not.
 func (m *Manager) IsModel(name string) (promptable bool, found bool) {
-	// Model? Always promptable if we can resolve it.
 	if m.IsModelID(name) {
 		_, err := m.ResolveModel(name)
 		return true, err == nil
 	}
-
-	// Detected tool or user-defined target
-	if target, ok := m.config.GetRunTarget(name); ok {
-		return target.Type == config.RunTargetTypePromptable, true
+	if detect.IsBuiltinToolName(name) {
+		return true, true
 	}
-
+	if _, ok := m.config.GetRunTarget(name); ok {
+		return false, true
+	}
 	return false, false
 }
 
-// GetEnabledRunTargets returns enabled models as contracts.RunTarget entries,
-// suitable for inclusion in the config response's run target list. The seenTargets
-// set is used to skip models that already appear as user/detected targets.
-func (m *Manager) GetEnabledRunTargets(seenTargets map[string]struct{}) []contracts.RunTarget {
-	catalog, err := m.GetCatalog()
-	if err != nil {
-		return nil
-	}
-
-	enabled := m.GetEnabledModels()
-	var result []contracts.RunTarget
-	for _, model := range catalog {
-		if _, exists := seenTargets[model.ID]; exists {
-			continue
-		}
-		preferredTool, isEnabled := enabled[model.ID]
-		if !isEnabled {
-			continue
-		}
-		if bt, ok := m.config.GetDetectedRunTarget(preferredTool); ok {
-			result = append(result, contracts.RunTarget{
-				Name:    model.ID,
-				Type:    config.RunTargetTypePromptable,
-				Command: bt.Command,
-				Source:  config.RunTargetSourceModel,
-			})
-		}
-	}
-	return result
+// GetDetectedTools returns the detected tools passed at construction time.
+func (m *Manager) GetDetectedTools() []detect.Tool {
+	return m.detectedTools
 }
 
 // mergeEnvMaps merges two env maps, with overrides taking precedence.

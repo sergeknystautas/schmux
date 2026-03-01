@@ -37,7 +37,6 @@ test.describe.serial('Quick launch a session from a recent branch', () => {
         {
           name: 'echo-agent',
           command: "sh -c 'echo hello from agent; sleep 600'",
-          promptable: true,
         },
       ],
     });

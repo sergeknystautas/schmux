@@ -109,16 +109,7 @@ export default function ConfigPage() {
         const data: ConfigResponse = await getConfig();
         if (!active) return;
 
-        const detectedItems = (data.run_targets || []).filter((t) => t.source === 'detected');
-        const modelRunnerTools = new Set(
-          (data.models || []).flatMap((model) => Object.keys(model.runners || {}))
-        );
-        const filteredDetectedItems = detectedItems.filter(
-          (target) => !modelRunnerTools.has(target.name)
-        );
-        const commandItems = (data.run_targets || []).filter(
-          (t) => t.type === 'command' && t.source !== 'detected' && t.source !== 'model'
-        );
+        const commandItems = data.run_targets || [];
 
         const netAccess = data.network?.bind_address === '0.0.0.0';
 
@@ -129,7 +120,6 @@ export default function ConfigPage() {
             sourceCodeManagement: data.source_code_management || 'git-worktree',
             repos: data.repos || [],
             commandTargets: commandItems,
-            detectedTargets: filteredDetectedItems,
             quickLaunch: (data.quick_launch || []).sort((a, b) => a.name.localeCompare(b.name)),
             externalDiffCommands: data.external_diff_commands || [],
             externalDiffCleanupMinutes: Math.max(
@@ -502,7 +492,7 @@ export default function ConfigPage() {
     dispatch({ type: 'SET_FIELD', field: 'warning', value: '' });
 
     try {
-      const runTargets = [...state.commandTargets.map((t) => ({ ...t, type: 'command' }))];
+      const runTargets = state.commandTargets.map((t) => ({ name: t.name, command: t.command }));
 
       const updateRequest: ConfigUpdateRequest = {
         workspace_path: state.workspacePath,
@@ -718,9 +708,7 @@ export default function ConfigPage() {
       toastError('Command is required');
       return;
     }
-    const nameExists = [...state.commandTargets, ...state.detectedTargets].some(
-      (t) => t.name === state.newCommandName
-    );
+    const nameExists = state.commandTargets.some((t) => t.name === state.newCommandName);
     if (nameExists) {
       toastError('Run target name already exists');
       return;
@@ -730,8 +718,6 @@ export default function ConfigPage() {
       target: {
         name: state.newCommandName,
         command: state.newCommandCommand,
-        type: 'command',
-        source: 'user',
       },
     });
     dispatch({ type: 'RESET_NEW_COMMAND' });
@@ -1205,7 +1191,6 @@ export default function ConfigPage() {
             <QuickLaunchTab
               quickLaunch={state.quickLaunch}
               builtinQuickLaunch={state.builtinQuickLaunch}
-              detectedTargets={state.detectedTargets}
               models={state.models}
               commandTargets={state.commandTargets}
               newQuickLaunchName={state.newQuickLaunchName}
@@ -1231,7 +1216,6 @@ export default function ConfigPage() {
               newDiffCommand={state.newDiffCommand}
               commitMessageTargetMissing={commitMessageTargetMissing}
               prReviewTargetMissing={prReviewTargetMissing}
-              detectedTargets={state.detectedTargets}
               models={state.models}
               dispatch={dispatch}
               onAddDiffCommand={addDiffCommand}
@@ -1244,7 +1228,6 @@ export default function ConfigPage() {
               fmTarget={state.fmTarget}
               fmRotationThreshold={state.fmRotationThreshold}
               fmDebounceMs={state.fmDebounceMs}
-              detectedTargets={state.detectedTargets}
               models={state.models}
               dispatch={dispatch}
             />
@@ -1319,7 +1302,6 @@ export default function ConfigPage() {
               branchSuggestTargetMissing={branchSuggestTargetMissing}
               conflictResolveTargetMissing={conflictResolveTargetMissing}
               stepErrors={state.stepErrors}
-              detectedTargets={state.detectedTargets}
               models={state.models}
               dispatch={dispatch}
             />

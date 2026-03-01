@@ -22,7 +22,6 @@ test.describe.serial('View live terminal output', () => {
         {
           name: 'tick-agent',
           command: "sh -c 'for i in $(seq 1 10); do echo tick-$i; sleep 0.5; done; sleep 600'",
-          promptable: true,
         },
       ],
     });
@@ -31,7 +30,6 @@ test.describe.serial('View live terminal output', () => {
     const results = await spawnSession({
       repo: repoPath,
       branch: 'test-branch',
-      prompt: 'test',
       targets: { 'tick-agent': 1 },
     });
     sessionId = results[0].session_id;

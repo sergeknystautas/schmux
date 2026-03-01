@@ -49,7 +49,6 @@ test.describe.serial('Dismiss conflict resolution tab after completion', () => {
         {
           name: 'echo-agent',
           command: "sh -c 'echo hello; sleep 600'",
-          promptable: true,
         },
       ],
     });
@@ -57,7 +56,6 @@ test.describe.serial('Dismiss conflict resolution tab after completion', () => {
     const results = await spawnSession({
       repo: repoDir,
       branch: 'test-cr-dismiss',
-      prompt: 'test',
       targets: { 'echo-agent': 1 },
     });
     sessionId = results[0].session_id;

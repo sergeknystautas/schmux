@@ -1,7 +1,7 @@
 import React from 'react';
 import TargetSelect from './TargetSelect';
 import type { ConfigFormAction } from './useConfigForm';
-import type { Model, RunTargetResponse } from '../../lib/types';
+import type { Model } from '../../lib/types';
 
 type CodeReviewTabProps = {
   commitMessageTarget: string;
@@ -12,7 +12,6 @@ type CodeReviewTabProps = {
   newDiffCommand: string;
   commitMessageTargetMissing: boolean;
   prReviewTargetMissing: boolean;
-  detectedTargets: RunTargetResponse[];
   models: Model[];
   dispatch: React.Dispatch<ConfigFormAction>;
   onAddDiffCommand: () => void;
@@ -27,7 +26,6 @@ export default function CodeReviewTab({
   newDiffCommand,
   commitMessageTargetMissing,
   prReviewTargetMissing,
-  detectedTargets,
   models,
   dispatch,
   onAddDiffCommand,
@@ -51,16 +49,13 @@ export default function CodeReviewTab({
               onChange={(v) =>
                 dispatch({ type: 'SET_FIELD', field: 'commitMessageTarget', value: v })
               }
-              detectedTargets={detectedTargets}
               models={models}
             />
             <p className="form-group__hint">
-              Select a promptable target for generating commit messages from the Git History DAG.
+              Select a model for generating commit messages from the Git History DAG.
             </p>
             {commitMessageTargetMissing && (
-              <p className="form-group__error">
-                Selected target is not available or not promptable.
-              </p>
+              <p className="form-group__error">Selected target is not available.</p>
             )}
           </div>
         </div>
@@ -76,16 +71,13 @@ export default function CodeReviewTab({
             <TargetSelect
               value={prReviewTarget}
               onChange={(v) => dispatch({ type: 'SET_FIELD', field: 'prReviewTarget', value: v })}
-              detectedTargets={detectedTargets}
               models={models}
             />
             <p className="form-group__hint">
-              Select a promptable target for PR review sessions, or leave disabled.
+              Select a model for PR review sessions, or leave disabled.
             </p>
             {prReviewTargetMissing && (
-              <p className="form-group__error">
-                Selected target is not available or not promptable.
-              </p>
+              <p className="form-group__error">Selected target is not available.</p>
             )}
           </div>
         </div>

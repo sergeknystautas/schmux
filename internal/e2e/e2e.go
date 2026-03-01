@@ -306,9 +306,9 @@ func (e *Env) CreateConfig(workspacePath string) {
 	cfg.Network = &config.NetworkConfig{Port: e.daemonPort}
 	cfg.RunTargets = []config.RunTarget{
 		// Keep the session alive long enough for pipe-pane and tmux assertions.
-		{Name: "echo", Type: "command", Command: "sh -c 'echo hello; sleep 600'", Source: "user"},
+		{Name: "echo", Command: "sh -c 'echo hello; sleep 600'"},
 		// Echoes input back for websocket output tests (emits START first for reliable bootstrap).
-		{Name: "cat", Type: "command", Command: "sh -c 'echo START; exec cat'", Source: "user"},
+		{Name: "cat", Command: "sh -c 'echo START; exec cat'"},
 	}
 
 	if err := cfg.Save(); err != nil {
@@ -1300,14 +1300,13 @@ func (e *Env) WaitForSessionRunning(sessionID string, timeout time.Duration) *AP
 	return nil
 }
 
-// AddDetectedTargetToConfig adds a detected (builtin) tool as a run target.
-// This is used to add e.g. "claude" as a target in E2E tests where the real
-// CLI isn't installed but we need the target name for hooks provisioning tests.
-// IMPORTANT: This must be called AFTER DaemonStart + ReloadConfig, because
-// the daemon's startup tool detection replaces all detected-source targets.
-func (e *Env) AddDetectedTargetToConfig(name, command string) {
+// AddCommandTargetToConfig adds a command run target to the config.
+// This is used to add custom command targets in E2E tests.
+// Note: detected tools (claude, codex, etc.) are now resolved at runtime
+// by the model manager and do NOT need to be added to run_targets.
+func (e *Env) AddCommandTargetToConfig(name, command string) {
 	e.T.Helper()
-	e.T.Logf("Adding detected target to config: %s", name)
+	e.T.Logf("Adding command target to config: %s", name)
 
 	configPath := filepath.Join(e.HomeDir, ".schmux", "config.json")
 	cfg, err := config.Load(configPath)
@@ -1317,9 +1316,7 @@ func (e *Env) AddDetectedTargetToConfig(name, command string) {
 
 	cfg.RunTargets = append(cfg.RunTargets, config.RunTarget{
 		Name:    name,
-		Type:    config.RunTargetTypePromptable,
 		Command: command,
-		Source:  config.RunTargetSourceDetected,
 	})
 
 	if err := cfg.Save(); err != nil {
@@ -1329,7 +1326,7 @@ func (e *Env) AddDetectedTargetToConfig(name, command string) {
 
 // ReloadConfig triggers the daemon to reload its config from disk.
 // This is needed after modifying the config file while the daemon is running
-// (e.g., after AddDetectedTargetToConfig).
+// (e.g., after AddCommandTargetToConfig).
 func (e *Env) ReloadConfig() {
 	e.T.Helper()
 	e.T.Logf("Reloading daemon config from disk")

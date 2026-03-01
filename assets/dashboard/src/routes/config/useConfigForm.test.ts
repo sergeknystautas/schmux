@@ -152,7 +152,7 @@ describe('useConfigForm', () => {
       act(() => {
         result.current.dispatch({
           type: 'ADD_COMMAND_TARGET',
-          target: { name: 'ct1', command: 'make build', type: 'command' },
+          target: { name: 'ct1', command: 'make build' },
         });
       });
       expect(result.current.state.commandTargets).toHaveLength(1);
@@ -163,7 +163,7 @@ describe('useConfigForm', () => {
       act(() => {
         result.current.dispatch({
           type: 'ADD_COMMAND_TARGET',
-          target: { name: 'ct1', command: 'a', type: 'command' },
+          target: { name: 'ct1', command: 'a' },
         });
       });
       act(() => {
@@ -177,7 +177,7 @@ describe('useConfigForm', () => {
       act(() => {
         result.current.dispatch({
           type: 'ADD_COMMAND_TARGET',
-          target: { name: 'ct1', command: 'old', type: 'command' },
+          target: { name: 'ct1', command: 'old' },
         });
       });
       act(() => {
@@ -261,7 +261,7 @@ describe('useConfigForm', () => {
         result.current.dispatch({
           type: 'SET_RUN_TARGET_EDIT_MODAL',
           modal: {
-            target: { name: 'claude', command: 'claude', type: 'promptable' },
+            target: { name: 'claude', command: 'claude' },
             command: 'claude',
             error: '',
           },
@@ -290,15 +290,12 @@ describe('useConfigForm', () => {
   });
 
   describe('derived values', () => {
-    it('modelTargetNames includes detected and configured models', () => {
+    it('modelTargetNames includes configured models', () => {
       const { result } = renderHook(() => useConfigForm());
       act(() => {
         result.current.dispatch({
           type: 'LOAD_CONFIG',
           state: {
-            detectedTargets: [
-              { name: 'claude', command: 'claude', type: 'promptable', source: 'detected' },
-            ],
             models: [
               {
                 id: 'gpt-4',
@@ -321,7 +318,6 @@ describe('useConfigForm', () => {
         });
       });
       const names = result.current.modelTargetNames;
-      expect(names.has('claude')).toBe(true);
       expect(names.has('gpt-4')).toBe(true);
       expect(names.has('unconfigured')).toBe(false);
     });
@@ -331,7 +327,7 @@ describe('useConfigForm', () => {
       act(() => {
         result.current.dispatch({
           type: 'ADD_COMMAND_TARGET',
-          target: { name: 'build', command: 'make', type: 'command' },
+          target: { name: 'build', command: 'make' },
         });
       });
       expect(result.current.commandTargetNames.has('build')).toBe(true);
@@ -348,7 +344,6 @@ describe('useConfigForm', () => {
             conflictResolveTarget: 'nonexistent',
             prReviewTarget: 'nonexistent',
             commitMessageTarget: 'nonexistent',
-            detectedTargets: [],
             models: [],
           },
         });
@@ -367,17 +362,23 @@ describe('useConfigForm', () => {
       expect(result.current.branchSuggestTargetMissing).toBe(false);
     });
 
-    it('target missing flags are false when target exists', () => {
+    it('target missing flags are false when target exists as model', () => {
       const { result } = renderHook(() => useConfigForm());
       act(() => {
         result.current.dispatch({
           type: 'LOAD_CONFIG',
           state: {
-            nudgenikTarget: 'claude',
-            detectedTargets: [
-              { name: 'claude', command: 'claude', type: 'promptable', source: 'detected' },
+            nudgenikTarget: 'claude-sonnet',
+            models: [
+              {
+                id: 'claude-sonnet',
+                display_name: 'Claude Sonnet',
+                configured: true,
+                provider: 'anthropic',
+                category: 'native',
+                runners: { claude: { available: true, configured: true } },
+              },
             ],
-            models: [],
           },
         });
       });

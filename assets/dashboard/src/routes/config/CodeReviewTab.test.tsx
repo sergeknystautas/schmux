@@ -3,13 +3,10 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import CodeReviewTab from './CodeReviewTab';
 import type { ConfigFormAction } from './useConfigForm';
-import type { Model, RunTargetResponse } from '../../lib/types';
+import type { Model } from '../../lib/types';
 
 const dispatch = vi.fn<(action: ConfigFormAction) => void>();
 
-const detectedTargets: RunTargetResponse[] = [
-  { name: 'claude', command: 'claude', type: 'promptable', source: 'detected' },
-];
 const models: Model[] = [];
 const defaultProps = {
   commitMessageTarget: '',
@@ -20,7 +17,6 @@ const defaultProps = {
   newDiffCommand: '',
   commitMessageTargetMissing: false,
   prReviewTargetMissing: false,
-  detectedTargets,
   models,
   dispatch,
   onAddDiffCommand: vi.fn(),
@@ -65,7 +61,7 @@ describe('CodeReviewTab', () => {
         prReviewTargetMissing={true}
       />
     );
-    const errors = screen.getAllByText('Selected target is not available or not promptable.');
+    const errors = screen.getAllByText('Selected target is not available.');
     expect(errors).toHaveLength(2);
   });
 

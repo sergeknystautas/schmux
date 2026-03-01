@@ -94,12 +94,10 @@ func (cmd *SpawnCommand) Run(args []string) error {
 		}
 	}
 
-	if target, found := cmd.findRunTarget(targetFlag, cfg); found {
-		if target.Type == "command" && promptFlag != "" {
+	if _, found := cmd.findRunTarget(targetFlag, cfg); found {
+		// Command targets never accept prompts
+		if promptFlag != "" {
 			return fmt.Errorf("prompt (-p/--prompt) is not allowed for command targets")
-		}
-		if target.Type == "promptable" && promptFlag == "" {
-			return fmt.Errorf("prompt (-p/--prompt) is required for model/tool targets")
 		}
 	}
 

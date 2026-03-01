@@ -64,7 +64,6 @@ test.describe.serial('Typing latency benchmark', () => {
         {
           name: 'cat-agent',
           command: "sh -c 'echo READY; exec cat'",
-          promptable: true,
         },
       ],
     });
@@ -72,7 +71,6 @@ test.describe.serial('Typing latency benchmark', () => {
     const results = await spawnSession({
       repo: repoPath,
       branch: 'main',
-      prompt: 'bench',
       targets: { 'cat-agent': 1 },
     });
     const sessionId = results[0].session_id;
@@ -150,7 +148,6 @@ test.describe.serial('Typing latency benchmark', () => {
         {
           name: 'flood-agent',
           command: "sh -c 'while true; do seq 1 100; sleep 0.01; done & exec cat'",
-          promptable: true,
         },
       ],
     });
@@ -158,7 +155,6 @@ test.describe.serial('Typing latency benchmark', () => {
     const results = await spawnSession({
       repo: repoPath,
       branch: 'main',
-      prompt: 'bench-stressed',
       targets: { 'flood-agent': 1 },
     });
     const sessionId = results[0].session_id;

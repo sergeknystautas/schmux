@@ -22,7 +22,6 @@ test.describe.serial('Dispose a session', () => {
         {
           name: 'echo-agent',
           command: "sh -c 'echo hello from agent; sleep 600'",
-          promptable: true,
         },
       ],
     });
@@ -31,7 +30,6 @@ test.describe.serial('Dispose a session', () => {
     const results = await spawnSession({
       repo: repoPath,
       branch: 'test-branch',
-      prompt: 'test',
       targets: { 'echo-agent': 1 },
     });
     sessionId = results[0].session_id;
