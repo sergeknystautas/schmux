@@ -14,8 +14,14 @@ export default function Sessions() {
             question, two are still working. Get notified immediately when an agent needs your
             attention.
           </p>
-          <a href="demo/#/workspaces" className="website-cta-link">
-            Try it →
+          <a href="demo/#/workspaces" className="website-demo-card">
+            <span className="website-demo-card__icon">&#9654;</span>
+            <span className="website-demo-card__content">
+              <span className="website-demo-card__title">Interactive demo</span>
+              <span className="website-demo-card__desc">
+                Walk through agent monitoring with sample data — no install needed
+              </span>
+            </span>
           </a>
         </div>
         <img
