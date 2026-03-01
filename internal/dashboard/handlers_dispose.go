@@ -78,8 +78,12 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	// Use an independent context so disposal completes even if the client disconnects
+	wsCtx, wsCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer wsCancel()
+
 	workspaceLog := logging.Sub(s.logger, "workspace")
-	if err := s.workspace.Dispose(r.Context(), workspaceID); err != nil {
+	if err := s.workspace.Dispose(wsCtx, workspaceID); err != nil {
 		workspaceLog.Error("dispose failed", "workspace_id", workspaceID, "err", err)
 		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
@@ -159,8 +163,11 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 	}
 	s.rotationLocksMu.Unlock()
 
-	// Then dispose the workspace
-	if err := s.workspace.Dispose(r.Context(), workspaceID); err != nil {
+	// Then dispose the workspace — use an independent context since session
+	// disposal above may have consumed part of the client's timeout budget
+	wsCtx, wsCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer wsCancel()
+	if err := s.workspace.Dispose(wsCtx, workspaceID); err != nil {
 		workspaceLog.Error("dispose-all workspace failed", "workspace_id", workspaceID, "err", err)
 		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
