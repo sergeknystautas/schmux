@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useSessions } from '../contexts/SessionsContext';
 import { useConfig, useRequireConfig } from '../contexts/ConfigContext';
 import { useToast } from '../components/ToastProvider';
+import { useModal } from '../components/ModalProvider';
 import Tooltip from '../components/Tooltip';
 import {
   scanWorkspaces,
@@ -252,6 +253,7 @@ export default function HomePage() {
   const { workspaces, loading: sessionsLoading, connected } = useSessions();
   const { config, loading: configLoading, getRepoName } = useConfig();
   const { success, error: toastError } = useToast();
+  const { alert } = useModal();
   const { setPendingNavigation } = usePendingNavigation();
   const navigate = useNavigate();
 
@@ -356,14 +358,14 @@ export default function HomePage() {
       const result = await refreshPRs();
       setPullRequests(result.prs || []);
       if (result.error) {
-        toastError(result.error);
+        alert('PR Refresh Failed', result.error);
       } else {
         success(
           `Found ${result.fetched_count} pull request${result.fetched_count !== 1 ? 's' : ''}`
         );
       }
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to refresh PRs'));
+      alert('PR Refresh Failed', getErrorMessage(err, 'Failed to refresh PRs'));
     } finally {
       setPrsRefreshing(false);
     }
@@ -378,7 +380,7 @@ export default function HomePage() {
         `Found ${result.fetched_count} recent branch${result.fetched_count !== 1 ? 'es' : ''}`
       );
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to refresh branches'));
+      alert('Branch Refresh Failed', getErrorMessage(err, 'Failed to refresh branches'));
     } finally {
       setBranchesRefreshing(false);
     }
@@ -401,7 +403,7 @@ export default function HomePage() {
       setPendingNavigation({ type: 'session', id: result.session_id });
       setCheckingOutPR(null);
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to checkout PR'));
+      alert('PR Checkout Failed', getErrorMessage(err, 'Failed to checkout PR'));
       setCheckingOutPR(null);
     }
   };
@@ -419,7 +421,7 @@ export default function HomePage() {
         success('Scan complete: no changes');
       }
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to scan workspaces'));
+      alert('Workspace Scan Failed', getErrorMessage(err, 'Failed to scan workspaces'));
     } finally {
       setScanning(false);
     }
@@ -452,7 +454,10 @@ export default function HomePage() {
     }
     setPulling(false);
     if (failed > 0) {
-      toastError(`Pulled ${pulled} workspace${pulled !== 1 ? 's' : ''}, ${failed} failed`);
+      alert(
+        'Pull Failed',
+        `Pulled ${pulled} workspace${pulled !== 1 ? 's' : ''}, ${failed} failed`
+      );
     } else {
       success(`Pulled ${pulled} workspace${pulled !== 1 ? 's' : ''}`);
     }
@@ -465,7 +470,7 @@ export default function HomePage() {
       const result = await prepareBranchSpawn(repoName, branchName);
       navigate('/spawn', { state: result });
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to prepare branch spawn'));
+      alert('Branch Spawn Failed', getErrorMessage(err, 'Failed to prepare branch spawn'));
       setPreparingBranch(null);
     }
   };

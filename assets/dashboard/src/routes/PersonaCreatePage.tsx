@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { createPersona, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
+import { useModal } from '../components/ModalProvider';
 import PersonaForm, { slugify } from '../components/PersonaForm';
 import type { PersonaFormData } from '../components/PersonaForm';
 import type { PersonaCreateRequest } from '../lib/types.generated';
@@ -10,6 +11,7 @@ export default function PersonaCreatePage() {
   const navigate = useNavigate();
   const [saving, setSaving] = useState(false);
   const { success: toastSuccess, error: toastError } = useToast();
+  const { alert } = useModal();
 
   const handleSave = async (formData: PersonaFormData) => {
     if (!formData.name || !formData.icon || !formData.color || !formData.prompt) {
@@ -41,7 +43,7 @@ export default function PersonaCreatePage() {
       toastSuccess(`Created "${formData.name}"`);
       navigate('/personas');
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to save persona'));
+      alert('Save Failed', getErrorMessage(err, 'Failed to save persona'));
     } finally {
       setSaving(false);
     }

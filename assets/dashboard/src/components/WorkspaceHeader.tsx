@@ -122,7 +122,7 @@ export default function WorkspaceHeader({
       success('Workspace disposed');
       navigate('/');
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to dispose workspace'));
+      await alert('Dispose Failed', getErrorMessage(err, 'Failed to dispose workspace'));
     }
   };
 
