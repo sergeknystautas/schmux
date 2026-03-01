@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { getConfig, spawnSessions, getErrorMessage, suggestBranch, getPersonas } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
+import { useModal } from '../components/ModalProvider';
 import { useRequireConfig, useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import { usePendingNavigation } from '../lib/navigation';
@@ -176,6 +177,7 @@ export default function SpawnPage() {
 
   const [searchParams] = useSearchParams();
   const { error: toastError } = useToast();
+  const { alert } = useModal();
   const { workspaces, loading: sessionsLoading, waitForSession } = useSessions();
   const { setPendingNavigation } = usePendingNavigation();
   const { config } = useConfig();
@@ -579,7 +581,7 @@ export default function SpawnPage() {
       if (!hasSuccess) {
         const errors = response.filter((r) => r.error).map((r) => r.error);
         const unique = [...new Set(errors)];
-        toastError(`Spawn failed: ${unique.join('; ')}`);
+        alert('Spawn Failed', `Spawn failed: ${unique.join('; ')}`);
         setEngagePhase('idle');
         return false;
       }
@@ -667,7 +669,7 @@ export default function SpawnPage() {
           }
         } catch (err) {
           const errorMsg = getErrorMessage(err, 'Unknown error');
-          toastError(`Failed to spawn: ${errorMsg}`);
+          alert('Spawn Failed', `Failed to spawn: ${errorMsg}`);
           setEngagePhase('idle');
         }
         return;
@@ -690,7 +692,7 @@ export default function SpawnPage() {
           handleSpawnResult(response);
         } catch (err) {
           const errorMsg = getErrorMessage(err, 'Unknown error');
-          toastError(`Failed to spawn: ${errorMsg}`);
+          alert('Spawn Failed', `Failed to spawn: ${errorMsg}`);
           setEngagePhase('idle');
         }
         return;
@@ -717,7 +719,7 @@ export default function SpawnPage() {
         }
       } catch (err) {
         const errorMsg = getErrorMessage(err, 'Unknown error');
-        toastError(`Failed to spawn: ${errorMsg}`);
+        alert('Spawn Failed', `Failed to spawn: ${errorMsg}`);
         setEngagePhase('idle');
       }
     },
@@ -768,7 +770,10 @@ export default function SpawnPage() {
           // Abort — reveal branch input so user can provide one
           setShowBranchInput(true);
           setEngagePhase('idle');
-          toastError(`Branch suggestion failed: ${error}. Please enter a branch name.`);
+          alert(
+            'Branch Suggestion Failed',
+            `Branch suggestion failed: ${error}. Please enter a branch name.`
+          );
           return;
         }
       } else {
@@ -790,7 +795,7 @@ export default function SpawnPage() {
         actualNickname = result.nickname || '';
       } else {
         setEngagePhase('idle');
-        toastError(`Branch suggestion failed: ${error}. Please try again.`);
+        alert('Branch Suggestion Failed', `Branch suggestion failed: ${error}. Please try again.`);
         return;
       }
     }
@@ -818,7 +823,7 @@ export default function SpawnPage() {
       }
     } catch (err) {
       const errorMsg = getErrorMessage(err, 'Unknown error');
-      toastError(`Failed to spawn: ${errorMsg}`);
+      alert('Spawn Failed', `Failed to spawn: ${errorMsg}`);
       setEngagePhase('idle');
     }
   }, [

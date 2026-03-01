@@ -9,6 +9,7 @@ import {
 import { useConfig } from '../contexts/ConfigContext';
 import { useOverlay } from '../contexts/OverlayContext';
 import { useToast } from '../components/ToastProvider';
+import { useModal } from '../components/ModalProvider';
 import type {
   OverlayInfo,
   OverlayPathInfo,
@@ -38,6 +39,7 @@ export default function OverlayPage() {
   const { config } = useConfig();
   const repos = config?.repos || [];
   const { success: toastSuccess, error: toastError } = useToast();
+  const { alert } = useModal();
   const { overlayEvents, overlayUnreadCount, clearOverlayEvents, markOverlaysRead } = useOverlay();
 
   const [view, setView] = useState<ViewTab>('paths');
@@ -105,7 +107,7 @@ export default function OverlayPage() {
         setAddFlow({ step: 'pick-workspace', workspaces });
       }
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to load workspaces'));
+      alert('Load Failed', getErrorMessage(err, 'Failed to load workspaces'));
     }
   };
 
@@ -126,7 +128,7 @@ export default function OverlayPage() {
         customPaths: [],
       });
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to scan overlay files'));
+      alert('Scan Failed', getErrorMessage(err, 'Failed to scan overlay files'));
       setAddFlow({ step: 'closed' });
     }
   };
@@ -193,7 +195,7 @@ export default function OverlayPage() {
       setAddFlow({ step: 'closed' });
       loadOverlays();
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to add overlay files'));
+      alert('Add Overlay Failed', getErrorMessage(err, 'Failed to add overlay files'));
       setAddFlow({ step: 'closed' });
     }
   };

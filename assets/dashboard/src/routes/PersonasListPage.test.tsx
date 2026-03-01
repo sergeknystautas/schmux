@@ -47,6 +47,12 @@ vi.mock('../components/ToastProvider', () => ({
   }),
 }));
 
+const mockAlert = vi.fn().mockResolvedValue(true);
+const mockConfirm = vi.fn().mockResolvedValue(true);
+vi.mock('../components/ModalProvider', () => ({
+  useModal: () => ({ alert: mockAlert, confirm: mockConfirm }),
+}));
+
 import { getPersonas, createPersona } from '../lib/api';
 
 const mockGetPersonas = vi.mocked(getPersonas);

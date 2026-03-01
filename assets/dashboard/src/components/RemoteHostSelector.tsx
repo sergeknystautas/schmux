@@ -8,6 +8,7 @@ import {
   connectRemoteHost,
 } from '../lib/api';
 import { useToast } from './ToastProvider';
+import { useModal } from './ModalProvider';
 import { useSessions } from '../contexts/SessionsContext';
 import type { RemoteFlavor, RemoteFlavorStatus, RemoteHost } from '../lib/types';
 
@@ -34,6 +35,7 @@ export default function RemoteHostSelector({
   const [connectingFlavor, setConnectingFlavor] = useState<RemoteFlavor | null>(null);
   const [provisioningSessionId, setProvisioningSessionId] = useState<string | null>(null);
   const { error: toastError, success: toastSuccess } = useToast();
+  const { alert } = useModal();
   const { workspaces } = useSessions();
   const activeRef = useRef(true);
 
@@ -93,7 +95,7 @@ export default function RemoteHostSelector({
           const response = await connectRemoteHost({ flavor_id: flavorStatus.flavor.id });
           setProvisioningSessionId(response.provisioning_session_id || null);
         } catch (err) {
-          toastError(getErrorMessage(err, 'Failed to start connection'));
+          alert('Connection Failed', getErrorMessage(err, 'Failed to start connection'));
           setConnecting(null);
           setConnectingFlavor(null);
         }

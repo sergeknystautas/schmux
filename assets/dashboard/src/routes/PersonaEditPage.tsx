@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getPersonas, updatePersona, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
+import { useModal } from '../components/ModalProvider';
 import PersonaForm from '../components/PersonaForm';
 import type { PersonaFormData } from '../components/PersonaForm';
 import type { Persona } from '../lib/types.generated';
@@ -14,6 +15,7 @@ export default function PersonaEditPage() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const { success: toastSuccess, error: toastError } = useToast();
+  const { alert } = useModal();
 
   const loadPersona = useCallback(async () => {
     try {
@@ -56,7 +58,7 @@ export default function PersonaEditPage() {
       toastSuccess(`Updated "${formData.name}"`);
       navigate('/personas');
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to save persona'));
+      alert('Save Failed', getErrorMessage(err, 'Failed to save persona'));
     } finally {
       setSaving(false);
     }

@@ -15,6 +15,7 @@ import type { CurationRunInfo } from '../lib/api';
 import { useConfig } from '../contexts/ConfigContext';
 import { useCuration } from '../contexts/CurationContext';
 import { useToast } from '../components/ToastProvider';
+import { useModal } from '../components/ModalProvider';
 import useTheme from '../hooks/useTheme';
 import CuratorTerminal from '../components/CuratorTerminal';
 import type { LoreProposal, LoreEntry, LoreStatusResponse, CuratorStreamEvent } from '../lib/types';
@@ -163,6 +164,7 @@ export default function LorePage() {
   const { config } = useConfig();
   const repos = config?.repos || [];
   const { success: toastSuccess, error: toastError } = useToast();
+  const { alert } = useModal();
   const { activeCurations, pendingCurations, startCuration, onComplete } = useCuration();
 
   const [activeRepo, setActiveRepo] = useState(repos[0]?.name || '');
@@ -328,7 +330,7 @@ export default function LorePage() {
       toastSuccess(`Applied! Branch: ${result.branch}`);
       loadData();
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to apply proposal'));
+      alert('Apply Failed', getErrorMessage(err, 'Failed to apply proposal'));
     } finally {
       setApplyingId(null);
     }
@@ -341,7 +343,7 @@ export default function LorePage() {
       toastSuccess('Proposal dismissed');
       loadData();
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to dismiss proposal'));
+      alert('Dismiss Failed', getErrorMessage(err, 'Failed to dismiss proposal'));
     }
   };
 
@@ -357,7 +359,7 @@ export default function LorePage() {
       toastSuccess(`Deleted ${result.cleared} signal file(s)`);
       loadData();
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to clear signals'));
+      alert('Clear Signals Failed', getErrorMessage(err, 'Failed to clear signals'));
     }
   };
 
@@ -381,7 +383,7 @@ export default function LorePage() {
       }));
       setPastRunEvents(events);
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to load curation log'));
+      alert('Load Failed', getErrorMessage(err, 'Failed to load curation log'));
       setPastRunActiveId(null);
     } finally {
       setPastRunLoading(false);

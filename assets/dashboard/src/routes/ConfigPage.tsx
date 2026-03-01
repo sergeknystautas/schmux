@@ -58,7 +58,7 @@ export default function ConfigPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { isNotConfigured, isFirstRun, completeFirstRun, reloadConfig } = useConfig();
-  const { show, confirm, prompt } = useModal();
+  const { show, confirm, prompt, alert } = useModal();
   const { success, error: toastError } = useToast();
 
   const initialStep = searchParams.get('tab') ? slugToStep(searchParams.get('tab')) : 1;
@@ -465,7 +465,7 @@ export default function ConfigPage() {
       const data = await getConfig();
       dispatch({ type: 'SET_MODELS', models: data.models || [] });
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to load models'));
+      alert('Load Models Failed', getErrorMessage(err, 'Failed to load models'));
     }
   };
 
@@ -648,7 +648,7 @@ export default function ConfigPage() {
       return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to save config';
-      toastError(message);
+      alert('Save Failed', message);
       return false;
     } finally {
       dispatch({ type: 'SET_FIELD', field: 'saving', value: false });
@@ -895,7 +895,7 @@ export default function ConfigPage() {
         await reloadModels();
         success(`Removed secrets for ${model.display_name}`);
       } catch (err) {
-        toastError(getErrorMessage(err, 'Failed to remove model secrets'));
+        alert('Remove Secrets Failed', getErrorMessage(err, 'Failed to remove model secrets'));
       }
       return;
     }
@@ -920,7 +920,7 @@ export default function ConfigPage() {
       await reloadModels();
       success(`Saved secrets for ${model.display_name}`);
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to save model secrets'));
+      alert('Save Secrets Failed', getErrorMessage(err, 'Failed to save model secrets'));
     }
   };
 

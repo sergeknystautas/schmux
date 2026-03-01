@@ -60,7 +60,7 @@ export default function SessionDetailPage() {
   const terminalRef = useRef<HTMLDivElement | null>(null);
   const terminalStreamRef = useRef<TerminalStream | null>(null);
   const { success, error: toastError } = useToast();
-  const { prompt, confirm } = useModal();
+  const { prompt, confirm, alert } = useModal();
   const { markAsViewed } = useViewedSessions();
   const { registerAction, unregisterAction } = useKeyboardMode();
   const [backendStats, setBackendStats] = useState<BackendStats | null>(null);
@@ -274,7 +274,7 @@ export default function SessionDetailPage() {
 
       const spawnResult = response[0];
       if (spawnResult.error) {
-        toastError(`Failed to spawn diagnostic agent: ${spawnResult.error}`);
+        alert('Diagnostic Agent Failed', `Failed to spawn diagnostic agent: ${spawnResult.error}`);
         return;
       }
 
@@ -284,7 +284,10 @@ export default function SessionDetailPage() {
         navigate(`/sessions/${spawnResult.session_id}`);
       }
     } catch (err) {
-      toastError(`Failed to spawn diagnostic agent: ${getErrorMessage(err, 'Unknown error')}`);
+      alert(
+        'Diagnostic Agent Failed',
+        `Failed to spawn diagnostic agent: ${getErrorMessage(err, 'Unknown error')}`
+      );
     }
   };
 
@@ -324,7 +327,7 @@ export default function SessionDetailPage() {
 
       const spawnResult = response[0];
       if (spawnResult.error) {
-        toastError(`Failed to spawn IO diagnostic agent: ${spawnResult.error}`);
+        alert('IO Diagnostic Failed', `Failed to spawn IO diagnostic agent: ${spawnResult.error}`);
         return;
       }
 
@@ -334,7 +337,10 @@ export default function SessionDetailPage() {
         navigate(`/sessions/${spawnResult.session_id}`);
       }
     } catch (err) {
-      toastError(`Failed to spawn IO diagnostic agent: ${getErrorMessage(err, 'Unknown error')}`);
+      alert(
+        'IO Diagnostic Failed',
+        `Failed to spawn IO diagnostic agent: ${getErrorMessage(err, 'Unknown error')}`
+      );
     }
   };
 
@@ -398,9 +404,9 @@ export default function SessionDetailPage() {
       await disposeSession(sessionId);
       success('Session disposed');
     } catch (err) {
-      toastError(`Failed to dispose: ${getErrorMessage(err, 'Unknown error')}`);
+      alert('Dispose Failed', `Failed to dispose: ${getErrorMessage(err, 'Unknown error')}`);
     }
-  }, [sessionId, sessionData?.nickname, confirm, success, toastError]);
+  }, [sessionId, sessionData?.nickname, confirm, success, alert]);
 
   // Register keyboard shortcut for dispose (W key)
   useEffect(() => {
@@ -462,7 +468,10 @@ export default function SessionDetailPage() {
           // Show error and re-prompt
           errorMessage = getErrorMessage(err, 'Nickname conflict');
         } else {
-          toastError(`Failed to update nickname: ${getErrorMessage(err, 'Unknown error')}`);
+          alert(
+            'Nickname Update Failed',
+            `Failed to update nickname: ${getErrorMessage(err, 'Unknown error')}`
+          );
           return; // Other errors, don't re-prompt
         }
       }
@@ -645,7 +654,7 @@ export default function SessionDetailPage() {
                       provisioningSessionId: result.provisioning_session_id || null,
                     });
                   } catch (err) {
-                    toastError(getErrorMessage(err, 'Failed to reconnect'));
+                    alert('Reconnect Failed', getErrorMessage(err, 'Failed to reconnect'));
                   }
                 }}
               >

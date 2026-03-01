@@ -88,6 +88,10 @@ vi.mock('../components/ToastProvider', () => ({
   useToast: () => ({ show: vi.fn(), success: vi.fn(), error: vi.fn() }),
 }));
 
+vi.mock('../components/ModalProvider', () => ({
+  useModal: () => ({ alert: vi.fn(), confirm: vi.fn().mockResolvedValue(true), prompt: vi.fn() }),
+}));
+
 vi.mock('../contexts/ConfigContext', () => ({
   useRequireConfig: () => {},
   useConfig: () => ({

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { getPersonas, deletePersona, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
+import { useModal } from '../components/ModalProvider';
 import type { Persona } from '../lib/types.generated';
 
 export default function PersonasListPage() {
@@ -10,6 +11,7 @@ export default function PersonasListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const { success: toastSuccess, error: toastError } = useToast();
+  const { alert, confirm: modalConfirm } = useModal();
 
   const loadPersonas = useCallback(async () => {
     try {
@@ -29,13 +31,16 @@ export default function PersonasListPage() {
   }, [loadPersonas]);
 
   const handleDelete = async (persona: Persona) => {
-    if (!confirm(`Are you sure you want to delete "${persona.name}"?`)) return;
+    if (
+      !(await modalConfirm(`Are you sure you want to delete "${persona.name}"?`, { danger: true }))
+    )
+      return;
     try {
       await deletePersona(persona.id);
       toastSuccess(`Deleted "${persona.name}"`);
       loadPersonas();
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to delete persona'));
+      alert('Delete Failed', getErrorMessage(err, 'Failed to delete persona'));
     }
   };
 

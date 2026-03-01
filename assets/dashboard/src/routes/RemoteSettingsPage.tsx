@@ -7,6 +7,7 @@ import {
   getErrorMessage,
 } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
+import { useModal } from '../components/ModalProvider';
 import type { RemoteFlavor, RemoteFlavorCreateRequest } from '../lib/types';
 
 interface FlavorFormData {
@@ -42,6 +43,7 @@ export default function RemoteSettingsPage() {
   const [formData, setFormData] = useState<FlavorFormData>(emptyForm);
   const [saving, setSaving] = useState(false);
   const { success: toastSuccess, error: toastError } = useToast();
+  const { alert, confirm: modalConfirm } = useModal();
 
   const loadFlavors = async () => {
     try {
@@ -83,7 +85,11 @@ export default function RemoteSettingsPage() {
   };
 
   const handleDelete = async (flavor: RemoteFlavor) => {
-    if (!confirm(`Delete "${flavor.display_name}"? This cannot be undone.`)) {
+    if (
+      !(await modalConfirm(`Delete "${flavor.display_name}"? This cannot be undone.`, {
+        danger: true,
+      }))
+    ) {
       return;
     }
     try {
@@ -91,7 +97,7 @@ export default function RemoteSettingsPage() {
       toastSuccess(`Deleted "${flavor.display_name}"`);
       loadFlavors();
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to delete flavor'));
+      alert('Delete Failed', getErrorMessage(err, 'Failed to delete flavor'));
     }
   };
 
@@ -134,7 +140,7 @@ export default function RemoteSettingsPage() {
       setShowModal(false);
       loadFlavors();
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to save flavor'));
+      alert('Save Failed', getErrorMessage(err, 'Failed to save flavor'));
     } finally {
       setSaving(false);
     }

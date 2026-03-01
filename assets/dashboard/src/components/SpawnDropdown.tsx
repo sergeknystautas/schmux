@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { spawnSessions, getErrorMessage } from '../lib/api';
 import { useToast } from './ToastProvider';
+import { useModal } from './ModalProvider';
 import { useSessions } from '../contexts/SessionsContext';
 import { getQuickLaunchItems, type QuickLaunchItem } from '../lib/quicklaunch';
 import type { WorkspaceResponse } from '../lib/types';
@@ -22,6 +23,7 @@ export default function SpawnDropdown({
     return getQuickLaunchItems(globalQuickLaunchNames, workspace.quick_launch || []);
   }, [globalQuickLaunchNames, workspace.quick_launch]);
   const { success, error: toastError } = useToast();
+  const { alert } = useModal();
   const { waitForSession } = useSessions();
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
@@ -109,14 +111,14 @@ export default function SpawnDropdown({
 
       const result = response[0];
       if (result.error) {
-        toastError(`Failed to spawn ${name}: ${result.error}`);
+        alert('Spawn Failed', `Failed to spawn ${name}: ${result.error}`);
       } else {
         success(`Spawned ${name} session`);
         await waitForSession(result.session_id!);
         navigate(`/sessions/${result.session_id!}`);
       }
     } catch (err) {
-      toastError(`Failed to spawn: ${getErrorMessage(err, 'Unknown error')}`);
+      alert('Spawn Failed', `Failed to spawn: ${getErrorMessage(err, 'Unknown error')}`);
     } finally {
       setSpawning(false);
     }

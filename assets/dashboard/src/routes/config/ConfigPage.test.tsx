@@ -39,8 +39,9 @@ vi.mock('../../components/ToastProvider', () => ({
 const mockShow = vi.fn().mockResolvedValue(true);
 const mockConfirm = vi.fn().mockResolvedValue(true);
 const mockPrompt = vi.fn().mockResolvedValue(null);
+const mockAlert = vi.fn().mockResolvedValue(true);
 vi.mock('../../components/ModalProvider', () => ({
-  useModal: () => ({ show: mockShow, alert: vi.fn(), confirm: mockConfirm, prompt: mockPrompt }),
+  useModal: () => ({ show: mockShow, alert: mockAlert, confirm: mockConfirm, prompt: mockPrompt }),
 }));
 
 const mockConfigCtx = {
@@ -249,7 +250,7 @@ describe('ConfigPage', () => {
     });
   });
 
-  it('shows error toast when save fails', async () => {
+  it('shows error dialog when save fails', async () => {
     renderConfigPage();
     await waitFor(() => {
       expect(screen.getByDisplayValue('/home/user/ws')).toBeInTheDocument();
@@ -265,7 +266,7 @@ describe('ConfigPage', () => {
     await userEvent.click(screen.getByTestId('config-save'));
 
     await waitFor(() => {
-      expect(mockToastError).toHaveBeenCalledWith('Server error');
+      expect(mockAlert).toHaveBeenCalledWith('Save Failed', 'Server error');
     });
   });
 
@@ -433,7 +434,7 @@ describe('ConfigPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /Next/ }));
 
       await waitFor(() => {
-        expect(mockToastError).toHaveBeenCalledWith('Save failed');
+        expect(mockAlert).toHaveBeenCalledWith('Save Failed', 'Save failed');
       });
 
       // Should still be on step 1
