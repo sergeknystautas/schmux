@@ -12,6 +12,39 @@ export interface AccessControlUpdate {
   session_ttl_minutes?: number;
 }
 
+export interface Action {
+  id: string;
+  name: string;
+  type: string;
+  scope: string;
+  template?: string;
+  parameters?: ActionParameter[];
+  target?: string;
+  persona?: string;
+  command?: string;
+  learned_target?: LearnedDefault;
+  learned_persona?: LearnedDefault;
+  source: string;
+  confidence: number;
+  evidence_count?: number;
+  state: string;
+  use_count?: number;
+  edit_count?: number;
+  first_seen: string;
+  last_used?: string;
+  proposed_at?: string;
+  pinned_at?: string;
+}
+
+export interface ActionParameter {
+  name: string;
+  default?: string;
+}
+
+export interface ActionRegistryResponse {
+  actions: Action[];
+}
+
 export interface BranchSuggest {
   target?: string;
 }
@@ -92,6 +125,16 @@ export interface ConflictResolve {
 export interface ConflictResolveUpdate {
   target?: string;
   timeout_ms?: number;
+}
+
+export interface CreateActionRequest {
+  name: string;
+  type: string;
+  template?: string;
+  parameters?: ActionParameter[];
+  target?: string;
+  persona?: string;
+  command?: string;
 }
 
 export interface Desync {
@@ -194,6 +237,11 @@ export interface IOWorkspaceTelemetry {
 export interface IOWorkspaceTelemetryUpdate {
   enabled?: boolean;
   target?: string;
+}
+
+export interface LearnedDefault {
+  value: string;
+  confidence: number;
 }
 
 export interface Lore {
@@ -304,6 +352,16 @@ export interface PrReview {
 
 export interface PrReviewUpdate {
   target?: string;
+}
+
+export interface PromptHistoryEntry {
+  text: string;
+  last_seen: string;
+  count: number;
+}
+
+export interface PromptHistoryResponse {
+  prompts: PromptHistoryEntry[];
 }
 
 export interface PullRequest {
@@ -420,6 +478,15 @@ export interface TLSValidateResponse {
   hostname?: string;
   expires?: string;
   error?: string;
+}
+
+export interface UpdateActionRequest {
+  name?: string;
+  template?: string;
+  parameters?: ActionParameter[];
+  target?: string;
+  persona?: string;
+  command?: string;
 }
 
 export interface Xterm {

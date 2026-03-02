@@ -306,6 +306,7 @@ Request:
   "workspace_id": "optional",
   "resume": false,
   "persona_id": "optional",
+  "action_id": "optional",
   "image_attachments": ["base64-encoded-png", "..."]
 }
 ```
@@ -322,6 +323,7 @@ Contract (pre-2093ccf):
   - `"<nickname> (1)"`, `"<nickname> (2)"`, ...
 - `persona_id` is optional. When set, the persona's system prompt is injected into the agent at spawn time (e.g., via `--append-system-prompt-file` for Claude). The persona ID is stored on the session and used to display persona badges in the dashboard.
 - `image_attachments` is optional. Array of base64-encoded PNG strings (max 5). Images are decoded and written to `{workspace}/.schmux/attachments/img-{uuid}.png`. Absolute file paths are appended to the prompt so the agent can reference them. Cannot be used with `resume`, `command`, or `remote_flavor_id`.
+- `action_id` is optional. When set, usage is recorded against the action in the action registry. When absent and a prompt matches a pinned action template, usage is recorded automatically (with `edited` flag if the prompt differs).
 
 Resume mode (`resume: true`):
 
@@ -1951,6 +1953,181 @@ Response:
   ]
 }
 ```
+
+### POST /api/lore/{repo}/curate-actions
+
+Triggers action curation: reads intent signals (prompts, spawn events) from workspace event files, calls the LLM to propose reusable actions, and saves proposed actions to the action registry. Returns immediately; the LLM call runs in the background. Completion is broadcast via WebSocket (`action_curation_done` event on `/ws/dashboard`).
+
+Response (started):
+
+```json
+{
+  "id": "acur-myrepo-20260222-153045",
+  "status": "started"
+}
+```
+
+Response (no workspaces):
+
+```json
+{ "status": "no_workspaces" }
+```
+
+Response (no signals):
+
+```json
+{ "status": "no_signals" }
+```
+
+Errors:
+
+- 409: "curation already in progress"
+- 503: "lore curator not configured (no LLM target)"
+
+## Actions API
+
+Actions are reusable task templates tracked per-repo. They can be created manually, proposed by the LLM curator, or migrated from quick-launch presets. Each action has a lifecycle state (proposed → pinned or dismissed) and usage tracking.
+
+Repo names in URL parameters are validated (no path separators, dots, null bytes, max 128 chars).
+
+### GET /api/actions/{repo}
+
+Returns pinned actions for a repo.
+
+Response:
+
+```json
+{
+  "actions": [
+    {
+      "id": "act-abcdef12",
+      "name": "Run tests",
+      "type": "agent",
+      "scope": "",
+      "template": "Run the test suite and fix any failures",
+      "parameters": [],
+      "source": "manual",
+      "confidence": 1.0,
+      "state": "pinned",
+      "use_count": 5,
+      "first_seen": "2026-02-27T10:00:00Z",
+      "last_used": "2026-02-27T15:00:00Z"
+    }
+  ]
+}
+```
+
+### POST /api/actions/{repo}
+
+Creates a new manual action (state=pinned, source=manual).
+
+Request:
+
+```json
+{
+  "name": "Run tests",
+  "type": "agent",
+  "template": "Run the test suite and fix any failures",
+  "parameters": [{ "name": "scope", "default": "all" }],
+  "target": "",
+  "persona": "",
+  "command": ""
+}
+```
+
+Required fields: `name`, `type`.
+
+Response: `201 Created` with the created Action object.
+
+### GET /api/actions/{repo}/proposed
+
+Returns proposed (not yet pinned/dismissed) actions for a repo.
+
+Response: same shape as `GET /api/actions/{repo}` but with `"state": "proposed"` actions.
+
+### GET /api/actions/{repo}/prompt-history
+
+Returns past prompts from workspace event JSONL files, aggregated by text with counts.
+
+Response:
+
+```json
+{
+  "prompts": [
+    {
+      "text": "Fix the failing tests in the auth module",
+      "last_seen": "2026-02-27T14:00:00Z",
+      "count": 3
+    }
+  ]
+}
+```
+
+### PUT /api/actions/{repo}/{id}
+
+Updates an existing action. All fields are optional (patch semantics).
+
+Request:
+
+```json
+{
+  "name": "Updated name",
+  "template": "Updated template",
+  "parameters": [{ "name": "scope", "default": "unit" }],
+  "target": "2",
+  "persona": "",
+  "command": ""
+}
+```
+
+Response: the updated Action object.
+
+Errors:
+
+- 404: action not found
+
+### DELETE /api/actions/{repo}/{id}
+
+Hard-deletes an action.
+
+Response:
+
+```json
+{ "status": "deleted" }
+```
+
+Errors:
+
+- 404: action not found
+
+### POST /api/actions/{repo}/{id}/pin
+
+Transitions a proposed action to pinned state.
+
+Response:
+
+```json
+{ "status": "pinned" }
+```
+
+Errors:
+
+- 404: action not found
+- 400: action not in proposed state
+
+### POST /api/actions/{repo}/{id}/dismiss
+
+Transitions an action to dismissed state.
+
+Response:
+
+```json
+{ "status": "dismissed" }
+```
+
+Errors:
+
+- 404: action not found
 
 ## Personas API
 

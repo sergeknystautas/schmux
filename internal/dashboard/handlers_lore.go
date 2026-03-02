@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/sergeknystautas/schmux/internal/actions"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/lore"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
@@ -835,4 +836,143 @@ func (s *Server) refreshLoreCurator(cfg *config.Config) {
 	} else {
 		s.loreCurator.Executor = nil
 	}
+}
+
+// handleLoreCurateActions triggers action curation: reads intent signals from
+// workspace event files, calls the LLM to propose reusable actions, and saves
+// proposed actions to the action registry.
+// Returns immediately with a curation ID; the LLM call runs in the background.
+func (s *Server) handleLoreCurateActions(w http.ResponseWriter, r *http.Request) {
+	repoName := chi.URLParam(r, "repo")
+	if repoName == "" {
+		http.Error(w, "missing repo name", http.StatusBadRequest)
+		return
+	}
+
+	if s.loreCurator == nil || s.loreCurator.Executor == nil {
+		http.Error(w, "lore curator not configured (no LLM target)", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Guard: only one curation per repo at a time (shared with lore curation).
+	if s.curationTracker.IsRunning(repoName) {
+		http.Error(w, "curation already in progress", http.StatusConflict)
+		return
+	}
+
+	// Collect workspace paths for this repo.
+	var workspacePaths []string
+	for _, ws := range s.getLoreWorkspaces(repoName) {
+		workspacePaths = append(workspacePaths, ws.Path)
+	}
+	if len(workspacePaths) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "no_workspaces"})
+		return
+	}
+
+	// Collect intent signals.
+	signals, err := actions.CollectIntentSignals(workspacePaths)
+	if err != nil {
+		s.logger.Error("collect intent signals error", "repo", repoName, "err", err)
+		http.Error(w, fmt.Sprintf("failed to collect intent signals: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if len(signals) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "no_signals"})
+		return
+	}
+
+	// Get existing actions for deduplication.
+	registry := s.getOrCreateRegistry(repoName)
+	existingActions := registry.List("")
+
+	// Build the prompt.
+	prompt := lore.BuildActionCuratorPrompt(existingActions, signals)
+
+	// Start curation tracking.
+	curationID := fmt.Sprintf("acur-%s-%s", repoName, time.Now().UTC().Format("20060102-150405"))
+	if _, err := s.curationTracker.Start(repoName, curationID); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+
+	// Return immediately with curation ID.
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"id": curationID, "status": "started"})
+
+	// Run action curation in background goroutine.
+	go s.runActionCuration(repoName, curationID, prompt, registry, len(signals))
+}
+
+// runActionCuration runs the action curation LLM call in the background,
+// parses the response, and adds proposed actions to the registry.
+func (s *Server) runActionCuration(repoName, curationID, prompt string, registry *actions.Registry, signalCount int) {
+	ctx, cancel := context.WithTimeout(s.shutdownCtx, 5*time.Minute)
+	defer cancel()
+
+	s.logger.Info("starting action curation", "repo", repoName, "curation_id", curationID, "signals", signalCount)
+	start := time.Now()
+
+	var rawResponse string
+	var err error
+
+	if s.streamingExecutor != nil {
+		onEvent := func(ev oneshot.StreamEvent) {
+			curatorEvent := CuratorEvent{
+				Repo:      repoName,
+				Timestamp: time.Now().UTC(),
+				EventType: ev.Type,
+				Subtype:   ev.Subtype,
+				Raw:       ev.Raw,
+			}
+			s.curationTracker.AddEvent(repoName, curatorEvent)
+			s.BroadcastCuratorEvent(curatorEvent)
+		}
+		rawResponse, err = s.streamingExecutor(ctx, prompt, schema.LabelLoreCurator, 5*time.Minute, "", onEvent)
+	} else {
+		rawResponse, err = s.loreCurator.Executor(ctx, prompt, 5*time.Minute)
+	}
+
+	if err != nil {
+		s.completeCurationWithError(repoName, fmt.Errorf("action curator LLM call failed: %w", err))
+		return
+	}
+
+	// Parse response.
+	result, err := lore.ParseActionCuratorResponse(rawResponse)
+	if err != nil {
+		s.completeCurationWithError(repoName, fmt.Errorf("failed to parse action curator response: %w", err))
+		return
+	}
+
+	// Convert proposed actions and add to registry.
+	proposed := lore.ConvertProposedActions(result.ProposedActions)
+	if len(proposed) > 0 {
+		if err := registry.AddProposed(proposed); err != nil {
+			s.completeCurationWithError(repoName, fmt.Errorf("failed to save proposed actions: %w", err))
+			return
+		}
+	}
+
+	elapsed := time.Since(start)
+	s.logger.Info("action curation complete",
+		"repo", repoName,
+		"curation_id", curationID,
+		"signals", signalCount,
+		"proposed", len(result.ProposedActions),
+		"discarded", len(result.EntriesDiscarded),
+		"elapsed", elapsed.Round(time.Millisecond),
+	)
+
+	doneRaw := json.RawMessage(fmt.Sprintf(`{"type":"action_curation_done","proposed_count":%d,"discarded_count":%d}`,
+		len(result.ProposedActions), len(result.EntriesDiscarded)))
+	s.curationTracker.Complete(repoName, nil)
+	s.BroadcastCuratorEvent(CuratorEvent{
+		Repo:      repoName,
+		Timestamp: time.Now().UTC(),
+		EventType: "action_curation_done",
+		Raw:       doneRaw,
+	})
 }

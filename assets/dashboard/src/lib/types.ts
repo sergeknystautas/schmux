@@ -122,6 +122,7 @@ export interface SpawnRequest {
   command?: string; // command-based spawn (alternative to targets)
   workspace_id?: string;
   quick_launch_name?: string;
+  action_id?: string; // action registry ID for usage tracking
   resume?: boolean; // resume mode: use agent's resume command
   remote_flavor_id?: string; // optional: spawn on remote host
   new_branch?: string; // create new workspace with this branch from source workspace

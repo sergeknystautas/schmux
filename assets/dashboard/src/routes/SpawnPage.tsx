@@ -12,6 +12,9 @@ import SessionTabs from '../components/SessionTabs';
 import PromptTextarea from '../components/PromptTextarea';
 import Tooltip from '../components/Tooltip';
 import RemoteHostSelector, { type EnvironmentSelection } from '../components/RemoteHostSelector';
+import { useActions } from '../hooks/useActions';
+import usePromptHistory from '../hooks/usePromptHistory';
+import type { AutocompleteItem } from '../components/PromptAutocomplete';
 import type {
   Model,
   RepoResponse,
@@ -192,6 +195,15 @@ export default function SpawnPage() {
     }
     return map;
   }, [repos]);
+
+  // Derive repo name for autocomplete (lookup by URL)
+  const repoName = useMemo(() => repos.find((r) => r.url === repo)?.name || '', [repos, repo]);
+
+  // Autocomplete: load actions and prompt history for the selected repo
+  const { actions: acActions } = useActions(repoName);
+  const { prompts: acHistory } = usePromptHistory(repoName);
+
+  // handleAutocompleteSelect is defined below after targetCounts/personas state
 
   // Helper to get the default branch for a repo URL from precomputed map
   const getDefaultBranch = (repoUrl: string): string => {
@@ -481,6 +493,28 @@ export default function SpawnPage() {
     urlWorkspaceId,
     engagePhase,
   ]);
+
+  // Handle autocomplete selection: apply learned defaults from actions
+  const handleAutocompleteSelect = useCallback(
+    (item: AutocompleteItem) => {
+      if (item.source === 'action' && item.action) {
+        const a = item.action;
+        if (a.target && promptableTargets.some((t) => t.name === a.target)) {
+          setTargetCounts((prev) => {
+            const next = { ...prev };
+            if (!next[a.target!]) {
+              next[a.target!] = 1;
+            }
+            return next;
+          });
+        }
+        if (a.persona && personas.some((p) => p.id === a.persona)) {
+          setSelectedPersonaId(a.persona);
+        }
+      }
+    },
+    [promptableTargets, personas]
+  );
 
   const totalPromptableCount = useMemo(() => {
     return Object.values(targetCounts).reduce((sum, count) => sum + count, 0);
@@ -973,6 +1007,9 @@ export default function SpawnPage() {
             onSelectCommand={handleSlashCommandSelect}
             onSubmit={handleEngage}
             data-testid="spawn-prompt"
+            autocompleteActions={acActions}
+            autocompleteHistory={acHistory}
+            onAutocompleteSelect={handleAutocompleteSelect}
           />
           {imageAttachments.length > 0 && (
             <div
