@@ -236,8 +236,11 @@ func (m *Manager) ReconcileWorkspace(workspaceID string) (bool, error) {
 	changed := false
 	now := time.Now().UTC()
 	for _, preview := range previews {
-		// If proxy listener died, remove mapping.
-		if !isProxyAlive(preview.ProxyPort) {
+		// If proxy listener is no longer tracked, remove the preview.
+		m.mu.Lock()
+		_, tracked := m.entries[preview.ID]
+		m.mu.Unlock()
+		if !tracked {
 			if err := m.Delete(workspaceID, preview.ID); err != nil {
 				return changed, err
 			}
@@ -306,7 +309,7 @@ func (m *Manager) enforceCaps(workspaceID string) error {
 func (m *Manager) ensureListener(ctx context.Context, preview state.WorkspacePreview) (state.WorkspacePreview, error) {
 	m.mu.Lock()
 	currentEntry, hasEntry := m.entries[preview.ID]
-	if hasEntry && currentEntry != nil && isProxyAlive(preview.ProxyPort) {
+	if hasEntry && currentEntry != nil {
 		m.mu.Unlock()
 		return m.updateStatus(ctx, preview, false)
 	}
@@ -444,18 +447,6 @@ func (m *Manager) stopEntryLocked(previewID string) {
 	_ = e.server.Shutdown(ctx)
 	_ = e.listener.Close()
 	delete(m.entries, previewID)
-}
-
-func isProxyAlive(port int) bool {
-	if port <= 0 {
-		return false
-	}
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 200*time.Millisecond)
-	if err != nil {
-		return false
-	}
-	_ = conn.Close()
-	return true
 }
 
 func checkUpstream(ctx context.Context, host string, port int) (bool, error) {
