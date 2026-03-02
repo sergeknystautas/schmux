@@ -146,6 +146,12 @@ func Execute(ctx context.Context, agentName, agentCommand, prompt, schemaLabel s
 	// Capture stdout and stderr
 	rawOutput, err := execCmd.CombinedOutput()
 	if err != nil {
+		// The process may have been killed by timeout after producing valid output.
+		// Attempt to parse the output before giving up.
+		if parsed := parseResponse(agentName, string(rawOutput)); parsed != string(rawOutput) {
+			// parseResponse extracted structured data — the output was valid despite exit error
+			return parsed, nil
+		}
 		return "", fmt.Errorf("agent %s: one-shot execution failed (command: %s): %w\noutput: %s",
 			agentName, strings.Join(append(cmdParts, "<prompt>"), " "), err, string(rawOutput))
 	}
@@ -437,19 +443,25 @@ func parseClaudeStructuredOutput(output string) string {
 		return output
 	}
 
-	// Try to parse as JSON envelope
+	// Some CLI tools print a banner line to stdout before the JSON result,
+	// and CombinedOutput may append stderr after it. Find the JSON object
+	// bounds using the first '{' and last '}' to ignore surrounding noise.
+	start := strings.Index(trimmed, "{")
+	end := strings.LastIndex(trimmed, "}")
+	if start < 0 || end < 0 || end <= start {
+		return output
+	}
+	jsonStr := trimmed[start : end+1]
+
 	var envelope map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(trimmed), &envelope); err != nil {
-		// Not JSON, return as-is
+	if err := json.Unmarshal([]byte(jsonStr), &envelope); err != nil {
 		return output
 	}
 
-	// Look for structured_output field
 	if raw, ok := envelope["structured_output"]; ok && len(raw) > 0 {
 		return string(raw)
 	}
 
-	// No structured_output field, return as-is
 	return output
 }
 

@@ -22,7 +22,7 @@ func init() {
 
 const (
 	// DefaultTimeout is the default timeout for LLM generation.
-	DefaultTimeout = 30 * time.Second
+	DefaultTimeout = 90 * time.Second
 
 	// Prompt is the subreddit digest prompt.
 	Prompt = `You are an enthusiastic user of schmux, a multi-agent AI orchestration tool.
