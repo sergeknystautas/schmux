@@ -395,8 +395,17 @@ export default class TerminalStream {
     this.tmuxCols = cols;
     this.tmuxRows = rows;
 
-    // Resize xterm.js terminal
+    // Suppress scroll events during resize — same pattern as writeTerminal().
+    // Without this, xterm.js buffer adjustments fire DOM scroll events that
+    // falsely disable followTail (the user didn't scroll, the layout changed).
+    this.writingToTerminal = true;
     this.terminal!.resize(cols, rows);
+    if (this.followTail) {
+      this.terminal!.scrollToBottom();
+    }
+    requestAnimationFrame(() => {
+      this.writingToTerminal = false;
+    });
 
     // Note: Don't send resize to backend here - WebSocket isn't connected yet
     // The connect() method will send resize on open
@@ -412,8 +421,17 @@ export default class TerminalStream {
     this.tmuxCols = cols;
     this.tmuxRows = rows;
 
-    // Resize xterm.js terminal
+    // Suppress scroll events during resize — same pattern as writeTerminal().
+    // Without this, xterm.js buffer adjustments fire DOM scroll events that
+    // falsely disable followTail (the user didn't scroll, the layout changed).
+    this.writingToTerminal = true;
     this.terminal!.resize(cols, rows);
+    if (this.followTail) {
+      this.terminal!.scrollToBottom();
+    }
+    requestAnimationFrame(() => {
+      this.writingToTerminal = false;
+    });
 
     // Send resize message to backend to resize tmux
     this.sendResize(cols, rows);

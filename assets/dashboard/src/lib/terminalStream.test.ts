@@ -314,6 +314,9 @@ describe('TerminalStream bootstrap write chaining', () => {
     await stream.initialized;
     const terminal = stream.terminal!;
 
+    // Clear any scrollToBottom calls from initialization (fitTerminalSync)
+    vi.mocked(terminal.scrollToBottom).mockClear();
+
     // Track write callback invocations
     const writeCallbacks: (() => void)[] = [];
     vi.mocked(terminal.write).mockImplementation((_data: any, cb?: () => void) => {
@@ -843,8 +846,8 @@ describe('TerminalStream scroll suppression during writes', () => {
     });
 
     // Make isAtBottom return false (simulating viewport shifted by cursor positioning)
-    terminal.buffer.active.viewportY = 0;
-    terminal.buffer.active.baseY = 10;
+    (terminal.buffer.active as any).viewportY = 0;
+    (terminal.buffer.active as any).baseY = 10;
 
     // Send a live frame — this triggers terminal.write()
     stream.handleOutput(buildSeqFrame(0n, 'bootstrap'));
@@ -853,5 +856,68 @@ describe('TerminalStream scroll suppression during writes', () => {
 
     // followTail should STILL be true — the scroll was programmatic, not user-initiated
     expect((stream as any).followTail).toBe(true);
+  });
+});
+
+describe('TerminalStream scroll suppression during resize', () => {
+  let stream: TerminalStream;
+
+  beforeEach(() => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    stream = new TerminalStream('test-session', container);
+  });
+
+  it('does not disable followTail when resize triggers scroll events', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+
+    expect((stream as any).followTail).toBe(true);
+
+    // Mock resize to simulate xterm.js behavior: resize adjusts the buffer,
+    // which fires a DOM scroll event as rows are pushed into scrollback.
+    vi.mocked(terminal.resize).mockImplementation(() => {
+      stream.handleUserScroll();
+    });
+
+    // Make isAtBottom return false (simulating viewport shifted by resize)
+    (terminal.buffer.active as any).viewportY = 0;
+    (terminal.buffer.active as any).baseY = 10;
+
+    stream.fitTerminal();
+
+    // followTail should STILL be true — the scroll was from a resize, not user action
+    expect((stream as any).followTail).toBe(true);
+  });
+
+  it('scrolls to bottom after resize when followTail is true', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+
+    // Bootstrap the stream so it's in a normal state
+    stream.handleOutput(buildSeqFrame(0n, 'bootstrap'));
+    stream.handleOutput(JSON.stringify({ type: 'bootstrapComplete' }));
+    vi.mocked(terminal.scrollToBottom).mockClear();
+
+    expect((stream as any).followTail).toBe(true);
+
+    stream.fitTerminal();
+
+    expect(terminal.scrollToBottom).toHaveBeenCalled();
+  });
+
+  it('does not scroll to bottom after resize when followTail is false', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+
+    // Disable followTail (user scrolled up)
+    (stream as any).followTail = false;
+    vi.mocked(terminal.scrollToBottom).mockClear();
+
+    stream.fitTerminal();
+
+    expect(terminal.scrollToBottom).not.toHaveBeenCalled();
   });
 });
