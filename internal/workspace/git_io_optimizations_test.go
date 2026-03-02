@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
@@ -171,6 +172,11 @@ func TestEnsuredQueryRepos_CachePreventsRevalidation(t *testing.T) {
 	if queryRepoPath == "" {
 		t.Fatal("getQueryRepoPath returned empty — repo not in config")
 	}
+
+	// Clean up query repo from prior runs (shares $HOME set by TestMain,
+	// so -count=N would reuse the same deterministic path).
+	os.RemoveAll(queryRepoPath)
+	t.Cleanup(func() { os.RemoveAll(queryRepoPath) })
 
 	// Clone bare into the query repo path
 	runGit(t, "", "clone", "--bare", remoteDir, queryRepoPath)
