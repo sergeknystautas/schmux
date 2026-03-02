@@ -15,6 +15,8 @@ func (s *Server) handleDiagnosticAppend(w http.ResponseWriter, r *http.Request) 
 		XtermScreen        string `json:"xtermScreen"`
 		ScreenDiff         string `json:"screenDiff"`
 		RingBufferFrontend string `json:"ringBufferFrontend"`
+		GapStats           string `json:"gapStats"`
+		CursorXterm        string `json:"cursorXterm"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -28,5 +30,11 @@ func (s *Server) handleDiagnosticAppend(w http.ResponseWriter, r *http.Request) 
 	os.WriteFile(filepath.Join(req.DiagDir, "screen-xterm.txt"), []byte(req.XtermScreen), 0o644)
 	os.WriteFile(filepath.Join(req.DiagDir, "screen-diff.txt"), []byte(req.ScreenDiff), 0o644)
 	os.WriteFile(filepath.Join(req.DiagDir, "ringbuffer-frontend.txt"), []byte(req.RingBufferFrontend), 0o644)
+	if req.GapStats != "" {
+		os.WriteFile(filepath.Join(req.DiagDir, "gap-stats.json"), []byte(req.GapStats), 0o644)
+	}
+	if req.CursorXterm != "" {
+		os.WriteFile(filepath.Join(req.DiagDir, "cursor-xterm.json"), []byte(req.CursorXterm), 0o644)
+	}
 	w.WriteHeader(http.StatusOK)
 }

@@ -141,6 +141,7 @@ type WSStatsMessage struct {
 	CurrentSeq        uint64 `json:"currentSeq"`
 	LogOldestSeq      uint64 `json:"logOldestSeq"`
 	LogTotalBytes     int64  `json:"logTotalBytes"`
+	SyncDisabled      bool   `json:"syncDisabled"`
 }
 
 // WSSyncCursor holds cursor position for sync messages.
@@ -571,6 +572,8 @@ drainBootstrap:
 				send, hb := escbuf.SplitClean(escHoldback, []byte(event.Data))
 				escHoldback = hb
 				if ringBuf != nil && len(send) > 0 {
+					ts := []byte(fmt.Sprintf("\n--- %s ---\n", time.Now().Format("15:04:05.000000")))
+					ringBuf.Write(ts)
 					ringBuf.Write(send)
 				}
 				if len(send) > 0 {
@@ -607,6 +610,7 @@ drainBootstrap:
 					CurrentSeq:        tracker.OutputLog().CurrentSeq(),
 					LogOldestSeq:      tracker.OutputLog().OldestSeq(),
 					LogTotalBytes:     tracker.OutputLog().TotalBytes(),
+					SyncDisabled:      true,
 				}
 				data, _ := json.Marshal(statsMsg)
 				conn.WriteMessage(websocket.TextMessage, data)
@@ -705,26 +709,16 @@ drainBootstrap:
 					logging.Sub(s.logger, "diagnostic").Debug("capture-pane failed", "session_id", sessionID[:8], "err", err)
 					break
 				}
+				// Capture cursor state
+				curCtx, curCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+				cursorState, curErr := tracker.GetCursorState(curCtx)
+				curCancel()
 				counters := tracker.DiagnosticCounters()
+				// Enrich counters with output log metrics for findings analysis
+				counters["currentSeq"] = int64(tracker.OutputLog().CurrentSeq())
+				counters["logOldestSeq"] = int64(tracker.OutputLog().OldestSeq())
 				// Build findings from automated checks
-				findings := []string{}
-				verdict := ""
-				totalDrops := counters["eventsDropped"] + counters["clientFanOutDrops"] + counters["fanOutDrops"]
-				if totalDrops > 0 {
-					if counters["eventsDropped"] > 0 {
-						findings = append(findings, fmt.Sprintf("%d events dropped at parser level", counters["eventsDropped"]))
-					}
-					if counters["clientFanOutDrops"] > 0 {
-						findings = append(findings, fmt.Sprintf("%d events dropped at client fan-out", counters["clientFanOutDrops"]))
-					}
-					if counters["fanOutDrops"] > 0 {
-						findings = append(findings, fmt.Sprintf("%d events dropped at tracker fan-out", counters["fanOutDrops"]))
-					}
-					verdict = fmt.Sprintf("%d total events dropped due to channel backpressure across pipeline.", totalDrops)
-				} else {
-					findings = append(findings, "No drops detected")
-					verdict = "No obvious cause found. Likely a bootstrap race during TUI redraw."
-				}
+				findings, verdict := buildDiagnosticFindings(counters)
 				// Snapshot ring buffer
 				var rbSnapshot []byte
 				if ringBuf != nil {
@@ -743,6 +737,13 @@ drainBootstrap:
 					RingBuffer: rbSnapshot,
 					Findings:   findings,
 					Verdict:    verdict,
+				}
+				if curErr == nil {
+					diag.CursorTmuxX = cursorState.X
+					diag.CursorTmuxY = cursorState.Y
+					diag.CursorTmuxVisible = cursorState.Visible
+				} else {
+					diag.CursorTmuxErr = curErr.Error()
 				}
 				if err := diag.WriteToDir(diagDir); err != nil {
 					logging.Sub(s.logger, "diagnostic").Error("write failed", "session_id", sessionID[:8], "err", err)
@@ -1369,4 +1370,56 @@ func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
+}
+
+// buildDiagnosticFindings analyzes counters from the session tracker and
+// produces a list of human-readable findings and an overall verdict.
+func buildDiagnosticFindings(counters map[string]int64) (findings []string, verdict string) {
+	findings = []string{}
+	hasIssue := false
+
+	// Check for drops across the pipeline
+	totalDrops := counters["eventsDropped"] + counters["clientFanOutDrops"] + counters["fanOutDrops"]
+	if totalDrops > 0 {
+		hasIssue = true
+		if counters["eventsDropped"] > 0 {
+			findings = append(findings, fmt.Sprintf("%d events dropped at parser level", counters["eventsDropped"]))
+		}
+		if counters["clientFanOutDrops"] > 0 {
+			findings = append(findings, fmt.Sprintf("%d events dropped at client fan-out", counters["clientFanOutDrops"]))
+		}
+		if counters["fanOutDrops"] > 0 {
+			findings = append(findings, fmt.Sprintf("%d events dropped at tracker fan-out", counters["fanOutDrops"]))
+		}
+		verdict = fmt.Sprintf("%d total events dropped due to channel backpressure across pipeline.", totalDrops)
+	}
+
+	// Check for control mode reconnects
+	if counters["controlModeReconnects"] > 0 {
+		hasIssue = true
+		findings = append(findings, fmt.Sprintf("%d control mode reconnect(s) — possible output gaps during reconnection", counters["controlModeReconnects"]))
+	}
+
+	// Check if output log is near capacity (>80% full: 40000 out of 50000)
+	currentSeq := counters["currentSeq"]
+	logOldestSeq := counters["logOldestSeq"]
+	if currentSeq > 0 && logOldestSeq > 0 {
+		logSize := currentSeq - logOldestSeq
+		if logSize > 40000 {
+			hasIssue = true
+			findings = append(findings, fmt.Sprintf("output log near capacity (%d/%d entries used)", logSize, 50000))
+		}
+	}
+
+	// Check if sync is disabled
+	if counters["syncDisabled"] == 1 {
+		findings = append(findings, "Periodic sync is disabled (gap detection is the primary consistency mechanism)")
+	}
+
+	if !hasIssue {
+		findings = append([]string{"No drops or anomalies detected"}, findings...)
+		verdict = "No obvious backend cause found. Check frontend gap stats and screen diff."
+	}
+
+	return findings, verdict
 }

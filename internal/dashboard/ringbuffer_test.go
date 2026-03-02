@@ -1,7 +1,10 @@
 package dashboard
 
 import (
+	"fmt"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestRingBuffer_WriteAndSnapshot(t *testing.T) {
@@ -52,5 +55,21 @@ func TestRingBuffer_MultipleSmallWrites(t *testing.T) {
 	snap := rb.Snapshot()
 	if string(snap) != "cdefghij" {
 		t.Errorf("got %q, want %q", string(snap), "cdefghij")
+	}
+}
+
+func TestRingBuffer_TimestampMarker(t *testing.T) {
+	rb := NewRingBuffer(1024)
+	// Simulate the call-site pattern: timestamp marker then data
+	ts := []byte(fmt.Sprintf("\n--- %s ---\n", time.Now().Format("15:04:05.000000")))
+	rb.Write(ts)
+	rb.Write([]byte("hello world"))
+	snap := rb.Snapshot()
+	snapStr := string(snap)
+	if !strings.Contains(snapStr, "---") {
+		t.Errorf("snapshot should contain timestamp marker '---', got %q", snapStr)
+	}
+	if !strings.Contains(snapStr, "hello world") {
+		t.Errorf("snapshot should contain data 'hello world', got %q", snapStr)
 	}
 }

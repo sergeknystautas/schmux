@@ -311,6 +311,11 @@ func (t *SessionTracker) DiagnosticCounters() map[string]int64 {
 		result["clientFanOutDrops"] = t.cmClient.DroppedFanOut()
 	}
 	t.mu.RUnlock()
+	if t.outputLog != nil {
+		result["currentSeq"] = int64(t.outputLog.CurrentSeq())
+		result["logOldestSeq"] = int64(t.outputLog.OldestSeq())
+		result["logTotalBytes"] = t.outputLog.TotalBytes()
+	}
 	return result
 }
 

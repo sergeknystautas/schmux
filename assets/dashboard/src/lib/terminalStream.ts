@@ -579,6 +579,11 @@ export default class TerminalStream {
             xtermScreen,
             screenDiff: diff.diffText,
             ringBufferFrontend: frontendRingBuffer,
+            gapStats: this.diagnostics ? JSON.stringify(this.diagnostics.gapSnapshot()) : null,
+            cursorXterm: JSON.stringify({
+              x: this.terminal.buffer.active.cursorX,
+              y: this.terminal.buffer.active.cursorY,
+            }),
           }),
         })
         .then(() => {
@@ -636,6 +641,7 @@ export default class TerminalStream {
       // When gap replay frames arrive, they may include frames we already
       // received. Writing them again would cause duplicate terminal output.
       if (this.bootstrapComplete && seq <= this.lastReceivedSeq) {
+        if (this.diagnostics) this.diagnostics.gapFramesReceived++;
         return;
       }
 
@@ -643,6 +649,7 @@ export default class TerminalStream {
       if (this.bootstrapComplete && this.lastReceivedSeq >= 0n) {
         const expectedSeq = this.lastReceivedSeq + 1n;
         if (seq > expectedSeq) {
+          if (this.diagnostics) this.diagnostics.gapsDetected++;
           this.sendGapRequest(expectedSeq);
         }
       }
@@ -657,6 +664,7 @@ export default class TerminalStream {
         this.gapRequestPending = false;
       }
       this.lastReceivedSeq = seq;
+      if (this.diagnostics) this.diagnostics.lastReceivedSeq = seq;
 
       // Terminal data starts after the 8-byte header
       const terminalData = new Uint8Array(data, 8);
@@ -807,6 +815,8 @@ export default class TerminalStream {
     // Multiple frames with gaps would otherwise fire redundant replay requests.
     if (this.gapRequestPending) return;
     this.gapRequestPending = true;
+
+    if (this.diagnostics) this.diagnostics.gapRequestsSent++;
 
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(
