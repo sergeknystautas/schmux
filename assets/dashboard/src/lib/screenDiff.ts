@@ -1,3 +1,5 @@
+import { stripAnsi } from './ansiStrip';
+
 export interface ScreenDiff {
   differingRows: Array<{ row: number; tmux: string; xterm: string }>;
   summary: string;
@@ -11,10 +13,11 @@ export function computeScreenDiff(tmuxScreen: string, xtermScreen: string): Scre
   const differingRows: ScreenDiff['differingRows'] = [];
 
   for (let i = 0; i < maxRows; i++) {
-    const tmuxLine = tmuxLines[i] ?? '';
-    const xtermLine = xtermLines[i] ?? '';
+    const rawTmuxLine = tmuxLines[i] ?? '';
+    const tmuxLine = stripAnsi(rawTmuxLine).trimEnd();
+    const xtermLine = (xtermLines[i] ?? '').trimEnd();
     if (tmuxLine !== xtermLine) {
-      differingRows.push({ row: i, tmux: tmuxLine, xterm: xtermLine });
+      differingRows.push({ row: i, tmux: rawTmuxLine, xterm: xtermLines[i] ?? '' });
     }
   }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -646,4 +647,164 @@ func TestBootstrapSeqDoesNotCollideWithFirstLiveEvent_EmptyLog(t *testing.T) {
 			"equal values cause the frontend dedup to drop the first keystroke echo",
 			bootstrapSeq, firstLiveSeq)
 	}
+}
+
+func TestBuildDiagnosticFindings(t *testing.T) {
+	tests := []struct {
+		name            string
+		counters        map[string]int64
+		wantFindings    []string // substrings each finding must contain
+		notWantFindings []string // substrings that must NOT appear in any finding
+		wantVerdict     string   // substring the verdict must contain
+	}{
+		{
+			name: "all zeros — no issues",
+			counters: map[string]int64{
+				"eventsDropped":         0,
+				"clientFanOutDrops":     0,
+				"fanOutDrops":           0,
+				"controlModeReconnects": 0,
+				"currentSeq":            100,
+				"logOldestSeq":          1,
+			},
+			wantFindings:    []string{"No drops or anomalies detected"},
+			notWantFindings: []string{"dropped", "reconnect", "capacity"},
+			wantVerdict:     "No obvious backend cause found",
+		},
+		{
+			name: "drops at parser level",
+			counters: map[string]int64{
+				"eventsDropped":         5,
+				"clientFanOutDrops":     0,
+				"fanOutDrops":           0,
+				"controlModeReconnects": 0,
+			},
+			wantFindings: []string{"parser"},
+			wantVerdict:  "5 total events dropped",
+		},
+		{
+			name: "drops at client fan-out",
+			counters: map[string]int64{
+				"eventsDropped":         0,
+				"clientFanOutDrops":     3,
+				"fanOutDrops":           0,
+				"controlModeReconnects": 0,
+			},
+			wantFindings: []string{"client fan-out"},
+			wantVerdict:  "3 total events dropped",
+		},
+		{
+			name: "drops at tracker fan-out",
+			counters: map[string]int64{
+				"eventsDropped":         0,
+				"clientFanOutDrops":     0,
+				"fanOutDrops":           7,
+				"controlModeReconnects": 0,
+			},
+			wantFindings: []string{"tracker fan-out"},
+			wantVerdict:  "7 total events dropped",
+		},
+		{
+			name: "control mode reconnects",
+			counters: map[string]int64{
+				"eventsDropped":         0,
+				"clientFanOutDrops":     0,
+				"fanOutDrops":           0,
+				"controlModeReconnects": 2,
+			},
+			wantFindings: []string{"reconnect"},
+		},
+		{
+			name: "output log near capacity",
+			counters: map[string]int64{
+				"eventsDropped":         0,
+				"clientFanOutDrops":     0,
+				"fanOutDrops":           0,
+				"controlModeReconnects": 0,
+				"currentSeq":            48000,
+				"logOldestSeq":          1000,
+			},
+			wantFindings: []string{"capacity"},
+		},
+		{
+			name: "sync disabled annotation",
+			counters: map[string]int64{
+				"eventsDropped":         0,
+				"clientFanOutDrops":     0,
+				"fanOutDrops":           0,
+				"controlModeReconnects": 0,
+				"syncDisabled":          1,
+			},
+			wantFindings: []string{"No drops or anomalies detected", "sync is disabled"},
+			wantVerdict:  "No obvious backend cause found",
+		},
+		{
+			name: "multiple issues — drops + reconnects + near capacity",
+			counters: map[string]int64{
+				"eventsDropped":         10,
+				"clientFanOutDrops":     5,
+				"fanOutDrops":           3,
+				"controlModeReconnects": 1,
+				"currentSeq":            49000,
+				"logOldestSeq":          1000,
+			},
+			wantFindings: []string{"parser", "client fan-out", "tracker fan-out", "reconnect", "capacity"},
+			wantVerdict:  "18 total events dropped",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			findings, verdict := buildDiagnosticFindings(tt.counters)
+
+			// Check that each expected substring appears in at least one finding
+			for _, want := range tt.wantFindings {
+				found := false
+				for _, f := range findings {
+					if containsSubstring(f, want) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("expected finding containing %q, got findings: %v", want, findings)
+				}
+			}
+
+			// Check that unwanted substrings do NOT appear
+			for _, notWant := range tt.notWantFindings {
+				for _, f := range findings {
+					if containsSubstring(f, notWant) {
+						t.Errorf("unexpected finding containing %q: %q", notWant, f)
+					}
+				}
+			}
+
+			// Check verdict
+			if tt.wantVerdict != "" && !containsSubstring(verdict, tt.wantVerdict) {
+				t.Errorf("verdict = %q, want substring %q", verdict, tt.wantVerdict)
+			}
+		})
+	}
+}
+
+func TestStatsMessage_SyncDisabled(t *testing.T) {
+	msg := WSStatsMessage{
+		Type:         "stats",
+		SyncDisabled: true,
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]interface{}
+	json.Unmarshal(data, &decoded)
+	if decoded["syncDisabled"] != true {
+		t.Errorf("syncDisabled = %v, want true", decoded["syncDisabled"])
+	}
+}
+
+// containsSubstring does a case-insensitive substring check.
+func containsSubstring(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }

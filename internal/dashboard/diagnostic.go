@@ -19,6 +19,11 @@ type DiagnosticCapture struct {
 	Findings    []string
 	Verdict     string
 	DiffSummary string
+
+	CursorTmuxX       int
+	CursorTmuxY       int
+	CursorTmuxVisible bool
+	CursorTmuxErr     string // empty if no error
 }
 
 type diagnosticMeta struct {
@@ -32,6 +37,11 @@ type diagnosticMeta struct {
 	Findings    []string         `json:"automatedFindings"`
 	Verdict     string           `json:"verdict"`
 	DiffSummary string           `json:"diffSummary"`
+	CursorTmux  *struct {
+		X       int  `json:"x"`
+		Y       int  `json:"y"`
+		Visible bool `json:"visible"`
+	} `json:"cursorTmux,omitempty"`
 }
 
 // WriteToDir writes all diagnostic files to the given directory.
@@ -50,6 +60,17 @@ func (d *DiagnosticCapture) WriteToDir(dir string) error {
 	}
 	meta.TerminalSize.Cols = d.Cols
 	meta.TerminalSize.Rows = d.Rows
+	if d.CursorTmuxErr == "" {
+		meta.CursorTmux = &struct {
+			X       int  `json:"x"`
+			Y       int  `json:"y"`
+			Visible bool `json:"visible"`
+		}{
+			X:       d.CursorTmuxX,
+			Y:       d.CursorTmuxY,
+			Visible: d.CursorTmuxVisible,
+		}
+	}
 	metaJSON, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
 		return err

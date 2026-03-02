@@ -29,6 +29,12 @@ export class StreamDiagnostics {
   recentBreaks: SequenceBreakRecord[] = [];
   frameSizes: number[] = [];
 
+  // Gap detection telemetry
+  gapsDetected = 0;
+  gapRequestsSent = 0;
+  gapFramesReceived = 0;
+  lastReceivedSeq: bigint = -1n;
+
   private ringBuffer: Uint8Array;
   private cursor = 0;
   private full = false;
@@ -44,12 +50,30 @@ export class StreamDiagnostics {
     if (this.frameSizes.length > MAX_FRAME_SIZES) {
       this.frameSizes = this.frameSizes.slice(-MAX_FRAME_SIZES);
     }
+    const ts = new TextEncoder().encode(
+      `\n--- ${new Date().toISOString().substring(11, 23)} ---\n`
+    );
+    this.writeToRingBuffer(ts);
     this.writeToRingBuffer(data);
     this.checkSequenceBreak(data);
   }
 
   recordBootstrap(): void {
     this.bootstrapCount++;
+  }
+
+  gapSnapshot(): {
+    gapsDetected: number;
+    gapRequestsSent: number;
+    gapFramesReceived: number;
+    lastReceivedSeq: string;
+  } {
+    return {
+      gapsDetected: this.gapsDetected,
+      gapRequestsSent: this.gapRequestsSent,
+      gapFramesReceived: this.gapFramesReceived,
+      lastReceivedSeq: this.lastReceivedSeq.toString(),
+    };
   }
 
   ringBufferSnapshot(): Uint8Array {
@@ -70,6 +94,10 @@ export class StreamDiagnostics {
     this.sequenceBreaks = 0;
     this.recentBreaks = [];
     this.frameSizes = [];
+    this.gapsDetected = 0;
+    this.gapRequestsSent = 0;
+    this.gapFramesReceived = 0;
+    this.lastReceivedSeq = -1n;
     this.cursor = 0;
     this.full = false;
   }

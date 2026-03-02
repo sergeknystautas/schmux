@@ -22,4 +22,28 @@ describe('computeScreenDiff', () => {
     expect(diff.diffText).toContain('tmux:  bbb');
     expect(diff.diffText).toContain('xterm: ccc');
   });
+
+  it('strips ANSI from tmux screen before comparing', () => {
+    const tmuxScreen = '\x1b[32mhello\x1b[0m world\nline 2';
+    const xtermScreen = 'hello world\nline 2';
+    const result = computeScreenDiff(tmuxScreen, xtermScreen);
+    expect(result.differingRows.length).toBe(0);
+    expect(result.summary).toBe('0 rows differ');
+  });
+
+  it('preserves raw ANSI in differingRows tmux field', () => {
+    const tmuxScreen = '\x1b[31mred\x1b[0m text';
+    const xtermScreen = 'different text';
+    const result = computeScreenDiff(tmuxScreen, xtermScreen);
+    expect(result.differingRows.length).toBe(1);
+    expect(result.differingRows[0].tmux).toBe('\x1b[31mred\x1b[0m text');
+    expect(result.differingRows[0].xterm).toBe('different text');
+  });
+
+  it('trims trailing whitespace from both sides before comparing', () => {
+    const tmuxScreen = 'hello   \nworld   ';
+    const xtermScreen = 'hello\nworld';
+    const result = computeScreenDiff(tmuxScreen, xtermScreen);
+    expect(result.differingRows.length).toBe(0);
+  });
 });

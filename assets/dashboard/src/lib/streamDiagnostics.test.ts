@@ -24,16 +24,29 @@ describe('StreamDiagnostics', () => {
   it('ring buffer stores recent data', () => {
     diag.recordFrame(new TextEncoder().encode('hello'));
     diag.recordFrame(new TextEncoder().encode(' world'));
-    const snapshot = diag.ringBufferSnapshot();
-    expect(new TextDecoder().decode(snapshot)).toBe('hello world');
+    const snapshot = new TextDecoder().decode(diag.ringBufferSnapshot());
+    expect(snapshot).toContain('hello');
+    expect(snapshot).toContain(' world');
   });
 
   it('ring buffer wraps around', () => {
-    const smallDiag = new StreamDiagnostics(8); // 8-byte ring buffer
-    smallDiag.recordFrame(new TextEncoder().encode('abcdefgh'));
-    smallDiag.recordFrame(new TextEncoder().encode('ij'));
-    const snapshot = smallDiag.ringBufferSnapshot();
-    expect(new TextDecoder().decode(snapshot)).toBe('cdefghij');
+    // Use a buffer large enough to hold timestamps but small enough to wrap
+    const smallDiag = new StreamDiagnostics(64);
+    // Write enough data to cause wrapping (each recordFrame adds ~24B timestamp + data)
+    smallDiag.recordFrame(new TextEncoder().encode('abcdefghijklmnop')); // ~40B total
+    smallDiag.recordFrame(new TextEncoder().encode('qrstuvwxyz')); // ~34B total, exceeds 64
+    const snapshot = new TextDecoder().decode(smallDiag.ringBufferSnapshot());
+    // After wrapping, the most recent data should be present
+    expect(snapshot).toContain('qrstuvwxyz');
+  });
+
+  it('ring buffer snapshot contains timestamp markers', () => {
+    diag.recordFrame(new TextEncoder().encode('hello'));
+    const snapshot = new TextDecoder().decode(diag.ringBufferSnapshot());
+    expect(snapshot).toContain('---');
+    expect(snapshot).toContain('hello');
+    // Timestamp format: HH:MM:SS.mmm
+    expect(snapshot).toMatch(/---\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+---/);
   });
 
   it('detects incomplete escape sequences at frame boundaries', () => {
@@ -142,6 +155,57 @@ describe('StreamDiagnostics', () => {
     expect(diag.sequenceBreaks).toBe(0);
     expect(diag.recentBreaks).toHaveLength(0);
     expect(diag.frameSizes).toHaveLength(0);
+    expect(diag.gapsDetected).toBe(0);
+    expect(diag.gapRequestsSent).toBe(0);
+    expect(diag.gapFramesReceived).toBe(0);
+    expect(diag.lastReceivedSeq).toBe(-1n);
+  });
+
+  describe('gapSnapshot', () => {
+    it('returns initial gap telemetry values', () => {
+      const snapshot = diag.gapSnapshot();
+      expect(snapshot).toEqual({
+        gapsDetected: 0,
+        gapRequestsSent: 0,
+        gapFramesReceived: 0,
+        lastReceivedSeq: '-1',
+      });
+    });
+
+    it('reflects updated gap counters', () => {
+      diag.gapsDetected = 3;
+      diag.gapRequestsSent = 2;
+      diag.gapFramesReceived = 5;
+      diag.lastReceivedSeq = 42n;
+      const snapshot = diag.gapSnapshot();
+      expect(snapshot).toEqual({
+        gapsDetected: 3,
+        gapRequestsSent: 2,
+        gapFramesReceived: 5,
+        lastReceivedSeq: '42',
+      });
+    });
+
+    it('serializes lastReceivedSeq as string for large bigint values', () => {
+      diag.lastReceivedSeq = 9007199254740993n; // Beyond Number.MAX_SAFE_INTEGER
+      const snapshot = diag.gapSnapshot();
+      expect(snapshot.lastReceivedSeq).toBe('9007199254740993');
+    });
+
+    it('resets gap counters correctly', () => {
+      diag.gapsDetected = 5;
+      diag.gapRequestsSent = 3;
+      diag.gapFramesReceived = 10;
+      diag.lastReceivedSeq = 100n;
+      diag.reset();
+      const snapshot = diag.gapSnapshot();
+      expect(snapshot).toEqual({
+        gapsDetected: 0,
+        gapRequestsSent: 0,
+        gapFramesReceived: 0,
+        lastReceivedSeq: '-1',
+      });
+    });
   });
 
   it('caps recentBreaks at 20 entries', () => {
