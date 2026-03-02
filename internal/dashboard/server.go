@@ -20,6 +20,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
+	"github.com/sergeknystautas/schmux/internal/actions"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/assets"
 	"github.com/sergeknystautas/schmux/internal/config"
@@ -193,6 +194,11 @@ type Server struct {
 	// Floor manager
 	floorManager *floormanager.Manager
 
+	// Action registries (keyed by repo name)
+	actionRegistries   map[string]*actions.Registry
+	actionRegistriesMu sync.RWMutex
+	actionBaseDir      string // ~/.schmux/actions
+
 	// Subreddit next generation time tracking
 	nextSubredditGeneration atomic.Pointer[time.Time]
 }
@@ -329,6 +335,70 @@ func (s *Server) SetRemoteManager(rm *remote.Manager) {
 // SetLoreStore sets the lore proposal store for the dashboard API.
 func (s *Server) SetLoreStore(store *lore.ProposalStore) {
 	s.loreStore = store
+}
+
+// SetActionBaseDir sets the base directory for action registries and initializes the map.
+func (s *Server) SetActionBaseDir(dir string) {
+	s.actionBaseDir = dir
+	s.actionRegistries = make(map[string]*actions.Registry)
+}
+
+// MigrateQuickLaunchToActions migrates global QuickLaunch presets to action registries
+// for each configured repo. This is idempotent — second calls are no-ops.
+func (s *Server) MigrateQuickLaunchToActions() {
+	if s.actionBaseDir == "" {
+		return
+	}
+	presets := s.config.GetQuickLaunch()
+	if len(presets) == 0 {
+		return
+	}
+
+	// Convert config.QuickLaunch to contracts.QuickLaunch.
+	contractPresets := make([]contracts.QuickLaunch, len(presets))
+	for i, p := range presets {
+		contractPresets[i] = contracts.QuickLaunch{
+			Name:    p.Name,
+			Command: p.Command,
+			Target:  p.Target,
+			Prompt:  p.Prompt,
+		}
+	}
+
+	for _, repo := range s.config.GetRepos() {
+		reg := s.getOrCreateRegistry(repo.Name)
+		count, err := reg.MigrateQuickLaunch(contractPresets)
+		if err != nil {
+			s.logger.Warn("failed to migrate QuickLaunch", "repo", repo.Name, "err", err)
+		} else if count > 0 {
+			s.logger.Info("migrated QuickLaunch to actions", "repo", repo.Name, "count", count)
+		}
+	}
+}
+
+// getOrCreateRegistry returns (or lazily creates) the action registry for a repo.
+func (s *Server) getOrCreateRegistry(repo string) *actions.Registry {
+	s.actionRegistriesMu.RLock()
+	if reg, ok := s.actionRegistries[repo]; ok {
+		s.actionRegistriesMu.RUnlock()
+		return reg
+	}
+	s.actionRegistriesMu.RUnlock()
+
+	s.actionRegistriesMu.Lock()
+	defer s.actionRegistriesMu.Unlock()
+
+	// Double-check after acquiring write lock.
+	if reg, ok := s.actionRegistries[repo]; ok {
+		return reg
+	}
+
+	reg := actions.NewRegistry(s.actionBaseDir, repo)
+	if err := reg.Load(); err != nil {
+		s.logger.Warn("failed to load action registry", "repo", repo, "err", err)
+	}
+	s.actionRegistries[repo] = reg
+	return reg
 }
 
 // SetLoreCurator sets the lore curator for manual curation requests.
@@ -631,8 +701,22 @@ func (s *Server) Start() error {
 				r.Get("/entries", s.handleLoreEntries)
 				r.Delete("/entries", s.handleLoreEntriesClear)
 				r.Post("/curate", s.handleLoreCurate)
+				r.Post("/curate-actions", s.handleLoreCurateActions)
 				r.Get("/curations", s.handleLoreCurationsList)
 				r.Get("/curations/{curationID}/log", s.handleLoreCurationLog)
+			})
+
+			// Action routes
+			r.Route("/actions/{repo}", func(r chi.Router) {
+				r.Use(validateActionRepo)
+				r.Get("/", s.handleListActions)
+				r.Post("/", s.handleCreateAction)
+				r.Get("/proposed", s.handleListProposed)
+				r.Get("/prompt-history", s.handlePromptHistory)
+				r.Put("/{id}", s.handleUpdateAction)
+				r.Delete("/{id}", s.handleDeleteAction)
+				r.Post("/{id}/pin", s.handlePinAction)
+				r.Post("/{id}/dismiss", s.handleDismissAction)
 			})
 		})
 

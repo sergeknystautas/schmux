@@ -35,6 +35,7 @@ type SpawnRequest struct {
 	WorkspaceID      string         `json:"workspace_id,omitempty"` // optional: spawn into specific workspace
 	Command          string         `json:"command,omitempty"`      // shell command to run directly (alternative to targets)
 	QuickLaunchName  string         `json:"quick_launch_name,omitempty"`
+	ActionID         string         `json:"action_id,omitempty"`         // action registry ID for usage tracking
 	Resume           bool           `json:"resume,omitempty"`            // resume mode: use agent's resume command
 	RemoteFlavorID   string         `json:"remote_flavor_id,omitempty"`  // optional: spawn on remote host
 	NewBranch        string         `json:"new_branch,omitempty"`        // create new workspace with this branch from source workspace
@@ -353,6 +354,18 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	// Broadcast update to WebSocket clients
 	if hasSuccess {
 		go s.BroadcastSessions()
+
+		// Track action usage (non-blocking, best-effort)
+		if s.actionBaseDir != "" && req.Repo != "" {
+			registry := s.getOrCreateRegistry(req.Repo)
+			if req.ActionID != "" {
+				registry.RecordUse(req.ActionID, false)
+			} else if req.Prompt != "" {
+				if matchID, edited := registry.MatchPrompt(req.Prompt); matchID != "" {
+					registry.RecordUse(matchID, edited)
+				}
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

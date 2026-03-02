@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useDebouncedCallback from '../hooks/useDebouncedCallback';
+import PromptAutocomplete, { matchItems, type AutocompleteItem } from './PromptAutocomplete';
+import type { Action } from '../lib/types.generated';
+import type { PromptHistoryEntry } from '../lib/types.generated';
 
 interface PromptTextareaProps {
   value: string;
@@ -9,6 +12,10 @@ interface PromptTextareaProps {
   onSelectCommand: (command: string) => void;
   onSubmit?: () => void;
   'data-testid'?: string;
+  // Autocomplete props (optional)
+  autocompleteActions?: Action[];
+  autocompleteHistory?: PromptHistoryEntry[];
+  onAutocompleteSelect?: (item: AutocompleteItem) => void;
 }
 
 // Measure caret pixel coordinates inside a textarea using a mirror div
@@ -110,6 +117,9 @@ export default function PromptTextarea({
   onSelectCommand,
   onSubmit,
   'data-testid': dataTestId,
+  autocompleteActions,
+  autocompleteHistory,
+  onAutocompleteSelect,
 }: PromptTextareaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -119,6 +129,15 @@ export default function PromptTextarea({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [expanded, setExpanded] = useState(false);
+
+  // Autocomplete state (separate from slash menu)
+  const [acDismissed, setAcDismissed] = useState(false);
+  const [acSelectedIndex, setAcSelectedIndex] = useState(0);
+  const hasAutocomplete = !!autocompleteActions || !!autocompleteHistory;
+  // Show autocomplete when: 3+ chars, no slash prefix, not dismissed
+  const acQuery = value.trim();
+  const showAutocomplete =
+    hasAutocomplete && !acDismissed && acQuery.length >= 3 && !acQuery.startsWith('/');
 
   // Debounced function to check if textarea should expand
   const checkShouldExpand = useDebouncedCallback(() => {
@@ -166,6 +185,8 @@ export default function PromptTextarea({
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     cursorPosRef.current = e.target.selectionStart;
     setDismissed(false);
+    setAcDismissed(false);
+    setAcSelectedIndex(0);
 
     // Compute menu position from caret coordinates
     if (textareaRef.current) {
@@ -185,24 +206,67 @@ export default function PromptTextarea({
     onChange(e.target.value);
   };
 
+  // Compute autocomplete items once (shared by Tab handler and PromptAutocomplete)
+  const acItems = useMemo(
+    () => matchItems(acQuery, autocompleteActions || [], autocompleteHistory || []),
+    [acQuery, autocompleteActions, autocompleteHistory]
+  );
+
+  // Handle autocomplete selection
+  const handleAcSelect = useCallback(
+    (item: AutocompleteItem) => {
+      onChange(item.text);
+      setAcDismissed(true);
+      onAutocompleteSelect?.(item);
+      // Focus and move cursor to end
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        setTimeout(() => {
+          if (textareaRef.current) {
+            textareaRef.current.selectionStart = item.text.length;
+            textareaRef.current.selectionEnd = item.text.length;
+          }
+        }, 0);
+      }
+    },
+    [onChange, onAutocompleteSelect]
+  );
+
   // Handle keyboard navigation
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Note: Cmd+Enter submission is handled globally by SpawnPage to work from any input
 
-    if (!showMenu) return;
+    // Slash menu takes priority
+    if (showMenu) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedIndex((i) => (i + 1) % filteredCommands.length);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedIndex((i) => (i - 1 + filteredCommands.length) % filteredCommands.length);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        selectCommand(filteredCommands[selectedIndex]);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setDismissed(true);
+      }
+      return;
+    }
 
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setSelectedIndex((i) => (i + 1) % filteredCommands.length);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSelectedIndex((i) => (i - 1 + filteredCommands.length) % filteredCommands.length);
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      selectCommand(filteredCommands[selectedIndex]);
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      setDismissed(true);
+    // Autocomplete navigation (when slash menu is not active)
+    if (showAutocomplete) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setAcDismissed(true);
+      }
+      // Tab fills the selected suggestion
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        if (acItems.length > 0 && acSelectedIndex < acItems.length) {
+          handleAcSelect(acItems[acSelectedIndex]);
+        }
+      }
     }
   };
 
@@ -295,6 +359,18 @@ export default function PromptTextarea({
             </button>
           ))}
         </div>
+      )}
+      {showAutocomplete && !showMenu && (
+        <PromptAutocomplete
+          query={acQuery}
+          actions={autocompleteActions || []}
+          history={autocompleteHistory || []}
+          items={acItems}
+          selectedIndex={acSelectedIndex}
+          onSelect={handleAcSelect}
+          onHover={setAcSelectedIndex}
+          style={{ top: '100%', marginTop: '4px' }}
+        />
       )}
     </div>
   );

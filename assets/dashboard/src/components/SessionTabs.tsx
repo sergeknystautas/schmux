@@ -1,12 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
-import {
-  disposeSession,
-  spawnSessions,
-  dismissLinearSyncResolveConflictState,
-  getErrorMessage,
-} from '../lib/api';
+import { disposeSession, dismissLinearSyncResolveConflictState, getErrorMessage } from '../lib/api';
 import {
   formatRelativeTime,
   formatTimestamp,
@@ -21,8 +16,8 @@ import { useSessions } from '../contexts/SessionsContext';
 import { useSyncState } from '../contexts/SyncContext';
 import { useKeyboardMode } from '../contexts/KeyboardContext';
 import Tooltip from './Tooltip';
+import ActionDropdown from './ActionDropdown';
 import type { SessionResponse, WorkspaceResponse } from '../lib/types';
-import { getQuickLaunchItems } from '../lib/quicklaunch';
 
 type SessionTabsProps = {
   sessions: SessionResponse[];
@@ -60,7 +55,6 @@ export default function SessionTabs({
 
   // Spawn dropdown state
   const [spawnMenuOpen, setSpawnMenuOpen] = useState(false);
-  const [spawning, setSpawning] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [placementAbove, setPlacementAbove] = useState(false);
   const spawnButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -69,11 +63,6 @@ export default function SessionTabs({
   const resolveInProgress = crState?.status === 'in_progress';
   const lockState = workspace ? workspaceLockStates[workspace.id] : undefined;
   const isLocked = resolveInProgress || lockState?.locked;
-
-  const quickLaunch = React.useMemo(() => {
-    const globalNames = (config?.quick_launch || []).map((item) => item.name);
-    return getQuickLaunchItems(globalNames, workspace?.quick_launch || []);
-  }, [config?.quick_launch, workspace?.quick_launch]);
 
   // VCS-specific UI should appear for workspaces with VCS support.
   // Local workspaces: show for git (default when vcs is omitted).
@@ -94,9 +83,7 @@ export default function SessionTabs({
       const rect = spawnButtonRef.current.getBoundingClientRect();
       const gap = 4;
       const edgePadding = 8;
-      const estimatedMenuHeight =
-        spawnMenuRef.current?.offsetHeight ||
-        Math.min(300, 60 + (quickLaunch?.length || 0) * 52 + 40);
+      const estimatedMenuHeight = spawnMenuRef.current?.offsetHeight || 300;
       const spaceBelow = window.innerHeight - rect.bottom - gap;
       const spaceAbove = rect.top - gap;
       const shouldPlaceAbove = spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow;
@@ -118,7 +105,7 @@ export default function SessionTabs({
         setMenuPosition({ top: rect.bottom + gap, left });
       }
     }
-  }, [spawnMenuOpen, quickLaunch?.length]);
+  }, [spawnMenuOpen]);
 
   // Close spawn menu when clicking outside
   useEffect(() => {
@@ -192,45 +179,6 @@ export default function SessionTabs({
   const handlePreviewTabClick = (previewId: string) => {
     if (workspace) {
       navigate(`/preview/${workspace.id}/${previewId}`);
-    }
-  };
-
-  const handleCustomSpawn = (event: React.MouseEvent) => {
-    event.stopPropagation();
-    setSpawnMenuOpen(false);
-    if (workspace) {
-      navigate(`/spawn?workspace_id=${workspace.id}`);
-    }
-  };
-
-  const handleQuickLaunchSpawn = async (name: string, event: React.MouseEvent) => {
-    event.stopPropagation();
-    if (!workspace) return;
-    setSpawnMenuOpen(false);
-    setSpawning(true);
-
-    try {
-      const response = await spawnSessions({
-        repo: workspace.repo,
-        branch: workspace.branch,
-        prompt: '',
-        nickname: name,
-        workspace_id: workspace.id,
-        quick_launch_name: name,
-      });
-
-      const result = response[0];
-      if (result.error) {
-        alert('Spawn Failed', `Failed to spawn ${name}: ${result.error}`);
-      } else {
-        success(`Spawned ${name} session`);
-        await waitForSession(result.session_id!);
-        navigate(`/sessions/${result.session_id!}`);
-      }
-    } catch (err) {
-      alert('Spawn Failed', `Failed to spawn: ${getErrorMessage(err, 'Unknown error')}`);
-    } finally {
-      setSpawning(false);
     }
   };
 
@@ -552,70 +500,36 @@ export default function SessionTabs({
           e.stopPropagation();
           setSpawnMenuOpen(!spawnMenuOpen);
         }}
-        disabled={spawning || isLocked}
+        disabled={isLocked}
         aria-expanded={spawnMenuOpen}
         aria-haspopup="menu"
         aria-label="Spawn new session"
         data-tour="session-tab-add"
         style={isLocked ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
       >
-        {spawning ? (
-          <span className="spinner spinner--small"></span>
-        ) : (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-        )}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
       </button>
       {spawnMenuOpen &&
-        !spawning &&
+        workspace &&
         createPortal(
           <div
             ref={spawnMenuRef}
-            className={`spawn-dropdown__menu spawn-dropdown__menu--portal${placementAbove ? ' spawn-dropdown__menu--above' : ''}`}
-            role="menu"
             style={{
               position: 'fixed',
               top: placementAbove ? 'auto' : `${menuPosition.top}px`,
               bottom: placementAbove ? `${window.innerHeight - menuPosition.top}px` : 'auto',
               left: `${menuPosition.left}px`,
+              zIndex: 9999,
             }}
           >
-            <button className="spawn-dropdown__item" onClick={handleCustomSpawn} role="menuitem">
-              <span className="spawn-dropdown__item-label">Custom...</span>
-              <span className="spawn-dropdown__item-hint">Open spawn wizard</span>
-            </button>
-
-            {quickLaunch.length > 0 && (
-              <>
-                <div className="spawn-dropdown__separator" role="separator"></div>
-                {quickLaunch.map((item, index) => {
-                  const showScopeSeparator =
-                    index > 0 &&
-                    quickLaunch[index - 1].scope === 'global' &&
-                    item.scope === 'workspace';
-                  return (
-                    <React.Fragment key={item.name}>
-                      {showScopeSeparator && (
-                        <div className="spawn-dropdown__scope-separator" role="separator"></div>
-                      )}
-                      <button
-                        className="spawn-dropdown__item"
-                        onClick={(e) => handleQuickLaunchSpawn(item.name, e)}
-                        role="menuitem"
-                      >
-                        <span className="spawn-dropdown__item-label">{item.name}</span>
-                      </button>
-                    </React.Fragment>
-                  );
-                })}
-              </>
-            )}
-
-            {quickLaunch.length === 0 && (
-              <div className="spawn-dropdown__empty">No quick launch presets</div>
-            )}
+            <ActionDropdown
+              workspace={workspace}
+              onClose={() => setSpawnMenuOpen(false)}
+              placementAbove={placementAbove}
+            />
           </div>,
           document.body
         )}

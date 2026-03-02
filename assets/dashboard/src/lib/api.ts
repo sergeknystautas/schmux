@@ -44,6 +44,11 @@ import type {
   PersonaListResponse,
   PersonaCreateRequest,
   PersonaUpdateRequest,
+  Action,
+  ActionRegistryResponse,
+  CreateActionRequest,
+  UpdateActionRequest,
+  PromptHistoryResponse,
 } from './types.generated';
 import { csrfHeaders } from './csrf';
 import { transport } from './transport';
@@ -1088,5 +1093,104 @@ export async function deletePersona(id: string): Promise<void> {
 export async function getSubreddit(): Promise<SubredditResponse> {
   const response = await apiFetch('/api/subreddit');
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch subreddit digest');
+  return response.json();
+}
+
+// ============================================================================
+// Actions API
+// ============================================================================
+
+export async function getActions(repo: string): Promise<Action[]> {
+  const response = await fetch(`/api/actions/${encodeURIComponent(repo)}`);
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch actions');
+  const data: ActionRegistryResponse = await response.json();
+  return data.actions;
+}
+
+export async function createAction(repo: string, req: CreateActionRequest): Promise<Action> {
+  const response = await fetch(`/api/actions/${encodeURIComponent(repo)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify(req),
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to create action');
+  return response.json();
+}
+
+export async function updateAction(
+  repo: string,
+  id: string,
+  req: UpdateActionRequest
+): Promise<Action> {
+  const response = await fetch(
+    `/api/actions/${encodeURIComponent(repo)}/${encodeURIComponent(id)}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+      body: JSON.stringify(req),
+    }
+  );
+  if (!response.ok) await parseErrorResponse(response, 'Failed to update action');
+  return response.json();
+}
+
+export async function deleteAction(repo: string, id: string): Promise<void> {
+  const response = await fetch(
+    `/api/actions/${encodeURIComponent(repo)}/${encodeURIComponent(id)}`,
+    {
+      method: 'DELETE',
+      headers: { ...csrfHeaders() },
+    }
+  );
+  if (!response.ok) await parseErrorResponse(response, 'Failed to delete action');
+}
+
+export async function pinAction(repo: string, id: string): Promise<void> {
+  const response = await fetch(
+    `/api/actions/${encodeURIComponent(repo)}/${encodeURIComponent(id)}/pin`,
+    {
+      method: 'POST',
+      headers: { ...csrfHeaders() },
+    }
+  );
+  if (!response.ok) await parseErrorResponse(response, 'Failed to pin action');
+}
+
+export async function dismissAction(repo: string, id: string): Promise<void> {
+  const response = await fetch(
+    `/api/actions/${encodeURIComponent(repo)}/${encodeURIComponent(id)}/dismiss`,
+    {
+      method: 'POST',
+      headers: { ...csrfHeaders() },
+    }
+  );
+  if (!response.ok) await parseErrorResponse(response, 'Failed to dismiss action');
+}
+
+export async function getProposedActions(repo: string): Promise<Action[]> {
+  const response = await fetch(`/api/actions/${encodeURIComponent(repo)}/proposed`);
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch proposed actions');
+  const data: ActionRegistryResponse = await response.json();
+  return data.actions;
+}
+
+export async function getPromptHistory(repo: string): Promise<PromptHistoryResponse> {
+  const response = await fetch(`/api/actions/${encodeURIComponent(repo)}/prompt-history`);
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch prompt history');
+  return response.json();
+}
+
+export async function curateActions(repo: string): Promise<{
+  status: string;
+  id?: string;
+  signals_count?: number;
+  proposed_count?: number;
+  discarded_count?: number;
+}> {
+  const response = await fetch(`/api/lore/${encodeURIComponent(repo)}/curate-actions`, {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to curate actions');
   return response.json();
 }

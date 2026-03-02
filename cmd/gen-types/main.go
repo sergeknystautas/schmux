@@ -36,6 +36,10 @@ func main() {
 		reflect.TypeOf(contracts.PersonaListResponse{}),
 		reflect.TypeOf(contracts.PersonaCreateRequest{}),
 		reflect.TypeOf(contracts.PersonaUpdateRequest{}),
+		reflect.TypeOf(contracts.ActionRegistryResponse{}),
+		reflect.TypeOf(contracts.CreateActionRequest{}),
+		reflect.TypeOf(contracts.UpdateActionRequest{}),
+		reflect.TypeOf(contracts.PromptHistoryResponse{}),
 	}
 
 	typeMap := collectTypes(rootTypes)
