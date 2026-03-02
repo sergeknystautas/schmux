@@ -181,7 +181,7 @@ test.describe.serial('Git operations — path validation', () => {
 
     const results = await spawnSession({
       repo: repoPath,
-      branch: 'validate-branch',
+      branch: 'main',
       prompt: 'test',
       targets: { 'idle-agent': 1 },
     });

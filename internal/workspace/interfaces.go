@@ -116,6 +116,9 @@ type WorkspaceManager interface {
 	// Dispose deletes a workspace by removing its directory and removing it from state.
 	Dispose(ctx context.Context, workspaceID string) error
 
+	// DisposeForce deletes a workspace, skipping safety checks (active sessions, git status).
+	DisposeForce(ctx context.Context, workspaceID string) error
+
 	// Scan scans the workspace directory and reconciles state with filesystem.
 	// Returns what was added, updated, and removed.
 	Scan() (ScanResult, error)

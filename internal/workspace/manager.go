@@ -913,6 +913,17 @@ func (m *Manager) EnsureAll() {
 
 // Dispose deletes a workspace by removing its directory and removing it from state.
 func (m *Manager) Dispose(ctx context.Context, workspaceID string) error {
+	return m.dispose(ctx, workspaceID, false)
+}
+
+// DisposeForce disposes a workspace without safety checks (active sessions,
+// unsaved changes). Used by dispose-all where sessions were already disposed
+// and the user explicitly wants to destroy everything.
+func (m *Manager) DisposeForce(ctx context.Context, workspaceID string) error {
+	return m.dispose(ctx, workspaceID, true)
+}
+
+func (m *Manager) dispose(ctx context.Context, workspaceID string, force bool) error {
 	w, found := m.state.GetWorkspace(workspaceID)
 	if !found {
 		return fmt.Errorf("workspace not found: %s", workspaceID)
@@ -939,7 +950,7 @@ func (m *Manager) Dispose(ctx context.Context, workspaceID string) error {
 	}
 
 	// Check if workspace has active sessions
-	if m.hasActiveSessions(workspaceID) {
+	if !force && m.hasActiveSessions(workspaceID) {
 		return fmt.Errorf("workspace has active sessions: %s", workspaceID)
 	}
 
@@ -951,7 +962,7 @@ func (m *Manager) Dispose(ctx context.Context, workspaceID string) error {
 	}
 
 	// Check git safety - only if directory exists
-	if dirExists {
+	if !force && dirExists {
 		gitStatus, err := m.checkGitSafety(ctx, workspaceID)
 		if err != nil {
 			return fmt.Errorf("failed to check git status: %w", err)

@@ -164,10 +164,12 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 	s.rotationLocksMu.Unlock()
 
 	// Then dispose the workspace — use an independent context since session
-	// disposal above may have consumed part of the client's timeout budget
+	// disposal above may have consumed part of the client's timeout budget.
+	// Use DisposeForce to skip safety checks: the user explicitly asked to
+	// destroy everything, and sessions were already disposed above.
 	wsCtx, wsCancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer wsCancel()
-	if err := s.workspace.Dispose(wsCtx, workspaceID); err != nil {
+	if err := s.workspace.DisposeForce(wsCtx, workspaceID); err != nil {
 		workspaceLog.Error("dispose-all workspace failed", "workspace_id", workspaceID, "err", err)
 		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
