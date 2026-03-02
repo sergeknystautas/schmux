@@ -248,6 +248,21 @@ func TestParseClaudeStructuredOutput(t *testing.T) {
 			input:    "",
 			expected: "",
 		},
+		{
+			name:     "banner preamble before json with structured_output",
+			input:    "Some CLI Banner v1.2.3 (https://example.com)\n" + `{"structured_output":{"branch":"feature/test"},"duration_ms":500}`,
+			expected: `{"branch":"feature/test"}`,
+		},
+		{
+			name:     "banner preamble before json without structured_output",
+			input:    "Some CLI Banner v1.2.3 (https://example.com)\n" + `{"result":"something"}`,
+			expected: "Some CLI Banner v1.2.3 (https://example.com)\n" + `{"result":"something"}`,
+		},
+		{
+			name:     "banner preamble and trailing stderr",
+			input:    "Some CLI Banner v1.2.3\n" + `{"structured_output":{"key":"val"},"duration_ms":100}` + "\nfatal: signal killed",
+			expected: `{"key":"val"}`,
+		},
 	}
 
 	for _, tt := range tests {
