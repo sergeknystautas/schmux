@@ -170,14 +170,16 @@ tmux CLI wrapper.
 ### Terminal Streaming
 
 ```
-1. Dashboard starts WebSocket connection
+1. tmux control mode streams %output events to SessionTracker
    ↓
-2. tmux.CapturePane() gets terminal output
+2. Tracker fans out to subscriber channels + OutputLog (sequenced)
    ↓
-3. Output sent via WebSocket to frontend
+3. WebSocket handler sends binary frames with sequence headers
    ↓
-4. xterm.js renders output in browser
+4. Browser decodes frames, detects gaps, writes to xterm.js
 ```
+
+See `docs/dev/terminal-pipeline.md` for the full pipeline reference.
 
 ---
 

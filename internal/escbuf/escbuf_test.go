@@ -181,6 +181,65 @@ func TestSplitClean(t *testing.T) {
 			data:     []byte("\x1b[ q"), // DECSCUSR (set cursor style)
 			wantSend: []byte("\x1b[ q"),
 		},
+		{
+			name:     "DCS incomplete - no ST terminator",
+			data:     []byte("text\x1bP1$r"),
+			wantSend: []byte("text"),
+			wantHold: []byte("\x1bP1$r"),
+		},
+		{
+			name:     "DCS complete with ST",
+			data:     []byte("text\x1bP1$r1 q\x1b\\"),
+			wantSend: []byte("text\x1bP1$r1 q\x1b\\"),
+		},
+		{
+			name:     "bare DCS at end",
+			data:     []byte("text\x1bP"),
+			wantSend: []byte("text"),
+			wantHold: []byte("\x1bP"),
+		},
+		// APC (ESC _) sequences
+		{
+			name:     "APC incomplete - no ST terminator",
+			data:     []byte("text\x1b_app"),
+			wantSend: []byte("text"),
+			wantHold: []byte("\x1b_app"),
+		},
+		{
+			name:     "APC complete with ST",
+			data:     []byte("text\x1b_app\x1b\\"),
+			wantSend: []byte("text\x1b_app\x1b\\"),
+		},
+		{
+			name:     "bare APC at end",
+			data:     []byte("text\x1b_"),
+			wantSend: []byte("text"),
+			wantHold: []byte("\x1b_"),
+		},
+		// PM (ESC ^) sequences
+		{
+			name:     "PM incomplete - no ST terminator",
+			data:     []byte("text\x1b^pmsg"),
+			wantSend: []byte("text"),
+			wantHold: []byte("\x1b^pmsg"),
+		},
+		{
+			name:     "PM complete with ST",
+			data:     []byte("text\x1b^msg\x1b\\"),
+			wantSend: []byte("text\x1b^msg\x1b\\"),
+		},
+		// SOS (ESC X) sequences
+		{
+			name:     "SOS incomplete - no ST terminator",
+			data:     []byte("text\x1bXsos"),
+			wantSend: []byte("text"),
+			wantHold: []byte("\x1bXsos"),
+		},
+		{
+			name:     "SOS complete with ST",
+			data:     []byte("text\x1bXsos\x1b\\"),
+			wantSend: []byte("text\x1bXsos\x1b\\"),
+		},
 	}
 
 	for _, tt := range tests {
@@ -236,5 +295,30 @@ func TestSplitCleanChainedCalls(t *testing.T) {
 	}
 	if hold != nil {
 		t.Errorf("frame 3 hold: got %q, want nil", hold)
+	}
+}
+
+// TestSplitClean_16ByteScanWindow documents the intentional limitation of the
+// 16-byte backward scan window. A DCS/APC/PM/SOS sequence whose opening ESC
+// falls more than 16 bytes from the end of the buffer will NOT be held back.
+func TestSplitClean_16ByteScanWindow(t *testing.T) {
+	// Construct data where ESC starts a DCS sequence but is >16 bytes from the end.
+	// The DCS has no ST terminator so it's "incomplete", but escbuf can't see the ESC.
+	// Expected: the data passes through as-is (the ESC is outside the scan window).
+	prefix := bytes.Repeat([]byte("A"), 10)  // 10 bytes of padding
+	dcs := []byte("\x1bP")                   // DCS start
+	payload := bytes.Repeat([]byte("x"), 16) // 16 bytes of payload (no ST)
+	// Total from ESC to end = 2 + 16 = 18 bytes > 16-byte window
+	data := append(prefix, dcs...)
+	data = append(data, payload...)
+
+	send, hold := SplitClean(nil, data)
+	// Because ESC is at position 10 and end is at 28, the scan window [12,28)
+	// doesn't reach position 10. So the ESC is not found — entire buffer is "clean".
+	if !bytes.Equal(send, data) {
+		t.Errorf("expected entire buffer to pass through (ESC outside scan window)")
+	}
+	if hold != nil {
+		t.Errorf("expected no holdback, got %q", hold)
 	}
 }

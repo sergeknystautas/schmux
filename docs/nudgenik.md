@@ -25,7 +25,7 @@ This is valuable right now for:
 
 ### Technical Background
 
-NudgeNik uses an LLM to read the English output of coding agents and classify their state. See `docs/dev/cursor-positions.md` for technical notes on terminal behavior and analysis.
+NudgeNik uses an LLM to read the English output of coding agents and classify their state.
 
 ---
 

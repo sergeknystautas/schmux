@@ -17,13 +17,13 @@ func TestFanOut_SlowConsumerDropped(t *testing.T) {
 	// Add a slow consumer with a tiny buffer directly to subs
 	// (SubscribeOutput creates 1000-buffer channels, which would require
 	// 1000 fanOuts to fill — instead we add a 1-buffer channel directly)
-	slowCh := make(chan controlmode.OutputEvent, 1)
+	slowCh := make(chan SequencedOutput, 1)
 	tracker.subsMu.Lock()
 	tracker.subs = append(tracker.subs, slowCh)
 	tracker.subsMu.Unlock()
 
 	// Fill the slow consumer's buffer
-	slowCh <- controlmode.OutputEvent{Data: "filler"}
+	slowCh <- SequencedOutput{OutputEvent: controlmode.OutputEvent{Data: "filler"}}
 
 	// Now fanOut: fastCh should receive, slowCh should be dropped
 	event := controlmode.OutputEvent{Data: "test-data"}
@@ -61,10 +61,8 @@ func TestFanOut_SlowConsumerDropped(t *testing.T) {
 	tracker.UnsubscribeOutput(fastCh)
 	<-slowCh // drain
 	tracker.subsMu.Lock()
-	// Remove slowCh manually since we added it directly
 	for i, ch := range tracker.subs {
 		if ch == slowCh {
-			close(ch)
 			tracker.subs = append(tracker.subs[:i], tracker.subs[i+1:]...)
 			break
 		}
@@ -72,7 +70,9 @@ func TestFanOut_SlowConsumerDropped(t *testing.T) {
 	tracker.subsMu.Unlock()
 }
 
-func TestFanOut_MultipleSubscribers(t *testing.T) {
+// TestFanOut_MultipleSubscribers_Upstream tests basic multi-subscriber fanOut.
+// See also TestFanOut_MultipleSubscribers in tracker_test.go for seq verification.
+func TestFanOut_MultipleSubscribers_Upstream(t *testing.T) {
 	st := state.New("", nil)
 	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil, nil)
 
@@ -83,7 +83,7 @@ func TestFanOut_MultipleSubscribers(t *testing.T) {
 	event := controlmode.OutputEvent{Data: "broadcast"}
 	tracker.fanOut(event)
 
-	for i, ch := range []<-chan controlmode.OutputEvent{ch1, ch2, ch3} {
+	for i, ch := range []<-chan SequencedOutput{ch1, ch2, ch3} {
 		select {
 		case got := <-ch:
 			if got.Data != "broadcast" {
@@ -128,11 +128,11 @@ func TestFanOut_DropDoesNotAffectOtherSubscribers(t *testing.T) {
 	fast2 := tracker.SubscribeOutput()
 
 	// One slow subscriber (tiny buffer, pre-filled)
-	slowCh := make(chan controlmode.OutputEvent, 1)
+	slowCh := make(chan SequencedOutput, 1)
 	tracker.subsMu.Lock()
 	tracker.subs = append(tracker.subs, slowCh)
 	tracker.subsMu.Unlock()
-	slowCh <- controlmode.OutputEvent{Data: "blocking"}
+	slowCh <- SequencedOutput{OutputEvent: controlmode.OutputEvent{Data: "blocking"}}
 
 	// Send multiple events
 	for i := 0; i < 5; i++ {
@@ -164,7 +164,6 @@ func TestFanOut_DropDoesNotAffectOtherSubscribers(t *testing.T) {
 	tracker.subsMu.Lock()
 	for i, ch := range tracker.subs {
 		if ch == slowCh {
-			close(ch)
 			tracker.subs = append(tracker.subs[:i], tracker.subs[i+1:]...)
 			break
 		}

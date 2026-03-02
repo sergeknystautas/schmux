@@ -1,5 +1,7 @@
 # Terminal Desync Diagnostics
 
+> **Note:** The diagnostic infrastructure described here is still current and active (dev mode only). For the overall pipeline architecture including the sync mechanism, see `docs/dev/terminal-pipeline.md`.
+
 ## Problem
 
 The xterm.js terminal in the browser occasionally gets out of sync with the actual tmux session state. Symptoms are garbled rendering — wrong colors, misaligned text, cursor in wrong place, overlapping text — most commonly during interactive TUI apps (vim, fzf, Claude Code). Refreshing the page fixes it, confirming the issue is in the streaming pipeline rather than tmux itself.

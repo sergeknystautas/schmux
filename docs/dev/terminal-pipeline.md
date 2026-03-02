@@ -1,6 +1,9 @@
 # Terminal Pipeline: Agent → tmux → WebSocket → xterm.js
 
-End-to-end analysis of how terminal output flows from AI agents to the browser, including known bottlenecks and rendering issues.
+How terminal output flows from AI agents to the browser, including the sync/correction mechanism, diagnostics, and known edge cases.
+
+**Last updated:** 2026-02-27
+**Supersedes:** Previously separate specs for control mode streaming, terminal sync, scrollback integrity, terminal hybrid streaming, and cursor position analysis — all consolidated here.
 
 ---
 
@@ -14,53 +17,65 @@ End-to-end analysis of how terminal output flows from AI agents to the browser, 
            │ writes to tmux PTY
            ▼
 ┌──────────────────────┐
-│  tmux session        │  history-limit: 2000 (tmux default, NOT configured)
+│  tmux session        │  history-limit: 10000
 │  (detached)          │  window-size: manual
 └──────────┬───────────┘
            │
-     ┌─────┴──────────────────────────────────┐
-     │ SessionTracker.attachAndRead()         │
-     │ `tmux attach-session -t =<name>`       │
-     │ wrapped in PTY via creack/pty          │
-     │                                        │
-     │  Read loop: 8KB buffer                 │
-     │  UTF-8 boundary handling               │
-     │  Activity debounce: 500ms              │
-     │                                        │
-     │  chan []byte (buffer: 64)  ◄── BOTTLENECK
-     │  Non-blocking send, drop on full       │
-     └──────────┬─────────────────────────────┘
+     ┌─────┴───────────────────────────────────────────┐
+     │  tmux -C attach-session (control mode)          │
+     │                                                  │
+     │  %output events → Parser → Client.processOutput()│
+     │    chan(1000)       chan(1000)                    │
+     │    drop on full    per-pane fan-out, drop on full│
+     │                                                  │
+     │  SessionTracker.fanOut()                         │
+     │    chan(1000), drop on full                      │
+     │    + OutputLog (sequenced ring buffer, 50K entries)
+     └──────────┬──────────────────────────────────────┘
+                │
+                ├──→ subscriber chan (WS client A)
+                ├──→ subscriber chan (WS client B)
+                └──→ outputCallback (preview autodetect)
                 │
                 ▼
-     ┌───────────────────────────────────────────┐
-     │ handleTerminalWebSocket()                 │
-     │                                           │
-     │  Bootstrap: capture-pane -S -1000         │
-     │    → JSON {"type":"full","content":"…"}   │
-     │                                           │
-     │  Steady-state: each chunk from channel    │
-     │    → filterMouseMode()                    │
-     │    → JSON {"type":"append","content":"…"} │
-     │                                           │
-     │  wsConn mutex serializes writes           │
-     │  gorilla upgrader: 4KB read/write bufs    │
-     └──────────┬────────────────────────────────┘
-                │ WebSocket text frames (JSON)
+     ┌──────────────────────────────────────────────────────┐
+     │ handleTerminalWebSocket()                            │
+     │                                                      │
+     │  Bootstrap: replay OutputLog → chunked binary frames │
+     │    each frame: [8-byte seq header][terminal data]    │
+     │    fallback: capture-pane -S -5000 (if log empty)    │
+     │                                                      │
+     │  Steady-state: each output event from tracker        │
+     │    → escbuf.SplitClean() (escape holdback)           │
+     │    → encodeSequencedFrame(seq, data)                 │
+     │    → conn.WriteMessage(BinaryMessage)                │
+     │                                                      │
+     │  wsConn mutex serializes writes                      │
+     │  gorilla upgrader: 4KB read / 8KB write bufs         │
+     └──────────┬───────────────────────────────────────────┘
+                │ WebSocket binary frames (sequenced)
                 ▼
-     ┌─────────────────────────────────────────┐
-     │ Browser                                 │
-     │ ws.onmessage → handleOutput()           │
-     │                                         │
-     │  "full":   terminal.reset() + write()   │
-     │  "append": terminal.write()             │
-     │                                         │
-     │  if (followTail) scrollToBottom()       │
-     └──────────┬──────────────────────────────┘
+     ┌─────────────────────────────────────────────────────┐
+     │ Browser                                             │
+     │ ws.binaryType = 'arraybuffer'                       │
+     │                                                     │
+     │ Binary frame:                                       │
+     │   parse 8-byte seq header (BigEndian uint64)        │
+     │   TextDecoder.decode(payload, {stream: true})       │
+     │   terminal.write(text, () => scrollToBottom())      │
+     │                                                     │
+     │ Gap detection:                                      │
+     │   if seq > lastReceivedSeq + 1 → send gap request   │
+     │   server replays missing events from OutputLog      │
+     │                                                     │
+     │ Text frame (JSON control messages):                 │
+     │   sync, stats, diagnostic, controlMode, displaced   │
+     └──────────┬──────────────────────────────────────────┘
                 │
                 ▼
      ┌─────────────────────────────────────────┐
      │ xterm.js Terminal                       │
-     │  scrollback: 1000 lines                 │
+     │  scrollback: 5000 lines                 │
      │  fontSize: 14, Menlo                    │
      │  convertEol: true                       │
      │  Unicode11Addon: DISABLED               │
@@ -73,59 +88,89 @@ End-to-end analysis of how terminal output flows from AI agents to the browser, 
 
 **File:** `internal/tmux/tmux.go`
 
-Sessions are created with `tmux new-session -d -s <name> -c <dir> <command>` (detached mode). No `history-limit` is set — tmux uses its default (typically 2000 lines unless overridden in the user's `.tmux.conf`). After creation, `window-size manual` is set and the status bar is configured.
+Sessions are created with `tmux new-session -d -s <name> -c <dir> <command>` (detached mode). `history-limit` is set to 10,000 lines. `window-size manual` is set and the status bar is configured.
 
 Key functions:
 
-- `CreateSession()` — creates detached session
+- `CreateSession()` — creates detached session, sets history-limit to 10000
 - `ConfigureStatusBar()` — sets status bar format
 - `GetWindowSize()` / `ResizeWindow()` — query/set terminal dimensions
-- `CaptureLastLines()` — one-shot capture for bootstrap (`-e -p -S -<N>`)
+- `CaptureLastLines()` — one-shot capture for bootstrap fallback (`-e -p -S -<N>`)
 - `CaptureOutput()` — full scrollback capture for REST API
 
 ---
 
-## Layer 2: SessionTracker (PTY Attachment)
+## Layer 2: SessionTracker (Control Mode)
 
 **File:** `internal/session/tracker.go`
 
-The `SessionTracker` maintains a long-lived PTY attachment to the tmux session via `tmux attach-session -t =<name>`, started as a child process wrapped in a pseudo-terminal (using `creack/pty`). This provides real-time streaming rather than periodic polling.
+The `SessionTracker` maintains a long-lived control mode attachment to the tmux session via `tmux -C attach-session -t =<name>`. Control mode delivers `%output` events for every byte a pane produces — not screen snapshots like the old PTY attachment model.
 
-### Read Loop
+### Control Mode Protocol
+
+tmux control mode is a text-based protocol. Instead of rendering screen frames to a PTY, tmux sends structured events on stdout:
+
+```
+%output %0 \033[32mhello\033[0m\012       ← every byte the pane produces
+%output %0 line 2\012                     ← escaped octal, one event per write
+%begin 1363006971 2 1                     ← command response start
+0: ksh* (1 panes) [80x24]                ← response content
+%end 1363006971 2 1                       ← command response end
+```
+
+### Three-Layer Fan-Out Pipeline
+
+```
+tmux -C stdout
+       │
+       ▼
+  ┌─────────┐    chan(1000)    ┌────────┐    chan(1000)
+  │ Parser  │ ──────────────▶ │ Client │ ──────────────▶
+  │ (octal  │  %output lines  │(per-pane│  per-subscriber
+  │ unescape│  drop on full   │ fanout) │  drop on full
+  └─────────┘                 └────────┘
+                                   │
+                              chan(1000)
+                                   ▼
+                            ┌──────────────────┐
+                            │ Tracker           │
+                            │ fanOut()          │  drop on full
+                            │ + OutputLog       │  (sequenced append)
+                            └──────────────────┘
+```
+
+Each layer uses non-blocking sends. Slow consumers get events dropped rather than blocking the pipeline. Drops are counted atomically at all three layers and reported in stats/diagnostics.
+
+**Key property:** Tracker-level subscriptions survive control mode reconnections. If control mode drops and reconnects, the tracker re-subscribes to the new client internally, but WebSocket clients keep their tracker-level subscription.
+
+### OutputLog (Sequenced Ring Buffer)
+
+**File:** `internal/session/outputlog.go`
+
+Every output event passing through `fanOut()` is assigned a monotonically increasing sequence number and appended to a bounded ring buffer (50,000 entries, ~5 MB). The log is the source of truth for:
+
+- **Bootstrap replay** — new WebSocket clients receive a replay from the log rather than a `capture-pane` snapshot
+- **Gap recovery** — when the frontend detects a sequence gap (dropped events), the server replays missing entries from the log
 
 ```go
-buf := make([]byte, 8192)          // 8KB read buffer
-var pending []byte                  // incomplete UTF-8 sequence
-
-for {
-    n, err := ptmx.Read(buf)        // read from PTY
-    // ... UTF-8 boundary handling ...
-    // ... activity tracking (500ms debounce) ...
-
-    if clientCh != nil {
-        select {
-        case clientCh <- chunk:      // try to send
-        default:                     // channel full → SILENTLY DROP
-        }
-    }
+type LogEntry struct {
+    Seq  uint64
+    Data []byte
 }
 ```
 
-### Channel Buffer
+The log supports `ReplayFrom(seq)` which returns all entries from seq onward, or nil if the requested data has been evicted from the ring buffer.
 
-The WebSocket client channel is `make(chan []byte, 64)`. At 8KB per slot, this holds up to 512KB in flight. When the channel is full, chunks are **silently dropped** via the non-blocking `select/default`.
+### Input and Resize
 
-### UTF-8 Safety
+- `SendInput(data)` — sends keystrokes via control mode `send-keys` command
+- `Resize(cols, rows)` — sends resize via control mode `resize-window` command
 
-`findValidUTF8Boundary()` scans backward from the end of each read to find the last complete UTF-8 character. Incomplete trailing bytes are held in `pending` and prepended to the next read. This prevents sending mid-character byte sequences over the WebSocket.
+Both go through the control mode stdin pipe (memory write), not process spawning.
 
 ### Auto-Reconnect
 
-If the PTY read fails (tmux session temporarily unavailable), the tracker waits 500ms (`trackerRestartDelay`) and retries. Retry errors are logged at most every 15 seconds.
-
-### Single-Client Model
-
-Only one WebSocket connection per session. `AttachWebSocket()` returns a new `chan []byte` and closes any previous channel. Opening a second browser tab displaces the first (which receives a `"displaced"` message).
+If control mode fails, the tracker waits 500ms and retries. Permanent errors (session gone) cause exit. Retry errors are logged at most every 15 seconds.
 
 ---
 
@@ -135,45 +180,62 @@ Only one WebSocket connection per session. `AttachWebSocket()` returns a new `ch
 
 ### Bootstrap Phase
 
-1. Attach the output channel **before** capturing bootstrap (avoids dropping output during setup).
-2. Wait up to 2 seconds for the tracker to attach its PTY.
-3. `CaptureLastLines(1000)` — captures the last 1000 lines from tmux, including ANSI escapes.
-4. Filter mouse mode sequences from the bootstrap.
-5. Send as `{"type":"full","content":"…"}`.
-6. Drain any output that accumulated during bootstrap setup.
+1. Wait up to 2 seconds for control mode to attach.
+2. Start reading client messages; wait up to 100ms for a `resize` message so the pane dimensions are correct before capture.
+3. **Replay from OutputLog** — chunked into ~16KB binary frames, each with an 8-byte sequence header. The escape holdback buffer (`escbuf.SplitClean`) ensures no partial ANSI sequences at frame boundaries.
+4. **Fallback** — if the log is empty (session pre-dates this change), capture via `tracker.CaptureLastLines(5000)` or `tmux.CaptureLastLines(5000)`.
+5. Restore cursor state — query cursor position and visibility via `tracker.GetCursorState()`, append CSI positioning + DECTCEM escape sequences.
+6. Subscribe to output **after** replay (TOCTOU prevention — events arriving after subscribe are guaranteed not to be in the replay).
+
+### Sequenced Binary Frame Protocol
+
+Each binary WebSocket frame has an 8-byte header:
+
+```
+┌──────────────────┬──────────────────┐
+│  seq (uint64 BE) │  terminal data   │
+│    8 bytes       │   N bytes        │
+└──────────────────┴──────────────────┘
+```
+
+For bootstrap frames, `seq` is reserved via `bootstrapFrameSeq()` which appends a zero-length entry to the OutputLog. This ensures the bootstrap frame's seq is strictly less than the first live event's seq, preventing the frontend's dedup logic from dropping the first keystroke echo. For live frames, `seq` is the sequence assigned during `fanOut()`.
 
 ### Steady-State Streaming
 
-The main loop `select`s on three channels:
+The main loop `select`s on:
 
-- **`outputCh`**: Each chunk from the tracker is filtered through `filterMouseMode()` and sent as `{"type":"append","content":"…"}`. No batching — every chunk becomes one WebSocket message.
-- **`sessionDead`**: Background goroutine polls `IsRunning()` every 500ms. Sends `"[Session ended]"` on death.
-- **`controlChan`**: Client input (`"input"`, `"resize"` messages).
+- **`outputCh`**: Each event from the tracker goes through escape holdback, gets a sequence header, and is sent as a binary frame.
+- **`sessionDead`**: Background goroutine polls `IsRunning()` every 500ms. Sends `[Session ended]` on death.
+- **`controlChan`**: Client messages — `input`, `resize`, `gap`, `syncResult`, `diagnostic`.
+- **`statsTickerC`**: In dev mode, every 3 seconds, sends pipeline stats as a JSON text frame.
 
-### ANSI Sequence Filtering
+### Gap Handling
 
-`filterMouseMode()` strips sequences that interfere with xterm.js scrollback:
+When the frontend detects a sequence gap (received seq > expected seq), it sends a `{"type": "gap", "data": {"fromSeq": "N"}}` message. The server replays missing entries from the OutputLog as chunked binary frames.
 
-| Sequence      | Purpose               | Why filtered                    |
-| ------------- | --------------------- | ------------------------------- |
-| `\x1b[?1000h` | X11 mouse tracking    | Would capture scroll events     |
-| `\x1b[?1002h` | Button event tracking | Same                            |
-| `\x1b[?1003h` | Any event tracking    | Same                            |
-| `\x1b[?1006h` | SGR extended mouse    | Same                            |
-| `\x1b[?1015h` | urxvt mouse mode      | Same                            |
-| `\x1b[?1049h` | Alternate screen      | Disables scrollback in xterm.js |
+### Sync (Defense-in-Depth) — Currently Disabled
+
+> **Status**: The sync goroutine is currently disabled while investigating whether
+> it introduces color artifacts (e.g., Claude Code's gray autocompletion text).
+> Gap detection + OutputLog replay is the primary consistency mechanism.
+
+When enabled, a background goroutine runs a periodic text comparison as a paranoia check:
+
+1. **Fires every 60 seconds** (initial delay 5 seconds after bootstrap).
+2. Captures visible screen via `tracker.CapturePane()` (no scrollback).
+3. Captures cursor state.
+4. If any output drops have occurred since the last sync, sets `forced: true` to bypass the frontend's activity guard.
+5. Sends as a JSON `sync` text frame.
+
+The frontend compares stripped-text line-by-line. On mismatch, it applies **surgical viewport correction** — overwriting only the differing rows using cursor-positioning escape sequences, without destroying scrollback. `terminal.reset()` is never called from the sync path.
+
+### Write Safety
+
+All WebSocket writes go through the `wsConn` wrapper which serializes writes with a mutex. Multiple goroutines write to the WebSocket (main loop, sync, stats, liveness, control mode health).
 
 ### Input Filtering
 
 Terminal query responses from xterm.js (DA1, DA2, OSC 10/11) are silently dropped and not forwarded to tmux.
-
-### Write Safety
-
-All WebSocket writes go through the `wsConn` wrapper which serializes writes with a mutex (gorilla/websocket is not concurrent-write-safe).
-
-### Message Framing
-
-All terminal output is sent as JSON text frames. No binary mode, no chunking, no compression.
 
 ---
 
@@ -190,9 +252,10 @@ new Terminal({
   cursorBlink: true,
   fontSize: 14,
   fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-  scrollback: 1000, // 1000 lines of scrollback
+  scrollback: 5000, // 5000 lines of scrollback
   convertEol: true, // \n → \r\n
-  allowProposedApi: true, // for registerDecoration
+  macOptionIsMeta: true,
+  allowProposedApi: true,
 });
 ```
 
@@ -200,205 +263,208 @@ Addons loaded: `WebLinksAddon`. `Unicode11Addon` is **disabled** (commented out,
 
 ### Output Handling
 
+Binary frames carry terminal data with a sequence header. Text frames carry JSON control messages.
+
 ```typescript
-handleOutput(data: string) {
-    let msg = JSON.parse(data);
-    switch (msg.type) {
-        case 'append':
-            this.terminal.write(msg.content);     // one write per message
-            break;
-        case 'full':
-            this.terminal.reset();
-            this.terminal.write(msg.content);
-            break;
-        case 'displaced':
-            // show displacement message
-            break;
+handleOutput(data: string | ArrayBuffer) {
+  if (data instanceof ArrayBuffer) {
+    // Parse 8-byte sequence header
+    const seq = new DataView(data).getBigUint64(0, false);
+
+    // Gap detection
+    if (this.bootstrapped && seq > this.lastReceivedSeq + 1n) {
+      this.sendGapRequest(this.lastReceivedSeq + 1n);
     }
-    if (this.followTail) {
-        this.terminal.scrollToBottom();
+    this.lastReceivedSeq = seq;
+
+    // Decode terminal data (after 8-byte header)
+    const text = this.utf8Decoder.decode(new Uint8Array(data, 8), { stream: true });
+
+    if (!this.bootstrapped) {
+      this.bootstrapped = true;
+      this.terminal.reset();
+      this.terminal.write(text, () => {
+        if (this.followTail) this.terminal.scrollToBottom();
+      });
+    } else {
+      this.terminal.write(text, () => {
+        if (this.followTail) this.terminal.scrollToBottom();
+      });
     }
+    return;
+  }
+
+  // Text frame: JSON control messages
+  const msg = JSON.parse(data);
+  switch (msg.type) {
+    case 'sync':      // defense-in-depth sync check
+    case 'stats':     // pipeline metrics (dev mode)
+    case 'diagnostic': // diagnostic response (dev mode)
+    case 'controlMode': // control mode attach/detach notification
+    case 'displaced': // another tab took over (legacy)
+    // ...
+  }
 }
 ```
 
-Every `append` message triggers a separate `terminal.write()` call. There is no batching.
+Key design: `scrollToBottom()` is called inside `terminal.write()`'s completion callback, not synchronously after it. This ensures xterm.js has fully parsed the data before scrolling, eliminating the "scrolling through thousands of lines" artifact on bootstrap.
 
 ### Scroll Position Tracking
 
+- `followTail` boolean controls auto-scroll (default: true)
 - `isAtBottom()` checks `buffer.viewportY >= buffer.baseY - threshold`
 - `handleUserScroll()` disables auto-follow when user scrolls up
-- `jumpToBottom()` re-enables follow and scrolls to bottom
+- Resume button appears when `followTail` is false
 
 ### Resize Handling
 
-- Debounced at 150ms on the client side
-- Server-side duplicate detection (queries tmux, skips if unchanged)
-- Resizes both tmux window and tracker PTY
+- No FitAddon — custom measurement via xterm.js private API (`_core._renderService.dimensions.css.cell`)
+- `ResizeObserver` + `window.resize` for detection
+- Debounced at 300ms
+- Sends `{"type": "resize", "data": "{cols, rows}"}` to backend
+- Backend resizes tmux pane via control mode
 
 ### Reconnection
 
-Exponential backoff: `delay = min(1000 * 2^attempt, 30000)`, max 10 attempts.
+Exponential backoff: `delay = min(1000 * 2^attempt, 30000)`, max 10 attempts. Each reconnect resets `bootstrapped = false` so the next binary frame triggers a full bootstrap.
 
 ---
 
-## Known Issues: Scrollback Gaps During High-Throughput Output
+## Sync and Correction
 
-When agents produce output faster than the pipeline can deliver it, users see gaps when scrolling back — lines are missing from the scrollback buffer.
+### Sequence-Based Gap Detection (Primary)
 
-### Root Cause 1: Silent Channel Drops
+The primary consistency mechanism. Each binary frame carries a monotonic sequence number. The frontend tracks `lastReceivedSeq`. If a frame arrives with seq > expected, a gap has been detected — events were dropped at some fan-out layer.
 
-The 64-slot Go channel drops chunks silently when full:
+The frontend sends `{"type": "gap", "fromSeq": "N"}` to the server. The server replays missing entries from the OutputLog. The replayed data is **appended** to the terminal — no reset, no scrollback destruction.
 
-```
-Time ──────────────────────────────────────────────────►
+If the OutputLog doesn't have the requested entries (they fell off the ring buffer), the server falls back to a capture-pane bootstrap.
 
-Agent output (fast):
-  ████████████████████████████████████████████████████
+### Surgical Viewport Correction (Fallback)
 
-PTY reads (~8KB each):
-  │1│2│3│4│5│...│64│65│66│67│68│...│200│
-                      ▲   ▲   ▲
-                      DROPPED (channel full)
+**File:** `assets/dashboard/src/lib/surgicalCorrection.ts`
 
-Channel (64 slots):
-  [1][2][3]...[64]  ← FULL, slots free only when WS write completes
-
-WS writes (serial, mutex):
-  [1]---[2]---[3]---  ← each blocked on browser TCP ACK
-
-Browser xterm.js writes:
-  [1]━━━━━[2]━━━━━  ← each takes 5-10ms to render
-```
-
-The downstream pipeline is slower at every step:
-
-| Step                        | Latency                      |
-| --------------------------- | ---------------------------- |
-| PTY read                    | ~microseconds per 8KB        |
-| JSON encode                 | ~microseconds                |
-| WebSocket write             | ~100μs-1ms (mutex + network) |
-| Browser JSON.parse          | ~100μs                       |
-| xterm.js `terminal.write()` | ~1-10ms (DOM rendering)      |
-
-xterm.js rendering is the real bottleneck. During heavy output it can take 5-10ms per write. The browser's main thread saturates, `onmessage` events back up, Go's `WriteMessage` blocks on TCP backpressure, and the channel fills.
-
-### Root Cause 2: tmux PTY Attachment Model
-
-tmux treats attached clients as displays, sending **rendered screen snapshots** rather than raw content streams:
+When the defense-in-depth text comparison finds a mismatch, the correction overwrites only the differing rows using cursor-positioning escape sequences:
 
 ```
-Agent prints 500 lines in 100ms:
-
-tmux renders screen updates every ~16ms:
-  → ~6 screen snapshots sent over PTY
-  → NOT 500 individual lines
-
-Lines that scrolled past between snapshots exist in tmux's
-internal scrollback but are NEVER sent over the attached PTY.
+For each differing row R:
+  \x1b7              Save cursor (DECSC)
+  \x1b[R+1;1H       Move to row R, column 1
+  \x1b[2K            Clear entire line
+  \x1b[0m            Reset SGR attributes
+  <row content>      Write correct ANSI content
+  \x1b8              Restore cursor (DECRC)
 ```
 
-This is a fundamental property of the PTY-attach model. It's correct for interactive terminal use, but means scrollback fidelity is inherently limited during fast output bursts.
+**Scrollback is never destroyed.** `terminal.reset()` is only called during the initial bootstrap (to clear the "Connecting..." message), never from the sync/correction path.
 
-### Root Cause 3: Scrollback Buffer Mismatch
+### Defense-in-Depth Text Comparison
 
-The three relevant buffers have different sizes:
+A background goroutine runs every 60 seconds (initial delay 5 seconds after bootstrap):
 
-| Buffer                   | Size       | Notes                             |
-| ------------------------ | ---------- | --------------------------------- |
-| tmux `history-limit`     | 2000 lines | Default, not configured by schmux |
-| Bootstrap `capture-pane` | 1000 lines | `bootstrapCaptureLines` constant  |
-| xterm.js `scrollback`    | 1000 lines | Terminal config                   |
+1. Captures visible tmux screen via `capture-pane`.
+2. Frontend compares stripped-text line-by-line against xterm.js viewport.
+3. Activity guard: skips if binary data arrived within 2 seconds (bypass if drops detected).
+4. On mismatch: applies surgical correction.
+5. Sends `syncResult` back to server for observability.
 
-Even with perfect delivery, scrolling back more than ~1000 lines is impossible. On reconnect, only the last 1000 lines of tmux's 2000-line buffer are sent.
+This is a paranoia safety net. The primary consistency mechanism is sequence-based gap detection.
 
-### What the Gap Looks Like
+### Bootstrap Race Condition
 
-```
-┌─────────────────────────────────────┐
-│ Line 1000: "Installing deps..."     │
-│ Line 1001: "npm install react"      │
-│ Line 1002: "npm install lodash"     │
-│                                     │  ← GAP: lines were in dropped
-│ Line 1003: "Building bundle..."     │     chunks, never delivered
-│ (was actually line ~1848 in agent)  │
-│ Line 1004: "✓ Build complete"       │
-└─────────────────────────────────────┘
-```
+TUI applications like Claude Code perform multi-step redraws using relative cursor movements. If the bootstrap capture fires mid-redraw, xterm.js starts with a partial state. Subsequent relative cursor movements compound the error, producing permanent desync.
 
-### Where Data Lives After a Burst
-
-```
-Agent produced 5000 lines
-           │
-           ▼
-tmux scrollback: last 2000 lines (3001-5000)
-  Lines 1-3000 evicted from tmux buffer
-  Only ~last screen sent over PTY during burst
-           │
-           ▼
-Go channel: some chunks dropped during burst
-           │
-           ▼
-xterm.js: last 1000 lines of DELIVERED content
-  Gaps where chunks were dropped
-  Missing lines from tmux screen-snapshot behavior
-```
+The OutputLog-based bootstrap mitigates this because it replays the exact byte stream (not a point-in-time screenshot), and the defense-in-depth sync provides a correction mechanism within 60 seconds.
 
 ---
 
-## Previous Fix Attempts (Reverted)
+## Diagnostics (Dev Mode Only)
 
-Three optimization commits were attempted and reverted in `7ef6b0c3` because they introduced a rendering glitch (terminal scrolling up one line periodically during typing):
+**File:** `internal/dashboard/websocket.go`, `assets/dashboard/src/lib/streamDiagnostics.ts`
 
-### 1. `sendCoalesced` backpressure (`8bed0d39`)
+### Always-On Metrics
 
-Instead of dropping chunks, buffered them in a `coalesce []byte` and merged with the next send. Blocking send when coalesced data exceeded 1MB. Also raised xterm.js scrollback to 5000.
+In dev mode, pipeline health stats are sent every 3 seconds as `{"type": "stats"}` text frames:
 
-**Problem:** Doesn't fix the PTY attachment model issue — tmux still sends screen snapshots, not raw lines. Coalescing delays drops but doesn't prevent them under sustained load.
+| Metric                               | Source                                  |
+| ------------------------------------ | --------------------------------------- |
+| Events delivered/dropped             | Atomic counters at all 3 fan-out layers |
+| Bytes delivered                      | Sum of frame sizes                      |
+| Throughput (bytes/sec)               | Computed from sliding window            |
+| Control mode reconnects              | Tracker reconnect counter               |
+| Sync checks sent/corrections/skipped | Per-connection counters                 |
+| Current seq / log oldest seq         | OutputLog                               |
 
-### 2. `requestAnimationFrame` write batching (`894eae57`)
+Frontend tracks frames received, bytes, bootstrap count, and incomplete escape sequence detection.
 
-Accumulated append data in a `pendingAppend` string on the browser side, flushed once per animation frame via `requestAnimationFrame`. Reduced xterm.js write operations from hundreds/sec to ≤60/sec.
+### Ring Buffers
 
-**Assessment:** Correct direction for reducing browser-side pressure. Did not itself cause the rendering glitch, but was reverted along with the other changes.
+Both backend (256KB `RingBuffer`) and frontend (256KB in `StreamDiagnostics`) maintain circular buffers of recent raw bytes for diagnostic capture.
 
-### 3. Scrollback sync via `capture-pane` (`d6812459`)
+### On-Demand Diagnostic Capture
 
-After a burst (>4KB output, 300ms quiet period), re-captured tmux scrollback and sent as a `"full"` message to resync the client. Also replaced `\x1b[2J` (Erase Display) with `\x1b[999S` (Scroll Up 999) to push erased content into scrollback, and filtered `\x1b[3J` (Erase Scrollback).
+Triggered via dashboard button. Captures data from all pipeline layers:
 
-**Confirmed bug:** The `\x1b[2J → \x1b[999S` replacement caused the rendering glitch. The scrollback sync concept is sound but the escape sequence rewriting was wrong.
+```
+~/.schmux/diagnostics/<timestamp>-<sessionId>/
+├── meta.json                # Counters, automated findings, verdict
+├── ringbuffer-backend.txt   # Raw terminal data as sent
+├── ringbuffer-frontend.txt  # Raw terminal data as received
+├── screen-tmux.txt          # capture-pane output
+├── screen-xterm.txt         # xterm.js buffer dump
+└── screen-diff.txt          # Human-readable diff
+```
+
+An agent session is automatically spawned to analyze the diagnostic directory.
 
 ---
 
-## Bottleneck Summary
+## Escape Sequence Holdback
 
-| Layer                | Bottleneck                                           | Severity |
-| -------------------- | ---------------------------------------------------- | -------- |
-| tmux PTY attachment  | Screen snapshots during fast output, not raw content | HIGH     |
-| Go channel (tracker) | 64-slot buffer, silent drop, no backpressure         | HIGH     |
-| xterm.js rendering   | `terminal.write()` per message, no batching          | HIGH     |
-| WebSocket framing    | JSON text frames, no binary mode or compression      | LOW      |
-| WebSocket writes     | Mutex-serialized, blocked on browser TCP ACK         | MED      |
-| Scrollback mismatch  | tmux 2000, bootstrap 1000, xterm.js 1000             | LOW      |
+**File:** `internal/escbuf/escbuf.go`
+
+`SplitClean(holdback, data)` prevents ANSI escape sequences from being split across WebSocket frame boundaries. It scans backward up to 16 bytes from the end looking for ESC (0x1b). If an incomplete CSI or OSC sequence is found, it holds back the trailing bytes for the next frame. This is a pure function — the caller owns the holdback state.
+
+---
+
+## Multi-Client Support
+
+Multiple browser tabs can view the same session simultaneously. Each has its own WebSocket connection, subscriber channel, and independent state (scroll position, follow mode).
+
+Registration uses `map[string][]*wsConn` — append on connect, remove on disconnect. No displacement — opening a second tab doesn't close the first.
 
 ---
 
 ## Configuration Reference
 
-| Parameter                      | Value                   | Location                |
-| ------------------------------ | ----------------------- | ----------------------- |
-| PTY read buffer                | 8192 bytes              | `tracker.go:237`        |
-| Channel buffer size            | 64                      | `tracker.go:118`        |
-| Activity debounce              | 500ms                   | `tracker.go:23`         |
-| Tracker restart delay          | 500ms                   | `tracker.go:22`         |
-| Retry log interval             | 15s                     | `tracker.go:24`         |
-| Bootstrap capture lines        | 1000                    | `websocket.go:20`       |
-| WS upgrader read/write buffers | 4096 bytes              | `websocket.go:136-137`  |
-| Session-dead poll interval     | 500ms                   | `websocket.go:236`      |
-| xterm.js scrollback            | 1000 lines              | `terminalStream.ts:146` |
-| Resize debounce                | 150ms                   | `terminalStream.ts:213` |
-| WS reconnect max attempts      | 10                      | `terminalStream.ts:44`  |
-| WS reconnect backoff           | 1s × 2^attempt, max 30s | `terminalStream.ts:352` |
+| Parameter                          | Value                   | Location                    |
+| ---------------------------------- | ----------------------- | --------------------------- |
+| tmux history-limit                 | 10000 lines             | `tmux.go` (`CreateSession`) |
+| Control mode channel buffer        | 1000 events             | `parser.go`                 |
+| Client fan-out channel buffer      | 1000 events             | `client.go`                 |
+| Tracker fan-out channel buffer     | 1000 events             | `tracker.go`                |
+| OutputLog capacity                 | 50000 entries           | `tracker.go`                |
+| Bootstrap capture lines (fallback) | 5000 lines              | `websocket.go`              |
+| Bootstrap chunk size               | 16384 bytes             | `websocket.go`              |
+| Sequence header size               | 8 bytes (uint64 BE)     | `websocket.go`              |
+| WS upgrader read buffer            | 4096 bytes              | `websocket.go`              |
+| WS upgrader write buffer           | 8192 bytes              | `websocket.go`              |
+| WS read limit                      | 65536 bytes             | `websocket_helpers.go`      |
+| Escape holdback scan               | 16 bytes                | `escbuf.go`                 |
+| Activity debounce                  | 500ms                   | `tracker.go`                |
+| Tracker restart delay              | 500ms                   | `tracker.go`                |
+| Retry log interval                 | 15s                     | `tracker.go`                |
+| Session-dead poll interval         | 500ms                   | `websocket.go`              |
+| Control mode health poll           | 1s                      | `websocket.go`              |
+| Sync interval (defense-in-depth)   | 60s                     | `websocket.go`              |
+| Sync initial delay                 | 5s                      | `websocket.go`              |
+| Sync activity guard                | 2000ms                  | `terminalStream.ts`         |
+| Stats ticker (dev mode)            | 3s                      | `websocket.go`              |
+| Ring buffer (dev mode)             | 256KB                   | `websocket.go`              |
+| xterm.js scrollback                | 5000 lines              | `terminalStream.ts`         |
+| Resize debounce                    | 300ms                   | `terminalStream.ts`         |
+| WS reconnect max attempts          | 10                      | `terminalStream.ts`         |
+| WS reconnect backoff               | 1s × 2^attempt, max 30s | `terminalStream.ts`         |
 
 ---
 
@@ -410,5 +476,25 @@ Tracks WebSocket round-trip latency (input sent → output received) and render 
 
 Benchmark tests:
 
-- `internal/session/tracker_bench_test.go` — PTY-level echo latency (idle and flood)
+- `internal/session/tracker_bench_test.go` — control mode echo latency (idle and flood)
 - `internal/dashboard/websocket_bench_test.go` — full WebSocket round-trip latency
+
+---
+
+## Historical Context
+
+### Previous Architecture (Superseded)
+
+Before the control mode migration, the `SessionTracker` streamed output by running `tmux attach-session` inside a PTY (using `creack/pty`). tmux treated this attached PTY as a display client, sending rendered screen frames rather than raw content. During rapid output, lines that scrolled past between screen renders were never transmitted — they existed in tmux's scrollback but were structurally absent from the PTY output.
+
+The WebSocket transport used JSON text frames (`{"type": "full", "content": "..."}` and `{"type": "append", "content": "..."}`). A `filterMouseMode()` function stripped mouse tracking and alternate screen sequences that tmux injected for its attached clients.
+
+Three optimization attempts were reverted in `7ef6b0c3` (sendCoalesced backpressure, requestAnimationFrame batching, scrollback sync via capture-pane) because an escape sequence rewrite (`\x1b[2J → \x1b[999S`) caused a rendering glitch.
+
+The control mode migration eliminated the root cause (screen snapshots vs raw bytes) rather than working around it.
+
+### Previous Sync Architecture (Superseded)
+
+The original sync mechanism used `terminal.reset()` + `terminal.write(screen)` to correct any mismatch between tmux and xterm.js. This was destructive — it destroyed all scrollback every time a correction fired. Combined with a 10-second interval, an aggressive 500ms initial delay, and false positives from timing races, users experienced frequent scrollback loss and multi-second rendering delays during bootstrap.
+
+The current architecture replaces this with sequence-based gap detection (for actual data loss) and surgical viewport correction (for the rare cases that slip through). `terminal.reset()` is never called from the sync path.

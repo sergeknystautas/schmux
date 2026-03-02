@@ -10,6 +10,9 @@ export interface BackendStats {
   bytesPerSec?: number;
   clientFanOutDrops?: number;
   fanOutDrops?: number;
+  currentSeq?: number;
+  logOldestSeq?: number;
+  logTotalBytes?: number;
 }
 
 interface FrontendStats {
@@ -278,6 +281,32 @@ export function StreamMetricsPanel({ backendStats, frontendStats, onDiagnosticCa
                   </td>
                 </tr>
               )}
+              <tr>
+                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
+                  Server seq (output log)
+                </td>
+                <td style={{ padding: '2px 0', textAlign: 'right' }}>
+                  {backendStats?.currentSeq ?? '—'}
+                </td>
+              </tr>
+              <tr>
+                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
+                  Log oldest seq
+                </td>
+                <td style={{ padding: '2px 0', textAlign: 'right' }}>
+                  {backendStats?.logOldestSeq ?? '—'}
+                </td>
+              </tr>
+              <tr>
+                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
+                  Log total bytes
+                </td>
+                <td style={{ padding: '2px 0', textAlign: 'right' }}>
+                  {backendStats?.logTotalBytes != null
+                    ? formatBytes(backendStats.logTotalBytes)
+                    : '—'}
+                </td>
+              </tr>
               <tr>
                 <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
                   Control mode reconnects

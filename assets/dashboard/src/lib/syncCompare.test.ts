@@ -44,6 +44,30 @@ describe('compareScreens', () => {
     expect(result.skip).toBe(true);
   });
 
+  it('does not skip when dimension diff is exactly 2 (within tolerance)', () => {
+    const xterm = Array(24)
+      .fill('')
+      .map((_, i) => `line ${i}`);
+    const sync = Array(26)
+      .fill('')
+      .map((_, i) => `line ${i}`);
+    const result = compareScreens(xterm, sync);
+    // diff=2, within ±2 tolerance → should NOT skip
+    expect(result.skip).toBeUndefined();
+  });
+
+  it('skips when dimension diff is exactly 3 (exceeds tolerance)', () => {
+    const xterm = Array(24)
+      .fill('')
+      .map((_, i) => `line ${i}`);
+    const sync = Array(27)
+      .fill('')
+      .map((_, i) => `line ${i}`);
+    const result = compareScreens(xterm, sync);
+    // diff=3, exceeds ±2 tolerance → should skip
+    expect(result.skip).toBe(true);
+  });
+
   it('handles the ghost cursor-forward case', () => {
     const xterm = ['⏺      1 file'];
     const sync = [''];
