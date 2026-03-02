@@ -18,6 +18,15 @@ import (
 
 const trackerRestartDelay = 500 * time.Millisecond
 const trackerActivityDebounce = 500 * time.Millisecond
+
+// SequencedOutput wraps an output event with its output log sequence number.
+// The Seq is assigned atomically during fanOut so WebSocket handlers can use
+// it directly instead of racing on CurrentSeq().
+type SequencedOutput struct {
+	controlmode.OutputEvent
+	Seq uint64
+}
+
 const trackerRetryLogInterval = 15 * time.Second
 
 // isPermanentError detects tmux errors that indicate the session is gone forever.
@@ -61,7 +70,7 @@ type SessionTracker struct {
 
 	// Tracker-level subscriber fan-out (survives reconnections)
 	subsMu sync.Mutex
-	subs   []chan controlmode.OutputEvent
+	subs   []chan SequencedOutput
 
 	stopOnce sync.Once
 	stopCh   chan struct{}
@@ -70,6 +79,9 @@ type SessionTracker struct {
 	lastRetryLog time.Time
 
 	Counters TrackerCounters
+
+	// Sequenced output log for replay-based bootstrap and gap recovery
+	outputLog *OutputLog
 
 	// Terminal size tracking for diagnostics (accessed from multiple goroutines)
 	LastTerminalCols atomic.Int32
@@ -83,6 +95,11 @@ func (t *SessionTracker) IsAttached() bool {
 	return t.cmClient != nil
 }
 
+// OutputLog returns the sequenced output log for this session.
+func (t *SessionTracker) OutputLog() *OutputLog {
+	return t.outputLog
+}
+
 // NewSessionTracker creates a tracker for a session.
 // If eventFilePath is non-empty and eventHandlers is non-nil, an EventWatcher
 // is created for the unified event system.
@@ -93,6 +110,7 @@ func NewSessionTracker(sessionID, tmuxSession string, st state.StateStore, event
 		state:          st,
 		outputCallback: outputCallback,
 		logger:         logger,
+		outputLog:      NewOutputLog(50000), // 50,000 entries ≈ 5MB at ~100 bytes/event
 		stopCh:         make(chan struct{}),
 		doneCh:         make(chan struct{}),
 	}
@@ -142,21 +160,23 @@ func (t *SessionTracker) SetTmuxSession(name string) {
 
 // SubscribeOutput returns a buffered channel that receives output events for this session.
 // Multiple subscribers are supported. Subscriptions survive control mode reconnections.
-func (t *SessionTracker) SubscribeOutput() <-chan controlmode.OutputEvent {
-	ch := make(chan controlmode.OutputEvent, 1000)
+func (t *SessionTracker) SubscribeOutput() <-chan SequencedOutput {
+	ch := make(chan SequencedOutput, 1000)
 	t.subsMu.Lock()
 	t.subs = append(t.subs, ch)
 	t.subsMu.Unlock()
 	return ch
 }
 
-// UnsubscribeOutput removes an output subscription and closes its channel.
-func (t *SessionTracker) UnsubscribeOutput(ch <-chan controlmode.OutputEvent) {
+// UnsubscribeOutput removes an output subscription.
+// The channel is NOT closed here — closing during fanOut iteration would panic
+// (send on closed channel). Subscribers detect session end via sessionDead or
+// context cancellation. Stop() closes all channels safely after run() exits.
+func (t *SessionTracker) UnsubscribeOutput(ch <-chan SequencedOutput) {
 	t.subsMu.Lock()
 	defer t.subsMu.Unlock()
 	for i, sub := range t.subs {
 		if sub == ch {
-			close(sub)
 			t.subs = append(t.subs[:i], t.subs[i+1:]...)
 			return
 		}
@@ -169,14 +189,21 @@ func (t *SessionTracker) fanOut(event controlmode.OutputEvent) {
 	t.Counters.EventsDelivered.Add(1)
 	t.Counters.BytesDelivered.Add(int64(len(event.Data)))
 
+	// Record in sequenced log (before fan-out, so replay is authoritative).
+	// Capture the returned seq so subscribers get the correct sequence number
+	// (using CurrentSeq()-1 after the fact is racy when multiple events arrive).
+	seq := t.outputLog.Append([]byte(event.Data))
+
+	seqEvent := SequencedOutput{OutputEvent: event, Seq: seq}
+
 	t.subsMu.Lock()
-	subs := make([]chan controlmode.OutputEvent, len(t.subs))
+	subs := make([]chan SequencedOutput, len(t.subs))
 	copy(subs, t.subs)
 	t.subsMu.Unlock()
 
 	for _, ch := range subs {
 		select {
-		case ch <- event:
+		case ch <- seqEvent:
 		default:
 			// Slow consumer — drop event to avoid blocking
 			t.Counters.FanOutDrops.Add(1)

@@ -168,8 +168,9 @@ export async function waitForTerminalOutput(
 
     ws.on('message', (data: WS.Data, isBinary: boolean) => {
       if (isBinary) {
-        // Binary frame: raw terminal bytes
-        buffer += data.toString();
+        // Binary frame: 8-byte sequence header + terminal bytes
+        const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
+        buffer += buf.subarray(8).toString('utf-8');
       } else {
         // Text frame: JSON control message (legacy/fallback)
         try {

@@ -2,11 +2,13 @@ package dashboard
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -49,6 +51,68 @@ func isTerminalResponse(data string) bool {
 	return false
 }
 
+// encodeSequencedFrame creates a binary WebSocket frame with an 8-byte
+// big-endian sequence header followed by terminal data.
+func encodeSequencedFrame(seq uint64, data []byte) []byte {
+	frame := make([]byte, 8+len(data))
+	binary.BigEndian.PutUint64(frame[:8], seq)
+	copy(frame[8:], data)
+	return frame
+}
+
+// bootstrapFrameSeq reserves a sequence number for the bootstrap frame by
+// appending a zero-length entry to the output log. This ensures the bootstrap
+// frame's seq is strictly less than the first live output event's seq,
+// preventing the frontend's dedup logic from dropping the first keystroke echo.
+func bootstrapFrameSeq(log *session.OutputLog) uint64 {
+	return log.Append(nil)
+}
+
+type replayChunk struct {
+	Seq  uint64
+	Data []byte
+}
+
+// chunkReplayEntries groups log entries into chunks of approximately maxBytes.
+// Each chunk's Seq is the sequence of its last entry.
+func chunkReplayEntries(entries []session.LogEntry, maxBytes int) []replayChunk {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	var chunks []replayChunk
+	var current []byte
+	var lastSeq uint64
+
+	for _, e := range entries {
+		if len(current)+len(e.Data) > maxBytes && len(current) > 0 {
+			chunks = append(chunks, replayChunk{Seq: lastSeq, Data: current})
+			current = nil
+		}
+		current = append(current, e.Data...)
+		lastSeq = e.Seq
+	}
+	if len(current) > 0 {
+		chunks = append(chunks, replayChunk{Seq: lastSeq, Data: current})
+	}
+	return chunks
+}
+
+// buildGapReplayFrames replays missing events from the output log as sequenced frames.
+// Returns nil if the requested data has been evicted from the log.
+func buildGapReplayFrames(log *session.OutputLog, fromSeq uint64, maxChunkBytes int) [][]byte {
+	entries := log.ReplayFrom(fromSeq)
+	if entries == nil {
+		return nil // data evicted
+	}
+	chunks := chunkReplayEntries(entries, maxChunkBytes)
+	var frames [][]byte
+	for _, chunk := range chunks {
+		frames = append(frames, encodeSequencedFrame(chunk.Seq, chunk.Data))
+	}
+	return frames
+}
+
 // WSMessage represents a WebSocket message from the client.
 type WSMessage struct {
 	Type string `json:"type"`
@@ -74,6 +138,9 @@ type WSStatsMessage struct {
 	SyncSkippedActive int64  `json:"syncSkippedActive"`
 	ClientFanOutDrops int64  `json:"clientFanOutDrops"`
 	FanOutDrops       int64  `json:"fanOutDrops"`
+	CurrentSeq        uint64 `json:"currentSeq"`
+	LogOldestSeq      uint64 `json:"logOldestSeq"`
+	LogTotalBytes     int64  `json:"logTotalBytes"`
 }
 
 // WSSyncCursor holds cursor position for sync messages.
@@ -250,12 +317,25 @@ resizeWaitLoop:
 		}
 	}
 
-	// Bootstrap with scrollback — send as binary frame
-	// Use tracker's control mode capture if attached, fall back to tmux CLI
+	// Bootstrap: capture-pane snapshot for the initial screen content.
+	// We use capture-pane (not output log replay) because tmux server-side
+	// operations like clear-history are not recorded in the output log,
+	// which would cause scrollback divergence between xterm.js and tmux.
+	// The output log is used only for gap detection and live event replay.
+	outputLog := tracker.OutputLog()
+
+	// Escape-sequence holdback: prevents partial ANSI sequences at frame boundaries
+	var escHoldback []byte
+
+	// Subscribe BEFORE bootstrap capture to prevent TOCTOU: events arriving
+	// between capture and subscribe would otherwise be lost. We drain any
+	// events with seq <= bootstrapSeq after bootstrap to avoid double-delivery.
+	outputCh := tracker.SubscribeOutput()
+	defer tracker.UnsubscribeOutput(outputCh)
+
 	capCtx, capCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
 	bootstrap, err := tracker.CaptureLastLines(capCtx, bootstrapCaptureLines)
 	if err != nil {
-		// Fallback to direct tmux CLI capture
 		bootstrap, err = tmux.CaptureLastLines(capCtx, sess.TmuxSession, bootstrapCaptureLines, true)
 		if err != nil {
 			logging.Sub(s.logger, "ws").Error("bootstrap capture failed", "session_id", sessionID[:8], "err", err)
@@ -263,6 +343,20 @@ resizeWaitLoop:
 		}
 	}
 	capCancel()
+
+	// Reserve a sequence number for the bootstrap frame. This ensures the
+	// bootstrap frame's seq is strictly less than the first live event's seq,
+	// preventing the frontend's dedup logic from dropping the first keystroke echo.
+	// The drain boundary (CurrentSeq after reservation) identifies which events
+	// are already reflected in the capture-pane snapshot.
+	bootstrapSeq := bootstrapFrameSeq(outputLog)
+	drainBoundary := outputLog.CurrentSeq()
+	if bootstrap != "" {
+		frame := encodeSequencedFrame(bootstrapSeq, []byte(bootstrap))
+		if err := conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
+			return
+		}
+	}
 
 	// Restore cursor state (position + visibility) so xterm.js matches tmux.
 	// capture-pane doesn't preserve terminal modes like cursor visibility,
@@ -286,27 +380,57 @@ resizeWaitLoop:
 		}
 	}
 	if curErr == nil {
-		// CSI H is 1-indexed
-		bootstrap += fmt.Sprintf("\033[%d;%dH", curY+1, curX+1)
-		// DECTCEM: cursor visibility
+		// Cursor restoration is ephemeral (not logged), sent as a separate unsequenced frame
+		cursorRestore := fmt.Sprintf("\033[%d;%dH", curY+1, curX+1)
 		if curVisible {
-			bootstrap += "\033[?25h"
+			cursorRestore += "\033[?25h"
 		} else {
-			bootstrap += "\033[?25l"
+			cursorRestore += "\033[?25l"
+		}
+		// Use bootstrap seq for the cursor restore frame
+		frame := encodeSequencedFrame(bootstrapSeq, []byte(cursorRestore))
+		if err := conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
+			return
 		}
 	}
 
-	// Subscribe to output — after capture to avoid TOCTOU double-delivery.
-	// Events arriving after subscribe are guaranteed not to be in the bootstrap snapshot.
-	outputCh := tracker.SubscribeOutput()
-	defer tracker.UnsubscribeOutput(outputCh)
-
-	if err := conn.WriteMessage(websocket.BinaryMessage, []byte(bootstrap)); err != nil {
-		return
+	// Drain any events that arrived during bootstrap (seq < drainBoundary).
+	// These are already reflected in the capture-pane snapshot.
+drainBootstrap:
+	for {
+		select {
+		case ev, ok := <-outputCh:
+			if !ok {
+				return
+			}
+			if ev.Seq >= drainBoundary {
+				// This event is post-bootstrap — process it normally below.
+				// Push it back by handling it inline before entering the main loop.
+				if len(ev.Data) > 0 {
+					send, hb := escbuf.SplitClean(escHoldback, []byte(ev.Data))
+					escHoldback = hb
+					if len(send) > 0 {
+						frame := encodeSequencedFrame(ev.Seq, send)
+						if err := conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
+							return
+						}
+					}
+				}
+				break drainBootstrap
+			}
+			// seq < drainBoundary — already in bootstrap snapshot, skip
+		default:
+			break drainBootstrap
+		}
 	}
 
-	// Escape-sequence holdback: prevents partial ANSI sequences at frame boundaries
-	var escHoldback []byte
+	// Signal bootstrap complete — the frontend uses this to enable gap detection.
+	// Without this, the frontend would detect false gaps between bootstrap chunks
+	// (each chunk's seq is its last entry, so there are apparent gaps between chunks).
+	bootstrapMsg, _ := json.Marshal(map[string]string{"type": "bootstrapComplete"})
+	if err := conn.WriteMessage(websocket.TextMessage, bootstrapMsg); err != nil {
+		return
+	}
 
 	// Sync check counters (per-connection)
 	var syncChecksSent atomic.Int64
@@ -374,32 +498,19 @@ resizeWaitLoop:
 		}
 	}()
 
-	// Activity-triggered sync: large output events trigger debounced sync check
-	syncNow := make(chan struct{}, 1)
-
-	// Periodic sync check goroutine — sends screen snapshots for desync detection
+	// Periodic defense-in-depth sync — sends screen snapshots for paranoia desync detection.
+	// Gap detection + replay is the primary consistency mechanism (Task 8).
+	// This goroutine is a safety net only (60s interval).
 	go func() {
-		timer := time.NewTimer(500 * time.Millisecond)
+		timer := time.NewTimer(5 * time.Second)
 		defer timer.Stop()
 
-		interval := 10 * time.Second
+		interval := 60 * time.Second
 		var lastDropsSeen int64
 
 		for {
 			select {
 			case <-timer.C:
-			case <-syncNow:
-				// Debounce: wait 200ms for activity to settle
-				debounce := time.NewTimer(200 * time.Millisecond)
-			drainSync:
-				for {
-					select {
-					case <-syncNow:
-					case <-debounce.C:
-						break drainSync
-					}
-				}
-				debounce.Stop()
 			case <-sessionDead:
 				return
 			}
@@ -449,7 +560,8 @@ resizeWaitLoop:
 			if !ok {
 				// Flush any held-back bytes before closing
 				if len(escHoldback) > 0 {
-					conn.WriteMessage(websocket.BinaryMessage, escHoldback)
+					seq := outputLog.Append(escHoldback)
+					conn.WriteMessage(websocket.BinaryMessage, encodeSequencedFrame(seq, escHoldback))
 				}
 				conn.WriteMessage(websocket.CloseMessage,
 					websocket.FormatCloseMessage(1000, "session ended"))
@@ -462,15 +574,9 @@ resizeWaitLoop:
 					ringBuf.Write(send)
 				}
 				if len(send) > 0 {
-					if err := conn.WriteMessage(websocket.BinaryMessage, send); err != nil {
+					frame := encodeSequencedFrame(event.Seq, send)
+					if err := conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
 						return
-					}
-					// Trigger activity-based sync for large output (TUI redraws)
-					if len(send) > 500 {
-						select {
-						case syncNow <- struct{}{}:
-						default: // already pending
-						}
 					}
 				}
 			}
@@ -498,6 +604,9 @@ resizeWaitLoop:
 					SyncSkippedActive: syncSkippedActive.Load(),
 					ClientFanOutDrops: counters["clientFanOutDrops"],
 					FanOutDrops:       counters["fanOutDrops"],
+					CurrentSeq:        tracker.OutputLog().CurrentSeq(),
+					LogOldestSeq:      tracker.OutputLog().OldestSeq(),
+					LogTotalBytes:     tracker.OutputLog().TotalBytes(),
 				}
 				data, _ := json.Marshal(statsMsg)
 				conn.WriteMessage(websocket.TextMessage, data)
@@ -517,9 +626,12 @@ resizeWaitLoop:
 		case <-sessionDead:
 			// Flush any held-back bytes before closing
 			if len(escHoldback) > 0 {
-				conn.WriteMessage(websocket.BinaryMessage, escHoldback)
+				seq := outputLog.Append(escHoldback)
+				conn.WriteMessage(websocket.BinaryMessage, encodeSequencedFrame(seq, escHoldback))
 			}
-			conn.WriteMessage(websocket.BinaryMessage, []byte("\n[Session ended]"))
+			endMsg := []byte("\n[Session ended]")
+			endSeq := outputLog.Append(endMsg)
+			conn.WriteMessage(websocket.BinaryMessage, encodeSequencedFrame(endSeq, endMsg))
 			conn.WriteMessage(websocket.CloseMessage,
 				websocket.FormatCloseMessage(1000, "session ended"))
 			return
@@ -563,6 +675,23 @@ resizeWaitLoop:
 					logging.Sub(s.logger, "sync").Debug("corrected rows", "session_id", sessionID[:8], "rows_count", len(result.DiffRows), "diff_rows", result.DiffRows)
 				} else {
 					syncSkippedActive.Add(1)
+				}
+			case "gap":
+				var gapData struct {
+					FromSeq string `json:"fromSeq"`
+				}
+				if err := json.Unmarshal([]byte(msg.Data), &gapData); err != nil {
+					break
+				}
+				fromSeq, err := strconv.ParseUint(gapData.FromSeq, 10, 64)
+				if err != nil {
+					break
+				}
+				frames := buildGapReplayFrames(tracker.OutputLog(), fromSeq, 16384)
+				for _, frame := range frames {
+					if err := conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
+						return
+					}
 				}
 			case "diagnostic":
 				if !s.devMode {
@@ -680,7 +809,7 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 	}
 	capCancel()
 	if bootstrap != "" {
-		conn.WriteMessage(websocket.BinaryMessage, []byte(bootstrap))
+		conn.WriteMessage(websocket.BinaryMessage, encodeSequencedFrame(0, []byte(bootstrap)))
 	}
 
 	// Subscribe to output — after capture to avoid TOCTOU double-delivery
@@ -701,6 +830,7 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 
 	// Escape-sequence holdback for CR terminal
 	var escHoldback []byte
+	var lastSeq uint64
 
 	// Stream output until connection closes or tracker stops
 	for {
@@ -708,17 +838,18 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 		case event, ok := <-outputCh:
 			if !ok {
 				if len(escHoldback) > 0 {
-					conn.WriteMessage(websocket.BinaryMessage, escHoldback)
+					conn.WriteMessage(websocket.BinaryMessage, encodeSequencedFrame(lastSeq, escHoldback))
 				}
 				return
 			}
 			if len(event.Data) == 0 {
 				continue
 			}
+			lastSeq = event.Seq
 			send, hb := escbuf.SplitClean(escHoldback, []byte(event.Data))
 			escHoldback = hb
 			if len(send) > 0 {
-				if err := conn.WriteMessage(websocket.BinaryMessage, send); err != nil {
+				if err := conn.WriteMessage(websocket.BinaryMessage, encodeSequencedFrame(event.Seq, send)); err != nil {
 					return
 				}
 			}
@@ -779,7 +910,7 @@ resizeWait:
 	}
 	capCancel()
 	if bootstrap != "" {
-		conn.WriteMessage(websocket.BinaryMessage, []byte(bootstrap))
+		conn.WriteMessage(websocket.BinaryMessage, encodeSequencedFrame(0, []byte(bootstrap)))
 	}
 
 	// Subscribe to output after bootstrap
@@ -788,6 +919,7 @@ resizeWait:
 
 	// Escape-sequence holdback
 	var escHoldback []byte
+	var lastSeq uint64
 
 	// Stream output and process input
 	for {
@@ -795,17 +927,18 @@ resizeWait:
 		case event, ok := <-outputCh:
 			if !ok {
 				if len(escHoldback) > 0 {
-					conn.WriteMessage(websocket.BinaryMessage, escHoldback)
+					conn.WriteMessage(websocket.BinaryMessage, encodeSequencedFrame(lastSeq, escHoldback))
 				}
 				return
 			}
 			if len(event.Data) == 0 {
 				continue
 			}
+			lastSeq = event.Seq
 			send, hb := escbuf.SplitClean(escHoldback, []byte(event.Data))
 			escHoldback = hb
 			if len(send) > 0 {
-				if err := conn.WriteMessage(websocket.BinaryMessage, send); err != nil {
+				if err := conn.WriteMessage(websocket.BinaryMessage, encodeSequencedFrame(event.Seq, send)); err != nil {
 					return
 				}
 			}

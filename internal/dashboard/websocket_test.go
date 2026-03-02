@@ -1,11 +1,15 @@
 package dashboard
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
+	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -484,5 +488,162 @@ func TestBuildSyncMessage(t *testing.T) {
 	cursorMap := decoded["cursor"].(map[string]interface{})
 	if int(cursorMap["row"].(float64)) != 24 {
 		t.Errorf("JSON cursor.row = %v, want 24", cursorMap["row"])
+	}
+}
+
+func TestEncodeSequencedFrame(t *testing.T) {
+	data := []byte("hello")
+	frame := encodeSequencedFrame(42, data)
+
+	if len(frame) != 8+5 {
+		t.Fatalf("frame length=%d, want 13", len(frame))
+	}
+
+	// Verify big-endian uint64 sequence
+	seq := binary.BigEndian.Uint64(frame[:8])
+	if seq != 42 {
+		t.Errorf("seq=%d, want 42", seq)
+	}
+	if string(frame[8:]) != "hello" {
+		t.Errorf("data=%q, want 'hello'", frame[8:])
+	}
+}
+
+func TestChunkReplay(t *testing.T) {
+	log := session.NewOutputLog(100)
+	for i := 0; i < 20; i++ {
+		log.Append([]byte(fmt.Sprintf("line %d\n", i)))
+	}
+
+	chunks := chunkReplayEntries(log.ReplayAll(), 50) // 50 byte chunks
+	if len(chunks) == 0 {
+		t.Fatal("expected at least one chunk")
+	}
+
+	// Verify all data is present across chunks
+	var total []byte
+	for _, c := range chunks {
+		total = append(total, c.Data...)
+	}
+	for i := 0; i < 20; i++ {
+		expected := fmt.Sprintf("line %d\n", i)
+		if !bytes.Contains(total, []byte(expected)) {
+			t.Errorf("missing line %d in chunked output", i)
+		}
+	}
+
+	// Verify last chunk has the correct final seq
+	lastChunk := chunks[len(chunks)-1]
+	if lastChunk.Seq != 19 {
+		t.Errorf("last chunk seq=%d, want 19", lastChunk.Seq)
+	}
+}
+
+func TestBuildGapReplayFrames(t *testing.T) {
+	log := session.NewOutputLog(100)
+	log.Append([]byte("a"))
+	log.Append([]byte("b"))
+	log.Append([]byte("c"))
+
+	frames := buildGapReplayFrames(log, 1, 16384) // replay from seq 1
+	if len(frames) == 0 {
+		t.Fatal("expected replay frames")
+	}
+	// Should contain data for seq 1 and 2 ("b" and "c")
+	var total []byte
+	for _, f := range frames {
+		total = append(total, f[8:]...) // skip 8-byte header
+	}
+	if string(total) != "bc" {
+		t.Errorf("replayed data=%q, want 'bc'", total)
+	}
+}
+
+func TestBuildGapReplayFrames_EvictedData(t *testing.T) {
+	log := session.NewOutputLog(2) // tiny buffer
+	log.Append([]byte("a"))
+	log.Append([]byte("b"))
+	log.Append([]byte("c")) // evicts "a"
+
+	// Request from seq 0 (evicted) — should return nil
+	frames := buildGapReplayFrames(log, 0, 16384)
+	if frames != nil {
+		t.Errorf("expected nil for evicted data, got %d frames", len(frames))
+	}
+}
+
+func TestChunkReplay_SingleEntryExceedsMaxBytes(t *testing.T) {
+	log := session.NewOutputLog(100)
+
+	// Add a small entry, then a large entry that exceeds maxBytes, then another small one
+	log.Append([]byte("small"))
+	log.Append(bytes.Repeat([]byte("X"), 200)) // 200 bytes, exceeds maxBytes=50
+	log.Append([]byte("after"))
+
+	chunks := chunkReplayEntries(log.ReplayAll(), 50) // maxBytes=50
+	if len(chunks) == 0 {
+		t.Fatal("expected at least one chunk")
+	}
+
+	// Verify all data is present across chunks
+	var total []byte
+	for _, c := range chunks {
+		total = append(total, c.Data...)
+	}
+	if !bytes.Contains(total, []byte("small")) {
+		t.Error("missing 'small' in chunked output")
+	}
+	if !bytes.Contains(total, bytes.Repeat([]byte("X"), 200)) {
+		t.Error("missing large entry in chunked output")
+	}
+	if !bytes.Contains(total, []byte("after")) {
+		t.Error("missing 'after' in chunked output")
+	}
+
+	// The large entry should be in its own chunk (since "small" fills current,
+	// then the 200-byte entry exceeds maxBytes so "small" flushes first,
+	// then 200-byte entry starts a new chunk which also exceeds maxBytes but
+	// gets flushed when "after" arrives)
+	if len(chunks) < 3 {
+		t.Errorf("expected at least 3 chunks for small+oversized+small, got %d", len(chunks))
+	}
+}
+
+// TestBootstrapSeqDoesNotCollideWithFirstLiveEvent verifies that the bootstrap
+// frame's sequence number is strictly less than the first live output event's
+// sequence number. If they collide, the frontend's dedup logic drops the first
+// live event (the echo of the user's first keystroke).
+func TestBootstrapSeqDoesNotCollideWithFirstLiveEvent(t *testing.T) {
+	log := session.NewOutputLog(100)
+
+	// Simulate some prior output (agent produced output before WebSocket connects)
+	log.Append([]byte("prior output 1"))
+	log.Append([]byte("prior output 2"))
+
+	// This is what the WebSocket handler does at bootstrap time:
+	bootstrapSeq := bootstrapFrameSeq(log)
+
+	// This is what happens when the user types and the echo arrives:
+	firstLiveSeq := log.Append([]byte("first keystroke echo"))
+
+	if bootstrapSeq >= firstLiveSeq {
+		t.Errorf("bootstrap frame seq (%d) must be < first live event seq (%d); "+
+			"equal values cause the frontend dedup to drop the first keystroke echo",
+			bootstrapSeq, firstLiveSeq)
+	}
+}
+
+func TestBootstrapSeqDoesNotCollideWithFirstLiveEvent_EmptyLog(t *testing.T) {
+	log := session.NewOutputLog(100)
+
+	// Empty log: no prior output (freshly spawned session)
+	bootstrapSeq := bootstrapFrameSeq(log)
+
+	firstLiveSeq := log.Append([]byte("first keystroke echo"))
+
+	if bootstrapSeq >= firstLiveSeq {
+		t.Errorf("bootstrap frame seq (%d) must be < first live event seq (%d); "+
+			"equal values cause the frontend dedup to drop the first keystroke echo",
+			bootstrapSeq, firstLiveSeq)
 	}
 }

@@ -29,7 +29,12 @@ func SplitClean(holdback, data []byte) (send, newHoldback []byte) {
 		return nil, nil
 	}
 
-	// Scan backward up to 16 bytes from the end looking for ESC (0x1b)
+	// Scan backward up to 16 bytes from the end looking for ESC (0x1b).
+	// This window is intentionally small: real-world ANSI escape sequences
+	// are almost always under 16 bytes. A longer DCS/APC/PM/SOS sequence whose
+	// opening ESC falls outside this window will NOT be held back — this is
+	// acceptable because such sequences are rare in terminal output, and the
+	// cost of scanning the entire buffer on every frame would be prohibitive.
 	scanStart := len(buf) - 16
 	if scanStart < 0 {
 		scanStart = 0
@@ -103,6 +108,22 @@ func isCompleteEscape(tail []byte) bool {
 			if tail[i] == 0x07 {
 				return true // terminated by BEL
 			}
+			if tail[i] == 0x1b && i+1 < len(tail) && tail[i+1] == '\\' {
+				return true // terminated by ST (ESC \)
+			}
+		}
+		return false // no terminator found
+
+	case 'P': // DCS sequence: ESC P ... (terminated by ST = ESC \)
+		for i := 2; i < len(tail); i++ {
+			if tail[i] == 0x1b && i+1 < len(tail) && tail[i+1] == '\\' {
+				return true // terminated by ST (ESC \)
+			}
+		}
+		return false // no terminator found
+
+	case '_', '^', 'X': // APC (ESC _), PM (ESC ^), SOS (ESC X): string sequences terminated by ST
+		for i := 2; i < len(tail); i++ {
 			if tail[i] == 0x1b && i+1 < len(tail) && tail[i+1] == '\\' {
 				return true // terminated by ST (ESC \)
 			}

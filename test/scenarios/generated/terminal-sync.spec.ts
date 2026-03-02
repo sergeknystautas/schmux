@@ -114,7 +114,7 @@ test.describe.serial('Terminal sync: round-trip', () => {
     const sentinel = sendTmuxCommandWithSentinel(tmuxName, 'echo "sync-test-line"');
     await waitForSentinel(sessionId, sentinel);
 
-    // Wait for sync message (initial fires at 500ms, may be delayed by activity guard)
+    // Wait for sync message (initial fires at 5s, may be delayed by activity guard)
     await Promise.race([
       syncReceived,
       new Promise((_, reject) =>
@@ -147,11 +147,11 @@ test.describe.serial('Terminal sync: round-trip', () => {
     // Verify baseline match
     await assertTerminalMatchesTmux(page, tmuxName);
 
-    // Wait for activity guard to clear (>500ms since last binary data)
-    await new Promise((r) => setTimeout(r, 700));
-
     // Corrupt xterm.js buffer with content that doesn't match tmux.
-    // This simulates a bootstrap desync where xterm.js shows wrong content.
+    // We corrupt immediately after baseline verification so that the
+    // corruption exists when the first sync fires (initial sync at 5s
+    // from connection). The activity guard (2s since last binary data)
+    // will have cleared by then since sentinel data arrived ~3-4s earlier.
     await page.evaluate(() => {
       const terminal = (window as any).__schmuxTerminal;
       if (!terminal) throw new Error('__schmuxTerminal not found');
@@ -169,9 +169,9 @@ test.describe.serial('Terminal sync: round-trip', () => {
     expect(hasCorruption).toBe(true);
 
     // Wait for the sync goroutine to detect the desync and correct it.
-    // The sync fires every 10s after the initial 500ms check, so we need
-    // patience. Poll assertTerminalMatchesTmux (which retries internally
-    // for ~3s) in a loop with a 15s outer deadline.
+    // The initial sync fires at 5s from connection, then every 60s.
+    // Since we corrupted early, the first sync should catch it.
+    // Use a 15s deadline to allow margin.
     const deadline = Date.now() + 15_000;
     let corrected = false;
 
@@ -217,7 +217,7 @@ test.describe.serial('Terminal sync: round-trip', () => {
     await waitForSentinel(sessionId, sentinel);
 
     // Wait for the sync goroutine to fire and the frontend to respond.
-    // The initial sync fires at 500ms. The frontend should send a syncResult
+    // The initial sync fires at 5s. The frontend should send a syncResult
     // regardless of whether a correction was needed.
     const resultDeadline = Date.now() + 15_000;
     while (Date.now() < resultDeadline && syncResults.length === 0) {
