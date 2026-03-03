@@ -657,6 +657,38 @@ export default function HomePage() {
             </div>
           )}
           {sidebarContent}
+
+          {/* Subreddit Digest */}
+          {subreddit?.enabled && (
+            <div className={styles.sectionCard}>
+              <div className={styles.sectionHeader}>
+                <h2 className={styles.sectionTitle}>
+                  <span style={{ fontSize: '1.1em' }}>📢</span>
+                  r/schmux
+                </h2>
+                {subreddit.generated_at && (
+                  <span className={styles.subredditMeta}>
+                    {subreddit.commit_count ?? 0} commits ·{' '}
+                    {formatRelativeDate(subreddit.generated_at)}
+                  </span>
+                )}
+              </div>
+              <div className={styles.sectionContent}>
+                {subreddit.content ? (
+                  <div className={styles.subredditContent}>{subreddit.content}</div>
+                ) : (
+                  <div
+                    className={styles.subredditContent}
+                    style={{ opacity: 0.6, fontStyle: 'italic' }}
+                  >
+                    {subreddit.next_generation_at
+                      ? `Generating digest... (scheduled ${formatAbsoluteTime(subreddit.next_generation_at)})`
+                      : 'Generating digest...'}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
