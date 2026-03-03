@@ -168,3 +168,47 @@ export async function runContainer(
 export async function removeImage(tag: string): Promise<void> {
   await exec({ cmd: 'docker', args: ['rmi', tag], cwd: projectRoot() });
 }
+
+/**
+ * Remove orphaned containers and ephemeral images left behind by interrupted
+ * test runs (e.g. SIGKILL). Matches the `schmux-{suite}-{pid}` naming pattern
+ * and skips the `-base` images which are cached intentionally.
+ */
+export async function cleanupOrphans(suite: 'scenarios' | 'e2e'): Promise<number> {
+  const prefix = `schmux-${suite}-`;
+  let cleaned = 0;
+
+  // Kill and remove running/stopped containers from ephemeral images
+  const ps = await exec({
+    cmd: 'docker',
+    args: ['ps', '-a', '--format', '{{.ID}} {{.Image}}'],
+    cwd: projectRoot(),
+  });
+  if (ps.exitCode === 0) {
+    for (const line of ps.stdout.trim().split('\n')) {
+      if (!line) continue;
+      const [id, image] = line.split(' ', 2);
+      if (image?.startsWith(prefix)) {
+        await exec({ cmd: 'docker', args: ['rm', '-f', id], cwd: projectRoot() });
+        cleaned++;
+      }
+    }
+  }
+
+  // Remove ephemeral images (schmux-scenarios-12345, not schmux-scenarios-base)
+  const images = await exec({
+    cmd: 'docker',
+    args: ['images', '--format', '{{.Repository}}'],
+    cwd: projectRoot(),
+  });
+  if (images.exitCode === 0) {
+    for (const repo of images.stdout.trim().split('\n')) {
+      if (repo.startsWith(prefix) && !repo.endsWith('-base')) {
+        await exec({ cmd: 'docker', args: ['rmi', repo], cwd: projectRoot() });
+        cleaned++;
+      }
+    }
+  }
+
+  return cleaned;
+}
