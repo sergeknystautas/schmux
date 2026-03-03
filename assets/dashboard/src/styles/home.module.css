@@ -583,7 +583,11 @@
   font-size: 0.875rem;
   line-height: 1.6;
   color: var(--color-text);
-  white-space: pre-wrap;
+}
+
+.subredditScroll {
+  max-height: 400px;
+  overflow-y: auto;
 }
 
 /* =============================================================================
