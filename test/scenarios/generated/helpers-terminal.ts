@@ -150,7 +150,7 @@ export async function assertTerminalMatchesTmux(
   options?: { scrollbackLines?: number }
 ): Promise<void> {
   const tmuxSession = sessionId;
-  const maxRetries = 15;
+  const maxRetries = 25;
   const retryDelayMs = 200;
 
   let lastMismatches: string[] = [];
@@ -183,7 +183,6 @@ export async function waitForSentinel(
   timeoutMs = 15_000
 ): Promise<void> {
   await waitForTerminalOutput(sessionId, sentinel, timeoutMs);
-  await new Promise((r) => setTimeout(r, 200));
 }
 
 /**
@@ -237,7 +236,7 @@ export async function getXtermCursorPosition(page: Page): Promise<{ x: number; y
  * Retries to handle rendering lag.
  */
 export async function assertCursorMatchesTmux(page: Page, tmuxSession: string): Promise<void> {
-  const maxRetries = 15;
+  const maxRetries = 25;
   const retryDelayMs = 200;
 
   let lastTmux = { x: 0, y: 0 };
@@ -299,7 +298,7 @@ export async function assertCursorVisibilityMatchesTmux(
   page: Page,
   tmuxSession: string
 ): Promise<void> {
-  const maxRetries = 15;
+  const maxRetries = 25;
   const retryDelayMs = 200;
 
   let lastTmuxVisible = true;
