@@ -31,6 +31,8 @@ import type {
   SubredditResponse,
 } from '../lib/types';
 import { ArrowDownIcon, ArrowUpIcon } from '../components/Icons';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import styles from '../styles/home.module.css';
 
 // Helper to format relative date from ISO string
@@ -673,9 +675,11 @@ export default function HomePage() {
                   </span>
                 )}
               </div>
-              <div className={styles.sectionContent}>
+              <div className={`${styles.sectionContent} ${styles.subredditScroll}`}>
                 {subreddit.content ? (
-                  <div className={styles.subredditContent}>{subreddit.content}</div>
+                  <div className={`${styles.subredditContent} markdown-preview-content`}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{subreddit.content}</ReactMarkdown>
+                  </div>
                 ) : (
                   <div
                     className={styles.subredditContent}
@@ -932,9 +936,11 @@ export default function HomePage() {
                 </span>
               )}
             </div>
-            <div className={styles.sectionContent}>
+            <div className={`${styles.sectionContent} ${styles.subredditScroll}`}>
               {subreddit.content ? (
-                <div className={styles.subredditContent}>{subreddit.content}</div>
+                <div className={`${styles.subredditContent} markdown-preview-content`}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{subreddit.content}</ReactMarkdown>
+                </div>
               ) : (
                 <div
                   className={styles.subredditContent}
