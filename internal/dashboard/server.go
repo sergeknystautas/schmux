@@ -343,35 +343,20 @@ func (s *Server) SetActionBaseDir(dir string) {
 	s.actionRegistries = make(map[string]*actions.Registry)
 }
 
-// MigrateQuickLaunchToActions migrates global QuickLaunch presets to action registries
-// for each configured repo. This is idempotent — second calls are no-ops.
-func (s *Server) MigrateQuickLaunchToActions() {
+// CleanupMigratedActions removes actions that were created by the legacy
+// MigrateQuickLaunchToActions routine. Quick Launch presets are now shown
+// separately in the action dropdown and should not appear as emerged actions.
+func (s *Server) CleanupMigratedActions() {
 	if s.actionBaseDir == "" {
 		return
 	}
-	presets := s.config.GetQuickLaunch()
-	if len(presets) == 0 {
-		return
-	}
-
-	// Convert config.QuickLaunch to contracts.QuickLaunch.
-	contractPresets := make([]contracts.QuickLaunch, len(presets))
-	for i, p := range presets {
-		contractPresets[i] = contracts.QuickLaunch{
-			Name:    p.Name,
-			Command: p.Command,
-			Target:  p.Target,
-			Prompt:  p.Prompt,
-		}
-	}
-
 	for _, repo := range s.config.GetRepos() {
 		reg := s.getOrCreateRegistry(repo.Name)
-		count, err := reg.MigrateQuickLaunch(contractPresets)
+		count, err := reg.RemoveMigrated()
 		if err != nil {
-			s.logger.Warn("failed to migrate QuickLaunch", "repo", repo.Name, "err", err)
+			s.logger.Warn("failed to clean up migrated actions", "repo", repo.Name, "err", err)
 		} else if count > 0 {
-			s.logger.Info("migrated QuickLaunch to actions", "repo", repo.Name, "count", count)
+			s.logger.Info("cleaned up migrated actions", "repo", repo.Name, "count", count)
 		}
 	}
 }

@@ -1986,7 +1986,7 @@ Errors:
 
 ## Actions API
 
-Actions are reusable task templates tracked per-repo. They can be created manually, proposed by the LLM curator, or migrated from quick-launch presets. Each action has a lifecycle state (proposed → pinned or dismissed) and usage tracking.
+Actions are reusable task templates tracked per-repo. They can be created manually or proposed by the LLM curator. Each action has a lifecycle state (proposed → pinned or dismissed) and usage tracking. Quick-launch presets are managed separately in config and are not stored in the action registry.
 
 Repo names in URL parameters are validated (no path separators, dots, null bytes, max 128 chars).
 
