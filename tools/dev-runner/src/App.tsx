@@ -351,10 +351,29 @@ export function App({ devRoot, plain }: AppProps) {
     setLayout((prev) => (prev === 'horizontal' ? 'vertical' : 'horizontal'));
   }, [plain]);
 
+  const handleResetWorkspace = useCallback(async () => {
+    if (workspaceRef.current === devRoot) return;
+    addBackendLine(`Resetting workspace to dev root: ${devRoot}`);
+    setBackendStatusOverride('building');
+    await backend.stop();
+    const result = await build(devRoot, binaryPath, addBackendLine);
+    setBackendStatusOverride(null);
+    if (result.success) {
+      setWorkspace(devRoot);
+      await writeDevState({ source_workspace: devRoot });
+      addBackendLine('Build succeeded, restarting daemon...');
+      backend.start();
+    } else {
+      addBackendLine('Build failed');
+    }
+  }, [backend, binaryPath, addBackendLine, devRoot]);
+
   const canRestart =
     phase === 'running' &&
     effectiveBackendStatus !== 'building' &&
     effectiveBackendStatus !== 'pulling';
+
+  const canResetWorkspace = canRestart && workspace !== devRoot;
 
   useKeyboard({
     onRestart: handleRestart,
@@ -362,7 +381,9 @@ export function App({ devRoot, plain }: AppProps) {
     onClear: handleClear,
     onQuit: handleQuit,
     onToggleLayout: handleToggleLayout,
+    onResetWorkspace: handleResetWorkspace,
     canRestart,
+    canResetWorkspace,
   });
 
   // Error screen
@@ -402,7 +423,7 @@ export function App({ devRoot, plain }: AppProps) {
             backendStatus={effectiveBackendStatus}
             frontendStatus={frontend.status}
           />
-          <KeyBar canRestart={canRestart} plain />
+          <KeyBar canRestart={canRestart} plain canResetWorkspace={canResetWorkspace} />
         </Box>
       </>
     );
@@ -444,7 +465,7 @@ export function App({ devRoot, plain }: AppProps) {
           maxLines={backendMaxLines}
         />
       </Box>
-      <KeyBar canRestart={canRestart} layout={layout} />
+      <KeyBar canRestart={canRestart} layout={layout} canResetWorkspace={canResetWorkspace} />
     </Box>
   );
 }
