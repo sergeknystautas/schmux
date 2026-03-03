@@ -21,14 +21,10 @@ export function KeyBar({ canRestart, canResetWorkspace, layout, plain }: KeyBarP
             p
           </Text>
           <Text dimColor={!canRestart}> pull </Text>
-          {canResetWorkspace && (
-            <>
-              <Text bold color="white">
-                w
-              </Text>
-              <Text> reset workspace </Text>
-            </>
-          )}
+          <Text bold dimColor={!canResetWorkspace} color={canResetWorkspace ? 'white' : undefined}>
+            w
+          </Text>
+          <Text dimColor={!canResetWorkspace}> reset workspace </Text>
           <Text bold>q</Text>
           <Text> quit</Text>
         </Text>
@@ -47,14 +43,10 @@ export function KeyBar({ canRestart, canResetWorkspace, layout, plain }: KeyBarP
           p
         </Text>
         <Text dimColor={!canRestart}> pull </Text>
-        {canResetWorkspace && (
-          <>
-            <Text bold color="white">
-              w
-            </Text>
-            <Text> reset workspace </Text>
-          </>
-        )}
+        <Text bold dimColor={!canResetWorkspace} color={canResetWorkspace ? 'white' : undefined}>
+          w
+        </Text>
+        <Text dimColor={!canResetWorkspace}> reset workspace </Text>
         <Text bold>c</Text>
         <Text> clear logs </Text>
         <Text bold>l</Text>
