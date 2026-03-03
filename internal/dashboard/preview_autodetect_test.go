@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sergeknystautas/schmux/internal/preview"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -69,7 +70,7 @@ func TestFilterProxyPorts_IgnoresKnownProxyPorts(t *testing.T) {
 		ProxyPort:   51853,
 	})
 	srv := &Server{state: st}
-	got := srv.filterProxyPorts([]ListeningPort{{Host: "127.0.0.1", Port: 3000}, {Host: "127.0.0.1", Port: 51853}})
+	got := srv.filterProxyPorts([]preview.ListeningPort{{Host: "127.0.0.1", Port: 3000}, {Host: "127.0.0.1", Port: 51853}})
 	if len(got) != 1 || got[0].Port != 3000 {
 		t.Fatalf("expected [3000], got %#v", got)
 	}
@@ -86,7 +87,7 @@ func TestFilterExistingPreviews(t *testing.T) {
 	})
 	srv := &Server{state: st}
 
-	ports := []ListeningPort{{Host: "127.0.0.1", Port: 5173}, {Host: "127.0.0.1", Port: 3000}} // 5173 already exists, 3000 is new
+	ports := []preview.ListeningPort{{Host: "127.0.0.1", Port: 5173}, {Host: "127.0.0.1", Port: 3000}} // 5173 already exists, 3000 is new
 
 	filtered := srv.filterExistingPreviews("ws-1", ports)
 	if len(filtered) != 1 || filtered[0].Port != 3000 {
@@ -96,7 +97,7 @@ func TestFilterExistingPreviews(t *testing.T) {
 
 func TestIntersectPorts(t *testing.T) {
 	candidates := []int{3000, 5173, 8080}
-	listening := []ListeningPort{
+	listening := []preview.ListeningPort{
 		{Host: "127.0.0.1", Port: 5173},
 		{Host: "127.0.0.1", Port: 8080},
 		{Host: "127.0.0.1", Port: 9000},
@@ -115,7 +116,7 @@ func TestIntersectPorts(t *testing.T) {
 func TestIntersectPorts_PrefersIPv4(t *testing.T) {
 	candidates := []int{5173}
 	// Both IPv4 and IPv6 listening on same port
-	listening := []ListeningPort{
+	listening := []preview.ListeningPort{
 		{Host: "::1", Port: 5173},
 		{Host: "127.0.0.1", Port: 5173},
 	}
@@ -132,7 +133,7 @@ func TestIntersectPorts_PrefersIPv4(t *testing.T) {
 
 func TestIntersectPorts_IPv6Only(t *testing.T) {
 	candidates := []int{5173}
-	listening := []ListeningPort{
+	listening := []preview.ListeningPort{
 		{Host: "::1", Port: 5173},
 	}
 

@@ -303,6 +303,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		cfg.GetTLSCertPath(),
 		cfg.GetTLSKeyPath(),
 		logging.Sub(logger, "preview"),
+		detectListeningPortsByPID,
 	)
 	s.session.SetOutputCallback(s.handleSessionOutputChunk)
 
@@ -657,7 +658,6 @@ func (s *Server) Start() error {
 				r.Get("/inspect", s.handleInspectWorkspace)
 				// Preview routes
 				r.Get("/previews", s.handlePreviewsList)
-				r.Post("/previews", s.handlePreviewsCreate)
 				r.Delete("/previews/{previewID}", s.handlePreviewsDelete)
 
 				// Git graph/commit routes

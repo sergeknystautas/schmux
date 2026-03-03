@@ -20,13 +20,6 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get workspace ID before dispose for preview cleanup
-	sess, hasSess := s.state.GetSession(sessionID)
-	workspaceID := ""
-	if hasSess {
-		workspaceID = sess.WorkspaceID
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), s.config.DisposeGracePeriod()+10*time.Second)
 	sessionLog := logging.Sub(s.logger, "session")
 	if err := s.session.Dispose(ctx, sessionID); err != nil {
@@ -43,13 +36,14 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 	delete(s.rotationLocks, sessionID)
 	s.rotationLocksMu.Unlock()
 
-	// Immediately reconcile previews for this workspace to clean up stale preview tabs
-	if s.previewManager != nil && workspaceID != "" {
-		go func() {
-			if changed, _ := s.previewManager.ReconcileWorkspace(workspaceID); changed {
-				s.BroadcastSessions()
-			}
-		}()
+	// Delete previews owned by this session
+	if s.previewManager != nil {
+		if deleted, err := s.previewManager.DeleteBySession(sessionID); err != nil {
+			previewLog := logging.Sub(s.logger, "preview")
+			previewLog.Warn("preview cleanup on dispose failed", "session_id", sessionID, "err", err)
+		} else if deleted > 0 {
+			go s.BroadcastSessions()
+		}
 	}
 
 	// Broadcast update to WebSocket clients

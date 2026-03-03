@@ -10,14 +10,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/sergeknystautas/schmux/internal/preview"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
-
-type previewCreateRequest struct {
-	TargetHost string `json:"target_host"`
-	TargetPort int    `json:"target_port"`
-}
 
 type previewResponse struct {
 	ID          string `json:"id"`
@@ -103,38 +97,6 @@ func (s *Server) handlePreviewsList(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
-}
-
-// handlePreviewsCreate handles POST /api/workspaces/{workspaceID}/previews
-func (s *Server) handlePreviewsCreate(w http.ResponseWriter, r *http.Request) {
-	_, ws, ok := s.previewsWorkspaceCheck(w, r)
-	if !ok {
-		return
-	}
-
-	var req previewCreateRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodySize)).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	previewItem, err := s.previewManager.CreateOrGet(ctx, ws, req.TargetHost, req.TargetPort)
-	if err != nil {
-		statusCode := http.StatusInternalServerError
-		switch {
-		case strings.Contains(err.Error(), "limit"):
-			statusCode = http.StatusConflict
-		case err == preview.ErrRemoteUnsupported:
-			statusCode = http.StatusUnprocessableEntity
-		case err == preview.ErrTargetHostNotAllowed || strings.Contains(err.Error(), "target port"):
-			statusCode = http.StatusBadRequest
-		}
-		http.Error(w, err.Error(), statusCode)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(toPreviewResponse(previewItem))
 }
 
 // handlePreviewsDelete handles DELETE /api/workspaces/{workspaceID}/previews/{previewID}
