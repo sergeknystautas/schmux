@@ -7,6 +7,7 @@ import {
   buildImage,
   runContainer,
   removeImage,
+  cleanupOrphans,
 } from '../docker.js';
 import { buildLocalArtifacts } from './shared.js';
 import type { Options, EventCallback, SuiteResult, FailedTest } from '../types.js';
@@ -39,6 +40,15 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
 
   const root = projectRoot();
   const imageTag = `schmux-e2e-${process.pid}`;
+
+  // Clean up orphaned containers/images from interrupted previous runs
+  const orphans = await cleanupOrphans('e2e');
+  if (orphans > 0) {
+    onEvent('e2e', {
+      type: 'build_step',
+      message: `Cleaned up ${orphans} orphaned container(s)/image(s) from previous runs`,
+    });
+  }
 
   // Build local artifacts
   onEvent('e2e', {

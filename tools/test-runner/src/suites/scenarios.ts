@@ -7,6 +7,7 @@ import {
   buildImage,
   runContainer,
   removeImage,
+  cleanupOrphans,
 } from '../docker.js';
 import { buildLocalArtifacts, buildDashboard } from './shared.js';
 import type { Options, EventCallback, SuiteResult, FailedTest } from '../types.js';
@@ -45,6 +46,15 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
   const root = projectRoot();
   const imageTag = `schmux-scenarios-${process.pid}`;
   const artifactsDir = resolve(root, 'test/scenarios/artifacts');
+
+  // Clean up orphaned containers/images from interrupted previous runs
+  const orphans = await cleanupOrphans('scenarios');
+  if (orphans > 0) {
+    onEvent('scenarios', {
+      type: 'build_step',
+      message: `Cleaned up ${orphans} orphaned container(s)/image(s) from previous runs`,
+    });
+  }
 
   // Clean and create artifacts directory
   rmSync(artifactsDir, { recursive: true, force: true });
@@ -342,7 +352,9 @@ async function runParallelContainers(
   covDataDir?: string
 ): Promise<SuiteResult> {
   const total = opts.repeat;
-  const maxParallel = Math.min(total, availableParallelism());
+  // Each container runs a daemon + Chromium + Playwright + tmux, needing ~4 CPUs
+  // to avoid resource contention that causes timing-sensitive terminal tests to fail.
+  const maxParallel = Math.min(total, Math.max(2, Math.floor(availableParallelism() / 4)));
   onEvent('scenarios', {
     type: 'suite_status',
     status: 'running',
