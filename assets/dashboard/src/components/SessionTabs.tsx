@@ -537,16 +537,13 @@ export default function SessionTabs({
   );
 
   // Determine if we're showing the add button
-  const showAddButton = workspace && !activeSpawnTab;
+  const showAddButton = Boolean(workspace);
 
   return (
     <div className="session-tabs" data-tour="session-tabs">
       {/* Session tabs + add button (wrapped so mobile can reorder) */}
       <div className="session-tabs__main">
         {sessions.map((sess) => renderSessionTab(sess))}
-
-        {/* Add button */}
-        {showAddButton && renderAddButton()}
 
         {activeSpawnTab && (
           <div
@@ -561,6 +558,9 @@ export default function SessionTabs({
             </div>
           </div>
         )}
+
+        {/* Add button */}
+        {showAddButton && renderAddButton()}
       </div>
 
       {/* Spacer pushes accessory tabs to the right on desktop */}
