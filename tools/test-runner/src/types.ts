@@ -49,6 +49,7 @@ export interface Options {
   quick: boolean;
   runPattern: string | null;
   repeat: number;
+  serial: boolean;
 }
 
 // Callback for live events from a running suite
