@@ -18,15 +18,27 @@ import (
 // Client provides a high-level interface for tmux control mode.
 // It sends commands and correlates responses using a FIFO queue since tmux
 // assigns sequential command IDs starting from 0, not using our local IDs.
+//
+// On reconnection, tmux may emit stale responses from the previous control
+// mode session before the client sends any commands. These are discarded:
+// any response arriving while the pending queue is empty (i.e., before the
+// first command has been sent) is treated as stale and dropped.
 type Client struct {
 	stdin   io.Writer
 	stdinMu sync.Mutex // Protects stdin writes to prevent interleaving
-	parser  *Parser
-	logger  *log.Logger
+
+	parser *Parser
+	logger *log.Logger
 
 	// Command correlation - FIFO queue since tmux assigns sequential IDs
 	pendingQueue []chan CommandResponse
 	pendingMu    sync.Mutex
+
+	// Epoch tracking: responses arriving before the first command is sent
+	// are stale (from a previous control mode session) and are discarded.
+	// Protected by pendingMu to ensure atomicity with queue state checks.
+	firstCommandSent bool
+	discardedStale   atomic.Int64
 
 	// Response channel registry to prevent leaks on timeout
 	respChans   map[chan CommandResponse]bool
@@ -68,11 +80,40 @@ func NewClient(stdin io.Writer, parser *Parser, logger *log.Logger) *Client {
 
 // Start begins processing parser output.
 // Call this in a goroutine before sending commands.
+// Any responses already buffered by the parser (stale responses from a
+// previous control mode session) are drained synchronously before the
+// processing goroutines start.
 func (c *Client) Start() {
 	c.running = true
+	c.drainBufferedResponses()
 	go c.processResponses()
 	go c.processOutput()
 	go c.processEvents()
+}
+
+// drainBufferedResponses removes any responses already sitting in the parser's
+// response channel. On reconnection, tmux emits %begin/%end blocks for the
+// previous session's state before the client sends any commands. These are
+// stale and must be discarded to prevent FIFO queue corruption.
+func (c *Client) drainBufferedResponses() {
+	for {
+		select {
+		case resp, ok := <-c.parser.Responses():
+			if !ok {
+				return
+			}
+			c.discardedStale.Add(1)
+			if c.logger != nil {
+				c.logger.Debug("discarded stale response (buffered)", "cmd_id", resp.CommandID)
+			}
+		default:
+			// Channel empty, done draining
+			if n := c.discardedStale.Load(); n > 0 && c.logger != nil {
+				c.logger.Info("drained stale responses from previous session", "count", n)
+			}
+			return
+		}
+	}
 }
 
 // Close shuts down the client.
@@ -126,6 +167,7 @@ func (c *Client) Execute(ctx context.Context, cmd string) (string, error) {
 		return "", fmt.Errorf("client not running")
 	}
 	c.pendingQueue = append(c.pendingQueue, respCh)
+	c.firstCommandSent = true
 	c.pendingMu.Unlock()
 
 	// Send command (tmux control mode assigns IDs automatically based on order)
@@ -167,6 +209,8 @@ func (c *Client) Execute(ctx context.Context, cmd string) (string, error) {
 
 // processResponses routes responses to waiting commands in FIFO order.
 // Handles cancelled commands (nobody listening) by sending to buffered channel anyway.
+// Responses arriving before the first command is sent are stale (from a previous
+// control mode session after daemon restart) and are discarded.
 func (c *Client) processResponses() {
 	for {
 		select {
@@ -174,9 +218,10 @@ func (c *Client) processResponses() {
 			if !ok {
 				return
 			}
-			// Deliver to first waiting command (FIFO order)
+
 			c.pendingMu.Lock()
 			if len(c.pendingQueue) > 0 {
+				// Deliver to first waiting command (FIFO order)
 				ch := c.pendingQueue[0]
 				c.pendingQueue = c.pendingQueue[1:]
 				c.pendingMu.Unlock()
@@ -184,6 +229,14 @@ func (c *Client) processResponses() {
 				// Send to buffered channel - won't block even if nobody is listening
 				// Cancelled commands simply won't read from their channel
 				ch <- resp
+			} else if !c.firstCommandSent {
+				// No command has been sent yet — this response is stale,
+				// from a previous control mode session (e.g., daemon restart).
+				c.pendingMu.Unlock()
+				c.discardedStale.Add(1)
+				if c.logger != nil {
+					c.logger.Debug("discarded stale response (pre-epoch)", "cmd_id", resp.CommandID)
+				}
 			} else {
 				c.pendingMu.Unlock()
 				if c.logger != nil {
@@ -264,6 +317,13 @@ func (c *Client) UnsubscribeOutput(paneID string, ch <-chan OutputEvent) {
 // because a subscriber channel was full.
 func (c *Client) DroppedFanOut() int64 {
 	return c.droppedFanOut.Load()
+}
+
+// DiscardedStale returns the number of stale responses discarded during startup.
+// These are responses from a previous control mode session that arrived before
+// the client sent its first command.
+func (c *Client) DiscardedStale() int64 {
+	return c.discardedStale.Load()
 }
 
 // CreateWindow creates a new window with a command.
