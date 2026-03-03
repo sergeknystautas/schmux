@@ -352,9 +352,9 @@ async function runParallelContainers(
   covDataDir?: string
 ): Promise<SuiteResult> {
   const total = opts.repeat;
-  // Each container runs a daemon + Chromium + Playwright + tmux, needing ~4 CPUs
+  // Each container runs a daemon + Chromium + Playwright + tmux, needing ~5 CPUs
   // to avoid resource contention that causes timing-sensitive terminal tests to fail.
-  const maxParallel = Math.min(total, Math.max(2, Math.floor(availableParallelism() / 4)));
+  const maxParallel = Math.min(total, Math.max(2, Math.floor(availableParallelism() / 5)));
   onEvent('scenarios', {
     type: 'suite_status',
     status: 'running',
