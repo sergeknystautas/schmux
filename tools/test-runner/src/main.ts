@@ -25,6 +25,7 @@ function parseArgs(argv: string[]): Options {
     quick: false,
     runPattern: null,
     repeat: 1,
+    serial: false,
   };
 
   let explicitSuite = false;
@@ -76,6 +77,9 @@ function parseArgs(argv: string[]): Options {
         break;
       case '--no-cache':
         opts.noCache = true;
+        break;
+      case '--serial':
+        opts.serial = true;
         break;
       case '--run': {
         const pattern = argv[++i];
@@ -141,6 +145,9 @@ function printHelp(): void {
     '  --run PATTERN   Run only tests matching PATTERN (go test -run / playwright --grep)'
   );
   console.log('  --repeat N      Run each test N times and report flaky tests');
+  console.log(
+    '  --serial        Force serial repeats (one container, --repeat-each) instead of parallel'
+  );
   console.log('  --help          Show this help message');
   console.log('');
   console.log('Examples:');
