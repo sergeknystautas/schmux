@@ -11,15 +11,10 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/logging"
+	"github.com/sergeknystautas/schmux/internal/preview"
 )
 
 const previewAutoDetectCooldown = 45 * time.Second
-
-// ListeningPort represents a detected listening port with its host address.
-type ListeningPort struct {
-	Host string
-	Port int
-}
 
 // scanExistingSessionsForPreviews checks all local sessions for listening ports
 // and creates previews for any web servers found. Called on daemon startup.
@@ -68,13 +63,13 @@ func (s *Server) scanExistingSessionsForPreviews() {
 			s.previewDetectMu.Unlock()
 
 			ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-			preview, err := s.previewManager.CreateOrGet(ctx, ws, lp.Host, lp.Port)
+			created, err := s.previewManager.CreateOrGet(ctx, ws, lp.Host, lp.Port, sess.ID)
 			cancel()
 			if err != nil {
 				previewLog.Debug("failed to create preview", "host", lp.Host, "port", lp.Port, "err", err)
 				continue
 			}
-			previewLog.Info("created preview", "workspace_id", ws.ID, "host", lp.Host, "port", lp.Port, "proxy_port", preview.ProxyPort)
+			previewLog.Info("created preview", "workspace_id", ws.ID, "host", lp.Host, "port", lp.Port, "proxy_port", created.ProxyPort)
 		}
 	}
 }
@@ -137,13 +132,13 @@ func (s *Server) handleSessionOutputChunk(sessionID string, chunk []byte) {
 		s.previewDetectMu.Unlock()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-		preview, err := s.previewManager.CreateOrGet(ctx, ws, lp.Host, lp.Port)
+		created, err := s.previewManager.CreateOrGet(ctx, ws, lp.Host, lp.Port, sess.ID)
 		cancel()
 		if err != nil {
 			continue
 		}
 		if createdPreview == nil {
-			createdPreview = &preview.ID
+			createdPreview = &created.ID
 		}
 	}
 
@@ -206,9 +201,9 @@ func detectPortsFromChunk(chunk []byte) []int {
 }
 
 // filterExistingPreviews removes ports that already have previews for this workspace.
-// Returns ListeningPort entries for ports that don't have existing previews.
-func (s *Server) filterExistingPreviews(workspaceID string, ports []ListeningPort) []ListeningPort {
-	var filtered []ListeningPort
+// Returns preview.ListeningPort entries for ports that don't have existing previews.
+func (s *Server) filterExistingPreviews(workspaceID string, ports []preview.ListeningPort) []preview.ListeningPort {
+	var filtered []preview.ListeningPort
 	for _, lp := range ports {
 		if _, exists := s.state.FindPreview(workspaceID, lp.Host, lp.Port); exists {
 			continue
@@ -227,10 +222,10 @@ func (s *Server) filterExistingPreviews(workspaceID string, ports []ListeningPor
 }
 
 // intersectPorts returns listening ports from candidates that are in the listening set.
-// Returns ListeningPort entries with host information from the listening set.
-func intersectPorts(candidates []int, listening []ListeningPort) []ListeningPort {
+// Returns preview.ListeningPort entries with host information from the listening set.
+func intersectPorts(candidates []int, listening []preview.ListeningPort) []preview.ListeningPort {
 	// Build map with IPv4 preference
-	listeningMap := make(map[int]ListeningPort)
+	listeningMap := make(map[int]preview.ListeningPort)
 	for _, lp := range listening {
 		// Prefer IPv4 over IPv6 if both exist
 		if existing, ok := listeningMap[lp.Port]; !ok || (existing.Host == "::1" && lp.Host == "127.0.0.1") {
@@ -245,7 +240,7 @@ func intersectPorts(candidates []int, listening []ListeningPort) []ListeningPort
 	}
 
 	// Build result from the map (which has IPv4 preference applied)
-	var result []ListeningPort
+	var result []preview.ListeningPort
 	for port, lp := range listeningMap {
 		if candidateSet[port] {
 			result = append(result, lp)
@@ -258,15 +253,15 @@ func intersectPorts(candidates []int, listening []ListeningPort) []ListeningPort
 }
 
 // filterProxyPorts removes ports that are our proxy ports (ephemeral ports we assigned)
-func (s *Server) filterProxyPorts(ports []ListeningPort) []ListeningPort {
+func (s *Server) filterProxyPorts(ports []preview.ListeningPort) []preview.ListeningPort {
 	proxyPorts := make(map[int]bool)
-	for _, preview := range s.state.GetPreviews() {
-		if preview.ProxyPort > 0 {
-			proxyPorts[preview.ProxyPort] = true
+	for _, p := range s.state.GetPreviews() {
+		if p.ProxyPort > 0 {
+			proxyPorts[p.ProxyPort] = true
 		}
 	}
 
-	var filtered []ListeningPort
+	var filtered []preview.ListeningPort
 	for _, lp := range ports {
 		if !proxyPorts[lp.Port] {
 			filtered = append(filtered, lp)
@@ -276,8 +271,8 @@ func (s *Server) filterProxyPorts(ports []ListeningPort) []ListeningPort {
 }
 
 // detectListeningPortsByPID finds TCP ports that a process or any of its descendants are listening on.
-// Returns ListeningPort entries with host information (IPv4 or IPv6 loopback).
-func detectListeningPortsByPID(pid int) []ListeningPort {
+// Returns preview.ListeningPort entries with host information (IPv4 or IPv6 loopback).
+func detectListeningPortsByPID(pid int) []preview.ListeningPort {
 	if pid <= 0 {
 		return nil
 	}
@@ -288,7 +283,7 @@ func detectListeningPortsByPID(pid int) []ListeningPort {
 
 	// Collect ports from all PIDs, keyed by port to dedupe
 	// Prefer IPv4 over IPv6 when both are available
-	portMap := make(map[int]ListeningPort)
+	portMap := make(map[int]preview.ListeningPort)
 	for _, p := range pids {
 		// Try ss first (Linux)
 		for _, lp := range detectPortsViaSS(p) {
@@ -307,7 +302,7 @@ func detectListeningPortsByPID(pid int) []ListeningPort {
 	if len(portMap) == 0 {
 		return nil
 	}
-	result := make([]ListeningPort, 0, len(portMap))
+	result := make([]preview.ListeningPort, 0, len(portMap))
 	for _, lp := range portMap {
 		result = append(result, lp)
 	}
@@ -355,8 +350,8 @@ func getChildPIDs(pid int) []int {
 }
 
 // detectPortsViaSS uses ss (Linux) to find listening TCP ports for a PID.
-// Returns ListeningPort entries with host information derived from the address prefix.
-func detectPortsViaSS(pid int) []ListeningPort {
+// Returns preview.ListeningPort entries with host information derived from the address prefix.
+func detectPortsViaSS(pid int) []preview.ListeningPort {
 	ctx, cancel := context.WithTimeout(context.Background(), 750*time.Millisecond)
 	defer cancel()
 
@@ -366,7 +361,7 @@ func detectPortsViaSS(pid int) []ListeningPort {
 		return nil
 	}
 
-	portMap := map[int]ListeningPort{}
+	portMap := map[int]preview.ListeningPort{}
 	pidStr := fmt.Sprintf("pid=%d", pid)
 	lines := strings.Split(string(out), "\n")
 
@@ -419,10 +414,10 @@ func detectPortsViaSS(pid int) []ListeningPort {
 			// For wildcards, only update if we don't have an entry or current is IPv6
 			if isWildcard {
 				if !hasExisting || existing.Host == "::1" {
-					portMap[port] = ListeningPort{Host: host, Port: port}
+					portMap[port] = preview.ListeningPort{Host: host, Port: port}
 				}
 			} else {
-				portMap[port] = ListeningPort{Host: host, Port: port}
+				portMap[port] = preview.ListeningPort{Host: host, Port: port}
 			}
 		}
 	}
@@ -430,7 +425,7 @@ func detectPortsViaSS(pid int) []ListeningPort {
 	if len(portMap) == 0 {
 		return nil
 	}
-	result := make([]ListeningPort, 0, len(portMap))
+	result := make([]preview.ListeningPort, 0, len(portMap))
 	for _, lp := range portMap {
 		result = append(result, lp)
 	}
@@ -441,8 +436,8 @@ func detectPortsViaSS(pid int) []ListeningPort {
 }
 
 // detectPortsViaLsof uses lsof (macOS) to find listening TCP ports for a PID.
-// Returns ListeningPort entries with host information derived from the address type.
-func detectPortsViaLsof(pid int) []ListeningPort {
+// Returns preview.ListeningPort entries with host information derived from the address type.
+func detectPortsViaLsof(pid int) []preview.ListeningPort {
 	ctx, cancel := context.WithTimeout(context.Background(), 750*time.Millisecond)
 	defer cancel()
 
@@ -452,7 +447,7 @@ func detectPortsViaLsof(pid int) []ListeningPort {
 		return nil
 	}
 
-	portMap := map[int]ListeningPort{}
+	portMap := map[int]preview.ListeningPort{}
 	lines := strings.Split(string(out), "\n")
 	for _, line := range lines {
 		if !strings.Contains(line, "TCP") {
@@ -503,17 +498,17 @@ func detectPortsViaLsof(pid int) []ListeningPort {
 		// For wildcards, only update if we don't have an entry or current is IPv6
 		if isWildcard {
 			if !hasExisting || existing.Host == "::1" {
-				portMap[port] = ListeningPort{Host: host, Port: port}
+				portMap[port] = preview.ListeningPort{Host: host, Port: port}
 			}
 		} else {
-			portMap[port] = ListeningPort{Host: host, Port: port}
+			portMap[port] = preview.ListeningPort{Host: host, Port: port}
 		}
 	}
 
 	if len(portMap) == 0 {
 		return nil
 	}
-	result := make([]ListeningPort, 0, len(portMap))
+	result := make([]preview.ListeningPort, 0, len(portMap))
 	for _, lp := range portMap {
 		result = append(result, lp)
 	}

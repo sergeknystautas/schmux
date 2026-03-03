@@ -93,16 +93,17 @@ type Workspace struct {
 
 // WorkspacePreview represents a workspace preview proxy mapping.
 type WorkspacePreview struct {
-	ID            string    `json:"id"`
-	WorkspaceID   string    `json:"workspace_id"`
-	TargetHost    string    `json:"target_host"`
-	TargetPort    int       `json:"target_port"`
-	ProxyPort     int       `json:"proxy_port"`
-	Status        string    `json:"status,omitempty"` // "ready" | "degraded"
-	LastError     string    `json:"last_error,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
-	LastUsedAt    time.Time `json:"last_used_at"`
-	LastHealthyAt time.Time `json:"last_healthy_at,omitempty"`
+	ID              string    `json:"id"`
+	WorkspaceID     string    `json:"workspace_id"`
+	TargetHost      string    `json:"target_host"`
+	TargetPort      int       `json:"target_port"`
+	ProxyPort       int       `json:"proxy_port"`
+	SourceSessionID string    `json:"source_session_id,omitempty"`
+	Status          string    `json:"status,omitempty"` // "ready" | "degraded"
+	LastError       string    `json:"last_error,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	LastUsedAt      time.Time `json:"last_used_at"`
+	LastHealthyAt   time.Time `json:"last_healthy_at,omitempty"`
 }
 
 // WorktreeBase tracks a bare clone that hosts worktrees.

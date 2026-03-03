@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -20,11 +19,18 @@ import (
 )
 
 const (
-	StatusReady    = "ready"
-	StatusDegraded = "degraded"
-	staleGrace     = 3 * time.Second  // how long a degraded preview sticks around before removal
-	touchDebounce  = 30 * time.Second // minimum interval between LastUsedAt state updates
+	StatusReady   = "ready"
+	touchDebounce = 30 * time.Second // minimum interval between LastUsedAt state updates
 )
+
+// ListeningPort represents a detected listening port with its host address.
+type ListeningPort struct {
+	Host string
+	Port int
+}
+
+// PortDetector returns the listening ports for a process and its descendants.
+type PortDetector func(pid int) []ListeningPort
 
 var (
 	ErrTargetHostNotAllowed = errors.New("target host must be loopback (127.0.0.1, ::1, or localhost)")
@@ -42,12 +48,10 @@ type Manager struct {
 	tlsCertPath     string // path to TLS certificate
 	tlsKeyPath      string // path to TLS key
 	logger          *log.Logger
+	portDetector    PortDetector
 
-	mu       sync.Mutex
-	entries  map[string]*entry // preview_id -> listener entry
-	stopCh   chan struct{}
-	stopOnce sync.Once
-	doneCh   chan struct{}
+	mu      sync.Mutex
+	entries map[string]*entry // preview_id -> listener entry
 }
 
 type entry struct {
@@ -56,7 +60,7 @@ type entry struct {
 	server      *http.Server
 }
 
-func NewManager(st state.StateStore, maxPerWorkspace, maxGlobal int, networkAccess bool, portBase, blockSize int, tlsEnabled bool, tlsCertPath, tlsKeyPath string, logger *log.Logger) *Manager {
+func NewManager(st state.StateStore, maxPerWorkspace, maxGlobal int, networkAccess bool, portBase, blockSize int, tlsEnabled bool, tlsCertPath, tlsKeyPath string, logger *log.Logger, portDetector PortDetector) *Manager {
 	if maxPerWorkspace <= 0 {
 		maxPerWorkspace = 3
 	}
@@ -80,19 +84,13 @@ func NewManager(st state.StateStore, maxPerWorkspace, maxGlobal int, networkAcce
 		tlsCertPath:     tlsCertPath,
 		tlsKeyPath:      tlsKeyPath,
 		logger:          logger,
+		portDetector:    portDetector,
 		entries:         map[string]*entry{},
-		stopCh:          make(chan struct{}),
-		doneCh:          make(chan struct{}),
 	}
-	go m.cleanupLoop()
 	return m
 }
 
 func (m *Manager) Stop() {
-	m.stopOnce.Do(func() {
-		close(m.stopCh)
-	})
-	<-m.doneCh
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for id := range m.entries {
@@ -100,7 +98,7 @@ func (m *Manager) Stop() {
 	}
 }
 
-func (m *Manager) CreateOrGet(ctx context.Context, ws state.Workspace, targetHost string, targetPort int) (state.WorkspacePreview, error) {
+func (m *Manager) CreateOrGet(ctx context.Context, ws state.Workspace, targetHost string, targetPort int, sourceSessionID string) (state.WorkspacePreview, error) {
 	if ws.RemoteHostID != "" {
 		return state.WorkspacePreview{}, ErrRemoteUnsupported
 	}
@@ -138,13 +136,14 @@ func (m *Manager) CreateOrGet(ctx context.Context, ws state.Workspace, targetHos
 
 	now := time.Now().UTC()
 	preview := state.WorkspacePreview{
-		ID:          fmt.Sprintf("prev_%s", uuid.NewString()[:8]),
-		WorkspaceID: ws.ID,
-		TargetHost:  host,
-		TargetPort:  targetPort,
-		ProxyPort:   proxyPort,
-		CreatedAt:   now,
-		LastUsedAt:  now,
+		ID:              fmt.Sprintf("prev_%s", uuid.NewString()[:8]),
+		WorkspaceID:     ws.ID,
+		TargetHost:      host,
+		TargetPort:      targetPort,
+		ProxyPort:       proxyPort,
+		SourceSessionID: sourceSessionID,
+		CreatedAt:       now,
+		LastUsedAt:      now,
 	}
 	// Reserve the slot in state before releasing the lock so subsequent
 	// cap checks and port picks see this preview counted.
@@ -210,6 +209,22 @@ func (m *Manager) Delete(workspaceID, previewID string) error {
 	return m.state.Save()
 }
 
+// DeleteBySession removes all previews created by the given session and stops their listeners.
+func (m *Manager) DeleteBySession(sessionID string) (int, error) {
+	previews := m.state.GetPreviews()
+	deleted := 0
+	for _, preview := range previews {
+		if preview.SourceSessionID != sessionID {
+			continue
+		}
+		if err := m.Delete(preview.WorkspaceID, preview.ID); err != nil {
+			return deleted, err
+		}
+		deleted++
+	}
+	return deleted, nil
+}
+
 func (m *Manager) DeleteWorkspace(workspaceID string) error {
 	m.mu.Lock()
 	for previewID, e := range m.entries {
@@ -226,21 +241,21 @@ func (m *Manager) DeleteWorkspace(workspaceID string) error {
 	return nil
 }
 
-// ReconcileWorkspace updates preview health and removes stale previews for one workspace.
-// Returns true when preview set changed (updated/deleted).
+// ReconcileWorkspace verifies previews for a workspace are still valid by checking
+// whether the source session's PID tree still owns the target port.
+// Returns true when preview set changed.
 func (m *Manager) ReconcileWorkspace(workspaceID string) (bool, error) {
 	previews := m.state.GetWorkspacePreviews(workspaceID)
 	if len(previews) == 0 {
 		return false, nil
 	}
 	changed := false
-	now := time.Now().UTC()
 	for _, preview := range previews {
-		// If proxy listener is no longer tracked, remove the preview.
-		m.mu.Lock()
-		_, tracked := m.entries[preview.ID]
-		m.mu.Unlock()
-		if !tracked {
+		// Look up source session
+		sess, hasSess := m.state.GetSession(preview.SourceSessionID)
+
+		// No source session or PID not set → delete
+		if !hasSess || sess.Pid <= 0 {
 			if err := m.Delete(workspaceID, preview.ID); err != nil {
 				return changed, err
 			}
@@ -248,25 +263,18 @@ func (m *Manager) ReconcileWorkspace(workspaceID string) (bool, error) {
 			continue
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		ready, err := checkUpstream(ctx, preview.TargetHost, preview.TargetPort)
-		cancel()
-		if ready {
-			if preview.Status != StatusReady || preview.LastHealthyAt.IsZero() {
-				preview.Status = StatusReady
-				preview.LastError = ""
-				preview.LastHealthyAt = now
-				if err := m.state.UpsertPreview(preview); err != nil {
-					return changed, err
+		// Check if session's PID tree still owns the target port
+		ownsPort := false
+		if m.portDetector != nil {
+			for _, lp := range m.portDetector(sess.Pid) {
+				if lp.Port == preview.TargetPort {
+					ownsPort = true
+					break
 				}
-				changed = true
 			}
-			continue
 		}
 
-		// If this preview was healthy before and has been unreachable for a grace period,
-		// clean it up so dead server tabs disappear.
-		if !preview.LastHealthyAt.IsZero() && now.Sub(preview.LastHealthyAt) > staleGrace {
+		if !ownsPort {
 			if err := m.Delete(workspaceID, preview.ID); err != nil {
 				return changed, err
 			}
@@ -274,17 +282,18 @@ func (m *Manager) ReconcileWorkspace(workspaceID string) (bool, error) {
 			continue
 		}
 
-		// Only update if status or error actually changed
-		newError := ""
-		if err != nil {
-			newError = err.Error()
-		}
-		if preview.Status != StatusDegraded || preview.LastError != newError {
-			preview.Status = StatusDegraded
-			preview.LastError = newError
-			if err := m.state.UpsertPreview(preview); err != nil {
-				return changed, err
+		// Port still owned — ensure proxy listener is running
+		m.mu.Lock()
+		_, hasEntry := m.entries[preview.ID]
+		m.mu.Unlock()
+		if !hasEntry {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			if _, err := m.ensureListener(ctx, preview); err != nil {
+				if m.logger != nil {
+					m.logger.Warn("failed to recreate listener", "preview_id", preview.ID, "err", err)
+				}
 			}
+			cancel()
 			changed = true
 		}
 	}
@@ -311,7 +320,8 @@ func (m *Manager) ensureListener(ctx context.Context, preview state.WorkspacePre
 	currentEntry, hasEntry := m.entries[preview.ID]
 	if hasEntry && currentEntry != nil {
 		m.mu.Unlock()
-		return m.updateStatus(ctx, preview, false)
+		// Listener already running — return current state as-is.
+		return preview, nil
 	}
 	if hasEntry {
 		m.stopEntryLocked(preview.ID)
@@ -367,33 +377,16 @@ func (m *Manager) ensureListener(ctx context.Context, preview state.WorkspacePre
 		}
 	}()
 
-	preview.LastUsedAt = time.Now().UTC()
+	now := time.Now().UTC()
+	preview.Status = StatusReady
+	preview.LastError = ""
+	preview.LastHealthyAt = now
+	preview.LastUsedAt = now
 
 	m.mu.Lock()
 	m.entries[preview.ID] = &entry{workspaceID: preview.WorkspaceID, listener: listener, server: server}
 	m.mu.Unlock()
 
-	return m.updateStatus(ctx, preview, true)
-}
-
-func (m *Manager) updateStatus(ctx context.Context, preview state.WorkspacePreview, touched bool) (state.WorkspacePreview, error) {
-	ready, err := checkUpstream(ctx, preview.TargetHost, preview.TargetPort)
-	now := time.Now().UTC()
-	if ready {
-		preview.Status = StatusReady
-		preview.LastError = ""
-		preview.LastHealthyAt = now
-	} else {
-		preview.Status = StatusDegraded
-		if err != nil {
-			preview.LastError = err.Error()
-		} else {
-			preview.LastError = "target unreachable"
-		}
-	}
-	if touched {
-		preview.LastUsedAt = now
-	}
 	if err := m.state.UpsertPreview(preview); err != nil {
 		return state.WorkspacePreview{}, err
 	}
@@ -414,26 +407,9 @@ func (m *Manager) touch(previewID string) {
 		return
 	}
 	preview.LastUsedAt = now
-	if preview.Status == StatusDegraded {
-		ctx, cancel := context.WithTimeout(context.Background(), 600*time.Millisecond)
-		ready, err := checkUpstream(ctx, preview.TargetHost, preview.TargetPort)
-		cancel()
-		if ready {
-			preview.Status = StatusReady
-			preview.LastError = ""
-			preview.LastHealthyAt = now
-		} else if err != nil {
-			preview.LastError = err.Error()
-		}
-	}
 	_ = m.state.UpsertPreview(preview)
 	// LastUsedAt is low-priority; skip Save() here to avoid write amplification
 	// on every proxied request. It will be persisted on the next status change.
-}
-
-func (m *Manager) cleanupLoop() {
-	defer close(m.doneCh)
-	<-m.stopCh
 }
 
 func (m *Manager) stopEntryLocked(previewID string) {
@@ -447,16 +423,6 @@ func (m *Manager) stopEntryLocked(previewID string) {
 	_ = e.server.Shutdown(ctx)
 	_ = e.listener.Close()
 	delete(m.entries, previewID)
-}
-
-func checkUpstream(ctx context.Context, host string, port int) (bool, error) {
-	dialer := net.Dialer{Timeout: 400 * time.Millisecond}
-	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
-	if err != nil {
-		return false, fmt.Errorf("target unreachable: %w", err)
-	}
-	_ = conn.Close()
-	return true, nil
 }
 
 // assignPortBlockLocked returns the port block for a workspace, assigning one
@@ -535,54 +501,6 @@ func (m *Manager) isPortFree(port int) bool {
 	}
 	ln.Close()
 	return true
-}
-
-func isWebSocketUpgrade(r *http.Request) bool {
-	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket") &&
-		strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade")
-}
-
-// tunnelWebSocket handles WebSocket upgrade requests by hijacking the client
-// connection and opening a raw TCP tunnel to the upstream. This preserves the
-// full HTTP upgrade handshake that httputil.ReverseProxy would otherwise strip.
-func tunnelWebSocket(w http.ResponseWriter, r *http.Request, targetHost string, targetPort int) {
-	upstream, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", targetHost, targetPort), 5*time.Second)
-	if err != nil {
-		http.Error(w, "upstream unreachable", http.StatusBadGateway)
-		return
-	}
-	defer upstream.Close()
-
-	hijacker, ok := w.(http.Hijacker)
-	if !ok {
-		http.Error(w, "connection hijacking not supported", http.StatusInternalServerError)
-		return
-	}
-	clientConn, _, err := hijacker.Hijack()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer clientConn.Close()
-
-	// Forward the original upgrade request to the upstream.
-	if err := r.Write(upstream); err != nil {
-		return
-	}
-
-	// Bidirectional copy until either side closes.
-	done := make(chan struct{}, 2)
-	cp := func(dst, src net.Conn) {
-		io.Copy(dst, src) //nolint:errcheck
-		done <- struct{}{}
-	}
-	go cp(upstream, clientConn)
-	go cp(clientConn, upstream)
-	<-done
-	// One direction finished — close both to unblock the other goroutine.
-	upstream.Close()
-	clientConn.Close()
-	<-done
 }
 
 func normalizeTargetHost(host string) (string, error) {

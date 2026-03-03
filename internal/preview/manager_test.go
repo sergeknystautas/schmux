@@ -77,13 +77,13 @@ func TestManagerCreateOrGetReuse(t *testing.T) {
 	defer upstream.Close()
 	port := testServerPort(upstream)
 
-	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil)
+	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, nil)
 	defer m.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	first, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port)
+	first, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "")
 	if err != nil {
 		t.Fatalf("create preview: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestManagerCreateOrGetReuse(t *testing.T) {
 		t.Fatalf("expected ready status, got %s", first.Status)
 	}
 
-	second, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port)
+	second, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "")
 	if err != nil {
 		t.Fatalf("create preview second time: %v", err)
 	}
@@ -106,10 +106,10 @@ func TestManagerCreateOrGetReuse(t *testing.T) {
 func TestManagerRemoteWorkspaceUnsupported(t *testing.T) {
 	ws := state.Workspace{ID: "ws-remote", Repo: "repo", Branch: "main", RemoteHostID: "rh-1"}
 	st, _ := newPreviewTestState(t, ws)
-	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil)
+	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, nil)
 	defer m.Stop()
 
-	_, err := m.CreateOrGet(context.Background(), ws, "127.0.0.1", 5173)
+	_, err := m.CreateOrGet(context.Background(), ws, "127.0.0.1", 5173, "")
 	if err == nil {
 		t.Fatal("expected error for remote workspace")
 	}
@@ -126,9 +126,9 @@ func TestManagerStablePortSurvivesRestart(t *testing.T) {
 	upstreamPort := testServerPort(upstream)
 
 	// First "daemon run": create a preview, note its port.
-	m1 := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil)
+	m1 := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	first, err := m1.CreateOrGet(ctx, ws, "127.0.0.1", upstreamPort)
+	first, err := m1.CreateOrGet(ctx, ws, "127.0.0.1", upstreamPort, "")
 	cancel()
 	if err != nil {
 		t.Fatalf("create preview: %v", err)
@@ -143,12 +143,12 @@ func TestManagerStablePortSurvivesRestart(t *testing.T) {
 	}
 
 	// Second "daemon run": the preview should come back on the same port.
-	m2 := NewManager(st2, 3, 20, false, 53000, 10, false, "", "", nil)
+	m2 := NewManager(st2, 3, 20, false, 53000, 10, false, "", "", nil, nil)
 	defer m2.Stop()
 
 	ws2, _ := st2.GetWorkspace("ws-1")
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
-	second, err := m2.CreateOrGet(ctx2, ws2, "127.0.0.1", upstreamPort)
+	second, err := m2.CreateOrGet(ctx2, ws2, "127.0.0.1", upstreamPort, "")
 	cancel2()
 	if err != nil {
 		t.Fatalf("recreate preview after restart: %v", err)
@@ -168,15 +168,15 @@ func TestManagerDifferentWorkspacesGetDifferentBlocks(t *testing.T) {
 	upstream2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer upstream2.Close()
 
-	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil)
+	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, nil)
 	defer m.Stop()
 
 	ctx := context.Background()
-	p1, err := m.CreateOrGet(ctx, ws1, "127.0.0.1", testServerPort(upstream1))
+	p1, err := m.CreateOrGet(ctx, ws1, "127.0.0.1", testServerPort(upstream1), "")
 	if err != nil {
 		t.Fatalf("create preview ws1: %v", err)
 	}
-	p2, err := m.CreateOrGet(ctx, ws2, "127.0.0.1", testServerPort(upstream2))
+	p2, err := m.CreateOrGet(ctx, ws2, "127.0.0.1", testServerPort(upstream2), "")
 	if err != nil {
 		t.Fatalf("create preview ws2: %v", err)
 	}
@@ -213,24 +213,21 @@ func TestManagerReconcileWorkspaceRemovesStalePreview(t *testing.T) {
 	}))
 	port := testServerPort(upstream)
 
-	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil)
+	// Port detector that returns nothing (simulates PID no longer owning port)
+	noPortsDetector := func(pid int) []ListeningPort { return nil }
+
+	st.AddSession(state.Session{ID: "sess-1", WorkspaceID: "ws-1", Pid: 12345})
+
+	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, noPortsDetector)
 	defer m.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	p, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port)
+	p, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "sess-1")
 	if err != nil {
 		t.Fatalf("create preview: %v", err)
 	}
 	upstream.Close()
-
-	p.LastHealthyAt = time.Now().Add(-2 * staleGrace)
-	if err := st.UpsertPreview(p); err != nil {
-		t.Fatalf("upsert preview: %v", err)
-	}
-	if err := st.Save(); err != nil {
-		t.Fatalf("save state: %v", err)
-	}
 
 	changed, err := m.ReconcileWorkspace(ws.ID)
 	if err != nil {
@@ -241,6 +238,83 @@ func TestManagerReconcileWorkspaceRemovesStalePreview(t *testing.T) {
 	}
 	if _, found := st.GetPreview(p.ID); found {
 		t.Fatal("expected stale preview to be removed")
+	}
+}
+
+func TestManagerReconcileDeletesWhenSessionDead(t *testing.T) {
+	ws := state.Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir()}
+	st, _ := newPreviewTestState(t, ws)
+	st.AddSession(state.Session{ID: "sess-dead", WorkspaceID: "ws-1", Pid: 999999})
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer upstream.Close()
+
+	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, nil)
+	defer m.Stop()
+
+	ctx := context.Background()
+	p, err := m.CreateOrGet(ctx, ws, "127.0.0.1", testServerPort(upstream), "sess-dead")
+	if err != nil {
+		t.Fatalf("create preview: %v", err)
+	}
+
+	// Remove the session to simulate it being disposed
+	st.RemoveSession("sess-dead")
+
+	changed, err := m.ReconcileWorkspace(ws.ID)
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected reconcile to report changes")
+	}
+	if _, found := st.GetPreview(p.ID); found {
+		t.Fatal("expected preview to be removed when source session is gone")
+	}
+}
+
+func TestManagerReconcileRecreatesListener(t *testing.T) {
+	ws := state.Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir()}
+	st, _ := newPreviewTestState(t, ws)
+	st.AddSession(state.Session{ID: "sess-1", WorkspaceID: "ws-1", Pid: 12345})
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer upstream.Close()
+	port := testServerPort(upstream)
+
+	// Port detector that always reports the port as owned
+	alwaysOwns := func(pid int) []ListeningPort {
+		return []ListeningPort{{Host: "127.0.0.1", Port: port}}
+	}
+
+	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, alwaysOwns)
+	defer m.Stop()
+
+	ctx := context.Background()
+	p, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "sess-1")
+	if err != nil {
+		t.Fatalf("create preview: %v", err)
+	}
+
+	// Manually stop the entry to simulate daemon restart (listener gone, state persisted)
+	m.mu.Lock()
+	m.stopEntryLocked(p.ID)
+	m.mu.Unlock()
+
+	changed, err := m.ReconcileWorkspace(ws.ID)
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected reconcile to report changes (listener recreated)")
+	}
+	// Preview should still exist (not deleted)
+	if _, found := st.GetPreview(p.ID); !found {
+		t.Fatal("expected preview to still exist after listener recreation")
 	}
 }
 
@@ -270,12 +344,12 @@ func TestManagerWebSocketProxying(t *testing.T) {
 	// Create preview proxy pointing at the upstream.
 	ws := state.Workspace{ID: "ws-ws", Repo: "repo", Branch: "main", Path: t.TempDir()}
 	st, _ := newPreviewTestState(t, ws)
-	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil)
+	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, nil)
 	defer m.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	preview, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port)
+	preview, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "")
 	if err != nil {
 		t.Fatalf("create preview: %v", err)
 	}
@@ -299,5 +373,79 @@ func TestManagerWebSocketProxying(t *testing.T) {
 	}
 	if string(got) != want {
 		t.Fatalf("expected %q, got %q", want, string(got))
+	}
+}
+
+func TestManagerDeleteBySession(t *testing.T) {
+	ws := state.Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir()}
+	st, _ := newPreviewTestState(t, ws)
+
+	upstream1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer upstream1.Close()
+	upstream2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer upstream2.Close()
+
+	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, nil)
+	defer m.Stop()
+
+	ctx := context.Background()
+	p1, err := m.CreateOrGet(ctx, ws, "127.0.0.1", testServerPort(upstream1), "sess-a")
+	if err != nil {
+		t.Fatalf("create p1: %v", err)
+	}
+	p2, err := m.CreateOrGet(ctx, ws, "127.0.0.1", testServerPort(upstream2), "sess-b")
+	if err != nil {
+		t.Fatalf("create p2: %v", err)
+	}
+
+	deleted, err := m.DeleteBySession("sess-a")
+	if err != nil {
+		t.Fatalf("delete by session: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("expected 1 deleted, got %d", deleted)
+	}
+
+	if _, found := st.GetPreview(p1.ID); found {
+		t.Fatal("expected p1 to be deleted")
+	}
+	if _, found := st.GetPreview(p2.ID); !found {
+		t.Fatal("expected p2 to still exist")
+	}
+}
+
+func TestManagerCreateOrGetSetsSourceSessionID(t *testing.T) {
+	ws := state.Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir()}
+	st, _ := newPreviewTestState(t, ws)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer upstream.Close()
+	port := testServerPort(upstream)
+
+	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, nil)
+	defer m.Stop()
+
+	ctx := context.Background()
+	p, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "sess-abc")
+	if err != nil {
+		t.Fatalf("create preview: %v", err)
+	}
+	if p.SourceSessionID != "sess-abc" {
+		t.Fatalf("expected source session 'sess-abc', got %q", p.SourceSessionID)
+	}
+
+	// Second call reuses existing, source session ID stays
+	p2, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "sess-xyz")
+	if err != nil {
+		t.Fatalf("reuse preview: %v", err)
+	}
+	if p2.SourceSessionID != "sess-abc" {
+		t.Fatalf("expected original source session preserved, got %q", p2.SourceSessionID)
 	}
 }
