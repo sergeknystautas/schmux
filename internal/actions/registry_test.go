@@ -355,6 +355,60 @@ func TestMigrateQuickLaunch_Idempotent(t *testing.T) {
 	}
 }
 
+func TestRemoveMigrated(t *testing.T) {
+	r := newTestRegistry(t)
+	r.Load()
+
+	// Add a migrated action via MigrateQuickLaunch.
+	prompt := "run tests"
+	_, _ = r.MigrateQuickLaunch([]contracts.QuickLaunch{
+		{Name: "Run Tests", Target: "agent", Prompt: &prompt},
+	})
+
+	// Add a non-migrated action manually.
+	_, _ = r.Create(contracts.CreateActionRequest{Name: "Manual Action", Type: contracts.ActionTypeAgent})
+
+	// Should have 2 actions total.
+	all := r.List(contracts.ActionStatePinned)
+	if len(all) != 2 {
+		t.Fatalf("expected 2 pinned actions before cleanup, got %d", len(all))
+	}
+
+	// Remove migrated.
+	removed, err := r.RemoveMigrated()
+	if err != nil {
+		t.Fatalf("RemoveMigrated: %v", err)
+	}
+	if removed != 1 {
+		t.Errorf("removed = %d, want 1", removed)
+	}
+
+	// Only the manual action should remain.
+	remaining := r.List(contracts.ActionStatePinned)
+	if len(remaining) != 1 {
+		t.Fatalf("expected 1 pinned action after cleanup, got %d", len(remaining))
+	}
+	if remaining[0].Name != "Manual Action" {
+		t.Errorf("remaining action = %q, want %q", remaining[0].Name, "Manual Action")
+	}
+}
+
+func TestRemoveMigrated_NoOp(t *testing.T) {
+	r := newTestRegistry(t)
+	r.Load()
+
+	// Add only non-migrated actions.
+	_, _ = r.Create(contracts.CreateActionRequest{Name: "Manual", Type: contracts.ActionTypeAgent})
+
+	removed, err := r.RemoveMigrated()
+	if err != nil {
+		t.Fatalf("RemoveMigrated: %v", err)
+	}
+	if removed != 0 {
+		t.Errorf("removed = %d, want 0 (no migrated actions)", removed)
+	}
+}
+
 func TestPersistence(t *testing.T) {
 	dir := t.TempDir()
 

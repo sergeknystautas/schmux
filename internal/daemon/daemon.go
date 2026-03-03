@@ -868,9 +868,10 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		compoundLog.Info("started overlay compounding loop")
 	}
 
-	// Action registry: set up base directory
+	// Action registry: set up base directory and clean up legacy migrated actions
 	actionBaseDir := filepath.Join(homeDir, ".schmux", "actions")
 	server.SetActionBaseDir(actionBaseDir)
+	server.CleanupMigratedActions()
 
 	// Lore curation timer — declared at Run() scope so shutdown can clean up
 	var loreCurateTimer *time.Timer

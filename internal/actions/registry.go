@@ -287,6 +287,28 @@ func (r *Registry) MigrateQuickLaunch(presets []contracts.QuickLaunch) (int, err
 	return count, r.save()
 }
 
+// RemoveMigrated strips out actions that were created by the legacy
+// MigrateQuickLaunch routine. Returns the number of actions removed.
+func (r *Registry) RemoveMigrated() (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	kept := make([]contracts.Action, 0, len(r.actions))
+	removed := 0
+	for _, a := range r.actions {
+		if a.Source == contracts.ActionSourceMigrated {
+			removed++
+			continue
+		}
+		kept = append(kept, a)
+	}
+	if removed == 0 {
+		return 0, nil
+	}
+	r.actions = kept
+	return removed, r.save()
+}
+
 // save writes the registry to disk atomically (temp-file + rename).
 // Caller must hold the write lock.
 func (r *Registry) save() error {
