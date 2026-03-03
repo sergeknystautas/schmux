@@ -600,6 +600,146 @@ func TestGetCursorPositionExecuteError(t *testing.T) {
 	}
 }
 
+// TestStaleResponsesDiscardedOnReconnect verifies that responses from a previous
+// control mode session (with high command IDs) are discarded and don't corrupt
+// the first real command sent after reconnection.
+func TestStaleResponsesDiscardedOnReconnect(t *testing.T) {
+	// Simulate what happens on daemon restart:
+	// 1. Parser sees stale %begin/%end blocks from the previous session
+	// 2. Client.Start() begins processing
+	// 3. First real Execute() should get ITS response, not a stale one
+
+	pr, pw := io.Pipe()
+	parser := NewParser(pr, nil)
+
+	stdin := &signalWriter{written: make(chan struct{})}
+	client := NewClient(stdin, parser, nil)
+
+	go parser.Run()
+
+	// Write stale responses BEFORE client starts (simulates tmux initial dump)
+	staleData := "" +
+		"%begin 1000 321040 0\nstale response 1\n%end 1000 321040 0\n" +
+		"%begin 1000 321041 0\nstale response 2\n%end 1000 321041 0\n" +
+		"%begin 1000 321042 0\nstale response 3\n%end 1000 321042 0\n"
+	pw.Write([]byte(staleData))
+
+	// Give parser time to buffer the stale responses
+	time.Sleep(50 * time.Millisecond)
+
+	client.Start()
+
+	// Now send a real command — the response should be "real response", not "stale response N"
+	realResponse := "%begin 1000 321043 0\nreal response\n%end 1000 321043 0\n"
+	go func() {
+		<-stdin.written
+		pw.Write([]byte(realResponse))
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	result, err := client.Execute(ctx, "display-message -p 'ready'")
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if result != "real response" {
+		t.Errorf("expected 'real response', got %q (stale response was delivered)", result)
+	}
+
+	pw.Close()
+	client.Close()
+}
+
+// TestStaleResponsesCountedAsDiscarded verifies that discarded stale responses
+// are counted and accessible via DiscardedStale().
+func TestStaleResponsesCountedAsDiscarded(t *testing.T) {
+	pr, pw := io.Pipe()
+	parser := NewParser(pr, nil)
+
+	var stdin strings.Builder
+	client := NewClient(&stdin, parser, nil)
+
+	go parser.Run()
+
+	// Write stale responses before client starts
+	staleData := "" +
+		"%begin 1000 500 0\nstale 1\n%end 1000 500 0\n" +
+		"%begin 1000 501 0\nstale 2\n%end 1000 501 0\n"
+	pw.Write([]byte(staleData))
+
+	time.Sleep(50 * time.Millisecond)
+
+	client.Start()
+
+	// Give processResponses time to drain the stale responses
+	time.Sleep(100 * time.Millisecond)
+
+	discarded := client.DiscardedStale()
+	if discarded != 2 {
+		t.Errorf("expected 2 discarded stale responses, got %d", discarded)
+	}
+
+	pw.Close()
+	client.Close()
+}
+
+// TestResponsesAfterEpochDeliveredNormally verifies that once the epoch is
+// established, subsequent commands work correctly via FIFO ordering.
+func TestResponsesAfterEpochDeliveredNormally(t *testing.T) {
+	pr, pw := io.Pipe()
+	parser := NewParser(pr, nil)
+
+	// Use ackWriter to inject responses when commands are written to stdin.
+	// A counter tracks how many commands have been sent.
+	var cmdCount int
+	var cmdMu sync.Mutex
+	var stdinBuf strings.Builder
+	w := &ackWriter{
+		sb: &stdinBuf,
+		ackFn: func() {
+			cmdMu.Lock()
+			cmdCount++
+			n := cmdCount
+			cmdMu.Unlock()
+
+			switch n {
+			case 1:
+				pw.Write([]byte("%begin 1000 0 0\nfirst\n%end 1000 0 0\n"))
+			case 2:
+				pw.Write([]byte("%begin 1000 1 0\nsecond\n%end 1000 1 0\n"))
+			}
+		},
+	}
+	client := NewClient(w, parser, nil)
+
+	go parser.Run()
+	client.Start()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	result1, err := client.Execute(ctx, "cmd1")
+	if err != nil {
+		t.Fatalf("first Execute returned error: %v", err)
+	}
+	if result1 != "first" {
+		t.Errorf("first command: expected 'first', got %q", result1)
+	}
+
+	result2, err := client.Execute(ctx, "cmd2")
+	if err != nil {
+		t.Fatalf("second Execute returned error: %v", err)
+	}
+	if result2 != "second" {
+		t.Errorf("second command: expected 'second', got %q", result2)
+	}
+
+	pw.Close()
+	client.Close()
+}
+
 func TestTmuxQuote(t *testing.T) {
 	tests := []struct {
 		name  string
