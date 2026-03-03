@@ -97,6 +97,41 @@
   color: var(--color-text);
 }
 
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-xs) var(--spacing-md);
+}
+
+.sectionLabel {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.manageLink {
+  font-size: 0.65rem;
+  color: var(--color-text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.manageLink:hover {
+  color: var(--color-accent);
+}
+
+.emptyState {
+  padding: var(--spacing-xs) var(--spacing-md);
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
 @keyframes fadeInSlideDown {
   from {
     opacity: 0;

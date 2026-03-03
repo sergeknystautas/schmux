@@ -1,9 +1,11 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { spawnSessions, getErrorMessage } from '../lib/api';
 import { useToast } from './ToastProvider';
+import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import { useActions } from '../hooks/useActions';
+import { getQuickLaunchItems } from '../lib/quicklaunch';
 import type { Action } from '../lib/types.generated';
 import type { WorkspaceResponse } from '../lib/types';
 import styles from './ActionDropdown.module.css';
@@ -37,17 +39,51 @@ export default function ActionDropdown({
 }: ActionDropdownProps) {
   const navigate = useNavigate();
   const { success, error: toastError } = useToast();
+  const { config } = useConfig();
   const { waitForSession } = useSessions();
-  const { actions, refetch } = useActions(workspace.repo);
+  const repoName = workspace.repo_name || workspace.repo;
+  const { actions, refetch } = useActions(repoName);
 
   useEffect(() => {
     refetch();
   }, [refetch]);
 
+  const quickLaunch = useMemo(() => {
+    const globalNames = (config?.quick_launch || []).map((item) => item.name);
+    return getQuickLaunchItems(globalNames, workspace.quick_launch || []);
+  }, [config?.quick_launch, workspace.quick_launch]);
+
   const handleCustomSpawn = (e: React.MouseEvent) => {
     e.stopPropagation();
     onClose();
     navigate(`/spawn?workspace_id=${workspace.id}`);
+  };
+
+  const handleQuickLaunchSpawn = async (name: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    onClose();
+
+    try {
+      const response = await spawnSessions({
+        repo: workspace.repo,
+        branch: workspace.branch,
+        prompt: '',
+        nickname: name,
+        workspace_id: workspace.id,
+        quick_launch_name: name,
+      });
+
+      const result = response[0];
+      if (result.error) {
+        toastError(`Failed to spawn ${name}: ${result.error}`);
+      } else {
+        success(`Spawned ${name} session`);
+        await waitForSession(result.session_id!);
+        navigate(`/sessions/${result.session_id!}`);
+      }
+    } catch (err) {
+      toastError(`Failed to spawn: ${getErrorMessage(err, 'Unknown error')}`);
+    }
   };
 
   const handleActionSpawn = async (action: Action, e: React.MouseEvent) => {
@@ -111,10 +147,16 @@ export default function ActionDropdown({
     }
   };
 
-  const handleAddAction = (e: React.MouseEvent) => {
+  const handleManageQuickLaunch = (e: React.MouseEvent) => {
     e.stopPropagation();
     onClose();
-    navigate('/config');
+    navigate('/config?tab=quicklaunch');
+  };
+
+  const handleManageEmerged = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onClose();
+    navigate(`/lore?repo=${encodeURIComponent(repoName)}&tab=actions`);
   };
 
   return (
@@ -132,31 +174,52 @@ export default function ActionDropdown({
         <span className={styles.itemHint}>wizard</span>
       </button>
 
-      {actions.length > 0 && (
-        <>
-          <div className={styles.separator} role="separator" />
-          {actions.map((action) => (
-            <button
-              key={action.id}
-              className={styles.item}
-              onClick={(e) => handleActionSpawn(action, e)}
-              role="menuitem"
-            >
-              <span className={styles.itemLabel}>{action.name}</span>
-              <ConfidenceDots confidence={action.confidence} type={action.type} />
-            </button>
-          ))}
-        </>
+      {/* Quick Launch section */}
+      <div className={styles.separator} role="separator" />
+      <div className={styles.sectionHeader}>
+        <span className={styles.sectionLabel}>Quick Launch</span>
+        <button className={styles.manageLink} onClick={handleManageQuickLaunch}>
+          manage
+        </button>
+      </div>
+      {quickLaunch.length > 0 ? (
+        quickLaunch.map((item) => (
+          <button
+            key={item.name}
+            className={styles.item}
+            onClick={(e) => handleQuickLaunchSpawn(item.name, e)}
+            role="menuitem"
+          >
+            <span className={styles.itemLabel}>{item.name}</span>
+          </button>
+        ))
+      ) : (
+        <div className={styles.emptyState}>No presets configured</div>
       )}
 
+      {/* Emerged actions section */}
       <div className={styles.separator} role="separator" />
-      <button
-        className={`${styles.item} ${styles.addAction}`}
-        onClick={handleAddAction}
-        role="menuitem"
-      >
-        + Add action
-      </button>
+      <div className={styles.sectionHeader}>
+        <span className={styles.sectionLabel}>Emerged</span>
+        <button className={styles.manageLink} onClick={handleManageEmerged}>
+          manage
+        </button>
+      </div>
+      {actions.length > 0 ? (
+        actions.map((action) => (
+          <button
+            key={action.id}
+            className={styles.item}
+            onClick={(e) => handleActionSpawn(action, e)}
+            role="menuitem"
+          >
+            <span className={styles.itemLabel}>{action.name}</span>
+            <ConfidenceDots confidence={action.confidence} type={action.type} />
+          </button>
+        ))
+      ) : (
+        <div className={styles.emptyState}>No emerged actions yet</div>
+      )}
     </div>
   );
 }

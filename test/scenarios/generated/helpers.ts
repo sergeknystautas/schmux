@@ -10,6 +10,7 @@ const SCHMUX_HOME = process.env.SCHMUX_HOME || `${process.env.HOME}/.schmux`;
 interface SetupOptions {
   repos?: string[];
   agents?: Array<{ name: string; command: string; promptable?: boolean }>;
+  quickLaunch?: Array<{ name: string; target: string; prompt?: string }>;
   workspacePath?: string;
   scm?: 'git' | 'git-worktree';
 }
@@ -30,6 +31,11 @@ export async function seedConfig(opts: SetupOptions = {}): Promise<void> {
       name: a.name,
       type: a.promptable !== false ? 'promptable' : 'command',
       command: a.command,
+    })),
+    quick_launch: (opts.quickLaunch || []).map((ql) => ({
+      name: ql.name,
+      target: ql.target,
+      prompt: ql.prompt || 'default task',
     })),
   };
 

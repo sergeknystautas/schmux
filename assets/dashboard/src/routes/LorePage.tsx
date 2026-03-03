@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
 import {
   getLoreProposals,
@@ -173,8 +174,13 @@ export default function LorePage() {
   const { success: toastSuccess, error: toastError } = useToast();
   const { alert } = useModal();
   const { activeCurations, pendingCurations, startCuration, onComplete } = useCuration();
+  const [searchParams] = useSearchParams();
 
-  const [activeRepo, setActiveRepo] = useState(repos[0]?.name || '');
+  const [activeRepo, setActiveRepo] = useState(() => {
+    const paramRepo = searchParams.get('repo');
+    if (paramRepo && repos.find((r) => r.name === paramRepo)) return paramRepo;
+    return repos[0]?.name || '';
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [proposals, setProposals] = useState<LoreProposal[]>([]);
@@ -213,7 +219,10 @@ export default function LorePage() {
   const [repoPendingCounts, setRepoPendingCounts] = useState<Record<string, number>>({});
 
   // Sub-tabs: instructions vs actions
-  const [activeSubTab, setActiveSubTab] = useState<'instructions' | 'actions'>('instructions');
+  const [activeSubTab, setActiveSubTab] = useState<'instructions' | 'actions'>(() => {
+    const paramTab = searchParams.get('tab');
+    return paramTab === 'actions' ? 'actions' : 'instructions';
+  });
 
   // Actions tab state
   const [proposedActions, setProposedActions] = useState<Action[]>([]);
@@ -223,9 +232,11 @@ export default function LorePage() {
   // Sync activeRepo when repos list changes (e.g., config loaded after mount)
   useEffect(() => {
     if (repos.length > 0 && !repos.find((r) => r.name === activeRepo)) {
-      setActiveRepo(repos[0].name);
+      const paramRepo = searchParams.get('repo');
+      const match = paramRepo && repos.find((r) => r.name === paramRepo);
+      setActiveRepo(match ? paramRepo : repos[0].name);
     }
-  }, [repos, activeRepo]);
+  }, [repos, activeRepo, searchParams]);
 
   const loadProposals = useCallback(async () => {
     if (!activeRepo) return;
