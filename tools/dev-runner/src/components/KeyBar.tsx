@@ -3,11 +3,12 @@ import { Box, Text } from 'ink';
 
 interface KeyBarProps {
   canRestart: boolean;
+  canResetWorkspace: boolean;
   layout?: 'horizontal' | 'vertical';
   plain?: boolean;
 }
 
-export function KeyBar({ canRestart, layout, plain }: KeyBarProps) {
+export function KeyBar({ canRestart, canResetWorkspace, layout, plain }: KeyBarProps) {
   if (plain) {
     return (
       <Box paddingX={1}>
@@ -20,6 +21,14 @@ export function KeyBar({ canRestart, layout, plain }: KeyBarProps) {
             p
           </Text>
           <Text dimColor={!canRestart}> pull </Text>
+          {canResetWorkspace && (
+            <>
+              <Text bold color="white">
+                w
+              </Text>
+              <Text> reset workspace </Text>
+            </>
+          )}
           <Text bold>q</Text>
           <Text> quit</Text>
         </Text>
@@ -38,6 +47,14 @@ export function KeyBar({ canRestart, layout, plain }: KeyBarProps) {
           p
         </Text>
         <Text dimColor={!canRestart}> pull </Text>
+        {canResetWorkspace && (
+          <>
+            <Text bold color="white">
+              w
+            </Text>
+            <Text> reset workspace </Text>
+          </>
+        )}
         <Text bold>c</Text>
         <Text> clear logs </Text>
         <Text bold>l</Text>
