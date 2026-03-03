@@ -40,9 +40,6 @@ jobs:
 
       - name: Build website
         run: go run ./cmd/build-website
-        env:
-          # Set to '/schmux/' if using github.io subpath; remove if using custom domain
-          # VITE_BASE: '/schmux/'
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
