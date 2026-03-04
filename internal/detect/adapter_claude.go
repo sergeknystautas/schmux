@@ -82,6 +82,10 @@ func (a *ClaudeAdapter) SetupCommands(workspacePath string) error { return nil }
 
 func (a *ClaudeAdapter) ModelFlag() string { return "--model" }
 
+func (a *ClaudeAdapter) Capabilities() []string {
+	return []string{"interactive", "oneshot", "streaming"}
+}
+
 func (a *ClaudeAdapter) BuildRunnerEnv(spec RunnerSpec) map[string]string {
 	env := map[string]string{}
 	if spec.Endpoint != "" {

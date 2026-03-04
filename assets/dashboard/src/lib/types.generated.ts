@@ -434,6 +434,7 @@ export interface RunnerInfo {
   available: boolean;
   configured: boolean;
   required_secrets?: string[];
+  capabilities?: string[];
 }
 
 export interface Sessions {

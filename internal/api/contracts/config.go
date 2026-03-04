@@ -46,6 +46,7 @@ type RunnerInfo struct {
 	Available       bool     `json:"available"`                  // true if the tool is detected
 	Configured      bool     `json:"configured"`                 // true if required secrets are present
 	RequiredSecrets []string `json:"required_secrets,omitempty"` // secrets needed for this runner
+	Capabilities    []string `json:"capabilities,omitempty"`     // tool modes: "interactive", "oneshot", "streaming"
 }
 
 // Model represents an AI model with metadata and configuration status.

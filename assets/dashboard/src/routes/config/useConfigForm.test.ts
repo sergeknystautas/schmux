@@ -296,7 +296,7 @@ describe('useConfigForm', () => {
         result.current.dispatch({
           type: 'LOAD_CONFIG',
           state: {
-            models: [
+            modelCatalog: [
               {
                 id: 'gpt-4',
                 display_name: 'GPT-4',
@@ -344,7 +344,7 @@ describe('useConfigForm', () => {
             conflictResolveTarget: 'nonexistent',
             prReviewTarget: 'nonexistent',
             commitMessageTarget: 'nonexistent',
-            models: [],
+            modelCatalog: [],
           },
         });
       });
@@ -369,7 +369,7 @@ describe('useConfigForm', () => {
           type: 'LOAD_CONFIG',
           state: {
             nudgenikTarget: 'claude-sonnet',
-            models: [
+            modelCatalog: [
               {
                 id: 'claude-sonnet',
                 display_name: 'Claude Sonnet',

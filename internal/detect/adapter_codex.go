@@ -75,6 +75,10 @@ func (a *CodexAdapter) SetupCommands(workspacePath string) error { return nil }
 
 func (a *CodexAdapter) ModelFlag() string { return "-m" }
 
+func (a *CodexAdapter) Capabilities() []string {
+	return []string{"interactive", "oneshot"}
+}
+
 func (a *CodexAdapter) BuildRunnerEnv(spec RunnerSpec) map[string]string {
 	return map[string]string{}
 }
