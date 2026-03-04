@@ -41,24 +41,20 @@ type ExternalDiffCommand struct {
 	Command string `json:"command"`
 }
 
-// RunnerInfo describes a tool that can run a model.
+// RunnerInfo describes a tool/runner at the top level of ConfigResponse.
 type RunnerInfo struct {
-	Available       bool     `json:"available"`                  // true if the tool is detected
-	Configured      bool     `json:"configured"`                 // true if required secrets are present
-	RequiredSecrets []string `json:"required_secrets,omitempty"` // secrets needed for this runner
-	Capabilities    []string `json:"capabilities,omitempty"`     // tool modes: "interactive", "oneshot", "streaming"
+	Available    bool     `json:"available"`              // true if the tool is detected
+	Capabilities []string `json:"capabilities,omitempty"` // tool modes: "interactive", "oneshot", "streaming"
 }
 
 // Model represents an AI model with metadata and configuration status.
 type Model struct {
-	ID            string                `json:"id"`                       // e.g., "claude-opus-4-6"
-	DisplayName   string                `json:"display_name"`             // e.g., "Claude Opus 4.6"
-	Provider      string                `json:"provider"`                 // e.g., "anthropic"
-	Category      string                `json:"category"`                 // "native" or "third-party"
-	UsageURL      string                `json:"usage_url,omitempty"`      // signup/pricing page
-	Configured    bool                  `json:"configured"`               // true if at least one runner is configured
-	Runners       map[string]RunnerInfo `json:"runners"`                  // tool name -> runner info
-	PreferredTool string                `json:"preferred_tool,omitempty"` // user's preferred tool for this model
+	ID              string   `json:"id"`                         // e.g., "claude-opus-4-6"
+	DisplayName     string   `json:"display_name"`               // e.g., "Claude Opus 4.6"
+	Provider        string   `json:"provider"`                   // e.g., "anthropic"
+	Configured      bool     `json:"configured"`                 // true if at least one runner is configured
+	Runners         []string `json:"runners"`                    // tool names that can run this model
+	RequiredSecrets []string `json:"required_secrets,omitempty"` // secrets needed for this model
 }
 
 // Nudgenik represents NudgeNik configuration.
@@ -123,6 +119,7 @@ type ConfigResponse struct {
 	QuickLaunch                []QuickLaunch         `json:"quick_launch"`
 	ExternalDiffCommands       []ExternalDiffCommand `json:"external_diff_commands,omitempty"`
 	ExternalDiffCleanupAfterMs int                   `json:"external_diff_cleanup_after_ms,omitempty"`
+	Runners                    map[string]RunnerInfo `json:"runners"` // tool name -> runner info
 	Models                     []Model               `json:"models"`
 	EnabledModels              map[string]string     `json:"enabled_models,omitempty"` // modelID -> preferred tool
 	Nudgenik                   Nudgenik              `json:"nudgenik"`

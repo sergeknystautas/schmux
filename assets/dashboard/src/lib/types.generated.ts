@@ -69,6 +69,7 @@ export interface ConfigResponse {
   quick_launch: QuickLaunch[];
   external_diff_commands?: ExternalDiffCommand[];
   external_diff_cleanup_after_ms?: number;
+  runners: Record<string, RunnerInfo>;
   models: Model[];
   enabled_models?: Record<string, string>;
   nudgenik: Nudgenik;
@@ -262,11 +263,9 @@ export interface Model {
   id: string;
   display_name: string;
   provider: string;
-  category: string;
-  usage_url?: string;
   configured: boolean;
-  runners: Record<string, RunnerInfo>;
-  preferred_tool?: string;
+  runners: string[];
+  required_secrets?: string[];
 }
 
 export interface Network {
@@ -432,8 +431,6 @@ export interface RunTarget {
 
 export interface RunnerInfo {
   available: boolean;
-  configured: boolean;
-  required_secrets?: string[];
   capabilities?: string[];
 }
 

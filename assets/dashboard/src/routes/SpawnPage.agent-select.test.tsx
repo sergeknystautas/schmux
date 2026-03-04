@@ -11,25 +11,25 @@ const configFixture: ConfigResponse = {
   source_code_management: 'git-worktree',
   repos: [{ name: 'my-repo', url: 'https://github.com/user/repo.git' }],
   run_targets: [{ name: 'build', command: 'make build' }],
+  runners: {
+    claude: { available: true, capabilities: ['interactive', 'oneshot', 'streaming'] },
+    codex: { available: true, capabilities: ['interactive', 'oneshot'] },
+    opencode: { available: true, capabilities: ['interactive', 'oneshot'] },
+  },
   models: [
     {
       id: 'claude',
       display_name: 'Claude Code',
       provider: 'anthropic',
-      category: 'agent',
       configured: true,
-      runners: { claude: { available: true, configured: true } },
+      runners: ['claude'],
     },
     {
       id: 'codex',
       display_name: 'Codex CLI',
       provider: 'openai',
-      category: 'agent',
       configured: true,
-      runners: {
-        codex: { available: true, configured: true },
-        opencode: { available: true, configured: true },
-      },
+      runners: ['codex', 'opencode'],
     },
   ],
   quick_launch: [],

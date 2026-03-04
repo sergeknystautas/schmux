@@ -113,8 +113,7 @@ func TestIsTargetInUse(t *testing.T) {
 	}
 }
 
-func TestGetCatalogIncludesCapabilities(t *testing.T) {
-	// Create a manager with claude as a detected tool
+func TestGetCatalogStructure(t *testing.T) {
 	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}})
 
 	catalog, err := mm.GetCatalog()
@@ -122,30 +121,40 @@ func TestGetCatalogIncludesCapabilities(t *testing.T) {
 		t.Fatalf("GetCatalog() error: %v", err)
 	}
 
-	// Find any model that has a claude runner
+	// Top-level runners should have capabilities
+	ri, ok := catalog.Runners["claude"]
+	if !ok {
+		t.Fatal("top-level runners missing claude")
+	}
+	if !ri.Available {
+		t.Error("claude runner should be available")
+	}
+	want := map[string]bool{"interactive": true, "oneshot": true, "streaming": true}
+	got := make(map[string]bool, len(ri.Capabilities))
+	for _, c := range ri.Capabilities {
+		got[c] = true
+	}
+	for cap := range want {
+		if !got[cap] {
+			t.Errorf("claude runner missing capability %q, got %v", cap, ri.Capabilities)
+		}
+	}
+
+	// Models should have runners as string slices
 	found := false
-	for _, model := range catalog {
-		if ri, ok := model.Runners["claude"]; ok {
-			found = true
-			if len(ri.Capabilities) == 0 {
-				t.Errorf("model %s: claude runner has empty Capabilities", model.ID)
+	for _, model := range catalog.Models {
+		for _, r := range model.Runners {
+			if r == "claude" {
+				found = true
+				break
 			}
-			// Claude adapter should report interactive, oneshot, streaming
-			want := map[string]bool{"interactive": true, "oneshot": true, "streaming": true}
-			got := make(map[string]bool, len(ri.Capabilities))
-			for _, c := range ri.Capabilities {
-				got[c] = true
-			}
-			for cap := range want {
-				if !got[cap] {
-					t.Errorf("model %s: claude runner missing capability %q, got %v", model.ID, cap, ri.Capabilities)
-				}
-			}
-			break // one model is enough to verify
+		}
+		if found {
+			break
 		}
 	}
 	if !found {
-		t.Fatal("no model with a claude runner found in catalog")
+		t.Fatal("no model with claude runner found in catalog")
 	}
 }
 

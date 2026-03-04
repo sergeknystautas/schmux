@@ -1,10 +1,11 @@
 import React from 'react';
 import type { ConfigFormAction } from './useConfigForm';
-import type { Model, RunTargetResponse } from '../../lib/types';
+import type { Model, RunnerInfo, RunTargetResponse } from '../../lib/types';
 import ModelCatalog from './ModelCatalog';
 
 type SessionsTabProps = {
   models: Model[];
+  runners: Record<string, RunnerInfo>;
   enabledModels: Record<string, string>;
   commandTargets: RunTargetResponse[];
   newCommandName: string;
@@ -18,6 +19,7 @@ type SessionsTabProps = {
 
 export default function SessionsTab({
   models,
+  runners,
   enabledModels,
   commandTargets,
   newCommandName,
@@ -46,6 +48,7 @@ export default function SessionsTab({
 
       <ModelCatalog
         models={models}
+        runners={runners}
         enabledModels={enabledModels}
         onToggleModel={handleToggleModel}
         onChangeRunner={handleChangeRunner}

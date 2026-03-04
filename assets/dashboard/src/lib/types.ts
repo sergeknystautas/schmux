@@ -108,6 +108,7 @@ export type {
   PrReviewUpdate,
   Notifications,
   NotificationsUpdate,
+  RunnerInfo,
   TLSValidateResponse,
 } from './types.generated';
 
