@@ -2379,7 +2379,7 @@ The `gap` message requests replay of missing output log entries. Sent when the c
 
 Server -> client messages:
 
-Binary frames contain sequenced terminal bytes. Each binary frame has an 8-byte big-endian uint64 sequence header followed by terminal data. The first binary frame is the bootstrap snapshot (full screen capture with ANSI escape sequences and cursor positioning). Subsequent binary frames are incremental output from tmux control mode. Sequence numbers enable gap detection: if the client sees a gap, it sends a `gap` message to request replay of missing entries from the server's output log. The output log requires a positive capacity (panics on zero).
+Binary frames contain sequenced terminal bytes. Each binary frame has an 8-byte big-endian uint64 sequence header followed by terminal data. The first binary frame is the bootstrap snapshot (full screen capture with ANSI escape sequences and cursor positioning). Subsequent binary frames are incremental output from tmux control mode. Sequence numbers enable gap detection: if the client sees a gap, it sends a `gap` message to request replay of missing entries from the server's output log. The output log requires a positive capacity (panics on zero). The client coalesces scroll-to-bottom calls via `requestAnimationFrame` to avoid forced layout reflows when processing burst output.
 
 Text frames are JSON control messages:
 

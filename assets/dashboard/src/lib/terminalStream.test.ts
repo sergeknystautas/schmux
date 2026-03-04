@@ -406,16 +406,25 @@ describe('TerminalStream bootstrap write chaining', () => {
       if (cb) writeCallbacks.push(cb);
     });
 
+    // Capture rAF callbacks so we can trigger them manually
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+
     // Send bootstrap frame (seq=0)
     stream.handleOutput(buildSeqFrame(0n, 'chunk1'));
 
     // scrollToBottom should NOT have been called yet (write hasn't "completed")
     expect(terminal.scrollToBottom).not.toHaveBeenCalled();
 
-    // Simulate xterm.js completing the write
+    // Simulate xterm.js completing the write — schedules coalesced rAF
     writeCallbacks[0]();
+    expect(terminal.scrollToBottom).not.toHaveBeenCalled();
 
-    // Now scrollToBottom should fire (followTail defaults to true)
+    // Fire the rAF — now scrollToBottom runs (followTail defaults to true)
+    rafCallbacks.forEach((cb) => cb(0));
     expect(terminal.scrollToBottom).toHaveBeenCalledTimes(1);
   });
 
@@ -433,16 +442,25 @@ describe('TerminalStream bootstrap write chaining', () => {
       if (cb) writeCallbacks.push(cb);
     });
 
+    // Capture rAF callbacks
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+
     // Send live frame
     stream.handleOutput(buildSeqFrame(1n, 'live-data'));
 
     // scrollToBottom should NOT have been called yet
     expect(terminal.scrollToBottom).not.toHaveBeenCalled();
 
-    // Simulate write completion
+    // Simulate write completion — schedules coalesced rAF
     writeCallbacks[0]();
+    expect(terminal.scrollToBottom).not.toHaveBeenCalled();
 
-    // Now it should fire
+    // Fire the rAF — now it should fire
+    rafCallbacks.forEach((cb) => cb(0));
     expect(terminal.scrollToBottom).toHaveBeenCalledTimes(1);
   });
 });
