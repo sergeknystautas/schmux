@@ -174,6 +174,7 @@ export default function ConfigPage() {
             ioWorkspaceTelemetryEnabled: data.io_workspace_telemetry?.enabled || false,
             ioWorkspaceTelemetryTarget: data.io_workspace_telemetry?.target || '',
             modelCatalog: data.models || [],
+            runners: data.runners || {},
           },
         });
 
@@ -453,6 +454,7 @@ export default function ConfigPage() {
     try {
       const data = await getConfig();
       dispatch({ type: 'SET_MODELS', models: data.models || [] });
+      dispatch({ type: 'SET_FIELD', field: 'runners', value: data.runners || {} });
     } catch (err) {
       alert('Load Models Failed', getErrorMessage(err, 'Failed to load models'));
     }
@@ -821,8 +823,7 @@ export default function ConfigPage() {
       return;
     }
 
-    const allSecrets = Object.values(model.runners || {}).flatMap((r) => r.required_secrets || []);
-    const secretKey = allSecrets[0];
+    const secretKey = model.required_secrets?.[0];
     if (!secretKey) return;
 
     const title = mode === 'add' ? `Add ${model.display_name}` : `Update ${model.display_name}`;
@@ -1177,6 +1178,7 @@ export default function ConfigPage() {
           {currentTab === 2 && (
             <SessionsTab
               models={state.modelCatalog}
+              runners={state.runners}
               enabledModels={state.enabledModels}
               commandTargets={state.commandTargets}
               newCommandName={state.newCommandName}

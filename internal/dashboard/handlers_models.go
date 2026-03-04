@@ -12,14 +12,14 @@ import (
 )
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
-	resp, err := s.models.GetCatalog()
+	catalog, err := s.models.GetCatalog()
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to read models: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]any{"models": resp}); err != nil {
+	if err := json.NewEncoder(w).Encode(map[string]any{"models": catalog.Models}); err != nil {
 		s.logger.Error("failed to encode response", "handler", "models", "err", err)
 	}
 }

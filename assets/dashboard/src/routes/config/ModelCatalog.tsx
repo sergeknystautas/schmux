@@ -1,8 +1,9 @@
 import { useState, useMemo } from 'react';
-import type { Model } from '../../lib/types';
+import type { Model, RunnerInfo } from '../../lib/types';
 
 type ModelCatalogProps = {
   models: Model[];
+  runners: Record<string, RunnerInfo>;
   enabledModels: Record<string, string>;
   onToggleModel: (modelId: string, enabled: boolean, defaultRunner: string) => void;
   onChangeRunner: (modelId: string, runner: string) => void;
@@ -16,7 +17,7 @@ type ProviderGroup = {
   needsSecrets: boolean;
 };
 
-function groupByProvider(models: Model[]): ProviderGroup[] {
+function groupByProvider(models: Model[], runners: Record<string, RunnerInfo>): ProviderGroup[] {
   const groups = new Map<string, Model[]>();
   for (const model of models) {
     const existing = groups.get(model.provider) || [];
@@ -27,12 +28,10 @@ function groupByProvider(models: Model[]): ProviderGroup[] {
   const result: ProviderGroup[] = [];
   for (const [provider, providerModels] of groups) {
     const hasDetectedRunner = providerModels.some((m) =>
-      Object.values(m.runners || {}).some((r) => r.available)
+      m.runners.some((r) => runners[r]?.available)
     );
-    const needsSecrets = providerModels.some((m) =>
-      Object.values(m.runners || {}).some(
-        (r) => r.available && r.required_secrets && r.required_secrets.length > 0 && !r.configured
-      )
+    const needsSecrets = providerModels.some(
+      (m) => m.required_secrets && m.required_secrets.length > 0 && !m.configured
     );
     result.push({ provider, models: sortModels(providerModels), hasDetectedRunner, needsSecrets });
   }
@@ -48,11 +47,8 @@ function groupByProvider(models: Model[]): ProviderGroup[] {
   return result;
 }
 
-function getDetectedRunners(model: Model): string[] {
-  return Object.entries(model.runners || {})
-    .filter(([, info]) => info.available)
-    .map(([name]) => name)
-    .sort();
+function getDetectedRunners(model: Model, runners: Record<string, RunnerInfo>): string[] {
+  return model.runners.filter((r) => runners[r]?.available).sort();
 }
 
 // Sort models by tier (haiku < sonnet < opus < other) then by version ascending.
@@ -90,12 +86,14 @@ function getProviderHint(group: ProviderGroup): string | null {
 
 function ProviderSection({
   group,
+  runners,
   enabledModels,
   onToggleModel,
   onChangeRunner,
   onModelAction,
 }: {
   group: ProviderGroup;
+  runners: Record<string, RunnerInfo>;
   enabledModels: Record<string, string>;
   onToggleModel: (modelId: string, enabled: boolean, defaultRunner: string) => void;
   onChangeRunner: (modelId: string, runner: string) => void;
@@ -131,6 +129,7 @@ function ProviderSection({
             <ModelRow
               key={model.id}
               model={model}
+              runners={runners}
               enabledModels={enabledModels}
               onToggleModel={onToggleModel}
               onChangeRunner={onChangeRunner}
@@ -145,27 +144,27 @@ function ProviderSection({
 
 function ModelRow({
   model,
+  runners,
   enabledModels,
   onToggleModel,
   onChangeRunner,
   onModelAction,
 }: {
   model: Model;
+  runners: Record<string, RunnerInfo>;
   enabledModels: Record<string, string>;
   onToggleModel: (modelId: string, enabled: boolean, defaultRunner: string) => void;
   onChangeRunner: (modelId: string, runner: string) => void;
   onModelAction: (model: Model, mode: 'add' | 'remove' | 'update') => void;
 }) {
-  const detectedRunners = useMemo(() => getDetectedRunners(model), [model]);
+  const detectedRunners = useMemo(() => getDetectedRunners(model, runners), [model, runners]);
   const isEnabled = model.id in enabledModels;
   const selectedRunner = enabledModels[model.id] || detectedRunners[0] || '';
 
   if (detectedRunners.length === 0) return null;
 
-  const needsSecrets = detectedRunners.some((runner) => {
-    const info = model.runners[runner];
-    return info?.required_secrets && info.required_secrets.length > 0 && !info.configured;
-  });
+  const needsSecrets =
+    model.required_secrets && model.required_secrets.length > 0 && !model.configured;
 
   const handleRowClick = (e: React.MouseEvent) => {
     // Don't toggle when clicking runner picker buttons or secrets button
@@ -246,12 +245,13 @@ function RunnerPicker({
 
 export default function ModelCatalog({
   models,
+  runners,
   enabledModels,
   onToggleModel,
   onChangeRunner,
   onModelAction,
 }: ModelCatalogProps) {
-  const groups = useMemo(() => groupByProvider(models), [models]);
+  const groups = useMemo(() => groupByProvider(models, runners), [models, runners]);
 
   return (
     <div className="model-catalog">
@@ -259,6 +259,7 @@ export default function ModelCatalog({
         <ProviderSection
           key={group.provider}
           group={group}
+          runners={runners}
           enabledModels={enabledModels}
           onToggleModel={onToggleModel}
           onChangeRunner={onChangeRunner}

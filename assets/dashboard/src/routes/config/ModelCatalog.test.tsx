@@ -1,35 +1,35 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import ModelCatalog from './ModelCatalog';
-import type { Model } from '../../lib/types';
+import type { Model, RunnerInfo } from '../../lib/types';
 
 const makeModel = (overrides: Partial<Model> & { id: string }): Model => ({
   display_name: overrides.id,
   provider: 'test',
-  category: 'native',
   configured: false,
-  runners: {},
+  runners: [],
   ...overrides,
 });
+
+const topRunners: Record<string, RunnerInfo> = {
+  claude: { available: true, capabilities: ['interactive', 'oneshot', 'streaming'] },
+  opencode: { available: true, capabilities: ['interactive', 'oneshot'] },
+  codex: { available: true, capabilities: ['interactive', 'oneshot'] },
+  gemini: { available: false, capabilities: ['interactive'] },
+};
 
 const anthropicModels: Model[] = [
   makeModel({
     id: 'claude-opus-4-6',
     display_name: 'Claude Opus 4.6',
     provider: 'anthropic',
-    runners: {
-      claude: { available: true, configured: true },
-      opencode: { available: true, configured: true },
-    },
+    runners: ['claude', 'opencode'],
   }),
   makeModel({
     id: 'claude-sonnet-4-6',
     display_name: 'Claude Sonnet 4.6',
     provider: 'anthropic',
-    runners: {
-      claude: { available: true, configured: true },
-      opencode: { available: false, configured: false },
-    },
+    runners: ['claude', 'opencode'],
   }),
 ];
 
@@ -38,10 +38,7 @@ const codexModels: Model[] = [
     id: 'gpt-5.3-codex',
     display_name: 'GPT 5.3 Codex',
     provider: 'openai',
-    runners: {
-      codex: { available: true, configured: true },
-      opencode: { available: true, configured: true },
-    },
+    runners: ['codex', 'opencode'],
   }),
 ];
 
@@ -50,15 +47,14 @@ const disabledModels: Model[] = [
     id: 'gemini-2.5-pro',
     display_name: 'Gemini 2.5 Pro',
     provider: 'google',
-    runners: {
-      gemini: { available: false, configured: false },
-    },
+    runners: ['gemini'],
   }),
 ];
 
 describe('ModelCatalog', () => {
   const defaultProps = {
     models: [...anthropicModels, ...codexModels, ...disabledModels],
+    runners: topRunners,
     enabledModels: {} as Record<string, string>,
     onToggleModel: vi.fn(),
     onChangeRunner: vi.fn(),
@@ -159,19 +155,19 @@ describe('ModelCatalog', () => {
         id: 'claude-opus-4-6',
         display_name: 'Claude Opus 4.6',
         provider: 'anthropic',
-        runners: { claude: { available: true, configured: true } },
+        runners: ['claude'],
       }),
       makeModel({
         id: 'claude-haiku-3-5',
         display_name: 'Claude Haiku 3.5',
         provider: 'anthropic',
-        runners: { claude: { available: true, configured: true } },
+        runners: ['claude'],
       }),
       makeModel({
         id: 'claude-sonnet-4',
         display_name: 'Claude Sonnet 4',
         provider: 'anthropic',
-        runners: { claude: { available: true, configured: true } },
+        runners: ['claude'],
       }),
     ];
     render(<ModelCatalog {...defaultProps} models={models} />);

@@ -5,6 +5,7 @@ import type {
   OverlayInfo,
   QuickLaunchPreset,
   RepoResponse,
+  RunnerInfo,
   RunTargetResponse,
 } from '../../lib/types';
 
@@ -100,6 +101,7 @@ export type ConfigFormState = {
   externalDiffCommands: { name: string; command: string }[];
   externalDiffCleanupMinutes: number;
   modelCatalog: Model[];
+  runners: Record<string, RunnerInfo>;
   nudgenikTarget: string;
   branchSuggestTarget: string;
   conflictResolveTarget: string;
@@ -246,6 +248,7 @@ export const initialState: ConfigFormState = {
   externalDiffCommands: [],
   externalDiffCleanupMinutes: 60,
   modelCatalog: [],
+  runners: {},
   nudgenikTarget: '',
   branchSuggestTarget: '',
   conflictResolveTarget: '',
@@ -487,10 +490,10 @@ export function useConfigForm(initialStep: number = 1) {
     return models.filter((m) => {
       const preferredRunner = state.enabledModels[m.id];
       if (!preferredRunner) return false;
-      const runner = m.runners[preferredRunner];
+      const runner = state.runners[preferredRunner];
       return runner?.capabilities?.includes('oneshot') ?? false;
     });
-  }, [models, state.enabledModels]);
+  }, [models, state.enabledModels, state.runners]);
 
   const commandTargetNames = new Set(state.commandTargets.map((target) => target.name));
 

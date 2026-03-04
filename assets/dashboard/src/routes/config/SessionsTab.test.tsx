@@ -1,30 +1,28 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import SessionsTab from './SessionsTab';
-import type { Model, RunTargetResponse } from '../../lib/types';
+import type { Model, RunnerInfo, RunTargetResponse } from '../../lib/types';
+
+const topRunners: Record<string, RunnerInfo> = {
+  claude: { available: true, capabilities: ['interactive', 'oneshot', 'streaming'] },
+  opencode: { available: true, capabilities: ['interactive', 'oneshot'] },
+  codex: { available: true, capabilities: ['interactive', 'oneshot'] },
+};
 
 const models: Model[] = [
   {
     id: 'claude-opus-4-6',
     display_name: 'Claude Opus 4.6',
     provider: 'anthropic',
-    category: 'native',
     configured: true,
-    runners: {
-      claude: { available: true, configured: true },
-      opencode: { available: true, configured: true },
-    },
+    runners: ['claude', 'opencode'],
   },
   {
     id: 'gpt-5.3-codex',
     display_name: 'GPT 5.3 Codex',
     provider: 'openai',
-    category: 'native',
     configured: true,
-    runners: {
-      codex: { available: true, configured: true },
-      opencode: { available: true, configured: true },
-    },
+    runners: ['codex', 'opencode'],
   },
 ];
 
@@ -34,6 +32,7 @@ const dispatch = vi.fn();
 
 const defaultProps = {
   models,
+  runners: topRunners,
   enabledModels: {} as Record<string, string>,
   commandTargets,
   newCommandName: '',

@@ -12,9 +12,8 @@ const models: Model[] = [
     id: 'claude-sonnet-4-6',
     display_name: 'Claude Sonnet 4.6',
     provider: 'anthropic',
-    category: 'native',
     configured: true,
-    runners: { claude: { available: true, configured: true } },
+    runners: ['claude'],
   },
 ];
 const defaultProps = {

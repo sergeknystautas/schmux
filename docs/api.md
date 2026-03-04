@@ -754,17 +754,17 @@ Response:
   "repos": [{ "name": "repo", "url": "https://..." }],
   "run_targets": [{ "name": "target", "type": "promptable", "command": "...", "source": "user" }],
   "quick_launch": [{ "name": "preset", "target": "target", "prompt": "optional" }],
+  "runners": {
+    "claude": { "available": true, "capabilities": ["interactive", "oneshot", "streaming"] },
+    "opencode": { "available": true, "capabilities": ["interactive", "oneshot"] }
+  },
   "models": [
     {
       "id": "claude-sonnet-4-6",
       "display_name": "Claude Sonnet 4.6",
       "provider": "anthropic",
-      "category": "native",
       "configured": true,
-      "runners": {
-        "claude": { "available": true, "configured": true }
-      },
-      "preferred_tool": "claude"
+      "runners": ["claude", "opencode"]
     }
   ],
   "enabled_models": { "claude-sonnet-4-6": "claude" },
@@ -1043,7 +1043,7 @@ Response:
 
 ### GET /api/models
 
-Lists available models and whether they are configured. Each model includes a `runners` map showing which tools can run it and their configuration status. Model catalog, availability, enablement, and resolution are owned by the internal model manager (`internal/models`). Model IDs are vendor-defined (e.g., `claude-sonnet-4-6`). Legacy IDs (`claude-sonnet`, `sonnet`, etc.) are automatically migrated on load.
+Lists available models and whether they are configured. Each model includes a `runners` list of tool names that can run it; tool-level details (availability, capabilities) are in the top-level `runners` map on the config response. Model catalog, availability, enablement, and resolution are owned by the internal model manager (`internal/models`). Model IDs are vendor-defined (e.g., `claude-sonnet-4-6`). Legacy IDs (`claude-sonnet`, `sonnet`, etc.) are automatically migrated on load.
 
 Response:
 
@@ -1054,32 +1054,16 @@ Response:
       "id": "claude-sonnet-4-6",
       "display_name": "Claude Sonnet 4.6",
       "provider": "anthropic",
-      "category": "native",
       "configured": true,
-      "runners": {
-        "claude": { "available": true, "configured": true },
-        "opencode": { "available": false, "configured": true }
-      },
-      "preferred_tool": "claude"
+      "runners": ["claude", "opencode"]
     },
     {
       "id": "kimi-thinking",
       "display_name": "kimi k2 thinking",
       "provider": "moonshot",
-      "category": "third-party",
-      "usage_url": "https://platform.moonshot.ai/console/account",
       "configured": false,
-      "runners": {
-        "claude": {
-          "available": true,
-          "configured": false,
-          "required_secrets": ["ANTHROPIC_AUTH_TOKEN"]
-        },
-        "opencode": {
-          "available": false,
-          "configured": false
-        }
-      }
+      "runners": ["claude", "opencode"],
+      "required_secrets": ["ANTHROPIC_AUTH_TOKEN"]
     }
   ]
 }

@@ -80,7 +80,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build models list with full metadata
-	models, err := s.models.GetCatalog()
+	catalog, err := s.models.GetCatalog()
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to read models: %v", err), http.StatusInternalServerError)
 		return
@@ -94,7 +94,8 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		QuickLaunch:                quickLaunchResp,
 		ExternalDiffCommands:       externalDiffCommandsResp,
 		ExternalDiffCleanupAfterMs: s.config.GetExternalDiffCleanupAfterMs(),
-		Models:                     models,
+		Runners:                    catalog.Runners,
+		Models:                     catalog.Models,
 		EnabledModels:              s.models.GetEnabledModels(),
 		Nudgenik: contracts.Nudgenik{
 			Target:         s.config.GetNudgenikTarget(),

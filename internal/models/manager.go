@@ -5,6 +5,7 @@ package models
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
@@ -23,10 +24,16 @@ func New(cfg *config.Config, detectedTools []detect.Tool) *Manager {
 	return &Manager{config: cfg, detectedTools: detectedTools}
 }
 
+// CatalogResult holds the models and top-level runner info returned by GetCatalog.
+type CatalogResult struct {
+	Models  []contracts.Model
+	Runners map[string]contracts.RunnerInfo
+}
+
 // GetCatalog returns all models that have at least one available (detected) runner,
-// with full metadata and configuration status. This is the single source of truth
-// for the dashboard model list.
-func (m *Manager) GetCatalog() ([]contracts.Model, error) {
+// with full metadata and configuration status, plus top-level runner info.
+// This is the single source of truth for the dashboard model list.
+func (m *Manager) GetCatalog() (*CatalogResult, error) {
 	allModels := detect.GetBuiltinModels()
 	detectedTools := m.detectedTools
 	detected := make(map[string]bool, len(detectedTools))
@@ -34,11 +41,21 @@ func (m *Manager) GetCatalog() ([]contracts.Model, error) {
 		detected[t.Name] = true
 	}
 
-	resp := make([]contracts.Model, 0, len(allModels))
+	// Build top-level runner info (one entry per tool)
+	topRunners := make(map[string]contracts.RunnerInfo)
+	for _, adapter := range detect.AllAdapters() {
+		name := adapter.Name()
+		topRunners[name] = contracts.RunnerInfo{
+			Available:    detected[name],
+			Capabilities: adapter.Capabilities(),
+		}
+	}
+
+	models := make([]contracts.Model, 0, len(allModels))
 	for _, model := range allModels {
-		runners := make(map[string]contracts.RunnerInfo, len(model.Runners))
 		anyConfigured := false
 		anyAvailable := false
+		runnerNames := make([]string, 0, len(model.Runners))
 
 		for toolName, spec := range model.Runners {
 			available := detected[toolName]
@@ -56,16 +73,7 @@ func (m *Manager) GetCatalog() ([]contracts.Model, error) {
 					}
 				}
 			}
-			var capabilities []string
-			if adapter := detect.GetAdapter(toolName); adapter != nil {
-				capabilities = adapter.Capabilities()
-			}
-			runners[toolName] = contracts.RunnerInfo{
-				Available:       available,
-				Configured:      configured,
-				RequiredSecrets: spec.RequiredSecrets,
-				Capabilities:    capabilities,
-			}
+			runnerNames = append(runnerNames, toolName)
 			if available && configured {
 				anyConfigured = true
 			}
@@ -79,20 +87,19 @@ func (m *Manager) GetCatalog() ([]contracts.Model, error) {
 			continue
 		}
 
-		preferredTool := m.config.PreferredTool(model.ID)
+		// Sort runner names for deterministic output
+		sort.Strings(runnerNames)
 
-		resp = append(resp, contracts.Model{
-			ID:            model.ID,
-			DisplayName:   model.DisplayName,
-			Provider:      model.Provider,
-			Category:      model.Category,
-			UsageURL:      model.UsageURL,
-			Configured:    anyConfigured,
-			Runners:       runners,
-			PreferredTool: preferredTool,
+		models = append(models, contracts.Model{
+			ID:              model.ID,
+			DisplayName:     model.DisplayName,
+			Provider:        model.Provider,
+			Configured:      anyConfigured,
+			Runners:         runnerNames,
+			RequiredSecrets: model.FirstRunnerRequiredSecrets(),
 		})
 	}
-	return resp, nil
+	return &CatalogResult{Models: models, Runners: topRunners}, nil
 }
 
 // FindModel looks up a model by ID (or legacy alias). Delegates to detect.FindModel.

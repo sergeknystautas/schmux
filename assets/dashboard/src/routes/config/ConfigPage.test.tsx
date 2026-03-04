@@ -63,6 +63,7 @@ const configFixture: ConfigResponse = {
     { name: 'my-agent', command: 'my-agent --prompt' },
     { name: 'build', command: 'make build' },
   ],
+  runners: {},
   models: [],
   quick_launch: [{ name: 'ql1', target: 'claude', prompt: 'hello' }],
   nudgenik: { target: '', viewed_buffer_ms: 5000, seen_interval_ms: 2000 },
