@@ -9,7 +9,7 @@ import { computeScreenDiff } from './screenDiff';
 import { csrfHeaders } from './csrf';
 import { stripAnsi } from './ansiStrip';
 import { compareScreens } from './syncCompare';
-import { buildSurgicalCorrection } from './surgicalCorrection';
+import { buildSurgicalCorrection, buildCursorCorrection } from './surgicalCorrection';
 
 /**
  * Send a clipboard image to the server, which writes it to the system
@@ -812,8 +812,15 @@ export default class TerminalStream {
       this.onSyncCorrection?.(result.diffRows);
       this.sendSyncResult(true, result.diffRows);
     } else {
-      // Screens match — report back so server knows sync was processed
-      this.sendSyncResult(false, []);
+      // Content matches — check cursor position
+      const xtermCursor = { row: buffer.cursorY, col: buffer.cursorX };
+      const cursorCorrection = buildCursorCorrection(msg.cursor, xtermCursor);
+      if (cursorCorrection) {
+        this.writeTerminal(cursorCorrection);
+        this.sendSyncResult(true, []);
+      } else {
+        this.sendSyncResult(false, []);
+      }
     }
   }
 

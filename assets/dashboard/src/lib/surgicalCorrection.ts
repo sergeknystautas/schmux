@@ -44,3 +44,24 @@ export function buildSurgicalCorrection(
 
   return seq;
 }
+
+/**
+ * Build a minimal ANSI escape sequence to correct cursor position only,
+ * without touching screen content. Used when sync detects that content
+ * matches but cursor is at the wrong position.
+ */
+export function buildCursorCorrection(
+  cursor: CursorState,
+  xtermCursor: { row: number; col: number }
+): string {
+  if (cursor.row === xtermCursor.row && cursor.col === xtermCursor.col) {
+    return '';
+  }
+
+  let seq = '';
+  // CUP: move cursor to correct position (1-indexed)
+  seq += `\x1b[${cursor.row + 1};${cursor.col + 1}H`;
+  // Restore cursor visibility
+  seq += cursor.visible ? '\x1b[?25h' : '\x1b[?25l';
+  return seq;
+}

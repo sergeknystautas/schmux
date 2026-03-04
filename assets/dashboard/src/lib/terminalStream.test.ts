@@ -253,6 +253,89 @@ describe('TerminalStream sync handling', () => {
       expect.any(Function)
     );
   });
+
+  it('corrects cursor position when content matches but cursor differs', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+
+    // Simulate bootstrap
+    stream.handleOutput(buildSeqFrame(0n, 'bootstrap'));
+
+    vi.mocked(terminal.reset).mockClear();
+    vi.mocked(terminal.write).mockClear();
+
+    (stream as any).lastBinaryTime = Date.now() - 3000;
+
+    // Mock buffer: content matches sync, but cursor is at wrong position
+    const mockLine = { translateToString: () => 'hello world' };
+    (terminal as any).buffer = {
+      active: {
+        viewportY: 0,
+        baseY: 0,
+        cursorX: 5,
+        cursorY: 0,
+        length: 1,
+        getLine: () => mockLine,
+      },
+    };
+    (terminal as any).rows = 1;
+
+    // Send sync: content matches ('hello world') but cursor is at row 3, col 10
+    const syncMsg = {
+      type: 'sync',
+      screen: 'hello world',
+      cursor: { row: 3, col: 10, visible: true },
+    };
+    stream.handleOutput(JSON.stringify(syncMsg));
+
+    // Should write cursor correction (CUP to row 4, col 11)
+    expect(terminal.write).toHaveBeenCalledWith(
+      expect.stringContaining('\x1b[4;11H'),
+      expect.any(Function)
+    );
+    // Should NOT do a full surgical correction (no DECSC)
+    expect(terminal.write).not.toHaveBeenCalledWith(
+      expect.stringContaining('\x1b7'),
+      expect.any(Function)
+    );
+  });
+
+  it('does not write anything when content and cursor both match', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+
+    // Simulate bootstrap
+    stream.handleOutput(buildSeqFrame(0n, 'bootstrap'));
+
+    vi.mocked(terminal.reset).mockClear();
+    vi.mocked(terminal.write).mockClear();
+
+    (stream as any).lastBinaryTime = Date.now() - 3000;
+
+    // Mock buffer: content AND cursor match sync
+    const mockLine = { translateToString: () => 'hello world' };
+    (terminal as any).buffer = {
+      active: {
+        viewportY: 0,
+        baseY: 0,
+        cursorX: 10,
+        cursorY: 3,
+        length: 1,
+        getLine: () => mockLine,
+      },
+    };
+    (terminal as any).rows = 1;
+
+    const syncMsg = {
+      type: 'sync',
+      screen: 'hello world',
+      cursor: { row: 3, col: 10, visible: true },
+    };
+    stream.handleOutput(JSON.stringify(syncMsg));
+
+    // Should NOT write anything — both content and cursor match
+    expect(terminal.write).not.toHaveBeenCalled();
+  });
 });
 
 describe('TerminalStream sequenced frames', () => {
