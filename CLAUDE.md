@@ -26,7 +26,17 @@ The React dashboard MUST be built via `go run ./cmd/build-dashboard`. This Go wr
 Frontend tests are already included in `./test.sh --quick`. Running vitest from the subdirectory bypasses the project test wrapper and produces unreliable results.
 
 ❌ **WRONG**: `cd assets/dashboard && npx vitest run`
+❌ **WRONG**: `cd assets/dashboard && npx vitest run src/components/Foo.test.tsx`
 ✅ **RIGHT**: `./test.sh --quick` (from repository root)
+
+There is no way to run a single frontend test file. Use `./test.sh --quick` which runs the full Vitest suite.
+
+## ⚠️ Code Search — Use `Grep` and `Glob`, NOT `mcp__plugin_meta_mux__search_files`
+
+**NEVER use `mcp__plugin_meta_mux__search_files` (Meta BigGrep/CodeSearch) in this repository.** It will always fail with "'git' is not a known Biggrep repository" because this is not a Meta-internal repo.
+
+❌ **WRONG**: `mcp__plugin_meta_mux__search_files` with any pattern or directory
+✅ **RIGHT**: Use `Grep` for content search and `Glob` for file name search
 
 ## Hot-Reload Development Mode
 
@@ -120,6 +130,21 @@ For faster iteration during development:
 - Run unit tests only: `./test.sh --quick` (or `go test ./...`)
 - Skip E2E/scenario tests and let CI handle them on PRs
 
+## ⚠️ Workspace-Aware Execution
+
+When working in a worktree (e.g., `/Users/.../workspaces/schmux-001/`), **always run commands from that worktree's root**, not from subdirectories. Many agents have failed by:
+
+- Running `./test.sh` from `assets/dashboard/` ("no such file or directory")
+- Running `go build ./cmd/schmux` from `assets/dashboard/` ("directory not found")
+- Running `go vet ./internal/dashboard/...` from the wrong directory
+
+❌ **WRONG**: `cd assets/dashboard && ../../../test.sh`
+✅ **RIGHT**: `./test.sh --quick` (from worktree root)
+
+## ⚠️ Git Index Lock in Worktrees
+
+Multiple concurrent agents sharing the same bare repo can cause `index.lock` conflicts. If you see "Unable to create '...index.lock': File exists", **wait and retry** rather than deleting the lock file — another agent's git operation is likely in progress. The lock file path includes the worktree name (e.g., `.../worktrees/schmux-001/index.lock`), so only operations on the same worktree conflict.
+
 ## Code Architecture
 
 ```
@@ -159,7 +184,9 @@ For faster iteration during development:
 
 **Key entry point**: `cmd/schmux/main.go` parses CLI commands and delegates to `internal/daemon/`.
 
-**Known large files**: `internal/config/config.go`, `internal/config/config_test.go`, and `assets/dashboard/src/styles/global.css` all exceed the 25,000-token read limit. Do not attempt to read any of them in full — use `Grep` to search for specific symbols, or read targeted sections with `offset`/`limit` parameters.
+**Known large files**: `internal/config/config.go`, `internal/config/config_test.go`, `internal/e2e/e2e_test.go`, and `assets/dashboard/src/styles/global.css` all exceed the 25,000-token read limit. Do not attempt to read any of them in full — use `Grep` to search for specific symbols, or read targeted sections with `offset`/`limit` parameters.
+
+**Vite config**: The Vite configuration file is `assets/dashboard/vite.config.js` (JavaScript, not TypeScript).
 
 ## ⚠️ TypeScript Type Generation — Never Edit `.generated.ts` Files
 
@@ -188,6 +215,7 @@ Changes to API-related packages (`internal/dashboard/`, `internal/nudgenik/`, `i
 - Errors as `err` variable
 - Tests: standard Go `testing` package with `TestXxx` naming; prefer table-driven tests
 - Always run all commands (`git`, `./test.sh`, `./format.sh`, `go build`, `go run`, etc.) from the **repository root**, not from subdirectories like `assets/dashboard/`
+- Use `Read` only on files, never on directories. To list directory contents, use `Bash` with `ls` or use `Glob`.
 
 ## Web Dashboard Guidelines
 

@@ -14,7 +14,14 @@
 - `assets/dashboard/` — static web UI assets (HTML/CSS/TypeScript) served by the daemon.
 - Docs: `README.md`, `docs/cli.md`, `docs/web.md`, `docs/api.md`, `docs/dev/react.md`, `docs/dev/architecture.md`, `docs/dev/README.md`.
 
-**Known large files**: `internal/config/config.go`, `internal/config/config_test.go`, and `assets/dashboard/src/styles/global.css` all exceed the 25,000-token read limit. Do not attempt to read any of them in full — use search/grep to find specific symbols, or read targeted sections using offset/limit parameters.
+**Known large files**: `internal/config/config.go`, `internal/config/config_test.go`, `internal/e2e/e2e_test.go`, and `assets/dashboard/src/styles/global.css` all exceed the 25,000-token read limit. Do not attempt to read any of them in full — use search/grep to find specific symbols, or read targeted sections using offset/limit parameters.
+
+## ⚠️ Code Search — Use Grep and Glob, NOT Meta CodeSearch
+
+**NEVER use `mcp__plugin_meta_mux__search_files` (Meta BigGrep/CodeSearch) in this repository.** It always fails because this is not a Meta-internal repo.
+
+❌ **WRONG**: `mcp__plugin_meta_mux__search_files` with any pattern
+✅ **RIGHT**: Use `Grep` for content search and `Glob` for file name patterns
 
 ## Build, Test, and Development Commands
 
@@ -36,7 +43,10 @@ E2E tests in this repo are Docker-gated and must be executed through the Docker 
 Always run frontend tests from the repository root using the test wrapper:
 
 ❌ **WRONG**: `cd assets/dashboard && npx vitest run`
+❌ **WRONG**: `cd assets/dashboard && npx vitest run src/components/Foo.test.tsx`
 ✅ **RIGHT**: `./test.sh --quick` (from repo root)
+
+There is no way to run a single frontend test file. Use `./test.sh --quick` which runs the full Vitest suite.
 
 - `go build ./cmd/schmux` — build the runnable binary at `./schmux`.
 - `go run ./cmd/gen-types` — generate TypeScript types from Go contracts.
@@ -51,6 +61,8 @@ Always run frontend tests from the repository root using the test wrapper:
 - `go test ./...` — run Go unit tests directly (alternative to `./test.sh --quick`).
 - `./schmux start` / `./schmux stop` / `./schmux status` — manage the daemon locally.
 
+**Scenario test filtering**: Use `--run 'test name pattern'` to filter scenario tests. There is no `--grep` flag.
+
 ## Coding Style & Naming Conventions
 
 - Go: keep changes `gofmt`-clean (`gofmt -w .` or `go fmt ./...`).
@@ -58,12 +70,14 @@ Always run frontend tests from the repository root using the test wrapper:
 - Identifiers: exported `CamelCase`, unexported `camelCase`; errors as `err`.
 - Frontend assets live in `assets/dashboard/`; **build via `go run ./cmd/build-dashboard` only — never npm directly**; keep HTML/CSS/TypeScript minimal and consistent with `docs/dev/react.md`.
 - Always run all commands (`git`, `./test.sh`, `./format.sh`, `go build`, `go run`, etc.) from the **repository root**, not from subdirectories.
+- **Vite config**: `assets/dashboard/vite.config.js` (JavaScript, not TypeScript).
 
 ## Testing Guidelines
 
 - Framework: standard Go `testing` package (`*_test.go`, `TestXxx` naming).
 - Prefer table-driven tests for parsing/state transitions.
 - When changing daemon/dashboard behavior, add/adjust tests in the nearest `internal/<pkg>/` package.
+- **Write tests before running them**: Always verify new test code compiles (`go vet ./internal/<pkg>/...`) before running with `go test`. Many failed test runs are caused by referencing undefined symbols (unexported functions, missing fields, wrong types).
 
 ## Pre-Commit Requirements
 
@@ -84,7 +98,7 @@ Before invoking `/commit`, run `./format.sh` to format all staged files.
 
 ## Commit & Pull Request Guidelines
 
-- Commits: short, imperative subject lines (e.g., “Implement v0.5 spec”, “Polish README”); keep unrelated changes split.
+- Commits: short, imperative subject lines (e.g., "Implement v0.5 spec", "Polish README"); keep unrelated changes split.
 - PRs: describe **what** changed and **why**, link to relevant docs when applicable, and list manual verification steps.
 - UI changes: include screenshots or a short screen recording of the dashboard views you touched.
 
@@ -138,6 +152,7 @@ Hot-reload development mode:
 ## Operational Notes
 
 - **tmux capture-pane timing**: When probing tmux pane output after running a short-lived command, keep the pane alive (e.g., with `; read` or a long-running tail command) before the process exits — `capture-pane` cannot read output from a pane whose window has already closed.
+- **Git index locks in worktrees**: Multiple concurrent agents sharing the same bare repo can cause `index.lock` conflicts. If you see "Unable to create '...index.lock': File exists", wait and retry — another agent's git operation is likely in progress.
 
 ## Lore Capture
 
