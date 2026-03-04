@@ -276,6 +276,9 @@ async function runSingleContainer(
   if (opts.serial && opts.repeat > 1) {
     env['TEST_REPEAT'] = String(opts.repeat);
   }
+  if (opts.recordVideo) {
+    env['RECORD_VIDEO'] = '1';
+  }
   if (covDataDir) {
     env['GOCOVERDIR'] = '/covdata';
     volumes.push(`${covDataDir}:/covdata`);
@@ -319,7 +322,7 @@ async function runSingleContainer(
 
   const status = containerResult.exitCode === 0 ? 'passed' : 'failed';
 
-  if (status === 'failed') {
+  if (status === 'failed' || opts.recordVideo) {
     onEvent('scenarios', {
       type: 'output_line',
       line: `Test artifacts saved to: test/scenarios/artifacts/`,
@@ -419,7 +422,7 @@ async function runParallelContainers(
 
   const status = anyFailed ? 'failed' : 'passed';
 
-  if (status === 'failed') {
+  if (status === 'failed' || opts.recordVideo) {
     onEvent('scenarios', {
       type: 'output_line',
       line: `Test artifacts saved to: test/scenarios/artifacts/run-*/`,
@@ -467,6 +470,9 @@ async function runRepeatContainer(
   const volumes: string[] = [`${dirs.artifacts}:/artifacts`];
   if (opts.runPattern) {
     env['TEST_GREP'] = opts.runPattern;
+  }
+  if (opts.recordVideo) {
+    env['RECORD_VIDEO'] = '1';
   }
   if (dirs.covData) {
     env['GOCOVERDIR'] = '/covdata';
