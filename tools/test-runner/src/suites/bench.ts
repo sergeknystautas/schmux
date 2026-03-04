@@ -14,7 +14,39 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
   const outputLines: string[] = [];
   let anyFailed = false;
 
-  // Check tmux is available
+  // Phase 0: Micro-benchmarks (no tmux needed)
+  onEvent('bench', { type: 'build_step', message: 'Phase 0: Running micro-benchmarks...' });
+  const microPackages = [
+    './internal/escbuf/',
+    './internal/dashboard/',
+    './internal/remote/controlmode/',
+    './internal/session/',
+  ];
+  const microBench = await exec({
+    cmd: 'go',
+    args: [
+      'test',
+      '-run=^$',
+      '-bench=.',
+      '-benchmem',
+      '-count=5',
+      '-timeout=120s',
+      ...microPackages,
+    ],
+    cwd: root,
+    onLine: (line) => {
+      outputLines.push(line);
+      onEvent('bench', { type: 'output_line', line });
+    },
+  });
+  if (microBench.exitCode !== 0) {
+    onEvent('bench', { type: 'build_step', message: 'Micro-benchmarks failed' });
+    anyFailed = true;
+  } else {
+    onEvent('bench', { type: 'build_step', message: 'Micro-benchmarks passed' });
+  }
+
+  // Check tmux is available (required for PTY/WS benchmarks)
   const tmuxCheck = await exec({ cmd: 'which', args: ['tmux'] });
   if (tmuxCheck.exitCode !== 0) {
     onEvent('bench', {
@@ -320,7 +352,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     message: `All results saved to: bench-results/${dateStr}/`,
   });
 
-  const totalDuration = percentiles.durationMs + goBench.durationMs;
+  const totalDuration = microBench.durationMs + percentiles.durationMs + goBench.durationMs;
   const status = anyFailed ? 'failed' : 'passed';
 
   onEvent('bench', {

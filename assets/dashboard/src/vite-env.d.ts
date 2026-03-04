@@ -13,5 +13,6 @@ declare module 'react-diff-viewer-continued';
 // These are set conditionally (dev mode or VITE_EXPOSE_TERMINAL builds).
 interface Window {
   __schmuxTerminal?: import('@xterm/xterm').Terminal;
+  __schmuxStream?: import('./lib/terminalStream').default;
   __inputLatency?: import('./lib/inputLatency').InputLatencyTracker;
 }

@@ -12,21 +12,32 @@ package escbuf
 // backward from the end for a trailing partial ANSI escape sequence. It returns
 // the clean prefix to send now and any trailing partial to hold for the next call.
 //
-// It is a pure function with no internal state — the caller owns the holdback bytes.
-func SplitClean(holdback, data []byte) (send, newHoldback []byte) {
+// scratch is a reusable buffer for concatenating holdback+data. The caller
+// should pass it in on each call and retain the returned scratchOut for the
+// next call so the allocation is amortized to zero after warmup.
+//
+// send is returned as a sub-slice (not a copy) — the caller must consume it
+// before the next SplitClean call. newHoldback is always an independent copy
+// (holdback is retained across calls and is typically ≤16 bytes).
+func SplitClean(scratch, holdback, data []byte) (send, newHoldback, scratchOut []byte) {
 	// Combine previous holdback with new data
 	var buf []byte
 	if len(holdback) > 0 && len(data) > 0 {
-		buf = make([]byte, len(holdback)+len(data))
+		needed := len(holdback) + len(data)
+		if cap(scratch) >= needed {
+			buf = scratch[:needed]
+		} else {
+			buf = make([]byte, needed)
+		}
 		copy(buf, holdback)
 		copy(buf[len(holdback):], data)
 	} else if len(holdback) > 0 {
 		// No new data — keep holding
-		return nil, holdback
+		return nil, holdback, scratch
 	} else if len(data) > 0 {
 		buf = data
 	} else {
-		return nil, nil
+		return nil, nil, scratch
 	}
 
 	// Scan backward up to 16 bytes from the end looking for ESC (0x1b).
@@ -50,20 +61,20 @@ func SplitClean(holdback, data []byte) (send, newHoldback []byte) {
 
 	// No ESC in tail — everything is clean
 	if escIdx < 0 {
-		return dup(buf), nil
+		return buf, nil, buf
 	}
 
 	tail := buf[escIdx:] // from ESC to end
 
 	if isCompleteEscape(tail) {
-		return dup(buf), nil
+		return buf, nil, buf
 	}
 
-	// Incomplete — hold back from ESC onward
+	// Incomplete — hold back from ESC onward (dup because holdback is retained)
 	if escIdx == 0 {
-		return nil, dup(tail)
+		return nil, dup(tail), buf
 	}
-	return dup(buf[:escIdx]), dup(tail)
+	return buf[:escIdx], dup(tail), buf
 }
 
 // isCompleteEscape checks whether tail (starting with ESC) is a complete

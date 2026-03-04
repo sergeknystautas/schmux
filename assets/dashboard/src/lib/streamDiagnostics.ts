@@ -32,7 +32,9 @@ export class StreamDiagnostics {
   // Gap detection telemetry
   gapsDetected = 0;
   gapRequestsSent = 0;
-  gapFramesReceived = 0;
+  gapFramesDeduped = 0; // replay frames skipped by dedup (seq <= lastReceivedSeq)
+  gapReplayWritten = 0; // replay frames that passed dedup and were written to xterm
+  emptySeqFrames = 0; // seq-only frames (0 terminal bytes, from escbuf holdback)
   lastReceivedSeq: bigint = -1n;
 
   private ringBuffer: Uint8Array;
@@ -65,13 +67,17 @@ export class StreamDiagnostics {
   gapSnapshot(): {
     gapsDetected: number;
     gapRequestsSent: number;
-    gapFramesReceived: number;
+    gapFramesDeduped: number;
+    gapReplayWritten: number;
+    emptySeqFrames: number;
     lastReceivedSeq: string;
   } {
     return {
       gapsDetected: this.gapsDetected,
       gapRequestsSent: this.gapRequestsSent,
-      gapFramesReceived: this.gapFramesReceived,
+      gapFramesDeduped: this.gapFramesDeduped,
+      gapReplayWritten: this.gapReplayWritten,
+      emptySeqFrames: this.emptySeqFrames,
       lastReceivedSeq: this.lastReceivedSeq.toString(),
     };
   }
@@ -96,7 +102,9 @@ export class StreamDiagnostics {
     this.frameSizes = [];
     this.gapsDetected = 0;
     this.gapRequestsSent = 0;
-    this.gapFramesReceived = 0;
+    this.gapFramesDeduped = 0;
+    this.gapReplayWritten = 0;
+    this.emptySeqFrames = 0;
     this.lastReceivedSeq = -1n;
     this.cursor = 0;
     this.full = false;

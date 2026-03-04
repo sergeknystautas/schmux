@@ -359,128 +359,16 @@ func (c *Client) KillWindow(ctx context.Context, windowID string) error {
 // tmux control mode command parsing can mishandle raw control characters
 // embedded in the command string.
 func (c *Client) SendKeys(ctx context.Context, paneID, keys string) error {
-	i := 0
-	for i < len(keys) {
-		// Find run of printable characters (ASCII 32-126)
-		j := i
-		for j < len(keys) && keys[j] >= 32 && keys[j] < 127 {
-			j++
+	for _, run := range ClassifyKeyRuns(nil, keys) {
+		var cmd string
+		if run.Literal {
+			cmd = fmt.Sprintf("send-keys -t %s -l %s", paneID, shellutil.Quote(run.Text))
+		} else {
+			cmd = fmt.Sprintf("send-keys -t %s %s", paneID, run.Text)
 		}
-
-		// Send printable text run with -l (literal mode)
-		if j > i {
-			if _, err := c.Execute(ctx, fmt.Sprintf("send-keys -t %s -l %s", paneID, shellutil.Quote(keys[i:j]))); err != nil {
-				return err
-			}
-			i = j
-			continue
+		if _, err := c.Execute(ctx, cmd); err != nil {
+			return err
 		}
-
-		// Handle special character at position i
-		ch := keys[i]
-		var keyName string
-		advance := 1
-
-		switch ch {
-		case '\r', '\n':
-			keyName = "Enter"
-		case '\t':
-			keyName = "Tab"
-		case 127:
-			keyName = "BSpace"
-		case '\x1b':
-			// Meta/Alt-modified Enter is commonly encoded as ESC + CR/LF.
-			// Preserve it as a single tmux key instead of splitting into
-			// separate Escape + Enter keypresses.
-			if i+1 < len(keys) && (keys[i+1] == '\r' || keys[i+1] == '\n') {
-				keyName = "M-Enter"
-				advance = 2
-				break
-			}
-			// Meta/Alt-modified Backspace/Delete is commonly encoded as
-			// ESC + DEL (0x7f) or ESC + BS (0x08) depending on terminal config.
-			if i+1 < len(keys) && (keys[i+1] == 127 || keys[i+1] == '\b') {
-				keyName = "M-BSpace"
-				advance = 2
-				break
-			}
-			// Check for escape sequences (e.g., arrow keys: ESC [ A)
-			if i+2 < len(keys) && keys[i+1] == '[' {
-				// CSI sequence: ESC [ ... <final byte 0x40-0x7E>
-				end := i + 2
-				for end < len(keys) && (keys[end] < 0x40 || keys[end] > 0x7E) {
-					end++
-				}
-				if end < len(keys) {
-					// Map common CSI sequences to tmux key names
-					seq := keys[i : end+1]
-					switch seq {
-					case "\x1b[A":
-						keyName = "Up"
-					case "\x1b[B":
-						keyName = "Down"
-					case "\x1b[C":
-						keyName = "Right"
-					case "\x1b[D":
-						keyName = "Left"
-					case "\x1b[H":
-						keyName = "Home"
-					case "\x1b[F":
-						keyName = "End"
-					case "\x1b[2~":
-						keyName = "Insert"
-					case "\x1b[3~":
-						keyName = "DC" // Delete
-					case "\x1b[5~":
-						keyName = "PageUp"
-					case "\x1b[6~":
-						keyName = "PageDown"
-					case "\x1b[Z":
-						keyName = "BTab" // Shift-Tab
-					default:
-						// Unknown CSI sequence — skip it
-						advance = end + 1 - i
-						i += advance
-						continue
-					}
-					advance = end + 1 - i
-				} else {
-					keyName = "Escape"
-				}
-			} else if i+2 < len(keys) && keys[i+1] == 'O' {
-				// SS3 sequence (e.g., ESC O P for F1)
-				switch keys[i+2] {
-				case 'P':
-					keyName = "F1"
-				case 'Q':
-					keyName = "F2"
-				case 'R':
-					keyName = "F3"
-				case 'S':
-					keyName = "F4"
-				default:
-					keyName = "Escape"
-					advance = 1
-				}
-				if keyName != "Escape" {
-					advance = 3
-				}
-			} else {
-				keyName = "Escape"
-			}
-		default:
-			if ch < 32 {
-				// Control characters: Ctrl-A = 0x01, Ctrl-B = 0x02, etc.
-				keyName = fmt.Sprintf("C-%c", 'a'+ch-1)
-			}
-		}
-
-		if keyName != "" {
-			if _, err := c.Execute(ctx, fmt.Sprintf("send-keys -t %s %s", paneID, keyName)); err != nil {
-				return err
-			}
-		}
-		i += advance
 	}
 	return nil
 }

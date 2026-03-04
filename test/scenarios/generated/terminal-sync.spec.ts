@@ -13,7 +13,10 @@ import {
   sendTmuxCommandWithSentinel,
   waitForSentinel,
   assertTerminalMatchesTmux,
+  assertCursorMatchesTmux,
   getTmuxSessionName,
+  getTmuxCursorPosition,
+  getXtermCursorPosition,
   clearTmuxHistory,
   readXtermBuffer,
 } from './helpers-terminal';
@@ -230,5 +233,57 @@ test.describe.serial('Terminal sync: round-trip', () => {
     const result = syncResults[0];
     expect(typeof result.corrected).toBe('boolean');
     expect(Array.isArray(result.diffRows)).toBe(true);
+  });
+
+  test('sync corrects cursor-only desync', async ({ page }) => {
+    test.setTimeout(60_000);
+
+    await openTerminal(page, sessionId, tmuxName);
+
+    // Output known content and wait for it to settle
+    const sentinel = sendTmuxCommandWithSentinel(tmuxName, 'echo "cursor-only-desync-test"');
+    await waitForSentinel(sessionId, sentinel);
+
+    // Verify baseline: both content and cursor match
+    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertCursorMatchesTmux(page, tmuxName);
+
+    // Corrupt ONLY the cursor position in xterm.js (move cursor to row 1, col 0)
+    // without changing any screen content. This simulates the exact bug:
+    // a dropped output event contained a cursor repositioning sequence.
+    await page.evaluate(() => {
+      const terminal = (window as any).__schmuxTerminal;
+      if (!terminal) throw new Error('__schmuxTerminal not found');
+      // CUP to row 1, col 1 (1-indexed) — moves cursor to top-left
+      terminal.write('\x1b[1;1H');
+    });
+
+    // Wait for xterm.js to process the write
+    await new Promise((r) => setTimeout(r, 200));
+
+    // Verify the cursor IS desynced now
+    const xtermCursor = await getXtermCursorPosition(page);
+    const tmuxCursor = getTmuxCursorPosition(tmuxName);
+    // The xterm cursor should be at (0,0) after our corruption
+    expect(xtermCursor.x).toBe(0);
+    expect(xtermCursor.y).toBe(0);
+    // The tmux cursor should be somewhere else (after the echo command)
+    expect(tmuxCursor.x !== 0 || tmuxCursor.y !== 0).toBe(true);
+
+    // Wait for the sync goroutine to detect and correct the cursor-only desync.
+    // Initial sync fires at 5s, so we give it 15s total.
+    const deadline = Date.now() + 15_000;
+    let corrected = false;
+
+    while (Date.now() < deadline && !corrected) {
+      try {
+        await assertCursorMatchesTmux(page, tmuxName);
+        corrected = true;
+      } catch {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
+
+    expect(corrected).toBe(true);
   });
 });

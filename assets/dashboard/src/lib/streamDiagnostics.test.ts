@@ -157,7 +157,9 @@ describe('StreamDiagnostics', () => {
     expect(diag.frameSizes).toHaveLength(0);
     expect(diag.gapsDetected).toBe(0);
     expect(diag.gapRequestsSent).toBe(0);
-    expect(diag.gapFramesReceived).toBe(0);
+    expect(diag.gapFramesDeduped).toBe(0);
+    expect(diag.gapReplayWritten).toBe(0);
+    expect(diag.emptySeqFrames).toBe(0);
     expect(diag.lastReceivedSeq).toBe(-1n);
   });
 
@@ -167,7 +169,9 @@ describe('StreamDiagnostics', () => {
       expect(snapshot).toEqual({
         gapsDetected: 0,
         gapRequestsSent: 0,
-        gapFramesReceived: 0,
+        gapFramesDeduped: 0,
+        gapReplayWritten: 0,
+        emptySeqFrames: 0,
         lastReceivedSeq: '-1',
       });
     });
@@ -175,13 +179,17 @@ describe('StreamDiagnostics', () => {
     it('reflects updated gap counters', () => {
       diag.gapsDetected = 3;
       diag.gapRequestsSent = 2;
-      diag.gapFramesReceived = 5;
+      diag.gapFramesDeduped = 5;
+      diag.gapReplayWritten = 1;
+      diag.emptySeqFrames = 4;
       diag.lastReceivedSeq = 42n;
       const snapshot = diag.gapSnapshot();
       expect(snapshot).toEqual({
         gapsDetected: 3,
         gapRequestsSent: 2,
-        gapFramesReceived: 5,
+        gapFramesDeduped: 5,
+        gapReplayWritten: 1,
+        emptySeqFrames: 4,
         lastReceivedSeq: '42',
       });
     });
@@ -195,14 +203,18 @@ describe('StreamDiagnostics', () => {
     it('resets gap counters correctly', () => {
       diag.gapsDetected = 5;
       diag.gapRequestsSent = 3;
-      diag.gapFramesReceived = 10;
+      diag.gapFramesDeduped = 10;
+      diag.gapReplayWritten = 2;
+      diag.emptySeqFrames = 7;
       diag.lastReceivedSeq = 100n;
       diag.reset();
       const snapshot = diag.gapSnapshot();
       expect(snapshot).toEqual({
         gapsDetected: 0,
         gapRequestsSent: 0,
-        gapFramesReceived: 0,
+        gapFramesDeduped: 0,
+        gapReplayWritten: 0,
+        emptySeqFrames: 0,
         lastReceivedSeq: '-1',
       });
     });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSurgicalCorrection } from './surgicalCorrection';
+import { buildSurgicalCorrection, buildCursorCorrection } from './surgicalCorrection';
 
 describe('buildSurgicalCorrection', () => {
   it('generates escape sequences for a single differing row', () => {
@@ -70,5 +70,37 @@ describe('buildSurgicalCorrection', () => {
     expect(correction).toContain('\x1b[6;4H');
     // Content
     expect(correction).toContain('hello');
+  });
+});
+
+describe('buildCursorCorrection', () => {
+  it('generates CUP sequence for cursor repositioning', () => {
+    const correction = buildCursorCorrection(
+      { row: 5, col: 10, visible: true },
+      { row: 3, col: 7 }
+    );
+    // Should move cursor to row 6, col 11 (1-indexed from sync cursor)
+    expect(correction).toContain('\x1b[6;11H');
+    // Should NOT contain DECSC/DECRC or line clearing
+    expect(correction).not.toContain('\x1b7');
+    expect(correction).not.toContain('\x1b[2K');
+  });
+
+  it('restores cursor visibility when visible', () => {
+    const correction = buildCursorCorrection({ row: 0, col: 0, visible: true }, { row: 5, col: 5 });
+    expect(correction).toContain('\x1b[?25h');
+  });
+
+  it('restores cursor visibility when hidden', () => {
+    const correction = buildCursorCorrection(
+      { row: 0, col: 0, visible: false },
+      { row: 5, col: 5 }
+    );
+    expect(correction).toContain('\x1b[?25l');
+  });
+
+  it('returns empty string when cursor already matches', () => {
+    const correction = buildCursorCorrection({ row: 3, col: 7, visible: true }, { row: 3, col: 7 });
+    expect(correction).toBe('');
   });
 });

@@ -44,9 +44,11 @@ func (s *Server) upgradeWebSocket(w http.ResponseWriter, r *http.Request, readBu
 	return rawConn, nil
 }
 
-// startWSMessageReader starts a goroutine that reads TextMessages from the
-// WebSocket connection, unmarshals them into WSMessage structs, and sends
-// them on the returned channel. The channel is closed when the connection
+// startWSMessageReader starts a goroutine that reads messages from the
+// WebSocket connection and sends them on the returned channel. Binary messages
+// are routed directly as input (avoiding JSON overhead on the hot path).
+// Text messages are JSON-unmarshalled into WSMessage structs for control
+// messages (resize, gap, etc.). The channel is closed when the connection
 // errors or is closed.
 func startWSMessageReader(conn wsReader) chan WSMessage {
 	controlChan := make(chan WSMessage, 10)
@@ -57,7 +59,10 @@ func startWSMessageReader(conn wsReader) chan WSMessage {
 			if err != nil {
 				return
 			}
-			if msgType == websocket.TextMessage {
+			switch msgType {
+			case websocket.BinaryMessage:
+				controlChan <- WSMessage{Type: "input", Data: string(msg)}
+			case websocket.TextMessage:
 				var wsMsg WSMessage
 				if err := json.Unmarshal(msg, &wsMsg); err == nil {
 					controlChan <- wsMsg

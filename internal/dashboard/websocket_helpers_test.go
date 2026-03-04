@@ -3,12 +3,14 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/gorilla/websocket"
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -247,5 +249,104 @@ func TestVcsTypeForWorkspace_RemoteHostNotFound(t *testing.T) {
 	vcsType := s.vcsTypeForWorkspace(ws)
 	if vcsType != "git" {
 		t.Errorf("expected git, got %q", vcsType)
+	}
+}
+
+// --- startWSMessageReader tests ---
+
+// mockWSReader is a fake WebSocket connection that delivers pre-canned messages.
+type mockWSReader struct {
+	messages []mockWSMsg
+	idx      int
+}
+
+type mockWSMsg struct {
+	msgType int
+	data    []byte
+	err     error
+}
+
+func (m *mockWSReader) ReadMessage() (int, []byte, error) {
+	if m.idx >= len(m.messages) {
+		return 0, nil, fmt.Errorf("connection closed")
+	}
+	msg := m.messages[m.idx]
+	m.idx++
+	return msg.msgType, msg.data, msg.err
+}
+
+func TestStartWSMessageReader_BinaryMessageRoutedAsInput(t *testing.T) {
+	reader := &mockWSReader{
+		messages: []mockWSMsg{
+			{msgType: websocket.BinaryMessage, data: []byte("hello")},
+		},
+	}
+
+	controlChan := startWSMessageReader(reader)
+
+	select {
+	case msg := <-controlChan:
+		if msg.Type != "input" {
+			t.Errorf("expected type 'input', got %q", msg.Type)
+		}
+		if msg.Data != "hello" {
+			t.Errorf("expected data 'hello', got %q", msg.Data)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for message")
+	}
+}
+
+func TestStartWSMessageReader_TextMessageStillParsedAsJSON(t *testing.T) {
+	jsonMsg, _ := json.Marshal(WSMessage{Type: "resize", Data: `{"cols":80,"rows":24}`})
+	reader := &mockWSReader{
+		messages: []mockWSMsg{
+			{msgType: websocket.TextMessage, data: jsonMsg},
+		},
+	}
+
+	controlChan := startWSMessageReader(reader)
+
+	select {
+	case msg := <-controlChan:
+		if msg.Type != "resize" {
+			t.Errorf("expected type 'resize', got %q", msg.Type)
+		}
+		if msg.Data != `{"cols":80,"rows":24}` {
+			t.Errorf("unexpected data: %q", msg.Data)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for message")
+	}
+}
+
+func TestStartWSMessageReader_BinaryAndTextInterleaved(t *testing.T) {
+	jsonMsg, _ := json.Marshal(WSMessage{Type: "gap", Data: `{"fromSeq":"5"}`})
+	reader := &mockWSReader{
+		messages: []mockWSMsg{
+			{msgType: websocket.BinaryMessage, data: []byte("a")},
+			{msgType: websocket.TextMessage, data: jsonMsg},
+			{msgType: websocket.BinaryMessage, data: []byte("\x1b[A")},
+		},
+	}
+
+	controlChan := startWSMessageReader(reader)
+
+	// First: binary input 'a'
+	msg := <-controlChan
+	if msg.Type != "input" || msg.Data != "a" {
+		t.Errorf("msg 1: expected input/a, got %s/%s", msg.Type, msg.Data)
+	}
+
+	// Second: text JSON gap
+	msg = <-controlChan
+	if msg.Type != "gap" {
+		t.Errorf("msg 2: expected gap, got %s", msg.Type)
+	}
+
+	// Third: binary input arrow key
+	msg = <-controlChan
+	if msg.Type != "input" || msg.Data != "\x1b[A" {
+		t.Errorf("msg 3: expected input/ESC[A, got %s/%q", msg.Type, msg.Data)
 	}
 }

@@ -300,6 +300,92 @@ body {
   margin-top: 15px;
 }
 
+.typing-perf__breakdown {
+  margin-top: var(--spacing-sm);
+  font-size: 10px;
+}
+
+.typing-perf__bar-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-bottom: 3px;
+  position: relative;
+}
+
+.typing-perf__bar-label {
+  width: 24px;
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+}
+
+.typing-perf__bar-total {
+  width: 36px;
+  flex-shrink: 0;
+  text-align: right;
+  color: var(--color-text-secondary);
+}
+
+.typing-perf__bar-track {
+  flex: 1;
+  display: flex;
+  height: 10px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.typing-perf__bar-segment {
+  height: 100%;
+  min-width: 1px;
+}
+
+.typing-perf__bar-fill {
+  display: flex;
+  height: 100%;
+}
+
+.typing-perf__tooltip {
+  position: absolute;
+  left: 62px;
+  bottom: 100%;
+  z-index: 10;
+  background: var(--color-bg-elevated, #2a2a2a);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 9px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  margin-bottom: 4px;
+}
+
+.typing-perf__tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  line-height: 1.5;
+}
+
+.typing-perf__tooltip-swatch {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+
+.typing-perf__tooltip-name {
+  color: var(--color-text-tertiary);
+}
+
+.typing-perf__tooltip-value {
+  margin-left: auto;
+  padding-left: 8px;
+  color: var(--color-text-secondary);
+}
+
 .app-shell--collapsed .typing-perf {
   display: none;
 }
