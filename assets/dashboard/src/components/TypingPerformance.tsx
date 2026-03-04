@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { inputLatency } from '../lib/inputLatency';
-import type { LatencyDistribution } from '../lib/inputLatency';
+import type { LatencyDistribution, LatencyBreakdown } from '../lib/inputLatency';
 
 function colorForMs(ms: number): string {
   if (ms <= 10) return '#0dbc79';
@@ -59,7 +59,10 @@ export default function TypingPerformance() {
         (!stats || stats.count < 3 ? (
           <div className="typing-perf__empty">Type in a terminal to collect samples</div>
         ) : (
-          dist && <Histogram dist={dist} median={stats.median} p99={stats.p99} />
+          <>
+            {dist && <Histogram dist={dist} median={stats.median} p99={stats.p99} />}
+            <LatencyBreakdownBars />
+          </>
         ))}
     </div>
   );
@@ -193,6 +196,119 @@ function Histogram({
           strokeWidth={0.5}
         />
       </svg>
+    </div>
+  );
+}
+
+const SEGMENT_COLORS: Record<string, string> = {
+  dispatch: 'rgba(160, 160, 160, 0.7)',
+  sendKeys: 'rgba(100, 160, 220, 0.7)',
+  echo: 'rgba(160, 100, 180, 0.7)',
+  frameSend: 'rgba(80, 160, 180, 0.7)',
+  eventLoopLag: 'rgba(180, 170, 80, 0.7)',
+  wireResidual: 'rgba(190, 150, 80, 0.7)',
+  render: 'rgba(80, 170, 120, 0.7)',
+};
+
+const SEGMENT_LABELS: Record<string, string> = {
+  dispatch: 'dispatch',
+  sendKeys: 'sendKeys',
+  echo: 'echo',
+  frameSend: 'frameSend',
+  eventLoopLag: 'evtLoop',
+  wireResidual: 'wire',
+  render: 'render',
+};
+
+const SEGMENTS = [
+  'dispatch',
+  'sendKeys',
+  'echo',
+  'frameSend',
+  'eventLoopLag',
+  'wireResidual',
+  'render',
+] as const;
+
+function BreakdownRow({
+  label,
+  breakdown,
+  scale,
+}: {
+  label: string;
+  breakdown: LatencyBreakdown;
+  scale: number;
+}) {
+  const [showTooltip, setShowTooltip] = useState(false);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const total = breakdown.total;
+  if (total <= 0) return null;
+
+  return (
+    <div
+      className="typing-perf__bar-row"
+      ref={rowRef}
+      onMouseEnter={() => setShowTooltip(true)}
+      onMouseLeave={() => setShowTooltip(false)}
+    >
+      <span className="typing-perf__bar-label">{label}</span>
+      <span className="typing-perf__bar-total">{Math.round(total)}ms</span>
+      <div className="typing-perf__bar-track">
+        <div className="typing-perf__bar-fill" style={{ width: `${scale * 100}%` }}>
+          {SEGMENTS.map((seg) => {
+            const value = breakdown[seg];
+            const pct = (value / total) * 100;
+            if (pct < 0.5) return null;
+            return (
+              <div
+                key={seg}
+                className="typing-perf__bar-segment"
+                style={{
+                  width: `${pct}%`,
+                  backgroundColor: SEGMENT_COLORS[seg],
+                }}
+              />
+            );
+          })}
+        </div>
+      </div>
+      {showTooltip && (
+        <div className="typing-perf__tooltip" data-testid="breakdown-tooltip">
+          {SEGMENTS.map((seg) => {
+            const value = breakdown[seg];
+            if (value < 0.05) return null;
+            return (
+              <div key={seg} className="typing-perf__tooltip-row">
+                <span
+                  className="typing-perf__tooltip-swatch"
+                  style={{ backgroundColor: SEGMENT_COLORS[seg] }}
+                />
+                <span className="typing-perf__tooltip-name">{SEGMENT_LABELS[seg]}</span>
+                <span className="typing-perf__tooltip-value">{value.toFixed(1)}ms</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LatencyBreakdownBars() {
+  const p50 = inputLatency.getBreakdown('p50');
+  const p99 = inputLatency.getBreakdown('p99');
+  if (!p50 && !p99) return null;
+
+  const maxTotal = Math.max(p50?.total ?? 0, p99?.total ?? 0);
+
+  return (
+    <div className="typing-perf__breakdown" data-testid="latency-breakdown">
+      {p50 && (
+        <BreakdownRow label="P50" breakdown={p50} scale={maxTotal > 0 ? p50.total / maxTotal : 1} />
+      )}
+      {p99 && (
+        <BreakdownRow label="P99" breakdown={p99} scale={maxTotal > 0 ? p99.total / maxTotal : 1} />
+      )}
     </div>
   );
 }

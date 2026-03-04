@@ -244,7 +244,7 @@ func TestSplitClean(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotSend, gotHold := SplitClean(tt.holdback, tt.data)
+			gotSend, gotHold, _ := SplitClean(nil, tt.holdback, tt.data)
 			if !bytes.Equal(gotSend, tt.wantSend) {
 				t.Errorf("send:\n  got  %q\n  want %q", gotSend, tt.wantSend)
 			}
@@ -255,41 +255,78 @@ func TestSplitClean(t *testing.T) {
 	}
 }
 
-func TestSplitCleanNoAlias(t *testing.T) {
-	// Verify that returned slices don't alias the input
+func TestSplitCleanHoldbackDoesNotAlias(t *testing.T) {
+	// Verify that returned holdback doesn't alias the input data
 	data := []byte("hello\x1b")
-	send, hold := SplitClean(nil, data)
+	_, hold, _ := SplitClean(nil, nil, data)
 
-	// Mutate originals
+	// Mutate original
 	data[0] = 'X'
 
-	if send[0] == 'X' {
-		t.Error("send aliases input data")
-	}
 	if hold[0] == 'X' {
 		t.Error("holdback aliases input data")
+	}
+}
+
+func TestSplitCleanSendMayAlias(t *testing.T) {
+	// send is deliberately a sub-slice of data (no copy) for zero-alloc.
+	// The caller must consume send before the next SplitClean call.
+	data := []byte("hello world")
+	send, _, _ := SplitClean(nil, nil, data)
+
+	if !bytes.Equal(send, []byte("hello world")) {
+		t.Errorf("send: got %q, want %q", send, "hello world")
+	}
+}
+
+func TestSplitCleanScratchReuse(t *testing.T) {
+	// When holdback + data requires concatenation, the scratch buffer should
+	// be reused across calls to avoid repeated allocations.
+	var scratch []byte
+	holdback := []byte("\x1b[")
+	data := []byte("0mworld")
+
+	send, hold, scratch := SplitClean(scratch, holdback, data)
+	if string(send) != "\x1b[0mworld" {
+		t.Errorf("send: got %q, want %q", send, "\x1b[0mworld")
+	}
+	if hold != nil {
+		t.Errorf("hold: got %q, want nil", hold)
+	}
+
+	// Second call with same scratch — should reuse capacity
+	capBefore := cap(scratch)
+	holdback2 := []byte("\x1b[")
+	data2 := []byte("31mred")
+	send2, _, scratch := SplitClean(scratch, holdback2, data2)
+	if string(send2) != "\x1b[31mred" {
+		t.Errorf("send2: got %q, want %q", send2, "\x1b[31mred")
+	}
+	if cap(scratch) != capBefore {
+		t.Error("scratch buffer was reallocated when capacity was sufficient")
 	}
 }
 
 func TestSplitCleanChainedCalls(t *testing.T) {
 	// Simulate a multi-frame stream where a CSI sequence is split across 3 frames
 	var hold []byte
+	var scratch []byte
 	var send []byte
 
 	// Frame 1: text ending with bare ESC
-	send, hold = SplitClean(hold, []byte("hello\x1b"))
+	send, hold, scratch = SplitClean(scratch, hold, []byte("hello\x1b"))
 	if string(send) != "hello" {
 		t.Errorf("frame 1 send: got %q, want %q", send, "hello")
 	}
 
 	// Frame 2: CSI introducer, still incomplete
-	send, hold = SplitClean(hold, []byte("[38;5"))
+	send, hold, scratch = SplitClean(scratch, hold, []byte("[38;5"))
 	if send != nil {
 		t.Errorf("frame 2 send: got %q, want nil", send)
 	}
 
 	// Frame 3: rest of sequence + more text
-	send, hold = SplitClean(hold, []byte(";196mworld"))
+	send, hold, scratch = SplitClean(scratch, hold, []byte(";196mworld"))
 	if string(send) != "\x1b[38;5;196mworld" {
 		t.Errorf("frame 3 send: got %q, want %q", send, "\x1b[38;5;196mworld")
 	}
@@ -312,7 +349,7 @@ func TestSplitClean_16ByteScanWindow(t *testing.T) {
 	data := append(prefix, dcs...)
 	data = append(data, payload...)
 
-	send, hold := SplitClean(nil, data)
+	send, hold, _ := SplitClean(nil, nil, data)
 	// Because ESC is at position 10 and end is at 28, the scan window [12,28)
 	// doesn't reach position 10. So the ESC is not found — entire buffer is "clean".
 	if !bytes.Equal(send, data) {

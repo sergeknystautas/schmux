@@ -293,11 +293,97 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
     sendTmuxCommand(tmuxName, "printf '\\033[?25h'");
     await new Promise((r) => setTimeout(r, 200));
   });
-});
 
-// ---------------------------------------------------------------------------
-// Tier 3: Alternate screen
-// ---------------------------------------------------------------------------
+  test('dense cursor repositioning: rapid CUP + content painting', async ({ page }) => {
+    await openTerminal(page, sessionId, tmuxName);
+
+    // Simulate TUI repaint: paint 10 different rows with positioned content.
+    // This mimics how Claude Code repaints status bars, input fields, and
+    // output regions using dense sequences of CSI H + content.
+    const escapeSequence = [
+      '\\033[1;1H\\033[2KStatus: running',
+      '\\033[3;1H\\033[2K> Input line here',
+      '\\033[5;1H\\033[2KOutput line 1: hello world',
+      '\\033[6;1H\\033[2KOutput line 2: foo bar',
+      '\\033[7;1H\\033[2KOutput line 3: baz qux',
+      '\\033[10;1H\\033[2K[Progress: 50%]',
+      '\\033[12;1H\\033[2K───────────────────',
+      '\\033[15;1H\\033[2KFooter: 3 items',
+      '\\033[3;17H', // Move cursor back to end of input line
+    ].join('');
+    const sentinel = sendTmuxCommandWithSentinel(tmuxName, `printf '${escapeSequence}'`);
+    await waitForSentinel(sessionId, sentinel);
+
+    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertCursorMatchesTmux(page, tmuxName);
+  });
+
+  test('rapid partial screen overwrite: update one region while others stay', async ({ page }) => {
+    await openTerminal(page, sessionId, tmuxName);
+
+    // Paint a stable frame first
+    const frame1 = [
+      '\\033[1;1H\\033[2KHeader: stable',
+      '\\033[3;1H\\033[2KLine A',
+      '\\033[4;1H\\033[2KLine B',
+      '\\033[5;1H\\033[2KLine C',
+      '\\033[7;1H\\033[2KFooter: stable',
+    ].join('');
+    let sentinel = sendTmuxCommandWithSentinel(tmuxName, `printf '${frame1}'`);
+    await waitForSentinel(sessionId, sentinel);
+    await assertTerminalMatchesTmux(page, tmuxName);
+
+    // Now repaint ONLY the middle region (lines 3-5), leaving header and footer
+    const frame2 = [
+      '\\033[3;1H\\033[2KLine A updated!',
+      '\\033[4;1H\\033[2KLine B updated!',
+      '\\033[5;1H\\033[2KLine C updated!',
+      '\\033[5;16H', // Cursor at end of last updated line
+    ].join('');
+    sentinel = sendTmuxCommandWithSentinel(tmuxName, `printf '${frame2}'`);
+    await waitForSentinel(sessionId, sentinel);
+
+    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertCursorMatchesTmux(page, tmuxName);
+  });
+
+  test('insert line (CSI L) shifts content down', async ({ page }) => {
+    await openTerminal(page, sessionId, tmuxName);
+
+    // Fill rows 1-5 with content, then insert a line at row 3
+    const sequence = [
+      '\\033[1;1HLine 1',
+      '\\033[2;1HLine 2',
+      '\\033[3;1HLine 3',
+      '\\033[4;1HLine 4',
+      '\\033[5;1HLine 5',
+      '\\033[3;1H\\033[L', // Insert line at row 3 (pushes Line 3-5 down)
+      '\\033[3;1HInserted!',
+    ].join('');
+    const sentinel = sendTmuxCommandWithSentinel(tmuxName, `printf '${sequence}'`);
+    await waitForSentinel(sessionId, sentinel);
+
+    await assertTerminalMatchesTmux(page, tmuxName);
+  });
+
+  test('delete line (CSI M) shifts content up', async ({ page }) => {
+    await openTerminal(page, sessionId, tmuxName);
+
+    // Fill rows 1-5, then delete row 2
+    const sequence = [
+      '\\033[1;1HLine 1',
+      '\\033[2;1HLine 2',
+      '\\033[3;1HLine 3',
+      '\\033[4;1HLine 4',
+      '\\033[5;1HLine 5',
+      '\\033[2;1H\\033[M', // Delete line at row 2 (Line 3-5 shift up)
+    ].join('');
+    const sentinel = sendTmuxCommandWithSentinel(tmuxName, `printf '${sequence}'`);
+    await waitForSentinel(sessionId, sentinel);
+
+    await assertTerminalMatchesTmux(page, tmuxName);
+  });
+});
 
 test.describe.serial('Terminal fidelity: alternate screen', () => {
   let repoPath: string;
@@ -646,5 +732,44 @@ test.describe.serial('Terminal fidelity: compounding', () => {
     await waitForSentinel(sessionId, sentinel);
 
     await assertTerminalMatchesTmux(page, tmuxName);
+  });
+
+  test('rapid TUI repaint: 20 full-screen redraws', async ({ page }) => {
+    await openTerminal(page, sessionId, tmuxName);
+
+    // Simulate a TUI that redraws its entire visible area 20 times rapidly.
+    // Each frame paints 10 rows with frame-specific content, using a script
+    // to avoid hitting tmux command rate limits.
+    const script = `for i in $(seq 1 20); do printf '\\033[H'; for r in $(seq 1 10); do printf '\\033[%d;1H\\033[2KFrame %02d Row %02d: data-%d-%d' "$r" "$i" "$r" "$i" "$r"; done; done`;
+    const sentinel = sendTmuxCommandWithSentinel(tmuxName, script);
+    await waitForSentinel(sessionId, sentinel);
+
+    // After all redraws, the visible content should match the final frame (frame 20)
+    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertCursorMatchesTmux(page, tmuxName);
+  });
+
+  test('cursor position survives background output flood', async ({ page }) => {
+    await openTerminal(page, sessionId, tmuxName);
+
+    // Start a background flood that generates rapid output
+    sendTmuxCommand(tmuxName, 'for i in $(seq 1 500); do echo "flood-line-$i"; done &');
+
+    // While the flood is running, send cursor repositioning commands
+    // (simulating a TUI updating its status bar during heavy output)
+    await new Promise((r) => setTimeout(r, 200)); // let flood start
+    const sequence = [
+      '\\033[1;1H\\033[2KStatus: processing...',
+      '\\033[1;22H', // cursor after "processing..."
+    ].join('');
+    sendTmuxCommand(tmuxName, `printf '${sequence}'`);
+
+    // Wait for the flood to finish
+    const sentinel = sendTmuxCommandWithSentinel(tmuxName, 'wait; echo flood-done');
+    await waitForSentinel(sessionId, sentinel);
+
+    // After everything settles, content and cursor must match tmux
+    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertCursorMatchesTmux(page, tmuxName);
   });
 });

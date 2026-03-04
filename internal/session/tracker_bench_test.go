@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/benchutil"
-	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 )
@@ -18,7 +17,7 @@ import (
 // benchSetup creates a tmux session running `cat` (pure echo), a
 // SessionTracker wired to it, and a subscribed output channel. The
 // returned cleanup function kills the tmux session and stops the tracker.
-func benchSetup(tb testing.TB) (tracker *SessionTracker, outputCh <-chan controlmode.OutputEvent, tmuxName string, cleanup func()) {
+func benchSetup(tb testing.TB) (tracker *SessionTracker, outputCh <-chan SequencedOutput, tmuxName string, cleanup func()) {
 	tb.Helper()
 
 	tmuxName = fmt.Sprintf("bench-%d", time.Now().UnixNano())
@@ -66,7 +65,7 @@ drain:
 
 // benchSetupStressed is like benchSetup but runs a background output flood
 // in the same tmux session to create realistic contention.
-func benchSetupStressed(tb testing.TB) (tracker *SessionTracker, outputCh <-chan controlmode.OutputEvent, tmuxName string, cleanup func()) {
+func benchSetupStressed(tb testing.TB) (tracker *SessionTracker, outputCh <-chan SequencedOutput, tmuxName string, cleanup func()) {
 	tb.Helper()
 
 	tmuxName = fmt.Sprintf("bench-%d", time.Now().UnixNano())

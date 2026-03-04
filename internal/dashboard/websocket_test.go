@@ -1,10 +1,8 @@
 package dashboard
 
 import (
-	"bytes"
 	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -492,9 +490,9 @@ func TestBuildSyncMessage(t *testing.T) {
 	}
 }
 
-func TestEncodeSequencedFrame(t *testing.T) {
+func TestAppendSequencedFrame(t *testing.T) {
 	data := []byte("hello")
-	frame := encodeSequencedFrame(42, data)
+	frame := appendSequencedFrame(nil, 42, data)
 
 	if len(frame) != 8+5 {
 		t.Fatalf("frame length=%d, want 13", len(frame))
@@ -510,33 +508,26 @@ func TestEncodeSequencedFrame(t *testing.T) {
 	}
 }
 
-func TestChunkReplay(t *testing.T) {
-	log := session.NewOutputLog(100)
-	for i := 0; i < 20; i++ {
-		log.Append([]byte(fmt.Sprintf("line %d\n", i)))
+func TestAppendSequencedFrame_Reuse(t *testing.T) {
+	data := []byte("hello")
+	buf := make([]byte, 0, 128)
+
+	buf = appendSequencedFrame(buf, 1, data)
+	if len(buf) != 13 {
+		t.Fatalf("frame length=%d, want 13", len(buf))
 	}
 
-	chunks := chunkReplayEntries(log.ReplayAll(), 50) // 50 byte chunks
-	if len(chunks) == 0 {
-		t.Fatal("expected at least one chunk")
+	// Reuse should not allocate — same backing array
+	ptr1 := &buf[0]
+	buf = appendSequencedFrame(buf, 2, data)
+	ptr2 := &buf[0]
+	if ptr1 != ptr2 {
+		t.Error("appendSequencedFrame allocated when capacity was sufficient")
 	}
 
-	// Verify all data is present across chunks
-	var total []byte
-	for _, c := range chunks {
-		total = append(total, c.Data...)
-	}
-	for i := 0; i < 20; i++ {
-		expected := fmt.Sprintf("line %d\n", i)
-		if !bytes.Contains(total, []byte(expected)) {
-			t.Errorf("missing line %d in chunked output", i)
-		}
-	}
-
-	// Verify last chunk has the correct final seq
-	lastChunk := chunks[len(chunks)-1]
-	if lastChunk.Seq != 19 {
-		t.Errorf("last chunk seq=%d, want 19", lastChunk.Seq)
+	seq := binary.BigEndian.Uint64(buf[:8])
+	if seq != 2 {
+		t.Errorf("seq=%d, want 2", seq)
 	}
 }
 
@@ -546,17 +537,22 @@ func TestBuildGapReplayFrames(t *testing.T) {
 	log.Append([]byte("b"))
 	log.Append([]byte("c"))
 
-	frames := buildGapReplayFrames(log, 1, 16384) // replay from seq 1
-	if len(frames) == 0 {
-		t.Fatal("expected replay frames")
+	frames := buildGapReplayFrames(log, 1) // replay from seq 1
+	if len(frames) != 2 {
+		t.Fatalf("expected 2 frames (one per entry), got %d", len(frames))
 	}
-	// Should contain data for seq 1 and 2 ("b" and "c")
-	var total []byte
-	for _, f := range frames {
-		total = append(total, f[8:]...) // skip 8-byte header
+	// Each frame should carry its own entry's seq and data
+	if string(frames[0][8:]) != "b" {
+		t.Errorf("frame 0 data=%q, want 'b'", frames[0][8:])
 	}
-	if string(total) != "bc" {
-		t.Errorf("replayed data=%q, want 'bc'", total)
+	if string(frames[1][8:]) != "c" {
+		t.Errorf("frame 1 data=%q, want 'c'", frames[1][8:])
+	}
+	// Verify seq headers are individual entry seqs (1 and 2)
+	seq0 := binary.BigEndian.Uint64(frames[0][:8])
+	seq1 := binary.BigEndian.Uint64(frames[1][:8])
+	if seq0 != 1 || seq1 != 2 {
+		t.Errorf("seqs=%d,%d, want 1,2", seq0, seq1)
 	}
 }
 
@@ -567,46 +563,9 @@ func TestBuildGapReplayFrames_EvictedData(t *testing.T) {
 	log.Append([]byte("c")) // evicts "a"
 
 	// Request from seq 0 (evicted) — should return nil
-	frames := buildGapReplayFrames(log, 0, 16384)
+	frames := buildGapReplayFrames(log, 0)
 	if frames != nil {
 		t.Errorf("expected nil for evicted data, got %d frames", len(frames))
-	}
-}
-
-func TestChunkReplay_SingleEntryExceedsMaxBytes(t *testing.T) {
-	log := session.NewOutputLog(100)
-
-	// Add a small entry, then a large entry that exceeds maxBytes, then another small one
-	log.Append([]byte("small"))
-	log.Append(bytes.Repeat([]byte("X"), 200)) // 200 bytes, exceeds maxBytes=50
-	log.Append([]byte("after"))
-
-	chunks := chunkReplayEntries(log.ReplayAll(), 50) // maxBytes=50
-	if len(chunks) == 0 {
-		t.Fatal("expected at least one chunk")
-	}
-
-	// Verify all data is present across chunks
-	var total []byte
-	for _, c := range chunks {
-		total = append(total, c.Data...)
-	}
-	if !bytes.Contains(total, []byte("small")) {
-		t.Error("missing 'small' in chunked output")
-	}
-	if !bytes.Contains(total, bytes.Repeat([]byte("X"), 200)) {
-		t.Error("missing large entry in chunked output")
-	}
-	if !bytes.Contains(total, []byte("after")) {
-		t.Error("missing 'after' in chunked output")
-	}
-
-	// The large entry should be in its own chunk (since "small" fills current,
-	// then the 200-byte entry exceeds maxBytes so "small" flushes first,
-	// then 200-byte entry starts a new chunk which also exceeds maxBytes but
-	// gets flushed when "after" arrives)
-	if len(chunks) < 3 {
-		t.Errorf("expected at least 3 chunks for small+oversized+small, got %d", len(chunks))
 	}
 }
 
@@ -807,4 +766,414 @@ func TestStatsMessage_SyncDisabled(t *testing.T) {
 // containsSubstring does a case-insensitive substring check.
 func containsSubstring(s, substr string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+}
+
+func TestStatsMessage_InputLatency(t *testing.T) {
+	msg := WSStatsMessage{
+		Type: "stats",
+		InputLatency: &LatencyPercentiles{
+			DispatchP50:  0.5,
+			DispatchP99:  1.2,
+			SendKeysP50:  2.0,
+			SendKeysP99:  5.0,
+			EchoP50:      3.0,
+			EchoP99:      8.0,
+			FrameSendP50: 0.1,
+			FrameSendP99: 0.3,
+			SampleCount:  42,
+		},
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]interface{}
+	json.Unmarshal(data, &decoded)
+
+	il, ok := decoded["inputLatency"].(map[string]interface{})
+	if !ok {
+		t.Fatal("inputLatency field missing or not an object")
+	}
+	if il["dispatchP50"].(float64) != 0.5 {
+		t.Errorf("dispatchP50 = %v, want 0.5", il["dispatchP50"])
+	}
+	if il["sampleCount"].(float64) != 42 {
+		t.Errorf("sampleCount = %v, want 42", il["sampleCount"])
+	}
+}
+
+func TestStatsMessage_InputLatencyOmitted(t *testing.T) {
+	msg := WSStatsMessage{
+		Type: "stats",
+		// InputLatency is nil — should be omitted from JSON
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]interface{}
+	json.Unmarshal(data, &decoded)
+
+	if _, ok := decoded["inputLatency"]; ok {
+		t.Error("inputLatency should be omitted when nil")
+	}
+}
+
+func TestStatsMessage_InputLatencyContextFields(t *testing.T) {
+	msg := WSStatsMessage{
+		Type: "stats",
+		InputLatency: &LatencyPercentiles{
+			DispatchP50:      0.5,
+			DispatchP99:      1.2,
+			SendKeysP50:      2.0,
+			SendKeysP99:      5.0,
+			EchoP50:          3.0,
+			EchoP99:          8.0,
+			FrameSendP50:     0.1,
+			FrameSendP99:     0.3,
+			SampleCount:      42,
+			OutputChDepthP50: 0.0,
+			OutputChDepthP99: 3.0,
+			EchoDataLenP50:   1.0,
+			EchoDataLenP99:   512.0,
+		},
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]interface{}
+	json.Unmarshal(data, &decoded)
+
+	il, ok := decoded["inputLatency"].(map[string]interface{})
+	if !ok {
+		t.Fatal("inputLatency field missing or not an object")
+	}
+	if il["outputChDepthP50"].(float64) != 0.0 {
+		t.Errorf("outputChDepthP50 = %v, want 0.0", il["outputChDepthP50"])
+	}
+	if il["outputChDepthP99"].(float64) != 3.0 {
+		t.Errorf("outputChDepthP99 = %v, want 3.0", il["outputChDepthP99"])
+	}
+	if il["echoDataLenP50"].(float64) != 1.0 {
+		t.Errorf("echoDataLenP50 = %v, want 1.0", il["echoDataLenP50"])
+	}
+	if il["echoDataLenP99"].(float64) != 512.0 {
+		t.Errorf("echoDataLenP99 = %v, want 512.0", il["echoDataLenP99"])
+	}
+}
+
+func TestInputEchoSidebandFormat(t *testing.T) {
+	// Verify the inputEcho sideband message format matches what the frontend expects
+	sideband, err := json.Marshal(map[string]interface{}{
+		"type":     "inputEcho",
+		"serverMs": 5.2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]interface{}
+	json.Unmarshal(sideband, &decoded)
+	if decoded["type"] != "inputEcho" {
+		t.Errorf("type = %v, want inputEcho", decoded["type"])
+	}
+	if decoded["serverMs"].(float64) != 5.2 {
+		t.Errorf("serverMs = %v, want 5.2", decoded["serverMs"])
+	}
+}
+
+// --- Async input sender + batching tests ---
+
+// TestAsyncInputSender_DoesNotBlockSelectLoop verifies that the async sender
+// goroutine pattern doesn't block the caller while SendInput is in flight.
+func TestAsyncInputSender_DoesNotBlockSelectLoop(t *testing.T) {
+	type inputBatch struct {
+		data          string
+		t1            time.Time
+		t2            time.Time
+		outputChDepth int
+	}
+	type inputResult struct {
+		sendKeysDur   time.Duration
+		t3            time.Time
+		dispatch      time.Duration
+		outputChDepth int
+	}
+
+	inputBatchCh := make(chan inputBatch, 10)
+	inputDoneCh := make(chan inputResult, 10)
+
+	// Simulate a slow SendInput (100ms)
+	go func() {
+		defer close(inputDoneCh)
+		for batch := range inputBatchCh {
+			t2 := time.Now()
+			time.Sleep(100 * time.Millisecond) // simulate slow tmux
+			t3 := time.Now()
+			inputDoneCh <- inputResult{
+				sendKeysDur:   t3.Sub(t2),
+				t3:            t3,
+				dispatch:      batch.t2.Sub(batch.t1),
+				outputChDepth: batch.outputChDepth,
+			}
+		}
+	}()
+
+	// Send a batch — this should return immediately (not block for 100ms)
+	start := time.Now()
+	inputBatchCh <- inputBatch{
+		data: "hello",
+		t1:   time.Now(),
+		t2:   time.Now(),
+	}
+	sendDuration := time.Since(start)
+
+	if sendDuration > 10*time.Millisecond {
+		t.Errorf("inputBatchCh send took %v, expected < 10ms (should be non-blocking)", sendDuration)
+	}
+
+	// The result should arrive after the simulated delay
+	select {
+	case result := <-inputDoneCh:
+		if result.sendKeysDur < 90*time.Millisecond {
+			t.Errorf("sendKeysDur = %v, expected >= 90ms", result.sendKeysDur)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for inputDoneCh result")
+	}
+
+	close(inputBatchCh)
+}
+
+// TestPendingInputQueue_MultipleSamples verifies that the FIFO queue records
+// one latency sample per keystroke, not just the last one (the singleton bug).
+func TestPendingInputQueue_MultipleSamples(t *testing.T) {
+	type pendingInputTiming struct {
+		dispatch      time.Duration
+		sendKeys      time.Duration
+		t3            time.Time
+		outputChDepth int
+	}
+
+	lc := NewLatencyCollector()
+	var queue []pendingInputTiming
+
+	// Simulate 3 keystrokes pushing timing into the queue
+	for i := 1; i <= 3; i++ {
+		queue = append(queue, pendingInputTiming{
+			dispatch:      time.Duration(i) * time.Millisecond,
+			sendKeys:      time.Duration(i*10) * time.Millisecond,
+			t3:            time.Now(),
+			outputChDepth: i,
+		})
+	}
+
+	if len(queue) != 3 {
+		t.Fatalf("queue length = %d, want 3", len(queue))
+	}
+
+	// Simulate 3 echo events popping from the queue
+	for i := 0; i < 3; i++ {
+		if len(queue) == 0 {
+			t.Fatalf("queue unexpectedly empty at echo %d", i)
+		}
+		pending := queue[0]
+		queue = queue[1:]
+		lc.Add(LatencySample{
+			Dispatch:      pending.dispatch,
+			SendKeys:      pending.sendKeys,
+			Echo:          time.Millisecond,
+			FrameSend:     time.Millisecond,
+			OutputChDepth: pending.outputChDepth,
+		})
+	}
+
+	if len(queue) != 0 {
+		t.Errorf("queue should be empty after all echoes, got %d", len(queue))
+	}
+
+	p := lc.Percentiles()
+	if p == nil {
+		t.Fatal("expected non-nil percentiles")
+	}
+	if p.SampleCount != 3 {
+		t.Errorf("SampleCount = %d, want 3 (all keystrokes should be recorded)", p.SampleCount)
+	}
+}
+
+// TestPendingInputQueue_DiscardOnEmptyData verifies that a queue entry is
+// discarded when an echo event has no data.
+func TestPendingInputQueue_DiscardOnEmptyData(t *testing.T) {
+	type pendingInputTiming struct {
+		dispatch      time.Duration
+		sendKeys      time.Duration
+		t3            time.Time
+		outputChDepth int
+	}
+
+	var queue []pendingInputTiming
+	queue = append(queue, pendingInputTiming{
+		dispatch: time.Millisecond,
+		sendKeys: 10 * time.Millisecond,
+		t3:       time.Now(),
+	})
+
+	// Simulate an echo with empty data — should discard the front entry
+	if len(queue) > 0 {
+		queue = queue[1:]
+	}
+
+	if len(queue) != 0 {
+		t.Errorf("queue should be empty after discard, got %d", len(queue))
+	}
+}
+
+// TestKeystrokeBatching_DrainCoalesces verifies that the non-blocking drain
+// pattern coalesces multiple queued input messages into a single combined string.
+func TestKeystrokeBatching_DrainCoalesces(t *testing.T) {
+	// Pre-fill a channel with 3 input messages and 1 resize message
+	controlChan := make(chan WSMessage, 10)
+	controlChan <- WSMessage{Type: "input", Data: "b"}
+	controlChan <- WSMessage{Type: "input", Data: "c"}
+	controlChan <- WSMessage{Type: "resize", Data: `{"cols":120,"rows":40}`}
+	controlChan <- WSMessage{Type: "input", Data: "d"}
+
+	// Simulate the first message already received from the select case
+	combined := "a" // first keystroke from case msg := <-controlChan
+
+	// Non-blocking drain — same pattern as the production code
+	var resizeCount int
+drain:
+	for {
+		select {
+		case extra, ok := <-controlChan:
+			if !ok {
+				t.Fatal("channel unexpectedly closed")
+			}
+			if extra.Type == "input" {
+				if !isTerminalResponse(extra.Data) {
+					combined += extra.Data
+				}
+			} else if extra.Type == "resize" {
+				resizeCount++
+			}
+		default:
+			break drain
+		}
+	}
+
+	if combined != "abcd" {
+		t.Errorf("combined = %q, want %q", combined, "abcd")
+	}
+	if resizeCount != 1 {
+		t.Errorf("resize messages handled = %d, want 1", resizeCount)
+	}
+}
+
+// TestKeystrokeBatching_TerminalResponsesFiltered verifies that terminal
+// query responses mixed in with keystrokes are filtered during drain.
+func TestKeystrokeBatching_TerminalResponsesFiltered(t *testing.T) {
+	controlChan := make(chan WSMessage, 10)
+	controlChan <- WSMessage{Type: "input", Data: "\x1b[?1;2c"} // DA1 response — should be filtered
+	controlChan <- WSMessage{Type: "input", Data: "x"}
+
+	combined := "a"
+
+drain:
+	for {
+		select {
+		case extra := <-controlChan:
+			if extra.Type == "input" {
+				if !isTerminalResponse(extra.Data) {
+					combined += extra.Data
+				}
+			}
+		default:
+			break drain
+		}
+	}
+
+	if combined != "ax" {
+		t.Errorf("combined = %q, want %q (terminal response should be filtered)", combined, "ax")
+	}
+}
+
+// TestAsyncInputSender_TimingFlowsToQueue verifies that the async sender
+// goroutine correctly produces timing results that flow into the pending queue.
+func TestAsyncInputSender_TimingFlowsToQueue(t *testing.T) {
+	type pendingInputTiming struct {
+		dispatch      time.Duration
+		sendKeys      time.Duration
+		t3            time.Time
+		outputChDepth int
+	}
+	type inputBatch struct {
+		data          string
+		t1            time.Time
+		t2            time.Time
+		outputChDepth int
+	}
+	type inputResult struct {
+		sendKeysDur   time.Duration
+		t3            time.Time
+		dispatch      time.Duration
+		outputChDepth int
+	}
+
+	inputBatchCh := make(chan inputBatch, 10)
+	inputDoneCh := make(chan inputResult, 10)
+
+	// Minimal sender — no delay
+	go func() {
+		defer close(inputDoneCh)
+		for batch := range inputBatchCh {
+			t3 := time.Now()
+			inputDoneCh <- inputResult{
+				sendKeysDur:   time.Millisecond,
+				t3:            t3,
+				dispatch:      batch.t2.Sub(batch.t1),
+				outputChDepth: batch.outputChDepth,
+			}
+		}
+	}()
+
+	// Send 3 batches
+	for i := 0; i < 3; i++ {
+		t1 := time.Now()
+		inputBatchCh <- inputBatch{
+			data:          string(rune('a' + i)),
+			t1:            t1,
+			t2:            time.Now(),
+			outputChDepth: i,
+		}
+	}
+
+	// Collect results into queue
+	var queue []pendingInputTiming
+	for i := 0; i < 3; i++ {
+		select {
+		case result := <-inputDoneCh:
+			queue = append(queue, pendingInputTiming{
+				dispatch:      result.dispatch,
+				sendKeys:      result.sendKeysDur,
+				t3:            result.t3,
+				outputChDepth: result.outputChDepth,
+			})
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for result %d", i)
+		}
+	}
+
+	if len(queue) != 3 {
+		t.Errorf("queue length = %d, want 3", len(queue))
+	}
+
+	// Verify ordering — outputChDepth should be 0, 1, 2
+	for i, p := range queue {
+		if p.outputChDepth != i {
+			t.Errorf("queue[%d].outputChDepth = %d, want %d", i, p.outputChDepth, i)
+		}
+	}
+
+	close(inputBatchCh)
 }

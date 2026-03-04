@@ -51,13 +51,24 @@ func isTerminalResponse(data string) bool {
 	return false
 }
 
-// encodeSequencedFrame creates a binary WebSocket frame with an 8-byte
-// big-endian sequence header followed by terminal data.
-func encodeSequencedFrame(seq uint64, data []byte) []byte {
-	frame := make([]byte, 8+len(data))
-	binary.BigEndian.PutUint64(frame[:8], seq)
-	copy(frame[8:], data)
-	return frame
+// appendSequencedFrame appends a binary WebSocket frame (8-byte big-endian
+// sequence header + terminal data) to dst and returns the extended slice.
+// When dst has sufficient capacity, this avoids heap allocation entirely.
+func appendSequencedFrame(dst []byte, seq uint64, data []byte) []byte {
+	needed := 8 + len(data)
+	dst = grow(dst, needed)
+	binary.BigEndian.PutUint64(dst[:8], seq)
+	copy(dst[8:], data)
+	return dst[:needed]
+}
+
+// grow returns a byte slice of length 0 with at least cap n, reusing dst's
+// backing array when possible.
+func grow(dst []byte, n int) []byte {
+	if cap(dst) >= n {
+		return dst[:n]
+	}
+	return make([]byte, n)
 }
 
 // bootstrapFrameSeq reserves a sequence number for the bootstrap frame by
@@ -68,47 +79,19 @@ func bootstrapFrameSeq(log *session.OutputLog) uint64 {
 	return log.Append(nil)
 }
 
-type replayChunk struct {
-	Seq  uint64
-	Data []byte
-}
-
-// chunkReplayEntries groups log entries into chunks of approximately maxBytes.
-// Each chunk's Seq is the sequence of its last entry.
-func chunkReplayEntries(entries []session.LogEntry, maxBytes int) []replayChunk {
-	if len(entries) == 0 {
-		return nil
-	}
-
-	var chunks []replayChunk
-	var current []byte
-	var lastSeq uint64
-
-	for _, e := range entries {
-		if len(current)+len(e.Data) > maxBytes && len(current) > 0 {
-			chunks = append(chunks, replayChunk{Seq: lastSeq, Data: current})
-			current = nil
-		}
-		current = append(current, e.Data...)
-		lastSeq = e.Seq
-	}
-	if len(current) > 0 {
-		chunks = append(chunks, replayChunk{Seq: lastSeq, Data: current})
-	}
-	return chunks
-}
-
 // buildGapReplayFrames replays missing events from the output log as sequenced frames.
+// Each entry is sent as its own frame tagged with its original sequence number,
+// ensuring the frontend's per-seq dedup correctly skips already-received entries.
 // Returns nil if the requested data has been evicted from the log.
-func buildGapReplayFrames(log *session.OutputLog, fromSeq uint64, maxChunkBytes int) [][]byte {
+func buildGapReplayFrames(log *session.OutputLog, fromSeq uint64) [][]byte {
 	entries := log.ReplayFrom(fromSeq)
 	if entries == nil {
 		return nil // data evicted
 	}
-	chunks := chunkReplayEntries(entries, maxChunkBytes)
 	var frames [][]byte
-	for _, chunk := range chunks {
-		frames = append(frames, encodeSequencedFrame(chunk.Seq, chunk.Data))
+	for _, e := range entries {
+		// Each frame must be independently owned (cold path, not pooled).
+		frames = append(frames, appendSequencedFrame(nil, e.Seq, e.Data))
 	}
 	return frames
 }
@@ -127,21 +110,22 @@ type WSOutputMessage struct {
 
 // WSStatsMessage represents a periodic diagnostics stats message sent on the terminal WebSocket.
 type WSStatsMessage struct {
-	Type              string `json:"type"`
-	EventsDelivered   int64  `json:"eventsDelivered"`
-	EventsDropped     int64  `json:"eventsDropped"`
-	BytesDelivered    int64  `json:"bytesDelivered"`
-	BytesPerSec       int64  `json:"bytesPerSec"`
-	Reconnects        int64  `json:"controlModeReconnects"`
-	SyncChecksSent    int64  `json:"syncChecksSent"`
-	SyncCorrections   int64  `json:"syncCorrections"`
-	SyncSkippedActive int64  `json:"syncSkippedActive"`
-	ClientFanOutDrops int64  `json:"clientFanOutDrops"`
-	FanOutDrops       int64  `json:"fanOutDrops"`
-	CurrentSeq        uint64 `json:"currentSeq"`
-	LogOldestSeq      uint64 `json:"logOldestSeq"`
-	LogTotalBytes     int64  `json:"logTotalBytes"`
-	SyncDisabled      bool   `json:"syncDisabled"`
+	Type              string              `json:"type"`
+	EventsDelivered   int64               `json:"eventsDelivered"`
+	EventsDropped     int64               `json:"eventsDropped"`
+	BytesDelivered    int64               `json:"bytesDelivered"`
+	BytesPerSec       int64               `json:"bytesPerSec"`
+	Reconnects        int64               `json:"controlModeReconnects"`
+	SyncChecksSent    int64               `json:"syncChecksSent"`
+	SyncCorrections   int64               `json:"syncCorrections"`
+	SyncSkippedActive int64               `json:"syncSkippedActive"`
+	ClientFanOutDrops int64               `json:"clientFanOutDrops"`
+	FanOutDrops       int64               `json:"fanOutDrops"`
+	CurrentSeq        uint64              `json:"currentSeq"`
+	LogOldestSeq      uint64              `json:"logOldestSeq"`
+	LogTotalBytes     int64               `json:"logTotalBytes"`
+	SyncDisabled      bool                `json:"syncDisabled"`
+	InputLatency      *LatencyPercentiles `json:"inputLatency,omitempty"`
 }
 
 // WSSyncCursor holds cursor position for sync messages.
@@ -327,6 +311,10 @@ resizeWaitLoop:
 
 	// Escape-sequence holdback: prevents partial ANSI sequences at frame boundaries
 	var escHoldback []byte
+	var escScratch []byte
+
+	// Reusable frame buffer for appendSequencedFrame (amortizes allocation to 0 after warmup)
+	var frameBuf []byte
 
 	// Subscribe BEFORE bootstrap capture to prevent TOCTOU: events arriving
 	// between capture and subscribe would otherwise be lost. We drain any
@@ -353,8 +341,8 @@ resizeWaitLoop:
 	bootstrapSeq := bootstrapFrameSeq(outputLog)
 	drainBoundary := outputLog.CurrentSeq()
 	if bootstrap != "" {
-		frame := encodeSequencedFrame(bootstrapSeq, []byte(bootstrap))
-		if err := conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
+		frameBuf = appendSequencedFrame(frameBuf, bootstrapSeq, []byte(bootstrap))
+		if err := conn.WriteMessage(websocket.BinaryMessage, frameBuf); err != nil {
 			return
 		}
 	}
@@ -389,8 +377,8 @@ resizeWaitLoop:
 			cursorRestore += "\033[?25l"
 		}
 		// Use bootstrap seq for the cursor restore frame
-		frame := encodeSequencedFrame(bootstrapSeq, []byte(cursorRestore))
-		if err := conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
+		frameBuf = appendSequencedFrame(frameBuf, bootstrapSeq, []byte(cursorRestore))
+		if err := conn.WriteMessage(websocket.BinaryMessage, frameBuf); err != nil {
 			return
 		}
 	}
@@ -408,13 +396,13 @@ drainBootstrap:
 				// This event is post-bootstrap — process it normally below.
 				// Push it back by handling it inline before entering the main loop.
 				if len(ev.Data) > 0 {
-					send, hb := escbuf.SplitClean(escHoldback, []byte(ev.Data))
+					send, hb, so := escbuf.SplitClean(escScratch, escHoldback, []byte(ev.Data))
 					escHoldback = hb
-					if len(send) > 0 {
-						frame := encodeSequencedFrame(ev.Seq, send)
-						if err := conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
-							return
-						}
+					escScratch = so
+					// Always send a frame to preserve seq continuity (see main loop comment).
+					frameBuf = appendSequencedFrame(frameBuf, ev.Seq, send)
+					if err := conn.WriteMessage(websocket.BinaryMessage, frameBuf); err != nil {
+						return
 					}
 				}
 				break drainBootstrap
@@ -555,33 +543,118 @@ drainBootstrap:
 		}
 	}()
 
+	// Latency instrumentation: track per-keystroke timing segments.
+	latencyCollector := NewLatencyCollector()
+	type pendingInputTiming struct {
+		dispatch      time.Duration
+		sendKeys      time.Duration
+		t3            time.Time // SendKeys return time — echo timer starts here
+		outputChDepth int       // len(outputCh) when input case fired
+	}
+	// FIFO queue: each keystroke pushes its timing; each echo event pops the
+	// oldest. This replaces a singleton pointer that silently discarded all
+	// but the last keystroke in a burst (survivorship bias).
+	var pendingInputQueue []pendingInputTiming
+
+	// Async input sender: moves tracker.SendInput() off the select loop so
+	// that the ~77ms tmux Execute() round-trip doesn't block echo delivery.
+	type inputBatch struct {
+		data          string
+		t1            time.Time // controlChan receive
+		t2            time.Time // pre-dispatch
+		outputChDepth int
+	}
+	type inputResult struct {
+		sendKeysDur   time.Duration
+		t3            time.Time // post-SendKeys
+		dispatch      time.Duration
+		outputChDepth int
+	}
+	inputBatchCh := make(chan inputBatch, 10)
+	inputDoneCh := make(chan inputResult, 10)
+	go func() {
+		defer close(inputDoneCh)
+		for batch := range inputBatchCh {
+			t2 := time.Now()
+			err := tracker.SendInput(batch.data)
+			t3 := time.Now()
+			if err != nil {
+				logging.Sub(s.logger, "terminal").Error("failed to send input", "err", err)
+				continue
+			}
+			inputDoneCh <- inputResult{
+				sendKeysDur:   t3.Sub(t2),
+				t3:            t3,
+				dispatch:      batch.t2.Sub(batch.t1),
+				outputChDepth: batch.outputChDepth,
+			}
+		}
+	}()
+	defer close(inputBatchCh)
+
 	for {
 		select {
 		case event, ok := <-outputCh:
+			t4 := time.Now() // latency: output event arrival
 			if !ok {
 				// Flush any held-back bytes before closing
 				if len(escHoldback) > 0 {
 					seq := outputLog.Append(escHoldback)
-					conn.WriteMessage(websocket.BinaryMessage, encodeSequencedFrame(seq, escHoldback))
+					conn.WriteMessage(websocket.BinaryMessage, appendSequencedFrame(frameBuf, seq, escHoldback))
 				}
 				conn.WriteMessage(websocket.CloseMessage,
 					websocket.FormatCloseMessage(1000, "session ended"))
 				return
 			}
 			if len(event.Data) > 0 {
-				send, hb := escbuf.SplitClean(escHoldback, []byte(event.Data))
+				send, hb, so := escbuf.SplitClean(escScratch, escHoldback, []byte(event.Data))
 				escHoldback = hb
+				escScratch = so
 				if ringBuf != nil && len(send) > 0 {
 					ts := []byte(fmt.Sprintf("\n--- %s ---\n", time.Now().Format("15:04:05.000000")))
 					ringBuf.Write(ts)
 					ringBuf.Write(send)
 				}
-				if len(send) > 0 {
-					frame := encodeSequencedFrame(event.Seq, send)
-					if err := conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
-						return
+				// Always send a frame to preserve sequence continuity, even when
+				// escbuf holds back the entire event (send is empty). Without this,
+				// the skipped seq creates a phantom gap on the frontend, triggering
+				// a gap replay whose chunked data can duplicate already-delivered
+				// bytes and corrupt the terminal state (e.g. cursor jumps).
+				frameBuf = appendSequencedFrame(frameBuf, event.Seq, send)
+				if err := conn.WriteMessage(websocket.BinaryMessage, frameBuf); err != nil {
+					return
+				}
+				// Latency: record sample if we have a pending input timing
+				if len(pendingInputQueue) > 0 {
+					pending := pendingInputQueue[0]
+					pendingInputQueue = pendingInputQueue[1:]
+					t5 := time.Now()
+					serverTotalMs := float64(pending.dispatch+pending.sendKeys+t4.Sub(pending.t3)+t5.Sub(t4)) / float64(time.Millisecond)
+					latencyCollector.Add(LatencySample{
+						Dispatch:      pending.dispatch,
+						SendKeys:      pending.sendKeys,
+						Echo:          t4.Sub(pending.t3),
+						FrameSend:     t5.Sub(t4),
+						OutputChDepth: pending.outputChDepth,
+						EchoDataLen:   len(event.Data),
+					})
+					// Per-keystroke sideband: send the server-side total for this
+					// specific keystroke so the frontend can compute a paired
+					// residual instead of combining independent percentiles.
+					if s.devMode {
+						sideband, _ := json.Marshal(map[string]interface{}{
+							"type":        "inputEcho",
+							"serverMs":    serverTotalMs,
+							"dispatchMs":  float64(pending.dispatch) / float64(time.Millisecond),
+							"sendKeysMs":  float64(pending.sendKeys) / float64(time.Millisecond),
+							"echoMs":      float64(t4.Sub(pending.t3)) / float64(time.Millisecond),
+							"frameSendMs": float64(t5.Sub(t4)) / float64(time.Millisecond),
+						})
+						conn.WriteMessage(websocket.TextMessage, sideband)
 					}
 				}
+			} else if len(pendingInputQueue) > 0 {
+				pendingInputQueue = pendingInputQueue[1:] // discard stale timing — echo had no data
 			}
 		case <-statsTickerC:
 			if s.devMode {
@@ -611,6 +684,7 @@ drainBootstrap:
 					LogOldestSeq:      tracker.OutputLog().OldestSeq(),
 					LogTotalBytes:     tracker.OutputLog().TotalBytes(),
 					SyncDisabled:      true,
+					InputLatency:      latencyCollector.Percentiles(),
 				}
 				data, _ := json.Marshal(statsMsg)
 				conn.WriteMessage(websocket.TextMessage, data)
@@ -627,15 +701,23 @@ drainBootstrap:
 				ioData, _ := json.Marshal(ioStatsMsg)
 				conn.WriteMessage(websocket.TextMessage, ioData)
 			}
+		case result := <-inputDoneCh:
+			// Async sender completed — record timing in the queue
+			pendingInputQueue = append(pendingInputQueue, pendingInputTiming{
+				dispatch:      result.dispatch,
+				sendKeys:      result.sendKeysDur,
+				t3:            result.t3,
+				outputChDepth: result.outputChDepth,
+			})
 		case <-sessionDead:
 			// Flush any held-back bytes before closing
 			if len(escHoldback) > 0 {
 				seq := outputLog.Append(escHoldback)
-				conn.WriteMessage(websocket.BinaryMessage, encodeSequencedFrame(seq, escHoldback))
+				conn.WriteMessage(websocket.BinaryMessage, appendSequencedFrame(frameBuf, seq, escHoldback))
 			}
 			endMsg := []byte("\n[Session ended]")
 			endSeq := outputLog.Append(endMsg)
-			conn.WriteMessage(websocket.BinaryMessage, encodeSequencedFrame(endSeq, endMsg))
+			conn.WriteMessage(websocket.BinaryMessage, appendSequencedFrame(frameBuf, endSeq, endMsg))
 			conn.WriteMessage(websocket.CloseMessage,
 				websocket.FormatCloseMessage(1000, "session ended"))
 			return
@@ -645,12 +727,63 @@ drainBootstrap:
 			}
 			switch msg.Type {
 			case "input":
-				if isTerminalResponse(msg.Data) {
+				t1 := time.Now() // latency: controlChan receive
+				outputChDepth := len(outputCh)
+				combined := msg.Data
+
+				// Non-blocking drain: coalesce queued keystrokes (Fix 3).
+				// Reduces N serial Execute() calls to 1 for burst typing.
+				var deferredMsgs []WSMessage
+			drain:
+				for {
+					select {
+					case extra, ok := <-controlChan:
+						if !ok {
+							return
+						}
+						if extra.Type == "input" {
+							if !isTerminalResponse(extra.Data) {
+								combined += extra.Data
+							}
+						} else if extra.Type == "resize" {
+							// Handle resize inline during drain — it is the only
+							// plausible concurrent control message during typing.
+							var rd struct {
+								Cols int `json:"cols"`
+								Rows int `json:"rows"`
+							}
+							if err := json.Unmarshal([]byte(extra.Data), &rd); err == nil && rd.Cols > 0 && rd.Rows > 0 {
+								tracker.Resize(rd.Cols, rd.Rows)
+							}
+						} else {
+							// Other message types (gap, syncResult, diagnostic) —
+							// defer to the next main-loop iteration.
+							deferredMsgs = append(deferredMsgs, extra)
+						}
+					default:
+						break drain
+					}
+				}
+
+				// Re-queue deferred non-input messages for the main switch.
+				for _, d := range deferredMsgs {
+					select {
+					case controlChan <- d:
+					default:
+						// Channel full — unlikely, but log and drop.
+						logging.Sub(s.logger, "terminal").Error("dropped deferred message during drain", "type", d.Type)
+					}
+				}
+
+				if isTerminalResponse(combined) {
 					continue
 				}
-				s.clearNudgeOnInput(sessionID, msg.Data)
-				if err := tracker.SendInput(msg.Data); err != nil {
-					logging.Sub(s.logger, "terminal").Error("failed to send input", "err", err)
+				s.clearNudgeOnInput(sessionID, combined)
+				inputBatchCh <- inputBatch{
+					data:          combined,
+					t1:            t1,
+					t2:            time.Now(),
+					outputChDepth: outputChDepth,
 				}
 			case "resize":
 				var resizeData struct {
@@ -691,7 +824,7 @@ drainBootstrap:
 				if err != nil {
 					break
 				}
-				frames := buildGapReplayFrames(tracker.OutputLog(), fromSeq, 16384)
+				frames := buildGapReplayFrames(tracker.OutputLog(), fromSeq)
 				for _, frame := range frames {
 					if err := conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
 						return
@@ -810,7 +943,7 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 	}
 	capCancel()
 	if bootstrap != "" {
-		conn.WriteMessage(websocket.BinaryMessage, encodeSequencedFrame(0, []byte(bootstrap)))
+		conn.WriteMessage(websocket.BinaryMessage, appendSequencedFrame(nil, 0, []byte(bootstrap)))
 	}
 
 	// Subscribe to output — after capture to avoid TOCTOU double-delivery
@@ -831,7 +964,9 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 
 	// Escape-sequence holdback for CR terminal
 	var escHoldback []byte
+	var escScratch []byte
 	var lastSeq uint64
+	var frameBuf []byte
 
 	// Stream output until connection closes or tracker stops
 	for {
@@ -839,7 +974,7 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 		case event, ok := <-outputCh:
 			if !ok {
 				if len(escHoldback) > 0 {
-					conn.WriteMessage(websocket.BinaryMessage, encodeSequencedFrame(lastSeq, escHoldback))
+					conn.WriteMessage(websocket.BinaryMessage, appendSequencedFrame(frameBuf, lastSeq, escHoldback))
 				}
 				return
 			}
@@ -847,10 +982,12 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 				continue
 			}
 			lastSeq = event.Seq
-			send, hb := escbuf.SplitClean(escHoldback, []byte(event.Data))
+			send, hb, so := escbuf.SplitClean(escScratch, escHoldback, []byte(event.Data))
 			escHoldback = hb
+			escScratch = so
 			if len(send) > 0 {
-				if err := conn.WriteMessage(websocket.BinaryMessage, encodeSequencedFrame(event.Seq, send)); err != nil {
+				frameBuf = appendSequencedFrame(frameBuf, event.Seq, send)
+				if err := conn.WriteMessage(websocket.BinaryMessage, frameBuf); err != nil {
 					return
 				}
 			}
@@ -911,7 +1048,7 @@ resizeWait:
 	}
 	capCancel()
 	if bootstrap != "" {
-		conn.WriteMessage(websocket.BinaryMessage, encodeSequencedFrame(0, []byte(bootstrap)))
+		conn.WriteMessage(websocket.BinaryMessage, appendSequencedFrame(nil, 0, []byte(bootstrap)))
 	}
 
 	// Subscribe to output after bootstrap
@@ -920,7 +1057,9 @@ resizeWait:
 
 	// Escape-sequence holdback
 	var escHoldback []byte
+	var escScratch []byte
 	var lastSeq uint64
+	var frameBuf []byte
 
 	// Stream output and process input
 	for {
@@ -928,7 +1067,7 @@ resizeWait:
 		case event, ok := <-outputCh:
 			if !ok {
 				if len(escHoldback) > 0 {
-					conn.WriteMessage(websocket.BinaryMessage, encodeSequencedFrame(lastSeq, escHoldback))
+					conn.WriteMessage(websocket.BinaryMessage, appendSequencedFrame(frameBuf, lastSeq, escHoldback))
 				}
 				return
 			}
@@ -936,10 +1075,12 @@ resizeWait:
 				continue
 			}
 			lastSeq = event.Seq
-			send, hb := escbuf.SplitClean(escHoldback, []byte(event.Data))
+			send, hb, so := escbuf.SplitClean(escScratch, escHoldback, []byte(event.Data))
 			escHoldback = hb
+			escScratch = so
 			if len(send) > 0 {
-				if err := conn.WriteMessage(websocket.BinaryMessage, encodeSequencedFrame(event.Seq, send)); err != nil {
+				frameBuf = appendSequencedFrame(frameBuf, event.Seq, send)
+				if err := conn.WriteMessage(websocket.BinaryMessage, frameBuf); err != nil {
 					return
 				}
 			}
@@ -1170,6 +1311,7 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 
 	// Escape-sequence holdback for remote terminal
 	var escHoldback []byte
+	var escScratch []byte
 
 	for {
 		select {
@@ -1186,8 +1328,9 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 			if !paused && outputEvent.Data != "" {
 				// Update last output time for session activity tracking
 				s.state.UpdateSessionLastOutput(sessionID, time.Now())
-				send, hb := escbuf.SplitClean(escHoldback, []byte(outputEvent.Data))
+				send, hb, so := escbuf.SplitClean(escScratch, escHoldback, []byte(outputEvent.Data))
 				escHoldback = hb
+				escScratch = so
 				if len(send) > 0 {
 					if err := sendOutput("append", string(send)); err != nil {
 						return

@@ -25,6 +25,7 @@ vi.mock('@xterm/addon-unicode11', () => ({ Unicode11Addon: vi.fn() }));
 vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: vi.fn() }));
 
 import TerminalStream from './terminalStream';
+import { inputLatency } from './inputLatency';
 
 /** Build a sequenced binary frame with 8-byte big-endian header. */
 function buildSeqFrame(seq: bigint, text: string): ArrayBuffer {
@@ -253,6 +254,89 @@ describe('TerminalStream sync handling', () => {
       expect.any(Function)
     );
   });
+
+  it('corrects cursor position when content matches but cursor differs', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+
+    // Simulate bootstrap
+    stream.handleOutput(buildSeqFrame(0n, 'bootstrap'));
+
+    vi.mocked(terminal.reset).mockClear();
+    vi.mocked(terminal.write).mockClear();
+
+    (stream as any).lastBinaryTime = Date.now() - 3000;
+
+    // Mock buffer: content matches sync, but cursor is at wrong position
+    const mockLine = { translateToString: () => 'hello world' };
+    (terminal as any).buffer = {
+      active: {
+        viewportY: 0,
+        baseY: 0,
+        cursorX: 5,
+        cursorY: 0,
+        length: 1,
+        getLine: () => mockLine,
+      },
+    };
+    (terminal as any).rows = 1;
+
+    // Send sync: content matches ('hello world') but cursor is at row 3, col 10
+    const syncMsg = {
+      type: 'sync',
+      screen: 'hello world',
+      cursor: { row: 3, col: 10, visible: true },
+    };
+    stream.handleOutput(JSON.stringify(syncMsg));
+
+    // Should write cursor correction (CUP to row 4, col 11)
+    expect(terminal.write).toHaveBeenCalledWith(
+      expect.stringContaining('\x1b[4;11H'),
+      expect.any(Function)
+    );
+    // Should NOT do a full surgical correction (no DECSC)
+    expect(terminal.write).not.toHaveBeenCalledWith(
+      expect.stringContaining('\x1b7'),
+      expect.any(Function)
+    );
+  });
+
+  it('does not write anything when content and cursor both match', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+
+    // Simulate bootstrap
+    stream.handleOutput(buildSeqFrame(0n, 'bootstrap'));
+
+    vi.mocked(terminal.reset).mockClear();
+    vi.mocked(terminal.write).mockClear();
+
+    (stream as any).lastBinaryTime = Date.now() - 3000;
+
+    // Mock buffer: content AND cursor match sync
+    const mockLine = { translateToString: () => 'hello world' };
+    (terminal as any).buffer = {
+      active: {
+        viewportY: 0,
+        baseY: 0,
+        cursorX: 10,
+        cursorY: 3,
+        length: 1,
+        getLine: () => mockLine,
+      },
+    };
+    (terminal as any).rows = 1;
+
+    const syncMsg = {
+      type: 'sync',
+      screen: 'hello world',
+      cursor: { row: 3, col: 10, visible: true },
+    };
+    stream.handleOutput(JSON.stringify(syncMsg));
+
+    // Should NOT write anything — both content and cursor match
+    expect(terminal.write).not.toHaveBeenCalled();
+  });
 });
 
 describe('TerminalStream sequenced frames', () => {
@@ -323,16 +407,25 @@ describe('TerminalStream bootstrap write chaining', () => {
       if (cb) writeCallbacks.push(cb);
     });
 
+    // Capture rAF callbacks so we can trigger them manually
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+
     // Send bootstrap frame (seq=0)
     stream.handleOutput(buildSeqFrame(0n, 'chunk1'));
 
     // scrollToBottom should NOT have been called yet (write hasn't "completed")
     expect(terminal.scrollToBottom).not.toHaveBeenCalled();
 
-    // Simulate xterm.js completing the write
+    // Simulate xterm.js completing the write — schedules coalesced rAF
     writeCallbacks[0]();
+    expect(terminal.scrollToBottom).not.toHaveBeenCalled();
 
-    // Now scrollToBottom should fire (followTail defaults to true)
+    // Fire the rAF — now scrollToBottom runs (followTail defaults to true)
+    rafCallbacks.forEach((cb) => cb(0));
     expect(terminal.scrollToBottom).toHaveBeenCalledTimes(1);
   });
 
@@ -350,16 +443,25 @@ describe('TerminalStream bootstrap write chaining', () => {
       if (cb) writeCallbacks.push(cb);
     });
 
+    // Capture rAF callbacks
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+
     // Send live frame
     stream.handleOutput(buildSeqFrame(1n, 'live-data'));
 
     // scrollToBottom should NOT have been called yet
     expect(terminal.scrollToBottom).not.toHaveBeenCalled();
 
-    // Simulate write completion
+    // Simulate write completion — schedules coalesced rAF
     writeCallbacks[0]();
+    expect(terminal.scrollToBottom).not.toHaveBeenCalled();
 
-    // Now it should fire
+    // Fire the rAF — now it should fire
+    rafCallbacks.forEach((cb) => cb(0));
     expect(terminal.scrollToBottom).toHaveBeenCalledTimes(1);
   });
 });
@@ -919,5 +1021,175 @@ describe('TerminalStream scroll suppression during resize', () => {
     stream.fitTerminal();
 
     expect(terminal.scrollToBottom).not.toHaveBeenCalled();
+  });
+});
+
+describe('TerminalStream.sendInput binary frames', () => {
+  let stream: TerminalStream;
+
+  beforeEach(() => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    stream = new TerminalStream('test-session', container);
+  });
+
+  it('sends input as a binary Uint8Array, not JSON text', async () => {
+    await stream.initialized;
+    const wsSendSpy = vi.fn();
+    (stream as any).ws = { readyState: 1, send: wsSendSpy };
+
+    stream.sendInput('a');
+
+    expect(wsSendSpy).toHaveBeenCalledTimes(1);
+    const sent = wsSendSpy.mock.calls[0][0];
+    // Should be a typed array (binary), not a string (JSON)
+    expect(typeof sent).not.toBe('string');
+    expect(ArrayBuffer.isView(sent)).toBe(true);
+    // Decode and verify contents
+    const decoded = new TextDecoder().decode(sent);
+    expect(decoded).toBe('a');
+  });
+
+  it('sends escape sequences as binary', async () => {
+    await stream.initialized;
+    const wsSendSpy = vi.fn();
+    (stream as any).ws = { readyState: 1, send: wsSendSpy };
+
+    stream.sendInput('\x1b[A'); // Up arrow
+
+    const sent = wsSendSpy.mock.calls[0][0];
+    expect(typeof sent).not.toBe('string');
+    expect(ArrayBuffer.isView(sent)).toBe(true);
+    const decoded = new TextDecoder().decode(sent);
+    expect(decoded).toBe('\x1b[A');
+  });
+
+  it('sends control messages (resize, gap) as JSON text, not binary', async () => {
+    await stream.initialized;
+    const wsSendSpy = vi.fn();
+    (stream as any).ws = { readyState: 1, send: wsSendSpy };
+
+    stream.sendResize(80, 24);
+
+    expect(wsSendSpy).toHaveBeenCalledTimes(1);
+    const sent = wsSendSpy.mock.calls[0][0];
+    // Resize should still be a JSON string (text frame)
+    expect(typeof sent).toBe('string');
+    const parsed = JSON.parse(sent);
+    expect(parsed.type).toBe('resize');
+  });
+});
+
+describe('TerminalStream inputEcho handling', () => {
+  let stream: TerminalStream;
+
+  beforeEach(() => {
+    inputLatency.reset();
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    stream = new TerminalStream('test-session', container);
+  });
+
+  it('dispatches inputEcho message to inputLatency.recordServerSegments', async () => {
+    await stream.initialized;
+
+    const echoMsg = {
+      type: 'inputEcho',
+      serverMs: 5.2,
+      dispatchMs: 0.1,
+      sendKeysMs: 3.0,
+      echoMs: 1.5,
+      frameSendMs: 0.6,
+    };
+    stream.handleOutput(JSON.stringify(echoMsg));
+
+    expect(inputLatency.serverSegmentSamples).toEqual([
+      { dispatch: 0.1, sendKeys: 3.0, echo: 1.5, frameSend: 0.6, total: 5.2 },
+    ]);
+  });
+
+  it('handles multiple inputEcho messages', async () => {
+    await stream.initialized;
+
+    stream.handleOutput(
+      JSON.stringify({
+        type: 'inputEcho',
+        serverMs: 3.1,
+        dispatchMs: 0.1,
+        sendKeysMs: 1.5,
+        echoMs: 1.0,
+        frameSendMs: 0.5,
+      })
+    );
+    stream.handleOutput(
+      JSON.stringify({
+        type: 'inputEcho',
+        serverMs: 7.4,
+        dispatchMs: 0.2,
+        sendKeysMs: 4.0,
+        echoMs: 2.5,
+        frameSendMs: 0.7,
+      })
+    );
+
+    expect(inputLatency.serverSegmentSamples).toEqual([
+      { dispatch: 0.1, sendKeys: 1.5, echo: 1.0, frameSend: 0.5, total: 3.1 },
+      { dispatch: 0.2, sendKeys: 4.0, echo: 2.5, frameSend: 0.7, total: 7.4 },
+    ]);
+  });
+});
+
+describe('TerminalStream wire instrumentation', () => {
+  let stream: TerminalStream;
+
+  beforeEach(() => {
+    inputLatency.reset();
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    stream = new TerminalStream('test-session', container);
+  });
+
+  it('calls recordFrameProcessed on non-bootstrap binary frames', async () => {
+    await stream.initialized;
+
+    const spy = vi.spyOn(inputLatency, 'recordFrameProcessed');
+
+    // Bootstrap frame (seq=0) — should NOT call recordFrameProcessed
+    stream.handleOutput(buildSeqFrame(0n, 'bootstrap'));
+    expect(spy).not.toHaveBeenCalled();
+
+    // Live frame (seq=1) — should call recordFrameProcessed
+    stream.handleOutput(buildSeqFrame(1n, 'live'));
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    // Another live frame (seq=2)
+    stream.handleOutput(buildSeqFrame(2n, 'more'));
+    expect(spy).toHaveBeenCalledTimes(2);
+
+    spy.mockRestore();
+  });
+
+  it('calls recordHandleOutputTime on non-bootstrap binary frames', async () => {
+    await stream.initialized;
+
+    const spy = vi.spyOn(inputLatency, 'recordHandleOutputTime');
+
+    // Bootstrap
+    stream.handleOutput(buildSeqFrame(0n, 'bootstrap'));
+    expect(spy).not.toHaveBeenCalled();
+
+    // Live frame
+    stream.handleOutput(buildSeqFrame(1n, 'live'));
+    expect(spy).toHaveBeenCalledTimes(1);
+    // Should be called with a non-negative number
+    expect(spy.mock.calls[0][0]).toBeGreaterThanOrEqual(0);
+
+    spy.mockRestore();
   });
 });

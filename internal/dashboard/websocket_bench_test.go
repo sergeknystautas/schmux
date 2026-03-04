@@ -3,7 +3,6 @@
 package dashboard_test
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -67,15 +66,13 @@ func wsBenchSetup(tb testing.TB) (conn *websocket.Conn, cleanup func()) {
 	return c, cleanup
 }
 
-// sendInputAndWaitForAppend sends a keystroke over WebSocket and waits for
-// the next binary output message. Returns the round-trip duration.
+// sendInputAndWaitForAppend sends a keystroke over WebSocket as a binary frame
+// and waits for the next binary output message. Returns the round-trip duration.
 func sendInputAndWaitForAppend(tb testing.TB, conn *websocket.Conn, key string) time.Duration {
 	tb.Helper()
 
-	inputMsg, _ := json.Marshal(map[string]string{"type": "input", "data": key})
-
 	start := time.Now()
-	if err := conn.WriteMessage(websocket.TextMessage, inputMsg); err != nil {
+	if err := conn.WriteMessage(websocket.BinaryMessage, []byte(key)); err != nil {
 		tb.Fatalf("failed to send input: %v", err)
 	}
 
@@ -189,11 +186,11 @@ func BenchmarkWSEcho(b *testing.B) {
 	conn, cleanup := wsBenchSetup(b)
 	defer cleanup()
 
-	inputMsg, _ := json.Marshal(map[string]string{"type": "input", "data": "x"})
+	inputMsg := []byte("x")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := conn.WriteMessage(websocket.TextMessage, inputMsg); err != nil {
+		if err := conn.WriteMessage(websocket.BinaryMessage, inputMsg); err != nil {
 			b.Fatalf("failed to send input: %v", err)
 		}
 

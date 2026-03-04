@@ -9,7 +9,7 @@ import { computeScreenDiff } from './screenDiff';
 import { csrfHeaders } from './csrf';
 import { stripAnsi } from './ansiStrip';
 import { compareScreens } from './syncCompare';
-import { buildSurgicalCorrection } from './surgicalCorrection';
+import { buildSurgicalCorrection, buildCursorCorrection } from './surgicalCorrection';
 
 /**
  * Send a clipboard image to the server, which writes it to the system
@@ -85,6 +85,11 @@ export default class TerminalStream {
   // Gap request debouncing: prevents redundant replay requests when multiple
   // frames arrive with gaps before the replay response fills them.
   private gapRequestPending = false;
+
+  // Coalesced scroll: when true, a requestAnimationFrame is already queued
+  // that will call scrollToBottom(). Additional writes skip scheduling to
+  // avoid redundant layout reflows — one scroll per frame is sufficient.
+  private scrollRAFPending = false;
 
   // ResizeObserver cleanup references
   private resizeObserver: ResizeObserver | null = null;
@@ -285,6 +290,8 @@ export default class TerminalStream {
       (import.meta.env.DEV || import.meta.env.VITE_EXPOSE_TERMINAL)
     ) {
       window.__schmuxTerminal = this.terminal;
+      window.__schmuxStream = this;
+      this.enableDiagnostics();
     }
 
     return this.terminal;
@@ -466,6 +473,7 @@ export default class TerminalStream {
     this.bootstrapComplete = false;
     this.lastReceivedSeq = -1n;
     this.gapRequestPending = false;
+    this.scrollRAFPending = false;
     this.utf8Decoder = new TextDecoder();
 
     this.ws.onopen = () => {
@@ -565,7 +573,7 @@ export default class TerminalStream {
   sendInput(data: string) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       inputLatency.markSent();
-      this.ws.send(JSON.stringify({ type: 'input', data }));
+      this.ws.send(new TextEncoder().encode(data));
     }
   }
 
@@ -659,7 +667,7 @@ export default class TerminalStream {
       // When gap replay frames arrive, they may include frames we already
       // received. Writing them again would cause duplicate terminal output.
       if (this.bootstrapComplete && seq <= this.lastReceivedSeq) {
-        if (this.diagnostics) this.diagnostics.gapFramesReceived++;
+        if (this.diagnostics) this.diagnostics.gapFramesDeduped++;
         return;
       }
 
@@ -686,24 +694,39 @@ export default class TerminalStream {
 
       // Terminal data starts after the 8-byte header
       const terminalData = new Uint8Array(data, 8);
+
+      // Track seq-only frames (empty terminal data from escbuf holdback)
+      if (this.diagnostics && terminalData.length === 0) {
+        this.diagnostics.emptySeqFrames++;
+      }
+
+      // Track replay frames that passed dedup: a gap request is pending and
+      // this frame jumped ahead (seq > expected). If this counter is ever
+      // non-zero after the fixes, the replay sent data that may overlap with
+      // already-delivered live frames — the exact scenario that caused the
+      // original cursor-jump desync.
+      if (
+        this.diagnostics &&
+        this.gapRequestPending &&
+        this.bootstrapComplete &&
+        seq > this.lastReceivedSeq + 1n
+      ) {
+        this.diagnostics.gapReplayWritten++;
+      }
+
       const text = this.utf8Decoder.decode(terminalData, { stream: true });
       this.lastBinaryTime = Date.now();
       if (!this.bootstrapped) {
         this.bootstrapped = true;
         this.terminal!.reset();
-        this.writeTerminal(text, () => {
-          if (this.followTail) {
-            this.terminal!.scrollToBottom();
-          }
-        });
+        this.writeTerminal(text);
       } else {
+        inputLatency.recordFrameProcessed();
         inputLatency.markReceived();
         this.writeTerminal(text, () => {
           inputLatency.markRenderTime(performance.now() - renderStart);
-          if (this.followTail) {
-            this.terminal!.scrollToBottom();
-          }
         });
+        inputLatency.recordHandleOutputTime(performance.now() - renderStart);
       }
       return;
     }
@@ -729,7 +752,21 @@ export default class TerminalStream {
         break;
       case 'stats':
         this.latestStats = msg;
+        if (msg.inputLatency) {
+          inputLatency.updateServerLatency(
+            msg.inputLatency as Parameters<typeof inputLatency.updateServerLatency>[0]
+          );
+        }
         this.onStatsUpdate?.(msg);
+        break;
+      case 'inputEcho':
+        inputLatency.recordServerSegments({
+          dispatch: (msg.dispatchMs as number) ?? 0,
+          sendKeys: (msg.sendKeysMs as number) ?? 0,
+          echo: (msg.echoMs as number) ?? 0,
+          frameSend: (msg.frameSendMs as number) ?? 0,
+          total: (msg.serverMs as number) ?? 0,
+        });
         break;
       case 'diagnostic':
         this.onDiagnosticResponse?.(msg);
@@ -761,10 +798,6 @@ export default class TerminalStream {
         if (msg.content) {
           this.writeTerminal(msg.content as string);
         }
-    }
-
-    if (this.followTail) {
-      this.terminal!.scrollToBottom();
     }
   }
 
@@ -812,8 +845,15 @@ export default class TerminalStream {
       this.onSyncCorrection?.(result.diffRows);
       this.sendSyncResult(true, result.diffRows);
     } else {
-      // Screens match — report back so server knows sync was processed
-      this.sendSyncResult(false, []);
+      // Content matches — check cursor position
+      const xtermCursor = { row: buffer.cursorY, col: buffer.cursorX };
+      const cursorCorrection = buildCursorCorrection(msg.cursor, xtermCursor);
+      if (cursorCorrection) {
+        this.writeTerminal(cursorCorrection);
+        this.sendSyncResult(true, []);
+      } else {
+        this.sendSyncResult(false, []);
+      }
     }
   }
 
@@ -858,20 +898,30 @@ export default class TerminalStream {
     return buffer.viewportY >= buffer.baseY - threshold;
   }
 
-  // Wrapper around terminal.write that suppresses scroll events during processing.
-  // Without this, xterm.js cursor repositioning (e.g., TUI redraws) triggers the
-  // scroll listener, which falsely disables followTail and shows the "Resume" button.
+  // Wrapper around terminal.write that suppresses scroll events during processing
+  // and coalesces scrollToBottom() to once per animation frame.
+  //
+  // Without scroll suppression, xterm.js cursor repositioning (e.g., TUI redraws)
+  // triggers the scroll listener, falsely disabling followTail.
+  //
+  // Without coalescing, each write callback calls scrollToBottom() which forces a
+  // synchronous layout reflow (~4-8ms). Under burst output (N events per frame),
+  // this causes N forced reflows, blocking the main thread and delaying keystroke
+  // echo processing. Deferring to rAF collapses N reflows into one natural reflow.
   private writeTerminal(data: string, cb?: () => void) {
     this.writingToTerminal = true;
     this.terminal!.write(data, () => {
       cb?.();
-      // Defer flag clearing: xterm.js's renderer runs AFTER the write callback
-      // in the same animation frame. DOM scroll events fire during rendering.
-      // The flag must stay set until those scroll events have been processed,
-      // otherwise handleUserScroll falsely disables followTail.
-      requestAnimationFrame(() => {
-        this.writingToTerminal = false;
-      });
+      if (!this.scrollRAFPending) {
+        this.scrollRAFPending = true;
+        requestAnimationFrame(() => {
+          if (this.followTail) {
+            this.terminal!.scrollToBottom();
+          }
+          this.scrollRAFPending = false;
+          this.writingToTerminal = false;
+        });
+      }
     });
   }
 
