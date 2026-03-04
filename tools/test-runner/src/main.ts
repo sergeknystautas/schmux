@@ -26,6 +26,7 @@ function parseArgs(argv: string[]): Options {
     runPattern: null,
     repeat: 1,
     serial: false,
+    recordVideo: false,
   };
 
   let explicitSuite = false;
@@ -80,6 +81,9 @@ function parseArgs(argv: string[]): Options {
         break;
       case '--serial':
         opts.serial = true;
+        break;
+      case '--record-video':
+        opts.recordVideo = true;
         break;
       case '--run': {
         const pattern = argv[++i];
@@ -148,6 +152,7 @@ function printHelp(): void {
   console.log(
     '  --serial        Force serial repeats (one container, --repeat-each) instead of parallel'
   );
+  console.log('  --record-video  Keep scenario test videos for all tests, not just failures');
   console.log('  --help          Show this help message');
   console.log('');
   console.log('Examples:');

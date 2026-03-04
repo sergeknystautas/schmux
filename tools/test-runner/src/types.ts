@@ -50,6 +50,7 @@ export interface Options {
   runPattern: string | null;
   repeat: number;
   serial: boolean;
+  recordVideo: boolean;
 }
 
 // Callback for live events from a running suite
