@@ -66,6 +66,10 @@ func (a *GeminiAdapter) SetupCommands(workspacePath string) error { return nil }
 
 func (a *GeminiAdapter) ModelFlag() string { return "--model" }
 
+func (a *GeminiAdapter) Capabilities() []string {
+	return []string{"interactive"}
+}
+
 func (a *GeminiAdapter) BuildRunnerEnv(spec RunnerSpec) map[string]string {
 	return map[string]string{}
 }

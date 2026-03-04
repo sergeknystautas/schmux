@@ -65,6 +65,8 @@ export default function ConfigPage() {
   const {
     state,
     dispatch,
+    models,
+    oneshotModels,
     modelTargetNames,
     commandTargetNames,
     nudgenikTargetMissing,
@@ -171,7 +173,7 @@ export default function ConfigPage() {
             fmDebounceMs: data.floor_manager?.debounce_ms || 2000,
             ioWorkspaceTelemetryEnabled: data.io_workspace_telemetry?.enabled || false,
             ioWorkspaceTelemetryTarget: data.io_workspace_telemetry?.target || '',
-            models: data.models || [],
+            modelCatalog: data.models || [],
           },
         });
 
@@ -1174,7 +1176,7 @@ export default function ConfigPage() {
 
           {currentTab === 2 && (
             <SessionsTab
-              models={state.models}
+              models={state.modelCatalog}
               enabledModels={state.enabledModels}
               commandTargets={state.commandTargets}
               newCommandName={state.newCommandName}
@@ -1191,7 +1193,7 @@ export default function ConfigPage() {
             <QuickLaunchTab
               quickLaunch={state.quickLaunch}
               builtinQuickLaunch={state.builtinQuickLaunch}
-              models={state.models}
+              models={oneshotModels}
               commandTargets={state.commandTargets}
               newQuickLaunchName={state.newQuickLaunchName}
               newQuickLaunchTarget={state.newQuickLaunchTarget}
@@ -1216,7 +1218,7 @@ export default function ConfigPage() {
               newDiffCommand={state.newDiffCommand}
               commitMessageTargetMissing={commitMessageTargetMissing}
               prReviewTargetMissing={prReviewTargetMissing}
-              models={state.models}
+              models={oneshotModels}
               dispatch={dispatch}
               onAddDiffCommand={addDiffCommand}
             />
@@ -1228,7 +1230,7 @@ export default function ConfigPage() {
               fmTarget={state.fmTarget}
               fmRotationThreshold={state.fmRotationThreshold}
               fmDebounceMs={state.fmDebounceMs}
-              models={state.models}
+              models={oneshotModels}
               dispatch={dispatch}
             />
           )}
@@ -1302,7 +1304,7 @@ export default function ConfigPage() {
               branchSuggestTargetMissing={branchSuggestTargetMissing}
               conflictResolveTargetMissing={conflictResolveTargetMissing}
               stepErrors={state.stepErrors}
-              models={state.models}
+              models={oneshotModels}
               dispatch={dispatch}
             />
           )}

@@ -107,6 +107,10 @@ type ToolAdapter interface {
 	// ModelFlag returns the CLI flag this tool uses for model selection.
 	// Returns empty string if the tool doesn't use a CLI flag.
 	ModelFlag() string
+
+	// Capabilities returns the tool modes this adapter supports.
+	// Valid values: "interactive", "oneshot", "streaming".
+	Capabilities() []string
 }
 
 // adapters is the registry of all built-in tool adapters.

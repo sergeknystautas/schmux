@@ -163,6 +163,25 @@ func TestAdapterStreamingArgs(t *testing.T) {
 	}
 }
 
+func TestAdapterCapabilities(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		tool string
+		want []string
+	}{
+		{"claude", []string{"interactive", "oneshot", "streaming"}},
+		{"codex", []string{"interactive", "oneshot"}},
+		{"gemini", []string{"interactive"}},
+		{"opencode", []string{"interactive", "oneshot"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.tool, func(t *testing.T) {
+			got := GetAdapter(tt.tool).Capabilities()
+			assertSliceEqual(t, got, tt.want)
+		})
+	}
+}
+
 func TestAdapterInstructionConfig(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

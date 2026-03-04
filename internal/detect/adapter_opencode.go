@@ -166,6 +166,10 @@ func (a *OpencodeAdapter) SpawnEnv(ctx SpawnContext) map[string]string {
 
 func (a *OpencodeAdapter) ModelFlag() string { return "--model" }
 
+func (a *OpencodeAdapter) Capabilities() []string {
+	return []string{"interactive", "oneshot"}
+}
+
 func (a *OpencodeAdapter) BuildRunnerEnv(spec RunnerSpec) map[string]string {
 	return map[string]string{}
 }

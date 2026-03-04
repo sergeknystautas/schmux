@@ -56,10 +56,15 @@ func (m *Manager) GetCatalog() ([]contracts.Model, error) {
 					}
 				}
 			}
+			var capabilities []string
+			if adapter := detect.GetAdapter(toolName); adapter != nil {
+				capabilities = adapter.Capabilities()
+			}
 			runners[toolName] = contracts.RunnerInfo{
 				Available:       available,
 				Configured:      configured,
 				RequiredSecrets: spec.RequiredSecrets,
+				Capabilities:    capabilities,
 			}
 			if available && configured {
 				anyConfigured = true

@@ -1,4 +1,4 @@
-import { useReducer, useCallback } from 'react';
+import { useReducer, useCallback, useMemo } from 'react';
 import type {
   BuiltinQuickLaunchCookbook,
   Model,
@@ -99,7 +99,7 @@ export type ConfigFormState = {
   builtinQuickLaunch: BuiltinQuickLaunchCookbook[];
   externalDiffCommands: { name: string; command: string }[];
   externalDiffCleanupMinutes: number;
-  models: Model[];
+  modelCatalog: Model[];
   nudgenikTarget: string;
   branchSuggestTarget: string;
   conflictResolveTarget: string;
@@ -245,7 +245,7 @@ export const initialState: ConfigFormState = {
   builtinQuickLaunch: [],
   externalDiffCommands: [],
   externalDiffCleanupMinutes: 60,
-  models: [],
+  modelCatalog: [],
   nudgenikTarget: '',
   branchSuggestTarget: '',
   conflictResolveTarget: '',
@@ -409,7 +409,7 @@ function configFormReducer(state: ConfigFormState, action: ConfigFormAction): Co
       };
 
     case 'SET_MODELS':
-      return { ...state, models: action.models };
+      return { ...state, modelCatalog: action.models };
 
     case 'SET_STEP_ERROR':
       return { ...state, stepErrors: { ...state.stepErrors, [action.step]: action.error } };
@@ -474,8 +474,23 @@ export function useConfigForm(initialStep: number = 1) {
   });
 
   const modelTargetNames = new Set(
-    state.models.filter((model) => model.configured).map((model) => model.id)
+    state.modelCatalog.filter((model) => model.configured).map((model) => model.id)
   );
+
+  const models = useMemo(() => {
+    const enabled = state.enabledModels;
+    const hasExplicit = Object.keys(enabled).length > 0;
+    return state.modelCatalog.filter((m) => (hasExplicit ? m.id in enabled : m.configured));
+  }, [state.modelCatalog, state.enabledModels]);
+
+  const oneshotModels = useMemo(() => {
+    return models.filter((m) => {
+      const preferredRunner = state.enabledModels[m.id];
+      if (!preferredRunner) return false;
+      const runner = m.runners[preferredRunner];
+      return runner?.capabilities?.includes('oneshot') ?? false;
+    });
+  }, [models, state.enabledModels]);
 
   const commandTargetNames = new Set(state.commandTargets.map((target) => target.name));
 
@@ -637,6 +652,8 @@ export function useConfigForm(initialStep: number = 1) {
   return {
     state,
     dispatch,
+    models,
+    oneshotModels,
     modelTargetNames,
     commandTargetNames,
     nudgenikTargetMissing,
