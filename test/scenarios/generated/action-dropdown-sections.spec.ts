@@ -29,11 +29,11 @@ test.describe.serial('Action dropdown shows quick launch and emerged sections', 
       quickLaunch: [{ name: 'echo-agent', target: 'echo-agent' }],
     });
 
-    // Spawn a session so we have a workspace with the tab bar visible.
-    // echo-agent is a command target (not promptable), so prompt must be omitted.
+    // Spawn a session so we have a workspace with the tab bar visible
     const results = await spawnSession({
       repo: repoPath,
       branch: 'test-branch',
+      prompt: 'test',
       targets: { 'echo-agent': 1 },
     });
     workspaceId = results[0].workspace_id;

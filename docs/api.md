@@ -282,7 +282,6 @@ Contract (pre-2093ccf):
 - **`repo` must be a repo URL**, not a repo name. The server passes it directly to workspace creation.
 - When `workspace_id` is provided, the spawn is an "existing directory spawn" and **no git operations** are performed.
 - Either `targets` or `command` is required (not both). `targets` maps target name -> quantity. `command` is a raw shell command string (used by quick launch presets like "shell").
-- Target names are resolved in order: (1) model IDs and aliases (e.g., "opus", "claude-sonnet-4-6"), (2) user-defined run targets from config, (3) builtin tool names ("claude", "codex", "gemini", "opencode") as a fallback when the tool binary isn't detected locally (useful for remote sessions where the tool is on the remote host).
 - Promptable targets require `prompt`. Command targets must not include `prompt`.
 - For non-promptable targets, the server forces `count` to 1.
 - If multiple sessions are spawned and `nickname` is provided, nicknames are auto-suffixed globally:
@@ -1736,23 +1735,122 @@ Response:
 
 ```json
 {
-  "proposals": [{ "id": "...", "repo": "...", "status": "pending", ... }]
+  "proposals": [
+    {
+      "id": "prop-20260304-153045-ab12",
+      "repo": "myrepo",
+      "created_at": "2026-03-04T15:30:45Z",
+      "status": "pending",
+      "rules": [
+        {
+          "id": "r1",
+          "text": "Always use go run ./cmd/build-dashboard instead of npm run build",
+          "category": "build",
+          "suggested_layer": "repo_public",
+          "chosen_layer": null,
+          "status": "pending",
+          "source_entries": ["2026-03-04T10:00:00Z"],
+          "merged_at": null
+        }
+      ],
+      "discarded": ["2026-03-04T08:00:00Z"]
+    }
+  ]
 }
 ```
 
+Proposal fields:
+
+- `id` (string): Unique proposal identifier
+- `repo` (string): Repository name
+- `created_at` (string): ISO 8601 creation timestamp
+- `status` (string): `"pending"`, `"applied"`, or `"dismissed"`
+- `rules` (array): Discrete rules extracted by the curator
+- `discarded` (string[]): Entry keys discarded during extraction
+
+Rule fields:
+
+- `id` (string): Rule identifier within the proposal (e.g., `"r1"`)
+- `text` (string): The rule text (editable by the user)
+- `category` (string): Rule category (e.g., `"build"`, `"testing"`)
+- `suggested_layer` (string): AI-suggested layer — `"repo_public"`, `"repo_private"`, or `"user_global"`
+- `chosen_layer` (string|null): User-overridden layer, or null to use suggested
+- `status` (string): `"pending"`, `"approved"`, or `"dismissed"`
+- `source_entries` (string[]): Entry keys that led to this rule
+- `merged_at` (string|null): ISO 8601 timestamp when the rule was merged, or null
+
 ### GET /api/lore/{repo}/proposals/{id}
 
-Returns a single proposal by ID.
+Returns a single proposal by ID. Response shape is the same as a single element from the proposals list above.
 
-### POST /api/lore/{repo}/proposals/{id}/apply
+### POST /api/lore/{repo}/proposals/{id}/dismiss
 
-Applies a proposal: creates a worktree, commits changes, pushes the branch.
+Marks a proposal as dismissed.
 
-Request body (optional):
+### POST /api/lore/{repo}/proposals/{proposalID}/rules/{ruleID}
+
+Updates a specific rule within a proposal (approve, dismiss, edit text, or reroute to a different layer).
+
+Request:
 
 ```json
 {
-  "overrides": { "CLAUDE.md": "modified content" }
+  "status": "approved",
+  "text": "edited rule text (optional)",
+  "chosen_layer": "repo_private"
+}
+```
+
+Fields:
+
+- `status` (string, optional): `"approved"` or `"dismissed"`. Omit to update only text/layer.
+- `text` (string, optional): Edited rule text. Only updates if provided.
+- `chosen_layer` (string, optional): Layer override — `"repo_public"`, `"repo_private"`, or `"user_global"`. Overrides the AI-suggested layer.
+
+Response: the updated Proposal object (same shape as `GET /api/lore/{repo}/proposals/{id}`).
+
+Errors:
+
+- 400: invalid status or chosen_layer
+- 404: proposal or rule not found
+
+### POST /api/lore/{repo}/proposals/{proposalID}/merge
+
+Triggers phase 3 merge: groups approved rules by their effective layer, reads current content for each layer, calls the merge LLM per layer, and returns previews for user review before applying.
+
+Response:
+
+```json
+{
+  "previews": [
+    {
+      "layer": "repo_public",
+      "current_content": "existing instruction file content",
+      "merged_content": "new merged content from LLM",
+      "summary": "description of changes made"
+    }
+  ]
+}
+```
+
+Errors:
+
+- 400: no approved rules to merge
+- 404: proposal not found
+- 503: lore curator not configured
+
+### POST /api/lore/{repo}/proposals/{proposalID}/apply-merge
+
+Applies reviewed merge results to their target layers. For `repo_public`, creates a git branch + commit + push (optionally opens a PR). For `repo_private` and `user_global`, writes directly to the instruction store.
+
+Request:
+
+```json
+{
+  "merges": [
+    { "layer": "repo_public", "content": "final merged content" },
+    { "layer": "repo_private", "content": "private instructions" }
+  ]
 }
 ```
 
@@ -1760,15 +1858,25 @@ Response:
 
 ```json
 {
-  "status": "applied",
-  "branch": "lore/...",
-  "pr_url": "https://..."
+  "results": [
+    {
+      "layer": "repo_public",
+      "status": "applied",
+      "branch": "lore/prop-...",
+      "pr_url": "https://..."
+    },
+    { "layer": "repo_private", "status": "applied" }
+  ]
 }
 ```
 
-### POST /api/lore/{repo}/proposals/{id}/dismiss
+After applying, approved rules are marked with `merged_at` timestamps and the proposal status is set to `applied`.
 
-Marks a proposal as dismissed.
+Errors:
+
+- 400: no merges provided, invalid layer
+- 404: proposal or repo not found
+- 503: instruction store not configured (for private/global layers)
 
 ### GET /api/lore/{repo}/entries
 
@@ -1854,6 +1962,7 @@ Notes:
 - `size_bytes` reports the size of `events.jsonl` within the directory
 - Sorted newest first
 - Returns empty `runs` array if no curation runs exist
+- The curator LLM call does not use JSON schema constrained decoding; the prompt instructs the LLM to output JSON directly, and the response is parsed server-side
 
 ### GET /api/lore/{repo}/curations/{id}/log
 
@@ -1898,35 +2007,14 @@ Response:
 }
 ```
 
-### POST /api/lore/{repo}/curate-actions
+### Instruction Store
 
-Triggers action curation: reads intent signals (prompts, spawn events) from workspace event files, calls the LLM to propose reusable actions, and saves proposed actions to the action registry. Returns immediately; the LLM call runs in the background. Completion is broadcast via WebSocket (`action_curation_done` event on `/ws/dashboard`).
+Private instruction layers are stored at `~/.schmux/instructions/`:
 
-Response (started):
+- `global.md` — user-global instructions (applied to all repos)
+- `repos/<repo>/private.md` — repo-specific private instructions
 
-```json
-{
-  "id": "acur-myrepo-20260222-153045",
-  "status": "started"
-}
-```
-
-Response (no workspaces):
-
-```json
-{ "status": "no_workspaces" }
-```
-
-Response (no signals):
-
-```json
-{ "status": "no_signals" }
-```
-
-Errors:
-
-- 409: "curation already in progress"
-- 503: "lore curator not configured (no LLM target)"
+At agent spawn time, assembled instructions (global + repo-private) are injected into the workspace instruction file within the `<!-- SCHMUX:BEGIN/END -->` markers alongside signaling instructions. These are never committed to the repo.
 
 ## Actions API
 

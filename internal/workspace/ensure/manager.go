@@ -10,15 +10,24 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/lore"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 // pkgLogger is the package-level logger, set via SetLogger.
 var pkgLogger *log.Logger
 
+// instrStore is the package-level instruction store for lore layer assembly.
+var instrStore *lore.InstructionStore
+
 // SetLogger configures the package-level logger for the ensure package.
 func SetLogger(l *log.Logger) {
 	pkgLogger = l
+}
+
+// SetInstructionStore configures the lore instruction store for private layer injection.
+func SetInstructionStore(s *lore.InstructionStore) {
+	instrStore = s
 }
 
 const (
@@ -194,8 +203,9 @@ write what would have saved you time if you'd known it before starting.
 
 // AgentInstructions ensures the signaling instructions are present
 // in the appropriate instruction file for the given target.
+// repoName is used to assemble private lore instructions (global + repo-private).
 // Returns nil if the target doesn't have a known instruction file.
-func AgentInstructions(workspacePath, targetName string) error {
+func AgentInstructions(workspacePath, targetName, repoName string) error {
 	config, ok := detect.GetAgentInstructionConfigForTarget(targetName)
 	if !ok {
 		// Target doesn't have a known instruction file, nothing to do
@@ -211,8 +221,15 @@ func AgentInstructions(workspacePath, targetName string) error {
 		return fmt.Errorf("failed to create instruction directory %s: %w", instructionDir, err)
 	}
 
-	// Build the schmux block with markers
-	schmuxBlock := buildSchmuxBlock()
+	// Build the schmux block with markers, including assembled lore instructions
+	var loreContent string
+	if instrStore != nil {
+		assembled := instrStore.Assemble(repoName, "")
+		if assembled != "" {
+			loreContent = assembled
+		}
+	}
+	schmuxBlock := buildSchmuxBlock(loreContent)
 
 	// Check if file exists
 	content, err := os.ReadFile(instructionPath)
@@ -263,8 +280,22 @@ func AgentInstructions(workspacePath, targetName string) error {
 }
 
 // buildSchmuxBlock builds the full schmux block with markers.
-func buildSchmuxBlock() string {
-	return schmuxMarkerStart + "\n" + SignalingInstructions + schmuxMarkerEnd + "\n"
+// Optional extras are appended after the signaling instructions.
+func buildSchmuxBlock(extras ...string) string {
+	var sb strings.Builder
+	sb.WriteString(schmuxMarkerStart)
+	sb.WriteByte('\n')
+	sb.WriteString(SignalingInstructions)
+	for _, e := range extras {
+		if e != "" {
+			sb.WriteString("\n## Project Instructions\n\n")
+			sb.WriteString(e)
+			sb.WriteByte('\n')
+		}
+	}
+	sb.WriteString(schmuxMarkerEnd)
+	sb.WriteByte('\n')
+	return sb.String()
 }
 
 // replaceSchmuxBlock replaces an existing schmux block with the new one.

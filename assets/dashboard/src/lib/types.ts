@@ -429,19 +429,52 @@ export interface LoreEntry {
   proposal_id?: string;
 }
 
+export type LoreLayer = 'repo_public' | 'repo_private' | 'user_global';
+export type LoreRuleStatus = 'pending' | 'approved' | 'dismissed';
+
+export interface LoreRule {
+  id: string;
+  text: string;
+  category: string;
+  suggested_layer: LoreLayer;
+  chosen_layer?: LoreLayer;
+  status: LoreRuleStatus;
+  source_entries: string[];
+  merged_at?: string;
+}
+
 export interface LoreProposal {
   id: string;
   repo: string;
   created_at: string;
-  status: 'pending' | 'stale' | 'applied' | 'dismissed';
-  source_count: number;
-  sources: string[];
-  file_hashes: Record<string, string>;
+  status: 'pending' | 'merging' | 'applied' | 'dismissed';
+  rules: LoreRule[];
+  discarded?: string[];
+  merge_previews?: LoreMergePreview[];
+  merge_error?: string;
+  // Deprecated v1 fields (kept for backward compat with old proposals on disk)
+  source_count?: number;
+  sources?: string[];
+  file_hashes?: Record<string, string>;
   current_files?: Record<string, string>;
-  proposed_files: Record<string, string>;
-  diff_summary: string;
-  entries_used: string[];
+  proposed_files?: Record<string, string>;
+  diff_summary?: string;
+  entries_used?: string[];
   entries_discarded?: Record<string, string>;
+}
+
+export interface LoreMergePreview {
+  layer: LoreLayer;
+  current_content: string;
+  merged_content: string;
+  summary: string;
+}
+
+export interface LoreMergeApplyResult {
+  layer: string;
+  status: string;
+  branch?: string;
+  pr_url?: string;
 }
 
 export interface LoreProposalsResponse {

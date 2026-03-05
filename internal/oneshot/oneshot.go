@@ -110,9 +110,6 @@ func Execute(ctx context.Context, agentName, agentCommand, prompt, schemaLabel s
 	if prompt == "" {
 		return "", fmt.Errorf("prompt cannot be empty")
 	}
-	if schemaLabel == "" {
-		return "", fmt.Errorf("schema label cannot be empty")
-	}
 
 	// Resolve schema label to a file path, then read inline for Claude
 	schemaArg := ""
@@ -207,13 +204,11 @@ func ExecuteCommand(ctx context.Context, command, prompt string, env map[string]
 // It resolves models, loads secrets, and merges env vars automatically.
 // This is the preferred way to execute oneshot commands for promptable targets.
 // The timeout parameter controls how long to wait for the one-shot execution to complete.
-// The schemaLabel parameter is required; must be a registered schema label for structured output.
+// The schemaLabel parameter is optional; if empty, no JSON schema constraint is applied
+// (the CLI will still use JSON output format, but without constrained decoding).
 func ExecuteTarget(ctx context.Context, cfg *config.Config, targetName, prompt, schemaLabel string, timeout time.Duration, dir string) (string, error) {
 	if prompt == "" {
 		return "", fmt.Errorf("prompt cannot be empty")
-	}
-	if schemaLabel == "" {
-		return "", fmt.Errorf("schema label cannot be empty")
 	}
 
 	target, err := resolveTarget(cfg, targetName)
@@ -258,9 +253,6 @@ type ResultEvent struct {
 func ExecuteTargetStreaming(ctx context.Context, cfg *config.Config, targetName, prompt, schemaLabel string, timeout time.Duration, dir string, onEvent func(StreamEvent)) (string, error) {
 	if prompt == "" {
 		return "", fmt.Errorf("prompt cannot be empty")
-	}
-	if schemaLabel == "" {
-		return "", fmt.Errorf("schema label cannot be empty")
 	}
 
 	target, err := resolveTarget(cfg, targetName)
@@ -338,6 +330,7 @@ func ExecuteTargetStreaming(ctx context.Context, cfg *config.Config, targetName,
 
 	var resultEvent *ResultEvent
 	var sawErrors bool
+	var allText strings.Builder // collect all assistant text for fallback
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
@@ -356,6 +349,15 @@ func ExecuteTargetStreaming(ctx context.Context, cfg *config.Config, targetName,
 
 		if onEvent != nil {
 			onEvent(ev)
+		}
+
+		// Collect assistant text blocks for fallback output extraction.
+		// Without constrained decoding, LLMs may use tools and produce multiple
+		// text blocks across turns; the result event only captures the last one.
+		if ev.Type == "assistant" {
+			if text := extractAssistantText(raw); text != "" {
+				allText.WriteString(text)
+			}
 		}
 
 		// Track error events
@@ -387,6 +389,12 @@ func ExecuteTargetStreaming(ctx context.Context, cfg *config.Config, targetName,
 		}
 		if len(resultEvent.StructuredOutput) > 0 {
 			return string(resultEvent.StructuredOutput), nil
+		}
+		// Without constrained decoding, the result event only captures the last
+		// text block. Use the full collected text so callers can find JSON that
+		// appeared in earlier turns.
+		if collected := allText.String(); collected != "" {
+			return collected, nil
 		}
 		return resultEvent.Result, nil
 	}
@@ -429,6 +437,30 @@ func mergeEnv(extra map[string]string) []string {
 	return result
 }
 
+// extractAssistantText extracts text content from an assistant stream event.
+// Assistant events have structure: {"type":"assistant","message":{"content":[{"type":"text","text":"..."},...]}}
+func extractAssistantText(raw []byte) string {
+	var ev struct {
+		Type    string `json:"type"`
+		Message struct {
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal(raw, &ev); err != nil || ev.Type != "assistant" {
+		return ""
+	}
+	var sb strings.Builder
+	for _, c := range ev.Message.Content {
+		if c.Type == "text" {
+			sb.WriteString(c.Text)
+		}
+	}
+	return sb.String()
+}
+
 // parseResponse parses the raw output from an agent into a clean response string.
 // When JSON schema is used, the output is in an envelope format:
 // - Claude: JSON with "structured_output" field containing the result
@@ -444,8 +476,10 @@ func parseResponse(agentName, output string) string {
 	}
 }
 
-// parseClaudeStructuredOutput extracts the structured_output field from Claude's JSON response.
-// If the output is not JSON or lacks structured_output, returns the output as-is.
+// parseClaudeStructuredOutput extracts the response text from Claude's JSON envelope.
+// It prefers structured_output (present when --json-schema is used), falling back to
+// the result field (plain text responses). The result field is JSON-unquoted so that
+// escaped newlines become real newlines.
 func parseClaudeStructuredOutput(output string) string {
 	trimmed := strings.TrimSpace(output)
 	if trimmed == "" {
@@ -469,6 +503,15 @@ func parseClaudeStructuredOutput(output string) string {
 
 	if raw, ok := envelope["structured_output"]; ok && len(raw) > 0 {
 		return string(raw)
+	}
+
+	// Fall back to the result field (plain text response without a schema).
+	// JSON-unquote it so that escaped newlines (\n) become real newlines.
+	if raw, ok := envelope["result"]; ok && len(raw) > 0 {
+		var text string
+		if err := json.Unmarshal(raw, &text); err == nil {
+			return text
+		}
 	}
 
 	return output

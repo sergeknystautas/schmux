@@ -220,9 +220,7 @@ func (e *Env) DaemonStop() {
 	e.T.Helper()
 	e.T.Log("Stopping daemon...")
 
-	// Use a generous timeout: tool detection (especially opencode) can hold the
-	// daemon alive for up to 10 seconds, and Docker resource contention adds more.
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	cmd := exec.CommandContext(ctx, e.SchmuxBin, "stop")
 	cmd.Env = append(os.Environ(), "HOME="+e.HomeDir, "TMUX_TMPDIR="+e.HomeDir)
 	out, err := cmd.CombinedOutput()
@@ -930,9 +928,7 @@ func (e *Env) HealthCheck() bool {
 func (e *Env) CaptureArtifacts() {
 	e.T.Helper()
 
-	// Use a writable path — t.TempDir() is writable in all environments
-	// including Docker where the working directory may be read-only.
-	failureDir := filepath.Join(e.T.TempDir(), "failures", e.T.Name())
+	failureDir := filepath.Join("testdata", "failures", e.T.Name())
 	if err := os.MkdirAll(failureDir, 0755); err != nil {
 		e.T.Logf("Failed to create failure dir: %v", err)
 		return

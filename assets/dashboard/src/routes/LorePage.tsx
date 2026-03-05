@@ -5,8 +5,10 @@ import {
   getLoreProposals,
   getLoreEntries,
   getLoreStatus,
-  applyLoreProposal,
   dismissLoreProposal,
+  updateLoreRule,
+  startLoreMerge,
+  applyLoreMerge,
   clearLoreEntries,
   getLoreCurations,
   getLoreCurationLog,
@@ -14,7 +16,6 @@ import {
   getProposedActions,
   pinAction,
   dismissAction,
-  curateActions,
   getErrorMessage,
 } from '../lib/api';
 import type { CurationRunInfo } from '../lib/api';
@@ -26,19 +27,373 @@ import { useModal } from '../components/ModalProvider';
 import useTheme from '../hooks/useTheme';
 import CuratorTerminal from '../components/CuratorTerminal';
 import { ProposedActionCard, PinnedActionRow } from '../components/ProposedActionCard';
-import type { LoreProposal, LoreEntry, LoreStatusResponse, CuratorStreamEvent } from '../lib/types';
+import type {
+  LoreProposal,
+  LoreEntry,
+  LoreStatusResponse,
+  CuratorStreamEvent,
+  LoreRule,
+  LoreLayer,
+} from '../lib/types';
 import styles from '../styles/lore.module.css';
 
-function ProposalCard({
+const LAYER_LABELS: Record<LoreLayer, string> = {
+  repo_public: 'Public',
+  repo_private: 'Private',
+  user_global: 'Global',
+};
+
+function RuleRow({
+  rule,
+  repoName,
+  proposalID,
+  onUpdate,
+}: {
+  rule: LoreRule;
+  repoName: string;
+  proposalID: string;
+  onUpdate: (updated: LoreProposal) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(rule.text);
+  const [saving, setSaving] = useState(false);
+  const { alert } = useModal();
+
+  const effectiveLayer = rule.chosen_layer || rule.suggested_layer;
+
+  const handleStatusChange = async (status: 'approved' | 'dismissed') => {
+    setSaving(true);
+    try {
+      const updated = await updateLoreRule(repoName, proposalID, rule.id, { status });
+      onUpdate(updated);
+    } catch (err) {
+      alert('Update Failed', getErrorMessage(err, 'Failed to update rule'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleLayerChange = async (layer: LoreLayer) => {
+    setSaving(true);
+    try {
+      const updated = await updateLoreRule(repoName, proposalID, rule.id, {
+        chosen_layer: layer,
+      });
+      onUpdate(updated);
+    } catch (err) {
+      alert('Update Failed', getErrorMessage(err, 'Failed to update rule layer'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveText = async () => {
+    if (editText === rule.text) {
+      setEditing(false);
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await updateLoreRule(repoName, proposalID, rule.id, { text: editText });
+      onUpdate(updated);
+      setEditing(false);
+    } catch (err) {
+      alert('Update Failed', getErrorMessage(err, 'Failed to update rule text'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className={styles.ruleRow} data-status={rule.status} data-testid={`rule-${rule.id}`}>
+      <div className={styles.ruleHeader}>
+        <span className={styles.ruleBadge} data-status={rule.status}>
+          {rule.status}
+        </span>
+        {rule.category && <span className={styles.ruleCategory}>{rule.category}</span>}
+        <span className={styles.ruleLayer}>{LAYER_LABELS[effectiveLayer]}</span>
+      </div>
+
+      {editing ? (
+        <div className={styles.ruleEditArea}>
+          <textarea
+            className={styles.ruleTextarea}
+            value={editText}
+            onChange={(e) => setEditText(e.target.value)}
+            rows={3}
+          />
+          <div className={styles.ruleEditActions}>
+            <button className={styles.dismissButton} onClick={() => setEditing(false)}>
+              Cancel
+            </button>
+            <button className={styles.applyButton} onClick={handleSaveText} disabled={saving}>
+              Save
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div
+          className={styles.ruleText}
+          onClick={() => rule.status === 'pending' && setEditing(true)}
+        >
+          {rule.text}
+        </div>
+      )}
+
+      {rule.status === 'pending' && (
+        <div className={styles.ruleActions}>
+          <div className={styles.layerPicker}>
+            {(['repo_public', 'repo_private', 'user_global'] as LoreLayer[]).map((layer) => (
+              <label key={layer} className={styles.layerLabel}>
+                <input
+                  type="radio"
+                  name={`layer-${rule.id}`}
+                  checked={effectiveLayer === layer}
+                  onChange={() => handleLayerChange(layer)}
+                  disabled={saving}
+                />
+                {LAYER_LABELS[layer]}
+              </label>
+            ))}
+          </div>
+          <div className={styles.ruleButtons}>
+            <button
+              className={styles.dismissButton}
+              onClick={() => handleStatusChange('dismissed')}
+              disabled={saving}
+            >
+              Dismiss
+            </button>
+            <button
+              className={styles.applyButton}
+              onClick={() => handleStatusChange('approved')}
+              disabled={saving}
+            >
+              Approve
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RuleReviewCard({
   proposal,
-  onApply,
-  onDismiss,
-  applying,
+  repoName,
+  onProposalUpdate,
+  onDismissProposal,
 }: {
   proposal: LoreProposal;
-  onApply: (p: LoreProposal) => void;
+  repoName: string;
+  onProposalUpdate: (p: LoreProposal) => void;
+  onDismissProposal: (p: LoreProposal) => void;
+}) {
+  const { theme } = useTheme();
+  const { alert } = useModal();
+  const { success: toastSuccess } = useToast();
+  const [editedPreviews, setEditedPreviews] = useState<Record<string, string>>({});
+  const [applying, setApplying] = useState(false);
+
+  const approvedCount = proposal.rules.filter((r) => r.status === 'approved').length;
+  const pendingCount = proposal.rules.filter((r) => r.status === 'pending').length;
+  const totalCount = proposal.rules.length;
+
+  const isMerging = proposal.status === 'merging';
+  const previews = proposal.merge_previews;
+  const mergeError = proposal.merge_error;
+
+  // Poll while merging to pick up previews when the background job finishes.
+  useEffect(() => {
+    if (!isMerging) return;
+    const interval = setInterval(async () => {
+      try {
+        const updated = await getLoreProposals(repoName);
+        const refreshed = (updated.proposals || []).find((p) => p.id === proposal.id);
+        if (refreshed && refreshed.status !== 'merging') {
+          onProposalUpdate(refreshed);
+        }
+      } catch {
+        // ignore polling errors
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [isMerging, repoName, proposal.id, onProposalUpdate]);
+
+  // Initialize editedPreviews when previews arrive from the server
+  useEffect(() => {
+    if (previews && previews.length > 0) {
+      const initial: Record<string, string> = {};
+      for (const p of previews) {
+        initial[p.layer] = p.merged_content;
+      }
+      setEditedPreviews(initial);
+    }
+  }, [previews]);
+
+  const handleMerge = async () => {
+    try {
+      await startLoreMerge(repoName, proposal.id);
+      // Optimistically update the proposal status to show the spinner
+      onProposalUpdate({
+        ...proposal,
+        status: 'merging',
+        merge_previews: undefined,
+        merge_error: undefined,
+      });
+    } catch (err) {
+      alert('Merge Failed', getErrorMessage(err, 'Failed to start merge'));
+    }
+  };
+
+  const handleDismissPreviews = async () => {
+    // Clear previews from the proposal on the server
+    onProposalUpdate({ ...proposal, merge_previews: undefined, merge_error: undefined });
+  };
+
+  const handleApplyMerge = async () => {
+    if (!previews) return;
+    setApplying(true);
+    try {
+      const merges = previews.map((p) => ({
+        layer: p.layer,
+        content: editedPreviews[p.layer] ?? p.merged_content,
+      }));
+      await applyLoreMerge(repoName, proposal.id, merges);
+      toastSuccess('Merge applied successfully');
+      // Reload proposal to reflect applied status
+      const updated = await getLoreProposals(repoName);
+      const refreshed = (updated.proposals || []).find((p) => p.id === proposal.id);
+      if (refreshed) onProposalUpdate(refreshed);
+    } catch (err) {
+      alert('Apply Failed', getErrorMessage(err, 'Failed to apply merge'));
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  return (
+    <div className={styles.proposalCard} data-testid={`lore-proposal-card-${proposal.id}`}>
+      <div className={styles.proposalCardHeader}>
+        <span className={styles.proposalCardBadge} data-status={proposal.status}>
+          {proposal.status}
+        </span>
+        <span className={styles.proposalCardSummary}>
+          {totalCount} rules · {approvedCount} approved · {pendingCount} pending
+        </span>
+        <span className={styles.proposalCardDate}>
+          {new Date(proposal.created_at).toLocaleDateString()}
+        </span>
+      </div>
+
+      {proposal.discarded && proposal.discarded.length > 0 && (
+        <div className={styles.discardedSection}>
+          <span className={styles.discardedLabel}>{proposal.discarded.length} discarded</span>
+        </div>
+      )}
+
+      <div className={styles.ruleList}>
+        {proposal.rules.map((rule) => (
+          <RuleRow
+            key={rule.id}
+            rule={rule}
+            repoName={repoName}
+            proposalID={proposal.id}
+            onUpdate={onProposalUpdate}
+          />
+        ))}
+      </div>
+
+      {/* Merge / Dismiss controls */}
+      {proposal.status === 'pending' && !previews && !mergeError && (
+        <div className={styles.actions} data-testid="lore-actions">
+          <button
+            className={styles.dismissButton}
+            data-testid="lore-dismiss-button"
+            onClick={() => onDismissProposal(proposal)}
+          >
+            Dismiss All
+          </button>
+          <button
+            className={styles.applyButton}
+            data-testid="lore-merge-button"
+            onClick={handleMerge}
+            disabled={approvedCount === 0}
+          >
+            {`Merge ${approvedCount} Rules`}
+          </button>
+        </div>
+      )}
+
+      {/* Merging in progress */}
+      {isMerging && (
+        <div className={styles.mergingStatus} data-testid="lore-merging-status">
+          <div className="spinner spinner--small" />
+          <span>Generating merge preview — this may take a minute…</span>
+        </div>
+      )}
+
+      {/* Merge error */}
+      {mergeError && (
+        <div className={styles.mergeError} data-testid="lore-merge-error">
+          <span>Merge failed: {mergeError}</span>
+          <button className={styles.dismissButton} onClick={handleMerge}>
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Merge previews */}
+      {previews && previews.length > 0 && (
+        <div className={styles.mergePreviewSection}>
+          <h4 className={styles.mergePreviewTitle}>Merge Preview</h4>
+          {previews.map((preview) => (
+            <div key={preview.layer} className={styles.mergePreviewCard}>
+              <div className={styles.mergePreviewHeader}>
+                <span className={styles.ruleLayer}>{LAYER_LABELS[preview.layer]}</span>
+                <span className={styles.mergePreviewSummary}>{preview.summary}</span>
+              </div>
+              <div className={styles.diffWrapper}>
+                <ReactDiffViewer
+                  oldValue={preview.current_content}
+                  newValue={editedPreviews[preview.layer] ?? preview.merged_content}
+                  splitView={false}
+                  useDarkTheme={theme === 'dark'}
+                  hideLineNumbers={false}
+                  showDiffOnly={true}
+                  compareMethod={DiffMethod.TRIMMED_LINES}
+                  disableWordDiff={true}
+                  extraLinesSurroundingDiff={3}
+                />
+              </div>
+            </div>
+          ))}
+          <div className={styles.actions}>
+            <button
+              className={styles.dismissButton}
+              onClick={handleDismissPreviews}
+              disabled={applying}
+            >
+              Cancel
+            </button>
+            <button className={styles.applyButton} onClick={handleApplyMerge} disabled={applying}>
+              {applying && <span className="spinner spinner--small" />}
+              {applying ? 'Applying…' : 'Apply Merge'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Legacy ProposalCard for v1 proposals (no rules array). */
+function LegacyProposalCard({
+  proposal,
+  onDismiss,
+}: {
+  proposal: LoreProposal;
   onDismiss: (p: LoreProposal) => void;
-  applying: boolean;
 }) {
   const [activeFile, setActiveFile] = useState(Object.keys(proposal.proposed_files || {})[0] || '');
   const [showEntries, setShowEntries] = useState(false);
@@ -84,7 +439,7 @@ function ProposalCard({
       <div className={styles.diffWrapper}>
         <ReactDiffViewer
           oldValue={proposal.current_files?.[activeFile] || ''}
-          newValue={proposal.proposed_files[activeFile] || ''}
+          newValue={proposal.proposed_files?.[activeFile] || ''}
           splitView={false}
           useDarkTheme={theme === 'dark'}
           hideLineNumbers={false}
@@ -104,11 +459,11 @@ function ProposalCard({
           </button>
           {showEntries && (
             <div className={styles.entriesDetail}>
-              {proposal.entries_used?.length > 0 && (
+              {(proposal.entries_used?.length ?? 0) > 0 && (
                 <div>
                   <h5>Used</h5>
                   <ul>
-                    {proposal.entries_used.map((e, i) => (
+                    {proposal.entries_used?.map((e, i) => (
                       <li key={i}>{e}</li>
                     ))}
                   </ul>
@@ -134,38 +489,22 @@ function ProposalCard({
       {/* Actions */}
       <div className={styles.actions} data-testid="lore-actions">
         {proposal.status === 'pending' && (
-          <>
-            <button
-              className={styles.dismissButton}
-              data-testid="lore-dismiss-button"
-              onClick={() => onDismiss(proposal)}
-            >
-              Dismiss
-            </button>
-            <button
-              className={styles.applyButton}
-              data-testid="lore-apply-button"
-              onClick={() => onApply(proposal)}
-              disabled={applying}
-            >
-              {applying ? 'Applying...' : 'Apply'}
-            </button>
-          </>
-        )}
-        {proposal.status === 'stale' && (
-          <>
-            <button
-              className={styles.dismissButton}
-              data-testid="lore-dismiss-stale-button"
-              onClick={() => onDismiss(proposal)}
-            >
-              Dismiss
-            </button>
-          </>
+          <button
+            className={styles.dismissButton}
+            data-testid="lore-dismiss-button"
+            onClick={() => onDismiss(proposal)}
+          >
+            Dismiss
+          </button>
         )}
       </div>
     </div>
   );
+}
+
+/** Returns true if a proposal uses the v2 per-rule model. */
+function isV2Proposal(p: LoreProposal): boolean {
+  return Array.isArray(p.rules) && p.rules.length > 0;
 }
 
 export default function LorePage() {
@@ -187,7 +526,6 @@ export default function LorePage() {
   const [entries, setEntries] = useState<LoreEntry[]>([]);
   const [allAgents, setAllAgents] = useState<string[]>([]);
   const [allTypes, setAllTypes] = useState<string[]>([]);
-  const [applyingId, setApplyingId] = useState<string | null>(null);
 
   const curationState = activeRepo ? activeCurations[activeRepo] : undefined;
   const curating = !!curationState || pendingCurations.has(activeRepo);
@@ -227,7 +565,6 @@ export default function LorePage() {
   // Actions tab state
   const [proposedActions, setProposedActions] = useState<Action[]>([]);
   const [pinnedActions, setPinnedActions] = useState<Action[]>([]);
-  const [curatingActions, setCuratingActions] = useState(false);
 
   // Sync activeRepo when repos list changes (e.g., config loaded after mount)
   useEffect(() => {
@@ -363,20 +700,6 @@ export default function LorePage() {
     setPastRunEvents(null);
   };
 
-  const handleApply = async (proposal: LoreProposal) => {
-    if (!activeRepo) return;
-    setApplyingId(proposal.id);
-    try {
-      const result = await applyLoreProposal(activeRepo, proposal.id);
-      toastSuccess(`Applied! Branch: ${result.branch}`);
-      loadData();
-    } catch (err) {
-      alert('Apply Failed', getErrorMessage(err, 'Failed to apply proposal'));
-    } finally {
-      setApplyingId(null);
-    }
-  };
-
   const handleDismiss = async (proposal: LoreProposal) => {
     if (!activeRepo) return;
     try {
@@ -386,6 +709,10 @@ export default function LorePage() {
     } catch (err) {
       alert('Dismiss Failed', getErrorMessage(err, 'Failed to dismiss proposal'));
     }
+  };
+
+  const handleProposalUpdate = (updated: LoreProposal) => {
+    setProposals((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
   };
 
   const handleReCurate = () => {
@@ -412,25 +739,6 @@ export default function LorePage() {
       loadActions();
     } catch (err) {
       toastError(getErrorMessage(err, 'Failed to dismiss action'));
-    }
-  };
-
-  const handleCurateActions = async () => {
-    if (!activeRepo) return;
-    setCuratingActions(true);
-    try {
-      const result = await curateActions(activeRepo);
-      if (result.status === 'no_signals') {
-        toastSuccess('No intent signals found to curate');
-      } else if (result.status === 'no_workspaces') {
-        toastSuccess('No workspaces found for this repo');
-      } else {
-        toastSuccess('Action curation started — results will appear when complete');
-      }
-    } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to curate actions'));
-    } finally {
-      setCuratingActions(false);
     }
   };
 
@@ -501,7 +809,9 @@ export default function LorePage() {
     );
   }
 
-  const pendingProposals = proposals.filter((p) => p.status === 'pending' || p.status === 'stale');
+  const pendingProposals = proposals.filter(
+    (p) => p.status === 'pending' || p.status === 'merging'
+  );
   const historyProposals = proposals.filter(
     (p) => p.status === 'applied' || p.status === 'dismissed'
   );
@@ -570,15 +880,19 @@ export default function LorePage() {
             {/* Pending proposals */}
             {pendingProposals.length > 0 ? (
               <div className={styles.proposalList}>
-                {pendingProposals.map((p) => (
-                  <ProposalCard
-                    key={p.id}
-                    proposal={p}
-                    onApply={handleApply}
-                    onDismiss={handleDismiss}
-                    applying={applyingId === p.id}
-                  />
-                ))}
+                {pendingProposals.map((p) =>
+                  isV2Proposal(p) ? (
+                    <RuleReviewCard
+                      key={p.id}
+                      proposal={p}
+                      repoName={activeRepo}
+                      onProposalUpdate={handleProposalUpdate}
+                      onDismissProposal={handleDismiss}
+                    />
+                  ) : (
+                    <LegacyProposalCard key={p.id} proposal={p} onDismiss={handleDismiss} />
+                  )
+                )}
               </div>
             ) : (
               <div className="empty-state">
@@ -769,17 +1083,6 @@ export default function LorePage() {
 
         {activeSubTab === 'actions' && (
           <>
-            {/* Trigger action curation */}
-            <div style={{ marginBottom: '1rem' }}>
-              <button
-                className={styles.curateActionsButton}
-                onClick={handleCurateActions}
-                disabled={curatingActions}
-              >
-                {curatingActions ? 'Curating...' : 'Trigger Action Curation'}
-              </button>
-            </div>
-
             {/* Proposed actions */}
             {proposedActions.length > 0 && (
               <>
@@ -800,7 +1103,7 @@ export default function LorePage() {
             {proposedActions.length === 0 && (
               <div className="empty-state">
                 <p className="empty-state__description">
-                  No proposed actions. Use "Trigger Action Curation" to analyze intent signals.
+                  No proposed actions. Actions are generated automatically from agent work sessions.
                 </p>
               </div>
             )}

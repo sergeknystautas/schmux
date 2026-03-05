@@ -10,10 +10,11 @@ import type {
   GitGraphResponse,
   LinearSyncResponse,
   LinearSyncResolveConflictResponse,
-  LoreApplyResponse,
   LoreEntriesResponse,
+  LoreMergeApplyResult,
   LoreProposal,
   LoreProposalsResponse,
+  LoreRuleStatus,
   LoreStatusResponse,
   OpenVSCodeResponse,
   OverlayAddRequest,
@@ -79,14 +80,20 @@ export function getErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
-// Parse error from a non-ok Response, trying JSON then falling back to text
+// Parse error from a non-ok Response, trying JSON then falling back to text.
+// Reads the body once as text to avoid "body stream already read" errors.
 async function parseErrorResponse(response: Response, fallback: string): Promise<never> {
   let message = fallback;
   try {
-    const err = await response.json();
-    message = err.error || fallback;
+    const text = await response.text();
+    try {
+      const err = JSON.parse(text);
+      message = err.error || text || fallback;
+    } catch {
+      message = text || fallback;
+    }
   } catch {
-    message = (await response.text()) || fallback;
+    // Body unreadable — use fallback
   }
   throw new Error(message);
 }
@@ -907,23 +914,6 @@ export async function getLoreProposal(repoName: string, id: string): Promise<Lor
   return res.json();
 }
 
-export async function applyLoreProposal(
-  repoName: string,
-  id: string,
-  overrides?: Record<string, string>
-): Promise<LoreApplyResponse> {
-  const res = await apiFetch(
-    `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(id)}/apply`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-      body: overrides ? JSON.stringify({ overrides }) : undefined,
-    }
-  );
-  if (!res.ok) await parseErrorResponse(res, 'Failed to apply lore proposal');
-  return res.json();
-}
-
 export async function dismissLoreProposal(repoName: string, id: string): Promise<void> {
   const res = await apiFetch(
     `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(id)}/dismiss`,
@@ -933,6 +923,52 @@ export async function dismissLoreProposal(repoName: string, id: string): Promise
     }
   );
   if (!res.ok) await parseErrorResponse(res, 'Failed to dismiss lore proposal');
+}
+
+export async function updateLoreRule(
+  repoName: string,
+  proposalID: string,
+  ruleID: string,
+  update: { status?: LoreRuleStatus; text?: string; chosen_layer?: string }
+): Promise<LoreProposal> {
+  const res = await apiFetch(
+    `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(proposalID)}/rules/${encodeURIComponent(ruleID)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+      body: JSON.stringify(update),
+    }
+  );
+  if (!res.ok) await parseErrorResponse(res, 'Failed to update lore rule');
+  return res.json();
+}
+
+export async function startLoreMerge(repoName: string, proposalID: string): Promise<void> {
+  const res = await apiFetch(
+    `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(proposalID)}/merge`,
+    {
+      method: 'POST',
+      headers: { ...csrfHeaders() },
+    }
+  );
+  if (!res.ok) await parseErrorResponse(res, 'Failed to start merge');
+}
+
+export async function applyLoreMerge(
+  repoName: string,
+  proposalID: string,
+  merges: { layer: string; content: string }[]
+): Promise<{ results: LoreMergeApplyResult[] }> {
+  const res = await apiFetch(
+    `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(proposalID)}/apply-merge`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+      body: JSON.stringify({ merges }),
+    }
+  );
+  if (!res.ok) await parseErrorResponse(res, 'Failed to apply lore merge');
+  return res.json();
 }
 
 export async function getLoreEntries(
@@ -1177,20 +1213,5 @@ export async function getProposedActions(repo: string): Promise<Action[]> {
 export async function getPromptHistory(repo: string): Promise<PromptHistoryResponse> {
   const response = await fetch(`/api/actions/${encodeURIComponent(repo)}/prompt-history`);
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch prompt history');
-  return response.json();
-}
-
-export async function curateActions(repo: string): Promise<{
-  status: string;
-  id?: string;
-  signals_count?: number;
-  proposed_count?: number;
-  discarded_count?: number;
-}> {
-  const response = await fetch(`/api/lore/${encodeURIComponent(repo)}/curate-actions`, {
-    method: 'POST',
-    headers: { ...csrfHeaders() },
-  });
-  if (!response.ok) await parseErrorResponse(response, 'Failed to curate actions');
   return response.json();
 }

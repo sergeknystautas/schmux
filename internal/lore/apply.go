@@ -14,74 +14,7 @@ type ApplyResult struct {
 	Branch string // the branch that was created and committed to
 }
 
-// ApplyProposal creates a temp worktree, writes instruction files, commits, and cleans up.
-// It does NOT push — the caller decides whether to push.
-// bareDir is the path to the bare clone. workBaseDir is where temp worktrees are created.
-func ApplyProposal(ctx context.Context, proposal *Proposal, bareDir, workBaseDir string) (*ApplyResult, error) {
-	proposalID := proposal.ID
-	branch := fmt.Sprintf("schmux/lore-%s", strings.TrimPrefix(proposalID, "prop-"))
-
-	// Determine default branch to branch from
-	defaultBranch, err := getDefaultBranch(ctx, bareDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get default branch: %w", err)
-	}
-
-	// Create branch from default branch
-	if err := runGit(ctx, bareDir, "branch", branch, defaultBranch); err != nil {
-		return nil, fmt.Errorf("failed to create branch: %w", err)
-	}
-
-	// Create temp worktree
-	worktreePath := filepath.Join(workBaseDir, "lore-"+strings.TrimPrefix(proposalID, "prop-"))
-	if err := runGit(ctx, bareDir, "worktree", "add", worktreePath, branch); err != nil {
-		return nil, fmt.Errorf("failed to create worktree: %w", err)
-	}
-
-	// Ensure cleanup
-	defer func() {
-		runGit(context.Background(), bareDir, "worktree", "remove", "--force", worktreePath)
-	}()
-
-	// Configure git user in worktree
-	runGit(ctx, worktreePath, "config", "user.email", "schmux@localhost")
-	runGit(ctx, worktreePath, "config", "user.name", "schmux-lore")
-
-	// Write proposed files
-	var filesToAdd []string
-	for relPath, content := range proposal.ProposedFiles {
-		fullPath := filepath.Join(worktreePath, filepath.Clean(relPath))
-		if !strings.HasPrefix(fullPath, filepath.Clean(worktreePath)+string(os.PathSeparator)) {
-			return nil, fmt.Errorf("path traversal in proposed file: %s", relPath)
-		}
-		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-			return nil, fmt.Errorf("failed to create directory for %s: %w", relPath, err)
-		}
-		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
-			return nil, fmt.Errorf("failed to write %s: %w", relPath, err)
-		}
-		filesToAdd = append(filesToAdd, relPath)
-	}
-
-	// Stage and commit
-	addArgs := append([]string{"add"}, filesToAdd...)
-	if err := runGit(ctx, worktreePath, addArgs...); err != nil {
-		return nil, fmt.Errorf("git add failed: %w", err)
-	}
-
-	n := len(proposal.ProposedFiles)
-	msg := fmt.Sprintf("chore: update instruction files with agent lore (%d files)", n)
-	if proposal.DiffSummary != "" {
-		msg = fmt.Sprintf("chore: update instruction files with agent lore\n\n%s", proposal.DiffSummary)
-	}
-	if err := runGit(ctx, worktreePath, "commit", "-m", msg); err != nil {
-		return nil, fmt.Errorf("git commit failed: %w", err)
-	}
-
-	return &ApplyResult{Branch: branch}, nil
-}
-
-// PushBranch pushes a branch to origin.
+// ApplyPublicMerge creates a branch, writes a single instruction file, commits, and cleans up.
 func PushBranch(ctx context.Context, bareDir, branch string) error {
 	return runGit(ctx, bareDir, "push", "origin", branch)
 }
@@ -112,6 +45,67 @@ func CreatePR(ctx context.Context, bareDir, branch, title, body string) (string,
 		return "", fmt.Errorf("gh pr create failed: %w: %s", err, string(output))
 	}
 	return strings.TrimSpace(string(output)), nil
+}
+
+// ApplyPublicMerge creates a branch, writes a single instruction file, commits, and cleans up.
+// This is the v2 counterpart of ApplyProposal for the repo-public layer.
+func ApplyPublicMerge(ctx context.Context, proposalID, bareDir, workBaseDir, filename, content, summary string) (*ApplyResult, error) {
+	branch := fmt.Sprintf("schmux/lore-%s", strings.TrimPrefix(proposalID, "prop-"))
+
+	defaultBranch, err := getDefaultBranch(ctx, bareDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get default branch: %w", err)
+	}
+
+	if err := runGit(ctx, bareDir, "branch", branch, defaultBranch); err != nil {
+		return nil, fmt.Errorf("failed to create branch: %w", err)
+	}
+
+	worktreePath := filepath.Join(workBaseDir, "lore-"+strings.TrimPrefix(proposalID, "prop-"))
+	if err := runGit(ctx, bareDir, "worktree", "add", worktreePath, branch); err != nil {
+		return nil, fmt.Errorf("failed to create worktree: %w", err)
+	}
+
+	defer func() {
+		runGit(context.Background(), bareDir, "worktree", "remove", "--force", worktreePath)
+	}()
+
+	runGit(ctx, worktreePath, "config", "user.email", "schmux@localhost")
+	runGit(ctx, worktreePath, "config", "user.name", "schmux-lore")
+
+	fullPath := filepath.Join(worktreePath, filepath.Clean(filename))
+	if !strings.HasPrefix(fullPath, filepath.Clean(worktreePath)+string(os.PathSeparator)) {
+		return nil, fmt.Errorf("path traversal in filename: %s", filename)
+	}
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+		return nil, fmt.Errorf("failed to create directory for %s: %w", filename, err)
+	}
+	if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+		return nil, fmt.Errorf("failed to write %s: %w", filename, err)
+	}
+
+	if err := runGit(ctx, worktreePath, "add", filename); err != nil {
+		return nil, fmt.Errorf("git add failed: %w", err)
+	}
+
+	msg := "chore: update instruction file with agent lore"
+	if summary != "" {
+		msg = fmt.Sprintf("chore: update instruction file with agent lore\n\n%s", summary)
+	}
+	if err := runGit(ctx, worktreePath, "commit", "-m", msg); err != nil {
+		return nil, fmt.Errorf("git commit failed: %w", err)
+	}
+
+	return &ApplyResult{Branch: branch}, nil
+}
+
+// ApplyToLayer writes merged content to a private instruction layer.
+// For LayerRepoPublic, use ApplyPublicMerge (git branch+commit) instead.
+func ApplyToLayer(store *InstructionStore, layer Layer, repo, content string) error {
+	if layer == LayerRepoPublic {
+		return fmt.Errorf("use ApplyPublicMerge for repo-public layer")
+	}
+	return store.Write(layer, repo, content)
 }
 
 func getDefaultBranch(ctx context.Context, bareDir string) (string, error) {

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -38,42 +39,68 @@ func run(t *testing.T, dir string, name string, args ...string) {
 	}
 }
 
-func TestApplyProposal(t *testing.T) {
-	bareDir := initBareRepo(t)
-	workDir := t.TempDir() // where temp worktrees go
+func TestApplyToPrivateLayer(t *testing.T) {
+	dir := t.TempDir()
+	store := NewInstructionStore(dir)
 
-	proposal := &Proposal{
-		ID:   "prop-test-001",
-		Repo: "myrepo",
-		ProposedFiles: map[string]string{
-			"CLAUDE.md": "# Project\n\n## Build\nAlways use go run ./cmd/build-dashboard\n",
-		},
+	err := ApplyToLayer(store, LayerRepoPrivate, "myrepo", "# Private Rules\n- Don't use internal tool X")
+	if err != nil {
+		t.Fatalf("apply failed: %v", err)
 	}
 
-	result, err := ApplyProposal(context.Background(), proposal, bareDir, workDir)
+	content, _ := store.Read(LayerRepoPrivate, "myrepo")
+	if !strings.Contains(content, "internal tool X") {
+		t.Error("private layer should contain applied content")
+	}
+}
+
+func TestApplyToGlobalLayer(t *testing.T) {
+	dir := t.TempDir()
+	store := NewInstructionStore(dir)
+
+	err := ApplyToLayer(store, LayerUserGlobal, "", "# Global\n- Prefer table-driven tests")
+	if err != nil {
+		t.Fatalf("apply failed: %v", err)
+	}
+
+	content, _ := store.Read(LayerUserGlobal, "")
+	if !strings.Contains(content, "table-driven") {
+		t.Error("global layer should contain applied content")
+	}
+}
+
+func TestApplyToLayer_RejectsPublic(t *testing.T) {
+	dir := t.TempDir()
+	store := NewInstructionStore(dir)
+
+	err := ApplyToLayer(store, LayerRepoPublic, "myrepo", "content")
+	if err == nil {
+		t.Error("expected error for repo_public layer")
+	}
+}
+
+func TestApplyPublicMerge(t *testing.T) {
+	bareDir := initBareRepo(t)
+	workDir := t.TempDir()
+
+	content := "# Updated CLAUDE.md\n\n- New rule from lore\n"
+	result, err := ApplyPublicMerge(context.Background(), "prop-20260304-ab12", bareDir, workDir, "CLAUDE.md", content, "Add build system rule")
 	if err != nil {
 		t.Fatalf("apply failed: %v", err)
 	}
 	if result.Branch == "" {
-		t.Error("expected a branch name")
+		t.Error("expected branch name")
 	}
 
-	// Verify the branch exists in the bare repo
-	cmd := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+result.Branch)
-	cmd.Dir = bareDir
-	if err := cmd.Run(); err != nil {
-		t.Errorf("branch %s should exist in bare repo", result.Branch)
-	}
-
-	// Verify the file content on the branch
+	// Verify file content on branch
 	showCmd := exec.Command("git", "show", result.Branch+":CLAUDE.md")
 	showCmd.Dir = bareDir
 	output, err := showCmd.Output()
 	if err != nil {
 		t.Fatalf("git show failed: %v", err)
 	}
-	if string(output) != "# Project\n\n## Build\nAlways use go run ./cmd/build-dashboard\n" {
-		t.Errorf("unexpected file content on branch: %s", string(output))
+	if !strings.Contains(string(output), "New rule from lore") {
+		t.Error("branch should contain merged content")
 	}
 
 	// Verify temp worktree was cleaned up

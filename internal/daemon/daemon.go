@@ -458,6 +458,9 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	// Create managers
 	ensure.SetLogger(logging.Sub(workspaceLog, "ensure"))
+	// Wire lore instruction store for private layer injection at spawn time
+	loreInstructionsDir := filepath.Join(homeDir, ".schmux", "instructions")
+	ensure.SetInstructionStore(lore.NewInstructionStore(loreInstructionsDir))
 	wm := workspace.New(cfg, st, statePath, workspaceLog)
 	sm := session.New(cfg, st, statePath, wm, sessionLog)
 
@@ -889,18 +892,19 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		// Wire lore store into dashboard server for API endpoints
 		server.SetLoreStore(loreStore)
 
-		loreCurator := &lore.Curator{
-			InstructionFiles: cfg.GetLoreInstructionFiles(),
-			BareRepo:         true,
-		}
+		// Wire lore instruction store for private layer management
+		loreInstructionsDir := filepath.Join(homeDir, ".schmux", "instructions")
+		server.SetLoreInstructionStore(lore.NewInstructionStore(loreInstructionsDir))
+
+		var loreExecutor func(ctx context.Context, prompt string, timeout time.Duration) (string, error)
 		if target := cfg.GetLoreTarget(); target != "" {
-			loreCurator.Executor = func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
-				return oneshot.ExecuteTarget(ctx, cfg, target, prompt, schema.LabelLoreCurator, timeout, "")
+			loreExecutor = func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
+				return oneshot.ExecuteTarget(ctx, cfg, target, prompt, "", timeout, "")
 			}
 		}
 
-		// Wire lore curator into dashboard server for manual curation endpoint
-		server.SetLoreCurator(loreCurator)
+		// Wire lore executor into dashboard server for curation endpoint
+		server.SetLoreExecutor(loreExecutor)
 
 		// Wire streaming executor for observable curation
 		if target := cfg.GetLoreTarget(); target != "" {
@@ -911,7 +915,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 		sm.SetLoreCallback(func(repoName, repoURL string, isLastSession bool) {
 			mode := cfg.GetLoreCurateOnDispose()
-			if mode == "never" || loreCurator.Executor == nil {
+			if mode == "never" || loreExecutor == nil {
 				return
 			}
 			if mode == "workspace" && !isLastSession {
@@ -950,24 +954,14 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 					return
 				}
 
-				repo, found := cfg.FindRepoByURL(repoURL)
+				_, found := cfg.FindRepoByURL(repoURL)
 				if !found {
 					loreLog.Warn("repo not found for URL", "url", repoURL)
 					return
 				}
-				bareDir := cfg.ResolveBareRepoDir(repo.BarePath)
 
-				// Build prompt explicitly (same as manual curation path)
-				instrFiles, fileHashes, err := loreCurator.ReadInstructionFiles(d.shutdownCtx, bareDir)
-				if err != nil {
-					loreLog.Error("auto-curate: failed to read instruction files", "repo", repoName, "err", err)
-					return
-				}
-				if len(instrFiles) == 0 {
-					loreLog.Error("auto-curate: no instruction files found", "repo", repoName)
-					return
-				}
-				prompt := lore.BuildCuratorPrompt(instrFiles, rawEntries)
+				// Build extraction prompt (phase 1 — no instruction files needed)
+				prompt := lore.BuildExtractionPrompt(rawEntries)
 
 				// Create per-run debug directory
 				curationID := fmt.Sprintf("auto-%s-%s", repoName, time.Now().UTC().Format("20060102-150405"))
@@ -1010,7 +1004,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 				curateCtx, curateCancel := context.WithTimeout(d.shutdownCtx, 10*time.Minute)
 				defer curateCancel()
 
-				response, err := loreCurator.Executor(curateCtx, prompt, 10*time.Minute)
+				response, err := loreExecutor(curateCtx, prompt, 10*time.Minute)
 				elapsed := time.Since(start)
 				if err != nil {
 					loreLog.Error("auto-curation failed", "elapsed", elapsed.Round(time.Millisecond), "err", err)
@@ -1019,29 +1013,46 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 				}
 				os.WriteFile(filepath.Join(runDir, "output.txt"), []byte(response), 0644)
 
-				result, err := lore.ParseCuratorResponse(response)
+				result, err := lore.ParseExtractionResponse(response)
 				if err != nil {
 					loreLog.Error("auto-curation parse failed", "elapsed", elapsed.Round(time.Millisecond), "err", err)
 					os.WriteFile(filepath.Join(runDir, "error.txt"), []byte(err.Error()), 0644)
 					return
 				}
 
-				proposal, err := lore.BuildProposal(repoName, result, instrFiles, fileHashes, rawEntries)
-				if err != nil {
-					loreLog.Error("auto-curation build proposal failed", "elapsed", elapsed.Round(time.Millisecond), "err", err)
-					os.WriteFile(filepath.Join(runDir, "error.txt"), []byte(err.Error()), 0644)
-					return
+				now := time.Now().UTC()
+				proposalID := fmt.Sprintf("prop-%s", now.Format("20060102-150405-")+curationID[len(curationID)-6:])
+				proposal := &lore.Proposal{
+					ID:        proposalID,
+					Repo:      repoName,
+					CreatedAt: now,
+					Status:    lore.ProposalPending,
+					Discarded: result.DiscardedEntries,
+				}
+				for i, er := range result.Rules {
+					proposal.Rules = append(proposal.Rules, lore.Rule{
+						ID:             fmt.Sprintf("r%d", i+1),
+						Text:           er.Text,
+						Category:       er.Category,
+						SuggestedLayer: lore.Layer(er.SuggestedLayer),
+						Status:         lore.RulePending,
+						SourceEntries:  er.SourceEntries,
+					})
 				}
 
 				if err := loreStore.Save(proposal); err != nil {
 					loreLog.Error("failed to save proposal", "err", err)
 					return
 				}
-				loreLog.Info("auto-curate: proposal created", "repo", repoName, "proposal_id", proposal.ID, "files", len(proposal.ProposedFiles), "entries_used", len(proposal.EntriesUsed), "elapsed", elapsed.Round(time.Millisecond))
+				loreLog.Info("auto-curate: proposal created", "repo", repoName, "proposal_id", proposal.ID, "rules", len(proposal.Rules), "elapsed", elapsed.Round(time.Millisecond))
 
 				// Mark source entries as "proposed" in the central state JSONL
 				if stateErr == nil {
-					if err := lore.MarkEntriesByTextFromEntries(rawEntries, statePath, "proposed", proposal.EntriesUsed, proposal.ID); err != nil {
+					var allSourceTexts []string
+					for _, r := range proposal.Rules {
+						allSourceTexts = append(allSourceTexts, r.SourceEntries...)
+					}
+					if err := lore.MarkEntriesByTextFromEntries(rawEntries, statePath, "proposed", allSourceTexts, proposal.ID); err != nil {
 						loreLog.Warn("failed to mark entries as proposed", "err", err)
 					}
 				}

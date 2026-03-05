@@ -3,130 +3,125 @@ package lore
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sergeknystautas/schmux/internal/schema"
 )
 
-func TestBuildCuratorPrompt(t *testing.T) {
-	files := map[string]string{
-		"CLAUDE.md": "# Project\n\n## Build\ngo build",
-	}
+func TestBuildExtractionPrompt(t *testing.T) {
 	entries := []Entry{
-		{Text: "use go run ./cmd/build-dashboard", Type: "reflection", Agent: "claude-code"},
+		{Text: "use go run ./cmd/build-dashboard", Type: "reflection", Agent: "claude-code", Workspace: "ws-1"},
+		{Tool: "Bash", InputSummary: "npm run build", ErrorSummary: "command not found", Type: "failure", Category: "wrong_command", Agent: "claude-code", Workspace: "ws-1"},
 	}
-	prompt := BuildCuratorPrompt(files, entries)
-	if !strings.Contains(prompt, "CLAUDE.md") {
-		t.Error("prompt should contain filename")
-	}
-	if !strings.Contains(prompt, "go build") {
-		t.Error("prompt should contain file content")
+	prompt := BuildExtractionPrompt(entries)
+
+	// Should contain friction data
+	if !strings.Contains(prompt, "npm run build") {
+		t.Error("prompt should contain failure input")
 	}
 	if !strings.Contains(prompt, "use go run ./cmd/build-dashboard") {
-		t.Error("prompt should contain entry text")
+		t.Error("prompt should contain reflection text")
+	}
+	// Should NOT contain instruction file content (extraction is blind)
+	if strings.Contains(prompt, "INSTRUCTION FILES") {
+		t.Error("extraction prompt must not include instruction files")
+	}
+	// Should request discrete rules output
+	if !strings.Contains(prompt, "rules") {
+		t.Error("prompt should request rules output")
 	}
 }
 
-func TestParseCuratorResponse(t *testing.T) {
+func TestParseExtractionResponse(t *testing.T) {
 	response := `{
-		"proposed_files": {"CLAUDE.md": "# Updated"},
-		"diff_summary": "Added 1 item",
-		"entries_used": ["entry-1"],
-		"entries_discarded": {"entry-2": "already covered"}
+		"rules": [
+			{
+				"text": "Use go run ./cmd/build-dashboard instead of npm",
+				"category": "build",
+				"suggested_layer": "repo_public",
+				"source_entries": ["2026-03-04T10:00:00Z"]
+			}
+		],
+		"discarded_entries": ["2026-03-04T08:00:00Z"]
 	}`
-	result, err := ParseCuratorResponse(response)
+	result, err := ParseExtractionResponse(response)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.ProposedFiles["CLAUDE.md"] != "# Updated" {
-		t.Errorf("unexpected proposed content: %s", result.ProposedFiles["CLAUDE.md"])
+	if len(result.Rules) != 1 {
+		t.Fatalf("expected 1 rule, got %d", len(result.Rules))
 	}
-	if result.DiffSummary != "Added 1 item" {
-		t.Errorf("unexpected summary: %s", result.DiffSummary)
+	if result.Rules[0].Category != "build" {
+		t.Errorf("unexpected category: %s", result.Rules[0].Category)
+	}
+	if result.Rules[0].SuggestedLayer != "repo_public" {
+		t.Errorf("unexpected layer: %s", result.Rules[0].SuggestedLayer)
 	}
 }
 
-func TestCurate_NoRawEntries(t *testing.T) {
-	dir := t.TempDir()
-	repoDir := filepath.Join(dir, "repo")
-	os.MkdirAll(repoDir, 0755)
-	os.WriteFile(filepath.Join(repoDir, "CLAUDE.md"), []byte("# Project"), 0644)
-
-	// Empty lore file
-	lorePath := filepath.Join(dir, "lore.jsonl")
-	os.WriteFile(lorePath, []byte(""), 0644)
-
-	c := &Curator{
-		InstructionFiles: []string{"CLAUDE.md"},
+func TestBuildExtractionPrompt_SeparatesFailuresAndReflections(t *testing.T) {
+	entries := []Entry{
+		{Agent: "claude-code", Type: "failure", Tool: "Bash", InputSummary: "npm run build", ErrorSummary: "Missing script", Category: "wrong_command", Workspace: "ws-1"},
+		{Agent: "claude-code", Type: "reflection", Text: "Use go run ./cmd/build-dashboard", Workspace: "ws-1"},
+		{Agent: "codex", Type: "friction", Text: "Session manager is in internal/session/", Workspace: "ws-2"},
 	}
-	proposal, err := c.Curate(context.Background(), "myrepo", repoDir, lorePath)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	prompt := BuildExtractionPrompt(entries)
+
+	if !strings.Contains(prompt, "FAILURE RECORDS:") {
+		t.Error("prompt should contain FAILURE RECORDS section")
 	}
-	if proposal != nil {
-		t.Error("expected nil proposal when there are no raw entries")
+	if !strings.Contains(prompt, "FRICTION REFLECTIONS:") {
+		t.Error("prompt should contain FRICTION REFLECTIONS section")
+	}
+	if !strings.Contains(prompt, "[Bash]") {
+		t.Error("prompt should contain tool name in failure record")
+	}
+	if !strings.Contains(prompt, "[wrong_command]") {
+		t.Error("prompt should contain category in failure record")
+	}
+	if !strings.Contains(prompt, "SYNTHESIZE") {
+		t.Error("prompt should contain SYNTHESIZE instruction")
 	}
 }
 
-func TestCurate_WithEntries(t *testing.T) {
-	dir := t.TempDir()
-	repoDir := filepath.Join(dir, "repo")
-	os.MkdirAll(repoDir, 0755)
-	os.WriteFile(filepath.Join(repoDir, "CLAUDE.md"), []byte("# Project"), 0644)
+func TestBuildExtractionPrompt_DeduplicatesEntries(t *testing.T) {
+	entries := []Entry{
+		{Agent: "claude-code", Type: "failure", Tool: "Bash", InputSummary: "cargo test --all", ErrorSummary: "compilation failed", Category: "build_error", Workspace: "ws-1"},
+		{Agent: "claude-code", Type: "failure", Tool: "Bash", InputSummary: "cargo test --all", ErrorSummary: "compilation failed", Category: "build_error", Workspace: "ws-2"},
+		{Agent: "claude-code", Type: "reflection", Text: "use the cargo wrapper script", Workspace: "ws-1"},
+		{Agent: "claude-code", Type: "reflection", Text: "use the cargo wrapper script", Workspace: "ws-2"},
+	}
+	prompt := BuildExtractionPrompt(entries)
 
-	lorePath := filepath.Join(dir, "lore.jsonl")
-	AppendEntry(lorePath, Entry{
-		Timestamp: time.Now().UTC(),
-		Workspace: "ws-1",
-		Agent:     "claude-code",
-		Type:      "reflection",
-		Text:      "always run tests with --race",
-	})
+	// Each should appear only once despite duplicates
+	if strings.Count(prompt, "cargo test --all") != 1 {
+		t.Errorf("duplicate failure should be deduped, found %d occurrences", strings.Count(prompt, "cargo test --all"))
+	}
+	if strings.Count(prompt, "use the cargo wrapper script") != 1 {
+		t.Errorf("duplicate reflection should be deduped, found %d occurrences", strings.Count(prompt, "use the cargo wrapper script"))
+	}
+}
 
-	// Mock LLM that returns a valid curator response
-	mockExecutor := func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
-		resp := CuratorResponse{
-			ProposedFiles:    map[string]string{"CLAUDE.md": "# Project\n\n## Testing\nRun with --race flag."},
-			DiffSummary:      "Added testing section",
-			EntriesUsed:      []string{"always run tests with --race"},
-			EntriesDiscarded: map[string]string{},
-		}
-		data, _ := json.Marshal(resp)
-		return string(data), nil
+func TestBuildExtractionPrompt_SkipsEmptyReflections(t *testing.T) {
+	entries := []Entry{
+		{Agent: "claude-code", Type: "reflection", Text: "", Workspace: "ws-1"},
+		{Agent: "claude-code", Type: "reflection", Text: "none", Workspace: "ws-1"},
+		{Agent: "claude-code", Type: "reflection", Text: "actual insight", Workspace: "ws-1"},
 	}
+	prompt := BuildExtractionPrompt(entries)
 
-	c := &Curator{
-		InstructionFiles: []string{"CLAUDE.md"},
-		Executor:         mockExecutor,
+	if !strings.Contains(prompt, "actual insight") {
+		t.Error("should contain real reflection text")
 	}
-
-	proposal, err := c.Curate(context.Background(), "myrepo", repoDir, lorePath)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if proposal == nil {
-		t.Fatal("expected non-nil proposal")
-	}
-	if proposal.DiffSummary != "Added testing section" {
-		t.Errorf("unexpected summary: %s", proposal.DiffSummary)
-	}
-	if _, ok := proposal.ProposedFiles["CLAUDE.md"]; !ok {
-		t.Error("expected CLAUDE.md in proposed files")
-	}
-	if proposal.Repo != "myrepo" {
-		t.Errorf("expected repo=myrepo, got %s", proposal.Repo)
-	}
-	if proposal.CurrentFiles["CLAUDE.md"] != "# Project" {
-		t.Errorf("expected current file content '# Project', got %q", proposal.CurrentFiles["CLAUDE.md"])
+	// Should not contain empty or "none" entries
+	if strings.Contains(prompt, "NONE") || strings.Contains(prompt, "\nnone\n") {
+		t.Error("should skip 'none' reflections")
 	}
 }
 
 func TestReadFileFromBareRepo(t *testing.T) {
-	bareDir := initBareRepo(t) // reuse helper from apply_test.go
+	bareDir := initBareRepo(t)
 	content, err := ReadFileFromRepo(context.Background(), bareDir, "CLAUDE.md")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -144,8 +139,7 @@ func TestReadFileFromBareRepo_NotFound(t *testing.T) {
 	}
 }
 
-func TestCuratorResponseSchemaRegistered(t *testing.T) {
-	// Verify the lore-curator schema is registered (via init()) and produces valid JSON
+func TestExtractionResponseSchemaRegistered(t *testing.T) {
 	schemaJSON, err := schema.Get(schema.LabelLoreCurator)
 	if err != nil {
 		t.Fatalf("lore-curator schema not registered: %v", err)
@@ -160,108 +154,101 @@ func TestCuratorResponseSchemaRegistered(t *testing.T) {
 		t.Errorf("expected schema type=object, got %v", parsed["type"])
 	}
 
-	// Verify all CuratorResponse fields appear in the schema properties
 	props, ok := parsed["properties"].(map[string]interface{})
 	if !ok {
 		t.Fatal("expected properties to be an object")
 	}
-	for _, field := range []string{"proposed_files", "diff_summary", "entries_used", "entries_discarded"} {
+	for _, field := range []string{"rules", "discarded_entries"} {
 		if _, exists := props[field]; !exists {
 			t.Errorf("expected property %q in schema", field)
 		}
 	}
 }
 
-func TestCurate_WithFailureEntries(t *testing.T) {
-	dir := t.TempDir()
-	repoDir := filepath.Join(dir, "repo")
-	os.MkdirAll(repoDir, 0755)
-	os.WriteFile(filepath.Join(repoDir, "CLAUDE.md"), []byte("# Project"), 0644)
-
-	lorePath := filepath.Join(dir, "lore.jsonl")
-	AppendEntry(lorePath, Entry{
-		Timestamp:    time.Now().UTC(),
-		Workspace:    "ws-1",
-		Agent:        "claude-code",
-		Type:         "failure",
-		Tool:         "Bash",
-		InputSummary: "npm run build",
-		ErrorSummary: "Missing script",
-		Category:     "wrong_command",
-	})
-	AppendEntry(lorePath, Entry{
-		Timestamp: time.Now().Add(time.Second).UTC(),
-		Workspace: "ws-1",
-		Agent:     "claude-code",
-		Type:      "reflection",
-		Text:      "use go run ./cmd/build-dashboard",
-	})
-
-	mockExecutor := func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
-		resp := CuratorResponse{
-			ProposedFiles:    map[string]string{"CLAUDE.md": "# Project\n\nUse go run ./cmd/build-dashboard"},
-			DiffSummary:      "Added build command",
-			EntriesUsed:      []string{"Bash: npm run build", "use go run ./cmd/build-dashboard"},
-			EntriesDiscarded: map[string]string{},
-		}
-		data, _ := json.Marshal(resp)
-		return string(data), nil
+func TestParseExtractionResponse_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		wantErr   bool
+		wantRules int // expected number of rules if no error
+	}{
+		{
+			name:      "bare JSON",
+			input:     `{"rules":[{"text":"rule1","category":"build","suggested_layer":"repo_public","source_entries":[]}],"discarded_entries":[]}`,
+			wantRules: 1,
+		},
+		{
+			name:      "json fenced",
+			input:     "```json\n{\"rules\":[],\"discarded_entries\":[]}\n```",
+			wantRules: 0,
+		},
+		{
+			name:      "plain fenced",
+			input:     "```\n{\"rules\":[],\"discarded_entries\":[]}\n```",
+			wantRules: 0,
+		},
+		{
+			name:      "leading whitespace",
+			input:     "  \n  {\"rules\":[],\"discarded_entries\":[]}  \n  ",
+			wantRules: 0,
+		},
+		{
+			name:    "empty input",
+			input:   "",
+			wantErr: true,
+		},
+		{
+			name:    "whitespace only",
+			input:   "   \n  ",
+			wantErr: true,
+		},
+		{
+			name:    "invalid JSON",
+			input:   "{not valid json}",
+			wantErr: true,
+		},
+		{
+			name:      "missing closing fence",
+			input:     "```json\n{\"rules\":[],\"discarded_entries\":[]}",
+			wantRules: 0,
+		},
+		{
+			name:      "optional fields missing",
+			input:     `{"rules":[]}`,
+			wantRules: 0,
+		},
+		{
+			name:      "fence with trailing text",
+			input:     "```json\n{\"rules\":[],\"discarded_entries\":[]}\n```\nsome trailing text",
+			wantRules: 0,
+		},
+		{
+			name:      "text before fence",
+			input:     "Here is my analysis of the failures.\n\n```json\n{\"rules\":[],\"discarded_entries\":[]}\n```",
+			wantRules: 0,
+		},
+		{
+			name:      "text before and after fence",
+			input:     "Let me analyze...\n\nHere's my proposal:\n\n```json\n{\"rules\":[],\"discarded_entries\":[]}\n```\n\nThat covers the main issues.",
+			wantRules: 0,
+		},
 	}
 
-	c := &Curator{
-		InstructionFiles: []string{"CLAUDE.md"},
-		Executor:         mockExecutor,
-	}
-
-	proposal, err := c.Curate(context.Background(), "myrepo", repoDir, lorePath)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if proposal == nil {
-		t.Fatal("expected non-nil proposal")
-	}
-	if len(proposal.EntriesUsed) != 2 {
-		t.Errorf("expected 2 entries_used, got %d", len(proposal.EntriesUsed))
-	}
-}
-
-func TestBuildCuratorPrompt_SeparatesFailuresAndReflections(t *testing.T) {
-	files := map[string]string{
-		"CLAUDE.md": "# Project\n\n## Build\ngo build",
-	}
-	entries := []Entry{
-		{Agent: "claude-code", Type: "failure", Tool: "Bash", InputSummary: "npm run build", ErrorSummary: "Missing script", Category: "wrong_command", Workspace: "ws-1"},
-		{Agent: "claude-code", Type: "reflection", Text: "Use go run ./cmd/build-dashboard", Workspace: "ws-1"},
-		{Agent: "codex", Type: "friction", Text: "Session manager is in internal/session/", Workspace: "ws-2"},
-	}
-	prompt := BuildCuratorPrompt(files, entries)
-
-	// Should have separate sections
-	if !strings.Contains(prompt, "FAILURE RECORDS:") {
-		t.Error("prompt should contain FAILURE RECORDS section")
-	}
-	if !strings.Contains(prompt, "FRICTION REFLECTIONS:") {
-		t.Error("prompt should contain FRICTION REFLECTIONS section")
-	}
-
-	// Failures should be formatted with tool and category
-	if !strings.Contains(prompt, "[Bash]") {
-		t.Error("prompt should contain tool name in failure record")
-	}
-	if !strings.Contains(prompt, "[wrong_command]") {
-		t.Error("prompt should contain category in failure record")
-	}
-	if !strings.Contains(prompt, "npm run build") {
-		t.Error("prompt should contain input summary")
-	}
-
-	// Reflections should contain text
-	if !strings.Contains(prompt, "Use go run ./cmd/build-dashboard") {
-		t.Error("prompt should contain reflection text")
-	}
-
-	// Should contain synthesize rule in system prompt
-	if !strings.Contains(prompt, "SYNTHESIZE") {
-		t.Error("prompt should contain SYNTHESIZE instruction")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseExtractionResponse(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("ParseExtractionResponse() expected error, got %+v", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseExtractionResponse() unexpected error: %v", err)
+			}
+			if len(got.Rules) != tt.wantRules {
+				t.Errorf("Rules count = %d, want %d", len(got.Rules), tt.wantRules)
+			}
+		})
 	}
 }

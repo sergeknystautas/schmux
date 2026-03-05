@@ -208,10 +208,8 @@ test.describe.serial('Escbuf holdback & gap replay fixes', () => {
     );
     await waitForSentinel(sessionId, sentinel);
 
-    // Settling time for any gap replay to complete.
-    // 5000 ANSI-colored lines generate significant xterm.js rendering work;
-    // 1 second was insufficient under Docker CPU contention.
-    await new Promise((r) => setTimeout(r, 3000));
+    // Settling time for any gap replay to complete
+    await new Promise((r) => setTimeout(r, 1000));
 
     const snapshot = await getGapSnapshot(page);
 

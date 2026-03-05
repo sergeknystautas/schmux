@@ -1,8 +1,6 @@
 package lore
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -15,52 +13,113 @@ import (
 	"github.com/charmbracelet/log"
 )
 
+// Layer represents an instruction storage destination.
+type Layer string
+
+const (
+	LayerRepoPublic  Layer = "repo_public"
+	LayerRepoPrivate Layer = "repo_private"
+	LayerUserGlobal  Layer = "user_global"
+)
+
+// RuleStatus represents the review state of an individual rule.
+type RuleStatus string
+
+const (
+	RulePending   RuleStatus = "pending"
+	RuleApproved  RuleStatus = "approved"
+	RuleDismissed RuleStatus = "dismissed"
+)
+
+// Rule is a discrete, self-contained instruction extracted by the curator.
+type Rule struct {
+	ID             string     `json:"id"`
+	Text           string     `json:"text"`
+	Category       string     `json:"category"`
+	SuggestedLayer Layer      `json:"suggested_layer"`
+	ChosenLayer    *Layer     `json:"chosen_layer,omitempty"`
+	Status         RuleStatus `json:"status"`
+	SourceEntries  []string   `json:"source_entries"`
+	MergedAt       *time.Time `json:"merged_at,omitempty"`
+}
+
+// EffectiveLayer returns ChosenLayer if set, otherwise SuggestedLayer.
+func (r *Rule) EffectiveLayer() Layer {
+	if r.ChosenLayer != nil {
+		return *r.ChosenLayer
+	}
+	return r.SuggestedLayer
+}
+
+// RuleUpdate holds optional fields for updating a rule.
+type RuleUpdate struct {
+	Status      RuleStatus
+	Text        *string
+	ChosenLayer *Layer
+}
+
 // ProposalStatus represents the lifecycle state of a proposal.
 type ProposalStatus string
 
 const (
 	ProposalPending   ProposalStatus = "pending"
-	ProposalStale     ProposalStatus = "stale"
+	ProposalMerging   ProposalStatus = "merging"
 	ProposalApplied   ProposalStatus = "applied"
 	ProposalDismissed ProposalStatus = "dismissed"
 )
 
-// Proposal represents a curator-generated merge proposal.
+// Proposal represents a curation run's output: a set of discrete rules.
 type Proposal struct {
-	ID               string            `json:"id"`
-	Repo             string            `json:"repo"`
-	CreatedAt        time.Time         `json:"created_at"`
-	Status           ProposalStatus    `json:"status"`
-	SourceCount      int               `json:"source_count"`
-	Sources          []string          `json:"sources"`
-	FileHashes       map[string]string `json:"file_hashes"`
+	ID        string         `json:"id"`
+	Repo      string         `json:"repo"`
+	CreatedAt time.Time      `json:"created_at"`
+	Status    ProposalStatus `json:"status"`
+	Rules     []Rule         `json:"rules"`
+	Discarded []string       `json:"discarded,omitempty"`
+
+	// Merge preview state — populated by the background merge job.
+	MergePreviews []MergePreview `json:"merge_previews,omitempty"`
+	MergeError    string         `json:"merge_error,omitempty"`
+
+	// Deprecated: v1 fields kept for backward compatibility during migration.
+	// These will be removed in the cleanup task once all consumers are updated.
+	SourceCount      int               `json:"source_count,omitempty"`
+	Sources          []string          `json:"sources,omitempty"`
+	FileHashes       map[string]string `json:"file_hashes,omitempty"`
 	CurrentFiles     map[string]string `json:"current_files,omitempty"`
-	ProposedFiles    map[string]string `json:"proposed_files"`
-	DiffSummary      string            `json:"diff_summary"`
-	EntriesUsed      []string          `json:"entries_used"`
+	ProposedFiles    map[string]string `json:"proposed_files,omitempty"`
+	DiffSummary      string            `json:"diff_summary,omitempty"`
+	EntriesUsed      []string          `json:"entries_used,omitempty"`
 	EntriesDiscarded map[string]string `json:"entries_discarded,omitempty"`
 }
 
-// IsStale checks whether any instruction file has changed since the proposal was created.
-// NOTE: This uses os.ReadFile and only works with non-bare repos that have a working tree.
-// For bare repos, callers should use git-show to read files instead.
-func (p *Proposal) IsStale(repoDir string) (bool, error) {
-	for relPath, expectedHash := range p.FileHashes {
-		fullPath := filepath.Join(repoDir, relPath)
-		content, err := os.ReadFile(fullPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return true, nil // file deleted = stale
-			}
-			return false, err
-		}
-		hash := sha256.Sum256(content)
-		actualHash := "sha256:" + hex.EncodeToString(hash[:])
-		if actualHash != expectedHash {
-			return true, nil
+// MergePreview holds a per-layer merge result for the frontend.
+type MergePreview struct {
+	Layer          Layer  `json:"layer"`
+	CurrentContent string `json:"current_content"`
+	MergedContent  string `json:"merged_content"`
+	Summary        string `json:"summary"`
+}
+
+// AllRulesResolved returns true if every rule is approved or dismissed.
+func (p *Proposal) AllRulesResolved() bool {
+	for _, r := range p.Rules {
+		if r.Status == RulePending {
+			return false
 		}
 	}
-	return false, nil
+	return true
+}
+
+// ApprovedRulesByLayer groups approved rules by their effective layer.
+func (p *Proposal) ApprovedRulesByLayer() map[Layer][]Rule {
+	groups := make(map[Layer][]Rule)
+	for _, r := range p.Rules {
+		if r.Status == RuleApproved {
+			groups[r.EffectiveLayer()] = append(groups[r.EffectiveLayer()], r)
+		}
+	}
+	return groups
 }
 
 // ProposalStore manages proposals on disk at baseDir/<repo>/<id>.json.
@@ -205,12 +264,33 @@ func (s *ProposalStore) UpdateStatus(repo, id string, status ProposalStatus) err
 	return s.Save(p)
 }
 
-// HashFileContent returns a "sha256:<hex>" hash of a file's content.
-func HashFileContent(path string) (string, error) {
-	content, err := os.ReadFile(path)
+// UpdateRule updates a specific rule within a proposal.
+func (s *ProposalStore) UpdateRule(repo, proposalID, ruleID string, update RuleUpdate) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	p, err := s.Get(repo, proposalID)
 	if err != nil {
-		return "", err
+		return err
 	}
-	hash := sha256.Sum256(content)
-	return "sha256:" + hex.EncodeToString(hash[:]), nil
+	found := false
+	for i := range p.Rules {
+		if p.Rules[i].ID == ruleID {
+			if update.Status != "" {
+				p.Rules[i].Status = update.Status
+			}
+			if update.Text != nil {
+				p.Rules[i].Text = *update.Text
+			}
+			if update.ChosenLayer != nil {
+				p.Rules[i].ChosenLayer = update.ChosenLayer
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("rule %s not found in proposal %s", ruleID, proposalID)
+	}
+	return s.Save(p)
 }

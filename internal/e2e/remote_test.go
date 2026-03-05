@@ -494,8 +494,8 @@ func TestE2ERemoteHooksProvisioning(t *testing.T) {
 	}()
 
 	// Add a mock command target for testing, then reload.
-	// "claude" resolves via the builtin tool name fallback in ResolveTarget,
-	// so we add a separate command target for non-hooks spawn tests.
+	// "claude" is a builtin tool name resolved by the model manager,
+	// so we add a custom command target for the spawn test.
 	t.Run("InjectTestTarget", func(t *testing.T) {
 		env.AddCommandTargetToConfig("test-agent", "sh -c 'echo hello; sleep 600'")
 		env.ReloadConfig()

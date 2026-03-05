@@ -2,213 +2,71 @@ package lore
 
 import (
 	"context"
-	crypto_rand "crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
-	"sort"
 	"strings"
-	"time"
 
 	"github.com/sergeknystautas/schmux/internal/schema"
 )
 
 func init() {
-	schema.Register(schema.LabelLoreCurator, CuratorResponse{})
+	schema.Register(schema.LabelLoreCurator, ExtractionResponse{})
 }
 
-// Curator reads raw lore entries and instruction files, calls an LLM to produce a merge proposal.
-type Curator struct {
-	InstructionFiles []string
-	Executor         func(ctx context.Context, prompt string, timeout time.Duration) (string, error)
-	BareRepo         bool // if true, read instruction files from bare repo via git show
+// ExtractionResponse is the expected JSON output from the extraction curator LLM.
+type ExtractionResponse struct {
+	Rules            []ExtractedRule `json:"rules"`
+	DiscardedEntries []string        `json:"discarded_entries"`
 }
 
-// CuratorResponse is the expected JSON output from the curator LLM.
-type CuratorResponse struct {
-	ProposedFiles    map[string]string `json:"proposed_files"`
-	DiffSummary      string            `json:"diff_summary"`
-	EntriesUsed      []string          `json:"entries_used"`
-	EntriesDiscarded map[string]string `json:"entries_discarded"`
+// ExtractedRule is a discrete rule extracted by the curator LLM.
+type ExtractedRule struct {
+	Text           string   `json:"text"`
+	Category       string   `json:"category"`
+	SuggestedLayer string   `json:"suggested_layer"`
+	SourceEntries  []string `json:"source_entries"`
 }
 
-// Curate reads raw entries and instruction files, calls the LLM, and returns a Proposal.
-// Returns nil if there are no raw entries to curate.
-func (c *Curator) Curate(ctx context.Context, repoName, repoDir, lorePath string) (*Proposal, error) {
-	// Read raw entries
-	entries, err := ReadEntries(lorePath, FilterRaw())
-	if err != nil {
-		return nil, fmt.Errorf("failed to read lore entries: %w", err)
-	}
-	if len(entries) == 0 {
-		return nil, nil
-	}
-
-	return c.CurateWithEntries(ctx, repoName, repoDir, entries)
-}
-
-// CurateWithEntries takes pre-read entries and instruction files, calls the LLM, and returns a Proposal.
-// Returns nil if entries is empty.
-func (c *Curator) CurateWithEntries(ctx context.Context, repoName, repoDir string, entries []Entry) (*Proposal, error) {
-	if len(entries) == 0 {
-		return nil, nil
-	}
-
-	instrFiles, fileHashes, err := c.ReadInstructionFiles(ctx, repoDir)
-	if err != nil {
-		return nil, err
-	}
-	if len(instrFiles) == 0 {
-		return nil, fmt.Errorf("no instruction files found in %s", repoDir)
-	}
-
-	// Build prompt and call LLM
-	prompt := BuildCuratorPrompt(instrFiles, entries)
-	response, err := c.Executor(ctx, prompt, 10*time.Minute)
-	if err != nil {
-		return nil, fmt.Errorf("curator LLM call failed: %w", err)
-	}
-
-	result, err := ParseCuratorResponse(response)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse curator response: %w", err)
-	}
-
-	return BuildProposal(repoName, result, instrFiles, fileHashes, entries)
-}
-
-// ReadInstructionFiles reads instruction files from disk or bare repo,
-// returning file contents and SHA-256 hashes. Files that don't exist are skipped.
-func (c *Curator) ReadInstructionFiles(ctx context.Context, repoDir string) (contents map[string]string, hashes map[string]string, err error) {
-	contents = make(map[string]string)
-	hashes = make(map[string]string)
-	for _, name := range c.InstructionFiles {
-		var contentBytes []byte
-		if c.BareRepo {
-			contentStr, err := ReadFileFromRepo(ctx, repoDir, name)
-			if err != nil {
-				continue // file not in repo
-			}
-			contentBytes = []byte(contentStr)
-		} else {
-			var err error
-			contentBytes, err = os.ReadFile(filepath.Join(repoDir, name))
-			if err != nil {
-				if os.IsNotExist(err) {
-					continue
-				}
-				return nil, nil, fmt.Errorf("failed to read %s: %w", name, err)
-			}
-		}
-		contents[name] = string(contentBytes)
-		hash := sha256.Sum256(contentBytes)
-		hashes[name] = "sha256:" + hex.EncodeToString(hash[:])
-	}
-	return contents, hashes, nil
-}
-
-// BuildProposal validates a CuratorResponse against the input data and assembles a Proposal.
-func BuildProposal(repoName string, result *CuratorResponse, instrFiles, fileHashes map[string]string, entries []Entry) (*Proposal, error) {
-	// Validate LLM response: proposed file keys must exist in instruction files
-	for key := range result.ProposedFiles {
-		if _, ok := instrFiles[key]; !ok {
-			return nil, fmt.Errorf("curator proposed unknown file: %s", key)
-		}
-	}
-
-	// Validate LLM response: entries_used must exist in input entries
-	entryKeySet := make(map[string]bool, len(entries))
-	for _, e := range entries {
-		entryKeySet[e.EntryKey()] = true
-	}
-	for _, usedKey := range result.EntriesUsed {
-		if !entryKeySet[usedKey] {
-			return nil, fmt.Errorf("curator referenced unknown entry: %s", usedKey)
-		}
-	}
-
-	// Collect unique source workspaces
-	sourceSet := make(map[string]bool)
-	for _, e := range entries {
-		if e.Workspace != "" {
-			sourceSet[e.Workspace] = true
-		}
-	}
-	var sources []string
-	for ws := range sourceSet {
-		sources = append(sources, ws)
-	}
-	sort.Strings(sources)
-
-	now := time.Now().UTC()
-	// Generate 4 random hex chars to avoid proposal ID collision
-	randBytes := make([]byte, 2)
-	if _, err := crypto_rand.Read(randBytes); err != nil {
-		return nil, fmt.Errorf("failed to generate random bytes: %w", err)
-	}
-	suffix := fmt.Sprintf("%x", randBytes)
-	proposal := &Proposal{
-		ID:               fmt.Sprintf("prop-%s-%s", now.Format("20060102-150405"), suffix),
-		Repo:             repoName,
-		CreatedAt:        now,
-		Status:           ProposalPending,
-		SourceCount:      len(entries),
-		Sources:          sources,
-		FileHashes:       fileHashes,
-		CurrentFiles:     instrFiles,
-		ProposedFiles:    result.ProposedFiles,
-		DiffSummary:      result.DiffSummary,
-		EntriesUsed:      result.EntriesUsed,
-		EntriesDiscarded: result.EntriesDiscarded,
-	}
-
-	return proposal, nil
-}
-
-// BuildCuratorPrompt constructs the LLM prompt for curating lore into instruction files.
-func BuildCuratorPrompt(instrFiles map[string]string, entries []Entry) string {
+// BuildExtractionPrompt constructs the LLM prompt for extracting discrete rules from friction data.
+// Extraction is blind — it does NOT include instruction files.
+func BuildExtractionPrompt(entries []Entry) string {
 	var sb strings.Builder
-	sb.WriteString(`You are a curator for a software project's agent instruction files.
+	sb.WriteString(`You are a rule extractor for a multi-agent software development environment.
 
-You will receive:
-1. Failure records: tool calls that failed during agent work sessions
-2. Friction reflections: agent-reported papercuts and wrong assumptions
-3. The current content of all instruction files
+You will receive failure records and friction reflections from agent work sessions.
+Your job is to extract discrete, actionable rules that prevent future agents from
+repeating these mistakes.
 
-Your job is to produce a merge proposal — changes to the instruction files that
-prevent future agents from repeating these mistakes.
-
-Rules:
+Rules for extraction:
 - SYNTHESIZE: Turn failure patterns into actionable rules
   (e.g., 5 "npm run build" failures → "Always use go run ./cmd/build-dashboard")
 - DEDUPLICATE: Multiple agents hitting the same wall → one rule
 - FILTER: Discard one-off failures that don't indicate systemic issues
-  (e.g., a single typo in a file path is not lore-worthy)
-- FILTER: Discard failures already covered by existing instructions
-- ROUTE: Universal rules → all instruction files. Agent-specific → that file only
-- CATEGORIZE: Place under appropriate existing section, or propose new section
-- PRESERVE VOICE: Match tone, formatting, and style of each file
-- NEVER REMOVE existing content — only add or refine
+  (e.g., a single typo in a file path is not rule-worthy)
 - Write rules as imperatives: "Use X, not Y" / "Always run X before Y"
+- Each rule must be self-contained — understandable without the original failure context
+- Assign each rule a category (e.g., "build", "testing", "environment", "workflow")
+- Assign a suggested_layer:
+  - "repo_public": rules specific to this repository, safe to commit (e.g., build commands, project structure)
+  - "repo_private": rules specific to this repository but private (e.g., internal tooling, personal preferences)
+  - "user_global": rules that apply across all repositories (e.g., agent behavior, environment setup)
 - Output ONLY valid JSON matching the schema below, no markdown fencing
 
 Output schema:
 {
-  "proposed_files": {"<filename>": "<full proposed content>", ...},
-  "diff_summary": "<one-line summary of changes>",
-  "entries_used": ["<for reflections: the text; for failures: 'Tool: input_summary'>", ...],
-  "entries_discarded": {"<entry text or input_summary>": "<reason for discarding>", ...}
+  "rules": [
+    {
+      "text": "Always use go run ./cmd/build-dashboard instead of npm run build",
+      "category": "build",
+      "suggested_layer": "repo_public",
+      "source_entries": ["<timestamp or entry key that led to this rule>"]
+    }
+  ],
+  "discarded_entries": ["<timestamp or entry key of discarded entries>"]
 }
 
-INSTRUCTION FILES:
 `)
-	for name, content := range instrFiles {
-		fmt.Fprintf(&sb, "\n=== %s ===\n%s\n", name, content)
-	}
 
 	// Separate entries by type and deduplicate
 	var failures, reflections []Entry
@@ -223,7 +81,6 @@ INSTRUCTION FILES:
 			failureSeen[key] = true
 			failures = append(failures, e)
 		} else {
-			// Skip empty/none reflections — agents sometimes write "none" when they have nothing to report
 			text := strings.TrimSpace(e.Text)
 			if text == "" || strings.EqualFold(text, "none") {
 				continue
@@ -237,7 +94,7 @@ INSTRUCTION FILES:
 	}
 
 	if len(failures) > 0 {
-		sb.WriteString("\nFAILURE RECORDS:\n")
+		sb.WriteString("FAILURE RECORDS:\n")
 		for _, e := range failures {
 			fmt.Fprintf(&sb, "- [%s] [%s] [%s] [%s] command: %q → error: %q\n",
 				e.Agent, e.Tool, e.Category, e.Workspace, e.InputSummary, e.ErrorSummary)
@@ -254,27 +111,42 @@ INSTRUCTION FILES:
 	return sb.String()
 }
 
-// ParseCuratorResponse parses the LLM JSON response into a CuratorResponse.
-func ParseCuratorResponse(response string) (*CuratorResponse, error) {
-	// Strip markdown fencing if present
+// ParseExtractionResponse parses the LLM JSON response into an ExtractionResponse.
+func ParseExtractionResponse(response string) (*ExtractionResponse, error) {
 	response = strings.TrimSpace(response)
-	if strings.HasPrefix(response, "```") {
-		// Strip only the first and last fence lines
-		firstNewline := strings.Index(response, "\n")
-		if firstNewline >= 0 {
-			response = response[firstNewline+1:]
-		}
-		lastFence := strings.LastIndex(response, "\n```")
-		if lastFence >= 0 {
-			response = response[:lastFence]
-		}
+	// Try parsing directly first — avoids corrupting JSON that contains
+	// backticks in string values (e.g., code snippets in source_entries).
+	var result ExtractionResponse
+	if err := json.Unmarshal([]byte(response), &result); err == nil {
+		return &result, nil
 	}
-
-	var result CuratorResponse
-	if err := json.Unmarshal([]byte(response), &result); err != nil {
-		return nil, fmt.Errorf("invalid curator JSON: %w", err)
+	// Fallback: strip markdown code fences and retry.
+	stripped := stripFencing(response)
+	if err := json.Unmarshal([]byte(stripped), &result); err != nil {
+		return nil, fmt.Errorf("invalid extraction JSON: %w", err)
 	}
 	return &result, nil
+}
+
+// stripFencing removes markdown code fences from an LLM response, handling
+// both leading and embedded fences.
+func stripFencing(response string) string {
+	response = strings.TrimSpace(response)
+	fenceStart := strings.Index(response, "```")
+	if fenceStart >= 0 {
+		afterFence := response[fenceStart:]
+		firstNewline := strings.Index(afterFence, "\n")
+		if firstNewline >= 0 {
+			afterFence = afterFence[firstNewline+1:]
+		}
+		lastFence := strings.LastIndex(afterFence, "\n```")
+		if lastFence >= 0 {
+			response = afterFence[:lastFence]
+		} else {
+			response = afterFence
+		}
+	}
+	return response
 }
 
 // ReadFileFromRepo reads a file from HEAD in a git repo (works with bare repos).

@@ -678,7 +678,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 				m.logger.Warn("failed to ensure signaling instructions file", "err", err)
 			}
 		case detect.SignalingInstructionFile:
-			if err := ensure.AgentInstructions(w.Path, opts.TargetName); err != nil {
+			if err := ensure.AgentInstructions(w.Path, opts.TargetName, w.Repo); err != nil {
 				m.logger.Warn("failed to provision agent instructions", "err", err)
 			}
 		}
@@ -922,19 +922,6 @@ func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedT
 			Kind:       TargetKindUser,
 			Command:    target.Command,
 			Promptable: false,
-		}, nil
-	}
-
-	// Fallback: builtin tool names (e.g., "claude", "codex") can be resolved
-	// directly using the tool name as the command. This handles remote sessions
-	// where the tool isn't detected locally but is expected on the remote host.
-	if detect.IsBuiltinToolName(targetName) {
-		return ResolvedTarget{
-			Name:       targetName,
-			Kind:       TargetKindModel,
-			Command:    targetName,
-			Promptable: true,
-			ToolName:   targetName,
 		}, nil
 	}
 

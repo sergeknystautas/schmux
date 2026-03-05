@@ -179,8 +179,11 @@ type Server struct {
 	// Lore proposal storage
 	loreStore *lore.ProposalStore
 
-	// Lore curator for manual curation
-	loreCurator *lore.Curator
+	// Lore LLM executor for curation requests
+	loreExecutor func(ctx context.Context, prompt string, timeout time.Duration) (string, error)
+
+	// Lore instruction store for private layer management
+	loreInstructionStore *lore.InstructionStore
 
 	// Dashboard.sx provision status (in-memory, resets on restart)
 	dsxProvision   dsxProvisionStatus
@@ -347,6 +350,11 @@ func (s *Server) SetLoreStore(store *lore.ProposalStore) {
 	s.loreStore = store
 }
 
+// SetLoreInstructionStore sets the lore instruction store for private layer management.
+func (s *Server) SetLoreInstructionStore(store *lore.InstructionStore) {
+	s.loreInstructionStore = store
+}
+
 // SetActionBaseDir sets the base directory for action registries and initializes the map.
 func (s *Server) SetActionBaseDir(dir string) {
 	s.actionBaseDir = dir
@@ -396,9 +404,9 @@ func (s *Server) getOrCreateRegistry(repo string) *actions.Registry {
 	return reg
 }
 
-// SetLoreCurator sets the lore curator for manual curation requests.
-func (s *Server) SetLoreCurator(c *lore.Curator) {
-	s.loreCurator = c
+// SetLoreExecutor sets the LLM executor for lore curation requests.
+func (s *Server) SetLoreExecutor(exec func(ctx context.Context, prompt string, timeout time.Duration) (string, error)) {
+	s.loreExecutor = exec
 }
 
 // StreamingExecutorFunc is a function that runs a streaming one-shot execution.
@@ -690,12 +698,13 @@ func (s *Server) Start() error {
 				r.Use(validateLoreRepo)
 				r.Get("/proposals", s.handleLoreProposals)
 				r.Get("/proposals/{proposalID}", s.handleLoreProposalGet)
-				r.Post("/proposals/{proposalID}/apply", s.handleLoreApply)
 				r.Post("/proposals/{proposalID}/dismiss", s.handleLoreDismiss)
+				r.Post("/proposals/{proposalID}/rules/{ruleID}", s.handleLoreRuleUpdate)
+				r.Post("/proposals/{proposalID}/merge", s.handleLoreMerge)
+				r.Post("/proposals/{proposalID}/apply-merge", s.handleLoreApplyMerge)
 				r.Get("/entries", s.handleLoreEntries)
 				r.Delete("/entries", s.handleLoreEntriesClear)
 				r.Post("/curate", s.handleLoreCurate)
-				r.Post("/curate-actions", s.handleLoreCurateActions)
 				r.Get("/curations", s.handleLoreCurationsList)
 				r.Get("/curations/{curationID}/log", s.handleLoreCurationLog)
 			})

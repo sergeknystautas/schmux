@@ -496,22 +496,211 @@
   margin-top: 0;
 }
 
-.curateActionsButton {
-  padding: 0.375rem 1rem;
-  background: var(--color-accent, #4fc3f7);
-  color: #000;
-  border: none;
+/* Rule review */
+.ruleList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.ruleRow {
+  padding: 0.75rem;
+  border: 1px solid var(--color-border, #333);
+  border-left: 3px solid var(--color-border, #333);
   border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.8rem;
+  background: var(--color-bg, #121225);
+}
+
+.ruleRow[data-status='approved'] {
+  border-left-color: var(--color-success, #4caf50);
+}
+
+.ruleRow[data-status='dismissed'] {
+  border-left-color: var(--color-text-muted, #888);
+  opacity: 0.6;
+}
+
+.ruleHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.ruleBadge {
+  font-size: 0.65rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  text-transform: uppercase;
   font-weight: 500;
 }
 
-.curateActionsButton:hover {
-  background: color-mix(in srgb, var(--color-accent, #4fc3f7) 85%, white);
+.ruleBadge[data-status='pending'] {
+  background: var(--color-warning-subtle, rgba(255, 193, 7, 0.15));
+  color: var(--color-warning, #ffc107);
 }
 
-.curateActionsButton:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.ruleBadge[data-status='approved'] {
+  background: rgba(76, 175, 80, 0.15);
+  color: var(--color-success, #4caf50);
+}
+
+.ruleBadge[data-status='dismissed'] {
+  background: rgba(136, 136, 136, 0.15);
+  color: var(--color-text-muted, #888);
+}
+
+.ruleCategory {
+  font-size: 0.7rem;
+  color: var(--color-accent, #4fc3f7);
+}
+
+.ruleLayer {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  background: rgba(79, 195, 247, 0.1);
+  color: var(--color-accent, #4fc3f7);
+}
+
+.ruleText {
+  font-size: 0.85rem;
+  color: var(--text-primary, #ddd);
+  line-height: 1.5;
+  cursor: text;
+  padding: 0.25rem;
+  border-radius: 3px;
+}
+
+.ruleRow[data-status='pending'] .ruleText:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ruleRow[data-status='dismissed'] .ruleText {
+  text-decoration: line-through;
+  color: var(--color-text-muted, #888);
+}
+
+.ruleActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.5rem;
+}
+
+.layerPicker {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.layerLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary, #888);
+  cursor: pointer;
+}
+
+.layerLabel input[type='radio'] {
+  accent-color: var(--color-accent, #4fc3f7);
+}
+
+.ruleButtons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.ruleEditArea {
+  margin-bottom: 0.5rem;
+}
+
+.ruleTextarea {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid var(--color-border, #333);
+  border-radius: 4px;
+  background: var(--color-bg, #121225);
+  color: var(--text-primary, #ddd);
+  font-size: 0.85rem;
+  font-family: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.ruleTextarea:focus {
+  outline: none;
+  border-color: var(--color-accent, #4fc3f7);
+}
+
+.ruleEditActions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 0.375rem;
+}
+
+.discardedSection {
+  margin-bottom: 0.5rem;
+}
+
+.discardedLabel {
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #888);
+  font-style: italic;
+}
+
+/* Merge in-progress indicator */
+.mergingStatus {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin-top: 0.75rem;
+  border: 1px solid var(--color-border, #333);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  color: var(--text-secondary, #aaa);
+}
+
+.mergeError {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  margin-top: 0.75rem;
+  border: 1px solid var(--color-error, #e55);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  color: var(--color-error, #e55);
+}
+
+/* Merge preview */
+.mergePreviewSection {
+  margin-top: 1rem;
+  border-top: 1px solid var(--color-border, #333);
+  padding-top: 1rem;
+}
+
+.mergePreviewTitle {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  color: var(--text-primary, #ddd);
+}
+
+.mergePreviewCard {
+  margin-bottom: 1rem;
+}
+
+.mergePreviewHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.mergePreviewSummary {
+  font-size: 0.8rem;
+  color: var(--text-secondary, #888);
 }

@@ -3,9 +3,7 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,7 +12,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/sergeknystautas/schmux/internal/actions"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/lore"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
@@ -39,7 +36,7 @@ func (s *Server) handleLoreStatus(w http.ResponseWriter, r *http.Request) {
 	enabled := s.config.GetLoreEnabled()
 	curateOnDispose := s.config.GetLoreCurateOnDispose()
 	llmTarget := s.config.GetLoreTarget()
-	curatorConfigured := s.loreCurator != nil && s.loreCurator.Executor != nil
+	curatorConfigured := s.loreExecutor != nil
 
 	var issues []string
 	if enabled && !curatorConfigured {
@@ -163,128 +160,6 @@ func (s *Server) handleLoreProposalGet(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleLoreApply applies a proposal: creates a worktree, commits changes, pushes the branch,
-// and optionally creates a PR when auto_pr is enabled.
-func (s *Server) handleLoreApply(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB limit
-	repoName := chi.URLParam(r, "repo")
-	proposalID := chi.URLParam(r, "proposalID")
-	if repoName == "" || proposalID == "" {
-		http.Error(w, "invalid path", http.StatusBadRequest)
-		return
-	}
-
-	if s.loreStore == nil {
-		http.Error(w, "lore system not enabled", http.StatusServiceUnavailable)
-		return
-	}
-
-	proposal, err := s.loreStore.Get(repoName, proposalID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
-
-	// Check that proposal is still pending
-	if proposal.Status != "" && proposal.Status != "pending" {
-		http.Error(w, fmt.Sprintf("proposal is %s, not pending", proposal.Status), http.StatusConflict)
-		return
-	}
-
-	// Check for overrides in request body (body may be empty for apply-without-overrides)
-	var body struct {
-		Overrides map[string]string `json:"overrides"`
-	}
-	if r.Body != nil {
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-		for k, v := range body.Overrides {
-			if _, exists := proposal.ProposedFiles[k]; !exists {
-				http.Error(w, fmt.Sprintf("override key %q not in original proposal", k), http.StatusBadRequest)
-				return
-			}
-			proposal.ProposedFiles[k] = v
-		}
-	}
-
-	// Find the repo config by name
-	var barePath string
-	found := false
-	for _, repoConfig := range s.config.Repos {
-		if repoConfig.Name == repoName {
-			barePath = repoConfig.BarePath
-			found = true
-			break
-		}
-	}
-	if !found {
-		http.Error(w, "repo not found", http.StatusNotFound)
-		return
-	}
-	bareDir := s.config.ResolveBareRepoDir(barePath)
-	workDir := filepath.Join(os.TempDir(), "schmux-lore-apply")
-	os.MkdirAll(workDir, 0755)
-
-	result, err := lore.ApplyProposal(r.Context(), proposal, bareDir, workDir)
-	if err != nil {
-		s.logger.Error("apply proposal error", "repo", repoName, "proposal", proposalID, "err", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Always push the branch after a successful commit
-	if err := lore.PushBranch(r.Context(), bareDir, result.Branch); err != nil {
-		s.logger.Error("push branch error", "repo", repoName, "branch", result.Branch, "err", err)
-		http.Error(w, fmt.Sprintf("commit succeeded but push failed: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Optionally create a PR when auto_pr is enabled
-	var prURL string
-	if s.config.GetLoreAutoPR() {
-		title := "chore: update instruction files with agent lore"
-		prBody := proposal.DiffSummary
-		if prBody == "" {
-			prBody = fmt.Sprintf("Automated lore update — %d file(s) changed.", len(proposal.ProposedFiles))
-		}
-		url, err := lore.CreatePR(r.Context(), bareDir, result.Branch, title, prBody)
-		if err != nil {
-			// Log but don't fail — the commit and push already succeeded
-			s.logger.Error("auto-PR creation failed", "branch", result.Branch, "err", err)
-		} else {
-			prURL = url
-		}
-	}
-
-	// Update proposal status
-	if err := s.loreStore.UpdateStatus(repoName, proposalID, lore.ProposalApplied); err != nil {
-		s.logger.Error("failed to update proposal status", "err", err)
-	}
-
-	// Mark source entries as "applied" in the central state JSONL
-	statePath, err := lore.LoreStatePath(repoName)
-	if err == nil {
-		entries, _ := s.readLoreEntries(repoName, nil)
-		if err := lore.MarkEntriesByTextFromEntries(entries, statePath, "applied", proposal.EntriesUsed, proposalID); err != nil {
-			s.logger.Warn("failed to mark entries as applied", "err", err)
-		}
-	}
-
-	resp := map[string]interface{}{
-		"status": "applied",
-		"branch": result.Branch,
-	}
-	if prURL != "" {
-		resp["pr_url"] = prURL
-	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		s.logger.Error("failed to encode response", "handler", "lore-apply", "err", err)
-	}
-}
-
 // handleLoreDismiss marks a proposal as dismissed.
 func (s *Server) handleLoreDismiss(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
@@ -329,6 +204,362 @@ func (s *Server) handleLoreDismiss(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]string{"status": "dismissed"}); err != nil {
 		s.logger.Error("failed to encode response", "handler", "lore-dismiss", "err", err)
+	}
+}
+
+// handleLoreRuleUpdate updates a specific rule within a proposal (approve/dismiss/edit/reroute).
+func (s *Server) handleLoreRuleUpdate(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB limit
+	repoName := chi.URLParam(r, "repo")
+	proposalID := chi.URLParam(r, "proposalID")
+	ruleID := chi.URLParam(r, "ruleID")
+	if repoName == "" || proposalID == "" || ruleID == "" {
+		http.Error(w, "missing path parameters", http.StatusBadRequest)
+		return
+	}
+
+	if s.loreStore == nil {
+		http.Error(w, "lore system not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	var body struct {
+		Status      string  `json:"status"`       // "approved" or "dismissed"
+		Text        *string `json:"text"`         // edited text (optional)
+		ChosenLayer *string `json:"chosen_layer"` // layer override (optional)
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate status
+	var status lore.RuleStatus
+	switch body.Status {
+	case "approved":
+		status = lore.RuleApproved
+	case "dismissed":
+		status = lore.RuleDismissed
+	case "":
+		// No status change — only updating text or layer
+	default:
+		http.Error(w, "status must be 'approved' or 'dismissed'", http.StatusBadRequest)
+		return
+	}
+
+	// Validate chosen_layer if provided
+	var chosenLayer *lore.Layer
+	if body.ChosenLayer != nil {
+		l := lore.Layer(*body.ChosenLayer)
+		switch l {
+		case lore.LayerRepoPublic, lore.LayerRepoPrivate, lore.LayerUserGlobal:
+			chosenLayer = &l
+		default:
+			http.Error(w, "chosen_layer must be 'repo_public', 'repo_private', or 'user_global'", http.StatusBadRequest)
+			return
+		}
+	}
+
+	update := lore.RuleUpdate{
+		Status:      status,
+		Text:        body.Text,
+		ChosenLayer: chosenLayer,
+	}
+
+	if err := s.loreStore.UpdateRule(repoName, proposalID, ruleID, update); err != nil {
+		s.logger.Error("update rule error", "repo", repoName, "proposal", proposalID, "rule", ruleID, "err", err)
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	// Return the updated proposal
+	proposal, err := s.loreStore.Get(repoName, proposalID)
+	if err != nil {
+		http.Error(w, "failed to reload proposal", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(proposal); err != nil {
+		s.logger.Error("failed to encode response", "handler", "lore-rule-update", "err", err)
+	}
+}
+
+// handleLoreMerge triggers phase 3 merge: calls the merge LLM for each layer's approved rules.
+// The merge runs as a background job. The endpoint sets the proposal status to "merging"
+// and returns 202 immediately. The frontend polls the proposal to pick up the result.
+func (s *Server) handleLoreMerge(w http.ResponseWriter, r *http.Request) {
+	repoName := chi.URLParam(r, "repo")
+	proposalID := chi.URLParam(r, "proposalID")
+	if repoName == "" || proposalID == "" {
+		http.Error(w, "missing path parameters", http.StatusBadRequest)
+		return
+	}
+
+	if s.loreStore == nil {
+		http.Error(w, "lore system not enabled", http.StatusServiceUnavailable)
+		return
+	}
+	if s.loreExecutor == nil {
+		http.Error(w, "lore curator not configured (no LLM target)", http.StatusServiceUnavailable)
+		return
+	}
+
+	proposal, err := s.loreStore.Get(repoName, proposalID)
+	if err != nil {
+		http.Error(w, "proposal not found", http.StatusNotFound)
+		return
+	}
+
+	if proposal.Status == lore.ProposalMerging {
+		http.Error(w, "merge already in progress", http.StatusConflict)
+		return
+	}
+
+	byLayer := proposal.ApprovedRulesByLayer()
+	if len(byLayer) == 0 {
+		http.Error(w, "no approved rules to merge", http.StatusBadRequest)
+		return
+	}
+
+	// Set status to merging and clear any stale previews/error
+	proposal.Status = lore.ProposalMerging
+	proposal.MergePreviews = nil
+	proposal.MergeError = ""
+	if err := s.loreStore.Save(proposal); err != nil {
+		http.Error(w, "failed to update proposal status", http.StatusInternalServerError)
+		return
+	}
+
+	// Find bare repo for reading public layer content
+	var bareDir string
+	for _, repoConfig := range s.config.Repos {
+		if repoConfig.Name == repoName {
+			bareDir = s.config.ResolveBareRepoDir(repoConfig.BarePath)
+			break
+		}
+	}
+
+	// Capture what we need for the goroutine
+	executor := s.loreExecutor
+	store := s.loreStore
+	instrStore := s.loreInstructionStore
+	instrFiles := s.config.GetLoreInstructionFiles()
+	logger := s.logger
+
+	go func() {
+		var previews []lore.MergePreview
+
+		for layer, rules := range byLayer {
+			var currentContent string
+
+			switch layer {
+			case lore.LayerRepoPublic:
+				if len(instrFiles) > 0 && bareDir != "" {
+					content, err := lore.ReadFileFromRepo(context.Background(), bareDir, instrFiles[0])
+					if err == nil {
+						currentContent = content
+					}
+				}
+			case lore.LayerRepoPrivate:
+				if instrStore != nil {
+					currentContent, _ = instrStore.Read(lore.LayerRepoPrivate, repoName)
+				}
+			case lore.LayerUserGlobal:
+				if instrStore != nil {
+					currentContent, _ = instrStore.Read(lore.LayerUserGlobal, "")
+				}
+			}
+
+			prompt := lore.BuildMergePrompt(currentContent, rules)
+			response, err := executor(context.Background(), prompt, 5*time.Minute)
+			if err != nil {
+				logger.Error("merge LLM call failed", "repo", repoName, "layer", layer, "err", err)
+				s.finishMerge(store, repoName, proposalID, nil, fmt.Sprintf("merge failed for layer %s: %v", layer, err))
+				return
+			}
+
+			result, err := lore.ParseMergeResponse(response)
+			if err != nil {
+				logger.Error("merge response parse failed", "repo", repoName, "layer", layer, "err", err)
+				s.finishMerge(store, repoName, proposalID, nil, fmt.Sprintf("failed to parse merge response for layer %s: %v", layer, err))
+				return
+			}
+
+			previews = append(previews, lore.MergePreview{
+				Layer:          layer,
+				CurrentContent: currentContent,
+				MergedContent:  result.MergedContent,
+				Summary:        result.Summary,
+			})
+		}
+
+		s.finishMerge(store, repoName, proposalID, previews, "")
+	}()
+
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{"status": "merging"})
+}
+
+// finishMerge stores merge results on the proposal and resets status to pending.
+func (s *Server) finishMerge(store *lore.ProposalStore, repo, proposalID string, previews []lore.MergePreview, mergeErr string) {
+	p, err := store.Get(repo, proposalID)
+	if err != nil {
+		s.logger.Error("finishMerge: failed to load proposal", "repo", repo, "id", proposalID, "err", err)
+		return
+	}
+	p.Status = lore.ProposalPending
+	p.MergePreviews = previews
+	p.MergeError = mergeErr
+	if err := store.Save(p); err != nil {
+		s.logger.Error("finishMerge: failed to save proposal", "repo", repo, "id", proposalID, "err", err)
+	}
+}
+
+// mergeApplyRequest represents a per-layer merge to apply.
+type mergeApplyRequest struct {
+	Layer   string `json:"layer"`
+	Content string `json:"content"` // possibly user-edited merged content
+}
+
+// handleLoreApplyMerge applies reviewed merge results to their target layers.
+func (s *Server) handleLoreApplyMerge(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB limit
+	repoName := chi.URLParam(r, "repo")
+	proposalID := chi.URLParam(r, "proposalID")
+	if repoName == "" || proposalID == "" {
+		http.Error(w, "missing path parameters", http.StatusBadRequest)
+		return
+	}
+
+	if s.loreStore == nil {
+		http.Error(w, "lore system not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	var body struct {
+		Merges []mergeApplyRequest `json:"merges"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if len(body.Merges) == 0 {
+		http.Error(w, "no merges provided", http.StatusBadRequest)
+		return
+	}
+
+	var results []map[string]string
+
+	for _, m := range body.Merges {
+		layer := lore.Layer(m.Layer)
+		switch layer {
+		case lore.LayerRepoPublic:
+			// Find bare repo
+			var bareDir string
+			for _, repoConfig := range s.config.Repos {
+				if repoConfig.Name == repoName {
+					bareDir = s.config.ResolveBareRepoDir(repoConfig.BarePath)
+					break
+				}
+			}
+			if bareDir == "" {
+				http.Error(w, "repo not found for public layer apply", http.StatusNotFound)
+				return
+			}
+
+			// Determine target file
+			instrFiles := s.config.GetLoreInstructionFiles()
+			targetFile := "CLAUDE.md"
+			if len(instrFiles) > 0 {
+				targetFile = instrFiles[0]
+			}
+
+			workDir := filepath.Join(os.TempDir(), "schmux-lore-apply")
+			os.MkdirAll(workDir, 0755)
+
+			result, err := lore.ApplyPublicMerge(r.Context(), proposalID, bareDir, workDir, targetFile, m.Content, "Update instruction file with agent lore")
+			if err != nil {
+				s.logger.Error("apply public merge failed", "repo", repoName, "err", err)
+				http.Error(w, fmt.Sprintf("apply public merge failed: %v", err), http.StatusInternalServerError)
+				return
+			}
+
+			// Push the branch
+			if err := lore.PushBranch(r.Context(), bareDir, result.Branch); err != nil {
+				s.logger.Error("push branch failed", "repo", repoName, "branch", result.Branch, "err", err)
+				http.Error(w, fmt.Sprintf("commit succeeded but push failed: %v", err), http.StatusInternalServerError)
+				return
+			}
+
+			entry := map[string]string{"layer": m.Layer, "status": "applied", "branch": result.Branch}
+
+			// Optionally create PR
+			if s.config.GetLoreAutoPR() {
+				url, err := lore.CreatePR(r.Context(), bareDir, result.Branch, "chore: update instruction file with agent lore", m.Content[:min(200, len(m.Content))])
+				if err != nil {
+					s.logger.Error("auto-PR creation failed", "branch", result.Branch, "err", err)
+				} else {
+					entry["pr_url"] = url
+				}
+			}
+
+			results = append(results, entry)
+
+		case lore.LayerRepoPrivate, lore.LayerUserGlobal:
+			if s.loreInstructionStore == nil {
+				http.Error(w, "instruction store not configured", http.StatusServiceUnavailable)
+				return
+			}
+			if err := lore.ApplyToLayer(s.loreInstructionStore, layer, repoName, m.Content); err != nil {
+				s.logger.Error("apply to layer failed", "repo", repoName, "layer", layer, "err", err)
+				http.Error(w, fmt.Sprintf("apply to %s failed: %v", layer, err), http.StatusInternalServerError)
+				return
+			}
+			results = append(results, map[string]string{"layer": m.Layer, "status": "applied"})
+
+		default:
+			http.Error(w, fmt.Sprintf("invalid layer: %s", m.Layer), http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Mark rules as merged and update proposal status
+	now := time.Now().UTC()
+	proposal, err := s.loreStore.Get(repoName, proposalID)
+	if err == nil {
+		for i := range proposal.Rules {
+			if proposal.Rules[i].Status == lore.RuleApproved {
+				proposal.Rules[i].MergedAt = &now
+			}
+		}
+		proposal.Status = lore.ProposalApplied
+		proposal.MergePreviews = nil
+		proposal.MergeError = ""
+		s.loreStore.Save(proposal)
+	}
+
+	// Mark source entries as applied in state JSONL
+	statePath, err := lore.LoreStatePath(repoName)
+	if err == nil && proposal != nil {
+		entries, _ := s.readLoreEntries(repoName, nil)
+		var sourceKeys []string
+		for _, rule := range proposal.Rules {
+			if rule.Status == lore.RuleApproved {
+				sourceKeys = append(sourceKeys, rule.SourceEntries...)
+			}
+		}
+		if len(sourceKeys) > 0 {
+			lore.MarkEntriesByTextFromEntries(entries, statePath, "applied", sourceKeys, proposalID)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":  "applied",
+		"results": results,
+	}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "lore-apply-merge", "err", err)
 	}
 }
 
@@ -416,7 +647,7 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.loreCurator == nil || s.loreCurator.Executor == nil {
+	if s.loreExecutor == nil {
 		http.Error(w, "lore curator not configured (no LLM target)", http.StatusServiceUnavailable)
 		return
 	}
@@ -430,22 +661,6 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "curation already in progress", http.StatusConflict)
 		return
 	}
-
-	// Find the repo config by name
-	var barePath string
-	found := false
-	for _, repoConfig := range s.config.Repos {
-		if repoConfig.Name == repoName {
-			barePath = repoConfig.BarePath
-			found = true
-			break
-		}
-	}
-	if !found {
-		http.Error(w, "repo not found", http.StatusNotFound)
-		return
-	}
-	bareDir := s.config.ResolveBareRepoDir(barePath)
 
 	// Read entries
 	rawEntries, err := s.readLoreEntries(repoName, lore.FilterRaw())
@@ -461,19 +676,8 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Prepare curator prompt
-	instrFiles, fileHashes, err := s.loreCurator.ReadInstructionFiles(r.Context(), bareDir)
-	if err != nil {
-		s.logger.Error("read instruction files error", "repo", repoName, "err", err)
-		http.Error(w, fmt.Sprintf("failed to read instruction files: %v", err), http.StatusInternalServerError)
-		return
-	}
-	if len(instrFiles) == 0 {
-		s.logger.Error("no instruction files found", "repo", repoName, "bare_dir", bareDir)
-		http.Error(w, "no instruction files found", http.StatusInternalServerError)
-		return
-	}
-	prompt := lore.BuildCuratorPrompt(instrFiles, rawEntries)
+	// Prepare curator prompt — v2 extraction (no instruction files needed)
+	prompt := lore.BuildExtractionPrompt(rawEntries)
 
 	// Start curation tracking
 	curationID := fmt.Sprintf("cur-%s-%s", repoName, time.Now().UTC().Format("20060102-150405"))
@@ -487,7 +691,7 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"id": curationID, "status": "started"})
 
 	// Run curation in background goroutine
-	go s.runStreamingCuration(repoName, curationID, prompt, instrFiles, fileHashes, rawEntries, bareDir)
+	go s.runStreamingCuration(repoName, curationID, prompt, rawEntries)
 }
 
 // writeLogEvent appends a JSON event to the curation JSONL log file.
@@ -542,7 +746,7 @@ func writeDebugFile(runDir, filename, content string) {
 
 // runStreamingCuration runs the streaming curation in the background,
 // broadcasting events via WebSocket and writing debug files to a per-run directory.
-func (s *Server) runStreamingCuration(repoName, curationID, prompt string, instrFiles, fileHashes map[string]string, entries []lore.Entry, bareDir string) {
+func (s *Server) runStreamingCuration(repoName, curationID, prompt string, entries []lore.Entry) {
 	ctx, cancel := context.WithTimeout(s.shutdownCtx, 10*time.Minute)
 	defer cancel()
 
@@ -578,14 +782,14 @@ func (s *Server) runStreamingCuration(repoName, curationID, prompt string, instr
 
 	// Choose executor: streaming if available, otherwise fallback to non-streaming
 	if s.streamingExecutor != nil {
-		s.runWithStreamingExecutor(ctx, repoName, curationID, prompt, instrFiles, fileHashes, entries, runDir, logFile, start)
+		s.runWithStreamingExecutor(ctx, repoName, curationID, prompt, entries, runDir, logFile, start)
 	} else {
-		s.runWithLegacyExecutor(ctx, repoName, curationID, prompt, instrFiles, fileHashes, entries, bareDir, runDir, logFile, start)
+		s.runWithLegacyExecutor(ctx, repoName, curationID, prompt, entries, runDir, logFile, start)
 	}
 }
 
 // runWithStreamingExecutor runs curation using the streaming executor with event callbacks.
-func (s *Server) runWithStreamingExecutor(ctx context.Context, repoName, curationID, prompt string, instrFiles, fileHashes map[string]string, entries []lore.Entry, runDir string, logFile *os.File, start time.Time) {
+func (s *Server) runWithStreamingExecutor(ctx context.Context, repoName, curationID, prompt string, entries []lore.Entry, runDir string, logFile *os.File, start time.Time) {
 	onEvent := func(ev oneshot.StreamEvent) {
 		curatorEvent := CuratorEvent{
 			Repo:      repoName,
@@ -608,7 +812,7 @@ func (s *Server) runWithStreamingExecutor(ctx context.Context, repoName, curatio
 		}
 	}
 
-	rawResponse, err := s.streamingExecutor(ctx, prompt, schema.LabelLoreCurator, 10*time.Minute, "", onEvent)
+	rawResponse, err := s.streamingExecutor(ctx, prompt, "", 10*time.Minute, "", onEvent)
 	if err != nil {
 		errRaw := json.RawMessage(fmt.Sprintf(`{"type":"curator_error","error":%q}`, err.Error()))
 		writeLogEvent(logFile, errRaw)
@@ -618,12 +822,12 @@ func (s *Server) runWithStreamingExecutor(ctx context.Context, repoName, curatio
 	}
 
 	writeDebugFile(runDir, "output.txt", rawResponse)
-	s.finalizeCuration(repoName, curationID, rawResponse, instrFiles, fileHashes, entries, start, logFile)
+	s.finalizeCuration(repoName, curationID, rawResponse, entries, start, logFile)
 }
 
 // runWithLegacyExecutor runs curation using the non-streaming executor (fallback).
-func (s *Server) runWithLegacyExecutor(ctx context.Context, repoName, curationID, prompt string, instrFiles, fileHashes map[string]string, entries []lore.Entry, bareDir, runDir string, logFile *os.File, start time.Time) {
-	response, err := s.loreCurator.Executor(ctx, prompt, 10*time.Minute)
+func (s *Server) runWithLegacyExecutor(ctx context.Context, repoName, curationID, prompt string, entries []lore.Entry, runDir string, logFile *os.File, start time.Time) {
+	response, err := s.loreExecutor(ctx, prompt, 10*time.Minute)
 	if err != nil {
 		errRaw := json.RawMessage(fmt.Sprintf(`{"type":"curator_error","error":%q}`, err.Error()))
 		writeLogEvent(logFile, errRaw)
@@ -633,27 +837,41 @@ func (s *Server) runWithLegacyExecutor(ctx context.Context, repoName, curationID
 	}
 
 	writeDebugFile(runDir, "output.txt", response)
-	s.finalizeCuration(repoName, curationID, response, instrFiles, fileHashes, entries, start, logFile)
+	s.finalizeCuration(repoName, curationID, response, entries, start, logFile)
 }
 
-// finalizeCuration parses the response, builds proposal, saves it, and marks entries.
-func (s *Server) finalizeCuration(repoName, curationID, rawResponse string, instrFiles, fileHashes map[string]string, entries []lore.Entry, start time.Time, logFile *os.File) {
+// finalizeCuration parses the extraction response, builds a proposal with per-rule model, saves it, and marks entries.
+func (s *Server) finalizeCuration(repoName, curationID, rawResponse string, entries []lore.Entry, start time.Time, logFile *os.File) {
 	elapsed := time.Since(start)
 
-	result, err := lore.ParseCuratorResponse(rawResponse)
+	result, err := lore.ParseExtractionResponse(rawResponse)
 	if err != nil {
 		errRaw := json.RawMessage(fmt.Sprintf(`{"type":"curator_error","error":%q}`, err.Error()))
 		writeLogEvent(logFile, errRaw)
-		s.completeCurationWithError(repoName, fmt.Errorf("failed to parse curator response: %w", err))
+		s.completeCurationWithError(repoName, fmt.Errorf("failed to parse extraction response: %w", err))
 		return
 	}
 
-	proposal, err := lore.BuildProposal(repoName, result, instrFiles, fileHashes, entries)
-	if err != nil {
-		errRaw := json.RawMessage(fmt.Sprintf(`{"type":"curator_error","error":%q}`, err.Error()))
-		writeLogEvent(logFile, errRaw)
-		s.completeCurationWithError(repoName, fmt.Errorf("failed to build proposal: %w", err))
-		return
+	// Build per-rule proposal from extraction result
+	now := time.Now().UTC()
+	proposalID := fmt.Sprintf("prop-%s", now.Format("20060102-150405-")+curationID[len(curationID)-4:])
+	proposal := &lore.Proposal{
+		ID:        proposalID,
+		Repo:      repoName,
+		CreatedAt: now,
+		Status:    lore.ProposalPending,
+		Discarded: result.DiscardedEntries,
+	}
+
+	for i, er := range result.Rules {
+		proposal.Rules = append(proposal.Rules, lore.Rule{
+			ID:             fmt.Sprintf("r%d", i+1),
+			Text:           er.Text,
+			Category:       er.Category,
+			SuggestedLayer: lore.Layer(er.SuggestedLayer),
+			Status:         lore.RulePending,
+			SourceEntries:  er.SourceEntries,
+		})
 	}
 
 	if err := s.loreStore.Save(proposal); err != nil {
@@ -663,16 +881,22 @@ func (s *Server) finalizeCuration(repoName, curationID, rawResponse string, inst
 		return
 	}
 
-	// Mark entries as proposed
+	// Mark source entries as proposed
 	statePath, err := lore.LoreStatePath(repoName)
 	if err == nil {
-		entries, _ := s.readLoreEntries(repoName, nil)
-		if err := lore.MarkEntriesByTextFromEntries(entries, statePath, "proposed", proposal.EntriesUsed, proposal.ID); err != nil {
-			s.logger.Warn("failed to mark entries as proposed", "err", err)
+		allEntries, _ := s.readLoreEntries(repoName, nil)
+		var sourceKeys []string
+		for _, rule := range proposal.Rules {
+			sourceKeys = append(sourceKeys, rule.SourceEntries...)
+		}
+		if len(sourceKeys) > 0 {
+			if err := lore.MarkEntriesByTextFromEntries(allEntries, statePath, "proposed", sourceKeys, proposal.ID); err != nil {
+				s.logger.Warn("failed to mark entries as proposed", "err", err)
+			}
 		}
 	}
 
-	doneRaw := json.RawMessage(fmt.Sprintf(`{"type":"curator_done","proposal_id":%q,"file_count":%d}`, proposal.ID, len(proposal.ProposedFiles)))
+	doneRaw := json.RawMessage(fmt.Sprintf(`{"type":"curator_done","proposal_id":%q,"rule_count":%d}`, proposal.ID, len(proposal.Rules)))
 	writeLogEvent(logFile, doneRaw)
 
 	s.curationTracker.Complete(repoName, nil)
@@ -683,7 +907,7 @@ func (s *Server) finalizeCuration(repoName, curationID, rawResponse string, inst
 		Raw:       doneRaw,
 	})
 
-	s.logger.Info("proposal created", "repo", repoName, "proposal", proposal.ID, "files", len(proposal.ProposedFiles), "entries_used", len(proposal.EntriesUsed), "elapsed", elapsed.Round(time.Millisecond))
+	s.logger.Info("proposal created", "repo", repoName, "proposal", proposal.ID, "rules", len(proposal.Rules), "elapsed", elapsed.Round(time.Millisecond))
 }
 
 // completeCurationWithError marks a curation as failed and broadcasts the error.
@@ -815,164 +1039,17 @@ func (s *Server) handleLoreCurationLog(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"events": events})
 }
 
-// refreshLoreCurator updates the lore curator's executor based on the current
-// config. Called after config save so the runtime curator stays in sync with
+// refreshLoreExecutor updates the lore LLM executor based on the current
+// config. Called after config save so the runtime executor stays in sync with
 // the persisted lore.llm_target value.
-func (s *Server) refreshLoreCurator(cfg *config.Config) {
+func (s *Server) refreshLoreExecutor(cfg *config.Config) {
 	target := cfg.GetLoreTargetRaw()
 
-	if s.loreCurator == nil {
-		// Lore was disabled at startup — create a curator now
-		s.loreCurator = &lore.Curator{
-			InstructionFiles: cfg.GetLoreInstructionFiles(),
-			BareRepo:         true,
-		}
-	}
-
 	if target != "" {
-		s.loreCurator.Executor = func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
-			return oneshot.ExecuteTarget(ctx, cfg, target, prompt, schema.LabelLoreCurator, timeout, "")
+		s.loreExecutor = func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
+			return oneshot.ExecuteTarget(ctx, cfg, target, prompt, "", timeout, "")
 		}
 	} else {
-		s.loreCurator.Executor = nil
+		s.loreExecutor = nil
 	}
-}
-
-// handleLoreCurateActions triggers action curation: reads intent signals from
-// workspace event files, calls the LLM to propose reusable actions, and saves
-// proposed actions to the action registry.
-// Returns immediately with a curation ID; the LLM call runs in the background.
-func (s *Server) handleLoreCurateActions(w http.ResponseWriter, r *http.Request) {
-	repoName := chi.URLParam(r, "repo")
-	if repoName == "" {
-		http.Error(w, "missing repo name", http.StatusBadRequest)
-		return
-	}
-
-	if s.loreCurator == nil || s.loreCurator.Executor == nil {
-		http.Error(w, "lore curator not configured (no LLM target)", http.StatusServiceUnavailable)
-		return
-	}
-
-	// Guard: only one curation per repo at a time (shared with lore curation).
-	if s.curationTracker.IsRunning(repoName) {
-		http.Error(w, "curation already in progress", http.StatusConflict)
-		return
-	}
-
-	// Collect workspace paths for this repo.
-	var workspacePaths []string
-	for _, ws := range s.getLoreWorkspaces(repoName) {
-		workspacePaths = append(workspacePaths, ws.Path)
-	}
-	if len(workspacePaths) == 0 {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "no_workspaces"})
-		return
-	}
-
-	// Collect intent signals.
-	signals, err := actions.CollectIntentSignals(workspacePaths)
-	if err != nil {
-		s.logger.Error("collect intent signals error", "repo", repoName, "err", err)
-		http.Error(w, fmt.Sprintf("failed to collect intent signals: %v", err), http.StatusInternalServerError)
-		return
-	}
-	if len(signals) == 0 {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "no_signals"})
-		return
-	}
-
-	// Get existing actions for deduplication.
-	registry := s.getOrCreateRegistry(repoName)
-	existingActions := registry.List("")
-
-	// Build the prompt.
-	prompt := lore.BuildActionCuratorPrompt(existingActions, signals)
-
-	// Start curation tracking.
-	curationID := fmt.Sprintf("acur-%s-%s", repoName, time.Now().UTC().Format("20060102-150405"))
-	if _, err := s.curationTracker.Start(repoName, curationID); err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
-		return
-	}
-
-	// Return immediately with curation ID.
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"id": curationID, "status": "started"})
-
-	// Run action curation in background goroutine.
-	go s.runActionCuration(repoName, curationID, prompt, registry, len(signals))
-}
-
-// runActionCuration runs the action curation LLM call in the background,
-// parses the response, and adds proposed actions to the registry.
-func (s *Server) runActionCuration(repoName, curationID, prompt string, registry *actions.Registry, signalCount int) {
-	ctx, cancel := context.WithTimeout(s.shutdownCtx, 5*time.Minute)
-	defer cancel()
-
-	s.logger.Info("starting action curation", "repo", repoName, "curation_id", curationID, "signals", signalCount)
-	start := time.Now()
-
-	var rawResponse string
-	var err error
-
-	if s.streamingExecutor != nil {
-		onEvent := func(ev oneshot.StreamEvent) {
-			curatorEvent := CuratorEvent{
-				Repo:      repoName,
-				Timestamp: time.Now().UTC(),
-				EventType: ev.Type,
-				Subtype:   ev.Subtype,
-				Raw:       ev.Raw,
-			}
-			s.curationTracker.AddEvent(repoName, curatorEvent)
-			s.BroadcastCuratorEvent(curatorEvent)
-		}
-		rawResponse, err = s.streamingExecutor(ctx, prompt, schema.LabelLoreCurator, 5*time.Minute, "", onEvent)
-	} else {
-		rawResponse, err = s.loreCurator.Executor(ctx, prompt, 5*time.Minute)
-	}
-
-	if err != nil {
-		s.completeCurationWithError(repoName, fmt.Errorf("action curator LLM call failed: %w", err))
-		return
-	}
-
-	// Parse response.
-	result, err := lore.ParseActionCuratorResponse(rawResponse)
-	if err != nil {
-		s.completeCurationWithError(repoName, fmt.Errorf("failed to parse action curator response: %w", err))
-		return
-	}
-
-	// Convert proposed actions and add to registry.
-	proposed := lore.ConvertProposedActions(result.ProposedActions)
-	if len(proposed) > 0 {
-		if err := registry.AddProposed(proposed); err != nil {
-			s.completeCurationWithError(repoName, fmt.Errorf("failed to save proposed actions: %w", err))
-			return
-		}
-	}
-
-	elapsed := time.Since(start)
-	s.logger.Info("action curation complete",
-		"repo", repoName,
-		"curation_id", curationID,
-		"signals", signalCount,
-		"proposed", len(result.ProposedActions),
-		"discarded", len(result.EntriesDiscarded),
-		"elapsed", elapsed.Round(time.Millisecond),
-	)
-
-	doneRaw := json.RawMessage(fmt.Sprintf(`{"type":"action_curation_done","proposed_count":%d,"discarded_count":%d}`,
-		len(result.ProposedActions), len(result.EntriesDiscarded)))
-	s.curationTracker.Complete(repoName, nil)
-	s.BroadcastCuratorEvent(CuratorEvent{
-		Repo:      repoName,
-		Timestamp: time.Now().UTC(),
-		EventType: "action_curation_done",
-		Raw:       doneRaw,
-	})
 }

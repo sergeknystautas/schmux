@@ -216,14 +216,13 @@ func TestExecuteInputValidation(t *testing.T) {
 	}
 }
 
-func TestExecuteRejectsEmptySchemaLabel(t *testing.T) {
+func TestExecuteAcceptsEmptySchemaLabel(t *testing.T) {
 	ctx := context.Background()
 	_, err := Execute(ctx, "claude", "claude", "test prompt", "", nil, "", nil)
-	if err == nil {
-		t.Fatal("expected error when schemaLabel is empty")
-	}
-	if !strings.Contains(err.Error(), "schema label cannot be empty") {
-		t.Errorf("expected 'schema label cannot be empty' error, got: %v", err)
+	// Empty schema label should be accepted — the function should proceed past
+	// validation and fail on something else (e.g., command not found in test env).
+	if err != nil && strings.Contains(err.Error(), "schema label cannot be empty") {
+		t.Fatal("Execute should accept empty schema label to allow prompt-only JSON output without constrained decoding")
 	}
 }
 
@@ -244,9 +243,9 @@ func TestParseClaudeStructuredOutput(t *testing.T) {
 			expected: "plain text output",
 		},
 		{
-			name:     "returns as-is when json without structured_output",
+			name:     "extracts result when no structured_output",
 			input:    `{"result":"something"}`,
-			expected: `{"result":"something"}`,
+			expected: "something",
 		},
 		{
 			name:     "empty input",
@@ -259,14 +258,19 @@ func TestParseClaudeStructuredOutput(t *testing.T) {
 			expected: `{"branch":"feature/test"}`,
 		},
 		{
-			name:     "banner preamble before json without structured_output",
+			name:     "banner preamble before json extracts result",
 			input:    "Some CLI Banner v1.2.3 (https://example.com)\n" + `{"result":"something"}`,
-			expected: "Some CLI Banner v1.2.3 (https://example.com)\n" + `{"result":"something"}`,
+			expected: "something",
 		},
 		{
 			name:     "banner preamble and trailing stderr",
 			input:    "Some CLI Banner v1.2.3\n" + `{"structured_output":{"key":"val"},"duration_ms":100}` + "\nfatal: signal killed",
 			expected: `{"key":"val"}`,
+		},
+		{
+			name:     "result field newlines are unescaped",
+			input:    `{"result":"<SUMMARY>test</SUMMARY>\n<MERGED>\n# Project\n\nContent here\n</MERGED>","is_error":false}`,
+			expected: "<SUMMARY>test</SUMMARY>\n<MERGED>\n# Project\n\nContent here\n</MERGED>",
 		},
 	}
 
@@ -338,10 +342,10 @@ func TestParseResponse(t *testing.T) {
 			expected:  `{"greeting":"hello"}`,
 		},
 		{
-			name:      "claude returns as-is when no structured output",
+			name:      "claude extracts result when no structured output",
 			agentName: "claude",
 			output:    `{"result":"something"}`,
-			expected:  `{"result":"something"}`,
+			expected:  "something",
 		},
 		{
 			name:      "codex extracts agent message",
@@ -455,6 +459,48 @@ func TestResultEventErrorParsing(t *testing.T) {
 	}
 }
 
+func TestExtractAssistantText(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want string
+	}{
+		{
+			name: "single text block",
+			line: `{"type":"assistant","message":{"content":[{"type":"text","text":"hello world"}]}}`,
+			want: "hello world",
+		},
+		{
+			name: "multiple text blocks",
+			line: `{"type":"assistant","message":{"content":[{"type":"text","text":"part1"},{"type":"text","text":"part2"}]}}`,
+			want: "part1part2",
+		},
+		{
+			name: "text and tool_use mixed",
+			line: `{"type":"assistant","message":{"content":[{"type":"text","text":"analysis"},{"type":"tool_use","id":"t1","name":"TodoWrite","input":{}}]}}`,
+			want: "analysis",
+		},
+		{
+			name: "no text blocks",
+			line: `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Read","input":{}}]}}`,
+			want: "",
+		},
+		{
+			name: "non-assistant event",
+			line: `{"type":"system","subtype":"init"}`,
+			want: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractAssistantText([]byte(tt.line))
+			if got != tt.want {
+				t.Errorf("extractAssistantText() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestExecuteTargetStreamingInputValidation(t *testing.T) {
 	ctx := context.Background()
 
@@ -463,9 +509,10 @@ func TestExecuteTargetStreamingInputValidation(t *testing.T) {
 		t.Errorf("expected 'prompt cannot be empty' error, got: %v", err)
 	}
 
+	// Empty schema label should be accepted (no constrained decoding).
 	_, err = ExecuteTargetStreaming(ctx, nil, "test", "prompt", "", time.Minute, "", nil)
-	if err == nil || !strings.Contains(err.Error(), "schema label cannot be empty") {
-		t.Errorf("expected 'schema label cannot be empty' error, got: %v", err)
+	if err != nil && strings.Contains(err.Error(), "schema label cannot be empty") {
+		t.Fatal("ExecuteTargetStreaming should accept empty schema label to allow prompt-only JSON output")
 	}
 }
 

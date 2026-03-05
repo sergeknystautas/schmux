@@ -5,12 +5,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sergeknystautas/schmux/internal/lore"
 )
 
 func TestAgentInstructions_CreatesNewFile(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	err := AgentInstructions(tmpDir, "claude")
+	err := AgentInstructions(tmpDir, "claude", "")
 	if err != nil {
 		t.Fatalf("AgentInstructions failed: %v", err)
 	}
@@ -48,7 +50,7 @@ func TestAgentInstructions_AppendsToExisting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := AgentInstructions(tmpDir, "claude")
+	err := AgentInstructions(tmpDir, "claude", "")
 	if err != nil {
 		t.Fatalf("AgentInstructions failed: %v", err)
 	}
@@ -86,7 +88,7 @@ func TestAgentInstructions_UpdatesExisting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := AgentInstructions(tmpDir, "claude")
+	err := AgentInstructions(tmpDir, "claude", "")
 	if err != nil {
 		t.Fatalf("AgentInstructions failed: %v", err)
 	}
@@ -129,7 +131,7 @@ func TestAgentInstructions_DifferentAgents(t *testing.T) {
 		t.Run(tt.target, func(t *testing.T) {
 			tmpDir := t.TempDir()
 
-			err := AgentInstructions(tmpDir, tt.target)
+			err := AgentInstructions(tmpDir, tt.target, "")
 			if err != nil {
 				t.Fatalf("AgentInstructions failed: %v", err)
 			}
@@ -146,7 +148,7 @@ func TestAgentInstructions_UnknownTarget(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Unknown target should not create any files
-	err := AgentInstructions(tmpDir, "unknown-agent")
+	err := AgentInstructions(tmpDir, "unknown-agent", "")
 	if err != nil {
 		t.Fatalf("AgentInstructions should not error for unknown target: %v", err)
 	}
@@ -162,7 +164,7 @@ func TestRemoveAgentInstructions(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// First ensure instructions exist
-	if err := AgentInstructions(tmpDir, "claude"); err != nil {
+	if err := AgentInstructions(tmpDir, "claude", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -225,7 +227,7 @@ func TestHasSignalingInstructions(t *testing.T) {
 	}
 
 	// Add instructions
-	if err := AgentInstructions(tmpDir, "claude"); err != nil {
+	if err := AgentInstructions(tmpDir, "claude", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -420,5 +422,90 @@ func TestEnsureExcludeEntries_NoTrailingNewline(t *testing.T) {
 	// The schmux block should be on its own lines (not joined to *.log)
 	if strings.Contains(contentStr, "*.log"+excludeMarkerStart) {
 		t.Error("block should be separated from existing content")
+	}
+}
+
+func TestAgentInstructions_InjectsLoreInstructions(t *testing.T) {
+	tmpDir := t.TempDir()
+	loreDir := t.TempDir()
+
+	// Setup instruction store with global + repo-private content
+	store := lore.NewInstructionStore(loreDir)
+	store.Write(lore.LayerUserGlobal, "", "# Global\n- Prefer table-driven tests")
+	store.Write(lore.LayerRepoPrivate, "myrepo", "# Private\n- Use internal API v2")
+
+	// Set the package-level instruction store
+	oldStore := instrStore
+	SetInstructionStore(store)
+	defer func() { instrStore = oldStore }()
+
+	err := AgentInstructions(tmpDir, "claude", "myrepo")
+	if err != nil {
+		t.Fatalf("AgentInstructions failed: %v", err)
+	}
+
+	instructionPath := filepath.Join(tmpDir, ".claude", "CLAUDE.md")
+	content, err := os.ReadFile(instructionPath)
+	if err != nil {
+		t.Fatalf("Failed to read instruction file: %v", err)
+	}
+
+	contentStr := string(content)
+
+	// Should contain signaling instructions
+	if !strings.Contains(contentStr, "$SCHMUX_EVENTS_FILE") {
+		t.Error("File should contain signaling instructions")
+	}
+
+	// Should contain lore global instructions
+	if !strings.Contains(contentStr, "Prefer table-driven tests") {
+		t.Error("File should contain global lore instructions")
+	}
+
+	// Should contain lore repo-private instructions
+	if !strings.Contains(contentStr, "Use internal API v2") {
+		t.Error("File should contain repo-private lore instructions")
+	}
+
+	// All lore content should be within the schmux markers
+	startIdx := strings.Index(contentStr, schmuxMarkerStart)
+	endIdx := strings.Index(contentStr, schmuxMarkerEnd)
+	if startIdx == -1 || endIdx == -1 {
+		t.Fatal("Schmux markers not found")
+	}
+	schmuxSection := contentStr[startIdx:endIdx]
+	if !strings.Contains(schmuxSection, "Prefer table-driven tests") {
+		t.Error("Global instructions should be within schmux markers")
+	}
+	if !strings.Contains(schmuxSection, "Use internal API v2") {
+		t.Error("Repo-private instructions should be within schmux markers")
+	}
+}
+
+func TestAgentInstructions_NoLoreWithoutStore(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Ensure no instruction store is set
+	oldStore := instrStore
+	instrStore = nil
+	defer func() { instrStore = oldStore }()
+
+	err := AgentInstructions(tmpDir, "claude", "myrepo")
+	if err != nil {
+		t.Fatalf("AgentInstructions failed: %v", err)
+	}
+
+	instructionPath := filepath.Join(tmpDir, ".claude", "CLAUDE.md")
+	content, err := os.ReadFile(instructionPath)
+	if err != nil {
+		t.Fatalf("Failed to read instruction file: %v", err)
+	}
+
+	// Should have signaling but no "Project Instructions" section
+	if !strings.Contains(string(content), "$SCHMUX_EVENTS_FILE") {
+		t.Error("File should contain signaling instructions")
+	}
+	if strings.Contains(string(content), "Project Instructions") {
+		t.Error("File should not contain Project Instructions when no store is set")
 	}
 }
