@@ -33,7 +33,6 @@ test.describe.serial('Action dropdown shows quick launch and emerged sections', 
     const results = await spawnSession({
       repo: repoPath,
       branch: 'test-branch',
-      prompt: 'test',
       targets: { 'echo-agent': 1 },
     });
     workspaceId = results[0].workspace_id;

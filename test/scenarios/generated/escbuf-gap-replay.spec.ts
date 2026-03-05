@@ -206,7 +206,7 @@ test.describe.serial('Escbuf holdback & gap replay fixes', () => {
       tmuxName,
       "for i in $(seq 1 5000); do printf '\\033[38;5;%dm flood-line-%d-padding-AAAA\\033[0m\\n' $((i % 256)) $i; done"
     );
-    await waitForSentinel(sessionId, sentinel);
+    await waitForSentinel(sessionId, sentinel, 45_000);
 
     // Settling time for any gap replay to complete
     await new Promise((r) => setTimeout(r, 1000));

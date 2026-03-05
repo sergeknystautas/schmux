@@ -34,7 +34,7 @@ export async function seedConfig(opts: SetupOptions = {}): Promise<void> {
     quick_launch: (opts.quickLaunch || []).map((ql) => ({
       name: ql.name,
       target: ql.target,
-      prompt: ql.prompt || 'default task',
+      ...(ql.prompt ? { prompt: ql.prompt } : {}),
     })),
   };
 
