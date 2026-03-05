@@ -28,7 +28,8 @@ USER root
 
 # Recreate directory structure so test binary's relative paths work
 # Tests use os.Getwd() + ../../test/mock-remote.sh to find support files
-RUN mkdir -p /home/e2e/src/internal/e2e
+# Owned by e2e so CaptureArtifacts can write testdata/failures/ on test failure
+RUN mkdir -p /home/e2e/src/internal/e2e && chown e2e:e2e /home/e2e/src/internal/e2e
 
 # Start SSH server as root, then switch to e2e user for tests
 COPY scripts/e2e-entrypoint.sh /entrypoint.sh

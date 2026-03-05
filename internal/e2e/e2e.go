@@ -312,7 +312,7 @@ func (e *Env) CreateConfig(workspacePath string) {
 	cfg.Network = &config.NetworkConfig{Port: e.daemonPort}
 	// E2E sessions run trivial commands (echo/sleep/cat) — use a short grace
 	// period so dispose-all doesn't block 30s per session waiting for SIGKILL.
-	cfg.Sessions = &config.SessionsConfig{DisposeGracePeriodMs: 5000}
+	cfg.Sessions = &config.SessionsConfig{DisposeGracePeriodMs: 500}
 	cfg.RunTargets = []config.RunTarget{
 		// Keep the session alive long enough for pipe-pane and tmux assertions.
 		{Name: "echo", Command: "sh -c 'echo hello; sleep 600'"},
@@ -939,8 +939,15 @@ func (e *Env) CaptureArtifacts() {
 
 	failureDir := filepath.Join("testdata", "failures", e.T.Name())
 	if err := os.MkdirAll(failureDir, 0755); err != nil {
-		e.T.Logf("Failed to create failure dir: %v", err)
-		return
+		// Fall back to a temp directory if cwd isn't writable (e.g. Docker
+		// container where the WORKDIR is owned by root).
+		fallback := filepath.Join(os.TempDir(), "schmux-e2e-failures", e.T.Name())
+		if err2 := os.MkdirAll(fallback, 0755); err2 != nil {
+			e.T.Logf("Failed to create failure dir (primary: %v, fallback: %v)", err, err2)
+			return
+		}
+		e.T.Logf("Using fallback failure dir (primary failed: %v)", err)
+		failureDir = fallback
 	}
 
 	e.T.Logf("Capturing artifacts to: %s", failureDir)
@@ -1283,7 +1290,7 @@ func (e *Env) WaitForRemoteHostStatus(flavorID, expectedStatus string, timeout t
 				return &host
 			}
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	e.T.Fatalf("Timed out waiting for remote host %s to reach status %s", flavorID, expectedStatus)
@@ -1302,7 +1309,7 @@ func (e *Env) WaitForSessionRunning(sessionID string, timeout time.Duration) *AP
 				return &sess
 			}
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	e.T.Fatalf("Timed out waiting for session %s to be running", sessionID)
@@ -1372,8 +1379,9 @@ func (e *Env) SetCompoundConfig(debounceMs int) {
 
 	enabled := true
 	cfg.Compound = &config.CompoundConfig{
-		Enabled:    &enabled,
-		DebounceMs: debounceMs,
+		Enabled:          &enabled,
+		DebounceMs:       debounceMs,
+		SuppressionTTLMs: 1000, // 1s suppression window for E2E tests (default is 5s)
 	}
 
 	if err := cfg.Save(); err != nil {
@@ -1591,7 +1599,7 @@ func (e *Env) GetWorkspaceIDForSession(sessionID string) string {
 }
 
 // PollUntil repeatedly calls check until it returns true or the timeout expires.
-// It polls every 200ms. If the timeout expires, it calls t.Fatalf with the given message.
+// It polls every 50ms. If the timeout expires, it calls t.Fatalf with the given message.
 func (e *Env) PollUntil(timeout time.Duration, failMsg string, check func() bool) {
 	e.T.Helper()
 	deadline := time.Now().Add(timeout)
@@ -1599,7 +1607,71 @@ func (e *Env) PollUntil(timeout time.Duration, failMsg string, check func() bool
 		if check() {
 			return
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}
 	e.T.Fatalf("PollUntil timed out after %v: %s", timeout, failMsg)
+}
+
+// OverlayChangeMessage represents an overlay_change WebSocket message from /ws/dashboard.
+type OverlayChangeMessage struct {
+	Type               string   `json:"type"`
+	RelPath            string   `json:"rel_path"`
+	SourceWorkspaceID  string   `json:"source_workspace_id"`
+	SourceBranch       string   `json:"source_branch"`
+	TargetWorkspaceIDs []string `json:"target_workspace_ids"`
+	Timestamp          int64    `json:"timestamp"`
+}
+
+// DashboardRawMessage is a partially-parsed dashboard WebSocket message,
+// keeping the payload as raw JSON so callers can decode type-specific fields.
+type DashboardRawMessage struct {
+	Type string
+	Data json.RawMessage
+}
+
+// ReadDashboardRawMessage reads a single raw message from the dashboard WebSocket.
+// Unlike ReadDashboardMessage, it preserves the full JSON payload for type-specific decoding.
+func (e *Env) ReadDashboardRawMessage(conn *websocket.Conn, timeout time.Duration) (*DashboardRawMessage, error) {
+	conn.SetReadDeadline(time.Now().Add(timeout))
+	_, data, err := conn.ReadMessage()
+	if err != nil {
+		return nil, err
+	}
+
+	// Extract the "type" field without fully unmarshaling
+	var envelope struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal dashboard message type: %w", err)
+	}
+	return &DashboardRawMessage{Type: envelope.Type, Data: data}, nil
+}
+
+// WaitForOverlayChange waits for an overlay_change WebSocket message with a matching relPath.
+// It skips "sessions", "github_status", and other message types until it finds a match.
+// The overlay_change message is sent AFTER files are written to disk, so after this returns
+// the file content is already on disk and can be read directly.
+func (e *Env) WaitForOverlayChange(conn *websocket.Conn, relPath string, timeout time.Duration) (*OverlayChangeMessage, error) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		raw, err := e.ReadDashboardRawMessage(conn, time.Until(deadline))
+		if err != nil {
+			if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
+				return nil, fmt.Errorf("timed out waiting for overlay_change with rel_path=%q", relPath)
+			}
+			return nil, err
+		}
+		if raw.Type != "overlay_change" {
+			continue
+		}
+		var msg OverlayChangeMessage
+		if err := json.Unmarshal(raw.Data, &msg); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal overlay_change message: %w", err)
+		}
+		if msg.RelPath == relPath {
+			return &msg, nil
+		}
+	}
+	return nil, fmt.Errorf("timed out waiting for overlay_change with rel_path=%q", relPath)
 }
