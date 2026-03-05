@@ -22,29 +22,38 @@ You MUST work through every step below in order. If any step fails, STOP and do 
 
 ---
 
-### Step 1: Run Tests
+### Step 1: Analyze Staged Changes
 
-Run `./test.sh` now and wait for it to complete.
+Run `git diff --cached --name-only` to list all staged files. Categorize them:
 
-**If tests fail:** STOP. Do not commit. Fix the failing tests, then re-invoke `/commit` from the beginning.
+**Behavioral files** — changes that can cause runtime regressions:
 
-**If tests pass:** Continue to Step 2.
+- `*.go` files (Go source)
+- `*.ts`, `*.tsx`, `*.js`, `*.jsx` files under `assets/dashboard/src/` (dashboard app source — NOT `assets/dashboard/website/`)
+- `go.mod`, `go.sum` (Go dependency changes)
+- `assets/dashboard/package.json`, `assets/dashboard/package-lock.json` (JS dependency changes)
+
+**Non-behavioral files** — changes that tests cannot validate:
+
+- `*.md`, `docs/**` (documentation)
+- `.claude/**` (agent/skill configuration)
+- `.github/**` (CI — tests run there anyway)
+- `assets/dashboard/website/**` (marketing website, separate build)
+- `*.sh`, `scripts/**` (tooling scripts)
+- `Dockerfile*` (build config)
+- `*.css` (stylesheets)
+- `assets/dashboard/public/**` (static assets)
+- `LICENSE`, `CODEOWNERS`, `.gitignore`, `.editorconfig`
+
+Record which categories are present — you'll use this in Steps 2 and 3.
+
+Continue to Step 2.
 
 ---
 
-### Step 2: Run Go Vet
+### Step 2: API Documentation Check
 
-Run `go vet ./...` now and wait for it to complete.
-
-**If go vet reports issues:** STOP. Do not commit. Fix the issues, then re-invoke `/commit` from the beginning.
-
-**If go vet passes:** Continue to Step 3.
-
----
-
-### Step 3: API Documentation Check
-
-Examine the staged changes. If any staged file path starts with any of these prefixes:
+If any staged file path starts with any of these prefixes:
 
 - `internal/dashboard/`
 - `internal/config/`
@@ -55,11 +64,28 @@ Examine the staged changes. If any staged file path starts with any of these pre
 
 Then `docs/api.md` MUST also appear in the staged changes.
 
-Run `git diff --cached --name-only` to see what is staged.
-
 **If API-related files are staged but `docs/api.md` is not:** STOP. Update `docs/api.md` to reflect your API changes, stage it with `git add docs/api.md`, then re-invoke `/commit` from the beginning.
 
-**If no API-related files are staged, or `docs/api.md` is already staged:** Continue to Step 4.
+**If no API-related files are staged, or `docs/api.md` is already staged:** Continue to Step 3.
+
+---
+
+### Step 3: Run Tests and Checks (conditional)
+
+Using the categorization from Step 1:
+
+**If no behavioral files are staged** (all changes are non-behavioral): print "Skipping tests — no behavioral changes staged" and continue to Step 4.
+
+**If any Go files (`.go`) are staged:**
+
+- Run `go vet ./...`. If it fails, STOP.
+- Run `./test.sh --quick`. If it fails, STOP.
+
+**If behavioral files are staged but none are Go files** (frontend-only changes):
+
+- Run `./test.sh --quick`. If it fails, STOP.
+
+Continue to Step 4.
 
 ---
 
