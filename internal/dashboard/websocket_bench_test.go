@@ -3,6 +3,7 @@
 package dashboard_test
 
 import (
+	"bytes"
 	"fmt"
 	"net/url"
 	"os"
@@ -66,26 +67,45 @@ func wsBenchSetup(tb testing.TB) (conn *websocket.Conn, cleanup func()) {
 	return c, cleanup
 }
 
-// sendInputAndWaitForAppend sends a keystroke over WebSocket as a binary frame
-// and waits for the next binary output message. Returns the round-trip duration.
-func sendInputAndWaitForAppend(tb testing.TB, conn *websocket.Conn, key string) time.Duration {
+// sendInputAndWaitForEcho sends a keystroke and waits for a binary frame
+// whose data payload contains the sent character. This skips background
+// output frames (e.g., flood from `seq 1 50`) and measures the actual
+// echo round-trip through tmux.
+//
+// Binary frames have an 8-byte big-endian uint64 sequence header followed
+// by terminal data. For a `cat` session, the echo of key 'Q' will appear
+// in the payload bytes. Content matching serves double duty: it skips both
+// flood frames AND any stale frames buffered from previous iterations,
+// without needing a separate drain phase (which is impossible with gorilla
+// WebSocket — it permanently caches read errors from deadline timeouts).
+func sendInputAndWaitForEcho(tb testing.TB, conn *websocket.Conn, key byte) time.Duration {
 	tb.Helper()
 
 	start := time.Now()
-	if err := conn.WriteMessage(websocket.BinaryMessage, []byte(key)); err != nil {
+	if err := conn.WriteMessage(websocket.BinaryMessage, []byte{key}); err != nil {
 		tb.Fatalf("failed to send input: %v", err)
 	}
 
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	skipped := 0
 	for {
-		msgType, _, err := conn.ReadMessage()
+		msgType, data, err := conn.ReadMessage()
 		if err != nil {
-			tb.Fatalf("timeout or error waiting for output: %v", err)
+			tb.Fatalf("timeout waiting for echo of %q after skipping %d frames: %v",
+				string(key), skipped, err)
 		}
-		if msgType == websocket.BinaryMessage {
-			conn.SetReadDeadline(time.Time{}) // clear deadline
-			return time.Since(start)
+		if msgType != websocket.BinaryMessage {
+			continue // skip text messages (stats, sync, etc.)
 		}
+		// Binary frame: 8-byte seq header + terminal data.
+		if len(data) > 8 {
+			payload := data[8:]
+			if bytes.Contains(payload, []byte{key}) {
+				conn.SetReadDeadline(time.Time{})
+				return time.Since(start)
+			}
+		}
+		skipped++
 	}
 }
 
@@ -104,16 +124,18 @@ func TestWSLatencyPercentiles(t *testing.T) {
 
 	// Warm-up keystrokes (discarded).
 	for i := 0; i < warmup; i++ {
-		sendInputAndWaitForAppend(t, conn, "w")
+		sendInputAndWaitForEcho(t, conn, 'w')
 	}
 
-	// Measured keystrokes.
+	// Measured keystrokes. Use 'Q' — not present in `seq 1 50` output
+	// (which only produces '0'-'9' and '\n'), so content matching is
+	// unambiguous even under stress.
 	var gcBefore runtime.MemStats
 	runtime.ReadMemStats(&gcBefore)
 
 	durations := make([]time.Duration, 0, measured)
 	for i := 0; i < measured; i++ {
-		d := sendInputAndWaitForAppend(t, conn, "x")
+		d := sendInputAndWaitForEcho(t, conn, 'Q')
 		durations = append(durations, d)
 		time.Sleep(1 * time.Millisecond)
 	}
@@ -156,7 +178,7 @@ func TestWSLatencyPercentilesStressed(t *testing.T) {
 
 	// Warm-up.
 	for i := 0; i < warmup; i++ {
-		sendInputAndWaitForAppend(t, conn, "w")
+		sendInputAndWaitForEcho(t, conn, 'w')
 	}
 
 	var gcBefore runtime.MemStats
@@ -164,7 +186,7 @@ func TestWSLatencyPercentilesStressed(t *testing.T) {
 
 	durations := make([]time.Duration, 0, measured)
 	for i := 0; i < measured; i++ {
-		d := sendInputAndWaitForAppend(t, conn, "x")
+		d := sendInputAndWaitForEcho(t, conn, 'Q')
 		durations = append(durations, d)
 		time.Sleep(1 * time.Millisecond)
 	}
@@ -177,7 +199,7 @@ func TestWSLatencyPercentilesStressed(t *testing.T) {
 }
 
 // BenchmarkWSEcho is a standard Go benchmark: send one keystroke over
-// WebSocket, wait for one output message. Compatible with `go test -bench`.
+// WebSocket, wait for the echo. Compatible with `go test -bench`.
 func BenchmarkWSEcho(b *testing.B) {
 	if testing.Short() {
 		b.Skip("skipping benchmark in short mode")
@@ -186,24 +208,37 @@ func BenchmarkWSEcho(b *testing.B) {
 	conn, cleanup := wsBenchSetup(b)
 	defer cleanup()
 
-	inputMsg := []byte("x")
+	// Flush the terminal's line discipline buffer — previous tests
+	// (percentile tests) may have sent 1000+ characters without a
+	// newline, filling the canonical-mode input buffer (MAX_CANON=1024
+	// on macOS). Once full, the line discipline stops echoing.
+	// Sending '\n' causes cat to read the buffered line, freeing it.
+	// The 'Z' barrier consumes cat's output (which contains Q's from
+	// the previous test) so it doesn't confuse subsequent Q matching.
+	sendInputAndWaitForEcho(b, conn, '\n')
+	sendInputAndWaitForEcho(b, conn, 'Z')
+
+	// Warmup: verify the session echoes and consume any pending
+	// text frames (bootstrapComplete, stats) from the read buffer.
+	for i := 0; i < 5; i++ {
+		sendInputAndWaitForEcho(b, conn, 'Q')
+	}
+
+	// Flush the line buffer every 500 iterations to prevent overflow.
+	// Each flush: send '\n' (cat outputs buffered Q's), then send 'Z'
+	// as a barrier (consumed after all flush output, since tmux
+	// preserves event order). StopTimer/StartTimer excludes flush
+	// overhead from the measurement.
+	const flushInterval = 500
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := conn.WriteMessage(websocket.BinaryMessage, inputMsg); err != nil {
-			b.Fatalf("failed to send input: %v", err)
+		if i > 0 && i%flushInterval == 0 {
+			b.StopTimer()
+			sendInputAndWaitForEcho(b, conn, '\n')
+			sendInputAndWaitForEcho(b, conn, 'Z')
+			b.StartTimer()
 		}
-
-		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-		for {
-			msgType, _, err := conn.ReadMessage()
-			if err != nil {
-				b.Fatalf("timeout or error waiting for output: %v", err)
-			}
-			if msgType == websocket.BinaryMessage {
-				conn.SetReadDeadline(time.Time{})
-				break
-			}
-		}
+		sendInputAndWaitForEcho(b, conn, 'Q')
 	}
 }

@@ -1,6 +1,6 @@
 import type { CoverageReport, FrontendCoverageReport } from './coverage.js';
 
-export type SuiteName = 'backend' | 'frontend' | 'e2e' | 'scenarios' | 'bench' | 'bench-micro';
+export type SuiteName = 'backend' | 'frontend' | 'e2e' | 'scenarios' | 'bench' | 'microbench';
 export type SuiteStatus =
   | 'pending'
   | 'building'
