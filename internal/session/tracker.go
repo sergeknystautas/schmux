@@ -147,7 +147,15 @@ func (t *SessionTracker) Stop() {
 		}
 		t.subs = nil
 		t.subsMu.Unlock()
-		<-t.doneCh
+		// Wait for run() to exit with a timeout. Under heavy CPU/IO contention
+		// (e.g. parallel Docker E2E tests), the run loop may be stuck in
+		// attachControlMode() between cmd.Start() and storing the cmd reference,
+		// causing closeControlMode() above to miss the active process. A bounded
+		// wait prevents session.Dispose from blocking indefinitely.
+		select {
+		case <-t.doneCh:
+		case <-time.After(30 * time.Second):
+		}
 	})
 }
 

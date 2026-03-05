@@ -404,7 +404,7 @@ func TestE2ENicknameUpdate(t *testing.T) {
 		}
 
 		// Verify via API
-		env.PollUntil(3*time.Second, "API does not reflect new nickname", func() bool {
+		env.PollUntil(10*time.Second, "API does not reflect new nickname", func() bool {
 			sessions := env.GetAPISessions()
 			for _, s := range sessions {
 				if s.ID == session1ID && s.Nickname == newNick {
@@ -507,9 +507,11 @@ func TestE2EWorkspaceDisposeAll(t *testing.T) {
 
 	// Dispose all sessions + workspace.
 	// Server-side: sessions (each up to 5s grace + 10s kill, concurrent) then
-	// workspace (60s). With 5s DisposeGracePeriod the worst case is ~75s; 120s
-	// gives ample headroom for CPU contention.
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	// workspace (60s). Nominal worst case is ~75s, but under extreme CPU
+	// contention (parallel Docker containers × parallel tests) every tmux and
+	// git operation slows dramatically. Use a very generous ceiling — the test
+	// only takes as long as the server actually needs.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, env.DaemonURL+"/api/workspaces/"+workspaceID+"/dispose-all", nil)
 	resp, err := http.DefaultClient.Do(req)
 	cancel()

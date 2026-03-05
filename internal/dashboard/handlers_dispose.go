@@ -132,7 +132,11 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 	results := make(chan disposeResult, len(wsSessions))
 	for _, sid := range wsSessions {
 		go func(id string) {
-			ctx, cancel := context.WithTimeout(context.Background(), s.config.DisposeGracePeriod()+10*time.Second)
+			// Use a generous fixed timeout independent of DisposeGracePeriod.
+			// DisposeGracePeriod controls the interactive user-facing delay,
+			// but bulk disposal (especially under CPU/IO contention) needs
+			// enough headroom for tmux subprocess operations to complete.
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
 			results <- disposeResult{sessionID: id, err: s.session.Dispose(ctx, id)}
 		}(sid)
