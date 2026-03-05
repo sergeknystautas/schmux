@@ -925,6 +925,19 @@ func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedT
 		}, nil
 	}
 
+	// Fallback: builtin tool names (e.g., "claude", "codex") can be resolved
+	// directly using the tool name as the command. This handles remote sessions
+	// where the tool isn't detected locally but is expected on the remote host.
+	if detect.IsBuiltinToolName(targetName) {
+		return ResolvedTarget{
+			Name:       targetName,
+			Kind:       TargetKindModel,
+			Command:    targetName,
+			Promptable: true,
+			ToolName:   targetName,
+		}, nil
+	}
+
 	return ResolvedTarget{}, fmt.Errorf("target not found: %s", targetName)
 }
 
