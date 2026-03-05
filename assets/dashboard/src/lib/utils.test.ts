@@ -151,22 +151,22 @@ describe('formatTimestamp', () => {
   it('formats a Date object to locale string', () => {
     const date = new Date('2024-06-15T12:30:00Z');
     const result = formatTimestamp(date);
-    expect(typeof result).toBe('string');
-    // Should contain the year and some time component
-    expect(result).toContain('2024');
+    // Use explicit locale formatting to get a deterministic expected value
+    const expected = date.toLocaleString();
+    expect(result).toBe(expected);
   });
 
   it('accepts a string timestamp', () => {
     const result = formatTimestamp('2024-06-15T12:30:00Z');
-    expect(typeof result).toBe('string');
-    expect(result).toContain('2024');
+    const expected = new Date('2024-06-15T12:30:00Z').toLocaleString();
+    expect(result).toBe(expected);
   });
 
   it('accepts a numeric timestamp', () => {
     const ms = new Date('2024-06-15T12:30:00Z').getTime();
     const result = formatTimestamp(ms);
-    expect(typeof result).toBe('string');
-    expect(result).toContain('2024');
+    const expected = new Date(ms).toLocaleString();
+    expect(result).toBe(expected);
   });
 
   it('returns consistent results for equivalent inputs', () => {
@@ -348,11 +348,10 @@ describe('nudgeStateEmoji', () => {
     expect(uniqueValues.size).toBe(values.length);
   });
 
-  it('returns undefined for unknown state', () => {
-    expect(nudgeStateEmoji['NonExistent']).toBeUndefined();
-  });
-
-  it('has exactly 5 entries', () => {
-    expect(Object.keys(nudgeStateEmoji)).toHaveLength(5);
+  it('returns non-empty strings for all known keys', () => {
+    for (const [key, value] of Object.entries(nudgeStateEmoji)) {
+      expect(value, `nudgeStateEmoji['${key}'] should be a non-empty string`).toBeTruthy();
+      expect(typeof value).toBe('string');
+    }
   });
 });

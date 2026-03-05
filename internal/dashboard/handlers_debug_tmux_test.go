@@ -74,17 +74,13 @@ func TestCollectTmuxSessionCount(t *testing.T) {
 	t.Run("returns count when tmux is available", func(t *testing.T) {
 		count, err := collectTmuxSessionCount()
 
-		// If tmux is installed and server is running, we should get a count
-		// If tmux is not installed or server is not running, we expect an error
 		if err != nil {
-			t.Logf("tmux not available or server not running (this is OK): %v", err)
-			return
+			t.Skip("tmux not available or server not running — skipping")
 		}
 
 		if count < 0 {
 			t.Errorf("count should be non-negative, got %d", count)
 		}
-		t.Logf("tmux session count: %d", count)
 	})
 }
 
@@ -97,8 +93,7 @@ func TestCollectTmuxProcessCounts(t *testing.T) {
 		attachCount, tmuxCount, err := collectTmuxProcessCounts()
 
 		if err != nil {
-			t.Logf("ps command failed (this is OK in some environments): %v", err)
-			return
+			t.Skip("ps command failed — skipping")
 		}
 
 		if attachCount < 0 {
@@ -112,7 +107,5 @@ func TestCollectTmuxProcessCounts(t *testing.T) {
 		if tmuxCount < attachCount {
 			t.Errorf("tmuxCount (%d) should be >= attachCount (%d)", tmuxCount, attachCount)
 		}
-
-		t.Logf("tmux process counts: attach=%d, tmux=%d", attachCount, tmuxCount)
 	})
 }

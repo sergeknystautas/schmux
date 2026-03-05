@@ -230,8 +230,12 @@ RESPONSE
     if (currentUrl.includes('/resolve-conflict/')) {
       // Still on conflict page - should show heading
       await expect(conflictHeading).toBeVisible({ timeout: 15000 });
+    } else {
+      // Auto-redirected away — verify we landed on a valid page (session detail or home),
+      // not a 404 or error page.
+      expect(currentUrl).toMatch(/\/(sessions\/|$)/);
+      await expect(page.locator('body')).not.toContainText('404');
     }
-    // else: auto-redirected away (expected behavior when resolution completes)
   });
 
   test('06 resolve-conflict page shows final status or auto-redirects', async ({ page }) => {
@@ -252,8 +256,12 @@ RESPONSE
 
       // One of these should be visible
       await expect(conflictHeading.or(startingText)).toBeVisible({ timeout: 15000 });
+    } else {
+      // Auto-redirected away — verify we landed on a valid page (session detail or home),
+      // not a 404 or error page.
+      expect(currentUrl).toMatch(/\/(sessions\/|$)/);
+      await expect(page.locator('body')).not.toContainText('404');
     }
-    // else: auto-redirected away (expected behavior when resolution completes)
   });
 
   test('07 re-trigger after dismiss returns 202', async () => {

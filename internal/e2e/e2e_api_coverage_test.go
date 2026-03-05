@@ -25,15 +25,7 @@ func TestE2ECaptureSession(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	env.CreateConfig(workspaceRoot)
 
-	repoPath := workspaceRoot + "/capture-repo"
-	os.MkdirAll(repoPath, 0755)
-	RunCmd(t, repoPath, "git", "init", "-b", "main")
-	RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
-	RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
-	os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Capture\n"), 0644)
-	RunCmd(t, repoPath, "git", "add", ".")
-	RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
-	env.AddRepoToConfig("capture-repo", "file://"+repoPath)
+	repoPath := env.SetupTestRepo(workspaceRoot, "capture-repo")
 
 	env.DaemonStart()
 	defer func() {
@@ -114,11 +106,22 @@ func TestE2ECaptureSession(t *testing.T) {
 		}
 
 		var result struct {
-			Lines int `json:"lines"`
+			Lines  int    `json:"lines"`
+			Output string `json:"output"`
 		}
 		json.NewDecoder(resp.Body).Decode(&result)
 		if result.Lines != 5 {
 			t.Errorf("custom lines = %d, want 5", result.Lines)
+		}
+
+		// Verify the actual output content has at most 5 lines
+		outputLines := strings.Split(strings.TrimRight(result.Output, "\n"), "\n")
+		// Empty output is technically 1 element after split, so handle that
+		if result.Output == "" {
+			outputLines = nil
+		}
+		if len(outputLines) > 5 {
+			t.Errorf("output has %d lines, expected at most 5; output: %q", len(outputLines), result.Output)
 		}
 	})
 
@@ -146,15 +149,7 @@ func TestE2EInspectWorkspace(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	env.CreateConfig(workspaceRoot)
 
-	repoPath := workspaceRoot + "/inspect-repo"
-	os.MkdirAll(repoPath, 0755)
-	RunCmd(t, repoPath, "git", "init", "-b", "main")
-	RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
-	RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
-	os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Inspect\n"), 0644)
-	RunCmd(t, repoPath, "git", "add", ".")
-	RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
-	env.AddRepoToConfig("inspect-repo", "file://"+repoPath)
+	repoPath := env.SetupTestRepo(workspaceRoot, "inspect-repo")
 
 	env.DaemonStart()
 	defer func() {
@@ -268,17 +263,27 @@ func TestE2EModelsEndpoint(t *testing.T) {
 			BaseTool    string `json:"base_tool"`
 			Category    string `json:"category"`
 		} `json:"models"`
+		DefaultModel string `json:"default_model"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		t.Fatalf("Decode failed: %v", err)
 	}
 	// Models list may be empty if no AI tools are installed (e.g., in Docker).
-	// We verify the response shape is correct and fields are populated when present.
+	// We verify the response shape is correct: non-nil Models array and a
+	// DefaultModel field (which may be empty when no tools are available).
 	if result.Models == nil {
-		t.Error("models field should be non-nil")
+		t.Error("models field should be non-nil (expected empty array, not null)")
 	}
 
-	// Verify every model has required fields
+	// DefaultModel is a string field — verify it exists in the response by
+	// checking the raw JSON. Since we decoded into a struct with the field,
+	// an absent field would just be "". This is acceptable: when no tools are
+	// installed in Docker, the default model is legitimately empty.
+	if len(result.Models) == 0 {
+		t.Log("NOTE: models list is empty — this is expected in Docker where no AI tools are installed")
+	}
+
+	// Verify every model has required fields when models are present
 	for _, m := range result.Models {
 		if m.ID == "" {
 			t.Errorf("model missing ID: %+v", m)
@@ -300,15 +305,7 @@ func TestE2EBranchesEndpoint(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	env.CreateConfig(workspaceRoot)
 
-	repoPath := workspaceRoot + "/branches-repo"
-	os.MkdirAll(repoPath, 0755)
-	RunCmd(t, repoPath, "git", "init", "-b", "main")
-	RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
-	RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
-	os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Branches\n"), 0644)
-	RunCmd(t, repoPath, "git", "add", ".")
-	RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
-	env.AddRepoToConfig("branches-repo", "file://"+repoPath)
+	repoPath := env.SetupTestRepo(workspaceRoot, "branches-repo")
 
 	env.DaemonStart()
 	defer func() {
@@ -611,6 +608,29 @@ func TestE2EBuiltinQuickLaunch(t *testing.T) {
 			t.Errorf("preset has empty name: %+v", preset)
 		}
 	}
+
+	// Verify at least one well-known built-in preset name exists.
+	// These are defined in internal/dashboard/cookbooks.json.
+	wellKnownNames := []string{"code review - local", "code review - branch", "spec review", "merge in main", "tech writer"}
+	foundKnown := false
+	for _, preset := range result {
+		for _, known := range wellKnownNames {
+			if preset.Name == known {
+				foundKnown = true
+				break
+			}
+		}
+		if foundKnown {
+			break
+		}
+	}
+	if !foundKnown {
+		names := make([]string, len(result))
+		for i, p := range result {
+			names[i] = p.Name
+		}
+		t.Errorf("expected at least one well-known preset name %v, got: %v", wellKnownNames, names)
+	}
 }
 
 // TestE2EWorkspaceScan tests POST /api/workspaces/scan — scans for orphan workspaces.
@@ -652,14 +672,24 @@ func TestE2EWorkspaceScan(t *testing.T) {
 		t.Fatalf("Scan returned %d: %s", resp.StatusCode, body)
 	}
 
-	var result map[string]interface{}
+	var result struct {
+		Added   []json.RawMessage `json:"added"`
+		Updated []json.RawMessage `json:"updated"`
+		Removed []json.RawMessage `json:"removed"`
+	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		t.Fatalf("Decode failed: %v", err)
 	}
-	// Verify scan returned a valid response with scan-related fields
-	if _, ok := result["scanned"]; !ok {
-		// Some response came back — that's enough to verify the endpoint works
-		t.Log("scan returned:", result)
+
+	// Verify the response has the expected structure (non-nil arrays)
+	if result.Added == nil {
+		t.Error("expected 'added' field to be a JSON array, got null")
+	}
+	if result.Updated == nil {
+		t.Error("expected 'updated' field to be a JSON array, got null")
+	}
+	if result.Removed == nil {
+		t.Error("expected 'removed' field to be a JSON array, got null")
 	}
 }
 
@@ -702,12 +732,29 @@ func TestE2EFloorManagerStatus(t *testing.T) {
 		t.Fatalf("Floor manager returned %d: %s", resp.StatusCode, body)
 	}
 
-	var result map[string]interface{}
+	var result struct {
+		Enabled           bool   `json:"enabled"`
+		TmuxSession       string `json:"tmux_session"`
+		Running           bool   `json:"running"`
+		InjectionCount    int    `json:"injection_count"`
+		RotationThreshold int    `json:"rotation_threshold"`
+	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		t.Fatalf("Decode failed: %v", err)
 	}
-	// Floor manager should exist in response even if disabled
-	if _, ok := result["enabled"]; !ok {
-		t.Error("expected 'enabled' field in floor manager response")
+
+	// Floor manager is disabled by default in E2E config, so enabled should be false
+	if result.Enabled {
+		t.Error("expected floor manager 'enabled' to be false by default in E2E config")
+	}
+
+	// When disabled, running should also be false
+	if result.Running {
+		t.Error("expected floor manager 'running' to be false when disabled")
+	}
+
+	// InjectionCount should be zero when not running
+	if result.InjectionCount != 0 {
+		t.Errorf("expected injection_count=0 when floor manager is not running, got %d", result.InjectionCount)
 	}
 }

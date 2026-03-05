@@ -76,7 +76,7 @@ export default function AdvancedTab({
     });
 
   return (
-    <div className="wizard-step-content" data-step="6">
+    <div className="wizard-step-content" data-step="6" data-testid="config-tab-content-advanced">
       <h2 className="wizard-step-content__title">Advanced Settings</h2>
       <p className="wizard-step-content__description">
         Terminal dimensions and advanced timing controls. You can leave these as defaults unless you
@@ -111,8 +111,11 @@ export default function AdvancedTab({
           </div>
 
           <div className="form-group">
-            <label className="form-group__label">LLM Target</label>
+            <label className="form-group__label" htmlFor="lore-llm-target">
+              LLM Target
+            </label>
             <TargetSelect
+              id="lore-llm-target"
               value={loreLLMTarget}
               onChange={(v) => setField('loreLLMTarget', v)}
               disabled={!loreEnabled}
@@ -126,8 +129,11 @@ export default function AdvancedTab({
           </div>
 
           <div className="form-group">
-            <label className="form-group__label">Curate On Dispose</label>
+            <label className="form-group__label" htmlFor="lore-curate-on-dispose">
+              Curate On Dispose
+            </label>
             <select
+              id="lore-curate-on-dispose"
               className="input"
               value={loreCurateOnDispose}
               onChange={(e) => setField('loreCurateOnDispose', e.target.value)}

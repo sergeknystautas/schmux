@@ -34,8 +34,10 @@ func TestConnectProgressSSEDisconnect(t *testing.T) {
 
 	// Start the goroutine (simulates ConnectWithProgress goroutine)
 	goroutineDone := make(chan struct{})
+	goroutineStarted := make(chan struct{})
 	go func() {
 		defer close(goroutineDone)
+		close(goroutineStarted) // Signal that goroutine is running
 
 		// Simulate slow provisioning
 		for i := 0; i < 10; i++ {
@@ -53,8 +55,8 @@ func TestConnectProgressSSEDisconnect(t *testing.T) {
 		close(progressCh)
 	}()
 
-	// Wait a bit for goroutine to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for goroutine to start (instead of time.Sleep)
+	<-goroutineStarted
 
 	// Simulate client disconnect
 	cancel()

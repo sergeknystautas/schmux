@@ -1,7 +1,10 @@
 package main
 
 import (
+	"encoding/json"
+	"io"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/pkg/cli"
@@ -9,53 +12,85 @@ import (
 
 func TestListParseJsonFlag(t *testing.T) {
 	tests := []struct {
-		name       string
-		args       []string
-		jsonOutput bool
+		name      string
+		args      []string
+		wantErr   bool
+		wantJSON  bool
+		isRunning bool
+		sessions  []cli.WorkspaceWithSessions
 	}{
 		{
-			name:       "no args",
-			args:       []string{},
-			jsonOutput: false,
+			name:      "no args outputs human format",
+			args:      []string{},
+			isRunning: true,
+			sessions:  []cli.WorkspaceWithSessions{},
 		},
 		{
-			name:       "json flag before target",
-			args:       []string{"--json"},
-			jsonOutput: true,
+			name:      "json flag produces JSON output",
+			args:      []string{"--json"},
+			isRunning: true,
+			wantJSON:  true,
+			sessions: []cli.WorkspaceWithSessions{
+				{ID: "ws-001", Branch: "main", Sessions: []cli.Session{{ID: "ws-001-abc", Target: "claude"}}},
+			},
 		},
 		{
-			name:       "short json flag",
-			args:       []string{"-json"},
-			jsonOutput: true,
+			name:      "short json flag produces JSON output",
+			args:      []string{"-json"},
+			isRunning: true,
+			wantJSON:  true,
+			sessions: []cli.WorkspaceWithSessions{
+				{ID: "ws-001", Branch: "main", Sessions: []cli.Session{{ID: "ws-001-abc", Target: "claude"}}},
+			},
 		},
 		{
-			name:       "json flag after target (should still work)",
-			args:       []string{"sessions", "--json"},
-			jsonOutput: true,
-		},
-		{
-			name:       "json flag in middle",
-			args:       []string{"--json", "sessions"},
-			jsonOutput: true,
-		},
-		{
-			name:       "no json flag",
-			args:       []string{"sessions"},
-			jsonOutput: false,
+			name:      "json flag after target still produces JSON",
+			args:      []string{"sessions", "--json"},
+			isRunning: true,
+			wantJSON:  true,
+			sessions: []cli.WorkspaceWithSessions{
+				{ID: "ws-001", Branch: "main", Sessions: []cli.Session{{ID: "ws-001-abc", Target: "claude"}}},
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			jsonOutput := false
-			for _, arg := range tt.args {
-				if arg == "-json" || arg == "--json" {
-					jsonOutput = true
-				}
+			mock := &MockDaemonClient{
+				isRunning: tt.isRunning,
+				sessions:  tt.sessions,
 			}
 
-			if jsonOutput != tt.jsonOutput {
-				t.Errorf("jsonOutput = %v, want %v", jsonOutput, tt.jsonOutput)
+			cmd := NewListCommand(mock)
+
+			// Capture stdout
+			oldStdout := os.Stdout
+			r, w, _ := os.Pipe()
+			os.Stdout = w
+
+			err := cmd.Run(tt.args)
+
+			w.Close()
+			out, _ := io.ReadAll(r)
+			os.Stdout = oldStdout
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			output := string(out)
+			if tt.wantJSON {
+				// JSON output should be valid JSON
+				var parsed interface{}
+				if jsonErr := json.Unmarshal([]byte(output), &parsed); jsonErr != nil {
+					t.Errorf("expected valid JSON output, got parse error: %v\noutput: %s", jsonErr, output)
+				}
 			}
 		})
 	}
@@ -114,10 +149,51 @@ func TestListOutputHuman(t *testing.T) {
 		},
 	}
 
-	// Just verify it doesn't error - output formatting can change
+	// Capture stdout
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
 	err := cmd.outputHuman(sessions)
+
+	w.Close()
+	out, _ := io.ReadAll(r)
+	os.Stdout = oldStdout
+
 	if err != nil {
 		t.Fatalf("outputHuman() error = %v", err)
+	}
+
+	output := string(out)
+
+	// Verify workspace headers appear
+	if !strings.Contains(output, "schmux-001") {
+		t.Error("output should contain workspace ID schmux-001")
+	}
+	if !strings.Contains(output, "main") {
+		t.Error("output should contain branch name")
+	}
+	if !strings.Contains(output, "dirty") {
+		t.Error("output should show dirty status for schmux-001")
+	}
+	if !strings.Contains(output, "ahead 3") {
+		t.Error("output should show ahead count for schmux-002")
+	}
+
+	// Verify session rows with nickname and status
+	if !strings.Contains(output, "reviewer") {
+		t.Error("output should contain session nickname 'reviewer'")
+	}
+	if !strings.Contains(output, "running") {
+		t.Error("output should contain running status")
+	}
+	if !strings.Contains(output, "stopped") {
+		t.Error("output should contain stopped status")
+	}
+
+	// Workspace with no sessions should not appear
+	if strings.Contains(output, "schmux-003") {
+		t.Error("output should not contain workspace with no sessions")
 	}
 }
 

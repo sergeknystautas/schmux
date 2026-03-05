@@ -203,6 +203,8 @@ export default function ToolsSection({
                   {item.badge !== null && item.badge !== undefined && (
                     <span
                       className={`tools-section__icon-badge${item.badgeVariant === 'danger' ? ' tools-section__icon-badge--danger' : ''}`}
+                      data-testid="icon-badge"
+                      data-severity={item.badgeVariant === 'danger' ? 'danger' : 'warning'}
                     />
                   )}
                 </NavLink>

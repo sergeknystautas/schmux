@@ -842,6 +842,8 @@ export default function LorePage() {
             <button
               key={repo.name}
               className={`session-tab ${activeRepo === repo.name ? 'session-tab--active' : ''}`}
+              data-testid="repo-tab"
+              aria-selected={activeRepo === repo.name}
               onClick={() => handleTabChange(repo.name)}
             >
               <div className="session-tab__row1">

@@ -205,6 +205,7 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
                 className={`btn ${modal.danger ? 'btn--danger' : 'btn--primary'}`}
                 onClick={() => (modal.isPrompt ? handlePromptConfirm() : close(true))}
                 autoFocus={!modal.isPrompt}
+                data-variant={modal.danger ? 'danger' : undefined}
               >
                 {modal.confirmText}
               </button>

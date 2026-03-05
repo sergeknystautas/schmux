@@ -9,6 +9,7 @@ type TargetSelectProps = {
   includeNoneOption?: string;
   models: Model[];
   className?: string;
+  id?: string;
 };
 
 export default function TargetSelect({
@@ -19,9 +20,11 @@ export default function TargetSelect({
   includeNoneOption,
   models,
   className = 'input',
+  id,
 }: TargetSelectProps) {
   return (
     <select
+      id={id}
       className={className}
       value={value}
       onChange={(e) => onChange(e.target.value)}

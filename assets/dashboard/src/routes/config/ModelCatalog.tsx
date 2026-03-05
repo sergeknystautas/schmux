@@ -105,6 +105,7 @@ function ProviderSection({
   return (
     <div
       className={`model-catalog__provider${!group.hasDetectedRunner ? ' model-catalog__provider--disabled' : ''}`}
+      data-disabled={!group.hasDetectedRunner}
     >
       <button
         className="model-catalog__provider-header"
@@ -174,7 +175,7 @@ function ModelRow({
   };
 
   return (
-    <div className="model-catalog__model-row" onClick={handleRowClick}>
+    <div className="model-catalog__model-row" onClick={handleRowClick} data-testid="model-row">
       <input
         type="checkbox"
         className="model-catalog__model-toggle"
@@ -221,20 +222,26 @@ function RunnerPicker({
 }) {
   if (runners.length <= 1) {
     return (
-      <div className="runner-picker runner-picker--single">
+      <div className="runner-picker runner-picker--single" data-testid="runner-picker">
         <span className="runner-picker__label">{runners[0]}</span>
       </div>
     );
   }
 
   return (
-    <div className={`runner-picker${disabled ? ' runner-picker--disabled' : ''}`}>
+    <div
+      className={`runner-picker${disabled ? ' runner-picker--disabled' : ''}`}
+      data-testid="runner-picker"
+      data-disabled={disabled}
+    >
       {runners.map((runner) => (
         <button
           key={runner}
           className={`runner-picker__option${runner === selected ? ' runner-picker__option--selected' : ''}`}
           onClick={() => onSelect(runner)}
           disabled={disabled}
+          data-testid="runner-option"
+          data-selected={runner === selected}
         >
           {runner}
         </button>

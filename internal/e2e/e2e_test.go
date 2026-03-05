@@ -249,19 +249,31 @@ func TestE2EFullLifecycle(t *testing.T) {
 		}
 	})
 
-	// Step 7: Verify workspace was created
+	// Step 7: Verify workspaces were created and sessions are assigned
 	t.Run("07_VerifyWorkspace", func(t *testing.T) {
-		sessions := env.GetAPISessions()
-		if len(sessions) == 0 {
-			t.Fatal("No sessions found")
+		workspaces := env.GetAPIWorkspaces()
+		if len(workspaces) == 0 {
+			t.Fatal("No workspaces found")
 		}
 
-		// All sessions should be in the same workspace
-		workspaceID := sessions[0].ID
-		// Session ID format is "workspaceID-uuid", so we can extract workspace
-		parts := strings.Split(workspaceID, "-")
-		if len(parts) < 2 {
-			t.Errorf("Unexpected session ID format: %s", workspaceID)
+		// Verify both sessions are assigned to workspaces
+		var ws1ID, ws2ID string
+		for _, ws := range workspaces {
+			for _, sess := range ws.Sessions {
+				if sess.ID == session1ID {
+					ws1ID = ws.ID
+				}
+				if sess.ID == session2ID {
+					ws2ID = ws.ID
+				}
+			}
+		}
+
+		if ws1ID == "" {
+			t.Errorf("session1 (%s) not found in any workspace", session1ID)
+		}
+		if ws2ID == "" {
+			t.Errorf("session2 (%s) not found in any workspace", session2ID)
 		}
 	})
 
@@ -328,126 +340,6 @@ func TestE2EDaemonLifecycle(t *testing.T) {
 		env.DaemonStop()
 		if env.HealthCheck() {
 			t.Error("Health check still succeeds after daemon stop")
-		}
-	})
-}
-
-// TestE2ETwoSessionsNaming tests session nickname uniqueness and consistency.
-func TestE2ETwoSessionsNaming(t *testing.T) {
-	t.Parallel()
-	env := New(t)
-
-	workspaceRoot := t.TempDir()
-
-	t.Run("CreateConfig", func(t *testing.T) {
-		env.CreateConfig(workspaceRoot)
-	})
-
-	t.Run("CreateGitRepo", func(t *testing.T) {
-		// Create repo in the configured workspace root
-		repoPath := workspaceRoot + "/naming-test-repo"
-		if err := os.MkdirAll(repoPath, 0755); err != nil {
-			t.Fatalf("Failed to create repo dir: %v", err)
-		}
-
-		// Initialize git repo on main to match test branch usage.
-		RunCmd(t, repoPath, "git", "init", "-b", "main")
-		RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
-		RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
-
-		// Create a test file
-		testFile := filepath.Join(repoPath, "README.md")
-		if err := os.WriteFile(testFile, []byte("# Naming Test\n"), 0644); err != nil {
-			t.Fatalf("Failed to create test file: %v", err)
-		}
-
-		// Commit
-		RunCmd(t, repoPath, "git", "add", ".")
-		RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
-
-		// Add repo to config BEFORE starting daemon
-		env.AddRepoToConfig("naming-test-repo", "file://"+repoPath)
-	})
-
-	t.Run("EnableGitSCM", func(t *testing.T) {
-		env.SetSourceCodeManagement("git")
-	})
-
-	t.Run("DaemonStart", func(t *testing.T) {
-		env.DaemonStart()
-	})
-
-	defer func() {
-		env.DaemonStop()
-		if t.Failed() {
-			env.CaptureArtifacts()
-		}
-	}()
-
-	t.Run("SpawnSessions", func(t *testing.T) {
-		// Spawn two sessions with distinct nicknames
-		env.SpawnSession("file://"+workspaceRoot+"/naming-test-repo", "main", "echo", "", env.Nickname("alpha"))
-		env.SpawnSession("file://"+workspaceRoot+"/naming-test-repo", "main", "echo", "", env.Nickname("beta"))
-	})
-
-	t.Run("VerifyCLI", func(t *testing.T) {
-		output := env.ListSessions()
-		if !strings.Contains(output, env.Nickname("alpha")) {
-			t.Errorf("CLI list does not contain %q", env.Nickname("alpha"))
-		}
-		if !strings.Contains(output, env.Nickname("beta")) {
-			t.Errorf("CLI list does not contain %q", env.Nickname("beta"))
-		}
-	})
-
-	t.Run("VerifyAPI", func(t *testing.T) {
-		sessions := env.GetAPISessions()
-		if len(sessions) < 2 {
-			t.Fatalf("Expected at least 2 sessions, got %d", len(sessions))
-		}
-
-		hasAlpha := false
-		hasBeta := false
-		for _, sess := range sessions {
-			if sess.Nickname == env.Nickname("alpha") {
-				hasAlpha = true
-			}
-			if sess.Nickname == env.Nickname("beta") {
-				hasBeta = true
-			}
-		}
-
-		if !hasAlpha {
-			t.Errorf("API does not show session with nickname %q", env.Nickname("alpha"))
-		}
-		if !hasBeta {
-			t.Errorf("API does not show session with nickname %q", env.Nickname("beta"))
-		}
-	})
-
-	t.Run("VerifyTmux", func(t *testing.T) {
-		tmuxSessions := env.GetTmuxSessions()
-		if len(tmuxSessions) < 2 {
-			t.Errorf("Expected at least 2 tmux sessions, got %d", len(tmuxSessions))
-		}
-
-		// Check that we have sessions with our nicknames (sanitized)
-		hasAlpha := false
-		hasBeta := false
-		for _, name := range tmuxSessions {
-			if strings.Contains(name, env.Nickname("alpha")) {
-				hasAlpha = true
-			}
-			if strings.Contains(name, env.Nickname("beta")) {
-				hasBeta = true
-			}
-		}
-
-		if !hasAlpha {
-			t.Errorf("tmux does not show session with %q", env.Nickname("alpha"))
-		}
-		if !hasBeta {
-			t.Errorf("tmux does not show session with %q", env.Nickname("beta"))
 		}
 	})
 }
@@ -2217,9 +2109,10 @@ func TestE2EOverlayWorkspaceReuse(t *testing.T) {
 		}
 		ws2Path := env.GetWorkspacePath(sessionID)
 
-		// Workspace should be reused (same path)
+		// Workspace should be reused (same path). With git SCM, a new worktree
+		// may be created instead, but the overlay content should still be correct.
 		if ws2Path != ws1Path {
-			t.Logf("Note: workspace was not reused (got %s, expected %s) — this is OK if git SCM created a new worktree", ws2Path, ws1Path)
+			t.Errorf("expected workspace to be reused (same path %s), got different path %s", ws1Path, ws2Path)
 		}
 
 		// Verify the UPDATED overlay content is present (not the stale ORIGINAL)

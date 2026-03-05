@@ -90,8 +90,8 @@ describe('PersonasListPage', () => {
     renderListPage();
 
     await waitFor(() => {
-      expect(screen.getByTestId('persona-card-security-auditor')).toBeDefined();
-      expect(screen.getByTestId('persona-card-custom-persona')).toBeDefined();
+      expect(screen.getByTestId('persona-card-security-auditor')).toBeInTheDocument();
+      expect(screen.getByTestId('persona-card-custom-persona')).toBeInTheDocument();
     });
   });
 
@@ -99,10 +99,10 @@ describe('PersonasListPage', () => {
     renderListPage();
 
     await waitFor(() => {
-      expect(screen.getByText('Security Auditor')).toBeDefined();
-      expect(screen.getByText('🔒')).toBeDefined();
-      expect(screen.getByText('Custom Persona')).toBeDefined();
-      expect(screen.getByText('🎯')).toBeDefined();
+      expect(screen.getByText('Security Auditor')).toBeInTheDocument();
+      expect(screen.getByText('🔒')).toBeInTheDocument();
+      expect(screen.getByText('Custom Persona')).toBeInTheDocument();
+      expect(screen.getByText('🎯')).toBeInTheDocument();
     });
   });
 
@@ -111,22 +111,22 @@ describe('PersonasListPage', () => {
     renderListPage();
 
     await waitFor(() => {
-      expect(screen.getByText('Create Persona')).toBeDefined();
+      expect(screen.getByText('Create Persona')).toBeInTheDocument();
     });
 
     await user.click(screen.getByText('Create Persona'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('persona-form')).toBeDefined();
+      expect(screen.getByTestId('persona-form')).toBeInTheDocument();
     });
-    expect(screen.getByLabelText('Name')).toBeDefined();
-    expect(screen.getByLabelText('Personality')).toBeDefined();
+    expect(screen.getByLabelText('Name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Personality')).toBeInTheDocument();
   });
 
   it('handles loading state', () => {
     mockGetPersonas.mockReturnValue(new Promise(() => {})); // never resolves
     renderListPage();
-    expect(screen.getByText('Loading...')).toBeDefined();
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
   });
 
   it('handles error state', async () => {
@@ -134,7 +134,7 @@ describe('PersonasListPage', () => {
     renderListPage();
 
     await waitFor(() => {
-      expect(screen.getByText('Network error')).toBeDefined();
+      expect(screen.getByText('Network error')).toBeInTheDocument();
     });
   });
 });
@@ -160,7 +160,7 @@ describe('PersonaCreatePage', () => {
     renderCreatePage();
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Name')).toBeDefined();
+      expect(screen.getByLabelText('Name')).toBeInTheDocument();
     });
 
     await user.type(screen.getByLabelText('Name'), 'New Persona');
@@ -186,7 +186,7 @@ describe('PersonaCreatePage', () => {
     renderCreatePage();
 
     await waitFor(() => {
-      expect(screen.getByTestId('persona-form')).toBeDefined();
+      expect(screen.getByTestId('persona-form')).toBeInTheDocument();
     });
 
     await user.type(screen.getByLabelText('Name'), 'Create');

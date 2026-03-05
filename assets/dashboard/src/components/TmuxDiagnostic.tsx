@@ -114,7 +114,13 @@ export default function TmuxDiagnostic() {
       </button>
       {!collapsed &&
         rows.map((row) => (
-          <div key={row.label} className="tmux-diag__row" title={row.description}>
+          <div
+            key={row.label}
+            className="tmux-diag__row"
+            title={row.description}
+            data-testid="tmux-diag-row"
+            data-label={row.label.toLowerCase().replace(/\s+/g, '-')}
+          >
             <span className="tmux-diag__dot" style={{ color: healthDotColor(row.health) }}>
               ●
             </span>

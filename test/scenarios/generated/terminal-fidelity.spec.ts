@@ -1,4 +1,3 @@
-import { type Page } from './coverage-fixture';
 import { test } from './coverage-fixture';
 import {
   seedConfig,
@@ -17,55 +16,8 @@ import {
   assertCursorVisibilityMatchesTmux,
   getTmuxSessionName,
   clearTmuxHistory,
+  openTerminal,
 } from './helpers-terminal';
-
-// ---------------------------------------------------------------------------
-// All tests navigate to the session page BEFORE sending commands.
-// This ensures xterm.js connects via WebSocket, triggering a resize of the
-// tmux pane to match the browser viewport. A `clear` command is then sent to
-// re-render the prompt via the live stream (not bootstrap), which preserves
-// the prompt's trailing space and ensures cursor position parity.
-// ---------------------------------------------------------------------------
-
-/**
- * Navigate to the session page, wait for the terminal to be live,
- * and clear the screen to sync cursor state between tmux and xterm.js.
- */
-async function openTerminal(page: Page, sessionId: string, tmuxName: string): Promise<void> {
-  await page.goto(`/sessions/${sessionId}`);
-  await waitForDashboardLive(page);
-  await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
-
-  // Wait for the terminal WebSocket to connect and bootstrap by checking
-  // if xterm.js has any content in its buffer. This avoids the race where
-  // clear escape sequences are sent before the WebSocket connects.
-  const wsDeadline = Date.now() + 10_000;
-  while (Date.now() < wsDeadline) {
-    const hasContent = await page.evaluate(() => {
-      const terminal = (window as any).__schmuxTerminal;
-      if (!terminal) return false;
-      const buffer = terminal.buffer.active;
-      for (let i = 0; i < terminal.rows; i++) {
-        const line = buffer.getLine(buffer.baseY + i);
-        if (line && line.translateToString(true).trim()) return true;
-      }
-      return false;
-    });
-    if (hasContent) break;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-
-  // Clear both scrollback and visible screen to sync state:
-  // - \033[3J clears xterm.js scrollback (tmux ignores it for its own buffer)
-  // - \033[H\033[2J moves cursor home and clears visible screen in both
-  // After this, the shell re-displays its prompt via live stream, ensuring
-  // cursor position parity between tmux and xterm.js.
-  sendTmuxCommand(tmuxName, "printf '\\033[3J\\033[H\\033[2J'");
-  await new Promise((r) => setTimeout(r, 500));
-  // Clear tmux's scrollback history separately (tmux ignores \033[3J])
-  clearTmuxHistory(tmuxName);
-  await new Promise((r) => setTimeout(r, 200));
-}
 
 // ---------------------------------------------------------------------------
 // Tier 1: Encoding

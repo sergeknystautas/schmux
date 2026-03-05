@@ -61,35 +61,35 @@ test.describe.serial('Overlay page with repo tabs', () => {
     await expect(page.locator('h1')).toHaveText('Overlay Files');
 
     // Tab bar with both repos
-    const tabs = page.locator('.repo-tabs .repo-tab');
+    const tabs = page.locator('[data-testid="repo-tab"]');
     await expect(tabs).toHaveCount(2);
     await expect(tabs.nth(0)).toHaveText(repoNameA);
     await expect(tabs.nth(1)).toHaveText(repoNameB);
 
     // First tab is active by default
-    await expect(tabs.nth(0)).toHaveClass(/repo-tab--active/);
-    await expect(tabs.nth(1)).not.toHaveClass(/repo-tab--active/);
+    await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true');
+    await expect(tabs.nth(1)).not.toHaveAttribute('aria-selected', 'true');
   });
 
   test('switching tabs changes active state', async ({ page }) => {
     await page.goto('/overlays');
     await waitForDashboardLive(page);
 
-    const tabs = page.locator('.repo-tabs .repo-tab');
+    const tabs = page.locator('[data-testid="repo-tab"]');
 
     // Click second tab
     await tabs.nth(1).click();
 
     // Second tab should now be active, first should not
-    await expect(tabs.nth(1)).toHaveClass(/repo-tab--active/);
-    await expect(tabs.nth(0)).not.toHaveClass(/repo-tab--active/);
+    await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
+    await expect(tabs.nth(0)).not.toHaveAttribute('aria-selected', 'true');
 
     // Click first tab again
     await tabs.nth(0).click();
 
     // First tab active again
-    await expect(tabs.nth(0)).toHaveClass(/repo-tab--active/);
-    await expect(tabs.nth(1)).not.toHaveClass(/repo-tab--active/);
+    await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true');
+    await expect(tabs.nth(1)).not.toHaveAttribute('aria-selected', 'true');
   });
 
   test('API returns overlay info for both repos', async () => {

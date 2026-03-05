@@ -1090,6 +1090,7 @@ export default function ConfigPage() {
                   className={`wizard__step ${isCurrent ? 'wizard__step--active' : ''}`}
                   data-step={stepNum}
                   data-testid={`config-tab-${TAB_SLUGS[stepNum - 1]}`}
+                  aria-selected={isCurrent}
                   onClick={() => setCurrentStep(stepNum)}
                   style={{ cursor: 'pointer' }}
                 >
@@ -1146,6 +1147,7 @@ export default function ConfigPage() {
                 key={stepNum}
                 className={`wizard__step ${isCurrent ? 'wizard__step--active' : ''} ${isCompleted ? 'wizard__step--completed' : ''}`}
                 data-step={stepNum}
+                aria-selected={isCurrent}
                 onClick={() => setCurrentStep(stepNum)}
                 style={{ cursor: 'pointer' }}
               >

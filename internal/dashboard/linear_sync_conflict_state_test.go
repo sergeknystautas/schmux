@@ -227,24 +227,6 @@ func TestSetHash_DoesNotOverwrite(t *testing.T) {
 	}
 }
 
-func TestSetTmuxSession(t *testing.T) {
-	s := &LinearSyncResolveConflictState{}
-	s.SetTmuxSession("session-123")
-
-	if s.TmuxSession != "session-123" {
-		t.Errorf("tmux session = %q, want %q", s.TmuxSession, "session-123")
-	}
-}
-
-func TestClearTmuxSession(t *testing.T) {
-	s := &LinearSyncResolveConflictState{TmuxSession: "session-123"}
-	s.ClearTmuxSession()
-
-	if s.TmuxSession != "" {
-		t.Errorf("tmux session = %q, want empty", s.TmuxSession)
-	}
-}
-
 func TestMarshalJSON(t *testing.T) {
 	s := &LinearSyncResolveConflictState{
 		Type:        "linear_sync_resolve_conflict",

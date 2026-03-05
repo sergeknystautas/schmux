@@ -1,51 +1,18 @@
-import { type Page } from './coverage-fixture';
 import { test, expect } from './coverage-fixture';
 import {
   seedConfig,
   createTestRepo,
   spawnSession,
-  waitForDashboardLive,
   waitForHealthy,
   waitForSessionRunning,
 } from './helpers';
 import {
-  sendTmuxCommand,
   sendTmuxCommandWithSentinel,
   waitForSentinel,
   assertTerminalMatchesTmux,
   getTmuxSessionName,
-  clearTmuxHistory,
+  openTerminal,
 } from './helpers-terminal';
-
-// ---------------------------------------------------------------------------
-// Helper: open a terminal and clear it for a clean test surface.
-// ---------------------------------------------------------------------------
-async function openTerminal(page: Page, sessionId: string, tmuxName: string): Promise<void> {
-  await page.goto(`/sessions/${sessionId}`);
-  await waitForDashboardLive(page);
-  await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
-
-  const wsDeadline = Date.now() + 10_000;
-  while (Date.now() < wsDeadline) {
-    const hasContent = await page.evaluate(() => {
-      const terminal = (window as any).__schmuxTerminal;
-      if (!terminal) return false;
-      const buffer = terminal.buffer.active;
-      for (let i = 0; i < terminal.rows; i++) {
-        const line = buffer.getLine(buffer.baseY + i);
-        if (line && line.translateToString(true).trim()) return true;
-      }
-      return false;
-    });
-    if (hasContent) break;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-
-  sendTmuxCommand(tmuxName, "printf '\\033[3J\\033[H\\033[2J'");
-  await new Promise((r) => setTimeout(r, 500));
-  clearTmuxHistory(tmuxName);
-  await new Promise((r) => setTimeout(r, 200));
-}
 
 // ---------------------------------------------------------------------------
 // Terminal scroll position survives nudge-triggered resize

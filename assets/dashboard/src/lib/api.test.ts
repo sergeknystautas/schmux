@@ -28,33 +28,21 @@ describe('getErrorMessage', () => {
 });
 
 describe('LinearSyncError', () => {
-  it('is an instance of Error', () => {
-    const err = new LinearSyncError('sync failed', false);
+  it('creates with all fields and preserves them', () => {
+    const err = new LinearSyncError('hook failed', true, 'lint errors');
     expect(err).toBeInstanceOf(Error);
-  });
-
-  it('has name "LinearSyncError"', () => {
-    const err = new LinearSyncError('sync failed', false);
     expect(err.name).toBe('LinearSyncError');
-  });
-
-  it('preserves message', () => {
-    const err = new LinearSyncError('sync failed', false);
-    expect(err.message).toBe('sync failed');
-  });
-
-  it('preserves isPreCommitHookError flag', () => {
-    const err = new LinearSyncError('hook failed', true, 'lint errors');
+    expect(err.message).toBe('hook failed');
     expect(err.isPreCommitHookError).toBe(true);
-  });
-
-  it('preserves preCommitErrorDetail', () => {
-    const err = new LinearSyncError('hook failed', true, 'lint errors');
     expect(err.preCommitErrorDetail).toBe('lint errors');
   });
 
-  it('preCommitErrorDetail is undefined when not provided', () => {
+  it('creates without optional fields and defaults preCommitErrorDetail to undefined', () => {
     const err = new LinearSyncError('sync failed', false);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.name).toBe('LinearSyncError');
+    expect(err.message).toBe('sync failed');
+    expect(err.isPreCommitHookError).toBe(false);
     expect(err.preCommitErrorDetail).toBeUndefined();
   });
 });

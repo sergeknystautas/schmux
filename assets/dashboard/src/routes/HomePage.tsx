@@ -552,7 +552,7 @@ export default function HomePage() {
                         <span className={styles.workspaceRepo}>{getRepoName(ws.repo)}</span>
                       </div>
                       <div className={styles.workspaceStats}>
-                        <span className={styles.gitStats}>
+                        <span className={styles.gitStats} data-testid="git-stats">
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
                             {ws.git_behind}
                             {arrowDown}
@@ -1024,7 +1024,7 @@ export default function HomePage() {
                           <span className={styles.workspaceRepo}>{getRepoName(ws.repo)}</span>
                         </div>
                         <div className={styles.workspaceStats}>
-                          <span className={styles.gitStats}>
+                          <span className={styles.gitStats} data-testid="git-stats">
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
                               {ws.git_behind}
                               {arrowDown}

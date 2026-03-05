@@ -25,19 +25,9 @@ test.describe.serial('Persist lore curator model selection', () => {
         },
       ],
     });
-  });
 
-  test('API round-trip persists lore llm_target', async () => {
-    interface ConfigResp {
-      lore: {
-        enabled: boolean;
-        llm_target: string;
-        curate_on_dispose: string;
-        auto_pr: boolean;
-      };
-    }
-
-    // POST lore config
+    // Seed lore config for tests that depend on it (API round-trip is
+    // verified in configure-lore-settings.spec.ts)
     await apiPost('/api/config', {
       lore: {
         enabled: true,
@@ -46,13 +36,6 @@ test.describe.serial('Persist lore curator model selection', () => {
         auto_pr: false,
       },
     });
-
-    // GET and verify all fields round-trip
-    const config = await apiGet<ConfigResp>('/api/config');
-    expect(config.lore.enabled).toBe(true);
-    expect(config.lore.llm_target).toBe(agentName);
-    expect(config.lore.curate_on_dispose).toBe('workspace');
-    expect(config.lore.auto_pr).toBe(false);
   });
 
   test('clearing llm_target via API returns empty string, not fallback', async () => {

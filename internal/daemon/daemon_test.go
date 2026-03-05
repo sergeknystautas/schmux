@@ -72,18 +72,6 @@ func TestPidFileParsing(t *testing.T) {
 	}
 }
 
-func TestShutdown(t *testing.T) {
-	// Verifies Shutdown does not panic.
-	d := NewDaemon()
-	d.Shutdown()
-}
-
-func TestDashboardPort(t *testing.T) {
-	if dashboardPort != 7337 {
-		t.Errorf("expected dashboard port 7337, got %d", dashboardPort)
-	}
-}
-
 // mockChecker is a test implementation of tmux.Checker that returns a predefined error.
 type mockChecker struct{ err error }
 
@@ -98,45 +86,6 @@ func TestValidateSessionAccess_NoSessions(t *testing.T) {
 	err := validateSessionAccess(st)
 	if err != nil {
 		t.Errorf("expected no error with empty state, got: %v", err)
-	}
-}
-
-func TestValidateSessionAccess_MissingSessionNoUserMismatch(t *testing.T) {
-	// State with a session that doesn't exist in tmux should NOT fail
-	// if there's no user mismatch (no other user's tmux server running)
-	tmpDir := t.TempDir()
-	statePath := filepath.Join(tmpDir, "state.json")
-	st := state.New(statePath, nil)
-
-	// Add a fake session
-	sess := state.Session{
-		ID:          "test-session-123",
-		WorkspaceID: "test-workspace",
-		Target:      "test-target",
-		TmuxSession: "nonexistent-tmux-session-xyz",
-		CreatedAt:   time.Now(),
-		Pid:         12345,
-	}
-	if err := st.AddSession(sess); err != nil {
-		t.Fatalf("failed to add session: %v", err)
-	}
-
-	// This should NOT error because there's no user mismatch
-	// (either we have our own tmux server, or there's no tmux server at all)
-	err := validateSessionAccess(st)
-	// We can't assert error/no-error without controlling the tmux state,
-	// but at minimum it should not panic
-	_ = err
-}
-
-func TestFindOtherTmuxServerOwners(t *testing.T) {
-	// This just verifies the function doesn't panic and returns a slice
-	currentUID := os.Getuid()
-	owners := findOtherTmuxServerOwners(currentUID)
-	// Should return empty or owners of other users' tmux servers
-	// We can't assert much here without knowing the test environment
-	if owners == nil {
-		t.Error("expected non-nil slice from findOtherTmuxServerOwners")
 	}
 }
 

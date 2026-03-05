@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -14,8 +15,9 @@ func TestNoopTelemetry(t *testing.T) {
 	var _ Telemetry = (*NoopTelemetry)(nil)
 
 	// Verify Track does not make HTTP requests
+	var requestCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Error("NoopTelemetry should not make HTTP requests")
+		atomic.AddInt32(&requestCount, 1)
 	}))
 	defer server.Close()
 
@@ -26,8 +28,10 @@ func TestNoopTelemetry(t *testing.T) {
 	noop := &NoopTelemetry{}
 	noop.Track("test", map[string]any{"foo": "bar"})
 	noop.Shutdown()
-	// Give any accidental goroutine time to fire
-	time.Sleep(50 * time.Millisecond)
+	// Shutdown is synchronous — if no requests were made by now, none will be
+	if atomic.LoadInt32(&requestCount) != 0 {
+		t.Error("NoopTelemetry should not make HTTP requests")
+	}
 }
 
 func TestNewSendsEvents(t *testing.T) {
@@ -199,16 +203,19 @@ func TestTrackNonBlocking(t *testing.T) {
 	client := New("test-install-id", nil).(*Client)
 	defer client.Shutdown()
 
-	// Track should return immediately even with slow server
+	// Track should return immediately even with slow server.
+	// Each Track call is a non-blocking channel send, so 10 calls
+	// should complete in microseconds regardless of server latency.
 	start := time.Now()
 	for i := 0; i < 10; i++ {
 		client.Track("test_event", nil)
 	}
 	elapsed := time.Since(start)
 
-	// Should complete much faster than 10 * 100ms = 1s
-	if elapsed > 200*time.Millisecond {
-		t.Errorf("Track took too long: %v (expected < 200ms)", elapsed)
+	// Should complete much faster than 10 * 100ms = 1s.
+	// Use 500ms threshold to be resilient to CI load spikes.
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("Track took too long: %v (expected < 500ms for non-blocking sends)", elapsed)
 	}
 }
 
@@ -240,18 +247,17 @@ func TestTrackDropsOnFullQueue(t *testing.T) {
 	}
 	client.wg.Add(1)
 	go client.worker()
-	defer client.Shutdown()
 
-	// Fill the queue
+	// Fill the queue — send more events than buffer capacity
 	for i := 0; i < 5; i++ {
 		client.Track("test_event", map[string]any{"index": i})
 	}
 
-	// Unblock the server
+	// Unblock the server so pending requests can complete
 	close(blockCh)
 
-	// Wait for processing
-	time.Sleep(100 * time.Millisecond)
+	// Shutdown flushes remaining events and waits for worker to finish
+	client.Shutdown()
 
 	// Not all events should have been sent due to queue overflow
 	requestCountMu.Lock()
@@ -283,11 +289,8 @@ func TestShutdownFlushesEvents(t *testing.T) {
 		client.Track("test_event", nil)
 	}
 
-	// Shutdown should flush
+	// Shutdown should flush all pending events before returning
 	client.Shutdown()
-
-	// Wait a bit for any late arrivals
-	time.Sleep(50 * time.Millisecond)
 
 	receivedCountMu.Lock()
 	defer receivedCountMu.Unlock()

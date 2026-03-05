@@ -77,21 +77,31 @@ describe('HostStatusIndicator', () => {
 
   it('renders spinner for provisioning/connecting/reconnecting', () => {
     const { container: c1 } = render(<HostStatusIndicator status="provisioning" />);
-    expect(c1.querySelector('.spinner')).toBeInTheDocument();
+    expect(
+      c1.querySelector('[data-testid="host-status-indicator"][data-variant="spinner"]')
+    ).toBeInTheDocument();
 
     const { container: c2 } = render(<HostStatusIndicator status="connecting" />);
-    expect(c2.querySelector('.spinner')).toBeInTheDocument();
+    expect(
+      c2.querySelector('[data-testid="host-status-indicator"][data-variant="spinner"]')
+    ).toBeInTheDocument();
 
     const { container: c3 } = render(<HostStatusIndicator status="reconnecting" />);
-    expect(c3.querySelector('.spinner')).toBeInTheDocument();
+    expect(
+      c3.querySelector('[data-testid="host-status-indicator"][data-variant="spinner"]')
+    ).toBeInTheDocument();
   });
 
   it('renders static dot for non-spinner statuses', () => {
     const { container } = render(<HostStatusIndicator status="ready" />);
     // No spinner, but has the dot element
-    expect(container.querySelector('.spinner')).not.toBeInTheDocument();
-    // Dot is a span with borderRadius: 50%
-    const dot = container.querySelector('span > span:first-child') as HTMLElement;
-    expect(dot.style.borderRadius).toBe('50%');
+    expect(
+      container.querySelector('[data-testid="host-status-indicator"][data-variant="spinner"]')
+    ).not.toBeInTheDocument();
+    // Dot variant should be present
+    const dot = container.querySelector(
+      '[data-testid="host-status-indicator"][data-variant="dot"]'
+    ) as HTMLElement;
+    expect(dot).toBeInTheDocument();
   });
 });

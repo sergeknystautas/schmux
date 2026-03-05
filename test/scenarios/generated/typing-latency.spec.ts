@@ -135,6 +135,14 @@ test.describe.serial('Typing latency benchmark', () => {
     // Sanity assertion: median should be under 1500ms (catches catastrophic regressions).
     // The threshold is generous to account for Docker container overhead and
     // accumulated sessions from prior tests sharing the same daemon.
+    //
+    // NOTE: The product spec targets 500ms median latency for idle typing.
+    // The 1500ms threshold here is 3x higher because the Playwright scenario
+    // tests run inside Docker containers with constrained CPU/memory, shared
+    // I/O, and no GPU acceleration. The Docker overhead adds ~200-800ms per
+    // keystroke round-trip compared to native execution.
+    // TODO: Tighten this threshold to 500ms when CI infrastructure moves to
+    // dedicated runners with guaranteed CPU allocation (no container contention).
     expect(stats).not.toBeNull();
     expect(stats!.median).toBeLessThan(1500);
   });
@@ -220,6 +228,14 @@ test.describe.serial('Typing latency benchmark', () => {
     // Stressed latency threshold is higher since a background flood process
     // competes for CPU. 5000ms is generous to account for Docker overhead
     // when running multiple containers concurrently.
+    //
+    // NOTE: The product spec targets 500ms median latency even under load.
+    // The 5000ms threshold here is 10x higher because Docker containers under
+    // concurrent execution face severe CPU contention, especially when the
+    // flood-agent's background process competes with the Playwright browser
+    // and the schmux daemon for shared CPU cycles.
+    // TODO: Tighten this threshold closer to 500ms when CI infrastructure
+    // moves to dedicated runners with guaranteed CPU allocation.
     expect(stats!.median).toBeLessThan(5000);
   });
 });

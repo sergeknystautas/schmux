@@ -75,7 +75,12 @@ export function StreamMetricsPanel({ backendStats, frontendStats, onDiagnosticCa
         style={{ cursor: 'pointer', userSelect: 'none' }}
       >
         <span>{formatCount(frames)} frames</span>
-        <span className={drops > 0 ? 'warning' : ''}>{drops} drops</span>
+        <span
+          className={drops > 0 ? 'warning' : ''}
+          data-severity={drops > 0 ? 'warning' : undefined}
+        >
+          {drops} drops
+        </span>
         <span className={seqBreaks > 0 ? 'warning' : ''}>{seqBreaks} seq breaks</span>
       </div>
       {onDiagnosticCapture && (

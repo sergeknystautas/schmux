@@ -51,19 +51,11 @@ test.describe.serial('Configure lore settings', () => {
     await expect(enableCheckbox).toBeChecked();
 
     // LLM Target dropdown should be visible
-    const targetSelect = page
-      .locator('.form-group', {
-        has: page.locator('.form-group__label', { hasText: 'LLM Target' }),
-      })
-      .locator('select');
+    const targetSelect = page.getByLabel('LLM Target');
     await expect(targetSelect).toBeVisible();
 
     // Curate On Dispose dropdown should be visible with expected options
-    const curateSelect = page
-      .locator('.form-group', {
-        has: page.locator('.form-group__label', { hasText: 'Curate On Dispose' }),
-      })
-      .locator('select');
+    const curateSelect = page.getByLabel('Curate On Dispose');
     await expect(curateSelect).toBeVisible();
     await expect(curateSelect.locator('option')).toHaveCount(3);
     await expect(curateSelect.locator('option', { hasText: 'Every session' })).toHaveCount(1);
@@ -82,11 +74,7 @@ test.describe.serial('Configure lore settings', () => {
     await advancedTab.click();
 
     // Change curate-on-dispose to "workspace" (last session per workspace)
-    const curateSelect = page
-      .locator('.form-group', {
-        has: page.locator('.form-group__label', { hasText: 'Curate On Dispose' }),
-      })
-      .locator('select');
+    const curateSelect = page.getByLabel('Curate On Dispose');
     await curateSelect.selectOption('workspace');
 
     // Save

@@ -4,9 +4,13 @@ import styles from './ProposedActionCard.module.css';
 function ConfidenceDots({ confidence }: { confidence: number }) {
   const filled = Math.round(confidence * 4);
   return (
-    <span className={styles.confidenceDots}>
+    <span className={styles.confidenceDots} data-testid="confidence-dots">
       {[0, 1, 2, 3].map((i) => (
-        <span key={i} className={`${styles.dot} ${i < filled ? styles.dotFilled : ''}`} />
+        <span
+          key={i}
+          className={`${styles.dot} ${i < filled ? styles.dotFilled : ''}`}
+          data-filled={i < filled}
+        />
       ))}
     </span>
   );

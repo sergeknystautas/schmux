@@ -202,7 +202,7 @@ describe('ModalProvider', () => {
     });
 
     const deleteBtn = screen.getByText('Delete');
-    expect(deleteBtn.className).toContain('btn--danger');
+    expect(deleteBtn.getAttribute('data-variant')).toBe('danger');
   });
 
   it('useModal outside provider throws', () => {

@@ -31,7 +31,7 @@ test.describe.serial('Remote access onboarding', () => {
     const panel = page.locator('[data-testid="remote-access-panel"]');
     await expect(panel).toBeVisible({ timeout: 10_000 });
 
-    const warning = panel.locator('.remote-access-panel__warning');
+    const warning = panel.locator('[data-testid="remote-access-warning"]');
     await expect(warning).toBeVisible();
     await expect(warning).toContainText('Set a password');
 
@@ -73,7 +73,7 @@ test.describe.serial('Remote access onboarding', () => {
     const panel = page.locator('[data-testid="remote-access-panel"]');
     await expect(panel).toBeVisible({ timeout: 10_000 });
 
-    const warning = panel.locator('.remote-access-panel__warning');
+    const warning = panel.locator('[data-testid="remote-access-warning"]');
     await expect(warning).not.toBeVisible();
 
     // Start button should now be enabled
@@ -102,8 +102,8 @@ test.describe.serial('Remote access onboarding', () => {
     await expect(ntfyInput).toBeVisible({ timeout: 10_000 });
 
     // Placeholder shown before generating
-    await expect(page.locator('.ntfy-qr-placeholder')).toBeVisible();
-    expect(await page.locator('.ntfy-qr-code svg').count()).toBe(0);
+    await expect(page.locator('[data-testid="ntfy-qr-placeholder"]')).toBeVisible();
+    expect(await page.locator('[data-testid="ntfy-qr-code"] svg').count()).toBe(0);
 
     // Click generate
     await page.getByRole('button', { name: 'Generate secure topic' }).click();
@@ -113,8 +113,8 @@ test.describe.serial('Remote access onboarding', () => {
     expect(value).toMatch(/^schmux-[0-9a-f]{32}$/);
 
     // QR code should appear, placeholder should be gone
-    await expect(page.locator('.ntfy-qr-code svg')).toBeVisible();
-    await expect(page.locator('.ntfy-qr-placeholder')).not.toBeVisible();
+    await expect(page.locator('[data-testid="ntfy-qr-code"] svg')).toBeVisible();
+    await expect(page.locator('[data-testid="ntfy-qr-placeholder"]')).not.toBeVisible();
   });
 
   test('test notification button is disabled when ntfy topic is empty', async ({ page }) => {
@@ -171,7 +171,7 @@ test.describe.serial('Remote access onboarding', () => {
     // Type a short password (6 chars) — strength indicator should appear
     await passwordInput.fill('abcdef');
 
-    const strengthIndicator = page.locator('.password-strength');
+    const strengthIndicator = page.locator('[data-testid="password-strength"]');
     await expect(strengthIndicator).toBeVisible();
   });
 });

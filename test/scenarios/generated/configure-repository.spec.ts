@@ -18,7 +18,7 @@ test.describe.serial('Configure a new repository', () => {
     // Verify the Workspaces tab is active (it's the default/first tab)
     const workspacesTab = page.locator('[data-testid="config-tab-workspaces"]');
     await expect(workspacesTab).toBeVisible();
-    await expect(workspacesTab).toHaveClass(/wizard__step--active/);
+    await expect(workspacesTab).toHaveAttribute('aria-selected', 'true');
 
     // Fill in the repo name
     await page.getByPlaceholder('Name').first().fill(repoName);

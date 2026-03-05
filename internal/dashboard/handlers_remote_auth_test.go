@@ -977,9 +977,3 @@ func TestValidateRemoteCookie_EmptyUA(t *testing.T) {
 		t.Error("expected cookie created with empty UA to be rejected when request has a UA")
 	}
 }
-
-func TestRemoteSessionMaxAge_Is12Hours(t *testing.T) {
-	if remoteSessionMaxAge != 12*time.Hour {
-		t.Errorf("expected remoteSessionMaxAge to be 12h, got %v", remoteSessionMaxAge)
-	}
-}

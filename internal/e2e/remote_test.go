@@ -407,9 +407,9 @@ func TestE2ERemoteStatePersistence(t *testing.T) {
 		for _, host := range hosts {
 			if host.ID == hostID {
 				found = true
-				// After restart, host will be disconnected
+				// After restart, host should be in a valid state
 				if host.Status != "disconnected" && host.Status != "connected" {
-					t.Logf("Warning: Expected host status 'disconnected', got: %s", host.Status)
+					t.Errorf("expected host status 'disconnected' or 'connected' after restart, got: %s", host.Status)
 				}
 				if host.Hostname != hostname {
 					t.Errorf("Hostname changed after restart: was %s, now %s", hostname, host.Hostname)
@@ -427,7 +427,7 @@ func TestE2ERemoteStatePersistence(t *testing.T) {
 		for _, sess := range sessions {
 			if sess.ID == sessionID {
 				found = true
-				// Session will not be running (remote connection lost)
+				// After restart with lost remote connection, session should not be running
 				if sess.Running {
 					t.Logf("Note: Session is still running (tmux session survived)")
 				}

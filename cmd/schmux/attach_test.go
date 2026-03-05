@@ -45,7 +45,7 @@ func TestAttachCommand_Run(t *testing.T) {
 			errContains: "session not found",
 		},
 		{
-			name:      "attach succeeds",
+			name:      "attach fails without tmux environment",
 			args:      []string{"ws-001-abc"},
 			isRunning: true,
 			sessions: []cli.WorkspaceWithSessions{

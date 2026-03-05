@@ -1,16 +1,8 @@
-# Spawn multiple agents on the same task
+# Verify multi-session workspace after API spawn
 
-A user wants to start two AI agents working on the same task so they can
-compare approaches.
-
-They navigate to the spawn page, type a task description, select
-"Multiple agents" from the bottom of the agent dropdown to expand the
-multi-agent grid, select two agents, pick a repository, and submit
-the form.
-
-After submitting, they should land on a session detail page for one of the
-new sessions. They should also be able to navigate to both created sessions
-and see terminal output for each.
+Two agents are spawned via the API on the same task. The test verifies
+that both sessions are navigable, each renders a terminal viewport,
+and the API confirms both sessions exist with different targets.
 
 ## Preconditions
 

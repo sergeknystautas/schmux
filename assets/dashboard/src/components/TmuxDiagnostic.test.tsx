@@ -139,16 +139,16 @@ describe('TmuxDiagnostic', () => {
       expect(screen.getByText('Sessions')).toBeInTheDocument();
     });
 
-    const sessionsRow = screen.getByText('Sessions').closest('.tmux-diag__row');
+    const sessionsRow = screen.getByText('Sessions').closest('[data-testid="tmux-diag-row"]');
     expect(sessionsRow).toHaveAttribute('title', 'Active tmux sessions on this machine');
 
-    const attachRow = screen.getByText('Attach procs').closest('.tmux-diag__row');
+    const attachRow = screen.getByText('Attach procs').closest('[data-testid="tmux-diag-row"]');
     expect(attachRow).toHaveAttribute(
       'title',
       'Control-mode processes watching sessions (expect ≤ sessions)'
     );
 
-    const tmuxRow = screen.getByText('Tmux procs').closest('.tmux-diag__row');
+    const tmuxRow = screen.getByText('Tmux procs').closest('[data-testid="tmux-diag-row"]');
     expect(tmuxRow).toHaveAttribute('title', 'Total OS processes with "tmux" in command line');
   });
 });

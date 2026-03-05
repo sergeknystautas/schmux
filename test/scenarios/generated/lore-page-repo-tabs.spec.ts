@@ -58,14 +58,14 @@ test.describe.serial('Lore page with repo tabs', () => {
     await expect(page.locator('h2', { hasText: 'Lore' })).toBeVisible();
 
     // Tab bar with both repos (uses session-tabs classes)
-    const tabs = page.locator('.session-tabs .session-tab');
+    const tabs = page.locator('[data-testid="repo-tab"]');
     await expect(tabs).toHaveCount(2);
     await expect(tabs.nth(0)).toContainText(repoNameA);
     await expect(tabs.nth(1)).toContainText(repoNameB);
 
     // First tab is active by default
-    await expect(tabs.nth(0)).toHaveClass(/session-tab--active/);
-    await expect(tabs.nth(1)).not.toHaveClass(/session-tab--active/);
+    await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true');
+    await expect(tabs.nth(1)).not.toHaveAttribute('aria-selected', 'true');
   });
 
   test('page shows proposals and raw signals sections', async ({ page }) => {
@@ -85,14 +85,14 @@ test.describe.serial('Lore page with repo tabs', () => {
     await page.goto('/lore');
     await waitForDashboardLive(page);
 
-    const tabs = page.locator('.session-tabs .session-tab');
+    const tabs = page.locator('[data-testid="repo-tab"]');
 
     // Click second tab
     await tabs.nth(1).click();
 
     // Second tab should now be active
-    await expect(tabs.nth(1)).toHaveClass(/session-tab--active/);
-    await expect(tabs.nth(0)).not.toHaveClass(/session-tab--active/);
+    await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
+    await expect(tabs.nth(0)).not.toHaveAttribute('aria-selected', 'true');
 
     // Empty state should still be visible (data reloaded for new repo)
     await expect(
@@ -101,7 +101,7 @@ test.describe.serial('Lore page with repo tabs', () => {
 
     // Click first tab again
     await tabs.nth(0).click();
-    await expect(tabs.nth(0)).toHaveClass(/session-tab--active/);
+    await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true');
   });
 
   test('API returns proposals for each repo', async () => {

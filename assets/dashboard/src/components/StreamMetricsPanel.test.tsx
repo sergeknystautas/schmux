@@ -43,7 +43,7 @@ describe('StreamMetricsPanel', () => {
       />
     );
     const dropsEl = screen.getByText(/5 drops/);
-    expect(dropsEl.className).toContain('warning');
+    expect(dropsEl.getAttribute('data-severity')).toBe('warning');
   });
 
   it('shows break details when expanded and toggled', () => {

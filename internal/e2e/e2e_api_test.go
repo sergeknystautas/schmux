@@ -300,12 +300,24 @@ func TestE2ESessionEvents(t *testing.T) {
 		}
 		defer resp.Body.Close()
 
-		var events []json.RawMessage
+		var events []struct {
+			Type string `json:"type"`
+		}
 		json.NewDecoder(resp.Body).Decode(&events)
 
-		// All events are status type, so count should be same
+		// All generated events are status type, so count should be same
 		if len(events) < 3 {
 			t.Fatalf("Expected at least 3 status events, got %d", len(events))
+		}
+
+		// Verify every returned event actually matches the requested filter type.
+		// NOTE: In this test all events happen to be "status" type, so the filter
+		// doesn't exclude anything. A more thorough test would generate events of
+		// different types and verify the non-matching ones are excluded.
+		for i, evt := range events {
+			if evt.Type != "status" {
+				t.Errorf("event[%d] has type %q, expected 'status' (filter should exclude non-matching types)", i, evt.Type)
+			}
 		}
 	})
 

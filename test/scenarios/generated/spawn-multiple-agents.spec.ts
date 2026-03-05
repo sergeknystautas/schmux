@@ -10,7 +10,7 @@ import {
   disposeAllSessions,
 } from './helpers';
 
-test.describe.serial('Spawn multiple agents on the same task', () => {
+test.describe.serial('Verify multi-session workspace after API spawn', () => {
   let repoPath: string;
 
   test.beforeAll(async () => {

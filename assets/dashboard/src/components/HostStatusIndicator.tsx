@@ -70,7 +70,12 @@ export default function HostStatusIndicator({
       }}
     >
       {config.icon === 'spinner' ? (
-        <span className="spinner spinner--small" style={{ width: dotSize, height: dotSize }} />
+        <span
+          className="spinner spinner--small"
+          style={{ width: dotSize, height: dotSize }}
+          data-testid="host-status-indicator"
+          data-variant="spinner"
+        />
       ) : (
         <span
           style={{
@@ -80,6 +85,8 @@ export default function HostStatusIndicator({
             backgroundColor: config.color,
             flexShrink: 0,
           }}
+          data-testid="host-status-indicator"
+          data-variant="dot"
         />
       )}
       <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>

@@ -40,7 +40,7 @@ export function NtfyTopicQRDisplay({ topic }: QRDisplayProps) {
     <div className="ntfy-qr-container">
       {showQR && ntfyURL ? (
         <>
-          <div className="ntfy-qr-code">
+          <div className="ntfy-qr-code" data-testid="ntfy-qr-code">
             <QRCodeSVG value={ntfyURL} size={144} />
           </div>
           <p className="form-group__hint" style={{ maxWidth: '176px' }}>
@@ -49,7 +49,7 @@ export function NtfyTopicQRDisplay({ topic }: QRDisplayProps) {
           </p>
         </>
       ) : (
-        <div className="ntfy-qr-placeholder">
+        <div className="ntfy-qr-placeholder" data-testid="ntfy-qr-placeholder">
           <span>QR code will appear here after generating a topic</span>
         </div>
       )}

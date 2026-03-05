@@ -92,7 +92,7 @@ export default function RemoteAccessPanel() {
           </button>
 
           {!passwordHashSet && remoteAccessStatus.state === 'off' && (
-            <div className="remote-access-panel__warning">
+            <div className="remote-access-panel__warning" data-testid="remote-access-warning">
               <Link to="/config?tab=access">Set a password</Link> to enable remote access.
             </div>
           )}

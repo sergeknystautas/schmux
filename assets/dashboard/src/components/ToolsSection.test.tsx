@@ -137,9 +137,11 @@ describe('ToolsSection', () => {
 
     await user.click(screen.getByTestId('tools-collapse-btn'));
 
-    // Badge dots should exist (as span elements with badge class)
+    // Badge dots should exist (as span elements with badge testid)
     const overlayLink = screen.getByLabelText('Overlays');
-    const badgeDot = overlayLink.querySelector('.tools-section__icon-badge--danger');
+    const badgeDot = overlayLink.querySelector(
+      '[data-testid="icon-badge"][data-severity="danger"]'
+    );
     expect(badgeDot).toBeInTheDocument();
   });
 });

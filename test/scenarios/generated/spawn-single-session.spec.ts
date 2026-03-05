@@ -9,7 +9,7 @@ import {
   waitForSessionRunning,
 } from './helpers';
 
-test.describe('Spawn a single session', () => {
+test.describe('Verify session detail page after API spawn', () => {
   let repoPath: string;
   let sessionId: string;
 
@@ -51,10 +51,10 @@ test.describe('Spawn a single session', () => {
     // Verify: session sidebar is visible
     await expect(page.locator('[data-testid="session-sidebar"]')).toBeVisible();
 
-    // Verify: session status shows "Running" or "Stopped"
+    // Verify: session status shows "Running" (beforeAll ensures session is running)
     const statusPill = page.locator('[data-testid="session-status"]');
     await expect(statusPill).toBeVisible();
-    await expect(statusPill).toHaveText(/Running|Stopped/);
+    await expect(statusPill).toHaveText('Running');
   });
 
   test('API confirms session was created', async () => {

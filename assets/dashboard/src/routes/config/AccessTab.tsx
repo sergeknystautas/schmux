@@ -73,7 +73,7 @@ export default function AccessTab({
   onOpenAuthSecretsModal,
 }: AccessTabProps) {
   return (
-    <div className="wizard-step-content" data-step="5">
+    <div className="wizard-step-content" data-step="5" data-testid="config-tab-content-access">
       <h2 className="wizard-step-content__title">Access</h2>
       <p className="wizard-step-content__description">
         Control how the dashboard is accessed — local network, HTTPS, and authentication.
@@ -381,8 +381,10 @@ export default function AccessTab({
             {remoteAccessEnabled && (
               <div className="remote-access-grid">
                 <div className="remote-access-grid__fields">
-                  <div className="form-group">
-                    <label className="form-group__label">Access Password</label>
+                  <div className="form-group" data-testid="form-group-access-password">
+                    <label className="form-group__label" htmlFor="access-password">
+                      Access Password
+                    </label>
                     <div
                       style={{
                         display: 'flex',
@@ -415,6 +417,7 @@ export default function AccessTab({
                       {passwordInput && passwordInput.length >= 6 && (
                         <span
                           className={`password-strength password-strength--${passwordStrength(passwordInput)}`}
+                          data-testid="password-strength"
                         >
                           {passwordStrength(passwordInput) === 'weak'
                             ? 'Weak password'
@@ -453,7 +456,11 @@ export default function AccessTab({
                               : 'Set Password'}
                         </button>
                       )}
-                      {passwordError && <p className="form-group__error">{passwordError}</p>}
+                      {passwordError && (
+                        <p className="form-group__error" data-testid="password-error">
+                          {passwordError}
+                        </p>
+                      )}
                       {passwordSuccess && (
                         <p className="form-group__hint" style={{ color: 'var(--color-success)' }}>
                           {passwordSuccess}
@@ -466,9 +473,12 @@ export default function AccessTab({
                     </p>
                   </div>
 
-                  <div className="form-group">
-                    <label className="form-group__label">Timeout (minutes)</label>
+                  <div className="form-group" data-testid="form-group-timeout">
+                    <label className="form-group__label" htmlFor="remote-timeout">
+                      Timeout (minutes)
+                    </label>
                     <input
+                      id="remote-timeout"
                       type="number"
                       className="input input--compact"
                       style={{ maxWidth: '120px' }}
@@ -487,9 +497,12 @@ export default function AccessTab({
                     </p>
                   </div>
 
-                  <div className="form-group">
-                    <label className="form-group__label">ntfy Topic</label>
+                  <div className="form-group" data-testid="form-group-ntfy-topic">
+                    <label className="form-group__label" htmlFor="ntfy-topic">
+                      ntfy Topic
+                    </label>
                     <input
+                      id="ntfy-topic"
                       type="text"
                       className="input"
                       placeholder="my-schmux-notifications"
@@ -536,9 +549,12 @@ export default function AccessTab({
                     </p>
                   </div>
 
-                  <div className="form-group">
-                    <label className="form-group__label">Notify Command</label>
+                  <div className="form-group" data-testid="form-group-notify-command">
+                    <label className="form-group__label" htmlFor="notify-command">
+                      Notify Command
+                    </label>
                     <input
+                      id="notify-command"
                       type="text"
                       className="input"
                       placeholder="echo $SCHMUX_REMOTE_URL | pbcopy"

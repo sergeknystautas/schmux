@@ -178,9 +178,9 @@ describe('PromptAutocomplete', () => {
     );
 
     const buttons = screen.getAllByRole('button');
-    // Second button should have the selected class
-    expect(buttons[1].className).toContain('Selected');
-    expect(buttons[0].className).not.toContain('Selected');
+    // Second button should have aria-selected="true"
+    expect(buttons[1].getAttribute('aria-selected')).toBe('true');
+    expect(buttons[0].getAttribute('aria-selected')).toBe('false');
   });
 
   it('accepts pre-computed items prop and skips internal matching', () => {

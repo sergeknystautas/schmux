@@ -1,18 +1,9 @@
-# Spawn a single session
+# Verify session detail page after API spawn
 
-A user wants to start one AI agent working on a task in a fresh workspace.
-
-They navigate to the spawn page, type a task description like
-"Add unit tests for the auth module", select one agent, pick a
-repository, and submit the form.
-
-After submitting, they should land on a session detail page. The page
-should show a terminal viewport and a sidebar with the session's metadata
-(nickname, branch, target, status). The terminal should eventually show
-some output from the agent process.
-
-Going back to the home page, the workspace should appear in the workspace
-list with one session.
+A session is spawned via the API and the test verifies that the session
+detail page renders correctly: terminal viewport visible, sidebar present,
+status showing "Running", and the API confirming the session was created
+with the correct target.
 
 ## Preconditions
 

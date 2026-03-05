@@ -1085,6 +1085,35 @@ func (e *Env) CheckBranchConflict(repo, branch string) BranchConflictResult {
 	return result
 }
 
+// SetupTestRepo creates a git repo in the workspace root, initializes it with an
+// initial commit, configures git user identity, and registers it in the schmux config.
+// This extracts the common boilerplate found in most E2E tests.
+// Returns the absolute path to the created repo directory.
+func (e *Env) SetupTestRepo(workspaceRoot, name string) string {
+	e.T.Helper()
+
+	repoPath := workspaceRoot + "/" + name
+	if err := os.MkdirAll(repoPath, 0755); err != nil {
+		e.T.Fatalf("Failed to create repo dir: %v", err)
+	}
+
+	RunCmd(e.T, repoPath, "git", "init", "-b", "main")
+	RunCmd(e.T, repoPath, "git", "config", "user.email", "e2e@test.local")
+	RunCmd(e.T, repoPath, "git", "config", "user.name", "E2E Test")
+
+	readmePath := filepath.Join(repoPath, "README.md")
+	if err := os.WriteFile(readmePath, []byte("# "+name+"\n"), 0644); err != nil {
+		e.T.Fatalf("Failed to create README: %v", err)
+	}
+
+	RunCmd(e.T, repoPath, "git", "add", ".")
+	RunCmd(e.T, repoPath, "git", "commit", "-m", "Initial commit")
+
+	e.AddRepoToConfig(name, "file://"+repoPath)
+
+	return repoPath
+}
+
 // RunCmd runs a command in the given directory.
 func RunCmd(t *testing.T, dir string, name string, args ...string) {
 	t.Helper()

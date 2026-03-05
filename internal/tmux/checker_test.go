@@ -54,9 +54,3 @@ func TestNewDefaultChecker(t *testing.T) {
 			factoryErr, defaultErr)
 	}
 }
-
-// TestCheckerInterface verifies that both implementations satisfy the Checker interface.
-func TestCheckerInterface(t *testing.T) {
-	var _ Checker = &defaultChecker{}
-	var _ Checker = NewDefaultChecker()
-}

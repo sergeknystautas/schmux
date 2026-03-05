@@ -18,18 +18,15 @@ func TestResolveVSCodePath(t *testing.T) {
 
 	result, found := ResolveVSCodePath(ctx)
 
-	// If VS Code is found, verify the result is valid
-	if found {
-		if result.Path == "" {
-			t.Error("VSCodePath.Path should not be empty when found")
-		}
-		if result.Source == "" {
-			t.Error("VSCodePath.Source should not be empty when found")
-		}
-		t.Logf("Found VS Code via %s: %s", result.Source, result.Path)
-	} else {
-		// Not finding VS Code is OK - it may not be installed
-		t.Log("VS Code not found (this is OK if VS Code is not installed)")
+	if !found {
+		t.Skip("VS Code not installed — skipping path validation")
+	}
+
+	if result.Path == "" {
+		t.Error("VSCodePath.Path should not be empty when found")
+	}
+	if result.Source == "" {
+		t.Error("VSCodePath.Source should not be empty when found")
 	}
 }
 
@@ -43,10 +40,9 @@ func TestResolveVSCodePathTimeout(t *testing.T) {
 	_, _ = ResolveVSCodePath(ctx)
 	elapsed := time.Since(start)
 
-	// Should complete quickly (within 1 second) even if timeout is very short
-	// The function should respect the context and not hang
-	if elapsed > 5*time.Second {
-		t.Errorf("ResolveVSCodePath took too long: %v, expected < 5s", elapsed)
+	// With a 1ms timeout, the function should complete well under 500ms
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("ResolveVSCodePath took too long with short timeout: %v, expected < 500ms", elapsed)
 	}
 }
 
@@ -107,19 +103,15 @@ func TestResolveViaShellWithContext(t *testing.T) {
 func TestCheckKnownLocations(t *testing.T) {
 	path, source, found := checkKnownLocations()
 
-	// Log what was found (or not found)
-	if found {
-		t.Logf("checkKnownLocations found: %s (source: %s)", path, source)
+	if !found {
+		t.Skip("VS Code not found in known locations — skipping validation")
+	}
 
-		// Verify the path is not empty
-		if path == "" {
-			t.Error("path should not be empty when found")
-		}
-		if source == "" {
-			t.Error("source should not be empty when found")
-		}
-	} else {
-		t.Log("checkKnownLocations did not find VS Code in known locations (this is OK)")
+	if path == "" {
+		t.Error("path should not be empty when found")
+	}
+	if source == "" {
+		t.Error("source should not be empty when found")
 	}
 }
 
@@ -150,21 +142,6 @@ func TestCheckKnownLocationsReturnsExecutable(t *testing.T) {
 		if mode&0111 == 0 {
 			t.Errorf("checkKnownLocations returned non-executable file: %s (mode: %v)", path, mode)
 		}
-	}
-}
-
-// TestVSCodePathStruct verifies VSCodePath struct behaves correctly.
-func TestVSCodePathStruct(t *testing.T) {
-	p := VSCodePath{
-		Path:   "/usr/bin/code",
-		Source: "PATH",
-	}
-
-	if p.Path != "/usr/bin/code" {
-		t.Errorf("VSCodePath.Path = %q, want %q", p.Path, "/usr/bin/code")
-	}
-	if p.Source != "PATH" {
-		t.Errorf("VSCodePath.Source = %q, want %q", p.Source, "PATH")
 	}
 }
 

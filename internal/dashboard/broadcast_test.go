@@ -150,21 +150,24 @@ func TestDashboardWebSocket_DisconnectCleanup(t *testing.T) {
 	conn.Close()
 	cleanup()
 
-	// Give the server handler goroutine time to detect the close and unregister
-	time.Sleep(100 * time.Millisecond)
-
-	// Trigger broadcast — should not panic even though client is disconnected.
-	// The broadcast will detect the write failure and clean up.
+	// Trigger broadcast — this will detect the write failure and clean up.
 	srv.BroadcastSessions()
-	// Wait for debounce to fire
-	time.Sleep(200 * time.Millisecond)
 
-	// Verify connection was cleaned up
-	srv.sessionsConnsMu.RLock()
-	countAfter := len(srv.sessionsConns)
-	srv.sessionsConnsMu.RUnlock()
-	if countAfter != 0 {
-		t.Errorf("expected 0 registered conns after disconnect, got %d", countAfter)
+	// Poll for cleanup completion instead of using time.Sleep
+	deadline := time.After(2 * time.Second)
+	for {
+		srv.sessionsConnsMu.RLock()
+		count := len(srv.sessionsConns)
+		srv.sessionsConnsMu.RUnlock()
+		if count == 0 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("expected 0 registered conns after disconnect, still have %d", count)
+		case <-time.After(10 * time.Millisecond):
+			// Retry
+		}
 	}
 }
 

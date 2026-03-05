@@ -271,6 +271,8 @@ export default function OverlayPage() {
                 <button
                   key={repo.name}
                   className={`repo-tab${activeRepo === repo.name ? ' repo-tab--active' : ''}`}
+                  data-testid="repo-tab"
+                  aria-selected={activeRepo === repo.name}
                   onClick={() => handleRepoTabChange(repo.name)}
                 >
                   {repo.name}

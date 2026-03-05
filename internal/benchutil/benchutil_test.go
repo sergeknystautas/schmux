@@ -58,12 +58,20 @@ func TestComputeBenchResult(t *testing.T) {
 
 func TestComputeBenchResult_EmptyDurations(t *testing.T) {
 	gc := &runtime.MemStats{}
-	result := ComputeBenchResult("empty", "v", nil, gc, gc)
+	result := ComputeBenchResult("ignored", "ignored", nil, gc, gc)
+
+	// Empty durations returns zero-value BenchResult (all fields are zero/empty)
 	if result.Iterations != 0 {
 		t.Errorf("Iterations = %d, want 0", result.Iterations)
 	}
 	if result.Name != "" {
-		t.Errorf("Name = %q, want empty (zero value)", result.Name)
+		t.Errorf("Name = %q, want empty (zero-value struct returned for empty durations)", result.Name)
+	}
+	if result.Variant != "" {
+		t.Errorf("Variant = %q, want empty (zero-value struct returned for empty durations)", result.Variant)
+	}
+	if result.MinMs != 0 || result.MaxMs != 0 || result.MeanMs != 0 {
+		t.Errorf("statistical fields should be zero, got Min=%f Max=%f Mean=%f", result.MinMs, result.MaxMs, result.MeanMs)
 	}
 }
 

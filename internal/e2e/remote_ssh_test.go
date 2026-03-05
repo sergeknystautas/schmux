@@ -126,13 +126,21 @@ func TestE2ERemoteSSHSmoke(t *testing.T) {
 	})
 
 	t.Run("VerifyHostDisconnected", func(t *testing.T) {
-		// After disposing the last session, connection should still exist but may disconnect
+		// After disposing the last session, the host should still exist
+		// with a valid status (either connected or disconnected depending on timing)
 		hosts := env.GetRemoteHosts()
+		found := false
 		for _, host := range hosts {
 			if host.FlavorID == flavorID {
+				found = true
 				t.Logf("Host status after dispose: %s", host.Status)
-				// Status could be connected or disconnected depending on timing
+				if host.Status != "connected" && host.Status != "disconnected" {
+					t.Errorf("expected host status to be 'connected' or 'disconnected', got %q", host.Status)
+				}
 			}
+		}
+		if !found {
+			t.Error("expected remote host to still exist after session dispose")
 		}
 	})
 }

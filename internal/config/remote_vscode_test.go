@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"text/template"
@@ -182,15 +183,21 @@ func TestRemoteVSCodeCommandTemplate_InvalidTemplate(t *testing.T) {
 }
 
 func TestRemoteWorkspaceConfig_JSONMarshaling(t *testing.T) {
-	cfg := Config{
-		RemoteWorkspace: &RemoteWorkspaceConfig{
-			VSCodeCommandTemplate: `{{.VSCodePath}} --folder-uri custom://{{.Hostname}}{{.Path}}`,
-		},
+	original := RemoteWorkspaceConfig{
+		VSCodeCommandTemplate: `{{.VSCodePath}} --folder-uri custom://{{.Hostname}}{{.Path}}`,
 	}
 
-	// Test that it can be marshaled/unmarshaled
-	// This is implicitly tested by the config load/save mechanism
-	if cfg.RemoteWorkspace.VSCodeCommandTemplate == "" {
-		t.Error("template should not be empty")
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var roundTripped RemoteWorkspaceConfig
+	if err := json.Unmarshal(data, &roundTripped); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if roundTripped.VSCodeCommandTemplate != original.VSCodeCommandTemplate {
+		t.Errorf("round-trip template = %q, want %q", roundTripped.VSCodeCommandTemplate, original.VSCodeCommandTemplate)
 	}
 }

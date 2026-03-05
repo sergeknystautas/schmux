@@ -135,11 +135,19 @@ func TestFormatCommits(t *testing.T) {
 
 	got := formatCommits(commits)
 
-	if !strings.Contains(got, "[schmux] feat: add feature") {
-		t.Errorf("formatted commits should include repo prefix, got: %s", got)
+	// Verify repo names and commit messages appear in output,
+	// without coupling to exact format (e.g., brackets, separators)
+	if !strings.Contains(got, "schmux") {
+		t.Errorf("formatted commits should include repo name 'schmux', got: %s", got)
 	}
-	if !strings.Contains(got, "[other] fix: bug fix") {
-		t.Errorf("formatted commits should include repo prefix, got: %s", got)
+	if !strings.Contains(got, "feat: add feature") {
+		t.Errorf("formatted commits should include commit subject, got: %s", got)
+	}
+	if !strings.Contains(got, "other") {
+		t.Errorf("formatted commits should include repo name 'other', got: %s", got)
+	}
+	if !strings.Contains(got, "fix: bug fix") {
+		t.Errorf("formatted commits should include commit subject, got: %s", got)
 	}
 }
 
@@ -230,17 +238,14 @@ func TestGenerateDisabled(t *testing.T) {
 	}
 }
 
-func TestGenerateWithCommits(t *testing.T) {
-	// Note: This test verifies the disabled check and basic flow.
-	// Full LLM integration is tested via daemon integration tests.
-	// With nil fullCfg, the type assertion will fail,
-	// so we test that the function properly propagates that error.
+func TestGenerate_NilConfig_ReturnsError(t *testing.T) {
+	// With nil fullCfg, the type assertion inside Generate will fail,
+	// verifying the function propagates that error rather than panicking.
 	cfg := mockConfig{target: "sonnet"}
 	commits := []CommitInfo{
 		{Repo: "test", Subject: "test commit"},
 	}
 	_, err := Generate(context.Background(), cfg, nil, nil, commits, "", 24)
-	// Expect error because nil fullCfg fails type assertion
 	if err == nil {
 		t.Error("Generate() expected error with nil fullCfg, got nil")
 	}

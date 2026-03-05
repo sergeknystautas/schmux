@@ -100,6 +100,7 @@ export default function PromptAutocomplete({
           className={`${styles.item} ${i === selectedIndex ? styles.itemSelected : ''}`}
           onClick={() => onSelect(item)}
           onMouseEnter={() => onHover(i)}
+          aria-selected={i === selectedIndex}
         >
           <span
             className={`${styles.itemSource} ${item.source === 'history' ? styles.itemSourceHistory : ''}`}

@@ -60,7 +60,7 @@ describe('ToastProvider', () => {
     });
 
     const toast = screen.getByText('Success!');
-    expect(toast.className).toContain('toast--success');
+    expect(toast.getAttribute('data-variant')).toBe('success');
   });
 
   it('error() applies toast--error class', () => {
@@ -75,7 +75,7 @@ describe('ToastProvider', () => {
     });
 
     const toast = screen.getByText('Error!');
-    expect(toast.className).toContain('toast--error');
+    expect(toast.getAttribute('data-variant')).toBe('error');
   });
 
   it('toast auto-dismisses after duration', () => {

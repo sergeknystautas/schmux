@@ -134,13 +134,11 @@ describe('ConfidenceDots', () => {
     );
 
     // ConfidenceDots renders 4 dots; at 0.75, Math.round(0.75*4)=3 filled
-    const dots = container.querySelectorAll('[class*="dot"]');
-    // Filter out the parent container itself - only count individual dot spans
-    const dotSpans = Array.from(dots).filter(
-      (el) => el.tagName === 'SPAN' && !el.className.includes('confidenceDots')
-    );
+    const dotsContainer = container.querySelector('[data-testid="confidence-dots"]');
+    expect(dotsContainer).toBeInTheDocument();
+    const dotSpans = dotsContainer!.querySelectorAll('[data-filled]');
     expect(dotSpans.length).toBe(4);
-    const filled = dotSpans.filter((el) => el.className.includes('Filled'));
+    const filled = Array.from(dotSpans).filter((el) => el.getAttribute('data-filled') === 'true');
     expect(filled.length).toBe(3);
   });
 
@@ -153,10 +151,9 @@ describe('ConfidenceDots', () => {
       />
     );
 
-    const dotSpans = Array.from(container.querySelectorAll('[class*="dot"]')).filter(
-      (el) => el.tagName === 'SPAN' && !el.className.includes('confidenceDots')
-    );
-    const filled = dotSpans.filter((el) => el.className.includes('Filled'));
+    const dotsContainer = container.querySelector('[data-testid="confidence-dots"]');
+    const dotSpans = dotsContainer!.querySelectorAll('[data-filled]');
+    const filled = Array.from(dotSpans).filter((el) => el.getAttribute('data-filled') === 'true');
     expect(filled.length).toBe(4);
   });
 
@@ -169,10 +166,9 @@ describe('ConfidenceDots', () => {
       />
     );
 
-    const dotSpans = Array.from(container.querySelectorAll('[class*="dot"]')).filter(
-      (el) => el.tagName === 'SPAN' && !el.className.includes('confidenceDots')
-    );
-    const filled = dotSpans.filter((el) => el.className.includes('Filled'));
+    const dotsContainer = container.querySelector('[data-testid="confidence-dots"]');
+    const dotSpans = dotsContainer!.querySelectorAll('[data-filled]');
+    const filled = Array.from(dotSpans).filter((el) => el.getAttribute('data-filled') === 'true');
     expect(filled.length).toBe(0);
   });
 });

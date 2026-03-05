@@ -63,16 +63,16 @@ test.describe.serial('Configure remote access settings', () => {
     await expect(enableCheckbox).toBeChecked();
 
     // PIN, timeout, ntfy fields should be visible
-    const pinField = page.locator('.form-group__label', { hasText: 'Access password' });
+    const pinField = page.locator('[data-testid="form-group-access-password"]');
     await expect(pinField).toBeVisible();
 
-    const timeoutField = page.locator('.form-group__label', { hasText: 'Timeout (minutes)' });
+    const timeoutField = page.locator('[data-testid="form-group-timeout"]');
     await expect(timeoutField).toBeVisible();
 
-    const ntfyField = page.locator('.form-group__label', { hasText: 'ntfy Topic' });
+    const ntfyField = page.locator('[data-testid="form-group-ntfy-topic"]');
     await expect(ntfyField).toBeVisible();
 
-    const commandField = page.locator('.form-group__label', { hasText: 'Notify Command' });
+    const commandField = page.locator('[data-testid="form-group-notify-command"]');
     await expect(commandField).toBeVisible();
 
     // Uncheck to disable
@@ -115,7 +115,7 @@ test.describe.serial('Configure remote access settings', () => {
     await setPinButton.click();
 
     // Error message should appear
-    const error = page.locator('.form-group__error', { hasText: 'passwords do not match' });
+    const error = page.getByText('Passwords do not match');
     await expect(error).toBeVisible();
   });
 
@@ -165,27 +165,15 @@ test.describe.serial('Configure remote access settings', () => {
     await waitForDashboardLive(page);
 
     // Fill in ntfy topic
-    const ntfyInput = page
-      .locator('.form-group', {
-        has: page.locator('.form-group__label', { hasText: 'ntfy Topic' }),
-      })
-      .locator('input[type="text"]');
+    const ntfyInput = page.getByLabel('ntfy Topic');
     await ntfyInput.fill('test-topic');
 
     // Fill in timeout
-    const timeoutInput = page
-      .locator('.form-group', {
-        has: page.locator('.form-group__label', { hasText: 'Timeout (minutes)' }),
-      })
-      .locator('input[type="number"]');
+    const timeoutInput = page.getByLabel('Timeout (minutes)');
     await timeoutInput.fill('30');
 
     // Fill in notify command
-    const commandInput = page
-      .locator('.form-group', {
-        has: page.locator('.form-group__label', { hasText: 'Notify Command' }),
-      })
-      .locator('input[type="text"]');
+    const commandInput = page.getByLabel('Notify Command');
     await commandInput.fill('echo test');
 
     // Save
@@ -223,7 +211,7 @@ test.describe.serial('Configure remote access settings', () => {
 
     // Advanced tab should NOT have Network or Authentication sections
     // (they moved to Access tab)
-    const advancedContent = page.locator('.wizard-step-content[data-step="6"]');
+    const advancedContent = page.locator('[data-testid="config-tab-content-advanced"]');
     await expect(advancedContent).toBeVisible({ timeout: 10000 });
 
     const networkInAdvanced = advancedContent.locator('h3', { hasText: 'Network' });
