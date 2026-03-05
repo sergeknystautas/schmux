@@ -267,6 +267,7 @@ Request:
   "prompt": "optional",
   "nickname": "optional",
   "targets": { "target-name": 1 },
+  "command": "optional",
   "workspace_id": "optional",
   "resume": false,
   "persona_id": "optional",
@@ -280,7 +281,7 @@ Contract (pre-2093ccf):
 - When `workspace_id` is empty, `repo` and `branch` are required.
 - **`repo` must be a repo URL**, not a repo name. The server passes it directly to workspace creation.
 - When `workspace_id` is provided, the spawn is an "existing directory spawn" and **no git operations** are performed.
-- `targets` is required and maps target name -> quantity.
+- Either `targets` or `command` is required (not both). `targets` maps target name -> quantity. `command` is a raw shell command string (used by quick launch presets like "shell").
 - Target names are resolved in order: (1) model IDs and aliases (e.g., "opus", "claude-sonnet-4-6"), (2) user-defined run targets from config, (3) builtin tool names ("claude", "codex", "gemini", "opencode") as a fallback when the tool binary isn't detected locally (useful for remote sessions where the tool is on the remote host).
 - Promptable targets require `prompt`. Command targets must not include `prompt`.
 - For non-promptable targets, the server forces `count` to 1.
@@ -320,6 +321,8 @@ Errors are per-result:
   }
 ]
 ```
+
+Both target-based and command-based spawns trigger an immediate WebSocket broadcast on `/ws/dashboard` so clients can detect the new session without waiting for the next poll cycle.
 
 Global errors (HTTP status codes):
 

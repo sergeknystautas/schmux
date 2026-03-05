@@ -207,6 +207,11 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			sessionLog.Info("spawn success", "command", req.Command, "session_id", sess.ID, "workspace_id", sess.WorkspaceID)
 		}
 
+		// Broadcast update to WebSocket clients so waitForSession resolves immediately
+		if err == nil {
+			go s.BroadcastSessions()
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(results); err != nil {
 			http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
