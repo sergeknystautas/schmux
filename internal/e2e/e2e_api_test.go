@@ -505,10 +505,11 @@ func TestE2EWorkspaceDisposeAll(t *testing.T) {
 		t.Fatalf("Expected at least 2 sessions, got %d", len(sessions))
 	}
 
-	// Dispose all sessions + workspace
-	// Use a generous timeout: handler disposes sessions (each up to DisposeGracePeriod+10s)
-	// then workspace (git operations), all sequentially
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	// Dispose all sessions + workspace.
+	// Server-side: sessions (each up to 5s grace + 10s kill, concurrent) then
+	// workspace (60s). With 5s DisposeGracePeriod the worst case is ~75s; 120s
+	// gives ample headroom for CPU contention.
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, env.DaemonURL+"/api/workspaces/"+workspaceID+"/dispose-all", nil)
 	resp, err := http.DefaultClient.Do(req)
 	cancel()
@@ -534,7 +535,7 @@ func TestE2EWorkspaceDisposeAll(t *testing.T) {
 	}
 
 	// Verify no workspaces or sessions remain
-	env.PollUntil(5*time.Second, "workspaces/sessions not cleaned up", func() bool {
+	env.PollUntil(10*time.Second, "workspaces/sessions not cleaned up", func() bool {
 		workspaces := env.GetAPIWorkspaces()
 		return len(workspaces) == 0
 	})

@@ -304,6 +304,9 @@ func (e *Env) CreateConfig(workspacePath string) {
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = workspacePath
 	cfg.Network = &config.NetworkConfig{Port: e.daemonPort}
+	// E2E sessions run trivial commands (echo/sleep/cat) — use a short grace
+	// period so dispose-all doesn't block 30s per session waiting for SIGKILL.
+	cfg.Sessions = &config.SessionsConfig{DisposeGracePeriodMs: 5000}
 	cfg.RunTargets = []config.RunTarget{
 		// Keep the session alive long enough for pipe-pane and tmux assertions.
 		{Name: "echo", Command: "sh -c 'echo hello; sleep 600'"},
