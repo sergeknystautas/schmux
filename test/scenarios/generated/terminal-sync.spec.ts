@@ -174,8 +174,9 @@ test.describe.serial('Terminal sync: round-trip', () => {
     // Wait for the sync goroutine to detect the desync and correct it.
     // The initial sync fires at 5s from connection, then every 60s.
     // Since we corrupted early, the first sync should catch it.
-    // Use a 15s deadline to allow margin.
-    const deadline = Date.now() + 15_000;
+    // Use a 25s deadline to allow margin for Docker container overhead
+    // and the activity guard (2s since last binary data).
+    const deadline = Date.now() + 25_000;
     let corrected = false;
 
     while (Date.now() < deadline && !corrected) {

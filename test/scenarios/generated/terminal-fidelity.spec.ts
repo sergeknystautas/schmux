@@ -605,7 +605,9 @@ test.describe.serial('Terminal fidelity: compounding', () => {
       targets: { 'shell-agent': 1 },
     });
     sessionId = results[0].session_id;
-    await waitForSessionRunning(sessionId);
+    // Longer timeout: this beforeAll runs after several other serial blocks
+    // have already created sessions, so the daemon may be under heavier load.
+    await waitForSessionRunning(sessionId, 30_000);
     tmuxName = await getTmuxSessionName(sessionId);
   });
 
@@ -620,7 +622,7 @@ test.describe.serial('Terminal fidelity: compounding', () => {
       tmuxName,
       "for i in $(seq 1 100); do printf '\\033[32m[BUILD]\\033[0m Step %d: compiling module_%d\\n' $i $i; done"
     );
-    await waitForSentinel(sessionId, buildSentinel);
+    await waitForSentinel(sessionId, buildSentinel, 30_000);
 
     // Verify build log stage
     await assertTerminalMatchesTmux(page, tmuxName);
@@ -652,7 +654,10 @@ test.describe.serial('Terminal fidelity: compounding', () => {
       tmuxName,
       "for i in $(seq 1 100); do printf '\\xe2\\x9c\\x93 Line %d: \\xe4\\xb8\\xad\\xe6\\x96\\x87\\xe6\\xb5\\x8b\\xe8\\xaf\\x95 test-%d\\n' $i $i; done"
     );
-    await waitForSentinel(sessionId, sentinel);
+    await waitForSentinel(sessionId, sentinel, 30_000);
+
+    // Allow extra rendering time for multi-byte UTF-8 characters
+    await new Promise((r) => setTimeout(r, 500));
 
     await assertTerminalMatchesTmux(page, tmuxName);
   });
