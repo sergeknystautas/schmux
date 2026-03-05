@@ -32,7 +32,7 @@ func TestCompounder_EndToEnd(t *testing.T) {
 
 	var propagateCount atomic.Int32
 
-	c, err := NewCompounder(100, nil, func(sourceWorkspaceID, repoURL, relPath string, content []byte) {
+	c, err := NewCompounder(100, 5*time.Second, nil, func(sourceWorkspaceID, repoURL, relPath string, content []byte) {
 		propagateCount.Add(1)
 	}, nil, log.NewWithOptions(io.Discard, log.Options{}))
 	if err != nil {
@@ -84,7 +84,7 @@ func TestCompounder_Reconcile(t *testing.T) {
 
 	var manifestUpdated atomic.Int32
 
-	c, err := NewCompounder(100, nil, nil, func(workspaceID, rp, hash string) {
+	c, err := NewCompounder(100, 5*time.Second, nil, nil, func(workspaceID, rp, hash string) {
 		manifestUpdated.Add(1)
 	}, log.NewWithOptions(io.Discard, log.Options{}))
 	if err != nil {
@@ -128,7 +128,7 @@ func TestCompounder_Reconcile_RespectsContext(t *testing.T) {
 		manifest[relPath] = HashBytes([]byte(content))
 	}
 
-	c, err := NewCompounder(100, nil, nil, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	c, err := NewCompounder(100, 5*time.Second, nil, nil, nil, log.NewWithOptions(io.Discard, log.Options{}))
 	if err != nil {
 		t.Fatalf("NewCompounder() error = %v", err)
 	}
@@ -182,7 +182,7 @@ func TestCompounder_DetectsNewFileAtDeclaredPath(t *testing.T) {
 
 	var propagateCount atomic.Int32
 
-	c, err := NewCompounder(100, nil, func(sourceWorkspaceID, repoURL, relPath string, content []byte) {
+	c, err := NewCompounder(100, 5*time.Second, nil, func(sourceWorkspaceID, repoURL, relPath string, content []byte) {
 		propagateCount.Add(1)
 	}, nil, log.NewWithOptions(io.Discard, log.Options{}))
 	if err != nil {
@@ -237,7 +237,7 @@ func TestCompounder_DeclaredPath_FullFlow(t *testing.T) {
 
 	var ws2Written atomic.Int32
 
-	c, err := NewCompounder(100, nil, func(sourceWorkspaceID, repoURL, rp string, content []byte) {
+	c, err := NewCompounder(100, 5*time.Second, nil, func(sourceWorkspaceID, repoURL, rp string, content []byte) {
 		// Simulate propagation to ws2
 		destPath := filepath.Join(ws2Dir, rp)
 		os.MkdirAll(filepath.Dir(destPath), 0755)

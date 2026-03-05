@@ -797,7 +797,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		}
 
 		var err error
-		compounder, err = compound.NewCompounder(cfg.GetCompoundDebounceMs(), llmExecutor, propagator, func(workspaceID, relPath, hash string) {
+		compounder, err = compound.NewCompounder(cfg.GetCompoundDebounceMs(), time.Duration(cfg.GetCompoundSuppressionTTLMs())*time.Millisecond, llmExecutor, propagator, func(workspaceID, relPath, hash string) {
 			st.UpdateOverlayManifestEntry(workspaceID, relPath, hash)
 		}, compoundLog)
 		if err != nil {

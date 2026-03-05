@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/charmbracelet/log"
 )
@@ -37,7 +38,7 @@ type Compounder struct {
 }
 
 // NewCompounder creates a new Compounder.
-func NewCompounder(debounceMs int, executor LLMExecutor, propagate PropagateFunc, manifestUpdate ManifestUpdateFunc, logger *log.Logger) (*Compounder, error) {
+func NewCompounder(debounceMs int, suppressionTTL time.Duration, executor LLMExecutor, propagate PropagateFunc, manifestUpdate ManifestUpdateFunc, logger *log.Logger) (*Compounder, error) {
 	c := &Compounder{
 		executor:       executor,
 		propagate:      propagate,
@@ -46,7 +47,7 @@ func NewCompounder(debounceMs int, executor LLMExecutor, propagate PropagateFunc
 		workspaces:     make(map[string]*workspaceInfo),
 	}
 
-	watcher, err := NewWatcher(debounceMs, c.onFileChange, logger)
+	watcher, err := NewWatcher(debounceMs, suppressionTTL, c.onFileChange, logger)
 	if err != nil {
 		return nil, err
 	}

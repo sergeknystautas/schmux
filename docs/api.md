@@ -737,6 +737,7 @@ Response:
   ],
   "enabled_models": { "claude-sonnet-4-6": "claude" },
   "nudgenik": { "target": "optional", "viewed_buffer_ms": 0, "seen_interval_ms": 0 },
+  "compound": { "target": "", "debounce_ms": 2000, "enabled": true, "suppression_ttl_ms": 5000 },
   "sessions": {
     "dashboard_poll_interval_ms": 0,
     "git_status_poll_interval_ms": 0,
@@ -812,6 +813,7 @@ Request:
   "quick_launch": [{ "name": "preset", "target": "target", "prompt": "optional" }],
   "enabled_models": { "claude-sonnet-4-6": "claude" },
   "nudgenik": { "target": "optional", "viewed_buffer_ms": 0, "seen_interval_ms": 0 },
+  "compound": { "target": "", "debounce_ms": 2000, "enabled": true, "suppression_ttl_ms": 5000 },
   "sessions": {
     "dashboard_poll_interval_ms": 0,
     "git_status_poll_interval_ms": 0,

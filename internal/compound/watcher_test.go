@@ -23,7 +23,7 @@ func TestWatcher_DetectsFileChange(t *testing.T) {
 	var mu sync.Mutex
 	var gotWorkspaceID, gotRelPath string
 
-	w, err := NewWatcher(100, func(workspaceID, rp string) {
+	w, err := NewWatcher(100, 5*time.Second, func(workspaceID, rp string) {
 		mu.Lock()
 		gotWorkspaceID = workspaceID
 		gotRelPath = rp
@@ -85,7 +85,7 @@ func TestWatcher_DebouncesBurstWrites(t *testing.T) {
 
 	var callbackCount atomic.Int32
 
-	w, err := NewWatcher(200, func(workspaceID, rp string) {
+	w, err := NewWatcher(200, 5*time.Second, func(workspaceID, rp string) {
 		callbackCount.Add(1)
 	}, nil)
 	if err != nil {
@@ -142,7 +142,7 @@ func TestWatcher_IgnoresSuppressedFiles(t *testing.T) {
 
 	var callbackCount atomic.Int32
 
-	w, err := NewWatcher(100, func(workspaceID, rp string) {
+	w, err := NewWatcher(100, 5*time.Second, func(workspaceID, rp string) {
 		callbackCount.Add(1)
 	}, nil)
 	if err != nil {
@@ -185,7 +185,7 @@ func TestWatcher_RemoveWorkspace(t *testing.T) {
 
 	var callbackCount atomic.Int32
 
-	w, err := NewWatcher(100, func(workspaceID, rp string) {
+	w, err := NewWatcher(100, 5*time.Second, func(workspaceID, rp string) {
 		callbackCount.Add(1)
 	}, nil)
 	if err != nil {
@@ -226,7 +226,7 @@ func TestWatcher_DetectsNewFileAtDeclaredPath(t *testing.T) {
 	var mu2 sync.Mutex
 	var gotRelPath string
 
-	w, err := NewWatcher(100, func(workspaceID, rp string) {
+	w, err := NewWatcher(100, 5*time.Second, func(workspaceID, rp string) {
 		mu2.Lock()
 		gotRelPath = rp
 		mu2.Unlock()
@@ -272,7 +272,7 @@ func TestWatcher_WatchesParentDirCreation(t *testing.T) {
 
 	var callbackCount atomic.Int32
 
-	w, err := NewWatcher(100, func(workspaceID, rp string) {
+	w, err := NewWatcher(100, 5*time.Second, func(workspaceID, rp string) {
 		callbackCount.Add(1)
 	}, nil)
 	if err != nil {

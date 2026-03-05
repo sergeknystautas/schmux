@@ -787,11 +787,6 @@ func TestE2EDashboardWebSocket(t *testing.T) {
 			t.Fatalf("Expected message type 'sessions', got %q", msg.Type)
 		}
 		t.Logf("Initial state: %d workspaces", len(msg.Workspaces))
-
-		// Wait for debounce window to pass (server debounces broadcasts at 500ms)
-		// The git status goroutine broadcasts on startup, and we need to wait
-		// for that debounce window to close before spawning
-		time.Sleep(550 * time.Millisecond)
 	})
 
 	var sessionID string
@@ -812,8 +807,6 @@ func TestE2EDashboardWebSocket(t *testing.T) {
 	})
 
 	t.Run("DisposeAndReceiveUpdate", func(t *testing.T) {
-		// Wait for debounce window to pass from spawn broadcast
-		time.Sleep(550 * time.Millisecond)
 		env.DisposeSession(sessionID)
 
 		// Wait for the session to disappear via websocket
@@ -894,8 +887,6 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 		if msg.Type != "sessions" {
 			t.Fatalf("Expected message type 'sessions', got %q", msg.Type)
 		}
-		// Wait for debounce window to pass
-		time.Sleep(550 * time.Millisecond)
 	})
 
 	var sessionID string
@@ -938,9 +929,6 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 	})
 
 	t.Run("WriteCompletedSignal", func(t *testing.T) {
-		// Wait for debounce window to pass from spawn broadcast
-		time.Sleep(550 * time.Millisecond)
-
 		writeStatusEvent(t, workspacePath, sessionID, "completed", "Implementation done")
 
 		// Wait for the nudge to appear via dashboard WebSocket
@@ -958,14 +946,14 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 	})
 
 	t.Run("WriteNeedsInputSignal", func(t *testing.T) {
-		// Wait for debounce window to pass
-		time.Sleep(550 * time.Millisecond)
-
 		// Reset to working first — state priority prevents lower-tier
 		// states (needs_input, tier 1) from overwriting terminal states
 		// (completed, tier 2). "working" is the universal reset.
 		writeStatusEvent(t, workspacePath, sessionID, "working", "Resuming")
-		time.Sleep(500 * time.Millisecond)
+		_, err := env.WaitForSessionNudgeState(conn, sessionID, "Working", 5*time.Second)
+		if err != nil {
+			t.Fatalf("Failed to receive working nudge for reset: %v", err)
+		}
 
 		writeStatusEvent(t, workspacePath, sessionID, "needs_input", "Should I proceed?")
 
@@ -980,9 +968,6 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 	})
 
 	t.Run("WriteWorkingSignal", func(t *testing.T) {
-		// Wait for debounce window to pass
-		time.Sleep(550 * time.Millisecond)
-
 		writeStatusEvent(t, workspacePath, sessionID, "working", "")
 
 		// "working" is a visible dashboard state (spinner + message)
@@ -994,9 +979,6 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 	})
 
 	t.Run("WriteErrorSignal", func(t *testing.T) {
-		// Wait for debounce window to pass
-		time.Sleep(550 * time.Millisecond)
-
 		writeStatusEvent(t, workspacePath, sessionID, "error", "Build failed with 3 errors")
 
 		sess, err := env.WaitForSessionNudgeState(conn, sessionID, "Error", 5*time.Second)
@@ -1010,9 +992,6 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 	})
 
 	t.Run("RepeatedEventIncrementsSeq", func(t *testing.T) {
-		// Wait for debounce window to pass
-		time.Sleep(550 * time.Millisecond)
-
 		// Get current NudgeSeq from API
 		sessions := env.GetAPISessions()
 		var currentSeq uint64
@@ -1131,7 +1110,6 @@ func TestE2ESignalDaemonRestart(t *testing.T) {
 
 		// Drain initial state message
 		env.ReadDashboardMessage(conn, 3*time.Second)
-		time.Sleep(550 * time.Millisecond)
 
 		writeStatusEvent(t, workspacePath, sessionID, "completed", "Implementation done")
 
@@ -1144,8 +1122,6 @@ func TestE2ESignalDaemonRestart(t *testing.T) {
 
 	t.Run("RestartDaemon", func(t *testing.T) {
 		env.DaemonStop()
-		// Event file persists on disk across restart
-		time.Sleep(500 * time.Millisecond)
 		env.DaemonStart()
 	})
 
@@ -1177,12 +1153,14 @@ func TestE2ESignalDaemonRestart(t *testing.T) {
 
 		// Drain initial state
 		env.ReadDashboardMessage(conn, 3*time.Second)
-		time.Sleep(550 * time.Millisecond)
 
 		// Reset to working first — state priority prevents needs_input
 		// (tier 1) from overwriting Completed (tier 2) directly.
 		writeStatusEvent(t, workspacePath, sessionID, "working", "New work")
-		time.Sleep(500 * time.Millisecond)
+		_, err = env.WaitForSessionNudgeState(conn, sessionID, "Working", 5*time.Second)
+		if err != nil {
+			t.Fatalf("Failed to receive working nudge for reset: %v", err)
+		}
 
 		// Write a different event
 		writeStatusEvent(t, workspacePath, sessionID, "needs_input", "Approve changes?")
@@ -1274,7 +1252,6 @@ func TestE2ENudgeClearOnTerminalInput(t *testing.T) {
 
 		// Drain initial state
 		env.ReadDashboardMessage(dashConn, 3*time.Second)
-		time.Sleep(550 * time.Millisecond)
 
 		// Write a status event to create a nudge
 		writeStatusEvent(t, workspacePath, sessionID, "needs_input", "Waiting for approval")
@@ -1297,7 +1274,6 @@ func TestE2ENudgeClearOnTerminalInput(t *testing.T) {
 
 		// Drain initial state (should show the nudge)
 		env.ReadDashboardMessage(dashConn, 3*time.Second)
-		time.Sleep(550 * time.Millisecond)
 
 		// Connect terminal WS and send Enter key
 		termConn, err := env.ConnectTerminalWebSocket(sessionID)
@@ -1406,7 +1382,6 @@ func TestE2EMultipleSessionsIsolatedSignals(t *testing.T) {
 
 		// Drain initial state
 		env.ReadDashboardMessage(dashConn, 3*time.Second)
-		time.Sleep(550 * time.Millisecond)
 
 		// Write event to session1's event file only
 		writeStatusEvent(t, workspacePath, session1ID, "completed", "All tasks done")
@@ -1557,7 +1532,6 @@ func TestE2ESpawnCommandSignaling(t *testing.T) {
 
 		// Drain initial state
 		env.ReadDashboardMessage(dashConn, 3*time.Second)
-		time.Sleep(550 * time.Millisecond)
 
 		// Write a status event — this verifies the EventWatcher is active for SpawnCommand sessions
 		writeStatusEvent(t, workspacePath, sessionID, "completed", "Command finished")
@@ -1645,6 +1619,14 @@ func TestE2EOverlayCompounding(t *testing.T) {
 		}
 	}()
 
+	// Connect WebSocket for overlay change events
+	wsConn, wsErr := env.ConnectDashboardWebSocket()
+	if wsErr != nil {
+		t.Fatalf("Failed to connect dashboard websocket: %v", wsErr)
+	}
+	defer wsConn.Close()
+	env.ReadDashboardMessage(wsConn, 3*time.Second) // drain initial state
+
 	// Step 7: Spawn first session
 	var session1ID string
 	var workspace1Path string
@@ -1722,27 +1704,28 @@ func TestE2EOverlayCompounding(t *testing.T) {
 		overlayEnvPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env")
 		workspace2EnvPath := filepath.Join(workspace2Path, ".env")
 
-		deadline := time.Now().Add(15 * time.Second)
-		for time.Now().Before(deadline) {
-			overlayData, err1 := os.ReadFile(overlayEnvPath)
-			ws2Data, err2 := os.ReadFile(workspace2EnvPath)
-
-			overlayMatch := err1 == nil && string(overlayData) == newContent
-			ws2Match := err2 == nil && string(ws2Data) == newContent
-
-			if overlayMatch && ws2Match {
-				t.Logf("Propagation complete: overlay and workspace2 both have new content")
-				return
-			}
-
-			time.Sleep(200 * time.Millisecond)
+		// Wait for overlay_change WebSocket event — files are on disk before the broadcast
+		_, err := env.WaitForOverlayChange(wsConn, ".env", 15*time.Second)
+		if err != nil {
+			t.Fatalf("Timed out waiting for overlay change: %v", err)
 		}
 
-		// If we get here, propagation timed out — log what we have for debugging
-		overlayData, _ := os.ReadFile(filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env"))
-		ws2Data, _ := os.ReadFile(filepath.Join(workspace2Path, ".env"))
-		t.Fatalf("Propagation timed out.\nOverlay .env: %q\nWorkspace2 .env: %q\nExpected: %q",
-			string(overlayData), string(ws2Data), newContent)
+		overlayData, err := os.ReadFile(overlayEnvPath)
+		if err != nil {
+			t.Fatalf("Failed to read overlay .env: %v", err)
+		}
+		if string(overlayData) != newContent {
+			t.Fatalf("Overlay .env content mismatch: got %q, want %q", string(overlayData), newContent)
+		}
+
+		ws2Data, err := os.ReadFile(workspace2EnvPath)
+		if err != nil {
+			t.Fatalf("Failed to read workspace2 .env: %v", err)
+		}
+		if string(ws2Data) != newContent {
+			t.Fatalf("Workspace2 .env content mismatch: got %q, want %q", string(ws2Data), newContent)
+		}
+		t.Logf("Propagation complete: overlay and workspace2 both have new content")
 	})
 
 	// Step 13: Verify overlay dir has the updated content
@@ -1846,6 +1829,14 @@ func TestE2EOverlayDeclaredPaths(t *testing.T) {
 		}
 	}()
 
+	// Connect WebSocket for overlay change events
+	wsConn2, wsErr2 := env.ConnectDashboardWebSocket()
+	if wsErr2 != nil {
+		t.Fatalf("Failed to connect dashboard websocket: %v", wsErr2)
+	}
+	defer wsConn2.Close()
+	env.ReadDashboardMessage(wsConn2, 3*time.Second) // drain initial state
+
 	// Step 7: Spawn two sessions (two separate workspaces)
 	var session1ID, session2ID string
 	var ws1Path, ws2Path string
@@ -1910,26 +1901,28 @@ func TestE2EOverlayDeclaredPaths(t *testing.T) {
 		overlayPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".agent", "config.json")
 		ws2AgentPath := filepath.Join(ws2Path, ".agent", "config.json")
 
-		deadline := time.Now().Add(15 * time.Second)
-		for time.Now().Before(deadline) {
-			overlayData, err1 := os.ReadFile(overlayPath)
-			ws2Data, err2 := os.ReadFile(ws2AgentPath)
-
-			overlayMatch := err1 == nil && string(overlayData) == agentContent
-			ws2Match := err2 == nil && string(ws2Data) == agentContent
-
-			if overlayMatch && ws2Match {
-				t.Log("Propagation complete: overlay and workspace 2 both have agent config")
-				return
-			}
-
-			time.Sleep(200 * time.Millisecond)
+		// Wait for overlay_change WebSocket event
+		_, err := env.WaitForOverlayChange(wsConn2, filepath.Join(".agent", "config.json"), 15*time.Second)
+		if err != nil {
+			t.Fatalf("Timed out waiting for overlay change: %v", err)
 		}
 
-		overlayData, _ := os.ReadFile(overlayPath)
-		ws2Data, _ := os.ReadFile(ws2AgentPath)
-		t.Fatalf("Propagation timed out.\nOverlay: %q\nWorkspace2: %q\nExpected: %q",
-			string(overlayData), string(ws2Data), agentContent)
+		overlayData, err := os.ReadFile(overlayPath)
+		if err != nil {
+			t.Fatalf("Failed to read overlay: %v", err)
+		}
+		if string(overlayData) != agentContent {
+			t.Fatalf("Overlay content mismatch: got %q, want %q", string(overlayData), agentContent)
+		}
+
+		ws2Data, err := os.ReadFile(ws2AgentPath)
+		if err != nil {
+			t.Fatalf("Failed to read workspace2 agent config: %v", err)
+		}
+		if string(ws2Data) != agentContent {
+			t.Fatalf("Workspace2 content mismatch: got %q, want %q", string(ws2Data), agentContent)
+		}
+		t.Log("Propagation complete: overlay and workspace 2 both have agent config")
 	})
 
 	// Step 12: Dispose sessions
@@ -2395,6 +2388,14 @@ func TestE2EOverlayConcurrentModification(t *testing.T) {
 		}
 	}()
 
+	// Connect WebSocket for overlay change events
+	ovConn, ovErr := env.ConnectDashboardWebSocket()
+	if ovErr != nil {
+		t.Fatalf("Failed to connect dashboard websocket: %v", ovErr)
+	}
+	defer ovConn.Close()
+	env.ReadDashboardMessage(ovConn, 3*time.Second) // drain initial state
+
 	var session1ID, session2ID string
 	var ws1Path, ws2Path string
 
@@ -2428,24 +2429,27 @@ func TestE2EOverlayConcurrentModification(t *testing.T) {
 	t.Run("05_WaitForAgentAPropagation", func(t *testing.T) {
 		overlayPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env")
 
-		deadline := time.Now().Add(15 * time.Second)
-		for time.Now().Before(deadline) {
-			data, err := os.ReadFile(overlayPath)
-			if err == nil && strings.Contains(string(data), "AGENT_A=true") {
-				t.Log("Agent A's change propagated to overlay")
-				return
-			}
-			time.Sleep(200 * time.Millisecond)
+		_, err := env.WaitForOverlayChange(ovConn, ".env", 15*time.Second)
+		if err != nil {
+			t.Fatalf("Timed out waiting for overlay change: %v", err)
 		}
-		t.Fatal("Agent A's change did not propagate to overlay within 15s")
+
+		data, err := os.ReadFile(overlayPath)
+		if err != nil {
+			t.Fatalf("Failed to read overlay: %v", err)
+		}
+		if !strings.Contains(string(data), "AGENT_A=true") {
+			t.Fatalf("Agent A's change did not propagate to overlay, got: %q", string(data))
+		}
+		t.Log("Agent A's change propagated to overlay")
 	})
 
 	// Now Agent B modifies (overlay has Agent A's content, manifest is updated)
 	// This creates a divergence: overlay has Agent A's version, workspace has Agent B's version
 	t.Run("06_AgentBModifies", func(t *testing.T) {
-		// Wait for suppression window to expire (5s) before Agent B writes
+		// Wait for suppression window to expire (1s with E2E config) before Agent B writes
 		// so that Agent B's write is not suppressed
-		time.Sleep(6 * time.Second)
+		time.Sleep(1200 * time.Millisecond)
 
 		if err := os.WriteFile(filepath.Join(ws2Path, ".env"), []byte("SHARED=from_agent_b\nAGENT_B=true\n"), 0644); err != nil {
 			t.Fatalf("Failed to write agent B change: %v", err)
@@ -2457,18 +2461,19 @@ func TestE2EOverlayConcurrentModification(t *testing.T) {
 	t.Run("07_WaitForAgentBPropagation", func(t *testing.T) {
 		overlayPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env")
 
-		deadline := time.Now().Add(15 * time.Second)
-		for time.Now().Before(deadline) {
-			data, err := os.ReadFile(overlayPath)
-			if err == nil && strings.Contains(string(data), "AGENT_B=true") {
-				t.Log("Agent B's change propagated to overlay (last-write-wins)")
-				return
-			}
-			time.Sleep(200 * time.Millisecond)
+		_, err := env.WaitForOverlayChange(ovConn, ".env", 15*time.Second)
+		if err != nil {
+			t.Fatalf("Timed out waiting for overlay change: %v", err)
 		}
 
-		overlayData, _ := os.ReadFile(filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env"))
-		t.Fatalf("Agent B's change did not propagate. Overlay: %q", string(overlayData))
+		data, err := os.ReadFile(overlayPath)
+		if err != nil {
+			t.Fatalf("Failed to read overlay: %v", err)
+		}
+		if !strings.Contains(string(data), "AGENT_B=true") {
+			t.Fatalf("Agent B's change did not propagate. Overlay: %q", string(data))
+		}
+		t.Log("Agent B's change propagated to overlay (last-write-wins)")
 	})
 
 	// Verify the overlay has Agent B's content (LWW)
@@ -2597,19 +2602,21 @@ func TestE2EOverlayMultiRepoIsolation(t *testing.T) {
 	})
 
 	// Wait for propagation to repo A's overlay dir
+	// NOTE: This test has one workspace per repo (no siblings), so the
+	// overlay_change WebSocket broadcast is never sent. Use filesystem polling.
 	t.Run("06_WaitForRepoAPropagation", func(t *testing.T) {
 		overlayPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoAName, ".env")
 
 		deadline := time.Now().Add(15 * time.Second)
 		for time.Now().Before(deadline) {
-			data, err := os.ReadFile(overlayPath)
-			if err == nil && strings.Contains(string(data), "MODIFIED_BY=alpha_agent") {
+			data, _ := os.ReadFile(overlayPath)
+			if strings.Contains(string(data), "MODIFIED_BY=alpha_agent") {
 				t.Log("Repo A overlay updated")
 				return
 			}
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 		}
-		t.Fatal("Repo A overlay not updated within 15s")
+		t.Fatalf("Repo A overlay not updated within deadline")
 	})
 
 	// Verify repo B's workspace was NOT modified
@@ -2814,6 +2821,14 @@ func TestE2EOverlayEmptyFile(t *testing.T) {
 		}
 	}()
 
+	// Connect WebSocket for overlay change events
+	ovConn, ovErr := env.ConnectDashboardWebSocket()
+	if ovErr != nil {
+		t.Fatalf("Failed to connect dashboard websocket: %v", ovErr)
+	}
+	defer ovConn.Close()
+	env.ReadDashboardMessage(ovConn, 3*time.Second) // drain initial state
+
 	var session1ID, session2ID string
 	var ws1Path, ws2Path string
 
@@ -2843,25 +2858,27 @@ func TestE2EOverlayEmptyFile(t *testing.T) {
 	t.Run("05_WaitForPropagation", func(t *testing.T) {
 		overlayPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env")
 
-		deadline := time.Now().Add(15 * time.Second)
-		for time.Now().Before(deadline) {
-			overlayData, err1 := os.ReadFile(overlayPath)
-			ws2Data, err2 := os.ReadFile(filepath.Join(ws2Path, ".env"))
-
-			overlayEmpty := err1 == nil && len(overlayData) == 0
-			ws2Empty := err2 == nil && len(ws2Data) == 0
-
-			if overlayEmpty && ws2Empty {
-				t.Log("Empty file propagated to overlay and workspace 2")
-				return
-			}
-			time.Sleep(200 * time.Millisecond)
+		_, err := env.WaitForOverlayChange(ovConn, ".env", 15*time.Second)
+		if err != nil {
+			t.Fatalf("Timed out waiting for overlay change: %v", err)
 		}
 
-		overlayData, _ := os.ReadFile(filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env"))
-		ws2Data, _ := os.ReadFile(filepath.Join(ws2Path, ".env"))
-		t.Fatalf("Empty file propagation timed out.\nOverlay: %q (len=%d)\nWS2: %q (len=%d)",
-			string(overlayData), len(overlayData), string(ws2Data), len(ws2Data))
+		overlayData, err := os.ReadFile(overlayPath)
+		if err != nil {
+			t.Fatalf("Failed to read overlay: %v", err)
+		}
+		if len(overlayData) != 0 {
+			t.Fatalf("Expected empty overlay file, got: %q (len=%d)", string(overlayData), len(overlayData))
+		}
+
+		ws2Data, err := os.ReadFile(filepath.Join(ws2Path, ".env"))
+		if err != nil {
+			t.Fatalf("Failed to read ws2 .env: %v", err)
+		}
+		if len(ws2Data) != 0 {
+			t.Fatalf("Expected empty ws2 file, got: %q (len=%d)", string(ws2Data), len(ws2Data))
+		}
+		t.Log("Empty file propagated to overlay and workspace 2")
 	})
 
 	t.Run("06_DisposeSessions", func(t *testing.T) {
@@ -2924,6 +2941,14 @@ func TestE2EOverlayFilePermissions(t *testing.T) {
 		}
 	}()
 
+	// Connect WebSocket for overlay change events
+	ovConn, ovErr := env.ConnectDashboardWebSocket()
+	if ovErr != nil {
+		t.Fatalf("Failed to connect dashboard websocket: %v", ovErr)
+	}
+	defer ovConn.Close()
+	env.ReadDashboardMessage(ovConn, 3*time.Second) // drain initial state
+
 	var session1ID, session2ID string
 	var ws1Path, ws2Path string
 
@@ -2964,16 +2989,19 @@ func TestE2EOverlayFilePermissions(t *testing.T) {
 
 	// Wait for propagation
 	t.Run("06_WaitForPropagation", func(t *testing.T) {
-		deadline := time.Now().Add(15 * time.Second)
-		for time.Now().Before(deadline) {
-			data, err := os.ReadFile(filepath.Join(ws2Path, ".env"))
-			if err == nil && strings.Contains(string(data), "ADDED=true") {
-				t.Log("Propagation complete")
-				return
-			}
-			time.Sleep(200 * time.Millisecond)
+		_, err := env.WaitForOverlayChange(ovConn, ".env", 15*time.Second)
+		if err != nil {
+			t.Fatalf("Timed out waiting for overlay change: %v", err)
 		}
-		t.Fatal("Propagation timed out")
+
+		data, err := os.ReadFile(filepath.Join(ws2Path, ".env"))
+		if err != nil {
+			t.Fatalf("Failed to read ws2 .env: %v", err)
+		}
+		if !strings.Contains(string(data), "ADDED=true") {
+			t.Fatalf("Propagation incomplete, ws2 .env: %q", string(data))
+		}
+		t.Log("Propagation complete")
 	})
 
 	// Verify permissions were preserved after propagation
@@ -3167,9 +3195,9 @@ func TestE2EOverlayCompoundDisabled(t *testing.T) {
 		}
 	})
 
-	// Wait a generous amount of time — propagation should NOT happen
+	// Wait — propagation should NOT happen
 	t.Run("06_VerifyNoPropagation", func(t *testing.T) {
-		time.Sleep(5 * time.Second)
+		time.Sleep(2 * time.Second)
 
 		// Workspace 2 should still have the original content
 		data, err := os.ReadFile(filepath.Join(ws2Path, ".env"))
@@ -3272,7 +3300,7 @@ func TestE2EOverlayFileDeletion(t *testing.T) {
 
 	// Wait — deletion should NOT propagate (watcher ignores Remove events)
 	t.Run("05_VerifyDeletionNotPropagated", func(t *testing.T) {
-		time.Sleep(5 * time.Second)
+		time.Sleep(2 * time.Second)
 
 		// Overlay should still have the file
 		overlayPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env")
@@ -3387,6 +3415,14 @@ func TestE2EOverlayDaemonRestart(t *testing.T) {
 		env.DaemonStart()
 	})
 
+	// Connect WebSocket for overlay change events (after restart, since old conn died)
+	ovConn, ovErr := env.ConnectDashboardWebSocket()
+	if ovErr != nil {
+		t.Fatalf("Failed to connect dashboard websocket: %v", ovErr)
+	}
+	defer ovConn.Close()
+	env.ReadDashboardMessage(ovConn, 3*time.Second) // drain initial state
+
 	// Verify sessions are still present after restart
 	t.Run("07_VerifySessionsSurvived", func(t *testing.T) {
 		sessions := env.GetAPISessions()
@@ -3417,18 +3453,19 @@ func TestE2EOverlayDaemonRestart(t *testing.T) {
 
 	// Wait for propagation — compounding should work after restart
 	t.Run("09_WaitForPropagation", func(t *testing.T) {
-		deadline := time.Now().Add(15 * time.Second)
-		for time.Now().Before(deadline) {
-			data, err := os.ReadFile(filepath.Join(ws2Path, ".env"))
-			if err == nil && strings.Contains(string(data), "AFTER_RESTART=true") {
-				t.Log("Propagation works after daemon restart")
-				return
-			}
-			time.Sleep(200 * time.Millisecond)
+		_, err := env.WaitForOverlayChange(ovConn, ".env", 15*time.Second)
+		if err != nil {
+			t.Fatalf("Timed out waiting for overlay change: %v", err)
 		}
 
-		ws2Data, _ := os.ReadFile(filepath.Join(ws2Path, ".env"))
-		t.Fatalf("Propagation after restart timed out. WS2: %q", string(ws2Data))
+		data, err := os.ReadFile(filepath.Join(ws2Path, ".env"))
+		if err != nil {
+			t.Fatalf("Failed to read ws2 .env: %v", err)
+		}
+		if !strings.Contains(string(data), "AFTER_RESTART=true") {
+			t.Fatalf("Propagation after restart failed. WS2: %q", string(data))
+		}
+		t.Log("Propagation works after daemon restart")
 	})
 
 	t.Run("10_DisposeSessions", func(t *testing.T) {
@@ -3485,6 +3522,14 @@ func TestE2EOverlaySuppressionWindow(t *testing.T) {
 		}
 	}()
 
+	// Connect WebSocket for overlay change events
+	ovConn, ovErr := env.ConnectDashboardWebSocket()
+	if ovErr != nil {
+		t.Fatalf("Failed to connect dashboard websocket: %v", ovErr)
+	}
+	defer ovConn.Close()
+	env.ReadDashboardMessage(ovConn, 3*time.Second) // drain initial state
+
 	var session1ID, session2ID string
 	var ws1Path, ws2Path string
 
@@ -3511,16 +3556,19 @@ func TestE2EOverlaySuppressionWindow(t *testing.T) {
 
 	// Wait for propagation to workspace B
 	t.Run("05_WaitForPropagationToB", func(t *testing.T) {
-		deadline := time.Now().Add(15 * time.Second)
-		for time.Now().Before(deadline) {
-			data, err := os.ReadFile(filepath.Join(ws2Path, ".env"))
-			if err == nil && strings.Contains(string(data), "FROM_AGENT_A=true") {
-				t.Log("Agent A's change propagated to workspace B (suppression window started)")
-				return
-			}
-			time.Sleep(200 * time.Millisecond)
+		_, err := env.WaitForOverlayChange(ovConn, ".env", 15*time.Second)
+		if err != nil {
+			t.Fatalf("Timed out waiting for overlay change: %v", err)
 		}
-		t.Fatal("Propagation to workspace B timed out")
+
+		data, err := os.ReadFile(filepath.Join(ws2Path, ".env"))
+		if err != nil {
+			t.Fatalf("Failed to read ws2 .env: %v", err)
+		}
+		if !strings.Contains(string(data), "FROM_AGENT_A=true") {
+			t.Fatalf("Propagation to workspace B failed, got: %q", string(data))
+		}
+		t.Log("Agent A's change propagated to workspace B (suppression window started)")
 	})
 
 	// Immediately: Agent B writes during suppression window
@@ -3532,9 +3580,9 @@ func TestE2EOverlaySuppressionWindow(t *testing.T) {
 		t.Log("Agent B wrote during suppression window")
 	})
 
-	// Wait 3 seconds — the suppressed write should NOT propagate back
+	// Wait — the suppressed write should NOT propagate back
 	t.Run("07_VerifySuppressedWriteNotPropagated", func(t *testing.T) {
-		time.Sleep(3 * time.Second)
+		time.Sleep(500 * time.Millisecond)
 
 		data, _ := os.ReadFile(filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env"))
 		if strings.Contains(string(data), "FROM_AGENT_B_SUPPRESSED") {
@@ -3544,9 +3592,9 @@ func TestE2EOverlaySuppressionWindow(t *testing.T) {
 		}
 	})
 
-	// Wait for suppression window to expire (5s total, we already waited 3s)
+	// Wait for suppression window to expire (1s with E2E config, we already waited 500ms)
 	t.Run("08_WaitForSuppressionExpiry", func(t *testing.T) {
-		time.Sleep(4 * time.Second) // extra margin
+		time.Sleep(700 * time.Millisecond) // extra margin
 	})
 
 	// Agent B writes AFTER suppression expires — this should propagate
@@ -3561,17 +3609,19 @@ func TestE2EOverlaySuppressionWindow(t *testing.T) {
 	t.Run("10_WaitForPostSuppressionPropagation", func(t *testing.T) {
 		overlayPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env")
 
-		deadline := time.Now().Add(15 * time.Second)
-		for time.Now().Before(deadline) {
-			data, err := os.ReadFile(overlayPath)
-			if err == nil && strings.Contains(string(data), "FROM_AGENT_B_AFTER=true") {
-				t.Log("Post-suppression write propagated correctly")
-				return
-			}
-			time.Sleep(200 * time.Millisecond)
+		_, err := env.WaitForOverlayChange(ovConn, ".env", 15*time.Second)
+		if err != nil {
+			t.Fatalf("Timed out waiting for overlay change: %v", err)
 		}
-		data, _ := os.ReadFile(overlayPath)
-		t.Fatalf("Post-suppression write did not propagate. Overlay: %q", string(data))
+
+		data, err := os.ReadFile(overlayPath)
+		if err != nil {
+			t.Fatalf("Failed to read overlay: %v", err)
+		}
+		if !strings.Contains(string(data), "FROM_AGENT_B_AFTER=true") {
+			t.Fatalf("Post-suppression write did not propagate. Overlay: %q", string(data))
+		}
+		t.Log("Post-suppression write propagated correctly")
 	})
 
 	t.Run("11_DisposeSessions", func(t *testing.T) {

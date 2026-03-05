@@ -69,7 +69,8 @@ func TestSweepExpiredSuppressions_NoneExpired(t *testing.T) {
 
 func TestSuppress_AddsEntryWithTTL(t *testing.T) {
 	w := &Watcher{
-		suppressed: make(map[string]time.Time),
+		suppressed:     make(map[string]time.Time),
+		suppressionTTL: 5 * time.Second,
 	}
 
 	before := time.Now()
@@ -82,8 +83,8 @@ func TestSuppress_AddsEntryWithTTL(t *testing.T) {
 	}
 
 	// TTL is 5 seconds. Expiry should be between (before + 5s) and (after + 5s).
-	expectedLow := before.Add(suppressionTTL)
-	expectedHigh := after.Add(suppressionTTL)
+	expectedLow := before.Add(5 * time.Second)
+	expectedHigh := after.Add(5 * time.Second)
 	if expiry.Before(expectedLow) || expiry.After(expectedHigh) {
 		t.Errorf("expiry %v not in expected range [%v, %v]", expiry, expectedLow, expectedHigh)
 	}
@@ -94,6 +95,7 @@ func TestSuppress_OverwritesPreviousEntry(t *testing.T) {
 		suppressed: map[string]time.Time{
 			"ws-1:config.yaml": time.Now().Add(-2 * time.Second), // near expiry
 		},
+		suppressionTTL: 5 * time.Second,
 	}
 
 	w.Suppress("ws-1", "config.yaml")
@@ -108,7 +110,7 @@ func TestRemoveWorkspace_CleansSuppressionsForWorkspace(t *testing.T) {
 	tmpDir1 := t.TempDir()
 	tmpDir2 := t.TempDir()
 
-	w, err := NewWatcher(100, func(workspaceID, relPath string) {}, nil)
+	w, err := NewWatcher(100, 5*time.Second, func(workspaceID, relPath string) {}, nil)
 	if err != nil {
 		t.Fatalf("NewWatcher() error: %v", err)
 	}

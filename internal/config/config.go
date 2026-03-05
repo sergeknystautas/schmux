@@ -303,9 +303,10 @@ type ConflictResolveConfig struct {
 
 // CompoundConfig represents configuration for the overlay compounding loop.
 type CompoundConfig struct {
-	Target     string `json:"target,omitempty"`      // LLM target for merging (falls back to nudgenik target)
-	DebounceMs int    `json:"debounce_ms,omitempty"` // debounce interval in ms (default 2000)
-	Enabled    *bool  `json:"enabled,omitempty"`     // explicitly enable/disable (default: true)
+	Target           string `json:"target,omitempty"`             // LLM target for merging (falls back to nudgenik target)
+	DebounceMs       int    `json:"debounce_ms,omitempty"`        // debounce interval in ms (default 2000)
+	Enabled          *bool  `json:"enabled,omitempty"`            // explicitly enable/disable (default: true)
+	SuppressionTTLMs int    `json:"suppression_ttl_ms,omitempty"` // suppression window in ms (default 5000)
 }
 
 // OverlayConfig represents global overlay path configuration.
@@ -1005,6 +1006,16 @@ func (c *Config) GetCompoundEnabled() bool {
 		return true // enabled by default
 	}
 	return *c.Compound.Enabled
+}
+
+// GetCompoundSuppressionTTLMs returns the suppression TTL in milliseconds.
+func (c *Config) GetCompoundSuppressionTTLMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c == nil || c.Compound == nil || c.Compound.SuppressionTTLMs <= 0 {
+		return 5000
+	}
+	return c.Compound.SuppressionTTLMs
 }
 
 // DefaultInstructionFiles are the instruction file patterns checked by the lore curator.

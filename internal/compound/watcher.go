@@ -16,10 +16,11 @@ type OnChangeFunc func(workspaceID, relPath string)
 
 // Watcher watches overlay-managed files in workspaces for changes.
 type Watcher struct {
-	watcher    *fsnotify.Watcher
-	debounceMs int
-	onChange   OnChangeFunc
-	logger     *log.Logger
+	watcher        *fsnotify.Watcher
+	debounceMs     int
+	suppressionTTL time.Duration
+	onChange       OnChangeFunc
+	logger         *log.Logger
 
 	// workspaceID → workspacePath
 	workspacePaths map[string]string
@@ -40,10 +41,8 @@ type Watcher struct {
 	stopped  bool // set to true on Stop(), checked by debounce callbacks
 }
 
-const suppressionTTL = 5 * time.Second
-
 // NewWatcher creates a new file watcher for overlay-managed files.
-func NewWatcher(debounceMs int, onChange OnChangeFunc, logger *log.Logger) (*Watcher, error) {
+func NewWatcher(debounceMs int, suppressionTTL time.Duration, onChange OnChangeFunc, logger *log.Logger) (*Watcher, error) {
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create fsnotify watcher: %w", err)
@@ -52,6 +51,7 @@ func NewWatcher(debounceMs int, onChange OnChangeFunc, logger *log.Logger) (*Wat
 	return &Watcher{
 		watcher:        fsw,
 		debounceMs:     debounceMs,
+		suppressionTTL: suppressionTTL,
 		onChange:       onChange,
 		logger:         logger,
 		workspacePaths: make(map[string]string),
@@ -193,7 +193,7 @@ func (w *Watcher) Suppress(workspaceID, relPath string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	key := workspaceID + ":" + relPath
-	w.suppressed[key] = time.Now().Add(suppressionTTL)
+	w.suppressed[key] = time.Now().Add(w.suppressionTTL)
 }
 
 // Start begins the event processing loop.

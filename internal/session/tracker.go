@@ -72,9 +72,11 @@ type SessionTracker struct {
 	subsMu sync.Mutex
 	subs   []chan SequencedOutput
 
-	stopOnce sync.Once
-	stopCh   chan struct{}
-	doneCh   chan struct{}
+	stopOnce   sync.Once
+	stopCh     chan struct{}
+	doneCh     chan struct{}
+	stopCtx    context.Context
+	stopCancel context.CancelFunc
 
 	lastRetryLog time.Time
 
@@ -104,6 +106,7 @@ func (t *SessionTracker) OutputLog() *OutputLog {
 // If eventFilePath is non-empty and eventHandlers is non-nil, an EventWatcher
 // is created for the unified event system.
 func NewSessionTracker(sessionID, tmuxSession string, st state.StateStore, eventFilePath string, eventHandlers map[string][]events.EventHandler, outputCallback func([]byte), logger *log.Logger) *SessionTracker {
+	stopCtx, stopCancel := context.WithCancel(context.Background())
 	t := &SessionTracker{
 		sessionID:      sessionID,
 		tmuxSession:    tmuxSession,
@@ -113,6 +116,8 @@ func NewSessionTracker(sessionID, tmuxSession string, st state.StateStore, event
 		outputLog:      NewOutputLog(50000), // 50,000 entries ≈ 5MB at ~100 bytes/event
 		stopCh:         make(chan struct{}),
 		doneCh:         make(chan struct{}),
+		stopCtx:        stopCtx,
+		stopCancel:     stopCancel,
 	}
 	if eventFilePath != "" && eventHandlers != nil && len(eventHandlers) > 0 {
 		ew, err := events.NewEventWatcher(eventFilePath, sessionID, eventHandlers)
@@ -136,6 +141,9 @@ func (t *SessionTracker) Start() {
 func (t *SessionTracker) Stop() {
 	t.stopOnce.Do(func() {
 		close(t.stopCh)
+		// Cancel the context used by attachControlMode() so the tmux process
+		// is killed immediately even if closeControlMode() races with cmd storage.
+		t.stopCancel()
 		t.closeControlMode()
 		if t.eventWatcher != nil {
 			t.eventWatcher.Stop()
@@ -147,14 +155,10 @@ func (t *SessionTracker) Stop() {
 		}
 		t.subs = nil
 		t.subsMu.Unlock()
-		// Wait for run() to exit with a timeout. Under heavy CPU/IO contention
-		// (e.g. parallel Docker E2E tests), the run loop may be stuck in
-		// attachControlMode() between cmd.Start() and storing the cmd reference,
-		// causing closeControlMode() above to miss the active process. A bounded
-		// wait prevents session.Dispose from blocking indefinitely.
+		// Wait for run() to exit with a timeout.
 		select {
 		case <-t.doneCh:
-		case <-time.After(30 * time.Second):
+		case <-time.After(5 * time.Second):
 		}
 	})
 }
@@ -366,7 +370,7 @@ func (t *SessionTracker) attachControlMode() error {
 	target := t.tmuxSession
 	t.mu.RUnlock()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.stopCtx)
 	defer cancel()
 
 	// Start tmux in control mode (-C, canonical mode with echo)
