@@ -533,8 +533,10 @@ func TestE2EWorkspaceDisposeAll(t *testing.T) {
 		}
 	}
 
-	// Verify no workspaces or sessions remain
-	env.PollUntil(5*time.Second, "workspaces/sessions not cleaned up", func() bool {
+	// Verify no workspaces or sessions remain.
+	// Use a generous timeout: under Docker resource contention with parallel E2E tests,
+	// the workspace cleanup (git operations) can be slow.
+	env.PollUntil(15*time.Second, "workspaces/sessions not cleaned up", func() bool {
 		workspaces := env.GetAPIWorkspaces()
 		return len(workspaces) == 0
 	})
