@@ -8,7 +8,11 @@ interface DepSpec {
 }
 
 const DEPS: DepSpec[] = [
-  { command: 'go', label: 'Go', requiredFor: ['backend', 'e2e', 'scenarios', 'bench'] },
+  {
+    command: 'go',
+    label: 'Go',
+    requiredFor: ['backend', 'e2e', 'scenarios', 'bench', 'microbench'],
+  },
   { command: 'docker', label: 'Docker', requiredFor: ['e2e', 'scenarios'] },
   { command: 'node', label: 'Node.js', requiredFor: ['frontend'] },
   { command: 'npm', label: 'npm', requiredFor: ['frontend'] },

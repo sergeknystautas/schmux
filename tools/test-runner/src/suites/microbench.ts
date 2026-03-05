@@ -11,7 +11,7 @@ const microBenchPackages = [
 ];
 
 export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteResult> {
-  onEvent('bench-micro', {
+  onEvent('microbench', {
     type: 'suite_status',
     status: 'running',
     message: 'Running micro-benchmarks...',
@@ -31,7 +31,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     ...microBenchPackages,
   ];
 
-  onEvent('bench-micro', {
+  onEvent('microbench', {
     type: 'build_step',
     message: `go ${args.join(' ')}`,
   });
@@ -42,32 +42,32 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     cwd: root,
     onLine: (line) => {
       outputLines.push(line);
-      onEvent('bench-micro', { type: 'output_line', line });
+      onEvent('microbench', { type: 'output_line', line });
     },
   });
 
   if (result.exitCode !== 0) {
     anyFailed = true;
-    onEvent('bench-micro', {
+    onEvent('microbench', {
       type: 'build_step',
       message: 'Micro-benchmarks failed',
     });
   } else {
-    onEvent('bench-micro', {
+    onEvent('microbench', {
       type: 'build_step',
       message: 'Micro-benchmarks passed (output is benchstat-compatible with -count=5)',
     });
   }
 
   const status = anyFailed ? 'failed' : 'passed';
-  onEvent('bench-micro', {
+  onEvent('microbench', {
     type: 'suite_status',
     status: status === 'passed' ? 'passed' : 'failed',
     message: status === 'passed' ? 'Micro-benchmarks passed' : 'Micro-benchmarks failed',
   });
 
   return {
-    suite: 'bench-micro',
+    suite: 'microbench',
     status,
     durationMs: result.durationMs,
     passedTests: [],
@@ -76,7 +76,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
           {
             name: 'micro-benchmarks',
             output: outputLines.join('\n'),
-            rerunCommand: './test.sh --bench-micro',
+            rerunCommand: './test.sh --microbench',
           },
         ]
       : [],

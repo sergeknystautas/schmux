@@ -54,9 +54,9 @@ function parseArgs(argv: string[]): Options {
         explicitSuite = true;
         if (!opts.suites.includes('bench')) opts.suites.push('bench');
         break;
-      case '--bench-micro':
+      case '--microbench':
         explicitSuite = true;
-        if (!opts.suites.includes('bench-micro')) opts.suites.push('bench-micro');
+        if (!opts.suites.includes('microbench')) opts.suites.push('microbench');
         break;
       case '--all':
         opts.all = true;
@@ -141,8 +141,10 @@ function printHelp(): void {
   console.log('  --e2e           Run E2E tests only');
   console.log('  --scenarios     Run scenario tests only (Playwright)');
   console.log('  --frontend      Run frontend tests only');
-  console.log('  --bench         Run latency benchmarks only (requires tmux)');
-  console.log('  --bench-micro   Run micro-benchmarks only (no tmux/daemon needed)');
+  console.log(
+    '  --bench         Run integration benchmarks only (PTY + WS, requires tmux + daemon)'
+  );
+  console.log('  --microbench    Run micro-benchmarks only (no tmux/daemon needed)');
   console.log('  --all           Run all test suites in parallel (same as default, explicit)');
   console.log('  --race          Run with race detector');
   console.log('  --verbose       Run with verbose output');
@@ -178,8 +180,9 @@ function printHelp(): void {
   console.log("  ./test.sh --scenarios --run 'dispose'        # Scenario tests matching 'dispose'");
   console.log('  ./test.sh --frontend                         # Frontend tests only');
   console.log('  ./test.sh --e2e --force                      # Rebuild base image and run E2E');
-  console.log('  ./test.sh --bench                            # Latency benchmarks');
-  console.log('  ./test.sh --bench-micro                      # Micro-benchmarks (no tmux needed)');
+  console.log('  ./test.sh --bench                            # Integration benchmarks (PTY + WS)');
+  console.log('  ./test.sh --microbench                       # Micro-benchmarks (no tmux needed)');
+  console.log('  ./test.sh --bench --microbench                # Both benchmark suites');
   console.log(
     '  ./test.sh --backend --repeat 5               # Run backend tests 5x, report flaky'
   );

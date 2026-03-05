@@ -6,7 +6,7 @@ import { run as runFrontend } from './suites/frontend.js';
 import { run as runE2E } from './suites/e2e.js';
 import { run as runScenarios } from './suites/scenarios.js';
 import { run as runBench } from './suites/bench.js';
-import { run as runBenchMicro } from './suites/bench-micro.js';
+import { run as runBenchMicro } from './suites/microbench.js';
 
 type SuiteRunner = (opts: Options, onEvent: EventCallback) => Promise<SuiteResult>;
 
@@ -16,7 +16,7 @@ const runners: Record<SuiteName, SuiteRunner> = {
   e2e: runE2E,
   scenarios: runScenarios,
   bench: runBench,
-  'bench-micro': runBenchMicro,
+  microbench: runBenchMicro,
 };
 
 export interface RunResult {
