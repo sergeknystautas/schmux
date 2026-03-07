@@ -90,15 +90,15 @@ schmux ships with eleven personas:
 
 | Persona                | Icon | Color     | Focus                                                                                              |
 | ---------------------- | ---- | --------- | -------------------------------------------------------------------------------------------------- |
-| API Designer           | 🔌   | `#1abc9c` | API design quality, consistency, RESTful patterns, error handling                                   |
+| API Designer           | 🔌   | `#1abc9c` | API design quality, consistency, RESTful patterns, error handling                                  |
 | Docs Writer            | 📝   | `#3498db` | Identify drift between documentation and code, fix stale docs, fill gaps, improve clarity          |
-| Mentor                 | 🎓   | `#e67e22` | Teaching, explaining concepts, guiding learning, code review with educational focus                 |
-| Performance Engineer   | ⚡   | `#f1c40f` | Performance bottlenecks, optimization opportunities, profiling, resource efficiency                 |
+| Mentor                 | 🎓   | `#e67e22` | Teaching, explaining concepts, guiding learning, code review with educational focus                |
+| Performance Engineer   | ⚡   | `#f1c40f` | Performance bottlenecks, optimization opportunities, profiling, resource efficiency                |
 | QA Engineer            | 🧪   | `#2ecc71` | Edge cases, error handling, test coverage gaps, regression risks, boundary conditions              |
-| Refactoring Specialist | 🔧   | `#95a5a6` | Code structure improvements, design patterns, reducing complexity, improving maintainability        |
+| Refactoring Specialist | 🔧   | `#95a5a6` | Code structure improvements, design patterns, reducing complexity, improving maintainability       |
 | Security Auditor       | 🔒   | `#e74c3c` | Vulnerabilities, OWASP top 10, input validation, attack surfaces, insecure dependencies            |
 | Software Architect     | 🏗️   | `#2c3e50` | System design, architectural patterns, scalability, separation of concerns                         |
-| Spec Implementer       | 📋   | `#8e44ad` | Implementing features from specifications, following plans precisely, task-by-task execution        |
+| Spec Implementer       | 📋   | `#8e44ad` | Implementing features from specifications, following plans precisely, task-by-task execution       |
 | Technical PM           | 📊   | `#f39c12` | Summarize project activity by analyzing commits over time periods, identify trends, track progress |
 | UX Designer            | 🎨   | `#9b59b6` | Usability, UI consistency, accessibility, UX patterns, interaction design                          |
 
