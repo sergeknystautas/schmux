@@ -41,7 +41,7 @@ jobs:
       - name: Build website
         run: go run ./cmd/build-website
         env:
-          VITE_BASE: /schmux/
+          VITE_BASE: /
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
