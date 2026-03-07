@@ -33,8 +33,10 @@ func TestFindModel(t *testing.T) {
 		{"qwen3-coder-plus", "qwen3-coder-plus", true},
 
 		// Codex models
-		{"gpt-5.2-codex", "gpt-5.2-codex", true},
+		{"gpt-5.4", "gpt-5.4", true},
 		{"gpt-5.3-codex", "gpt-5.3-codex", true},
+		{"gpt-5.2", "gpt-5.2", true},
+		{"gpt-5.2-codex", "gpt-5.2-codex", true},
 		{"gpt-5.1-codex-max", "gpt-5.1-codex-max", true},
 		{"gpt-5.1-codex-mini", "gpt-5.1-codex-mini", true},
 
@@ -96,8 +98,10 @@ func TestIsModelID(t *testing.T) {
 		{"minimax-m2.1", true},
 		{"minimax-2.5", true},
 		{"qwen3-coder-plus", true},
-		{"gpt-5.2-codex", true},
+		{"gpt-5.4", true},
 		{"gpt-5.3-codex", true},
+		{"gpt-5.2", true},
+		{"gpt-5.2-codex", true},
 		{"gpt-5.1-codex-max", true},
 		{"gpt-5.1-codex-mini", true},
 		{"opencode-zen", true},
@@ -177,14 +181,14 @@ func TestGetAvailableModels(t *testing.T) {
 				"opencode-zen",
 				"kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "glm-5",
 				"minimax-m2.1", "minimax-2.5", "qwen3-coder-plus",
-				"gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.1-codex-max", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5-codex",
+				"gpt-5.4", "gpt-5.3-codex", "gpt-5.2", "gpt-5.2-codex", "gpt-5.1-codex-max", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5-codex",
 				"gemini-3.1-pro-preview", "gemini-3-flash-preview",
 				"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"},
 		},
 		{
 			name:             "only codex detected",
 			detected:         []Tool{{Name: "codex", Command: "codex", Source: "PATH", Agentic: true}},
-			shouldContain:    []string{"gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.1-codex-max", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5-codex"},
+			shouldContain:    []string{"gpt-5.4", "gpt-5.3-codex", "gpt-5.2", "gpt-5.2-codex", "gpt-5.1-codex-max", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5-codex"},
 			shouldNotContain: []string{"claude-opus-4-6", "claude-sonnet-4-6", "opencode-zen", "gemini-2.5-pro"},
 		},
 		{
@@ -248,9 +252,9 @@ func TestOpencodeModelExists(t *testing.T) {
 func TestGetBuiltinModels(t *testing.T) {
 	models := GetBuiltinModels()
 
-	// Should have 31 models total (10 Anthropic + 8 third-party + 6 Codex + 1 OpenCode + 6 Google)
-	if len(models) != 31 {
-		t.Errorf("GetBuiltinModels() returned %d models, want 31", len(models))
+	// Should have 33 models total (10 Anthropic + 8 third-party + 8 Codex + 1 OpenCode + 6 Google)
+	if len(models) != 33 {
+		t.Errorf("GetBuiltinModels() returned %d models, want 33", len(models))
 	}
 
 	// Check that models are copies (not pointers)
@@ -269,7 +273,7 @@ func TestGetBuiltinModels(t *testing.T) {
 		"claude-opus-4-5", "claude-opus-4-1", "claude-opus-4",
 		"claude-sonnet-4-5", "claude-sonnet-4", "claude-sonnet-3-5", "claude-haiku-3-5",
 		"kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "glm-5", "minimax-m2.1", "minimax-2.5", "qwen3-coder-plus",
-		"gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.1-codex-max", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5-codex",
+		"gpt-5.4", "gpt-5.3-codex", "gpt-5.2", "gpt-5.2-codex", "gpt-5.1-codex-max", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5-codex",
 		"opencode-zen",
 		"gemini-3.1-pro-preview", "gemini-3-flash-preview",
 		"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash",

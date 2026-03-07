@@ -329,6 +329,16 @@ var builtinModels = []Model{
 	},
 	// Codex models
 	{
+		ID:          "gpt-5.4",
+		DisplayName: "gpt 5.4",
+		Provider:    "openai",
+		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"codex":    {ModelValue: "gpt-5.4"},
+			"opencode": {ModelValue: "openai/gpt-5.4"},
+		},
+	},
+	{
 		ID:          "gpt-5.3-codex",
 		DisplayName: "gpt 5.3 codex",
 		Provider:    "openai",
@@ -336,6 +346,16 @@ var builtinModels = []Model{
 		Runners: map[string]RunnerSpec{
 			"codex":    {ModelValue: "gpt-5.3-codex"},
 			"opencode": {ModelValue: "openai/gpt-5.3-codex"},
+		},
+	},
+	{
+		ID:          "gpt-5.2",
+		DisplayName: "gpt 5.2",
+		Provider:    "openai",
+		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"codex":    {ModelValue: "gpt-5.2"},
+			"opencode": {ModelValue: "openai/gpt-5.2"},
 		},
 	},
 	{
