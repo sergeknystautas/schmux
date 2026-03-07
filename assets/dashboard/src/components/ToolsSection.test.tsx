@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, cleanup, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import ToolsSection from './ToolsSection';
+
+let mockProposalVersion = 0;
 
 // Mock the contexts
 vi.mock('../contexts/ConfigContext', () => ({
@@ -12,6 +14,12 @@ vi.mock('../contexts/ConfigContext', () => ({
       remote_access: { enabled: true },
     },
     isNotConfigured: false,
+  }),
+}));
+
+vi.mock('../contexts/CurationContext', () => ({
+  useCuration: () => ({
+    proposalVersion: mockProposalVersion,
   }),
 }));
 
@@ -45,6 +53,7 @@ describe('ToolsSection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    mockProposalVersion = 0;
   });
 
   it('renders expanded by default with Tools header', async () => {
@@ -143,5 +152,44 @@ describe('ToolsSection', () => {
       '[data-testid="icon-badge"][data-severity="danger"]'
     );
     expect(badgeDot).toBeInTheDocument();
+  });
+
+  it('re-fetches lore counts when proposalVersion changes', async () => {
+    const { getLoreProposals } = await import('../lib/api');
+    const mockGetLoreProposals = getLoreProposals as ReturnType<typeof vi.fn>;
+
+    await renderWithAct(<ToolsSection />);
+
+    // Initial fetch on mount
+    expect(mockGetLoreProposals).toHaveBeenCalledTimes(1);
+
+    // Bump proposalVersion and re-render
+    cleanup();
+    mockProposalVersion = 1;
+    await renderWithAct(<ToolsSection />);
+
+    // Should have fetched again due to proposalVersion change
+    expect(mockGetLoreProposals).toHaveBeenCalledTimes(2);
+  });
+
+  it('removes lore badge when proposals are all dismissed', async () => {
+    const { getLoreProposals } = await import('../lib/api');
+    const mockGetLoreProposals = getLoreProposals as ReturnType<typeof vi.fn>;
+
+    await renderWithAct(<ToolsSection />);
+
+    // Initially shows badge with count 2
+    expect(screen.getByText('2')).toBeInTheDocument();
+
+    // Simulate all proposals dismissed: return empty proposals on next fetch
+    cleanup();
+    mockGetLoreProposals.mockResolvedValue({ proposals: [] });
+    mockProposalVersion = 1;
+    await renderWithAct(<ToolsSection />);
+
+    // Badge should be gone
+    await waitFor(() => {
+      expect(screen.queryByText('2')).not.toBeInTheDocument();
+    });
   });
 });
