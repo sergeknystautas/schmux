@@ -1,0 +1,58 @@
+# Tool Adapters
+
+## What it does
+
+Provides a unified interface for detecting, invoking, and configuring the four built-in AI coding tools (Claude, Codex, Gemini, OpenCode). Each tool registers an adapter that handles detection, command building, lifecycle hooks, persona injection, and signaling -- replacing the scattered switch statements that previously grew with each new tool.
+
+## Key files
+
+| File                                           | Purpose                                                                                                                                                                                                            |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `internal/detect/adapter.go`                   | `ToolAdapter` interface (20 methods), adapter registry, `SignalingStrategy`/`PersonaInjection`/`HookContext`/`SpawnContext` types                                                                                  |
+| `internal/detect/adapter_claude.go`            | Claude adapter: detection via 5 methods (PATH, native install, alt native, Homebrew cask, npm global), `--model` flag, `SignalingHooks` strategy, `PersonaCLIFlag` injection, `BuildRunnerEnv` for proxy endpoints |
+| `internal/detect/adapter_codex.go`             | Codex adapter: detection via 3 methods, `-m` flag, `SignalingCLIFlag` strategy, `PersonaInstructionFile` injection                                                                                                 |
+| `internal/detect/adapter_gemini.go`            | Gemini adapter: detection via 3 methods, `--model` flag, interactive-only capabilities, `PersonaInstructionFile` injection                                                                                         |
+| `internal/detect/adapter_opencode.go`          | OpenCode adapter: detection via 4 methods (PATH, `~/.local/bin`, Homebrew, npm), `--model` flag, `PersonaConfigOverlay` injection via `OPENCODE_CONFIG_CONTENT` env var                                            |
+| `internal/detect/adapter_claude_hooks.go`      | Claude hook implementation: merges schmux hook handlers into `.claude/settings.local.json`, embeds 3 shell scripts (capture-failure, stop-status, stop-lore)                                                       |
+| `internal/detect/adapter_opencode_hooks.go`    | OpenCode hook implementation: generates `.opencode/plugins/schmux.ts` TypeScript plugin that maps OpenCode events to schmux JSONL events                                                                           |
+| `internal/detect/adapter_opencode_commands.go` | OpenCode `/commit` command: generates `.opencode/commands/commit.md` with definition-of-done enforcement matching Claude's workflow                                                                                |
+| `internal/detect/adapter_test.go`              | Tests for all adapters: detection, command args, hook setup/cleanup, resume merging                                                                                                                                |
+| `internal/detect/agents.go`                    | `Tool` struct, `DetectAvailableTools()` (runs all detectors concurrently with timeout), shared utilities (`tryCommand`, `commandExists`, `fileExists`, `homebrewCaskInstalled`, `npmGlobalInstalled`)              |
+| `internal/detect/commands.go`                  | `BuildCommandParts()` dispatcher: resolves `ToolMode` to the adapter's args method, appends mode args to the base command                                                                                          |
+| `internal/detect/tools.go`                     | `AgentInstructionConfig` type, `IsBuiltinToolName()`, `GetBaseToolName()`, `GetInstructionPath()`                                                                                                                  |
+| `internal/workspace/ensure/manager.go`         | Calls `adapter.SupportsHooks()`, `adapter.SetupHooks()`, `adapter.SetupCommands()` during workspace preparation                                                                                                    |
+| `internal/session/manager.go`                  | Dispatches persona injection based on `adapter.PersonaInjection()`, merges `adapter.SpawnEnv()` into process environment                                                                                           |
+
+## Architecture decisions
+
+- **Adapter pattern replaces switch statements.** Before the refactor, `commands.go` had an 85-line switch statement that grew with each tool. Now each adapter implements `InteractiveArgs()`, `OneshotArgs()`, `StreamingArgs()` independently. `BuildCommandParts()` is a thin 20-line dispatcher.
+- **Registry via `init()`.** Each `adapter_*.go` file calls `registerAdapter()` in its `init()` function, populating a package-level `adapters` map. This keeps the registry self-maintaining -- adding a new tool means adding one file with an `init()` call.
+- **Resume is a flavor of interactive, not a separate mode.** `InteractiveArgs(model, resume bool)` handles both cases. Claude returns `["--continue"]`, Codex returns `["resume", "--last"]`, Gemini returns `["-r", "latest"]`, OpenCode returns `["--continue"]`. `BuildCommandParts` maps `ToolModeResume` to `InteractiveArgs(nil, true)`.
+- **Three signaling strategies.** `SignalingHooks` (Claude: settings.local.json lifecycle hooks write to JSONL), `SignalingCLIFlag` (Codex: `--c model_instructions_file=`), `SignalingInstructionFile` (Gemini/OpenCode: signaling instructions appended to the tool's instruction file). The session manager dispatches by strategy without knowing tool specifics.
+- **Three persona injection strategies.** `PersonaCLIFlag` (Claude: `--append-system-prompt-file`), `PersonaInstructionFile` (Codex/Gemini: persona content appended to instruction file by the ensure package), `PersonaConfigOverlay` (OpenCode: `OPENCODE_CONFIG_CONTENT` env var with `{"instructions":["path/to/persona.md"]}`). This eliminated the `case "claude"` switch in `appendPersonaFlags`.
+- **Hooks are tool-specific but interface-uniform.** Claude writes JSON into `.claude/settings.local.json` (merging with existing user hooks). OpenCode generates a TypeScript plugin at `.opencode/plugins/schmux.ts`. Both implement the same `SetupHooks(HookContext)/CleanupHooks(workspacePath)` contract.
+- **Detection runs all adapters concurrently with a 3-second timeout.** Each adapter's `Detect()` tries multiple installation methods in sequence (PATH, native install, Homebrew, npm). The timeout is shared across all adapters. Results are collected via channels.
+- **OpenCode is a universal runner.** It uses `provider/model` syntax (e.g., `anthropic/claude-sonnet-4-6`, `openai/gpt-5.2-codex`) to run models from any provider. This is why most models in the catalog have an `opencode` runner entry alongside their native tool runner.
+
+## Gotchas
+
+- **`commands.go` still exists as a dispatcher, not as the deleted monolith.** The spec said to delete `commands.go` and move logic into adapters. The file was rewritten, not deleted -- it contains the 20-line `BuildCommandParts()` function and `ToolMode` constants.
+- **Gemini's `Detect()` returns `Command: "gemini -i"` (with `-i` flag baked in).** The `-i` flag forces interactive mode. This is unlike other adapters where the base command is just the binary name. The `-i` flag gets included in `BuildCommandParts` as part of `strings.Fields(detectedCommand)`.
+- **`SpawnEnv()` is only called for OpenCode.** Claude/Codex/Gemini return nil. If a new tool needs spawn-time env vars, implement `SpawnEnv()` and verify the session manager's env merge logic in `manager.go`.
+- **OpenCode's streaming mode is not supported.** `StreamingArgs()` returns an error. Only Claude supports streaming oneshot (`output-format stream-json`).
+- **Gemini's oneshot mode is not supported.** `OneshotArgs()` returns an error. Gemini is interactive-only.
+- **The `Capabilities()` method is used for frontend filtering.** `useConfigForm.ts` checks whether the preferred runner's tool has `"oneshot"` in its capabilities to determine which models appear in TargetSelect dropdowns for oneshot features (nudgenik, floor manager, etc.).
+- **`SetupCommands()` is a no-op for Claude, Codex, and Gemini.** Only OpenCode generates a `/commit` command file because Claude's commit command is checked into the repo as `.claude/commands/commit.md`.
+- **The OpenCode plugin template is a raw string constant.** It uses `appendFileSync` (Node.js API available in Bun). The `stop` hook uses `result: "prevent"` to block termination until the agent writes status/reflection events.
+- **Hook cleanup must handle missing files gracefully.** Both `claudeCleanupHooks()` and `opencodeCleanupHooks()` check for `os.IsNotExist` before returning errors. A workspace may have been manually cleaned.
+
+## Common modification patterns
+
+- **To add a new tool (5th adapter):** Create `adapter_newtool.go` with a struct implementing all 20 `ToolAdapter` methods. Add `func init() { registerAdapter(&NewToolAdapter{}) }`. Add the tool name to `builtinToolNames` in `tools.go`. Add instruction config to `agentInstructionConfigs` in `tools.go`. Add model entries with the new tool as a runner in `models.go`. No changes needed to `commands.go`, `agents.go`, or `manager.go`.
+- **To add a detection method to an existing tool:** Add the detection attempt inside the tool's `Detect()` method in `adapter_<tool>.go`. Follow the existing pattern: check existence, probe with version flag, return `Tool{Name, Command, Source, Agentic}`.
+- **To add a new command mode:** Add a `ToolMode` constant in `commands.go`. Add a case to `BuildCommandParts()`. Add the corresponding method to the `ToolAdapter` interface in `adapter.go`. Implement in all four adapter files. Add the capability string to `Capabilities()` for adapters that support it.
+- **To change how a tool receives signaling:** Change the `SignalingStrategy()` return value and implement `SignalingArgs()` accordingly. If the tool needs a new strategy, add a constant to `SignalingStrategy` in `adapter.go` and handle it in the session manager.
+- **To add lifecycle hooks to a tool:** Set `SupportsHooks()` to return `true`. Implement `SetupHooks(ctx HookContext)` to write hook configuration files. Implement `CleanupHooks(workspacePath)` to remove them. Implement `WrapRemoteCommand()` if remote sessions need inline hook setup. See `adapter_opencode_hooks.go` for the TypeScript plugin pattern or `adapter_claude_hooks.go` for the JSON config pattern.
+- **To change persona injection for a tool:** Change `PersonaInjection()` return value. If using `PersonaCLIFlag`, implement `PersonaArgs(filePath)`. If using `PersonaConfigOverlay`, implement `SpawnEnv(ctx)`. If using `PersonaInstructionFile`, no adapter changes needed -- the ensure package handles it.
+- **To modify the OpenCode plugin template:** Edit the `opencodePluginTemplate` constant in `adapter_opencode_hooks.go`. The plugin maps OpenCode events (`session.created`, `session.idle`, `permission.asked`, `message.updated`, `tool.execute.after`) to schmux JSONL events. The `stop` hook gates termination on status + reflection events.
+- **To add a tool-specific setup command:** Implement `SetupCommands(workspacePath)` in the adapter. The ensure package calls this during workspace preparation (see `ensure/manager.go`). The command file must be self-contained since it runs inside the agent session.

@@ -191,7 +191,7 @@ Changes to API-related packages (`internal/dashboard/`, `internal/nudgenik/`, `i
 
 ## Web Dashboard Guidelines
 
-See `docs/dev/react.md` for React architecture and `docs/web.md` for UX patterns. For API contracts, see `docs/api.md`. Key principles:
+See `docs/react.md` for React architecture and `docs/web.md` for UX patterns. For API contracts, see `docs/api.md`. Key principles:
 
 - **CLI-first**: web dashboard is for observability/orchestration
 - **Status-first**: running/stopped/error visually consistent everywhere
@@ -232,6 +232,6 @@ All specs, designs, and implementation plans live in `docs/specs/`. Skills that 
 - [`docs/cli.md`](docs/cli.md) - CLI command reference
 - [`docs/web.md`](docs/web.md) - Web dashboard UX
 - [`docs/api.md`](docs/api.md) - Daemon HTTP API contract (client-agnostic)
-- [`docs/dev/react.md`](docs/dev/react.md) - React architecture
-- [`docs/dev/architecture.md`](docs/dev/architecture.md) - Backend architecture
+- [`docs/react.md`](docs/react.md) - React architecture
+- [`docs/architecture.md`](docs/architecture.md) - Backend architecture
 - [`AGENTS.md`](AGENTS.md) - Architecture guidelines (for non-Claude agents)

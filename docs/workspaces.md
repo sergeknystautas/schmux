@@ -1,6 +1,23 @@
 # Workspaces
 
-**Problem:** Running multiple agents in parallel means managing multiple copies of your codebase. Creating git clones is tedious, keeping them organized is error-prone, and it's easy to lose track of uncommitted work or forget which workspace has what changes.
+## What it does
+
+Workspaces are isolated git working directories on the filesystem where AI agents run. schmux creates, tracks, and manages these directories so multiple agents can work in parallel without stepping on each other.
+
+---
+
+## Key files
+
+| File                                       | Purpose                                                   |
+| ------------------------------------------ | --------------------------------------------------------- |
+| `internal/workspace/manager.go`            | Workspace lifecycle: create, dispose, locking, git status |
+| `internal/workspace/interfaces.go`         | `WorkspaceManager` interface for testability              |
+| `internal/workspace/linear_sync.go`        | Sync-from-main and sync-to-main via cherry-pick           |
+| `internal/workspace/overlay.go`            | Overlay file copying                                      |
+| `internal/workspace/worktree.go`           | Git worktree creation and management                      |
+| `internal/workspace/ensure/manager.go`     | Workspace configuration setup (hooks, git exclude)        |
+| `internal/preview/manager.go`              | Preview proxy lifecycle for workspace web servers         |
+| `internal/dashboard/preview_autodetect.go` | Auto-detect listening ports from terminal output          |
 
 ---
 
@@ -25,9 +42,70 @@ schmux uses your actual filesystem rather than Docker or other abstracted isolat
 
 ---
 
+## Workspace Ensure System
+
+The `ensure` package (`internal/workspace/ensure/manager.go`) handles ensuring workspaces have the necessary schmux configuration. It is initialized once at daemon startup with a state reference and passed to the session manager and workspace manager.
+
+### Architecture decisions
+
+- **Ensurer is a stateful service, not a bag of functions.** It holds a `state.StateStore` reference and looks up sessions internally. Callers just say "ensure this workspace" without making decisions about what is needed.
+- **Two entry points for different contexts:**
+  - `ForSpawn(workspaceID, currentTarget)` — called during session spawn; includes the about-to-be-spawned target since it is not in state yet.
+  - `ForWorkspace(workspaceID)` — called from daemon startup and overlay refresh; uses sessions already in state.
+- **Agent hook detection lives inside ensure.** `workspaceHookTools()` scans sessions in state to determine which agents support hooks, then only sets up hooks for those tools. Non-Claude workspaces do not get Claude hooks.
+- **One code path.** Spawn, overlay refresh, and daemon startup all call the same internal `ensureWorkspace()` function. Adding a new ensure step means adding it in one place.
+
+### What ensure does
+
+1. **Agent hooks** — Sets up tool-specific hooks (e.g., Claude hooks, lore scripts) via the detect adapter system, only for agents that support them.
+2. **Tool commands** — Sets up tool-specific commands (e.g., `/commit` for OpenCode).
+3. **Git exclude** — Writes `.git/info/exclude` entries for schmux-managed paths (`.schmux/hooks/`, `.schmux/events/`, etc.) so they do not appear in `git status`.
+
+### Agent-specific signaling
+
+Agent instructions (`SignalingInstructions`, `AgentInstructions`) stay in `ensure/manager.go` but are called from `internal/session/manager.go`. These are session-level concerns (what prompt injection to use for a specific agent), not workspace-level configuration.
+
+---
+
+## Workspace Locking
+
+The workspace Manager coordinates concurrent git operations via per-workspace locking.
+
+### Problem solved
+
+Sync operations (`LinearSyncFromDefault`, `LinearSyncResolveConflict`) perform multi-step git sequences (fetch, rebase, commit, reset) that must run atomically. The git-watcher fires `UpdateGitStatus` on filesystem events, which can run `git fetch` mid-rebase, causing spurious failures.
+
+### Design
+
+All locking lives in the workspace Manager. There is no dashboard callback.
+
+- **`lockedWorkspaces map[string]bool`** — tracks which workspaces are locked for sync operations.
+- **`workspaceGates map[string]*sync.RWMutex`** — per-workspace gate that coordinates git status vs. sync operations.
+
+### Lock semantics
+
+- **Exclusive**: only one sync operation holds the lock per workspace at a time.
+- **Fail-fast for competing syncs**: `LockWorkspace()` returns false immediately if another sync already holds the lock.
+- **Waits for git status**: `LockWorkspace()` acquires a full write lock on the gate, blocking until any in-flight `UpdateGitStatus` on that workspace completes.
+- **Git status bails early**: `UpdateGitStatus()` checks `IsWorkspaceLocked()` and returns `ErrWorkspaceLocked` if the workspace is locked. It also holds an RLock on the gate while running.
+
+### Visual lockdown
+
+Lock state is communicated via a dedicated `workspace_locked` WebSocket message type, sent in real-time (not debounced) when lock state changes. Both sync operations get the same tab lockdown in the frontend.
+
+- The `workspace_locked` message is separate from the debounced `sessions` broadcast to avoid clobber and timing races.
+- Frontend stores lock state in a separate `Record<string, WorkspaceLockState>`, not merged into the `workspaces` array.
+- `ErrWorkspaceLocked` returns HTTP 409 Conflict.
+
+### Scope
+
+Locking covers `LinearSyncFromDefault` and `LinearSyncResolveConflict` — the two multi-step rebase flows. Single-command operations (`LinearSyncToDefault`, `PushToBranch`) are not locked but can be added later if needed.
+
+---
+
 ## Workspace Overlays
 
-Local-only files (`.env`, configs, secrets) that shouldn't be in git can be automatically copied into each workspace via the overlay system.
+Local-only files (`.env`, configs, secrets) that should not be in git can be automatically copied into each workspace via the overlay system.
 
 ### Storage
 
@@ -59,6 +137,40 @@ git check-ignore -q <path>
 ```
 
 If a file is NOT matched by `.gitignore`, the copy is skipped with a warning. This prevents accidentally shadowing tracked repository files.
+
+---
+
+## Preview Proxy
+
+Workspace web servers (Vite, Next.js, etc.) are automatically detected and proxied through stable per-workspace port blocks.
+
+### How it works
+
+1. **Terminal output scanning** detects `localhost:XXXX` patterns in session output (`internal/dashboard/preview_autodetect.go`).
+2. **Process port verification** confirms the session's PID is actually listening on detected ports via `lsof` (macOS) or `ss` (Linux).
+3. **Stable port allocation** — each workspace gets a fixed block of 10 ports starting from a configurable base (default 53000). Ports are deterministic and survive daemon restarts.
+4. **Reverse proxy** via `httputil.ReverseProxy` with WebSocket upgrade support. No path rewriting.
+
+### Key properties
+
+- **Idempotent**: re-requesting preview for same `(workspace, target host, target port)` returns the same stable port.
+- **Browser storage persists**: cookies and localStorage survive because the proxy port never changes for a given workspace slot.
+- **Loopback-only targets**: proxy targets must resolve to `127.0.0.1`, `::1`, or `localhost`.
+- **Remote workspaces unsupported**: returns an explicit unsupported error.
+- **Cleanup**: previews are removed when workspaces are disposed. No idle timeout.
+
+### Configuration
+
+```json
+{
+  "network": {
+    "preview_port_base": 53000,
+    "preview_port_block_size": 10
+  }
+}
+```
+
+These are write-once: changing them after workspaces have been allocated invalidates existing port assignments.
 
 ---
 
@@ -210,7 +322,7 @@ Regardless of mode, spawning into an existing workspace:
 
 - Blocked if workspace has uncommitted or unpushed changes
 - Uses `git worktree remove` for worktrees, `rm -rf` for full clones
-- No automatic git reset — you're in control
+- No automatic git reset — you are in control
 
 ---
 
@@ -333,3 +445,20 @@ Example log output:
 - **Project-specific prompts**: "Run tests", "Build docs", "Deploy to staging"
 - **Team presets**: Check workspace config into git so the whole team gets the same quick launch options
 - **Repo-specific targets**: Different repos may use different agents or workflows
+
+---
+
+## Common Modification Patterns
+
+- **To add a new ensure step** (e.g., a new file that needs to exist in every workspace): add it to `ensureWorkspace()` in `internal/workspace/ensure/manager.go`. All callers (spawn, overlay refresh, daemon startup) pick it up automatically.
+- **To add a new git exclude pattern**: add the pattern to `excludePatterns` in `internal/workspace/ensure/manager.go`.
+- **To change workspace locking scope**: add `LockWorkspace`/`UnlockWorkspace` calls around the new operation in `internal/workspace/manager.go` or `internal/workspace/linear_sync.go`.
+- **To add a new preview detection pattern**: update the regex in `internal/dashboard/preview_autodetect.go`.
+
+## Gotchas
+
+- **Workspace locking is separate from dashboard conflict resolution UI state.** The Manager owns `lockedWorkspaces` for concurrency control; the dashboard maintains `linearSyncResolveConflictStates` for frontend display. These are independent concerns.
+- **`repoLock` in `LinearSyncResolveConflict` is a different lock.** It is a repo-level mutex for serializing concurrent resolve-conflict calls on the same repo. The workspace lock and the repo lock serve different purposes.
+- **Git-watcher behavior is unchanged by locking.** It still fires events and calls `UpdateGitStatus`. The lock makes `UpdateGitStatus` bail early.
+- **Preview port config is write-once.** Changing `preview_port_base` or `preview_port_block_size` after workspaces have been assigned port blocks invalidates existing preview URLs.
+- **Overlay safety check uses `.gitignore`.** If you add an overlay file that is not covered by `.gitignore`, the copy is silently skipped with a warning — it will not shadow tracked files.

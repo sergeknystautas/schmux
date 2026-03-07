@@ -380,42 +380,85 @@ The OutputLog-based bootstrap mitigates this because it replays the exact byte s
 
 ## Diagnostics (Dev Mode Only)
 
-**File:** `internal/dashboard/websocket.go`, `assets/dashboard/src/lib/streamDiagnostics.ts`
+**Files:** `internal/dashboard/websocket.go`, `assets/dashboard/src/lib/streamDiagnostics.ts`, `assets/dashboard/src/components/StreamMetricsPanel.tsx`
+
+The entire diagnostics system is gated behind dev mode. Ring buffers are not allocated, stats are not sent, and the diagnostic button is not rendered in production. Zero overhead when disabled.
+
+- **Backend:** `s.devMode` on the Server struct controls allocation and message handling.
+- **Frontend:** `versionInfo?.dev_mode` (from `/api/healthz` via `useVersionInfo()`) controls rendering.
+
+### Known Desync Root Causes
+
+When the xterm.js terminal gets out of sync with tmux (garbled rendering, wrong colors, misaligned text), these are the known root cause candidates:
+
+1. **Dropped `%output` events** — non-blocking sends on buffered channels (cap=1000) can silently drop events during rapid TUI redraws, leaving xterm.js in a diverged state.
+2. **Split escape sequences** — ANSI sequences like `\033[38;2;128;128;128m` split across two `%output` lines or chunk boundaries. Mitigated by `escbuf.SplitClean()`.
+3. **Bootstrap race** — `capture-pane` snapshots the screen while a TUI is actively redrawing. The snapshot captures a partial redraw, and queued live events assume a different starting state. Mitigated by OutputLog-based bootstrap.
+4. **Input filtering false positives** — the WebSocket handler filters terminal query responses (DA1, DA2, OSC 10/11). If TUI output matches these patterns, it gets silently eaten.
 
 ### Always-On Metrics
 
 In dev mode, pipeline health stats are sent every 3 seconds as `{"type": "stats"}` text frames:
 
-| Metric                               | Source                                  |
-| ------------------------------------ | --------------------------------------- |
-| Events delivered/dropped             | Atomic counters at all 3 fan-out layers |
-| Bytes delivered                      | Sum of frame sizes                      |
-| Throughput (bytes/sec)               | Computed from sliding window            |
-| Control mode reconnects              | Tracker reconnect counter               |
-| Sync checks sent/corrections/skipped | Per-connection counters                 |
-| Current seq / log oldest seq         | OutputLog                               |
+| Metric                               | Source                                  | Cost           |
+| ------------------------------------ | --------------------------------------- | -------------- |
+| Events delivered/dropped             | Atomic counters at all 3 fan-out layers | ~1ns per event |
+| Bytes delivered                      | Sum of frame sizes                      | ~1ns per event |
+| Throughput (bytes/sec)               | Computed from sliding window            | timestamp + division |
+| Control mode reconnects              | Tracker reconnect counter               | ~1ns per event |
+| Sync checks sent/corrections/skipped | Per-connection counters                 | ~1ns per event |
+| Current seq / log oldest seq         | OutputLog                               | read-only      |
 
-Frontend tracks frames received, bytes, bootstrap count, and incomplete escape sequence detection.
+Frontend tracks frames received, bytes, bootstrap count, and incomplete escape sequence detection (~1-5us per event for sequence break scanning).
+
+Display: collapsible `StreamMetricsPanel` in the session detail page.
 
 ### Ring Buffers
 
-Both backend (256KB `RingBuffer`) and frontend (256KB in `StreamDiagnostics`) maintain circular buffers of recent raw bytes for diagnostic capture.
+Both backend (256KB `RingBuffer` in `websocket.go`) and frontend (256KB in `StreamDiagnostics`) maintain fixed-size circular buffers of recent raw bytes for diagnostic capture. Pre-allocated arrays with write cursors, zero GC pressure.
+
+| Scenario | Throughput | Ring buffer covers |
+|----------|-----------|-------------------|
+| TUI app (normal) | ~50-100 KB/s | 2.5-5 seconds |
+| Interactive typing | ~1-10 KB/s | 25-250 seconds |
+| Build output (fast scroll) | ~1-10 MB/s | 25-250 ms |
+
+The buffer is most useful during TUI usage — exactly the scenario where desyncs occur.
 
 ### On-Demand Diagnostic Capture
 
-Triggered via dashboard button. Captures data from all pipeline layers:
+Triggered via dashboard button or keyboard shortcut. Captures data from all pipeline layers simultaneously:
+
+1. **Freeze** — frontend snapshots the xterm.js screen buffer (every cell's character, colors, attributes) and freezes the ring buffer write cursor. Sends `{"type": "diagnostic"}` to the backend.
+2. **Ground truth** — backend runs `capture-pane -e -p` via control mode, snapshots its ring buffer and counters, sends everything back as a JSON diagnostic response.
+3. **Diff** — frontend parses tmux capture into the same cell-grid format and does cell-by-cell comparison.
+4. **Automated checks** — decision tree: drop check -> diff check -> sequence break scan -> reconnect check -> fallback verdict.
+5. **Write directory** — diagnostic data saved as plain files (not base64 JSON):
 
 ```
 ~/.schmux/diagnostics/<timestamp>-<sessionId>/
 ├── meta.json                # Counters, automated findings, verdict
-├── ringbuffer-backend.txt   # Raw terminal data as sent
-├── ringbuffer-frontend.txt  # Raw terminal data as received
-├── screen-tmux.txt          # capture-pane output
-├── screen-xterm.txt         # xterm.js buffer dump
-└── screen-diff.txt          # Human-readable diff
+├── ringbuffer-backend.txt   # Raw terminal data as sent (cat-able)
+├── ringbuffer-frontend.txt  # Raw terminal data as received (cat-able)
+├── screen-tmux.txt          # capture-pane output with ANSI escapes
+├── screen-xterm.txt         # xterm.js buffer dump with ANSI escapes
+└── screen-diff.txt          # Human-readable row-by-row diff
 ```
 
-An agent session is automatically spawned to analyze the diagnostic directory.
+6. **Agent analysis** — a schmux agent session is automatically spawned to analyze the directory.
+7. **Dashboard display** — visual screen diff (differing cells highlighted), counter stats, automated verdict, and link to the agent session.
+
+### Performance Impact
+
+| Component | Hot path cost | Memory |
+|-----------|--------------|--------|
+| Atomic counters | ~1ns per event | ~64 bytes |
+| Backend ring buffer (256KB) | ~50-200ns per event (memcpy) | 256KB/session |
+| Frontend ring buffer | ~1-5us per event | ~256KB/session |
+| Screen diff (on-demand) | N/A (not on hot path) | Transient |
+| **Total always-on overhead** | **~1-5us per event** | **~512KB/session** |
+
+For context, `terminal.write()` alone takes 500-5000us for complex TUI content. The diagnostic overhead is 0.1-1% of the existing rendering cost.
 
 ---
 

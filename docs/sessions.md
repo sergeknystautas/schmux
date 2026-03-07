@@ -1,8 +1,28 @@
 # Sessions
 
-**Problem:** Most agent orchestration focuses on agents talking to each other, batch operations, and strict sandboxes. This makes it hard for _you_ to see what's happening or step in when needed. For long-running agent work, you need a lightweight, local solution where you can observe, review, and interject at any point—with sessions that persist if you disconnect, preserve history, and can be reviewed after completion.
+## What it does
 
-**Problem:** Even with visibility, there's grunt work—spinning up sessions, creating workspaces, typing the same prompts. These small tasks steal attention from the actual problem you're trying to solve.
+Sessions are tmux-backed agent execution environments. Each coding agent (Claude Code, Codex, Gemini, etc.) runs interactively in its own tmux session inside a workspace directory, with full terminal access for monitoring and intervention.
+
+## Key files
+
+| File                                                | Purpose                                                       |
+| --------------------------------------------------- | ------------------------------------------------------------- |
+| `internal/session/manager.go`                       | Session lifecycle: spawn, dispose, buildCommand               |
+| `internal/session/tracker.go`                       | Control mode attachment, output fan-out, OutputLog            |
+| `internal/detect/commands.go`                       | Tool modes (promptable, command, resume) and command building |
+| `internal/detect/adapter_claude.go`                 | Claude Code adapter (hooks, resume command)                   |
+| `internal/detect/adapter_codex.go`                  | Codex adapter                                                 |
+| `internal/detect/adapter_gemini.go`                 | Gemini CLI adapter                                            |
+| `internal/workspace/ensure/manager.go`              | Pre-spawn workspace setup (hooks, git exclude)                |
+| `assets/dashboard/src/routes/SpawnPage.tsx`         | Spawn wizard UI                                               |
+| `assets/dashboard/src/routes/SessionDetailPage.tsx` | Session detail with terminal                                  |
+
+---
+
+**Problem:** Most agent orchestration focuses on agents talking to each other, batch operations, and strict sandboxes. This makes it hard for _you_ to see what's happening or step in when needed. For long-running agent work, you need a lightweight, local solution where you can observe, review, and interject at any point -- with sessions that persist if you disconnect, preserve history, and can be reviewed after completion.
+
+**Problem:** Even with visibility, there is grunt work -- spinning up sessions, creating workspaces, typing the same prompts. These small tasks steal attention from the actual problem you are trying to solve.
 
 ---
 
@@ -30,6 +50,18 @@ spawning → running → done → disposed
 ---
 
 ## Spawning Sessions
+
+### Spawn Modes
+
+The backend supports three spawn modes, toggled via slash commands in the prompt textarea:
+
+| Mode       | Trigger    | Form Fields     | Command Built          |
+| ---------- | ---------- | --------------- | ---------------------- |
+| Promptable | (default)  | target + prompt | `claude 'the prompt'`  |
+| Command    | `/command` | raw command     | user's literal command |
+| Resume     | `/resume`  | target only     | `claude --continue`    |
+
+`buildCommand()` in `internal/session/manager.go` has three paths corresponding to these modes. Each tool adapter in `internal/detect/` returns its command parts for all three modes via `BuildCommandParts()`.
 
 ### New Workspace
 
@@ -211,7 +243,17 @@ Field resolution follows priority order: **Mode Logic → Session Storage → Lo
 
 ### Resume Mode
 
-When `spawnMode` is `'resume'`, the form simplifies to target + repo selection:
+When `spawnMode` is `'resume'`, the form simplifies to target + repo selection. Resume resumes the agent's most recent conversation in the workspace directory using agent-native resume commands.
+
+**Per-agent resume commands:**
+
+| Agent       | Resume Command        | Notes                                              |
+| ----------- | --------------------- | -------------------------------------------------- |
+| Claude Code | `claude --continue`   | Resumes last conversation in the working directory |
+| Codex       | `codex resume --last` | Resumes last conversation in the working directory |
+| Gemini CLI  | `gemini -r latest`    | Resumes last conversation in the working directory |
+
+The backend builds the resume command via `ToolModeResume` in `internal/detect/commands.go`. Each tool adapter returns its resume command parts in `BuildCommandParts()`.
 
 **In `workspace` or `prefilled` mode:**
 
@@ -384,3 +426,24 @@ Session state is stored at `~/.schmux/state.json` and managed automatically:
 - Creation time, last activity time
 - Status (spawning, running, done, disposed)
 - Git status at time of spawning
+
+---
+
+## Architecture Decisions
+
+- **Conversation state is not persisted by schmux.** The `Session` struct stores ID, workspace, target, tmux session name, etc., but nothing about the agent's conversation state. Each agent stores its own conversation data (e.g., Claude Code in its data directory). Resume (`/resume`) simply invokes the agent's native resume command.
+- **Agent-specific signaling is a session-level concern.** `SignalingInstructions` and `AgentInstructions` are written per-session in `session/manager.go`, not as workspace-level setup. They configure prompt injection for the specific agent being spawned.
+- **No specific conversation resume.** `/resume` resumes the most recent conversation in the workspace directory, not a specific past conversation. No conversation IDs are tracked.
+
+---
+
+## Common Modification Patterns
+
+- **To add a new spawn mode**: add a `ToolMode` constant in `internal/detect/commands.go`, handle it in each tool adapter's `BuildCommandParts()`, and add the UI mode in `SpawnPage.tsx`.
+- **To add a new agent**: create an adapter file `internal/detect/adapter_<name>.go` implementing the `ToolAdapter` interface, register it via `init()`.
+- **To change session lifecycle states**: update the status constants and transitions in `internal/session/manager.go`.
+
+## Gotchas
+
+- **Resume without prior conversation**: when Claude Code's `--continue` finds no prior conversation in the directory, it starts fresh. There is no warning to the user.
+- **Agent instructions are git-excluded**: the ensure system writes `.schmux/hooks/` and `.schmux/events/` paths to `.git/info/exclude` so they do not pollute git status.
