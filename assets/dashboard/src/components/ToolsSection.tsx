@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useConfig } from '../contexts/ConfigContext';
+import { useCuration } from '../contexts/CurationContext';
 import { useOverlay } from '../contexts/OverlayContext';
 import { getLoreProposals } from '../lib/api';
 import Tooltip from './Tooltip';
@@ -27,6 +28,7 @@ export default function ToolsSection({
 
   const location = useLocation();
   const { config, isNotConfigured } = useConfig();
+  const { proposalVersion } = useCuration();
   const { overlayUnreadCount, markOverlaysRead } = useOverlay();
 
   // Persist collapsed state
@@ -61,7 +63,7 @@ export default function ToolsSection({
       setLoreCounts(counts);
     };
     fetchCounts();
-  }, [repoNamesKey]);
+  }, [repoNamesKey, proposalVersion]);
 
   const totalLorePending = useMemo(
     () => Object.values(loreCounts).reduce((sum, n) => sum + n, 0),

@@ -512,7 +512,8 @@ export default function LorePage() {
   const repos = config?.repos || [];
   const { success: toastSuccess, error: toastError } = useToast();
   const { alert } = useModal();
-  const { activeCurations, pendingCurations, startCuration, onComplete } = useCuration();
+  const { activeCurations, pendingCurations, startCuration, onComplete, invalidateProposals } =
+    useCuration();
   const [searchParams] = useSearchParams();
 
   const [activeRepo, setActiveRepo] = useState(() => {
@@ -705,6 +706,7 @@ export default function LorePage() {
     try {
       await dismissLoreProposal(activeRepo, proposal.id);
       toastSuccess('Proposal dismissed');
+      invalidateProposals();
       loadData();
     } catch (err) {
       alert('Dismiss Failed', getErrorMessage(err, 'Failed to dismiss proposal'));
@@ -713,6 +715,7 @@ export default function LorePage() {
 
   const handleProposalUpdate = (updated: LoreProposal) => {
     setProposals((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+    invalidateProposals();
   };
 
   const handleReCurate = () => {

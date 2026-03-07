@@ -36,6 +36,10 @@ type CurationContextValue = {
   startCuration: (repoName: string) => void;
   /** Register a callback for when curation completes (done or error). Returns unsubscribe fn. */
   onComplete: (cb: (repoName: string, result: CompletionResult) => void) => () => void;
+  /** Monotonic counter incremented when proposal state changes (dismiss, apply, curation complete). */
+  proposalVersion: number;
+  /** Bump proposalVersion to trigger re-fetches of proposal counts. */
+  invalidateProposals: () => void;
 };
 
 const CurationContext = createContext<CurationContextValue | null>(null);
@@ -50,6 +54,9 @@ export function CurationProvider({ children }: { children: React.ReactNode }) {
   const completedReposRef = useRef<Set<string>>(new Set());
   // Track repos where startCuration was called but no WebSocket events arrived yet
   const [pendingCurations, setPendingCurations] = useState<Set<string>>(new Set());
+  // Monotonic counter: bump to signal that proposal counts may have changed
+  const [proposalVersion, setProposalVersion] = useState(0);
+  const invalidateProposals = useCallback(() => setProposalVersion((v) => v + 1), []);
 
   // Derive active curations from WebSocket events
   const activeCurations = useMemo(() => {
@@ -103,6 +110,8 @@ export function CurationProvider({ children }: { children: React.ReactNode }) {
             proposalId,
           })
         );
+        // New proposal was created — bump version so sidebar re-fetches counts
+        invalidateProposals();
       } else if (last.event_type === 'curator_error' && !completedReposRef.current.has(repo)) {
         completedReposRef.current.add(repo);
         setPendingCurations((prev) => {
@@ -122,7 +131,7 @@ export function CurationProvider({ children }: { children: React.ReactNode }) {
         );
       }
     }
-  }, [curatorEvents, toastSuccess, toastError]);
+  }, [curatorEvents, toastSuccess, toastError, invalidateProposals]);
 
   const startCuration = useCallback(
     async (repoName: string) => {
@@ -173,7 +182,14 @@ export function CurationProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <CurationContext.Provider
-      value={{ activeCurations, pendingCurations, startCuration, onComplete }}
+      value={{
+        activeCurations,
+        pendingCurations,
+        startCuration,
+        onComplete,
+        proposalVersion,
+        invalidateProposals,
+      }}
     >
       {children}
     </CurationContext.Provider>
