@@ -79,7 +79,11 @@ const DEFAULT_CONFIG: ConfigResponse = {
   },
   subreddit: {
     target: '',
-    hours: 24,
+    interval: 30,
+    checking_range: 48,
+    max_posts: 30,
+    max_age: 14,
+    repos: {},
   },
   floor_manager: {
     enabled: false,

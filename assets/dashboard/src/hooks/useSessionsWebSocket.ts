@@ -153,6 +153,7 @@ type SessionsWebSocketState = {
   curatorEvents: Record<string, CuratorStreamEvent[]>;
   monitorEvents: MonitorEvent[];
   clearMonitorEvents: () => void;
+  subredditUpdateCount: number;
 };
 
 export default function useSessionsWebSocket(opts?: {
@@ -175,6 +176,7 @@ export default function useSessionsWebSocket(opts?: {
   });
   const [curatorEvents, setCuratorEvents] = useState<Record<string, CuratorStreamEvent[]>>({});
   const [monitorEvents, setMonitorEvents] = useState<MonitorEvent[]>([]);
+  const [subredditUpdateCount, setSubredditUpdateCount] = useState(0);
   const onPreviewDetectedRef = useRef(opts?.onPreviewDetected);
   onPreviewDetectedRef.current = opts?.onPreviewDetected;
   const wsRef = useRef<WebSocket | null>(null);
@@ -322,6 +324,8 @@ export default function useSessionsWebSocket(opts?: {
             // Ring buffer: keep last 200
             return next.length > 200 ? next.slice(next.length - 200) : next;
           });
+        } else if (data.type === 'subreddit_updated') {
+          setSubredditUpdateCount((prev) => prev + 1);
         }
       } catch (e) {
         console.error('[ws/dashboard] failed to parse message:', e);
@@ -401,5 +405,6 @@ export default function useSessionsWebSocket(opts?: {
     curatorEvents,
     monitorEvents,
     clearMonitorEvents,
+    subredditUpdateCount,
   };
 }

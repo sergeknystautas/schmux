@@ -93,7 +93,14 @@ const configFixture: ConfigResponse = {
     suggest_dispose_after_push: true,
   },
   lore: { enabled: true, llm_target: '', curate_on_dispose: 'session', auto_pr: false },
-  subreddit: { target: '', hours: 24 },
+  subreddit: {
+    target: '',
+    interval: 30,
+    checking_range: 48,
+    max_posts: 30,
+    max_age: 14,
+    repos: {},
+  },
   floor_manager: { enabled: false, target: '', rotation_threshold: 150, debounce_ms: 2000 },
   remote_access: {
     enabled: false,
@@ -376,15 +383,15 @@ describe('ConfigPage', () => {
       renderConfigPage();
       await waitForWizardLoaded();
 
-      // Advance through all 6 intermediate steps to reach step 7
-      for (let i = 0; i < 6; i++) {
+      // Advance through all 7 intermediate steps to reach step 8
+      for (let i = 0; i < 7; i++) {
         await userEvent.click(screen.getByRole('button', { name: /Next/ }));
         await waitFor(() => {
           expect(mockUpdateConfig).toHaveBeenCalledTimes(i + 1);
         });
       }
 
-      // On step 7, the button should say "Finish Setup"
+      // On step 8, the button should say "Finish Setup"
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Finish Setup/ })).toBeInTheDocument();
       });
@@ -394,8 +401,8 @@ describe('ConfigPage', () => {
       renderConfigPage();
       await waitForWizardLoaded();
 
-      // Advance to step 7
-      for (let i = 0; i < 6; i++) {
+      // Advance to step 8
+      for (let i = 0; i < 7; i++) {
         await userEvent.click(screen.getByRole('button', { name: /Next/ }));
         await waitFor(() => {
           expect(mockUpdateConfig).toHaveBeenCalledTimes(i + 1);
@@ -406,7 +413,7 @@ describe('ConfigPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /Finish Setup/ }));
 
       await waitFor(() => {
-        expect(mockUpdateConfig).toHaveBeenCalledTimes(7);
+        expect(mockUpdateConfig).toHaveBeenCalledTimes(8);
       });
 
       // completeFirstRun should have been called

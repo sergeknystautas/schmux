@@ -41,7 +41,6 @@ import (
 	"github.com/sergeknystautas/schmux/internal/schema"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
-	"github.com/sergeknystautas/schmux/internal/subreddit"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
@@ -57,8 +56,6 @@ const (
 
 	// Inactivity threshold before asking NudgeNik
 	nudgeInactivityThreshold = 15 * time.Second
-
-	subredditDigestInterval = 4 * time.Hour
 )
 
 // ErrDevRestart is returned by Run() when the daemon needs to restart
@@ -1148,8 +1145,15 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	// The scheduler checks config on each run, so this also covers the case
 	// where subreddit digest is enabled after the daemon has already started.
 	subredditLog := logging.Sub(logger, "subreddit")
-	subredditCachePath := filepath.Join(homeDir, ".schmux", "subreddit.json")
-	go startSubredditHourlyGenerator(d.shutdownCtx, cfg, subredditCachePath, server, subredditLog)
+	subredditDir := filepath.Join(homeDir, ".schmux", "subreddit")
+	go startSubredditHourlyGenerator(d.shutdownCtx, cfg, subredditDir, server, subredditLog)
+
+	// One-time migration: delete old subreddit.json file
+	oldCachePath := filepath.Join(homeDir, ".schmux", "subreddit.json")
+	if _, err := os.Stat(oldCachePath); err == nil {
+		os.Remove(oldCachePath)
+		subredditLog.Info("migrated old subreddit.json to new per-repo format")
+	}
 
 	// Initialize PR discovery polling based on current config
 	// Pass a function so poll always uses current repos list
@@ -1371,13 +1375,14 @@ func askNudgeNikForSession(ctx context.Context, cfg *config.Config, sess state.S
 }
 
 // startSubredditHourlyGenerator starts a background goroutine that generates
-// subreddit digests on a fixed interval.
-func startSubredditHourlyGenerator(ctx context.Context, cfg *config.Config, cachePath string, server *dashboard.Server, logger *log.Logger) {
+// subreddit posts on a configured interval.
+func startSubredditHourlyGenerator(ctx context.Context, cfg *config.Config, subredditDir string, server *dashboard.Server, logger *log.Logger) {
 	// Wait a bit before first check to let daemon start.
 	initialDelay := 30 * time.Second
 	nextTime := time.Now().Add(initialDelay)
 	server.SetNextSubredditGeneration(nextTime)
-	logger.Info("subreddit scheduler started", "initial_delay", initialDelay, "interval", subredditDigestInterval, "next_at", nextTime)
+	interval := time.Duration(cfg.GetSubredditInterval()) * time.Minute
+	logger.Info("subreddit scheduler started", "initial_delay", initialDelay, "interval", interval, "next_at", nextTime)
 
 	timer := time.NewTimer(initialDelay)
 	defer timer.Stop()
@@ -1385,96 +1390,24 @@ func startSubredditHourlyGenerator(ctx context.Context, cfg *config.Config, cach
 		select {
 		case <-timer.C:
 			logger.Info("subreddit scheduler tick")
-			generateSubredditDigest(ctx, cfg, cachePath, logger)
+			generateSubredditPosts(ctx, server, logger)
 
-			nextTime = nextSubredditGenerationTime(cachePath, time.Now())
+			nextTime = time.Now().Add(interval)
 			server.SetNextSubredditGeneration(nextTime)
 			logger.Info("subreddit next scheduled", "next_at", nextTime)
 
-			delay := time.Until(nextTime)
-			if delay < time.Second {
-				delay = time.Second
-			}
-			timer.Reset(delay)
+			timer.Reset(interval)
 		case <-ctx.Done():
 			return
 		}
 	}
 }
 
-func nextSubredditGenerationTime(cachePath string, now time.Time) time.Time {
-	cache, err := subreddit.ReadCache(cachePath)
-	if err == nil {
-		// Add a small buffer so the stale check (> interval) is definitely true.
-		due := cache.GeneratedAt.Add(subredditDigestInterval + 1*time.Second)
-		if due.After(now) {
-			return due
-		}
+// generateSubredditPosts generates subreddit posts for all enabled repos.
+func generateSubredditPosts(ctx context.Context, server *dashboard.Server, logger *log.Logger) {
+	if err := server.GenerateSubredditForAllRepos(ctx); err != nil {
+		logger.Error("subreddit generation failed", "err", err)
 	}
-
-	return now.Add(subredditDigestInterval)
-}
-
-// generateSubredditDigest generates a new subreddit digest if the cache is stale.
-func generateSubredditDigest(ctx context.Context, cfg *config.Config, cachePath string, logger *log.Logger) {
-	if !subreddit.IsEnabled(cfg) {
-		logger.Info("subreddit generation skipped", "reason", "disabled")
-		return
-	}
-
-	// Check if cache is stale (older than the digest interval)
-	cache, err := subreddit.ReadCache(cachePath)
-	if err == nil {
-		if !cache.IsStale(subredditDigestInterval) {
-			nextDue := cache.GeneratedAt.Add(subredditDigestInterval + 1*time.Second)
-			logger.Info(
-				"subreddit generation skipped",
-				"reason", "cache_fresh",
-				"generated_at", cache.GeneratedAt,
-				"age", time.Since(cache.GeneratedAt).Round(time.Second),
-				"next_due", nextDue,
-			)
-			return
-		}
-	} else if os.IsNotExist(err) {
-		logger.Info("subreddit cache missing, generating")
-	} else {
-		logger.Warn("failed to read subreddit cache, regenerating", "err", err)
-	}
-
-	// Build repo info list
-	var repos []subreddit.RepoInfo
-	for _, r := range cfg.GetRepos() {
-		repos = append(repos, subreddit.RepoInfo{
-			Name:          r.Name,
-			BarePath:      r.BarePath,
-			DefaultBranch: "main", // Use main as default; gatherRepoCommits falls back to this anyway
-		})
-	}
-
-	// Gather commits from all repos
-	commits, err := subreddit.GatherCommits(ctx, repos, cfg.GetWorktreeBasePath(), cfg.GetSubredditHours())
-	if err != nil {
-		logger.Warn("failed to gather commits", "err", err)
-		// Continue with empty commits - the digest will show "quiet period"
-	}
-
-	logger.Info("generating digest", "commits", len(commits))
-
-	// Generate new digest
-	newCache, err := subreddit.Generate(ctx, cfg, cfg, nil, commits, cachePath, 0)
-	if err != nil {
-		logger.Error("failed to generate digest", "err", err)
-		return
-	}
-
-	// Write cache
-	if err := subreddit.WriteCache(cachePath, newCache); err != nil {
-		logger.Error("failed to write cache", "err", err)
-		return
-	}
-
-	logger.Info("digest generated", "commits", newCache.CommitCount)
 }
 
 // validateSessionAccess checks for user mismatch between daemon and tmux server.

@@ -451,12 +451,20 @@ export interface SessionsUpdate {
 
 export interface Subreddit {
   target: string;
-  hours: number;
+  interval: number;
+  checking_range: number;
+  max_posts: number;
+  max_age: number;
+  repos: Record<string, boolean>;
 }
 
 export interface SubredditUpdate {
   target?: string;
-  hours?: number;
+  interval?: number;
+  checking_range?: number;
+  max_posts?: number;
+  max_age?: number;
+  repos?: Record<string, boolean>;
 }
 
 export interface TLS {

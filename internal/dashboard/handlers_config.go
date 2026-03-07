@@ -156,8 +156,12 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			AutoPR:          s.config.GetLoreAutoPR(),
 		},
 		Subreddit: contracts.Subreddit{
-			Target: s.config.GetSubredditTarget(),
-			Hours:  s.config.GetSubredditHours(),
+			Target:        s.config.GetSubredditTarget(),
+			Interval:      s.config.GetSubredditInterval(),
+			CheckingRange: s.config.GetSubredditCheckingRange(),
+			MaxPosts:      s.config.GetSubredditMaxPosts(),
+			MaxAge:        s.config.GetSubredditMaxAge(),
+			Repos:         s.config.GetSubredditRepos(),
 		},
 		FloorManager: contracts.FloorManager{
 			Enabled:           s.config.GetFloorManagerEnabled(),
@@ -516,8 +520,20 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		if req.Subreddit.Target != nil {
 			cfg.Subreddit.Target = strings.TrimSpace(*req.Subreddit.Target)
 		}
-		if req.Subreddit.Hours != nil {
-			cfg.Subreddit.Hours = *req.Subreddit.Hours
+		if req.Subreddit.Interval != nil {
+			cfg.Subreddit.Interval = *req.Subreddit.Interval
+		}
+		if req.Subreddit.CheckingRange != nil {
+			cfg.Subreddit.CheckingRange = *req.Subreddit.CheckingRange
+		}
+		if req.Subreddit.MaxPosts != nil {
+			cfg.Subreddit.MaxPosts = *req.Subreddit.MaxPosts
+		}
+		if req.Subreddit.MaxAge != nil {
+			cfg.Subreddit.MaxAge = *req.Subreddit.MaxAge
+		}
+		if req.Subreddit.Repos != nil {
+			cfg.Subreddit.Repos = req.Subreddit.Repos
 		}
 	}
 

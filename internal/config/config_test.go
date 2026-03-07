@@ -256,32 +256,6 @@ func TestGetSubredditTarget(t *testing.T) {
 	})
 }
 
-func TestGetSubredditHours(t *testing.T) {
-	t.Run("returns default 24 when not configured", func(t *testing.T) {
-		cfg := &Config{}
-		got := cfg.GetSubredditHours()
-		if got != 24 {
-			t.Errorf("got %d, want 24 (default)", got)
-		}
-	})
-
-	t.Run("returns default 24 when hours is zero", func(t *testing.T) {
-		cfg := &Config{Subreddit: &SubredditConfig{Hours: 0}}
-		got := cfg.GetSubredditHours()
-		if got != 24 {
-			t.Errorf("got %d, want 24 (default)", got)
-		}
-	})
-
-	t.Run("returns configured hours", func(t *testing.T) {
-		cfg := &Config{Subreddit: &SubredditConfig{Hours: 48}}
-		got := cfg.GetSubredditHours()
-		if got != 48 {
-			t.Errorf("got %d, want 48", got)
-		}
-	})
-}
-
 func TestGetGitStatusPollIntervalMs(t *testing.T) {
 	t.Run("returns configured value", func(t *testing.T) {
 		cfg := &Config{
@@ -2679,5 +2653,50 @@ func TestMigrateModelIDs_ViaLoad(t *testing.T) {
 	}
 	if cfg.Models.Enabled["minimax-m2.1"] != "opencode" {
 		t.Errorf("after Load, Models.Enabled[minimax-m2.1] = %q, want %q", cfg.Models.Enabled["minimax-m2.1"], "opencode")
+	}
+}
+
+func TestSubredditConfigDefaults(t *testing.T) {
+	cfg := &Config{}
+	if cfg.GetSubredditInterval() != 30 {
+		t.Errorf("expected default interval 30, got %d", cfg.GetSubredditInterval())
+	}
+	if cfg.GetSubredditCheckingRange() != 48 {
+		t.Errorf("expected default checking range 48, got %d", cfg.GetSubredditCheckingRange())
+	}
+	if cfg.GetSubredditMaxPosts() != 30 {
+		t.Errorf("expected default max posts 30, got %d", cfg.GetSubredditMaxPosts())
+	}
+	if cfg.GetSubredditMaxAge() != 14 {
+		t.Errorf("expected default max age 14, got %d", cfg.GetSubredditMaxAge())
+	}
+	// Default: repo enabled if not in map
+	if !cfg.GetSubredditRepoEnabled("any-repo") {
+		t.Error("expected repo enabled by default")
+	}
+}
+
+func TestSubredditConfigCustomValues(t *testing.T) {
+	cfg := &Config{
+		Subreddit: &SubredditConfig{
+			Target:        "sonnet",
+			Interval:      60,
+			CheckingRange: 72,
+			MaxPosts:      50,
+			MaxAge:        7,
+			Repos:         map[string]bool{"my-repo": false, "other": true},
+		},
+	}
+	if cfg.GetSubredditInterval() != 60 {
+		t.Errorf("expected 60, got %d", cfg.GetSubredditInterval())
+	}
+	if cfg.GetSubredditRepoEnabled("my-repo") {
+		t.Error("my-repo should be disabled")
+	}
+	if !cfg.GetSubredditRepoEnabled("other") {
+		t.Error("other should be enabled")
+	}
+	if !cfg.GetSubredditRepoEnabled("unknown") {
+		t.Error("unknown repos should default to enabled")
 	}
 }
