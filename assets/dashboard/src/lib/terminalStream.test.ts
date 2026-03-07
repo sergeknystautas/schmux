@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock xterm and addons before importing TerminalStream
 vi.mock('@xterm/xterm', () => {
@@ -1191,5 +1191,149 @@ describe('TerminalStream wire instrumentation', () => {
     expect(spy.mock.calls[0][0]).toBeGreaterThanOrEqual(0);
 
     spy.mockRestore();
+  });
+});
+
+describe('MockTerminalWebSocket protocol compatibility', () => {
+  // Integration test: ensures the demo's MockTerminalWebSocket produces
+  // binary frames that TerminalStream.handleOutput() can parse correctly.
+  // This prevents the demo from silently breaking when the WebSocket
+  // protocol evolves (e.g., adding sequence headers, changing frame format).
+
+  let stream: TerminalStream;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    stream = new TerminalStream('test-session', container);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('mock frames contain 8-byte sequence header parseable by TerminalStream', async () => {
+    await stream.initialized;
+
+    const { MockTerminalWebSocket } =
+      await import('../../website/src/demo/transport/MockWebSocket');
+
+    const mockWS = new MockTerminalWebSocket('ws://localhost/ws/terminal/test');
+    const frames: ArrayBuffer[] = [];
+    mockWS.onmessage = (ev: any) => {
+      if (ev.data instanceof ArrayBuffer) {
+        frames.push(ev.data);
+      }
+    };
+
+    // Open the socket and start playback
+    vi.advanceTimersByTime(50);
+    mockWS.startPlayback({
+      frames: [
+        { delay: 0, data: 'hello world' },
+        { delay: 10, data: 'second frame' },
+      ],
+    });
+    vi.advanceTimersByTime(100);
+
+    expect(frames.length).toBe(2);
+
+    // Each frame must have at least 8 bytes (the sequence header)
+    for (const frame of frames) {
+      expect(frame.byteLength).toBeGreaterThanOrEqual(8);
+    }
+
+    // Feed frames into TerminalStream — should not throw
+    for (const frame of frames) {
+      stream.handleOutput(frame);
+    }
+
+    // Verify sequence numbers are monotonically increasing starting from 0
+    const seqs = frames.map((f) => new DataView(f).getBigUint64(0, false));
+    expect(seqs[0]).toBe(0n);
+    expect(seqs[1]).toBe(1n);
+
+    // Verify terminal data is preserved (not truncated by header parsing)
+    const decoder = new TextDecoder();
+    const text0 = decoder.decode(new Uint8Array(frames[0], 8));
+    const text1 = decoder.decode(new Uint8Array(frames[1], 8));
+    expect(text0).toBe('hello world');
+    expect(text1).toBe('second frame');
+
+    mockWS.close();
+  });
+
+  it('mock sends bootstrapComplete after first frame', async () => {
+    await stream.initialized;
+
+    const { MockTerminalWebSocket } =
+      await import('../../website/src/demo/transport/MockWebSocket');
+
+    const mockWS = new MockTerminalWebSocket('ws://localhost/ws/terminal/test');
+    const messages: any[] = [];
+    mockWS.onmessage = (ev: any) => messages.push(ev.data);
+
+    vi.advanceTimersByTime(50);
+    mockWS.startPlayback({
+      frames: [
+        { delay: 0, data: 'bootstrap content' },
+        { delay: 10, data: 'live content' },
+      ],
+    });
+    vi.advanceTimersByTime(100);
+
+    // Should have: binary frame 0, bootstrapComplete text, binary frame 1
+    const textMessages = messages.filter((m) => typeof m === 'string');
+    expect(textMessages.length).toBeGreaterThanOrEqual(1);
+    const parsed = JSON.parse(textMessages[0]);
+    expect(parsed.type).toBe('bootstrapComplete');
+
+    // bootstrapComplete must arrive after the first binary frame
+    const firstBinaryIdx = messages.findIndex((m) => m instanceof ArrayBuffer);
+    const bootstrapCompleteIdx = messages.findIndex(
+      (m) => typeof m === 'string' && m.includes('bootstrapComplete')
+    );
+    expect(firstBinaryIdx).toBeLessThan(bootstrapCompleteIdx);
+
+    mockWS.close();
+  });
+
+  it('TerminalStream writes correct text from mock frames (no truncation)', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+    const writtenChunks: string[] = [];
+    (terminal.write as ReturnType<typeof vi.fn>).mockImplementation(
+      (data: string, cb?: () => void) => {
+        writtenChunks.push(data);
+        cb?.();
+      }
+    );
+
+    const { MockTerminalWebSocket } =
+      await import('../../website/src/demo/transport/MockWebSocket');
+
+    const mockWS = new MockTerminalWebSocket('ws://localhost/ws/terminal/test');
+    const allMessages: any[] = [];
+    mockWS.onmessage = (ev: any) => allMessages.push(ev.data);
+
+    vi.advanceTimersByTime(50);
+    mockWS.startPlayback({
+      frames: [{ delay: 0, data: 'ABCDEFGHIJKLMNOP' }], // 16 chars — longer than 8-byte header
+    });
+    vi.advanceTimersByTime(50);
+
+    // Feed all messages (binary + text) into TerminalStream
+    for (const msg of allMessages) {
+      stream.handleOutput(msg);
+    }
+
+    // The full 16-character string must appear in terminal writes
+    const allWritten = writtenChunks.join('');
+    expect(allWritten).toContain('ABCDEFGHIJKLMNOP');
+
+    mockWS.close();
   });
 });

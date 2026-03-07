@@ -73,6 +73,7 @@ export class MockTerminalWebSocket {
   private recording: TerminalRecording | null = null;
   private _paused = false;
   private _currentFrame = 0;
+  private _nextSeq = 0n;
 
   constructor(url: string) {
     this.url = url;
@@ -86,7 +87,20 @@ export class MockTerminalWebSocket {
   startPlayback(recording: TerminalRecording) {
     this.recording = recording;
     this._currentFrame = 0;
+    this._nextSeq = 0n;
     this.playFrom(0);
+  }
+
+  /** Build a binary frame with 8-byte big-endian sequence header (matches real pipeline) */
+  private buildSequencedFrame(data: string): ArrayBuffer {
+    const encoder = new TextEncoder();
+    const terminalBytes = encoder.encode(data);
+    const buffer = new ArrayBuffer(8 + terminalBytes.length);
+    const view = new DataView(buffer);
+    view.setBigUint64(0, this._nextSeq, false); // big-endian
+    this._nextSeq++;
+    new Uint8Array(buffer, 8).set(terminalBytes);
+    return buffer;
   }
 
   private playFrom(frameIndex: number) {
@@ -99,10 +113,15 @@ export class MockTerminalWebSocket {
       const timer = setTimeout(() => {
         if (this._paused || this.readyState !== 1) return;
         this._currentFrame = i + 1;
-        // Send as ArrayBuffer (binary frame) like the real terminal WebSocket
-        const encoder = new TextEncoder();
-        const buffer = encoder.encode(frame.data).buffer;
-        this.onmessage?.({ data: buffer });
+        // Send as sequenced binary frame matching the real terminal WebSocket protocol
+        this.onmessage?.({ data: this.buildSequencedFrame(frame.data) });
+        // After the first frame (bootstrap), send bootstrapComplete so
+        // TerminalStream enables gap detection / dedup for subsequent frames
+        if (i === 0) {
+          this.onmessage?.({
+            data: JSON.stringify({ type: 'bootstrapComplete' }),
+          });
+        }
       }, cumulativeDelay);
       this.timers.push(timer);
     }
