@@ -37,18 +37,10 @@ body {
   max-width: 900px;
 }
 
-/* Scroll-triggered entrance animation — applied to each section */
+/* Scroll-triggered entrance animation — disabled (sections render immediately) */
 .website-reveal {
-  opacity: 0;
-  transform: translateY(24px);
-  transition:
-    opacity 0.6s ease-out,
-    transform 0.6s ease-out;
-}
-
-.website-reveal.visible {
   opacity: 1;
-  transform: translateY(0);
+  transform: none;
 }
 
 /* Section dividers — subtle background tone shift between alternating sections */
