@@ -256,6 +256,36 @@ func MarkEntriesByTextMulti(sourcePaths []string, destPath string, stateChange s
 	return nil
 }
 
+// MarkEntriesAll marks every entry in the slice by appending state-change records
+// to destPath. Uses each entry's timestamp (RFC3339) as the state-change EntryTS.
+// Deduplicates by timestamp to avoid double-marking. State-change records in the
+// input slice are skipped.
+func MarkEntriesAll(sourceEntries []Entry, destPath string, stateChange string, proposalID string) error {
+	scratchpadMu.Lock()
+	defer scratchpadMu.Unlock()
+
+	seen := make(map[string]bool)
+	for _, e := range sourceEntries {
+		if e.StateChange != "" {
+			continue
+		}
+		tsStr := e.Timestamp.Format(time.RFC3339)
+		if seen[tsStr] {
+			continue
+		}
+		seen[tsStr] = true
+		if err := appendEntryToFile(destPath, Entry{
+			Timestamp:   time.Now().UTC(),
+			StateChange: stateChange,
+			EntryTS:     tsStr,
+			ProposalID:  proposalID,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // MarkEntriesByTextFromEntries marks entries matching the given texts by writing
 // state-change records to destPath. Unlike MarkEntriesByTextMulti, this takes
 // pre-read entries instead of file paths.
