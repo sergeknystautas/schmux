@@ -30,7 +30,7 @@ The model config editor (Feb 27) and kill-bridge refactor (Mar 1) replaced the o
 
 | What                                   | Lines   | Why                                                                                                                                       |
 | -------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `GetRunTarget` fallback in `IsModel()` | 278-280 | IsModel should only answer "is this a model or builtin tool?" — not "is this a command target?" Callers check command targets separately. |
+| `GetRunTarget` fallback in `IsModel()` | 278-280 | IsModel should only answer "is this a model or builtin tool?" — not "is this a command target?" Callers check command targets separately. **Status: NOT YET REMOVED** — the fallback still exists in `manager.go:290`. |
 
 ### Frontend
 

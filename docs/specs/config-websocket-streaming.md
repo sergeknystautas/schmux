@@ -1,5 +1,7 @@
 # Config WebSocket Streaming Spec
 
+> **Status: NOT IMPLEMENTED.** This spec was never implemented. The `/ws/dashboard` message type remains `"sessions"` (not `"dashboard"`), and config is not streamed via WebSocket. The frontend continues to fetch config separately via `GET /api/config`.
+
 ## Overview
 
 Add config to the existing `/ws/dashboard` WebSocket payload. Currently it only sends sessions/workspaces. Add full `ConfigResponse` (same as GET `/api/config`) to the message so the frontend gets both sessions and config in one message, without polling `/api/config`.

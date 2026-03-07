@@ -137,7 +137,8 @@ import (
 
 // New creates a root logger configured from environment.
 // Log level defaults to InfoLevel, overridden by SCHMUX_LOG_LEVEL env var.
-func New() *log.Logger {
+// An optional forceColor parameter enables colorized output regardless of terminal detection.
+func New(forceColor ...bool) *log.Logger {
 	level := log.InfoLevel
 	if env := os.Getenv("SCHMUX_LOG_LEVEL"); env != "" {
 		parsed, err := log.ParseLevel(strings.ToLower(env))
@@ -152,9 +153,9 @@ func New() *log.Logger {
 	return logger
 }
 
-// Sub creates a child logger with the given prefix.
+// Sub creates a child logger with the given prefix wrapped in brackets.
 func Sub(parent *log.Logger, prefix string) *log.Logger {
-	return parent.WithPrefix(prefix)
+	return parent.WithPrefix("[" + prefix + "]")
 }
 ```
 

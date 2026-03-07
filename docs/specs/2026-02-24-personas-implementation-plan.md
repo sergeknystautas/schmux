@@ -509,9 +509,9 @@ Message: `feat(persona): add persona manager with filesystem CRUD`
 - Modify: `internal/persona/manager.go` — add `EnsureBuiltins()`
 - Test: `internal/persona/manager_test.go` — add builtin tests
 
-**Step 1: Create the 5 built-in persona YAML files**
+**Step 1: Create the 11 built-in persona YAML files**
 
-Create `internal/persona/builtins/` directory and 5 YAML files. The content for each persona should follow the format in `docs/specs/personas.md`. Write thorough, well-crafted system prompts for each — these are the product's first impression. The expectations field should clearly distinguish report-oriented personas (Technical PM) from code-change personas (Security Auditor, QA Engineer) from hybrid personas (Docs Writer).
+Create `internal/persona/builtins/` directory and 11 YAML files (api-designer, docs-writer, mentor, performance-engineer, qa-engineer, refactoring-specialist, security-auditor, software-architect, spec-implementer, technical-pm, ux-designer). The content for each persona should follow the format in `docs/specs/personas.md`. Write thorough, well-crafted system prompts for each — these are the product's first impression. The expectations field should clearly distinguish report-oriented personas (Technical PM) from code-change personas (Security Auditor, QA Engineer) from hybrid personas (Docs Writer).
 
 **Step 2: Create the embed file**
 
@@ -543,8 +543,8 @@ func TestEnsureBuiltins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list error: %v", err)
 	}
-	if len(personas) != 5 {
-		t.Errorf("expected 5 built-in personas, got %d", len(personas))
+	if len(personas) != 11 {
+		t.Errorf("expected 11 built-in personas, got %d", len(personas))
 	}
 
 	// Verify all are marked built_in
@@ -802,7 +802,7 @@ go build ./cmd/schmux && ./schmux daemon-run
 curl http://localhost:7337/api/personas | jq .
 ```
 
-Verify the 5 built-in personas are returned.
+Verify the 11 built-in personas are returned.
 
 **Step 6: Commit**
 
@@ -893,12 +893,12 @@ Message: `feat(persona): inject persona prompt at spawn time via agent-native me
 
 **Files:**
 
-- Create: `assets/dashboard/src/routes/PersonasPage.tsx`
-- Create: `assets/dashboard/src/routes/PersonasPage.css`
+- Create: `assets/dashboard/src/routes/PersonasListPage.tsx`
+- Create: `assets/dashboard/src/routes/PersonasListPage.css`
 - Modify: `assets/dashboard/src/lib/api.ts` — add persona API functions
 - Modify: `assets/dashboard/src/App.tsx` (or wherever routes are defined) — add `/personas` route
 - Modify: `assets/dashboard/src/components/AppShell.tsx:860` — add nav link above overlays
-- Test: `assets/dashboard/src/routes/PersonasPage.test.tsx`
+- Test: `assets/dashboard/src/routes/PersonasListPage.test.tsx`
 
 **Step 1: Add API functions**
 
@@ -915,7 +915,7 @@ Follow the existing fetch pattern in the file (check how `getConfig`, remote fla
 
 **Step 2: Write the failing test**
 
-Create `assets/dashboard/src/routes/PersonasPage.test.tsx`:
+Create `assets/dashboard/src/routes/PersonasListPage.test.tsx`:
 
 ```typescript
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -931,9 +931,9 @@ import { MemoryRouter } from 'react-router-dom';
 // - Delete on built-in shows "Reset to default"
 ```
 
-**Step 3: Implement PersonasPage**
+**Step 3: Implement PersonasListPage**
 
-Create `assets/dashboard/src/routes/PersonasPage.tsx`:
+Create `assets/dashboard/src/routes/PersonasListPage.tsx`:
 
 - Grid layout of persona cards
 - Each card: icon (large), name, color accent bar left edge, prompt preview (first ~2 lines), "Built-in" badge
@@ -949,7 +949,7 @@ Follow existing page patterns in the project for styling, layout, and data fetch
 In the routes configuration (find where `SpawnPage`, `OverlaysPage`, etc. are registered), add:
 
 ```typescript
-{ path: '/personas', element: <PersonasPage /> }
+{ path: '/personas', element: <PersonasListPage /> }
 ```
 
 **Step 5: Add nav link**
@@ -1154,7 +1154,7 @@ Expected: PASS
 
 1. Start daemon: `./schmux daemon-run`
 2. Open dashboard at `http://localhost:7337`
-3. Navigate to `/personas` — verify 5 built-in personas appear
+3. Navigate to `/personas` — verify 11 built-in personas appear
 4. Create a custom persona — verify it appears in the grid
 5. Edit a persona — verify changes persist
 6. Delete a custom persona — verify it's removed

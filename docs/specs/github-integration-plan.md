@@ -86,9 +86,10 @@ Expected: FAIL — `CheckAuth` not defined.
 package github
 
 import (
+	"bytes"
 	"context"
 	"os/exec"
-	"strings"
+	"regexp"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 )
@@ -103,42 +104,35 @@ func CheckAuth(ctx context.Context) contracts.GitHubStatus {
 	}
 
 	cmd := exec.CommandContext(ctx, ghPath, "auth", "status")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
 		return contracts.GitHubStatus{}
 	}
 
-	// Parse username from output like "Logged in to github.com account username (..."
-	username := parseGhUsername(string(output))
+	// gh auth status writes to stdout (newer versions) or stderr (older versions).
+	output := stdout.String() + stderr.String()
+	username := parseUsername(output)
 	return contracts.GitHubStatus{
 		Available: true,
 		Username:  username,
 	}
 }
 
-// parseGhUsername extracts the username from `gh auth status` output.
-func parseGhUsername(output string) string {
-	// gh auth status outputs lines like:
-	//   "Logged in to github.com account USERNAME (...)"
-	// or older versions:
-	//   "Logged in to github.com as USERNAME (...)"
-	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		// Try "account USERNAME" pattern first (newer gh)
-		if idx := strings.Index(line, "account "); idx >= 0 {
-			rest := line[idx+len("account "):]
-			if sp := strings.IndexAny(rest, " ("); sp > 0 {
-				return rest[:sp]
-			}
-			return rest
-		}
-		// Try "as USERNAME" pattern (older gh)
-		if idx := strings.Index(line, " as "); idx >= 0 {
-			rest := line[idx+len(" as "):]
-			if sp := strings.IndexAny(rest, " ("); sp > 0 {
-				return rest[:sp]
-			}
-			return rest
+// usernamePatterns matches the username from gh auth status output.
+// Newer format: "account USERNAME (keyring)"
+// Older format: "as USERNAME (oauth_token)"
+var usernamePatterns = []*regexp.Regexp{
+	regexp.MustCompile(`account\s+(\S+)`),
+	regexp.MustCompile(`\bas\s+(\S+)`),
+}
+
+// parseUsername extracts the GitHub username from gh auth status output.
+func parseUsername(output string) string {
+	for _, re := range usernamePatterns {
+		if m := re.FindStringSubmatch(output); len(m) > 1 {
+			return m[1]
 		}
 	}
 	return ""
@@ -153,7 +147,7 @@ Expected: PASS (or skip if gh not installed).
 **Step 5: Add unit test for parseGhUsername**
 
 ```go
-func TestParseGhUsername(t *testing.T) {
+func TestParseUsername(t *testing.T) {
 	tests := []struct {
 		name   string
 		output string
@@ -177,7 +171,7 @@ func TestParseGhUsername(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := parseGhUsername(tt.output)
+			got := parseUsername(tt.output)
 			if got != tt.want {
 				t.Errorf("parseGhUsername() = %q, want %q", got, tt.want)
 			}
@@ -237,21 +231,22 @@ Add `githubStatus contracts.GitHubStatus` parameter to `dashboard.NewServer()`. 
 
 **Step 4: Add broadcast method for GitHub status**
 
-In `internal/dashboard/server.go`, add a method to broadcast GitHub status and include it in `doBroadcast()`:
+In `internal/dashboard/server.go`, GitHub status is broadcast as a **separate message** after the sessions payload (not embedded in it):
 
 ```go
-// In doBroadcast(), after sending the "sessions" payload, also send github status:
+// After sending the "sessions" payload, send github status as a separate message:
 ghPayload, err := json.Marshal(map[string]interface{}{
 	"type":          "github_status",
 	"github_status": s.githubStatus,
 })
 if err == nil {
-	// Send after sessions payload
 	for _, conn := range conns {
 		conn.WriteMessage(websocket.TextMessage, ghPayload)
 	}
 }
 ```
+
+Note: The main sessions message type remains `"sessions"` (not `"dashboard"`).
 
 **Step 5: Add GET /api/github/status endpoint**
 
