@@ -231,8 +231,9 @@ export default function SessionTabs({
     const isIdleState = sess.nudge_state === 'Idle';
 
     // Show nudge indicators if there's a nudge_state (from signals or nudgenik)
+    // Suppress for the currently focused session — the user is already looking at it
     let nudgePreviewElement: React.ReactNode = null;
-    if (!isWorkingState && !isIdleState) {
+    if (!isWorkingState && !isIdleState && !isCurrent) {
       const nudgeEmoji = sess.nudge_state ? nudgeStateEmoji[sess.nudge_state] || null : null;
       if (nudgeEmoji) {
         nudgePreviewElement = nudgeSummary

@@ -144,7 +144,7 @@ export default function SessionDetailPage() {
       markAsViewed(sessionData.id);
       ackSession(sessionData.id);
     }
-  }, [sessionData?.id, markAsViewed, ackSession]);
+  }, [sessionData?.id, sessionData?.nudge_seq, markAsViewed, ackSession]);
 
   // Ref for diagnostic completion handler to avoid stale closures
   const diagnosticCompleteRef = useRef<
