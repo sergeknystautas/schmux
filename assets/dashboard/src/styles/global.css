@@ -4344,6 +4344,32 @@ a:hover {
   min-width: 240px;
 }
 
+.quick-launch-editor__command {
+  flex: 1;
+  min-width: 240px;
+  font-family: var(--font-mono);
+}
+
+.quick-launch-editor__mode-toggle {
+  display: flex;
+  gap: var(--spacing-md);
+  padding: var(--spacing-xs) 0;
+}
+
+.quick-launch-editor__mode-option {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: 0.875rem;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.quick-launch-editor__item-persona {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
 .quick-launch-editor__prompt {
   display: flex;
   flex-direction: column;

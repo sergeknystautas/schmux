@@ -29,10 +29,11 @@ type RunTarget struct {
 // QuickLaunch represents a saved run preset.
 // Either Command (shell command) or Target+Prompt (AI agent) should be set, not both.
 type QuickLaunch struct {
-	Name    string  `json:"name"`
-	Command string  `json:"command,omitempty"` // shell command to run directly
-	Target  string  `json:"target,omitempty"`  // run target (claude, codex, model, etc.)
-	Prompt  *string `json:"prompt,omitempty"`  // prompt for the target
+	Name      string  `json:"name"`
+	Command   string  `json:"command,omitempty"`    // shell command to run directly
+	Target    string  `json:"target,omitempty"`     // run target (claude, codex, model, etc.)
+	Prompt    *string `json:"prompt,omitempty"`     // prompt for the target
+	PersonaID string  `json:"persona_id,omitempty"` // optional behavioral persona
 }
 
 // ExternalDiffCommand represents an external diff tool configuration.

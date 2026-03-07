@@ -382,6 +382,7 @@ export interface QuickLaunch {
   command?: string;
   target?: string;
   prompt?: string;
+  persona_id?: string;
 }
 
 export interface RemoteAccess {

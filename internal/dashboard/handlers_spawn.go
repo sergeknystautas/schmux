@@ -78,6 +78,9 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			req.Targets = map[string]int{resolved.Target: 1}
 			req.Prompt = resolved.Prompt
 		}
+		if resolved.PersonaID != "" && req.PersonaID == "" {
+			req.PersonaID = resolved.PersonaID
+		}
 	}
 
 	// Auto-detect remote flavor when spawning into a remote workspace
@@ -516,10 +519,11 @@ func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request
 }
 
 type resolvedQuickLaunch struct {
-	Name    string
-	Command string
-	Target  string
-	Prompt  string
+	Name      string
+	Command   string
+	Target    string
+	Prompt    string
+	PersonaID string
 }
 
 func (s *Server) resolveQuickLaunchByName(workspaceID, name string) (*resolvedQuickLaunch, error) {
@@ -543,7 +547,7 @@ func (s *Server) resolveQuickLaunchFromPresets(presets []contracts.QuickLaunch, 
 			continue
 		}
 		if strings.TrimSpace(preset.Command) != "" {
-			return &resolvedQuickLaunch{Name: preset.Name, Command: strings.TrimSpace(preset.Command)}
+			return &resolvedQuickLaunch{Name: preset.Name, Command: strings.TrimSpace(preset.Command), PersonaID: preset.PersonaID}
 		}
 		if strings.TrimSpace(preset.Target) == "" {
 			return nil
@@ -562,7 +566,7 @@ func (s *Server) resolveQuickLaunchFromPresets(presets []contracts.QuickLaunch, 
 		if !promptable && prompt != "" {
 			return nil
 		}
-		return &resolvedQuickLaunch{Name: preset.Name, Target: preset.Target, Prompt: prompt}
+		return &resolvedQuickLaunch{Name: preset.Name, Target: preset.Target, Prompt: prompt, PersonaID: preset.PersonaID}
 	}
 	return nil
 }

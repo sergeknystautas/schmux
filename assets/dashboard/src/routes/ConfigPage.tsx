@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   getConfig,
@@ -7,6 +7,7 @@ import {
   removeModelSecrets,
   getOverlays,
   getBuiltinQuickLaunch,
+  getPersonas,
   getAuthSecretsStatus,
   saveAuthSecrets,
   setRemoteAccessPassword,
@@ -27,6 +28,7 @@ import AccessTab from './config/AccessTab';
 import AdvancedTab from './config/AdvancedTab';
 import ConfigModals from './config/ConfigModals';
 import type { ConfigResponse, ConfigUpdateRequest, Model, RunTargetResponse } from '../lib/types';
+import type { Persona } from '../lib/types.generated';
 
 const TOTAL_STEPS = 7;
 const TABS = [
@@ -312,6 +314,24 @@ export default function ConfigPage() {
       }
     };
     loadBuiltinQuickLaunch();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Load personas for quick launch persona selector
+  const [personas, setPersonas] = useState<Persona[]>([]);
+  useEffect(() => {
+    let active = true;
+    const loadPersonas = async () => {
+      try {
+        const data = await getPersonas();
+        if (active) setPersonas(data.personas || []);
+      } catch {
+        // Non-fatal: personas are optional
+      }
+    };
+    loadPersonas();
     return () => {
       active = false;
     };
@@ -755,6 +775,25 @@ export default function ConfigPage() {
   };
 
   const addQuickLaunch = () => {
+    if (state.newQuickLaunchMode === 'command') {
+      const command = state.newQuickLaunchCommand.trim();
+      if (!command) {
+        toastError('Command is required');
+        return;
+      }
+      const name = state.newQuickLaunchName.trim() || command;
+      if (state.quickLaunch.some((q) => q.name === name)) {
+        toastError('Quick launch name already exists');
+        return;
+      }
+      dispatch({
+        type: 'ADD_QUICK_LAUNCH',
+        item: { name, command },
+      });
+      dispatch({ type: 'RESET_NEW_QUICK_LAUNCH' });
+      return;
+    }
+
     const targetName = state.newQuickLaunchTarget.trim();
     if (!targetName) {
       toastError('Quick launch target is required');
@@ -765,24 +804,19 @@ export default function ConfigPage() {
       toastError('Quick launch name already exists');
       return;
     }
-    const promptable = modelTargetNames.has(targetName);
-    if (!promptable && !commandTargetNames.has(targetName)) {
-      toastError('Quick launch target not found');
-      return;
-    }
     const promptValue = state.newQuickLaunchPrompt.trim();
-    if (promptable && promptValue === '') {
-      toastError('Prompt is required for promptable targets');
+    if (promptValue === '') {
+      toastError('Prompt is required for agent targets');
       return;
     }
-    if (!promptable && promptValue !== '') {
-      toastError('Prompt is not allowed for command targets');
-      return;
-    }
-    const promptVal = promptValue === '' ? null : promptValue;
     dispatch({
       type: 'ADD_QUICK_LAUNCH',
-      item: { name, target: targetName, prompt: promptVal },
+      item: {
+        name,
+        target: targetName,
+        prompt: promptValue,
+        persona_id: state.newQuickLaunchPersonaId || undefined,
+      },
     });
     dispatch({ type: 'RESET_NEW_QUICK_LAUNCH' });
   };
@@ -1197,14 +1231,15 @@ export default function ConfigPage() {
             <QuickLaunchTab
               quickLaunch={state.quickLaunch}
               builtinQuickLaunch={state.builtinQuickLaunch}
-              models={oneshotModels}
-              commandTargets={state.commandTargets}
+              models={models}
+              personas={personas}
               newQuickLaunchName={state.newQuickLaunchName}
+              newQuickLaunchMode={state.newQuickLaunchMode}
               newQuickLaunchTarget={state.newQuickLaunchTarget}
               newQuickLaunchPrompt={state.newQuickLaunchPrompt}
+              newQuickLaunchCommand={state.newQuickLaunchCommand}
+              newQuickLaunchPersonaId={state.newQuickLaunchPersonaId}
               selectedCookbookTemplate={state.selectedCookbookTemplate}
-              modelTargetNames={modelTargetNames}
-              commandTargetNames={commandTargetNames}
               dispatch={dispatch}
               onAddQuickLaunch={addQuickLaunch}
               onRemoveQuickLaunch={removeQuickLaunch}

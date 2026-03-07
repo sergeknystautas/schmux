@@ -235,6 +235,70 @@ describe('useConfigForm', () => {
       });
       expect(result.current.state.quickLaunch[0].prompt).toBe('new');
     });
+
+    it('ADD_QUICK_LAUNCH supports command-type items', () => {
+      const { result } = renderHook(() => useConfigForm());
+      act(() => {
+        result.current.dispatch({
+          type: 'ADD_QUICK_LAUNCH',
+          item: { name: 'build', command: 'make build' },
+        });
+      });
+      expect(result.current.state.quickLaunch).toHaveLength(1);
+      expect(result.current.state.quickLaunch[0].command).toBe('make build');
+      expect(result.current.state.quickLaunch[0].target).toBeUndefined();
+    });
+
+    it('RESET_NEW_QUICK_LAUNCH clears mode and command fields', () => {
+      const { result } = renderHook(() => useConfigForm());
+      act(() => {
+        result.current.dispatch({
+          type: 'SET_FIELD',
+          field: 'newQuickLaunchMode',
+          value: 'command',
+        });
+        result.current.dispatch({
+          type: 'SET_FIELD',
+          field: 'newQuickLaunchCommand',
+          value: 'make test',
+        });
+      });
+      expect(result.current.state.newQuickLaunchMode).toBe('command');
+      expect(result.current.state.newQuickLaunchCommand).toBe('make test');
+      act(() => {
+        result.current.dispatch({ type: 'RESET_NEW_QUICK_LAUNCH' });
+      });
+      expect(result.current.state.newQuickLaunchMode).toBe('agent');
+      expect(result.current.state.newQuickLaunchCommand).toBe('');
+    });
+
+    it('ADD_QUICK_LAUNCH preserves persona_id on agent items', () => {
+      const { result } = renderHook(() => useConfigForm());
+      act(() => {
+        result.current.dispatch({
+          type: 'ADD_QUICK_LAUNCH',
+          item: { name: 'review', target: 'claude', prompt: 'review code', persona_id: 'reviewer' },
+        });
+      });
+      expect(result.current.state.quickLaunch).toHaveLength(1);
+      expect(result.current.state.quickLaunch[0].persona_id).toBe('reviewer');
+    });
+
+    it('RESET_NEW_QUICK_LAUNCH clears persona_id', () => {
+      const { result } = renderHook(() => useConfigForm());
+      act(() => {
+        result.current.dispatch({
+          type: 'SET_FIELD',
+          field: 'newQuickLaunchPersonaId',
+          value: 'reviewer',
+        });
+      });
+      expect(result.current.state.newQuickLaunchPersonaId).toBe('reviewer');
+      act(() => {
+        result.current.dispatch({ type: 'RESET_NEW_QUICK_LAUNCH' });
+      });
+      expect(result.current.state.newQuickLaunchPersonaId).toBe('');
+    });
   });
 
   describe('diff commands', () => {
@@ -380,6 +444,143 @@ describe('useConfigForm', () => {
         });
       });
       expect(result.current.nudgenikTargetMissing).toBe(false);
+    });
+  });
+
+  describe('oneshotModels', () => {
+    it('includes models with oneshot-capable runners when enabledModels is empty', () => {
+      const { result } = renderHook(() => useConfigForm());
+      act(() => {
+        result.current.dispatch({
+          type: 'LOAD_CONFIG',
+          state: {
+            modelCatalog: [
+              {
+                id: 'claude-sonnet',
+                display_name: 'Claude Sonnet',
+                configured: true,
+                provider: 'anthropic',
+                runners: ['claude'],
+              },
+              {
+                id: 'gemini-pro',
+                display_name: 'Gemini Pro',
+                configured: true,
+                provider: 'google',
+                runners: ['gemini'],
+              },
+            ],
+            runners: {
+              claude: { available: true, capabilities: ['interactive', 'oneshot', 'streaming'] },
+              gemini: { available: true, capabilities: ['interactive'] },
+            },
+            enabledModels: {},
+          },
+        });
+      });
+      // Claude has oneshot capability, Gemini does not
+      const ids = result.current.oneshotModels.map((m) => m.id);
+      expect(ids).toContain('claude-sonnet');
+      expect(ids).not.toContain('gemini-pro');
+    });
+
+    it('uses preferred runner from enabledModels when set', () => {
+      const { result } = renderHook(() => useConfigForm());
+      act(() => {
+        result.current.dispatch({
+          type: 'LOAD_CONFIG',
+          state: {
+            modelCatalog: [
+              {
+                id: 'claude-sonnet',
+                display_name: 'Claude Sonnet',
+                configured: true,
+                provider: 'anthropic',
+                runners: ['claude', 'opencode'],
+              },
+            ],
+            runners: {
+              claude: { available: true, capabilities: ['interactive', 'oneshot', 'streaming'] },
+              opencode: { available: true, capabilities: ['interactive', 'oneshot'] },
+            },
+            enabledModels: { 'claude-sonnet': 'claude' },
+          },
+        });
+      });
+      const ids = result.current.oneshotModels.map((m) => m.id);
+      expect(ids).toContain('claude-sonnet');
+    });
+
+    it('excludes models whose preferred runner lacks oneshot', () => {
+      const { result } = renderHook(() => useConfigForm());
+      act(() => {
+        result.current.dispatch({
+          type: 'LOAD_CONFIG',
+          state: {
+            modelCatalog: [
+              {
+                id: 'gemini-pro',
+                display_name: 'Gemini Pro',
+                configured: true,
+                provider: 'google',
+                runners: ['gemini'],
+              },
+            ],
+            runners: {
+              gemini: { available: true, capabilities: ['interactive'] },
+            },
+            enabledModels: { 'gemini-pro': 'gemini' },
+          },
+        });
+      });
+      const ids = result.current.oneshotModels.map((m) => m.id);
+      expect(ids).not.toContain('gemini-pro');
+    });
+  });
+
+  describe('models (for QuickLaunchTab)', () => {
+    it('includes all configured models regardless of oneshot capability', () => {
+      const { result } = renderHook(() => useConfigForm());
+      act(() => {
+        result.current.dispatch({
+          type: 'LOAD_CONFIG',
+          state: {
+            modelCatalog: [
+              {
+                id: 'claude-sonnet',
+                display_name: 'Claude Sonnet',
+                configured: true,
+                provider: 'anthropic',
+                runners: ['claude'],
+              },
+              {
+                id: 'gemini-pro',
+                display_name: 'Gemini Pro',
+                configured: true,
+                provider: 'google',
+                runners: ['gemini'],
+              },
+              {
+                id: 'unconfigured-model',
+                display_name: 'Unconfigured',
+                configured: false,
+                provider: 'x',
+                runners: ['x'],
+              },
+            ],
+            runners: {
+              claude: { available: true, capabilities: ['interactive', 'oneshot'] },
+              gemini: { available: true, capabilities: ['interactive'] },
+            },
+            enabledModels: {},
+          },
+        });
+      });
+      // models should include all configured models (both claude and gemini)
+      const ids = result.current.models.map((m) => m.id);
+      expect(ids).toContain('claude-sonnet');
+      expect(ids).toContain('gemini-pro');
+      expect(ids).not.toContain('unconfigured-model');
     });
   });
 

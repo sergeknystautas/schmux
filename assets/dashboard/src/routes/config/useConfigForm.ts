@@ -114,8 +114,11 @@ export type ConfigFormState = {
   newCommandName: string;
   newCommandCommand: string;
   newQuickLaunchName: string;
+  newQuickLaunchMode: 'agent' | 'command';
   newQuickLaunchTarget: string;
   newQuickLaunchPrompt: string;
+  newQuickLaunchCommand: string;
+  newQuickLaunchPersonaId: string;
   selectedCookbookTemplate: BuiltinQuickLaunchCookbook | null;
   newDiffName: string;
   newDiffCommand: string;
@@ -260,8 +263,11 @@ export const initialState: ConfigFormState = {
   newCommandName: '',
   newCommandCommand: '',
   newQuickLaunchName: '',
+  newQuickLaunchMode: 'agent',
   newQuickLaunchTarget: '',
   newQuickLaunchPrompt: '',
+  newQuickLaunchCommand: '',
+  newQuickLaunchPersonaId: '',
   selectedCookbookTemplate: null,
   newDiffName: '',
   newDiffCommand: '',
@@ -427,8 +433,11 @@ function configFormReducer(state: ConfigFormState, action: ConfigFormAction): Co
       return {
         ...state,
         newQuickLaunchName: '',
+        newQuickLaunchMode: 'agent',
         newQuickLaunchTarget: '',
         newQuickLaunchPrompt: '',
+        newQuickLaunchCommand: '',
+        newQuickLaunchPersonaId: '',
         selectedCookbookTemplate: null,
       };
 
@@ -489,9 +498,15 @@ export function useConfigForm(initialStep: number = 1) {
   const oneshotModels = useMemo(() => {
     return models.filter((m) => {
       const preferredRunner = state.enabledModels[m.id];
-      if (!preferredRunner) return false;
-      const runner = state.runners[preferredRunner];
-      return runner?.capabilities?.includes('oneshot') ?? false;
+      if (preferredRunner) {
+        const runner = state.runners[preferredRunner];
+        return runner?.capabilities?.includes('oneshot') ?? false;
+      }
+      // No explicit preferred runner — check if any of the model's runners support oneshot
+      return m.runners.some((name) => {
+        const runner = state.runners[name];
+        return runner?.capabilities?.includes('oneshot') ?? false;
+      });
     });
   }, [models, state.enabledModels, state.runners]);
 

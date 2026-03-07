@@ -85,6 +85,7 @@ export interface QuickLaunchPreset {
   command?: string; // shell command to run directly
   target?: string; // run target (claude, codex, model, etc.)
   prompt?: string | null; // prompt for the target
+  persona_id?: string; // optional behavioral persona
 }
 
 export interface BuiltinQuickLaunchCookbook {

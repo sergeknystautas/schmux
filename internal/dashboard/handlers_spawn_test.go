@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
 )
 
 func postSpawnJSON(t *testing.T, handler http.HandlerFunc, body interface{}) *httptest.ResponseRecorder {
@@ -140,5 +142,32 @@ func TestParseNudgeSummary_Whitespace(t *testing.T) {
 	state, summary := parseNudgeSummary("   ")
 	if state != "" || summary != "" {
 		t.Errorf("parseNudgeSummary(\"   \") = (%q, %q), want (\"\", \"\")", state, summary)
+	}
+}
+
+func TestResolveQuickLaunchFromPresets_PersonaID(t *testing.T) {
+	server, _, _ := newTestServer(t)
+	prompt := "review the code"
+	presets := []contracts.QuickLaunch{
+		{Name: "review", Target: "claude", Prompt: &prompt, PersonaID: "reviewer"},
+		{Name: "build", Command: "make build", PersonaID: "builder"},
+	}
+
+	// Agent preset carries persona_id
+	resolved := server.resolveQuickLaunchFromPresets(presets, "review")
+	if resolved == nil {
+		t.Fatal("expected resolved quick launch for 'review'")
+	}
+	if resolved.PersonaID != "reviewer" {
+		t.Errorf("got persona_id %q, want %q", resolved.PersonaID, "reviewer")
+	}
+
+	// Command preset carries persona_id (even though it's unused, the data should flow through)
+	resolved = server.resolveQuickLaunchFromPresets(presets, "build")
+	if resolved == nil {
+		t.Fatal("expected resolved quick launch for 'build'")
+	}
+	if resolved.PersonaID != "builder" {
+		t.Errorf("got persona_id %q, want %q", resolved.PersonaID, "builder")
 	}
 }
