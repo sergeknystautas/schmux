@@ -19,13 +19,14 @@ The React dashboard MUST be built via `go run ./cmd/build-dashboard`. This Go wr
 ❌ **WRONG**: `cd assets/dashboard && npm install && npm run build`
 ✅ **RIGHT**: `go run ./cmd/build-dashboard`
 
-## ⚠️ Frontend Tests — Use `./test.sh`, NOT `npx vitest` directly
+## ⚠️ Frontend Tests & Tooling — Use `./test.sh`, NOT `npx` directly
 
-**NEVER run frontend tests by `cd`-ing into `assets/dashboard/` and invoking `npx vitest run` or similar commands directly.**
+**NEVER run frontend tooling by `cd`-ing into `assets/dashboard/` and invoking `npx vitest run`, `npx tsc`, or any other frontend commands directly.**
 
-Frontend tests are already included in `./test.sh --quick`. Running vitest from the subdirectory bypasses the project test wrapper and produces unreliable results.
+Frontend tests and TypeScript checking are already included in `./test.sh --quick`. Running vitest or tsc from the subdirectory bypasses the project test wrapper, uses incorrect tsconfig/environment flags, and produces unreliable results.
 
 ❌ **WRONG**: `cd assets/dashboard && npx vitest run`
+❌ **WRONG**: `cd assets/dashboard && npx tsc --noEmit`
 ✅ **RIGHT**: `./test.sh --quick` (from repository root)
 
 ## Hot-Reload Development Mode
@@ -96,6 +97,8 @@ docker run --rm schmux-e2e
 ./schmux status     # Show status + dashboard URL
 ./schmux daemon-run # Run daemon in foreground (debug)
 ```
+
+**Always run `go build ./cmd/schmux` after editing Go files and before running tests.** This catches compilation errors (undefined symbols, syntax errors, unused imports) faster than waiting for test execution to fail.
 
 ## Pre-Commit Requirements
 
