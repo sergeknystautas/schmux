@@ -14,7 +14,7 @@ func TestBuildExtractionPrompt(t *testing.T) {
 		{Text: "use go run ./cmd/build-dashboard", Type: "reflection", Agent: "claude-code", Workspace: "ws-1"},
 		{Tool: "Bash", InputSummary: "npm run build", ErrorSummary: "command not found", Type: "failure", Category: "wrong_command", Agent: "claude-code", Workspace: "ws-1"},
 	}
-	prompt := BuildExtractionPrompt(entries)
+	prompt := BuildExtractionPrompt(entries, "", nil)
 
 	// Should contain friction data
 	if !strings.Contains(prompt, "npm run build") {
@@ -23,9 +23,9 @@ func TestBuildExtractionPrompt(t *testing.T) {
 	if !strings.Contains(prompt, "use go run ./cmd/build-dashboard") {
 		t.Error("prompt should contain reflection text")
 	}
-	// Should NOT contain instruction file content (extraction is blind)
-	if strings.Contains(prompt, "INSTRUCTION FILES") {
-		t.Error("extraction prompt must not include instruction files")
+	// Should NOT contain instruction sections when none provided
+	if strings.Contains(prompt, "EXISTING INSTRUCTIONS") {
+		t.Error("extraction prompt should not include instructions section when empty")
 	}
 	// Should request discrete rules output
 	if !strings.Contains(prompt, "rules") {
@@ -66,7 +66,7 @@ func TestBuildExtractionPrompt_SeparatesFailuresAndReflections(t *testing.T) {
 		{Agent: "claude-code", Type: "reflection", Text: "Use go run ./cmd/build-dashboard", Workspace: "ws-1"},
 		{Agent: "codex", Type: "friction", Text: "Session manager is in internal/session/", Workspace: "ws-2"},
 	}
-	prompt := BuildExtractionPrompt(entries)
+	prompt := BuildExtractionPrompt(entries, "", nil)
 
 	if !strings.Contains(prompt, "FAILURE RECORDS:") {
 		t.Error("prompt should contain FAILURE RECORDS section")
@@ -92,7 +92,7 @@ func TestBuildExtractionPrompt_DeduplicatesEntries(t *testing.T) {
 		{Agent: "claude-code", Type: "reflection", Text: "use the cargo wrapper script", Workspace: "ws-1"},
 		{Agent: "claude-code", Type: "reflection", Text: "use the cargo wrapper script", Workspace: "ws-2"},
 	}
-	prompt := BuildExtractionPrompt(entries)
+	prompt := BuildExtractionPrompt(entries, "", nil)
 
 	// Each should appear only once despite duplicates
 	if strings.Count(prompt, "cargo test --all") != 1 {
@@ -109,7 +109,7 @@ func TestBuildExtractionPrompt_SkipsEmptyReflections(t *testing.T) {
 		{Agent: "claude-code", Type: "reflection", Text: "none", Workspace: "ws-1"},
 		{Agent: "claude-code", Type: "reflection", Text: "actual insight", Workspace: "ws-1"},
 	}
-	prompt := BuildExtractionPrompt(entries)
+	prompt := BuildExtractionPrompt(entries, "", nil)
 
 	if !strings.Contains(prompt, "actual insight") {
 		t.Error("should contain real reflection text")
@@ -162,6 +162,20 @@ func TestExtractionResponseSchemaRegistered(t *testing.T) {
 		if _, exists := props[field]; !exists {
 			t.Errorf("expected property %q in schema", field)
 		}
+	}
+}
+
+func TestBuildExtractionPrompt_DeduplicatesSameCommandDifferentErrors(t *testing.T) {
+	entries := []Entry{
+		{Agent: "claude-code", Type: "failure", Tool: "Bash", InputSummary: "cargo test --all", ErrorSummary: "compilation failed", Category: "build_error", Workspace: "ws-1"},
+		{Agent: "claude-code", Type: "failure", Tool: "Bash", InputSummary: "cargo test --all", ErrorSummary: "linker error", Category: "build_error", Workspace: "ws-2"},
+		{Agent: "codex", Type: "failure", Tool: "Bash", InputSummary: "cargo test --all", ErrorSummary: "exit code 101", Category: "build_error", Workspace: "ws-3"},
+	}
+	prompt := BuildExtractionPrompt(entries, "", nil)
+
+	// Same tool/category/input but different errors should be deduplicated to one entry
+	if count := strings.Count(prompt, "cargo test --all"); count != 1 {
+		t.Errorf("expected 1 occurrence of 'cargo test --all' (deduped by tool|category|input), got %d", count)
 	}
 }
 
@@ -250,5 +264,60 @@ func TestParseExtractionResponse_EdgeCases(t *testing.T) {
 				t.Errorf("Rules count = %d, want %d", len(got.Rules), tt.wantRules)
 			}
 		})
+	}
+}
+
+func TestBuildExtractionPrompt_WithExistingInstructions(t *testing.T) {
+	entries := []Entry{
+		{Agent: "claude-code", Type: "failure", Tool: "Bash", InputSummary: "npm run build", ErrorSummary: "Missing script", Category: "wrong_command", Workspace: "ws-1"},
+	}
+	instructions := "Always use go run ./cmd/build-dashboard instead of npm run build"
+	prompt := BuildExtractionPrompt(entries, instructions, nil)
+
+	if !strings.Contains(prompt, "EXISTING INSTRUCTIONS") {
+		t.Error("prompt should contain EXISTING INSTRUCTIONS section")
+	}
+	if !strings.Contains(prompt, instructions) {
+		t.Error("prompt should contain the instruction content")
+	}
+	if !strings.Contains(prompt, "do NOT extract rules already covered") {
+		t.Error("prompt should instruct LLM not to re-extract covered rules")
+	}
+}
+
+func TestBuildExtractionPrompt_WithExistingRules(t *testing.T) {
+	entries := []Entry{
+		{Agent: "claude-code", Type: "failure", Tool: "Bash", InputSummary: "npm run build", ErrorSummary: "Missing script", Category: "wrong_command", Workspace: "ws-1"},
+	}
+	existingRules := []string{
+		"Always use go run ./cmd/build-dashboard",
+		"Run ./test.sh from the repo root",
+	}
+	prompt := BuildExtractionPrompt(entries, "", existingRules)
+
+	if !strings.Contains(prompt, "PENDING/APPLIED RULES") {
+		t.Error("prompt should contain PENDING/APPLIED RULES section")
+	}
+	if !strings.Contains(prompt, "do NOT re-extract") {
+		t.Error("prompt should instruct LLM not to re-extract existing rules")
+	}
+	for _, rule := range existingRules {
+		if !strings.Contains(prompt, rule) {
+			t.Errorf("prompt should contain existing rule %q", rule)
+		}
+	}
+}
+
+func TestBuildExtractionPrompt_NoExistingSections_WhenEmpty(t *testing.T) {
+	entries := []Entry{
+		{Agent: "claude-code", Type: "reflection", Text: "use go run instead", Workspace: "ws-1"},
+	}
+	prompt := BuildExtractionPrompt(entries, "", nil)
+
+	if strings.Contains(prompt, "EXISTING INSTRUCTIONS") {
+		t.Error("prompt should not contain EXISTING INSTRUCTIONS when empty")
+	}
+	if strings.Contains(prompt, "PENDING/APPLIED RULES") {
+		t.Error("prompt should not contain PENDING/APPLIED RULES when nil")
 	}
 }

@@ -951,14 +951,44 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 					return
 				}
 
-				_, found := cfg.FindRepoByURL(repoURL)
+				repoConfig, found := cfg.FindRepoByURL(repoURL)
 				if !found {
 					loreLog.Warn("repo not found for URL", "url", repoURL)
 					return
 				}
 
-				// Build extraction prompt (phase 1 — no instruction files needed)
-				prompt := lore.BuildExtractionPrompt(rawEntries)
+				// Assemble existing instructions to prevent re-extracting documented rules
+				var existingInstructions string
+				instrStore := lore.NewInstructionStore(loreInstructionsDir)
+				instrFiles := cfg.GetLoreInstructionFiles()
+				var publicContent string
+				if len(instrFiles) > 0 {
+					bareDir := cfg.ResolveBareRepoDir(repoConfig.BarePath)
+					if bareDir != "" {
+						if content, err := lore.ReadFileFromRepo(context.Background(), bareDir, instrFiles[0]); err == nil {
+							publicContent = content
+						}
+					}
+				}
+				existingInstructions = instrStore.Assemble(repoName, publicContent)
+
+				// Collect rule texts from existing non-dismissed proposals to avoid cross-proposal duplication
+				var existingRules []string
+				if proposals, err := loreStore.List(repoName); err == nil {
+					for _, p := range proposals {
+						if p.Status == lore.ProposalDismissed {
+							continue
+						}
+						for _, rule := range p.Rules {
+							if rule.Status != lore.RuleDismissed {
+								existingRules = append(existingRules, rule.Text)
+							}
+						}
+					}
+				}
+
+				// Build extraction prompt with existing context
+				prompt := lore.BuildExtractionPrompt(rawEntries, existingInstructions, existingRules)
 
 				// Create per-run debug directory
 				curationID := fmt.Sprintf("auto-%s-%s", repoName, time.Now().UTC().Format("20060102-150405"))
@@ -1043,13 +1073,9 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 				}
 				loreLog.Info("auto-curate: proposal created", "repo", repoName, "proposal_id", proposal.ID, "rules", len(proposal.Rules), "elapsed", elapsed.Round(time.Millisecond))
 
-				// Mark source entries as "proposed" in the central state JSONL
+				// Mark all source entries as "proposed" in the central state JSONL
 				if stateErr == nil {
-					var allSourceTexts []string
-					for _, r := range proposal.Rules {
-						allSourceTexts = append(allSourceTexts, r.SourceEntries...)
-					}
-					if err := lore.MarkEntriesByTextFromEntries(rawEntries, statePath, "proposed", allSourceTexts, proposal.ID); err != nil {
+					if err := lore.MarkEntriesAll(rawEntries, statePath, "proposed", proposal.ID); err != nil {
 						loreLog.Warn("failed to mark entries as proposed", "err", err)
 					}
 				}

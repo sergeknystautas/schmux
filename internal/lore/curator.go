@@ -29,8 +29,9 @@ type ExtractedRule struct {
 }
 
 // BuildExtractionPrompt constructs the LLM prompt for extracting discrete rules from friction data.
-// Extraction is blind — it does NOT include instruction files.
-func BuildExtractionPrompt(entries []Entry) string {
+// When existingInstructions is non-empty, it is appended to prevent re-extracting documented rules.
+// When existingRules is non-empty, pending/applied rule texts are appended to prevent cross-proposal duplication.
+func BuildExtractionPrompt(entries []Entry, existingInstructions string, existingRules []string) string {
 	var sb strings.Builder
 	sb.WriteString(`You are a rule extractor for a multi-agent software development environment.
 
@@ -74,7 +75,7 @@ Output schema:
 	reflectionSeen := make(map[string]bool)
 	for _, e := range entries {
 		if e.Type == "failure" {
-			key := fmt.Sprintf("%s|%s|%s|%s", e.Tool, e.Category, e.InputSummary, e.ErrorSummary)
+			key := fmt.Sprintf("%s|%s|%s", e.Tool, e.Category, e.InputSummary)
 			if failureSeen[key] {
 				continue
 			}
@@ -105,6 +106,19 @@ Output schema:
 		sb.WriteString("\nFRICTION REFLECTIONS:\n")
 		for _, e := range reflections {
 			fmt.Fprintf(&sb, "- [%s] [%s] [%s] %s\n", e.Agent, e.Type, e.Workspace, e.Text)
+		}
+	}
+
+	if existingInstructions != "" {
+		sb.WriteString("\nEXISTING INSTRUCTIONS (do NOT extract rules already covered here):\n")
+		sb.WriteString(existingInstructions)
+		sb.WriteString("\n")
+	}
+
+	if len(existingRules) > 0 {
+		sb.WriteString("\nPENDING/APPLIED RULES (already extracted — do NOT re-extract):\n")
+		for _, r := range existingRules {
+			fmt.Fprintf(&sb, "- %q\n", r)
 		}
 	}
 

@@ -400,14 +400,14 @@ When the xterm.js terminal gets out of sync with tmux (garbled rendering, wrong 
 
 In dev mode, pipeline health stats are sent every 3 seconds as `{"type": "stats"}` text frames:
 
-| Metric                               | Source                                  | Cost           |
-| ------------------------------------ | --------------------------------------- | -------------- |
-| Events delivered/dropped             | Atomic counters at all 3 fan-out layers | ~1ns per event |
-| Bytes delivered                      | Sum of frame sizes                      | ~1ns per event |
+| Metric                               | Source                                  | Cost                 |
+| ------------------------------------ | --------------------------------------- | -------------------- |
+| Events delivered/dropped             | Atomic counters at all 3 fan-out layers | ~1ns per event       |
+| Bytes delivered                      | Sum of frame sizes                      | ~1ns per event       |
 | Throughput (bytes/sec)               | Computed from sliding window            | timestamp + division |
-| Control mode reconnects              | Tracker reconnect counter               | ~1ns per event |
-| Sync checks sent/corrections/skipped | Per-connection counters                 | ~1ns per event |
-| Current seq / log oldest seq         | OutputLog                               | read-only      |
+| Control mode reconnects              | Tracker reconnect counter               | ~1ns per event       |
+| Sync checks sent/corrections/skipped | Per-connection counters                 | ~1ns per event       |
+| Current seq / log oldest seq         | OutputLog                               | read-only            |
 
 Frontend tracks frames received, bytes, bootstrap count, and incomplete escape sequence detection (~1-5us per event for sequence break scanning).
 
@@ -417,11 +417,11 @@ Display: collapsible `StreamMetricsPanel` in the session detail page.
 
 Both backend (256KB `RingBuffer` in `websocket.go`) and frontend (256KB in `StreamDiagnostics`) maintain fixed-size circular buffers of recent raw bytes for diagnostic capture. Pre-allocated arrays with write cursors, zero GC pressure.
 
-| Scenario | Throughput | Ring buffer covers |
-|----------|-----------|-------------------|
-| TUI app (normal) | ~50-100 KB/s | 2.5-5 seconds |
-| Interactive typing | ~1-10 KB/s | 25-250 seconds |
-| Build output (fast scroll) | ~1-10 MB/s | 25-250 ms |
+| Scenario                   | Throughput   | Ring buffer covers |
+| -------------------------- | ------------ | ------------------ |
+| TUI app (normal)           | ~50-100 KB/s | 2.5-5 seconds      |
+| Interactive typing         | ~1-10 KB/s   | 25-250 seconds     |
+| Build output (fast scroll) | ~1-10 MB/s   | 25-250 ms          |
 
 The buffer is most useful during TUI usage — exactly the scenario where desyncs occur.
 
@@ -450,13 +450,13 @@ Triggered via dashboard button or keyboard shortcut. Captures data from all pipe
 
 ### Performance Impact
 
-| Component | Hot path cost | Memory |
-|-----------|--------------|--------|
-| Atomic counters | ~1ns per event | ~64 bytes |
-| Backend ring buffer (256KB) | ~50-200ns per event (memcpy) | 256KB/session |
-| Frontend ring buffer | ~1-5us per event | ~256KB/session |
-| Screen diff (on-demand) | N/A (not on hot path) | Transient |
-| **Total always-on overhead** | **~1-5us per event** | **~512KB/session** |
+| Component                    | Hot path cost                | Memory             |
+| ---------------------------- | ---------------------------- | ------------------ |
+| Atomic counters              | ~1ns per event               | ~64 bytes          |
+| Backend ring buffer (256KB)  | ~50-200ns per event (memcpy) | 256KB/session      |
+| Frontend ring buffer         | ~1-5us per event             | ~256KB/session     |
+| Screen diff (on-demand)      | N/A (not on hot path)        | Transient          |
+| **Total always-on overhead** | **~1-5us per event**         | **~512KB/session** |
 
 For context, `terminal.write()` alone takes 500-5000us for complex TUI content. The diagnostic overhead is 0.1-1% of the existing rendering cost.
 
