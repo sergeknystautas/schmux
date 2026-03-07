@@ -1,0 +1,69 @@
+.remote {
+  padding: 80px var(--spacing-2xl);
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.sectionTitle {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--color-text-faint);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin: 0 0 var(--spacing-md);
+}
+
+.painPoint {
+  font-family: var(--font-body);
+  font-size: 1.125rem;
+  color: var(--color-text);
+  line-height: 1.6;
+  margin: 0 0 var(--spacing-xl);
+  font-style: italic;
+  max-width: 720px;
+}
+
+.commandBlock {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md) var(--spacing-lg);
+  margin: 0 0 var(--spacing-lg);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  background: var(--color-surface-alt);
+  max-width: 360px;
+}
+
+.commandCode {
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  color: var(--color-text);
+  line-height: 1.6;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.commandLabel {
+  font-family: var(--font-body);
+  font-size: 0.8125rem;
+  color: var(--color-text-faint);
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.note {
+  font-family: var(--font-body);
+  font-size: 0.9375rem;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+  margin: 0;
+  max-width: 720px;
+}
+
+@media (max-width: 640px) {
+  .remote {
+    padding: 48px var(--spacing-lg);
+  }
+}

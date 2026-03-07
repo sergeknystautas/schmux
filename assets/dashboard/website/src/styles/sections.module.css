@@ -24,6 +24,24 @@
   max-width: 720px;
 }
 
+.solution {
+  font-family: var(--font-body);
+  font-size: 0.9375rem;
+  color: var(--color-text-muted);
+  line-height: 1.7;
+  margin: var(--spacing-lg) 0 0;
+  max-width: 720px;
+}
+
+.solution code {
+  font-family: var(--font-display);
+  font-size: 0.8125rem;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+}
+
 .layout {
   display: flex;
   align-items: flex-start;
