@@ -188,6 +188,7 @@ Changes to API-related packages (`internal/dashboard/`, `internal/nudgenik/`, `i
 - Errors as `err` variable
 - Tests: standard Go `testing` package with `TestXxx` naming; prefer table-driven tests
 - Always run all commands (`git`, `./test.sh`, `./format.sh`, `go build`, `go run`, etc.) from the **repository root**, not from subdirectories like `assets/dashboard/`
+- Use the Read tool only on files, not directories. To list directory contents, use `ls` via Bash or the Glob tool.
 
 ## Web Dashboard Guidelines
 
