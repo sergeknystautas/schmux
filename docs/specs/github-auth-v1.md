@@ -20,15 +20,15 @@
 
 ### Config (`config.json`)
 
-New fields under `access_control`:
+New fields under `access_control` and `network`:
 
-- `auth.enabled` (bool, default false)
-- `auth.provider` (string, default `github`)
-- `auth.public_base_url` (string, required when auth enabled)
-- `auth.session_ttl_minutes` (int, default 1440)
-- `auth.tls` (object, required when auth enabled)
-  - `auth.tls.cert_path` (string, required)
-  - `auth.tls.key_path` (string, required)
+- `access_control.enabled` (bool, default false)
+- `access_control.provider` (string, default `github`)
+- `access_control.session_ttl_minutes` (int, default 1440)
+- `network.public_base_url` (string, required when auth enabled)
+- `network.tls` (object, required when auth enabled)
+  - `network.tls.cert_path` (string, required)
+  - `network.tls.key_path` (string, required)
 
 Example:
 
@@ -36,15 +36,15 @@ Example:
 {
   "access_control": {
     "network_access": false,
-    "auth": {
-      "enabled": true,
-      "provider": "github",
-      "public_base_url": "https://schmux.local",
-      "session_ttl_minutes": 1440,
-      "tls": {
-        "cert_path": "/path/to/schmux.local.pem",
-        "key_path": "/path/to/schmux.local-key.pem"
-      }
+    "enabled": true,
+    "provider": "github",
+    "session_ttl_minutes": 1440
+  },
+  "network": {
+    "public_base_url": "https://schmux.local",
+    "tls": {
+      "cert_path": "/path/to/schmux.local.pem",
+      "key_path": "/path/to/schmux.local-key.pem"
     }
   }
 }
@@ -82,9 +82,9 @@ Legacy structure (must still work):
 
 When auth is enabled:
 
-- `public_base_url` is required.
-- `public_base_url` must be `https://...` (allow `http://localhost` only).
-- TLS config is required and must point to readable cert/key files.
+- `network.public_base_url` is required.
+- `network.public_base_url` must be `https://...` (allow `http://localhost` only).
+- TLS config (`network.tls`) is required and must point to readable cert/key files.
 - GitHub `client_id` and `client_secret` must exist in secrets.
 - Failure to meet these blocks daemon start with a clear error.
 
@@ -143,7 +143,7 @@ When auth is enabled:
 
 - `Access-Control-Allow-Origin` must be explicit (no `*`).
 - `Access-Control-Allow-Credentials: true`.
-- Allowed origins are derived from `public_base_url` (must include it).
+- Allowed origins are derived from `network.public_base_url` (must include it).
 
 ---
 
@@ -182,10 +182,10 @@ When auth is enabled:
 
 ## Implementation Plan (high-level)
 
-1. Extend config schema + validation for `access_control.auth`.
+1. Extend config schema + validation for `access_control` (enabled, provider, session_ttl) and `network` (public_base_url, tls).
 2. Extend `secrets.json` loader to support `auth` while keeping legacy format.
 3. Add auth handlers (GitHub OAuth flow, session cookies).
 4. Add auth middleware for UI/API/WS.
-5. Update CORS + WebSocket origin checks to use derived allowed origins (must include `public_base_url`).
+5. Update CORS + WebSocket origin checks to use derived allowed origins (must include `network.public_base_url`).
 6. Add UI controls and secrets modal in Config page.
 7. Update docs and API contract.

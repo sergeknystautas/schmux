@@ -25,11 +25,17 @@ Personas are stored as individual YAML files with frontmatter metadata and a bod
 
 ```
 ~/.schmux/personas/
-├── security-auditor.yaml
-├── qa-engineer.yaml
+├── api-designer.yaml
 ├── docs-writer.yaml
-├── design-reviewer.yaml
-└── technical-pm.yaml
+├── mentor.yaml
+├── performance-engineer.yaml
+├── qa-engineer.yaml
+├── refactoring-specialist.yaml
+├── security-auditor.yaml
+├── software-architect.yaml
+├── spec-implementer.yaml
+├── technical-pm.yaml
+└── ux-designer.yaml
 ```
 
 ### File Format
@@ -80,15 +86,21 @@ Built-in personas are embedded in the binary and written to disk on first run or
 
 ## Built-in Personas
 
-schmux ships with five personas:
+schmux ships with eleven personas:
 
-| Persona          | Icon | Color     | Focus                                                                                              |
-| ---------------- | ---- | --------- | -------------------------------------------------------------------------------------------------- |
-| Security Auditor | 🔒   | `#e74c3c` | Vulnerabilities, OWASP top 10, input validation, attack surfaces, insecure dependencies            |
-| QA Engineer      | 🧪   | `#2ecc71` | Edge cases, error handling, test coverage gaps, regression risks, boundary conditions              |
-| Docs Writer      | 📝   | `#3498db` | Identify drift between documentation and code, fix stale docs, fill gaps, improve clarity          |
-| Design Reviewer  | 🎨   | `#9b59b6` | Usability, UI consistency, accessibility, UX patterns, interaction design                          |
-| Technical PM     | 📊   | `#f39c12` | Summarize project activity by analyzing commits over time periods, identify trends, track progress |
+| Persona                | Icon | Color     | Focus                                                                                              |
+| ---------------------- | ---- | --------- | -------------------------------------------------------------------------------------------------- |
+| API Designer           | 🔌   | `#1abc9c` | API design quality, consistency, RESTful patterns, error handling                                   |
+| Docs Writer            | 📝   | `#3498db` | Identify drift between documentation and code, fix stale docs, fill gaps, improve clarity          |
+| Mentor                 | 🎓   | `#e67e22` | Teaching, explaining concepts, guiding learning, code review with educational focus                 |
+| Performance Engineer   | ⚡   | `#f1c40f` | Performance bottlenecks, optimization opportunities, profiling, resource efficiency                 |
+| QA Engineer            | 🧪   | `#2ecc71` | Edge cases, error handling, test coverage gaps, regression risks, boundary conditions              |
+| Refactoring Specialist | 🔧   | `#95a5a6` | Code structure improvements, design patterns, reducing complexity, improving maintainability        |
+| Security Auditor       | 🔒   | `#e74c3c` | Vulnerabilities, OWASP top 10, input validation, attack surfaces, insecure dependencies            |
+| Software Architect     | 🏗️   | `#2c3e50` | System design, architectural patterns, scalability, separation of concerns                         |
+| Spec Implementer       | 📋   | `#8e44ad` | Implementing features from specifications, following plans precisely, task-by-task execution        |
+| Technical PM           | 📊   | `#f39c12` | Summarize project activity by analyzing commits over time periods, identify trends, track progress |
+| UX Designer            | 🎨   | `#9b59b6` | Usability, UI consistency, accessibility, UX patterns, interaction design                          |
 
 The Technical PM produces _reports_, not code changes. The Docs Writer cross-references documentation files against the actual codebase and flags inconsistencies.
 

@@ -19,15 +19,15 @@ Add an interactive CLI flow to configure GitHub auth and TLS without hand-editin
 
 ### Config (`config.json`)
 
-Writes under `access_control`:
+Writes under `access_control` and `network`:
 
 - `network_access` (prompted; user can keep existing)
-- `auth.enabled` (set true)
-- `auth.provider` (`github`)
-- `auth.public_base_url`
-- `auth.session_ttl_minutes`
-- `auth.tls.cert_path`
-- `auth.tls.key_path`
+- `access_control.enabled` (set true)
+- `access_control.provider` (`github`)
+- `access_control.session_ttl_minutes`
+- `network.public_base_url`
+- `network.tls.cert_path`
+- `network.tls.key_path`
 
 ### Secrets (`~/.schmux/secrets.json`)
 
@@ -47,15 +47,15 @@ Must preserve existing model secrets and existing auth secrets for other provide
    - Default: current config value.
 
 2. **Public Base URL**
-   - Prompt for `public_base_url` (required).
+   - Prompt for `network.public_base_url` (required).
    - Must be `https://...` (allow `http://localhost` only).
 
 3. **TLS Cert/Key Paths**
-   - Prompt for `tls.cert_path` and `tls.key_path`.
+   - Prompt for `network.tls.cert_path` and `network.tls.key_path`.
    - Accept absolute or `~` paths.
 
 4. **Session TTL**
-   - Prompt for `session_ttl_minutes` (default 1440; use existing if set).
+   - Prompt for `access_control.session_ttl_minutes` (default 1440; use existing if set).
 
 5. **GitHub OAuth Credentials**
    - Prompt for `client_id` and `client_secret` (stored in `secrets.json`).
@@ -75,7 +75,7 @@ Must preserve existing model secrets and existing auth secrets for other provide
 ### Required Presence Checks (warn only)
 
 - `public_base_url` present and parseable URL.
-- `tls.cert_path` and `tls.key_path` present.
+- `network.tls.cert_path` and `network.tls.key_path` present.
 - `client_id` and `client_secret` present.
 
 ### TLS Checks (warn only)
@@ -112,7 +112,7 @@ Behavior:
 - `public_base_url` prompt hint:
   - `Example: https://schmux.local`
 - TLS warning copy:
-  - `Warning: certificate does not match host schmx.local (SAN/CN mismatch)`
+  - `Warning: certificate does not match host schmux.local (SAN/CN mismatch)`
 - Save prompt:
   - `Proceed and save anyway? (y/N)`
 
@@ -123,4 +123,4 @@ Behavior:
 - Use `~` expansion for file paths.
 - Do not overwrite unrelated fields in config.
 - Preserve existing secrets structure and merge updates.
-- If `auth.enabled` already true, allow reconfiguration.
+- If `access_control.enabled` already true, allow reconfiguration.

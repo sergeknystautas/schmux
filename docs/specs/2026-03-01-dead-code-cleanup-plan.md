@@ -313,6 +313,8 @@ Message: `refactor(config): remove isPromptableTarget and config-time target exi
 
 ### Task 2: Simplify `models.Manager.IsModel()` — Remove RunTarget Fallback
 
+> **Status: NOT YET IMPLEMENTED.** The `GetRunTarget` fallback still exists in `manager.go:290`.
+
 Remove the `GetRunTarget` check from `IsModel()`. This method should only answer "is this a model or builtin tool?" — it should not check command targets. Callers (`handlers_spawn.go`, `workspace/config.go`) already handle the "not found" case.
 
 **Files:**

@@ -139,7 +139,7 @@ Cloudflare quick tunnels generate a new random `*.trycloudflare.com` URL each se
 │  │ ?token=...  │  redirect    │  ?nonce=... │  bcrypt  │ issued   │  │
 │  └─────────────┘              └─────────────┘          └──────────┘  │
 │                                                                      │
-│  One-time use                  5-min TTL                 24h TTL     │
+│  One-time use                  5-min TTL                 12h TTL     │
 │  32 bytes, hex                 16 bytes, hex             HMAC-signed │
 │  crypto/rand                   crypto/rand               per-tunnel  │
 │  Proves: received              Prevents: token           secret      │
@@ -157,8 +157,8 @@ After successful authentication:
 
 - **Cookie name:** `schmux_remote`
 - **Value:** `<unix_timestamp>.<HMAC-SHA256(timestamp, session_secret)>`
-- **Attributes:** `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, `MaxAge=86400` (24h)
-- **Server-side validation:** Verifies HMAC signature with constant-time comparison, checks timestamp is within 24 hours, requires non-empty session secret
+- **Attributes:** `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, `MaxAge=43200` (12h)
+- **Server-side validation:** Verifies HMAC signature with constant-time comparison, checks timestamp is within 12 hours, requires non-empty session secret
 
 The 32-byte session secret is regenerated on each tunnel start. This cryptographically invalidates all cookies from previous tunnel sessions — there is no way for an old cookie to pass HMAC verification against a new secret.
 
@@ -225,7 +225,7 @@ Nine layers of defense protect against unauthorized remote access:
 │   Loopback without Cf-Connecting-IP = always allowed        │
 ├─────────────────────────────────────────────────────────────┤
 │ Layer 6: Rate Limiting                                      │
-│   5 req/min per IP + 5 total failures = lockout             │
+│   5 req/min per IP + 5 failures per IP = lockout            │
 ├─────────────────────────────────────────────────────────────┤
 │ Layer 5: CORS Origin Restriction                            │
 │   Only tunnel URL + localhost when tunnel active            │
@@ -259,7 +259,7 @@ All traffic between the remote device and Cloudflare's edge is HTTPS. Traffic be
 ### Layer 3: Session — HMAC-Signed Cookie
 
 - `schmux_remote` cookie: `<timestamp>.<HMAC-SHA256(timestamp, secret)>`
-- `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, `MaxAge=86400`
+- `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, `MaxAge=43200`
 - Session secret regenerated per tunnel start → old cookies cryptographically invalidated
 
 ### Layer 4: CSRF Protection
@@ -289,10 +289,11 @@ All other origins are rejected with 403 Forbidden — even if `network_access` i
 - Uses `Cf-Connecting-IP` header (when tunnel is active and request comes from loopback) to rate-limit by actual remote IP, not cloudflared's loopback address
 - Returns 429 with `Retry-After: 60` header
 
-**Global lockout (per tunnel session):**
+**Per-IP lockout (per tunnel session):**
 
-- After 5 failed password attempts (`maxPasswordAttempts`), all nonces are deleted and the session is locked
+- After 5 failed password attempts per IP (`maxPasswordAttempts`), all nonces are deleted and the session is locked for that IP
 - Lockout counter resets only when the tunnel restarts
+- Per-IP tracking uses `map[string]int` with a cap of 1000 tracked IPs (`maxFailureIPs`)
 
 ### Layer 7: Trusted Request Bypass
 
@@ -348,7 +349,7 @@ When `cloudflared` is auto-downloaded:
 ```go
 // On the Server struct (internal/dashboard/server.go):
 remoteToken         string                  // current one-time token (empty = consumed or no tunnel)
-remoteTokenFailures int                     // failed password attempts for current tunnel session
+remoteTokenFailures map[string]int          // failed password attempts per IP for current tunnel session
 remoteTokenMu       sync.Mutex              // protects all remote* fields
 remoteSessionSecret []byte                  // 32-byte HMAC key for signing cookies, regenerated per tunnel
 remoteTunnelURL     string                  // current tunnel URL (for CORS validation)
@@ -400,7 +401,7 @@ Password change regenerates the session secret, which immediately invalidates al
 | `/api/remote-access/status`            | GET    | `withAuth`        | Current tunnel state, URL, config                 |
 | `/api/remote-access/on`                | POST   | `withAuthAndCSRF` | Start tunnel (requires password configured)       |
 | `/api/remote-access/off`               | POST   | `withAuthAndCSRF` | Stop tunnel, clear all auth state                 |
-| `/api/remote-access/set-password`      | POST   | `withAuthAndCSRF` | Set password (bcrypt hash to config, min 6 chars) |
+| `/api/remote-access/set-password`      | POST   | `withAuthAndCSRF` | Set password (bcrypt hash to config, min 8 chars) |
 | `/api/remote-access/test-notification` | POST   | `withAuthAndCSRF` | Send test notification to configured channels     |
 
 ### WebSocket Events
