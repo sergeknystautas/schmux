@@ -57,29 +57,35 @@ Write or update the subsystem guide following this template:
 # [Subsystem Name]
 
 ## What it does
+
 1-2 sentences. What problem this subsystem solves.
 
 ## Key files
-| File | Purpose |
-|------|---------|
+
+| File                      | Purpose                   |
+| ------------------------- | ------------------------- |
 | `internal/foo/manager.go` | Main lifecycle management |
-| `internal/foo/handler.go` | HTTP API handlers |
+| `internal/foo/handler.go` | HTTP API handlers         |
 
 ## Architecture decisions
+
 - Why X instead of Y (context from the spec)
 - Why Z is structured this way (trade-off explanation)
 
 ## Gotchas
+
 - Don't do X — it looks right but breaks because Y
 - This field is nested under `sessions` config, not top-level
 - The WebSocket message type is "sessions" not "dashboard" despite what you'd expect
 
 ## Common modification patterns
+
 - To add a new [thing]: touch these files, follow this pattern
 - To change [behavior]: start at this file, update these tests
 ```
 
 **Key principles:**
+
 - Write in present tense ("the system uses..."), not future tense ("we should build...")
 - Point to files, don't duplicate code. The guide is a launchpad for reading source.
 - Preserve the "why" — this is the main value specs carry that code comments don't.

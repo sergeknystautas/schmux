@@ -160,7 +160,7 @@ See [CHANGES.md](CHANGES.md) for what's new in each release.
 - [docs/api.md](docs/api.md) - Daemon HTTP API contract (client-agnostic)
 - [docs/nudgenik.md](docs/nudgenik.md) - NudgeNik feature
 - [CONTRIBUTING.md](CONTRIBUTING.md) - Contributor guide
-- [docs/dev/README.md](docs/dev/README.md) - Detailed development documentation
+- [docs/contributing.md](docs/contributing.md) - Detailed development documentation
 
 ## Getting Help
 

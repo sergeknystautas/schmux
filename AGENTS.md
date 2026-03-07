@@ -12,7 +12,7 @@
   - `internal/config/`, `internal/state/` — config/state IO.
   - `internal/detect/` — tool/agent detection adapters; files follow the `adapter_<toolname>.go` naming convention (e.g., `adapter_claude.go`, `adapter_opencode.go`). Use `Glob` to list files before reading if the target filename is uncertain.
 - `assets/dashboard/` — static web UI assets (HTML/CSS/TypeScript) served by the daemon.
-- Docs: `README.md`, `docs/cli.md`, `docs/web.md`, `docs/api.md`, `docs/dev/react.md`, `docs/dev/architecture.md`, `docs/dev/README.md`.
+- Docs: `README.md`, `docs/cli.md`, `docs/web.md`, `docs/api.md`, `docs/react.md`, `docs/architecture.md`, `docs/contributing.md`.
 
 **Known large files**: `internal/config/config.go`, `internal/config/config_test.go`, and `assets/dashboard/src/styles/global.css` all exceed the 25,000-token read limit. Do not attempt to read any of them in full — use search/grep to find specific symbols, or read targeted sections using offset/limit parameters.
 
@@ -56,7 +56,7 @@ Always run frontend tests from the repository root using the test wrapper:
 - Go: keep changes `gofmt`-clean (`gofmt -w .` or `go fmt ./...`).
 - Packages: lowercase, short, domain-based (`dashboard`, `workspace`, `session`).
 - Identifiers: exported `CamelCase`, unexported `camelCase`; errors as `err`.
-- Frontend assets live in `assets/dashboard/`; **build via `go run ./cmd/build-dashboard` only — never npm directly**; keep HTML/CSS/TypeScript minimal and consistent with `docs/dev/react.md`.
+- Frontend assets live in `assets/dashboard/`; **build via `go run ./cmd/build-dashboard` only — never npm directly**; keep HTML/CSS/TypeScript minimal and consistent with `docs/react.md`.
 - Always run all commands (`git`, `./test.sh`, `./format.sh`, `go build`, `go run`, etc.) from the **repository root**, not from subdirectories.
 
 ## Testing Guidelines
@@ -109,7 +109,7 @@ Changes to API-related packages (`internal/dashboard/`, `internal/config/`, `int
 
 ## React Dashboard Architecture
 
-For React changes, consult `docs/dev/react.md` first — it documents architectural decisions and anti-patterns.
+For React changes, consult `docs/react.md` first — it documents architectural decisions and anti-patterns.
 
 Key patterns:
 

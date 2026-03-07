@@ -5,9 +5,9 @@ Thanks for your interest in contributing! This document provides quick links to 
 ## Quick Start
 
 1. Fork and clone the repository
-2. Read [Architecture](docs/dev/architecture.md) for an overview
-3. Follow the [Development Guide](docs/dev/README.md) for setup and workflow
-4. Write tests (see [Testing Guide](docs/dev/testing.md))
+2. Read [Architecture](docs/architecture.md) for an overview
+3. Follow the [Development Guide](docs/contributing.md) for setup and workflow
+4. Write tests (see [Testing Guide](docs/testing.md))
 5. Run `go test ./...` before pushing
 
 ## Important: Building the Dashboard
@@ -26,7 +26,7 @@ This Go wrapper:
 - Runs vite build with proper environment
 - Outputs to `assets/dashboard/dist/` which gets embedded in the Go binary
 
-See [React Architecture](docs/dev/react.md) for more details.
+See [React Architecture](docs/react.md) for more details.
 
 ## Development with Hot-Reload
 
@@ -123,7 +123,7 @@ The script automatically:
 
 - [Project Philosophy](docs/PHILOSOPHY.md) - Product principles and design goals
 - [API Reference](docs/api.md) - HTTP/WebSocket API contract
-- [React Architecture](docs/dev/react.md) - Frontend patterns and conventions
+- [React Architecture](docs/react.md) - Frontend patterns and conventions
 - [CLI Reference](docs/cli.md) - Command-line documentation
 - [Web Dashboard](docs/web.md) - Dashboard UX and design system
 
