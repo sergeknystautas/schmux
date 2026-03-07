@@ -260,10 +260,10 @@ export default function PromptTextarea({
         e.preventDefault();
         setAcDismissed(true);
       }
-      // Tab fills the selected suggestion
-      if (e.key === 'Tab') {
+      // Tab fills the selected suggestion (only when items are visible)
+      if (e.key === 'Tab' && acItems.length > 0) {
         e.preventDefault();
-        if (acItems.length > 0 && acSelectedIndex < acItems.length) {
+        if (acSelectedIndex < acItems.length) {
           handleAcSelect(acItems[acSelectedIndex]);
         }
       }
