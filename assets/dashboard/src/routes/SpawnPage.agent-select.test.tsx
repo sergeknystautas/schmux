@@ -60,7 +60,14 @@ const configFixture: ConfigResponse = {
     suggest_dispose_after_push: true,
   },
   lore: { enabled: true, llm_target: '', curate_on_dispose: 'session', auto_pr: false },
-  subreddit: { target: '', hours: 24 },
+  subreddit: {
+    target: '',
+    interval: 30,
+    checking_range: 48,
+    max_posts: 30,
+    max_age: 14,
+    repos: {},
+  },
   floor_manager: { enabled: false, target: '', rotation_threshold: 150, debounce_ms: 2000 },
   remote_access: {
     enabled: false,

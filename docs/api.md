@@ -2411,26 +2411,40 @@ Errors:
 
 ### GET /api/subreddit
 
-Returns the cached subreddit digest content. The digest is generated hourly by the daemon using the configured LLM target.
+Returns subreddit posts organized by repository. Posts are generated per-repo with create/update semantics and importance scoring (upvotes 0-5).
 
-Response (cached content available):
+Response (enabled with posts):
 
 ```json
 {
-  "content": "## r/schmux\n\n**Posted by u/devbot** • 24h ago\n\n### What's new this week...",
-  "generated_at": "2024-01-15T10:30:00Z",
-  "next_generation_at": "2024-01-15T11:30:00Z",
-  "hours": 24,
-  "commit_count": 12,
-  "enabled": true
+  "enabled": true,
+  "repos": [
+    {
+      "name": "my-repo",
+      "slug": "my-repo",
+      "posts": [
+        {
+          "id": "post-1709712000",
+          "title": "New workspace switching",
+          "content": "Great new feature for switching workspaces...",
+          "upvotes": 3,
+          "created_at": "2024-03-06T10:00:00Z",
+          "updated_at": "2024-03-06T12:30:00Z",
+          "revision": 2
+        }
+      ]
+    }
+  ],
+  "next_generation_at": "2024-03-06T11:30:00Z"
 }
 ```
 
-Response (no content yet or generation failed):
+Response (enabled but no posts yet):
 
 ```json
 {
-  "enabled": true
+  "enabled": true,
+  "repos": []
 }
 ```
 
@@ -2446,21 +2460,38 @@ Fields:
 
 | Field                | Type   | Description                                                                 |
 | -------------------- | ------ | --------------------------------------------------------------------------- |
-| `content`            | string | Markdown-formatted digest styled like a Reddit post (omitted if no content) |
-| `generated_at`       | string | ISO 8601 timestamp when digest was generated (omitted if no content)        |
-| `next_generation_at` | string | ISO 8601 timestamp when next generation is scheduled (omitted if not known) |
-| `hours`              | int    | Lookback period in hours for commit gathering (omitted if no content)       |
-| `commit_count`       | int    | Number of commits included in the digest (omitted if no content)            |
 | `enabled`            | bool   | Whether subreddit feature is enabled (always present)                       |
+| `repos`              | array  | Array of repo objects with posts (omitted if disabled)                      |
+| `next_generation_at` | string | ISO 8601 timestamp when next generation is scheduled (omitted if not known) |
 
-The content is markdown-formatted text styled like a Reddit post. Empty content (only `enabled` field) indicates:
+Repo object fields:
 
-- Subreddit digest is disabled (no target configured) - `enabled: false`
-- No commits in the lookback period
-- Generation hasn't completed yet
-- Previous generation failed
+| Field   | Type   | Description                         |
+| ------- | ------ | ----------------------------------- |
+| `name`  | string | Repository name                     |
+| `slug`  | string | URL-safe slug for the repo          |
+| `posts` | array  | Array of post objects for this repo |
 
-Configuration is via the config API (`subreddit.target` and `subreddit.hours` fields).
+Post object fields:
+
+| Field        | Type   | Description                                                |
+| ------------ | ------ | ---------------------------------------------------------- |
+| `id`         | string | Unique post identifier                                     |
+| `title`      | string | Post title (headline)                                      |
+| `content`    | string | Markdown-formatted post body                               |
+| `upvotes`    | int    | Importance score 0-5 (logarithmic scale)                   |
+| `created_at` | string | ISO 8601 timestamp when post was created                   |
+| `updated_at` | string | ISO 8601 timestamp when post was last updated              |
+| `revision`   | int    | Revision number (1 = original, 2+ = updated at least once) |
+
+Configuration is via the config API:
+
+- `subreddit.target` - LLM target for generation
+- `subreddit.interval` - Polling interval in minutes (default: 30)
+- `subreddit.checking_range` - Hours to look back for commits (default: 48)
+- `subreddit.max_posts` - Maximum posts per repo (default: 30)
+- `subreddit.max_age` - Maximum post age in days (default: 14)
+- `subreddit.repos` - Map of repo slugs to enabled/disabled status
 
 ## WebSocket
 

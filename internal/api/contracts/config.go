@@ -313,14 +313,22 @@ type LoreUpdate struct {
 
 // Subreddit represents subreddit digest configuration in the API response.
 type Subreddit struct {
-	Target string `json:"target"` // LLM target for generation, empty = disabled
-	Hours  int    `json:"hours"`  // Lookback window in hours, default 24
+	Target        string          `json:"target"`         // LLM target for generation, empty = disabled
+	Interval      int             `json:"interval"`       // Polling interval in minutes, default 30
+	CheckingRange int             `json:"checking_range"` // Lookback for new commits in hours, default 48
+	MaxPosts      int             `json:"max_posts"`      // Max posts per repo, default 30
+	MaxAge        int             `json:"max_age"`        // Max post age in days, default 14
+	Repos         map[string]bool `json:"repos"`          // Per-repo enabled/disabled
 }
 
 // SubredditUpdate represents partial subreddit config updates.
 type SubredditUpdate struct {
-	Target *string `json:"target,omitempty"`
-	Hours  *int    `json:"hours,omitempty"`
+	Target        *string         `json:"target,omitempty"`
+	Interval      *int            `json:"interval,omitempty"`
+	CheckingRange *int            `json:"checking_range,omitempty"`
+	MaxPosts      *int            `json:"max_posts,omitempty"`
+	MaxAge        *int            `json:"max_age,omitempty"`
+	Repos         map[string]bool `json:"repos,omitempty"`
 }
 
 // FloorManager represents floor manager configuration in the API response.

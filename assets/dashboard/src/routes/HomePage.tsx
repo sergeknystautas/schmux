@@ -252,7 +252,7 @@ const arrowUp = (
 
 export default function HomePage() {
   useRequireConfig();
-  const { workspaces, loading: sessionsLoading, connected } = useSessions();
+  const { workspaces, loading: sessionsLoading, connected, subredditUpdateCount } = useSessions();
   const { config, loading: configLoading, getRepoName } = useConfig();
   const { success, error: toastError } = useToast();
   const { alert } = useModal();
@@ -274,6 +274,9 @@ export default function HomePage() {
   const [overlays, setOverlays] = useState<OverlayInfo[]>([]);
   const [dismissedNudges, setDismissedNudges] = useState<Set<string>>(new Set());
   const [subreddit, setSubreddit] = useState<SubredditResponse | null>(null);
+  const [activeRepoTab, setActiveRepoTab] = useState<string>('');
+  const activeRepo =
+    subreddit?.repos?.find((r) => r.slug === activeRepoTab) ?? subreddit?.repos?.[0] ?? null;
 
   // Floor manager
   const fm = useFloorManager();
@@ -299,18 +302,22 @@ export default function HomePage() {
     })();
   }, []);
 
-  // Fetch subreddit digest
+  // Fetch subreddit digest (on mount + when WebSocket signals an update)
   useEffect(() => {
     (async () => {
       try {
         const data = await getSubreddit();
         setSubreddit(data);
+        // Set active tab to first repo if not already set
+        if (data.repos && data.repos.length > 0) {
+          setActiveRepoTab((prev) => prev || data.repos![0].slug);
+        }
       } catch (err) {
         // Non-critical — log for debugging
         console.debug('Failed to fetch subreddit:', err);
       }
     })();
-  }, []);
+  }, [subredditUpdateCount]);
 
   const handleDismissNudge = async (repoName: string) => {
     setDismissedNudges((prev) => new Set(prev).add(repoName));
@@ -668,17 +675,50 @@ export default function HomePage() {
                   <span style={{ fontSize: '1.1em' }}>📢</span>
                   r/schmux
                 </h2>
-                {subreddit.generated_at && (
-                  <span className={styles.subredditMeta}>
-                    {subreddit.commit_count ?? 0} commits ·{' '}
-                    {formatRelativeDate(subreddit.generated_at)}
-                  </span>
-                )}
               </div>
+              {subreddit.repos && subreddit.repos.length > 1 && (
+                <div className={styles.subredditTabs}>
+                  {subreddit.repos.map((repo) => (
+                    <button
+                      key={repo.slug}
+                      className={`${styles.subredditTab} ${activeRepo?.slug === repo.slug ? styles.subredditTabActive : ''}`}
+                      onClick={() => setActiveRepoTab(repo.slug)}
+                    >
+                      {repo.name}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className={`${styles.sectionContent} ${styles.subredditScroll}`}>
-                {subreddit.content ? (
-                  <div className={`${styles.subredditContent} markdown-preview-content`}>
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{subreddit.content}</ReactMarkdown>
+                {subreddit.repos && subreddit.repos.length > 0 ? (
+                  <div className={styles.subredditPosts}>
+                    {activeRepo &&
+                      activeRepo.posts.map((post, index) => (
+                        <div
+                          key={`${activeRepo.slug}-${post.id}-${index}`}
+                          className={styles.subredditPost}
+                        >
+                          <div className={styles.postHeader}>
+                            <h4 className={styles.postTitle}>{post.title}</h4>
+                            <span className={styles.postTime}>
+                              {formatRelativeDate(post.created_at)}
+                            </span>
+                          </div>
+                          <div className={styles.postBody}>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {post.content}
+                            </ReactMarkdown>
+                          </div>
+                          <div className={styles.postFooter}>
+                            <span className={styles.postVotes}>{'★'.repeat(post.upvotes)}</span>
+                            {post.revision > 1 && (
+                              <span className={styles.postUpdated}>
+                                · Updated {post.revision - 1}x
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
                   </div>
                 ) : (
                   <div
@@ -929,18 +969,58 @@ export default function HomePage() {
                 <span style={{ fontSize: '1.1em' }}>📢</span>
                 r/schmux
               </h2>
-              {subreddit.generated_at && (
+              {subreddit.next_generation_at && (
                 <span className={styles.subredditMeta}>
-                  {subreddit.commit_count ?? 0} commits ·{' '}
-                  {formatRelativeDate(subreddit.generated_at)}
+                  Next: {formatRelativeDate(subreddit.next_generation_at)}
                 </span>
               )}
             </div>
             <div className={`${styles.sectionContent} ${styles.subredditScroll}`}>
-              {subreddit.content ? (
-                <div className={`${styles.subredditContent} markdown-preview-content`}>
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{subreddit.content}</ReactMarkdown>
-                </div>
+              {subreddit.repos && subreddit.repos.length > 0 ? (
+                <>
+                  {subreddit.repos.length > 1 && (
+                    <div className={styles.subredditTabs}>
+                      {subreddit.repos.map((repo) => (
+                        <button
+                          key={repo.slug}
+                          className={`${styles.subredditTab} ${activeRepo?.slug === repo.slug ? styles.subredditTabActive : ''}`}
+                          onClick={() => setActiveRepoTab(repo.slug)}
+                        >
+                          {repo.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className={styles.subredditPosts}>
+                    {activeRepo &&
+                      activeRepo.posts.map((post, index) => (
+                        <div
+                          key={`${activeRepo.slug}-${post.id}-${index}`}
+                          className={styles.subredditPost}
+                        >
+                          <div className={styles.postHeader}>
+                            <h4 className={styles.postTitle}>{post.title}</h4>
+                            <span className={styles.postTime}>
+                              {formatRelativeDate(post.created_at)}
+                            </span>
+                          </div>
+                          <div className={styles.postBody}>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {post.content}
+                            </ReactMarkdown>
+                          </div>
+                          <div className={styles.postFooter}>
+                            <span className={styles.postVotes}>{'★'.repeat(post.upvotes)}</span>
+                            {post.revision > 1 && (
+                              <span className={styles.postUpdated}>
+                                · Updated {post.revision - 1}x
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </>
               ) : (
                 <div
                   className={styles.subredditContent}

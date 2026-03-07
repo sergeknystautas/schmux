@@ -7,10 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sergeknystautas/schmux/internal/state"
-	"github.com/sergeknystautas/schmux/internal/subreddit"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
@@ -106,38 +104,5 @@ func TestValidateReadyToRun_MissingTmux(t *testing.T) {
 	expectedMsg := "tmux is not installed"
 	if err == nil || !strings.Contains(err.Error(), expectedMsg) {
 		t.Errorf("Expected error containing %q, got %q", expectedMsg, err)
-	}
-}
-
-func TestNextSubredditGenerationTime_NoCache(t *testing.T) {
-	now := time.Date(2026, 2, 25, 12, 0, 0, 0, time.UTC)
-	cachePath := filepath.Join(t.TempDir(), "subreddit.json")
-
-	got := nextSubredditGenerationTime(cachePath, now)
-	want := now.Add(subredditDigestInterval)
-	if !got.Equal(want) {
-		t.Fatalf("got %s, want %s", got, want)
-	}
-}
-
-func TestNextSubredditGenerationTime_UsesCacheDueTimeWhenFresh(t *testing.T) {
-	tmpDir := t.TempDir()
-	cachePath := filepath.Join(tmpDir, "subreddit.json")
-
-	generatedAt := time.Date(2026, 2, 25, 13, 55, 44, 0, time.FixedZone("PST", -8*3600))
-	if err := subreddit.WriteCache(cachePath, subreddit.Cache{
-		Content:     "x",
-		GeneratedAt: generatedAt,
-		Hours:       24,
-		CommitCount: 1,
-	}); err != nil {
-		t.Fatalf("write cache: %v", err)
-	}
-
-	now := time.Date(2026, 2, 25, 14, 55, 14, 0, generatedAt.Location())
-	got := nextSubredditGenerationTime(cachePath, now)
-	want := generatedAt.Add(subredditDigestInterval + 1*time.Second)
-	if !got.Equal(want) {
-		t.Fatalf("got %s, want %s", got, want)
 	}
 }

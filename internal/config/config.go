@@ -278,8 +278,12 @@ type NudgenikConfig struct {
 
 // SubredditConfig represents configuration for the subreddit digest feature.
 type SubredditConfig struct {
-	Target string `json:"target,omitempty"` // LLM target for generation, empty = disabled
-	Hours  int    `json:"hours,omitempty"`  // Lookback window in hours, default 24
+	Target        string          `json:"target,omitempty"`         // LLM target for generation, empty = disabled
+	Interval      int             `json:"interval,omitempty"`       // Polling interval in minutes, default 30
+	CheckingRange int             `json:"checking_range,omitempty"` // Lookback for new commits in hours, default 48
+	MaxPosts      int             `json:"max_posts,omitempty"`      // Max posts per repo, default 30
+	MaxAge        int             `json:"max_age,omitempty"`        // Max post age in days, default 14
+	Repos         map[string]bool `json:"repos,omitempty"`          // Per-repo enabled/disabled (default true)
 }
 
 // FloorManagerConfig configures the floor manager singleton agent.
@@ -912,14 +916,74 @@ func (c *Config) GetSubredditTarget() string {
 	return strings.TrimSpace(c.Subreddit.Target)
 }
 
-// GetSubredditHours returns the lookback window in hours, defaulting to 24.
-func (c *Config) GetSubredditHours() int {
+// GetSubredditInterval returns the polling interval in minutes, defaulting to 30.
+func (c *Config) GetSubredditInterval() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c.Subreddit == nil || c.Subreddit.Hours <= 0 {
-		return 24
+	if c.Subreddit == nil || c.Subreddit.Interval <= 0 {
+		return 30
 	}
-	return c.Subreddit.Hours
+	return c.Subreddit.Interval
+}
+
+// GetSubredditCheckingRange returns the lookback for new commits in hours, defaulting to 48.
+func (c *Config) GetSubredditCheckingRange() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Subreddit == nil || c.Subreddit.CheckingRange <= 0 {
+		return 48
+	}
+	return c.Subreddit.CheckingRange
+}
+
+// GetSubredditMaxPosts returns the max posts per repo, defaulting to 30.
+func (c *Config) GetSubredditMaxPosts() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Subreddit == nil || c.Subreddit.MaxPosts <= 0 {
+		return 30
+	}
+	return c.Subreddit.MaxPosts
+}
+
+// GetSubredditMaxAge returns the max post age in days, defaulting to 14.
+func (c *Config) GetSubredditMaxAge() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Subreddit == nil || c.Subreddit.MaxAge <= 0 {
+		return 14
+	}
+	return c.Subreddit.MaxAge
+}
+
+// GetSubredditRepoEnabled returns whether a specific repo is enabled for subreddit generation.
+// Returns true by default if the repo is not in the map.
+func (c *Config) GetSubredditRepoEnabled(repoSlug string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Subreddit == nil || c.Subreddit.Repos == nil {
+		return true
+	}
+	enabled, exists := c.Subreddit.Repos[repoSlug]
+	if !exists {
+		return true
+	}
+	return enabled
+}
+
+// GetSubredditRepos returns the per-repo enabled/disabled map.
+func (c *Config) GetSubredditRepos() map[string]bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Subreddit == nil || c.Subreddit.Repos == nil {
+		return nil
+	}
+	// Return a copy to avoid race conditions
+	result := make(map[string]bool, len(c.Subreddit.Repos))
+	for k, v := range c.Subreddit.Repos {
+		result[k] = v
+	}
+	return result
 }
 
 // GetFloorManagerEnabled returns whether the floor manager is enabled.

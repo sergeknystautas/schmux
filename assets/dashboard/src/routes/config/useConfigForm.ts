@@ -46,7 +46,11 @@ export type ConfigSnapshot = {
   loreCurateOnDispose: string;
   loreAutoPR: boolean;
   subredditTarget: string;
-  subredditHours: number;
+  subredditInterval: number;
+  subredditCheckingRange: number;
+  subredditMaxPosts: number;
+  subredditMaxAge: number;
+  subredditRepos: Record<string, boolean>;
   remoteAccessEnabled: boolean;
   remoteAccessTimeoutMinutes: number;
   remoteAccessNtfyTopic: string;
@@ -160,7 +164,11 @@ export type ConfigFormState = {
 
   // Subreddit
   subredditTarget: string;
-  subredditHours: number;
+  subredditInterval: number;
+  subredditCheckingRange: number;
+  subredditMaxPosts: number;
+  subredditMaxAge: number;
+  subredditRepos: Record<string, boolean>;
 
   // Remote access
   remoteAccessEnabled: boolean;
@@ -306,7 +314,11 @@ export const initialState: ConfigFormState = {
   loreAutoPR: false,
 
   subredditTarget: '',
-  subredditHours: 24,
+  subredditInterval: 30,
+  subredditCheckingRange: 48,
+  subredditMaxPosts: 30,
+  subredditMaxAge: 14,
+  subredditRepos: {},
 
   remoteAccessEnabled: false,
   remoteAccessTimeoutMinutes: 0,
@@ -574,7 +586,11 @@ export function useConfigForm(initialStep: number = 1) {
         state.loreCurateOnDispose !== oc.loreCurateOnDispose ||
         state.loreAutoPR !== oc.loreAutoPR ||
         state.subredditTarget !== oc.subredditTarget ||
-        state.subredditHours !== oc.subredditHours ||
+        state.subredditInterval !== oc.subredditInterval ||
+        state.subredditCheckingRange !== oc.subredditCheckingRange ||
+        state.subredditMaxPosts !== oc.subredditMaxPosts ||
+        state.subredditMaxAge !== oc.subredditMaxAge ||
+        JSON.stringify(state.subredditRepos) !== JSON.stringify(oc.subredditRepos) ||
         state.remoteAccessEnabled !== oc.remoteAccessEnabled ||
         state.remoteAccessTimeoutMinutes !== oc.remoteAccessTimeoutMinutes ||
         state.remoteAccessNtfyTopic !== oc.remoteAccessNtfyTopic ||
@@ -651,7 +667,11 @@ export function useConfigForm(initialStep: number = 1) {
       loreCurateOnDispose: state.loreCurateOnDispose,
       loreAutoPR: state.loreAutoPR,
       subredditTarget: state.subredditTarget,
-      subredditHours: state.subredditHours,
+      subredditInterval: state.subredditInterval,
+      subredditCheckingRange: state.subredditCheckingRange,
+      subredditMaxPosts: state.subredditMaxPosts,
+      subredditMaxAge: state.subredditMaxAge,
+      subredditRepos: state.subredditRepos,
       remoteAccessEnabled: state.remoteAccessEnabled,
       remoteAccessTimeoutMinutes: state.remoteAccessTimeoutMinutes,
       remoteAccessNtfyTopic: state.remoteAccessNtfyTopic,

@@ -25,12 +25,13 @@ import QuickLaunchTab from './config/QuickLaunchTab';
 import CodeReviewTab from './config/CodeReviewTab';
 import FloorManagerTab from './config/FloorManagerTab';
 import AccessTab from './config/AccessTab';
+import SubredditTab from './config/SubredditTab';
 import AdvancedTab from './config/AdvancedTab';
 import ConfigModals from './config/ConfigModals';
 import type { ConfigResponse, ConfigUpdateRequest, Model, RunTargetResponse } from '../lib/types';
 import type { Persona } from '../lib/types.generated';
 
-const TOTAL_STEPS = 7;
+const TOTAL_STEPS = 8;
 const TABS = [
   'Workspaces',
   'Sessions',
@@ -38,6 +39,7 @@ const TABS = [
   'Code Review',
   'Floor Manager',
   'Access',
+  'Subreddit',
   'Advanced',
 ];
 const TAB_SLUGS = [
@@ -47,6 +49,7 @@ const TAB_SLUGS = [
   'codereview',
   'floormanager',
   'access',
+  'subreddit',
   'advanced',
 ];
 
@@ -122,7 +125,7 @@ export default function ConfigPage() {
           state: {
             workspacePath: data.workspace_path || '',
             sourceCodeManagement: data.source_code_management || 'git-worktree',
-            repos: data.repos || [],
+            repos: (data.repos || []).sort((a, b) => a.name.localeCompare(b.name)),
             commandTargets: commandItems,
             quickLaunch: (data.quick_launch || []).sort((a, b) => a.name.localeCompare(b.name)),
             externalDiffCommands: data.external_diff_commands || [],
@@ -161,7 +164,11 @@ export default function ConfigPage() {
             loreCurateOnDispose: data.lore?.curate_on_dispose || 'session',
             loreAutoPR: data.lore?.auto_pr || false,
             subredditTarget: data.subreddit?.target || '',
-            subredditHours: data.subreddit?.hours || 24,
+            subredditInterval: data.subreddit?.interval || 30,
+            subredditCheckingRange: data.subreddit?.checking_range || 48,
+            subredditMaxPosts: data.subreddit?.max_posts || 30,
+            subredditMaxAge: data.subreddit?.max_age || 14,
+            subredditRepos: data.subreddit?.repos || {},
             remoteAccessEnabled: data.remote_access?.enabled || false,
             remoteAccessTimeoutMinutes: data.remote_access?.timeout_minutes || 0,
             remoteAccessNtfyTopic: data.remote_access?.notify?.ntfy_topic || '',
@@ -185,7 +192,7 @@ export default function ConfigPage() {
           const originalConfig: ConfigSnapshot = {
             workspacePath: data.workspace_path || '',
             sourceCodeManagement: data.source_code_management || 'git-worktree',
-            repos: data.repos || [],
+            repos: (data.repos || []).sort((a, b) => a.name.localeCompare(b.name)),
             commandTargets: commandItems,
             quickLaunch: data.quick_launch || [],
             externalDiffCommands: data.external_diff_commands || [],
@@ -222,7 +229,11 @@ export default function ConfigPage() {
             loreCurateOnDispose: data.lore?.curate_on_dispose || 'session',
             loreAutoPR: data.lore?.auto_pr || false,
             subredditTarget: data.subreddit?.target || '',
-            subredditHours: data.subreddit?.hours || 24,
+            subredditInterval: data.subreddit?.interval || 30,
+            subredditCheckingRange: data.subreddit?.checking_range || 48,
+            subredditMaxPosts: data.subreddit?.max_posts || 30,
+            subredditMaxAge: data.subreddit?.max_age || 14,
+            subredditRepos: data.subreddit?.repos || {},
             remoteAccessEnabled: data.remote_access?.enabled || false,
             remoteAccessTimeoutMinutes: data.remote_access?.timeout_minutes || 0,
             remoteAccessNtfyTopic: data.remote_access?.notify?.ntfy_topic || '',
@@ -577,7 +588,11 @@ export default function ConfigPage() {
         },
         subreddit: {
           target: state.subredditTarget,
-          hours: state.subredditHours,
+          interval: state.subredditInterval,
+          checking_range: state.subredditCheckingRange,
+          max_posts: state.subredditMaxPosts,
+          max_age: state.subredditMaxAge,
+          repos: state.subredditRepos,
         },
         enabled_models: state.enabledModels,
         remote_access: {
@@ -1314,13 +1329,25 @@ export default function ConfigPage() {
           )}
 
           {currentTab === 7 && (
+            <SubredditTab
+              subredditTarget={state.subredditTarget}
+              subredditInterval={state.subredditInterval}
+              subredditCheckingRange={state.subredditCheckingRange}
+              subredditMaxPosts={state.subredditMaxPosts}
+              subredditMaxAge={state.subredditMaxAge}
+              subredditRepos={state.subredditRepos}
+              repos={state.repos}
+              models={oneshotModels}
+              dispatch={dispatch}
+            />
+          )}
+
+          {currentTab === 8 && (
             <AdvancedTab
               loreEnabled={state.loreEnabled}
               loreLLMTarget={state.loreLLMTarget}
               loreCurateOnDispose={state.loreCurateOnDispose}
               loreAutoPR={state.loreAutoPR}
-              subredditTarget={state.subredditTarget}
-              subredditHours={state.subredditHours}
               nudgenikTarget={state.nudgenikTarget}
               viewedBuffer={state.viewedBuffer}
               nudgenikSeenInterval={state.nudgenikSeenInterval}

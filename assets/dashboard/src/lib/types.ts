@@ -499,13 +499,26 @@ export interface LoreStatusResponse {
   issues: string[];
 }
 
+export interface SubredditPost {
+  id: string;
+  title: string;
+  content: string;
+  upvotes: number;
+  created_at: string;
+  updated_at: string;
+  revision: number;
+}
+
+export interface SubredditRepo {
+  name: string;
+  slug: string;
+  posts: SubredditPost[];
+}
+
 export interface SubredditResponse {
-  content?: string;
-  generated_at?: string;
-  next_generation_at?: string;
-  hours?: number;
-  commit_count?: number;
   enabled: boolean;
+  repos?: SubredditRepo[];
+  next_generation_at?: string;
 }
 
 export type RemoteAccessStatus = {

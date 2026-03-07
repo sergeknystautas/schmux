@@ -1232,6 +1232,7 @@ describe('MockTerminalWebSocket protocol compatibility', () => {
     // Open the socket and start playback
     vi.advanceTimersByTime(50);
     mockWS.startPlayback({
+      sessionId: 'test-session',
       frames: [
         { delay: 0, data: 'hello world' },
         { delay: 10, data: 'second frame' },
@@ -1278,6 +1279,7 @@ describe('MockTerminalWebSocket protocol compatibility', () => {
 
     vi.advanceTimersByTime(50);
     mockWS.startPlayback({
+      sessionId: 'test-session',
       frames: [
         { delay: 0, data: 'bootstrap content' },
         { delay: 10, data: 'live content' },
@@ -1321,6 +1323,7 @@ describe('MockTerminalWebSocket protocol compatibility', () => {
 
     vi.advanceTimersByTime(50);
     mockWS.startPlayback({
+      sessionId: 'test-session',
       frames: [{ delay: 0, data: 'ABCDEFGHIJKLMNOP' }], // 16 chars — longer than 8-byte header
     });
     vi.advanceTimersByTime(50);
