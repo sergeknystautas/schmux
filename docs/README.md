@@ -41,7 +41,8 @@ When modifying a subsystem, read its guide first. The guide tells you which file
 | [personas.md](personas.md)           | Persona YAML files, built-ins, prompt delivery                   |
 | [telemetry.md](telemetry.md)         | PostHog telemetry, IO workspace telemetry                        |
 | [preview.md](preview.md)             | Preview proxy lifecycle, auto-detection, port allocation         |
-| [subreddit.md](subreddit.md)         | Subreddit digest generation                                      |
+| [subreddit.md](subreddit.md)         | Subreddit news feed (per-repo posts, upvotes)                    |
+| [emergence.md](emergence.md)         | Emergence system (skill discovery, injection, spawn entries)     |
 
 ### Frontend
 
