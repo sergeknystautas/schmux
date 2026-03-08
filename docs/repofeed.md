@@ -1,0 +1,44 @@
+# Repofeed
+
+## What it does
+
+Cross-developer intent federation — publishes what you're working on and surfaces what others are doing, organized by repository. Uses a git orphan branch (`dev-repofeed`) as the transport mechanism, requiring no new infrastructure beyond the shared git remote.
+
+## Key files
+
+| File                                                 | Purpose                                                     |
+| ---------------------------------------------------- | ----------------------------------------------------------- |
+| `internal/repofeed/types.go`                         | Core types: `DeveloperFile`, `Activity`, `ActivityStatus`   |
+| `internal/repofeed/git.go`                           | Git plumbing: read/write orphan branch without working dirs |
+| `internal/repofeed/publisher.go`                     | `EventHandler` impl — tracks sessions → activities          |
+| `internal/repofeed/consumer.go`                      | Fetches remote dev files, merges, filters own email         |
+| `internal/dashboard/handlers_repofeed.go`            | `GET /api/repofeed`, `GET /api/repofeed/{slug}`, broadcast  |
+| `internal/daemon/daemon.go`                          | Wiring: creates publisher/consumer, starts fetch loop       |
+| `cmd/schmux/repofeed.go`                             | CLI: `schmux repofeed [--repo] [--json]`                    |
+| `assets/dashboard/src/routes/RepofeedPage.tsx`       | Dashboard page with repo tabs, filters, intent cards        |
+| `assets/dashboard/src/routes/config/RepofeedTab.tsx` | Config tab: enable, timing, per-repo toggles                |
+
+## Architecture decisions
+
+- **Git as transport, not a service.** Intent data is pushed to a `dev-repofeed` orphan branch on the shared remote. Each developer owns one file (named by SHA256 of email). No two developers write the same file, so merge conflicts are structurally impossible.
+- **Own intents filtered on the consumer side.** The consumer checks `OwnEmail` and excludes your own entries — you don't need to see your own activity fed back to you.
+- **Git plumbing, not porcelain.** The `GitOps` struct uses `hash-object`, `update-index`, `write-tree`, `commit-tree`, `update-ref` to write directly to the orphan branch without ever touching a working directory or checkout.
+- **Publisher as EventHandler.** The publisher implements the `events.EventHandler` interface and is registered in the daemon event pipeline. It listens for `status` events (spawn/completed) to track activity.
+- **Subreddit data not yet merged.** The API response includes a `landed` array field for subreddit post data, but it is currently always empty. The infrastructure is in place for a future merge of intent + landed data into a unified feed.
+
+## Gotchas
+
+- **Temp index file must not exist.** `GitOps.WriteDevFile` creates a temp file for `GIT_INDEX_FILE`, then immediately deletes it so git can create a fresh index. If the 0-byte file exists, git errors with "index file smaller than expected".
+- **`RepoSlug()` exists in three places.** `repofeed.RepoSlug()` (Go, exported), `dashboard.repoSlug()` (Go, unexported in handlers_subreddit.go), and `repoSlug()` (TypeScript, in RepofeedTab.tsx). They must produce identical output for config repo toggles to work.
+- **`TOTAL_STEPS` in ConfigPage.tsx.** When adding a new config tab, you must bump `TOTAL_STEPS` — it controls how many tab buttons are rendered. Missing this causes tabs after the new one to be invisible.
+- **No publish loop yet.** The publisher tracks session activity in memory but does not have a goroutine to periodically write and push to the orphan branch. The git write/push infrastructure (`WriteDevFile`, `PushToRemote`) exists but is not wired into a daemon loop.
+- **No LLM summarization yet.** The design spec calls for LLM-based prompt summarization for long prompts. The current publisher stores intents verbatim from event data.
+- **`FetchFromRemote` silently fails.** If the `dev-repofeed` branch doesn't exist on the remote yet (no one has published), the fetch fails gracefully with a debug log. The consumer continues with an empty file list.
+
+## Common modification patterns
+
+- **To add the publish loop:** Create a `startRepofeedPublisher` goroutine in `daemon.go` (modeled after `startRepofeedConsumer`). On each tick, call `publisher.GetCurrentState()` to get the `DeveloperFile`, then `gitOps.WriteDevFile(email, file)` and `gitOps.PushToRemote("origin")` for each enabled repo.
+- **To merge subreddit data into the landed field:** In `handleRepofeedRepo`, read subreddit posts from the subreddit cache directory and populate the `Landed` array in the response.
+- **To add LLM summarization:** In `publisher.HandleEvent`, when the intent text exceeds ~100 chars, call `oneshot.ExecuteTarget()` with a summarization prompt before storing the intent.
+- **To change timing defaults:** Edit the getter functions in `internal/config/config.go` (`GetRepofeedPublishInterval`, `GetRepofeedFetchInterval`, `GetRepofeedCompletedRetention`).
+- **To add the sidebar unread badge:** In `ToolsSection.tsx`, add a `badge` prop to the Repofeed nav item, tracking new entries via localStorage (same pattern as lore/overlays badges).

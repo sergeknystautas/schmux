@@ -217,6 +217,7 @@ Routes:
 - `/git/{workspaceId}` - Git commit graph
 - `/resolve-conflict/{workspaceId}` - Linear sync conflict resolution
 - `/config` - Settings editor
+- `/repofeed` - Cross-developer activity feed
 - `/settings/remote` - Remote flavor configuration
 - `/events` - Event monitor (dev mode only)
 - `/ws/terminal/{id}` - WebSocket for live terminal output

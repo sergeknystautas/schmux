@@ -29,6 +29,7 @@ You are the floor manager for this schmux instance. You orchestrate work across 
 - %[1]s capture <session-id> [--lines N] — read recent terminal output (default: 50 lines)
 - %[1]s inspect <workspace-id> — full VCS state report (branch, ahead/behind, commits, uncommitted)
 - %[1]s branches — bird's-eye view of all workspaces with VCS state and session states
+- %[1]s repofeed [--repo <slug>] [--json] — see what other developers are working on across repos
 
 ## Signal Handling
 
@@ -84,6 +85,7 @@ func GenerateSettings(schmuxBin string) string {
 				fmt.Sprintf("Bash(%s capture*)", schmuxBin),
 				fmt.Sprintf("Bash(%s inspect*)", schmuxBin),
 				fmt.Sprintf("Bash(%s branches*)", schmuxBin),
+				fmt.Sprintf("Bash(%s repofeed*)", schmuxBin),
 				"Bash(cat memory.md)",
 				"Bash(echo * > memory.md)",
 				"Bash(printf * > memory.md)",

@@ -41,6 +41,7 @@ type SessionsContextValue = {
   clearPendingNavigation: () => void;
   curatorEvents: Record<string, CuratorStreamEvent[]>;
   subredditUpdateCount: number;
+  repofeedUpdateCount: number;
 };
 
 const SessionsContext = createContext<SessionsContextValue | null>(null);
@@ -65,6 +66,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     monitorEvents,
     clearMonitorEvents,
     subredditUpdateCount,
+    repofeedUpdateCount,
   } = useSessionsWebSocket({
     onPreviewDetected: (workspaceId, previewId) => {
       setPendingNavigationState({ type: 'preview', workspaceId, previewId });
@@ -316,6 +318,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       clearPendingNavigation,
       curatorEvents,
       subredditUpdateCount,
+      repofeedUpdateCount,
     }),
     [
       workspaces,
@@ -329,6 +332,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       clearPendingNavigation,
       curatorEvents,
       subredditUpdateCount,
+      repofeedUpdateCount,
     ]
   );
 

@@ -19,6 +19,7 @@ import {
   linearSyncFromMain,
   getGitGraph,
   getSubreddit,
+  getRepofeedList,
 } from '../lib/api';
 import { navigateToWorkspace, usePendingNavigation } from '../lib/navigation';
 import { useFloorManager } from '../hooks/useFloorManager';
@@ -29,6 +30,7 @@ import type {
   PullRequest,
   OverlayInfo,
   SubredditResponse,
+  RepofeedListResponse,
 } from '../lib/types';
 import { ArrowDownIcon, ArrowUpIcon } from '../components/Icons';
 import ReactMarkdown from 'react-markdown';
@@ -252,7 +254,13 @@ const arrowUp = (
 
 export default function HomePage() {
   useRequireConfig();
-  const { workspaces, loading: sessionsLoading, connected, subredditUpdateCount } = useSessions();
+  const {
+    workspaces,
+    loading: sessionsLoading,
+    connected,
+    subredditUpdateCount,
+    repofeedUpdateCount,
+  } = useSessions();
   const { config, loading: configLoading, getRepoName } = useConfig();
   const { success, error: toastError } = useToast();
   const { alert } = useModal();
@@ -274,6 +282,7 @@ export default function HomePage() {
   const [overlays, setOverlays] = useState<OverlayInfo[]>([]);
   const [dismissedNudges, setDismissedNudges] = useState<Set<string>>(new Set());
   const [subreddit, setSubreddit] = useState<SubredditResponse | null>(null);
+  const [repofeedList, setRepofeedList] = useState<RepofeedListResponse | null>(null);
   const [activeRepoTab, setActiveRepoTab] = useState<string>('');
   const activeRepo =
     subreddit?.repos?.find((r) => r.slug === activeRepoTab) ?? subreddit?.repos?.[0] ?? null;
@@ -318,6 +327,13 @@ export default function HomePage() {
       }
     })();
   }, [subredditUpdateCount]);
+
+  // Fetch repofeed list (on mount + when WebSocket signals an update)
+  useEffect(() => {
+    getRepofeedList()
+      .then(setRepofeedList)
+      .catch(() => {});
+  }, [repofeedUpdateCount]);
 
   const handleDismissNudge = async (repoName: string) => {
     setDismissedNudges((prev) => new Set(prev).add(repoName));
@@ -666,6 +682,36 @@ export default function HomePage() {
             </div>
           )}
           {sidebarContent}
+
+          {/* Repofeed Summary */}
+          {repofeedList && repofeedList.repos.length > 0 && (
+            <div className={styles.sectionCard}>
+              <div className={styles.sectionHeader}>
+                <h2 className={styles.sectionTitle}>
+                  <span style={{ fontSize: '1.1em' }}>📡</span>
+                  Also Active
+                </h2>
+                <Link to="/repofeed" className={styles.sectionLink}>
+                  View full repofeed →
+                </Link>
+              </div>
+              <div className={styles.sectionContent}>
+                {repofeedList.repos.map((repo) => (
+                  <div
+                    key={repo.slug}
+                    style={{
+                      fontSize: '0.875rem',
+                      color: 'var(--text-secondary)',
+                      padding: '0.25rem 0',
+                    }}
+                  >
+                    <strong>{repo.name}</strong>: {repo.active_intents} developer
+                    {repo.active_intents !== 1 ? 's' : ''} working
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Subreddit Digest */}
           {subreddit?.enabled && (

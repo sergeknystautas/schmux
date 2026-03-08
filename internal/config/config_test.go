@@ -2758,3 +2758,51 @@ func TestBuiltinSkillsConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestRepofeedConfigDefaults(t *testing.T) {
+	cfg := &Config{}
+
+	if cfg.GetRepofeedEnabled() {
+		t.Error("repofeed should be disabled by default")
+	}
+	if cfg.GetRepofeedPublishInterval() != 30 {
+		t.Errorf("publish interval: got %d, want 30", cfg.GetRepofeedPublishInterval())
+	}
+	if cfg.GetRepofeedFetchInterval() != 60 {
+		t.Errorf("fetch interval: got %d, want 60", cfg.GetRepofeedFetchInterval())
+	}
+	if cfg.GetRepofeedCompletedRetention() != 48 {
+		t.Errorf("completed retention: got %d, want 48", cfg.GetRepofeedCompletedRetention())
+	}
+	if !cfg.GetRepofeedRepoEnabled("anything") {
+		t.Error("repos should be enabled by default")
+	}
+}
+
+func TestRepofeedConfigWithValues(t *testing.T) {
+	cfg := &Config{
+		Repofeed: &RepofeedConfig{
+			Enabled:                 true,
+			PublishIntervalSeconds:  15,
+			FetchIntervalSeconds:    30,
+			CompletedRetentionHours: 24,
+			Repos:                   map[string]bool{"schmux": true, "other": false},
+		},
+	}
+
+	if !cfg.GetRepofeedEnabled() {
+		t.Error("repofeed should be enabled")
+	}
+	if cfg.GetRepofeedPublishInterval() != 15 {
+		t.Errorf("publish interval: got %d, want 15", cfg.GetRepofeedPublishInterval())
+	}
+	if cfg.GetRepofeedRepoEnabled("schmux") != true {
+		t.Error("schmux should be enabled")
+	}
+	if cfg.GetRepofeedRepoEnabled("other") != false {
+		t.Error("other should be disabled")
+	}
+	if cfg.GetRepofeedRepoEnabled("unknown") != true {
+		t.Error("unknown repos should default to enabled")
+	}
+}

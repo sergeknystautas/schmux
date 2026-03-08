@@ -39,6 +39,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/remote"
+	"github.com/sergeknystautas/schmux/internal/repofeed"
 	"github.com/sergeknystautas/schmux/internal/schema"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -1177,6 +1178,27 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	subredditDir := filepath.Join(homeDir, ".schmux", "subreddit")
 	go startSubredditHourlyGenerator(d.shutdownCtx, cfg, subredditDir, server, subredditLog)
 
+	// Start repofeed intent publisher and consumer
+	repofeedLog := logging.Sub(logger, "repofeed")
+	devEmail := getGitConfigValue("user.email")
+	devName := getGitConfigValue("user.name")
+	repofeedPublisher := repofeed.NewPublisher(repofeed.PublisherConfig{
+		DeveloperEmail: devEmail,
+		DisplayName:    devName,
+	})
+	repofeedConsumer := repofeed.NewConsumer(repofeed.ConsumerConfig{
+		OwnEmail: devEmail,
+	})
+	server.SetRepofeedPublisher(repofeedPublisher)
+	server.SetRepofeedConsumer(repofeedConsumer)
+
+	if cfg.GetRepofeedEnabled() {
+		eventHandlers["status"] = append(eventHandlers["status"], repofeedPublisher)
+		sm.SetEventHandlers(eventHandlers)
+		repofeedLog.Info("repofeed publisher registered", "email", devEmail)
+	}
+	go startRepofeedConsumer(d.shutdownCtx, cfg, repofeedConsumer, server, repofeedLog)
+
 	// One-time migration: delete old subreddit.json file
 	oldCachePath := filepath.Join(homeDir, ".schmux", "subreddit.json")
 	if _, err := os.Stat(oldCachePath); err == nil {
@@ -1437,6 +1459,66 @@ func generateSubredditPosts(ctx context.Context, server *dashboard.Server, logge
 	if err := server.GenerateSubredditForAllRepos(ctx); err != nil {
 		logger.Error("subreddit generation failed", "err", err)
 	}
+}
+
+// startRepofeedConsumer starts the background fetch loop for repofeed data.
+func startRepofeedConsumer(ctx context.Context, cfg *config.Config, consumer *repofeed.Consumer, server *dashboard.Server, logger *log.Logger) {
+	if !cfg.GetRepofeedEnabled() {
+		logger.Info("repofeed consumer disabled")
+		return
+	}
+
+	interval := time.Duration(cfg.GetRepofeedFetchInterval()) * time.Second
+	logger.Info("repofeed consumer started", "interval", interval)
+
+	timer := time.NewTimer(30 * time.Second) // initial delay
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-timer.C:
+			logger.Info("repofeed consumer tick")
+
+			var allFiles []*repofeed.DeveloperFile
+			for _, repo := range cfg.GetRepos() {
+				slug := repofeed.RepoSlug(repo.Name)
+				if !cfg.GetRepofeedRepoEnabled(slug) {
+					continue
+				}
+				bareDir := cfg.ResolveBareRepoDir(repo.BarePath)
+				if bareDir == "" {
+					continue
+				}
+				gitOps := &repofeed.GitOps{BareDir: bareDir, Branch: "dev-repofeed"}
+
+				if err := gitOps.FetchFromRemote("origin"); err != nil {
+					logger.Debug("repofeed fetch failed (branch may not exist yet)", "repo", repo.Name, "err", err)
+				}
+
+				files, err := gitOps.ReadAllDevFiles()
+				if err != nil {
+					logger.Debug("repofeed read failed", "repo", repo.Name, "err", err)
+					continue
+				}
+				allFiles = append(allFiles, files...)
+			}
+
+			consumer.UpdateFromFiles(allFiles)
+			server.BroadcastRepofeed()
+			timer.Reset(interval)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// getGitConfigValue reads a global git config value.
+func getGitConfigValue(key string) string {
+	out, err := exec.Command("git", "config", "--global", key).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // validateSessionAccess checks for user mismatch between daemon and tmux server.

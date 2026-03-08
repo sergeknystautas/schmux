@@ -142,6 +142,7 @@ type ConfigResponse struct {
 	Notifications              Notifications         `json:"notifications"`
 	Lore                       Lore                  `json:"lore"`
 	Subreddit                  Subreddit             `json:"subreddit"`
+	Repofeed                   Repofeed              `json:"repofeed"`
 	FloorManager               FloorManager          `json:"floor_manager"`
 	RemoteAccess               RemoteAccess          `json:"remote_access"`
 	SystemCapabilities         SystemCapabilities    `json:"system_capabilities"`
@@ -273,6 +274,7 @@ type ConfigUpdateRequest struct {
 	Notifications              *NotificationsUpdate        `json:"notifications,omitempty"`
 	Lore                       *LoreUpdate                 `json:"lore,omitempty"`
 	Subreddit                  *SubredditUpdate            `json:"subreddit,omitempty"`
+	Repofeed                   *RepofeedUpdate             `json:"repofeed,omitempty"`
 	FloorManager               *FloorManagerUpdate         `json:"floor_manager,omitempty"`
 	RemoteAccess               *RemoteAccessUpdate         `json:"remote_access,omitempty"`
 	EnabledModels              *map[string]string          `json:"enabled_models,omitempty"`
@@ -335,6 +337,24 @@ type SubredditUpdate struct {
 	MaxPosts      *int            `json:"max_posts,omitempty"`
 	MaxAge        *int            `json:"max_age,omitempty"`
 	Repos         map[string]bool `json:"repos,omitempty"`
+}
+
+// Repofeed represents repofeed configuration in the API response.
+type Repofeed struct {
+	Enabled                 bool            `json:"enabled"`
+	PublishIntervalSeconds  int             `json:"publish_interval_seconds"`
+	FetchIntervalSeconds    int             `json:"fetch_interval_seconds"`
+	CompletedRetentionHours int             `json:"completed_retention_hours"`
+	Repos                   map[string]bool `json:"repos"`
+}
+
+// RepofeedUpdate represents partial repofeed config updates.
+type RepofeedUpdate struct {
+	Enabled                 *bool           `json:"enabled,omitempty"`
+	PublishIntervalSeconds  *int            `json:"publish_interval_seconds,omitempty"`
+	FetchIntervalSeconds    *int            `json:"fetch_interval_seconds,omitempty"`
+	CompletedRetentionHours *int            `json:"completed_retention_hours,omitempty"`
+	Repos                   map[string]bool `json:"repos,omitempty"`
 }
 
 // FloorManager represents floor manager configuration in the API response.

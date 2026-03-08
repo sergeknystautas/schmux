@@ -26,12 +26,13 @@ import CodeReviewTab from './config/CodeReviewTab';
 import FloorManagerTab from './config/FloorManagerTab';
 import AccessTab from './config/AccessTab';
 import SubredditTab from './config/SubredditTab';
+import RepofeedTab from './config/RepofeedTab';
 import AdvancedTab from './config/AdvancedTab';
 import ConfigModals from './config/ConfigModals';
 import type { ConfigResponse, ConfigUpdateRequest, Model, RunTargetResponse } from '../lib/types';
 import type { Persona } from '../lib/types.generated';
 
-const TOTAL_STEPS = 8;
+const TOTAL_STEPS = 9;
 const TABS = [
   'Workspaces',
   'Sessions',
@@ -40,6 +41,7 @@ const TABS = [
   'Floor Manager',
   'Access',
   'Subreddit',
+  'Repofeed',
   'Advanced',
 ];
 const TAB_SLUGS = [
@@ -50,6 +52,7 @@ const TAB_SLUGS = [
   'floormanager',
   'access',
   'subreddit',
+  'repofeed',
   'advanced',
 ];
 
@@ -169,6 +172,11 @@ export default function ConfigPage() {
             subredditMaxPosts: data.subreddit?.max_posts || 30,
             subredditMaxAge: data.subreddit?.max_age || 14,
             subredditRepos: data.subreddit?.repos || {},
+            repofeedEnabled: data.repofeed?.enabled || false,
+            repofeedPublishInterval: data.repofeed?.publish_interval_seconds || 30,
+            repofeedFetchInterval: data.repofeed?.fetch_interval_seconds || 60,
+            repofeedCompletedRetention: data.repofeed?.completed_retention_hours || 48,
+            repofeedRepos: data.repofeed?.repos || {},
             remoteAccessEnabled: data.remote_access?.enabled || false,
             remoteAccessTimeoutMinutes: data.remote_access?.timeout_minutes || 0,
             remoteAccessNtfyTopic: data.remote_access?.notify?.ntfy_topic || '',
@@ -234,6 +242,11 @@ export default function ConfigPage() {
             subredditMaxPosts: data.subreddit?.max_posts || 30,
             subredditMaxAge: data.subreddit?.max_age || 14,
             subredditRepos: data.subreddit?.repos || {},
+            repofeedEnabled: data.repofeed?.enabled || false,
+            repofeedPublishInterval: data.repofeed?.publish_interval_seconds || 30,
+            repofeedFetchInterval: data.repofeed?.fetch_interval_seconds || 60,
+            repofeedCompletedRetention: data.repofeed?.completed_retention_hours || 48,
+            repofeedRepos: data.repofeed?.repos || {},
             remoteAccessEnabled: data.remote_access?.enabled || false,
             remoteAccessTimeoutMinutes: data.remote_access?.timeout_minutes || 0,
             remoteAccessNtfyTopic: data.remote_access?.notify?.ntfy_topic || '',
@@ -593,6 +606,13 @@ export default function ConfigPage() {
           max_posts: state.subredditMaxPosts,
           max_age: state.subredditMaxAge,
           repos: state.subredditRepos,
+        },
+        repofeed: {
+          enabled: state.repofeedEnabled,
+          publish_interval_seconds: state.repofeedPublishInterval,
+          fetch_interval_seconds: state.repofeedFetchInterval,
+          completed_retention_hours: state.repofeedCompletedRetention,
+          repos: state.repofeedRepos,
         },
         enabled_models: state.enabledModels,
         remote_access: {
@@ -1343,6 +1363,18 @@ export default function ConfigPage() {
           )}
 
           {currentTab === 8 && (
+            <RepofeedTab
+              repofeedEnabled={state.repofeedEnabled}
+              repofeedPublishInterval={state.repofeedPublishInterval}
+              repofeedFetchInterval={state.repofeedFetchInterval}
+              repofeedCompletedRetention={state.repofeedCompletedRetention}
+              repofeedRepos={state.repofeedRepos}
+              repos={state.repos}
+              dispatch={dispatch}
+            />
+          )}
+
+          {currentTab === 9 && (
             <AdvancedTab
               loreEnabled={state.loreEnabled}
               loreLLMTarget={state.loreLLMTarget}

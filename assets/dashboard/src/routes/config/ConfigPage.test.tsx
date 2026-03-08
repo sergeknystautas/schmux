@@ -101,6 +101,13 @@ const configFixture: ConfigResponse = {
     max_age: 14,
     repos: {},
   },
+  repofeed: {
+    enabled: false,
+    publish_interval_seconds: 30,
+    fetch_interval_seconds: 60,
+    completed_retention_hours: 48,
+    repos: {},
+  },
   floor_manager: { enabled: false, target: '', rotation_threshold: 150, debounce_ms: 2000 },
   remote_access: {
     enabled: false,
@@ -384,15 +391,15 @@ describe('ConfigPage', () => {
       renderConfigPage();
       await waitForWizardLoaded();
 
-      // Advance through all 7 intermediate steps to reach step 8
-      for (let i = 0; i < 7; i++) {
+      // Advance through all 8 intermediate steps to reach step 9
+      for (let i = 0; i < 8; i++) {
         await userEvent.click(screen.getByRole('button', { name: /Next/ }));
         await waitFor(() => {
           expect(mockUpdateConfig).toHaveBeenCalledTimes(i + 1);
         });
       }
 
-      // On step 8, the button should say "Finish Setup"
+      // On step 9, the button should say "Finish Setup"
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Finish Setup/ })).toBeInTheDocument();
       });
@@ -402,8 +409,8 @@ describe('ConfigPage', () => {
       renderConfigPage();
       await waitForWizardLoaded();
 
-      // Advance to step 8
-      for (let i = 0; i < 7; i++) {
+      // Advance to step 9
+      for (let i = 0; i < 8; i++) {
         await userEvent.click(screen.getByRole('button', { name: /Next/ }));
         await waitFor(() => {
           expect(mockUpdateConfig).toHaveBeenCalledTimes(i + 1);
@@ -414,7 +421,7 @@ describe('ConfigPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /Finish Setup/ }));
 
       await waitFor(() => {
-        expect(mockUpdateConfig).toHaveBeenCalledTimes(8);
+        expect(mockUpdateConfig).toHaveBeenCalledTimes(9);
       });
 
       // completeFirstRun should have been called

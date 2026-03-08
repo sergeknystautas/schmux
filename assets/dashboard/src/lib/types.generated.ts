@@ -53,6 +53,7 @@ export interface ConfigResponse {
   notifications: Notifications;
   lore: Lore;
   subreddit: Subreddit;
+  repofeed: Repofeed;
   floor_manager: FloorManager;
   remote_access: RemoteAccess;
   system_capabilities: SystemCapabilities;
@@ -81,6 +82,7 @@ export interface ConfigUpdateRequest {
   notifications?: NotificationsUpdate;
   lore?: LoreUpdate;
   subreddit?: SubredditUpdate;
+  repofeed?: RepofeedUpdate;
   floor_manager?: FloorManagerUpdate;
   remote_access?: RemoteAccessUpdate;
   enabled_models?: Record<string, string>;
@@ -394,6 +396,22 @@ export interface RepoWithConfig {
   url: string;
   default_branch?: string;
   config?: RepoConfig;
+}
+
+export interface Repofeed {
+  enabled: boolean;
+  publish_interval_seconds: number;
+  fetch_interval_seconds: number;
+  completed_retention_hours: number;
+  repos: Record<string, boolean>;
+}
+
+export interface RepofeedUpdate {
+  enabled?: boolean;
+  publish_interval_seconds?: number;
+  fetch_interval_seconds?: number;
+  completed_retention_hours?: number;
+  repos?: Record<string, boolean>;
 }
 
 export interface RunTarget {

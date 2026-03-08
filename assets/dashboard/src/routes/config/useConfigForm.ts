@@ -51,6 +51,11 @@ export type ConfigSnapshot = {
   subredditMaxPosts: number;
   subredditMaxAge: number;
   subredditRepos: Record<string, boolean>;
+  repofeedEnabled: boolean;
+  repofeedPublishInterval: number;
+  repofeedFetchInterval: number;
+  repofeedCompletedRetention: number;
+  repofeedRepos: Record<string, boolean>;
   remoteAccessEnabled: boolean;
   remoteAccessTimeoutMinutes: number;
   remoteAccessNtfyTopic: string;
@@ -169,6 +174,13 @@ export type ConfigFormState = {
   subredditMaxPosts: number;
   subredditMaxAge: number;
   subredditRepos: Record<string, boolean>;
+
+  // Repofeed
+  repofeedEnabled: boolean;
+  repofeedPublishInterval: number;
+  repofeedFetchInterval: number;
+  repofeedCompletedRetention: number;
+  repofeedRepos: Record<string, boolean>;
 
   // Remote access
   remoteAccessEnabled: boolean;
@@ -319,6 +331,12 @@ export const initialState: ConfigFormState = {
   subredditMaxPosts: 30,
   subredditMaxAge: 14,
   subredditRepos: {},
+
+  repofeedEnabled: false,
+  repofeedPublishInterval: 30,
+  repofeedFetchInterval: 60,
+  repofeedCompletedRetention: 48,
+  repofeedRepos: {},
 
   remoteAccessEnabled: false,
   remoteAccessTimeoutMinutes: 0,
@@ -591,6 +609,11 @@ export function useConfigForm(initialStep: number = 1) {
         state.subredditMaxPosts !== oc.subredditMaxPosts ||
         state.subredditMaxAge !== oc.subredditMaxAge ||
         JSON.stringify(state.subredditRepos) !== JSON.stringify(oc.subredditRepos) ||
+        state.repofeedEnabled !== oc.repofeedEnabled ||
+        state.repofeedPublishInterval !== oc.repofeedPublishInterval ||
+        state.repofeedFetchInterval !== oc.repofeedFetchInterval ||
+        state.repofeedCompletedRetention !== oc.repofeedCompletedRetention ||
+        JSON.stringify(state.repofeedRepos) !== JSON.stringify(oc.repofeedRepos) ||
         state.remoteAccessEnabled !== oc.remoteAccessEnabled ||
         state.remoteAccessTimeoutMinutes !== oc.remoteAccessTimeoutMinutes ||
         state.remoteAccessNtfyTopic !== oc.remoteAccessNtfyTopic ||
@@ -672,6 +695,11 @@ export function useConfigForm(initialStep: number = 1) {
       subredditMaxPosts: state.subredditMaxPosts,
       subredditMaxAge: state.subredditMaxAge,
       subredditRepos: state.subredditRepos,
+      repofeedEnabled: state.repofeedEnabled,
+      repofeedPublishInterval: state.repofeedPublishInterval,
+      repofeedFetchInterval: state.repofeedFetchInterval,
+      repofeedCompletedRetention: state.repofeedCompletedRetention,
+      repofeedRepos: state.repofeedRepos,
       remoteAccessEnabled: state.remoteAccessEnabled,
       remoteAccessTimeoutMinutes: state.remoteAccessTimeoutMinutes,
       remoteAccessNtfyTopic: state.remoteAccessNtfyTopic,

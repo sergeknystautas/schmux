@@ -29,6 +29,7 @@ import PersonasListPage from './routes/PersonasListPage';
 import PersonaCreatePage from './routes/PersonaCreatePage';
 import PersonaEditPage from './routes/PersonaEditPage';
 import EventsPage from './routes/EventsPage';
+import RepofeedPage from './routes/RepofeedPage';
 
 export default function App() {
   const location = useLocation();
@@ -71,6 +72,7 @@ export default function App() {
                         <Route path="/personas/:personaId" element={<PersonaEditPage />} />
                         <Route path="/lore" element={<LorePage />} />
                         <Route path="/events" element={<EventsPage />} />
+                        <Route path="/repofeed" element={<RepofeedPage />} />
                         <Route path="/terminal.html" element={<LegacyTerminalPage />} />
                         <Route path="*" element={<NotFoundPage />} />
                       </Route>
