@@ -101,6 +101,12 @@ type ToolAdapter interface {
 	// before the agent session starts (e.g., writing config files).
 	SetupCommands(workspacePath string) error
 
+	// InjectSkill writes a skill into the agent's native skill location in the workspace.
+	InjectSkill(workspacePath string, skill SkillModule) error
+
+	// RemoveSkill removes a previously injected skill from the workspace.
+	RemoveSkill(workspacePath string, skillName string) error
+
 	// BuildRunnerEnv constructs environment variables for running a model with this tool.
 	BuildRunnerEnv(spec RunnerSpec) map[string]string
 
@@ -111,6 +117,12 @@ type ToolAdapter interface {
 	// Capabilities returns the tool modes this adapter supports.
 	// Valid values: "interactive", "oneshot", "streaming".
 	Capabilities() []string
+}
+
+// SkillModule is the data needed to inject a skill into an agent's native format.
+type SkillModule struct {
+	Name    string // skill name (used for directory/file naming)
+	Content string // full markdown content (frontmatter + body)
 }
 
 // adapters is the registry of all built-in tool adapters.

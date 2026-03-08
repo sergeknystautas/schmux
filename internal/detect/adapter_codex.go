@@ -73,6 +73,10 @@ func (a *CodexAdapter) SpawnEnv(ctx SpawnContext) map[string]string { return nil
 
 func (a *CodexAdapter) SetupCommands(workspacePath string) error { return nil }
 
+func (a *CodexAdapter) InjectSkill(workspacePath string, skill SkillModule) error { return nil }
+
+func (a *CodexAdapter) RemoveSkill(workspacePath string, skillName string) error { return nil }
+
 func (a *CodexAdapter) ModelFlag() string { return "-m" }
 
 func (a *CodexAdapter) Capabilities() []string {

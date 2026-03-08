@@ -1,4 +1,4 @@
-package actions
+package emergence
 
 import (
 	"encoding/json"
@@ -35,7 +35,7 @@ func CollectPromptHistory(workspacePaths []string, maxResults int) []contracts.P
 				continue
 			}
 			eventPath := filepath.Join(eventsDir, entry.Name())
-			collectFromFile(eventPath, seen)
+			collectPromptsFromFile(eventPath, seen)
 		}
 	}
 
@@ -60,8 +60,8 @@ func CollectPromptHistory(workspacePaths []string, maxResults int) []contracts.P
 	return result
 }
 
-// collectFromFile reads a single JSONL event file and adds intents to the seen map.
-func collectFromFile(path string, seen map[string]*promptInfo) {
+// collectPromptsFromFile reads a single JSONL event file and adds intents to the seen map.
+func collectPromptsFromFile(path string, seen map[string]*promptInfo) {
 	eventLines, err := events.ReadEvents(path, func(raw events.RawEvent) bool {
 		return raw.Type == "status"
 	})

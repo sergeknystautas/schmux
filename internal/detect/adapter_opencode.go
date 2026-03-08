@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -165,6 +166,26 @@ func (a *OpencodeAdapter) SpawnEnv(ctx SpawnContext) map[string]string {
 }
 
 func (a *OpencodeAdapter) ModelFlag() string { return "--model" }
+
+func (a *OpencodeAdapter) InjectSkill(workspacePath string, skill SkillModule) error {
+	dir := filepath.Join(workspacePath, ".opencode", "commands")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("create commands dir: %w", err)
+	}
+	path := filepath.Join(dir, "schmux-"+skill.Name+".md")
+	if err := os.WriteFile(path, []byte(skill.Content), 0644); err != nil {
+		return fmt.Errorf("write skill file: %w", err)
+	}
+	return nil
+}
+
+func (a *OpencodeAdapter) RemoveSkill(workspacePath string, skillName string) error {
+	path := filepath.Join(workspacePath, ".opencode", "commands", "schmux-"+skillName+".md")
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove skill file: %w", err)
+	}
+	return nil
+}
 
 func (a *OpencodeAdapter) Capabilities() []string {
 	return []string{"interactive", "oneshot"}

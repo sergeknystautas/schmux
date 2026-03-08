@@ -64,6 +64,10 @@ func (a *GeminiAdapter) SpawnEnv(ctx SpawnContext) map[string]string { return ni
 
 func (a *GeminiAdapter) SetupCommands(workspacePath string) error { return nil }
 
+func (a *GeminiAdapter) InjectSkill(workspacePath string, skill SkillModule) error { return nil }
+
+func (a *GeminiAdapter) RemoveSkill(workspacePath string, skillName string) error { return nil }
+
 func (a *GeminiAdapter) ModelFlag() string { return "--model" }
 
 func (a *GeminiAdapter) Capabilities() []string {

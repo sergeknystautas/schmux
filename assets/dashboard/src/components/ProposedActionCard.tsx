@@ -1,75 +1,68 @@
-import type { Action } from '../lib/types.generated';
+import type { SpawnEntry } from '../lib/types.generated';
 import styles from './ProposedActionCard.module.css';
 
-function ConfidenceDots({ confidence }: { confidence: number }) {
-  const filled = Math.round(confidence * 4);
-  return (
-    <span className={styles.confidenceDots} data-testid="confidence-dots">
-      {[0, 1, 2, 3].map((i) => (
-        <span
-          key={i}
-          className={`${styles.dot} ${i < filled ? styles.dotFilled : ''}`}
-          data-filled={i < filled}
-        />
-      ))}
-    </span>
-  );
+function ProvenanceMarker({ source }: { source: string }) {
+  switch (source) {
+    case 'built-in':
+      return (
+        <span className={styles.provenanceMarker} title="Built-in">
+          &#9632;
+        </span>
+      );
+    case 'emerged':
+      return (
+        <span className={styles.provenanceMarker} title="Emerged">
+          &#9673;
+        </span>
+      );
+    case 'manual':
+      return (
+        <span className={styles.provenanceMarker} title="Manual">
+          &#9675;
+        </span>
+      );
+    default:
+      return null;
+  }
 }
 
 export function ProposedActionCard({
-  action,
+  entry,
   onPin,
   onDismiss,
 }: {
-  action: Action;
-  onPin: (a: Action) => void;
-  onDismiss: (a: Action) => void;
+  entry: SpawnEntry;
+  onPin: (e: SpawnEntry) => void;
+  onDismiss: (e: SpawnEntry) => void;
 }) {
   return (
-    <div className={styles.actionCard} data-testid={`proposed-action-${action.id}`}>
+    <div className={styles.actionCard} data-testid={`proposed-action-${entry.id}`}>
       <div className={styles.actionCardHeader}>
-        <span className={styles.actionBadge} data-state={action.state}>
-          {action.state}
+        <span className={styles.actionBadge} data-state={entry.state}>
+          {entry.state}
         </span>
-        <span className={styles.actionName}>{action.name}</span>
-        <ConfidenceDots confidence={action.confidence} />
+        <span className={styles.actionName}>{entry.name}</span>
+        <ProvenanceMarker source={entry.source} />
       </div>
 
-      {action.template && <div className={styles.actionTemplate}>{action.template}</div>}
+      {entry.prompt && <div className={styles.actionTemplate}>{entry.prompt}</div>}
+      {entry.command && <div className={styles.actionTemplate}>{entry.command}</div>}
 
-      {/* Learned defaults */}
-      {(action.learned_target || action.learned_persona) && (
+      {entry.skill_ref && (
         <div className={styles.learnedDefaults}>
-          {action.learned_target && (
-            <span>
-              <span className={styles.learnedLabel}>target: </span>
-              <span className={styles.learnedValue}>{action.learned_target.value}</span>
-            </span>
-          )}
-          {action.learned_persona && (
-            <span>
-              <span className={styles.learnedLabel}>persona: </span>
-              <span className={styles.learnedValue}>{action.learned_persona.value}</span>
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Evidence count */}
-      {(action.evidence_count ?? 0) > 0 && (
-        <div className={styles.evidenceList}>
-          <span className={styles.evidenceLabel}>
-            Based on {action.evidence_count} similar prompt{action.evidence_count !== 1 ? 's' : ''}
+          <span>
+            <span className={styles.learnedLabel}>skill: </span>
+            <span className={styles.learnedValue}>{entry.skill_ref}</span>
           </span>
         </div>
       )}
 
       {/* Actions */}
       <div className={styles.actionActions}>
-        <button className={styles.dismissButton} onClick={() => onDismiss(action)}>
+        <button className={styles.dismissButton} onClick={() => onDismiss(entry)}>
           Dismiss
         </button>
-        <button className={styles.pinButton} onClick={() => onPin(action)}>
+        <button className={styles.pinButton} onClick={() => onPin(entry)}>
           Pin
         </button>
       </div>
@@ -77,16 +70,14 @@ export function ProposedActionCard({
   );
 }
 
-export function PinnedActionRow({ action }: { action: Action }) {
+export function PinnedActionRow({ entry }: { entry: SpawnEntry }) {
   return (
     <div className={styles.pinnedRow}>
-      <ConfidenceDots confidence={action.confidence} />
-      <span className={styles.pinnedName}>{action.name}</span>
-      <span className={styles.pinnedTemplate}>{action.template || action.command || ''}</span>
+      <ProvenanceMarker source={entry.source} />
+      <span className={styles.pinnedName}>{entry.name}</span>
+      <span className={styles.pinnedTemplate}>{entry.prompt || entry.command || ''}</span>
       <span className={styles.pinnedUseCount}>
-        {(action.use_count ?? 0) > 0
-          ? `${action.use_count} use${action.use_count !== 1 ? 's' : ''}`
-          : ''}
+        {entry.use_count > 0 ? `${entry.use_count} use${entry.use_count !== 1 ? 's' : ''}` : ''}
       </span>
     </div>
   );

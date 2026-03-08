@@ -509,3 +509,55 @@ func TestAgentInstructions_NoLoreWithoutStore(t *testing.T) {
 		t.Error("File should not contain Project Instructions when no store is set")
 	}
 }
+
+func TestEnsureWorkspace_InjectsBuiltinSkills(t *testing.T) {
+	dir := t.TempDir()
+	// Initialize git repo so GitExclude doesn't fail
+	initGitRepo(t, dir)
+
+	e := &Ensurer{}
+	err := e.ensureWorkspace(dir, []string{"claude"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify built-in commit skill was injected for Claude
+	skillPath := filepath.Join(dir, ".claude", "skills", "schmux-commit", "SKILL.md")
+	content, err := os.ReadFile(skillPath)
+	if err != nil {
+		t.Fatalf("built-in skill file not created: %v", err)
+	}
+	if !strings.Contains(string(content), "Definition of Done") {
+		t.Error("commit skill should contain Definition of Done")
+	}
+}
+
+func TestEnsureWorkspace_InjectsBuiltinSkillsOpenCode(t *testing.T) {
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+
+	e := &Ensurer{}
+	err := e.ensureWorkspace(dir, []string{"opencode"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify built-in commit skill was injected for OpenCode
+	skillPath := filepath.Join(dir, ".opencode", "commands", "schmux-commit.md")
+	content, err := os.ReadFile(skillPath)
+	if err != nil {
+		t.Fatalf("built-in skill file not created: %v", err)
+	}
+	if !strings.Contains(string(content), "Definition of Done") {
+		t.Error("commit skill should contain Definition of Done")
+	}
+}
+
+// initGitRepo creates a minimal git repo for tests that need GitExclude.
+func initGitRepo(t *testing.T, dir string) {
+	t.Helper()
+	gitDir := filepath.Join(dir, ".git")
+	if err := os.MkdirAll(filepath.Join(gitDir, "info"), 0755); err != nil {
+		t.Fatal(err)
+	}
+}

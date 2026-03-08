@@ -94,6 +94,7 @@ type Config struct {
 	Models                     *ModelsConfig               `json:"models,omitempty"`
 	Subreddit                  *SubredditConfig            `json:"subreddit,omitempty"`
 	FloorManager               *FloorManagerConfig         `json:"floor_manager,omitempty"`
+	BuiltInSkills              map[string]bool             `json:"built_in_skills,omitempty"`
 
 	// Telemetry settings
 	TelemetryEnabled *bool  `json:"telemetry_enabled,omitempty"` // default true
@@ -786,6 +787,21 @@ func (c *Config) GetWorkspacePath() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.WorkspacePath
+}
+
+// IsBuiltinEnabled returns whether a built-in skill is enabled.
+// Skills are enabled by default unless explicitly disabled in the config.
+func (c *Config) IsBuiltinEnabled(name string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.BuiltInSkills == nil {
+		return true
+	}
+	enabled, exists := c.BuiltInSkills[name]
+	if !exists {
+		return true
+	}
+	return enabled
 }
 
 // GetWorktreeBasePath returns the path for bare clones (worktree base repos).

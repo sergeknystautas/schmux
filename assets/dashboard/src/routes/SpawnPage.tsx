@@ -12,11 +12,10 @@ import SessionTabs from '../components/SessionTabs';
 import PromptTextarea from '../components/PromptTextarea';
 import Tooltip from '../components/Tooltip';
 import RemoteHostSelector, { type EnvironmentSelection } from '../components/RemoteHostSelector';
-import { useActions } from '../hooks/useActions';
-import usePromptHistory from '../hooks/usePromptHistory';
+import { getSpawnEntries, getPromptHistory } from '../lib/emergence-api';
 import type { AutocompleteItem } from '../components/PromptAutocomplete';
 import type { Model, RepoResponse, SpawnResult, SuggestBranchResponse } from '../lib/types';
-import type { Persona } from '../lib/types.generated';
+import type { Persona, SpawnEntry, PromptHistoryEntry } from '../lib/types.generated';
 import { WORKSPACE_EXPANDED_KEY } from '../lib/constants';
 
 // ============================================================================
@@ -192,9 +191,18 @@ export default function SpawnPage() {
   // Derive repo name for autocomplete (lookup by URL)
   const repoName = useMemo(() => repos.find((r) => r.url === repo)?.name || '', [repos, repo]);
 
-  // Autocomplete: load actions and prompt history for the selected repo
-  const { actions: acActions } = useActions(repoName);
-  const { prompts: acHistory } = usePromptHistory(repoName);
+  // Autocomplete: load spawn entries and prompt history for the selected repo
+  const [acEntries, setAcEntries] = useState<SpawnEntry[]>([]);
+  const [acHistory, setAcHistory] = useState<PromptHistoryEntry[]>([]);
+  useEffect(() => {
+    if (!repoName) return;
+    getSpawnEntries(repoName)
+      .then(setAcEntries)
+      .catch(() => {});
+    getPromptHistory(repoName)
+      .then(setAcHistory)
+      .catch(() => {});
+  }, [repoName]);
 
   // handleAutocompleteSelect is defined below after targetCounts/personas state
 
@@ -467,26 +475,23 @@ export default function SpawnPage() {
     engagePhase,
   ]);
 
-  // Handle autocomplete selection: apply learned defaults from actions
+  // Handle autocomplete selection: apply learned defaults from spawn entries
   const handleAutocompleteSelect = useCallback(
     (item: AutocompleteItem) => {
-      if (item.source === 'action' && item.action) {
-        const a = item.action;
-        if (a.target && availableModels.some((m) => m.name === a.target)) {
+      if (item.source === 'spawn-entry' && item.spawnEntry) {
+        const e = item.spawnEntry;
+        if (e.target && availableModels.some((m) => m.name === e.target)) {
           setTargetCounts((prev) => {
             const next = { ...prev };
-            if (!next[a.target!]) {
-              next[a.target!] = 1;
+            if (!next[e.target!]) {
+              next[e.target!] = 1;
             }
             return next;
           });
         }
-        if (a.persona && personas.some((p) => p.id === a.persona)) {
-          setSelectedPersonaId(a.persona);
-        }
       }
     },
-    [availableModels, personas]
+    [availableModels]
   );
 
   const totalPromptableCount = useMemo(() => {
@@ -980,7 +985,7 @@ export default function SpawnPage() {
             onSelectCommand={handleSlashCommandSelect}
             onSubmit={handleEngage}
             data-testid="spawn-prompt"
-            autocompleteActions={acActions}
+            autocompleteEntries={acEntries}
             autocompleteHistory={acHistory}
             onAutocompleteSelect={handleAutocompleteSelect}
           />

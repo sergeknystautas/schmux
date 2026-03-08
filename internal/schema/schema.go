@@ -13,12 +13,13 @@ import (
 
 // Schema labels for registered schemas.
 const (
-	LabelCommitMessage   = "commit-message"
-	LabelConflictResolve = "conflict-resolve"
-	LabelNudgeNik        = "nudgenik"
-	LabelBranchSuggest   = "branch-suggest"
-	LabelLoreCurator     = "lore-curator"
-	LabelSubreddit       = "subreddit"
+	LabelCommitMessage    = "commit-message"
+	LabelConflictResolve  = "conflict-resolve"
+	LabelNudgeNik         = "nudgenik"
+	LabelBranchSuggest    = "branch-suggest"
+	LabelLoreCurator      = "lore-curator"
+	LabelSubreddit        = "subreddit"
+	LabelEmergenceCurator = "emergence-curator"
 )
 
 // schemaEntry holds a type and optional skip fields for schema generation.

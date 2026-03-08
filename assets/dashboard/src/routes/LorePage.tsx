@@ -12,14 +12,11 @@ import {
   clearLoreEntries,
   getLoreCurations,
   getLoreCurationLog,
-  getActions,
-  getProposedActions,
-  pinAction,
-  dismissAction,
   getErrorMessage,
 } from '../lib/api';
+import { getAllSpawnEntries, pinSpawnEntry, dismissSpawnEntry } from '../lib/emergence-api';
 import type { CurationRunInfo } from '../lib/api';
-import type { Action } from '../lib/types.generated';
+import type { SpawnEntry } from '../lib/types.generated';
 import { useConfig } from '../contexts/ConfigContext';
 import { useCuration } from '../contexts/CurationContext';
 import { useToast } from '../components/ToastProvider';
@@ -27,6 +24,7 @@ import { useModal } from '../components/ModalProvider';
 import useTheme from '../hooks/useTheme';
 import CuratorTerminal from '../components/CuratorTerminal';
 import { ProposedActionCard, PinnedActionRow } from '../components/ProposedActionCard';
+import CreateActionForm from '../components/CreateActionForm';
 import type {
   LoreProposal,
   LoreEntry,
@@ -564,8 +562,9 @@ export default function LorePage() {
   });
 
   // Actions tab state
-  const [proposedActions, setProposedActions] = useState<Action[]>([]);
-  const [pinnedActions, setPinnedActions] = useState<Action[]>([]);
+  const [proposedActions, setProposedActions] = useState<SpawnEntry[]>([]);
+  const [pinnedActions, setPinnedActions] = useState<SpawnEntry[]>([]);
+  const [showCreateForm, setShowCreateForm] = useState(() => searchParams.get('create') === '1');
 
   // Sync activeRepo when repos list changes (e.g., config loaded after mount)
   useEffect(() => {
@@ -627,12 +626,9 @@ export default function LorePage() {
   const loadActions = useCallback(async () => {
     if (!activeRepo) return;
     try {
-      const [proposed, all] = await Promise.all([
-        getProposedActions(activeRepo),
-        getActions(activeRepo),
-      ]);
-      setProposedActions(proposed || []);
-      setPinnedActions((all || []).filter((a: Action) => a.state === 'pinned'));
+      const all = await getAllSpawnEntries(activeRepo);
+      setProposedActions((all || []).filter((e: SpawnEntry) => e.state === 'proposed'));
+      setPinnedActions((all || []).filter((e: SpawnEntry) => e.state === 'pinned'));
     } catch {
       // Non-critical
     }
@@ -723,22 +719,22 @@ export default function LorePage() {
     startCuration(activeRepo);
   };
 
-  const handlePinAction = async (action: Action) => {
+  const handlePinAction = async (entry: SpawnEntry) => {
     if (!activeRepo) return;
     try {
-      await pinAction(activeRepo, action.id);
-      toastSuccess(`Pinned "${action.name}"`);
+      await pinSpawnEntry(activeRepo, entry.id);
+      toastSuccess(`Pinned "${entry.name}"`);
       loadActions();
     } catch (err) {
       toastError(getErrorMessage(err, 'Failed to pin action'));
     }
   };
 
-  const handleDismissAction = async (action: Action) => {
+  const handleDismissAction = async (entry: SpawnEntry) => {
     if (!activeRepo) return;
     try {
-      await dismissAction(activeRepo, action.id);
-      toastSuccess(`Dismissed "${action.name}"`);
+      await dismissSpawnEntry(activeRepo, entry.id);
+      toastSuccess(`Dismissed "${entry.name}"`);
       loadActions();
     } catch (err) {
       toastError(getErrorMessage(err, 'Failed to dismiss action'));
@@ -1088,15 +1084,34 @@ export default function LorePage() {
 
         {activeSubTab === 'actions' && (
           <>
+            {showCreateForm ? (
+              <CreateActionForm
+                repo={activeRepo}
+                onCreated={() => {
+                  setShowCreateForm(false);
+                  loadActions();
+                }}
+                onCancel={() => setShowCreateForm(false)}
+              />
+            ) : (
+              <button
+                className={styles.curateButton}
+                onClick={() => setShowCreateForm(true)}
+                style={{ marginLeft: 0, marginBottom: '1rem' }}
+              >
+                + Create action
+              </button>
+            )}
+
             {/* Proposed actions */}
             {proposedActions.length > 0 && (
               <>
                 <div className={styles.actionsSubheading}>Proposed ({proposedActions.length})</div>
                 <div className={styles.actionsList}>
-                  {proposedActions.map((a) => (
+                  {proposedActions.map((e) => (
                     <ProposedActionCard
-                      key={a.id}
-                      action={a}
+                      key={e.id}
+                      entry={e}
                       onPin={handlePinAction}
                       onDismiss={handleDismissAction}
                     />
@@ -1105,7 +1120,7 @@ export default function LorePage() {
               </>
             )}
 
-            {proposedActions.length === 0 && (
+            {proposedActions.length === 0 && !showCreateForm && (
               <div className="empty-state">
                 <p className="empty-state__description">
                   No proposed actions. Actions are generated automatically from agent work sessions.
@@ -1118,8 +1133,8 @@ export default function LorePage() {
               <>
                 <div className={styles.actionsSubheading}>Pinned ({pinnedActions.length})</div>
                 <div>
-                  {pinnedActions.map((a) => (
-                    <PinnedActionRow key={a.id} action={a} />
+                  {pinnedActions.map((e) => (
+                    <PinnedActionRow key={e.id} entry={e} />
                   ))}
                 </div>
               </>

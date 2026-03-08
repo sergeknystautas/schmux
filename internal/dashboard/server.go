@@ -20,11 +20,11 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
-	"github.com/sergeknystautas/schmux/internal/actions"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/assets"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/difftool"
+	"github.com/sergeknystautas/schmux/internal/emergence"
 	"github.com/sergeknystautas/schmux/internal/floormanager"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/logging"
@@ -201,10 +201,9 @@ type Server struct {
 	// Floor manager
 	floorManager *floormanager.Manager
 
-	// Action registries (keyed by repo name)
-	actionRegistries   map[string]*actions.Registry
-	actionRegistriesMu sync.RWMutex
-	actionBaseDir      string // ~/.schmux/actions
+	// Emergence system
+	emergenceStore         *emergence.Store
+	emergenceMetadataStore *emergence.MetadataStore
 
 	// Subreddit next generation time tracking
 	nextSubredditGeneration atomic.Pointer[time.Time]
@@ -355,53 +354,14 @@ func (s *Server) SetLoreInstructionStore(store *lore.InstructionStore) {
 	s.loreInstructionStore = store
 }
 
-// SetActionBaseDir sets the base directory for action registries and initializes the map.
-func (s *Server) SetActionBaseDir(dir string) {
-	s.actionBaseDir = dir
-	s.actionRegistries = make(map[string]*actions.Registry)
+// SetEmergenceStore sets the emergence store for spawn entry management.
+func (s *Server) SetEmergenceStore(store *emergence.Store) {
+	s.emergenceStore = store
 }
 
-// CleanupMigratedActions removes actions that were created by the legacy
-// MigrateQuickLaunchToActions routine. Quick Launch presets are now shown
-// separately in the action dropdown and should not appear as emerged actions.
-func (s *Server) CleanupMigratedActions() {
-	if s.actionBaseDir == "" {
-		return
-	}
-	for _, repo := range s.config.GetRepos() {
-		reg := s.getOrCreateRegistry(repo.Name)
-		count, err := reg.RemoveMigrated()
-		if err != nil {
-			s.logger.Warn("failed to clean up migrated actions", "repo", repo.Name, "err", err)
-		} else if count > 0 {
-			s.logger.Info("cleaned up migrated actions", "repo", repo.Name, "count", count)
-		}
-	}
-}
-
-// getOrCreateRegistry returns (or lazily creates) the action registry for a repo.
-func (s *Server) getOrCreateRegistry(repo string) *actions.Registry {
-	s.actionRegistriesMu.RLock()
-	if reg, ok := s.actionRegistries[repo]; ok {
-		s.actionRegistriesMu.RUnlock()
-		return reg
-	}
-	s.actionRegistriesMu.RUnlock()
-
-	s.actionRegistriesMu.Lock()
-	defer s.actionRegistriesMu.Unlock()
-
-	// Double-check after acquiring write lock.
-	if reg, ok := s.actionRegistries[repo]; ok {
-		return reg
-	}
-
-	reg := actions.NewRegistry(s.actionBaseDir, repo)
-	if err := reg.Load(); err != nil {
-		s.logger.Warn("failed to load action registry", "repo", repo, "err", err)
-	}
-	s.actionRegistries[repo] = reg
-	return reg
+// SetEmergenceMetadataStore sets the emergence metadata store.
+func (s *Server) SetEmergenceMetadataStore(store *emergence.MetadataStore) {
+	s.emergenceMetadataStore = store
 }
 
 // SetLoreExecutor sets the LLM executor for lore curation requests.
@@ -709,17 +669,19 @@ func (s *Server) Start() error {
 				r.Get("/curations/{curationID}/log", s.handleLoreCurationLog)
 			})
 
-			// Action routes
-			r.Route("/actions/{repo}", func(r chi.Router) {
-				r.Use(validateActionRepo)
-				r.Get("/", s.handleListActions)
-				r.Post("/", s.handleCreateAction)
-				r.Get("/proposed", s.handleListProposed)
+			// Emergence routes
+			r.Route("/emergence/{repo}", func(r chi.Router) {
+				r.Use(validateEmergenceRepo)
+				r.Get("/entries", s.handleListSpawnEntries)
+				r.Get("/entries/all", s.handleListAllSpawnEntries)
+				r.Post("/entries", s.handleCreateSpawnEntry)
+				r.Put("/entries/{id}", s.handleUpdateSpawnEntry)
+				r.Delete("/entries/{id}", s.handleDeleteSpawnEntry)
+				r.Post("/entries/{id}/pin", s.handlePinSpawnEntry)
+				r.Post("/entries/{id}/dismiss", s.handleDismissSpawnEntry)
+				r.Post("/entries/{id}/use", s.handleRecordSpawnEntryUse)
 				r.Get("/prompt-history", s.handlePromptHistory)
-				r.Put("/{id}", s.handleUpdateAction)
-				r.Delete("/{id}", s.handleDeleteAction)
-				r.Post("/{id}/pin", s.handlePinAction)
-				r.Post("/{id}/dismiss", s.handleDismissAction)
+				r.Post("/curate", s.handleEmergenceCurate)
 			})
 		})
 

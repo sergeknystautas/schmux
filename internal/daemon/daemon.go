@@ -29,6 +29,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/dashboardsx"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/difftool"
+	"github.com/sergeknystautas/schmux/internal/emergence"
 	"github.com/sergeknystautas/schmux/internal/events"
 	"github.com/sergeknystautas/schmux/internal/floormanager"
 	"github.com/sergeknystautas/schmux/internal/github"
@@ -872,10 +873,33 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		compoundLog.Info("started overlay compounding loop")
 	}
 
-	// Action registry: set up base directory and clean up legacy migrated actions
+	// Emergence system: spawn entries store + metadata store
+	emergenceBaseDir := filepath.Join(homeDir, ".schmux", "emergence")
+	emergenceStore := emergence.NewStore(emergenceBaseDir)
+	emergenceMetadataStore := emergence.NewMetadataStore(emergenceBaseDir)
+	server.SetEmergenceStore(emergenceStore)
+	server.SetEmergenceMetadataStore(emergenceMetadataStore)
+	ensure.SetEmergenceStores(emergenceStore, emergenceMetadataStore)
+	ensure.SetRepoNameResolver(func(repoURL string) (string, bool) {
+		repo, found := cfg.FindRepoByURL(repoURL)
+		return repo.Name, found
+	})
+
+	// One-time migration from old actions registry to emergence store
 	actionBaseDir := filepath.Join(homeDir, ".schmux", "actions")
-	server.SetActionBaseDir(actionBaseDir)
-	server.CleanupMigratedActions()
+	if _, err := os.Stat(actionBaseDir); err == nil {
+		count, migErr := emergence.MigrateFromActions(actionBaseDir, emergenceStore)
+		if migErr != nil {
+			logger.Warn("actions migration failed", "err", migErr)
+		} else if count > 0 {
+			migratedDir := actionBaseDir + ".migrated"
+			if err := os.Rename(actionBaseDir, migratedDir); err != nil {
+				logger.Warn("failed to rename actions dir after migration", "err", err)
+			} else {
+				logger.Info("migrated actions to emergence", "count", count)
+			}
+		}
+	}
 
 	// Lore curation timer — declared at Run() scope so shutdown can clean up
 	var loreCurateTimer *time.Timer
@@ -951,44 +975,14 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 					return
 				}
 
-				repoConfig, found := cfg.FindRepoByURL(repoURL)
+				_, found := cfg.FindRepoByURL(repoURL)
 				if !found {
 					loreLog.Warn("repo not found for URL", "url", repoURL)
 					return
 				}
 
-				// Assemble existing instructions to prevent re-extracting documented rules
-				var existingInstructions string
-				instrStore := lore.NewInstructionStore(loreInstructionsDir)
-				instrFiles := cfg.GetLoreInstructionFiles()
-				var publicContent string
-				if len(instrFiles) > 0 {
-					bareDir := cfg.ResolveBareRepoDir(repoConfig.BarePath)
-					if bareDir != "" {
-						if content, err := lore.ReadFileFromRepo(context.Background(), bareDir, instrFiles[0]); err == nil {
-							publicContent = content
-						}
-					}
-				}
-				existingInstructions = instrStore.Assemble(repoName, publicContent)
-
-				// Collect rule texts from existing non-dismissed proposals to avoid cross-proposal duplication
-				var existingRules []string
-				if proposals, err := loreStore.List(repoName); err == nil {
-					for _, p := range proposals {
-						if p.Status == lore.ProposalDismissed {
-							continue
-						}
-						for _, rule := range p.Rules {
-							if rule.Status != lore.RuleDismissed {
-								existingRules = append(existingRules, rule.Text)
-							}
-						}
-					}
-				}
-
-				// Build extraction prompt with existing context
-				prompt := lore.BuildExtractionPrompt(rawEntries, existingInstructions, existingRules)
+				// Build extraction prompt (phase 1 — no instruction files needed)
+				prompt := lore.BuildExtractionPrompt(rawEntries)
 
 				// Create per-run debug directory
 				curationID := fmt.Sprintf("auto-%s-%s", repoName, time.Now().UTC().Format("20060102-150405"))
@@ -1073,12 +1067,19 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 				}
 				loreLog.Info("auto-curate: proposal created", "repo", repoName, "proposal_id", proposal.ID, "rules", len(proposal.Rules), "elapsed", elapsed.Round(time.Millisecond))
 
-				// Mark all source entries as "proposed" in the central state JSONL
+				// Mark source entries as "proposed" in the central state JSONL
 				if stateErr == nil {
-					if err := lore.MarkEntriesAll(rawEntries, statePath, "proposed", proposal.ID); err != nil {
+					var allSourceTexts []string
+					for _, r := range proposal.Rules {
+						allSourceTexts = append(allSourceTexts, r.SourceEntries...)
+					}
+					if err := lore.MarkEntriesByTextFromEntries(rawEntries, statePath, "proposed", allSourceTexts, proposal.ID); err != nil {
 						loreLog.Warn("failed to mark entries as proposed", "err", err)
 					}
 				}
+
+				// Also trigger emergence curation if the emergence system is initialized
+				server.TriggerEmergenceCuration(repoName)
 			})
 			loreCurateMu.Unlock()
 		})

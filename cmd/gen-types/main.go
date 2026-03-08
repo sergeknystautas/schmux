@@ -36,9 +36,11 @@ func main() {
 		reflect.TypeOf(contracts.PersonaListResponse{}),
 		reflect.TypeOf(contracts.PersonaCreateRequest{}),
 		reflect.TypeOf(contracts.PersonaUpdateRequest{}),
-		reflect.TypeOf(contracts.ActionRegistryResponse{}),
-		reflect.TypeOf(contracts.CreateActionRequest{}),
-		reflect.TypeOf(contracts.UpdateActionRequest{}),
+		reflect.TypeOf(contracts.SpawnEntriesResponse{}),
+		reflect.TypeOf(contracts.CreateSpawnEntryRequest{}),
+		reflect.TypeOf(contracts.UpdateSpawnEntryRequest{}),
+		reflect.TypeOf(contracts.SkillProposal{}),
+		reflect.TypeOf(contracts.EmergenceMetadata{}),
 		reflect.TypeOf(contracts.PromptHistoryResponse{}),
 	}
 

@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import ActionDropdown from './ActionDropdown';
 import type { WorkspaceResponse } from '../lib/types';
-import type { Action } from '../lib/types.generated';
+import type { SpawnEntry } from '../lib/types.generated';
 
 // Track navigations
 const mockNavigate = vi.fn();
@@ -14,12 +14,18 @@ vi.mock('react-router-dom', async () => {
 });
 
 // Mock API
-const mockGetActions = vi.fn().mockResolvedValue([]);
 const mockSpawnSessions = vi.fn();
 vi.mock('../lib/api', () => ({
-  getActions: (...args: unknown[]) => mockGetActions(...args),
   spawnSessions: (...args: unknown[]) => mockSpawnSessions(...args),
   getErrorMessage: (_err: unknown, fallback: string) => fallback,
+}));
+
+// Mock emergence API
+const mockGetSpawnEntries = vi.fn().mockResolvedValue([]);
+const mockRecordSpawnEntryUse = vi.fn().mockResolvedValue(undefined);
+vi.mock('../lib/emergence-api', () => ({
+  getSpawnEntries: (...args: unknown[]) => mockGetSpawnEntries(...args),
+  recordSpawnEntryUse: (...args: unknown[]) => mockRecordSpawnEntryUse(...args),
 }));
 
 // Mock toast
@@ -59,17 +65,14 @@ function makeWorkspace(overrides: Partial<WorkspaceResponse> = {}): WorkspaceRes
   };
 }
 
-function makeAction(overrides: Partial<Action> = {}): Action {
+function makeEntry(overrides: Partial<SpawnEntry> = {}): SpawnEntry {
   return {
-    id: 'act-1',
+    id: 'se-1',
     name: 'Fix lint errors',
-    type: 'agent',
-    scope: 'repo',
+    type: 'skill',
     source: 'emerged',
-    confidence: 0.75,
     state: 'pinned',
-    first_seen: '2025-01-01T00:00:00Z',
-    template: 'Fix lint errors',
+    use_count: 5,
     ...overrides,
   };
 }
@@ -91,7 +94,7 @@ describe('ActionDropdown', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockConfig = {};
-    mockGetActions.mockResolvedValue({ actions: [] });
+    mockGetSpawnEntries.mockResolvedValue([]);
   });
 
   // --- Section structure ---
@@ -162,12 +165,12 @@ describe('ActionDropdown', () => {
     expect(screen.getByText('Custom Agent')).toBeInTheDocument();
   });
 
-  // --- Emerged actions ---
+  // --- Emerged entries ---
 
-  it('renders emerged actions from registry', async () => {
-    mockGetActions.mockResolvedValue([
-      makeAction({ id: 'a1', name: 'Fix lint errors' }),
-      makeAction({ id: 'a2', name: 'Run tests', confidence: 0.5 }),
+  it('renders spawn entries from API', async () => {
+    mockGetSpawnEntries.mockResolvedValue([
+      makeEntry({ id: 'se-1', name: 'Fix lint errors' }),
+      makeEntry({ id: 'se-2', name: 'Run tests', source: 'manual' }),
     ]);
     await renderDropdown();
 
@@ -176,18 +179,18 @@ describe('ActionDropdown', () => {
     expect(screen.queryByText('No emerged actions yet')).not.toBeInTheDocument();
   });
 
-  it('fetches actions using repo_name, not repo URL', async () => {
+  it('fetches entries using repo_name, not repo URL', async () => {
     await renderDropdown(
       makeWorkspace({ repo: 'git@github.com:org/my-repo.git', repo_name: 'my-repo' })
     );
 
-    expect(mockGetActions).toHaveBeenCalledWith('my-repo');
+    expect(mockGetSpawnEntries).toHaveBeenCalledWith('my-repo');
   });
 
   it('falls back to repo when repo_name is missing', async () => {
     await renderDropdown(makeWorkspace({ repo: 'local-repo', repo_name: undefined }));
 
-    expect(mockGetActions).toHaveBeenCalledWith('local-repo');
+    expect(mockGetSpawnEntries).toHaveBeenCalledWith('local-repo');
   });
 
   // --- Navigation ---
@@ -246,10 +249,10 @@ describe('ActionDropdown', () => {
     );
   });
 
-  it('emerged action spawns session with action_id', async () => {
+  it('spawn entry spawns session and records usage', async () => {
     const user = userEvent.setup();
-    mockGetActions.mockResolvedValue([
-      makeAction({ id: 'act-42', name: 'Run tests', template: 'Run all tests' }),
+    mockGetSpawnEntries.mockResolvedValue([
+      makeEntry({ id: 'se-42', name: 'Run tests', type: 'agent', prompt: 'Run all tests' }),
     ]);
     mockSpawnSessions.mockResolvedValue([{ session_id: 's-456' }]);
 
@@ -258,10 +261,22 @@ describe('ActionDropdown', () => {
 
     expect(mockSpawnSessions).toHaveBeenCalledWith(
       expect.objectContaining({
-        action_id: 'act-42',
         prompt: 'Run all tests',
         nickname: 'Run tests',
       })
     );
+    expect(mockRecordSpawnEntryUse).toHaveBeenCalledWith('test-repo', 'se-42');
+  });
+
+  // --- Create action ---
+
+  it('"+ Create action" navigates to lore actions tab', async () => {
+    const user = userEvent.setup();
+    const { onClose } = await renderDropdown();
+
+    await user.click(screen.getByText('+ Create action'));
+
+    expect(onClose).toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/lore?repo=test-repo&tab=actions&create=1');
   });
 });

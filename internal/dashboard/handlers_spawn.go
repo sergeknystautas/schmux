@@ -362,14 +362,23 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	if hasSuccess {
 		go s.BroadcastSessions()
 
-		// Track action usage (non-blocking, best-effort)
-		if s.actionBaseDir != "" && req.Repo != "" {
-			registry := s.getOrCreateRegistry(req.Repo)
-			if req.ActionID != "" {
-				registry.RecordUse(req.ActionID, false)
-			} else if req.Prompt != "" {
-				if matchID, edited := registry.MatchPrompt(req.Prompt); matchID != "" {
-					registry.RecordUse(matchID, edited)
+		// Track spawn entry usage (non-blocking, best-effort)
+		if s.emergenceStore != nil && req.Repo != "" {
+			if repoInfo, found := s.config.FindRepoByURL(req.Repo); found {
+				repoName := repoInfo.Name
+				if req.ActionID != "" {
+					// Explicit action ID from dropdown click
+					s.emergenceStore.RecordUse(repoName, req.ActionID)
+				} else if prompt := strings.TrimSpace(req.Prompt); prompt != "" {
+					// Match prompt against pinned spawn entries
+					if entries, err := s.emergenceStore.List(repoName); err == nil {
+						for _, e := range entries {
+							if e.Prompt != "" && e.Prompt == prompt {
+								s.emergenceStore.RecordUse(repoName, e.ID)
+								break
+							}
+						}
+					}
 				}
 			}
 		}
