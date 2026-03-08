@@ -34,6 +34,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/persona"
 	"github.com/sergeknystautas/schmux/internal/preview"
 	"github.com/sergeknystautas/schmux/internal/remote"
+	"github.com/sergeknystautas/schmux/internal/repofeed"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
@@ -207,6 +208,10 @@ type Server struct {
 
 	// Subreddit next generation time tracking
 	nextSubredditGeneration atomic.Pointer[time.Time]
+
+	// Repofeed publisher and consumer
+	repofeedPublisher *repofeed.Publisher
+	repofeedConsumer  *repofeed.Consumer
 }
 
 // dsxProvisionStatus tracks the progress of dashboard.sx cert provisioning.
@@ -532,6 +537,8 @@ func (s *Server) Start() error {
 		r.Get("/hasNudgenik", s.handleHasNudgenik)
 		r.Get("/askNudgenik/*", s.handleAskNudgenik)
 		r.Get("/subreddit", s.handleSubreddit)
+		r.Get("/repofeed", s.handleRepofeedList)
+		r.Get("/repofeed/{slug}", s.handleRepofeedRepo)
 		r.Get("/floor-manager", s.handleGetFloorManager)
 		r.Get("/remote/hosts", s.handleRemoteHosts)
 		r.Get("/remote/hosts/connect/stream", s.handleRemoteConnectStream)

@@ -235,6 +235,14 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "repofeed":
+		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		cmd := NewRepofeedCommand(client)
+		if err := cmd.Run(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", command)
 		printUsage()
@@ -263,6 +271,7 @@ func printUsage() {
 	fmt.Println("  events          Show session event history")
 	fmt.Println("  capture         Capture terminal output from a session")
 	fmt.Println("  branches        Show all workspaces with VCS state")
+	fmt.Println("  repofeed        Show developer activity feed across repos")
 	fmt.Println("  end-shift       Signal floor manager shift rotation complete")
 	fmt.Println()
 	fmt.Println("Workspace Commands:")

@@ -567,3 +567,35 @@ export type MonitorEvent = {
     text?: string;
   };
 };
+
+// Repofeed types
+export interface RepofeedIntentEntry {
+  developer: string;
+  display_name: string;
+  intent: string;
+  status: 'active' | 'inactive' | 'completed';
+  started: string;
+  branches: string[];
+  session_count: number;
+  agents: string[];
+}
+
+export interface RepofeedRepoSummary {
+  name: string;
+  slug: string;
+  active_intents: number;
+  landed_count: number;
+}
+
+export interface RepofeedListResponse {
+  repos: RepofeedRepoSummary[];
+  last_fetch?: string;
+}
+
+export interface RepofeedRepoResponse {
+  name: string;
+  slug: string;
+  intents: RepofeedIntentEntry[];
+  landed: SubredditPost[];
+  last_fetch?: string;
+}

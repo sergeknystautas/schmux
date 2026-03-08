@@ -164,6 +164,13 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			MaxAge:        s.config.GetSubredditMaxAge(),
 			Repos:         s.config.GetSubredditRepos(),
 		},
+		Repofeed: contracts.Repofeed{
+			Enabled:                 s.config.GetRepofeedEnabled(),
+			PublishIntervalSeconds:  s.config.GetRepofeedPublishInterval(),
+			FetchIntervalSeconds:    s.config.GetRepofeedFetchInterval(),
+			CompletedRetentionHours: s.config.GetRepofeedCompletedRetention(),
+			Repos:                   s.config.GetRepofeedRepos(),
+		},
 		FloorManager: contracts.FloorManager{
 			Enabled:           s.config.GetFloorManagerEnabled(),
 			Target:            s.config.GetFloorManagerTarget(),
@@ -538,6 +545,27 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Subreddit.Repos != nil {
 			cfg.Subreddit.Repos = req.Subreddit.Repos
+		}
+	}
+
+	if req.Repofeed != nil {
+		if cfg.Repofeed == nil {
+			cfg.Repofeed = &config.RepofeedConfig{}
+		}
+		if req.Repofeed.Enabled != nil {
+			cfg.Repofeed.Enabled = *req.Repofeed.Enabled
+		}
+		if req.Repofeed.PublishIntervalSeconds != nil {
+			cfg.Repofeed.PublishIntervalSeconds = *req.Repofeed.PublishIntervalSeconds
+		}
+		if req.Repofeed.FetchIntervalSeconds != nil {
+			cfg.Repofeed.FetchIntervalSeconds = *req.Repofeed.FetchIntervalSeconds
+		}
+		if req.Repofeed.CompletedRetentionHours != nil {
+			cfg.Repofeed.CompletedRetentionHours = *req.Repofeed.CompletedRetentionHours
+		}
+		if req.Repofeed.Repos != nil {
+			cfg.Repofeed.Repos = req.Repofeed.Repos
 		}
 	}
 

@@ -85,6 +85,13 @@ const DEFAULT_CONFIG: ConfigResponse = {
     max_age: 14,
     repos: {},
   },
+  repofeed: {
+    enabled: false,
+    publish_interval_seconds: 30,
+    fetch_interval_seconds: 60,
+    completed_retention_hours: 48,
+    repos: {},
+  },
   floor_manager: {
     enabled: false,
     target: '',

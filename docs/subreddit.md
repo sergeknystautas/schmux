@@ -32,6 +32,7 @@ Generates a per-repository news feed of commit summaries written in a casual Red
 - **The `fullCfg` parameter to `Generate()` must be a `*config.Config`** (type-asserted at runtime) because `oneshot.ExecuteTarget` needs the full config for target resolution.
 - **WebSocket updates are broadcast-based.** The handler calls `BroadcastSubreddit()` after writing new posts. The frontend re-fetches the full subreddit response on each broadcast -- it does not receive incremental post updates via WebSocket.
 - **Upvote display uses star characters.** The frontend renders `★` repeated `upvotes` times, not the Reddit arrow style from the spec. Posts with 0 upvotes show no stars.
+- **`repoSlug()` exists in multiple places.** The unexported `repoSlug()` in `handlers_subreddit.go` must produce identical output to `repofeed.RepoSlug()` (Go, exported) and the frontend's `repoSlug()` in `RepofeedTab.tsx`. Config repo toggles break if they diverge.
 
 ## Common modification patterns
 

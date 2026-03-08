@@ -93,6 +93,7 @@ type Config struct {
 	RemoteAccess               *RemoteAccessConfig         `json:"remote_access,omitempty"`
 	Models                     *ModelsConfig               `json:"models,omitempty"`
 	Subreddit                  *SubredditConfig            `json:"subreddit,omitempty"`
+	Repofeed                   *RepofeedConfig             `json:"repofeed,omitempty"`
 	FloorManager               *FloorManagerConfig         `json:"floor_manager,omitempty"`
 	BuiltInSkills              map[string]bool             `json:"built_in_skills,omitempty"`
 
@@ -285,6 +286,15 @@ type SubredditConfig struct {
 	MaxPosts      int             `json:"max_posts,omitempty"`      // Max posts per repo, default 30
 	MaxAge        int             `json:"max_age,omitempty"`        // Max post age in days, default 14
 	Repos         map[string]bool `json:"repos,omitempty"`          // Per-repo enabled/disabled (default true)
+}
+
+// RepofeedConfig controls the cross-developer intent federation system.
+type RepofeedConfig struct {
+	Enabled                 bool            `json:"enabled,omitempty"`
+	PublishIntervalSeconds  int             `json:"publish_interval_seconds,omitempty"`
+	FetchIntervalSeconds    int             `json:"fetch_interval_seconds,omitempty"`
+	CompletedRetentionHours int             `json:"completed_retention_hours,omitempty"`
+	Repos                   map[string]bool `json:"repos,omitempty"`
 }
 
 // FloorManagerConfig configures the floor manager singleton agent.
@@ -997,6 +1007,75 @@ func (c *Config) GetSubredditRepos() map[string]bool {
 	// Return a copy to avoid race conditions
 	result := make(map[string]bool, len(c.Subreddit.Repos))
 	for k, v := range c.Subreddit.Repos {
+		result[k] = v
+	}
+	return result
+}
+
+// GetRepofeedEnabled returns whether the repofeed system is enabled.
+func (c *Config) GetRepofeedEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Repofeed == nil {
+		return false
+	}
+	return c.Repofeed.Enabled
+}
+
+// GetRepofeedPublishInterval returns the publish interval in seconds, defaulting to 30.
+func (c *Config) GetRepofeedPublishInterval() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Repofeed == nil || c.Repofeed.PublishIntervalSeconds <= 0 {
+		return 30
+	}
+	return c.Repofeed.PublishIntervalSeconds
+}
+
+// GetRepofeedFetchInterval returns the fetch interval in seconds, defaulting to 60.
+func (c *Config) GetRepofeedFetchInterval() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Repofeed == nil || c.Repofeed.FetchIntervalSeconds <= 0 {
+		return 60
+	}
+	return c.Repofeed.FetchIntervalSeconds
+}
+
+// GetRepofeedCompletedRetention returns the completed activity retention in hours, defaulting to 48.
+func (c *Config) GetRepofeedCompletedRetention() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Repofeed == nil || c.Repofeed.CompletedRetentionHours <= 0 {
+		return 48
+	}
+	return c.Repofeed.CompletedRetentionHours
+}
+
+// GetRepofeedRepoEnabled returns whether a specific repo is enabled for repofeed.
+// Returns true by default if the repo is not in the map.
+func (c *Config) GetRepofeedRepoEnabled(slug string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Repofeed == nil || c.Repofeed.Repos == nil {
+		return true
+	}
+	enabled, ok := c.Repofeed.Repos[slug]
+	if !ok {
+		return true
+	}
+	return enabled
+}
+
+// GetRepofeedRepos returns the per-repo enabled/disabled map.
+func (c *Config) GetRepofeedRepos() map[string]bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Repofeed == nil || c.Repofeed.Repos == nil {
+		return nil
+	}
+	result := make(map[string]bool, len(c.Repofeed.Repos))
+	for k, v := range c.Repofeed.Repos {
 		result[k] = v
 	}
 	return result

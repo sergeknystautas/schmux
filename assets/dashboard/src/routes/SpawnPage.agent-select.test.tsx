@@ -68,6 +68,13 @@ const configFixture: ConfigResponse = {
     max_age: 14,
     repos: {},
   },
+  repofeed: {
+    enabled: false,
+    publish_interval_seconds: 30,
+    fetch_interval_seconds: 60,
+    completed_retention_hours: 48,
+    repos: {},
+  },
   floor_manager: { enabled: false, target: '', rotation_threshold: 150, debounce_ms: 2000 },
   remote_access: {
     enabled: false,

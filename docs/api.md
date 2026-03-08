@@ -885,6 +885,13 @@ Request:
     "target": "claude",
     "hours": 24
   },
+  "repofeed": {
+    "enabled": true,
+    "publish_interval_seconds": 30,
+    "fetch_interval_seconds": 60,
+    "completed_retention_hours": 48,
+    "repos": { "my-repo": true }
+  },
   "notifications": {
     "sound_disabled": false,
     "confirm_before_close": false,
@@ -2517,6 +2524,102 @@ Configuration is via the config API:
 - `subreddit.max_age` - Maximum post age in days (default: 14)
 - `subreddit.repos` - Map of repo slugs to enabled/disabled status
 
+### GET /api/repofeed
+
+Returns repofeed activity organized by repository. Shows what other developers are working on across repos via cross-developer intent federation.
+
+Response:
+
+```json
+{
+  "repos": [
+    {
+      "name": "my-repo",
+      "slug": "my-repo",
+      "active_intents": 2,
+      "landed_count": 0
+    }
+  ],
+  "last_fetch": "2026-03-07T10:00:00Z"
+}
+```
+
+Response (no activity):
+
+```json
+{
+  "repos": []
+}
+```
+
+Fields:
+
+| Field        | Type   | Description                                        |
+| ------------ | ------ | -------------------------------------------------- |
+| `repos`      | array  | Array of repo summary objects                      |
+| `last_fetch` | string | ISO 8601 timestamp of last fetch (omitted if none) |
+
+Repo summary fields:
+
+| Field            | Type   | Description                        |
+| ---------------- | ------ | ---------------------------------- |
+| `name`           | string | Repository name                    |
+| `slug`           | string | URL-safe slug for the repo         |
+| `active_intents` | int    | Number of currently active intents |
+| `landed_count`   | int    | Number of landed (completed) items |
+
+### GET /api/repofeed/{slug}
+
+Returns full intent details for a specific repository.
+
+Response:
+
+```json
+{
+  "name": "my-repo",
+  "slug": "my-repo",
+  "intents": [
+    {
+      "developer": "alice@example.com",
+      "display_name": "Alice",
+      "intent": "Adding user authentication",
+      "status": "active",
+      "started": "2026-03-07T09:00:00Z",
+      "branches": ["feature/auth"],
+      "session_count": 2,
+      "agents": ["claude-code"]
+    }
+  ],
+  "landed": [],
+  "last_fetch": "2026-03-07T10:00:00Z"
+}
+```
+
+Intent entry fields:
+
+| Field           | Type     | Description                                           |
+| --------------- | -------- | ----------------------------------------------------- |
+| `developer`     | string   | Developer email address                               |
+| `display_name`  | string   | Developer display name                                |
+| `intent`        | string   | Description of what the developer is working on       |
+| `status`        | string   | Activity status: `active`, `inactive`, or `completed` |
+| `started`       | string   | ISO 8601 timestamp when activity started              |
+| `branches`      | string[] | Git branches associated with this activity            |
+| `session_count` | int      | Number of active sessions for this activity           |
+| `agents`        | string[] | Agent types being used                                |
+
+Errors:
+
+- 400: "missing slug"
+
+Configuration is via the config API:
+
+- `repofeed.enabled` - Whether repofeed is enabled (default: false)
+- `repofeed.publish_interval_seconds` - How often to publish local state (default: 30)
+- `repofeed.fetch_interval_seconds` - How often to fetch remote state (default: 60)
+- `repofeed.completed_retention_hours` - How long to keep completed activities (default: 48)
+- `repofeed.repos` - Map of repo slugs to enabled/disabled status
+
 ## WebSocket
 
 ### WS /ws/terminal/{sessionId}
@@ -2751,6 +2854,17 @@ Event monitor (dev mode only, broadcasts all unified events):
 - Only sent when dev mode is active
 - `event.type` values: `status`, `failure`, `reflection`, `friction`
 - `event` contains the raw event JSON from the unified events system
+
+Repofeed update notification:
+
+```json
+{
+  "type": "repofeed_updated"
+}
+```
+
+- Sent when the repofeed consumer fetches new data from remote developer files
+- Clients should re-fetch `/api/repofeed` to get updated activity data
 
 ### WS /ws/provision/{provisionId}
 
