@@ -91,3 +91,74 @@ func collectPromptsFromFile(path string, seen map[string]*promptInfo) {
 		}
 	}
 }
+
+// CollectIntentSignals reads event JSONL files from workspace paths and extracts
+// intent signals for the emergence curator. Unlike CollectPromptHistory, this
+// preserves workspace context needed for skill distillation.
+func CollectIntentSignals(workspacePaths []string) ([]IntentSignal, error) {
+	type signalKey struct {
+		text      string
+		workspace string
+	}
+	seen := make(map[signalKey]*IntentSignal)
+
+	for _, wsPath := range workspacePaths {
+		wsName := filepath.Base(wsPath)
+		eventsDir := filepath.Join(wsPath, ".schmux", "events")
+		entries, err := os.ReadDir(eventsDir)
+		if err != nil {
+			continue
+		}
+
+		for _, entry := range entries {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".jsonl" {
+				continue
+			}
+			eventPath := filepath.Join(eventsDir, entry.Name())
+			eventLines, err := events.ReadEvents(eventPath, func(raw events.RawEvent) bool {
+				return raw.Type == "status"
+			})
+			if err != nil {
+				continue
+			}
+
+			for _, line := range eventLines {
+				var status events.StatusEvent
+				if err := json.Unmarshal(line.Data, &status); err != nil {
+					continue
+				}
+				if status.Intent == "" {
+					continue
+				}
+
+				ts, _ := time.Parse(time.RFC3339, status.Ts)
+				key := signalKey{text: status.Intent, workspace: wsName}
+
+				if sig, ok := seen[key]; ok {
+					sig.Count++
+					if ts.After(sig.Timestamp) {
+						sig.Timestamp = ts
+					}
+				} else {
+					seen[key] = &IntentSignal{
+						Text:      status.Intent,
+						Timestamp: ts,
+						Workspace: wsName,
+						Count:     1,
+					}
+				}
+			}
+		}
+	}
+
+	result := make([]IntentSignal, 0, len(seen))
+	for _, sig := range seen {
+		result = append(result, *sig)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Timestamp.After(result[j].Timestamp)
+	})
+
+	return result, nil
+}

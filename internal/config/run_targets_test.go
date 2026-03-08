@@ -88,6 +88,13 @@ func TestValidateQuickLaunch(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "valid quick launch with command only",
+			presets: []QuickLaunch{
+				{Name: "Run website", Command: "npm run dev"},
+			},
+			wantErr: false,
+		},
+		{
 			name: "empty name",
 			presets: []QuickLaunch{
 				{Name: "", Target: "claude", Prompt: &prompt},
@@ -105,12 +112,12 @@ func TestValidateQuickLaunch(t *testing.T) {
 			wantContains: "duplicate quick launch name",
 		},
 		{
-			name: "empty target",
+			name: "no target or command",
 			presets: []QuickLaunch{
 				{Name: "preset", Target: "", Prompt: &prompt},
 			},
 			wantErr:      true,
-			wantContains: "target is required",
+			wantContains: "target or command is required",
 		},
 	}
 	for _, tt := range tests {

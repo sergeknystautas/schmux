@@ -39,9 +39,10 @@ func validateQuickLaunch(presets []QuickLaunch) error {
 		if _, exists := seen[name]; exists {
 			return fmt.Errorf("%w: duplicate quick launch name: %s", ErrInvalidConfig, name)
 		}
-		targetName := strings.TrimSpace(preset.Target)
-		if targetName == "" {
-			return fmt.Errorf("%w: quick launch target is required for %s", ErrInvalidConfig, name)
+		hasTarget := strings.TrimSpace(preset.Target) != ""
+		hasCommand := strings.TrimSpace(preset.Command) != ""
+		if !hasTarget && !hasCommand {
+			return fmt.Errorf("%w: quick launch target or command is required for %s", ErrInvalidConfig, name)
 		}
 
 		seen[name] = struct{}{}
