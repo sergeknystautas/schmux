@@ -1944,13 +1944,13 @@ func TestValidate_NegativeCases(t *testing.T) {
 			wantContains: "duplicate quick launch name",
 		},
 		{
-			name: "empty target in quick launch",
+			name: "no target or command in quick launch",
 			cfg: &Config{
 				QuickLaunch: []QuickLaunch{
 					{Name: "preset", Target: "", Prompt: &prompt},
 				},
 			},
-			wantContains: "target is required",
+			wantContains: "target or command is required",
 		},
 	}
 

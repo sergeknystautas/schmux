@@ -724,9 +724,9 @@ Response:
   "quick_launch": [
     {
       "name": "preset",
-      "target": "target",
+      "target": "target (required if no command)",
       "prompt": "optional",
-      "command": "optional",
+      "command": "optional (required if no target)",
       "persona_id": "optional"
     }
   ],
@@ -821,9 +821,9 @@ Request:
   "quick_launch": [
     {
       "name": "preset",
-      "target": "target",
+      "target": "target (required if no command)",
       "prompt": "optional",
-      "command": "optional",
+      "command": "optional (required if no target)",
       "persona_id": "optional"
     }
   ],
