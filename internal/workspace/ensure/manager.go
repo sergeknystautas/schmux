@@ -10,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/emergence"
 	"github.com/sergeknystautas/schmux/internal/lore"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
@@ -20,6 +21,15 @@ var pkgLogger *log.Logger
 // instrStore is the package-level instruction store for lore layer assembly.
 var instrStore *lore.InstructionStore
 
+// emergenceStore is the package-level emergence store for pinned skill injection.
+var emergenceStore *emergence.Store
+
+// emergenceMetadataStore is the package-level emergence metadata store.
+var emergenceMetadataStore *emergence.MetadataStore
+
+// repoNameResolver maps a repo URL to a short repo name.
+var repoNameResolver func(repoURL string) (string, bool)
+
 // SetLogger configures the package-level logger for the ensure package.
 func SetLogger(l *log.Logger) {
 	pkgLogger = l
@@ -28,6 +38,17 @@ func SetLogger(l *log.Logger) {
 // SetInstructionStore configures the lore instruction store for private layer injection.
 func SetInstructionStore(s *lore.InstructionStore) {
 	instrStore = s
+}
+
+// SetEmergenceStores configures the emergence stores for pinned skill injection at spawn time.
+func SetEmergenceStores(s *emergence.Store, ms *emergence.MetadataStore) {
+	emergenceStore = s
+	emergenceMetadataStore = ms
+}
+
+// SetRepoNameResolver configures a function to resolve repo URL to short name.
+func SetRepoNameResolver(fn func(repoURL string) (string, bool)) {
+	repoNameResolver = fn
 }
 
 const (
@@ -76,7 +97,7 @@ func (e *Ensurer) ForSpawn(workspaceID, currentTarget string) error {
 			hookTools = append(hookTools, baseTool)
 		}
 	}
-	return e.ensureWorkspace(w.Path, hookTools)
+	return e.ensureWorkspace(w.Path, hookTools, w.Repo)
 }
 
 // ForWorkspace ensures a workspace has all necessary schmux configuration.
@@ -86,7 +107,7 @@ func (e *Ensurer) ForWorkspace(workspaceID string) error {
 	if !found {
 		return fmt.Errorf("workspace not found: %s", workspaceID)
 	}
-	return e.ensureWorkspace(w.Path, e.workspaceHookTools(workspaceID))
+	return e.ensureWorkspace(w.Path, e.workspaceHookTools(workspaceID), w.Repo)
 }
 
 // workspaceHookTools returns the list of tool names that support hooks
@@ -109,7 +130,7 @@ func (e *Ensurer) workspaceHookTools(workspaceID string) []string {
 }
 
 // ensureWorkspace writes all schmux-managed configuration for a workspace.
-func (e *Ensurer) ensureWorkspace(workspacePath string, hookTools []string) error {
+func (e *Ensurer) ensureWorkspace(workspacePath string, hookTools []string, repoURL string) error {
 	for _, toolName := range hookTools {
 		adapter := detect.GetAdapter(toolName)
 		if adapter == nil || !adapter.SupportsHooks() {
@@ -130,6 +151,59 @@ func (e *Ensurer) ensureWorkspace(workspacePath string, hookTools []string) erro
 		if adapter != nil {
 			if err := adapter.SetupCommands(workspacePath); err != nil {
 				fmt.Printf("[ensure] warning: failed to setup %s commands: %v\n", toolName, err)
+			}
+		}
+	}
+
+	// Inject built-in skills into workspace via adapter
+	builtins, err := emergence.ListBuiltins()
+	if err != nil {
+		fmt.Printf("[ensure] warning: failed to list built-in skills: %v\n", err)
+	} else {
+		for _, toolName := range hookTools {
+			adapter := detect.GetAdapter(toolName)
+			if adapter == nil {
+				continue
+			}
+			for _, b := range builtins {
+				skill := detect.SkillModule{Name: b.Name, Content: b.Content}
+				if err := adapter.InjectSkill(workspacePath, skill); err != nil {
+					fmt.Printf("[ensure] warning: failed to inject built-in skill %s for %s: %v\n", b.Name, toolName, err)
+				}
+			}
+		}
+	}
+
+	// Inject pinned emerged skills from emergence store
+	if emergenceStore != nil && repoNameResolver != nil && repoURL != "" {
+		if repoName, ok := repoNameResolver(repoURL); ok {
+			pinned, err := emergenceStore.List(repoName)
+			if err == nil {
+				for _, entry := range pinned {
+					if entry.SkillRef == "" {
+						continue
+					}
+					var content string
+					if emergenceMetadataStore != nil {
+						meta, found, _ := emergenceMetadataStore.Get(repoName, entry.SkillRef)
+						if found {
+							content = meta.SkillContent
+						}
+					}
+					if content == "" {
+						continue
+					}
+					skill := detect.SkillModule{Name: entry.SkillRef, Content: content}
+					for _, toolName := range hookTools {
+						adapter := detect.GetAdapter(toolName)
+						if adapter == nil {
+							continue
+						}
+						if err := adapter.InjectSkill(workspacePath, skill); err != nil {
+							fmt.Printf("[ensure] warning: failed to inject emerged skill %s for %s: %v\n", entry.SkillRef, toolName, err)
+						}
+					}
+				}
 			}
 		}
 	}
@@ -421,7 +495,9 @@ var excludePatterns = []string{
 	".schmux/hooks/",
 	".schmux/events/",
 	".opencode/plugins/schmux.ts",
+	".opencode/commands/schmux-*.md",
 	".opencode/commands/commit.md",
+	".claude/skills/schmux-*/",
 }
 
 // buildExcludeBlock builds the full schmux exclude block with markers.

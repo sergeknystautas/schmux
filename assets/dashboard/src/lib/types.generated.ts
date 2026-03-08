@@ -12,39 +12,6 @@ export interface AccessControlUpdate {
   session_ttl_minutes?: number;
 }
 
-export interface Action {
-  id: string;
-  name: string;
-  type: string;
-  scope: string;
-  template?: string;
-  parameters?: ActionParameter[];
-  target?: string;
-  persona?: string;
-  command?: string;
-  learned_target?: LearnedDefault;
-  learned_persona?: LearnedDefault;
-  source: string;
-  confidence: number;
-  evidence_count?: number;
-  state: string;
-  use_count?: number;
-  edit_count?: number;
-  first_seen: string;
-  last_used?: string;
-  proposed_at?: string;
-  pinned_at?: string;
-}
-
-export interface ActionParameter {
-  name: string;
-  default?: string;
-}
-
-export interface ActionRegistryResponse {
-  actions: Action[];
-}
-
 export interface BranchSuggest {
   target?: string;
 }
@@ -128,14 +95,12 @@ export interface ConflictResolveUpdate {
   timeout_ms?: number;
 }
 
-export interface CreateActionRequest {
+export interface CreateSpawnEntryRequest {
   name: string;
   type: string;
-  template?: string;
-  parameters?: ActionParameter[];
-  target?: string;
-  persona?: string;
   command?: string;
+  prompt?: string;
+  target?: string;
 }
 
 export interface Desync {
@@ -146,6 +111,16 @@ export interface Desync {
 export interface DesyncUpdate {
   enabled?: boolean;
   target?: string;
+}
+
+export interface EmergenceMetadata {
+  skill_name: string;
+  skill_content?: string;
+  confidence: number;
+  evidence_count: number;
+  evidence?: string[];
+  emerged_at: string;
+  last_curated: string;
 }
 
 export interface ExternalDiffCommand {
@@ -238,11 +213,6 @@ export interface IOWorkspaceTelemetry {
 export interface IOWorkspaceTelemetryUpdate {
   enabled?: boolean;
   target?: string;
-}
-
-export interface LearnedDefault {
-  value: string;
-  confidence: number;
 }
 
 export interface Lore {
@@ -449,6 +419,36 @@ export interface SessionsUpdate {
   git_status_timeout_ms?: number;
 }
 
+export interface SkillProposal {
+  name: string;
+  description: string;
+  triggers: string[];
+  procedure: string;
+  quality_criteria: string;
+  evidence: string[];
+  confidence: number;
+  is_update: boolean;
+  changes?: string;
+}
+
+export interface SpawnEntriesResponse {
+  entries: SpawnEntry[];
+}
+
+export interface SpawnEntry {
+  id: string;
+  name: string;
+  type: string;
+  source: string;
+  state: string;
+  skill_ref?: string;
+  command?: string;
+  prompt?: string;
+  target?: string;
+  use_count: number;
+  last_used?: string;
+}
+
 export interface Subreddit {
   target: string;
   interval: number;
@@ -489,13 +489,11 @@ export interface TLSValidateResponse {
   error?: string;
 }
 
-export interface UpdateActionRequest {
+export interface UpdateSpawnEntryRequest {
   name?: string;
-  template?: string;
-  parameters?: ActionParameter[];
-  target?: string;
-  persona?: string;
   command?: string;
+  prompt?: string;
+  target?: string;
 }
 
 export interface Xterm {

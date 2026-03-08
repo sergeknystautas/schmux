@@ -1,18 +1,19 @@
 import { useMemo } from 'react';
-import type { Action } from '../lib/types.generated';
-import type { PromptHistoryEntry } from '../lib/types.generated';
+import type { SpawnEntry, PromptHistoryEntry } from '../lib/types.generated';
 import styles from './PromptAutocomplete.module.css';
+
+export type { PromptHistoryEntry } from '../lib/types.generated';
 
 export interface AutocompleteItem {
   text: string;
-  source: 'action' | 'history';
+  source: 'spawn-entry' | 'history';
   meta?: string;
-  action?: Action;
+  spawnEntry?: SpawnEntry;
 }
 
 interface PromptAutocompleteProps {
   query: string;
-  actions: Action[];
+  entries: SpawnEntry[];
   history: PromptHistoryEntry[];
   selectedIndex: number;
   onSelect: (item: AutocompleteItem) => void;
@@ -23,39 +24,39 @@ interface PromptAutocompleteProps {
 
 function matchItems(
   query: string,
-  actions: Action[],
+  entries: SpawnEntry[],
   history: PromptHistoryEntry[]
 ): AutocompleteItem[] {
   const q = query.toLowerCase();
   const results: AutocompleteItem[] = [];
 
-  // Action templates: prefix matches first, then substring.
-  const actionPrefix: AutocompleteItem[] = [];
-  const actionSubstr: AutocompleteItem[] = [];
-  for (const a of actions) {
-    if (a.state !== 'pinned') continue;
-    const template = a.template || a.name;
+  // Spawn entry templates: prefix matches first, then substring.
+  const entryPrefix: AutocompleteItem[] = [];
+  const entrySubstr: AutocompleteItem[] = [];
+  for (const e of entries) {
+    if (e.state !== 'pinned') continue;
+    const template = e.prompt || e.name;
     const lower = template.toLowerCase();
     const item: AutocompleteItem = {
       text: template,
-      source: 'action',
-      meta: a.use_count ? `${a.use_count}x` : undefined,
-      action: a,
+      source: 'spawn-entry',
+      meta: e.use_count ? `${e.use_count}x` : undefined,
+      spawnEntry: e,
     };
     if (lower.startsWith(q)) {
-      actionPrefix.push(item);
+      entryPrefix.push(item);
     } else if (lower.includes(q)) {
-      actionSubstr.push(item);
+      entrySubstr.push(item);
     }
   }
-  results.push(...actionPrefix, ...actionSubstr);
+  results.push(...entryPrefix, ...entrySubstr);
 
   // Prompt history: prefix matches first, then substring.
   const histPrefix: AutocompleteItem[] = [];
   const histSubstr: AutocompleteItem[] = [];
   for (const h of history) {
     const lower = h.text.toLowerCase();
-    // Skip if already covered by an action template.
+    // Skip if already covered by a spawn entry template.
     if (results.some((r) => r.text.toLowerCase() === lower)) continue;
     const item: AutocompleteItem = {
       text: h.text,
@@ -75,7 +76,7 @@ function matchItems(
 
 export default function PromptAutocomplete({
   query,
-  actions,
+  entries,
   history,
   selectedIndex,
   onSelect,
@@ -84,8 +85,8 @@ export default function PromptAutocomplete({
   items: externalItems,
 }: PromptAutocompleteProps) {
   const computedItems = useMemo(
-    () => matchItems(query, actions, history),
-    [query, actions, history]
+    () => matchItems(query, entries, history),
+    [query, entries, history]
   );
   const items = externalItems ?? computedItems;
 
@@ -105,7 +106,7 @@ export default function PromptAutocomplete({
           <span
             className={`${styles.itemSource} ${item.source === 'history' ? styles.itemSourceHistory : ''}`}
           >
-            {item.source === 'action' ? 'action' : 'history'}
+            {item.source === 'spawn-entry' ? 'action' : 'history'}
           </span>
           <span className={styles.itemText}>{item.text}</span>
           {item.meta && <span className={styles.itemMeta}>{item.meta}</span>}

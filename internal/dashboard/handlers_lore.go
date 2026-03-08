@@ -192,21 +192,12 @@ func (s *Server) handleLoreDismiss(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Mark source entries as "dismissed" in the central state JSONL.
-	// For v2 proposals, EntriesUsed is empty — collect from per-rule SourceEntries instead.
+	// Mark source entries as "dismissed" in the central state JSONL
 	statePath, err := lore.LoreStatePath(repoName)
 	if err == nil {
 		entries, _ := s.readLoreEntries(repoName, nil)
-		sourceKeys := proposal.EntriesUsed
-		if len(sourceKeys) == 0 {
-			for _, rule := range proposal.Rules {
-				sourceKeys = append(sourceKeys, rule.SourceEntries...)
-			}
-		}
-		if len(sourceKeys) > 0 {
-			if err := lore.MarkEntriesByTextFromEntries(entries, statePath, "dismissed", sourceKeys, proposalID); err != nil {
-				s.logger.Warn("failed to mark entries as dismissed", "err", err)
-			}
+		if err := lore.MarkEntriesByTextFromEntries(entries, statePath, "dismissed", proposal.EntriesUsed, proposalID); err != nil {
+			s.logger.Warn("failed to mark entries as dismissed", "err", err)
 		}
 	}
 
@@ -685,43 +676,8 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Prepare curator prompt — feed existing instructions and pending rules to avoid re-extraction
-	var existingInstructions string
-	if s.loreInstructionStore != nil {
-		var publicContent string
-		instrFiles := s.config.GetLoreInstructionFiles()
-		if len(instrFiles) > 0 {
-			for _, repoConfig := range s.config.Repos {
-				if repoConfig.Name == repoName {
-					bareDir := s.config.ResolveBareRepoDir(repoConfig.BarePath)
-					if bareDir != "" {
-						if content, err := lore.ReadFileFromRepo(context.Background(), bareDir, instrFiles[0]); err == nil {
-							publicContent = content
-						}
-					}
-					break
-				}
-			}
-		}
-		existingInstructions = s.loreInstructionStore.Assemble(repoName, publicContent)
-	}
-
-	// Collect rule texts from existing non-dismissed proposals to avoid cross-proposal duplication
-	var existingRules []string
-	if proposals, err := s.loreStore.List(repoName); err == nil {
-		for _, p := range proposals {
-			if p.Status == lore.ProposalDismissed {
-				continue
-			}
-			for _, rule := range p.Rules {
-				if rule.Status != lore.RuleDismissed {
-					existingRules = append(existingRules, rule.Text)
-				}
-			}
-		}
-	}
-
-	prompt := lore.BuildExtractionPrompt(rawEntries, existingInstructions, existingRules)
+	// Prepare curator prompt — v2 extraction (no instruction files needed)
+	prompt := lore.BuildExtractionPrompt(rawEntries)
 
 	// Start curation tracking
 	curationID := fmt.Sprintf("cur-%s-%s", repoName, time.Now().UTC().Format("20060102-150405"))
@@ -925,11 +881,18 @@ func (s *Server) finalizeCuration(repoName, curationID, rawResponse string, entr
 		return
 	}
 
-	// Mark all source entries as proposed (by timestamp, not text matching)
+	// Mark source entries as proposed
 	statePath, err := lore.LoreStatePath(repoName)
 	if err == nil {
-		if err := lore.MarkEntriesAll(entries, statePath, "proposed", proposal.ID); err != nil {
-			s.logger.Warn("failed to mark entries as proposed", "err", err)
+		allEntries, _ := s.readLoreEntries(repoName, nil)
+		var sourceKeys []string
+		for _, rule := range proposal.Rules {
+			sourceKeys = append(sourceKeys, rule.SourceEntries...)
+		}
+		if len(sourceKeys) > 0 {
+			if err := lore.MarkEntriesByTextFromEntries(allEntries, statePath, "proposed", sourceKeys, proposal.ID); err != nil {
+				s.logger.Warn("failed to mark entries as proposed", "err", err)
+			}
 		}
 	}
 

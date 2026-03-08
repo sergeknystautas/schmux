@@ -70,6 +70,9 @@ func ApplyPublicMerge(ctx context.Context, proposalID, bareDir, workBaseDir, fil
 		runGit(context.Background(), bareDir, "worktree", "remove", "--force", worktreePath)
 	}()
 
+	runGit(ctx, worktreePath, "config", "user.email", "schmux@localhost")
+	runGit(ctx, worktreePath, "config", "user.name", "schmux-lore")
+
 	fullPath := filepath.Join(worktreePath, filepath.Clean(filename))
 	if !strings.HasPrefix(fullPath, filepath.Clean(worktreePath)+string(os.PathSeparator)) {
 		return nil, fmt.Errorf("path traversal in filename: %s", filename)
@@ -89,7 +92,7 @@ func ApplyPublicMerge(ctx context.Context, proposalID, bareDir, workBaseDir, fil
 	if summary != "" {
 		msg = fmt.Sprintf("chore: update instruction file with agent lore\n\n%s", summary)
 	}
-	if err := runGitWithAuthor(ctx, worktreePath, "schmux-lore", "schmux@localhost", "commit", "-m", msg); err != nil {
+	if err := runGit(ctx, worktreePath, "commit", "-m", msg); err != nil {
 		return nil, fmt.Errorf("git commit failed: %w", err)
 	}
 
@@ -121,23 +124,6 @@ func getDefaultBranch(ctx context.Context, bareDir string) (string, error) {
 func runGit(ctx context.Context, dir string, args ...string) error {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git %v: %w: %s", args, err, string(output))
-	}
-	return nil
-}
-
-// runGitWithAuthor runs a git command with author identity set via environment
-// variables instead of git config, preventing config leakage to other worktrees.
-func runGitWithAuthor(ctx context.Context, dir, name, email string, args ...string) error {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME="+name,
-		"GIT_AUTHOR_EMAIL="+email,
-		"GIT_COMMITTER_NAME="+name,
-		"GIT_COMMITTER_EMAIL="+email,
-	)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git %v: %w: %s", args, err, string(output))
 	}

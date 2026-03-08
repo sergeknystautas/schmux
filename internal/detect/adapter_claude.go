@@ -1,6 +1,11 @@
 package detect
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+)
 
 // ClaudeAdapter implements ToolAdapter for Claude Code.
 type ClaudeAdapter struct{}
@@ -79,6 +84,26 @@ func (a *ClaudeAdapter) PersonaArgs(filePath string) []string {
 func (a *ClaudeAdapter) SpawnEnv(ctx SpawnContext) map[string]string { return nil }
 
 func (a *ClaudeAdapter) SetupCommands(workspacePath string) error { return nil }
+
+func (a *ClaudeAdapter) InjectSkill(workspacePath string, skill SkillModule) error {
+	dir := filepath.Join(workspacePath, ".claude", "skills", "schmux-"+skill.Name)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("create skill dir: %w", err)
+	}
+	path := filepath.Join(dir, "SKILL.md")
+	if err := os.WriteFile(path, []byte(skill.Content), 0644); err != nil {
+		return fmt.Errorf("write skill file: %w", err)
+	}
+	return nil
+}
+
+func (a *ClaudeAdapter) RemoveSkill(workspacePath string, skillName string) error {
+	dir := filepath.Join(workspacePath, ".claude", "skills", "schmux-"+skillName)
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("remove skill dir: %w", err)
+	}
+	return nil
+}
 
 func (a *ClaudeAdapter) ModelFlag() string { return "--model" }
 

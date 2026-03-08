@@ -1,23 +1,20 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import PromptAutocomplete, { matchItems } from './PromptAutocomplete';
-import type { Action } from '../lib/types.generated';
-import type { PromptHistoryEntry } from '../lib/types.generated';
+import PromptAutocomplete, { matchItems, type PromptHistoryEntry } from './PromptAutocomplete';
+import type { SpawnEntry } from '../lib/types.generated';
 
 // --- matchItems pure-function tests ---
 
-function makeAction(overrides: Partial<Action> = {}): Action {
+function makeEntry(overrides: Partial<SpawnEntry> = {}): SpawnEntry {
   return {
-    id: 'act-1',
+    id: 'se-1',
     name: 'Fix lint',
     type: 'agent',
-    scope: 'repo',
     source: 'manual',
-    confidence: 1.0,
     state: 'pinned',
-    first_seen: '2025-01-01T00:00:00Z',
-    template: 'Fix lint errors',
+    use_count: 0,
+    prompt: 'Fix lint errors',
     ...overrides,
   };
 }
@@ -28,37 +25,37 @@ function makeHistory(text: string, count = 1): PromptHistoryEntry {
 
 describe('matchItems', () => {
   it('returns empty for no matches', () => {
-    const actions = [makeAction({ template: 'Build project' })];
+    const entries = [makeEntry({ prompt: 'Build project' })];
     const history = [makeHistory('Deploy server')];
-    expect(matchItems('zzz', actions, history)).toEqual([]);
+    expect(matchItems('zzz', entries, history)).toEqual([]);
   });
 
   it('prefix matches sort before substring matches', () => {
-    const actions = [
-      makeAction({ id: 'a1', name: 'Contains fix here', template: 'Contains fix here' }),
-      makeAction({ id: 'a2', name: 'Fix lint', template: 'Fix lint errors' }),
+    const entries = [
+      makeEntry({ id: 'a1', name: 'Contains fix here', prompt: 'Contains fix here' }),
+      makeEntry({ id: 'a2', name: 'Fix lint', prompt: 'Fix lint errors' }),
     ];
-    const items = matchItems('fix', actions, []);
+    const items = matchItems('fix', entries, []);
     expect(items.length).toBe(2);
     expect(items[0].text).toBe('Fix lint errors'); // prefix match
     expect(items[1].text).toBe('Contains fix here'); // substring match
   });
 
-  it('actions appear before history', () => {
-    const actions = [makeAction({ template: 'Run tests' })];
+  it('entries appear before history', () => {
+    const entries = [makeEntry({ prompt: 'Run tests' })];
     const history = [makeHistory('Run all tests')];
-    const items = matchItems('run', actions, history);
+    const items = matchItems('run', entries, history);
     expect(items.length).toBe(2);
-    expect(items[0].source).toBe('action');
+    expect(items[0].source).toBe('spawn-entry');
     expect(items[1].source).toBe('history');
   });
 
-  it('deduplicates history entry matching action template', () => {
-    const actions = [makeAction({ template: 'Fix lint errors' })];
+  it('deduplicates history entry matching entry prompt', () => {
+    const entries = [makeEntry({ prompt: 'Fix lint errors' })];
     const history = [makeHistory('Fix lint errors')];
-    const items = matchItems('fix', actions, history);
+    const items = matchItems('fix', entries, history);
     expect(items.length).toBe(1);
-    expect(items[0].source).toBe('action');
+    expect(items[0].source).toBe('spawn-entry');
   });
 
   it('caps at 8 results', () => {
@@ -67,27 +64,27 @@ describe('matchItems', () => {
     expect(items.length).toBe(8);
   });
 
-  it('only includes pinned actions (skips proposed/dismissed)', () => {
-    const actions = [
-      makeAction({ id: 'a1', state: 'pinned', template: 'Fix lint' }),
-      makeAction({ id: 'a2', state: 'proposed', template: 'Fix tests' }),
-      makeAction({ id: 'a3', state: 'dismissed', template: 'Fix docs' }),
+  it('only includes pinned entries (skips proposed/dismissed)', () => {
+    const entries = [
+      makeEntry({ id: 'a1', state: 'pinned', prompt: 'Fix lint' }),
+      makeEntry({ id: 'a2', state: 'proposed', prompt: 'Fix tests' }),
+      makeEntry({ id: 'a3', state: 'dismissed', prompt: 'Fix docs' }),
     ];
-    const items = matchItems('fix', actions, []);
+    const items = matchItems('fix', entries, []);
     expect(items.length).toBe(1);
     expect(items[0].text).toBe('Fix lint');
   });
 
-  it('uses action name as fallback when template is empty', () => {
-    const actions = [makeAction({ name: 'Build all', template: '' })];
-    const items = matchItems('build', actions, []);
+  it('uses entry name as fallback when prompt is empty', () => {
+    const entries = [makeEntry({ name: 'Build all', prompt: '' })];
+    const items = matchItems('build', entries, []);
     expect(items.length).toBe(1);
     expect(items[0].text).toBe('Build all');
   });
 
   it('shows use count as meta', () => {
-    const actions = [makeAction({ template: 'Fix lint', use_count: 5 })];
-    const items = matchItems('fix', actions, []);
+    const entries = [makeEntry({ prompt: 'Fix lint', use_count: 5 })];
+    const items = matchItems('fix', entries, []);
     expect(items[0].meta).toBe('5x');
   });
 });
@@ -103,16 +100,16 @@ describe('PromptAutocomplete', () => {
 
   it('renders nothing when no items match', () => {
     const { container } = render(
-      <PromptAutocomplete {...defaultProps} query="zzz" actions={[makeAction()]} history={[]} />
+      <PromptAutocomplete {...defaultProps} query="zzz" entries={[makeEntry()]} history={[]} />
     );
     expect(container.innerHTML).toBe('');
   });
 
   it('renders items with correct source badges', () => {
-    const actions = [makeAction({ template: 'Fix lint errors' })];
+    const entries = [makeEntry({ prompt: 'Fix lint errors' })];
     const history = [makeHistory('Fix all the things')];
     render(
-      <PromptAutocomplete {...defaultProps} query="fix" actions={actions} history={history} />
+      <PromptAutocomplete {...defaultProps} query="fix" entries={entries} history={history} />
     );
 
     expect(screen.getByText('action')).toBeInTheDocument();
@@ -128,7 +125,7 @@ describe('PromptAutocomplete', () => {
       <PromptAutocomplete
         {...defaultProps}
         query="fix"
-        actions={[makeAction({ template: 'Fix lint errors' })]}
+        entries={[makeEntry({ prompt: 'Fix lint errors' })]}
         history={[]}
         onSelect={onSelect}
       />
@@ -137,22 +134,22 @@ describe('PromptAutocomplete', () => {
     await user.click(screen.getByText('Fix lint errors'));
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith(
-      expect.objectContaining({ text: 'Fix lint errors', source: 'action' })
+      expect.objectContaining({ text: 'Fix lint errors', source: 'spawn-entry' })
     );
   });
 
   it('calls onHover on mouse enter', async () => {
     const user = userEvent.setup();
     const onHover = vi.fn();
-    const actions = [
-      makeAction({ id: 'a1', template: 'Fix lint' }),
-      makeAction({ id: 'a2', template: 'Fix tests' }),
+    const entries = [
+      makeEntry({ id: 'a1', prompt: 'Fix lint' }),
+      makeEntry({ id: 'a2', prompt: 'Fix tests' }),
     ];
     render(
       <PromptAutocomplete
         {...defaultProps}
         query="fix"
-        actions={actions}
+        entries={entries}
         history={[]}
         onHover={onHover}
       />
@@ -163,15 +160,15 @@ describe('PromptAutocomplete', () => {
   });
 
   it('highlights selectedIndex item', () => {
-    const actions = [
-      makeAction({ id: 'a1', template: 'Fix lint' }),
-      makeAction({ id: 'a2', template: 'Fix tests' }),
+    const entries = [
+      makeEntry({ id: 'a1', prompt: 'Fix lint' }),
+      makeEntry({ id: 'a2', prompt: 'Fix tests' }),
     ];
     render(
       <PromptAutocomplete
         {...defaultProps}
         query="fix"
-        actions={actions}
+        entries={entries}
         history={[]}
         selectedIndex={1}
       />
@@ -185,11 +182,11 @@ describe('PromptAutocomplete', () => {
 
   it('accepts pre-computed items prop and skips internal matching', () => {
     const items = [
-      { text: 'Pre-computed item', source: 'action' as const },
+      { text: 'Pre-computed item', source: 'spawn-entry' as const },
       { text: 'Another item', source: 'history' as const },
     ];
     render(
-      <PromptAutocomplete {...defaultProps} query="" actions={[]} history={[]} items={items} />
+      <PromptAutocomplete {...defaultProps} query="" entries={[]} history={[]} items={items} />
     );
 
     expect(screen.getByText('Pre-computed item')).toBeInTheDocument();

@@ -289,7 +289,7 @@ Contract (pre-2093ccf):
   - `"<nickname> (1)"`, `"<nickname> (2)"`, ...
 - `persona_id` is optional. When set, the persona's system prompt is injected into the agent at spawn time (e.g., via `--append-system-prompt-file` for Claude). The persona ID is stored on the session and used to display persona badges in the dashboard.
 - `image_attachments` is optional. Array of base64-encoded PNG strings (max 5). Images are decoded and written to `{workspace}/.schmux/attachments/img-{uuid}.png`. Absolute file paths are appended to the prompt so the agent can reference them. Cannot be used with `resume`, `command`, or `remote_flavor_id`.
-- `action_id` is optional. When set, usage is recorded against the action in the action registry. When absent and a prompt matches a pinned action template, usage is recorded automatically (with `edited` flag if the prompt differs).
+- `action_id` is optional. When set, usage is recorded against the matching spawn entry in the emergence store. When absent and a prompt exactly matches a pinned spawn entry's prompt, usage is recorded automatically.
 
 Resume mode (`resume: true`):
 
@@ -2035,70 +2035,152 @@ Private instruction layers are stored at `~/.schmux/instructions/`:
 
 At agent spawn time, assembled instructions (global + repo-private) are injected into the workspace instruction file within the `<!-- SCHMUX:BEGIN/END -->` markers alongside signaling instructions. These are never committed to the repo.
 
-## Actions API
+## Emergence API
 
-Actions are reusable task templates tracked per-repo. They can be created manually or proposed by the LLM curator. Each action has a lifecycle state (proposed → pinned or dismissed) and usage tracking. Quick-launch presets are managed separately in config and are not stored in the action registry.
+Emergence is the skill discovery system that replaces the Actions registry. Spawn entries represent reusable task templates with lifecycle tracking (proposed → pinned or dismissed). Repo names are validated (no path separators, dots, null bytes, max 128 chars).
 
-Repo names in URL parameters are validated (no path separators, dots, null bytes, max 128 chars).
+Pinned skill entries are automatically injected into workspaces at spawn time via the ensure package, in addition to being injected when the pin action is triggered.
 
-### GET /api/actions/{repo}
+### GET /api/emergence/{repo}/entries
 
-Returns pinned actions for a repo.
+Returns pinned spawn entries for a repo (used by the spawn dropdown).
 
 Response:
 
 ```json
 {
-  "actions": [
+  "entries": [
     {
-      "id": "act-abcdef12",
+      "id": "se-abcdef12",
       "name": "Run tests",
-      "type": "agent",
-      "scope": "",
-      "template": "Run the test suite and fix any failures",
-      "parameters": [],
+      "type": "command",
       "source": "manual",
-      "confidence": 1.0,
       "state": "pinned",
       "use_count": 5,
-      "first_seen": "2026-02-27T10:00:00Z",
-      "last_used": "2026-02-27T15:00:00Z"
+      "command": "go test ./..."
     }
   ]
 }
 ```
 
-### POST /api/actions/{repo}
+### GET /api/emergence/{repo}/entries/all
 
-Creates a new manual action (state=pinned, source=manual).
+Returns all spawn entries for a repo (proposed, pinned, and dismissed).
+
+Response: same shape as `GET /api/emergence/{repo}/entries` with entries in all states.
+
+### POST /api/emergence/{repo}/entries
+
+Creates a new manual spawn entry (state=pinned, source=manual).
 
 Request:
 
 ```json
 {
   "name": "Run tests",
-  "type": "agent",
-  "template": "Run the test suite and fix any failures",
-  "parameters": [{ "name": "scope", "default": "all" }],
-  "target": "",
-  "persona": "",
-  "command": ""
+  "type": "command",
+  "command": "go test ./..."
 }
 ```
 
-Required fields: `name`, `type`.
+Required fields: `name`, `type`. Optional: `command`, `prompt`, `target`, `skill_ref`.
 
-Response: `201 Created` with the created Action object.
+Response: `201 Created` with the created SpawnEntry object.
 
-### GET /api/actions/{repo}/proposed
+### PUT /api/emergence/{repo}/entries/{id}
 
-Returns proposed (not yet pinned/dismissed) actions for a repo.
+Updates an existing spawn entry. All fields are optional (patch semantics).
 
-Response: same shape as `GET /api/actions/{repo}` but with `"state": "proposed"` actions.
+Request:
 
-### GET /api/actions/{repo}/prompt-history
+```json
+{
+  "name": "Updated name",
+  "command": "go test -v ./..."
+}
+```
 
-Returns past prompts from workspace event JSONL files, aggregated by text with counts.
+Response: the updated SpawnEntry object.
+
+Errors:
+
+- 404: entry not found
+
+### DELETE /api/emergence/{repo}/entries/{id}
+
+Hard-deletes a spawn entry.
+
+Response:
+
+```json
+{ "status": "deleted" }
+```
+
+Errors:
+
+- 404: entry not found
+
+### POST /api/emergence/{repo}/entries/{id}/pin
+
+Transitions a proposed entry to pinned state. If the entry has a skill reference with emergence metadata, the skill is injected into all workspaces for the repo.
+
+Response:
+
+```json
+{ "status": "pinned" }
+```
+
+Errors:
+
+- 404: entry not found
+
+### POST /api/emergence/{repo}/entries/{id}/dismiss
+
+Transitions an entry to dismissed state.
+
+Response:
+
+```json
+{ "status": "dismissed" }
+```
+
+Errors:
+
+- 404: entry not found
+
+### POST /api/emergence/{repo}/entries/{id}/use
+
+Records a usage of a spawn entry (increments use_count).
+
+Response:
+
+```json
+{ "status": "recorded" }
+```
+
+Errors:
+
+- 404: entry not found
+
+### POST /api/emergence/{repo}/curate
+
+Triggers emergence curation: collects intent signals from workspace event files, sends them to the LLM, and creates proposed spawn entries for discovered skills.
+
+Response: `202 Accepted`
+
+```json
+{ "status": "started" }
+```
+
+Returns `{ "status": "no_signals" }` with 200 if no intent signals are found.
+
+Errors:
+
+- 503: emergence system or LLM target not configured
+
+### GET /api/emergence/{repo}/prompt-history
+
+Returns prompt autocomplete data from workspace event files. Extracts unique prompts from status events with non-empty intent fields, deduplicated and sorted by last_seen descending.
 
 Response:
 
@@ -2114,71 +2196,7 @@ Response:
 }
 ```
 
-### PUT /api/actions/{repo}/{id}
-
-Updates an existing action. All fields are optional (patch semantics).
-
-Request:
-
-```json
-{
-  "name": "Updated name",
-  "template": "Updated template",
-  "parameters": [{ "name": "scope", "default": "unit" }],
-  "target": "2",
-  "persona": "",
-  "command": ""
-}
-```
-
-Response: the updated Action object.
-
-Errors:
-
-- 404: action not found
-
-### DELETE /api/actions/{repo}/{id}
-
-Hard-deletes an action.
-
-Response:
-
-```json
-{ "status": "deleted" }
-```
-
-Errors:
-
-- 404: action not found
-
-### POST /api/actions/{repo}/{id}/pin
-
-Transitions a proposed action to pinned state.
-
-Response:
-
-```json
-{ "status": "pinned" }
-```
-
-Errors:
-
-- 404: action not found
-- 400: action not in proposed state
-
-### POST /api/actions/{repo}/{id}/dismiss
-
-Transitions an action to dismissed state.
-
-Response:
-
-```json
-{ "status": "dismissed" }
-```
-
-Errors:
-
-- 404: action not found
+Returns at most 50 entries.
 
 ## Personas API
 

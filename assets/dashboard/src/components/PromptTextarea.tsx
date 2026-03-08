@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useDebouncedCallback from '../hooks/useDebouncedCallback';
-import PromptAutocomplete, { matchItems, type AutocompleteItem } from './PromptAutocomplete';
-import type { Action } from '../lib/types.generated';
-import type { PromptHistoryEntry } from '../lib/types.generated';
+import PromptAutocomplete, {
+  matchItems,
+  type AutocompleteItem,
+  type PromptHistoryEntry,
+} from './PromptAutocomplete';
+import type { SpawnEntry } from '../lib/types.generated';
 
 interface PromptTextareaProps {
   value: string;
@@ -13,7 +16,7 @@ interface PromptTextareaProps {
   onSubmit?: () => void;
   'data-testid'?: string;
   // Autocomplete props (optional)
-  autocompleteActions?: Action[];
+  autocompleteEntries?: SpawnEntry[];
   autocompleteHistory?: PromptHistoryEntry[];
   onAutocompleteSelect?: (item: AutocompleteItem) => void;
 }
@@ -117,7 +120,7 @@ export default function PromptTextarea({
   onSelectCommand,
   onSubmit,
   'data-testid': dataTestId,
-  autocompleteActions,
+  autocompleteEntries,
   autocompleteHistory,
   onAutocompleteSelect,
 }: PromptTextareaProps) {
@@ -133,7 +136,7 @@ export default function PromptTextarea({
   // Autocomplete state (separate from slash menu)
   const [acDismissed, setAcDismissed] = useState(false);
   const [acSelectedIndex, setAcSelectedIndex] = useState(0);
-  const hasAutocomplete = !!autocompleteActions || !!autocompleteHistory;
+  const hasAutocomplete = !!autocompleteEntries || !!autocompleteHistory;
   // Show autocomplete when: 3+ chars, no slash prefix, not dismissed
   const acQuery = value.trim();
   const showAutocomplete =
@@ -208,8 +211,8 @@ export default function PromptTextarea({
 
   // Compute autocomplete items once (shared by Tab handler and PromptAutocomplete)
   const acItems = useMemo(
-    () => matchItems(acQuery, autocompleteActions || [], autocompleteHistory || []),
-    [acQuery, autocompleteActions, autocompleteHistory]
+    () => matchItems(acQuery, autocompleteEntries || [], autocompleteHistory || []),
+    [acQuery, autocompleteEntries, autocompleteHistory]
   );
 
   // Handle autocomplete selection
@@ -363,7 +366,7 @@ export default function PromptTextarea({
       {showAutocomplete && !showMenu && (
         <PromptAutocomplete
           query={acQuery}
-          actions={autocompleteActions || []}
+          entries={autocompleteEntries || []}
           history={autocompleteHistory || []}
           items={acItems}
           selectedIndex={acSelectedIndex}

@@ -2700,3 +2700,61 @@ func TestSubredditConfigCustomValues(t *testing.T) {
 		t.Error("unknown repos should default to enabled")
 	}
 }
+
+func TestBuiltinSkillsConfig(t *testing.T) {
+	t.Parallel()
+
+	t.Run("default all enabled", func(t *testing.T) {
+		cfg := &Config{}
+		if !cfg.IsBuiltinEnabled("commit") {
+			t.Error("commit should be enabled by default")
+		}
+		if !cfg.IsBuiltinEnabled("anything") {
+			t.Error("unknown skills should be enabled by default")
+		}
+	})
+
+	t.Run("explicit disable", func(t *testing.T) {
+		cfg := &Config{
+			BuiltInSkills: map[string]bool{
+				"commit": false,
+			},
+		}
+		if cfg.IsBuiltinEnabled("commit") {
+			t.Error("commit should be disabled when set to false")
+		}
+		if !cfg.IsBuiltinEnabled("other") {
+			t.Error("other skills should still be enabled")
+		}
+	})
+
+	t.Run("explicit enable", func(t *testing.T) {
+		cfg := &Config{
+			BuiltInSkills: map[string]bool{
+				"commit": true,
+			},
+		}
+		if !cfg.IsBuiltinEnabled("commit") {
+			t.Error("commit should be enabled when set to true")
+		}
+	})
+
+	t.Run("json round-trip", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.json")
+		json := `{
+			"workspace_path": "/tmp/test",
+			"repos": [],
+			"built_in_skills": {"commit": false}
+		}`
+		os.WriteFile(path, []byte(json), 0644)
+
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.IsBuiltinEnabled("commit") {
+			t.Error("commit should be disabled after loading from JSON")
+		}
+	})
+}

@@ -156,6 +156,13 @@
   background: var(--color-accent, #4fc3f7);
 }
 
+/* Provenance marker */
+.provenanceMarker {
+  font-size: 0.65rem;
+  color: var(--color-text-muted, #888);
+  flex-shrink: 0;
+}
+
 /* Pinned action compact row */
 .pinnedRow {
   display: flex;
