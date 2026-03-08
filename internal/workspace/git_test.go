@@ -870,3 +870,67 @@ func TestCountLinesCapped_FileNotFound(t *testing.T) {
 		t.Error("expected error for nonexistent file")
 	}
 }
+
+func TestCheckWorkspaceClean(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	// Setup: create a bare repo with an initial commit
+	bareDir := t.TempDir()
+	cmd := exec.Command("git", "init", "--bare", "-b", "main", bareDir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init --bare: %v\n%s", err, out)
+	}
+
+	// Create a temporary working dir to push initial commit
+	initDir := t.TempDir()
+	cmd = exec.Command("git", "clone", bareDir, initDir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git clone: %v\n%s", err, out)
+	}
+	runGit(t, initDir, "config", "user.email", "test@test.com")
+	runGit(t, initDir, "config", "user.name", "test")
+	runGit(t, initDir, "checkout", "-b", "main")
+	os.WriteFile(filepath.Join(initDir, "README.md"), []byte("hello"), 0644)
+	runGit(t, initDir, "add", ".")
+	runGit(t, initDir, "commit", "-m", "init")
+	runGit(t, initDir, "push", "origin", "main")
+
+	// Clone the repo into the actual workDir
+	workDir := t.TempDir()
+	cmd = exec.Command("git", "clone", bareDir, workDir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git clone: %v\n%s", err, out)
+	}
+	runGit(t, workDir, "config", "user.email", "test@test.com")
+	runGit(t, workDir, "config", "user.name", "test")
+
+	// Create schmux/lore branch at same commit
+	runGit(t, workDir, "checkout", "-b", "schmux/lore")
+	runGit(t, workDir, "push", "origin", "schmux/lore")
+
+	// Should be clean
+	clean, reason := CheckWorkspaceClean(workDir)
+	if !clean {
+		t.Errorf("expected clean, got reason: %s", reason)
+	}
+
+	// Add unstaged file → not clean
+	os.WriteFile(filepath.Join(workDir, "dirty.txt"), []byte("dirty"), 0644)
+	clean, reason = CheckWorkspaceClean(workDir)
+	if clean {
+		t.Error("expected not clean with unstaged file")
+	}
+	os.Remove(filepath.Join(workDir, "dirty.txt"))
+
+	// Add commit ahead of origin/main → not clean
+	os.WriteFile(filepath.Join(workDir, "ahead.txt"), []byte("ahead"), 0644)
+	runGit(t, workDir, "add", ".")
+	runGit(t, workDir, "commit", "-m", "ahead")
+	clean, reason = CheckWorkspaceClean(workDir)
+	if clean {
+		t.Error("expected not clean with commits ahead")
+	}
+}

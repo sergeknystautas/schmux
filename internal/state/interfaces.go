@@ -25,6 +25,7 @@ type StateStore interface {
 	// Workspace operations
 	GetWorkspaces() []Workspace
 	GetWorkspace(id string) (Workspace, bool)
+	FindWorkspaceByRepoBranch(repo, branch string) (Workspace, bool)
 	AddWorkspace(ws Workspace) error
 	UpdateWorkspace(ws Workspace) error
 	RemoveWorkspace(id string) error

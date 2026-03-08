@@ -1,6 +1,7 @@
 package lore
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1183,5 +1184,124 @@ func TestEventLineToEntry_MalformedData(t *testing.T) {
 	}
 	if entry.Tool != "" {
 		t.Errorf("expected empty Tool for malformed data, got %q", entry.Tool)
+	}
+}
+
+func TestMarkEntriesDirect(t *testing.T) {
+	t.Parallel()
+	baseTime := time.Date(2026, 2, 13, 14, 0, 0, 0, time.UTC)
+
+	entries := []Entry{
+		{Timestamp: baseTime, Type: "reflection", Text: "use go run instead"},
+		{Timestamp: baseTime.Add(time.Minute), Type: "failure", Tool: "Bash", InputSummary: "npm run build"},
+		{Timestamp: baseTime.Add(2 * time.Minute), Type: "friction", Text: "slow build"},
+		// state-change records should be skipped
+		{Timestamp: baseTime.Add(time.Hour), StateChange: "proposed", EntryTS: "some-old-ts"},
+	}
+
+	dir := t.TempDir()
+	destPath := filepath.Join(dir, "state.jsonl")
+
+	err := MarkEntriesDirect(entries, destPath, "proposed", "prop-direct")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should have 3 state-change records (one per non-state-change entry)
+	stateEntries, err := ReadEntries(destPath, nil)
+	if err != nil {
+		t.Fatalf("unexpected error reading dest: %v", err)
+	}
+	if len(stateEntries) != 3 {
+		t.Fatalf("expected 3 state-change records, got %d", len(stateEntries))
+	}
+	for _, e := range stateEntries {
+		if e.StateChange != "proposed" {
+			t.Errorf("expected state_change 'proposed', got %q", e.StateChange)
+		}
+		if e.ProposalID != "prop-direct" {
+			t.Errorf("expected proposal_id 'prop-direct', got %q", e.ProposalID)
+		}
+	}
+}
+
+func TestMarkEntriesDirect_ExcludesFromFilterRaw(t *testing.T) {
+	t.Parallel()
+	baseTime := time.Date(2026, 2, 13, 14, 0, 0, 0, time.UTC)
+
+	dir := t.TempDir()
+
+	// Simulate workspace event file with raw entries
+	eventFile := filepath.Join(dir, "events.jsonl")
+	var eventContent strings.Builder
+	for i, text := range []string{"fact one", "fact two", "fact three"} {
+		entry := Entry{
+			Timestamp: baseTime.Add(time.Duration(i) * time.Minute),
+			Workspace: "ws-1",
+			Agent:     "claude-code",
+			Type:      "reflection",
+			Text:      text,
+		}
+		data, _ := json.Marshal(entry)
+		eventContent.Write(data)
+		eventContent.WriteByte('\n')
+	}
+	if err := os.WriteFile(eventFile, []byte(eventContent.String()), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Read entries (simulating what readLoreEntries does)
+	allEntries, err := ReadEntries(eventFile, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(allEntries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(allEntries))
+	}
+
+	// Mark all entries as proposed via MarkEntriesDirect (simulating finalizeCuration)
+	stateFile := filepath.Join(dir, "state.jsonl")
+	if err := MarkEntriesDirect(allEntries, stateFile, "proposed", "prop-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Now read both files together with FilterRaw — should return 0 raw entries
+	combined, err := ReadEntriesMulti([]string{eventFile, stateFile}, FilterRaw())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(combined) != 0 {
+		texts := make([]string, len(combined))
+		for i, e := range combined {
+			texts[i] = e.Text
+		}
+		t.Fatalf("expected 0 raw entries after marking, got %d: %v", len(combined), texts)
+	}
+}
+
+func TestMarkEntriesDirect_DeduplicatesByTimestamp(t *testing.T) {
+	t.Parallel()
+	baseTime := time.Date(2026, 2, 13, 14, 0, 0, 0, time.UTC)
+
+	// Two entries with same timestamp — should produce only one state-change record
+	entries := []Entry{
+		{Timestamp: baseTime, Type: "reflection", Text: "fact A"},
+		{Timestamp: baseTime, Type: "friction", Text: "fact B"},
+	}
+
+	dir := t.TempDir()
+	destPath := filepath.Join(dir, "state.jsonl")
+
+	err := MarkEntriesDirect(entries, destPath, "proposed", "prop-dedup")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	stateEntries, err := ReadEntries(destPath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stateEntries) != 1 {
+		t.Fatalf("expected 1 state-change record (deduped by timestamp), got %d", len(stateEntries))
 	}
 }

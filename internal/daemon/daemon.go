@@ -982,7 +982,9 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 				}
 
 				// Build extraction prompt (phase 1 — no instruction files needed)
-				prompt := lore.BuildExtractionPrompt(rawEntries)
+				existingRules := loreStore.PendingRuleTexts(repoName)
+				dismissedRules := loreStore.DismissedRuleTexts(repoName)
+				prompt := lore.BuildExtractionPrompt(rawEntries, existingRules, dismissedRules)
 
 				// Create per-run debug directory
 				curationID := fmt.Sprintf("auto-%s-%s", repoName, time.Now().UTC().Format("20060102-150405"))
@@ -1061,19 +1063,19 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 					})
 				}
 
+				// Deduplicate against existing pending and dismissed proposals
+				allExcluded := append(existingRules, dismissedRules...)
+				proposal.Rules, _ = lore.DeduplicateRules(proposal.Rules, allExcluded)
+
 				if err := loreStore.Save(proposal); err != nil {
 					loreLog.Error("failed to save proposal", "err", err)
 					return
 				}
 				loreLog.Info("auto-curate: proposal created", "repo", repoName, "proposal_id", proposal.ID, "rules", len(proposal.Rules), "elapsed", elapsed.Round(time.Millisecond))
 
-				// Mark source entries as "proposed" in the central state JSONL
+				// Mark all curated entries as "proposed" in the central state JSONL
 				if stateErr == nil {
-					var allSourceTexts []string
-					for _, r := range proposal.Rules {
-						allSourceTexts = append(allSourceTexts, r.SourceEntries...)
-					}
-					if err := lore.MarkEntriesByTextFromEntries(rawEntries, statePath, "proposed", allSourceTexts, proposal.ID); err != nil {
+					if err := lore.MarkEntriesDirect(rawEntries, statePath, "proposed", proposal.ID); err != nil {
 						loreLog.Warn("failed to mark entries as proposed", "err", err)
 					}
 				}

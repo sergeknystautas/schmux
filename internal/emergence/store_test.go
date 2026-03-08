@@ -299,6 +299,47 @@ func TestStore_AddProposed(t *testing.T) {
 	}
 }
 
+func TestStore_AddProposed_DeduplicatesExisting(t *testing.T) {
+	s := newTestStore(t)
+	repo := "test-repo"
+
+	// Create a pinned entry
+	s.Create(repo, contracts.CreateSpawnEntryRequest{
+		Name: "existing-skill", Type: contracts.SpawnEntrySkill,
+	})
+	// Add a proposed entry
+	s.AddProposed(repo, []contracts.SpawnEntry{
+		{ID: "p1", Name: "proposed-skill", Type: contracts.SpawnEntrySkill},
+	})
+
+	// Try to add entries that overlap with existing pinned and proposed
+	err := s.AddProposed(repo, []contracts.SpawnEntry{
+		{ID: "p2", Name: "existing-skill", Type: contracts.SpawnEntrySkill}, // duplicate of pinned
+		{ID: "p3", Name: "proposed-skill", Type: contracts.SpawnEntrySkill}, // duplicate of proposed
+		{ID: "p4", Name: "new-skill", Type: contracts.SpawnEntrySkill},      // new
+		{ID: "p5", Name: "new-skill", Type: contracts.SpawnEntrySkill},      // intra-batch duplicate
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	entries, _ := s.ListAll(repo)
+	// Should have: existing-skill (pinned), proposed-skill (proposed), new-skill (proposed)
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(entries))
+	}
+
+	names := make(map[string]bool)
+	for _, e := range entries {
+		names[e.Name] = true
+	}
+	for _, want := range []string{"existing-skill", "proposed-skill", "new-skill"} {
+		if !names[want] {
+			t.Errorf("expected entry %q to exist", want)
+		}
+	}
+}
+
 func TestStore_Persistence(t *testing.T) {
 	dir := t.TempDir()
 	repo := "test-repo"
@@ -341,6 +382,40 @@ func TestStore_AtomicWrite(t *testing.T) {
 		if filepath.Ext(e.Name()) == ".tmp" {
 			t.Errorf("found leftover temp file: %s", e.Name())
 		}
+	}
+}
+
+func TestStore_LoadDeduplicatesExisting(t *testing.T) {
+	dir := t.TempDir()
+	repo := "test-repo"
+
+	// Write a spawn-entries.json with duplicates directly.
+	repoDir := filepath.Join(dir, repo)
+	os.MkdirAll(repoDir, 0755)
+	data := `[
+		{"id":"p1","name":"skill-a","type":"skill","source":"emerged","state":"proposed","use_count":0},
+		{"id":"p2","name":"skill-a","type":"skill","source":"emerged","state":"proposed","use_count":0},
+		{"id":"p3","name":"skill-b","type":"skill","source":"emerged","state":"proposed","use_count":0}
+	]`
+	os.WriteFile(filepath.Join(repoDir, "spawn-entries.json"), []byte(data), 0644)
+
+	s := NewStore(dir)
+	entries, err := s.ListAll(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries after load-time dedup, got %d", len(entries))
+	}
+	if entries[0].Name != "skill-a" || entries[1].Name != "skill-b" {
+		t.Errorf("unexpected entry names: %q, %q", entries[0].Name, entries[1].Name)
+	}
+
+	// Verify persisted: reload from disk
+	s2 := NewStore(dir)
+	entries2, _ := s2.ListAll(repo)
+	if len(entries2) != 2 {
+		t.Fatalf("expected 2 entries after reload, got %d", len(entries2))
 	}
 }
 

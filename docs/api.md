@@ -1795,7 +1795,7 @@ Rule fields:
 - `id` (string): Rule identifier within the proposal (e.g., `"r1"`)
 - `text` (string): The rule text (editable by the user)
 - `category` (string): Rule category (e.g., `"build"`, `"testing"`)
-- `suggested_layer` (string): AI-suggested layer — `"repo_public"`, `"repo_private"`, or `"user_global"`
+- `suggested_layer` (string): AI-suggested layer — `"repo_public"`, `"repo_private"`, or `"cross_repo_private"`
 - `chosen_layer` (string|null): User-overridden layer, or null to use suggested
 - `status` (string): `"pending"`, `"approved"`, or `"dismissed"`
 - `source_entries` (string[]): Entry keys that led to this rule
@@ -1827,7 +1827,7 @@ Fields:
 
 - `status` (string, optional): `"approved"` or `"dismissed"`. Omit to update only text/layer.
 - `text` (string, optional): Edited rule text. Only updates if provided.
-- `chosen_layer` (string, optional): Layer override — `"repo_public"`, `"repo_private"`, or `"user_global"`. Overrides the AI-suggested layer.
+- `chosen_layer` (string, optional): Layer override — `"repo_public"`, `"repo_private"`, or `"cross_repo_private"`. Overrides the AI-suggested layer.
 
 Response: the updated Proposal object (same shape as `GET /api/lore/{repo}/proposals/{id}`).
 
@@ -1863,7 +1863,7 @@ Errors:
 
 ### POST /api/lore/{repo}/proposals/{proposalID}/apply-merge
 
-Applies reviewed merge results to their target layers. For `repo_public`, creates a git branch + commit + push (optionally opens a PR). For `repo_private` and `user_global`, writes directly to the instruction store.
+Applies reviewed merge results to their target layers. For `repo_public`, creates a dedicated `schmux/lore` workspace and writes the merged instruction file as an unstaged change (no commit, no push). The user reviews and commits manually. For `repo_private` and `cross_repo_private`, writes directly to the instruction store.
 
 Request:
 
@@ -1884,8 +1884,7 @@ Response:
     {
       "layer": "repo_public",
       "status": "applied",
-      "branch": "lore/prop-...",
-      "pr_url": "https://..."
+      "workspace_id": "ws-abc123"
     },
     { "layer": "repo_private", "status": "applied" }
   ]
@@ -1894,10 +1893,13 @@ Response:
 
 After applying, approved rules are marked with `merged_at` timestamps and the proposal status is set to `applied`.
 
+For `repo_public`, if a `schmux/lore` workspace already exists but has uncommitted changes or commits ahead of `origin/main`, the request is rejected with 409 Conflict.
+
 Errors:
 
 - 400: no merges provided, invalid layer
 - 404: proposal or repo not found
+- 409: lore workspace has pending changes (public layer only)
 - 503: instruction store not configured (for private/global layers)
 
 ### GET /api/lore/{repo}/entries
@@ -1934,7 +1936,7 @@ Response:
 
 ### POST /api/lore/{repo}/curate
 
-Triggers manual curation for a repo. Returns immediately with a curation ID; progress events stream via the `/ws/dashboard` WebSocket as `curator_event` messages.
+Triggers manual curation for a repo. Returns immediately with a curation ID; progress events stream via the `/ws/dashboard` WebSocket as `curator_event` messages. On successful completion, all raw entries included in the curation are marked as "proposed" and excluded from future curation runs. Extracted rules are deduplicated against existing pending and previously dismissed proposals — rules that match (case-insensitive, whitespace-normalized) are silently dropped.
 
 Response:
 
@@ -2033,7 +2035,7 @@ Response:
 
 Private instruction layers are stored at `~/.schmux/instructions/`:
 
-- `global.md` — user-global instructions (applied to all repos)
+- `cross-repo-private.md` — cross-repo private instructions (applied to all repos)
 - `repos/<repo>/private.md` — repo-specific private instructions
 
 At agent spawn time, assembled instructions (global + repo-private) are injected into the workspace instruction file within the `<!-- SCHMUX:BEGIN/END -->` markers alongside signaling instructions. These are never committed to the repo.
@@ -2056,6 +2058,7 @@ Response:
     {
       "id": "se-abcdef12",
       "name": "Run tests",
+      "description": "Run the project test suite with verbose output",
       "type": "command",
       "source": "manual",
       "state": "pinned",
@@ -2070,7 +2073,7 @@ Response:
 
 Returns all spawn entries for a repo (proposed, pinned, and dismissed).
 
-Response: same shape as `GET /api/emergence/{repo}/entries` with entries in all states.
+Response: same shape as `GET /api/emergence/{repo}/entries` with entries in all states. For skill-type entries, the `description` field is enriched from emergence metadata if not already set, and a `metadata` object is included with `skill_content`, `confidence`, `evidence_count`, `evidence`, `emerged_at`, and `last_curated`.
 
 ### POST /api/emergence/{repo}/entries
 
@@ -2167,7 +2170,7 @@ Errors:
 
 ### POST /api/emergence/{repo}/curate
 
-Triggers emergence curation: collects intent signals from workspace event files, sends them to the LLM, and creates proposed spawn entries for discovered skills.
+Triggers emergence curation: collects intent signals from workspace event files, sends them to the LLM, and creates proposed spawn entries for discovered skills. Skills that match already-proposed or pinned entries are deduplicated and not re-proposed.
 
 Response: `202 Accepted`
 

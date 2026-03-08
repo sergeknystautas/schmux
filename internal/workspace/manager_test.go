@@ -594,6 +594,10 @@ func (m *mockStateStore) GetWorkspace(id string) (state.Workspace, bool) {
 	return m.state.GetWorkspace(id)
 }
 
+func (m *mockStateStore) FindWorkspaceByRepoBranch(repo, branch string) (state.Workspace, bool) {
+	return m.state.FindWorkspaceByRepoBranch(repo, branch)
+}
+
 func (m *mockStateStore) AddWorkspace(w state.Workspace) error {
 	return m.state.AddWorkspace(w)
 }

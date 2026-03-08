@@ -49,7 +49,24 @@ func (s *Store) load(repo string) error {
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return fmt.Errorf("parse spawn entries: %w", err)
 	}
-	s.entries[repo] = entries
+
+	// Dedup migration: remove duplicate names in the same active state.
+	seen := make(map[string]bool, len(entries))
+	deduped := entries[:0]
+	for _, e := range entries {
+		if e.State == contracts.SpawnStateProposed || e.State == contracts.SpawnStatePinned {
+			if seen[e.Name] {
+				continue
+			}
+			seen[e.Name] = true
+		}
+		deduped = append(deduped, e)
+	}
+	s.entries[repo] = deduped
+	if len(deduped) < len(entries) {
+		// Persist the cleaned-up list.
+		s.save(repo)
+	}
 	return nil
 }
 
@@ -257,22 +274,58 @@ func (s *Store) RecordUse(repo, id string) error {
 }
 
 // AddProposed adds proposed entries in bulk with state=proposed, source=emerged.
+// Entries whose Name matches an existing proposed or pinned entry are skipped.
 func (s *Store) AddProposed(repo string, entries []contracts.SpawnEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.load(repo); err != nil {
 		return err
 	}
+
+	// Build set of existing names (proposed or pinned) for dedup.
+	existing := make(map[string]bool, len(s.entries[repo]))
+	for _, e := range s.entries[repo] {
+		if e.State == contracts.SpawnStateProposed || e.State == contracts.SpawnStatePinned {
+			existing[e.Name] = true
+		}
+	}
+
+	var toAdd []contracts.SpawnEntry
 	for i := range entries {
+		if existing[entries[i].Name] {
+			continue
+		}
 		entries[i].State = contracts.SpawnStateProposed
 		entries[i].Source = contracts.SpawnSourceEmerged
+		toAdd = append(toAdd, entries[i])
+		existing[entries[i].Name] = true // prevent intra-batch duplicates
 	}
-	s.entries[repo] = append(s.entries[repo], entries...)
+	if len(toAdd) == 0 {
+		return nil
+	}
+
+	s.entries[repo] = append(s.entries[repo], toAdd...)
 	if err := s.save(repo); err != nil {
-		s.entries[repo] = s.entries[repo][:len(s.entries[repo])-len(entries)]
+		s.entries[repo] = s.entries[repo][:len(s.entries[repo])-len(toAdd)]
 		return err
 	}
 	return nil
+}
+
+// ProposedAndPinnedNames returns the names of all proposed and pinned entries for a repo.
+func (s *Store) ProposedAndPinnedNames(repo string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.load(repo); err != nil {
+		return nil
+	}
+	var names []string
+	for _, e := range s.entries[repo] {
+		if e.State == contracts.SpawnStateProposed || e.State == contracts.SpawnStatePinned {
+			names = append(names, e.Name)
+		}
+	}
+	return names
 }
 
 // Import adds entries preserving their existing state and source.

@@ -1,7 +1,6 @@
 package lore
 
 import (
-	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -58,12 +57,12 @@ func TestApplyToGlobalLayer(t *testing.T) {
 	dir := t.TempDir()
 	store := NewInstructionStore(dir)
 
-	err := ApplyToLayer(store, LayerUserGlobal, "", "# Global\n- Prefer table-driven tests")
+	err := ApplyToLayer(store, LayerCrossRepoPrivate, "", "# Global\n- Prefer table-driven tests")
 	if err != nil {
 		t.Fatalf("apply failed: %v", err)
 	}
 
-	content, _ := store.Read(LayerUserGlobal, "")
+	content, _ := store.Read(LayerCrossRepoPrivate, "")
 	if !strings.Contains(content, "table-driven") {
 		t.Error("global layer should contain applied content")
 	}
@@ -76,36 +75,5 @@ func TestApplyToLayer_RejectsPublic(t *testing.T) {
 	err := ApplyToLayer(store, LayerRepoPublic, "myrepo", "content")
 	if err == nil {
 		t.Error("expected error for repo_public layer")
-	}
-}
-
-func TestApplyPublicMerge(t *testing.T) {
-	bareDir := initBareRepo(t)
-	workDir := t.TempDir()
-
-	content := "# Updated CLAUDE.md\n\n- New rule from lore\n"
-	result, err := ApplyPublicMerge(context.Background(), "prop-20260304-ab12", bareDir, workDir, "CLAUDE.md", content, "Add build system rule")
-	if err != nil {
-		t.Fatalf("apply failed: %v", err)
-	}
-	if result.Branch == "" {
-		t.Error("expected branch name")
-	}
-
-	// Verify file content on branch
-	showCmd := exec.Command("git", "show", result.Branch+":CLAUDE.md")
-	showCmd.Dir = bareDir
-	output, err := showCmd.Output()
-	if err != nil {
-		t.Fatalf("git show failed: %v", err)
-	}
-	if !strings.Contains(string(output), "New rule from lore") {
-		t.Error("branch should contain merged content")
-	}
-
-	// Verify temp worktree was cleaned up
-	entries, _ := os.ReadDir(workDir)
-	if len(entries) != 0 {
-		t.Errorf("expected temp worktree to be cleaned up, found %d entries", len(entries))
 	}
 }

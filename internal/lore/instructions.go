@@ -8,7 +8,7 @@ import (
 )
 
 // InstructionStore manages private instruction files:
-//   - user_global: <baseDir>/global.md
+//   - cross_repo_private: <baseDir>/cross-repo-private.md
 //   - repo_private: <baseDir>/repos/<repo>/private.md
 type InstructionStore struct {
 	baseDir string
@@ -22,8 +22,8 @@ func NewInstructionStore(baseDir string) *InstructionStore {
 
 func (s *InstructionStore) pathFor(layer Layer, repo string) (string, error) {
 	switch layer {
-	case LayerUserGlobal:
-		return filepath.Join(s.baseDir, "global.md"), nil
+	case LayerCrossRepoPrivate:
+		return filepath.Join(s.baseDir, "cross-repo-private.md"), nil
 	case LayerRepoPrivate:
 		if repo == "" {
 			return "", fmt.Errorf("repo_private layer requires a repo name")
@@ -68,13 +68,13 @@ func (s *InstructionStore) Write(layer Layer, repo string, content string) error
 }
 
 // Assemble concatenates all instruction layers for a given repo, in order:
-// user_global, repo_private, then the public content (passed in).
+// cross_repo_private, repo_private, then the public content (passed in).
 // Empty layers are skipped. Each layer is separated by a blank line.
 func (s *InstructionStore) Assemble(repo string, publicContent string) string {
 	var sections []string
 
-	if global, _ := s.Read(LayerUserGlobal, ""); global != "" {
-		sections = append(sections, global)
+	if crossRepo, _ := s.Read(LayerCrossRepoPrivate, ""); crossRepo != "" {
+		sections = append(sections, crossRepo)
 	}
 	if private, _ := s.Read(LayerRepoPrivate, repo); private != "" {
 		sections = append(sections, private)
