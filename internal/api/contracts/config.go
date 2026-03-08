@@ -111,6 +111,11 @@ type AccessControl struct {
 	SessionTTLMinutes int    `json:"session_ttl_minutes"`
 }
 
+// SystemCapabilities reports which optional system tools are available.
+type SystemCapabilities struct {
+	ITerm2Available bool `json:"iterm2_available"`
+}
+
 // ConfigResponse represents the API response for GET /api/config.
 type ConfigResponse struct {
 	WorkspacePath              string                `json:"workspace_path"`
@@ -139,6 +144,7 @@ type ConfigResponse struct {
 	Subreddit                  Subreddit             `json:"subreddit"`
 	FloorManager               FloorManager          `json:"floor_manager"`
 	RemoteAccess               RemoteAccess          `json:"remote_access"`
+	SystemCapabilities         SystemCapabilities    `json:"system_capabilities"`
 	NeedsRestart               bool                  `json:"needs_restart"`
 }
 

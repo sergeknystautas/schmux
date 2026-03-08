@@ -11,6 +11,7 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
 )
 
@@ -179,6 +180,9 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			},
 		},
 		NeedsRestart: s.state.GetNeedsRestart(),
+		SystemCapabilities: contracts.SystemCapabilities{
+			ITerm2Available: detect.ITerm2Available(),
+		},
 	}
 
 	w.Header().Set("Content-Type", "application/json")

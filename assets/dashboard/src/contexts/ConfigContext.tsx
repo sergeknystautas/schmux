@@ -100,6 +100,9 @@ const DEFAULT_CONFIG: ConfigResponse = {
       command: '',
     },
   },
+  system_capabilities: {
+    iterm2_available: false,
+  },
   needs_restart: false,
 };
 

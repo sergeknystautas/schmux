@@ -108,6 +108,7 @@ const configFixture: ConfigResponse = {
     password_hash_set: false,
     notify: { ntfy_topic: '', command: '' },
   },
+  system_capabilities: { iterm2_available: false },
   needs_restart: false,
 };
 

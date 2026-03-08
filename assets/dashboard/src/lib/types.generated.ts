@@ -55,6 +55,7 @@ export interface ConfigResponse {
   subreddit: Subreddit;
   floor_manager: FloorManager;
   remote_access: RemoteAccess;
+  system_capabilities: SystemCapabilities;
   needs_restart: boolean;
 }
 
@@ -465,6 +466,10 @@ export interface SubredditUpdate {
   max_posts?: number;
   max_age?: number;
   repos?: Record<string, boolean>;
+}
+
+export interface SystemCapabilities {
+  iterm2_available: boolean;
 }
 
 export interface TLS {
