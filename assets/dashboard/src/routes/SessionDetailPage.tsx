@@ -709,7 +709,7 @@ export default function SessionDetailPage() {
                       <span>{statusText}</span>
                     </div>
                   </Tooltip>
-                  {!sessionData.remote_host_id && (
+                  {!sessionData.remote_host_id && config.system_capabilities?.iterm2_available && (
                     <Tooltip content="Open tmux session in iTerm2">
                       <a
                         className="iterm2-link"

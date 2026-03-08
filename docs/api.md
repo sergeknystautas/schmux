@@ -800,6 +800,9 @@ Response:
     "confirm_before_close": false,
     "suggest_dispose_after_push": true
   },
+  "system_capabilities": {
+    "iterm2_available": true
+  },
   "needs_restart": false
 }
 ```
