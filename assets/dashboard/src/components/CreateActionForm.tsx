@@ -36,7 +36,7 @@ export default function CreateActionForm({ repo, onCreated, onCancel }: CreateAc
       success(`Created "${name.trim()}"`);
       onCreated();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to create action');
+      alert('Save Failed', err instanceof Error ? err.message : 'Failed to create action');
     } finally {
       setSaving(false);
     }

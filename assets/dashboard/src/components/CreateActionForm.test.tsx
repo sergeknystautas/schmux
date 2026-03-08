@@ -132,7 +132,7 @@ describe('CreateActionForm', () => {
     await user.type(screen.getByLabelText('Name'), 'Failing action');
     await user.click(screen.getByText('Save'));
 
-    expect(mockAlert).toHaveBeenCalledWith('Network error');
+    expect(mockAlert).toHaveBeenCalledWith('Save Failed', 'Network error');
     expect(defaultProps.onCreated).not.toHaveBeenCalled();
   });
 });
