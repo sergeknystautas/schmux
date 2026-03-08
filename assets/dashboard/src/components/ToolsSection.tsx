@@ -4,6 +4,7 @@ import { useConfig } from '../contexts/ConfigContext';
 import { useCuration } from '../contexts/CurationContext';
 import { useOverlay } from '../contexts/OverlayContext';
 import { getLoreProposals } from '../lib/api';
+import { getAllSpawnEntries } from '../lib/emergence-api';
 import Tooltip from './Tooltip';
 
 const TOOLS_COLLAPSED_KEY = 'schmux-tools-collapsed';
@@ -40,7 +41,7 @@ export default function ToolsSection({
     }
   }, [isCollapsed]);
 
-  // Lore pending proposal counts
+  // Lore pending proposal + proposed action counts
   const [loreCounts, setLoreCounts] = useState<Record<string, number>>({});
   const repoNamesKey = useMemo(
     () => (config?.repos || []).map((r) => r.name).join(','),
@@ -51,14 +52,22 @@ export default function ToolsSection({
     if (!repoNamesKey) return;
     const repoNames = repoNamesKey.split(',');
     const fetchCounts = async () => {
-      const results = await Promise.allSettled(repoNames.map((name) => getLoreProposals(name)));
+      const [proposalResults, actionResults] = await Promise.all([
+        Promise.allSettled(repoNames.map((name) => getLoreProposals(name))),
+        Promise.allSettled(repoNames.map((name) => getAllSpawnEntries(name))),
+      ]);
       const counts: Record<string, number> = {};
-      results.forEach((result, i) => {
-        if (result.status === 'fulfilled') {
-          counts[repoNames[i]] = (result.value.proposals || []).filter(
-            (p) => p.status === 'pending'
-          ).length;
+      repoNames.forEach((name, i) => {
+        let count = 0;
+        const pr = proposalResults[i];
+        if (pr.status === 'fulfilled') {
+          count += (pr.value.proposals || []).filter((p) => p.status === 'pending').length;
         }
+        const ar = actionResults[i];
+        if (ar.status === 'fulfilled') {
+          count += (ar.value || []).filter((e) => e.state === 'proposed').length;
+        }
+        counts[name] = count;
       });
       setLoreCounts(counts);
     };

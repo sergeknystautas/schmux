@@ -431,7 +431,7 @@ func TestAgentInstructions_InjectsLoreInstructions(t *testing.T) {
 
 	// Setup instruction store with global + repo-private content
 	store := lore.NewInstructionStore(loreDir)
-	store.Write(lore.LayerUserGlobal, "", "# Global\n- Prefer table-driven tests")
+	store.Write(lore.LayerCrossRepoPrivate, "", "# Global\n- Prefer table-driven tests")
 	store.Write(lore.LayerRepoPrivate, "myrepo", "# Private\n- Use internal API v2")
 
 	// Set the package-level instruction store

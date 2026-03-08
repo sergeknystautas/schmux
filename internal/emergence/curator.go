@@ -33,7 +33,7 @@ type EmergenceCuratorResponse struct {
 }
 
 // BuildEmergencePrompt constructs the LLM prompt for distilling intent signals into skills.
-func BuildEmergencePrompt(signals []IntentSignal, existingSkills []BuiltinSkill, repoName string) string {
+func BuildEmergencePrompt(signals []IntentSignal, existingSkills []BuiltinSkill, proposedSkillNames []string, repoName string) string {
 	var sb strings.Builder
 
 	sb.WriteString(`You are a skill distiller for a multi-agent software development environment.
@@ -105,6 +105,13 @@ Output ONLY valid JSON matching the schema below, no markdown fencing:
 	} else {
 		for _, s := range existingSkills {
 			fmt.Fprintf(&sb, "- %s\n", s.Name)
+		}
+	}
+
+	if len(proposedSkillNames) > 0 {
+		sb.WriteString("\nALREADY PROPOSED SKILLS (do NOT re-propose these):\n")
+		for _, name := range proposedSkillNames {
+			fmt.Fprintf(&sb, "- %s\n", name)
 		}
 	}
 

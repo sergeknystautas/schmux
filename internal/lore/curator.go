@@ -30,7 +30,10 @@ type ExtractedRule struct {
 
 // BuildExtractionPrompt constructs the LLM prompt for extracting discrete rules from friction data.
 // Extraction is blind — it does NOT include instruction files.
-func BuildExtractionPrompt(entries []Entry) string {
+// existingRules lists rules already extracted in pending proposals; the LLM is told not to
+// re-extract semantically equivalent rules.
+// dismissedRules lists rules the user previously rejected; the LLM is told not to re-propose them.
+func BuildExtractionPrompt(entries []Entry, existingRules []string, dismissedRules []string) string {
 	var sb strings.Builder
 	sb.WriteString(`You are a rule extractor for a multi-agent software development environment.
 
@@ -50,7 +53,7 @@ Rules for extraction:
 - Assign a suggested_layer:
   - "repo_public": rules specific to this repository, safe to commit (e.g., build commands, project structure)
   - "repo_private": rules specific to this repository but private (e.g., internal tooling, personal preferences)
-  - "user_global": rules that apply across all repositories (e.g., agent behavior, environment setup)
+  - "cross_repo_private": rules that apply across all repositories (e.g., agent behavior, environment setup)
 - Output ONLY valid JSON matching the schema below, no markdown fencing
 
 Output schema:
@@ -67,6 +70,24 @@ Output schema:
 }
 
 `)
+
+	// Include existing pending rules so the LLM avoids re-extracting them
+	if len(existingRules) > 0 {
+		sb.WriteString("ALREADY EXTRACTED RULES (pending review — do NOT re-extract these or semantically equivalent rules):\n")
+		for _, r := range existingRules {
+			fmt.Fprintf(&sb, "- %s\n", r)
+		}
+		sb.WriteString("\n")
+	}
+
+	// Include dismissed rules so the LLM avoids re-proposing them
+	if len(dismissedRules) > 0 {
+		sb.WriteString("PREVIOUSLY REJECTED RULES (user dismissed these — do NOT re-propose them or semantically equivalent rules):\n")
+		for _, r := range dismissedRules {
+			fmt.Fprintf(&sb, "- %s\n", r)
+		}
+		sb.WriteString("\n")
+	}
 
 	// Separate entries by type and deduplicate
 	var failures, reflections []Entry

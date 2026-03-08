@@ -256,6 +256,36 @@ func MarkEntriesByTextMulti(sourcePaths []string, destPath string, stateChange s
 	return nil
 }
 
+// MarkEntriesDirect writes state-change records for the given entries directly
+// to destPath. Unlike MarkEntriesByText*, this does not match by text — it marks
+// each entry by its timestamp. Use this when you already have the exact entries
+// to mark (e.g., all entries sent to a curation run).
+func MarkEntriesDirect(entries []Entry, destPath string, stateChange string, proposalID string) error {
+	scratchpadMu.Lock()
+	defer scratchpadMu.Unlock()
+
+	seen := make(map[string]bool)
+	for _, e := range entries {
+		if e.StateChange != "" {
+			continue
+		}
+		tsStr := e.Timestamp.Format(time.RFC3339)
+		if seen[tsStr] {
+			continue
+		}
+		seen[tsStr] = true
+		if err := appendEntryToFile(destPath, Entry{
+			Timestamp:   time.Now().UTC(),
+			StateChange: stateChange,
+			EntryTS:     tsStr,
+			ProposalID:  proposalID,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // MarkEntriesByTextFromEntries marks entries matching the given texts by writing
 // state-change records to destPath. Unlike MarkEntriesByTextMulti, this takes
 // pre-read entries instead of file paths.

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
 import {
   getLoreProposals,
@@ -10,26 +10,20 @@ import {
   startLoreMerge,
   applyLoreMerge,
   clearLoreEntries,
-  getLoreCurations,
-  getLoreCurationLog,
   getErrorMessage,
 } from '../lib/api';
 import { getAllSpawnEntries, pinSpawnEntry, dismissSpawnEntry } from '../lib/emergence-api';
-import type { CurationRunInfo } from '../lib/api';
 import type { SpawnEntry } from '../lib/types.generated';
 import { useConfig } from '../contexts/ConfigContext';
 import { useCuration } from '../contexts/CurationContext';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import useTheme from '../hooks/useTheme';
-import CuratorTerminal from '../components/CuratorTerminal';
 import { ProposedActionCard, PinnedActionRow } from '../components/ProposedActionCard';
-import CreateActionForm from '../components/CreateActionForm';
 import type {
   LoreProposal,
   LoreEntry,
   LoreStatusResponse,
-  CuratorStreamEvent,
   LoreRule,
   LoreLayer,
 } from '../lib/types';
@@ -38,7 +32,7 @@ import styles from '../styles/lore.module.css';
 const LAYER_LABELS: Record<LoreLayer, string> = {
   repo_public: 'Public',
   repo_private: 'Private',
-  user_global: 'Global',
+  cross_repo_private: 'Cross-Repo Private',
 };
 
 function RuleRow({
@@ -141,7 +135,7 @@ function RuleRow({
       {rule.status === 'pending' && (
         <div className={styles.ruleActions}>
           <div className={styles.layerPicker}>
-            {(['repo_public', 'repo_private', 'user_global'] as LoreLayer[]).map((layer) => (
+            {(['repo_public', 'repo_private', 'cross_repo_private'] as LoreLayer[]).map((layer) => (
               <label key={layer} className={styles.layerLabel}>
                 <input
                   type="radio"
@@ -190,6 +184,7 @@ function RuleReviewCard({
   const { theme } = useTheme();
   const { alert } = useModal();
   const { success: toastSuccess } = useToast();
+  const navigate = useNavigate();
   const [editedPreviews, setEditedPreviews] = useState<Record<string, string>>({});
   const [applying, setApplying] = useState(false);
 
@@ -257,8 +252,13 @@ function RuleReviewCard({
         layer: p.layer,
         content: editedPreviews[p.layer] ?? p.merged_content,
       }));
-      await applyLoreMerge(repoName, proposal.id, merges);
-      toastSuccess('Merge applied successfully');
+      const result = await applyLoreMerge(repoName, proposal.id, merges);
+      toastSuccess('Merge applied — workspace ready for review');
+      // Navigate to git view if a workspace was created
+      const publicResult = result.results?.find((r) => r.workspace_id);
+      if (publicResult?.workspace_id) {
+        navigate(`/git/${publicResult.workspace_id}`);
+      }
       // Reload proposal to reflect applied status
       const updated = await getLoreProposals(repoName);
       const refreshed = (updated.proposals || []).find((p) => p.id === proposal.id);
@@ -533,17 +533,9 @@ export default function LorePage() {
   const [loreStatus, setLoreStatus] = useState<LoreStatusResponse | null>(null);
 
   // Collapsible sections
-  const [showHistory, setShowHistory] = useState(false);
   const [showSignals, setShowSignals] = useState(
     () => localStorage.getItem('lore-signals-open') === 'true'
   );
-  const [showPastRuns, setShowPastRuns] = useState(false);
-
-  // Past curation runs
-  const [pastRuns, setPastRuns] = useState<CurationRunInfo[]>([]);
-  const [pastRunEvents, setPastRunEvents] = useState<CuratorStreamEvent[] | null>(null);
-  const [pastRunActiveId, setPastRunActiveId] = useState<string | null>(null);
-  const [pastRunLoading, setPastRunLoading] = useState(false);
 
   // Entry filter state
   const [entryFilters, setEntryFilters] = useState<{
@@ -564,7 +556,6 @@ export default function LorePage() {
   // Actions tab state
   const [proposedActions, setProposedActions] = useState<SpawnEntry[]>([]);
   const [pinnedActions, setPinnedActions] = useState<SpawnEntry[]>([]);
-  const [showCreateForm, setShowCreateForm] = useState(() => searchParams.get('create') === '1');
 
   // Sync activeRepo when repos list changes (e.g., config loaded after mount)
   useEffect(() => {
@@ -613,16 +604,6 @@ export default function LorePage() {
     }
   }, [activeRepo]);
 
-  const loadPastRuns = useCallback(async () => {
-    if (!activeRepo) return;
-    try {
-      const data = await getLoreCurations(activeRepo);
-      setPastRuns(data.runs || []);
-    } catch {
-      // Non-critical; silently ignore errors
-    }
-  }, [activeRepo]);
-
   const loadActions = useCallback(async () => {
     if (!activeRepo) return;
     try {
@@ -644,27 +625,36 @@ export default function LorePage() {
       loadProposals(),
       loadEntries(),
       loadFilterOptions(),
-      loadPastRuns(),
       loadActions(),
       statusPromise,
     ]);
 
     // Fetch pending counts for all repos (for tab badges)
     if (repos.length > 1) {
-      const results = await Promise.allSettled(repos.map((r) => getLoreProposals(r.name)));
+      const [proposalResults, actionResults] = await Promise.all([
+        Promise.allSettled(repos.map((r) => getLoreProposals(r.name))),
+        Promise.allSettled(repos.map((r) => getAllSpawnEntries(r.name))),
+      ]);
       const counts: Record<string, number> = {};
-      results.forEach((result, i) => {
-        if (result.status === 'fulfilled') {
-          counts[repos[i].name] = (result.value.proposals || []).filter(
+      repos.forEach((repo, i) => {
+        let count = 0;
+        const pr = proposalResults[i];
+        if (pr.status === 'fulfilled') {
+          count += (pr.value.proposals || []).filter(
             (p: LoreProposal) => p.status === 'pending'
           ).length;
         }
+        const ar = actionResults[i];
+        if (ar.status === 'fulfilled') {
+          count += (ar.value || []).filter((e: SpawnEntry) => e.state === 'proposed').length;
+        }
+        counts[repo.name] = count;
       });
       setRepoPendingCounts(counts);
     }
 
     setLoading(false);
-  }, [loadProposals, loadEntries, loadFilterOptions, loadPastRuns, loadActions, repos]);
+  }, [loadProposals, loadEntries, loadFilterOptions, loadActions, repos]);
 
   // Initial load when repo changes
   useEffect(() => {
@@ -693,8 +683,6 @@ export default function LorePage() {
     setActiveRepo(repoName);
     setEntryFilters({});
     filtersInitialized.current = false;
-    setPastRunActiveId(null);
-    setPastRunEvents(null);
   };
 
   const handleDismiss = async (proposal: LoreProposal) => {
@@ -719,12 +707,32 @@ export default function LorePage() {
     startCuration(activeRepo);
   };
 
+  // Refresh badge count for a single repo (proposals + proposed actions)
+  const refreshRepoBadge = useCallback(async (repo: string) => {
+    try {
+      const [proposalRes, actionRes] = await Promise.all([
+        getLoreProposals(repo),
+        getAllSpawnEntries(repo),
+      ]);
+      let count = 0;
+      count += (proposalRes.proposals || []).filter(
+        (p: LoreProposal) => p.status === 'pending'
+      ).length;
+      count += (actionRes || []).filter((e: SpawnEntry) => e.state === 'proposed').length;
+      setRepoPendingCounts((prev) => ({ ...prev, [repo]: count }));
+    } catch {
+      // Non-critical
+    }
+  }, []);
+
   const handlePinAction = async (entry: SpawnEntry) => {
     if (!activeRepo) return;
     try {
       await pinSpawnEntry(activeRepo, entry.id);
       toastSuccess(`Pinned "${entry.name}"`);
       loadActions();
+      invalidateProposals();
+      refreshRepoBadge(activeRepo);
     } catch (err) {
       toastError(getErrorMessage(err, 'Failed to pin action'));
     }
@@ -736,6 +744,8 @@ export default function LorePage() {
       await dismissSpawnEntry(activeRepo, entry.id);
       toastSuccess(`Dismissed "${entry.name}"`);
       loadActions();
+      invalidateProposals();
+      refreshRepoBadge(activeRepo);
     } catch (err) {
       toastError(getErrorMessage(err, 'Failed to dismiss action'));
     }
@@ -749,33 +759,6 @@ export default function LorePage() {
       loadData();
     } catch (err) {
       alert('Clear Signals Failed', getErrorMessage(err, 'Failed to clear signals'));
-    }
-  };
-
-  const handleViewPastRun = async (runId: string) => {
-    if (!activeRepo) return;
-    if (pastRunActiveId === runId) {
-      setPastRunActiveId(null);
-      setPastRunEvents(null);
-      return;
-    }
-    setPastRunActiveId(runId);
-    setPastRunLoading(true);
-    try {
-      const data = await getLoreCurationLog(activeRepo, runId);
-      const events: CuratorStreamEvent[] = (data.events || []).map((raw) => ({
-        repo: activeRepo,
-        timestamp: (raw.timestamp as string) || '',
-        event_type: (raw.type as string) || 'unknown',
-        subtype: (raw.subtype as string) || '',
-        raw: raw as Record<string, unknown>,
-      }));
-      setPastRunEvents(events);
-    } catch (err) {
-      alert('Load Failed', getErrorMessage(err, 'Failed to load curation log'));
-      setPastRunActiveId(null);
-    } finally {
-      setPastRunLoading(false);
     }
   };
 
@@ -810,9 +793,6 @@ export default function LorePage() {
 
   const pendingProposals = proposals.filter(
     (p) => p.status === 'pending' || p.status === 'merging'
-  );
-  const historyProposals = proposals.filter(
-    (p) => p.status === 'applied' || p.status === 'dismissed'
   );
   const rawEntries = entries.filter(
     (e) => !e.state_change && !(e.type === 'reflection' && (!e.text || e.text === 'none'))
@@ -862,17 +842,14 @@ export default function LorePage() {
             onClick={() => setActiveSubTab('instructions')}
           >
             Instructions
+            {pendingProposals.length > 0 && <span className={styles.repoBadge} />}
           </button>
           <button
             className={`${styles.subTab} ${activeSubTab === 'actions' ? styles.subTabActive : ''}`}
             onClick={() => setActiveSubTab('actions')}
           >
             Actions
-            {proposedActions.length > 0 && (
-              <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', opacity: 0.7 }}>
-                ({proposedActions.length})
-              </span>
-            )}
+            {proposedActions.length > 0 && <span className={styles.repoBadge} />}
           </button>
         </div>
 
@@ -901,85 +878,6 @@ export default function LorePage() {
                   No pending proposals for agents instructions changes.
                 </p>
               </div>
-            )}
-
-            {/* History — collapsed by default */}
-            {historyProposals.length > 0 && (
-              <section className={styles.section}>
-                <button
-                  className={styles.toggleButton}
-                  onClick={() => setShowHistory(!showHistory)}
-                >
-                  {showHistory ? '\u25BC' : '\u25B6'} History ({historyProposals.length})
-                </button>
-                {showHistory && (
-                  <div className={styles.historyList}>
-                    {historyProposals.map((p) => (
-                      <div key={p.id} className={styles.historyItem}>
-                        <span className={styles.historyIcon}>
-                          {p.status === 'applied' ? '\u2713' : '\u2717'}
-                        </span>
-                        <span className={styles.historyStatus}>{p.status}</span>
-                        <span className={styles.historyDate}>
-                          {new Date(p.created_at).toLocaleDateString()}
-                        </span>
-                        <span className={styles.historySummary}>{p.diff_summary}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
-            )}
-
-            {/* Past Runs — collapsed by default */}
-            {pastRuns.length > 0 && (
-              <section className={styles.section}>
-                <button
-                  className={styles.toggleButton}
-                  onClick={() => setShowPastRuns(!showPastRuns)}
-                >
-                  {showPastRuns ? '\u25BC' : '\u25B6'} Past Runs ({pastRuns.length})
-                </button>
-                {showPastRuns && (
-                  <div className={styles.historyList}>
-                    {pastRuns.map((run) => (
-                      <div key={run.id}>
-                        <button
-                          className={`${styles.historyItem} ${pastRunActiveId === run.id ? styles.activeTab : ''}`}
-                          style={{
-                            cursor: 'pointer',
-                            width: '100%',
-                            textAlign: 'left',
-                            background: 'none',
-                            border: 'none',
-                            padding: 0,
-                          }}
-                          onClick={() => handleViewPastRun(run.id)}
-                        >
-                          <span className={styles.historyDate}>
-                            {new Date(run.created_at).toLocaleString()}
-                          </span>
-                          <span className={styles.historySummary}>{run.id}</span>
-                          <span className={styles.entryTool}>
-                            {run.size_bytes > 1024
-                              ? `${Math.round(run.size_bytes / 1024)}KB`
-                              : `${run.size_bytes}B`}
-                          </span>
-                        </button>
-                        {pastRunActiveId === run.id && (
-                          <div style={{ marginTop: '0.5rem', marginBottom: '0.5rem' }}>
-                            {pastRunLoading ? (
-                              <p className={styles.empty}>Loading log...</p>
-                            ) : pastRunEvents ? (
-                              <CuratorTerminal events={pastRunEvents} />
-                            ) : null}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
             )}
 
             {/* Raw Signals — collapsed, persisted to localStorage */}
@@ -1084,25 +982,6 @@ export default function LorePage() {
 
         {activeSubTab === 'actions' && (
           <>
-            {showCreateForm ? (
-              <CreateActionForm
-                repo={activeRepo}
-                onCreated={() => {
-                  setShowCreateForm(false);
-                  loadActions();
-                }}
-                onCancel={() => setShowCreateForm(false)}
-              />
-            ) : (
-              <button
-                className={styles.curateButton}
-                onClick={() => setShowCreateForm(true)}
-                style={{ marginLeft: 0, marginBottom: '1rem' }}
-              >
-                + Create action
-              </button>
-            )}
-
             {/* Proposed actions */}
             {proposedActions.length > 0 && (
               <>
@@ -1120,7 +999,7 @@ export default function LorePage() {
               </>
             )}
 
-            {proposedActions.length === 0 && !showCreateForm && (
+            {proposedActions.length === 0 && (
               <div className="empty-state">
                 <p className="empty-state__description">
                   No proposed actions. Actions are generated automatically from agent work sessions.

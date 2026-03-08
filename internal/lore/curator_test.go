@@ -14,7 +14,7 @@ func TestBuildExtractionPrompt(t *testing.T) {
 		{Text: "use go run ./cmd/build-dashboard", Type: "reflection", Agent: "claude-code", Workspace: "ws-1"},
 		{Tool: "Bash", InputSummary: "npm run build", ErrorSummary: "command not found", Type: "failure", Category: "wrong_command", Agent: "claude-code", Workspace: "ws-1"},
 	}
-	prompt := BuildExtractionPrompt(entries)
+	prompt := BuildExtractionPrompt(entries, nil, nil)
 
 	// Should contain friction data
 	if !strings.Contains(prompt, "npm run build") {
@@ -26,6 +26,10 @@ func TestBuildExtractionPrompt(t *testing.T) {
 	// Should NOT contain instruction file content (extraction is blind)
 	if strings.Contains(prompt, "INSTRUCTION FILES") {
 		t.Error("extraction prompt must not include instruction files")
+	}
+	// Should NOT contain existing rules section when none provided
+	if strings.Contains(prompt, "ALREADY EXTRACTED") {
+		t.Error("prompt should not contain existing rules when none provided")
 	}
 	// Should request discrete rules output
 	if !strings.Contains(prompt, "rules") {
@@ -66,7 +70,7 @@ func TestBuildExtractionPrompt_SeparatesFailuresAndReflections(t *testing.T) {
 		{Agent: "claude-code", Type: "reflection", Text: "Use go run ./cmd/build-dashboard", Workspace: "ws-1"},
 		{Agent: "codex", Type: "friction", Text: "Session manager is in internal/session/", Workspace: "ws-2"},
 	}
-	prompt := BuildExtractionPrompt(entries)
+	prompt := BuildExtractionPrompt(entries, nil, nil)
 
 	if !strings.Contains(prompt, "FAILURE RECORDS:") {
 		t.Error("prompt should contain FAILURE RECORDS section")
@@ -92,7 +96,7 @@ func TestBuildExtractionPrompt_DeduplicatesEntries(t *testing.T) {
 		{Agent: "claude-code", Type: "reflection", Text: "use the cargo wrapper script", Workspace: "ws-1"},
 		{Agent: "claude-code", Type: "reflection", Text: "use the cargo wrapper script", Workspace: "ws-2"},
 	}
-	prompt := BuildExtractionPrompt(entries)
+	prompt := BuildExtractionPrompt(entries, nil, nil)
 
 	// Each should appear only once despite duplicates
 	if strings.Count(prompt, "cargo test --all") != 1 {
@@ -109,7 +113,7 @@ func TestBuildExtractionPrompt_SkipsEmptyReflections(t *testing.T) {
 		{Agent: "claude-code", Type: "reflection", Text: "none", Workspace: "ws-1"},
 		{Agent: "claude-code", Type: "reflection", Text: "actual insight", Workspace: "ws-1"},
 	}
-	prompt := BuildExtractionPrompt(entries)
+	prompt := BuildExtractionPrompt(entries, nil, nil)
 
 	if !strings.Contains(prompt, "actual insight") {
 		t.Error("should contain real reflection text")
@@ -250,5 +254,75 @@ func TestParseExtractionResponse_EdgeCases(t *testing.T) {
 				t.Errorf("Rules count = %d, want %d", len(got.Rules), tt.wantRules)
 			}
 		})
+	}
+}
+
+func TestBuildExtractionPrompt_IncludesExistingRules(t *testing.T) {
+	entries := []Entry{
+		{Agent: "claude-code", Type: "reflection", Text: "build is slow", Workspace: "ws-1"},
+	}
+	existingRules := []string{
+		"Always use go run ./cmd/build-dashboard instead of npm run build",
+		"Run tests before committing",
+	}
+	prompt := BuildExtractionPrompt(entries, existingRules, nil)
+
+	if !strings.Contains(prompt, "ALREADY EXTRACTED RULES") {
+		t.Error("prompt should contain ALREADY EXTRACTED RULES section")
+	}
+	if !strings.Contains(prompt, "Always use go run ./cmd/build-dashboard") {
+		t.Error("prompt should include existing rule text")
+	}
+	if !strings.Contains(prompt, "Run tests before committing") {
+		t.Error("prompt should include all existing rules")
+	}
+	if !strings.Contains(prompt, "do NOT re-extract") {
+		t.Error("prompt should instruct LLM not to re-extract")
+	}
+}
+
+func TestBuildExtractionPrompt_OmitsExistingRulesWhenEmpty(t *testing.T) {
+	entries := []Entry{
+		{Agent: "claude-code", Type: "reflection", Text: "insight", Workspace: "ws-1"},
+	}
+	prompt := BuildExtractionPrompt(entries, []string{}, nil)
+
+	if strings.Contains(prompt, "ALREADY EXTRACTED") {
+		t.Error("prompt should not contain existing rules section when list is empty")
+	}
+}
+
+func TestBuildExtractionPrompt_IncludesDismissedRules(t *testing.T) {
+	entries := []Entry{
+		{Agent: "claude-code", Type: "reflection", Text: "build is slow", Workspace: "ws-1"},
+	}
+	dismissed := []string{
+		"Always run npm audit before deploying",
+		"Use yarn instead of npm",
+	}
+	prompt := BuildExtractionPrompt(entries, nil, dismissed)
+
+	if !strings.Contains(prompt, "PREVIOUSLY REJECTED RULES") {
+		t.Error("prompt should contain PREVIOUSLY REJECTED RULES section")
+	}
+	if !strings.Contains(prompt, "Always run npm audit before deploying") {
+		t.Error("prompt should include dismissed rule text")
+	}
+	if !strings.Contains(prompt, "Use yarn instead of npm") {
+		t.Error("prompt should include all dismissed rules")
+	}
+	if !strings.Contains(prompt, "do NOT re-propose") {
+		t.Error("prompt should instruct LLM not to re-propose dismissed rules")
+	}
+}
+
+func TestBuildExtractionPrompt_OmitsDismissedRulesWhenEmpty(t *testing.T) {
+	entries := []Entry{
+		{Agent: "claude-code", Type: "reflection", Text: "insight", Workspace: "ws-1"},
+	}
+	prompt := BuildExtractionPrompt(entries, nil, []string{})
+
+	if strings.Contains(prompt, "PREVIOUSLY REJECTED") {
+		t.Error("prompt should not contain rejected rules section when list is empty")
 	}
 }

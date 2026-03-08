@@ -1653,3 +1653,25 @@ func TestMigrateSessionTargets_ViaLoad(t *testing.T) {
 		t.Errorf("sessions[1].Target = %q, want %q", sessions[1].Target, "minimax-m2.1")
 	}
 }
+
+func TestFindWorkspaceByRepoBranch(t *testing.T) {
+	s := New("", nil)
+	s.AddWorkspace(Workspace{ID: "ws-001", Repo: "myrepo", Branch: "main", Path: "/tmp/ws-001"})
+	s.AddWorkspace(Workspace{ID: "ws-002", Repo: "myrepo", Branch: "schmux/lore", Path: "/tmp/ws-002"})
+	s.AddWorkspace(Workspace{ID: "ws-003", Repo: "other", Branch: "schmux/lore", Path: "/tmp/ws-003"})
+
+	// Find by repo + branch
+	ws, found := s.FindWorkspaceByRepoBranch("myrepo", "schmux/lore")
+	if !found {
+		t.Fatal("expected to find workspace")
+	}
+	if ws.ID != "ws-002" {
+		t.Errorf("expected ws-002, got %s", ws.ID)
+	}
+
+	// Not found
+	_, found = s.FindWorkspaceByRepoBranch("myrepo", "nonexistent")
+	if found {
+		t.Error("expected not found")
+	}
+}

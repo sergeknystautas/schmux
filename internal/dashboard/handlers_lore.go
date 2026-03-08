@@ -16,6 +16,8 @@ import (
 	"github.com/sergeknystautas/schmux/internal/lore"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/schema"
+	"github.com/sergeknystautas/schmux/internal/session"
+	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
 // validateLoreRepo is a chi middleware that validates the {repo} URL parameter.
@@ -252,10 +254,10 @@ func (s *Server) handleLoreRuleUpdate(w http.ResponseWriter, r *http.Request) {
 	if body.ChosenLayer != nil {
 		l := lore.Layer(*body.ChosenLayer)
 		switch l {
-		case lore.LayerRepoPublic, lore.LayerRepoPrivate, lore.LayerUserGlobal:
+		case lore.LayerRepoPublic, lore.LayerRepoPrivate, lore.LayerCrossRepoPrivate:
 			chosenLayer = &l
 		default:
-			http.Error(w, "chosen_layer must be 'repo_public', 'repo_private', or 'user_global'", http.StatusBadRequest)
+			http.Error(w, "chosen_layer must be 'repo_public', 'repo_private', or 'cross_repo_private'", http.StatusBadRequest)
 			return
 		}
 	}
@@ -365,9 +367,9 @@ func (s *Server) handleLoreMerge(w http.ResponseWriter, r *http.Request) {
 				if instrStore != nil {
 					currentContent, _ = instrStore.Read(lore.LayerRepoPrivate, repoName)
 				}
-			case lore.LayerUserGlobal:
+			case lore.LayerCrossRepoPrivate:
 				if instrStore != nil {
-					currentContent, _ = instrStore.Read(lore.LayerUserGlobal, "")
+					currentContent, _ = instrStore.Read(lore.LayerCrossRepoPrivate, "")
 				}
 			}
 
@@ -455,16 +457,33 @@ func (s *Server) handleLoreApplyMerge(w http.ResponseWriter, r *http.Request) {
 		layer := lore.Layer(m.Layer)
 		switch layer {
 		case lore.LayerRepoPublic:
-			// Find bare repo
-			var bareDir string
+			// Find repo URL from config
+			var repoURL string
 			for _, repoConfig := range s.config.Repos {
 				if repoConfig.Name == repoName {
-					bareDir = s.config.ResolveBareRepoDir(repoConfig.BarePath)
+					repoURL = repoConfig.URL
 					break
 				}
 			}
-			if bareDir == "" {
+			if repoURL == "" {
 				http.Error(w, "repo not found for public layer apply", http.StatusNotFound)
+				return
+			}
+
+			// Check if a schmux/lore workspace already exists for this repo
+			if ws, found := s.state.FindWorkspaceByRepoBranch(repoURL, "schmux/lore"); found {
+				clean, reason := workspace.CheckWorkspaceClean(ws.Path)
+				if !clean {
+					http.Error(w, fmt.Sprintf("Lore workspace has pending changes. Review or discard them before applying a new merge. (%s)", reason), http.StatusConflict)
+					return
+				}
+			}
+
+			// Get or create the workspace
+			ws, err := s.workspace.GetOrCreate(r.Context(), repoURL, "schmux/lore")
+			if err != nil {
+				s.logger.Error("get or create lore workspace failed", "repo", repoName, "err", err)
+				http.Error(w, fmt.Sprintf("failed to create lore workspace: %v", err), http.StatusInternalServerError)
 				return
 			}
 
@@ -475,38 +494,49 @@ func (s *Server) handleLoreApplyMerge(w http.ResponseWriter, r *http.Request) {
 				targetFile = instrFiles[0]
 			}
 
-			workDir := filepath.Join(os.TempDir(), "schmux-lore-apply")
-			os.MkdirAll(workDir, 0755)
-
-			result, err := lore.ApplyPublicMerge(r.Context(), proposalID, bareDir, workDir, targetFile, m.Content, "Update instruction file with agent lore")
-			if err != nil {
-				s.logger.Error("apply public merge failed", "repo", repoName, "err", err)
-				http.Error(w, fmt.Sprintf("apply public merge failed: %v", err), http.StatusInternalServerError)
+			// Write merged content as unstaged change
+			fullPath := filepath.Join(ws.Path, filepath.Clean(targetFile))
+			if !strings.HasPrefix(fullPath, filepath.Clean(ws.Path)+string(os.PathSeparator)) {
+				http.Error(w, fmt.Sprintf("path traversal in filename: %s", targetFile), http.StatusBadRequest)
+				return
+			}
+			if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+				http.Error(w, fmt.Sprintf("failed to create directory: %v", err), http.StatusInternalServerError)
+				return
+			}
+			if err := os.WriteFile(fullPath, []byte(m.Content), 0644); err != nil {
+				http.Error(w, fmt.Sprintf("failed to write file: %v", err), http.StatusInternalServerError)
 				return
 			}
 
-			// Push the branch
-			if err := lore.PushBranch(r.Context(), bareDir, result.Branch); err != nil {
-				s.logger.Error("push branch failed", "repo", repoName, "branch", result.Branch, "err", err)
-				http.Error(w, fmt.Sprintf("commit succeeded but push failed: %v", err), http.StatusInternalServerError)
-				return
+			// Spawn a shell session if the workspace doesn't already have one
+			hasSession := false
+			for _, sess := range s.state.GetSessions() {
+				if sess.WorkspaceID == ws.ID {
+					hasSession = true
+					break
+				}
 			}
-
-			entry := map[string]string{"layer": m.Layer, "status": "applied", "branch": result.Branch}
-
-			// Optionally create PR
-			if s.config.GetLoreAutoPR() {
-				url, err := lore.CreatePR(r.Context(), bareDir, result.Branch, "chore: update instruction file with agent lore", m.Content[:min(200, len(m.Content))])
-				if err != nil {
-					s.logger.Error("auto-PR creation failed", "branch", result.Branch, "err", err)
-				} else {
-					entry["pr_url"] = url
+			if !hasSession {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				_, spawnErr := s.session.SpawnCommand(ctx, session.SpawnOptions{
+					WorkspaceID: ws.ID,
+					Command:     "bash",
+					Nickname:    "lore",
+				})
+				cancel()
+				if spawnErr != nil {
+					s.logger.Warn("failed to spawn lore shell session", "workspace", ws.ID, "err", spawnErr)
 				}
 			}
 
-			results = append(results, entry)
+			results = append(results, map[string]string{
+				"layer":        m.Layer,
+				"status":       "applied",
+				"workspace_id": ws.ID,
+			})
 
-		case lore.LayerRepoPrivate, lore.LayerUserGlobal:
+		case lore.LayerRepoPrivate, lore.LayerCrossRepoPrivate:
 			if s.loreInstructionStore == nil {
 				http.Error(w, "instruction store not configured", http.StatusServiceUnavailable)
 				return
@@ -677,7 +707,9 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Prepare curator prompt — v2 extraction (no instruction files needed)
-	prompt := lore.BuildExtractionPrompt(rawEntries)
+	existingRules := s.loreStore.PendingRuleTexts(repoName)
+	dismissedRules := s.loreStore.DismissedRuleTexts(repoName)
+	prompt := lore.BuildExtractionPrompt(rawEntries, existingRules, dismissedRules)
 
 	// Start curation tracking
 	curationID := fmt.Sprintf("cur-%s-%s", repoName, time.Now().UTC().Format("20060102-150405"))
@@ -874,6 +906,16 @@ func (s *Server) finalizeCuration(repoName, curationID, rawResponse string, entr
 		})
 	}
 
+	// Deduplicate against existing pending and dismissed proposals (safety net for LLM re-extraction)
+	existingTexts := s.loreStore.PendingRuleTexts(repoName)
+	dismissedTexts := s.loreStore.DismissedRuleTexts(repoName)
+	allExcluded := append(existingTexts, dismissedTexts...)
+	proposal.Rules, _ = lore.DeduplicateRules(proposal.Rules, allExcluded)
+
+	if len(proposal.Rules) == 0 {
+		s.logger.Info("all extracted rules are duplicates of existing proposals", "repo", repoName)
+	}
+
 	if err := s.loreStore.Save(proposal); err != nil {
 		errRaw := json.RawMessage(fmt.Sprintf(`{"type":"curator_error","error":%q}`, err.Error()))
 		writeLogEvent(logFile, errRaw)
@@ -881,18 +923,15 @@ func (s *Server) finalizeCuration(repoName, curationID, rawResponse string, entr
 		return
 	}
 
-	// Mark source entries as proposed
+	// Mark all curated entries as proposed — uses direct timestamp marking
+	// instead of matching by LLM source_entries, which is unreliable because
+	// the LLM's source_entries format rarely matches EntryKey() exactly.
+	// This also covers entries the LLM discarded, preventing them from being
+	// re-curated on subsequent runs.
 	statePath, err := lore.LoreStatePath(repoName)
 	if err == nil {
-		allEntries, _ := s.readLoreEntries(repoName, nil)
-		var sourceKeys []string
-		for _, rule := range proposal.Rules {
-			sourceKeys = append(sourceKeys, rule.SourceEntries...)
-		}
-		if len(sourceKeys) > 0 {
-			if err := lore.MarkEntriesByTextFromEntries(allEntries, statePath, "proposed", sourceKeys, proposal.ID); err != nil {
-				s.logger.Warn("failed to mark entries as proposed", "err", err)
-			}
+		if err := lore.MarkEntriesDirect(entries, statePath, "proposed", proposal.ID); err != nil {
+			s.logger.Warn("failed to mark entries as proposed", "err", err)
 		}
 	}
 

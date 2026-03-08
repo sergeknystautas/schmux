@@ -32,11 +32,12 @@ const (
 
 // SpawnEntry is one item in the spawn dropdown.
 type SpawnEntry struct {
-	ID     string           `json:"id"`
-	Name   string           `json:"name"`
-	Type   SpawnEntryType   `json:"type"`
-	Source SpawnEntrySource `json:"source"`
-	State  SpawnEntryState  `json:"state"`
+	ID          string           `json:"id"`
+	Name        string           `json:"name"`
+	Description string           `json:"description,omitempty"`
+	Type        SpawnEntryType   `json:"type"`
+	Source      SpawnEntrySource `json:"source"`
+	State       SpawnEntryState  `json:"state"`
 
 	// Type=skill fields
 	SkillRef string `json:"skill_ref,omitempty"`
@@ -51,6 +52,9 @@ type SpawnEntry struct {
 	// Lifecycle
 	UseCount int        `json:"use_count"`
 	LastUsed *time.Time `json:"last_used,omitempty"`
+
+	// Emergence metadata (populated by entries/all endpoint for skill entries)
+	Metadata *EmergenceMetadata `json:"metadata,omitempty"`
 }
 
 // EmergenceMetadata tracks emergence-internal data for a skill.

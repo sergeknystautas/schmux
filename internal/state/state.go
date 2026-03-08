@@ -338,6 +338,18 @@ func (s *State) GetWorkspaces() []Workspace {
 	return workspaces
 }
 
+// FindWorkspaceByRepoBranch returns the first workspace matching the given repo and branch.
+func (s *State) FindWorkspaceByRepoBranch(repo, branch string) (Workspace, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, w := range s.Workspaces {
+		if w.Repo == repo && w.Branch == branch {
+			return w, true
+		}
+	}
+	return Workspace{}, false
+}
+
 // UpdateWorkspace updates a workspace in the state.
 // Returns an error if the workspace is not found.
 func (s *State) UpdateWorkspace(w Workspace) error {

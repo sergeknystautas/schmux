@@ -439,6 +439,7 @@ export interface SpawnEntriesResponse {
 export interface SpawnEntry {
   id: string;
   name: string;
+  description?: string;
   type: string;
   source: string;
   state: string;
@@ -448,6 +449,7 @@ export interface SpawnEntry {
   target?: string;
   use_count: number;
   last_used?: string;
+  metadata?: EmergenceMetadata;
 }
 
 export interface Subreddit {

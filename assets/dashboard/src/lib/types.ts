@@ -430,7 +430,7 @@ export interface LoreEntry {
   proposal_id?: string;
 }
 
-export type LoreLayer = 'repo_public' | 'repo_private' | 'user_global';
+export type LoreLayer = 'repo_public' | 'repo_private' | 'cross_repo_private';
 export type LoreRuleStatus = 'pending' | 'approved' | 'dismissed';
 
 export interface LoreRule {
@@ -474,6 +474,7 @@ export interface LoreMergePreview {
 export interface LoreMergeApplyResult {
   layer: string;
   status: string;
+  workspace_id?: string;
   branch?: string;
   pr_url?: string;
 }

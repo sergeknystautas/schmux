@@ -17,9 +17,9 @@ import (
 type Layer string
 
 const (
-	LayerRepoPublic  Layer = "repo_public"
-	LayerRepoPrivate Layer = "repo_private"
-	LayerUserGlobal  Layer = "user_global"
+	LayerRepoPublic       Layer = "repo_public"
+	LayerRepoPrivate      Layer = "repo_private"
+	LayerCrossRepoPrivate Layer = "cross_repo_private"
 )
 
 // RuleStatus represents the review state of an individual rule.
@@ -246,6 +246,81 @@ func (s *ProposalStore) List(repo string) ([]*Proposal, error) {
 		return proposals[i].CreatedAt.After(proposals[j].CreatedAt)
 	})
 	return proposals, nil
+}
+
+// PendingRuleTexts returns the rule texts from all pending proposals for a repo.
+// Used to tell the extraction LLM what's already been extracted, and to
+// deduplicate new rules post-extraction.
+func (s *ProposalStore) PendingRuleTexts(repo string) []string {
+	proposals, err := s.List(repo)
+	if err != nil {
+		return nil
+	}
+	var texts []string
+	for _, p := range proposals {
+		if p.Status != ProposalPending && p.Status != ProposalMerging {
+			continue
+		}
+		for _, r := range p.Rules {
+			if r.Status == RuleDismissed {
+				continue
+			}
+			texts = append(texts, r.Text)
+		}
+	}
+	return texts
+}
+
+// DismissedRuleTexts returns the rule texts from dismissed rules across all proposals for a repo.
+// This includes individually dismissed rules within any proposal, plus all rules from
+// fully dismissed proposals. Used to prevent re-extraction of rules the user has rejected.
+func (s *ProposalStore) DismissedRuleTexts(repo string) []string {
+	proposals, err := s.List(repo)
+	if err != nil {
+		return nil
+	}
+	var texts []string
+	for _, p := range proposals {
+		if p.Status == ProposalDismissed {
+			for _, r := range p.Rules {
+				texts = append(texts, r.Text)
+			}
+			continue
+		}
+		for _, r := range p.Rules {
+			if r.Status == RuleDismissed {
+				texts = append(texts, r.Text)
+			}
+		}
+	}
+	return texts
+}
+
+// NormalizeRuleText lowercases and collapses whitespace for fuzzy comparison.
+func NormalizeRuleText(text string) string {
+	text = strings.ToLower(strings.TrimSpace(text))
+	// Collapse runs of whitespace to a single space
+	parts := strings.Fields(text)
+	return strings.Join(parts, " ")
+}
+
+// DeduplicateRules filters out rules whose normalized text matches any of the
+// existing rule texts. Returns the remaining rules and the count of removed duplicates.
+func DeduplicateRules(rules []Rule, existingTexts []string) ([]Rule, int) {
+	existing := make(map[string]bool, len(existingTexts))
+	for _, t := range existingTexts {
+		existing[NormalizeRuleText(t)] = true
+	}
+	var kept []Rule
+	removed := 0
+	for _, r := range rules {
+		if existing[NormalizeRuleText(r.Text)] {
+			removed++
+			continue
+		}
+		kept = append(kept, r)
+	}
+	return kept, removed
 }
 
 // UpdateStatus updates the status of a proposal on disk.

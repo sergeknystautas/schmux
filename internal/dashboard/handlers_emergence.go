@@ -14,6 +14,25 @@ import (
 	"github.com/sergeknystautas/schmux/internal/emergence"
 )
 
+// extractSkillDescription pulls the description field from skill file YAML frontmatter.
+func extractSkillDescription(skillContent string) string {
+	// Frontmatter is between first and second "---" lines.
+	if !strings.HasPrefix(skillContent, "---\n") {
+		return ""
+	}
+	end := strings.Index(skillContent[4:], "\n---")
+	if end < 0 {
+		return ""
+	}
+	frontmatter := skillContent[4 : 4+end]
+	for _, line := range strings.Split(frontmatter, "\n") {
+		if strings.HasPrefix(line, "description: ") {
+			return strings.TrimPrefix(line, "description: ")
+		}
+	}
+	return ""
+}
+
 // validateEmergenceRepo is middleware that validates the repo URL parameter.
 func validateEmergenceRepo(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -62,6 +81,20 @@ func (s *Server) handleListAllSpawnEntries(w http.ResponseWriter, r *http.Reques
 	}
 	if entries == nil {
 		entries = []contracts.SpawnEntry{}
+	}
+
+	// Enrich skill entries with metadata.
+	if s.emergenceMetadataStore != nil {
+		for i := range entries {
+			if entries[i].SkillRef != "" {
+				if meta, ok, _ := s.emergenceMetadataStore.Get(repo, entries[i].SkillRef); ok {
+					if entries[i].Description == "" {
+						entries[i].Description = extractSkillDescription(meta.SkillContent)
+					}
+					entries[i].Metadata = &meta
+				}
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -305,8 +338,11 @@ func (s *Server) handleEmergenceCurate(w http.ResponseWriter, r *http.Request) {
 	// Get existing skills (builtins)
 	builtins, _ := emergence.ListBuiltins()
 
+	// Get proposed/pinned skill names for dedup in prompt
+	proposedNames := s.emergenceStore.ProposedAndPinnedNames(repo)
+
 	// Build curator prompt
-	prompt := emergence.BuildEmergencePrompt(signals, builtins, repo)
+	prompt := emergence.BuildEmergencePrompt(signals, builtins, proposedNames, repo)
 
 	// Return 202 immediately
 	w.Header().Set("Content-Type", "application/json")
@@ -342,10 +378,11 @@ func (s *Server) runEmergenceCuration(repo, prompt string) {
 	for _, proposal := range result.NewSkills {
 		skillContent := emergence.GenerateSkillFile(proposal)
 		entry := contracts.SpawnEntry{
-			ID:       s.emergenceStore.GenerateID(),
-			Name:     proposal.Name,
-			Type:     contracts.SpawnEntrySkill,
-			SkillRef: proposal.Name,
+			ID:          s.emergenceStore.GenerateID(),
+			Name:        proposal.Name,
+			Description: proposal.Description,
+			Type:        contracts.SpawnEntrySkill,
+			SkillRef:    proposal.Name,
 		}
 		if err := s.emergenceStore.AddProposed(repo, []contracts.SpawnEntry{entry}); err != nil {
 			s.logger.Error("failed to add proposed spawn entry", "repo", repo, "skill", proposal.Name, "err", err)
@@ -409,7 +446,8 @@ func (s *Server) TriggerEmergenceCuration(repo string) {
 	}
 
 	builtins, _ := emergence.ListBuiltins()
-	prompt := emergence.BuildEmergencePrompt(signals, builtins, repo)
+	proposedNames := s.emergenceStore.ProposedAndPinnedNames(repo)
+	prompt := emergence.BuildEmergencePrompt(signals, builtins, proposedNames, repo)
 
 	go s.runEmergenceCuration(repo, prompt)
 }

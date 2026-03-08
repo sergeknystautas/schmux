@@ -10,7 +10,7 @@ func TestInstructionStore_ReadWrite(t *testing.T) {
 	store := NewInstructionStore(dir)
 
 	// Initially empty
-	content, err := store.Read(LayerUserGlobal, "")
+	content, err := store.Read(LayerCrossRepoPrivate, "")
 	if err != nil {
 		t.Fatalf("read empty should not error: %v", err)
 	}
@@ -19,10 +19,10 @@ func TestInstructionStore_ReadWrite(t *testing.T) {
 	}
 
 	// Write global
-	if err := store.Write(LayerUserGlobal, "", "# Global Rules\n- Rule 1"); err != nil {
+	if err := store.Write(LayerCrossRepoPrivate, "", "# Global Rules\n- Rule 1"); err != nil {
 		t.Fatalf("write global failed: %v", err)
 	}
-	content, _ = store.Read(LayerUserGlobal, "")
+	content, _ = store.Read(LayerCrossRepoPrivate, "")
 	if content != "# Global Rules\n- Rule 1" {
 		t.Errorf("unexpected content: %s", content)
 	}
@@ -50,7 +50,7 @@ func TestInstructionStore_RepoPrivateRequiresRepo(t *testing.T) {
 func TestInstructionStore_Assemble(t *testing.T) {
 	dir := t.TempDir()
 	store := NewInstructionStore(dir)
-	store.Write(LayerUserGlobal, "", "# Global\nglobal rule")
+	store.Write(LayerCrossRepoPrivate, "", "# Global\nglobal rule")
 	store.Write(LayerRepoPrivate, "myrepo", "# Private\nprivate rule")
 
 	assembled := store.Assemble("myrepo", "# Public\npublic rule")
