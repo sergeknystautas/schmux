@@ -133,7 +133,6 @@ export default function ToolsSection({
     {
       to: '/settings/remote',
       label: 'Remote Hosts',
-      hidden: !config?.remote_access?.enabled,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>

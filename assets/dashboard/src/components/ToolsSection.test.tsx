@@ -11,7 +11,6 @@ vi.mock('../contexts/ConfigContext', () => ({
   useConfig: () => ({
     config: {
       repos: [{ name: 'test-repo', url: 'https://github.com/test/repo.git' }],
-      remote_access: { enabled: true },
     },
     isNotConfigured: false,
   }),
