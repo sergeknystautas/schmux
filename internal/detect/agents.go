@@ -216,10 +216,26 @@ var detectTimeout = 3 * time.Second // 3 seconds (increased for multiple detecti
 
 // ===== Shared Detection Utilities =====
 
+// cleanEnv returns the current environment with variables removed that prevent
+// nested execution (e.g. CLAUDECODE causes "cannot be launched inside another
+// Claude Code session" errors).
+func cleanEnv() []string {
+	skip := map[string]bool{"CLAUDECODE": true}
+	var env []string
+	for _, e := range os.Environ() {
+		if k, _, ok := strings.Cut(e, "="); ok && skip[k] {
+			continue
+		}
+		env = append(env, e)
+	}
+	return env
+}
+
 // tryCommand checks if a command exists and can run with the given version flag.
 // Returns true if the command runs successfully (exit code 0).
 func tryCommand(ctx context.Context, command, versionFlag string) bool {
 	cmd := exec.CommandContext(ctx, command, versionFlag)
+	cmd.Env = cleanEnv()
 	return cmd.Run() == nil
 }
 
@@ -227,6 +243,7 @@ func tryCommand(ctx context.Context, command, versionFlag string) bool {
 // Returns true if the command runs successfully (exit code 0).
 func tryCommandArgs(ctx context.Context, command string, args ...string) bool {
 	cmd := exec.CommandContext(ctx, command, args...)
+	cmd.Env = cleanEnv()
 	return cmd.Run() == nil
 }
 
@@ -368,14 +385,14 @@ type claudeDetector struct{}
 func (d *claudeDetector) Name() string { return "claude" }
 
 func (d *claudeDetector) Detect(ctx context.Context) (Tool, bool) {
-	// Method 1: Try claude command in PATH
+	// Method 1: Check if claude command exists in PATH (sufficient for detection;
+	// running "claude -v" is fragile — wrapper scripts, nested-session guards, and
+	// sandbox restrictions can cause false negatives)
 	if commandExists("claude") {
-		if tryCommand(ctx, "claude", "-v") {
-			if pkgLogger != nil {
-				pkgLogger.Info("claude found via PATH", "command", "claude")
-			}
-			return Tool{Name: "claude", Command: "claude", Source: "PATH", Agentic: true}, true
+		if pkgLogger != nil {
+			pkgLogger.Info("claude found via PATH", "command", "claude")
 		}
+		return Tool{Name: "claude", Command: "claude", Source: "PATH", Agentic: true}, true
 	}
 
 	// Method 2: Check native install location (standard)
@@ -426,14 +443,12 @@ type codexDetector struct{}
 func (d *codexDetector) Name() string { return "codex" }
 
 func (d *codexDetector) Detect(ctx context.Context) (Tool, bool) {
-	// Method 1: Try codex command in PATH
+	// Method 1: Check if codex command exists in PATH
 	if commandExists("codex") {
-		if tryCommand(ctx, "codex", "-V") {
-			if pkgLogger != nil {
-				pkgLogger.Info("codex found via PATH", "command", "codex")
-			}
-			return Tool{Name: "codex", Command: "codex", Source: "PATH", Agentic: true}, true
+		if pkgLogger != nil {
+			pkgLogger.Info("codex found via PATH", "command", "codex")
 		}
+		return Tool{Name: "codex", Command: "codex", Source: "PATH", Agentic: true}, true
 	}
 
 	// Method 2: Check npm global (primary installation method)
@@ -462,14 +477,12 @@ type geminiDetector struct{}
 func (d *geminiDetector) Name() string { return "gemini" }
 
 func (d *geminiDetector) Detect(ctx context.Context) (Tool, bool) {
-	// Method 1: Try gemini command in PATH
+	// Method 1: Check if gemini command exists in PATH
 	if commandExists("gemini") {
-		if tryCommand(ctx, "gemini", "-v") {
-			if pkgLogger != nil {
-				pkgLogger.Info("gemini found via PATH", "command", "gemini")
-			}
-			return Tool{Name: "gemini", Command: "gemini -i", Source: "PATH", Agentic: true}, true
+		if pkgLogger != nil {
+			pkgLogger.Info("gemini found via PATH", "command", "gemini")
 		}
+		return Tool{Name: "gemini", Command: "gemini -i", Source: "PATH", Agentic: true}, true
 	}
 
 	// Method 2: Check Homebrew formula (common installation method)

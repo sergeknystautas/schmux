@@ -32,16 +32,13 @@ func (a *OpencodeAdapter) Detect(ctx context.Context) (Tool, bool) {
 		}
 	}
 
-	// Method 1: PATH lookup
+	// Method 1: PATH lookup (sufficient for detection; running the binary to
+	// verify is fragile — wrapper scripts and env guards cause false negatives)
 	if commandExists("opencode") {
-		if version, err := opencodeVersionCheck(ctx, "opencode"); err == nil {
-			if pkgLogger != nil {
-				pkgLogger.Info("opencode found via PATH", "command", "opencode", "version", version)
-			}
-			return Tool{Name: "opencode", Command: "opencode", Source: "PATH", Agentic: true}, true
-		} else if pkgLogger != nil {
-			pkgLogger.Info("opencode PATH candidate failed version probe", "command", "opencode", "err", err, "output", version, "ctx_err", ctx.Err())
+		if pkgLogger != nil {
+			pkgLogger.Info("opencode found via PATH", "command", "opencode")
 		}
+		return Tool{Name: "opencode", Command: "opencode", Source: "PATH", Agentic: true}, true
 	} else if pkgLogger != nil {
 		pkgLogger.Info("opencode not found on PATH")
 	}
