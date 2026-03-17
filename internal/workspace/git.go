@@ -240,7 +240,8 @@ func (m *Manager) gitRemoteBranchExistsInstrumented(ctx context.Context, workspa
 	ref := "refs/remotes/origin/" + branch
 
 	if err := m.runGitErr(ctx, workspaceID, trigger, dir, "show-ref", "--verify", "--quiet", ref); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 			return false, nil
 		}
 		return false, fmt.Errorf("git show-ref failed: %w", err)

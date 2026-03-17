@@ -263,6 +263,10 @@ func (m *Manager) repoLock(repoURL string) *sync.Mutex {
 // Returns an error if the default branch cannot be determined.
 // Uses negative caching ("unknown") to avoid repeated failed git commands.
 func (m *Manager) GetDefaultBranch(ctx context.Context, repoURL string) (string, error) {
+	if isLocalRepoURL(repoURL) {
+		return "", fmt.Errorf("local repo %s has no origin default branch", repoURL)
+	}
+
 	// Check in-memory cache first
 	m.defaultBranchCacheMu.RLock()
 	if branch, ok := m.defaultBranchCache[repoURL]; ok {

@@ -1,7 +1,9 @@
 package workspace
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"os/exec"
 	"sync"
 	"time"
@@ -12,8 +14,8 @@ var ioTelemetryMu sync.Mutex
 
 // runGit is the instrumented replacement for raw exec.CommandContext(ctx, "git", args...).
 // It executes a git command, records telemetry (if enabled in config), and returns
-// stdout and any error. Stderr bytes are captured from ExitError.Stderr when the command
-// fails with a non-zero exit code.
+// stdout and any error. On non-zero exit, stderr is copied onto exec.ExitError.Stderr
+// so callers can inspect it via errors.As.
 func (m *Manager) runGit(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
@@ -25,19 +27,26 @@ func (m *Manager) runGit(ctx context.Context, workspaceID string, trigger Refres
 	defer releaseWatcherSuppression()
 
 	start := time.Now()
-	stdout, err := cmd.Output()
+	var stdoutBuf bytes.Buffer
+	var stderrBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
+	err := cmd.Run()
 	duration := time.Since(start)
 
-	// Extract exit code and stderr bytes from the error (if any)
+	// Extract exit code and stderr bytes from the error (if any).
 	exitCode := 0
-	var stderrBytes int64
+	stderrBytes := int64(0)
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			exitCode = exitErr.ExitCode()
+			exitErr.Stderr = append([]byte(nil), stderrBuf.Bytes()...)
 			stderrBytes = int64(len(exitErr.Stderr))
 		}
 	}
 
+	stdout := stdoutBuf.Bytes()
 	stdoutBytes := int64(len(stdout))
 
 	// Record telemetry if:

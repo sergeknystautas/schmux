@@ -2,8 +2,10 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -13,6 +15,18 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/config"
 )
+
+func isLocalRepoURL(repoURL string) bool {
+	return strings.HasPrefix(repoURL, "local:")
+}
+
+func gitStderr(err error) string {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && len(exitErr.Stderr) > 0 {
+		return strings.TrimSpace(string(exitErr.Stderr))
+	}
+	return ""
+}
 
 // EnsureOriginQueries ensures origin query repos exist for all configured repos.
 // These are bare clones stored in ~/.schmux/query/ used for branch/commit queries
@@ -29,9 +43,13 @@ func (m *Manager) EnsureOriginQueries(ctx context.Context) error {
 	}
 
 	for _, repo := range m.config.GetRepos() {
+		if isLocalRepoURL(repo.URL) {
+			continue
+		}
+
 		queryRepoPath, err := m.ensureOriginQueryRepo(ctx, repo.URL)
 		if err != nil {
-			m.logger.Warn("failed to ensure origin query repo", "repo", repo.Name, "err", err)
+			m.logger.Warn("failed to ensure origin query repo", "repo", repo.Name, "err", err, "git_stderr", gitStderr(err))
 			continue
 		}
 
@@ -223,6 +241,10 @@ func (m *Manager) FetchOriginQueries(ctx context.Context) {
 	repos := m.config.GetRepos()
 	var wg sync.WaitGroup
 	for _, repo := range repos {
+		if isLocalRepoURL(repo.URL) {
+			continue
+		}
+
 		queryRepoPath := m.getQueryRepoPath(repo.URL)
 
 		// Skip if doesn't exist
@@ -235,7 +257,7 @@ func (m *Manager) FetchOriginQueries(ctx context.Context) {
 			defer wg.Done()
 
 			if err := m.fetchOriginQueryRepo(ctx, queryRepoPath, repo.URL); err != nil {
-				m.logger.Warn("failed to fetch origin query repo", "repo", repo.Name, "err", err)
+				m.logger.Warn("failed to fetch origin query repo", "repo", repo.Name, "err", err, "git_stderr", gitStderr(err))
 				return
 			}
 
@@ -247,7 +269,7 @@ func (m *Manager) FetchOriginQueries(ctx context.Context) {
 			if !alreadyEnsured {
 				if !m.originHeadExists(ctx, queryRepoPath) {
 					if err := m.setOriginHead(ctx, queryRepoPath); err != nil {
-						m.logger.Warn("failed to set origin HEAD", "repo", repo.Name, "err", err)
+						m.logger.Warn("failed to set origin HEAD", "repo", repo.Name, "err", err, "git_stderr", gitStderr(err))
 					}
 				}
 			}
@@ -274,6 +296,10 @@ func (m *Manager) GetRecentBranches(ctx context.Context, limit int) ([]RecentBra
 	var allBranches []RecentBranch
 
 	for _, repo := range m.config.GetRepos() {
+		if isLocalRepoURL(repo.URL) {
+			continue
+		}
+
 		queryRepoPath := m.getQueryRepoPath(repo.URL)
 
 		// Skip if doesn't exist
