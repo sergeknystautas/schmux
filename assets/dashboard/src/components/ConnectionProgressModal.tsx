@@ -58,6 +58,7 @@ export default function ConnectionProgressModal({
         foreground: '#d4d4d4',
       },
       rows: 20,
+      allowProposedApi: true,
     });
 
     const fitAddon = new FitAddon();
