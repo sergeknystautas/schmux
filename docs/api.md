@@ -388,7 +388,7 @@ Response:
 Notes:
 
 - Uses bare clones to query branch information without worktree checkouts
-- Returns branches from all configured repos
+- Returns branches from configured remote repos; local `local:{name}` repos are skipped
 - Excludes `main` branch by default
 
 ### POST /api/recent-branches/refresh
@@ -415,6 +415,7 @@ Response:
 Notes:
 
 - Performs `git fetch` on all origin query repos to get latest branch information
+- Skips local `local:{name}` repos because they do not have an origin remote
 - Returns the same branch list format as `GET /api/recent-branches`
 - `fetched_count` indicates how many branches were returned
 - Useful for refreshing the branch list when remote changes may have occurred
