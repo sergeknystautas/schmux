@@ -252,9 +252,9 @@ func TestOpencodeModelExists(t *testing.T) {
 func TestGetBuiltinModels(t *testing.T) {
 	models := GetBuiltinModels()
 
-	// Should have 33 models total (10 Anthropic + 8 third-party + 8 Codex + 1 OpenCode + 6 Google)
-	if len(models) != 33 {
-		t.Errorf("GetBuiltinModels() returned %d models, want 33", len(models))
+	// Should have 35 models total (10 Anthropic + 10 third-party + 8 Codex + 1 OpenCode + 6 Google)
+	if len(models) != 35 {
+		t.Errorf("GetBuiltinModels() returned %d models, want 35", len(models))
 	}
 
 	// Check that models are copies (not pointers)

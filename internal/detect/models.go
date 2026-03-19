@@ -283,6 +283,21 @@ var builtinModels = []Model{
 		},
 	},
 	{
+		ID:          "glm-5-turbo",
+		DisplayName: "glm 5 turbo",
+		Provider:    "zai",
+		UsageURL:    "https://z.ai/manage-apikey/subscription",
+		Category:    "third-party",
+		Runners: map[string]RunnerSpec{
+			"claude": {
+				ModelValue:      "glm-5-turbo",
+				Endpoint:        "https://api.z.ai/api/anthropic",
+				RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
+			},
+			"opencode": {ModelValue: "zhipu/glm-5-turbo"},
+		},
+	},
+	{
 		ID:          "minimax-m2.1",
 		DisplayName: "minimax m2.1",
 		Provider:    "minimax",
@@ -310,6 +325,21 @@ var builtinModels = []Model{
 				RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
 			},
 			"opencode": {ModelValue: "minimax/minimax-2.5"},
+		},
+	},
+	{
+		ID:          "minimax-2.7",
+		DisplayName: "minimax m2.7",
+		Provider:    "minimax",
+		UsageURL:    "https://platform.minimax.io/user-center/payment/coding-plan",
+		Category:    "third-party",
+		Runners: map[string]RunnerSpec{
+			"claude": {
+				ModelValue:      "minimax-2.7",
+				Endpoint:        "https://api.minimax.io/anthropic",
+				RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
+			},
+			"opencode": {ModelValue: "minimax/minimax-2.7"},
 		},
 	},
 	{
