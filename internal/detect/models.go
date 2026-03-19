@@ -112,7 +112,7 @@ var builtinModels = []Model{
 		Provider:    "anthropic",
 		Category:    "native",
 		Runners: map[string]RunnerSpec{
-			"claude":   {ModelValue: "opus"},
+			"claude":   {ModelValue: "claude-opus-4-6"},
 			"opencode": {ModelValue: "anthropic/claude-opus-4-6"},
 		},
 	},
@@ -122,7 +122,7 @@ var builtinModels = []Model{
 		Provider:    "anthropic",
 		Category:    "native",
 		Runners: map[string]RunnerSpec{
-			"claude":   {ModelValue: "sonnet"},
+			"claude":   {ModelValue: "claude-sonnet-4-6"},
 			"opencode": {ModelValue: "anthropic/claude-sonnet-4-6"},
 		},
 	},
@@ -132,7 +132,7 @@ var builtinModels = []Model{
 		Provider:    "anthropic",
 		Category:    "native",
 		Runners: map[string]RunnerSpec{
-			"claude":   {ModelValue: "haiku"},
+			"claude":   {ModelValue: "claude-haiku-4-5"},
 			"opencode": {ModelValue: "anthropic/claude-haiku-4-5"},
 		},
 	},
