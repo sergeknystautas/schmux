@@ -225,9 +225,8 @@ export default class TerminalStream {
     });
 
     this.terminal.loadAddon(new WebLinksAddon());
-    // Unicode11Addon disabled to test typing performance impact
-    // this.terminal.loadAddon(new Unicode11Addon());
-    // this.terminal.unicode.activeVersion = '11';
+    this.terminal.loadAddon(new Unicode11Addon());
+    this.terminal.unicode.activeVersion = '11';
     this.terminal.open(this.containerElement);
     // xterm.js doesn't reliably emit Alt/Option+Enter through onData on macOS,
     // but Codex uses Meta/Alt+Enter for inserting a blank line. Map it

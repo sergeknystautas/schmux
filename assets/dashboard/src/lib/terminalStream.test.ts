@@ -18,6 +18,7 @@ vi.mock('@xterm/xterm', () => {
     rows = 24;
     cols = 80;
     markers = [];
+    unicode = { activeVersion: '6' };
   }
   return { Terminal: MockTerminal };
 });
