@@ -85,6 +85,7 @@ export default defineConfig(async () => ({
     },
   },
   server: {
+    host: '::', // Listen on both IPv4 and IPv6 (Meta devservers are IPv6-only)
     port: 5173,
     strictPort: true, // Fail if port is already in use
     cors: true, // Allow the Go proxy to connect
