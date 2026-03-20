@@ -44,7 +44,7 @@ func newTestServer(t *testing.T) (*Server, *config.Config, *state.State) {
 	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, ServerOptions{
 		ShutdownCtx: shutdownCtx,
 	})
-	server.SetModelManager(models.New(cfg, nil))
+	server.SetModelManager(models.New(cfg, nil, ""))
 	t.Cleanup(server.CloseForTest)
 	t.Cleanup(shutdownCancel)
 	return server, cfg, st

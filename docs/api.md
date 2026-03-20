@@ -1123,6 +1123,58 @@ Errors:
 
 - 400: "model is in use by nudgenik or quick launch"
 
+### GET /api/user-models
+
+Returns user-defined models. These are custom models defined by the user that override registry and built-in models.
+
+Response:
+
+```json
+{
+  "models": [
+    {
+      "id": "my-model",
+      "display_name": "My Model",
+      "provider": "custom",
+      "runners": ["claude"],
+      "command": "claude --dangerously-skip-permissions",
+      "required_env": ["API_KEY"]
+    }
+  ]
+}
+```
+
+### PUT /api/user-models
+
+Saves user-defined models. Validates that runner names are valid detected tools.
+
+Request:
+
+```json
+{
+  "models": [
+    {
+      "id": "my-model",
+      "display_name": "My Model",
+      "provider": "custom",
+      "runners": ["claude"],
+      "command": "claude --dangerously-skip-permissions",
+      "required_env": ["API_KEY"]
+    }
+  ]
+}
+```
+
+Response:
+
+```json
+{ "status": "ok" }
+```
+
+Errors:
+
+- 400: validation error (plain text) - e.g., invalid runner name, missing required fields
+
 ### GET /api/builtin-quick-launch
 
 Returns built-in quick launch presets.

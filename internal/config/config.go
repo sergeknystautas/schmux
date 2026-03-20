@@ -615,27 +615,7 @@ var migrations = []Migration{
 		},
 		Apply: func(_ map[string]json.RawMessage, cfg *Config) error {
 			resolve := func(toolName string) string {
-				allModels := detect.GetBuiltinModels()
-				var enabled map[string]string
-				if cfg.Models != nil {
-					enabled = cfg.Models.Enabled
-				}
-				// Prefer highest-tier enabled model with this tool
-				for _, m := range allModels {
-					if _, ok := m.RunnerFor(toolName); !ok {
-						continue
-					}
-					if preferred, isEnabled := enabled[m.ID]; isEnabled && preferred == toolName {
-						return m.ID
-					}
-				}
-				// Fall back to first model that supports this tool
-				for _, m := range allModels {
-					if _, ok := m.RunnerFor(toolName); ok {
-						return m.ID
-					}
-				}
-				return toolName // keep as-is if can't resolve
+				return toolName // historical migration, already ran for existing users
 			}
 
 			for i := range cfg.QuickLaunch {

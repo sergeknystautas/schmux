@@ -1587,8 +1587,8 @@ func TestMigrateSessionTargets(t *testing.T) {
 	if sessions[0].Target != "claude-opus-4-6" {
 		t.Errorf("sessions[0].Target = %q, want %q", sessions[0].Target, "claude-opus-4-6")
 	}
-	if sessions[1].Target != "minimax-m2.1" {
-		t.Errorf("sessions[1].Target = %q, want %q", sessions[1].Target, "minimax-m2.1")
+	if sessions[1].Target != "MiniMax-M2.1" {
+		t.Errorf("sessions[1].Target = %q, want %q", sessions[1].Target, "MiniMax-M2.1")
 	}
 	if sessions[2].Target != "claude-opus-4-6" {
 		t.Errorf("sessions[2].Target = %q, want %q", sessions[2].Target, "claude-opus-4-6")
@@ -1601,7 +1601,7 @@ func TestMigrateSessionTargets(t *testing.T) {
 func TestMigrateSessionTargets_NoChange(t *testing.T) {
 	sessions := []Session{
 		{ID: "s1", Target: "claude-opus-4-6"},
-		{ID: "s2", Target: "minimax-m2.1"},
+		{ID: "s2", Target: "MiniMax-M2.1"},
 	}
 
 	changed := migrateSessionTargets(sessions)
@@ -1649,8 +1649,8 @@ func TestMigrateSessionTargets_ViaLoad(t *testing.T) {
 	if sessions[0].Target != "claude-opus-4-6" {
 		t.Errorf("sessions[0].Target = %q, want %q", sessions[0].Target, "claude-opus-4-6")
 	}
-	if sessions[1].Target != "minimax-m2.1" {
-		t.Errorf("sessions[1].Target = %q, want %q", sessions[1].Target, "minimax-m2.1")
+	if sessions[1].Target != "MiniMax-M2.1" {
+		t.Errorf("sessions[1].Target = %q, want %q", sessions[1].Target, "MiniMax-M2.1")
 	}
 }
 

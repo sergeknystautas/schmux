@@ -60,12 +60,20 @@ type RunnerInfo struct {
 
 // Model represents an AI model with metadata and configuration status.
 type Model struct {
-	ID              string   `json:"id"`                         // e.g., "claude-opus-4-6"
-	DisplayName     string   `json:"display_name"`               // e.g., "Claude Opus 4.6"
-	Provider        string   `json:"provider"`                   // e.g., "anthropic"
-	Configured      bool     `json:"configured"`                 // true if at least one runner is configured
-	Runners         []string `json:"runners"`                    // tool names that can run this model
-	RequiredSecrets []string `json:"required_secrets,omitempty"` // secrets needed for this model
+	ID                string   `json:"id"`                             // e.g., "claude-opus-4-6"
+	DisplayName       string   `json:"display_name"`                   // e.g., "Claude Opus 4.6"
+	Provider          string   `json:"provider"`                       // e.g., "anthropic"
+	Configured        bool     `json:"configured"`                     // true if at least one runner is configured
+	Runners           []string `json:"runners"`                        // tool names that can run this model
+	RequiredSecrets   []string `json:"required_secrets,omitempty"`     // secrets needed for this model
+	ContextWindow     int      `json:"context_window,omitempty"`       // context window in tokens
+	MaxOutput         int      `json:"max_output,omitempty"`           // max output tokens
+	CostInputPerMTok  float64  `json:"cost_input_per_mtok,omitempty"`  // $/million input tokens
+	CostOutputPerMTok float64  `json:"cost_output_per_mtok,omitempty"` // $/million output tokens
+	Reasoning         bool     `json:"reasoning,omitempty"`            // supports reasoning
+	ReleaseDate       string   `json:"release_date,omitempty"`         // release date
+	IsDefault         bool     `json:"is_default,omitempty"`           // is a default_* model
+	IsUserDefined     bool     `json:"is_user_defined,omitempty"`      // is a user-defined model
 }
 
 // Nudgenik represents NudgeNik configuration.

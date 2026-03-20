@@ -8,7 +8,7 @@ Manages the catalog of AI models, resolves which CLI tool runs each model, and p
 
 | File                                                  | Purpose                                                                                                                                                                             |
 | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `internal/detect/models.go`                           | Model and RunnerSpec structs, builtin catalog (~30 models), `FindModel()`, `GetAvailableModels()`, legacy ID migration map                                                          |
+| `internal/detect/models.go`                           | Model and RunnerSpec structs, default\_\* models, legacy ID migration map                                                                                                           |
 | `internal/models/manager.go`                          | `Manager` owns resolution logic: `ResolveModel()` picks tool + env, `GetCatalog()` builds the API response, `IsModel()` determines promptability                                    |
 | `internal/api/contracts/config.go`                    | API-facing `Model` struct (slim: id, display_name, provider, configured, runners as `[]string`, required_secrets), `RunnerInfo` (available, capabilities), `ConfigResponse.Runners` |
 | `internal/detect/adapter.go`                          | `ToolAdapter` interface including `BuildRunnerEnv(RunnerSpec)`, `ModelFlag()`, `Capabilities()`                                                                                     |
@@ -17,7 +17,7 @@ Manages the catalog of AI models, resolves which CLI tool runs each model, and p
 | `internal/detect/adapter_gemini.go`                   | Gemini adapter: interactive-only capabilities, `--model` flag                                                                                                                       |
 | `internal/detect/adapter_opencode.go`                 | OpenCode adapter: universal runner for 75+ providers via `provider/model` syntax, returns empty env from `BuildRunnerEnv`                                                           |
 | `internal/detect/commands.go`                         | `BuildCommandParts()` dispatcher -- delegates to adapter's `InteractiveArgs`/`OneshotArgs`/`StreamingArgs` by mode                                                                  |
-| `internal/detect/tools.go`                            | `IsBuiltinToolName()`, `AgentInstructionConfig`, `GetBaseToolName()` (resolves model ID to its first runner tool)                                                                   |
+| `internal/detect/tools.go`                            | `IsBuiltinToolName()`, `AgentInstructionConfig`, `GetInstructionPath()`                                                                                                             |
 | `internal/config/run_targets.go`                      | Validates command-only `RunTarget` entries (name + command); model validation happens at runtime, not config load                                                                   |
 | `assets/dashboard/src/routes/config/ModelCatalog.tsx` | Provider-grouped model editor with enable toggles and runner segmented controls                                                                                                     |
 | `assets/dashboard/src/routes/config/TargetSelect.tsx` | Dropdown that takes `Model[]` and renders options -- no filtering logic, callers pre-filter                                                                                         |
@@ -34,13 +34,12 @@ Manages the catalog of AI models, resolves which CLI tool runs each model, and p
 - **Legacy model IDs are migrated at lookup time.** `legacyIDMigrations` maps old aliases (`"opus"`, `"claude-sonnet"`) to current vendor IDs (`"claude-opus-4-6"`, `"claude-sonnet-4-6"`). `FindModel()` applies migration transparently.
 - **`IsModel()` determines promptability at runtime, not config time.** A target is "promptable" if it is a model ID or a builtin tool name. Command targets (user-defined `RunTarget` entries with name + command) are not promptable. The old bridge that converted models into fake `RunTarget{type:"promptable"}` entries is deleted.
 - **`run_targets` is a command-only concept.** The `RunTarget` struct has only `name` and `command`. The `Type`, `Source`, and `RunTargetTypePromptable` constants were removed in the kill-bridge cleanup. Models travel through `models` and `enabled_models` in the API, not through `run_targets`.
-- **Catalog is a hardcoded Go slice, not a database.** `builtinModels` in `models.go` is manually maintained. The file header documents provider APIs and CLI commands to verify/update it.
+- **Catalog is registry-driven.** Models come from the models.dev registry (cached locally, refreshed daily). User-defined models override registry entries. Default models (`default_*`) are generated in code. The old `builtinModels` list has been deleted.
 - **Frontend derives three model lists from one source.** `modelCatalog` (raw from API, used by ModelCatalog editor), `models` (filtered to enabled, used by SpawnPage), `oneshotModels` (further filtered to tools with oneshot capability, used by config tabs that select targets for oneshot features).
 
 ## Gotchas
 
 - **`IsModel()` still has a `GetRunTarget` fallback at `manager.go:290`.** The dead-code cleanup spec flagged this for removal (IsModel should only check model IDs and builtin tool names, not command targets). It still exists. Removing it requires verifying callers that depend on the `(false, true)` return for command targets.
-- **`GetBaseToolName()` returns the first _sorted_ runner key, not the user's preferred tool.** It is a fallback for instruction path resolution, not for spawn-time tool selection. `ResolveToolForModel()` in the Manager checks user preferences first.
 - **`FirstRunnerRequiredSecrets()` returns secrets from the first sorted runner, which may not be the user's preferred runner.** The API response uses this as a simplification. The ModelCatalog UI shows the correct secrets requirements based on the actual runner.
 - **`opencode-zen` model has `ModelValue: ""`** (empty string). This means opencode uses its default Zen free-tier model. The empty value is intentional -- do not add a model value.
 - **Third-party models use the same `ANTHROPIC_AUTH_TOKEN` secret** across providers (Moonshot, Z.AI, MiniMax, Dashscope) when running via the claude proxy. This is the Anthropic model routing endpoint's auth token, not the provider's own API key.
@@ -49,13 +48,13 @@ Manages the catalog of AI models, resolves which CLI tool runs each model, and p
 
 ## Common modification patterns
 
-- **To add a new model:** Add an entry to `builtinModels` in `internal/detect/models.go`. Include runner entries for each tool that can execute it. Run tests with `./test.sh --quick`. No other files need changes -- `GetCatalog()` picks it up automatically.
-- **To add a new provider:** Add models with the new provider string to `builtinModels`. The ModelCatalog UI groups by provider automatically. If the provider uses a proxy endpoint via claude, add `Endpoint` and `RequiredSecrets` to the claude `RunnerSpec`.
+- **To add a new model:** Models appear automatically from the registry when a provider profile exists in `internal/models/profiles.go`. No code changes needed for individual models.
+- **To add a new provider:** Add a `ProviderProfile` entry in `internal/models/profiles.go`. Models from that provider will appear automatically from the registry.
 - **To change how a tool executes models (env vars, flags):** Edit the tool's `BuildRunnerEnv()` method in `adapter_<tool>.go`. The `ModelFlag()` method controls which CLI flag is used.
 - **To change model availability logic:** Edit `Manager.GetCatalog()` in `internal/models/manager.go`. This builds the `contracts.Model` list and determines the `Configured` flag.
 - **To change which models appear in the spawn wizard:** The flow is `GetCatalog()` (backend) -> `ConfigResponse.Models` (API) -> `useConfigForm.models` (filtered by enablement) -> SpawnPage's `availableModels` memo.
 - **To change model resolution at spawn time:** Edit `Manager.ResolveModel()` or `Manager.ResolveToolForModel()` in `internal/models/manager.go`.
-- **To rename or deprecate a model ID:** Add the old ID to `legacyIDMigrations` in `internal/detect/models.go`. Update or remove the old entry in `builtinModels`. Add a config migration if the old ID appears in `enabled_models`, `quick_launch` targets, or other config fields.
+- **To rename or deprecate a model ID:** Add the old ID to `legacyIDMigrations` in `internal/detect/models.go`. Add a config migration if the old ID appears in `enabled_models`, `quick_launch` targets, or other config fields.
 - **To modify the API shape of `Model` or `RunnerInfo`:** Edit structs in `internal/api/contracts/config.go`, update `GetCatalog()` in `manager.go` to populate new fields, then run `go run ./cmd/gen-types` to regenerate TypeScript types.
 - **To add a capability (e.g., a new tool mode):** Add the string to the adapter's `Capabilities()` return value. The `oneshotModels` derivation in `useConfigForm.ts` checks for `"oneshot"` in the preferred runner's capabilities.
 - **To filter TargetSelect dropdowns differently:** The filtering happens in `useConfigForm.ts` (`models` and `oneshotModels` memos), not in `TargetSelect.tsx` itself. Pass the appropriate pre-filtered list.

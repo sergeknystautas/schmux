@@ -57,12 +57,18 @@ const (
 	schmuxMarkerEnd   = "<!-- SCHMUX:END -->"
 )
 
+// TargetResolver resolves a target name to a tool name.
+type TargetResolver interface {
+	ResolveTargetToTool(targetName string) string
+}
+
 // Ensurer ensures workspaces have the necessary schmux configuration.
 // It holds a state reference to make decisions about what configuration
 // a workspace needs based on active sessions.
 type Ensurer struct {
 	state    state.StateStore
 	hooksDir string // absolute path to centralized hooks directory (~/.schmux/hooks/)
+	resolver TargetResolver
 }
 
 // New creates a new Ensurer with access to state for session lookups.
@@ -75,6 +81,23 @@ func (e *Ensurer) SetHooksDir(dir string) {
 	e.hooksDir = dir
 }
 
+// SetResolver sets the target resolver for target→tool resolution.
+func (e *Ensurer) SetResolver(r TargetResolver) {
+	e.resolver = r
+}
+
+// resolveTarget resolves a target name to a tool name.
+// Falls back to checking if it's a builtin tool name when no resolver is set.
+func (e *Ensurer) resolveTarget(targetName string) string {
+	if e.resolver != nil {
+		return e.resolver.ResolveTargetToTool(targetName)
+	}
+	if detect.IsBuiltinToolName(targetName) {
+		return targetName
+	}
+	return ""
+}
+
 // ForSpawn ensures a workspace has all necessary schmux configuration
 // when a new session is being spawned. The currentTarget is the agent
 // being spawned (needed because the session doesn't exist in state yet).
@@ -84,7 +107,7 @@ func (e *Ensurer) ForSpawn(workspaceID, currentTarget string) error {
 		return fmt.Errorf("workspace not found: %s", workspaceID)
 	}
 	hookTools := e.workspaceHookTools(workspaceID)
-	baseTool := detect.GetBaseToolName(currentTarget)
+	baseTool := e.resolveTarget(currentTarget)
 	if adapter := detect.GetAdapter(baseTool); adapter != nil && adapter.SupportsHooks() {
 		found := false
 		for _, t := range hookTools {
@@ -117,7 +140,7 @@ func (e *Ensurer) workspaceHookTools(workspaceID string) []string {
 	var tools []string
 	for _, s := range e.state.GetSessions() {
 		if s.WorkspaceID == workspaceID {
-			baseTool := detect.GetBaseToolName(s.Target)
+			baseTool := e.resolveTarget(s.Target)
 			if !seen[baseTool] {
 				if adapter := detect.GetAdapter(baseTool); adapter != nil && adapter.SupportsHooks() {
 					seen[baseTool] = true
@@ -280,9 +303,11 @@ write what would have saved you time if you'd known it before starting.
 // repoName is used to assemble private lore instructions (global + repo-private).
 // Returns nil if the target doesn't have a known instruction file.
 func AgentInstructions(workspacePath, targetName, repoName string) error {
-	config, ok := detect.GetAgentInstructionConfigForTarget(targetName)
+	if !detect.IsBuiltinToolName(targetName) {
+		return nil
+	}
+	config, ok := detect.GetAgentInstructionConfig(targetName)
 	if !ok {
-		// Target doesn't have a known instruction file, nothing to do
 		return nil
 	}
 
@@ -394,7 +419,10 @@ func replaceSchmuxBlock(content, newBlock string) string {
 // RemoveAgentInstructions removes the schmux signaling block from an instruction file.
 // Used for cleanup if needed.
 func RemoveAgentInstructions(workspacePath, targetName string) error {
-	config, ok := detect.GetAgentInstructionConfigForTarget(targetName)
+	if !detect.IsBuiltinToolName(targetName) {
+		return nil
+	}
+	config, ok := detect.GetAgentInstructionConfig(targetName)
 	if !ok {
 		return nil
 	}
@@ -468,7 +496,10 @@ func SignalingInstructionsFile() error {
 // HasSignalingInstructions checks if the instruction file for a target
 // already has the schmux signaling block.
 func HasSignalingInstructions(workspacePath, targetName string) bool {
-	config, ok := detect.GetAgentInstructionConfigForTarget(targetName)
+	if !detect.IsBuiltinToolName(targetName) {
+		return false
+	}
+	config, ok := detect.GetAgentInstructionConfig(targetName)
 	if !ok {
 		return false
 	}

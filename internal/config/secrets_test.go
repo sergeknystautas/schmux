@@ -210,7 +210,7 @@ func TestMigrateSecretKeys(t *testing.T) {
 	if secrets.Models["claude-opus-4-6"]["ANTHROPIC_API_KEY"] != "sk-test" {
 		t.Error("secrets should be migrated to new key")
 	}
-	if secrets.Models["minimax-m2.1"]["MINIMAX_API_KEY"] != "mm-test" {
+	if secrets.Models["MiniMax-M2.1"]["MINIMAX_API_KEY"] != "mm-test" {
 		t.Error("minimax secrets should be migrated")
 	}
 }

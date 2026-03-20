@@ -4183,6 +4183,13 @@ a:hover {
   color: var(--color-text-muted);
 }
 
+.model-catalog__model-context {
+  margin-left: 8px;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+}
+
 /* Runner segmented control */
 .runner-picker {
   display: inline-flex;

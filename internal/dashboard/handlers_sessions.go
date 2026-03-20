@@ -30,6 +30,8 @@ type SessionResponseItem struct {
 	NudgeState   string `json:"nudge_state,omitempty"`
 	NudgeSummary string `json:"nudge_summary,omitempty"`
 	NudgeSeq     uint64 `json:"nudge_seq,omitempty"`
+	// Model metadata (populated when target resolves to a model)
+	Model *SessionModelInfo `json:"model,omitempty"`
 	// Remote session fields
 	RemoteHostID     string `json:"remote_host_id,omitempty"`
 	RemotePaneID     string `json:"remote_pane_id,omitempty"`
@@ -40,6 +42,13 @@ type SessionResponseItem struct {
 	PersonaIcon  string `json:"persona_icon,omitempty"`
 	PersonaColor string `json:"persona_color,omitempty"`
 	PersonaName  string `json:"persona_name,omitempty"`
+}
+
+// SessionModelInfo contains model metadata for a session.
+type SessionModelInfo struct {
+	ContextWindow     int     `json:"context_window,omitempty"`
+	CostInputPerMTok  float64 `json:"cost_input_per_mtok,omitempty"`
+	CostOutputPerMTok float64 `json:"cost_output_per_mtok,omitempty"`
 }
 
 // WorkspaceResponseItem represents a workspace in the API response.
@@ -264,6 +273,21 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			}
 		}
 
+		// Resolve model metadata if models manager is available
+		var modelInfo *SessionModelInfo
+		if s.models != nil {
+			if model, found := s.models.FindModel(sess.Target); found {
+				meta := s.models.GetRegistryMeta(model.ID)
+				if meta.ContextWindow > 0 || meta.CostInput > 0 || meta.CostOutput > 0 {
+					modelInfo = &SessionModelInfo{
+						ContextWindow:     meta.ContextWindow,
+						CostInputPerMTok:  meta.CostInput,
+						CostOutputPerMTok: meta.CostOutput,
+					}
+				}
+			}
+		}
+
 		wsResp.Sessions = append(wsResp.Sessions, SessionResponseItem{
 			ID:               sess.ID,
 			Target:           sess.Target,
@@ -278,6 +302,7 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			NudgeState:       nudgeState,
 			NudgeSummary:     nudgeSummary,
 			NudgeSeq:         sess.NudgeSeq,
+			Model:            modelInfo,
 			RemoteHostID:     sess.RemoteHostID,
 			RemotePaneID:     sess.RemotePaneID,
 			RemoteHostname:   remoteHostname,

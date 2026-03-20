@@ -496,7 +496,11 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	}
 
 	// Create model manager (single owner for catalog, resolution, enablement)
-	mm := models.New(cfg, detectedTargets)
+	// schmuxDir is already computed earlier in this function
+	mm := models.New(cfg, detectedTargets, schmuxDir)
+
+	// Start background registry fetch
+	mm.StartBackgroundFetch(d.shutdownCtx)
 
 	// Ensure workspace directory exists
 	if err := wm.EnsureWorkspaceDir(); err != nil {

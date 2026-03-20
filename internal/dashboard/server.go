@@ -344,6 +344,19 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 // SetModelManager sets the model manager for model catalog and resolution.
 func (s *Server) SetModelManager(mm *models.Manager) {
 	s.models = mm
+	// Set up callback to broadcast catalog updates to WebSocket clients
+	mm.SetOnCatalogUpdated(func() {
+		s.BroadcastCatalogUpdated()
+	})
+}
+
+// BroadcastCatalogUpdated sends a catalog updated event to all connected dashboard WebSocket clients.
+func (s *Server) BroadcastCatalogUpdated() {
+	type catalogUpdate struct {
+		Type string `json:"type"`
+	}
+	data, _ := json.Marshal(catalogUpdate{Type: "catalog_updated"})
+	s.broadcastToAllDashboardConns(data)
 }
 
 // SetRemoteManager sets the remote manager for remote workspace support.
@@ -532,6 +545,8 @@ func (s *Server) Start() error {
 		r.Get("/recent-branches", s.handleRecentBranches)
 		r.Get("/detect-tools", s.handleDetectTools)
 		r.Get("/models", s.handleModels)
+		r.Get("/user-models", s.handleGetUserModels)
+		r.Put("/user-models", s.handleSetUserModels)
 		r.Get("/builtin-quick-launch", s.handleBuiltinQuickLaunch)
 		r.Get("/commit/prompt", s.handleCommitPrompt)
 		r.Get("/diff/*", s.handleDiff)

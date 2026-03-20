@@ -329,7 +329,7 @@ Content is wrapped in markers for safe updates:
 
 ### Model Support
 
-Models are mapped to their base tools via `GetBaseToolName()` (`internal/detect/tools.go:59`):
+Models are mapped to their base tools via `models.Manager.ResolveTargetToTool()` (`internal/models/manager.go`):
 
 | Target                                                   | Base Tool | Instruction Path    |
 | -------------------------------------------------------- | --------- | ------------------- |

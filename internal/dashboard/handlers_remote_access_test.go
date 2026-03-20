@@ -26,7 +26,7 @@ func newTestServerWithTunnel(t *testing.T, tunnelMgr *tunnel.Manager) *Server {
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
 	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, ServerOptions{})
-	server.SetModelManager(models.New(cfg, nil))
+	server.SetModelManager(models.New(cfg, nil, ""))
 	server.SetTunnelManager(tunnelMgr)
 	return server
 }

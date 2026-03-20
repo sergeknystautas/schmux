@@ -15,9 +15,10 @@ import (
 type ModelSecrets map[string]map[string]string
 
 type SecretsFile struct {
-	Models   ModelSecrets `json:"models,omitempty"`
-	Variants ModelSecrets `json:"variants,omitempty"` // deprecated, migrated to models
-	Auth     AuthSecrets  `json:"auth,omitempty"`
+	Models    ModelSecrets                 `json:"models,omitempty"`
+	Variants  ModelSecrets                 `json:"variants,omitempty"` // deprecated, migrated to models
+	Providers map[string]map[string]string `json:"providers,omitempty"`
+	Auth      AuthSecrets                  `json:"auth,omitempty"`
 }
 
 type AuthSecrets struct {
@@ -80,7 +81,7 @@ func LoadSecretsFile() (*SecretsFile, error) {
 			// Best-effort save to persist migration
 			_ = SaveSecretsFile(&secrets)
 		}
-		if migrateSecretKeys(&secrets) {
+		if migrateSecretKeys(&secrets) || migrateToProviderKeyed(&secrets) {
 			_ = SaveSecretsFile(&secrets)
 		}
 		return &secrets, nil
@@ -103,7 +104,7 @@ func LoadSecretsFile() (*SecretsFile, error) {
 			// Best-effort save to persist migration
 			_ = SaveSecretsFile(&secrets)
 		}
-		if migrateSecretKeys(&secrets) {
+		if migrateSecretKeys(&secrets) || migrateToProviderKeyed(&secrets) {
 			_ = SaveSecretsFile(&secrets)
 		}
 		return &secrets, nil
@@ -117,7 +118,7 @@ func LoadSecretsFile() (*SecretsFile, error) {
 		legacy = ModelSecrets{}
 	}
 	secrets := &SecretsFile{Models: legacy}
-	if migrateSecretKeys(secrets) {
+	if migrateSecretKeys(secrets) || migrateToProviderKeyed(secrets) {
 		_ = SaveSecretsFile(secrets)
 	}
 	return secrets, nil
@@ -152,7 +153,7 @@ func SaveSecretsFile(secrets *SecretsFile) error {
 }
 
 // SaveModelSecrets saves secrets for a specific model.
-func SaveModelSecrets(modelName string, secrets map[string]string) error {
+func SaveModelSecrets(modelName string, provider string, secrets map[string]string) error {
 	if modelName == "" {
 		return fmt.Errorf("model name is required")
 	}
@@ -166,6 +167,78 @@ func SaveModelSecrets(modelName string, secrets map[string]string) error {
 	}
 
 	existing.Models[modelName] = secrets
+
+	// Also update providers map
+	if provider == "" {
+		provider = getProviderForModel(modelName)
+	}
+	if provider != "" {
+		if existing.Providers == nil {
+			existing.Providers = make(map[string]map[string]string)
+		}
+		existing.Providers[provider] = secrets
+	}
+
+	return SaveSecretsFile(existing)
+}
+
+// legacyModelProviders maps old model IDs to providers for callers of
+// the deleted GetBuiltinModels(). Only IDs that existed in the old
+// builtinModels list, plus legacy aliases and models.dev mixed-case IDs.
+var legacyModelProviders = map[string]string{
+	// Anthropic native
+	"claude-opus-4-6": "anthropic", "claude-sonnet-4-6": "anthropic", "claude-haiku-4-5": "anthropic",
+	"claude-opus-4-5": "anthropic", "claude-opus-4-1": "anthropic", "claude-opus-4": "anthropic",
+	"claude-sonnet-4-5": "anthropic", "claude-sonnet-4": "anthropic",
+	// Third-party via claude
+	"kimi-thinking": "moonshot", "kimi-k2.5": "moonshot",
+	"glm-4.7": "zai", "glm-4.5-air": "zai", "glm-5": "zai", "glm-5-turbo": "zai",
+	"minimax-m2.1": "minimax", "minimax-2.5": "minimax", "minimax-2.7": "minimax",
+	"qwen3-coder-plus": "dashscope",
+	// OpenAI/Codex
+	"gpt-5.4": "openai", "gpt-5.3-codex": "openai", "gpt-5.2": "openai",
+	"gpt-5.2-codex": "openai", "gpt-5.1-codex-max": "openai",
+	"gpt-5.1-codex": "openai", "gpt-5.1-codex-mini": "openai", "gpt-5-codex": "openai",
+	// Google/Gemini
+	"gemini-3.1-pro-preview": "google", "gemini-3-flash-preview": "google",
+	"gemini-2.5-pro": "google", "gemini-2.5-flash": "google",
+	"gemini-2.5-flash-lite": "google", "gemini-2.0-flash": "google",
+	// OpenCode
+	"opencode-zen": "opencode-zen",
+	// Legacy aliases
+	"claude-opus": "anthropic", "claude-sonnet": "anthropic", "claude-haiku": "anthropic",
+	"opus": "anthropic", "sonnet": "anthropic", "haiku": "anthropic",
+	"minimax": "minimax",
+	// models.dev IDs (targets of ID migration)
+	"MiniMax-M2.1": "minimax", "MiniMax-M2.5": "minimax", "MiniMax-M2.7": "minimax",
+	"kimi-k2-thinking": "moonshot",
+	// Dated Anthropic IDs (targets of legacy migrations)
+	"claude-opus-4-5-20251101": "anthropic", "claude-opus-4-1-20250805": "anthropic",
+	"claude-sonnet-4-5-20250929": "anthropic", "claude-opus-4-20250514": "anthropic",
+	"claude-sonnet-4-20250514": "anthropic", "claude-haiku-4-5-20251001": "anthropic",
+}
+
+// getProviderForModel returns the provider for a given model ID using the
+// static legacy map. Used only by SaveModelSecrets when no provider is passed.
+func getProviderForModel(modelID string) string {
+	return legacyModelProviders[modelID]
+}
+
+// SaveProviderSecrets saves secrets for a specific provider.
+func SaveProviderSecrets(provider string, secrets map[string]string) error {
+	if provider == "" {
+		return fmt.Errorf("provider is required")
+	}
+
+	existing, err := LoadSecretsFile()
+	if err != nil {
+		return err
+	}
+	if existing.Providers == nil {
+		existing.Providers = make(map[string]map[string]string)
+	}
+
+	existing.Providers[provider] = secrets
 	return SaveSecretsFile(existing)
 }
 
@@ -212,15 +285,22 @@ func GetProviderSecrets(provider string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	// First try provider-keyed lookup (new format)
+	if secrets != nil && secrets.Providers != nil {
+		if providerSecrets, ok := secrets.Providers[provider]; ok {
+			return providerSecrets, nil
+		}
+	}
+	// Fall back to model-keyed lookup (legacy format)
 	if secrets == nil || secrets.Models == nil {
 		return map[string]string{}, nil
 	}
-	for _, model := range detect.GetBuiltinModels() {
-		if model.Provider != provider {
+	for modelID, modelProvider := range legacyModelProviders {
+		if modelProvider != provider {
 			continue
 		}
-		if secrets.Models[model.ID] != nil {
-			return secrets.Models[model.ID], nil
+		if secrets.Models[modelID] != nil {
+			return secrets.Models[modelID], nil
 		}
 	}
 	return map[string]string{}, nil
@@ -251,6 +331,7 @@ func GetEffectiveModelSecrets(model detect.Model) (map[string]string, error) {
 }
 
 // DeleteProviderSecrets removes secrets for all models owned by the provider.
+// It removes from both the legacy Models map and the new Providers map.
 func DeleteProviderSecrets(provider string) error {
 	if provider == "" {
 		return nil
@@ -259,14 +340,18 @@ func DeleteProviderSecrets(provider string) error {
 	if err != nil {
 		return err
 	}
-	if existing.Models == nil {
-		return nil
+	// Delete from Providers map (new format)
+	if existing.Providers != nil {
+		delete(existing.Providers, provider)
 	}
-	for _, model := range detect.GetBuiltinModels() {
-		if model.Provider != provider {
-			continue
+	// Delete from Models map (legacy format)
+	if existing.Models != nil {
+		for modelID, modelProvider := range legacyModelProviders {
+			if modelProvider != provider {
+				continue
+			}
+			delete(existing.Models, modelID)
 		}
-		delete(existing.Models, model.ID)
 	}
 	return SaveSecretsFile(existing)
 }
@@ -340,6 +425,49 @@ func migrateSecretKeys(secrets *SecretsFile) bool {
 				secrets.Models[newID] = s
 			}
 			delete(secrets.Models, oldID)
+			changed = true
+		}
+	}
+	return changed
+}
+
+// migrateToProviderKeyed converts model-keyed secrets to provider-keyed format.
+// This groups secrets by provider, so "moonshot" provider secrets apply to all moonshot models.
+func migrateToProviderKeyed(secrets *SecretsFile) bool {
+	if secrets == nil || secrets.Models == nil || len(secrets.Models) == 0 {
+		return false
+	}
+	if secrets.Providers == nil {
+		secrets.Providers = make(map[string]map[string]string)
+	}
+
+	providerToModels := make(map[string][]string)
+	for modelID, provider := range legacyModelProviders {
+		providerToModels[provider] = append(providerToModels[provider], modelID)
+	}
+
+	changed := false
+	// For each model secret, find its provider and add to providers map
+	for modelID, modelSecrets := range secrets.Models {
+		// Find provider for this model
+		var provider string
+		for p, models := range providerToModels {
+			for _, m := range models {
+				if m == modelID {
+					provider = p
+					break
+				}
+			}
+			if provider != "" {
+				break
+			}
+		}
+		if provider == "" {
+			continue // Can't determine provider, skip
+		}
+		// Add to providers map (provider secrets take precedence)
+		if _, exists := secrets.Providers[provider]; !exists {
+			secrets.Providers[provider] = modelSecrets
 			changed = true
 		}
 	}

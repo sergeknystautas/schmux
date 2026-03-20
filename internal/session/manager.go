@@ -107,6 +107,7 @@ func (m *Manager) SetRemoteManager(rm *remote.Manager) {
 // Must be called before Start() — not safe for concurrent use.
 func (m *Manager) SetModelManager(mm *models.Manager) {
 	m.models = mm
+	m.ensurer.SetResolver(mm)
 }
 
 // SetHooksDir sets the centralized hooks directory on the ensurer.
@@ -422,7 +423,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 
 	// For tools with hook support, prepend hooks provisioning to the command
 	// so hooks are in place before the agent starts (it captures hooks at startup).
-	baseTool := detect.GetBaseToolName(targetName)
+	baseTool := m.models.ResolveTargetToTool(targetName)
 	if adapter := detect.GetAdapter(baseTool); adapter != nil && adapter.SupportsHooks() {
 		command, err = adapter.WrapRemoteCommand(command)
 		if err != nil {
@@ -661,7 +662,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	}
 
 	// Provision agent signaling mechanism
-	baseTool := detect.GetBaseToolName(opts.TargetName)
+	baseTool := m.models.ResolveTargetToTool(opts.TargetName)
 
 	// Ensure workspace has all necessary schmux configuration (hooks, scripts, git exclude)
 	if err := m.ensurer.ForSpawn(w.ID, opts.TargetName); err != nil {
@@ -948,7 +949,9 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 	// Resolve the base tool name for signaling injection
 	baseTool := target.ToolName
 	if baseTool == "" {
-		baseTool = detect.GetBaseToolName(target.Name)
+		if detect.IsBuiltinToolName(target.Name) {
+			baseTool = target.Name
+		}
 	}
 
 	// Handle resume mode

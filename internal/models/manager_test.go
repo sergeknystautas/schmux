@@ -8,7 +8,7 @@ import (
 )
 
 func TestValidateSecrets(t *testing.T) {
-	mm := New(&config.Config{}, nil)
+	mm := New(&config.Config{}, nil, "")
 
 	tests := []struct {
 		name    string
@@ -104,7 +104,7 @@ func TestIsTargetInUse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := New(tt.cfg, nil)
+			mm := New(tt.cfg, nil, "")
 			got := mm.IsTargetInUse(tt.targetName)
 			if got != tt.want {
 				t.Errorf("IsTargetInUse() = %v, want %v", got, tt.want)
@@ -114,7 +114,7 @@ func TestIsTargetInUse(t *testing.T) {
 }
 
 func TestGetCatalogStructure(t *testing.T) {
-	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}})
+	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "")
 
 	catalog, err := mm.GetCatalog()
 	if err != nil {
@@ -155,6 +155,175 @@ func TestGetCatalogStructure(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("no model with claude runner found in catalog")
+	}
+}
+
+func TestRebuildCatalogThreeSources(t *testing.T) {
+	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "")
+
+	// With no registry and no user models, only default_* should be present
+	catalog, err := mm.GetCatalog()
+	if err != nil {
+		t.Fatalf("GetCatalog: %v", err)
+	}
+	for _, m := range catalog.Models {
+		if !m.IsDefault {
+			t.Errorf("unexpected non-default model %q with no registry or user models", m.ID)
+		}
+	}
+	if _, ok := mm.FindModel("default_claude"); !ok {
+		t.Error("default_claude not found in catalog")
+	}
+}
+
+func TestMergePrecedence(t *testing.T) {
+	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "")
+
+	mm.SetRegistryModels([]detect.Model{{
+		ID: "test-model", DisplayName: "Registry Version", Provider: "anthropic",
+		Runners: map[string]detect.RunnerSpec{"claude": {ModelValue: "registry-value"}},
+	}})
+	mm.SetUserModels([]detect.Model{{
+		ID: "test-model", DisplayName: "User Version", Provider: "anthropic",
+		Runners: map[string]detect.RunnerSpec{"claude": {ModelValue: "user-value"}},
+	}})
+
+	model, ok := mm.FindModel("test-model")
+	if !ok {
+		t.Fatal("model not found")
+	}
+	spec, _ := model.RunnerFor("claude")
+	if spec.ModelValue != "user-value" {
+		t.Errorf("expected user-defined to win, got ModelValue=%q", spec.ModelValue)
+	}
+}
+
+func TestDefaultModelsAlwaysPresent(t *testing.T) {
+	mm := New(&config.Config{}, []detect.Tool{
+		{Name: "claude", Command: "claude"},
+		{Name: "codex", Command: "codex"},
+	}, "")
+
+	mm.SetRegistryModels([]detect.Model{{
+		ID: "some-model", Provider: "anthropic",
+		Runners: map[string]detect.RunnerSpec{"claude": {ModelValue: "v"}},
+	}})
+
+	for _, defaultID := range []string{"default_claude", "default_codex"} {
+		if _, ok := mm.FindModel(defaultID); !ok {
+			t.Errorf("default model %q not found", defaultID)
+		}
+	}
+}
+
+func TestDefaultModelsNotDuplicated(t *testing.T) {
+	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "")
+
+	catalog, err := mm.GetCatalog()
+	if err != nil {
+		t.Fatalf("GetCatalog: %v", err)
+	}
+	seen := map[string]int{}
+	for _, m := range catalog.Models {
+		seen[m.ID]++
+	}
+	for id, count := range seen {
+		if count > 1 {
+			t.Errorf("model %q appears %d times in catalog", id, count)
+		}
+	}
+}
+
+func TestFindModelWithMigration(t *testing.T) {
+	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "")
+
+	mm.SetRegistryModels([]detect.Model{{
+		ID: "claude-opus-4-6", Provider: "anthropic",
+		Runners: map[string]detect.RunnerSpec{"claude": {ModelValue: "claude-opus-4-6"}},
+	}})
+
+	// Legacy alias should resolve via migration
+	model, ok := mm.FindModel("opus")
+	if !ok {
+		t.Fatal("legacy alias 'opus' should resolve")
+	}
+	if model.ID != "claude-opus-4-6" {
+		t.Errorf("got ID=%q, want claude-opus-4-6", model.ID)
+	}
+}
+
+func TestEmptyCatalogOnlyDefaults(t *testing.T) {
+	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "")
+
+	// No registry, no user models — should be only defaults
+	catalog, err := mm.GetCatalog()
+	if err != nil {
+		t.Fatalf("GetCatalog: %v", err)
+	}
+	if len(catalog.Models) == 0 {
+		t.Fatal("expected at least default models")
+	}
+	for _, m := range catalog.Models {
+		if !m.IsDefault {
+			t.Errorf("non-default model %q found with empty registry", m.ID)
+		}
+	}
+}
+
+func TestResolveTargetToTool(t *testing.T) {
+	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "")
+	mm.SetRegistryModels([]detect.Model{{
+		ID: "claude-opus-4-6", Provider: "anthropic",
+		Runners: map[string]detect.RunnerSpec{"claude": {ModelValue: "claude-opus-4-6"}},
+	}})
+
+	tests := []struct {
+		target string
+		want   string
+	}{
+		{"claude", "claude"},          // tool name passed through
+		{"claude-opus-4-6", "claude"}, // model resolved to first runner
+		{"opus", "claude"},            // legacy alias resolved
+		{"nonexistent", ""},           // unknown returns empty
+	}
+	for _, tt := range tests {
+		got := mm.ResolveTargetToTool(tt.target)
+		if got != tt.want {
+			t.Errorf("ResolveTargetToTool(%q) = %q, want %q", tt.target, got, tt.want)
+		}
+	}
+}
+
+func TestConcurrentCatalogAccess(t *testing.T) {
+	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "")
+
+	// Start concurrent readers
+	done := make(chan bool, 10)
+	for i := 0; i < 10; i++ {
+		go func() {
+			defer func() { done <- true }()
+			for j := 0; j < 100; j++ {
+				mm.FindModel("default_claude")
+				mm.IsModelID("nonexistent")
+				mm.GetCatalog()
+			}
+		}()
+	}
+
+	// Concurrent writer — swap registry models repeatedly
+	go func() {
+		defer func() { done <- true }()
+		for j := 0; j < 50; j++ {
+			mm.SetRegistryModels([]detect.Model{{
+				ID: "test-model", Provider: "anthropic",
+				Runners: map[string]detect.RunnerSpec{"claude": {ModelValue: "v"}},
+			}})
+		}
+	}()
+
+	// Wait for all goroutines
+	for i := 0; i < 11; i++ {
+		<-done
 	}
 }
 

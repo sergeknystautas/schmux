@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import type { ConfigFormAction } from './useConfigForm';
 import type { Model, RunnerInfo, RunTargetResponse } from '../../lib/types';
 import ModelCatalog from './ModelCatalog';
+import UserModelsEditor from './UserModelsEditor';
 
 type SessionsTabProps = {
   models: Model[];
@@ -30,6 +31,12 @@ export default function SessionsTab({
   onModelAction,
   onOpenRunTargetEditModal,
 }: SessionsTabProps) {
+  const availableRunners = useMemo(() => {
+    return Object.entries(runners)
+      .filter(([, info]) => info.available)
+      .map(([name]) => name);
+  }, [runners]);
+
   const handleToggleModel = (modelId: string, enabled: boolean, defaultRunner: string) => {
     dispatch({ type: 'TOGGLE_MODEL', modelId, enabled, defaultRunner });
   };
@@ -54,6 +61,8 @@ export default function SessionsTab({
         onChangeRunner={handleChangeRunner}
         onModelAction={onModelAction}
       />
+
+      <UserModelsEditor availableRunners={availableRunners} />
 
       <h3>Command Targets</h3>
       <p className="section-hint">

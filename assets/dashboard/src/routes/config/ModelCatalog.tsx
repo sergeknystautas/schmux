@@ -15,17 +15,63 @@ type ProviderGroup = {
   models: Model[];
   hasDetectedRunner: boolean;
   needsSecrets: boolean;
+  isDefaults?: boolean;
 };
 
-function groupByProvider(models: Model[], runners: Record<string, RunnerInfo>): ProviderGroup[] {
-  const groups = new Map<string, Model[]>();
+function groupByProvider(
+  models: Model[],
+  runners: Record<string, RunnerInfo>
+): (
+  | ProviderGroup
+  | {
+      provider: string;
+      models: Model[];
+      hasDetectedRunner: boolean;
+      needsSecrets: boolean;
+      isDefaults: boolean;
+    }
+)[] {
+  // Separate default models
+  const defaults: Model[] = [];
+  const nonDefaults: Model[] = [];
   for (const model of models) {
+    if (model.is_default) {
+      defaults.push(model);
+    } else {
+      nonDefaults.push(model);
+    }
+  }
+
+  const groups = new Map<string, Model[]>();
+  for (const model of nonDefaults) {
     const existing = groups.get(model.provider) || [];
     existing.push(model);
     groups.set(model.provider, existing);
   }
 
-  const result: ProviderGroup[] = [];
+  const result: (
+    | ProviderGroup
+    | {
+        provider: string;
+        models: Model[];
+        hasDetectedRunner: boolean;
+        needsSecrets: boolean;
+        isDefaults: boolean;
+      }
+  )[] = [];
+
+  // Add defaults group first if there are any
+  if (defaults.length > 0) {
+    const hasDetectedRunner = defaults.some((m) => m.runners.some((r) => runners[r]?.available));
+    result.push({
+      provider: 'Defaults',
+      models: sortModels(defaults),
+      hasDetectedRunner,
+      needsSecrets: false,
+      isDefaults: true,
+    });
+  }
+
   for (const [provider, providerModels] of groups) {
     const hasDetectedRunner = providerModels.some((m) =>
       m.runners.some((r) => runners[r]?.available)
@@ -33,11 +79,19 @@ function groupByProvider(models: Model[], runners: Record<string, RunnerInfo>): 
     const needsSecrets = providerModels.some(
       (m) => m.required_secrets && m.required_secrets.length > 0 && !m.configured
     );
-    result.push({ provider, models: sortModels(providerModels), hasDetectedRunner, needsSecrets });
+    result.push({
+      provider,
+      models: sortModels(providerModels),
+      hasDetectedRunner,
+      needsSecrets,
+      isDefaults: false,
+    });
   }
 
   // Sort: providers with detected runners first, then alphabetical
   result.sort((a, b) => {
+    // Keep defaults at top
+    if (a.isDefaults !== b.isDefaults) return a.isDefaults ? -1 : 1;
     if (a.hasDetectedRunner !== b.hasDetectedRunner) {
       return a.hasDetectedRunner ? -1 : 1;
     }
@@ -78,7 +132,8 @@ function sortModels(models: Model[]): Model[] {
   });
 }
 
-function getProviderHint(group: ProviderGroup): string | null {
+function getProviderHint(group: ProviderGroup & { isDefaults?: boolean }): string | null {
+  if (group.isDefaults) return 'quick launch targets';
   if (!group.hasDetectedRunner) return 'no tools detected';
   if (group.needsSecrets) return 'requires secrets';
   return null;
@@ -99,7 +154,7 @@ function ProviderSection({
   onChangeRunner: (modelId: string, runner: string) => void;
   onModelAction: (model: Model, mode: 'add' | 'remove' | 'update') => void;
 }) {
-  const [expanded, setExpanded] = useState(group.hasDetectedRunner);
+  const [expanded, setExpanded] = useState(group.hasDetectedRunner || group.isDefaults);
   const hint = getProviderHint(group);
 
   return (
@@ -109,7 +164,7 @@ function ProviderSection({
     >
       <button
         className="model-catalog__provider-header"
-        onClick={() => group.hasDetectedRunner && setExpanded(!expanded)}
+        onClick={() => (group.hasDetectedRunner || group.isDefaults) && setExpanded(!expanded)}
         aria-expanded={expanded}
       >
         <svg
@@ -167,6 +222,11 @@ function ModelRow({
   const needsSecrets =
     model.required_secrets && model.required_secrets.length > 0 && !model.configured;
 
+  // Format context window
+  const contextWindowStr = model.context_window
+    ? `${(model.context_window / 1000).toFixed(0)}K`
+    : null;
+
   const handleRowClick = (e: React.MouseEvent) => {
     // Don't toggle when clicking runner picker buttons or secrets button
     const target = e.target as HTMLElement;
@@ -188,6 +248,9 @@ function ModelRow({
         className={`model-catalog__model-name${!isEnabled ? ' model-catalog__model-name--disabled' : ''}`}
       >
         {model.display_name}
+        {contextWindowStr && (
+          <span className="model-catalog__model-context">{contextWindowStr}</span>
+        )}
       </span>
 
       <RunnerPicker

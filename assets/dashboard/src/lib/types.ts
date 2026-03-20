@@ -67,6 +67,11 @@ export interface SessionWithWorkspace extends SessionResponse {
   workspace_path: string;
   repo: string;
   branch: string;
+  model?: {
+    context_window?: number;
+    cost_input_per_mtok?: number;
+    cost_output_per_mtok?: number;
+  };
 }
 
 export interface RepoResponse {

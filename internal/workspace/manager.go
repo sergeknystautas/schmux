@@ -217,6 +217,7 @@ func (m *Manager) SetTelemetry(t telemetry.Telemetry) {
 // SetIOWorkspaceTelemetry sets the I/O telemetry collector for git command instrumentation.
 func (m *Manager) SetModelManager(mm *models.Manager) {
 	m.models = mm
+	m.ensurer.SetResolver(mm)
 }
 
 func (m *Manager) SetIOWorkspaceTelemetry(tel *IOWorkspaceTelemetry) {

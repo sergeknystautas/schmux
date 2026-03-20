@@ -86,7 +86,7 @@ func (s *Server) handleModelSecretsPost(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := config.SaveModelSecrets(model.ID, req.Secrets); err != nil {
+	if err := config.SaveModelSecrets(model.ID, model.Provider, req.Secrets); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to save secrets: %v", err), http.StatusInternalServerError)
 		return
 	}

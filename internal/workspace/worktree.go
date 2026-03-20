@@ -103,6 +103,7 @@ func (m *Manager) initLocalRepo(ctx context.Context, path, branch string) error 
 		return fmt.Errorf("git config user.name failed: %w", err)
 	}
 
+	// Create and checkout the branch
 	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, path, "checkout", "-b", branch); err != nil {
 		return fmt.Errorf("git checkout -b %s failed: %w", branch, err)
 	}

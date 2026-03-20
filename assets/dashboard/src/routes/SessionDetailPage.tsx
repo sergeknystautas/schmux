@@ -873,16 +873,28 @@ export default function SessionDetailPage() {
           </div>
 
           <div className="metadata-field">
-            <span className="metadata-field__label">Branch</span>
-            <span className="metadata-field__value metadata-field__value--mono">
-              {sessionData.branch}
-            </span>
-          </div>
-
-          <div className="metadata-field">
             <span className="metadata-field__label">Target</span>
             <span className="metadata-field__value">{sessionData.target}</span>
           </div>
+
+          {sessionData.model && sessionData.model.context_window ? (
+            <div className="metadata-field">
+              <span className="metadata-field__label">Context Window</span>
+              <span className="metadata-field__value">
+                {(sessionData.model.context_window / 1000).toFixed(0)}K tokens
+              </span>
+            </div>
+          ) : null}
+          {sessionData.model &&
+          (sessionData.model.cost_input_per_mtok || sessionData.model.cost_output_per_mtok) ? (
+            <div className="metadata-field">
+              <span className="metadata-field__label">Pricing</span>
+              <span className="metadata-field__value">
+                ${sessionData.model.cost_input_per_mtok || 0} / $
+                {sessionData.model.cost_output_per_mtok || 0} per MTok
+              </span>
+            </div>
+          ) : null}
 
           {sessionData.nickname ? (
             <div className="metadata-field" data-testid="session-nickname">
@@ -985,16 +997,6 @@ export default function SessionDetailPage() {
                   : 'Never'}
               </span>
             </Tooltip>
-          </div>
-
-          <div className="metadata-field">
-            <span className="metadata-field__label">Status</span>
-            <div>
-              <span className={`status-pill ${statusClass}`} data-testid="session-status">
-                <span className="status-pill__dot"></span>
-                {statusText}
-              </span>
-            </div>
           </div>
 
           {sessionData.remote_host_id && (

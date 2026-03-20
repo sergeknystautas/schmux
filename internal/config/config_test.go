@@ -2529,16 +2529,16 @@ func TestMigrateModelIDs(t *testing.T) {
 	if cfg.QuickLaunch[0].Target != "claude-opus-4-6" {
 		t.Errorf("QuickLaunch[0].Target = %q, want %q", cfg.QuickLaunch[0].Target, "claude-opus-4-6")
 	}
-	if cfg.QuickLaunch[1].Target != "minimax-m2.1" {
-		t.Errorf("QuickLaunch[1].Target = %q, want %q", cfg.QuickLaunch[1].Target, "minimax-m2.1")
+	if cfg.QuickLaunch[1].Target != "MiniMax-M2.1" {
+		t.Errorf("QuickLaunch[1].Target = %q, want %q", cfg.QuickLaunch[1].Target, "MiniMax-M2.1")
 	}
 
 	// Nested config targets
 	if cfg.Nudgenik.Target != "claude-sonnet-4-6" {
 		t.Errorf("Nudgenik.Target = %q, want %q", cfg.Nudgenik.Target, "claude-sonnet-4-6")
 	}
-	if cfg.BranchSuggest.Target != "claude-haiku-4-5" {
-		t.Errorf("BranchSuggest.Target = %q, want %q", cfg.BranchSuggest.Target, "claude-haiku-4-5")
+	if cfg.BranchSuggest.Target != "claude-haiku-4-5-20251001" {
+		t.Errorf("BranchSuggest.Target = %q, want %q", cfg.BranchSuggest.Target, "claude-haiku-4-5-20251001")
 	}
 	if cfg.ConflictResolve.Target != "claude-opus-4-6" {
 		t.Errorf("ConflictResolve.Target = %q, want %q", cfg.ConflictResolve.Target, "claude-opus-4-6")
@@ -2546,11 +2546,11 @@ func TestMigrateModelIDs(t *testing.T) {
 	if cfg.PrReview.Target != "claude-sonnet-4-6" {
 		t.Errorf("PrReview.Target = %q, want %q", cfg.PrReview.Target, "claude-sonnet-4-6")
 	}
-	if cfg.CommitMessage.Target != "claude-haiku-4-5" {
-		t.Errorf("CommitMessage.Target = %q, want %q", cfg.CommitMessage.Target, "claude-haiku-4-5")
+	if cfg.CommitMessage.Target != "claude-haiku-4-5-20251001" {
+		t.Errorf("CommitMessage.Target = %q, want %q", cfg.CommitMessage.Target, "claude-haiku-4-5-20251001")
 	}
-	if cfg.Desync.Target != "minimax-m2.1" {
-		t.Errorf("Desync.Target = %q, want %q", cfg.Desync.Target, "minimax-m2.1")
+	if cfg.Desync.Target != "MiniMax-M2.1" {
+		t.Errorf("Desync.Target = %q, want %q", cfg.Desync.Target, "MiniMax-M2.1")
 	}
 	if cfg.FloorManager.Target != "claude-opus-4-6" {
 		t.Errorf("FloorManager.Target = %q, want %q", cfg.FloorManager.Target, "claude-opus-4-6")
@@ -2558,11 +2558,11 @@ func TestMigrateModelIDs(t *testing.T) {
 	if cfg.Lore.Target != "claude-sonnet-4-6" {
 		t.Errorf("Lore.Target = %q, want %q", cfg.Lore.Target, "claude-sonnet-4-6")
 	}
-	if cfg.Compound.Target != "claude-haiku-4-5" {
-		t.Errorf("Compound.Target = %q, want %q", cfg.Compound.Target, "claude-haiku-4-5")
+	if cfg.Compound.Target != "claude-haiku-4-5-20251001" {
+		t.Errorf("Compound.Target = %q, want %q", cfg.Compound.Target, "claude-haiku-4-5-20251001")
 	}
-	if cfg.Subreddit.Target != "minimax-m2.1" {
-		t.Errorf("Subreddit.Target = %q, want %q", cfg.Subreddit.Target, "minimax-m2.1")
+	if cfg.Subreddit.Target != "MiniMax-M2.1" {
+		t.Errorf("Subreddit.Target = %q, want %q", cfg.Subreddit.Target, "MiniMax-M2.1")
 	}
 	if cfg.IOWorkspaceTelemetry.Target != "claude-opus-4-6" {
 		t.Errorf("IOWorkspaceTelemetry.Target = %q, want %q", cfg.IOWorkspaceTelemetry.Target, "claude-opus-4-6")
@@ -2572,8 +2572,8 @@ func TestMigrateModelIDs(t *testing.T) {
 	if cfg.Models.Enabled["claude-opus-4-6"] != "claude" {
 		t.Errorf("Models.Enabled[claude-opus-4-6] = %q, want %q", cfg.Models.Enabled["claude-opus-4-6"], "claude")
 	}
-	if cfg.Models.Enabled["minimax-m2.1"] != "opencode" {
-		t.Errorf("Models.Enabled[minimax-m2.1] = %q, want %q", cfg.Models.Enabled["minimax-m2.1"], "opencode")
+	if cfg.Models.Enabled["MiniMax-M2.1"] != "opencode" {
+		t.Errorf("Models.Enabled[MiniMax-M2.1] = %q, want %q", cfg.Models.Enabled["MiniMax-M2.1"], "opencode")
 	}
 	if _, ok := cfg.Models.Enabled["claude-opus"]; ok {
 		t.Error("old key 'claude-opus' should be removed from Models.Enabled")
@@ -2651,8 +2651,8 @@ func TestMigrateModelIDs_ViaLoad(t *testing.T) {
 	if cfg.QuickLaunch[0].Target != "claude-opus-4-6" {
 		t.Errorf("after Load, QuickLaunch[0].Target = %q, want %q", cfg.QuickLaunch[0].Target, "claude-opus-4-6")
 	}
-	if cfg.Models.Enabled["minimax-m2.1"] != "opencode" {
-		t.Errorf("after Load, Models.Enabled[minimax-m2.1] = %q, want %q", cfg.Models.Enabled["minimax-m2.1"], "opencode")
+	if cfg.Models.Enabled["MiniMax-M2.1"] != "opencode" {
+		t.Errorf("after Load, Models.Enabled[MiniMax-M2.1] = %q, want %q", cfg.Models.Enabled["MiniMax-M2.1"], "opencode")
 	}
 }
 

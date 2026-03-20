@@ -241,6 +241,14 @@ export interface Model {
   configured: boolean;
   runners: string[];
   required_secrets?: string[];
+  context_window?: number;
+  max_output?: number;
+  cost_input_per_mtok?: number;
+  cost_output_per_mtok?: number;
+  reasoning?: boolean;
+  release_date?: string;
+  is_default?: boolean;
+  is_user_defined?: boolean;
 }
 
 export interface Network {
