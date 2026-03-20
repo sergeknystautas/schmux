@@ -1,7 +1,6 @@
 package config
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -1753,12 +1752,8 @@ func ConfigExists() bool {
 	return err == nil
 }
 
-// EnsureExists checks if config exists, and offers to create one interactively if not.
-// Returns true if config exists or was created, false if user declined or error occurred.
-//
-// Note: There is a TOCTOU race between ConfigExists() and Save(). If another process
-// creates the config file between the check and save, this will overwrite it.
-// This is acceptable for an interactive first-run flow where racing is unlikely.
+// EnsureExists checks if config exists, and creates a default one if not.
+// Returns true if config exists or was created, false on error.
 func EnsureExists() (bool, error) {
 	if ConfigExists() {
 		return true, nil
@@ -1769,40 +1764,15 @@ func EnsureExists() (bool, error) {
 		return false, fmt.Errorf("failed to get home directory: %w", err)
 	}
 
-	fmt.Println("Welcome to schmux!")
-	fmt.Println()
-	fmt.Println("No config file found at ~/.schmux/config.json")
-	fmt.Println()
-	fmt.Print("Would you like to create one now? [Y/n] ")
-
-	reader := bufio.NewReader(os.Stdin)
-	response, err := reader.ReadString('\n')
-	if err != nil {
-		return false, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	response = strings.TrimSpace(strings.ToLower(response))
-	if response == "n" || response == "no" {
-		fmt.Println("Config not created. Please create ~/.schmux/config.json manually to continue.")
-		return false, nil
-	}
-
-	// Create default config with the config path set
 	configPath := filepath.Join(homeDir, ".schmux", "config.json")
 	cfg := CreateDefault(configPath)
 
-	// Save config
 	if err := cfg.Save(); err != nil {
 		return false, fmt.Errorf("failed to save config: %w", err)
 	}
 
-	if pkgLogger != nil {
-		pkgLogger.Info("config created", "path", configPath)
-	}
-	fmt.Println()
-	if pkgLogger != nil {
-		pkgLogger.Info("open http://localhost:7337 to complete setup in the web dashboard")
-	}
+	fmt.Printf("Created default config at %s\n", configPath)
+	fmt.Println("Open http://localhost:7337 to complete setup in the web dashboard.")
 
 	return true, nil
 }
