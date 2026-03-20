@@ -57,15 +57,31 @@ func SetLogger(l *log.Logger) {
 // Compiled once at package initialization for efficiency.
 var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07\x1b]*\x07|\x1b\][^\x07\x1b]*\x1b\\`)
 
+// nestingEnvVars are environment variables set by AI agents that trigger
+// "nested session" detection errors when inherited by tmux sessions.
+var nestingEnvVars = []string{"CLAUDECODE"}
+
+// CleanTmuxServerEnv removes nesting env vars from the tmux server's global
+// environment. This prevents vars like CLAUDECODE (set by a Claude Code session
+// in another terminal) from leaking into sessions created by schmux.
+func CleanTmuxServerEnv(ctx context.Context) {
+	for _, v := range nestingEnvVars {
+		args := []string{"set-environment", "-g", "-u", v}
+		cmd := exec.CommandContext(ctx, "tmux", args...)
+		_ = cmd.Run()
+	}
+}
+
 // CreateSession creates a new tmux session with the given name, directory, and command.
 func CreateSession(ctx context.Context, name, dir, command string) error {
-	// tmux new-session -d -s <name> -c <dir> <command>
+	CleanTmuxServerEnv(ctx)
+
 	args := []string{
 		"new-session",
 		"-d",       // detached
 		"-s", name, // session name
 		"-c", dir, // working directory
-		command, // command to run
+		command,
 	}
 
 	cmd := exec.CommandContext(ctx, "tmux", args...)

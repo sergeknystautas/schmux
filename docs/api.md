@@ -325,6 +325,8 @@ Errors are per-result:
 
 Both target-based and command-based spawns trigger an immediate WebSocket broadcast on `/ws/dashboard` so clients can detect the new session without waiting for the next poll cycle.
 
+Environment cleanup: before creating a tmux session, the server removes agent nesting-detection variables (e.g., `CLAUDECODE`) from the tmux server's global environment. This prevents agents from refusing to start when the tmux server was started from (or shares an environment with) another agent session.
+
 Global errors (HTTP status codes):
 
 - 409 Conflict: Branch already in use by another workspace (worktree mode only). Message: `branch_conflict: branch "X" is already in use by workspace "Y"`
