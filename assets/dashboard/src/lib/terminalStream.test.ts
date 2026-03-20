@@ -1022,6 +1022,99 @@ describe('TerminalStream scroll suppression during resize', () => {
 
     expect(terminal.scrollToBottom).not.toHaveBeenCalled();
   });
+
+  it('suppresses scroll when resize rAF cleared writingToTerminal but write rAF is still pending', async () => {
+    // Regression for H2 race: fitTerminal's independent rAF fired and cleared
+    // writingToTerminal, but writeTerminal's rAF is still queued (scrollRAFPending=true).
+    // Observed in diagnostic: writingToTerminal=false, scrollRAFPending=true, followLost.
+    await stream.initialized;
+    const terminal = stream.terminal!;
+
+    (stream as any).writingToTerminal = false;
+    (stream as any).scrollRAFPending = true;
+
+    (terminal.buffer.active as any).viewportY = 0;
+    (terminal.buffer.active as any).baseY = 10;
+
+    stream.handleUserScroll();
+
+    expect((stream as any).followTail).toBe(true);
+  });
+
+  it('fitTerminal sets scrollRAFPending when no write is pending', async () => {
+    await stream.initialized;
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+
+    (stream as any).scrollRAFPending = false;
+
+    stream.fitTerminal();
+
+    expect((stream as any).writingToTerminal).toBe(true);
+    expect((stream as any).scrollRAFPending).toBe(true);
+
+    rafCallbacks.forEach((cb) => cb(0));
+    expect((stream as any).writingToTerminal).toBe(false);
+    expect((stream as any).scrollRAFPending).toBe(false);
+  });
+
+  it('fitTerminal does not schedule extra rAF when write rAF is already pending', async () => {
+    // Regression for H2: old code scheduled an independent rAF from fitTerminal
+    // which could race the pending writeTerminal rAF and clear writingToTerminal early.
+    await stream.initialized;
+    let rafScheduled = 0;
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((_cb) => {
+      rafScheduled++;
+      return rafScheduled;
+    });
+
+    (stream as any).scrollRAFPending = true;
+
+    stream.fitTerminal();
+
+    expect(rafScheduled).toBe(0);
+    expect((stream as any).writingToTerminal).toBe(true);
+    expect((stream as any).scrollRAFPending).toBe(true);
+  });
+
+  it('pending writeTerminal rAF clears writingToTerminal set by fitTerminal in coalesce-skip path', async () => {
+    // When fitTerminal skips scheduling its own rAF (scrollRAFPending already true),
+    // the existing writeTerminal rAF must still clear writingToTerminal correctly.
+    await stream.initialized;
+    const terminal = stream.terminal!;
+
+    // Make terminal.write() fire its callback synchronously so the rAF is queued
+    vi.mocked(terminal.write).mockImplementation((_data: any, cb?: () => void) => {
+      if (cb) cb();
+    });
+
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+
+    // Bootstrap then send a live frame: writeTerminal fires, queues rAF, scrollRAFPending=true
+    stream.handleOutput(buildSeqFrame(0n, 'bootstrap'));
+    stream.handleOutput(JSON.stringify({ type: 'bootstrapComplete' }));
+    stream.handleOutput(buildSeqFrame(1n, 'live output'));
+
+    expect((stream as any).scrollRAFPending).toBe(true);
+    expect(rafCallbacks).toHaveLength(1);
+
+    // Now fitTerminal fires: sees scrollRAFPending=true, skips scheduling extra rAF
+    stream.fitTerminal();
+    expect(rafCallbacks).toHaveLength(1); // no new rAF added
+    expect((stream as any).writingToTerminal).toBe(true);
+
+    // The writeTerminal rAF fires and clears both flags
+    rafCallbacks.forEach((cb) => cb(0));
+    expect((stream as any).writingToTerminal).toBe(false);
+    expect((stream as any).scrollRAFPending).toBe(false);
+  });
 });
 
 describe('TerminalStream.sendInput binary frames', () => {
@@ -1391,6 +1484,23 @@ describe('TerminalStream scroll diagnostics', () => {
     expect((stream as any).followTail).toBe(true);
     expect(stream.diagnostics!.scrollSuppressedCount).toBe(1);
     expect(stream.diagnostics!.scrollEvents).toHaveLength(0);
+  });
+
+  it('increments scrollSuppressedCount when scrollRAFPending is true (H1/H2 race window)', async () => {
+    // Regression: writingToTerminal may be false while scrollRAFPending is still true
+    // (resize rAF fired first, clearing writingToTerminal, but write rAF still queued).
+    await stream.initialized;
+    stream.enableDiagnostics();
+
+    (stream as any).writingToTerminal = false;
+    (stream as any).scrollRAFPending = true;
+
+    stream.handleUserScroll();
+
+    expect((stream as any).followTail).toBe(true);
+    expect(stream.diagnostics!.scrollSuppressedCount).toBe(1);
+    expect(stream.diagnostics!.scrollEvents).toHaveLength(0);
+    expect(stream.diagnostics!.followLostCount).toBe(0);
   });
 
   it('increments scrollCoalesceHits when writeTerminal coalesces', async () => {

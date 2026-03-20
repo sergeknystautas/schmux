@@ -405,9 +405,12 @@ export default class TerminalStream {
     this.tmuxCols = cols;
     this.tmuxRows = rows;
 
-    // Suppress scroll events during resize — same pattern as writeTerminal().
+    // Suppress scroll events during resize — same pattern as fitTerminal().
     // Without this, xterm.js buffer adjustments fire DOM scroll events that
     // falsely disable followTail (the user didn't scroll, the layout changed).
+    // Note: uses an independent rAF (not the shared scrollRAFPending mechanism)
+    // because this runs at init time before any WebSocket writes are possible,
+    // so the resize/write rAF race that affects fitTerminal cannot occur here.
     this.writingToTerminal = true;
     this.terminal!.resize(cols, rows);
     if (this.followTail) {
@@ -439,14 +442,25 @@ export default class TerminalStream {
     // Suppress scroll events during resize — same pattern as writeTerminal().
     // Without this, xterm.js buffer adjustments fire DOM scroll events that
     // falsely disable followTail (the user didn't scroll, the layout changed).
+    //
+    // Use the shared scrollRAFPending mechanism instead of an independent rAF.
+    // An independent rAF races writeTerminal's pending rAF: whichever fires
+    // first clears writingToTerminal, leaving a window where scroll events
+    // slip through while the other rAF is still queued.
     this.writingToTerminal = true;
     this.terminal!.resize(cols, rows);
     if (this.followTail) {
       this.terminal!.scrollToBottom();
     }
-    requestAnimationFrame(() => {
-      this.writingToTerminal = false;
-    });
+    if (!this.scrollRAFPending) {
+      this.scrollRAFPending = true;
+      requestAnimationFrame(() => {
+        this.scrollRAFPending = false;
+        this.writingToTerminal = false;
+      });
+    }
+    // If scrollRAFPending is already set, the pending writeTerminal rAF will
+    // clear both flags. scrollToBottom() was already called synchronously above.
 
     // Send resize message to backend to resize tmux
     this.sendResize(cols, rows);
@@ -959,7 +973,7 @@ export default class TerminalStream {
 
   handleUserScroll() {
     if (!this.terminal) return;
-    if (this.writingToTerminal) {
+    if (this.writingToTerminal || this.scrollRAFPending) {
       if (this.diagnostics) this.diagnostics.scrollSuppressedCount++;
       return;
     }
