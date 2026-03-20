@@ -345,13 +345,26 @@ func TestCheckGitSafety_PushedToOriginBranch(t *testing.T) {
 		t.Skip("git not available")
 	}
 
-	// Create a "remote" repo with an initial commit
+	// Create a bare "remote" repo so pushes are always accepted regardless
+	// of the local push.default setting.
 	tmpDir := t.TempDir()
-	remoteDir := gitTestWorkTree(t)
+	bareDir := filepath.Join(tmpDir, "remote.git")
+	runGit(t, tmpDir, "init", "--bare", "-b", "main", bareDir)
+
+	// Seed the bare remote with an initial commit
+	seedDir := t.TempDir()
+	runGit(t, tmpDir, "clone", bareDir, seedDir)
+	runGit(t, seedDir, "config", "user.email", "test@test.com")
+	runGit(t, seedDir, "config", "user.name", "Test")
+	runGit(t, seedDir, "checkout", "-b", "main")
+	writeFile(t, seedDir, "README.md", "test repo")
+	runGit(t, seedDir, "add", ".")
+	runGit(t, seedDir, "commit", "-m", "initial")
+	runGit(t, seedDir, "push", "origin", "main")
 
 	// Create a local clone
 	localDir := filepath.Join(tmpDir, "local")
-	runGit(t, tmpDir, "clone", remoteDir, "local")
+	runGit(t, tmpDir, "clone", bareDir, "local")
 	runGit(t, localDir, "config", "user.email", "test@test.com")
 	runGit(t, localDir, "config", "user.name", "Test")
 
@@ -371,8 +384,9 @@ func TestCheckGitSafety_PushedToOriginBranch(t *testing.T) {
 	runGit(t, localDir, "add", ".")
 	runGit(t, localDir, "commit", "-m", "commit 3")
 
-	// Push the feature branch to origin (without -u, so @{u} stays origin/main)
-	runGit(t, localDir, "push", "origin", "feature/test")
+	// Push the feature branch to origin using explicit refspec to avoid
+	// push.default=upstream resolving to main. Keep -u off so @{u} stays origin/main.
+	runGit(t, localDir, "push", "origin", "feature/test:feature/test")
 
 	// Set up the workspace manager
 	statePath := filepath.Join(tmpDir, "state.json")
@@ -383,7 +397,7 @@ func TestCheckGitSafety_PushedToOriginBranch(t *testing.T) {
 	// Add workspace to state
 	w := state.Workspace{
 		ID:     "test-001",
-		Repo:   remoteDir,
+		Repo:   bareDir,
 		Branch: "feature/test",
 		Path:   localDir,
 	}
