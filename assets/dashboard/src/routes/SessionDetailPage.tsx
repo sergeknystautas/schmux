@@ -72,7 +72,13 @@ export default function SessionDetailPage() {
     recentBreaks: SequenceBreakRecord[];
     frameSizeStats?: { count: number; median: number; p90: number; max: number } | null;
     frameSizeDist?: { buckets: number[]; maxCount: number; maxBytes: number } | null;
+    followLostCount?: number;
+    scrollSuppressedCount?: number;
+    scrollCoalesceHits?: number;
+    resizeCount?: number;
   } | null>(null);
+
+  const terminalRecreationCountRef = useRef(0);
 
   const [ioWorkspaceStats, setIOWorkspaceStats] = useState<IOWorkspaceStats | null>(null);
 
@@ -178,6 +184,8 @@ export default function SessionDetailPage() {
     terminalStream.onControlModeChange = (attached) => setControlModeAttached(attached);
 
     terminalStreamRef.current = terminalStream;
+    terminalRecreationCountRef.current += 1;
+    terminalStream.recreationCount = terminalRecreationCountRef.current;
     setFollowTail(true);
 
     // Enable diagnostics on the same stream instance to avoid stale-closure issues.
@@ -203,6 +211,10 @@ export default function SessionDetailPage() {
             recentBreaks: diag.recentBreaks,
             frameSizeStats: diag.getFrameSizeStats(),
             frameSizeDist: diag.getFrameSizeDistribution(),
+            followLostCount: diag.followLostCount,
+            scrollSuppressedCount: diag.scrollSuppressedCount,
+            scrollCoalesceHits: diag.scrollCoalesceHits,
+            resizeCount: diag.resizeCount,
           });
         }
       }, 3000);

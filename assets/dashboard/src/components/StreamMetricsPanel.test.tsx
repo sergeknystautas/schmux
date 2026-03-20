@@ -243,4 +243,78 @@ describe('StreamMetricsPanel', () => {
     fireEvent.click(screen.getByText(/10 frames/));
     expect(screen.queryByTestId('frame-size-histogram')).toBeNull();
   });
+
+  it('shows follow-lost warning in pill when followLostCount > 0', () => {
+    render(
+      <StreamMetricsPanel
+        backendStats={{
+          eventsDelivered: 100,
+          eventsDropped: 0,
+          bytesDelivered: 50000,
+          controlModeReconnects: 0,
+        }}
+        frontendStats={{
+          framesReceived: 50,
+          bytesReceived: 25000,
+          bootstrapCount: 1,
+          sequenceBreaks: 0,
+          followLostCount: 3,
+        }}
+      />
+    );
+    expect(screen.getByTestId('follow-lost-pill')).toBeTruthy();
+    expect(screen.getByText(/3 follow lost/)).toBeTruthy();
+  });
+
+  it('does not show follow-lost pill when followLostCount is 0', () => {
+    render(
+      <StreamMetricsPanel
+        backendStats={{
+          eventsDelivered: 100,
+          eventsDropped: 0,
+          bytesDelivered: 50000,
+          controlModeReconnects: 0,
+        }}
+        frontendStats={{
+          framesReceived: 50,
+          bytesReceived: 25000,
+          bootstrapCount: 1,
+          sequenceBreaks: 0,
+          followLostCount: 0,
+        }}
+      />
+    );
+    expect(screen.queryByTestId('follow-lost-pill')).toBeNull();
+  });
+
+  it('renders scroll diagnostic counters in expanded dropdown', () => {
+    render(
+      <StreamMetricsPanel
+        backendStats={{
+          eventsDelivered: 100,
+          eventsDropped: 0,
+          bytesDelivered: 50000,
+          controlModeReconnects: 0,
+        }}
+        frontendStats={{
+          framesReceived: 50,
+          bytesReceived: 25000,
+          bootstrapCount: 1,
+          sequenceBreaks: 0,
+          followLostCount: 2,
+          scrollSuppressedCount: 150,
+          scrollCoalesceHits: 42,
+          resizeCount: 5,
+        }}
+      />
+    );
+
+    // Expand the dropdown
+    fireEvent.click(screen.getByText(/50 frames/));
+
+    expect(screen.getByText(/Follow lost/)).toBeTruthy();
+    expect(screen.getByText(/Scroll suppressed/)).toBeTruthy();
+    expect(screen.getByText(/Write coalesce hits/)).toBeTruthy();
+    expect(screen.getByText(/Resizes/)).toBeTruthy();
+  });
 });

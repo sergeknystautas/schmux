@@ -3170,6 +3170,39 @@ Errors:
 - 400: missing workspace_id, invalid type
 - 404: workspace not found
 
+### POST /api/dev/diagnostic-append
+
+Receives frontend diagnostic artifacts and writes them to an existing diagnostic directory created by the WebSocket diagnostic handler. Dev mode only.
+
+**Request body:**
+
+```json
+{
+  "diagDir": "/path/to/.schmux/diagnostics/2026-03-19T...",
+  "xtermScreen": "...",
+  "screenDiff": "...",
+  "ringBufferFrontend": "...",
+  "gapStats": "{...}",
+  "cursorXterm": "{...}",
+  "scrollEvents": "[{...}, ...]",
+  "scrollStats": "{...}"
+}
+```
+
+All fields are optional strings except `diagDir` (required). Files are written best-effort (write errors are ignored).
+
+**Files written to `diagDir`:**
+
+- `screen-xterm.txt` — xterm.js visible viewport text
+- `screen-diff.txt` — diff between tmux and xterm screens
+- `ringbuffer-frontend.txt` — raw frame ring buffer
+- `gap-stats.json` — gap detection counters
+- `cursor-xterm.json` — xterm cursor position
+- `scroll-events.json` — scroll state transition ring buffer (last 100 events)
+- `scroll-stats.json` — scroll diagnostic counters (followLostCount, scrollSuppressedCount, scrollCoalesceHits, resizeCount, lastResizeTs, recreationCount)
+
+**Response:** `200 OK` (empty body)
+
 ### GET /api/healthz (dev mode extension)
 
 When dev mode is active, the healthz response includes an additional field:

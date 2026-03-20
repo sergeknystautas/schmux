@@ -23,6 +23,10 @@ interface FrontendStats {
   recentBreaks?: SequenceBreakRecord[];
   frameSizeStats?: FrameSizeStats | null;
   frameSizeDist?: FrameSizeDistribution | null;
+  followLostCount?: number;
+  scrollSuppressedCount?: number;
+  scrollCoalesceHits?: number;
+  resizeCount?: number;
 }
 
 interface Props {
@@ -54,6 +58,7 @@ export function StreamMetricsPanel({ backendStats, frontendStats, onDiagnosticCa
   const trackerDrops = backendStats?.fanOutDrops ?? 0;
   const drops = parserDrops + clientDrops + trackerDrops;
   const seqBreaks = frontendStats?.sequenceBreaks ?? 0;
+  const followLost = frontendStats?.followLostCount ?? 0;
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -82,6 +87,11 @@ export function StreamMetricsPanel({ backendStats, frontendStats, onDiagnosticCa
           {drops} drops
         </span>
         <span className={seqBreaks > 0 ? 'warning' : ''}>{seqBreaks} seq breaks</span>
+        {followLost > 0 && (
+          <span className="warning" data-testid="follow-lost-pill">
+            {followLost} follow lost
+          </span>
+        )}
       </div>
       {onDiagnosticCapture && (
         <button className="btn btn--sm" onClick={onDiagnosticCapture}>
@@ -318,6 +328,41 @@ export function StreamMetricsPanel({ backendStats, frontendStats, onDiagnosticCa
                 </td>
                 <td style={{ padding: '2px 0', textAlign: 'right' }}>
                   {backendStats?.controlModeReconnects ?? 0}
+                </td>
+              </tr>
+              <tr>
+                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
+                  Follow lost (true→false)
+                </td>
+                <td
+                  className={followLost > 0 ? 'warning' : ''}
+                  style={{ padding: '2px 0', textAlign: 'right' }}
+                >
+                  {followLost}
+                </td>
+              </tr>
+              <tr>
+                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
+                  Scroll suppressed
+                </td>
+                <td style={{ padding: '2px 0', textAlign: 'right' }}>
+                  {frontendStats?.scrollSuppressedCount ?? 0}
+                </td>
+              </tr>
+              <tr>
+                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
+                  Write coalesce hits
+                </td>
+                <td style={{ padding: '2px 0', textAlign: 'right' }}>
+                  {frontendStats?.scrollCoalesceHits ?? 0}
+                </td>
+              </tr>
+              <tr>
+                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
+                  Resizes
+                </td>
+                <td style={{ padding: '2px 0', textAlign: 'right' }}>
+                  {frontendStats?.resizeCount ?? 0}
                 </td>
               </tr>
               {frontendStats?.frameSizeDist && frontendStats?.frameSizeStats && (

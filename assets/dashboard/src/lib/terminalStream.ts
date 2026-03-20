@@ -113,6 +113,9 @@ export default class TerminalStream {
   // Clipboard image paste interception
   private imagePasteHandler: ((e: Event) => void) | null = null;
 
+  // Terminal recreation count — set by SessionDetailPage, read during diagnostic capture
+  recreationCount = 0;
+
   // Control mode health
   onControlModeChange: ((attached: boolean) => void) | null = null;
 
@@ -422,6 +425,11 @@ export default class TerminalStream {
     const measured = this.measureTerminal();
     if (!measured) return;
 
+    if (this.diagnostics) {
+      this.diagnostics.resizeCount++;
+      this.diagnostics.lastResizeTs = Date.now();
+    }
+
     const { cols, rows } = measured;
 
     // Update stored dimensions
@@ -595,6 +603,7 @@ export default class TerminalStream {
       const frontendRingBuffer = this.diagnostics
         ? new TextDecoder().decode(this.diagnostics.ringBufferSnapshot())
         : '';
+      const scrollSnapshot = this.diagnostics?.scrollSnapshot();
       // 4. Post frontend files back to backend to append to diagnostic dir
       transport
         .fetch('/api/dev/diagnostic-append', {
@@ -610,6 +619,13 @@ export default class TerminalStream {
               x: this.terminal.buffer.active.cursorX,
               y: this.terminal.buffer.active.cursorY,
             }),
+            scrollEvents: scrollSnapshot ? JSON.stringify(scrollSnapshot.events) : null,
+            scrollStats: scrollSnapshot
+              ? JSON.stringify({
+                  ...scrollSnapshot.counters,
+                  recreationCount: this.recreationCount,
+                })
+              : null,
           }),
         })
         .then(() => {
@@ -886,10 +902,24 @@ export default class TerminalStream {
     }
   }
 
-  setFollow(follow: boolean) {
+  setFollow(follow: boolean, trigger?: 'userScroll' | 'jumpToBottom') {
+    const before = this.followTail;
     this.followTail = follow;
     if (this.followCheckbox) this.followCheckbox.checked = follow;
     this.onResume(!follow);
+    if (this.diagnostics && before !== follow) {
+      this.diagnostics.recordScrollEvent({
+        ts: Date.now(),
+        trigger,
+        followBefore: before,
+        followAfter: follow,
+        writingToTerminal: this.writingToTerminal,
+        scrollRAFPending: this.scrollRAFPending,
+        viewportY: this.terminal?.buffer.active.viewportY ?? -1,
+        baseY: this.terminal?.buffer.active.baseY ?? -1,
+        lastReceivedSeq: this.lastReceivedSeq.toString(),
+      });
+    }
   }
 
   isAtBottom(threshold = 0): boolean {
@@ -921,19 +951,25 @@ export default class TerminalStream {
           this.scrollRAFPending = false;
           this.writingToTerminal = false;
         });
+      } else {
+        if (this.diagnostics) this.diagnostics.scrollCoalesceHits++;
       }
     });
   }
 
   handleUserScroll() {
-    if (!this.terminal || this.writingToTerminal) return;
-    this.setFollow(this.isAtBottom(1));
+    if (!this.terminal) return;
+    if (this.writingToTerminal) {
+      if (this.diagnostics) this.diagnostics.scrollSuppressedCount++;
+      return;
+    }
+    this.setFollow(this.isAtBottom(1), 'userScroll');
   }
 
   jumpToBottom() {
     if (this.terminal) {
       this.terminal.scrollToBottom();
-      this.setFollow(true);
+      this.setFollow(true, 'jumpToBottom');
     }
   }
 

@@ -292,3 +292,125 @@ describe('StreamDiagnostics', () => {
     });
   });
 });
+
+describe('StreamDiagnostics scroll telemetry', () => {
+  let diag: StreamDiagnostics;
+
+  beforeEach(() => {
+    diag = new StreamDiagnostics();
+  });
+
+  it('recordScrollEvent stores event and increments followLostCount on true→false', () => {
+    diag.recordScrollEvent({
+      ts: 1000,
+      trigger: 'userScroll',
+      followBefore: true,
+      followAfter: false,
+      writingToTerminal: false,
+      scrollRAFPending: false,
+      viewportY: 0,
+      baseY: 10,
+      lastReceivedSeq: '5',
+    });
+
+    expect(diag.scrollEvents).toHaveLength(1);
+    expect(diag.followLostCount).toBe(1);
+  });
+
+  it('recordScrollEvent does not increment followLostCount on false→true', () => {
+    diag.recordScrollEvent({
+      ts: 1000,
+      trigger: 'jumpToBottom',
+      followBefore: false,
+      followAfter: true,
+      writingToTerminal: false,
+      scrollRAFPending: false,
+      viewportY: 10,
+      baseY: 10,
+      lastReceivedSeq: '5',
+    });
+
+    expect(diag.scrollEvents).toHaveLength(1);
+    expect(diag.followLostCount).toBe(0);
+  });
+
+  it('caps scroll events at MAX_SCROLL_EVENTS (100)', () => {
+    for (let i = 0; i < 110; i++) {
+      diag.recordScrollEvent({
+        ts: i,
+        trigger: 'userScroll',
+        followBefore: true,
+        followAfter: false,
+        writingToTerminal: false,
+        scrollRAFPending: false,
+        viewportY: 0,
+        baseY: 10,
+        lastReceivedSeq: String(i),
+      });
+    }
+
+    expect(diag.scrollEvents).toHaveLength(100);
+    // Oldest events trimmed — first event should be ts=10
+    expect(diag.scrollEvents[0].ts).toBe(10);
+  });
+
+  it('scrollSnapshot returns a copy of events and all counters', () => {
+    diag.recordScrollEvent({
+      ts: 1000,
+      trigger: 'userScroll',
+      followBefore: true,
+      followAfter: false,
+      writingToTerminal: false,
+      scrollRAFPending: false,
+      viewportY: 0,
+      baseY: 10,
+      lastReceivedSeq: '5',
+    });
+    diag.scrollSuppressedCount = 3;
+    diag.scrollCoalesceHits = 7;
+    diag.resizeCount = 2;
+    diag.lastResizeTs = 999;
+
+    const snapshot = diag.scrollSnapshot();
+
+    expect(snapshot.events).toHaveLength(1);
+    expect(snapshot.counters).toEqual({
+      followLostCount: 1,
+      scrollSuppressedCount: 3,
+      scrollCoalesceHits: 7,
+      resizeCount: 2,
+      lastResizeTs: 999,
+    });
+
+    // Verify snapshot is a copy (mutating original doesn't affect snapshot)
+    diag.scrollEvents.push(diag.scrollEvents[0]);
+    expect(snapshot.events).toHaveLength(1);
+  });
+
+  it('reset clears all scroll fields', () => {
+    diag.recordScrollEvent({
+      ts: 1000,
+      trigger: 'userScroll',
+      followBefore: true,
+      followAfter: false,
+      writingToTerminal: false,
+      scrollRAFPending: false,
+      viewportY: 0,
+      baseY: 10,
+      lastReceivedSeq: '5',
+    });
+    diag.scrollSuppressedCount = 10;
+    diag.scrollCoalesceHits = 20;
+    diag.resizeCount = 5;
+    diag.lastResizeTs = 999;
+
+    diag.reset();
+
+    expect(diag.scrollEvents).toHaveLength(0);
+    expect(diag.followLostCount).toBe(0);
+    expect(diag.scrollSuppressedCount).toBe(0);
+    expect(diag.scrollCoalesceHits).toBe(0);
+    expect(diag.resizeCount).toBe(0);
+    expect(diag.lastResizeTs).toBe(0);
+  });
+});

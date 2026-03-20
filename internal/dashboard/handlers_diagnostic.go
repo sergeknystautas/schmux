@@ -17,6 +17,8 @@ func (s *Server) handleDiagnosticAppend(w http.ResponseWriter, r *http.Request) 
 		RingBufferFrontend string `json:"ringBufferFrontend"`
 		GapStats           string `json:"gapStats"`
 		CursorXterm        string `json:"cursorXterm"`
+		ScrollEvents       string `json:"scrollEvents"`
+		ScrollStats        string `json:"scrollStats"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -35,6 +37,12 @@ func (s *Server) handleDiagnosticAppend(w http.ResponseWriter, r *http.Request) 
 	}
 	if req.CursorXterm != "" {
 		os.WriteFile(filepath.Join(req.DiagDir, "cursor-xterm.json"), []byte(req.CursorXterm), 0o644)
+	}
+	if req.ScrollEvents != "" {
+		os.WriteFile(filepath.Join(req.DiagDir, "scroll-events.json"), []byte(req.ScrollEvents), 0o644)
+	}
+	if req.ScrollStats != "" {
+		os.WriteFile(filepath.Join(req.DiagDir, "scroll-stats.json"), []byte(req.ScrollStats), 0o644)
 	}
 	w.WriteHeader(http.StatusOK)
 }

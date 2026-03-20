@@ -1340,3 +1340,202 @@ describe('MockTerminalWebSocket protocol compatibility', () => {
     mockWS.close();
   });
 });
+
+describe('TerminalStream scroll diagnostics', () => {
+  let stream: TerminalStream;
+
+  beforeEach(() => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    stream = new TerminalStream('test-session', container);
+  });
+
+  it('records scroll event when handleUserScroll changes followTail', async () => {
+    await stream.initialized;
+    stream.enableDiagnostics();
+    const terminal = stream.terminal!;
+
+    // Ensure writingToTerminal is false (bootstrap complete)
+    (stream as any).writingToTerminal = false;
+
+    expect((stream as any).followTail).toBe(true);
+
+    (terminal.buffer.active as any).viewportY = 0;
+    (terminal.buffer.active as any).baseY = 10;
+
+    stream.handleUserScroll();
+
+    expect((stream as any).followTail).toBe(false);
+    expect(stream.diagnostics!.scrollEvents).toHaveLength(1);
+    expect(stream.diagnostics!.scrollEvents[0]).toMatchObject({
+      trigger: 'userScroll',
+      followBefore: true,
+      followAfter: false,
+      writingToTerminal: false,
+      viewportY: 0,
+      baseY: 10,
+    });
+    expect(stream.diagnostics!.followLostCount).toBe(1);
+  });
+
+  it('increments scrollSuppressedCount when writingToTerminal is true', async () => {
+    await stream.initialized;
+    stream.enableDiagnostics();
+
+    (stream as any).writingToTerminal = true;
+
+    stream.handleUserScroll();
+
+    expect((stream as any).followTail).toBe(true);
+    expect(stream.diagnostics!.scrollSuppressedCount).toBe(1);
+    expect(stream.diagnostics!.scrollEvents).toHaveLength(0);
+  });
+
+  it('increments scrollCoalesceHits when writeTerminal coalesces', async () => {
+    await stream.initialized;
+    stream.enableDiagnostics();
+    const terminal = stream.terminal!;
+
+    vi.mocked(terminal.write).mockImplementation((_data: any, cb?: () => void) => {
+      if (cb) cb();
+    });
+
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+
+    // Bootstrap first
+    stream.handleOutput(buildSeqFrame(0n, 'bootstrap'));
+
+    // First live frame: schedules rAF, scrollRAFPending = true
+    stream.handleOutput(buildSeqFrame(1n, 'frame1'));
+    // Second live frame: callback finds scrollRAFPending=true, increments counter
+    stream.handleOutput(buildSeqFrame(2n, 'frame2'));
+
+    expect(stream.diagnostics!.scrollCoalesceHits).toBeGreaterThanOrEqual(1);
+  });
+
+  it('caps scroll events ring buffer at 100', async () => {
+    await stream.initialized;
+    stream.enableDiagnostics();
+    const terminal = stream.terminal!;
+
+    // Ensure writingToTerminal is false
+    (stream as any).writingToTerminal = false;
+
+    for (let i = 0; i < 110; i++) {
+      (stream as any).followTail = i % 2 === 0;
+      (terminal.buffer.active as any).viewportY = i % 2 === 0 ? 0 : 10;
+      (terminal.buffer.active as any).baseY = 10;
+      stream.handleUserScroll();
+    }
+
+    expect(stream.diagnostics!.scrollEvents.length).toBeLessThanOrEqual(100);
+  });
+
+  it('records jumpToBottom recovery event', async () => {
+    await stream.initialized;
+    stream.enableDiagnostics();
+
+    (stream as any).followTail = false;
+
+    stream.jumpToBottom();
+
+    expect((stream as any).followTail).toBe(true);
+    expect(stream.diagnostics!.scrollEvents).toHaveLength(1);
+    expect(stream.diagnostics!.scrollEvents[0]).toMatchObject({
+      trigger: 'jumpToBottom',
+      followBefore: false,
+      followAfter: true,
+    });
+  });
+
+  it('scrollSnapshot returns events and counters', async () => {
+    await stream.initialized;
+    stream.enableDiagnostics();
+    const terminal = stream.terminal!;
+
+    // Ensure writingToTerminal is false
+    (stream as any).writingToTerminal = false;
+
+    (terminal.buffer.active as any).viewportY = 0;
+    (terminal.buffer.active as any).baseY = 10;
+    stream.handleUserScroll();
+
+    (stream as any).writingToTerminal = true;
+    (stream as any).followTail = true;
+    stream.handleUserScroll();
+    (stream as any).writingToTerminal = false;
+
+    const snapshot = stream.diagnostics!.scrollSnapshot();
+    expect(snapshot.events).toHaveLength(1);
+    expect(snapshot.counters.followLostCount).toBe(1);
+    expect(snapshot.counters.scrollSuppressedCount).toBe(1);
+    expect(snapshot.counters).toHaveProperty('resizeCount');
+    expect(snapshot.counters).toHaveProperty('lastResizeTs');
+  });
+
+  it('reset clears scroll events and counters', async () => {
+    await stream.initialized;
+    stream.enableDiagnostics();
+    const terminal = stream.terminal!;
+
+    // Ensure writingToTerminal is false
+    (stream as any).writingToTerminal = false;
+
+    (terminal.buffer.active as any).viewportY = 0;
+    (terminal.buffer.active as any).baseY = 10;
+    stream.handleUserScroll();
+
+    expect(stream.diagnostics!.scrollEvents).toHaveLength(1);
+    expect(stream.diagnostics!.followLostCount).toBe(1);
+
+    stream.diagnostics!.reset();
+
+    expect(stream.diagnostics!.scrollEvents).toHaveLength(0);
+    expect(stream.diagnostics!.followLostCount).toBe(0);
+    expect(stream.diagnostics!.scrollSuppressedCount).toBe(0);
+    expect(stream.diagnostics!.scrollCoalesceHits).toBe(0);
+    expect(stream.diagnostics!.resizeCount).toBe(0);
+    expect(stream.diagnostics!.lastResizeTs).toBe(0);
+  });
+});
+
+describe('TerminalStream scroll without diagnostics', () => {
+  let stream: TerminalStream;
+
+  beforeEach(() => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    stream = new TerminalStream('test-session', container);
+  });
+
+  it('follow state changes work correctly when diagnostics are disabled', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+
+    // Ensure diagnostics are disabled
+    stream.disableDiagnostics();
+    expect(stream.diagnostics).toBeNull();
+
+    // Ensure writingToTerminal is false
+    (stream as any).writingToTerminal = false;
+
+    // Verify follow state still transitions without diagnostics
+    (terminal.buffer.active as any).viewportY = 0;
+    (terminal.buffer.active as any).baseY = 10;
+
+    expect(() => stream.handleUserScroll()).not.toThrow();
+    expect((stream as any).followTail).toBe(false);
+
+    // Verify jumpToBottom recovery also works without diagnostics
+    stream.jumpToBottom();
+    expect((stream as any).followTail).toBe(true);
+  });
+});

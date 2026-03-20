@@ -1,6 +1,7 @@
 const DEFAULT_RING_BUFFER_SIZE = 256 * 1024; // 256KB
 const MAX_RECENT_BREAKS = 20;
 const MAX_FRAME_SIZES = 5000;
+const MAX_SCROLL_EVENTS = 100;
 
 export type SequenceBreakRecord = {
   frameIndex: number; // which frame (framesReceived at time of break)
@@ -21,6 +22,18 @@ export type FrameSizeDistribution = {
   maxBytes: number; // upper bound of the last bucket
 };
 
+export type ScrollDiagnosticEvent = {
+  ts: number;
+  trigger: 'userScroll' | 'jumpToBottom' | undefined;
+  followBefore: boolean;
+  followAfter: boolean;
+  writingToTerminal: boolean;
+  scrollRAFPending: boolean;
+  viewportY: number;
+  baseY: number;
+  lastReceivedSeq: string;
+};
+
 export class StreamDiagnostics {
   framesReceived = 0;
   bytesReceived = 0;
@@ -36,6 +49,14 @@ export class StreamDiagnostics {
   gapReplayWritten = 0; // replay frames that passed dedup and were written to xterm
   emptySeqFrames = 0; // seq-only frames (0 terminal bytes, from escbuf holdback)
   lastReceivedSeq: bigint = -1n;
+
+  // Scroll diagnostic telemetry
+  scrollEvents: ScrollDiagnosticEvent[] = [];
+  scrollCoalesceHits = 0;
+  followLostCount = 0;
+  scrollSuppressedCount = 0;
+  resizeCount = 0;
+  lastResizeTs = 0;
 
   private ringBuffer: Uint8Array;
   private cursor = 0;
@@ -62,6 +83,38 @@ export class StreamDiagnostics {
 
   recordBootstrap(): void {
     this.bootstrapCount++;
+  }
+
+  recordScrollEvent(event: ScrollDiagnosticEvent): void {
+    this.scrollEvents.push(event);
+    if (this.scrollEvents.length > MAX_SCROLL_EVENTS) {
+      this.scrollEvents = this.scrollEvents.slice(-MAX_SCROLL_EVENTS);
+    }
+    if (event.followBefore && !event.followAfter) {
+      this.followLostCount++;
+    }
+  }
+
+  scrollSnapshot(): {
+    events: ScrollDiagnosticEvent[];
+    counters: {
+      followLostCount: number;
+      scrollSuppressedCount: number;
+      scrollCoalesceHits: number;
+      resizeCount: number;
+      lastResizeTs: number;
+    };
+  } {
+    return {
+      events: [...this.scrollEvents],
+      counters: {
+        followLostCount: this.followLostCount,
+        scrollSuppressedCount: this.scrollSuppressedCount,
+        scrollCoalesceHits: this.scrollCoalesceHits,
+        resizeCount: this.resizeCount,
+        lastResizeTs: this.lastResizeTs,
+      },
+    };
   }
 
   gapSnapshot(): {
@@ -108,6 +161,12 @@ export class StreamDiagnostics {
     this.lastReceivedSeq = -1n;
     this.cursor = 0;
     this.full = false;
+    this.scrollEvents = [];
+    this.scrollCoalesceHits = 0;
+    this.followLostCount = 0;
+    this.scrollSuppressedCount = 0;
+    this.resizeCount = 0;
+    this.lastResizeTs = 0;
   }
 
   getFrameSizeStats(): FrameSizeStats | null {
