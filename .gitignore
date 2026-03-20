@@ -57,3 +57,6 @@ dist/website/
 
 # Schmux local state
 .schmux/
+
+# Module cache marker (created by dev.sh/test.sh)
+.go-mod-cached

@@ -6,10 +6,12 @@ RUNNER_DIR="$SCRIPT_DIR/tools/dev-runner"
 
 # ── Setup (first-run) ────────────────────────────────────────────────────
 
-# Ensure Go module cache is populated so builds/tests work without network
-if ! (cd "$SCRIPT_DIR" && go build ./cmd/schmux 2>/dev/null); then
+# Download all Go modules on first run (marker tracks go.sum content)
+GOMOD_MARKER="$SCRIPT_DIR/.go-mod-cached"
+if [ ! -f "$GOMOD_MARKER" ] || ! cmp -s "$SCRIPT_DIR/go.sum" "$GOMOD_MARKER"; then
   echo "Downloading Go modules..."
   (cd "$SCRIPT_DIR" && go mod download)
+  cp "$SCRIPT_DIR/go.sum" "$GOMOD_MARKER"
 fi
 
 # Ensure React dashboard is built (embedded in the Go binary)
