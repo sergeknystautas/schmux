@@ -14,6 +14,7 @@ General conventions:
 - JSON requests/responses use `Content-Type: application/json`.
 - Many error responses use plain text via `http.Error`; do not assume JSON unless specified.
 - CORS: when TLS is disabled, requests are allowed from `http://localhost:7337` and `http://127.0.0.1:7337`. When TLS is enabled, the scheme switches to `https`. When `bind_address` is `0.0.0.0`, any origin is allowed. Allowed methods: `GET, POST, DELETE, PUT, PATCH, OPTIONS`.
+- Dual-stack loopback: when `bind_address` is `127.0.0.1` (the default), the server also listens on `[::1]` (IPv6 loopback) on a best-effort basis. This ensures the dashboard is reachable via IPv6 localhost (e.g., on devservers where proxies connect via `[::1]`).
 - When auth is enabled, CORS is restricted to the derived allowed origins (must include `public_base_url`) and `Access-Control-Allow-Credentials: true` is set.
 - Resource ID validation: workspace IDs and lore repo names in URL parameters are validated (no path separators, dots, null bytes, max 128 chars). Invalid values return `400 Bad Request`.
 - When auth is enabled, all `/api/*` and `/ws/*` endpoints require authentication.

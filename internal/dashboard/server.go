@@ -103,18 +103,19 @@ type ServerOptions struct {
 
 // Server represents the dashboard HTTP server.
 type Server struct {
-	config      *config.Config
-	state       state.StateStore
-	statePath   string
-	session     *session.Manager
-	workspace   workspace.WorkspaceManager
-	httpServer  *http.Server
-	logger      *log.Logger
-	shutdown    func() // Callback to trigger daemon shutdown
-	devRestart  func() // Callback to trigger dev mode restart (exit code 42)
-	devProxy    bool   // When true, proxy non-API routes to Vite dev server
-	devMode     bool   // When true, dev mode API endpoints are enabled
-	shutdownCtx context.Context
+	config       *config.Config
+	state        state.StateStore
+	statePath    string
+	session      *session.Manager
+	workspace    workspace.WorkspaceManager
+	httpServer   *http.Server
+	ipv6Listener net.Listener
+	logger       *log.Logger
+	shutdown     func() // Callback to trigger daemon shutdown
+	devRestart   func() // Callback to trigger dev mode restart (exit code 42)
+	devProxy     bool   // When true, proxy non-API routes to Vite dev server
+	devMode      bool   // When true, dev mode API endpoints are enabled
+	shutdownCtx  context.Context
 
 	// WebSocket connection registry: sessionID -> active connection (for terminal)
 	// Only one connection per session; new connections displace old ones.
@@ -729,6 +730,21 @@ func (s *Server) Start() error {
 		s.logger.Info("listening", "addr", fmt.Sprintf("%s://localhost:%d", scheme, port), "network", false)
 	}
 
+	if bindAddr == "127.0.0.1" {
+		ln6, err := net.Listen("tcp6", fmt.Sprintf("[::1]:%d", port))
+		if err == nil {
+			s.ipv6Listener = ln6
+			s.logger.Info("also listening on IPv6 loopback", "addr", ln6.Addr().String())
+			go func() {
+				if s.config.GetTLSEnabled() {
+					_ = s.httpServer.ServeTLS(ln6, s.config.GetTLSCertPath(), s.config.GetTLSKeyPath())
+				} else {
+					_ = s.httpServer.Serve(ln6)
+				}
+			}()
+		}
+	}
+
 	if s.config.GetTLSEnabled() {
 		certPath := s.config.GetTLSCertPath()
 		keyPath := s.config.GetTLSKeyPath()
@@ -772,6 +788,9 @@ func (s *Server) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	if s.ipv6Listener != nil {
+		s.ipv6Listener.Close()
+	}
 	if err := s.httpServer.Shutdown(ctx); err != nil {
 		// Graceful shutdown timed out (e.g. active WebSocket/proxy connections
 		// in dev mode). Force-close and continue cleanup instead of failing
