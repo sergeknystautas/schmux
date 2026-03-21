@@ -46,6 +46,9 @@ func (s *Server) requireWorkspace(w http.ResponseWriter, r *http.Request) (state
 // vcsTypeForWorkspace determines the VCS type for a workspace.
 // Defaults to "git" unless the workspace's remote host flavor specifies otherwise.
 func (s *Server) vcsTypeForWorkspace(ws state.Workspace) string {
+	if ws.VCS != "" {
+		return ws.VCS
+	}
 	if ws.RemoteHostID != "" {
 		if host, found := s.state.GetRemoteHost(ws.RemoteHostID); found {
 			if host.FlavorID != "" {

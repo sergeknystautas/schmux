@@ -296,7 +296,7 @@ func (m *Manager) GetRecentBranches(ctx context.Context, limit int) ([]RecentBra
 	var allBranches []RecentBranch
 
 	for _, repo := range m.config.GetRepos() {
-		if isLocalRepoURL(repo.URL) {
+		if isLocalRepoURL(repo.URL) || repo.VCS == "sapling" {
 			continue
 		}
 

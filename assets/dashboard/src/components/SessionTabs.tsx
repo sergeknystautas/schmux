@@ -70,6 +70,11 @@ export default function SessionTabs({
   const isRemote = Boolean(workspace?.remote_host_id);
   const isVCS =
     isRemote || !workspace?.vcs || workspace.vcs === 'git' || workspace.vcs === 'sapling';
+  const isGit =
+    !workspace?.vcs ||
+    workspace.vcs === 'git' ||
+    workspace.vcs === 'git-worktree' ||
+    workspace.vcs === 'git-clone';
 
   // Calculate if we should show diff tab
   const linesAdded = workspace?.git_lines_added ?? 0;
@@ -572,14 +577,11 @@ export default function SessionTabs({
       <div className="session-tabs__accessory">
         {(workspace?.previews || []).map((preview) => renderPreviewTab(preview))}
 
-        {/* Resolve conflict tab — shown when state exists */}
-        {isVCS && renderResolveConflictTab()}
+        {isGit && renderResolveConflictTab()}
 
-        {/* Diff tab — shown for VCS workspaces */}
-        {isVCS && renderDiffTab()}
+        {isGit && renderDiffTab()}
 
-        {/* Commit graph tab — shown for VCS workspaces */}
-        {isVCS && renderGitTab()}
+        {isGit && renderGitTab()}
       </div>
     </div>
   );

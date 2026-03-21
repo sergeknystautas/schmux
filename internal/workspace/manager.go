@@ -307,6 +307,10 @@ func (m *Manager) GetDefaultBranch(ctx context.Context, repoURL string) (string,
 		return "", fmt.Errorf("local repo %s has no origin default branch", repoURL)
 	}
 
+	if repo, found := m.findRepoByURL(repoURL); found && repo.VCS == "sapling" {
+		return "main", nil
+	}
+
 	// Check in-memory cache first
 	m.defaultBranchCacheMu.RLock()
 	if branch, ok := m.defaultBranchCache[repoURL]; ok {
