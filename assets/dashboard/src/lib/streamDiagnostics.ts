@@ -2,6 +2,7 @@ const DEFAULT_RING_BUFFER_SIZE = 256 * 1024; // 256KB
 const MAX_RECENT_BREAKS = 20;
 const MAX_FRAME_SIZES = 5000;
 const MAX_SCROLL_EVENTS = 100;
+const MAX_CONNECTION_EVENTS = 50;
 
 export type SequenceBreakRecord = {
   frameIndex: number; // which frame (framesReceived at time of break)
@@ -20,6 +21,15 @@ export type FrameSizeDistribution = {
   buckets: number[]; // count per bucket
   maxCount: number; // max count across buckets (for scaling)
   maxBytes: number; // upper bound of the last bucket
+};
+
+export type ConnectionEvent = {
+  ts: number;
+  type: 'connect' | 'close' | 'error' | 'serverClose';
+  closeCode?: number;
+  closeReason?: string;
+  serverReason?: string;
+  reconnectAttempt?: number;
 };
 
 export type ScrollDiagnosticEvent = {
@@ -57,6 +67,9 @@ export class StreamDiagnostics {
   scrollSuppressedCount = 0;
   resizeCount = 0;
   lastResizeTs = 0;
+
+  // WS connection lifecycle telemetry
+  connectionEvents: ConnectionEvent[] = [];
 
   private ringBuffer: Uint8Array;
   private cursor = 0;
@@ -118,6 +131,7 @@ export class StreamDiagnostics {
   }
 
   gapSnapshot(): {
+    bootstrapCount: number;
     gapsDetected: number;
     gapRequestsSent: number;
     gapFramesDeduped: number;
@@ -126,6 +140,7 @@ export class StreamDiagnostics {
     lastReceivedSeq: string;
   } {
     return {
+      bootstrapCount: this.bootstrapCount,
       gapsDetected: this.gapsDetected,
       gapRequestsSent: this.gapRequestsSent,
       gapFramesDeduped: this.gapFramesDeduped,
@@ -133,6 +148,44 @@ export class StreamDiagnostics {
       emptySeqFrames: this.emptySeqFrames,
       lastReceivedSeq: this.lastReceivedSeq.toString(),
     };
+  }
+
+  recordWsConnect(reconnectAttempt: number): void {
+    this.connectionEvents.push({ ts: Date.now(), type: 'connect', reconnectAttempt });
+    if (this.connectionEvents.length > MAX_CONNECTION_EVENTS) {
+      this.connectionEvents = this.connectionEvents.slice(-MAX_CONNECTION_EVENTS);
+    }
+  }
+
+  recordWsClose(closeCode: number, closeReason: string, reconnectAttempt: number): void {
+    this.connectionEvents.push({
+      ts: Date.now(),
+      type: 'close',
+      closeCode,
+      closeReason,
+      reconnectAttempt,
+    });
+    if (this.connectionEvents.length > MAX_CONNECTION_EVENTS) {
+      this.connectionEvents = this.connectionEvents.slice(-MAX_CONNECTION_EVENTS);
+    }
+  }
+
+  recordWsError(): void {
+    this.connectionEvents.push({ ts: Date.now(), type: 'error' });
+    if (this.connectionEvents.length > MAX_CONNECTION_EVENTS) {
+      this.connectionEvents = this.connectionEvents.slice(-MAX_CONNECTION_EVENTS);
+    }
+  }
+
+  recordServerClose(serverReason: string): void {
+    this.connectionEvents.push({ ts: Date.now(), type: 'serverClose', serverReason });
+    if (this.connectionEvents.length > MAX_CONNECTION_EVENTS) {
+      this.connectionEvents = this.connectionEvents.slice(-MAX_CONNECTION_EVENTS);
+    }
+  }
+
+  connectionSnapshot(): ConnectionEvent[] {
+    return [...this.connectionEvents];
   }
 
   ringBufferSnapshot(): Uint8Array {
@@ -167,6 +220,7 @@ export class StreamDiagnostics {
     this.scrollSuppressedCount = 0;
     this.resizeCount = 0;
     this.lastResizeTs = 0;
+    this.connectionEvents = [];
   }
 
   getFrameSizeStats(): FrameSizeStats | null {

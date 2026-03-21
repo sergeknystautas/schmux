@@ -225,6 +225,7 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	conn := &wsConn{conn: rawConn}
+	tracker.Counters.WsConnections.Add(1)
 	s.RegisterWebSocket(sessionID, conn)
 	defer func() {
 		s.UnregisterWebSocket(sessionID, conn)
@@ -536,6 +537,7 @@ drainBootstrap:
 			data, _ := json.Marshal(msg)
 			syncChecksSent.Add(1)
 			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+				tracker.Counters.WsWriteErrors.Add(1)
 				return
 			}
 
@@ -602,6 +604,8 @@ drainBootstrap:
 					seq := outputLog.Append(escHoldback)
 					conn.WriteMessage(websocket.BinaryMessage, appendSequencedFrame(frameBuf, seq, escHoldback))
 				}
+				serverCloseMsg, _ := json.Marshal(map[string]string{"type": "serverClose", "reason": "trackerStopped"})
+				conn.WriteMessage(websocket.TextMessage, serverCloseMsg) // best-effort; informs frontend before WS close
 				conn.WriteMessage(websocket.CloseMessage,
 					websocket.FormatCloseMessage(1000, "session ended"))
 				return
@@ -622,6 +626,7 @@ drainBootstrap:
 				// bytes and corrupt the terminal state (e.g. cursor jumps).
 				frameBuf = appendSequencedFrame(frameBuf, event.Seq, send)
 				if err := conn.WriteMessage(websocket.BinaryMessage, frameBuf); err != nil {
+					tracker.Counters.WsWriteErrors.Add(1)
 					return
 				}
 				// Latency: record sample if we have a pending input timing
@@ -718,6 +723,8 @@ drainBootstrap:
 			endMsg := []byte("\n[Session ended]")
 			endSeq := outputLog.Append(endMsg)
 			conn.WriteMessage(websocket.BinaryMessage, appendSequencedFrame(frameBuf, endSeq, endMsg))
+			sessionDeadMsg, _ := json.Marshal(map[string]string{"type": "serverClose", "reason": "sessionDead"})
+			conn.WriteMessage(websocket.TextMessage, sessionDeadMsg) // best-effort; informs frontend before WS close
 			conn.WriteMessage(websocket.CloseMessage,
 				websocket.FormatCloseMessage(1000, "session ended"))
 			return
@@ -827,6 +834,7 @@ drainBootstrap:
 				frames := buildGapReplayFrames(tracker.OutputLog(), fromSeq)
 				for _, frame := range frames {
 					if err := conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
+						tracker.Counters.WsWriteErrors.Add(1)
 						return
 					}
 				}
@@ -1552,6 +1560,18 @@ func buildDiagnosticFindings(counters map[string]int64) (findings []string, verd
 			hasIssue = true
 			findings = append(findings, fmt.Sprintf("output log near capacity (%d/%d entries used)", logSize, 50000))
 		}
+	}
+
+	// Check for repeated WS reconnects (wsConnections tracks cumulative opens per session tracker)
+	if counters["wsConnections"] > 1 {
+		hasIssue = true
+		findings = append(findings, fmt.Sprintf("terminal was reconnected %d time(s) — each reconnect triggers a full bootstrap replay", counters["wsConnections"]))
+	}
+
+	// Check for WS write errors (write failure causes immediate disconnect → reconnect loop)
+	if counters["wsWriteErrors"] > 0 {
+		hasIssue = true
+		findings = append(findings, fmt.Sprintf("%d WS write error(s) caused disconnect(s)", counters["wsWriteErrors"]))
 	}
 
 	// Check if sync is disabled

@@ -46,6 +46,8 @@ type TrackerCounters struct {
 	BytesDelivered  atomic.Int64
 	Reconnects      atomic.Int64
 	FanOutDrops     atomic.Int64 // Events dropped because a subscriber channel was full
+	WsConnections   atomic.Int64 // total WS terminal connections opened for this session
+	WsWriteErrors   atomic.Int64 // WS write failures that caused disconnect
 }
 
 // SessionTracker maintains a long-lived control mode attachment for a tmux session.
@@ -314,6 +316,8 @@ func (t *SessionTracker) DiagnosticCounters() map[string]int64 {
 		"bytesDelivered":        t.Counters.BytesDelivered.Load(),
 		"controlModeReconnects": t.Counters.Reconnects.Load(),
 		"fanOutDrops":           t.Counters.FanOutDrops.Load(),
+		"wsConnections":         t.Counters.WsConnections.Load(),
+		"wsWriteErrors":         t.Counters.WsWriteErrors.Load(),
 	}
 	t.mu.RLock()
 	if t.cmParser != nil {

@@ -502,7 +502,8 @@ export default class TerminalStream {
     if (!this.terminal || this.disposed) return;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/terminal/${this.sessionId}`;
-    this.tsLog('connect', { attempt: this.reconnectAttempt, bootstrapped: this.bootstrapped });
+    const connectAttempt = this.reconnectAttempt;
+    this.tsLog('connect', { attempt: connectAttempt, bootstrapped: this.bootstrapped });
 
     this.ws = transport.createWebSocket(wsUrl);
     this.ws.binaryType = 'arraybuffer';
@@ -520,6 +521,7 @@ export default class TerminalStream {
       this.connected = true;
       this.reconnectAttempt = 0;
       this.tsLog('ws.onopen');
+      this.diagnostics?.recordWsConnect(connectAttempt);
       this.onStatusChange('connected');
 
       // Send resize immediately on connect so backend knows correct dimensions
@@ -543,6 +545,7 @@ export default class TerminalStream {
         wasDisplaced: this.wasDisplaced,
         disposed: this.disposed,
       });
+      this.diagnostics?.recordWsClose(ev.code, ev.reason, this.reconnectAttempt);
       if (this.disposed) return;
 
       // If we were intentionally displaced (another window opened), don't retry
@@ -573,6 +576,7 @@ export default class TerminalStream {
 
     this.ws.onerror = (error) => {
       this.tsLog('ws.onerror');
+      this.diagnostics?.recordWsError();
       console.error('WebSocket error:', error);
       if (this.terminal) {
         this.terminal.writeln('\x1b[91mWebSocket error\x1b[0m');
@@ -667,6 +671,9 @@ export default class TerminalStream {
                   ...scrollSnapshot.counters,
                   recreationCount: this.recreationCount,
                 })
+              : null,
+            wsEvents: this.diagnostics
+              ? JSON.stringify(this.diagnostics.connectionSnapshot())
               : null,
           }),
         })
@@ -819,6 +826,10 @@ export default class TerminalStream {
       case 'bootstrapComplete':
         this.bootstrapComplete = true;
         this.tsLog('bootstrapComplete');
+        break;
+      case 'serverClose':
+        this.tsLog('serverClose', { reason: msg.reason });
+        this.diagnostics?.recordServerClose((msg.reason as string) ?? 'unknown');
         break;
       case 'stats':
         this.latestStats = msg;

@@ -167,6 +167,7 @@ describe('StreamDiagnostics', () => {
     it('returns initial gap telemetry values', () => {
       const snapshot = diag.gapSnapshot();
       expect(snapshot).toEqual({
+        bootstrapCount: 0,
         gapsDetected: 0,
         gapRequestsSent: 0,
         gapFramesDeduped: 0,
@@ -185,6 +186,7 @@ describe('StreamDiagnostics', () => {
       diag.lastReceivedSeq = 42n;
       const snapshot = diag.gapSnapshot();
       expect(snapshot).toEqual({
+        bootstrapCount: 0,
         gapsDetected: 3,
         gapRequestsSent: 2,
         gapFramesDeduped: 5,
@@ -210,6 +212,7 @@ describe('StreamDiagnostics', () => {
       diag.reset();
       const snapshot = diag.gapSnapshot();
       expect(snapshot).toEqual({
+        bootstrapCount: 0,
         gapsDetected: 0,
         gapRequestsSent: 0,
         gapFramesDeduped: 0,
