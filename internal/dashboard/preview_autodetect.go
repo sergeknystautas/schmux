@@ -3,6 +3,8 @@ package dashboard
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -15,6 +17,29 @@ import (
 )
 
 const previewAutoDetectCooldown = 45 * time.Second
+
+// pruneAgentPreviews removes previews whose target port is owned directly by
+// the session's agent process. Called on daemon startup to clean up previews
+// that were created before the agent-port filter existed.
+func (s *Server) pruneAgentPreviews() {
+	if s.previewManager == nil {
+		return
+	}
+	for _, p := range s.state.GetPreviews() {
+		sess, ok := s.state.GetSession(p.SourceSessionID)
+		if !ok || sess.Pid <= 0 {
+			continue
+		}
+		agentPorts := detectPortsViaSS(sess.Pid)
+		agentPorts = append(agentPorts, detectPortsViaLsof(sess.Pid)...)
+		for _, lp := range agentPorts {
+			if lp.Port == p.TargetPort {
+				_ = s.previewManager.Delete(p.WorkspaceID, p.ID)
+				break
+			}
+		}
+	}
+}
 
 // scanExistingSessionsForPreviews checks all local sessions for listening ports
 // and creates previews for any web servers found. Called on daemon startup.
@@ -41,6 +66,12 @@ func (s *Server) scanExistingSessionsForPreviews() {
 			continue
 		}
 
+		// Filter out ports owned directly by the agent process (not its children)
+		listeningPorts = filterAgentPorts(sess.Pid, listeningPorts)
+		if len(listeningPorts) == 0 {
+			continue
+		}
+
 		// Filter out ports we already have previews for
 		ports := s.filterExistingPreviews(ws.ID, listeningPorts)
 		if len(ports) == 0 {
@@ -49,6 +80,12 @@ func (s *Server) scanExistingSessionsForPreviews() {
 
 		// Filter out our own proxy ports
 		ports = s.filterProxyPorts(ports)
+		if len(ports) == 0 {
+			continue
+		}
+
+		// Filter out ports that don't speak HTTP
+		ports = filterNonHTTPPorts(ports)
 		if len(ports) == 0 {
 			continue
 		}
@@ -105,6 +142,12 @@ func (s *Server) handleSessionOutputChunk(sessionID string, chunk []byte) {
 		return
 	}
 
+	// Filter out ports owned directly by the agent process (not its children)
+	ports = filterAgentPorts(sess.Pid, ports)
+	if len(ports) == 0 {
+		return
+	}
+
 	// Filter out ports we already have previews for
 	ports = s.filterExistingPreviews(ws.ID, ports)
 	if len(ports) == 0 {
@@ -113,6 +156,12 @@ func (s *Server) handleSessionOutputChunk(sessionID string, chunk []byte) {
 
 	// Filter out our own proxy ports
 	ports = s.filterProxyPorts(ports)
+	if len(ports) == 0 {
+		return
+	}
+
+	// Filter out ports that don't speak HTTP
+	ports = filterNonHTTPPorts(ports)
 	if len(ports) == 0 {
 		return
 	}
@@ -264,6 +313,70 @@ func (s *Server) filterProxyPorts(ports []preview.ListeningPort) []preview.Liste
 	var filtered []preview.ListeningPort
 	for _, lp := range ports {
 		if !proxyPorts[lp.Port] {
+			filtered = append(filtered, lp)
+		}
+	}
+	return filtered
+}
+
+// probeHTTP checks whether a host:port speaks HTTP by sending a HEAD request.
+// Returns true if a valid HTTP response is received within the timeout.
+func probeHTTP(host string, port int, timeout time.Duration) bool {
+	addr := host
+	if strings.Contains(host, ":") {
+		addr = "[" + host + "]"
+	}
+	url := fmt.Sprintf("http://%s:%d/", addr, port)
+
+	client := &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{Timeout: timeout}).DialContext,
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	req, err := http.NewRequest("HEAD", url, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return true
+}
+
+func filterNonHTTPPorts(ports []preview.ListeningPort) []preview.ListeningPort {
+	var filtered []preview.ListeningPort
+	for _, lp := range ports {
+		if probeHTTP(lp.Host, lp.Port, 1*time.Second) {
+			filtered = append(filtered, lp)
+		}
+	}
+	return filtered
+}
+
+func filterAgentPorts(sessionPID int, ports []preview.ListeningPort) []preview.ListeningPort {
+	if sessionPID <= 0 {
+		return ports
+	}
+	agentPorts := make(map[int]bool)
+	for _, lp := range detectPortsViaSS(sessionPID) {
+		agentPorts[lp.Port] = true
+	}
+	for _, lp := range detectPortsViaLsof(sessionPID) {
+		agentPorts[lp.Port] = true
+	}
+	if len(agentPorts) == 0 {
+		return ports
+	}
+	var filtered []preview.ListeningPort
+	for _, lp := range ports {
+		if !agentPorts[lp.Port] {
 			filtered = append(filtered, lp)
 		}
 	}

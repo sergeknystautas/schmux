@@ -241,7 +241,10 @@ Errors:
 
 ### GET /api/workspaces/{workspaceId}/previews
 
-List known previews for a workspace.
+List known previews for a workspace. Previews are auto-detected when a session's
+terminal output contains an HTTP URL and the port is confirmed to be listening.
+Detected ports are validated with an HTTP HEAD probe before a preview is created;
+non-HTTP listeners (e.g. IPC, gRPC) are filtered out.
 
 Response: array of preview objects from the create endpoint.
 

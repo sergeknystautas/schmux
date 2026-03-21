@@ -1,8 +1,13 @@
 package dashboard
 
 import (
+	"fmt"
+	"net"
+	"net/http"
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sergeknystautas/schmux/internal/preview"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -143,5 +148,164 @@ func TestIntersectPorts_IPv6Only(t *testing.T) {
 	}
 	if ports[0].Host != "::1" || ports[0].Port != 5173 {
 		t.Fatalf("expected [::1:5173], got %#v", ports)
+	}
+}
+
+func TestProbeHTTP_ValidServer(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	})}
+	go srv.Serve(ln)
+	defer srv.Close()
+
+	if !probeHTTP("127.0.0.1", port, 1*time.Second) {
+		t.Fatal("expected probeHTTP to return true for HTTP server")
+	}
+}
+
+func TestProbeHTTP_NonHTTPListener(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		conn.Write([]byte("not http\n"))
+		conn.Close()
+	}()
+	defer ln.Close()
+
+	if probeHTTP("127.0.0.1", port, 1*time.Second) {
+		t.Fatal("expected probeHTTP to return false for non-HTTP listener")
+	}
+}
+
+func TestProbeHTTP_ConnectionRefused(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+
+	if probeHTTP("127.0.0.1", port, 500*time.Millisecond) {
+		t.Fatal("expected probeHTTP to return false for closed port")
+	}
+}
+
+func TestProbeHTTP_IPv6(t *testing.T) {
+	ln, err := net.Listen("tcp", "[::1]:0")
+	if err != nil {
+		t.Skip("IPv6 loopback not available")
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	})}
+	go srv.Serve(ln)
+	defer srv.Close()
+
+	if !probeHTTP("::1", port, 1*time.Second) {
+		t.Fatal("expected probeHTTP to return true for IPv6 HTTP server")
+	}
+}
+
+func TestFilterNonHTTPPorts(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpPort := ln.Addr().(*net.TCPAddr).Port
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	})}
+	go srv.Serve(ln)
+	defer srv.Close()
+
+	tcpLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonHTTPPort := tcpLn.Addr().(*net.TCPAddr).Port
+	go func() {
+		conn, err := tcpLn.Accept()
+		if err != nil {
+			return
+		}
+		conn.Write([]byte("not http\n"))
+		conn.Close()
+	}()
+	defer tcpLn.Close()
+
+	ports := []preview.ListeningPort{
+		{Host: "127.0.0.1", Port: httpPort},
+		{Host: "127.0.0.1", Port: nonHTTPPort},
+	}
+
+	filtered := filterNonHTTPPorts(ports)
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 port, got %d: %#v", len(filtered), filtered)
+	}
+	if filtered[0].Port != httpPort {
+		t.Fatalf("expected port %d, got %d", httpPort, filtered[0].Port)
+	}
+}
+
+func TestFilterAgentPorts(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentPort := ln.Addr().(*net.TCPAddr).Port
+	defer ln.Close()
+
+	ports := []preview.ListeningPort{
+		{Host: "127.0.0.1", Port: agentPort},
+		{Host: "127.0.0.1", Port: 5173},
+	}
+
+	// Current process owns agentPort, so it should be filtered out.
+	// Port 5173 is not owned by this process, so it survives.
+	filtered := filterAgentPorts(os.Getpid(), ports)
+	for _, lp := range filtered {
+		if lp.Port == agentPort {
+			t.Fatalf("expected agent port %d to be filtered out, got %#v", agentPort, filtered)
+		}
+	}
+}
+
+func TestFilterAgentPorts_ZeroPID(t *testing.T) {
+	ports := []preview.ListeningPort{
+		{Host: "127.0.0.1", Port: 3000},
+	}
+	filtered := filterAgentPorts(0, ports)
+	if len(filtered) != 1 {
+		t.Fatalf("expected passthrough with zero PID, got %#v", filtered)
+	}
+}
+
+func TestProbeHTTP_Redirect(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, fmt.Sprintf("http://127.0.0.1:%d/app", port), http.StatusFound)
+	})}
+	go srv.Serve(ln)
+	defer srv.Close()
+
+	if !probeHTTP("127.0.0.1", port, 1*time.Second) {
+		t.Fatal("expected probeHTTP to return true for server that redirects")
 	}
 }
