@@ -465,6 +465,7 @@ func (t *SessionTracker) attachControlMode() error {
 	outputCh := client.SubscribeOutput(paneID)
 	defer client.UnsubscribeOutput(paneID, outputCh)
 
+	var lastCMEventTime time.Time
 	for {
 		select {
 		case event, ok := <-outputCh:
@@ -474,6 +475,18 @@ func (t *SessionTracker) attachControlMode() error {
 
 			// Activity tracking (debounced)
 			now := time.Now()
+			if t.logger != nil && !lastCMEventTime.IsZero() {
+				gap := now.Sub(lastCMEventTime)
+				if gap > 500*time.Millisecond {
+					t.logger.Info("control mode output gap",
+						"session", t.sessionID[:8],
+						"gap_ms", gap.Milliseconds(),
+						"ch_depth", len(outputCh),
+						"data_len", len(event.Data),
+					)
+				}
+			}
+			lastCMEventTime = now
 			shouldUpdate := t.lastEvent.IsZero() || now.Sub(t.lastEvent) >= trackerActivityDebounce
 			if shouldUpdate {
 				t.lastEvent = now

@@ -142,6 +142,9 @@ export default class TerminalStream {
 
   private tsLog(event: string, detail?: Record<string, unknown>) {
     if (!this.lifecycleLogging) return;
+    if (this.diagnostics) {
+      this.diagnostics.recordLifecycleEvent(event, detail);
+    }
     const ts = new Date().toISOString().slice(11, 23);
     const extra = detail ? ' ' + JSON.stringify(detail) : '';
     console.log(`[TerminalStream ${ts}] ${event}${extra}`);
@@ -315,20 +318,37 @@ export default class TerminalStream {
 
     // Render instrumentation: detect full-screen redraws for flicker diagnosis.
     // Deferred until lifecycleLogging is enabled (see enableRenderLogging).
+    this.terminal.onScroll((_newPosition) => {
+      if (!this.lifecycleLogging) return;
+      if (!this.writingToTerminal && !this.writeRAFPending && !this.scrollRAFPending) {
+        const buf = this.terminal?.buffer.active;
+        if (buf && this.followTail && buf.viewportY < buf.baseY - 1) {
+          this.tsLog('xterm.onScroll.followLost', {
+            viewportY: buf.viewportY,
+            baseY: buf.baseY,
+            scrollback: buf.length,
+            followTail: this.followTail,
+          });
+        }
+      }
+    });
+
     this.terminal.onRender((range) => {
       if (!this.lifecycleLogging) return;
       const rowsRendered = range.end - range.start + 1;
       const totalRows = this.terminal?.rows ?? 0;
-      if (rowsRendered >= totalRows && totalRows > 0) {
-        this.tsLog('render.fullScreen', {
-          start: range.start,
-          end: range.end,
-          rows: totalRows,
-          scrollback: this.terminal?.buffer.active.length ?? 0,
-          baseY: this.terminal?.buffer.active.baseY ?? 0,
-          writing: this.writingToTerminal,
-        });
-      }
+      const isFull = rowsRendered >= totalRows && totalRows > 0;
+      this.tsLog(isFull ? 'render.fullScreen' : 'render.partial', {
+        start: range.start,
+        end: range.end,
+        rows: totalRows,
+        scrollback: this.terminal?.buffer.active.length ?? 0,
+        baseY: this.terminal?.buffer.active.baseY ?? 0,
+        viewportY: this.terminal?.buffer.active.viewportY ?? 0,
+        writing: this.writingToTerminal,
+        writeRAF: this.writeRAFPending,
+        scrollRAF: this.scrollRAFPending,
+      });
     });
 
     // Immediately calculate accurate dimensions now that terminal is rendered
@@ -368,7 +388,14 @@ export default class TerminalStream {
 
   setupResizeHandler() {
     if (typeof ResizeObserver !== 'undefined') {
-      const resizeObserver = new ResizeObserver(() => {
+      const resizeObserver = new ResizeObserver((entries) => {
+        if (this.lifecycleLogging) {
+          const sizes = entries.map((e) => {
+            const r = e.contentRect;
+            return { w: Math.round(r.width), h: Math.round(r.height), target: e.target === this.containerElement ? 'container' : 'parent' };
+          });
+          this.tsLog('resizeObserver', { sizes });
+        }
         this.handleResize();
       });
       resizeObserver.observe(this.containerElement);
@@ -714,6 +741,9 @@ export default class TerminalStream {
               : null,
             wsEvents: this.diagnostics
               ? JSON.stringify(this.diagnostics.connectionSnapshot())
+              : null,
+            lifecycleEvents: this.diagnostics
+              ? JSON.stringify(this.diagnostics.lifecycleSnapshot())
               : null,
           }),
         })
@@ -1061,6 +1091,14 @@ export default class TerminalStream {
         requestAnimationFrame(() => {
           if (this.followTail) {
             this.terminal!.scrollToBottom();
+          } else if (this.lifecycleLogging) {
+            const buf = this.terminal?.buffer.active;
+            this.tsLog('scrollToBottom.skipped', {
+              followTail: false,
+              viewportY: buf?.viewportY ?? -1,
+              baseY: buf?.baseY ?? -1,
+              scrollback: buf?.length ?? -1,
+            });
           }
           this.scrollRAFPending = false;
           this.writingToTerminal = false;
@@ -1096,9 +1134,23 @@ export default class TerminalStream {
     if (!this.terminal) return;
     if (this.writingToTerminal || this.scrollRAFPending) {
       if (this.diagnostics) this.diagnostics.scrollSuppressedCount++;
+      if (this.lifecycleLogging) {
+        this.tsLog('scroll.suppressed', { writing: this.writingToTerminal, scrollRAF: this.scrollRAFPending });
+      }
       return;
     }
-    this.setFollow(this.isAtBottom(1), 'userScroll');
+    const atBottom = this.isAtBottom(1);
+    if (this.lifecycleLogging && this.followTail && !atBottom) {
+      const buf = this.terminal.buffer.active;
+      this.tsLog('scroll.disablingFollow', {
+        viewportY: buf.viewportY,
+        baseY: buf.baseY,
+        scrollback: buf.length,
+        threshold: 1,
+        source: 'DOM',
+      });
+    }
+    this.setFollow(atBottom, 'userScroll');
   }
 
   jumpToBottom() {

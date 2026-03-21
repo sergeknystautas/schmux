@@ -3,6 +3,7 @@ const MAX_RECENT_BREAKS = 20;
 const MAX_FRAME_SIZES = 5000;
 const MAX_SCROLL_EVENTS = 100;
 const MAX_CONNECTION_EVENTS = 50;
+const MAX_LIFECYCLE_EVENTS = 500;
 
 export type SequenceBreakRecord = {
   frameIndex: number; // which frame (framesReceived at time of break)
@@ -44,6 +45,12 @@ export type ScrollDiagnosticEvent = {
   lastReceivedSeq: string;
 };
 
+export type LifecycleEvent = {
+  ts: number;
+  event: string;
+  detail?: Record<string, unknown>;
+};
+
 export class StreamDiagnostics {
   framesReceived = 0;
   bytesReceived = 0;
@@ -70,6 +77,7 @@ export class StreamDiagnostics {
 
   // WS connection lifecycle telemetry
   connectionEvents: ConnectionEvent[] = [];
+  lifecycleEvents: LifecycleEvent[] = [];
 
   private ringBuffer: Uint8Array;
   private cursor = 0;
@@ -96,6 +104,17 @@ export class StreamDiagnostics {
 
   recordBootstrap(): void {
     this.bootstrapCount++;
+  }
+
+  recordLifecycleEvent(event: string, detail?: Record<string, unknown>): void {
+    this.lifecycleEvents.push({ ts: Date.now(), event, detail });
+    if (this.lifecycleEvents.length > MAX_LIFECYCLE_EVENTS) {
+      this.lifecycleEvents = this.lifecycleEvents.slice(-MAX_LIFECYCLE_EVENTS);
+    }
+  }
+
+  lifecycleSnapshot(): LifecycleEvent[] {
+    return [...this.lifecycleEvents];
   }
 
   recordScrollEvent(event: ScrollDiagnosticEvent): void {
@@ -221,6 +240,7 @@ export class StreamDiagnostics {
     this.resizeCount = 0;
     this.lastResizeTs = 0;
     this.connectionEvents = [];
+    this.lifecycleEvents = [];
   }
 
   getFrameSizeStats(): FrameSizeStats | null {

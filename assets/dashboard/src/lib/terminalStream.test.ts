@@ -7,6 +7,7 @@ vi.mock('@xterm/xterm', () => {
     open = vi.fn();
     onData = vi.fn();
     onRender = vi.fn();
+    onScroll = vi.fn();
     writeln = vi.fn();
     write = vi.fn();
     clear = vi.fn();

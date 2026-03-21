@@ -20,6 +20,7 @@ func (s *Server) handleDiagnosticAppend(w http.ResponseWriter, r *http.Request) 
 		ScrollEvents       string `json:"scrollEvents"`
 		ScrollStats        string `json:"scrollStats"`
 		WsEvents           string `json:"wsEvents"`
+		LifecycleEvents    string `json:"lifecycleEvents"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -47,6 +48,9 @@ func (s *Server) handleDiagnosticAppend(w http.ResponseWriter, r *http.Request) 
 	}
 	if req.WsEvents != "" {
 		os.WriteFile(filepath.Join(req.DiagDir, "ws-events.json"), []byte(req.WsEvents), 0o644)
+	}
+	if req.LifecycleEvents != "" {
+		os.WriteFile(filepath.Join(req.DiagDir, "lifecycle-events.json"), []byte(req.LifecycleEvents), 0o644)
 	}
 	w.WriteHeader(http.StatusOK)
 }
