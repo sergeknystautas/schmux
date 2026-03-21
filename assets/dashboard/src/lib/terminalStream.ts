@@ -129,6 +129,15 @@ export default class TerminalStream {
     | null = null;
   onSyncCorrection: ((diffRows: number[]) => void) | null = null;
 
+  lifecycleLogging = false;
+
+  private tsLog(event: string, detail?: Record<string, unknown>) {
+    if (!this.lifecycleLogging) return;
+    const ts = new Date().toISOString().slice(11, 23);
+    const extra = detail ? ' ' + JSON.stringify(detail) : '';
+    console.log(`[TerminalStream ${ts}] ${event}${extra}`);
+  }
+
   // IO workspace telemetry
   latestIOWorkspaceStats: Record<string, unknown> | null = null;
   onIOWorkspaceStatsUpdate: ((stats: Record<string, unknown>) => void) | null = null;
@@ -167,6 +176,7 @@ export default class TerminalStream {
     this.dragStartLine = null;
     this.dragIsSelecting = true;
 
+    this.tsLog('constructor', { sessionId });
     this.initialized = this.initTerminal();
   }
 
@@ -227,6 +237,7 @@ export default class TerminalStream {
     this.terminal.loadAddon(new WebLinksAddon());
     this.terminal.loadAddon(new Unicode11Addon());
     this.terminal.unicode.activeVersion = '11';
+    this.tsLog('initTerminal', { cols, rows });
     this.terminal.open(this.containerElement);
     // xterm.js doesn't reliably emit Alt/Option+Enter through onData on macOS,
     // but Codex uses Meta/Alt+Enter for inserting a blank line. Map it
@@ -427,6 +438,13 @@ export default class TerminalStream {
     const measured = this.measureTerminal();
     if (!measured) return;
 
+    this.tsLog('fitTerminal', {
+      cols: measured.cols,
+      rows: measured.rows,
+      prevCols: this.tmuxCols,
+      prevRows: this.tmuxRows,
+    });
+
     if (this.diagnostics) {
       this.diagnostics.resizeCount++;
       this.diagnostics.lastResizeTs = Date.now();
@@ -484,6 +502,7 @@ export default class TerminalStream {
     if (!this.terminal || this.disposed) return;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/terminal/${this.sessionId}`;
+    this.tsLog('connect', { attempt: this.reconnectAttempt, bootstrapped: this.bootstrapped });
 
     this.ws = transport.createWebSocket(wsUrl);
     this.ws.binaryType = 'arraybuffer';
@@ -500,6 +519,7 @@ export default class TerminalStream {
     this.ws.onopen = () => {
       this.connected = true;
       this.reconnectAttempt = 0;
+      this.tsLog('ws.onopen');
       this.onStatusChange('connected');
 
       // Send resize immediately on connect so backend knows correct dimensions
@@ -515,8 +535,14 @@ export default class TerminalStream {
       }
     };
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (ev) => {
       this.connected = false;
+      this.tsLog('ws.onclose', {
+        code: ev.code,
+        reason: ev.reason,
+        wasDisplaced: this.wasDisplaced,
+        disposed: this.disposed,
+      });
       if (this.disposed) return;
 
       // If we were intentionally displaced (another window opened), don't retry
@@ -529,6 +555,7 @@ export default class TerminalStream {
       if (this.reconnectAttempt < this.maxReconnectAttempt) {
         const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempt), 30000);
         this.reconnectAttempt++;
+        this.tsLog('reconnect.scheduled', { attempt: this.reconnectAttempt, delayMs: delay });
         if (this.terminal) {
           this.terminal.writeln(
             `\r\n\x1b[33m[Connection lost, reconnecting in ${delay / 1000}s...]\x1b[0m`
@@ -545,6 +572,7 @@ export default class TerminalStream {
     };
 
     this.ws.onerror = (error) => {
+      this.tsLog('ws.onerror');
       console.error('WebSocket error:', error);
       if (this.terminal) {
         this.terminal.writeln('\x1b[91mWebSocket error\x1b[0m');
@@ -554,6 +582,7 @@ export default class TerminalStream {
   }
 
   disconnect() {
+    this.tsLog('disconnect');
     this.disposed = true;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -696,6 +725,10 @@ export default class TerminalStream {
       // When gap replay frames arrive, they may include frames we already
       // received. Writing them again would cause duplicate terminal output.
       if (this.bootstrapComplete && seq <= this.lastReceivedSeq) {
+        this.tsLog('gap.deduped', {
+          seq: seq.toString(),
+          lastReceived: this.lastReceivedSeq.toString(),
+        });
         if (this.diagnostics) this.diagnostics.gapFramesDeduped++;
         return;
       }
@@ -704,6 +737,11 @@ export default class TerminalStream {
       if (this.bootstrapComplete && this.lastReceivedSeq >= 0n) {
         const expectedSeq = this.lastReceivedSeq + 1n;
         if (seq > expectedSeq) {
+          this.tsLog('gap.detected', {
+            expected: expectedSeq.toString(),
+            got: seq.toString(),
+            missed: (seq - expectedSeq).toString(),
+          });
           if (this.diagnostics) this.diagnostics.gapsDetected++;
           this.sendGapRequest(expectedSeq);
         }
@@ -747,6 +785,7 @@ export default class TerminalStream {
       this.lastBinaryTime = Date.now();
       if (!this.bootstrapped) {
         this.bootstrapped = true;
+        this.tsLog('bootstrap.reset', { dataLen: text.length, seq: seq.toString() });
         this.terminal!.reset();
         this.writeTerminal(text);
       } else {
@@ -771,6 +810,7 @@ export default class TerminalStream {
 
     switch (msg.type) {
       case 'displaced':
+        this.tsLog('displaced');
         this.wasDisplaced = true;
         this.terminal!.writeln(
           `\r\n\x1b[33m${msg.content}\x1b[0m\r\n\x1b[33m[Refresh to reconnect]\x1b[0m`
@@ -778,6 +818,7 @@ export default class TerminalStream {
         break;
       case 'bootstrapComplete':
         this.bootstrapComplete = true;
+        this.tsLog('bootstrapComplete');
         break;
       case 'stats':
         this.latestStats = msg;
@@ -812,9 +853,11 @@ export default class TerminalStream {
         });
         break;
       case 'controlMode':
+        this.tsLog('controlMode', { attached: msg.attached });
         this.onControlModeChange?.(msg.attached as boolean);
         break;
       case 'sync':
+        this.tsLog('sync.received', { forced: (msg as Record<string, unknown>).forced });
         this.handleSync(
           msg as {
             screen: string;
@@ -840,6 +883,10 @@ export default class TerminalStream {
     // Activity guard: skip if binary data arrived within 2s
     // Bypass when forced (drops detected — correction is critical)
     if (!msg.forced && Date.now() - this.lastBinaryTime < 2000) {
+      this.tsLog('sync.skipped', {
+        reason: 'recentBinaryData',
+        ageMs: Date.now() - this.lastBinaryTime,
+      });
       this.sendSyncResult(false, []);
       return;
     }
@@ -866,7 +913,10 @@ export default class TerminalStream {
     }
 
     if (!result.match) {
-      // Surgical correction: overwrite only the differing rows
+      this.tsLog('sync.correction', {
+        diffRowCount: result.diffRows.length,
+        diffRows: result.diffRows,
+      });
       const rowContents = result.diffRows.map((i) => syncScreenLines[i] ?? '');
       const correction = buildSurgicalCorrection(result.diffRows, rowContents, msg.cursor);
       this.writeTerminal(correction);

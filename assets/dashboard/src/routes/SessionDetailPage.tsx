@@ -192,6 +192,7 @@ export default function SessionDetailPage() {
     // Use ref for desync config so this effect doesn't depend on config changes.
     let diagnosticsInterval: ReturnType<typeof setInterval> | null = null;
     if (desyncEnabledRef.current) {
+      terminalStream.lifecycleLogging = true;
       terminalStream.enableDiagnostics();
       terminalStream.onStatsUpdate = (stats) => {
         setBackendStats(stats as unknown as BackendStats);
