@@ -285,7 +285,7 @@ func (m *Manager) gitClean(ctx context.Context, dir string) error {
 
 // GetWorkspaceGitFiles returns the list of changed files for a workspace.
 // Implements the WorkspaceManager interface.
-func (m *Manager) GetWorkspaceGitFiles(ctx context.Context, workspaceID string) ([]GitChangedFile, error) {
+func (m *Manager) GetWorkspaceChangedFiles(ctx context.Context, workspaceID string) ([]GitChangedFile, error) {
 	ws, found := m.state.GetWorkspace(workspaceID)
 	if !found {
 		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
@@ -552,15 +552,49 @@ func countLinesCapped(path string, maxBytes int) (int, error) {
 
 // checkGitSafety checks if a workspace is safe to dispose based on git state.
 // Returns detailed status about why the workspace is not safe.
-func (m *Manager) checkGitSafety(ctx context.Context, workspaceID string) (*GitSafetyStatus, error) {
+func (m *Manager) checkGitSafety(ctx context.Context, workspaceID string) (*VCSSafetyStatus, error) {
 	w, found := m.state.GetWorkspace(workspaceID)
 	if !found {
 		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
 	}
 
-	status := &GitSafetyStatus{Safe: true}
+	status := &VCSSafetyStatus{Safe: true}
 
-	// Check for dirty state (any changes: modified, added, removed, or untracked)
+	if w.VCS == "sapling" {
+		output, err := m.runCmd(ctx, "sl", workspaceID, RefreshTriggerExplicit, w.Path, "status")
+		if err != nil {
+			status.Safe = false
+			status.Reason = fmt.Sprintf("sl status failed: %v", err)
+			return status, nil
+		}
+		trimmed := strings.TrimSpace(string(output))
+		if trimmed != "" {
+			for _, line := range strings.Split(trimmed, "\n") {
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
+				}
+				if strings.HasPrefix(line, "?") {
+					status.UntrackedFiles++
+				} else {
+					status.ModifiedFiles++
+				}
+				status.Safe = false
+			}
+			if !status.Safe {
+				var reasons []string
+				if status.ModifiedFiles > 0 {
+					reasons = append(reasons, fmt.Sprintf("%d modified file(s)", status.ModifiedFiles))
+				}
+				if status.UntrackedFiles > 0 {
+					reasons = append(reasons, fmt.Sprintf("%d untracked file(s)", status.UntrackedFiles))
+				}
+				status.Reason = strings.Join(reasons, ", ")
+			}
+		}
+		return status, nil
+	}
+
 	output, err := m.runGit(ctx, workspaceID, RefreshTriggerExplicit, w.Path, "status", "--porcelain")
 	if err != nil {
 		// Git command failed - this might mean the repo is corrupt, treat as unsafe

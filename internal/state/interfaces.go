@@ -41,10 +41,9 @@ type StateStore interface {
 	RemovePreview(id string) error
 	RemoveWorkspacePreviews(workspaceID string) int
 
-	// Worktree base operations (for git worktrees)
-	GetWorktreeBases() []WorktreeBase
-	GetWorktreeBaseByURL(repoURL string) (WorktreeBase, bool)
-	AddWorktreeBase(wb WorktreeBase) error
+	GetRepoBases() []RepoBase
+	GetRepoBaseByURL(repoURL string) (RepoBase, bool)
+	AddRepoBase(wb RepoBase) error
 
 	// Remote host operations
 	GetRemoteHosts() []RemoteHost

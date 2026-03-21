@@ -1334,11 +1334,11 @@ func TestUpdateOverlayManifest(t *testing.T) {
 	})
 }
 
-func TestWorktreeBaseCRUD(t *testing.T) {
+func TestRepoBaseCRUD(t *testing.T) {
 	s := New("", nil)
 
-	t.Run("GetWorktreeBases returns empty slice when nil", func(t *testing.T) {
-		bases := s.GetWorktreeBases()
+	t.Run("GetRepoBases returns empty slice when nil", func(t *testing.T) {
+		bases := s.GetRepoBases()
 		if bases == nil {
 			t.Error("expected non-nil empty slice, got nil")
 		}
@@ -1347,16 +1347,16 @@ func TestWorktreeBaseCRUD(t *testing.T) {
 		}
 	})
 
-	t.Run("AddWorktreeBase inserts new entry", func(t *testing.T) {
-		err := s.AddWorktreeBase(WorktreeBase{
+	t.Run("AddRepoBase inserts new entry", func(t *testing.T) {
+		err := s.AddRepoBase(RepoBase{
 			RepoURL: "git@github.com:user/repo.git",
 			Path:    "/home/user/.schmux/repos/repo.git",
 		})
 		if err != nil {
-			t.Fatalf("AddWorktreeBase() error: %v", err)
+			t.Fatalf("AddRepoBase() error: %v", err)
 		}
 
-		bases := s.GetWorktreeBases()
+		bases := s.GetRepoBases()
 		if len(bases) != 1 {
 			t.Fatalf("expected 1 base, got %d", len(bases))
 		}
@@ -1365,16 +1365,16 @@ func TestWorktreeBaseCRUD(t *testing.T) {
 		}
 	})
 
-	t.Run("AddWorktreeBase upserts by RepoURL", func(t *testing.T) {
-		err := s.AddWorktreeBase(WorktreeBase{
+	t.Run("AddRepoBase upserts by RepoURL", func(t *testing.T) {
+		err := s.AddRepoBase(RepoBase{
 			RepoURL: "git@github.com:user/repo.git",
 			Path:    "/updated/path",
 		})
 		if err != nil {
-			t.Fatalf("AddWorktreeBase() error: %v", err)
+			t.Fatalf("AddRepoBase() error: %v", err)
 		}
 
-		bases := s.GetWorktreeBases()
+		bases := s.GetRepoBases()
 		if len(bases) != 1 {
 			t.Fatalf("expected 1 base after upsert, got %d", len(bases))
 		}
@@ -1383,8 +1383,8 @@ func TestWorktreeBaseCRUD(t *testing.T) {
 		}
 	})
 
-	t.Run("GetWorktreeBaseByURL finds entry", func(t *testing.T) {
-		wb, found := s.GetWorktreeBaseByURL("git@github.com:user/repo.git")
+	t.Run("GetRepoBaseByURL finds entry", func(t *testing.T) {
+		wb, found := s.GetRepoBaseByURL("git@github.com:user/repo.git")
 		if !found {
 			t.Fatal("expected to find worktree base")
 		}
@@ -1393,20 +1393,20 @@ func TestWorktreeBaseCRUD(t *testing.T) {
 		}
 	})
 
-	t.Run("GetWorktreeBaseByURL returns false for unknown", func(t *testing.T) {
-		_, found := s.GetWorktreeBaseByURL("unknown-url")
+	t.Run("GetRepoBaseByURL returns false for unknown", func(t *testing.T) {
+		_, found := s.GetRepoBaseByURL("unknown-url")
 		if found {
 			t.Error("expected found=false for unknown URL")
 		}
 	})
 
-	t.Run("GetWorktreeBases returns defensive copy", func(t *testing.T) {
-		bases := s.GetWorktreeBases()
+	t.Run("GetRepoBases returns defensive copy", func(t *testing.T) {
+		bases := s.GetRepoBases()
 		bases[0].Path = "mutated"
 
-		original := s.GetWorktreeBases()
+		original := s.GetRepoBases()
 		if original[0].Path == "mutated" {
-			t.Error("GetWorktreeBases should return a copy, not the original slice")
+			t.Error("GetRepoBases should return a copy, not the original slice")
 		}
 	})
 }

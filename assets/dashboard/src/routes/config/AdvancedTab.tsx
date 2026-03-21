@@ -29,6 +29,11 @@ type AdvancedTabProps = {
   nudgenikTargetMissing: boolean;
   branchSuggestTargetMissing: boolean;
   conflictResolveTargetMissing: boolean;
+  hasSaplingRepos: boolean;
+  saplingCmdCreateWorkspace: string;
+  saplingCmdRemoveWorkspace: string;
+  saplingCmdCheckRepoBase: string;
+  saplingCmdCreateRepoBase: string;
   stepErrors: Record<number, string | null>;
   models: Model[];
   dispatch: React.Dispatch<ConfigFormAction>;
@@ -60,6 +65,11 @@ export default function AdvancedTab({
   nudgenikTargetMissing,
   branchSuggestTargetMissing,
   conflictResolveTargetMissing,
+  hasSaplingRepos,
+  saplingCmdCreateWorkspace,
+  saplingCmdRemoveWorkspace,
+  saplingCmdCheckRepoBase,
+  saplingCmdCreateRepoBase,
   stepErrors,
   models,
   dispatch,
@@ -566,6 +576,56 @@ export default function AdvancedTab({
           </div>
         </div>
       </div>
+
+      {hasSaplingRepos && (
+        <div className="settings-section">
+          <div className="settings-section__header">
+            <h3 className="settings-section__title">Sapling Commands</h3>
+          </div>
+          <div className="settings-section__body">
+            <p className="form-group__hint" style={{ marginBottom: 'var(--spacing-md)' }}>
+              Command templates for sapling workspace lifecycle. Uses Go text/template syntax.
+            </p>
+            {[
+              {
+                field: 'saplingCmdCreateWorkspace' as const,
+                label: 'Create Workspace',
+                placeholder: 'sl clone {{.RepoIdentifier}} {{.DestPath}}',
+                value: saplingCmdCreateWorkspace,
+              },
+              {
+                field: 'saplingCmdRemoveWorkspace' as const,
+                label: 'Remove Workspace',
+                placeholder: 'rm -rf {{.WorkspacePath}}',
+                value: saplingCmdRemoveWorkspace,
+              },
+              {
+                field: 'saplingCmdCreateRepoBase' as const,
+                label: 'Create Repo Base',
+                placeholder: 'sl clone {{.RepoIdentifier}} {{.BasePath}}',
+                value: saplingCmdCreateRepoBase,
+              },
+              {
+                field: 'saplingCmdCheckRepoBase' as const,
+                label: 'Check Repo Base',
+                placeholder: '',
+                value: saplingCmdCheckRepoBase,
+              },
+            ].map(({ field, label, placeholder, value }) => (
+              <div className="form-group" key={field}>
+                <label className="form-group__label">{label}</label>
+                <input
+                  type="text"
+                  className="input"
+                  placeholder={placeholder}
+                  value={value}
+                  onChange={(e) => dispatch({ type: 'SET_FIELD', field, value: e.target.value })}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {stepErrors[5] && <p className="form-group__error">{stepErrors[5]}</p>}
     </div>

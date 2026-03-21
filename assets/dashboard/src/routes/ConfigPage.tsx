@@ -190,6 +190,10 @@ export default function ConfigPage() {
             fmDebounceMs: data.floor_manager?.debounce_ms || 2000,
             ioWorkspaceTelemetryEnabled: data.io_workspace_telemetry?.enabled || false,
             ioWorkspaceTelemetryTarget: data.io_workspace_telemetry?.target || '',
+            saplingCmdCreateWorkspace: data.sapling_commands?.create_workspace || '',
+            saplingCmdRemoveWorkspace: data.sapling_commands?.remove_workspace || '',
+            saplingCmdCheckRepoBase: data.sapling_commands?.check_repo_base || '',
+            saplingCmdCreateRepoBase: data.sapling_commands?.create_repo_base || '',
             modelCatalog: data.models || [],
             runners: data.runners || {},
           },
@@ -259,6 +263,10 @@ export default function ConfigPage() {
             fmDebounceMs: data.floor_manager?.debounce_ms || 2000,
             ioWorkspaceTelemetryEnabled: data.io_workspace_telemetry?.enabled || false,
             ioWorkspaceTelemetryTarget: data.io_workspace_telemetry?.target || '',
+            saplingCmdCreateWorkspace: data.sapling_commands?.create_workspace || '',
+            saplingCmdRemoveWorkspace: data.sapling_commands?.remove_workspace || '',
+            saplingCmdCheckRepoBase: data.sapling_commands?.check_repo_base || '',
+            saplingCmdCreateRepoBase: data.sapling_commands?.create_repo_base || '',
           };
           dispatch({ type: 'SET_ORIGINAL', config: originalConfig });
         }
@@ -637,6 +645,18 @@ export default function ConfigPage() {
           enabled: state.ioWorkspaceTelemetryEnabled,
           target: state.ioWorkspaceTelemetryTarget || '',
         },
+        sapling_commands:
+          state.saplingCmdCreateWorkspace ||
+          state.saplingCmdRemoveWorkspace ||
+          state.saplingCmdCheckRepoBase ||
+          state.saplingCmdCreateRepoBase
+            ? {
+                create_workspace: state.saplingCmdCreateWorkspace || undefined,
+                remove_workspace: state.saplingCmdRemoveWorkspace || undefined,
+                check_repo_base: state.saplingCmdCheckRepoBase || undefined,
+                create_repo_base: state.saplingCmdCreateRepoBase || undefined,
+              }
+            : undefined,
       };
 
       const result = await updateConfig(updateRequest);
@@ -747,7 +767,10 @@ export default function ConfigPage() {
       toastError('Repo name already exists');
       return;
     }
-    dispatch({ type: 'ADD_REPO', repo: { name: state.newRepoName, url: state.newRepoUrl } });
+    dispatch({
+      type: 'ADD_REPO',
+      repo: { name: state.newRepoName, url: state.newRepoUrl, vcs: state.newRepoVcs || undefined },
+    });
     dispatch({ type: 'RESET_NEW_REPO' });
   };
 
@@ -1233,11 +1256,11 @@ export default function ConfigPage() {
           {currentTab === 1 && (
             <WorkspacesTab
               workspacePath={state.workspacePath}
-              sourceCodeManagement={state.sourceCodeManagement}
               repos={state.repos}
               overlays={state.overlays}
               newRepoName={state.newRepoName}
               newRepoUrl={state.newRepoUrl}
+              newRepoVcs={state.newRepoVcs}
               stepErrors={state.stepErrors}
               dispatch={dispatch}
               onEditWorkspacePath={handleEditWorkspacePath}
@@ -1401,6 +1424,11 @@ export default function ConfigPage() {
               nudgenikTargetMissing={nudgenikTargetMissing}
               branchSuggestTargetMissing={branchSuggestTargetMissing}
               conflictResolveTargetMissing={conflictResolveTargetMissing}
+              hasSaplingRepos={state.repos.some((r) => r.vcs === 'sapling')}
+              saplingCmdCreateWorkspace={state.saplingCmdCreateWorkspace}
+              saplingCmdRemoveWorkspace={state.saplingCmdRemoveWorkspace}
+              saplingCmdCheckRepoBase={state.saplingCmdCheckRepoBase}
+              saplingCmdCreateRepoBase={state.saplingCmdCreateRepoBase}
               stepErrors={state.stepErrors}
               models={oneshotModels}
               dispatch={dispatch}

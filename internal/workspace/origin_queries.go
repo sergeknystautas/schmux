@@ -43,7 +43,7 @@ func (m *Manager) EnsureOriginQueries(ctx context.Context) error {
 	}
 
 	for _, repo := range m.config.GetRepos() {
-		if isLocalRepoURL(repo.URL) {
+		if isLocalRepoURL(repo.URL) || repo.VCS == "sapling" {
 			continue
 		}
 
@@ -241,7 +241,7 @@ func (m *Manager) FetchOriginQueries(ctx context.Context) {
 	repos := m.config.GetRepos()
 	var wg sync.WaitGroup
 	for _, repo := range repos {
-		if isLocalRepoURL(repo.URL) {
+		if isLocalRepoURL(repo.URL) || repo.VCS == "sapling" {
 			continue
 		}
 

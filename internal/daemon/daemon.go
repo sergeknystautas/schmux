@@ -1134,7 +1134,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 			}()
 			go func() {
 				defer pollWg.Done()
-				wm.UpdateAllGitStatus(ctx)
+				wm.UpdateAllVCSStatus(ctx)
 			}()
 			pollWg.Wait()
 			cancel()
@@ -1157,7 +1157,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 				}()
 				go func() {
 					defer pollWg.Done()
-					wm.UpdateAllGitStatus(ctx)
+					wm.UpdateAllVCSStatus(ctx)
 				}()
 				pollWg.Wait()
 				cancel()

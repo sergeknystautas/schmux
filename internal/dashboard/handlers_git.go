@@ -348,7 +348,7 @@ func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if _, err := s.workspace.UpdateGitStatus(ctx, ws.ID); err != nil {
+	if _, err := s.workspace.UpdateVCSStatus(ctx, ws.ID); err != nil {
 		s.logger.Warn("failed to update git status after stage", "err", err)
 	}
 	s.BroadcastSessions()
@@ -408,7 +408,7 @@ func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.workspace.UpdateGitStatus(ctx, ws.ID); err != nil {
+	if _, err := s.workspace.UpdateVCSStatus(ctx, ws.ID); err != nil {
 		s.logger.Warn("failed to update git status after amend", "err", err)
 	}
 	s.BroadcastSessions()
@@ -503,7 +503,7 @@ func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if _, err := s.workspace.UpdateGitStatus(ctx, ws.ID); err != nil {
+	if _, err := s.workspace.UpdateVCSStatus(ctx, ws.ID); err != nil {
 		s.logger.Warn("failed to update git status after discard", "err", err)
 	}
 	s.BroadcastSessions()
@@ -568,7 +568,7 @@ func (s *Server) handleGitUncommit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.workspace.UpdateGitStatus(ctx, ws.ID); err != nil {
+	if _, err := s.workspace.UpdateVCSStatus(ctx, ws.ID); err != nil {
 		s.logger.Warn("failed to update git status after uncommit", "err", err)
 	}
 	s.BroadcastSessions()

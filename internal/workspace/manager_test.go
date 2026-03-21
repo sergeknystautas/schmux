@@ -646,16 +646,16 @@ func (m *mockStateStore) UpdateOverlayManifestEntry(workspaceID, relPath, hash s
 	m.state.UpdateOverlayManifestEntry(workspaceID, relPath, hash)
 }
 
-func (m *mockStateStore) GetWorktreeBases() []state.WorktreeBase {
-	return m.state.GetWorktreeBases()
+func (m *mockStateStore) GetRepoBases() []state.RepoBase {
+	return m.state.GetRepoBases()
 }
 
-func (m *mockStateStore) GetWorktreeBaseByURL(repoURL string) (state.WorktreeBase, bool) {
-	return m.state.GetWorktreeBaseByURL(repoURL)
+func (m *mockStateStore) GetRepoBaseByURL(repoURL string) (state.RepoBase, bool) {
+	return m.state.GetRepoBaseByURL(repoURL)
 }
 
-func (m *mockStateStore) AddWorktreeBase(wb state.WorktreeBase) error {
-	return m.state.AddWorktreeBase(wb)
+func (m *mockStateStore) AddRepoBase(wb state.RepoBase) error {
+	return m.state.AddRepoBase(wb)
 }
 
 func (m *mockStateStore) GetSessions() []state.Session {

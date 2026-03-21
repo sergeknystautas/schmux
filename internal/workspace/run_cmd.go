@@ -12,12 +12,8 @@ import (
 // ioTelemetryOnce ensures the telemetry collector is created only once per Manager
 var ioTelemetryMu sync.Mutex
 
-// runGit is the instrumented replacement for raw exec.CommandContext(ctx, "git", args...).
-// It executes a git command, records telemetry (if enabled in config), and returns
-// stdout and any error. On non-zero exit, stderr is copied onto exec.ExitError.Stderr
-// so callers can inspect it via errors.As.
-func (m *Manager) runGit(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
+func (m *Manager) runCmd(ctx context.Context, binary string, workspaceID string, trigger RefreshTrigger, dir string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir = dir
 
 	releaseWatcherSuppression := func() {}
@@ -34,7 +30,6 @@ func (m *Manager) runGit(ctx context.Context, workspaceID string, trigger Refres
 	err := cmd.Run()
 	duration := time.Since(start)
 
-	// Extract exit code and stderr bytes from the error (if any).
 	exitCode := 0
 	stderrBytes := int64(0)
 	if err != nil {
@@ -49,23 +44,22 @@ func (m *Manager) runGit(ctx context.Context, workspaceID string, trigger Refres
 	stdout := stdoutBuf.Bytes()
 	stdoutBytes := int64(len(stdout))
 
-	// Record telemetry if:
-	// 1. Telemetry collector is already set (via SetIOWorkspaceTelemetry), OR
-	// 2. Config has telemetry enabled (hot-reloadable, lazily creates collector)
 	if m.ioTelemetry != nil {
-		// Already has telemetry set directly
-		m.ioTelemetry.RecordCommand("git", args, workspaceID, dir, trigger, duration, exitCode, stdoutBytes, stderrBytes)
+		m.ioTelemetry.RecordCommand(binary, args, workspaceID, dir, trigger, duration, exitCode, stdoutBytes, stderrBytes)
 	} else if m.config != nil && m.config.GetIOWorkspaceTelemetryEnabled() {
-		// Lazily initialize telemetry collector on first enabled command
 		ioTelemetryMu.Lock()
 		if m.ioTelemetry == nil {
 			m.ioTelemetry = NewIOWorkspaceTelemetry()
 		}
 		ioTelemetryMu.Unlock()
 		if m.ioTelemetry != nil {
-			m.ioTelemetry.RecordCommand("git", args, workspaceID, dir, trigger, duration, exitCode, stdoutBytes, stderrBytes)
+			m.ioTelemetry.RecordCommand(binary, args, workspaceID, dir, trigger, duration, exitCode, stdoutBytes, stderrBytes)
 		}
 	}
 
 	return stdout, err
+}
+
+func (m *Manager) runGit(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir string, args ...string) ([]byte, error) {
+	return m.runCmd(ctx, "git", workspaceID, trigger, dir, args...)
 }

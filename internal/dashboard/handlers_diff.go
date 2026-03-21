@@ -57,7 +57,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 
 	// Refresh git status so the client gets updated stats
 	refreshCtx, refreshCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
-	if _, err := s.workspace.UpdateGitStatus(refreshCtx, workspaceID); err != nil {
+	if _, err := s.workspace.UpdateVCSStatus(refreshCtx, workspaceID); err != nil {
 		if errors.Is(err, workspace.ErrWorkspaceLocked) {
 			refreshCancel()
 			return

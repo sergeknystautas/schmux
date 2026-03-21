@@ -726,7 +726,7 @@ Response:
 {
   "workspace_path": "/path",
   "source_code_management": "git-worktree",
-  "repos": [{ "name": "repo", "url": "https://..." }],
+  "repos": [{ "name": "repo", "url": "https://...", "vcs": "sapling" }],
   "run_targets": [{ "name": "target", "type": "promptable", "command": "...", "source": "user" }],
   "quick_launch": [
     {
@@ -807,12 +807,20 @@ Response:
     "confirm_before_close": false,
     "suggest_dispose_after_push": true
   },
+  "sapling_commands": {
+    "create_workspace": "fbclone {{.RepoIdentifier}} {{.DestPath}}",
+    "remove_workspace": "rm -rf {{.WorkspacePath}}",
+    "create_repo_base": "fbclone {{.RepoIdentifier}} {{.BasePath}}",
+    "check_repo_base": ""
+  },
   "system_capabilities": {
     "iterm2_available": true
   },
   "needs_restart": false
 }
 ```
+
+Repos with `"vcs": "sapling"` use the sapling backend instead of git. The `vcs` field can be `""` (default, git worktree), `"git-clone"`, or `"sapling"`. The `sapling_commands` section configures command templates for sapling workspace lifecycle using Go `text/template` syntax.
 
 **TLS behavior**: The server serves HTTPS whenever `network.tls.cert_path` and `network.tls.key_path` are both set, regardless of whether `access_control.enabled` is true. This allows dashboard.sx HTTPS without requiring GitHub auth.
 
@@ -826,7 +834,7 @@ Request:
 {
   "workspace_path": "/path",
   "source_code_management": "git-worktree",
-  "repos": [{ "name": "repo", "url": "https://..." }],
+  "repos": [{ "name": "repo", "url": "https://...", "vcs": "sapling" }],
   "run_targets": [{ "name": "target", "type": "promptable", "command": "...", "source": "user" }],
   "quick_launch": [
     {

@@ -79,8 +79,7 @@ type ResolveConflictStep struct {
 // ResolveConflictStepFunc is a callback invoked at each step of the conflict resolution process.
 type ResolveConflictStepFunc func(step ResolveConflictStep)
 
-// GitSafetyStatus represents the git safety status of a workspace.
-type GitSafetyStatus struct {
+type VCSSafetyStatus struct {
 	Safe           bool   // true if workspace is safe to dispose
 	Reason         string // explanation if not safe
 	ModifiedFiles  int    // number of modified files
@@ -100,15 +99,11 @@ type WorkspaceManager interface {
 	// Cleanup cleans up a workspace by resetting git state.
 	Cleanup(ctx context.Context, workspaceID string) error
 
-	// UpdateGitStatus refreshes the git status for a single workspace.
-	UpdateGitStatus(ctx context.Context, workspaceID string) (*state.Workspace, error)
+	UpdateVCSStatus(ctx context.Context, workspaceID string) (*state.Workspace, error)
 
-	// GetWorkspaceGitFiles returns detailed file change info for a workspace.
-	// This includes file paths, status, and line counts. It does NOT fetch from the remote.
-	GetWorkspaceGitFiles(ctx context.Context, workspaceID string) ([]GitChangedFile, error)
+	GetWorkspaceChangedFiles(ctx context.Context, workspaceID string) ([]GitChangedFile, error)
 
-	// UpdateAllGitStatus refreshes git status for all workspaces.
-	UpdateAllGitStatus(ctx context.Context)
+	UpdateAllVCSStatus(ctx context.Context)
 
 	// EnsureWorkspaceDir ensures the workspace base directory exists.
 	EnsureWorkspaceDir() error

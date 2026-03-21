@@ -171,7 +171,7 @@ func TestEnsureUniqueBranchRetryExhaustion(t *testing.T) {
 	// Add repo to config with BarePath
 	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
 
-	baseRepoPath, err := m.ensureWorktreeBase(ctx, repoDir)
+	baseRepoPath, err := m.gitBackend.EnsureRepoBase(ctx, repoDir, "")
 	if err != nil {
 		t.Fatalf("ensureWorktreeBase() failed: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestEnsureUniqueBranchRetryExhaustion(t *testing.T) {
 		m.randSuffix = origRandSuffix
 	}()
 
-	if _, _, err := m.ensureUniqueBranch(ctx, baseRepoPath, "main"); err == nil {
+	if _, _, err := m.gitBackend.ensureUniqueBranch(ctx, baseRepoPath, "main"); err == nil {
 		t.Fatalf("ensureUniqueBranch() expected error, got nil")
 	}
 }
@@ -215,7 +215,7 @@ func TestBranchSourceRefPrefersRemote(t *testing.T) {
 	// Add repo to config with BarePath
 	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
 
-	baseRepoPath, err := m.ensureWorktreeBase(ctx, repoDir)
+	baseRepoPath, err := m.gitBackend.EnsureRepoBase(ctx, repoDir, "")
 	if err != nil {
 		t.Fatalf("ensureWorktreeBase() failed: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestAddWorktree_StaleLocalBranchAfterForcePush(t *testing.T) {
 	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
 
 	// Create bare clone
-	bareRepoPath, err := m.ensureWorktreeBase(ctx, remoteDir)
+	bareRepoPath, err := m.gitBackend.EnsureRepoBase(ctx, remoteDir, "")
 	if err != nil {
 		t.Fatalf("ensureWorktreeBase() failed: %v", err)
 	}
@@ -390,7 +390,7 @@ func TestAddWorktree_StaleLocalBranchAfterForcePush(t *testing.T) {
 
 	// Create a worktree on main — should get origin/main, NOT the stale local ref
 	worktreePath := filepath.Join(tmpDir, "wt-main")
-	if err := m.addWorktree(ctx, bareRepoPath, worktreePath, "main", remoteDir); err != nil {
+	if err := m.gitBackend.CreateWorkspace(ctx, bareRepoPath, "main", worktreePath); err != nil {
 		t.Fatalf("addWorktree() failed: %v", err)
 	}
 
@@ -432,7 +432,7 @@ func TestAddWorktree_DivergedLocalBranchPrefersOrigin(t *testing.T) {
 	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
 
 	// Create bare clone
-	bareRepoPath, err := m.ensureWorktreeBase(ctx, remoteDir)
+	bareRepoPath, err := m.gitBackend.EnsureRepoBase(ctx, remoteDir, "")
 	if err != nil {
 		t.Fatalf("ensureWorktreeBase() failed: %v", err)
 	}
@@ -469,7 +469,7 @@ func TestAddWorktree_DivergedLocalBranchPrefersOrigin(t *testing.T) {
 
 	// Create a worktree on main — should prefer origin/main over diverged local
 	worktreePath := filepath.Join(tmpDir, "wt-main")
-	if err := m.addWorktree(ctx, bareRepoPath, worktreePath, "main", remoteDir); err != nil {
+	if err := m.gitBackend.CreateWorkspace(ctx, bareRepoPath, "main", worktreePath); err != nil {
 		t.Fatalf("addWorktree() failed: %v", err)
 	}
 

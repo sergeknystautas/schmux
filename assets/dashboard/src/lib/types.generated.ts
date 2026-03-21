@@ -56,6 +56,7 @@ export interface ConfigResponse {
   repofeed: Repofeed;
   floor_manager: FloorManager;
   remote_access: RemoteAccess;
+  sapling_commands?: SaplingCommandsUpdate;
   system_capabilities: SystemCapabilities;
   needs_restart: boolean;
 }
@@ -86,6 +87,7 @@ export interface ConfigUpdateRequest {
   floor_manager?: FloorManagerUpdate;
   remote_access?: RemoteAccessUpdate;
   enabled_models?: Record<string, string>;
+  sapling_commands?: SaplingCommandsUpdate;
 }
 
 export interface ConflictResolve {
@@ -385,6 +387,7 @@ export interface Repo {
   name: string;
   url: string;
   bare_path?: string;
+  vcs?: string;
 }
 
 export interface RepoConfig {
@@ -394,6 +397,7 @@ export interface RepoConfig {
 export interface RepoWithConfig {
   name: string;
   url: string;
+  vcs?: string;
   default_branch?: string;
   config?: RepoConfig;
 }
@@ -422,6 +426,14 @@ export interface RunTarget {
 export interface RunnerInfo {
   available: boolean;
   capabilities?: string[];
+}
+
+export interface SaplingCommandsUpdate {
+  create_workspace?: string;
+  remove_workspace?: string;
+  check_repo_base?: string;
+  create_repo_base?: string;
+  list_workspaces?: string;
 }
 
 export interface Sessions {

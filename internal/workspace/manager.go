@@ -58,6 +58,8 @@ type Manager struct {
 	ensuredQueryRepos      map[string]bool                              // repoURL -> true once origin query repo is validated
 	ensuredQueryReposMu    sync.RWMutex
 	models                 *models.Manager // Model manager for target validation
+	gitBackend             *GitBackend
+	backends               map[string]VCSBackend
 }
 
 // New creates a new workspace manager.
@@ -76,15 +78,52 @@ func New(cfg *config.Config, st state.StateStore, statePath string, logger *log.
 		defaultBranchRefreshAt: make(map[string]time.Time),
 		randSuffix:             defaultRandSuffix,
 	}
-	// Pre-load workspace configs so they're available on first API call
-	// (before the first poll cycle runs)
+	m.gitBackend = NewGitBackend(m)
+	saplingBackend := NewSaplingBackend(m, cfg.SaplingCommands)
+	m.backends = map[string]VCSBackend{
+		"git":     m.gitBackend,
+		"":        m.gitBackend,
+		"sapling": saplingBackend,
+	}
 	for _, w := range st.GetWorkspaces() {
 		m.RefreshWorkspaceConfig(w)
 	}
 	return m
 }
 
-// SetGitWatcher sets the git watcher for the manager.
+func (m *Manager) backendFor(repoURL string) VCSBackend {
+	repo, found := m.findRepoByURL(repoURL)
+	if !found || repo.VCS == "" || repo.VCS == "git-worktree" || repo.VCS == "git-clone" {
+		return m.backends["git"]
+	}
+	if b, ok := m.backends[repo.VCS]; ok {
+		return b
+	}
+	return m.backends["git"]
+}
+
+func (m *Manager) repoUsesWorktrees(repoConfig config.Repo) bool {
+	switch repoConfig.VCS {
+	case "git-clone":
+		return false
+	case "sapling":
+		return false
+	default:
+		return m.config.UseWorktrees()
+	}
+}
+
+func (m *Manager) backendForWorkspace(workspaceID string) VCSBackend {
+	w, found := m.state.GetWorkspace(workspaceID)
+	if !found || w.VCS == "" || w.VCS == "git-worktree" || w.VCS == "git-clone" {
+		return m.backends["git"]
+	}
+	if b, ok := m.backends[w.VCS]; ok {
+		return b
+	}
+	return m.backends["git"]
+}
+
 func (m *Manager) SetGitWatcher(gw *GitWatcher) {
 	m.gitWatcher = gw
 }
@@ -449,23 +488,27 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 	// Create full path
 	workspacePath := filepath.Join(m.config.GetWorkspacePath(), workspaceID)
 
-	// Ensure base repo exists (creates bare clone if needed)
-	worktreeBasePath, err := m.ensureWorktreeBase(ctx, repoURL)
+	backend := m.backendFor(repoURL)
+
+	worktreeBasePath, err := backend.EnsureRepoBase(ctx, repoURL, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure worktree base: %w", err)
 	}
 
-	// Fetch latest before creating worktree
-	if fetchErr := m.gitFetch(ctx, worktreeBasePath); fetchErr != nil {
-		m.logger.Warn("fetch failed before worktree add", "err", fetchErr)
+	// Fetch latest before creating worktree (git-specific)
+	if fetchErr := backend.Fetch(ctx, worktreeBasePath); fetchErr != nil {
+		m.logger.Warn("fetch failed before workspace creation", "err", fetchErr)
 	}
 
-	// Fast-forward local default branch to match origin after fetch
-	m.updateLocalDefaultBranch(ctx, "", RefreshTriggerExplicit, worktreeBasePath, repoURL, nil)
+	// Fast-forward local default branch to match origin after fetch (git-specific)
+	if repoConfig.VCS == "" || repoConfig.VCS == "git-worktree" || repoConfig.VCS == "git-clone" {
+		m.updateLocalDefaultBranch(ctx, "", RefreshTriggerExplicit, worktreeBasePath, repoURL, nil)
+	}
 
 	createdUniqueBranch := false
-	if m.config.UseWorktrees() {
-		uniqueBranch, wasCreated, err := m.ensureUniqueBranch(ctx, worktreeBasePath, branch)
+	useWorktrees := m.repoUsesWorktrees(repoConfig)
+	if useWorktrees {
+		uniqueBranch, wasCreated, err := m.gitBackend.ensureUniqueBranch(ctx, worktreeBasePath, branch)
 		if err != nil {
 			return nil, fmt.Errorf("failed to pick unique branch: %w", err)
 		}
@@ -476,13 +519,11 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 		createdUniqueBranch = wasCreated
 	}
 
-	// Clean up worktree if creation fails
 	cleanupNeeded := true
 	defer func() {
 		if cleanupNeeded {
 			m.logger.Warn("cleaning up failed", "path", workspacePath)
-			// Try worktree remove first, fall back to rm -rf
-			if err := m.removeWorktree(ctx, worktreeBasePath, workspacePath); err != nil {
+			if err := backend.RemoveWorkspace(ctx, workspacePath); err != nil {
 				os.RemoveAll(workspacePath)
 			}
 			if createdUniqueBranch {
@@ -493,17 +534,18 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 		}
 	}()
 
-	// Check source code management setting
-	if m.config.UseWorktrees() {
-		// Using worktrees - no fallback, branch conflicts are auto-resolved with suffixes
-		if err := m.addWorktree(ctx, worktreeBasePath, workspacePath, branch, repoURL); err != nil {
+	if useWorktrees {
+		if err := backend.CreateWorkspace(ctx, worktreeBasePath, branch, workspacePath); err != nil {
 			return nil, fmt.Errorf("failed to add worktree: %w", err)
 		}
-	} else {
-		// Using full clones
-		m.logger.Info("source_code_manager=git, using full clone")
+	} else if repoConfig.VCS == "git-clone" || (repoConfig.VCS == "" && !m.config.UseWorktrees()) {
+		m.logger.Info("using full clone", "vcs", repoConfig.VCS)
 		if err := m.cloneRepo(ctx, repoURL, workspacePath); err != nil {
 			return nil, fmt.Errorf("failed to clone repo: %w", err)
+		}
+	} else {
+		if err := backend.CreateWorkspace(ctx, worktreeBasePath, branch, workspacePath); err != nil {
+			return nil, fmt.Errorf("failed to create workspace: %w", err)
 		}
 	}
 
@@ -514,12 +556,12 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 		// Don't fail workspace creation if overlay copy fails
 	}
 
-	// Create workspace state with branch
 	w := state.Workspace{
 		ID:     workspaceID,
 		Repo:   repoURL,
 		Branch: branch,
 		Path:   workspacePath,
+		VCS:    repoConfig.VCS,
 	}
 
 	if err := m.state.AddWorkspace(w); err != nil {
@@ -639,6 +681,11 @@ func (m *Manager) prepare(ctx context.Context, workspaceID, branch string) error
 	}
 
 	m.logger.Info("preparing", "id", workspaceID, "branch", branch)
+
+	if w.VCS == "sapling" {
+		m.logger.Info("prepared (sapling, no-op)", "id", workspaceID)
+		return nil
+	}
 
 	hasOrigin := m.gitHasOriginRemote(ctx, w.Path)
 	if hasOrigin {
@@ -767,7 +814,7 @@ func extractWorkspaceNumber(id string) (int, error) {
 //
 // Public callers are treated as explicit refreshes. Internal poller/watcher paths
 // should call updateGitStatusWithTrigger so telemetry attribution remains accurate.
-func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*state.Workspace, error) {
+func (m *Manager) UpdateVCSStatus(ctx context.Context, workspaceID string) (*state.Workspace, error) {
 	return m.updateGitStatusWithTrigger(ctx, workspaceID, RefreshTriggerExplicit)
 }
 
@@ -856,7 +903,7 @@ func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, worksp
 
 // UpdateAllGitStatus refreshes git status for all workspaces.
 // This is called periodically by the background goroutine.
-func (m *Manager) UpdateAllGitStatus(ctx context.Context) {
+func (m *Manager) UpdateAllVCSStatus(ctx context.Context) {
 	workspaces := m.state.GetWorkspaces()
 	round := newPollRound()
 
@@ -992,41 +1039,57 @@ func (m *Manager) dispose(ctx context.Context, workspaceID string, force bool) e
 		m.gitWatcher.RemoveWorkspace(workspaceID)
 	}
 
-	// Find base repo for worktree cleanup (works even if directory is gone)
-	worktreeBasePath, worktreeBaseErr := m.findWorktreeBaseForWorkspace(w)
+	backend := m.backendForWorkspace(workspaceID)
 
-	// Delete workspace directory (worktree or legacy full clone)
 	if dirExists {
-		if isWorktree(w.Path) {
-			// Use git worktree remove for worktrees
-			if worktreeBaseErr != nil {
-				m.logger.Warn("could not find worktree base, falling back to rm", "err", worktreeBaseErr)
-				if err := os.RemoveAll(w.Path); err != nil {
-					return fmt.Errorf("failed to delete workspace directory: %w", err)
-				}
-			} else {
-				if err := m.removeWorktree(ctx, worktreeBasePath, w.Path); err != nil {
-					return fmt.Errorf("failed to remove worktree: %w", err)
+		if w.VCS == "sapling" {
+			if err := backend.RemoveWorkspace(ctx, w.Path); err != nil {
+				m.logger.Warn("sapling remove failed, falling back to rm", "err", err)
+				if rmErr := os.RemoveAll(w.Path); rmErr != nil {
+					return fmt.Errorf("failed to delete workspace directory: %w", rmErr)
 				}
 			}
 		} else {
-			// Legacy full clone - delete directory
-			if err := os.RemoveAll(w.Path); err != nil {
-				return fmt.Errorf("failed to delete workspace directory: %w", err)
+			worktreeBasePath, worktreeBaseErr := m.findWorktreeBaseForWorkspace(w)
+			if isWorktree(w.Path) {
+				if worktreeBaseErr != nil {
+					m.logger.Warn("could not find worktree base, falling back to rm", "err", worktreeBaseErr)
+					if err := os.RemoveAll(w.Path); err != nil {
+						return fmt.Errorf("failed to delete workspace directory: %w", err)
+					}
+				} else {
+					if err := backend.RemoveWorkspace(ctx, w.Path); err != nil {
+						return fmt.Errorf("failed to remove worktree: %w", err)
+					}
+				}
+			} else {
+				if err := backend.RemoveWorkspace(ctx, w.Path); err != nil {
+					if rmErr := os.RemoveAll(w.Path); rmErr != nil {
+						return fmt.Errorf("failed to delete workspace directory: %w", rmErr)
+					}
+				}
+			}
+
+			if worktreeBaseErr == nil {
+				if err := backend.PruneStale(ctx, worktreeBasePath); err != nil {
+					m.logger.Warn("failed to prune worktrees", "err", err)
+				}
+			}
+
+			if worktreeBaseErr == nil && w.Branch != "" {
+				m.cleanupLocalBranch(ctx, worktreeBasePath, w)
 			}
 		}
-	}
-
-	// Prune stale worktree references (handles case where directory was already deleted)
-	if worktreeBaseErr == nil {
-		if err := m.pruneWorktrees(ctx, worktreeBasePath); err != nil {
-			m.logger.Warn("failed to prune worktrees", "err", err)
+	} else if w.VCS != "sapling" {
+		worktreeBasePath, worktreeBaseErr := m.findWorktreeBaseForWorkspace(w)
+		if worktreeBaseErr == nil {
+			if err := backend.PruneStale(ctx, worktreeBasePath); err != nil {
+				m.logger.Warn("failed to prune worktrees", "err", err)
+			}
 		}
-	}
-
-	// Delete local branch if it wasn't pushed to remote
-	if worktreeBaseErr == nil && w.Branch != "" {
-		m.cleanupLocalBranch(ctx, worktreeBasePath, w)
+		if worktreeBaseErr == nil && w.Branch != "" {
+			m.cleanupLocalBranch(ctx, worktreeBasePath, w)
+		}
 	}
 
 	// Remove from state
@@ -1100,23 +1163,23 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 	workspacePath := filepath.Join(m.config.GetWorkspacePath(), workspaceID)
 
 	// 8. Ensure base repo exists (creates bare clone if needed)
-	worktreeBasePath, err := m.ensureWorktreeBase(ctx, source.Repo)
+	branchBackend := m.backendFor(source.Repo)
+
+	worktreeBasePath, err := branchBackend.EnsureRepoBase(ctx, source.Repo, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure worktree base: %w", err)
 	}
 
-	// 9. Fetch latest before creating worktree
-	if fetchErr := m.gitFetch(ctx, worktreeBasePath); fetchErr != nil {
+	if fetchErr := branchBackend.Fetch(ctx, worktreeBasePath); fetchErr != nil {
 		m.logger.Warn("fetch failed before worktree add", "err", fetchErr)
 	}
 
-	// Fast-forward local default branch to match origin after fetch
-	m.updateLocalDefaultBranch(ctx, "", RefreshTriggerExplicit, worktreeBasePath, source.Repo, nil)
+	if repoConfig.VCS == "" || repoConfig.VCS == "git-worktree" || repoConfig.VCS == "git-clone" {
+		m.updateLocalDefaultBranch(ctx, "", RefreshTriggerExplicit, worktreeBasePath, source.Repo, nil)
+	}
 
-	// 10. Check if branch already exists
 	if m.localBranchExists(ctx, worktreeBasePath, newBranch) {
-		// Use unique branch with suffix
-		uniqueBranch, wasCreated, err := m.ensureUniqueBranch(ctx, worktreeBasePath, newBranch)
+		uniqueBranch, wasCreated, err := m.gitBackend.ensureUniqueBranch(ctx, worktreeBasePath, newBranch)
 		if err != nil {
 			return nil, fmt.Errorf("failed to pick unique branch: %w", err)
 		}
@@ -1139,18 +1202,16 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 		if cleanupNeeded {
 			m.logger.Warn("cleaning up failed", "path", workspacePath)
 			// Try worktree remove first, fall back to rm -rf
-			if err := m.removeWorktree(ctx, worktreeBasePath, workspacePath); err != nil {
+			if err := branchBackend.RemoveWorkspace(ctx, workspacePath); err != nil {
 				os.RemoveAll(workspacePath)
 			}
-			// Delete the branch we created
 			if err := m.deleteBranch(ctx, worktreeBasePath, newBranch); err != nil {
 				m.logger.Warn("failed to delete branch", "branch", newBranch, "err", err)
 			}
 		}
 	}()
 
-	// 13. Add worktree for the new branch
-	if m.config.UseWorktrees() {
+	if m.repoUsesWorktrees(repoConfig) {
 		if err := m.addWorktreeForBranch(ctx, worktreeBasePath, workspacePath, newBranch); err != nil {
 			return nil, fmt.Errorf("failed to add worktree: %w", err)
 		}

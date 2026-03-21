@@ -503,7 +503,7 @@ func TestUpdateLocalDefaultBranch_FastForwardsAfterFetch(t *testing.T) {
 	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
 
 	// Create bare clone (worktree base)
-	bareRepoPath, err := m.ensureWorktreeBase(ctx, remoteDir)
+	bareRepoPath, err := m.gitBackend.EnsureRepoBase(ctx, remoteDir, "")
 	if err != nil {
 		t.Fatalf("ensureWorktreeBase() failed: %v", err)
 	}
@@ -575,7 +575,7 @@ func TestUpdateLocalDefaultBranch_SkipsWhenCheckedOutInWorktree(t *testing.T) {
 	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
 
 	// Create bare clone
-	bareRepoPath, err := m.ensureWorktreeBase(ctx, remoteDir)
+	bareRepoPath, err := m.gitBackend.EnsureRepoBase(ctx, remoteDir, "")
 	if err != nil {
 		t.Fatalf("ensureWorktreeBase() failed: %v", err)
 	}
@@ -629,7 +629,7 @@ func TestUpdateLocalDefaultBranch_SkipsOnDivergedBranches(t *testing.T) {
 	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
 
 	// Create bare clone
-	bareRepoPath, err := m.ensureWorktreeBase(ctx, remoteDir)
+	bareRepoPath, err := m.gitBackend.EnsureRepoBase(ctx, remoteDir, "")
 	if err != nil {
 		t.Fatalf("ensureWorktreeBase() failed: %v", err)
 	}
@@ -690,7 +690,7 @@ func TestUpdateLocalDefaultBranch_NewWorktreeGetsLatestMain(t *testing.T) {
 	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
 
 	// Create bare clone
-	bareRepoPath, err := m.ensureWorktreeBase(ctx, remoteDir)
+	bareRepoPath, err := m.gitBackend.EnsureRepoBase(ctx, remoteDir, "")
 	if err != nil {
 		t.Fatalf("ensureWorktreeBase() failed: %v", err)
 	}
@@ -712,7 +712,7 @@ func TestUpdateLocalDefaultBranch_NewWorktreeGetsLatestMain(t *testing.T) {
 
 	// Create a worktree on main — should get the latest commit
 	worktreePath := filepath.Join(tmpDir, "wt-main")
-	if err := m.addWorktree(ctx, bareRepoPath, worktreePath, "main", remoteDir); err != nil {
+	if err := m.gitBackend.CreateWorkspace(ctx, bareRepoPath, "main", worktreePath); err != nil {
 		t.Fatalf("addWorktree() failed: %v", err)
 	}
 

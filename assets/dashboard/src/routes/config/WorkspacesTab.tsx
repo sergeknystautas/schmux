@@ -5,11 +5,11 @@ import type { OverlayInfo, RepoResponse } from '../../lib/types';
 
 type WorkspacesTabProps = {
   workspacePath: string;
-  sourceCodeManagement: string;
   repos: RepoResponse[];
   overlays: OverlayInfo[];
   newRepoName: string;
   newRepoUrl: string;
+  newRepoVcs: string;
   stepErrors: Record<number, string | null>;
   dispatch: React.Dispatch<ConfigFormAction>;
   onEditWorkspacePath: () => void;
@@ -19,11 +19,11 @@ type WorkspacesTabProps = {
 
 export default function WorkspacesTab({
   workspacePath,
-  sourceCodeManagement,
   repos,
   overlays,
   newRepoName,
   newRepoUrl,
+  newRepoVcs,
   stepErrors,
   dispatch,
   onEditWorkspacePath,
@@ -76,7 +76,16 @@ export default function WorkspacesTab({
             return (
               <div className="item-list__item" key={repo.name}>
                 <div className="item-list__item-primary">
-                  <span className="item-list__item-name">{repo.name}</span>
+                  <span className="item-list__item-name">
+                    {repo.name}
+                    {(repo.vcs === 'sapling' || repo.vcs === 'git-clone') && (
+                      <span
+                        style={{ marginLeft: 'var(--spacing-xs)', fontSize: '0.8em', opacity: 0.7 }}
+                      >
+                        [{repo.vcs === 'sapling' ? 'sapling' : 'git clone'}]
+                      </span>
+                    )}
+                  </span>
                   <span className="item-list__item-detail">{repo.url}</span>
                   <Link
                     to="/overlays"
@@ -124,13 +133,27 @@ export default function WorkspacesTab({
           <input
             type="text"
             className="input"
-            placeholder="git@github.com:user/repo.git"
+            placeholder={
+              newRepoVcs === 'sapling' ? 'Repo Identifier' : 'git@github.com:user/repo.git'
+            }
             value={newRepoUrl}
             onChange={(e) =>
               dispatch({ type: 'SET_FIELD', field: 'newRepoUrl', value: e.target.value })
             }
             onKeyDown={(e) => e.key === 'Enter' && onAddRepo()}
           />
+          <select
+            className="select"
+            value={newRepoVcs}
+            onChange={(e) =>
+              dispatch({ type: 'SET_FIELD', field: 'newRepoVcs', value: e.target.value })
+            }
+            style={{ width: 'auto', minWidth: '130px' }}
+          >
+            <option value="">git worktree</option>
+            <option value="git-clone">git clone</option>
+            <option value="sapling">sapling</option>
+          </select>
         </div>
         <button
           type="button"
@@ -140,36 +163,6 @@ export default function WorkspacesTab({
         >
           Add
         </button>
-      </div>
-
-      <h3>Source Code Management</h3>
-      <p className="wizard-step-content__description">
-        How schmux creates workspace directories for each session.
-      </p>
-      <div className="form-group">
-        <select
-          className="select"
-          value={sourceCodeManagement}
-          onChange={(e) =>
-            dispatch({ type: 'SET_FIELD', field: 'sourceCodeManagement', value: e.target.value })
-          }
-        >
-          <option value="git-worktree">git worktree (default)</option>
-          <option value="git">git</option>
-        </select>
-        <p className="form-group__hint">
-          {sourceCodeManagement === 'git-worktree' ? (
-            <>
-              <strong>git worktree:</strong> Efficient disk usage, shares repo history across
-              workspaces. Each branch can only be used by one workspace at a time.
-            </>
-          ) : (
-            <>
-              <strong>git:</strong> Independent clones for each workspace. Multiple workspaces can
-              use the same branch.
-            </>
-          )}
-        </p>
       </div>
 
       {stepErrors[1] && (

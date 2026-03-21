@@ -68,6 +68,10 @@ function makeSnapshot(overrides: Partial<ConfigSnapshot> = {}): ConfigSnapshot {
     fmDebounceMs: 2000,
     ioWorkspaceTelemetryEnabled: false,
     ioWorkspaceTelemetryTarget: '',
+    saplingCmdCreateWorkspace: '',
+    saplingCmdRemoveWorkspace: '',
+    saplingCmdCheckRepoBase: '',
+    saplingCmdCreateRepoBase: '',
     ...overrides,
   };
 }
@@ -739,6 +743,10 @@ describe('useConfigForm', () => {
             desyncTarget: snapshot.desyncTarget,
             ioWorkspaceTelemetryEnabled: snapshot.ioWorkspaceTelemetryEnabled,
             ioWorkspaceTelemetryTarget: snapshot.ioWorkspaceTelemetryTarget,
+            saplingCmdCreateWorkspace: snapshot.saplingCmdCreateWorkspace,
+            saplingCmdRemoveWorkspace: snapshot.saplingCmdRemoveWorkspace,
+            saplingCmdCheckRepoBase: snapshot.saplingCmdCheckRepoBase,
+            saplingCmdCreateRepoBase: snapshot.saplingCmdCreateRepoBase,
           },
         });
       });

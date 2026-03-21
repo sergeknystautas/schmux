@@ -9,11 +9,11 @@ const dispatch = vi.fn<(action: ConfigFormAction) => void>();
 
 const defaultProps = {
   workspacePath: '/home/user/workspaces',
-  sourceCodeManagement: 'git-worktree',
   repos: [] as { name: string; url: string; default_branch?: string }[],
   overlays: [],
   newRepoName: '',
   newRepoUrl: '',
+  newRepoVcs: '',
   stepErrors: { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null } as Record<
     number,
     string | null
@@ -83,18 +83,6 @@ describe('WorkspacesTab', () => {
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'SET_FIELD', field: 'newRepoName' })
     );
-  });
-
-  it('dispatches SET_FIELD on SCM select change', async () => {
-    dispatch.mockClear();
-    renderTab();
-    const select = screen.getByDisplayValue('git worktree (default)');
-    await userEvent.selectOptions(select, 'git');
-    expect(dispatch).toHaveBeenCalledWith({
-      type: 'SET_FIELD',
-      field: 'sourceCodeManagement',
-      value: 'git',
-    });
   });
 
   it('shows step error when present', () => {

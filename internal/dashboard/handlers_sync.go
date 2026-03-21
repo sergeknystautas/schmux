@@ -156,7 +156,7 @@ func (s *Server) runLinearSyncFromMain(workspaceID string) {
 	}
 
 	// Update git status after sync (best-effort, don't block response)
-	if _, err := s.workspace.UpdateGitStatus(ctx, workspaceID); err != nil {
+	if _, err := s.workspace.UpdateVCSStatus(ctx, workspaceID); err != nil {
 		if !errors.Is(err, workspace.ErrWorkspaceLocked) {
 			workspaceLog.Warn("linear-sync-from-main: failed to update git status", "err", err)
 		}
@@ -237,7 +237,7 @@ func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Update git status after sync (best-effort, don't block response)
-	if _, err := s.workspace.UpdateGitStatus(ctx, workspaceID); err != nil {
+	if _, err := s.workspace.UpdateVCSStatus(ctx, workspaceID); err != nil {
 		if !errors.Is(err, workspace.ErrWorkspaceLocked) {
 			workspaceLog.Warn("linear-sync-to-main: failed to update git status", "err", err)
 		}
@@ -313,7 +313,7 @@ func (s *Server) handlePushToBranch(w http.ResponseWriter, r *http.Request) {
 
 	// Update git status after push (best effort)
 	if result.Success {
-		if _, err := s.workspace.UpdateGitStatus(ctx, workspaceID); err != nil {
+		if _, err := s.workspace.UpdateVCSStatus(ctx, workspaceID); err != nil {
 			if !errors.Is(err, workspace.ErrWorkspaceLocked) {
 				workspaceLog.Warn("push-to-branch: failed to update git status", "err", err)
 			}
@@ -470,7 +470,7 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 		crLog := logging.Sub(s.logger, "workspace")
 
 		// Update git status (best-effort; do not block final state)
-		if _, err := s.workspace.UpdateGitStatus(s.shutdownCtx, workspaceID); err != nil {
+		if _, err := s.workspace.UpdateVCSStatus(s.shutdownCtx, workspaceID); err != nil {
 			if !errors.Is(err, workspace.ErrWorkspaceLocked) {
 				crLog.Warn("linear-sync-resolve-conflict: failed to update git status", "err", err)
 			}

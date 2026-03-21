@@ -247,10 +247,10 @@ func TestEnsuredQueryRepos_InitializedInNew(t *testing.T) {
 	}
 }
 
-// TestUpdateGitStatus_NoDuplicateBranchQueries verifies that
+// TestUpdateVCSStatus_NoDuplicateBranchQueries verifies that
 // updateGitStatusWithTriggerAndRound does NOT run a separate git rev-parse
 // for the current branch, since gitStatus already returns it.
-func TestUpdateGitStatus_NoDuplicateBranchQueries(t *testing.T) {
+func TestUpdateVCSStatus_NoDuplicateBranchQueries(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -283,10 +283,10 @@ func TestUpdateGitStatus_NoDuplicateBranchQueries(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Run UpdateGitStatus
-	updated, err := m.UpdateGitStatus(ctx, "test-001")
+	// Run UpdateVCSStatus
+	updated, err := m.UpdateVCSStatus(ctx, "test-001")
 	if err != nil {
-		t.Fatalf("UpdateGitStatus() failed: %v", err)
+		t.Fatalf("UpdateVCSStatus() failed: %v", err)
 	}
 
 	if updated.Branch != "main" {
@@ -304,10 +304,10 @@ func TestUpdateGitStatus_NoDuplicateBranchQueries(t *testing.T) {
 	}
 }
 
-// TestUpdateGitStatus_NoDuplicateRemoteBranchCheck verifies that
+// TestUpdateVCSStatus_NoDuplicateRemoteBranchCheck verifies that
 // updateGitStatusWithTriggerAndRound does NOT run a separate show-ref
 // to check remote branch existence, since gitStatus already computes it.
-func TestUpdateGitStatus_NoDuplicateRemoteBranchCheck(t *testing.T) {
+func TestUpdateVCSStatus_NoDuplicateRemoteBranchCheck(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -339,9 +339,9 @@ func TestUpdateGitStatus_NoDuplicateRemoteBranchCheck(t *testing.T) {
 
 	ctx := context.Background()
 
-	updated, err := m.UpdateGitStatus(ctx, "test-001")
+	updated, err := m.UpdateVCSStatus(ctx, "test-001")
 	if err != nil {
-		t.Fatalf("UpdateGitStatus() failed: %v", err)
+		t.Fatalf("UpdateVCSStatus() failed: %v", err)
 	}
 
 	// Remote branch "main" should exist
@@ -353,7 +353,7 @@ func TestUpdateGitStatus_NoDuplicateRemoteBranchCheck(t *testing.T) {
 
 	// Count show-ref calls. gitStatusWithRound calls show-ref once to check
 	// if origin/<branch> exists. Before the optimization, updateGitStatusWithTriggerAndRound
-	// would call it again via GetWorktreeBaseByURL. Count should be exactly 1.
+	// would call it again via GetRepoBaseByURL. Count should be exactly 1.
 	showRefCount := snap.Counters["git_show-ref"]
 	if showRefCount > 1 {
 		t.Errorf("expected at most 1 show-ref call (remote branch check), got %d — duplicate query not eliminated", showRefCount)
@@ -444,7 +444,7 @@ func TestUpdateLocalDefaultBranch_ShortCircuitsWhenRefsMatch(t *testing.T) {
 	ctx := context.Background()
 
 	// Create bare clone
-	bareRepoPath, err := m.ensureWorktreeBase(ctx, remoteDir)
+	bareRepoPath, err := m.gitBackend.EnsureRepoBase(ctx, remoteDir, "")
 	if err != nil {
 		t.Fatalf("ensureWorktreeBase() failed: %v", err)
 	}
@@ -505,7 +505,7 @@ func TestUpdateLocalDefaultBranch_StillUpdatesWhenBehind(t *testing.T) {
 	ctx := context.Background()
 
 	// Create bare clone
-	bareRepoPath, err := m.ensureWorktreeBase(ctx, remoteDir)
+	bareRepoPath, err := m.gitBackend.EnsureRepoBase(ctx, remoteDir, "")
 	if err != nil {
 		t.Fatalf("ensureWorktreeBase() failed: %v", err)
 	}
@@ -537,9 +537,9 @@ func TestUpdateLocalDefaultBranch_StillUpdatesWhenBehind(t *testing.T) {
 	}
 }
 
-// TestUpdateAllGitStatus_ParallelExecution verifies that UpdateAllGitStatus
+// TestUpdateAllVCSStatus_ParallelExecution verifies that UpdateAllVCSStatus
 // processes multiple workspaces concurrently.
-func TestUpdateAllGitStatus_ParallelExecution(t *testing.T) {
+func TestUpdateAllVCSStatus_ParallelExecution(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -568,8 +568,8 @@ func TestUpdateAllGitStatus_ParallelExecution(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Run UpdateAllGitStatus — should complete without error
-	m.UpdateAllGitStatus(ctx)
+	// Run UpdateAllVCSStatus — should complete without error
+	m.UpdateAllVCSStatus(ctx)
 
 	// Verify both workspaces were updated
 	w1, _ := st.GetWorkspace("ws-001")
@@ -908,10 +908,10 @@ func TestOrphanCheck_SkippedWhenSynced(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Run UpdateGitStatus — on main branch, synced with origin, ahead=0, behind=0
-	updated, err := m.UpdateGitStatus(ctx, "test-001")
+	// Run UpdateVCSStatus — on main branch, synced with origin, ahead=0, behind=0
+	updated, err := m.UpdateVCSStatus(ctx, "test-001")
 	if err != nil {
-		t.Fatalf("UpdateGitStatus() failed: %v", err)
+		t.Fatalf("UpdateVCSStatus() failed: %v", err)
 	}
 
 	if updated.GitAhead != 0 || updated.GitBehind != 0 {
@@ -972,9 +972,9 @@ func TestOrphanCheck_StillRunsWhenAhead(t *testing.T) {
 
 	ctx := context.Background()
 
-	updated, err := m.UpdateGitStatus(ctx, "test-001")
+	updated, err := m.UpdateVCSStatus(ctx, "test-001")
 	if err != nil {
-		t.Fatalf("UpdateGitStatus() failed: %v", err)
+		t.Fatalf("UpdateVCSStatus() failed: %v", err)
 	}
 
 	if updated.GitAhead == 0 {

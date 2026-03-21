@@ -17,17 +17,17 @@ import (
 
 // State represents the application state.
 type State struct {
-	Workspaces    []Workspace                 `json:"workspaces"`
-	Sessions      []Session                   `json:"sessions"`
-	WorktreeBases []WorktreeBase              `json:"base_repos,omitempty"`    // bare clones that host worktrees
-	PullRequests  []contracts.PullRequest     `json:"pull_requests,omitempty"` // cached GitHub PRs
-	PublicRepos   []string                    `json:"public_repos,omitempty"`  // repo URLs confirmed public on GitHub
-	NeedsRestart  bool                        `json:"needs_restart,omitempty"` // true if daemon needs restart for config changes to take effect
-	RemoteHosts   []RemoteHost                `json:"remote_hosts,omitempty"`  // connected/cached remote hosts
-	Previews      map[string]WorkspacePreview `json:"previews,omitempty"`      // persisted preview mappings (proxy port must survive restart)
-	path          string                      // path to the state file
-	logger        *log.Logger
-	mu            sync.RWMutex
+	Workspaces   []Workspace                 `json:"workspaces"`
+	Sessions     []Session                   `json:"sessions"`
+	RepoBases    []RepoBase                  `json:"base_repos,omitempty"`
+	PullRequests []contracts.PullRequest     `json:"pull_requests,omitempty"` // cached GitHub PRs
+	PublicRepos  []string                    `json:"public_repos,omitempty"`  // repo URLs confirmed public on GitHub
+	NeedsRestart bool                        `json:"needs_restart,omitempty"` // true if daemon needs restart for config changes to take effect
+	RemoteHosts  []RemoteHost                `json:"remote_hosts,omitempty"`  // connected/cached remote hosts
+	Previews     map[string]WorkspacePreview `json:"previews,omitempty"`      // persisted preview mappings (proxy port must survive restart)
+	path         string                      // path to the state file
+	logger       *log.Logger
+	mu           sync.RWMutex
 
 	// Batched save support (Issue 6 fix)
 	savePending atomic.Bool // True if a save is scheduled
@@ -73,6 +73,7 @@ type Workspace struct {
 	Repo                     string            `json:"repo"`
 	Branch                   string            `json:"branch"`
 	Path                     string            `json:"path"`
+	VCS                      string            `json:"vcs,omitempty"`
 	GitDirty                 bool              `json:"-"`
 	GitAhead                 int               `json:"-"`
 	GitBehind                int               `json:"-"`
@@ -106,10 +107,10 @@ type WorkspacePreview struct {
 	LastHealthyAt   time.Time `json:"last_healthy_at,omitempty"`
 }
 
-// WorktreeBase tracks a bare clone that hosts worktrees.
-type WorktreeBase struct {
-	RepoURL string `json:"repo_url"` // e.g., "git@github.com:user/repo.git"
-	Path    string `json:"path"`     // e.g., "~/.schmux/repos/myrepo.git"
+type RepoBase struct {
+	RepoURL string `json:"repo_url"`
+	Path    string `json:"path"`
+	VCS     string `json:"vcs,omitempty"`
 }
 
 // Session represents a run target session.
@@ -139,13 +140,13 @@ type Session struct {
 // New creates a new empty State instance.
 func New(path string, logger *log.Logger) *State {
 	return &State{
-		Workspaces:    []Workspace{},
-		Sessions:      []Session{},
-		WorktreeBases: []WorktreeBase{},
-		RemoteHosts:   []RemoteHost{},
-		Previews:      map[string]WorkspacePreview{},
-		path:          path,
-		logger:        logger,
+		Workspaces:  []Workspace{},
+		Sessions:    []Session{},
+		RepoBases:   []RepoBase{},
+		RemoteHosts: []RemoteHost{},
+		Previews:    map[string]WorkspacePreview{},
+		path:        path,
+		logger:      logger,
 	}
 }
 
@@ -167,9 +168,9 @@ func Load(path string, logger *log.Logger) (*State, error) {
 		return nil, fmt.Errorf("failed to unmarshal state: %w", err)
 	}
 
-	// Initialize WorktreeBases if nil (existing state files)
-	if st.WorktreeBases == nil {
-		st.WorktreeBases = []WorktreeBase{}
+	// Initialize RepoBases if nil (existing state files)
+	if st.RepoBases == nil {
+		st.RepoBases = []RepoBase{}
 	}
 
 	// Initialize RemoteHosts if nil (existing state files)
@@ -647,44 +648,42 @@ func (s *State) UpdateOverlayManifestEntry(workspaceID, relPath, hash string) {
 	}
 }
 
-// GetWorktreeBases returns all worktree bases.
-func (s *State) GetWorktreeBases() []WorktreeBase {
+// GetRepoBases returns all repo bases.
+func (s *State) GetRepoBases() []RepoBase {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.WorktreeBases == nil {
-		return []WorktreeBase{}
+	if s.RepoBases == nil {
+		return []RepoBase{}
 	}
-	bases := make([]WorktreeBase, len(s.WorktreeBases))
-	copy(bases, s.WorktreeBases)
+	bases := make([]RepoBase, len(s.RepoBases))
+	copy(bases, s.RepoBases)
 	return bases
 }
 
-// AddWorktreeBase adds a worktree base to the state.
-func (s *State) AddWorktreeBase(wb WorktreeBase) error {
+func (s *State) AddRepoBase(wb RepoBase) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// Check for existing entry with same URL
-	for i, existing := range s.WorktreeBases {
+	for i, existing := range s.RepoBases {
 		if existing.RepoURL == wb.RepoURL {
 			// Update existing entry
-			s.WorktreeBases[i] = wb
+			s.RepoBases[i] = wb
 			return nil
 		}
 	}
-	s.WorktreeBases = append(s.WorktreeBases, wb)
+	s.RepoBases = append(s.RepoBases, wb)
 	return nil
 }
 
-// GetWorktreeBaseByURL returns a worktree base by its URL.
-func (s *State) GetWorktreeBaseByURL(repoURL string) (WorktreeBase, bool) {
+func (s *State) GetRepoBaseByURL(repoURL string) (RepoBase, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	for _, wb := range s.WorktreeBases {
+	for _, wb := range s.RepoBases {
 		if wb.RepoURL == repoURL {
 			return wb, true
 		}
 	}
-	return WorktreeBase{}, false
+	return RepoBase{}, false
 }
 
 // SetNeedsRestart sets the needs_restart flag.

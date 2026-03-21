@@ -94,6 +94,7 @@ type Config struct {
 	Subreddit                  *SubredditConfig            `json:"subreddit,omitempty"`
 	Repofeed                   *RepofeedConfig             `json:"repofeed,omitempty"`
 	FloorManager               *FloorManagerConfig         `json:"floor_manager,omitempty"`
+	SaplingCommands            SaplingCommands             `json:"sapling_commands,omitempty"`
 	BuiltInSkills              map[string]bool             `json:"built_in_skills,omitempty"`
 
 	// Telemetry settings
@@ -425,9 +426,39 @@ type AccessControlConfig struct {
 type Repo struct {
 	Name                  string   `json:"name"`
 	URL                   string   `json:"url"`
-	BarePath              string   `json:"bare_path,omitempty"`               // path relative to repos/query dirs (e.g., "schmux.git" or "owner/repo.git")
-	OverlayPaths          []string `json:"overlay_paths,omitempty"`           // repo-specific overlay paths
-	OverlayNudgeDismissed bool     `json:"overlay_nudge_dismissed,omitempty"` // whether the overlay nudge banner has been dismissed
+	BarePath              string   `json:"bare_path,omitempty"`
+	VCS                   string   `json:"vcs,omitempty"`
+	OverlayPaths          []string `json:"overlay_paths,omitempty"`
+	OverlayNudgeDismissed bool     `json:"overlay_nudge_dismissed,omitempty"`
+}
+
+type SaplingCommands struct {
+	CreateWorkspace string `json:"create_workspace,omitempty"`
+	RemoveWorkspace string `json:"remove_workspace,omitempty"`
+	CheckRepoBase   string `json:"check_repo_base,omitempty"`
+	CreateRepoBase  string `json:"create_repo_base,omitempty"`
+	ListWorkspaces  string `json:"list_workspaces,omitempty"`
+}
+
+func (sc SaplingCommands) GetCreateWorkspace() string {
+	if sc.CreateWorkspace != "" {
+		return sc.CreateWorkspace
+	}
+	return "sl clone {{.RepoIdentifier}} {{.DestPath}}"
+}
+
+func (sc SaplingCommands) GetRemoveWorkspace() string {
+	if sc.RemoveWorkspace != "" {
+		return sc.RemoveWorkspace
+	}
+	return "rm -rf {{.WorkspacePath}}"
+}
+
+func (sc SaplingCommands) GetCreateRepoBase() string {
+	if sc.CreateRepoBase != "" {
+		return sc.CreateRepoBase
+	}
+	return "sl clone {{.RepoIdentifier}} {{.BasePath}}"
 }
 
 // RunTarget represents a user-supplied run target.

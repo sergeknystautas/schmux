@@ -41,7 +41,7 @@ func (m *Manager) fetchPRRef(ctx context.Context, repoURL string, prNumber int, 
 	lock.Lock()
 	defer lock.Unlock()
 
-	worktreeBasePath, err := m.ensureWorktreeBase(ctx, repoURL)
+	worktreeBasePath, err := m.gitBackend.EnsureRepoBase(ctx, repoURL, "")
 	if err != nil {
 		return fmt.Errorf("failed to ensure worktree base: %w", err)
 	}

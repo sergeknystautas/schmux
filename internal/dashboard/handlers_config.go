@@ -54,7 +54,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	repoResp := make([]contracts.RepoWithConfig, len(repos))
 	for i, repo := range repos {
-		resp := contracts.RepoWithConfig{Name: repo.Name, URL: repo.URL}
+		resp := contracts.RepoWithConfig{Name: repo.Name, URL: repo.URL, VCS: repo.VCS}
 		// Try to get default branch from cache (omit if not detected)
 		if defaultBranch, err := s.workspace.GetDefaultBranch(ctx, repo.URL); err == nil {
 			resp.DefaultBranch = defaultBranch
@@ -145,6 +145,19 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			Enabled: s.config.GetIOWorkspaceTelemetryEnabled(),
 			Target:  s.config.GetIOWorkspaceTelemetryTarget(),
 		},
+		SaplingCommands: func() *contracts.SaplingCommandsUpdate {
+			sc := s.config.SaplingCommands
+			if sc.CreateWorkspace == "" && sc.RemoveWorkspace == "" && sc.CheckRepoBase == "" && sc.CreateRepoBase == "" {
+				return nil
+			}
+			return &contracts.SaplingCommandsUpdate{
+				CreateWorkspace: sc.CreateWorkspace,
+				RemoveWorkspace: sc.RemoveWorkspace,
+				CheckRepoBase:   sc.CheckRepoBase,
+				CreateRepoBase:  sc.CreateRepoBase,
+				ListWorkspaces:  sc.ListWorkspaces,
+			}
+		}(),
 		Notifications: contracts.Notifications{
 			SoundDisabled:           !s.config.GetNotificationSoundEnabled(),
 			ConfirmBeforeClose:      s.config.GetConfirmBeforeClose(),
@@ -271,9 +284,23 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		for i, r := range req.Repos {
 			barePath := existingByURL[r.URL]
 			if barePath == "" {
-				barePath = r.Name + ".git"
+				if r.VCS == "sapling" {
+					barePath = r.Name
+				} else {
+					barePath = r.Name + ".git"
+				}
 			}
-			cfg.Repos[i] = config.Repo{Name: r.Name, URL: r.URL, BarePath: barePath}
+			cfg.Repos[i] = config.Repo{Name: r.Name, URL: r.URL, BarePath: barePath, VCS: r.VCS}
+		}
+	}
+
+	if req.SaplingCommands != nil {
+		cfg.SaplingCommands = config.SaplingCommands{
+			CreateWorkspace: req.SaplingCommands.CreateWorkspace,
+			RemoveWorkspace: req.SaplingCommands.RemoveWorkspace,
+			CheckRepoBase:   req.SaplingCommands.CheckRepoBase,
+			CreateRepoBase:  req.SaplingCommands.CreateRepoBase,
+			ListWorkspaces:  req.SaplingCommands.ListWorkspaces,
 		}
 	}
 

@@ -4,7 +4,16 @@ package contracts
 type Repo struct {
 	Name     string `json:"name"`
 	URL      string `json:"url"`
-	BarePath string `json:"bare_path,omitempty"` // path relative to repos/query dirs
+	BarePath string `json:"bare_path,omitempty"`
+	VCS      string `json:"vcs,omitempty"`
+}
+
+type SaplingCommandsUpdate struct {
+	CreateWorkspace string `json:"create_workspace,omitempty"`
+	RemoveWorkspace string `json:"remove_workspace,omitempty"`
+	CheckRepoBase   string `json:"check_repo_base,omitempty"`
+	CreateRepoBase  string `json:"create_repo_base,omitempty"`
+	ListWorkspaces  string `json:"list_workspaces,omitempty"`
 }
 
 // RepoConfig represents repository-specific configuration from .schmux/config.json.
@@ -16,7 +25,8 @@ type RepoConfig struct {
 type RepoWithConfig struct {
 	Name          string      `json:"name"`
 	URL           string      `json:"url"`
-	DefaultBranch string      `json:"default_branch,omitempty"` // Omitted if not detected
+	VCS           string      `json:"vcs,omitempty"`
+	DefaultBranch string      `json:"default_branch,omitempty"`
 	Config        *RepoConfig `json:"config,omitempty"`
 }
 
@@ -118,35 +128,36 @@ type SystemCapabilities struct {
 
 // ConfigResponse represents the API response for GET /api/config.
 type ConfigResponse struct {
-	WorkspacePath              string                `json:"workspace_path"`
-	SourceCodeManagement       string                `json:"source_code_management"`
-	Repos                      []RepoWithConfig      `json:"repos"`
-	RunTargets                 []RunTarget           `json:"run_targets"`
-	QuickLaunch                []QuickLaunch         `json:"quick_launch"`
-	ExternalDiffCommands       []ExternalDiffCommand `json:"external_diff_commands,omitempty"`
-	ExternalDiffCleanupAfterMs int                   `json:"external_diff_cleanup_after_ms,omitempty"`
-	Runners                    map[string]RunnerInfo `json:"runners"` // tool name -> runner info
-	Models                     []Model               `json:"models"`
-	EnabledModels              map[string]string     `json:"enabled_models,omitempty"` // modelID -> preferred tool
-	Nudgenik                   Nudgenik              `json:"nudgenik"`
-	BranchSuggest              BranchSuggest         `json:"branch_suggest"`
-	ConflictResolve            ConflictResolve       `json:"conflict_resolve"`
-	Sessions                   Sessions              `json:"sessions"`
-	Xterm                      Xterm                 `json:"xterm"`
-	Network                    Network               `json:"network"`
-	AccessControl              AccessControl         `json:"access_control"`
-	PrReview                   PrReview              `json:"pr_review"`
-	CommitMessage              CommitMessage         `json:"commit_message"`
-	Desync                     Desync                `json:"desync"`
-	IOWorkspaceTelemetry       IOWorkspaceTelemetry  `json:"io_workspace_telemetry"`
-	Notifications              Notifications         `json:"notifications"`
-	Lore                       Lore                  `json:"lore"`
-	Subreddit                  Subreddit             `json:"subreddit"`
-	Repofeed                   Repofeed              `json:"repofeed"`
-	FloorManager               FloorManager          `json:"floor_manager"`
-	RemoteAccess               RemoteAccess          `json:"remote_access"`
-	SystemCapabilities         SystemCapabilities    `json:"system_capabilities"`
-	NeedsRestart               bool                  `json:"needs_restart"`
+	WorkspacePath              string                 `json:"workspace_path"`
+	SourceCodeManagement       string                 `json:"source_code_management"`
+	Repos                      []RepoWithConfig       `json:"repos"`
+	RunTargets                 []RunTarget            `json:"run_targets"`
+	QuickLaunch                []QuickLaunch          `json:"quick_launch"`
+	ExternalDiffCommands       []ExternalDiffCommand  `json:"external_diff_commands,omitempty"`
+	ExternalDiffCleanupAfterMs int                    `json:"external_diff_cleanup_after_ms,omitempty"`
+	Runners                    map[string]RunnerInfo  `json:"runners"` // tool name -> runner info
+	Models                     []Model                `json:"models"`
+	EnabledModels              map[string]string      `json:"enabled_models,omitempty"` // modelID -> preferred tool
+	Nudgenik                   Nudgenik               `json:"nudgenik"`
+	BranchSuggest              BranchSuggest          `json:"branch_suggest"`
+	ConflictResolve            ConflictResolve        `json:"conflict_resolve"`
+	Sessions                   Sessions               `json:"sessions"`
+	Xterm                      Xterm                  `json:"xterm"`
+	Network                    Network                `json:"network"`
+	AccessControl              AccessControl          `json:"access_control"`
+	PrReview                   PrReview               `json:"pr_review"`
+	CommitMessage              CommitMessage          `json:"commit_message"`
+	Desync                     Desync                 `json:"desync"`
+	IOWorkspaceTelemetry       IOWorkspaceTelemetry   `json:"io_workspace_telemetry"`
+	Notifications              Notifications          `json:"notifications"`
+	Lore                       Lore                   `json:"lore"`
+	Subreddit                  Subreddit              `json:"subreddit"`
+	Repofeed                   Repofeed               `json:"repofeed"`
+	FloorManager               FloorManager           `json:"floor_manager"`
+	RemoteAccess               RemoteAccess           `json:"remote_access"`
+	SaplingCommands            *SaplingCommandsUpdate `json:"sapling_commands,omitempty"`
+	SystemCapabilities         SystemCapabilities     `json:"system_capabilities"`
+	NeedsRestart               bool                   `json:"needs_restart"`
 }
 
 // Desync represents desync diagnostic capture configuration in the API response.
@@ -278,6 +289,7 @@ type ConfigUpdateRequest struct {
 	FloorManager               *FloorManagerUpdate         `json:"floor_manager,omitempty"`
 	RemoteAccess               *RemoteAccessUpdate         `json:"remote_access,omitempty"`
 	EnabledModels              *map[string]string          `json:"enabled_models,omitempty"`
+	SaplingCommands            *SaplingCommandsUpdate      `json:"sapling_commands,omitempty"`
 }
 
 // DesyncUpdate represents partial desync diagnostic config updates.

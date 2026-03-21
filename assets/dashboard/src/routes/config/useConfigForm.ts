@@ -68,6 +68,10 @@ export type ConfigSnapshot = {
   fmDebounceMs: number;
   ioWorkspaceTelemetryEnabled: boolean;
   ioWorkspaceTelemetryTarget: string;
+  saplingCmdCreateWorkspace: string;
+  saplingCmdRemoveWorkspace: string;
+  saplingCmdCheckRepoBase: string;
+  saplingCmdCreateRepoBase: string;
 };
 
 export type RunTargetEditModalState = {
@@ -120,6 +124,7 @@ export type ConfigFormState = {
   // New item inputs
   newRepoName: string;
   newRepoUrl: string;
+  newRepoVcs: string;
   newCommandName: string;
   newCommandCommand: string;
   newQuickLaunchName: string;
@@ -204,9 +209,13 @@ export type ConfigFormState = {
   fmRotationThreshold: number;
   fmDebounceMs: number;
 
-  // IO Workspace Telemetry
   ioWorkspaceTelemetryEnabled: boolean;
   ioWorkspaceTelemetryTarget: string;
+
+  saplingCmdCreateWorkspace: string;
+  saplingCmdRemoveWorkspace: string;
+  saplingCmdCheckRepoBase: string;
+  saplingCmdCreateRepoBase: string;
 
   // Overlays
   overlays: OverlayInfo[];
@@ -280,6 +289,7 @@ export const initialState: ConfigFormState = {
 
   newRepoName: '',
   newRepoUrl: '',
+  newRepoVcs: '',
   newCommandName: '',
   newCommandCommand: '',
   newQuickLaunchName: '',
@@ -358,6 +368,11 @@ export const initialState: ConfigFormState = {
   fmDebounceMs: 2000,
   ioWorkspaceTelemetryEnabled: false,
   ioWorkspaceTelemetryTarget: '',
+
+  saplingCmdCreateWorkspace: '',
+  saplingCmdRemoveWorkspace: '',
+  saplingCmdCheckRepoBase: '',
+  saplingCmdCreateRepoBase: '',
 
   overlays: [],
   loadingOverlays: true,
@@ -454,7 +469,7 @@ function configFormReducer(state: ConfigFormState, action: ConfigFormAction): Co
       return { ...state, stepErrors: { ...state.stepErrors, [action.step]: action.error } };
 
     case 'RESET_NEW_REPO':
-      return { ...state, newRepoName: '', newRepoUrl: '' };
+      return { ...state, newRepoName: '', newRepoUrl: '', newRepoVcs: '' };
 
     case 'RESET_NEW_COMMAND':
       return { ...state, newCommandName: '', newCommandCommand: '' };
@@ -626,6 +641,10 @@ export function useConfigForm(initialStep: number = 1) {
         state.fmDebounceMs !== oc.fmDebounceMs ||
         state.ioWorkspaceTelemetryEnabled !== oc.ioWorkspaceTelemetryEnabled ||
         state.ioWorkspaceTelemetryTarget !== oc.ioWorkspaceTelemetryTarget ||
+        state.saplingCmdCreateWorkspace !== oc.saplingCmdCreateWorkspace ||
+        state.saplingCmdRemoveWorkspace !== oc.saplingCmdRemoveWorkspace ||
+        state.saplingCmdCheckRepoBase !== oc.saplingCmdCheckRepoBase ||
+        state.saplingCmdCreateRepoBase !== oc.saplingCmdCreateRepoBase ||
         state.authSecretsChanged
       );
     },
@@ -712,6 +731,10 @@ export function useConfigForm(initialStep: number = 1) {
       fmDebounceMs: state.fmDebounceMs,
       ioWorkspaceTelemetryEnabled: state.ioWorkspaceTelemetryEnabled,
       ioWorkspaceTelemetryTarget: state.ioWorkspaceTelemetryTarget,
+      saplingCmdCreateWorkspace: state.saplingCmdCreateWorkspace,
+      saplingCmdRemoveWorkspace: state.saplingCmdRemoveWorkspace,
+      saplingCmdCheckRepoBase: state.saplingCmdCheckRepoBase,
+      saplingCmdCreateRepoBase: state.saplingCmdCreateRepoBase,
     };
   }, [state]);
 

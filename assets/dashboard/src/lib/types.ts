@@ -72,7 +72,16 @@ export interface SessionWithWorkspace extends SessionResponse {
 export interface RepoResponse {
   name: string;
   url: string;
-  default_branch?: string; // Detected default branch (main, master, etc.), omitted if not yet detected
+  vcs?: string;
+  default_branch?: string;
+}
+
+export interface SaplingCommandsResponse {
+  create_workspace?: string;
+  remove_workspace?: string;
+  check_repo_base?: string;
+  create_repo_base?: string;
+  list_workspaces?: string;
 }
 
 export interface RunTargetResponse {
