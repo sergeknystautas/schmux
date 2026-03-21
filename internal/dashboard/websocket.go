@@ -509,20 +509,35 @@ drainBootstrap:
 				return
 			}
 
+			syncStart := time.Now()
 			capCtx, capCancel := context.WithTimeout(context.Background(), 2*time.Second)
 			screen, err := tracker.CapturePane(capCtx)
 			capCancel()
+			capDur := time.Since(syncStart)
 			if err != nil {
 				timer.Reset(interval)
 				continue
 			}
 
+			cursorStart := time.Now()
 			cursorCtx, cursorCancel := context.WithTimeout(context.Background(), 2*time.Second)
 			cursor, err := tracker.GetCursorState(cursorCtx)
 			cursorCancel()
+			cursorDur := time.Since(cursorStart)
 			if err != nil {
 				timer.Reset(interval)
 				continue
+			}
+
+			totalDur := time.Since(syncStart)
+			if s.devMode {
+				logging.Sub(s.logger, "sync").Info("sync commands completed",
+					"session_id", sessionID[:8],
+					"capture_ms", capDur.Milliseconds(),
+					"cursor_ms", cursorDur.Milliseconds(),
+					"total_ms", totalDur.Milliseconds(),
+					"screen_len", len(screen),
+				)
 			}
 
 			// Check if any drops have occurred since the last sync — if so,

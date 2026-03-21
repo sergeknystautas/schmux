@@ -392,7 +392,11 @@ export default class TerminalStream {
         if (this.lifecycleLogging) {
           const sizes = entries.map((e) => {
             const r = e.contentRect;
-            return { w: Math.round(r.width), h: Math.round(r.height), target: e.target === this.containerElement ? 'container' : 'parent' };
+            return {
+              w: Math.round(r.width),
+              h: Math.round(r.height),
+              target: e.target === this.containerElement ? 'container' : 'parent',
+            };
           });
           this.tsLog('resizeObserver', { sizes });
         }
@@ -1135,7 +1139,10 @@ export default class TerminalStream {
     if (this.writingToTerminal || this.scrollRAFPending) {
       if (this.diagnostics) this.diagnostics.scrollSuppressedCount++;
       if (this.lifecycleLogging) {
-        this.tsLog('scroll.suppressed', { writing: this.writingToTerminal, scrollRAF: this.scrollRAFPending });
+        this.tsLog('scroll.suppressed', {
+          writing: this.writingToTerminal,
+          scrollRAF: this.scrollRAFPending,
+        });
       }
       return;
     }
