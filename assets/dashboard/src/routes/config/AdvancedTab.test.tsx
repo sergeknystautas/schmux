@@ -48,6 +48,11 @@ const defaultProps = {
     number,
     string | null
   >,
+  hasSaplingRepos: false,
+  saplingCmdCreateWorkspace: '',
+  saplingCmdRemoveWorkspace: '',
+  saplingCmdCheckRepoBase: '',
+  saplingCmdCreateRepoBase: '',
   models,
   dispatch,
 };

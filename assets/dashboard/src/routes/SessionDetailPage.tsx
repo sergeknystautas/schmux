@@ -717,7 +717,7 @@ export default function SessionDetailPage() {
                       sessionData.running ? 'Agent process is running' : 'Agent process has stopped'
                     }
                   >
-                    <div className={`status-pill ${statusClass}`}>
+                    <div className={`status-pill ${statusClass}`} data-testid="session-status">
                       <span className="status-pill__dot"></span>
                       <span>{statusText}</span>
                     </div>
