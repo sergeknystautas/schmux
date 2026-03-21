@@ -6,6 +6,7 @@ vi.mock('@xterm/xterm', () => {
     loadAddon = vi.fn();
     open = vi.fn();
     onData = vi.fn();
+    onRender = vi.fn();
     writeln = vi.fn();
     write = vi.fn();
     clear = vi.fn();
@@ -24,6 +25,12 @@ vi.mock('@xterm/xterm', () => {
 });
 vi.mock('@xterm/addon-unicode11', () => ({ Unicode11Addon: vi.fn() }));
 vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: vi.fn() }));
+vi.mock('@xterm/addon-webgl', () => ({
+  WebglAddon: vi.fn().mockImplementation(() => ({
+    onContextLoss: vi.fn(),
+    dispose: vi.fn(),
+  })),
+}));
 
 import TerminalStream from './terminalStream';
 import { inputLatency } from './inputLatency';
@@ -451,17 +458,20 @@ describe('TerminalStream bootstrap write chaining', () => {
       return rafCallbacks.length;
     });
 
-    // Send live frame
+    // Send live frame (writeLiveFrame defers to rAF)
     stream.handleOutput(buildSeqFrame(1n, 'live-data'));
 
     // scrollToBottom should NOT have been called yet
     expect(terminal.scrollToBottom).not.toHaveBeenCalled();
 
-    // Simulate write completion — schedules coalesced rAF
+    // Fire the write-coalescing rAF — this calls writeTerminal, which calls terminal.write
+    rafCallbacks.shift()!(0);
+
+    // Simulate write completion — schedules scroll rAF
     writeCallbacks[0]();
     expect(terminal.scrollToBottom).not.toHaveBeenCalled();
 
-    // Fire the rAF — now it should fire
+    // Fire the scroll rAF — now it should fire
     rafCallbacks.forEach((cb) => cb(0));
     expect(terminal.scrollToBottom).toHaveBeenCalledTimes(1);
   });
@@ -614,6 +624,13 @@ describe('TerminalStream binary frame edge cases', () => {
     await stream.initialized;
     const terminal = stream.terminal!;
 
+    // Capture rAF callbacks to flush write coalescing
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+
     // "é" is U+00E9, encoded as UTF-8: [0xC3, 0xA9]
     // Split across two frames
 
@@ -623,14 +640,16 @@ describe('TerminalStream binary frame edge cases', () => {
     new Uint8Array(buf1, 8).set([0xc3]);
     stream.handleOutput(buf1);
 
-    // Frame 2: second byte of é
+    // Frame 2: second byte of é (coalesced into same write batch)
     const buf2 = new ArrayBuffer(8 + 1);
     new DataView(buf2).setBigUint64(0, 1n, false);
     new Uint8Array(buf2, 8).set([0xa9]);
     stream.handleOutput(buf2);
 
+    // Flush the write-coalescing rAF
+    rafCallbacks.forEach((cb) => cb(0));
+
     // The streaming TextDecoder should have decoded "é" across the two frames
-    // First call writes empty string (incomplete char), second writes "é"
     const writeCalls = vi.mocked(terminal.write).mock.calls;
     const allText = writeCalls.map((c: any[]) => c[0]).join('');
     expect(allText).toContain('é');
@@ -808,6 +827,12 @@ describe('TerminalStream replay dedup', () => {
     await stream.initialized;
     const terminal = stream.terminal!;
 
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+
     // Bootstrap
     stream.handleOutput(buildSeqFrame(0n, 'A'));
     stream.handleOutput(JSON.stringify({ type: 'bootstrapComplete' }));
@@ -815,11 +840,16 @@ describe('TerminalStream replay dedup', () => {
     // Receive frame 1
     stream.handleOutput(buildSeqFrame(1n, 'B'));
 
+    // Flush all pending rAFs (bootstrap scroll + live write coalescing)
+    while (rafCallbacks.length) rafCallbacks.shift()!(0);
+
     vi.mocked(terminal.write).mockClear();
 
     // Frame 3 arrives (gap: 2 missing)
-    // This should still be written since seq=3 > lastReceivedSeq=1
     stream.handleOutput(buildSeqFrame(3n, 'D'));
+
+    // Flush write-coalescing rAF
+    while (rafCallbacks.length) rafCallbacks.shift()!(0);
 
     expect(terminal.write).toHaveBeenCalled();
     expect((stream as any).lastReceivedSeq).toBe(3n);
@@ -846,11 +876,20 @@ describe('TerminalStream first event after bootstrap', () => {
     stream.handleOutput(buildSeqFrame(41n, 'bootstrap content'));
     stream.handleOutput(JSON.stringify({ type: 'bootstrapComplete' }));
 
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+
     vi.mocked(terminal.write).mockClear();
 
     // First live event has seq=42 (OutputLog.Append() assigns CurrentSeq()=42).
     // This must NOT be dropped — it's the echo of the user's first keystroke.
     stream.handleOutput(buildSeqFrame(42n, 'first keystroke echo'));
+
+    // Flush write-coalescing rAF
+    rafCallbacks.forEach((cb) => cb(0));
 
     expect(terminal.write).toHaveBeenCalled();
   });
@@ -1098,10 +1137,19 @@ describe('TerminalStream scroll suppression during resize', () => {
       return rafCallbacks.length;
     });
 
-    // Bootstrap then send a live frame: writeTerminal fires, queues rAF, scrollRAFPending=true
+    // Bootstrap (writeTerminal sync → write cb sync → queues scroll rAF)
     stream.handleOutput(buildSeqFrame(0n, 'bootstrap'));
     stream.handleOutput(JSON.stringify({ type: 'bootstrapComplete' }));
+
+    // Fire bootstrap's scroll rAF to clear that state
+    while (rafCallbacks.length) rafCallbacks.shift()!(0);
+
+    // Send a live frame: writeLiveFrame queues write-coalescing rAF
     stream.handleOutput(buildSeqFrame(1n, 'live output'));
+    expect(rafCallbacks).toHaveLength(1);
+
+    // Fire write-coalescing rAF → writeTerminal → write cb sync → queues scroll rAF
+    rafCallbacks.shift()!(0);
 
     expect((stream as any).scrollRAFPending).toBe(true);
     expect(rafCallbacks).toHaveLength(1);
@@ -1111,7 +1159,7 @@ describe('TerminalStream scroll suppression during resize', () => {
     expect(rafCallbacks).toHaveLength(1); // no new rAF added
     expect((stream as any).writingToTerminal).toBe(true);
 
-    // The writeTerminal rAF fires and clears both flags
+    // The scroll rAF fires and clears both flags
     rafCallbacks.forEach((cb) => cb(0));
     expect((stream as any).writingToTerminal).toBe(false);
     expect((stream as any).scrollRAFPending).toBe(false);
@@ -1521,11 +1569,27 @@ describe('TerminalStream scroll diagnostics', () => {
 
     // Bootstrap first
     stream.handleOutput(buildSeqFrame(0n, 'bootstrap'));
+    stream.handleOutput(JSON.stringify({ type: 'bootstrapComplete' }));
 
-    // First live frame: schedules rAF, scrollRAFPending = true
+    // Clear bootstrap rAFs
+    while (rafCallbacks.length) rafCallbacks.shift()!(0);
+    stream.diagnostics!.scrollCoalesceHits = 0;
+
+    // Two live frames in the same rAF batch — writeLiveFrame coalesces them
+    // into one writeTerminal call. The second handleOutput finds writeRAFPending
+    // already true, so it coalesces into the same buffer.
     stream.handleOutput(buildSeqFrame(1n, 'frame1'));
-    // Second live frame: callback finds scrollRAFPending=true, increments counter
     stream.handleOutput(buildSeqFrame(2n, 'frame2'));
+
+    // Flush write-coalesce rAF → one writeTerminal call → scroll rAF
+    rafCallbacks.shift()!(0);
+
+    // Now scrollRAFPending is true (scroll rAF pending in queue).
+    // Send another frame — its writeLiveFrame queues a write-coalesce rAF.
+    stream.handleOutput(buildSeqFrame(3n, 'frame3'));
+    // Fire the write-coalesce rAF (last in queue) BEFORE the scroll rAF,
+    // so writeTerminal finds scrollRAFPending=true → coalesce hit.
+    rafCallbacks.pop()!(0);
 
     expect(stream.diagnostics!.scrollCoalesceHits).toBeGreaterThanOrEqual(1);
   });

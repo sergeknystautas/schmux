@@ -1,6 +1,7 @@
 import { Terminal } from '@xterm/xterm';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { WebglAddon } from '@xterm/addon-webgl';
 import { transport } from './transport';
 import { inputLatency } from './inputLatency';
 import { StreamDiagnostics } from './streamDiagnostics';
@@ -90,6 +91,14 @@ export default class TerminalStream {
   // that will call scrollToBottom(). Additional writes skip scheduling to
   // avoid redundant layout reflows — one scroll per frame is sufficient.
   private scrollRAFPending = false;
+
+  // Write coalescing: buffer incoming data and flush once per animation frame.
+  // Without this, burst output (N frames per rAF) triggers N separate
+  // terminal.write() calls, each causing a full canvas redraw. Batching
+  // into one write per frame collapses N redraws into 1.
+  private writeBuffer = '';
+  private writeRAFPending = false;
+  private pendingWriteCb: (() => void) | null = null;
 
   // ResizeObserver cleanup references
   private resizeObserver: ResizeObserver | null = null;
@@ -239,6 +248,19 @@ export default class TerminalStream {
     this.terminal.unicode.activeVersion = '11';
     this.tsLog('initTerminal', { cols, rows });
     this.terminal.open(this.containerElement);
+
+    // WebGL renderer: double-buffered GPU rendering eliminates canvas tearing
+    // that causes visible flicker during burst output. Falls back to the
+    // default canvas renderer if WebGL is unavailable.
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => {
+        webgl.dispose();
+      });
+      this.terminal.loadAddon(webgl);
+    } catch {
+      // WebGL not available — canvas renderer will be used
+    }
     // xterm.js doesn't reliably emit Alt/Option+Enter through onData on macOS,
     // but Codex uses Meta/Alt+Enter for inserting a blank line. Map it
     // explicitly to the common terminal encoding: ESC + CR.
@@ -290,6 +312,24 @@ export default class TerminalStream {
 
     this._attachScrollListener();
     this.setupResizeHandler();
+
+    // Render instrumentation: detect full-screen redraws for flicker diagnosis.
+    // Deferred until lifecycleLogging is enabled (see enableRenderLogging).
+    this.terminal.onRender((range) => {
+      if (!this.lifecycleLogging) return;
+      const rowsRendered = range.end - range.start + 1;
+      const totalRows = this.terminal?.rows ?? 0;
+      if (rowsRendered >= totalRows && totalRows > 0) {
+        this.tsLog('render.fullScreen', {
+          start: range.start,
+          end: range.end,
+          rows: totalRows,
+          scrollback: this.terminal?.buffer.active.length ?? 0,
+          baseY: this.terminal?.buffer.active.baseY ?? 0,
+          writing: this.writingToTerminal,
+        });
+      }
+    });
 
     // Immediately calculate accurate dimensions now that terminal is rendered
     // This ensures we have correct dimensions before WebSocket connects
@@ -798,7 +838,7 @@ export default class TerminalStream {
       } else {
         inputLatency.recordFrameProcessed();
         inputLatency.markReceived();
-        this.writeTerminal(text, () => {
+        this.writeLiveFrame(text, () => {
           inputLatency.markRenderTime(performance.now() - renderStart);
         });
         inputLatency.recordHandleOutputTime(performance.now() - renderStart);
@@ -1029,6 +1069,27 @@ export default class TerminalStream {
         if (this.diagnostics) this.diagnostics.scrollCoalesceHits++;
       }
     });
+  }
+
+  // Buffer live frame data and flush to terminal once per animation frame.
+  // Without this, burst output (N WebSocket frames per rAF) triggers N
+  // separate terminal.write() calls, each causing a full canvas redraw.
+  // Batching into one write per frame collapses N redraws into 1.
+  private writeLiveFrame(data: string, cb?: () => void) {
+    this.writeBuffer += data;
+    if (cb) this.pendingWriteCb = cb;
+
+    if (!this.writeRAFPending) {
+      this.writeRAFPending = true;
+      requestAnimationFrame(() => {
+        this.writeRAFPending = false;
+        const buffered = this.writeBuffer;
+        const writeCb = this.pendingWriteCb;
+        this.writeBuffer = '';
+        this.pendingWriteCb = null;
+        this.writeTerminal(buffered, writeCb ?? undefined);
+      });
+    }
   }
 
   handleUserScroll() {
