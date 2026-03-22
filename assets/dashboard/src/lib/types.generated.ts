@@ -57,6 +57,7 @@ export interface ConfigResponse {
   floor_manager: FloorManager;
   remote_access: RemoteAccess;
   sapling_commands?: SaplingCommandsUpdate;
+  tmux_binary?: string;
   system_capabilities: SystemCapabilities;
   needs_restart: boolean;
 }
@@ -88,6 +89,7 @@ export interface ConfigUpdateRequest {
   remote_access?: RemoteAccessUpdate;
   enabled_models?: Record<string, string>;
   sapling_commands?: SaplingCommandsUpdate;
+  tmux_binary?: string;
 }
 
 export interface ConflictResolve {

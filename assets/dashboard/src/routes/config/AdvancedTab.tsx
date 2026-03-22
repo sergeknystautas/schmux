@@ -34,6 +34,7 @@ type AdvancedTabProps = {
   saplingCmdRemoveWorkspace: string;
   saplingCmdCheckRepoBase: string;
   saplingCmdCreateRepoBase: string;
+  tmuxBinary: string;
   stepErrors: Record<number, string | null>;
   models: Model[];
   dispatch: React.Dispatch<ConfigFormAction>;
@@ -70,6 +71,7 @@ export default function AdvancedTab({
   saplingCmdRemoveWorkspace,
   saplingCmdCheckRepoBase,
   saplingCmdCreateRepoBase,
+  tmuxBinary,
   stepErrors,
   models,
   dispatch,
@@ -439,6 +441,31 @@ export default function AdvancedTab({
             </label>
             <p className="form-group__hint">
               After pushing all commits to main, prompts to dispose the workspace and its sessions.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section__header">
+          <h3 className="settings-section__title">tmux</h3>
+        </div>
+        <div className="settings-section__body">
+          <div className="form-group">
+            <label className="form-group__label" htmlFor="tmux-binary">
+              Binary Path
+            </label>
+            <input
+              id="tmux-binary"
+              type="text"
+              className="input"
+              placeholder="tmux (from $PATH)"
+              value={tmuxBinary}
+              onChange={(e) => setField('tmuxBinary', e.target.value)}
+            />
+            <p className="form-group__hint">
+              Path to a custom tmux binary. Leave empty to use the system default from $PATH. The
+              path is validated on save. Changes require a daemon restart.
             </p>
           </div>
         </div>

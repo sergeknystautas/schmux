@@ -164,6 +164,7 @@ type ConfigResponse struct {
 	FloorManager               FloorManager           `json:"floor_manager"`
 	RemoteAccess               RemoteAccess           `json:"remote_access"`
 	SaplingCommands            *SaplingCommandsUpdate `json:"sapling_commands,omitempty"`
+	TmuxBinary                 string                 `json:"tmux_binary,omitempty"`
 	SystemCapabilities         SystemCapabilities     `json:"system_capabilities"`
 	NeedsRestart               bool                   `json:"needs_restart"`
 }
@@ -298,6 +299,7 @@ type ConfigUpdateRequest struct {
 	RemoteAccess               *RemoteAccessUpdate         `json:"remote_access,omitempty"`
 	EnabledModels              *map[string]string          `json:"enabled_models,omitempty"`
 	SaplingCommands            *SaplingCommandsUpdate      `json:"sapling_commands,omitempty"`
+	TmuxBinary                 *string                     `json:"tmux_binary,omitempty"`
 }
 
 // DesyncUpdate represents partial desync diagnostic config updates.

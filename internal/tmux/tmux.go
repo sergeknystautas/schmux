@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/log"
 )
@@ -62,6 +64,36 @@ func SetBinary(path string) {
 // Binary returns the current tmux binary path.
 func Binary() string {
 	return binary
+}
+
+// ValidateBinary checks that the given path is a valid tmux executable.
+// It verifies the file exists, is executable, and outputs a recognized tmux
+// version string. Returns the version string (e.g. "tmux 3.5") on success.
+func ValidateBinary(path string) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("file not found: %s", path)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("path is a directory, not a file: %s", path)
+	}
+	if info.Mode()&0111 == 0 {
+		return "", fmt.Errorf("not executable: %s", path)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, "-V")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to execute %s -V: %w", path, err)
+	}
+
+	version := strings.TrimSpace(string(output))
+	if !strings.HasPrefix(version, "tmux ") {
+		return "", fmt.Errorf("not a tmux binary (output: %q)", version)
+	}
+	return version, nil
 }
 
 // SetLogger sets the package-level logger for tmux operations.

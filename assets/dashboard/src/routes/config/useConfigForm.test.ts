@@ -72,6 +72,7 @@ function makeSnapshot(overrides: Partial<ConfigSnapshot> = {}): ConfigSnapshot {
     saplingCmdRemoveWorkspace: '',
     saplingCmdCheckRepoBase: '',
     saplingCmdCreateRepoBase: '',
+    tmuxBinary: '',
     ...overrides,
   };
 }
@@ -747,6 +748,7 @@ describe('useConfigForm', () => {
             saplingCmdRemoveWorkspace: snapshot.saplingCmdRemoveWorkspace,
             saplingCmdCheckRepoBase: snapshot.saplingCmdCheckRepoBase,
             saplingCmdCreateRepoBase: snapshot.saplingCmdCreateRepoBase,
+            tmuxBinary: snapshot.tmuxBinary,
           },
         });
       });

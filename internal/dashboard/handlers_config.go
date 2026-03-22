@@ -12,6 +12,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
 )
 
@@ -145,6 +146,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			Enabled: s.config.GetIOWorkspaceTelemetryEnabled(),
 			Target:  s.config.GetIOWorkspaceTelemetryTarget(),
 		},
+		TmuxBinary: s.config.TmuxBinary,
 		SaplingCommands: func() *contracts.SaplingCommandsUpdate {
 			sc := s.config.SaplingCommands
 			if sc.CreateWorkspace == "" && sc.RemoveWorkspace == "" && sc.CheckRepoBase == "" && sc.CreateRepoBase == "" {
@@ -231,6 +233,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	cfg := s.config
 	oldNetwork := cloneNetwork(cfg.Network)
 	oldAccessControl := cloneAccessControl(cfg.AccessControl)
+	oldTmuxBinary := cfg.TmuxBinary
 	oldRepos := cfg.GetRepos()
 
 	// Check for workspace path change (for warning after save)
@@ -645,6 +648,20 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if req.TmuxBinary != nil {
+		path := strings.TrimSpace(*req.TmuxBinary)
+		if path == "" {
+			cfg.TmuxBinary = ""
+		} else {
+			path = expandHome(path)
+			if _, err := tmux.ValidateBinary(path); err != nil {
+				http.Error(w, fmt.Sprintf("Invalid tmux binary: %v", err), http.StatusBadRequest)
+				return
+			}
+			cfg.TmuxBinary = path
+		}
+	}
+
 	warnings, err := cfg.ValidateForSave()
 	if err != nil {
 		s.logger.Error("validation error", "err", err)
@@ -652,7 +669,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !reflect.DeepEqual(oldNetwork, cfg.Network) || !reflect.DeepEqual(oldAccessControl, cfg.AccessControl) {
+	if !reflect.DeepEqual(oldNetwork, cfg.Network) || !reflect.DeepEqual(oldAccessControl, cfg.AccessControl) || cfg.TmuxBinary != oldTmuxBinary {
 		s.state.SetNeedsRestart(true)
 		if err := s.state.Save(); err != nil {
 			s.logger.Error("failed to save restart-needed state", "err", err)

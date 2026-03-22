@@ -72,6 +72,7 @@ export type ConfigSnapshot = {
   saplingCmdRemoveWorkspace: string;
   saplingCmdCheckRepoBase: string;
   saplingCmdCreateRepoBase: string;
+  tmuxBinary: string;
 };
 
 export type RunTargetEditModalState = {
@@ -216,6 +217,8 @@ export type ConfigFormState = {
   saplingCmdRemoveWorkspace: string;
   saplingCmdCheckRepoBase: string;
   saplingCmdCreateRepoBase: string;
+
+  tmuxBinary: string;
 
   // Overlays
   overlays: OverlayInfo[];
@@ -373,6 +376,8 @@ export const initialState: ConfigFormState = {
   saplingCmdRemoveWorkspace: '',
   saplingCmdCheckRepoBase: '',
   saplingCmdCreateRepoBase: '',
+
+  tmuxBinary: '',
 
   overlays: [],
   loadingOverlays: true,
@@ -645,6 +650,7 @@ export function useConfigForm(initialStep: number = 1) {
         state.saplingCmdRemoveWorkspace !== oc.saplingCmdRemoveWorkspace ||
         state.saplingCmdCheckRepoBase !== oc.saplingCmdCheckRepoBase ||
         state.saplingCmdCreateRepoBase !== oc.saplingCmdCreateRepoBase ||
+        state.tmuxBinary !== oc.tmuxBinary ||
         state.authSecretsChanged
       );
     },
@@ -735,6 +741,7 @@ export function useConfigForm(initialStep: number = 1) {
       saplingCmdRemoveWorkspace: state.saplingCmdRemoveWorkspace,
       saplingCmdCheckRepoBase: state.saplingCmdCheckRepoBase,
       saplingCmdCreateRepoBase: state.saplingCmdCreateRepoBase,
+      tmuxBinary: state.tmuxBinary,
     };
   }, [state]);
 

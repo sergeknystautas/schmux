@@ -53,6 +53,7 @@ const defaultProps = {
   saplingCmdRemoveWorkspace: '',
   saplingCmdCheckRepoBase: '',
   saplingCmdCreateRepoBase: '',
+  tmuxBinary: '',
   models,
   dispatch,
 };

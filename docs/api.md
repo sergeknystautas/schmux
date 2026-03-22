@@ -813,6 +813,7 @@ Response:
     "create_repo_base": "fbclone {{.RepoIdentifier}} {{.BasePath}}",
     "check_repo_base": ""
   },
+  "tmux_binary": "/opt/homebrew/bin/tmux",
   "system_capabilities": {
     "iterm2_available": true
   },
@@ -821,6 +822,8 @@ Response:
 ```
 
 Repos with `"vcs": "sapling"` use the sapling backend instead of git. The `vcs` field can be `""` (default, git worktree), `"git-clone"`, or `"sapling"`. The `sapling_commands` section configures command templates for sapling workspace lifecycle using Go `text/template` syntax.
+
+**`tmux_binary`**: Path to a custom tmux binary. When empty or omitted, the system default from `$PATH` is used. The path is validated on save (must exist, be executable, and output a recognized tmux version string). Changing this field flags `needs_restart`.
 
 **TLS behavior**: The server serves HTTPS whenever `network.tls.cert_path` and `network.tls.key_path` are both set, regardless of whether `access_control.enabled` is true. This allows dashboard.sx HTTPS without requiring GitHub auth.
 
@@ -911,9 +914,12 @@ Request:
     "sound_disabled": false,
     "confirm_before_close": false,
     "suggest_dispose_after_push": true
-  }
+  },
+  "tmux_binary": "/opt/homebrew/bin/tmux"
 }
 ```
+
+The `tmux_binary` field is validated on save: the path must exist, be executable, and `<path> -V` must output a recognized tmux version string. An empty string clears the override. Invalid paths return 400.
 
 Response:
 
