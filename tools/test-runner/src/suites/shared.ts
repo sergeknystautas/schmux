@@ -1,4 +1,5 @@
 import { arch } from 'node:os';
+import { copyFileSync } from 'node:fs';
 import { exec, projectRoot } from '../exec.js';
 import type { EventCallback } from '../types.js';
 
@@ -90,12 +91,23 @@ export async function buildDashboard(
 
   const root = projectRoot();
 
-  // Check if node_modules exists to optionally skip install
+  // Skip npm install only if node_modules is in sync with package-lock.json.
+  // A stale node_modules (e.g. missing newly-added deps) causes typecheck failures.
   const dashboardArgs = ['run', './cmd/build-dashboard'];
-  const { existsSync } = await import('node:fs');
+  const { existsSync, readFileSync } = await import('node:fs');
   const { resolve } = await import('node:path');
-  if (existsSync(resolve(root, 'assets/dashboard/node_modules'))) {
-    dashboardArgs.push('--skip-install');
+  const lockFile = resolve(root, 'assets/dashboard/package-lock.json');
+  const marker = resolve(root, 'assets/dashboard/node_modules/.package-lock-marker');
+  if (existsSync(marker)) {
+    try {
+      const currentLock = readFileSync(lockFile, 'utf8');
+      const cachedLock = readFileSync(marker, 'utf8');
+      if (currentLock === cachedLock) {
+        dashboardArgs.push('--skip-install');
+      }
+    } catch {
+      // marker or lock unreadable — run install
+    }
   }
 
   onEvent('scenarios', { type: 'build_step', message: 'Building dashboard...' });
@@ -116,6 +128,14 @@ export async function buildDashboard(
   }
 
   onEvent('scenarios', { type: 'build_step', message: 'Dashboard built' });
+  // Write marker so next run can skip install if lock file hasn't changed
+  if (!dashboardArgs.includes('--skip-install')) {
+    try {
+      copyFileSync(lockFile, marker);
+    } catch {
+      // non-fatal
+    }
+  }
   dashboardBuildDone = true;
   dashboardBuildCoverage = coverage;
   return { ok: true, errorOutput: '' };
