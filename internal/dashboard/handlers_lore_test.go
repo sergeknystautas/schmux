@@ -96,6 +96,11 @@ func TestHandleLoreApplyMerge_RepoPublic_WorkspaceBased(t *testing.T) {
 
 	t.Cleanup(server.CloseForTest)
 	t.Cleanup(shutdownCancel)
+	t.Cleanup(func() {
+		for _, sess := range st.GetSessions() {
+			sm.Dispose(context.Background(), sess.ID)
+		}
+	})
 
 	// Apply the merge
 	body, _ := json.Marshal(map[string]interface{}{
