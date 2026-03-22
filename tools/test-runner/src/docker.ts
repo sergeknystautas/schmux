@@ -1,5 +1,21 @@
+import { execSync } from 'node:child_process';
 import { exec, projectRoot } from './exec.js';
 import type { EventCallback, SuiteName } from './types.js';
+
+let _runtime: string | undefined;
+
+export function containerRuntime(): string {
+  if (_runtime !== undefined) return _runtime;
+  for (const cmd of ['docker', 'podman']) {
+    try {
+      execSync(`which ${cmd}`, { stdio: 'ignore' });
+      _runtime = cmd;
+      return cmd;
+    } catch {}
+  }
+  _runtime = 'docker';
+  return _runtime;
+}
 
 export interface DockerBuildOptions {
   dockerfile: string;
@@ -39,13 +55,13 @@ function emitBuildFailure(
 }
 
 export async function isDockerAvailable(): Promise<boolean> {
-  const result = await exec({ cmd: 'docker', args: ['info'], cwd: projectRoot() });
+  const result = await exec({ cmd: containerRuntime(), args: ['info'], cwd: projectRoot() });
   return result.exitCode === 0;
 }
 
 export async function imageExists(tag: string): Promise<boolean> {
   const result = await exec({
-    cmd: 'docker',
+    cmd: containerRuntime(),
     args: ['image', 'inspect', tag],
     cwd: projectRoot(),
   });
@@ -75,7 +91,7 @@ export async function ensureBaseImage(opts: {
   });
 
   const result = await exec({
-    cmd: 'docker',
+    cmd: containerRuntime(),
     args: ['build', '-f', opts.dockerfile, '-t', opts.tag, '.'],
     cwd: projectRoot(),
     onLine: opts.verbose
@@ -112,7 +128,7 @@ export async function buildImage(opts: DockerBuildOptions): Promise<boolean> {
   const args = ['build', '-f', opts.dockerfile, '-t', opts.tag, '.'];
 
   const result = await exec({
-    cmd: 'docker',
+    cmd: containerRuntime(),
     args,
     cwd: projectRoot(),
     onLine: opts.verbose
@@ -150,7 +166,7 @@ export async function runContainer(
 
   const outputChunks: string[] = [];
   const result = await exec({
-    cmd: 'docker',
+    cmd: containerRuntime(),
     args,
     cwd: projectRoot(),
     onLine: (line) => {
@@ -166,7 +182,7 @@ export async function runContainer(
 }
 
 export async function removeImage(tag: string): Promise<void> {
-  await exec({ cmd: 'docker', args: ['rmi', tag], cwd: projectRoot() });
+  await exec({ cmd: containerRuntime(), args: ['rmi', tag], cwd: projectRoot() });
 }
 
 /**
@@ -180,7 +196,7 @@ export async function cleanupOrphans(suite: 'scenarios' | 'e2e'): Promise<number
 
   // Kill and remove running/stopped containers from ephemeral images
   const ps = await exec({
-    cmd: 'docker',
+    cmd: containerRuntime(),
     args: ['ps', '-a', '--format', '{{.ID}} {{.Image}}'],
     cwd: projectRoot(),
   });
@@ -189,7 +205,7 @@ export async function cleanupOrphans(suite: 'scenarios' | 'e2e'): Promise<number
       if (!line) continue;
       const [id, image] = line.split(' ', 2);
       if (image?.startsWith(prefix)) {
-        await exec({ cmd: 'docker', args: ['rm', '-f', id], cwd: projectRoot() });
+        await exec({ cmd: containerRuntime(), args: ['rm', '-f', id], cwd: projectRoot() });
         cleaned++;
       }
     }
@@ -197,14 +213,14 @@ export async function cleanupOrphans(suite: 'scenarios' | 'e2e'): Promise<number
 
   // Remove ephemeral images (schmux-scenarios-12345, not schmux-scenarios-base)
   const images = await exec({
-    cmd: 'docker',
+    cmd: containerRuntime(),
     args: ['images', '--format', '{{.Repository}}'],
     cwd: projectRoot(),
   });
   if (images.exitCode === 0) {
     for (const repo of images.stdout.trim().split('\n')) {
       if (repo.startsWith(prefix) && !repo.endsWith('-base')) {
-        await exec({ cmd: 'docker', args: ['rmi', repo], cwd: projectRoot() });
+        await exec({ cmd: containerRuntime(), args: ['rmi', repo], cwd: projectRoot() });
         cleaned++;
       }
     }

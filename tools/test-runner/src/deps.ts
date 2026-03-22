@@ -1,4 +1,5 @@
 import { exec } from './exec.js';
+import { containerRuntime } from './docker.js';
 import type { SuiteName } from './types.js';
 
 interface DepSpec {
@@ -13,7 +14,11 @@ const DEPS: DepSpec[] = [
     label: 'Go',
     requiredFor: ['backend', 'e2e', 'scenarios', 'bench', 'microbench'],
   },
-  { command: 'docker', label: 'Docker', requiredFor: ['e2e', 'scenarios'] },
+  {
+    command: containerRuntime(),
+    label: containerRuntime() === 'podman' ? 'Podman' : 'Docker',
+    requiredFor: ['e2e', 'scenarios'],
+  },
   { command: 'node', label: 'Node.js', requiredFor: ['frontend'] },
   { command: 'npm', label: 'npm', requiredFor: ['frontend'] },
 ];
@@ -38,8 +43,9 @@ export async function checkDependencies(suites: SuiteName[]): Promise<void> {
   }
 
   // Ensure Docker BuildKit (buildx) is available for Docker-based suites
+  // Podman doesn't need buildx — it uses buildah natively.
   const needsDocker = suites.some((s) => s === 'e2e' || s === 'scenarios');
-  if (needsDocker) {
+  if (needsDocker && containerRuntime() === 'docker') {
     await ensureBuildx();
   }
 }
