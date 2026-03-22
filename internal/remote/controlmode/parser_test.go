@@ -184,6 +184,70 @@ func TestParserHighThroughput(t *testing.T) {
 	}
 }
 
+func TestParserExtendedOutput(t *testing.T) {
+	input := "%extended-output %3 150 : hello\\012world\n"
+	reader := strings.NewReader(input)
+	parser := NewParser(reader, nil)
+
+	go parser.Run()
+
+	event := <-parser.Output()
+	if event.PaneID != "%3" {
+		t.Errorf("PaneID = %q, want %%3", event.PaneID)
+	}
+	if event.Data != "hello\nworld" {
+		t.Errorf("Data = %q, want %q", event.Data, "hello\nworld")
+	}
+}
+
+func TestParserExtendedOutputFutureArgs(t *testing.T) {
+	input := "%extended-output %5 0 future1 future2 : data\\033[0m\n"
+	reader := strings.NewReader(input)
+	parser := NewParser(reader, nil)
+
+	go parser.Run()
+
+	event := <-parser.Output()
+	if event.PaneID != "%5" {
+		t.Errorf("PaneID = %q, want %%5", event.PaneID)
+	}
+	if event.Data != "data\033[0m" {
+		t.Errorf("Data = %q, want %q", event.Data, "data\033[0m")
+	}
+}
+
+func TestParserPauseNotification(t *testing.T) {
+	input := "%pause %7\n"
+	reader := strings.NewReader(input)
+	parser := NewParser(reader, nil)
+
+	go parser.Run()
+
+	event := <-parser.Events()
+	if event.Type != "pause" {
+		t.Errorf("Type = %q, want pause", event.Type)
+	}
+	if len(event.Args) != 1 || event.Args[0] != "%7" {
+		t.Errorf("Args = %v, want [%%7]", event.Args)
+	}
+}
+
+func TestParserContinueNotification(t *testing.T) {
+	input := "%continue %7\n"
+	reader := strings.NewReader(input)
+	parser := NewParser(reader, nil)
+
+	go parser.Run()
+
+	event := <-parser.Events()
+	if event.Type != "continue" {
+		t.Errorf("Type = %q, want continue", event.Type)
+	}
+	if len(event.Args) != 1 || event.Args[0] != "%7" {
+		t.Errorf("Args = %v, want [%%7]", event.Args)
+	}
+}
+
 func TestParserDropCounters(t *testing.T) {
 	p := &Parser{}
 	// droppedOutputs is already atomic.Int64 at parser.go:57

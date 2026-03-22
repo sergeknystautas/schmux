@@ -245,6 +245,25 @@ func (p *Parser) parseLine(line string) error {
 		return nil
 	}
 
+	// Check for %extended-output (sent when pause-after is set)
+	// Format: %extended-output %paneID age [future args...] : value
+	if strings.HasPrefix(line, "%extended-output ") {
+		rest := line[len("%extended-output "):]
+		spaceIdx := strings.Index(rest, " ")
+		if spaceIdx > 0 {
+			paneID := rest[:spaceIdx]
+			colonIdx := strings.Index(rest, " : ")
+			if colonIdx >= 0 {
+				data := UnescapeOutput(rest[colonIdx+3:])
+				p.sendOutput(OutputEvent{
+					PaneID: paneID,
+					Data:   data,
+				})
+			}
+		}
+		return nil
+	}
+
 	// If we're inside a command response, accumulate lines
 	if p.inCommandResp {
 		p.currentLines = append(p.currentLines, line)

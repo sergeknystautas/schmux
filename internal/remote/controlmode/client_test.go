@@ -217,6 +217,28 @@ func TestClient_ContextTimeout(t *testing.T) {
 	client.Close()
 }
 
+func TestClient_PauseNotification(t *testing.T) {
+	input := strings.NewReader("%pause %5\n")
+	parser := NewParser(input, nil)
+
+	var stdin strings.Builder
+	client := NewClient(&stdin, parser, nil)
+	client.Start()
+
+	go parser.Run()
+
+	select {
+	case paneID := <-client.Pauses():
+		if paneID != "%5" {
+			t.Errorf("expected pane %%5, got %s", paneID)
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("timeout waiting for pause notification")
+	}
+
+	client.Close()
+}
+
 func TestParser_DroppedEvents(t *testing.T) {
 	// Create parser with small buffer
 	input := strings.NewReader("")

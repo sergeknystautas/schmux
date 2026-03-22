@@ -51,6 +51,9 @@ type Client struct {
 	// Output fan-out drop counter (events dropped because subscriber couldn't keep up)
 	droppedFanOut atomic.Int64
 
+	// Pause notifications (pane IDs paused by tmux when output falls behind)
+	pauseCh chan string
+
 	// Lifecycle
 	running bool
 	closeCh chan struct{}
@@ -74,6 +77,7 @@ func NewClient(stdin io.Writer, parser *Parser, logger *log.Logger) *Client {
 		pendingQueue: make([]chan CommandResponse, 0),
 		respChans:    make(map[chan CommandResponse]bool),
 		outputSubs:   make(map[string][]chan OutputEvent),
+		pauseCh:      make(chan string, 10),
 		closeCh:      make(chan struct{}),
 	}
 }
@@ -274,15 +278,23 @@ func (c *Client) processOutput() {
 	}
 }
 
-// processEvents handles async events (not currently used but available).
+// processEvents handles async events, routing pause notifications.
 func (c *Client) processEvents() {
 	for {
 		select {
-		case _, ok := <-c.parser.Events():
+		case event, ok := <-c.parser.Events():
 			if !ok {
 				return
 			}
-			// Could broadcast events to subscribers if needed
+			if event.Type == "pause" && len(event.Args) > 0 {
+				if c.logger != nil {
+					c.logger.Info("pane paused by tmux (output fell behind)", "pane", event.Args[0])
+				}
+				select {
+				case c.pauseCh <- event.Args[0]:
+				default:
+				}
+			}
 		case <-c.closeCh:
 			return
 		}
@@ -317,6 +329,26 @@ func (c *Client) UnsubscribeOutput(paneID string, ch <-chan OutputEvent) {
 // because a subscriber channel was full.
 func (c *Client) DroppedFanOut() int64 {
 	return c.droppedFanOut.Load()
+}
+
+// Pauses returns a channel that receives pane IDs when tmux pauses output
+// delivery for that pane (because the control mode client fell behind).
+func (c *Client) Pauses() <-chan string {
+	return c.pauseCh
+}
+
+// EnablePauseAfter sets the pause-after flag on this control mode client.
+// When set, tmux sends %pause instead of silently dropping output when the
+// client falls behind by the specified number of seconds.
+func (c *Client) EnablePauseAfter(ctx context.Context, seconds int) error {
+	_, err := c.Execute(ctx, fmt.Sprintf("refresh-client -f pause-after=%d", seconds))
+	return err
+}
+
+// ContinuePane resumes output delivery for a paused pane.
+func (c *Client) ContinuePane(ctx context.Context, paneID string) error {
+	_, err := c.Execute(ctx, fmt.Sprintf("refresh-client -A %s:continue", paneID))
+	return err
 }
 
 // DiscardedStale returns the number of stale responses discarded during startup.

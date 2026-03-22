@@ -489,8 +489,7 @@ drainBootstrap:
 	}()
 
 	// Periodic defense-in-depth sync — sends screen snapshots for paranoia desync detection.
-	// Gap detection + replay is the primary consistency mechanism (Task 8).
-	// This goroutine is a safety net only (60s interval).
+	// Also triggers immediately when tmux pauses output delivery (pause-after).
 	go func() {
 		timer := time.NewTimer(5 * time.Second)
 		defer timer.Stop()
@@ -498,13 +497,7 @@ drainBootstrap:
 		interval := 60 * time.Second
 		var lastDropsSeen int64
 
-		for {
-			select {
-			case <-timer.C:
-			case <-sessionDead:
-				return
-			}
-
+		doSync := func(reason string) {
 			if conn.IsClosed() {
 				return
 			}
@@ -515,8 +508,7 @@ drainBootstrap:
 			capCancel()
 			capDur := time.Since(syncStart)
 			if err != nil {
-				timer.Reset(interval)
-				continue
+				return
 			}
 
 			cursorStart := time.Now()
@@ -525,14 +517,14 @@ drainBootstrap:
 			cursorCancel()
 			cursorDur := time.Since(cursorStart)
 			if err != nil {
-				timer.Reset(interval)
-				continue
+				return
 			}
 
 			totalDur := time.Since(syncStart)
 			if s.devMode {
 				logging.Sub(s.logger, "sync").Info("sync commands completed",
 					"session_id", sessionID[:8],
+					"reason", reason,
 					"capture_ms", capDur.Milliseconds(),
 					"cursor_ms", cursorDur.Milliseconds(),
 					"total_ms", totalDur.Milliseconds(),
@@ -540,11 +532,9 @@ drainBootstrap:
 				)
 			}
 
-			// Check if any drops have occurred since the last sync — if so,
-			// force the correction to bypass the frontend's activity guard
 			counters := tracker.DiagnosticCounters()
 			currentDrops := counters["eventsDropped"] + counters["clientFanOutDrops"] + counters["fanOutDrops"]
-			forced := currentDrops > lastDropsSeen
+			forced := currentDrops > lastDropsSeen || reason == "pause"
 			lastDropsSeen = currentDrops
 
 			msg := buildSyncMessage(screen, cursor)
@@ -553,10 +543,20 @@ drainBootstrap:
 			syncChecksSent.Add(1)
 			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
 				tracker.Counters.WsWriteErrors.Add(1)
+			}
+		}
+
+		for {
+			select {
+			case <-timer.C:
+				doSync("timer")
+				timer.Reset(interval)
+			case <-tracker.SyncTrigger():
+				doSync("pause")
+				timer.Reset(interval)
+			case <-sessionDead:
 				return
 			}
-
-			timer.Reset(interval)
 		}
 	}()
 

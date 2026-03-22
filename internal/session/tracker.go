@@ -14,6 +14,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/events"
 	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
 const trackerRestartDelay = 500 * time.Millisecond
@@ -87,6 +88,10 @@ type SessionTracker struct {
 	// Sequenced output log for replay-based bootstrap and gap recovery
 	outputLog *OutputLog
 
+	// Sync trigger: signaled when tmux pauses output delivery (pause-after).
+	// Websocket handler listens on this to send an immediate sync to the frontend.
+	syncTrigger chan struct{}
+
 	// Terminal size tracking for diagnostics (accessed from multiple goroutines)
 	LastTerminalCols atomic.Int32
 	LastTerminalRows atomic.Int32
@@ -104,6 +109,13 @@ func (t *SessionTracker) OutputLog() *OutputLog {
 	return t.outputLog
 }
 
+// SyncTrigger returns a channel that fires when the tracker detects a tmux
+// output pause (via pause-after). Listeners should perform an immediate
+// capture-pane sync to resync the frontend.
+func (t *SessionTracker) SyncTrigger() <-chan struct{} {
+	return t.syncTrigger
+}
+
 // NewSessionTracker creates a tracker for a session.
 // If eventFilePath is non-empty and eventHandlers is non-nil, an EventWatcher
 // is created for the unified event system.
@@ -116,6 +128,7 @@ func NewSessionTracker(sessionID, tmuxSession string, st state.StateStore, event
 		outputCallback: outputCallback,
 		logger:         logger,
 		outputLog:      NewOutputLog(50000), // 50,000 entries ≈ 5MB at ~100 bytes/event
+		syncTrigger:    make(chan struct{}, 1),
 		stopCh:         make(chan struct{}),
 		doneCh:         make(chan struct{}),
 		stopCtx:        stopCtx,
@@ -381,7 +394,7 @@ func (t *SessionTracker) attachControlMode() error {
 	// Note: -CC (non-canonical) requires a TTY via tcgetattr, which fails
 	// when launched from exec.Command. -C works without a TTY, and the parser
 	// ignores command echo since it only processes %-prefixed protocol lines.
-	cmd := exec.CommandContext(ctx, "tmux", "-C", "attach-session", "-t", "="+target)
+	cmd := exec.CommandContext(ctx, tmux.Binary(), "-C", "attach-session", "-t", "="+target)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stdin pipe: %w", err)
@@ -460,6 +473,16 @@ func (t *SessionTracker) attachControlMode() error {
 
 	defer t.closeControlMode()
 
+	// Enable pause-after so tmux sends %pause instead of silently dropping
+	// output when this control mode client falls behind.
+	pauseCtx, pauseCancel := context.WithTimeout(ctx, 5*time.Second)
+	if err := client.EnablePauseAfter(pauseCtx, 1); err != nil {
+		if t.logger != nil {
+			t.logger.Warn("failed to enable pause-after", "session", t.sessionID[:8], "err", err)
+		}
+	}
+	pauseCancel()
+
 	// Subscribe to output from the control mode client and fan out to
 	// tracker-level subscribers (which survive reconnections)
 	outputCh := client.SubscribeOutput(paneID)
@@ -502,6 +525,23 @@ func (t *SessionTracker) attachControlMode() error {
 			if t.outputCallback != nil {
 				t.outputCallback([]byte(event.Data))
 			}
+
+		case pausedPane := <-client.Pauses():
+			if t.logger != nil {
+				t.logger.Info("tmux paused output, triggering sync and continue",
+					"session", t.sessionID[:8], "pane", pausedPane)
+			}
+			// Signal websocket handler to do an immediate capture-pane sync
+			select {
+			case t.syncTrigger <- struct{}{}:
+			default:
+			}
+			// Resume output delivery
+			contCtx, contCancel := context.WithTimeout(ctx, 2*time.Second)
+			if err := client.ContinuePane(contCtx, pausedPane); err != nil && t.logger != nil {
+				t.logger.Warn("failed to continue pane", "pane", pausedPane, "err", err)
+			}
+			contCancel()
 
 		case <-t.stopCh:
 			return io.EOF
