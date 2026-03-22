@@ -96,6 +96,7 @@ type Config struct {
 	FloorManager               *FloorManagerConfig         `json:"floor_manager,omitempty"`
 	SaplingCommands            SaplingCommands             `json:"sapling_commands,omitempty"`
 	BuiltInSkills              map[string]bool             `json:"built_in_skills,omitempty"`
+	TmuxBinary                 string                      `json:"tmux_binary,omitempty"`
 
 	// Telemetry settings
 	TelemetryEnabled *bool  `json:"telemetry_enabled,omitempty"` // default true

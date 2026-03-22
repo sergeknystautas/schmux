@@ -32,7 +32,7 @@ func NewDefaultChecker() Checker {
 type defaultChecker struct{}
 
 func (c *defaultChecker) Check() error {
-	cmd := exec.Command("tmux", "-V")
+	cmd := exec.Command(binary, "-V")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("tmux is not installed or not accessible.\n-> %w", err)
@@ -47,6 +47,22 @@ func (c *defaultChecker) Check() error {
 // pkgLogger is the package-level logger for tmux operations.
 // Set via SetLogger from the daemon initialization.
 var pkgLogger *log.Logger
+
+// binary is the tmux executable path. Defaults to "tmux" (resolved via PATH).
+// Override via SetBinary to use a custom-built tmux.
+var binary = "tmux"
+
+// SetBinary overrides the tmux executable path.
+func SetBinary(path string) {
+	if path != "" {
+		binary = path
+	}
+}
+
+// Binary returns the current tmux binary path.
+func Binary() string {
+	return binary
+}
 
 // SetLogger sets the package-level logger for tmux operations.
 func SetLogger(l *log.Logger) {
@@ -67,7 +83,7 @@ var nestingEnvVars = []string{"CLAUDECODE"}
 func CleanTmuxServerEnv(ctx context.Context) {
 	for _, v := range nestingEnvVars {
 		args := []string{"set-environment", "-g", "-u", v}
-		cmd := exec.CommandContext(ctx, "tmux", args...)
+		cmd := exec.CommandContext(ctx, binary, args...)
 		_ = cmd.Run()
 	}
 }
@@ -84,7 +100,7 @@ func CreateSession(ctx context.Context, name, dir, command string) error {
 		command,
 	}
 
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to create tmux session: %w: %s", err, string(output))
 	}
@@ -104,7 +120,7 @@ func SessionExists(ctx context.Context, name string) bool {
 	// tmux has-session -t <name> (= prefix for exact match)
 	args := []string{"has-session", "-t", "=" + name}
 
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	err := cmd.Run()
 	return err == nil
 }
@@ -119,7 +135,7 @@ func GetPanePID(ctx context.Context, name string) (int, error) {
 		"#{pane_pid}",
 	}
 
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 
@@ -150,7 +166,7 @@ func CaptureOutput(ctx context.Context, name string) (string, error) {
 		"-t", name, // target session/pane
 	}
 
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 
@@ -176,7 +192,7 @@ func CaptureLastLines(ctx context.Context, name string, lines int, includeEscape
 		"-t", name, // target session/pane
 	)
 
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 
@@ -192,7 +208,7 @@ func KillSession(ctx context.Context, name string) error {
 	// tmux kill-session -t <name> (= prefix for exact match)
 	args := []string{"kill-session", "-t", "=" + name}
 
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to kill tmux session: %w: %s", err, string(output))
 	}
@@ -205,7 +221,7 @@ func ListSessions(ctx context.Context) ([]string, error) {
 	// tmux list-sessions -F "#{session_name}"
 	args := []string{"list-sessions", "-F", "#{session_name}"}
 
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 
@@ -227,7 +243,7 @@ func SendKeys(ctx context.Context, name, keys string) error {
 	// tmux send-keys -t <name> <keys> (send-keys does not support = prefix)
 	args := []string{"send-keys", "-t", name, keys}
 
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to send keys to tmux session: %w: %s", err, strings.TrimSpace(string(output)))
 	}
@@ -240,7 +256,7 @@ func SendLiteral(ctx context.Context, name, text string) error {
 	// tmux send-keys -l -t <name> <text> (send-keys does not support = prefix)
 	args := []string{"send-keys", "-l", "-t", name, text}
 
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to send literal text to tmux session: %w: %s", err, strings.TrimSpace(string(output)))
 	}
@@ -262,7 +278,7 @@ func StripAnsi(text string) string {
 func SetWindowSizeManual(ctx context.Context, sessionName string) error {
 	// set-option does not support = prefix for session target
 	args := []string{"set-option", "-t", sessionName, "window-size", "manual"}
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to set window-size manual: %w: %s", err, string(output))
 	}
@@ -272,7 +288,7 @@ func SetWindowSizeManual(ctx context.Context, sessionName string) error {
 // SetOption sets a tmux option on a session.
 func SetOption(ctx context.Context, sessionName, option, value string) error {
 	args := []string{"set-option", "-t", sessionName, option, value}
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to set %s: %w: %s", option, err, string(output))
 	}
@@ -296,7 +312,7 @@ func GetWindowSize(ctx context.Context, sessionName string) (width, height int, 
 		"-t", fmt.Sprintf("=%s:0.0", sessionName),
 		"#{window_width} #{window_height}",
 	}
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if runErr := cmd.Run(); runErr != nil {
@@ -326,7 +342,7 @@ func ResizeWindow(ctx context.Context, sessionName string, width, height int) er
 		"-x", strconv.Itoa(width),
 		"-y", strconv.Itoa(height),
 	}
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to resize window: %w: %s", err, string(output))
 	}
@@ -337,7 +353,7 @@ func ResizeWindow(ctx context.Context, sessionName string, width, height int) er
 // This is used when updating session nicknames.
 func RenameSession(ctx context.Context, oldName, newName string) error {
 	args := []string{"rename-session", "-t", "=" + oldName, newName}
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to rename tmux session: %w: %s", err, string(output))
 	}
@@ -358,7 +374,7 @@ func GetCursorState(ctx context.Context, sessionName string) (CursorState, error
 		"display-message", "-p", "-t", sessionName,
 		"#{cursor_x} #{cursor_y} #{cursor_flag}",
 	}
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err != nil {
@@ -390,7 +406,7 @@ func GetCursorPosition(ctx context.Context, sessionName string) (x, y int, err e
 		"display-message", "-p", "-t", sessionName,
 		"#{cursor_x} #{cursor_y}",
 	}
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err != nil {
@@ -575,7 +591,7 @@ func IsPaneDead(ctx context.Context, name string) (bool, error) {
 		"-t", name,
 		"#{pane_dead}",
 	}
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err != nil {

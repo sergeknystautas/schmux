@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
 // handleDebugTmuxLeak returns simple tmux counts for dev-mode sidebar diagnostics.
@@ -42,7 +44,7 @@ func collectTmuxSessionCount() (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	out, err := exec.CommandContext(ctx, "tmux", "list-sessions", "-F", "#{session_name}").Output()
+	out, err := exec.CommandContext(ctx, tmux.Binary(), "list-sessions", "-F", "#{session_name}").Output()
 	if err != nil {
 		return 0, err
 	}

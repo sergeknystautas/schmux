@@ -160,13 +160,18 @@ func Start() error {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
 
+	// Apply custom tmux binary from config (if set) before starting the server.
+	if cfg, err := config.Load(filepath.Join(schmuxDir, "config.json")); err == nil && cfg.TmuxBinary != "" {
+		tmux.SetBinary(cfg.TmuxBinary)
+	}
+
 	// Ensure tmux log directory exists and start tmux server from there so
 	// verbose server logs land in ~/.schmux/tmux/ on a fresh server start.
 	tmuxLogDir := filepath.Join(schmuxDir, "tmux")
 	if err := os.MkdirAll(tmuxLogDir, 0755); err != nil {
 		return fmt.Errorf("failed to create tmux log directory: %w", err)
 	}
-	tmuxStart := exec.Command("tmux", "-v", "start-server")
+	tmuxStart := exec.Command(tmux.Binary(), "-v", "start-server")
 	tmuxStart.Dir = tmuxLogDir
 	_ = tmuxStart.Run() // no-op if server already running; ignore error
 
@@ -380,6 +385,11 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+	if cfg.TmuxBinary != "" {
+		tmux.SetBinary(cfg.TmuxBinary)
+		logger.Info("using custom tmux binary", "path", cfg.TmuxBinary)
+	}
+
 	if cfg.GetAuthEnabled() {
 		if _, err := config.EnsureSessionSecret(); err != nil {
 			return fmt.Errorf("failed to initialize auth session secret: %w", err)

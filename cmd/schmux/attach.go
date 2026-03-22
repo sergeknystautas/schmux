@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/pkg/cli"
 )
 
@@ -61,7 +62,7 @@ found:
 	}
 
 	// Execute tmux attach
-	tmuxCmd := exec.Command("tmux", "attach", "-t", tmuxSession)
+	tmuxCmd := exec.Command(tmux.Binary(), "attach", "-t", tmuxSession)
 	tmuxCmd.Stdin = os.Stdin
 	tmuxCmd.Stdout = os.Stdout
 	tmuxCmd.Stderr = os.Stderr
