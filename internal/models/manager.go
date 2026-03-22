@@ -563,7 +563,11 @@ func (m *Manager) IsTargetInUse(targetName string) bool {
 func (m *Manager) IsModel(name string) (promptable bool, found bool) {
 	if m.IsModelID(name) {
 		_, err := m.ResolveModel(name)
-		return true, err == nil
+		if err == nil {
+			return true, true
+		}
+		// Model exists in catalog but can't be resolved (e.g., no detected tool).
+		// Fall through to check if it's also a builtin tool name.
 	}
 	if detect.IsBuiltinToolName(name) {
 		return true, true

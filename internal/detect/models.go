@@ -44,28 +44,28 @@ func SortedRunnerKeys(runners map[string]RunnerSpec) []string {
 // They pass no --model flag, letting the harness use whatever it defaults to.
 var defaultModels = []Model{
 	{
-		ID:          "default_claude",
+		ID:          "claude",
 		DisplayName: "Claude (default)",
 		Provider:    "anthropic",
 		Category:    "native",
 		Runners:     map[string]RunnerSpec{"claude": {ModelValue: ""}},
 	},
 	{
-		ID:          "default_codex",
+		ID:          "codex",
 		DisplayName: "Codex (default)",
 		Provider:    "openai",
 		Category:    "native",
 		Runners:     map[string]RunnerSpec{"codex": {ModelValue: ""}},
 	},
 	{
-		ID:          "default_gemini",
+		ID:          "gemini",
 		DisplayName: "Gemini (default)",
 		Provider:    "google",
 		Category:    "native",
 		Runners:     map[string]RunnerSpec{"gemini": {ModelValue: ""}},
 	},
 	{
-		ID:          "default_opencode",
+		ID:          "opencode",
 		DisplayName: "OpenCode (default)",
 		Provider:    "opencode",
 		Category:    "native",
@@ -106,6 +106,11 @@ var legacyIDMigrations = map[string]string{
 	"claude-opus-4":     "claude-opus-4-20250514",
 	"claude-sonnet-4":   "claude-sonnet-4-20250514",
 	"claude-haiku-4-5":  "claude-haiku-4-5-20251001",
+	// Old default_* model IDs → bare tool names
+	"default_claude":   "claude",
+	"default_codex":    "codex",
+	"default_gemini":   "gemini",
+	"default_opencode": "opencode",
 	// models.dev ID normalization
 	"kimi-thinking": "kimi-k2-thinking",
 	"minimax-m2.1":  "MiniMax-M2.1",

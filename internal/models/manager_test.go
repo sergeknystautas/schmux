@@ -161,7 +161,7 @@ func TestGetCatalogStructure(t *testing.T) {
 func TestRebuildCatalogThreeSources(t *testing.T) {
 	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "")
 
-	// With no registry and no user models, only default_* should be present
+	// With no registry and no user models, only default models should be present
 	catalog, err := mm.GetCatalog()
 	if err != nil {
 		t.Fatalf("GetCatalog: %v", err)
@@ -171,8 +171,8 @@ func TestRebuildCatalogThreeSources(t *testing.T) {
 			t.Errorf("unexpected non-default model %q with no registry or user models", m.ID)
 		}
 	}
-	if _, ok := mm.FindModel("default_claude"); !ok {
-		t.Error("default_claude not found in catalog")
+	if _, ok := mm.FindModel("claude"); !ok {
+		t.Error("claude not found in catalog")
 	}
 }
 
@@ -209,7 +209,7 @@ func TestDefaultModelsAlwaysPresent(t *testing.T) {
 		Runners: map[string]detect.RunnerSpec{"claude": {ModelValue: "v"}},
 	}})
 
-	for _, defaultID := range []string{"default_claude", "default_codex"} {
+	for _, defaultID := range []string{"claude", "codex"} {
 		if _, ok := mm.FindModel(defaultID); !ok {
 			t.Errorf("default model %q not found", defaultID)
 		}
@@ -303,7 +303,7 @@ func TestConcurrentCatalogAccess(t *testing.T) {
 		go func() {
 			defer func() { done <- true }()
 			for j := 0; j < 100; j++ {
-				mm.FindModel("default_claude")
+				mm.FindModel("claude")
 				mm.IsModelID("nonexistent")
 				mm.GetCatalog()
 			}

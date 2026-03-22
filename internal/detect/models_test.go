@@ -73,10 +73,10 @@ func TestDefaultModels(t *testing.T) {
 	}
 
 	expectedIDs := map[string]string{
-		"default_claude":   "claude",
-		"default_codex":    "codex",
-		"default_gemini":   "gemini",
-		"default_opencode": "opencode",
+		"claude":   "claude",
+		"codex":    "codex",
+		"gemini":   "gemini",
+		"opencode": "opencode",
 	}
 
 	for _, m := range defaults {
@@ -104,10 +104,10 @@ func TestIsDefaultModel(t *testing.T) {
 		id     string
 		expect bool
 	}{
-		{"default_claude", true},
-		{"default_codex", true},
-		{"default_gemini", true},
-		{"default_opencode", true},
+		{"claude", true},
+		{"codex", true},
+		{"gemini", true},
+		{"opencode", true},
 		{"claude-opus-4-6", false},
 		{"claude-sonnet-4-6", false},
 		{"kimi-thinking", false},
@@ -124,6 +124,11 @@ func TestMigrateModelID_NewMigrations(t *testing.T) {
 	tests := []struct {
 		old, want string
 	}{
+		// Old default_* IDs
+		{"default_claude", "claude"},
+		{"default_codex", "codex"},
+		{"default_gemini", "gemini"},
+		{"default_opencode", "opencode"},
 		// Short Claude aliases
 		{"opus", "claude-opus-4-6"},
 		{"sonnet", "claude-sonnet-4-6"},

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"strings"
 
 	"github.com/sergeknystautas/schmux/internal/detect"
 )
@@ -64,8 +63,8 @@ func ValidateUserModels(models []UserModel, detectedTools []string) error {
 		if m.ID == "" {
 			return fmt.Errorf("model ID is required")
 		}
-		if strings.HasPrefix(m.ID, "default_") {
-			return fmt.Errorf("model ID %q uses reserved prefix 'default_'", m.ID)
+		if detect.IsDefaultModel(m.ID) {
+			return fmt.Errorf("model ID %q is reserved (conflicts with default model)", m.ID)
 		}
 		if seen[m.ID] {
 			return fmt.Errorf("duplicate model ID: %q", m.ID)

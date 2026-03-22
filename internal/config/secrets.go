@@ -216,6 +216,9 @@ var legacyModelProviders = map[string]string{
 	"claude-opus-4-5-20251101": "anthropic", "claude-opus-4-1-20250805": "anthropic",
 	"claude-sonnet-4-5-20250929": "anthropic", "claude-opus-4-20250514": "anthropic",
 	"claude-sonnet-4-20250514": "anthropic", "claude-haiku-4-5-20251001": "anthropic",
+	// Old default_* model IDs
+	"default_claude": "anthropic", "default_codex": "openai",
+	"default_gemini": "google", "default_opencode": "opencode",
 }
 
 // getProviderForModel returns the provider for a given model ID using the

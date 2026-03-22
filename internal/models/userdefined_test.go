@@ -44,11 +44,11 @@ func TestLoadUserModels_Missing(t *testing.T) {
 	}
 }
 
-func TestValidateUserModels_ReservedPrefix(t *testing.T) {
-	models := []UserModel{{ID: "default_claude", Runner: "claude"}}
+func TestValidateUserModels_ReservedDefaultID(t *testing.T) {
+	models := []UserModel{{ID: "claude", Runner: "claude"}}
 	err := ValidateUserModels(models, []string{"claude"})
 	if err == nil {
-		t.Error("expected error for reserved prefix")
+		t.Error("expected error for reserved default model ID")
 	}
 }
 

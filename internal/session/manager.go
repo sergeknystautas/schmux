@@ -903,18 +903,19 @@ func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedT
 	// Check if it's a model (handles aliases like "opus", "sonnet", "haiku")
 	if m.models != nil && m.models.IsModelID(targetName) {
 		resolved, err := m.models.ResolveModel(targetName)
-		if err != nil {
-			return ResolvedTarget{}, err
+		if err == nil {
+			return ResolvedTarget{
+				Name:       resolved.Model.ID,
+				Kind:       TargetKindModel,
+				Command:    resolved.Command,
+				Promptable: true,
+				Env:        resolved.Env,
+				Model:      &resolved.Model,
+				ToolName:   resolved.ToolName,
+			}, nil
 		}
-		return ResolvedTarget{
-			Name:       resolved.Model.ID,
-			Kind:       TargetKindModel,
-			Command:    resolved.Command,
-			Promptable: true,
-			Env:        resolved.Env,
-			Model:      &resolved.Model,
-			ToolName:   resolved.ToolName,
-		}, nil
+		// Model exists in catalog but can't be resolved (e.g., no detected tool).
+		// Fall through to builtin tool name check for remote sessions.
 	}
 
 	if target, found := m.config.GetRunTarget(targetName); found {
