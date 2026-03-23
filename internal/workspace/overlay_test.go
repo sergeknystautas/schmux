@@ -301,3 +301,23 @@ func TestCopyOverlayReturnsManifest(t *testing.T) {
 		}
 	}
 }
+
+func TestIsIgnoredByGit_NonGitDir(t *testing.T) {
+	t.Parallel()
+	// Create a temp directory with no .git
+	tempDir := t.TempDir()
+
+	// Create a file in it
+	if err := os.WriteFile(filepath.Join(tempDir, "somefile.txt"), []byte("content"), 0644); err != nil {
+		t.Fatalf("failed to create test file: %v", err)
+	}
+
+	ctx := context.Background()
+	ignored, err := isIgnoredByGit(ctx, tempDir, "somefile.txt")
+	if err != nil {
+		t.Errorf("isIgnoredByGit() returned unexpected error: %v", err)
+	}
+	if ignored {
+		t.Error("isIgnoredByGit() = true, want false for non-git directory")
+	}
+}

@@ -700,9 +700,9 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	gitWatcher := workspace.NewGitWatcher(cfg, wm, server.BroadcastSessions, gitWatcherLog)
 	if gitWatcher != nil {
 		wm.SetGitWatcher(gitWatcher)
-		// Add watches for all existing local workspaces (skip remote ones)
+		// Add watches for all existing local git workspaces (skip remote and non-git)
 		for _, w := range st.GetWorkspaces() {
-			if w.RemoteHostID == "" {
+			if w.RemoteHostID == "" && workspace.IsGitVCS(w.VCS) {
 				gitWatcher.AddWorkspace(w.ID, w.Path)
 			}
 		}

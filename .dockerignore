@@ -6,6 +6,7 @@
 !build/e2e-test
 !test/
 !scripts/e2e-entrypoint.sh
+!scripts/install-sapling.sh
 !assets/dashboard/dist/
 
 # Exclude test artifacts and node_modules from context

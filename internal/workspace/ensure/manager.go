@@ -120,7 +120,7 @@ func (e *Ensurer) ForSpawn(workspaceID, currentTarget string) error {
 			hookTools = append(hookTools, baseTool)
 		}
 	}
-	return e.ensureWorkspace(w.Path, hookTools, w.Repo)
+	return e.ensureWorkspace(w.Path, hookTools, w.Repo, w.VCS)
 }
 
 // ForWorkspace ensures a workspace has all necessary schmux configuration.
@@ -130,7 +130,7 @@ func (e *Ensurer) ForWorkspace(workspaceID string) error {
 	if !found {
 		return fmt.Errorf("workspace not found: %s", workspaceID)
 	}
-	return e.ensureWorkspace(w.Path, e.workspaceHookTools(workspaceID), w.Repo)
+	return e.ensureWorkspace(w.Path, e.workspaceHookTools(workspaceID), w.Repo, w.VCS)
 }
 
 // workspaceHookTools returns the list of tool names that support hooks
@@ -152,8 +152,19 @@ func (e *Ensurer) workspaceHookTools(workspaceID string) []string {
 	return tools
 }
 
+// isGitVCS returns true if the VCS type represents a git-based VCS.
+// This is a local copy to avoid circular imports with the workspace package.
+func isGitVCS(vcs string) bool {
+	switch vcs {
+	case "", "git", "git-worktree", "git-clone":
+		return true
+	default:
+		return false
+	}
+}
+
 // ensureWorkspace writes all schmux-managed configuration for a workspace.
-func (e *Ensurer) ensureWorkspace(workspacePath string, hookTools []string, repoURL string) error {
+func (e *Ensurer) ensureWorkspace(workspacePath string, hookTools []string, repoURL string, vcs string) error {
 	for _, toolName := range hookTools {
 		adapter := detect.GetAdapter(toolName)
 		if adapter == nil || !adapter.SupportsHooks() {
@@ -231,8 +242,10 @@ func (e *Ensurer) ensureWorkspace(workspacePath string, hookTools []string, repo
 		}
 	}
 
-	if err := GitExclude(workspacePath); err != nil {
-		fmt.Printf("[ensure] warning: failed to ensure git exclude: %v\n", err)
+	if isGitVCS(vcs) {
+		if err := GitExclude(workspacePath); err != nil {
+			fmt.Printf("[ensure] warning: failed to ensure git exclude: %v\n", err)
+		}
 	}
 	return nil
 }

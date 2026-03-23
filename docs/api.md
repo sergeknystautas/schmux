@@ -1188,6 +1188,7 @@ Response:
 ### GET /api/diff/{workspaceId}
 
 Returns git diff for a workspace (tracked files + untracked).
+Returns 400 for non-git workspaces (e.g., sapling).
 
 Response:
 
@@ -1373,6 +1374,7 @@ Notes:
 ### GET /api/workspaces/{workspaceId}/git-graph
 
 Returns the git commit graph for a workspace, including branch topology and dirty state.
+Returns 400 for non-git workspaces (e.g., sapling).
 
 Query Parameters:
 
@@ -1477,6 +1479,7 @@ Notes:
 ### POST /api/workspaces/{workspaceId}/git-commit-stage
 
 Stages the specified files (runs `git add` for each file).
+Returns 400 for non-git workspaces.
 
 Request:
 
@@ -1506,6 +1509,7 @@ Notes:
 ### POST /api/workspaces/{workspaceId}/git-amend
 
 Stages the specified files and amends the last commit (`git commit --amend --no-edit`).
+Returns 400 for non-git workspaces.
 
 Request:
 
@@ -1536,6 +1540,7 @@ Notes:
 ### POST /api/workspaces/{workspaceId}/git-discard
 
 Discards local changes. If `files` are specified, only those files are discarded. If `files` is empty or body is omitted, all changes are discarded.
+Returns 400 for non-git workspaces.
 
 Request (optional):
 
@@ -1566,6 +1571,7 @@ Notes:
 ### POST /api/workspaces/{workspaceId}/git-uncommit
 
 Resets the HEAD commit, keeping changes as unstaged (`git reset HEAD~1`). Requires a `hash` parameter to verify we are uncommitting the expected commit.
+Returns 400 for non-git workspaces.
 
 Request:
 

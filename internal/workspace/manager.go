@@ -433,7 +433,8 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 				}
 				// Only reuse if the workspace's branch hasn't diverged from the default branch.
 				// If it has diverged, reusing would pollute the new branch with commits from the old one.
-				if !m.isUpToDateWithDefault(ctx, w.Path, repoURL) {
+				// Skip this check for non-git workspaces (isUpToDateWithDefault uses git commands).
+				if IsGitVCS(w.VCS) && !m.isUpToDateWithDefault(ctx, w.Path, repoURL) {
 					m.logger.Info("branch has diverged from default, skipping reuse", "branch", w.Branch, "id", w.ID)
 					continue
 				}
@@ -584,8 +585,8 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 	// State is persisted, workspace is valid
 	cleanupNeeded = false
 
-	// Add filesystem watches for git metadata (skip remote workspaces)
-	if m.gitWatcher != nil && w.RemoteHostID == "" {
+	// Add filesystem watches for git metadata (skip remote and non-git workspaces)
+	if m.gitWatcher != nil && w.RemoteHostID == "" && IsGitVCS(w.VCS) {
 		m.gitWatcher.AddWorkspace(w.ID, w.Path)
 	}
 
@@ -748,6 +749,11 @@ func (m *Manager) Cleanup(ctx context.Context, workspaceID string) error {
 
 	m.logger.Info("cleaning up", "id", workspaceID, "path", w.Path)
 
+	if !IsGitVCS(w.VCS) {
+		m.logger.Info("skipping cleanup for non-git workspace", "id", workspaceID, "vcs", w.VCS)
+		return nil
+	}
+
 	// Reset all changes
 	if err := m.gitCheckoutDot(ctx, w.Path); err != nil {
 		return fmt.Errorf("git checkout -- . failed: %w", err)
@@ -862,7 +868,36 @@ func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, worksp
 	// Refresh workspace config (respects lock, safe during sync)
 	m.RefreshWorkspaceConfig(w)
 
-	// Calculate git status (safe to run even with active sessions)
+	// Route non-git workspaces through VCSBackend.GetStatus()
+	if !IsGitVCS(w.VCS) {
+		backend := m.backendForWorkspace(workspaceID)
+		if trigger != RefreshTriggerWatcher {
+			_ = backend.Fetch(ctx, w.Path)
+		}
+		status, err := backend.GetStatus(ctx, w.Path)
+		if err != nil {
+			return &w, nil
+		}
+		w.GitDirty = status.Dirty
+		w.GitAhead = status.AheadOfDefault
+		w.GitBehind = status.BehindDefault
+		w.GitLinesAdded = status.LinesAdded
+		w.GitLinesRemoved = status.LinesRemoved
+		w.GitFilesChanged = status.FilesChanged
+		w.CommitsSyncedWithRemote = status.SyncedWithRemote
+		w.RemoteBranchExists = status.RemoteBranchExists
+		w.LocalUniqueCommits = status.LocalUniqueCommits
+		w.RemoteUniqueCommits = status.RemoteUniqueCommits
+		if status.CurrentBranch != "" {
+			w.Branch = status.CurrentBranch
+		}
+		if err := m.state.UpdateWorkspace(w); err != nil {
+			return nil, fmt.Errorf("failed to update workspace in state: %w", err)
+		}
+		return &w, nil
+	}
+
+	// Git-specific status path
 	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSynced, remoteBranchExists, localUnique, remoteUnique, currentBranch := m.gitStatusWithRound(ctx, workspaceID, trigger, w.Path, w.Repo, round)
 
 	// Use branch from gitStatus; fall back to existing state if empty/detached
@@ -1140,8 +1175,9 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 		return nil, fmt.Errorf("invalid branch name: %w", err)
 	}
 
-	// 3. Get source workspace's current branch
-	currentBranch, err := m.gitCurrentBranch(ctx, source.Path)
+	// 3. Get source workspace's current branch (use VCS backend for non-git)
+	srcBackend := m.backendForWorkspace(sourceWorkspaceID)
+	currentBranch, err := srcBackend.GetCurrentBranch(ctx, source.Path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current branch: %w", err)
 	}
@@ -1179,44 +1215,50 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 		m.logger.Warn("fetch failed before worktree add", "err", fetchErr)
 	}
 
-	if repoConfig.VCS == "" || repoConfig.VCS == "git-worktree" || repoConfig.VCS == "git-clone" {
+	if IsGitVCS(repoConfig.VCS) {
 		m.updateLocalDefaultBranch(ctx, "", RefreshTriggerExplicit, worktreeBasePath, source.Repo, nil)
-	}
 
-	if m.localBranchExists(ctx, worktreeBasePath, newBranch) {
-		uniqueBranch, wasCreated, err := m.gitBackend.ensureUniqueBranch(ctx, worktreeBasePath, newBranch)
-		if err != nil {
-			return nil, fmt.Errorf("failed to pick unique branch: %w", err)
+		if m.localBranchExists(ctx, worktreeBasePath, newBranch) {
+			uniqueBranch, wasCreated, err := m.gitBackend.ensureUniqueBranch(ctx, worktreeBasePath, newBranch)
+			if err != nil {
+				return nil, fmt.Errorf("failed to pick unique branch: %w", err)
+			}
+			if uniqueBranch != newBranch {
+				m.logger.Info("using unique branch", "requested", newBranch, "actual", uniqueBranch)
+			}
+			newBranch = uniqueBranch
+			_ = wasCreated
 		}
-		if uniqueBranch != newBranch {
-			m.logger.Info("using unique branch", "requested", newBranch, "actual", uniqueBranch)
+
+		// 11. Create branch from origin/<source-branch>
+		sourceRef := "origin/" + currentBranch
+		if err := m.createBranchFromRef(ctx, worktreeBasePath, newBranch, sourceRef); err != nil {
+			return nil, fmt.Errorf("failed to create branch from %s: %w", sourceRef, err)
 		}
-		newBranch = uniqueBranch
-		_ = wasCreated
 	}
 
-	// 11. Create branch from origin/<source-branch>
-	sourceRef := "origin/" + currentBranch
-	if err := m.createBranchFromRef(ctx, worktreeBasePath, newBranch, sourceRef); err != nil {
-		return nil, fmt.Errorf("failed to create branch from %s: %w", sourceRef, err)
-	}
-
-	// 12. Clean up worktree if creation fails
+	// 12. Clean up workspace if creation fails
 	cleanupNeeded := true
 	defer func() {
 		if cleanupNeeded {
 			m.logger.Warn("cleaning up failed", "path", workspacePath)
-			// Try worktree remove first, fall back to rm -rf
 			if err := branchBackend.RemoveWorkspace(ctx, workspacePath); err != nil {
 				os.RemoveAll(workspacePath)
 			}
-			if err := m.deleteBranch(ctx, worktreeBasePath, newBranch); err != nil {
-				m.logger.Warn("failed to delete branch", "branch", newBranch, "err", err)
+			if IsGitVCS(repoConfig.VCS) {
+				if err := m.deleteBranch(ctx, worktreeBasePath, newBranch); err != nil {
+					m.logger.Warn("failed to delete branch", "branch", newBranch, "err", err)
+				}
 			}
 		}
 	}()
 
-	if m.repoUsesWorktrees(repoConfig) {
+	if !IsGitVCS(repoConfig.VCS) {
+		// Non-git VCS: use backend to create workspace
+		if err := branchBackend.CreateWorkspace(ctx, worktreeBasePath, newBranch, workspacePath); err != nil {
+			return nil, fmt.Errorf("failed to create workspace: %w", err)
+		}
+	} else if m.repoUsesWorktrees(repoConfig) {
 		if err := m.addWorktreeForBranch(ctx, worktreeBasePath, workspacePath, newBranch); err != nil {
 			return nil, fmt.Errorf("failed to add worktree: %w", err)
 		}
@@ -1244,6 +1286,7 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 		Repo:   source.Repo,
 		Branch: newBranch,
 		Path:   workspacePath,
+		VCS:    repoConfig.VCS,
 	}
 
 	if err := m.state.AddWorkspace(w); err != nil {
@@ -1261,8 +1304,8 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 	// 16. State is persisted, workspace is valid
 	cleanupNeeded = false
 
-	// 17. Add filesystem watches for git metadata
-	if m.gitWatcher != nil && w.RemoteHostID == "" {
+	// 17. Add filesystem watches for git metadata (skip non-git workspaces)
+	if m.gitWatcher != nil && w.RemoteHostID == "" && IsGitVCS(w.VCS) {
 		m.gitWatcher.AddWorkspace(w.ID, w.Path)
 	}
 

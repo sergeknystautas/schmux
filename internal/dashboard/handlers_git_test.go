@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -223,6 +224,139 @@ func TestHandleGitDiscard_Guards(t *testing.T) {
 			t.Errorf("expected status 404, got %d: %s", rr.Code, rr.Body.String())
 		}
 	})
+}
+
+func TestHandleGitGraph_RejectsNonGitWorkspace(t *testing.T) {
+	server, _, st := newTestServer(t)
+
+	ws := state.Workspace{
+		ID:     "ws-sapling",
+		Repo:   "https://github.com/test/repo",
+		Branch: "main",
+		Path:   t.TempDir(),
+		VCS:    "sapling",
+	}
+	if err := st.AddWorkspace(ws); err != nil {
+		t.Fatalf("failed to add workspace: %v", err)
+	}
+
+	req := makeWorkspaceRequest(t, http.MethodGet, "/api/workspaces/ws-sapling/git-graph", "ws-sapling", nil)
+	rr := httptest.NewRecorder()
+	server.handleWorkspaceGitGraph(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "not available") {
+		t.Errorf("expected response to contain 'not available', got: %s", rr.Body.String())
+	}
+}
+
+func TestHandleGitCommitStage_RejectsNonGitWorkspace(t *testing.T) {
+	server, _, st := newTestServer(t)
+
+	ws := state.Workspace{
+		ID:     "ws-sapling",
+		Repo:   "https://github.com/test/repo",
+		Branch: "main",
+		Path:   t.TempDir(),
+		VCS:    "sapling",
+	}
+	if err := st.AddWorkspace(ws); err != nil {
+		t.Fatalf("failed to add workspace: %v", err)
+	}
+
+	body, _ := json.Marshal(map[string][]string{"files": {"file.go"}})
+	req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-sapling/git-commit-stage", "ws-sapling", body)
+	rr := httptest.NewRecorder()
+	server.handleGitCommitStage(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "not available") {
+		t.Errorf("expected response to contain 'not available', got: %s", rr.Body.String())
+	}
+}
+
+func TestHandleGitAmend_RejectsNonGitWorkspace(t *testing.T) {
+	server, _, st := newTestServer(t)
+
+	ws := state.Workspace{
+		ID:     "ws-sapling",
+		Repo:   "https://github.com/test/repo",
+		Branch: "main",
+		Path:   t.TempDir(),
+		VCS:    "sapling",
+	}
+	if err := st.AddWorkspace(ws); err != nil {
+		t.Fatalf("failed to add workspace: %v", err)
+	}
+
+	body, _ := json.Marshal(map[string][]string{"files": {"file.go"}})
+	req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-sapling/git-amend", "ws-sapling", body)
+	rr := httptest.NewRecorder()
+	server.handleGitAmend(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "not available") {
+		t.Errorf("expected response to contain 'not available', got: %s", rr.Body.String())
+	}
+}
+
+func TestHandleGitDiscard_RejectsNonGitWorkspace(t *testing.T) {
+	server, _, st := newTestServer(t)
+
+	ws := state.Workspace{
+		ID:     "ws-sapling",
+		Repo:   "https://github.com/test/repo",
+		Branch: "main",
+		Path:   t.TempDir(),
+		VCS:    "sapling",
+	}
+	if err := st.AddWorkspace(ws); err != nil {
+		t.Fatalf("failed to add workspace: %v", err)
+	}
+
+	req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-sapling/git-discard", "ws-sapling", nil)
+	rr := httptest.NewRecorder()
+	server.handleGitDiscard(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "not available") {
+		t.Errorf("expected response to contain 'not available', got: %s", rr.Body.String())
+	}
+}
+
+func TestHandleGitUncommit_RejectsNonGitWorkspace(t *testing.T) {
+	server, _, st := newTestServer(t)
+
+	ws := state.Workspace{
+		ID:     "ws-sapling",
+		Repo:   "https://github.com/test/repo",
+		Branch: "main",
+		Path:   t.TempDir(),
+		VCS:    "sapling",
+	}
+	if err := st.AddWorkspace(ws); err != nil {
+		t.Fatalf("failed to add workspace: %v", err)
+	}
+
+	body, _ := json.Marshal(map[string]string{"hash": "abc123"})
+	req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-sapling/git-uncommit", "ws-sapling", body)
+	rr := httptest.NewRecorder()
+	server.handleGitUncommit(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "not available") {
+		t.Errorf("expected response to contain 'not available', got: %s", rr.Body.String())
+	}
 }
 
 func TestHandleGitCommitStage_Guards(t *testing.T) {

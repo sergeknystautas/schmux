@@ -85,6 +85,11 @@ func (m *Manager) Scan() (ScanResult, error) {
 			continue
 		}
 
+		// Skip non-git workspaces - scan uses git commands for branch/URL detection
+		if !IsGitVCS(ws.VCS) {
+			continue
+		}
+
 		// Check if workspace has active sessions - skip these
 		hasActiveSessions := false
 		for _, s := range m.state.GetSessions() {

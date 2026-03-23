@@ -2,6 +2,7 @@ package ensure
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -514,7 +515,7 @@ func TestEnsureWorkspace_InjectsBuiltinSkills(t *testing.T) {
 	initGitRepo(t, dir)
 
 	e := &Ensurer{}
-	err := e.ensureWorkspace(dir, []string{"claude"}, "")
+	err := e.ensureWorkspace(dir, []string{"claude"}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -535,7 +536,7 @@ func TestEnsureWorkspace_InjectsBuiltinSkillsOpenCode(t *testing.T) {
 	initGitRepo(t, dir)
 
 	e := &Ensurer{}
-	err := e.ensureWorkspace(dir, []string{"opencode"}, "")
+	err := e.ensureWorkspace(dir, []string{"opencode"}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -548,6 +549,48 @@ func TestEnsureWorkspace_InjectsBuiltinSkillsOpenCode(t *testing.T) {
 	}
 	if !strings.Contains(string(content), "Definition of Done") {
 		t.Error("commit skill should contain Definition of Done")
+	}
+}
+
+func TestEnsureWorkspace_SkipsGitExcludeForSapling(t *testing.T) {
+	dir := t.TempDir()
+	// No git repo initialized — this is a sapling workspace
+
+	e := &Ensurer{}
+	err := e.ensureWorkspace(dir, []string{}, "", "sapling")
+	if err != nil {
+		t.Fatalf("ensureWorkspace returned error: %v", err)
+	}
+
+	// .git/info/exclude should NOT be created for a sapling workspace
+	excludePath := filepath.Join(dir, ".git", "info", "exclude")
+	if _, err := os.Stat(excludePath); !os.IsNotExist(err) {
+		t.Errorf(".git/info/exclude should not exist for sapling workspace, but got err=%v", err)
+	}
+}
+
+func TestEnsureWorkspace_RunsGitExcludeForGit(t *testing.T) {
+	dir := t.TempDir()
+	// Use a real git init so GitExclude's git rev-parse succeeds
+	cmd := exec.Command("git", "init", dir)
+	if err := cmd.Run(); err != nil {
+		t.Skipf("git not available: %v", err)
+	}
+
+	e := &Ensurer{}
+	err := e.ensureWorkspace(dir, []string{}, "", "")
+	if err != nil {
+		t.Fatalf("ensureWorkspace returned error: %v", err)
+	}
+
+	// .git/info/exclude should be created (or updated) for a git workspace
+	excludePath := filepath.Join(dir, ".git", "info", "exclude")
+	content, err := os.ReadFile(excludePath)
+	if err != nil {
+		t.Fatalf(".git/info/exclude should exist for git workspace: %v", err)
+	}
+	if !strings.Contains(string(content), excludeMarkerStart) {
+		t.Error(".git/info/exclude should contain schmux exclude markers")
 	}
 }
 

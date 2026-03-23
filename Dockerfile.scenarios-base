@@ -14,6 +14,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Install sapling (sl) from latest GitHub release
+COPY scripts/install-sapling.sh /tmp/install-sapling.sh
+RUN /tmp/install-sapling.sh && rm /tmp/install-sapling.sh
+
 # Pre-install npm deps and Playwright browsers (most expensive steps)
 # Use a shared path so browsers are accessible when running as non-root testuser
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers

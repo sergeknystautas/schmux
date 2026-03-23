@@ -103,7 +103,7 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 		remoteHostStatus := ""
 		remoteFlavorName := ""
 		remoteFlavor := ""
-		vcs := ""
+		vcs := ws.VCS
 		if ws.RemoteHostID != "" {
 			remoteHostID = ws.RemoteHostID
 			if host, found := s.state.GetRemoteHost(ws.RemoteHostID); found {

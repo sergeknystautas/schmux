@@ -12,8 +12,12 @@ import (
 
 // CheckoutPR creates a workspace from a GitHub pull request ref.
 // It fetches the PR ref into the bare clone, then creates/reuses a workspace
-// on the PR branch.
+// on the PR branch. This is a git+GitHub-specific operation.
 func (m *Manager) CheckoutPR(ctx context.Context, pr contracts.PullRequest) (*state.Workspace, error) {
+	if repo, found := m.findRepoByURL(pr.RepoURL); found && !IsGitVCS(repo.VCS) {
+		return nil, fmt.Errorf("PR checkout is not supported for %s repos", repo.VCS)
+	}
+
 	branchName := gh.PRBranchName(pr)
 
 	if err := ValidateBranchName(branchName); err != nil {
@@ -41,7 +45,7 @@ func (m *Manager) fetchPRRef(ctx context.Context, repoURL string, prNumber int, 
 	lock.Lock()
 	defer lock.Unlock()
 
-	worktreeBasePath, err := m.gitBackend.EnsureRepoBase(ctx, repoURL, "")
+	worktreeBasePath, err := m.backendFor(repoURL).EnsureRepoBase(ctx, repoURL, "")
 	if err != nil {
 		return fmt.Errorf("failed to ensure worktree base: %w", err)
 	}

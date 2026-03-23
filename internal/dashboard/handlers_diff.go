@@ -55,6 +55,12 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Diff uses git commands — return error for non-git workspaces
+	if !workspace.IsGitVCS(ws.VCS) {
+		http.Error(w, `{"error":"diff not available for this VCS type"}`, http.StatusBadRequest)
+		return
+	}
+
 	// Refresh git status so the client gets updated stats
 	refreshCtx, refreshCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
 	if _, err := s.workspace.UpdateVCSStatus(refreshCtx, workspaceID); err != nil {
@@ -873,6 +879,13 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 	// Delegate to remote handler if this is a remote workspace
 	if ws.RemoteHostID != "" {
 		s.handleRemoteDiffExternal(w, r, ws, selectedCommand)
+		return
+	}
+
+	if !workspace.IsGitVCS(ws.VCS) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, DiffExternalResponse{Success: false, Message: "diff not available for this VCS type"})
 		return
 	}
 

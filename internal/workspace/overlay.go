@@ -162,7 +162,13 @@ func copyFile(src, dst string, mode fs.FileMode) error {
 
 // isIgnoredByGit checks if a file path is covered by .gitignore in the given directory.
 // Uses `git check-ignore -q <path>` which returns exit code 0 if ignored, 1 if not.
+// For non-git directories (e.g., sapling workspaces), returns false (not ignored).
 func isIgnoredByGit(ctx context.Context, dir, filePath string) (bool, error) {
+	dotGit := filepath.Join(dir, ".git")
+	if _, err := os.Stat(dotGit); err != nil {
+		return false, nil
+	}
+
 	cmd := exec.CommandContext(ctx, "git", "check-ignore", "-q", filePath)
 	cmd.Dir = dir
 

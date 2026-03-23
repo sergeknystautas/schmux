@@ -7,12 +7,25 @@ const SCHMUX_HOME = process.env.SCHMUX_HOME || `${process.env.HOME}/.schmux`;
 
 // --- Config helpers ---
 
+interface RepoConfig {
+  name: string;
+  url: string;
+  vcs?: string;
+}
+
 interface SetupOptions {
   repos?: string[];
+  repoConfigs?: RepoConfig[];
   agents?: Array<{ name: string; command: string; promptable?: boolean }>;
   quickLaunch?: Array<{ name: string; target: string; prompt?: string }>;
   workspacePath?: string;
   scm?: 'git' | 'git-worktree';
+  saplingCommands?: {
+    create_workspace?: string;
+    remove_workspace?: string;
+    create_repo_base?: string;
+    check_repo_base?: string;
+  };
 }
 
 /**
@@ -23,10 +36,14 @@ export async function seedConfig(opts: SetupOptions = {}): Promise<void> {
   const config: Record<string, unknown> = {
     workspace_path: opts.workspacePath || '/tmp/schmux-test-workspaces',
     source_code_management: opts.scm || 'git',
-    repos: (opts.repos || []).map((r) => ({
-      name: r.split('/').pop() || r,
-      url: r,
-    })),
+    repos: [
+      ...(opts.repos || []).map((r) => ({
+        name: r.split('/').pop() || r,
+        url: r,
+      })),
+      ...(opts.repoConfigs || []),
+    ],
+    ...(opts.saplingCommands ? { sapling_commands: opts.saplingCommands } : {}),
     run_targets: (opts.agents || []).map((a) => ({
       name: a.name,
       command: a.command,
@@ -219,6 +236,34 @@ export async function createTestRepo(name: string): Promise<string> {
   execSync(`touch ${repoDir}/README.md`);
   execSync(`git -C ${repoDir} add .`);
   execSync(`git -C ${repoDir} commit -m "initial"`);
+  return repoDir;
+}
+
+/**
+ * Creates a local sapling repo for scenario tests.
+ * Requires `sl` (sapling) to be installed in the test environment.
+ * Returns the repo directory path.
+ */
+export async function createSaplingTestRepo(name: string): Promise<string> {
+  if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+    throw new Error(`Invalid repo name: ${name}`);
+  }
+  const { execSync } = await import('child_process');
+
+  // Check if sapling is available
+  try {
+    execSync('sl version', { stdio: 'pipe' });
+  } catch {
+    throw new Error('Sapling (sl) is not installed — cannot create sapling test repo');
+  }
+
+  const repoDir = `/tmp/schmux-test-repos/${name}`;
+  execSync(`rm -rf ${repoDir} && mkdir -p ${repoDir}`);
+  execSync(`sl init ${repoDir}`);
+  execSync(`sl --cwd ${repoDir} config --local ui.username "Schmux Test <test@schmux.dev>"`);
+  execSync(`touch ${repoDir}/README.md`);
+  execSync(`sl --cwd ${repoDir} add README.md`);
+  execSync(`sl --cwd ${repoDir} commit -m "initial"`);
   return repoDir;
 }
 

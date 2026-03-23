@@ -29,6 +29,11 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if !workspace.IsGitVCS(ws.VCS) {
+		writeJSONError(w, "commit graph not available for this VCS type", http.StatusBadRequest)
+		return
+	}
+
 	// Parse query params
 	// max_total: Maximum total commits to display (applied after category limits)
 	maxTotal := 200
@@ -288,6 +293,11 @@ func (s *Server) handleWorkspaceGitCommit(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if !workspace.IsGitVCS(ws.VCS) {
+		writeJSONError(w, "commit detail not available for this VCS type", http.StatusBadRequest)
+		return
+	}
+
 	// TODO: Remote workspace support
 	if ws.RemoteHostID != "" {
 		writeJSONError(w, "commit detail not yet supported for remote workspaces", http.StatusNotImplemented)
@@ -321,6 +331,10 @@ func (s *Server) handleWorkspaceGitCommit(w http.ResponseWriter, r *http.Request
 func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.requireWorkspace(w, r)
 	if !ok {
+		return
+	}
+	if !workspace.IsGitVCS(ws.VCS) {
+		writeJSONError(w, "operation not available for this VCS type", http.StatusBadRequest)
 		return
 	}
 
@@ -364,6 +378,10 @@ func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.requireWorkspace(w, r)
 	if !ok {
+		return
+	}
+	if !workspace.IsGitVCS(ws.VCS) {
+		writeJSONError(w, "operation not available for this VCS type", http.StatusBadRequest)
 		return
 	}
 
@@ -424,6 +442,10 @@ func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.requireWorkspace(w, r)
 	if !ok {
+		return
+	}
+	if !workspace.IsGitVCS(ws.VCS) {
+		writeJSONError(w, "operation not available for this VCS type", http.StatusBadRequest)
 		return
 	}
 
@@ -520,6 +542,10 @@ func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGitUncommit(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.requireWorkspace(w, r)
 	if !ok {
+		return
+	}
+	if !workspace.IsGitVCS(ws.VCS) {
+		writeJSONError(w, "operation not available for this VCS type", http.StatusBadRequest)
 		return
 	}
 

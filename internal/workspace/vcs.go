@@ -40,3 +40,14 @@ type VCSChangedFile struct {
 	LinesAdded   int
 	LinesRemoved int
 }
+
+// IsGitVCS returns true if the VCS type string represents a git-based VCS.
+// Empty string defaults to git for backward compatibility.
+func IsGitVCS(vcs string) bool {
+	switch vcs {
+	case "", "git", "git-worktree", "git-clone":
+		return true
+	default:
+		return false
+	}
+}

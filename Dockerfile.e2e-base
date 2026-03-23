@@ -16,6 +16,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openssh-server \
     && rm -rf /var/lib/apt/lists/*
 
+# Install sapling (sl) from latest GitHub release
+COPY scripts/install-sapling.sh /tmp/install-sapling.sh
+RUN /tmp/install-sapling.sh && rm /tmp/install-sapling.sh
+
 # Set up SSH server for localhost testing
 RUN mkdir -p /run/sshd && \
     sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config && \

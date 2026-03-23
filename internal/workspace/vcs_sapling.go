@@ -16,14 +16,19 @@ import (
 )
 
 type SaplingBackend struct {
-	manager  *Manager
-	commands config.SaplingCommands
+	manager *Manager
 }
 
 var _ VCSBackend = (*SaplingBackend)(nil)
 
-func NewSaplingBackend(m *Manager, cmds config.SaplingCommands) *SaplingBackend {
-	return &SaplingBackend{manager: m, commands: cmds}
+func NewSaplingBackend(m *Manager, _ config.SaplingCommands) *SaplingBackend {
+	return &SaplingBackend{manager: m}
+}
+
+// commands returns the current sapling commands from the live config.
+// This ensures config updates via the API are picked up without restarting.
+func (s *SaplingBackend) commands() config.SaplingCommands {
+	return s.manager.config.SaplingCommands
 }
 
 func renderCommandTemplate(tmpl string, vars map[string]string) (string, error) {
@@ -57,7 +62,7 @@ func (s *SaplingBackend) EnsureRepoBase(ctx context.Context, repoIdentifier, bas
 		"RepoIdentifier": repoIdentifier,
 	}
 
-	checkCmd := s.commands.CheckRepoBase
+	checkCmd := s.commands().CheckRepoBase
 	if checkCmd != "" {
 		output, err := s.runTemplateCommand(ctx, checkCmd, vars)
 		if err == nil {
@@ -100,7 +105,7 @@ func (s *SaplingBackend) EnsureRepoBase(ctx context.Context, repoIdentifier, bas
 	}
 
 	vars["BasePath"] = basePath
-	createCmd := s.commands.GetCreateRepoBase()
+	createCmd := s.commands().GetCreateRepoBase()
 	if _, err := s.runTemplateCommand(ctx, createCmd, vars); err != nil {
 		return "", fmt.Errorf("create repo base failed: %w", err)
 	}
@@ -144,7 +149,7 @@ func (s *SaplingBackend) CreateWorkspace(ctx context.Context, repoBasePath, bran
 		"Branch":         branch,
 		"DestPath":       destPath,
 	}
-	cmd := s.commands.GetCreateWorkspace()
+	cmd := s.commands().GetCreateWorkspace()
 	if _, err := s.runTemplateCommand(ctx, cmd, vars); err != nil {
 		return fmt.Errorf("create workspace failed: %w", err)
 	}
@@ -155,7 +160,7 @@ func (s *SaplingBackend) RemoveWorkspace(ctx context.Context, workspacePath stri
 	vars := map[string]string{
 		"WorkspacePath": workspacePath,
 	}
-	cmd := s.commands.GetRemoveWorkspace()
+	cmd := s.commands().GetRemoveWorkspace()
 	if _, err := s.runTemplateCommand(ctx, cmd, vars); err != nil {
 		return fmt.Errorf("remove workspace failed: %w", err)
 	}

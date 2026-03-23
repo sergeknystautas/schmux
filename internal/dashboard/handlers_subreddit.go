@@ -104,6 +104,9 @@ func (s *Server) GenerateSubredditForAllRepos(ctx context.Context) error {
 	}
 
 	for _, repo := range cfg.GetRepos() {
+		if repo.VCS == "sapling" {
+			continue
+		}
 		slug := repoSlug(repo.Name)
 		if !cfg.GetSubredditRepoEnabled(slug) {
 			continue

@@ -11,6 +11,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/commitmessage"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/schema"
+	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
 // CommitMessageRequest is the request body for POST /api/commit/generate.
@@ -73,6 +74,11 @@ func (s *Server) handleCommitGenerate(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.state.GetWorkspace(req.WorkspaceID)
 	if !ok {
 		writeJSONError(w, "workspace not found", http.StatusNotFound)
+		return
+	}
+
+	if !workspace.IsGitVCS(ws.VCS) {
+		writeJSONError(w, "commit message generation not available for this VCS type", http.StatusBadRequest)
 		return
 	}
 
