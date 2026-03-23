@@ -61,7 +61,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   const lockState = workspaceLockStates[workspaceId];
   const isSyncing = syncing || !!lockState?.locked;
   const gitFingerprint = ws
-    ? `${ws.git_ahead}:${ws.git_behind}:${ws.git_files_changed}:${ws.git_lines_added}:${ws.git_lines_removed}`
+    ? `${ws.ahead}:${ws.behind}:${ws.files_changed}:${ws.lines_added}:${ws.lines_removed}`
     : '';
 
   // Measure container height so we can request the right number of commits
@@ -93,7 +93,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   // Always request enough commits to show all branch-ahead commits plus context
   // (fork point + ancestors), so the branch detachment from main is always visible.
   // The container scrolls, so requesting more than fits on screen is fine.
-  const aheadCount = ws?.git_ahead ?? 0;
+  const aheadCount = ws?.ahead ?? 0;
   const minCommits = aheadCount + 10; // all branch commits + fork point + context
   const maxCommits =
     containerHeight > 0
@@ -199,9 +199,9 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
     if (ln.nodeType === 'you-are-here') {
       const defaultBranch = ws?.default_branch || 'main';
       const branchName = ws?.branch || 'current branch';
-      const aheadCount = ws?.git_ahead ?? 0;
-      const behindCount = ws?.git_behind ?? 0;
-      const filesChanged = ws?.git_files_changed ?? 0;
+      const aheadCount = ws?.ahead ?? 0;
+      const behindCount = ws?.behind ?? 0;
+      const filesChanged = ws?.files_changed ?? 0;
       const commitsSynced = ws?.commits_synced_with_remote ?? false;
       const showPushToDefault = aheadCount > 0;
       // Show push-to-branch whenever the branch is not yet synced with origin.
@@ -406,7 +406,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
       );
     }
     if (ln.nodeType === 'commit-footer') {
-      const canAmend = (ws?.git_ahead ?? 0) > 0;
+      const canAmend = (ws?.ahead ?? 0) > 0;
       const commitDisabled = !commitMessageConfigured || selectedFiles.size === 0 || isCommitting;
 
       const commitButton = (
@@ -555,7 +555,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
       );
     }
     const isHeadCommit = ln.node.is_head.includes(ws?.branch || '');
-    const canUncommit = isHeadCommit && (ws?.git_ahead ?? 0) > 0;
+    const canUncommit = isHeadCommit && (ws?.ahead ?? 0) > 0;
 
     return (
       <div

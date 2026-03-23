@@ -734,8 +734,8 @@ export default function AppShell() {
               const wsLockState = workspaceLockStates[workspace.id];
               const wsResolveState = linearSyncResolveConflictStates[workspace.id];
               const wsLocked = !!wsLockState?.locked || wsResolveState?.status === 'in_progress';
-              const linesAdded = workspace.git_lines_added ?? 0;
-              const linesRemoved = workspace.git_lines_removed ?? 0;
+              const linesAdded = workspace.lines_added ?? 0;
+              const linesRemoved = workspace.lines_removed ?? 0;
               const isGit = !workspace.vcs || workspace.vcs === 'git';
               const hasChanges = isGit && (linesAdded > 0 || linesRemoved > 0);
               const isWorkspaceActive = workspace.id === (currentWorkspaceId || activeWorkspaceId);

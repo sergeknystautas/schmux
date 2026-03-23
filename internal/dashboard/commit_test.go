@@ -1,14 +1,8 @@
 package dashboard
 
 import (
-	"bytes"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 func TestBuildOneshotCommitPrompt(t *testing.T) {
@@ -46,29 +40,5 @@ func TestCommitPrompt(t *testing.T) {
 	}
 }
 
-func TestHandleCommitGenerate_RejectsNonGitWorkspace(t *testing.T) {
-	server, _, st := newTestServer(t)
-
-	ws := state.Workspace{
-		ID:     "ws-sapling",
-		Repo:   "https://github.com/test/repo",
-		Branch: "main",
-		Path:   t.TempDir(),
-		VCS:    "sapling",
-	}
-	if err := st.AddWorkspace(ws); err != nil {
-		t.Fatalf("failed to add workspace: %v", err)
-	}
-
-	body, _ := json.Marshal(map[string]string{"workspace_id": "ws-sapling"})
-	req := httptest.NewRequest(http.MethodPost, "/api/commit/generate", bytes.NewReader(body))
-	rr := httptest.NewRecorder()
-	server.handleCommitGenerate(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
-	}
-	if !strings.Contains(rr.Body.String(), "not available") {
-		t.Errorf("expected response to contain 'not available', got: %s", rr.Body.String())
-	}
-}
+// Note: TestHandleCommitGenerate_RejectsNonGitWorkspace was removed — the commit
+// handler is now VCS-agnostic via CommandBuilder and works with any VCS type.

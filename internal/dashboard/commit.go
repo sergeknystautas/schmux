@@ -4,14 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/commitmessage"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/schema"
-	"github.com/sergeknystautas/schmux/internal/workspace"
+	"github.com/sergeknystautas/schmux/internal/vcs"
 )
 
 // CommitMessageRequest is the request body for POST /api/commit/generate.
@@ -77,32 +76,27 @@ func (s *Server) handleCommitGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !workspace.IsGitVCS(ws.VCS) {
-		writeJSONError(w, "commit message generation not available for this VCS type", http.StatusBadRequest)
-		return
-	}
-
-	// Run git diff HEAD --numstat to get file stats for response (staged + unstaged)
+	cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
 	ctx := r.Context()
-	numstatCmd := exec.CommandContext(ctx, "git", "diff", "HEAD", "--numstat")
-	numstatCmd.Dir = ws.Path
-	numstatOutput, err := numstatCmd.CombinedOutput()
-	if err != nil {
-		s.logger.Error("git diff --numstat failed", "output", string(numstatOutput))
-		writeJSONError(w, "git operation failed", http.StatusInternalServerError)
-		return
-	}
-	files := parseNumstat(string(numstatOutput))
+	run := localShellRun(ctx, ws.Path)
 
-	// Run git diff HEAD to get actual diff for prompt (staged + unstaged)
-	diffCmd := exec.CommandContext(ctx, "git", "diff", "HEAD")
-	diffCmd.Dir = ws.Path
-	diffOutput, err := diffCmd.CombinedOutput()
+	// Get file stats (staged + unstaged)
+	numstatOutput, err := run(cb.DiffNumstat())
 	if err != nil {
-		s.logger.Error("git diff failed", "output", string(diffOutput))
-		writeJSONError(w, "git operation failed", http.StatusInternalServerError)
+		s.logger.Error("diff numstat failed", "err", err)
+		writeJSONError(w, "VCS operation failed", http.StatusInternalServerError)
 		return
 	}
+	files := parseNumstat(numstatOutput)
+
+	// Get actual diff for prompt (staged + unstaged)
+	diffOutputStr, err := run(cb.DiffUnified())
+	if err != nil {
+		s.logger.Error("diff failed", "err", err)
+		writeJSONError(w, "VCS operation failed", http.StatusInternalServerError)
+		return
+	}
+	diffOutput := []byte(diffOutputStr)
 
 	// Cap diff output to prevent unbounded memory usage in prompt
 	const maxDiffSize = 100 * 1024 // 100KB

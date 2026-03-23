@@ -144,9 +144,9 @@ export default function DiffPage() {
     if (!workspace) return;
 
     const currentStats = {
-      files: workspace.git_files_changed,
-      added: workspace.git_lines_added,
-      removed: workspace.git_lines_removed,
+      files: workspace.files_changed,
+      added: workspace.lines_added,
+      removed: workspace.lines_removed,
     };
 
     const prevStats = prevGitStatsRef.current;

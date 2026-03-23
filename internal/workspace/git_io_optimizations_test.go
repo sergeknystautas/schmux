@@ -914,8 +914,8 @@ func TestOrphanCheck_SkippedWhenSynced(t *testing.T) {
 		t.Fatalf("UpdateVCSStatus() failed: %v", err)
 	}
 
-	if updated.GitAhead != 0 || updated.GitBehind != 0 {
-		t.Fatalf("expected ahead=0, behind=0; got ahead=%d, behind=%d", updated.GitAhead, updated.GitBehind)
+	if updated.Ahead != 0 || updated.Behind != 0 {
+		t.Fatalf("expected ahead=0, behind=0; got ahead=%d, behind=%d", updated.Ahead, updated.Behind)
 	}
 
 	snap := tel.Snapshot(false)
@@ -927,7 +927,7 @@ func TestOrphanCheck_SkippedWhenSynced(t *testing.T) {
 		t.Errorf("expected 0 merge-base calls when ahead=behind=0 (orphan check skipped), got %d", mergeBaseCount)
 	}
 
-	if updated.GitDefaultBranchOrphaned {
+	if updated.DefaultBranchOrphaned {
 		t.Error("workspace should not be marked as orphaned when ahead=behind=0")
 	}
 }
@@ -977,7 +977,7 @@ func TestOrphanCheck_StillRunsWhenAhead(t *testing.T) {
 		t.Fatalf("UpdateVCSStatus() failed: %v", err)
 	}
 
-	if updated.GitAhead == 0 {
+	if updated.Ahead == 0 {
 		t.Fatal("expected ahead > 0 with local commit")
 	}
 
@@ -990,7 +990,7 @@ func TestOrphanCheck_StillRunsWhenAhead(t *testing.T) {
 	}
 
 	// Should NOT be orphaned (shares ancestry with origin/main)
-	if updated.GitDefaultBranchOrphaned {
+	if updated.DefaultBranchOrphaned {
 		t.Error("workspace should not be orphaned — it shares ancestry with origin/main")
 	}
 }

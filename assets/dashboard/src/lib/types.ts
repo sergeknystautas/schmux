@@ -34,11 +34,11 @@ export interface WorkspaceResponse {
   session_count: number;
   sessions: SessionResponse[];
   quick_launch?: string[];
-  git_ahead: number;
-  git_behind: number;
-  git_lines_added: number;
-  git_lines_removed: number;
-  git_files_changed: number;
+  ahead: number;
+  behind: number;
+  lines_added: number;
+  lines_removed: number;
+  files_changed: number;
   remote_host_id?: string;
   remote_host_status?: string;
   remote_flavor_name?: string;

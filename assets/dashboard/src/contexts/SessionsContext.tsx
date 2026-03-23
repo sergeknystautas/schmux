@@ -240,7 +240,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
         if (workspace.sessions?.length) {
           navigate(`/sessions/${workspace.sessions[0].id}`);
         } else {
-          const hasChanges = workspace.git_lines_added > 0 || workspace.git_lines_removed > 0;
+          const hasChanges = workspace.lines_added > 0 || workspace.lines_removed > 0;
           if (hasChanges) {
             navigate(`/diff/${pendingNavigation.id}`);
           } else {

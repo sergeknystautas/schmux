@@ -44,18 +44,18 @@ type APISession struct {
 
 // APIWorkspace represents a workspace from the API response.
 type APIWorkspace struct {
-	ID              string       `json:"id"`
-	Repo            string       `json:"repo"`
-	Branch          string       `json:"branch"`
-	Path            string       `json:"path"`
-	SessionCount    int          `json:"session_count"`
-	Sessions        []APISession `json:"sessions"`
-	QuickLaunch     []string     `json:"quick_launch,omitempty"`
-	GitAhead        int          `json:"git_ahead"`
-	GitBehind       int          `json:"git_behind"`
-	GitLinesAdded   int          `json:"git_lines_added"`
-	GitLinesRemoved int          `json:"git_lines_removed"`
-	GitFilesChanged int          `json:"git_files_changed"`
+	ID           string       `json:"id"`
+	Repo         string       `json:"repo"`
+	Branch       string       `json:"branch"`
+	Path         string       `json:"path"`
+	SessionCount int          `json:"session_count"`
+	Sessions     []APISession `json:"sessions"`
+	QuickLaunch  []string     `json:"quick_launch,omitempty"`
+	Ahead        int          `json:"ahead"`
+	Behind       int          `json:"behind"`
+	LinesAdded   int          `json:"lines_added"`
+	LinesRemoved int          `json:"lines_removed"`
+	FilesChanged int          `json:"files_changed"`
 }
 
 // Env is the E2E test environment.
@@ -561,6 +561,38 @@ func (e *Env) SendKeysToTmux(sessionName, text string) {
 	cancel()
 	if err != nil {
 		e.T.Fatalf("Failed to send Enter to tmux: %v\nOutput: %s", err, out)
+	}
+}
+
+// SetSaplingCommands sets the sapling template commands in the config.
+func (e *Env) SetSaplingCommands(cmds config.SaplingCommands) {
+	e.T.Helper()
+	configPath := filepath.Join(e.HomeDir, ".schmux", "config.json")
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		e.T.Fatalf("Failed to load config: %v", err)
+	}
+	cfg.SaplingCommands = cmds
+	if err := cfg.Save(); err != nil {
+		e.T.Fatalf("Failed to save config: %v", err)
+	}
+}
+
+// AddSaplingRepoToConfig adds a sapling repo to the config file.
+func (e *Env) AddSaplingRepoToConfig(name, url string) {
+	e.T.Helper()
+	e.T.Logf("Adding sapling repo to config: %s -> %s", name, url)
+
+	configPath := filepath.Join(e.HomeDir, ".schmux", "config.json")
+
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		e.T.Fatalf("Failed to load config: %v", err)
+	}
+
+	cfg.Repos = append(cfg.Repos, config.Repo{Name: name, URL: url, BarePath: name + ".sl", VCS: "sapling"})
+	if err := cfg.Save(); err != nil {
+		e.T.Fatalf("Failed to save config: %v", err)
 	}
 }
 

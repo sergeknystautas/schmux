@@ -29,14 +29,14 @@ func makeWorkspaceRequest(t *testing.T, method, path, workspaceID string, body [
 	return req
 }
 
-// setWorkspaceGitAhead updates a workspace's GitAhead field in state.
-func setWorkspaceGitAhead(t *testing.T, st *state.State, wsID string, ahead int) {
+// setWorkspaceAhead updates a workspace's Ahead field in state.
+func setWorkspaceAhead(t *testing.T, st *state.State, wsID string, ahead int) {
 	t.Helper()
 	ws, ok := st.GetWorkspace(wsID)
 	if !ok {
 		t.Fatalf("workspace %q not found", wsID)
 	}
-	ws.GitAhead = ahead
+	ws.Ahead = ahead
 	if err := st.UpdateWorkspace(ws); err != nil {
 		t.Fatalf("failed to update workspace: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestHandleGitUncommit_Guards(t *testing.T) {
 	})
 
 	t.Run("rejects empty hash", func(t *testing.T) {
-		setWorkspaceGitAhead(t, st, "ws-uncommit", 1)
+		setWorkspaceAhead(t, st, "ws-uncommit", 1)
 
 		body, _ := json.Marshal(map[string]string{"hash": ""})
 		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-uncommit/git-uncommit", "ws-uncommit", body)
@@ -80,7 +80,7 @@ func TestHandleGitUncommit_Guards(t *testing.T) {
 	})
 
 	t.Run("rejects missing hash field", func(t *testing.T) {
-		setWorkspaceGitAhead(t, st, "ws-uncommit", 1)
+		setWorkspaceAhead(t, st, "ws-uncommit", 1)
 
 		body := []byte(`{}`)
 		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-uncommit/git-uncommit", "ws-uncommit", body)
@@ -93,7 +93,7 @@ func TestHandleGitUncommit_Guards(t *testing.T) {
 	})
 
 	t.Run("rejects malformed body", func(t *testing.T) {
-		setWorkspaceGitAhead(t, st, "ws-uncommit", 1)
+		setWorkspaceAhead(t, st, "ws-uncommit", 1)
 
 		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-uncommit/git-uncommit", "ws-uncommit", []byte(`{not json}`))
 		rr := httptest.NewRecorder()
@@ -141,7 +141,7 @@ func TestHandleGitAmend_Guards(t *testing.T) {
 	})
 
 	t.Run("rejects empty files list", func(t *testing.T) {
-		setWorkspaceGitAhead(t, st, "ws-amend", 1)
+		setWorkspaceAhead(t, st, "ws-amend", 1)
 
 		body, _ := json.Marshal(map[string][]string{"files": {}})
 		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-amend/git-amend", "ws-amend", body)
@@ -154,7 +154,7 @@ func TestHandleGitAmend_Guards(t *testing.T) {
 	})
 
 	t.Run("rejects path traversal", func(t *testing.T) {
-		setWorkspaceGitAhead(t, st, "ws-amend", 1)
+		setWorkspaceAhead(t, st, "ws-amend", 1)
 
 		body, _ := json.Marshal(map[string][]string{"files": {"../../etc/passwd"}})
 		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-amend/git-amend", "ws-amend", body)
@@ -167,7 +167,7 @@ func TestHandleGitAmend_Guards(t *testing.T) {
 	})
 
 	t.Run("rejects absolute path", func(t *testing.T) {
-		setWorkspaceGitAhead(t, st, "ws-amend", 1)
+		setWorkspaceAhead(t, st, "ws-amend", 1)
 
 		body, _ := json.Marshal(map[string][]string{"files": {"/etc/passwd"}})
 		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-amend/git-amend", "ws-amend", body)
@@ -252,112 +252,9 @@ func TestHandleGitGraph_RejectsNonGitWorkspace(t *testing.T) {
 	}
 }
 
-func TestHandleGitCommitStage_RejectsNonGitWorkspace(t *testing.T) {
-	server, _, st := newTestServer(t)
-
-	ws := state.Workspace{
-		ID:     "ws-sapling",
-		Repo:   "https://github.com/test/repo",
-		Branch: "main",
-		Path:   t.TempDir(),
-		VCS:    "sapling",
-	}
-	if err := st.AddWorkspace(ws); err != nil {
-		t.Fatalf("failed to add workspace: %v", err)
-	}
-
-	body, _ := json.Marshal(map[string][]string{"files": {"file.go"}})
-	req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-sapling/git-commit-stage", "ws-sapling", body)
-	rr := httptest.NewRecorder()
-	server.handleGitCommitStage(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
-	}
-	if !strings.Contains(rr.Body.String(), "not available") {
-		t.Errorf("expected response to contain 'not available', got: %s", rr.Body.String())
-	}
-}
-
-func TestHandleGitAmend_RejectsNonGitWorkspace(t *testing.T) {
-	server, _, st := newTestServer(t)
-
-	ws := state.Workspace{
-		ID:     "ws-sapling",
-		Repo:   "https://github.com/test/repo",
-		Branch: "main",
-		Path:   t.TempDir(),
-		VCS:    "sapling",
-	}
-	if err := st.AddWorkspace(ws); err != nil {
-		t.Fatalf("failed to add workspace: %v", err)
-	}
-
-	body, _ := json.Marshal(map[string][]string{"files": {"file.go"}})
-	req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-sapling/git-amend", "ws-sapling", body)
-	rr := httptest.NewRecorder()
-	server.handleGitAmend(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
-	}
-	if !strings.Contains(rr.Body.String(), "not available") {
-		t.Errorf("expected response to contain 'not available', got: %s", rr.Body.String())
-	}
-}
-
-func TestHandleGitDiscard_RejectsNonGitWorkspace(t *testing.T) {
-	server, _, st := newTestServer(t)
-
-	ws := state.Workspace{
-		ID:     "ws-sapling",
-		Repo:   "https://github.com/test/repo",
-		Branch: "main",
-		Path:   t.TempDir(),
-		VCS:    "sapling",
-	}
-	if err := st.AddWorkspace(ws); err != nil {
-		t.Fatalf("failed to add workspace: %v", err)
-	}
-
-	req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-sapling/git-discard", "ws-sapling", nil)
-	rr := httptest.NewRecorder()
-	server.handleGitDiscard(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
-	}
-	if !strings.Contains(rr.Body.String(), "not available") {
-		t.Errorf("expected response to contain 'not available', got: %s", rr.Body.String())
-	}
-}
-
-func TestHandleGitUncommit_RejectsNonGitWorkspace(t *testing.T) {
-	server, _, st := newTestServer(t)
-
-	ws := state.Workspace{
-		ID:     "ws-sapling",
-		Repo:   "https://github.com/test/repo",
-		Branch: "main",
-		Path:   t.TempDir(),
-		VCS:    "sapling",
-	}
-	if err := st.AddWorkspace(ws); err != nil {
-		t.Fatalf("failed to add workspace: %v", err)
-	}
-
-	body, _ := json.Marshal(map[string]string{"hash": "abc123"})
-	req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-sapling/git-uncommit", "ws-sapling", body)
-	rr := httptest.NewRecorder()
-	server.handleGitUncommit(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
-	}
-	if !strings.Contains(rr.Body.String(), "not available") {
-		t.Errorf("expected response to contain 'not available', got: %s", rr.Body.String())
-	}
-}
+// Note: TestHandleGitCommitStage_RejectsNonGitWorkspace, TestHandleGitAmend_RejectsNonGitWorkspace,
+// TestHandleGitDiscard_RejectsNonGitWorkspace, and TestHandleGitUncommit_RejectsNonGitWorkspace
+// were removed — these handlers are now VCS-agnostic via CommandBuilder.
 
 func TestHandleGitCommitStage_Guards(t *testing.T) {
 	server, _, st := newTestServer(t)

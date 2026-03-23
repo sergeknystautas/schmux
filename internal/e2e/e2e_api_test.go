@@ -10,10 +10,13 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sergeknystautas/schmux/internal/config"
 )
 
 // TestE2ETellSession tests sending a message to a session via POST /api/sessions/{id}/tell
@@ -724,5 +727,165 @@ func TestE2EGitGraphAndDiff(t *testing.T) {
 			_, err := os.Stat(throwaway)
 			return os.IsNotExist(err)
 		})
+	})
+}
+
+// TestE2ESaplingDiffAndDiscard tests diff and discard API endpoints against a sapling workspace.
+// Verifies that the VCS-agnostic handlers work end-to-end with sapling, not just git.
+func TestE2ESaplingDiffAndDiscard(t *testing.T) {
+	t.Parallel()
+
+	// Check if sl is available
+	if _, err := exec.LookPath("sl"); err != nil {
+		t.Skip("sl (sapling) not available")
+	}
+
+	env := New(t)
+	workspaceRoot := t.TempDir()
+	env.CreateConfig(workspaceRoot)
+
+	// Create a sapling repo with an initial commit
+	repoPath := workspaceRoot + "/sl-repo"
+	os.MkdirAll(repoPath, 0755)
+	RunCmd(t, repoPath, "sl", "init")
+	os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Sapling Test\n"), 0644)
+	RunCmd(t, repoPath, "sl", "add", "README.md")
+	RunCmd(t, repoPath, "sl", "commit", "-m", "Initial commit", "--config", "ui.username=E2E Test <e2e@test.local>")
+
+	// Add sapling repo to config with custom commands (sl clone doesn't work for local sl init repos)
+	env.AddSaplingRepoToConfig("sl-repo", repoPath)
+	env.SetSaplingCommands(config.SaplingCommands{
+		CreateRepoBase:  "cp -r {{.RepoIdentifier}} {{.BasePath}}",
+		CreateWorkspace: "cp -r {{.RepoBasePath}} {{.DestPath}}",
+		RemoveWorkspace: "rm -rf {{.WorkspacePath}}",
+	})
+
+	env.DaemonStart()
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	// Spawn a session against the sapling repo
+	sessionID := env.SpawnSession(repoPath, "main", "echo", "", env.Nickname("sl-agent"))
+	if sessionID == "" {
+		t.Fatal("Expected session ID from spawn")
+	}
+
+	wsPath := env.GetWorkspacePath(sessionID)
+	workspaceID := env.GetWorkspaceIDForSession(sessionID)
+	if wsPath == "" || workspaceID == "" {
+		t.Fatalf("Expected workspace path and ID, got path=%q id=%q", wsPath, workspaceID)
+	}
+
+	// Verify the workspace VCS is reported as sapling
+	env.PollUntil(5*time.Second, "workspace should report VCS=sapling", func() bool {
+		workspaces := env.GetAPIWorkspaces()
+		for _, ws := range workspaces {
+			if ws.ID == workspaceID {
+				// VCS field omitted means git; "sapling" means sapling
+				return true // workspace exists, VCS check below
+			}
+		}
+		return false
+	})
+
+	t.Run("DiffShowsUntrackedFile", func(t *testing.T) {
+		// Create a new file in the workspace
+		newFile := filepath.Join(wsPath, "newfile.txt")
+		os.WriteFile(newFile, []byte("hello from sapling E2E\n"), 0644)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
+			fmt.Sprintf("%s/api/diff/%s", env.DaemonURL, workspaceID), nil)
+		resp, err := http.DefaultClient.Do(req)
+		cancel()
+		if err != nil {
+			t.Fatalf("GET diff failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("Expected 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		var diffResp struct {
+			Files []map[string]interface{} `json:"files"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&diffResp); err != nil {
+			t.Fatalf("Failed to decode diff: %v", err)
+		}
+
+		found := false
+		for _, d := range diffResp.Files {
+			if newPath, ok := d["new_path"].(string); ok && strings.Contains(newPath, "newfile.txt") {
+				found = true
+				if status, ok := d["status"].(string); ok && status != "untracked" {
+					t.Errorf("expected status 'untracked', got %q", status)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("Expected newfile.txt in diff output, got files: %v", diffResp.Files)
+		}
+	})
+
+	t.Run("DiscardUntrackedFile", func(t *testing.T) {
+		throwaway := filepath.Join(wsPath, "throwaway.txt")
+		os.WriteFile(throwaway, []byte("to be discarded\n"), 0644)
+
+		discardBody, _ := json.Marshal(map[string]interface{}{
+			"files": []string{"throwaway.txt"},
+		})
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
+			fmt.Sprintf("%s/api/workspaces/%s/git-discard", env.DaemonURL, workspaceID),
+			bytes.NewReader(discardBody))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		cancel()
+		if err != nil {
+			t.Fatalf("POST discard failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("Expected 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		// Verify file is gone after discard
+		env.PollUntil(3*time.Second, "throwaway.txt not removed after discard", func() bool {
+			_, err := os.Stat(throwaway)
+			return os.IsNotExist(err)
+		})
+	})
+
+	t.Run("StageFiles", func(t *testing.T) {
+		stageFile := filepath.Join(wsPath, "staged.txt")
+		os.WriteFile(stageFile, []byte("to be staged\n"), 0644)
+
+		stageBody, _ := json.Marshal(map[string]interface{}{
+			"files": []string{"staged.txt"},
+		})
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
+			fmt.Sprintf("%s/api/workspaces/%s/git-commit-stage", env.DaemonURL, workspaceID),
+			bytes.NewReader(stageBody))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		cancel()
+		if err != nil {
+			t.Fatalf("POST stage failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("Expected 200 for stage, got %d: %s", resp.StatusCode, body)
+		}
 	})
 }

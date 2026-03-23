@@ -332,13 +332,13 @@ type TerminalConfig struct {
 
 // Workspace represents a workspace.
 type Workspace struct {
-	ID        string `json:"id"`
-	Repo      string `json:"repo"`
-	Branch    string `json:"branch"`
-	Path      string `json:"path"`
-	GitDirty  bool   `json:"git_dirty"`
-	GitAhead  int    `json:"git_ahead"`
-	GitBehind int    `json:"git_behind"`
+	ID     string `json:"id"`
+	Repo   string `json:"repo"`
+	Branch string `json:"branch"`
+	Path   string `json:"path"`
+	Dirty  bool   `json:"dirty"`
+	Ahead  int    `json:"ahead"`
+	Behind int    `json:"behind"`
 }
 
 // Session represents a session.
@@ -363,9 +363,9 @@ type WorkspaceWithSessions struct {
 	SessionCount int       `json:"session_count"`
 	Sessions     []Session `json:"sessions"`
 	QuickLaunch  []string  `json:"quick_launch,omitempty"`
-	GitDirty     bool      `json:"git_dirty"`
-	GitAhead     int       `json:"git_ahead"`
-	GitBehind    int       `json:"git_behind"`
+	Dirty        bool      `json:"dirty"`
+	Ahead        int       `json:"ahead"`
+	Behind       int       `json:"behind"`
 }
 
 // SpawnRequest represents a spawn request.

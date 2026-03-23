@@ -225,7 +225,7 @@ test.describe.serial('Git operations — path validation', () => {
   });
 
   test('git-uncommit rejects when no commits ahead', async () => {
-    // GitAhead is 0 for a freshly created workspace — handler checks this first
+    // Ahead is 0 for a freshly created workspace — handler checks this first
     const res = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/git-uncommit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -237,7 +237,7 @@ test.describe.serial('Git operations — path validation', () => {
   });
 
   test('git-amend rejects when no commits ahead', async () => {
-    // GitAhead is 0 for a freshly created workspace — handler checks this first
+    // Ahead is 0 for a freshly created workspace — handler checks this first
     const res = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/git-amend`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

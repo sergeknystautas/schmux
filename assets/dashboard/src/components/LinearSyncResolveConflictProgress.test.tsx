@@ -58,11 +58,11 @@ function makeWorkspace(overrides: Partial<WorkspaceResponse> = {}): WorkspaceRes
         attach_cmd: '',
       },
     ],
-    git_ahead: 0,
-    git_behind: 0,
-    git_lines_added: 0,
-    git_lines_removed: 0,
-    git_files_changed: 0,
+    ahead: 0,
+    behind: 0,
+    lines_added: 0,
+    lines_removed: 0,
+    files_changed: 0,
     ...overrides,
   };
 }
@@ -118,7 +118,7 @@ describe('LinearSyncResolveConflictProgress', () => {
   it('auto-dismisses when status is done and no more commits behind', () => {
     const state = makeState({ status: 'done' });
     mockLinearSyncResolveConflictStates = { 'ws-1': state };
-    mockWorkspaces = [makeWorkspace({ git_behind: 0 })];
+    mockWorkspaces = [makeWorkspace({ behind: 0 })];
 
     render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
 
@@ -130,7 +130,7 @@ describe('LinearSyncResolveConflictProgress', () => {
   it('auto-dismisses to / when done with no sessions', () => {
     const state = makeState({ status: 'done' });
     mockLinearSyncResolveConflictStates = { 'ws-1': state };
-    mockWorkspaces = [makeWorkspace({ git_behind: 0, sessions: [], session_count: 0 })];
+    mockWorkspaces = [makeWorkspace({ behind: 0, sessions: [], session_count: 0 })];
 
     render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
 
@@ -141,7 +141,7 @@ describe('LinearSyncResolveConflictProgress', () => {
   it('does NOT auto-dismiss when done but has more commits behind', () => {
     const state = makeState({ status: 'done' });
     mockLinearSyncResolveConflictStates = { 'ws-1': state };
-    mockWorkspaces = [makeWorkspace({ git_behind: 3 })];
+    mockWorkspaces = [makeWorkspace({ behind: 3 })];
 
     render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
 
@@ -153,7 +153,7 @@ describe('LinearSyncResolveConflictProgress', () => {
   it('does NOT auto-dismiss when status is in_progress', () => {
     const state = makeState({ status: 'in_progress' });
     mockLinearSyncResolveConflictStates = { 'ws-1': state };
-    mockWorkspaces = [makeWorkspace({ git_behind: 0 })];
+    mockWorkspaces = [makeWorkspace({ behind: 0 })];
 
     render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
 
@@ -164,7 +164,7 @@ describe('LinearSyncResolveConflictProgress', () => {
   it('does NOT auto-dismiss when status is failed', () => {
     const state = makeState({ status: 'failed' });
     mockLinearSyncResolveConflictStates = { 'ws-1': state };
-    mockWorkspaces = [makeWorkspace({ git_behind: 0 })];
+    mockWorkspaces = [makeWorkspace({ behind: 0 })];
 
     render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
 
@@ -190,7 +190,7 @@ describe('LinearSyncResolveConflictProgress', () => {
         tmux_session: 'cr-ws-1-abc1234',
       });
       mockLinearSyncResolveConflictStates = { 'ws-1': state };
-      mockWorkspaces = [makeWorkspace({ git_behind: 3 })];
+      mockWorkspaces = [makeWorkspace({ behind: 3 })];
 
       render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
 

@@ -37,4 +37,28 @@ type CommandBuilder interface {
 	// RemoteBranchExists returns a command to check if a branch exists on the remote.
 	// The command should exit 0 / produce output if the branch exists.
 	RemoteBranchExists(branch string) string
+
+	// --- Working-copy mutation commands ---
+
+	// AddFiles returns the command to stage the specified files.
+	AddFiles(files []string) string
+	// CommitAmendNoEdit returns the command to amend the last commit without editing its message.
+	CommitAmendNoEdit() string
+	// DiscardFile returns the command to discard changes to a tracked file, restoring it from HEAD.
+	DiscardFile(file string) string
+	// DiscardAllTracked returns the command to discard all tracked file changes.
+	DiscardAllTracked() string
+	// CleanUntrackedFile returns the command to remove a single untracked file.
+	CleanUntrackedFile(file string) string
+	// CleanAllUntracked returns the command to remove all untracked files and directories.
+	CleanAllUntracked() string
+	// UnstageNewFile returns the command to unstage a file that was newly added (not in HEAD).
+	UnstageNewFile(file string) string
+	// Uncommit returns the command to undo the last commit, keeping changes as unstaged.
+	Uncommit() string
+	// CheckIgnore returns the command to check if a file matches VCS ignore patterns.
+	// Exit code 0 means ignored, non-zero means not ignored.
+	CheckIgnore(file string) string
+	// DiffUnified returns the command for a unified diff against HEAD.
+	DiffUnified() string
 }

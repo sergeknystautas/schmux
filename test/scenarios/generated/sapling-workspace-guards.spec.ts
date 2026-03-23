@@ -1,8 +1,9 @@
 import { test, expect } from './coverage-fixture';
 import { seedConfig, createSaplingTestRepo, waitForHealthy, sleep } from './helpers';
 
-test.describe.serial('Sapling workspace VCS guards', () => {
+test.describe.serial('Sapling workspace VCS support', () => {
   let workspaceId: string;
+  let workspacePath: string;
 
   test.beforeAll(async () => {
     await waitForHealthy();
@@ -54,13 +55,73 @@ test.describe.serial('Sapling workspace VCS guards', () => {
 
     // Wait for status polling
     await sleep(12000);
+
+    // Get workspace path from the sessions API
+    const sessRes = await fetch('http://localhost:7337/api/sessions');
+    const workspaces = (await sessRes.json()) as Array<{ id: string; path: string }>;
+    const ws = workspaces.find((w) => w.id === workspaceId);
+    if (!ws?.path) {
+      throw new Error(`Could not find workspace path for ${workspaceId}`);
+    }
+    workspacePath = ws.path;
   });
 
-  test('diff API returns 400 for sapling workspace', async () => {
+  test('sessions API includes sapling workspace', async () => {
+    const res = await fetch('http://localhost:7337/api/sessions');
+    expect(res.ok).toBe(true);
+    const workspaces = (await res.json()) as Array<{ id: string; vcs?: string }>;
+    const ws = workspaces.find((w) => w.id === workspaceId);
+    expect(ws).toBeDefined();
+    expect(ws?.vcs).toBe('sapling');
+  });
+
+  test('diff API returns 200 with files for sapling workspace', async () => {
+    // Create a file in the workspace so diff has something to show
+    const fs = await import('fs');
+    const path = await import('path');
+    fs.writeFileSync(path.join(workspacePath, 'newfile.txt'), 'hello from scenario\n');
+
     const res = await fetch(`http://localhost:7337/api/diff/${workspaceId}`);
-    expect(res.status).toBe(400);
-    const body = await res.text();
-    expect(body.toLowerCase()).toContain('not available');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { files: Array<{ new_path?: string; status?: string }> };
+    const found = body.files.some((f) => f.new_path === 'newfile.txt');
+    expect(found).toBe(true);
+  });
+
+  test('stage API succeeds for sapling workspace', async () => {
+    // Create a file to stage
+    const fs = await import('fs');
+    const path = await import('path');
+    fs.writeFileSync(path.join(workspacePath, 'staged.txt'), 'to be staged\n');
+
+    const res = await fetch(
+      `http://localhost:7337/api/workspaces/${workspaceId}/git-commit-stage`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: ['staged.txt'] }),
+      }
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { success: boolean };
+    expect(body.success).toBe(true);
+  });
+
+  test('discard API removes untracked file in sapling workspace', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const throwawayPath = path.join(workspacePath, 'throwaway.txt');
+    fs.writeFileSync(throwawayPath, 'to be discarded\n');
+
+    const res = await fetch(`http://localhost:7337/api/workspaces/${workspaceId}/git-discard`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: ['throwaway.txt'] }),
+    });
+    expect(res.status).toBe(200);
+
+    // File should be removed
+    expect(fs.existsSync(throwawayPath)).toBe(false);
   });
 
   test('git-graph API returns 400 for sapling workspace', async () => {
@@ -68,29 +129,5 @@ test.describe.serial('Sapling workspace VCS guards', () => {
     expect(res.status).toBe(400);
     const body = await res.text();
     expect(body.toLowerCase()).toContain('not available');
-  });
-
-  test('git-commit-stage API returns 400 for sapling workspace', async () => {
-    const res = await fetch(
-      `http://localhost:7337/api/workspaces/${workspaceId}/git-commit-stage`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ files: ['README.md'] }),
-      }
-    );
-    expect(res.status).toBe(400);
-    const body = await res.text();
-    expect(body.toLowerCase()).toContain('not available');
-  });
-
-  test('sessions API includes sapling workspace', async () => {
-    const res = await fetch('http://localhost:7337/api/sessions');
-    expect(res.ok).toBe(true);
-    // Sessions API returns a flat array of workspaces (not { workspaces: [...] })
-    const workspaces = (await res.json()) as Array<{ id: string; vcs?: string }>;
-    const ws = workspaces.find((w) => w.id === workspaceId);
-    expect(ws).toBeDefined();
-    expect(ws?.vcs).toBe('sapling');
   });
 });

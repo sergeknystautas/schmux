@@ -256,7 +256,7 @@ export default function useSessionsWebSocket(opts?: {
             if (syncProgress) {
               const remaining = syncProgress.total - syncProgress.current;
               setWorkspaces((prevWs) =>
-                prevWs.map((w) => (w.id === wsId ? { ...w, git_behind: remaining } : w))
+                prevWs.map((w) => (w.id === wsId ? { ...w, behind: remaining } : w))
               );
             }
           } else {
@@ -266,7 +266,7 @@ export default function useSessionsWebSocket(opts?: {
               if (prevLock.syncProgress) {
                 const remaining = prevLock.syncProgress.total - prevLock.syncProgress.current;
                 setWorkspaces((prevWs) =>
-                  prevWs.map((w) => (w.id === wsId ? { ...w, git_behind: remaining } : w))
+                  prevWs.map((w) => (w.id === wsId ? { ...w, behind: remaining } : w))
                 );
               }
               const next = { ...prev };

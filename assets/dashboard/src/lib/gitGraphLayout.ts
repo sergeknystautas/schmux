@@ -122,7 +122,7 @@ export function computeLayout(response: GitGraphResponse, files: FileDiff[] = []
   // These are not included in the nodes array - they're just counted.
   const mainAheadCount = response.main_ahead_count ?? 0;
 
-  // When the graph is disconnected (maxCommits < git_ahead), the backend's
+  // When the graph is disconnected (maxCommits < ahead), the backend's
   // ISL-style DFS sort places context/public commits before draft/branch commits
   // after reversal. Reorder so the HEAD commit and its branch come first,
   // with context commits appended after.

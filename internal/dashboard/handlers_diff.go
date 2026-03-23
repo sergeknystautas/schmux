@@ -55,84 +55,50 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Diff uses git commands — return error for non-git workspaces
-	if !workspace.IsGitVCS(ws.VCS) {
-		http.Error(w, `{"error":"diff not available for this VCS type"}`, http.StatusBadRequest)
-		return
-	}
-
-	// Refresh git status so the client gets updated stats
+	// Refresh VCS status so the client gets updated stats
 	refreshCtx, refreshCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
 	if _, err := s.workspace.UpdateVCSStatus(refreshCtx, workspaceID); err != nil {
 		if errors.Is(err, workspace.ErrWorkspaceLocked) {
 			refreshCancel()
 			return
 		}
-		s.logger.Warn("failed to update git status", "err", err)
+		s.logger.Warn("failed to update VCS status", "err", err)
 	}
 	refreshCancel()
 
-	// Run git diff in workspace directory
-	type FileDiff struct {
-		OldPath      string `json:"old_path,omitempty"`
-		NewPath      string `json:"new_path,omitempty"`
-		OldContent   string `json:"old_content,omitempty"`
-		NewContent   string `json:"new_content,omitempty"`
-		Status       string `json:"status,omitempty"` // added, modified, deleted, renamed
-		LinesAdded   int    `json:"lines_added"`
-		LinesRemoved int    `json:"lines_removed"`
-		IsBinary     bool   `json:"is_binary"`
-	}
-
-	type DiffResponse struct {
-		WorkspaceID string     `json:"workspace_id"`
-		Repo        string     `json:"repo"`
-		Branch      string     `json:"branch"`
-		Files       []FileDiff `json:"files"`
-	}
-
-	// Step 1: Get file status from git (A=added, M=modified, D=deleted, R=renamed)
+	cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
-	statusCmd := exec.CommandContext(ctx, "git", "-C", ws.Path, "diff", "HEAD", "--name-status", "--find-renames")
-	statusOutput, _ := statusCmd.Output()
-	cancel()
+	defer cancel()
+	run := localShellRun(ctx, ws.Path)
 
-	// Build map of filepath -> status
-	fileStatus := make(map[string]string)
-	for _, line := range strings.Split(string(statusOutput), "\n") {
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, "\t")
-		if len(parts) < 2 {
-			continue
-		}
-		statusCode := parts[0]
-		filePath := parts[len(parts)-1] // Last part is the (new) filepath
-
-		switch {
-		case statusCode == "A":
-			fileStatus[filePath] = "added"
-		case statusCode == "D":
-			fileStatus[filePath] = "deleted"
-		case statusCode == "M":
-			fileStatus[filePath] = "modified"
-		case strings.HasPrefix(statusCode, "R"):
-			fileStatus[filePath] = "renamed"
-		default:
-			fileStatus[filePath] = "modified"
-		}
+	resp, err := buildDiffResponse(run, cb, ws.Path, ws.ID, ws.Repo, ws.Branch)
+	if err != nil {
+		s.logger.Error("diff failed", "err", err)
+		http.Error(w, `{"error":"diff failed"}`, http.StatusInternalServerError)
+		return
 	}
 
-	// Step 2: Get line counts from numstat
-	ctx, cancel = context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
-	numstatCmd := exec.CommandContext(ctx, "git", "-C", ws.Path, "diff", "HEAD", "--numstat", "--find-renames")
-	numstatOutput, _ := numstatCmd.Output()
-	cancel()
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.Error("failed to encode response", "handler", "diff", "err", err)
+	}
+}
 
-	// Step 3: Parse numstat and build file diffs, using status from step 1
-	files := make([]FileDiff, 0)
-	for _, line := range strings.Split(string(numstatOutput), "\n") {
+// vcsRunFunc is the function signature for executing a VCS shell command.
+// Returns trimmed output and any error (unlike runFunc which has no error return).
+type vcsRunFunc = func(string) (string, error)
+
+// buildDiffResponse builds a diff response using VCS-agnostic commands.
+// Used by both local and remote diff handlers.
+func buildDiffResponse(run vcsRunFunc, cb vcs.CommandBuilder, workspacePath, workspaceID, repo, branch string) (*diffResponse, error) {
+	type fileDiff = diffFileDiff
+
+	// Get numstat for file list and line counts
+	numstatOutput, _ := run(cb.DiffNumstat())
+
+	files := make([]fileDiff, 0)
+	for _, line := range strings.Split(numstatOutput, "\n") {
+		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
@@ -145,7 +111,6 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		deletedStr := parts[1]
 		filePath := parts[2]
 
-		// Parse line counts (may be "-" for binary files)
 		isBinary := addedStr == "-" && deletedStr == "-"
 		linesAdded := 0
 		linesRemoved := 0
@@ -156,44 +121,34 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 			linesRemoved, _ = strconv.Atoi(deletedStr)
 		}
 
-		// Get status from name-status output
-		status := fileStatus[filePath]
-		if status == "" {
-			status = "modified"
-		}
+		// Get old and new content to determine status
+		oldContent, _ := run(cb.ShowFile(filePath, "HEAD"))
+		oldContent = capContent(oldContent)
 
 		if isBinary {
-			if status == "deleted" {
-				files = append(files, FileDiff{
-					OldPath:  filePath,
-					Status:   status,
-					IsBinary: true,
-				})
-			} else {
-				files = append(files, FileDiff{
-					NewPath:  filePath,
-					Status:   status,
-					IsBinary: true,
-				})
+			status := "modified"
+			if oldContent == "" {
+				status = "added"
 			}
+			files = append(files, fileDiff{
+				NewPath:  filePath,
+				Status:   status,
+				IsBinary: true,
+			})
 			continue
 		}
 
-		// Get file content for non-binary files
-		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
-		var oldContent, newContent string
-		if status == "deleted" {
-			oldContent = s.getFileContent(ctx, ws.Path, filePath, "HEAD")
-		} else if status == "added" {
-			newContent = s.getFileContent(ctx, ws.Path, filePath, "worktree")
-		} else {
-			oldContent = s.getFileContent(ctx, ws.Path, filePath, "HEAD")
-			newContent = s.getFileContent(ctx, ws.Path, filePath, "worktree")
+		newContent := readWorkingFile(workspacePath, filePath)
+
+		status := "modified"
+		if oldContent == "" {
+			status = "added"
+		} else if newContent == "" {
+			status = "deleted"
 		}
-		cancel()
 
 		if status == "deleted" {
-			files = append(files, FileDiff{
+			files = append(files, fileDiff{
 				OldPath:      filePath,
 				OldContent:   oldContent,
 				Status:       status,
@@ -201,7 +156,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 				LinesRemoved: linesRemoved,
 			})
 		} else {
-			files = append(files, FileDiff{
+			files = append(files, fileDiff{
 				NewPath:      filePath,
 				OldContent:   oldContent,
 				NewContent:   newContent,
@@ -213,37 +168,30 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get untracked files
-	// ls-files --others --exclude-standard lists untracked files (respecting .gitignore)
-	ctx, cancel = context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
-	untrackedCmd := exec.CommandContext(ctx, "git", "-C", ws.Path, "ls-files", "--others", "--exclude-standard")
-	untrackedOutput, err := untrackedCmd.Output()
-	cancel()
+	untrackedOutput, err := run(cb.UntrackedFiles())
 	if err == nil {
-		untrackedLines := strings.Split(string(untrackedOutput), "\n")
-		for _, filePath := range untrackedLines {
+		for _, filePath := range strings.Split(untrackedOutput, "\n") {
+			filePath = strings.TrimSpace(filePath)
 			if filePath == "" {
 				continue
 			}
-			// Check if file is binary using git's detection (with fast heuristic fallback)
-			if difftool.IsBinaryFile(ctx, ws.Path, filePath) {
-				files = append(files, FileDiff{
+			if difftool.IsBinaryFile(context.Background(), workspacePath, filePath) {
+				files = append(files, fileDiff{
 					NewPath:  filePath,
 					Status:   "untracked",
 					IsBinary: true,
 				})
 				continue
 			}
-			// Get content of untracked file from working directory
-			newContent := s.getFileContent(ctx, ws.Path, filePath, "worktree")
-			// Count lines for untracked files (all lines are additions)
+			newContent := readWorkingFile(workspacePath, filePath)
 			lineCount := 0
 			if newContent != "" {
 				lineCount = strings.Count(newContent, "\n")
 				if !strings.HasSuffix(newContent, "\n") {
-					lineCount++ // Count last line if no trailing newline
+					lineCount++
 				}
 			}
-			files = append(files, FileDiff{
+			files = append(files, fileDiff{
 				NewPath:    filePath,
 				NewContent: newContent,
 				Status:     "untracked",
@@ -252,44 +200,72 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	response := DiffResponse{
+	return &diffResponse{
 		WorkspaceID: workspaceID,
-		Repo:        ws.Repo,
-		Branch:      ws.Branch,
+		Repo:        repo,
+		Branch:      branch,
 		Files:       files,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		s.logger.Error("failed to encode response", "handler", "diff", "err", err)
-	}
+	}, nil
 }
 
-// getFileContent gets file content from a specific git tree-ish.
+// diffFileDiff is the per-file structure in a diff response.
+type diffFileDiff struct {
+	OldPath      string `json:"old_path,omitempty"`
+	NewPath      string `json:"new_path,omitempty"`
+	OldContent   string `json:"old_content,omitempty"`
+	NewContent   string `json:"new_content,omitempty"`
+	Status       string `json:"status,omitempty"`
+	LinesAdded   int    `json:"lines_added"`
+	LinesRemoved int    `json:"lines_removed"`
+	IsBinary     bool   `json:"is_binary"`
+}
+
+// diffResponse is the top-level diff API response.
+type diffResponse struct {
+	WorkspaceID string         `json:"workspace_id"`
+	Repo        string         `json:"repo"`
+	Branch      string         `json:"branch"`
+	Files       []diffFileDiff `json:"files"`
+}
+
+// readWorkingFile reads a file from the working directory with a 1MB cap.
+func readWorkingFile(workspacePath, filePath string) string {
+	fullPath := filepath.Join(workspacePath, filePath)
+	if !isPathWithinDir(fullPath, workspacePath) {
+		return ""
+	}
+	content, err := os.ReadFile(fullPath)
+	if err != nil {
+		return ""
+	}
+	const maxContentSize = 1024 * 1024 // 1MB
+	if len(content) > maxContentSize {
+		content = content[:maxContentSize]
+	}
+	return string(content)
+}
+
+// capContent truncates content to 1MB.
+func capContent(s string) string {
+	const maxContentSize = 1024 * 1024
+	if len(s) > maxContentSize {
+		return s[:maxContentSize]
+	}
+	return s
+}
+
+// getFileContent gets file content from a specific VCS revision or worktree.
 // For "worktree", it reads from the working directory directly.
+// For other values, it uses the workspace's VCS command builder.
 func (s *Server) getFileContent(ctx context.Context, workspacePath, filePath, treeish string) string {
 	if treeish == "worktree" {
-		fullPath := filepath.Join(workspacePath, filePath)
-		if !isPathWithinDir(fullPath, workspacePath) {
-			return ""
-		}
-		content, err := os.ReadFile(fullPath)
-		if err != nil {
-			return ""
-		}
-		// Cap file content to prevent loading massive files into memory
-		const maxContentSize = 1024 * 1024 // 1MB
-		if len(content) > maxContentSize {
-			content = content[:maxContentSize]
-		}
-		return string(content)
+		return readWorkingFile(workspacePath, filePath)
 	}
 	cmd := exec.CommandContext(ctx, "git", "-C", workspacePath, "show", fmt.Sprintf("%s:%s", treeish, filePath))
 	output, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
-	// Cap git show output too
 	const maxContentSize = 1024 * 1024 // 1MB
 	if len(output) > maxContentSize {
 		output = output[:maxContentSize]
@@ -387,9 +363,9 @@ func (s *Server) serveWorkspaceFile(w http.ResponseWriter, r *http.Request, ws s
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	gitignoreMatches, err := s.fileMatchesGitignore(ctx, ws.Path, filePath)
+	gitignoreMatches, err := s.fileMatchesVCSIgnore(ctx, ws.Path, filePath, s.vcsTypeForWorkspace(ws))
 	if err != nil {
-		http.Error(w, "failed to check gitignore", http.StatusInternalServerError)
+		http.Error(w, "failed to check ignore patterns", http.StatusInternalServerError)
 		return
 	}
 	if gitignoreMatches {
@@ -403,11 +379,11 @@ func (s *Server) serveWorkspaceFile(w http.ResponseWriter, r *http.Request, ws s
 	http.ServeFile(w, r, cleanFullPath)
 }
 
-// fileMatchesGitignore checks if a file path matches any .gitignore pattern.
-func (s *Server) fileMatchesGitignore(ctx context.Context, workspacePath, filePath string) (bool, error) {
-	// Use git check-ignore to check if file is ignored
-	cmd := exec.CommandContext(ctx, "git", "-C", workspacePath, "check-ignore", "-q", filePath)
-	err := cmd.Run()
+// fileMatchesVCSIgnore checks if a file path matches VCS ignore patterns.
+func (s *Server) fileMatchesVCSIgnore(ctx context.Context, workspacePath, filePath, vcsType string) (bool, error) {
+	cb := vcs.NewCommandBuilder(vcsType)
+	run := localShellRun(ctx, workspacePath)
+	_, err := run(cb.CheckIgnore(filePath))
 	if err == nil {
 		// Exit code 0 means the file is ignored
 		return true, nil
@@ -417,10 +393,8 @@ func (s *Server) fileMatchesGitignore(ctx context.Context, workspacePath, filePa
 		if exitErr.ExitCode() == 1 {
 			return false, nil
 		}
-		// Other exit codes indicate errors
 		return false, err
 	}
-	// Any other error means we can't determine - treat as not ignored for safety
 	return false, nil
 }
 
@@ -434,23 +408,6 @@ func (s *Server) handleRemoteFile(w http.ResponseWriter, r *http.Request, ws sta
 // handleRemoteDiff handles diff requests for remote workspaces by executing VCS
 // commands on the remote host via tmux control mode.
 func (s *Server) handleRemoteDiff(w http.ResponseWriter, r *http.Request, ws state.Workspace) {
-	type FileDiff struct {
-		OldPath      string `json:"old_path,omitempty"`
-		NewPath      string `json:"new_path,omitempty"`
-		OldContent   string `json:"old_content,omitempty"`
-		NewContent   string `json:"new_content,omitempty"`
-		Status       string `json:"status,omitempty"`
-		LinesAdded   int    `json:"lines_added"`
-		LinesRemoved int    `json:"lines_removed"`
-		IsBinary     bool   `json:"is_binary"`
-	}
-	type DiffResponse struct {
-		WorkspaceID string     `json:"workspace_id"`
-		Repo        string     `json:"repo"`
-		Branch      string     `json:"branch"`
-		Files       []FileDiff `json:"files"`
-	}
-
 	if s.remoteManager == nil {
 		http.Error(w, "remote manager not available", http.StatusServiceUnavailable)
 		return
@@ -462,119 +419,25 @@ func (s *Server) handleRemoteDiff(w http.ResponseWriter, r *http.Request, ws sta
 		return
 	}
 
-	// Get VCS type from flavor config
-	host, _ := s.state.GetRemoteHost(ws.RemoteHostID)
-	vcsType := ""
-	if host.FlavorID != "" {
-		if flavor, found := s.config.GetRemoteFlavor(host.FlavorID); found {
-			vcsType = flavor.VCS
-		}
-	}
-	cb := vcs.NewCommandBuilder(vcsType)
+	cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
 	workdir := ws.RemotePath
+	run := func(cmd string) (string, error) {
+		return conn.RunCommand(ctx, workdir, cmd)
+	}
 
-	// Run diff numstat
-	numstatOutput, err := conn.RunCommand(ctx, workdir, cb.DiffNumstat())
+	resp, err := buildDiffResponse(run, cb, workdir, ws.ID, ws.Repo, ws.Branch)
 	if err != nil {
-		numstatOutput = "" // No changes is ok
-	}
-
-	files := make([]FileDiff, 0)
-	for _, line := range strings.Split(numstatOutput, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, "\t")
-		if len(parts) < 3 {
-			continue
-		}
-
-		addedStr := parts[0]
-		deletedStr := parts[1]
-		filePath := parts[2]
-
-		isBinary := addedStr == "-" && deletedStr == "-"
-		linesAdded := 0
-		linesRemoved := 0
-		if addedStr != "-" {
-			linesAdded, _ = strconv.Atoi(addedStr)
-		}
-		if deletedStr != "-" {
-			linesRemoved, _ = strconv.Atoi(deletedStr)
-		}
-
-		if isBinary {
-			status := "modified"
-			oldContent, _ := conn.RunCommand(ctx, workdir, cb.ShowFile(filePath, "HEAD"))
-			if oldContent == "" {
-				status = "added"
-			}
-			files = append(files, FileDiff{
-				NewPath:  filePath,
-				Status:   status,
-				IsBinary: true,
-			})
-			continue
-		}
-
-		// Get file contents
-		oldContent, _ := conn.RunCommand(ctx, workdir, cb.ShowFile(filePath, "HEAD"))
-		newContent, _ := conn.RunCommand(ctx, workdir, cb.FileContent(filePath))
-
-		status := "modified"
-		if oldContent == "" {
-			status = "added"
-		}
-
-		files = append(files, FileDiff{
-			NewPath:      filePath,
-			OldContent:   oldContent,
-			NewContent:   newContent,
-			Status:       status,
-			LinesAdded:   linesAdded,
-			LinesRemoved: linesRemoved,
-		})
-	}
-
-	// Get untracked files
-	untrackedOutput, err := conn.RunCommand(ctx, workdir, cb.UntrackedFiles())
-	if err == nil {
-		for _, filePath := range strings.Split(untrackedOutput, "\n") {
-			filePath = strings.TrimSpace(filePath)
-			if filePath == "" {
-				continue
-			}
-			newContent, _ := conn.RunCommand(ctx, workdir, cb.FileContent(filePath))
-			lineCount := 0
-			if newContent != "" {
-				lineCount = strings.Count(newContent, "\n")
-				if !strings.HasSuffix(newContent, "\n") {
-					lineCount++
-				}
-			}
-			files = append(files, FileDiff{
-				NewPath:    filePath,
-				NewContent: newContent,
-				Status:     "untracked",
-				LinesAdded: lineCount,
-			})
-		}
-	}
-
-	response := DiffResponse{
-		WorkspaceID: ws.ID,
-		Repo:        ws.Repo,
-		Branch:      ws.Branch,
-		Files:       files,
+		s.logger.Error("remote diff failed", "err", err)
+		http.Error(w, `{"error":"remote diff failed"}`, http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		s.logger.Error("failed to encode response", "handler", "remote-diff", "err", err)
 	}
 }
@@ -882,13 +745,6 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !workspace.IsGitVCS(ws.VCS) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		writeJSON(w, DiffExternalResponse{Success: false, Message: "diff not available for this VCS type"})
-		return
-	}
-
 	// Check if workspace directory exists
 	if _, err := os.Stat(ws.Path); os.IsNotExist(err) {
 		w.Header().Set("Content-Type", "application/json")
@@ -900,16 +756,14 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get changed files using git diff --numstat
-	// HEAD compares against last commit (includes both staged and unstaged)
+	// Get changed files using VCS numstat
+	cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
 	defer cancel()
+	run := localShellRun(ctx, ws.Path)
 
-	cmd := exec.CommandContext(ctx, "git", "-C", ws.Path, "diff", "HEAD", "--numstat", "--find-renames", "--diff-filter=ADM")
-	output, err := cmd.Output()
-	if err != nil {
-		output = []byte{}
-	}
+	numstatOutput, _ := run(cb.DiffNumstat())
+	output := []byte(numstatOutput)
 
 	type changedFile struct {
 		path   string
@@ -983,7 +837,6 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 	for _, file := range files {
 		switch file.status {
 		case "modified":
-			oldPath := fmt.Sprintf("HEAD:%s", file.path)
 			newPath := filepath.Join(ws.Path, file.path)
 			mergedPath := newPath
 
@@ -999,15 +852,15 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			// Get old file content from git
-			showCmd := exec.CommandContext(ctx, "git", "-C", ws.Path, "show", oldPath)
-			showOutput, err := showCmd.Output()
+			// Get old file content from VCS
+			showOutputStr, err := run(cb.ShowFile(file.path, "HEAD"))
 			if err != nil {
 				tmpFile.Close()
 				os.Remove(tmpPath)
 				s.logger.Error("diff-external: failed to get old file", "err", err)
 				continue
 			}
+			showOutput := []byte(showOutputStr)
 			if _, err := tmpFile.Write(showOutput); err != nil {
 				tmpFile.Close()
 				os.Remove(tmpPath)
@@ -1033,7 +886,6 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 			}
 
 		case "deleted":
-			oldPath := fmt.Sprintf("HEAD:%s", file.path)
 			mergedPath := filepath.Join(ws.Path, file.path)
 			tmpPath := filepath.Join(tempRoot, file.path)
 			if err := os.MkdirAll(filepath.Dir(tmpPath), 0o755); err != nil {
@@ -1046,14 +898,14 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			showCmd := exec.CommandContext(ctx, "git", "-C", ws.Path, "show", oldPath)
-			showOutput, err := showCmd.Output()
+			showOutputStr, err := run(cb.ShowFile(file.path, "HEAD"))
 			if err != nil {
 				tmpFile.Close()
 				os.Remove(tmpPath)
 				s.logger.Error("diff-external: failed to get old file", "err", err)
 				continue
 			}
+			showOutput := []byte(showOutputStr)
 			if _, err := tmpFile.Write(showOutput); err != nil {
 				tmpFile.Close()
 				os.Remove(tmpPath)
@@ -1138,15 +990,7 @@ func (s *Server) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Get VCS type from flavor config
-	host, _ := s.state.GetRemoteHost(ws.RemoteHostID)
-	vcsType := ""
-	if host.FlavorID != "" {
-		if flavor, found := s.config.GetRemoteFlavor(host.FlavorID); found {
-			vcsType = flavor.VCS
-		}
-	}
-	cb := vcs.NewCommandBuilder(vcsType)
+	cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()

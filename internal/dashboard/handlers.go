@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
@@ -59,6 +60,18 @@ func (s *Server) vcsTypeForWorkspace(ws state.Workspace) string {
 		}
 	}
 	return "git"
+}
+
+// localShellRun returns a function that executes shell command strings locally
+// in the given directory via sh -c. This correctly handles quoted arguments
+// and shell operators produced by vcs.CommandBuilder.
+func localShellRun(ctx context.Context, dir string) func(string) (string, error) {
+	return func(cmd string) (string, error) {
+		c := exec.CommandContext(ctx, "sh", "-c", cmd)
+		c.Dir = dir
+		out, err := c.Output()
+		return strings.TrimSpace(string(out)), err
+	}
 }
 
 // writeJSONError writes a JSON error response with the given status code.

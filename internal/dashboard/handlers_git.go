@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -85,11 +84,11 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Populate dirty state from workspace git stats
-	if ws.GitFilesChanged > 0 {
+	if ws.FilesChanged > 0 {
 		resp.DirtyState = &contracts.GitGraphDirtyState{
-			FilesChanged: ws.GitFilesChanged,
-			LinesAdded:   ws.GitLinesAdded,
-			LinesRemoved: ws.GitLinesRemoved,
+			FilesChanged: ws.FilesChanged,
+			LinesAdded:   ws.LinesAdded,
+			LinesRemoved: ws.LinesRemoved,
 		}
 	}
 
@@ -333,10 +332,6 @@ func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !workspace.IsGitVCS(ws.VCS) {
-		writeJSONError(w, "operation not available for this VCS type", http.StatusBadRequest)
-		return
-	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req struct {
@@ -352,18 +347,17 @@ func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
 	ctx := r.Context()
-	for _, file := range req.Files {
-		cmd := exec.CommandContext(ctx, "git", "add", "--", file)
-		cmd.Dir = ws.Path
-		if output, err := cmd.CombinedOutput(); err != nil {
-			writeJSONError(w, fmt.Sprintf("git add failed: %s", string(output)), http.StatusInternalServerError)
-			return
-		}
+	run := localShellRun(ctx, ws.Path)
+
+	if _, err := run(cb.AddFiles(req.Files)); err != nil {
+		writeJSONError(w, fmt.Sprintf("stage failed: %s", err), http.StatusInternalServerError)
+		return
 	}
 
 	if _, err := s.workspace.UpdateVCSStatus(ctx, ws.ID); err != nil {
-		s.logger.Warn("failed to update git status after stage", "err", err)
+		s.logger.Warn("failed to update VCS status after stage", "err", err)
 	}
 	s.BroadcastSessions()
 
@@ -380,12 +374,8 @@ func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !workspace.IsGitVCS(ws.VCS) {
-		writeJSONError(w, "operation not available for this VCS type", http.StatusBadRequest)
-		return
-	}
 
-	if ws.GitAhead <= 0 {
+	if ws.Ahead <= 0 {
 		writeJSONError(w, "No commits to amend", http.StatusBadRequest)
 		return
 	}
@@ -409,25 +399,22 @@ func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
 	ctx := r.Context()
-	for _, file := range req.Files {
-		cmd := exec.CommandContext(ctx, "git", "add", "--", file)
-		cmd.Dir = ws.Path
-		if output, err := cmd.CombinedOutput(); err != nil {
-			writeJSONError(w, fmt.Sprintf("git add failed: %s", string(output)), http.StatusInternalServerError)
-			return
-		}
+	run := localShellRun(ctx, ws.Path)
+
+	if _, err := run(cb.AddFiles(req.Files)); err != nil {
+		writeJSONError(w, fmt.Sprintf("stage failed: %s", err), http.StatusInternalServerError)
+		return
 	}
 
-	cmd := exec.CommandContext(ctx, "git", "commit", "--amend", "--no-edit")
-	cmd.Dir = ws.Path
-	if output, err := cmd.CombinedOutput(); err != nil {
-		writeJSONError(w, fmt.Sprintf("git commit --amend failed: %s", string(output)), http.StatusInternalServerError)
+	if _, err := run(cb.CommitAmendNoEdit()); err != nil {
+		writeJSONError(w, fmt.Sprintf("amend failed: %s", err), http.StatusInternalServerError)
 		return
 	}
 
 	if _, err := s.workspace.UpdateVCSStatus(ctx, ws.ID); err != nil {
-		s.logger.Warn("failed to update git status after amend", "err", err)
+		s.logger.Warn("failed to update VCS status after amend", "err", err)
 	}
 	s.BroadcastSessions()
 
@@ -442,10 +429,6 @@ func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.requireWorkspace(w, r)
 	if !ok {
-		return
-	}
-	if !workspace.IsGitVCS(ws.VCS) {
-		writeJSONError(w, "operation not available for this VCS type", http.StatusBadRequest)
 		return
 	}
 
@@ -469,64 +452,61 @@ func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
+	run := localShellRun(ctx, ws.Path)
 
-	s.logger.Info("git discard", "workspace", ws.ID, "path", ws.Path, "files", req.Files)
+	s.logger.Info("discard", "workspace", ws.ID, "path", ws.Path, "files", req.Files)
 
 	if len(req.Files) > 0 {
 		// Discard specific files
 		for _, file := range req.Files {
-			// Try git checkout HEAD for tracked files (restores from HEAD, undoing both staging and edits)
-			cmd := exec.CommandContext(ctx, "git", "checkout", "HEAD", "--", file)
-			cmd.Dir = ws.Path
-			output, err := cmd.CombinedOutput()
-			if err != nil {
-				s.logger.Debug("checkout HEAD failed", "file", file, "output", strings.TrimSpace(string(output)))
-				// File might be staged-new (added but not in HEAD) — unstage and remove
-				cmd = exec.CommandContext(ctx, "git", "rm", "-f", "--cached", "--", file)
-				cmd.Dir = ws.Path
-				if output2, err2 := cmd.CombinedOutput(); err2 == nil {
-					s.logger.Debug("unstaged new file", "file", file)
-					// Now remove the working tree copy
-					filePath := filepath.Join(ws.Path, file)
-					if rmErr := os.Remove(filePath); rmErr != nil {
-						s.logger.Warn("failed to remove working tree file", "file", file, "err", rmErr)
-					}
+			filePath := filepath.Join(ws.Path, file)
+
+			// Check if file exists in HEAD (tracked vs untracked)
+			oldContent, _ := run(cb.ShowFile(file, "HEAD"))
+			isTracked := oldContent != ""
+
+			if isTracked {
+				// Tracked file: restore from HEAD
+				if _, err := run(cb.DiscardFile(file)); err != nil {
+					s.logger.Debug("discard tracked failed", "file", file, "err", err)
 				} else {
-					s.logger.Debug("rm --cached failed", "file", file, "output", strings.TrimSpace(string(output2)))
-					// Last resort: try git clean for truly untracked files
-					cmd = exec.CommandContext(ctx, "git", "clean", "-f", "--", file)
-					cmd.Dir = ws.Path
-					if output3, err3 := cmd.CombinedOutput(); err3 != nil {
-						s.logger.Debug("clean also failed", "file", file, "output", strings.TrimSpace(string(output3)))
+					s.logger.Debug("restored from HEAD", "file", file)
+				}
+			} else {
+				// Untracked or staged-new: unstage then remove
+				// Try unstage first (handles staged-new files in git)
+				_, _ = run(cb.UnstageNewFile(file))
+				// Remove the working tree copy
+				if err := os.Remove(filePath); err != nil {
+					// Fallback: use VCS clean command
+					if _, err2 := run(cb.CleanUntrackedFile(file)); err2 != nil {
+						s.logger.Debug("clean failed", "file", file, "err", err2)
 					} else {
 						s.logger.Debug("cleaned untracked file", "file", file)
 					}
+				} else {
+					s.logger.Debug("removed untracked file", "file", file)
 				}
-			} else {
-				s.logger.Debug("restored from HEAD", "file", file)
 			}
 		}
 	} else {
 		// Discard all changes
-		cmd := exec.CommandContext(ctx, "git", "clean", "-fd")
-		cmd.Dir = ws.Path
-		if output, err := cmd.CombinedOutput(); err != nil {
-			writeJSONError(w, fmt.Sprintf("git clean failed: %s", string(output)), http.StatusInternalServerError)
+		if _, err := run(cb.CleanAllUntracked()); err != nil {
+			writeJSONError(w, fmt.Sprintf("clean untracked failed: %s", err), http.StatusInternalServerError)
 			return
 		}
 
-		cmd = exec.CommandContext(ctx, "git", "checkout", "--", ".")
-		cmd.Dir = ws.Path
-		if output, err := cmd.CombinedOutput(); err != nil {
-			writeJSONError(w, fmt.Sprintf("git checkout failed: %s", string(output)), http.StatusInternalServerError)
+		if _, err := run(cb.DiscardAllTracked()); err != nil {
+			writeJSONError(w, fmt.Sprintf("discard tracked failed: %s", err), http.StatusInternalServerError)
 			return
 		}
 	}
 
 	if _, err := s.workspace.UpdateVCSStatus(ctx, ws.ID); err != nil {
-		s.logger.Warn("failed to update git status after discard", "err", err)
+		s.logger.Warn("failed to update VCS status after discard", "err", err)
 	}
 	s.BroadcastSessions()
 
@@ -544,12 +524,8 @@ func (s *Server) handleGitUncommit(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !workspace.IsGitVCS(ws.VCS) {
-		writeJSONError(w, "operation not available for this VCS type", http.StatusBadRequest)
-		return
-	}
 
-	if ws.GitAhead <= 0 {
+	if ws.Ahead <= 0 {
 		writeJSONError(w, "No commits to uncommit", http.StatusBadRequest)
 		return
 	}
@@ -568,34 +544,31 @@ func (s *Server) handleGitUncommit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
+	run := localShellRun(ctx, ws.Path)
 
 	// Verify the current HEAD matches the expected hash
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "HEAD")
-	cmd.Dir = ws.Path
-	output, err := cmd.Output()
+	currentHead, err := run(cb.ResolveRef("HEAD"))
 	if err != nil {
 		writeJSONError(w, "failed to get current HEAD", http.StatusInternalServerError)
 		return
 	}
 
-	currentHead := strings.TrimSpace(string(output))
 	if currentHead != req.Hash {
 		writeJSONError(w, "HEAD has changed, please refresh and try again", http.StatusConflict)
 		return
 	}
 
-	// Reset HEAD~1, keeping changes unstaged
-	cmd = exec.CommandContext(ctx, "git", "reset", "HEAD~1")
-	cmd.Dir = ws.Path
-	if output, err := cmd.CombinedOutput(); err != nil {
-		writeJSONError(w, fmt.Sprintf("git reset failed: %s", string(output)), http.StatusInternalServerError)
+	// Undo the last commit, keeping changes unstaged
+	if _, err := run(cb.Uncommit()); err != nil {
+		writeJSONError(w, fmt.Sprintf("uncommit failed: %s", err), http.StatusInternalServerError)
 		return
 	}
 
 	if _, err := s.workspace.UpdateVCSStatus(ctx, ws.ID); err != nil {
-		s.logger.Warn("failed to update git status after uncommit", "err", err)
+		s.logger.Warn("failed to update VCS status after uncommit", "err", err)
 	}
 	s.BroadcastSessions()
 

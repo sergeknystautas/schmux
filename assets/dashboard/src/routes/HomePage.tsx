@@ -455,7 +455,7 @@ export default function HomePage() {
   // Handle pull all workspaces that are behind
   const [pulling, setPulling] = useState(false);
   const handlePull = async () => {
-    const behindWorkspaces = workspaces.filter((ws) => ws.git_behind > 0);
+    const behindWorkspaces = workspaces.filter((ws) => ws.behind > 0);
     if (behindWorkspaces.length === 0) {
       success('No workspaces behind');
       return;
@@ -521,7 +521,7 @@ export default function HomePage() {
                 <button
                   className={styles.scanButton}
                   onClick={handlePull}
-                  disabled={pulling || workspaces.filter((ws) => ws.git_behind > 0).length === 0}
+                  disabled={pulling || workspaces.filter((ws) => ws.behind > 0).length === 0}
                   data-testid="pull-workspaces"
                 >
                   {pulling ? 'Pulling...' : 'Pull'}
@@ -577,11 +577,11 @@ export default function HomePage() {
                       <div className={styles.workspaceStats}>
                         <span className={styles.gitStats} data-testid="git-stats">
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
-                            {ws.git_behind}
+                            {ws.behind}
                             {arrowDown}
                           </span>{' '}
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
-                            {ws.git_ahead}
+                            {ws.ahead}
                             {arrowUp}
                           </span>
                         </span>
@@ -1096,7 +1096,7 @@ export default function HomePage() {
                   <button
                     className={styles.scanButton}
                     onClick={handlePull}
-                    disabled={pulling || workspaces.filter((ws) => ws.git_behind > 0).length === 0}
+                    disabled={pulling || workspaces.filter((ws) => ws.behind > 0).length === 0}
                     data-testid="pull-workspaces"
                   >
                     {pulling ? 'Pulling...' : 'Pull'}
@@ -1152,11 +1152,11 @@ export default function HomePage() {
                         <div className={styles.workspaceStats}>
                           <span className={styles.gitStats} data-testid="git-stats">
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
-                              {ws.git_behind}
+                              {ws.behind}
                               {arrowDown}
                             </span>{' '}
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
-                              {ws.git_ahead}
+                              {ws.ahead}
                               {arrowUp}
                             </span>
                           </span>

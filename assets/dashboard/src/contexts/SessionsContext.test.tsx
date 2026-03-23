@@ -88,11 +88,11 @@ describe('SessionsContext', () => {
           attach_cmd: '',
         },
       ],
-      git_ahead: 0,
-      git_behind: 0,
-      git_lines_added: 0,
-      git_lines_removed: 0,
-      git_files_changed: 0,
+      ahead: 0,
+      behind: 0,
+      lines_added: 0,
+      lines_removed: 0,
+      files_changed: 0,
     });
 
     const { result } = renderHook(() => useSessions(), { wrapper: makeWrapper() });
@@ -119,11 +119,11 @@ describe('SessionsContext', () => {
           attach_cmd: '',
         },
       ],
-      git_ahead: 0,
-      git_behind: 0,
-      git_lines_added: 0,
-      git_lines_removed: 0,
-      git_files_changed: 0,
+      ahead: 0,
+      behind: 0,
+      lines_added: 0,
+      lines_removed: 0,
+      files_changed: 0,
     });
 
     const { result } = renderHook(() => useSessions(), { wrapper: makeWrapper() });
@@ -172,11 +172,11 @@ describe('SessionsContext', () => {
           nudge_state: 'Completed',
         },
       ],
-      git_ahead: 0,
-      git_behind: 0,
-      git_lines_added: 0,
-      git_lines_removed: 0,
-      git_files_changed: 0,
+      ahead: 0,
+      behind: 0,
+      lines_added: 0,
+      lines_removed: 0,
+      files_changed: 0,
     });
 
     const { result } = renderHook(() => useSessions(), { wrapper: makeWrapper() });

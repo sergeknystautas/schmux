@@ -878,12 +878,12 @@ func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, worksp
 		if err != nil {
 			return &w, nil
 		}
-		w.GitDirty = status.Dirty
-		w.GitAhead = status.AheadOfDefault
-		w.GitBehind = status.BehindDefault
-		w.GitLinesAdded = status.LinesAdded
-		w.GitLinesRemoved = status.LinesRemoved
-		w.GitFilesChanged = status.FilesChanged
+		w.Dirty = status.Dirty
+		w.Ahead = status.AheadOfDefault
+		w.Behind = status.BehindDefault
+		w.LinesAdded = status.LinesAdded
+		w.LinesRemoved = status.LinesRemoved
+		w.FilesChanged = status.FilesChanged
 		w.CommitsSyncedWithRemote = status.SyncedWithRemote
 		w.RemoteBranchExists = status.RemoteBranchExists
 		w.LocalUniqueCommits = status.LocalUniqueCommits
@@ -920,14 +920,14 @@ func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, worksp
 	}
 
 	// Update workspace in memory
-	w.GitDirty = dirty
-	w.GitAhead = ahead
-	w.GitBehind = behind
-	w.GitLinesAdded = linesAdded
-	w.GitLinesRemoved = linesRemoved
-	w.GitFilesChanged = filesChanged
+	w.Dirty = dirty
+	w.Ahead = ahead
+	w.Behind = behind
+	w.LinesAdded = linesAdded
+	w.LinesRemoved = linesRemoved
+	w.FilesChanged = filesChanged
 	w.CommitsSyncedWithRemote = commitsSynced
-	w.GitDefaultBranchOrphaned = orphaned
+	w.DefaultBranchOrphaned = orphaned
 	w.Branch = actualBranch
 	w.RemoteBranchExists = remoteBranchExists
 	w.LocalUniqueCommits = localUnique

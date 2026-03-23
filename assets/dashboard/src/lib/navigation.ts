@@ -19,8 +19,8 @@ export function navigateToWorkspace(
     navigate(`/sessions/${workspace.sessions[0].id}`);
   } else {
     // No sessions - check for git changes
-    const linesAdded = workspace?.git_lines_added ?? 0;
-    const linesRemoved = workspace?.git_lines_removed ?? 0;
+    const linesAdded = workspace?.lines_added ?? 0;
+    const linesRemoved = workspace?.lines_removed ?? 0;
     const hasChanges = linesAdded > 0 || linesRemoved > 0;
     if (hasChanges) {
       navigate(`/diff/${workspaceId}`);

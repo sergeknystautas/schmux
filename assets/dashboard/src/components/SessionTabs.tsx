@@ -77,9 +77,9 @@ export default function SessionTabs({
     workspace.vcs === 'git-clone';
 
   // Calculate if we should show diff tab
-  const linesAdded = workspace?.git_lines_added ?? 0;
-  const linesRemoved = workspace?.git_lines_removed ?? 0;
-  const filesChanged = workspace?.git_files_changed ?? 0;
+  const linesAdded = workspace?.lines_added ?? 0;
+  const linesRemoved = workspace?.lines_removed ?? 0;
+  const filesChanged = workspace?.files_changed ?? 0;
   const hasChanges = filesChanged > 0 || linesAdded > 0 || linesRemoved > 0;
 
   // Calculate spawn menu position

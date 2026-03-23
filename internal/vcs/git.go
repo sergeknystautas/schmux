@@ -84,3 +84,47 @@ func (g *GitCommandBuilder) StatusPorcelain() string {
 func (g *GitCommandBuilder) RemoteBranchExists(branch string) string {
 	return fmt.Sprintf("git ls-remote --heads origin %s", branch)
 }
+
+func (g *GitCommandBuilder) AddFiles(files []string) string {
+	args := []string{"git", "add", "--"}
+	for _, f := range files {
+		args = append(args, shellutil.Quote(f))
+	}
+	return strings.Join(args, " ")
+}
+
+func (g *GitCommandBuilder) CommitAmendNoEdit() string {
+	return "git commit --amend --no-edit"
+}
+
+func (g *GitCommandBuilder) DiscardFile(file string) string {
+	return fmt.Sprintf("git checkout HEAD -- %s", shellutil.Quote(file))
+}
+
+func (g *GitCommandBuilder) DiscardAllTracked() string {
+	return "git checkout -- ."
+}
+
+func (g *GitCommandBuilder) CleanUntrackedFile(file string) string {
+	return fmt.Sprintf("git clean -f -- %s", shellutil.Quote(file))
+}
+
+func (g *GitCommandBuilder) CleanAllUntracked() string {
+	return "git clean -fd"
+}
+
+func (g *GitCommandBuilder) UnstageNewFile(file string) string {
+	return fmt.Sprintf("git rm -f --cached -- %s", shellutil.Quote(file))
+}
+
+func (g *GitCommandBuilder) Uncommit() string {
+	return "git reset HEAD~1"
+}
+
+func (g *GitCommandBuilder) CheckIgnore(file string) string {
+	return fmt.Sprintf("git check-ignore -q %s", shellutil.Quote(file))
+}
+
+func (g *GitCommandBuilder) DiffUnified() string {
+	return "git diff HEAD"
+}

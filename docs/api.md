@@ -161,11 +161,11 @@ Response:
     "branch": "branch",
     "path": "/path/to/workspace",
     "session_count": 1,
-    "git_ahead": 0,
-    "git_behind": 0,
-    "git_lines_added": 0,
-    "git_lines_removed": 0,
-    "git_files_changed": 0,
+    "ahead": 0,
+    "behind": 0,
+    "lines_added": 0,
+    "lines_removed": 0,
+    "files_changed": 0,
     "git_branch_url": "https://github.com/user/repo/tree/branch", // optional, when remote exists
     "sessions": [
       {
@@ -1539,7 +1539,7 @@ Errors:
 
 Notes:
 
-- Requires at least one unpushed commit (`git_ahead > 0`)
+- Requires at least one unpushed commit (`ahead > 0`)
 - At least one file must be specified
 - Updates workspace git status and broadcasts after amend
 
@@ -1602,7 +1602,7 @@ Errors:
 
 Notes:
 
-- Requires at least one unpushed commit (`git_ahead > 0`)
+- Requires at least one unpushed commit (`ahead > 0`)
 - The `hash` must match the current HEAD to prevent accidental uncommit of a different commit
 - Updates workspace git status and broadcasts after uncommit
 

@@ -267,7 +267,7 @@ export default function LinearSyncResolveConflictProgress({
 
   // Auto-dismiss when resolution completes and there are no more commits to sync
   const workspace = workspaces?.find((ws) => ws.id === workspaceId);
-  const hasMoreCommits = (workspace?.git_behind ?? 0) > 0;
+  const hasMoreCommits = (workspace?.behind ?? 0) > 0;
   useEffect(() => {
     if (state?.status === 'done' && !hasMoreCommits) {
       clearLinearSyncResolveConflictState(workspaceId);
@@ -369,7 +369,7 @@ export default function LinearSyncResolveConflictProgress({
         >
           <strong style={{ marginBottom: 4, display: 'block' }}>Next steps</strong>
           <div style={{ fontSize: '0.85rem', marginBottom: 8 }}>
-            There are {workspace?.git_behind} commits left to sync.
+            There are {workspace?.behind} commits left to sync.
           </div>
           <button className="btn btn--primary" onClick={handleContinue} disabled={continuing}>
             {continuing && (

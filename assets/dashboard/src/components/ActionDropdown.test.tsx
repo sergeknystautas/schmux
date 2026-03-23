@@ -56,11 +56,11 @@ function makeWorkspace(overrides: Partial<WorkspaceResponse> = {}): WorkspaceRes
     path: '/tmp/ws',
     session_count: 0,
     sessions: [],
-    git_ahead: 0,
-    git_behind: 0,
-    git_lines_added: 0,
-    git_lines_removed: 0,
-    git_files_changed: 0,
+    ahead: 0,
+    behind: 0,
+    lines_added: 0,
+    lines_removed: 0,
+    files_changed: 0,
     ...overrides,
   };
 }

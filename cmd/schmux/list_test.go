@@ -101,13 +101,13 @@ func TestListOutputHuman(t *testing.T) {
 
 	sessions := []cli.WorkspaceWithSessions{
 		{
-			ID:        "schmux-001",
-			Repo:      "https://github.com/user/schmux.git",
-			Branch:    "main",
-			Path:      "/path/to/schmux-001",
-			GitDirty:  true,
-			GitAhead:  0,
-			GitBehind: 0,
+			ID:     "schmux-001",
+			Repo:   "https://github.com/user/schmux.git",
+			Branch: "main",
+			Path:   "/path/to/schmux-001",
+			Dirty:  true,
+			Ahead:  0,
+			Behind: 0,
 			Sessions: []cli.Session{
 				{
 					ID:        "schmux-001-abc123",
@@ -119,13 +119,13 @@ func TestListOutputHuman(t *testing.T) {
 			},
 		},
 		{
-			ID:        "schmux-002",
-			Repo:      "https://github.com/user/schmux.git",
-			Branch:    "feature-x",
-			Path:      "/path/to/schmux-002",
-			GitDirty:  false,
-			GitAhead:  3,
-			GitBehind: 0,
+			ID:     "schmux-002",
+			Repo:   "https://github.com/user/schmux.git",
+			Branch: "feature-x",
+			Path:   "/path/to/schmux-002",
+			Dirty:  false,
+			Ahead:  3,
+			Behind: 0,
 			Sessions: []cli.Session{
 				{
 					ID:        "schmux-002-def456",
@@ -138,14 +138,14 @@ func TestListOutputHuman(t *testing.T) {
 		},
 		// Workspace with no sessions should be skipped
 		{
-			ID:        "schmux-003",
-			Repo:      "https://github.com/user/schmux.git",
-			Branch:    "main",
-			Path:      "/path/to/schmux-003",
-			GitDirty:  false,
-			GitAhead:  0,
-			GitBehind: 1,
-			Sessions:  []cli.Session{},
+			ID:       "schmux-003",
+			Repo:     "https://github.com/user/schmux.git",
+			Branch:   "main",
+			Path:     "/path/to/schmux-003",
+			Dirty:    false,
+			Ahead:    0,
+			Behind:   1,
+			Sessions: []cli.Session{},
 		},
 	}
 
@@ -221,11 +221,11 @@ func TestListCommand_Run(t *testing.T) {
 			isRunning: true,
 			sessions: []cli.WorkspaceWithSessions{
 				{
-					ID:        "test-001",
-					Branch:    "main",
-					GitDirty:  false,
-					GitAhead:  0,
-					GitBehind: 0,
+					ID:     "test-001",
+					Branch: "main",
+					Dirty:  false,
+					Ahead:  0,
+					Behind: 0,
 					Sessions: []cli.Session{
 						{ID: "test-001-abc", Target: "claude", Running: true},
 					},

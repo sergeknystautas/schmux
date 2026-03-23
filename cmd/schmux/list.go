@@ -68,15 +68,15 @@ func (cmd *ListCommand) outputHuman(sessions []cli.WorkspaceWithSessions) error 
 
 		// Workspace header with git status
 		gitStatus := ""
-		if ws.GitDirty {
+		if ws.Dirty {
 			gitStatus = " [dirty]"
 		}
-		if ws.GitAhead > 0 || ws.GitBehind > 0 {
-			if ws.GitAhead > 0 {
-				gitStatus += fmt.Sprintf(" [ahead %d]", ws.GitAhead)
+		if ws.Ahead > 0 || ws.Behind > 0 {
+			if ws.Ahead > 0 {
+				gitStatus += fmt.Sprintf(" [ahead %d]", ws.Ahead)
 			}
-			if ws.GitBehind > 0 {
-				gitStatus += fmt.Sprintf(" [behind %d]", ws.GitBehind)
+			if ws.Behind > 0 {
+				gitStatus += fmt.Sprintf(" [behind %d]", ws.Behind)
 			}
 		}
 		fmt.Printf("%s (%s)%s\n", ws.ID, ws.Branch, gitStatus)

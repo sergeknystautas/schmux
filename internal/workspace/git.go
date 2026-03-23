@@ -631,7 +631,7 @@ func (m *Manager) checkGitSafety(ctx context.Context, workspaceID string) (*VCSS
 	// in reflecting push state is acceptable. The dirty-file check above is
 	// always fresh since it runs git status --porcelain directly.
 	commitsSyncedWithRemote := w.CommitsSyncedWithRemote
-	ahead := w.GitAhead
+	ahead := w.Ahead
 
 	status.AheadCommits = ahead
 	// Only unsafe if ahead AND not synced with remote branch

@@ -20,11 +20,11 @@ function makeWorkspace(overrides: Partial<WorkspaceResponse> = {}): WorkspaceRes
     path: '/tmp/test',
     session_count: 0,
     sessions: [],
-    git_ahead: 0,
-    git_behind: 0,
-    git_lines_added: 0,
-    git_lines_removed: 0,
-    git_files_changed: 0,
+    ahead: 0,
+    behind: 0,
+    lines_added: 0,
+    lines_removed: 0,
+    files_changed: 0,
     ...overrides,
   };
 }
@@ -63,7 +63,7 @@ describe('navigateToWorkspace', () => {
 
   it('navigates to diff page when no sessions but has git changes', () => {
     const navigate = vi.fn();
-    const workspaces = [makeWorkspace({ id: 'ws-1', git_lines_added: 10, git_lines_removed: 5 })];
+    const workspaces = [makeWorkspace({ id: 'ws-1', lines_added: 10, lines_removed: 5 })];
 
     navigateToWorkspace(navigate, workspaces, 'ws-1');
     expect(navigate).toHaveBeenCalledWith('/diff/ws-1');
@@ -85,7 +85,7 @@ describe('navigateToWorkspace', () => {
 
   it('navigates to diff when only lines_added > 0', () => {
     const navigate = vi.fn();
-    const workspaces = [makeWorkspace({ id: 'ws-1', git_lines_added: 5, git_lines_removed: 0 })];
+    const workspaces = [makeWorkspace({ id: 'ws-1', lines_added: 5, lines_removed: 0 })];
 
     navigateToWorkspace(navigate, workspaces, 'ws-1');
     expect(navigate).toHaveBeenCalledWith('/diff/ws-1');
@@ -93,7 +93,7 @@ describe('navigateToWorkspace', () => {
 
   it('navigates to diff when only lines_removed > 0', () => {
     const navigate = vi.fn();
-    const workspaces = [makeWorkspace({ id: 'ws-1', git_lines_added: 0, git_lines_removed: 3 })];
+    const workspaces = [makeWorkspace({ id: 'ws-1', lines_added: 0, lines_removed: 3 })];
 
     navigateToWorkspace(navigate, workspaces, 'ws-1');
     expect(navigate).toHaveBeenCalledWith('/diff/ws-1');

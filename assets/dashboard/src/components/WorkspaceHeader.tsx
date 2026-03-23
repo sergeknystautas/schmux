@@ -86,8 +86,8 @@ export default function WorkspaceHeader({
     </svg>
   );
 
-  const behind = workspace.git_behind ?? 0;
-  const ahead = workspace.git_ahead ?? 0;
+  const behind = workspace.behind ?? 0;
+  const ahead = workspace.ahead ?? 0;
   const remoteBranchExists = workspace.remote_branch_exists ?? false;
   const localUnique = workspace.local_unique_commits ?? 0;
   const remoteUnique = workspace.remote_unique_commits ?? 0;

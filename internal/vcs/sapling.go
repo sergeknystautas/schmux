@@ -117,3 +117,49 @@ func (s *SaplingCommandBuilder) StatusPorcelain() string {
 func (s *SaplingCommandBuilder) RemoteBranchExists(branch string) string {
 	return fmt.Sprintf("sl log -r 'remote(%s)' --limit 1 -T '{node}' 2>/dev/null", branch)
 }
+
+func (s *SaplingCommandBuilder) AddFiles(files []string) string {
+	args := []string{"sl", "add"}
+	for _, f := range files {
+		args = append(args, shellutil.Quote(f))
+	}
+	return strings.Join(args, " ")
+}
+
+func (s *SaplingCommandBuilder) CommitAmendNoEdit() string {
+	return "sl amend"
+}
+
+func (s *SaplingCommandBuilder) DiscardFile(file string) string {
+	return fmt.Sprintf("sl revert %s", shellutil.Quote(file))
+}
+
+func (s *SaplingCommandBuilder) DiscardAllTracked() string {
+	return "sl revert --all"
+}
+
+func (s *SaplingCommandBuilder) CleanUntrackedFile(file string) string {
+	return fmt.Sprintf("rm -f %s", shellutil.Quote(file))
+}
+
+func (s *SaplingCommandBuilder) CleanAllUntracked() string {
+	return "sl purge --all"
+}
+
+func (s *SaplingCommandBuilder) UnstageNewFile(file string) string {
+	return fmt.Sprintf("sl forget %s", shellutil.Quote(file))
+}
+
+func (s *SaplingCommandBuilder) Uncommit() string {
+	return "sl uncommit"
+}
+
+func (s *SaplingCommandBuilder) CheckIgnore(file string) string {
+	// Sapling: check if file appears in ignored status output.
+	// Exit 0 if ignored (grep matches), non-zero otherwise.
+	return fmt.Sprintf("sl status -i %s 2>/dev/null | grep -q .", shellutil.Quote(file))
+}
+
+func (s *SaplingCommandBuilder) DiffUnified() string {
+	return "sl diff"
+}

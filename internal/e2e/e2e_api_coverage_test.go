@@ -441,11 +441,11 @@ func TestE2EGitAmendAndUncommit(t *testing.T) {
 	RunCmd(t, workspacePath, "git", "commit", "-m", "Add feature")
 
 	// Wait for daemon to detect that we're ahead of main via git status watcher.
-	// The git-amend handler checks ws.GitAhead > 0 and returns 400 otherwise.
+	// The git-amend handler checks ws.Ahead > 0 and returns 400 otherwise.
 	env.PollUntil(15*time.Second, "daemon should detect commits ahead of main", func() bool {
 		workspaces := env.GetAPIWorkspaces()
 		for _, ws := range workspaces {
-			if ws.ID == workspaceID && ws.GitAhead > 0 {
+			if ws.ID == workspaceID && ws.Ahead > 0 {
 				return true
 			}
 		}

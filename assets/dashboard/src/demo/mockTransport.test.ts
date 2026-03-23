@@ -380,11 +380,11 @@ describe('createDemoDiff', () => {
     expect(paths1).not.toEqual(paths2);
   });
 
-  it('file count matches workspace git_files_changed', () => {
+  it('file count matches workspace files_changed', () => {
     const workspaces = createDemoWorkspaces();
     for (const ws of workspaces) {
       const diff = createDemoDiff(ws.id);
-      expect(diff.files.length).toBe(ws.git_files_changed);
+      expect(diff.files.length).toBe(ws.files_changed);
     }
   });
 });

@@ -812,7 +812,7 @@ describe('computeLayout', () => {
 
   it('disconnected graph with context commits before HEAD reorders correctly', () => {
     // Simulate a graph where the backend DFS puts 5 context commits before
-    // the 3 branch commits (disconnected because maxCommits < git_ahead)
+    // the 3 branch commits (disconnected because maxCommits < ahead)
     const nodes = [
       // Context commits (on main, not ancestors of HEAD)
       makeNode('c1', ['main'], ['c2']),
