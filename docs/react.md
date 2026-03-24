@@ -12,6 +12,7 @@ This document describes the architecture, patterns, and conventions for the Schm
 4. [Directory Structure](#directory-structure)
 5. [Component Patterns](#component-patterns)
 6. [State Management](#state-management)
+   - [Client-Side Tab Ordering](#client-side-tab-ordering)
 7. [Styling Approach](#styling-approach)
 8. [API Integration](#api-integration)
 9. [Routing](#routing)
@@ -397,6 +398,23 @@ function SpawnPage() {
 - **Derived data** — Compute from props/state during render
 - **Props** — Don't mirror props in state
 - **Module-level variables** — Avoid side effects (see anti-patterns)
+
+### Client-Side Tab Ordering
+
+Session tabs can be reordered by dragging (desktop only). The custom order is stored in localStorage per workspace (`schmux:tab-order:{workspaceId}`) and is purely client-side — each browser maintains its own tab arrangement independently.
+
+**Architecture:**
+
+- `sortSessionsByTabOrder()` (in `lib/tabOrder.ts`) — pure utility that sorts sessions by stored order. Used by both SessionTabs (via hook) and AppShell sidebar (directly).
+- `useTabOrder()` (in `hooks/useTabOrder.ts`) — React hook wrapping the utility with drag lifecycle state (freeze during drag, persist on drag-end). Used only by SessionTabs.
+- @dnd-kit provides the drag interaction layer in SessionTabs via `DndContext` + `SortableContext`.
+
+**Behavior:**
+
+- New sessions are appended to the end of the custom order.
+- Disposed sessions are pruned from stored order on next reorder.
+- Dragging is disabled when the workspace is locked or on mobile viewports.
+- localStorage errors (quota, unavailable) fail silently — custom order just won't persist.
 
 ---
 

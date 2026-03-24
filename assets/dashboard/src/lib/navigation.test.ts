@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { navigateToWorkspace, findNextWorkspaceWithSessions } from './navigation';
 import type { WorkspaceResponse } from './types';
+import { TAB_ORDER_KEY_PREFIX } from './tabOrder';
 
 // Mock react-router-dom's useNavigate
 vi.mock('react-router-dom', () => ({
@@ -30,6 +31,42 @@ function makeWorkspace(overrides: Partial<WorkspaceResponse> = {}): WorkspaceRes
 }
 
 describe('navigateToWorkspace', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('navigates to first session in custom tab order', () => {
+    const navigate = vi.fn();
+    localStorage.setItem(`${TAB_ORDER_KEY_PREFIX}ws-1`, JSON.stringify(['session-2', 'session-1']));
+    const workspaces = [
+      makeWorkspace({
+        id: 'ws-1',
+        sessions: [
+          {
+            id: 'session-1',
+            target: 'claude',
+            branch: 'main',
+            created_at: '',
+            running: true,
+            attach_cmd: '',
+          },
+          {
+            id: 'session-2',
+            target: 'claude',
+            branch: 'main',
+            created_at: '',
+            running: true,
+            attach_cmd: '',
+          },
+        ],
+        session_count: 2,
+      }),
+    ];
+
+    navigateToWorkspace(navigate, workspaces, 'ws-1');
+    expect(navigate).toHaveBeenCalledWith('/sessions/session-2');
+  });
+
   it('navigates to first session when workspace has sessions', () => {
     const navigate = vi.fn();
     const workspaces = [

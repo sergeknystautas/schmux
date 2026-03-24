@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useSessions } from '../contexts/SessionsContext';
 import type { WorkspaceResponse, PendingNavigation } from './types';
+import { sortSessionsByTabOrder } from './tabOrder';
 
 /**
  * Navigate to the appropriate page for a workspace based on its state:
@@ -15,8 +16,9 @@ export function navigateToWorkspace(
 ): void {
   const workspace = workspaces.find((ws) => ws.id === workspaceId);
   if (workspace?.sessions?.length) {
-    // Navigate to first session in workspace
-    navigate(`/sessions/${workspace.sessions[0].id}`);
+    // Navigate to first session in custom tab order (or server order if no custom order)
+    const ordered = sortSessionsByTabOrder(workspace.id, workspace.sessions);
+    navigate(`/sessions/${ordered[0].id}`);
   } else {
     // No sessions - check for git changes
     const linesAdded = workspace?.lines_added ?? 0;

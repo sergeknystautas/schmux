@@ -18,6 +18,106 @@ import { useKeyboardMode } from '../contexts/KeyboardContext';
 import Tooltip from './Tooltip';
 import ActionDropdown from './ActionDropdown';
 import type { SessionResponse, WorkspaceResponse } from '../lib/types';
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragStartEvent,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { useTabOrder } from '../hooks/useTabOrder';
+
+function SortableSessionTab({
+  sess,
+  isCurrent,
+  disabled,
+  isWorkingState,
+  nudgePreviewElement,
+  activityDisplay,
+  onTabClick,
+  onDispose,
+}: {
+  sess: SessionResponse;
+  isCurrent: boolean;
+  disabled: boolean;
+  isWorkingState: boolean;
+  nudgePreviewElement: React.ReactNode;
+  activityDisplay: string;
+  onTabClick: (id: string) => void;
+  onDispose: (id: string, e: React.MouseEvent) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: sess.id,
+  });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    ...(disabled ? { opacity: 0.5, cursor: 'not-allowed' } : {}),
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      className={`session-tab${isCurrent ? ' session-tab--active' : ''}${disabled ? ' session-tab--disabled' : ''}${isDragging ? ' session-tab--dragging' : ''}`}
+      onClick={() => !disabled && onTabClick(sess.id)}
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      onKeyDown={(e) => {
+        if (disabled) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onTabClick(sess.id);
+        }
+      }}
+      style={style}
+    >
+      <div className="session-tab__row1">
+        {isWorkingState && <WorkingSpinner />}
+        <span className="session-tab__name">{sess.nickname || sess.target}</span>
+        <Tooltip
+          content={
+            !sess.running
+              ? 'Session stopped'
+              : sess.last_output_at
+                ? formatTimestamp(sess.last_output_at)
+                : 'Never'
+          }
+        >
+          <span className="session-tab__activity">{activityDisplay}</span>
+        </Tooltip>
+        <Tooltip content="Dispose session" variant="warning">
+          <button
+            className="btn btn--sm btn--ghost btn--danger session-tab__dispose"
+            onClick={(e) => !disabled && onDispose(sess.id, e)}
+            aria-label={`Dispose ${sess.id}`}
+            disabled={disabled}
+          >
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+            >
+              <line x1="4" y1="4" x2="20" y2="20"></line>
+              <line x1="20" y1="4" x2="4" y2="20"></line>
+            </svg>
+          </button>
+        </Tooltip>
+      </div>
+      {nudgePreviewElement && <div className="session-tab__row2">{nudgePreviewElement}</div>}
+    </div>
+  );
+}
 
 type SessionTabsProps = {
   sessions: SessionResponse[];
@@ -63,6 +163,39 @@ export default function SessionTabs({
   const resolveInProgress = crState?.status === 'in_progress';
   const lockState = workspace ? workspaceLockStates[workspace.id] : undefined;
   const isLocked = resolveInProgress || lockState?.locked;
+
+  // Desktop-only drag: match the CSS mobile breakpoint (768px)
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth > 768 : true
+  );
+  useEffect(() => {
+    const mql = window.matchMedia('(min-width: 769px)');
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mql.addEventListener('change', handler);
+    setIsDesktop(mql.matches);
+    return () => mql.removeEventListener('change', handler);
+  }, []);
+
+  const { orderedSessions, reorder, startDrag, endDrag } = useTabOrder(workspace?.id, sessions);
+  const dragEnabled = isDesktop && !isLocked && !!workspace;
+
+  const pointerSensor = useSensor(PointerSensor, {
+    activationConstraint: { distance: 5 },
+  });
+  const sensors = useSensors(pointerSensor);
+
+  const handleDragStart = (_event: DragStartEvent) => {
+    startDrag();
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      reorder(String(active.id), String(over.id));
+    } else {
+      endDrag();
+    }
+  };
 
   // VCS-specific UI should appear for workspaces with VCS support.
   // Local workspaces: show for git (default when vcs is omitted).
@@ -254,6 +387,23 @@ export default function SessionTabs({
         ? formatRelativeTime(sess.last_output_at)
         : '-';
 
+    if (dragEnabled) {
+      return (
+        <SortableSessionTab
+          key={sess.id}
+          sess={sess}
+          isCurrent={isCurrent}
+          disabled={!!disabled}
+          isWorkingState={isWorkingState}
+          nudgePreviewElement={nudgePreviewElement}
+          activityDisplay={activityDisplay}
+          onTabClick={handleTabClick}
+          onDispose={handleDispose}
+        />
+      );
+    }
+
+    // Non-draggable fallback (mobile / locked) — keep existing inline JSX
     return (
       <div
         key={sess.id}
@@ -550,7 +700,23 @@ export default function SessionTabs({
     <div className="session-tabs" data-tour="session-tabs">
       {/* Session tabs + add button (wrapped so mobile can reorder) */}
       <div className="session-tabs__main">
-        {sessions.map((sess) => renderSessionTab(sess))}
+        {dragEnabled ? (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={orderedSessions.map((s) => s.id)}
+              strategy={horizontalListSortingStrategy}
+            >
+              {orderedSessions.map((sess) => renderSessionTab(sess))}
+            </SortableContext>
+          </DndContext>
+        ) : (
+          orderedSessions.map((sess) => renderSessionTab(sess))
+        )}
 
         {activeSpawnTab && (
           <div

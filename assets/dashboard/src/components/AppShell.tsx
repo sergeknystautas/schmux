@@ -25,6 +25,7 @@ import {
   WorkingSpinner,
   isRemoteClient,
 } from '../lib/utils';
+import { sortSessionsByTabOrder, TAB_ORDER_CHANGED_EVENT } from '../lib/tabOrder';
 import { navigateToWorkspace, findNextWorkspaceWithSessions } from '../lib/navigation';
 import { useModal } from './ModalProvider';
 import { useToast } from './ToastProvider';
@@ -88,6 +89,14 @@ export default function AppShell() {
   // Freeze the sort order for 2s after the last Cmd+Up/Down keypress
   const navSnapshotRef = useRef<WorkspaceResponse[] | null>(null);
   const navTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Bump to force re-render when tab order changes (via drag in SessionTabs)
+  const [, setTabOrderVersion] = useState(0);
+  useEffect(() => {
+    const handleTabOrderChanged = () => setTabOrderVersion((v) => v + 1);
+    window.addEventListener(TAB_ORDER_CHANGED_EVENT, handleTabOrderChanged);
+    return () => window.removeEventListener(TAB_ORDER_CHANGED_EVENT, handleTabOrderChanged);
+  }, []);
 
   // Dev mode state
   const isDevMode = !!versionInfo?.dev_mode;
@@ -394,7 +403,9 @@ export default function AppShell() {
         if (!workspace) return;
         const isVCS = !workspace.vcs || workspace.vcs === 'git';
 
-        const tabs: string[] = (workspace.sessions || []).map((s) => `/sessions/${s.id}`);
+        const tabs: string[] = sortSessionsByTabOrder(workspace.id, workspace.sessions || []).map(
+          (s) => `/sessions/${s.id}`
+        );
         (workspace.previews || []).forEach((p) => tabs.push(`/preview/${workspace.id}/${p.id}`));
         if (isVCS) {
           tabs.push(`/diff/${workspace.id}`);
@@ -886,125 +897,127 @@ export default function AppShell() {
                     </div>
                   </div>
                   <div className="nav-workspace__sessions">
-                    {workspace.sessions?.map((sess, sessIndex) => {
-                      const isActive = sess.id === sessionId;
-                      const activityDisplay = !sess.running
-                        ? 'Stopped'
-                        : sess.last_output_at
-                          ? formatRelativeTime(sess.last_output_at)
-                          : '-';
+                    {sortSessionsByTabOrder(workspace.id, workspace.sessions || []).map(
+                      (sess, sessIndex) => {
+                        const isActive = sess.id === sessionId;
+                        const activityDisplay = !sess.running
+                          ? 'Stopped'
+                          : sess.last_output_at
+                            ? formatRelativeTime(sess.last_output_at)
+                            : '-';
 
-                      // run_targets are command-only now; if not in run_targets, it's a model = promptable
-                      const isCommand = (config?.run_targets || []).some(
-                        (t) => t.name === sess.target
-                      );
-                      const isPromptable = !isCommand;
+                        // run_targets are command-only now; if not in run_targets, it's a model = promptable
+                        const isCommand = (config?.run_targets || []).some(
+                          (t) => t.name === sess.target
+                        );
+                        const isPromptable = !isCommand;
 
-                      const nudgeSummary = formatNudgeSummary(sess.nudge_summary, 40);
+                        const nudgeSummary = formatNudgeSummary(sess.nudge_summary, 40);
 
-                      // "Working" is an operational state — show spinner inline
-                      // in row1 to avoid reflow from row2 appearing/disappearing.
-                      const isWorkingState =
-                        sess.nudge_state === 'Working' ||
-                        (nudgenikEnabled && !sess.nudge_state && isPromptable && sess.running);
+                        // "Working" is an operational state — show spinner inline
+                        // in row1 to avoid reflow from row2 appearing/disappearing.
+                        const isWorkingState =
+                          sess.nudge_state === 'Working' ||
+                          (nudgenikEnabled && !sess.nudge_state && isPromptable && sess.running);
 
-                      const isIdleState = sess.nudge_state === 'Idle';
+                        const isIdleState = sess.nudge_state === 'Idle';
 
-                      // Determine what to show in row2
-                      // Show nudge indicators if there's a nudge_state (from signals or nudgenik)
-                      // Suppress for the currently focused session — the user is already looking at it
-                      let nudgePreviewElement: React.ReactNode = null;
-                      if (!isWorkingState && !isIdleState && !isActive) {
-                        const nudgeEmoji = sess.nudge_state
-                          ? nudgeStateEmoji[sess.nudge_state] || null
-                          : null;
-                        if (nudgeEmoji) {
-                          nudgePreviewElement = nudgeSummary
-                            ? `${nudgeEmoji} ${nudgeSummary}`
-                            : `${nudgeEmoji} ${sess.nudge_state}`;
-                        }
-                      }
-
-                      return (
-                        <div
-                          key={sess.id}
-                          className={`nav-session${isActive ? ' nav-session--active' : ''}`}
-                          data-tour={
-                            wsIndex === 0 && sessIndex === 0 ? 'sidebar-session' : undefined
+                        // Determine what to show in row2
+                        // Show nudge indicators if there's a nudge_state (from signals or nudgenik)
+                        // Suppress for the currently focused session — the user is already looking at it
+                        let nudgePreviewElement: React.ReactNode = null;
+                        if (!isWorkingState && !isIdleState && !isActive) {
+                          const nudgeEmoji = sess.nudge_state
+                            ? nudgeStateEmoji[sess.nudge_state] || null
+                            : null;
+                          if (nudgeEmoji) {
+                            nudgePreviewElement = nudgeSummary
+                              ? `${nudgeEmoji} ${nudgeSummary}`
+                              : `${nudgeEmoji} ${sess.nudge_state}`;
                           }
-                          onClick={() => handleSessionClick(sess.id)}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              handleSessionClick(sess.id);
+                        }
+
+                        return (
+                          <div
+                            key={sess.id}
+                            className={`nav-session${isActive ? ' nav-session--active' : ''}`}
+                            data-tour={
+                              wsIndex === 0 && sessIndex === 0 ? 'sidebar-session' : undefined
                             }
-                          }}
-                        >
-                          <div className="nav-session__row1">
-                            {wsLocked ? (
-                              <span style={{ marginRight: '4px', fontSize: '11px' }}>🔒</span>
-                            ) : (
-                              isWorkingState && <WorkingSpinner />
-                            )}
-                            <span className="nav-session__name">
-                              {sess.remote_host_id && (
-                                <svg
-                                  width="12"
-                                  height="12"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  style={{
-                                    marginRight: '4px',
-                                    verticalAlign: 'text-bottom',
-                                    opacity: 0.7,
-                                  }}
-                                  aria-label={sess.remote_flavor_name || 'Remote'}
-                                >
-                                  <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
-                                  <line x1="1" y1="10" x2="23" y2="10" />
-                                </svg>
+                            onClick={() => handleSessionClick(sess.id)}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                handleSessionClick(sess.id);
+                              }
+                            }}
+                          >
+                            <div className="nav-session__row1">
+                              {wsLocked ? (
+                                <span style={{ marginRight: '4px', fontSize: '11px' }}>🔒</span>
+                              ) : (
+                                isWorkingState && <WorkingSpinner />
                               )}
-                              {sess.nickname || sess.target}
-                            </span>
-                            {sess.persona_icon && (
-                              <span
-                                className="nav-session__persona-badge"
-                                title={sess.persona_name}
-                                style={{ color: sess.persona_color }}
-                              >
-                                {sess.persona_icon}
+                              <span className="nav-session__name">
+                                {sess.remote_host_id && (
+                                  <svg
+                                    width="12"
+                                    height="12"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    style={{
+                                      marginRight: '4px',
+                                      verticalAlign: 'text-bottom',
+                                      opacity: 0.7,
+                                    }}
+                                    aria-label={sess.remote_flavor_name || 'Remote'}
+                                  >
+                                    <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+                                    <line x1="1" y1="10" x2="23" y2="10" />
+                                  </svg>
+                                )}
+                                {sess.nickname || sess.target}
                               </span>
-                            )}
-                            <span
-                              className="nav-session__activity"
-                              data-tour={
-                                wsIndex === 0 && sessIndex === 0
-                                  ? 'sidebar-session-status'
-                                  : undefined
-                              }
-                            >
-                              {activityDisplay}
-                            </span>
-                          </div>
-                          {!wsLocked && nudgePreviewElement && (
-                            <div
-                              className="nav-session__row2"
-                              data-tour={
-                                nudgePreviewElement && wsIndex === 0 && sessIndex === 1
-                                  ? 'sidebar-nudge'
-                                  : undefined
-                              }
-                            >
-                              {nudgePreviewElement}
+                              {sess.persona_icon && (
+                                <span
+                                  className="nav-session__persona-badge"
+                                  title={sess.persona_name}
+                                  style={{ color: sess.persona_color }}
+                                >
+                                  {sess.persona_icon}
+                                </span>
+                              )}
+                              <span
+                                className="nav-session__activity"
+                                data-tour={
+                                  wsIndex === 0 && sessIndex === 0
+                                    ? 'sidebar-session-status'
+                                    : undefined
+                                }
+                              >
+                                {activityDisplay}
+                              </span>
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                            {!wsLocked && nudgePreviewElement && (
+                              <div
+                                className="nav-session__row2"
+                                data-tour={
+                                  nudgePreviewElement && wsIndex === 0 && sessIndex === 1
+                                    ? 'sidebar-nudge'
+                                    : undefined
+                                }
+                              >
+                                {nudgePreviewElement}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+                    )}
                   </div>
                 </div>
               );

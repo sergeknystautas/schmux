@@ -2296,9 +2296,11 @@ body {
   align-items: flex-end;
 }
 
-/* On desktop, __main is transparent — its children join the session-tabs flex row */
+/* On desktop, __main is a flex container for dnd-kit drag surface */
 .session-tabs__main {
-  display: contents;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
 }
 
 .session-tabs__spacer {
@@ -2352,6 +2354,10 @@ body {
   right: 0;
   height: 1px;
   background: var(--color-surface);
+}
+
+.session-tab--dragging {
+  opacity: 0.4;
 }
 
 .session-tab__row1 {
