@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom';
 import { useSessions } from '../contexts/SessionsContext';
 import { useConfig, useRequireConfig } from '../contexts/ConfigContext';
+import { useFeatures } from '../contexts/FeaturesContext';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import Tooltip from '../components/Tooltip';
@@ -262,6 +263,7 @@ export default function HomePage() {
     repofeedUpdateCount,
   } = useSessions();
   const { config, loading: configLoading, getRepoName } = useConfig();
+  const { features } = useFeatures();
   const { success, error: toastError } = useToast();
   const { alert } = useModal();
   const { setPendingNavigation } = usePendingNavigation();
@@ -901,60 +903,49 @@ export default function HomePage() {
         </div>
 
         {/* Pull Requests Section */}
-        <div className={styles.sectionCard}>
-          <div className={styles.sectionHeader}>
-            <h2 className={styles.sectionTitle}>
-              <GitPullRequestIcon />
-              Pull Requests
-            </h2>
-            <button
-              className={styles.scanButton}
-              onClick={handleRefreshPRs}
-              disabled={prsRefreshing}
-              title="Refresh pull requests from GitHub"
-            >
-              <RefreshIcon />
-              {prsRefreshing ? 'Refreshing...' : 'Refresh'}
-            </button>
-          </div>
-          <div className={styles.sectionContent}>
-            {prsLoading ? (
-              <div className={styles.loadingState}>
-                <div className="spinner spinner--small" />
-                <span>Loading pull requests...</span>
-              </div>
-            ) : pullRequests.length === 0 ? (
-              <div className={styles.placeholderState}>
-                <p className={styles.placeholderText}>No open pull requests found.</p>
-                <p className={styles.placeholderHint}>
-                  PRs from public GitHub repos will appear here.
-                </p>
-              </div>
-            ) : (
-              <div className={styles.branchList}>
-                {pullRequests.map((pr) => {
-                  const checkoutKey = `${pr.repo_url}#${pr.number}`;
-                  const isCheckingOut = checkingOutPR === checkoutKey;
-                  const isBusy = checkingOutPR !== null;
-                  const canCheckout = hasPrReviewTarget();
-                  return (
-                    <div
-                      key={checkoutKey}
-                      className={styles.branchItem}
-                      onClick={() => {
-                        if (isBusy) return;
-                        if (!canCheckout) {
-                          toastError(
-                            'No PR review target configured. Set pr_review.target in config.'
-                          );
-                          return;
-                        }
-                        handlePRClick(pr);
-                      }}
-                      onKeyDown={(event) => {
-                        if (isBusy) return;
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
+        {features.github && (
+          <div className={styles.sectionCard}>
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>
+                <GitPullRequestIcon />
+                Pull Requests
+              </h2>
+              <button
+                className={styles.scanButton}
+                onClick={handleRefreshPRs}
+                disabled={prsRefreshing}
+                title="Refresh pull requests from GitHub"
+              >
+                <RefreshIcon />
+                {prsRefreshing ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+            <div className={styles.sectionContent}>
+              {prsLoading ? (
+                <div className={styles.loadingState}>
+                  <div className="spinner spinner--small" />
+                  <span>Loading pull requests...</span>
+                </div>
+              ) : pullRequests.length === 0 ? (
+                <div className={styles.placeholderState}>
+                  <p className={styles.placeholderText}>No open pull requests found.</p>
+                  <p className={styles.placeholderHint}>
+                    PRs from public GitHub repos will appear here.
+                  </p>
+                </div>
+              ) : (
+                <div className={styles.branchList}>
+                  {pullRequests.map((pr) => {
+                    const checkoutKey = `${pr.repo_url}#${pr.number}`;
+                    const isCheckingOut = checkingOutPR === checkoutKey;
+                    const isBusy = checkingOutPR !== null;
+                    const canCheckout = hasPrReviewTarget();
+                    return (
+                      <div
+                        key={checkoutKey}
+                        className={styles.branchItem}
+                        onClick={() => {
+                          if (isBusy) return;
                           if (!canCheckout) {
                             toastError(
                               'No PR review target configured. Set pr_review.target in config.'
@@ -962,50 +953,63 @@ export default function HomePage() {
                             return;
                           }
                           handlePRClick(pr);
-                        }
-                      }}
-                      role="button"
-                      tabIndex={0}
-                      aria-disabled={isBusy || !canCheckout}
-                      data-disabled={!canCheckout}
-                      data-busy={isBusy}
-                      title={`Review PR #${pr.number}: ${pr.title}`}
-                    >
-                      <div className={styles.branchRow1}>
-                        <span className={styles.branchName}>
-                          <a
-                            href={pr.html_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            style={{ color: 'inherit', textDecoration: 'none' }}
-                          >
-                            #{pr.number}
-                          </a>{' '}
-                          {pr.title}
-                          {isCheckingOut && (
-                            <span className={styles.branchSpinner}>
-                              <div className="spinner spinner--small" />
-                            </span>
-                          )}
-                        </span>
-                        <span className={styles.branchRepo}>{pr.repo_name}</span>
-                        <span className={styles.branchDate}>
-                          {formatRelativeDate(pr.created_at)}
-                        </span>
+                        }}
+                        onKeyDown={(event) => {
+                          if (isBusy) return;
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            if (!canCheckout) {
+                              toastError(
+                                'No PR review target configured. Set pr_review.target in config.'
+                              );
+                              return;
+                            }
+                            handlePRClick(pr);
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        aria-disabled={isBusy || !canCheckout}
+                        data-disabled={!canCheckout}
+                        data-busy={isBusy}
+                        title={`Review PR #${pr.number}: ${pr.title}`}
+                      >
+                        <div className={styles.branchRow1}>
+                          <span className={styles.branchName}>
+                            <a
+                              href={pr.html_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ color: 'inherit', textDecoration: 'none' }}
+                            >
+                              #{pr.number}
+                            </a>{' '}
+                            {pr.title}
+                            {isCheckingOut && (
+                              <span className={styles.branchSpinner}>
+                                <div className="spinner spinner--small" />
+                              </span>
+                            )}
+                          </span>
+                          <span className={styles.branchRepo}>{pr.repo_name}</span>
+                          <span className={styles.branchDate}>
+                            {formatRelativeDate(pr.created_at)}
+                          </span>
+                        </div>
+                        <div className={styles.branchRow2}>
+                          <span className={styles.branchSubject}>
+                            {pr.source_branch} &rarr; {pr.target_branch} &middot; @{pr.author}
+                          </span>
+                        </div>
                       </div>
-                      <div className={styles.branchRow2}>
-                        <span className={styles.branchSubject}>
-                          {pr.source_branch} &rarr; {pr.target_branch} &middot; @{pr.author}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Subreddit Digest Section */}
         {subreddit?.enabled && (

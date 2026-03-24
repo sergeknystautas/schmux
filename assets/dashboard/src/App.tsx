@@ -5,6 +5,7 @@ import ModalProvider from './components/ModalProvider';
 import HelpModalProvider from './components/KeyboardHelpModal';
 import KeyboardProvider from './contexts/KeyboardContext';
 import { ConfigProvider } from './contexts/ConfigContext';
+import { FeaturesProvider } from './contexts/FeaturesContext';
 import { SessionsProvider } from './contexts/SessionsContext';
 import { ViewedSessionsProvider } from './contexts/ViewedSessionsContext';
 import { CurationProvider } from './contexts/CurationContext';
@@ -35,55 +36,60 @@ export default function App() {
   const location = useLocation();
   return (
     <ConfigProvider>
-      <ToastProvider>
-        <ModalProvider>
-          <HelpModalProvider>
-            <SessionsProvider>
-              <ViewedSessionsProvider>
-                <KeyboardProvider>
-                  <CurationProvider>
-                    <Routes>
-                      <Route element={<AppShell />}>
-                        <Route path="/" element={<HomePage />} />
-                        <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
-                        <Route
-                          path="/diff/:workspaceId/img/:filepath"
-                          element={<ImagePreviewPage />}
-                        />
-                        <Route
-                          path="/diff/:workspaceId/md/:filepath"
-                          element={<MarkdownPreviewPage />}
-                        />
-                        <Route path="/diff/:workspaceId" element={<DiffPage />} />
-                        <Route path="/preview/:workspaceId/:previewId" element={<PreviewPage />} />
-                        <Route path="/git/:workspaceId" element={<GitGraphPage />} />
-                        <Route path="/git/:workspaceId/:commitHash" element={<GitCommitPage />} />
-                        <Route
-                          path="/resolve-conflict/:workspaceId"
-                          element={<LinearSyncResolveConflictPage />}
-                        />
-                        <Route path="/spawn" element={<SpawnPage key={location.key} />} />
-                        <Route path="/tips" element={<TipsPage />} />
-                        <Route path="/config" element={<ConfigPage />} />
-                        <Route path="/settings/remote" element={<RemoteSettingsPage />} />
-                        <Route path="/overlays" element={<OverlayPage />} />
-                        <Route path="/personas" element={<PersonasListPage />} />
-                        <Route path="/personas/create" element={<PersonaCreatePage />} />
-                        <Route path="/personas/:personaId" element={<PersonaEditPage />} />
-                        <Route path="/lore" element={<LorePage />} />
-                        <Route path="/events" element={<EventsPage />} />
-                        <Route path="/repofeed" element={<RepofeedPage />} />
-                        <Route path="/terminal.html" element={<LegacyTerminalPage />} />
-                        <Route path="*" element={<NotFoundPage />} />
-                      </Route>
-                    </Routes>
-                  </CurationProvider>
-                </KeyboardProvider>
-              </ViewedSessionsProvider>
-            </SessionsProvider>
-          </HelpModalProvider>
-        </ModalProvider>
-      </ToastProvider>
+      <FeaturesProvider>
+        <ToastProvider>
+          <ModalProvider>
+            <HelpModalProvider>
+              <SessionsProvider>
+                <ViewedSessionsProvider>
+                  <KeyboardProvider>
+                    <CurationProvider>
+                      <Routes>
+                        <Route element={<AppShell />}>
+                          <Route path="/" element={<HomePage />} />
+                          <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
+                          <Route
+                            path="/diff/:workspaceId/img/:filepath"
+                            element={<ImagePreviewPage />}
+                          />
+                          <Route
+                            path="/diff/:workspaceId/md/:filepath"
+                            element={<MarkdownPreviewPage />}
+                          />
+                          <Route path="/diff/:workspaceId" element={<DiffPage />} />
+                          <Route
+                            path="/preview/:workspaceId/:previewId"
+                            element={<PreviewPage />}
+                          />
+                          <Route path="/git/:workspaceId" element={<GitGraphPage />} />
+                          <Route path="/git/:workspaceId/:commitHash" element={<GitCommitPage />} />
+                          <Route
+                            path="/resolve-conflict/:workspaceId"
+                            element={<LinearSyncResolveConflictPage />}
+                          />
+                          <Route path="/spawn" element={<SpawnPage key={location.key} />} />
+                          <Route path="/tips" element={<TipsPage />} />
+                          <Route path="/config" element={<ConfigPage />} />
+                          <Route path="/settings/remote" element={<RemoteSettingsPage />} />
+                          <Route path="/overlays" element={<OverlayPage />} />
+                          <Route path="/personas" element={<PersonasListPage />} />
+                          <Route path="/personas/create" element={<PersonaCreatePage />} />
+                          <Route path="/personas/:personaId" element={<PersonaEditPage />} />
+                          <Route path="/lore" element={<LorePage />} />
+                          <Route path="/events" element={<EventsPage />} />
+                          <Route path="/repofeed" element={<RepofeedPage />} />
+                          <Route path="/terminal.html" element={<LegacyTerminalPage />} />
+                          <Route path="*" element={<NotFoundPage />} />
+                        </Route>
+                      </Routes>
+                    </CurationProvider>
+                  </KeyboardProvider>
+                </ViewedSessionsProvider>
+              </SessionsProvider>
+            </HelpModalProvider>
+          </ModalProvider>
+        </ToastProvider>
+      </FeaturesProvider>
     </ConfigProvider>
   );
 }

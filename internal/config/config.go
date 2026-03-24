@@ -408,6 +408,7 @@ type NetworkConfig struct {
 	PreviewPortBlockSize   int                `json:"preview_port_block_size,omitempty"`
 	TLS                    *TLSConfig         `json:"tls,omitempty"`
 	DashboardSX            *DashboardSXConfig `json:"dashboardsx,omitempty"`
+	DashboardHostname      string             `json:"dashboard_hostname,omitempty"`
 }
 
 // TLSConfig holds TLS certificate paths.
@@ -1600,8 +1601,10 @@ func (c *Config) Reload() error {
 
 // CreateDefault creates a default config with the given config file path.
 // The path is stored so that subsequent Save() calls write to the same location.
+// If build defaults are embedded (via build_defaults.json), they are overlaid
+// onto the Go defaults so that deployment-specific values take effect on first run.
 func CreateDefault(configPath string) *Config {
-	return &Config{
+	cfg := &Config{
 		ConfigVersion:              version.Version,
 		WorkspacePath:              "",
 		Repos:                      []Repo{},
@@ -1611,6 +1614,21 @@ func CreateDefault(configPath string) *Config {
 		ExternalDiffCleanupAfterMs: DefaultExternalDiffCleanupAfterMs,
 		path:                       configPath,
 	}
+
+	// Apply embedded build defaults (no-op when build_defaults.json is absent).
+	if err := applyBuildDefaults(cfg); err != nil {
+		if pkgLogger != nil {
+			pkgLogger.Warn("failed to apply build defaults", "err", err)
+		}
+	}
+
+	// Resolve template variables (e.g. ${USER}) in the seeded config.
+	if cfgJSON, err := json.Marshal(cfg); err == nil {
+		resolved := resolveConfigTemplates(cfgJSON)
+		_ = json.Unmarshal(resolved, cfg)
+	}
+
+	return cfg
 }
 
 // Load loads the configuration from the specified path.
@@ -2048,6 +2066,31 @@ func (c *Config) GetTLSEnabled() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.getTLSCertPathLocked() != "" && c.getTLSKeyPathLocked() != ""
+}
+
+// GetDashboardHostname returns the configured dashboard hostname.
+func (c *Config) GetDashboardHostname() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Network == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.Network.DashboardHostname)
+}
+
+// GetDashboardURL returns the full URL for the dashboard.
+// If DashboardHostname is set, composes scheme://hostname:port.
+// Otherwise falls back to GetPublicBaseURL.
+func (c *Config) GetDashboardURL() string {
+	hostname := c.GetDashboardHostname()
+	if hostname == "" {
+		return c.GetPublicBaseURL()
+	}
+	scheme := "http"
+	if c.GetTLSEnabled() {
+		scheme = "https"
+	}
+	return fmt.Sprintf("%s://%s:%d", scheme, hostname, c.GetPort())
 }
 
 // GetDashboardSXEnabled returns whether dashboard.sx HTTPS is enabled.

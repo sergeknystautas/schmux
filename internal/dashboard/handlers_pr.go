@@ -1,3 +1,5 @@
+//go:build !nogithub
+
 package dashboard
 
 import (

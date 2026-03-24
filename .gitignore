@@ -61,3 +61,6 @@ dist/website/
 
 # Module cache marker (created by dev.sh/test.sh)
 .go-mod-cached
+
+# Build-time config defaults (generated per deployment)
+internal/config/defaults/build_defaults.json

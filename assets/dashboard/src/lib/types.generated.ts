@@ -135,6 +135,11 @@ export interface ExternalDiffCommand {
   command: string;
 }
 
+export interface Features {
+  tunnel: boolean;
+  github: boolean;
+}
+
 export interface FileDiff {
   old_path?: string;
   new_path?: string;

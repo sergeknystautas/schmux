@@ -52,6 +52,7 @@ import type {
   SpawnEntriesResponse,
   SpawnEntry,
   UpdateSpawnEntryRequest,
+  Features,
 } from './types.generated';
 import { csrfHeaders } from './csrf';
 import { transport } from './transport';
@@ -109,6 +110,12 @@ export async function getSessions(): Promise<WorkspaceResponse[]> {
 export async function getConfig(): Promise<ConfigResponse> {
   const response = await apiFetch('/api/config');
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch config');
+  return response.json();
+}
+
+export async function getFeatures(): Promise<Features> {
+  const response = await apiFetch('/api/features');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch features');
   return response.json();
 }
 

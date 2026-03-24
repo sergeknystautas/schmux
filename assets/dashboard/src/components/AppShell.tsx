@@ -42,6 +42,7 @@ import {
 import type { WorkspaceResponse } from '../lib/types';
 import RemoteAccessPanel from './RemoteAccessPanel';
 import ToolsSection from './ToolsSection';
+import { useFeatures } from '../contexts/FeaturesContext';
 
 const NAV_COLLAPSED_KEY = 'schmux-nav-collapsed';
 const WORKSPACE_SORT_KEY = 'schmux-workspace-sort';
@@ -59,6 +60,7 @@ export default function AppShell() {
     clearSyncResultEvents,
   } = useSyncState();
   const { overlayUnreadCount, markOverlaysRead } = useOverlay();
+  const { features } = useFeatures();
   const { remoteAccessStatus, simulateRemote } = useRemoteAccess();
   const navigate = useNavigate();
   const location = useLocation();
@@ -1028,7 +1030,7 @@ export default function AppShell() {
           {isDevMode && <EventMonitor />}
           {isDevMode && <TmuxDiagnostic />}
           {isDevMode && <TypingPerformance />}
-          <RemoteAccessPanel />
+          {features.tunnel && <RemoteAccessPanel />}
           <ToolsSection navCollapsed={navCollapsed} />
         </div>
       </nav>

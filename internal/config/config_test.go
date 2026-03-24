@@ -2806,3 +2806,66 @@ func TestRepofeedConfigWithValues(t *testing.T) {
 		t.Error("unknown repos should default to enabled")
 	}
 }
+
+func TestDashboardHostname(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		network *NetworkConfig
+		want    string
+	}{
+		{"nil network returns empty", nil, ""},
+		{"empty hostname returns empty", &NetworkConfig{}, ""},
+		{"returns configured hostname", &NetworkConfig{DashboardHostname: "my.host.com"}, "my.host.com"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{Network: tt.network}
+			if got := cfg.GetDashboardHostname(); got != tt.want {
+				t.Errorf("GetDashboardHostname() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDashboardURL(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		network *NetworkConfig
+		want    string
+	}{
+		{
+			"composes http URL",
+			&NetworkConfig{DashboardHostname: "my.host.com", Port: 7337},
+			"http://my.host.com:7337",
+		},
+		{
+			"composes https URL when TLS enabled",
+			&NetworkConfig{
+				DashboardHostname: "my.host.com",
+				Port:              7337,
+				TLS:               &TLSConfig{CertPath: "/cert.pem", KeyPath: "/key.pem"},
+			},
+			"https://my.host.com:7337",
+		},
+		{
+			"falls back to public_base_url when hostname empty",
+			&NetworkConfig{PublicBaseURL: "https://public.example.com"},
+			"https://public.example.com",
+		},
+		{
+			"returns empty when both hostname and public_base_url empty",
+			&NetworkConfig{},
+			"",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{Network: tt.network}
+			if got := cfg.GetDashboardURL(); got != tt.want {
+				t.Errorf("GetDashboardURL() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

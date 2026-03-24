@@ -133,6 +133,44 @@ func TestIsAllowedOrigin(t *testing.T) {
 			t.Error("localhost with default port should be allowed")
 		}
 	})
+
+	t.Run("dashboard_hostname origin allowed", func(t *testing.T) {
+		cfg := &config.Config{
+			Network: &config.NetworkConfig{
+				Port:              7337,
+				DashboardHostname: "dashboard.example.com",
+			},
+		}
+		s := &Server{config: cfg}
+
+		if !s.isAllowedOrigin("http://dashboard.example.com:7337") {
+			t.Error("dashboard_hostname origin should be allowed")
+		}
+		if s.isAllowedOrigin("http://evil.com:7337") {
+			t.Error("non-dashboard origin should be rejected")
+		}
+	})
+
+	t.Run("dashboard_hostname with TLS uses https origin", func(t *testing.T) {
+		cfg := &config.Config{
+			Network: &config.NetworkConfig{
+				Port:              7337,
+				DashboardHostname: "dashboard.example.com",
+				TLS: &config.TLSConfig{
+					CertPath: "/path/to/cert.pem",
+					KeyPath:  "/path/to/key.pem",
+				},
+			},
+		}
+		s := &Server{config: cfg}
+
+		if !s.isAllowedOrigin("https://dashboard.example.com:7337") {
+			t.Error("dashboard_hostname with TLS should allow https origin")
+		}
+		if s.isAllowedOrigin("http://dashboard.example.com:7337") {
+			t.Error("http origin should be rejected when TLS enabled")
+		}
+	})
 }
 
 func TestGetRotationLock(t *testing.T) {

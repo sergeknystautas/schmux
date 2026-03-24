@@ -149,7 +149,7 @@ type Server struct {
 	models *models.Manager
 
 	// GitHub PR discovery
-	prDiscovery *github.Discovery
+	prDiscovery github.DiscoveryProvider
 
 	// GitHub CLI auth status
 	githubStatus contracts.GitHubStatus
@@ -259,7 +259,7 @@ type defaultBranchEntry struct {
 const defaultBranchCacheTTL = 5 * time.Minute
 
 // NewServer creates a new dashboard server.
-func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, prd *github.Discovery, logger *log.Logger, ghStatus contracts.GitHubStatus, opts ServerOptions) *Server {
+func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, prd github.DiscoveryProvider, logger *log.Logger, ghStatus contracts.GitHubStatus, opts ServerOptions) *Server {
 	// Set package-level logger for standalone helper functions
 	pkgLogger = logger
 
@@ -572,6 +572,7 @@ func (s *Server) Start() error {
 		r.Get("/branches", s.handleGetBranches)
 
 		r.Get("/github/status", s.handleGetGitHubStatus)
+		r.Get("/features", s.handleGetFeatures)
 
 		// Dashboard.sx callbacks (no additional CSRF — hit by browser redirect before HTTPS is configured)
 		r.HandleFunc("/dashboardsx/callback", s.handleDashboardSXCallback)
@@ -964,6 +965,13 @@ func (s *Server) isAllowedOrigin(origin string) bool {
 					return true
 				}
 			}
+		}
+	}
+
+	// Allow configured dashboard_hostname
+	if dashURL := s.config.GetDashboardURL(); dashURL != "" {
+		if configuredOrigin, err := normalizeOrigin(dashURL); err == nil && origin == configuredOrigin {
+			return true
 		}
 	}
 

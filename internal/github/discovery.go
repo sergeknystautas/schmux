@@ -1,3 +1,5 @@
+//go:build !nogithub
+
 package github
 
 import (
@@ -222,3 +224,6 @@ func (d *Discovery) poll() {
 		}
 	}
 }
+
+// IsAvailable reports whether the GitHub module is included in this build.
+func IsAvailable() bool { return true }

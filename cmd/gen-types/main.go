@@ -42,6 +42,7 @@ func main() {
 		reflect.TypeOf(contracts.SkillProposal{}),
 		reflect.TypeOf(contracts.EmergenceMetadata{}),
 		reflect.TypeOf(contracts.PromptHistoryResponse{}),
+		reflect.TypeOf(contracts.Features{}),
 	}
 
 	typeMap := collectTypes(rootTypes)

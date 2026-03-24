@@ -1,3 +1,5 @@
+//go:build !notunnel
+
 package tunnel
 
 import (
@@ -236,3 +238,6 @@ func parseCloudflaredURL(line string) string {
 	}
 	return matches[1]
 }
+
+// IsAvailable reports whether the tunnel module is included in this build.
+func IsAvailable() bool { return true }
