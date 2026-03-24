@@ -54,6 +54,22 @@ vi.mock('../../contexts/ConfigContext', () => ({
   useConfig: () => mockConfigCtx,
 }));
 
+vi.mock('../../contexts/FeaturesContext', () => ({
+  useFeatures: () => ({
+    features: {
+      tunnel: true,
+      github: true,
+      telemetry: true,
+      update: true,
+      dashboardsx: true,
+      model_registry: true,
+      repofeed: true,
+      subreddit: true,
+    },
+    loading: false,
+  }),
+}));
+
 // Minimal full config response fixture
 const configFixture: ConfigResponse = {
   workspace_path: '/home/user/ws',

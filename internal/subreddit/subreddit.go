@@ -1,3 +1,5 @@
+//go:build !nosubreddit
+
 package subreddit
 
 import (
@@ -29,6 +31,9 @@ var (
 
 	postIDCounter atomic.Uint64
 )
+
+// IsAvailable reports whether the subreddit module is included in this build.
+func IsAvailable() bool { return true }
 
 // IsEnabled returns true if the subreddit feature is enabled.
 func IsEnabled(getter interface{ GetSubredditTarget() string }) bool {

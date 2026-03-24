@@ -1,3 +1,5 @@
+//go:build !notelemetry
+
 // Package telemetry provides anonymous usage tracking via PostHog.
 // Telemetry is enabled by default with opt-out available via config.
 package telemetry
@@ -205,6 +207,9 @@ func (c *Client) sendEvent(evt Event) {
 		c.logFailure("posthog returned error status", "status", resp.StatusCode)
 	}
 }
+
+// IsAvailable reports whether the telemetry module is included in this build.
+func IsAvailable() bool { return true }
 
 // logFailure logs a failure message, rate-limited to once per minute.
 func (c *Client) logFailure(msg string, keyvals ...interface{}) {

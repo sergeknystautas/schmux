@@ -1,3 +1,5 @@
+//go:build !nomodelregistry
+
 package models
 
 import (

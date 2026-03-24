@@ -1,3 +1,5 @@
+//go:build !notelemetry
+
 package telemetry
 
 import (

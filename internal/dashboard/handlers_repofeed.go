@@ -1,3 +1,5 @@
+//go:build !norepofeed
+
 package dashboard
 
 import (

@@ -1,3 +1,5 @@
+//go:build !nodashboardsx
+
 package main
 
 import (

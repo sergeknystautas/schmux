@@ -1,3 +1,5 @@
+//go:build !noupdate
+
 package update
 
 import (

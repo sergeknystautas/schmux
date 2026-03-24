@@ -1,3 +1,5 @@
+//go:build !nomodelregistry
+
 package models
 
 import (
@@ -300,6 +302,9 @@ func deduplicateModels(models []RegistryModel) []RegistryModel {
 	}
 	return out
 }
+
+// IsAvailable reports whether the model registry module is included in this build.
+func IsAvailable() bool { return true }
 
 func isAllDigits(s string) bool {
 	for _, c := range s {

@@ -686,7 +686,7 @@ export default function HomePage() {
           {sidebarContent}
 
           {/* Repofeed Summary */}
-          {repofeedList && repofeedList.repos.length > 0 && (
+          {features.repofeed && repofeedList && repofeedList.repos.length > 0 && (
             <div className={styles.sectionCard}>
               <div className={styles.sectionHeader}>
                 <h2 className={styles.sectionTitle}>
@@ -716,7 +716,7 @@ export default function HomePage() {
           )}
 
           {/* Subreddit Digest */}
-          {subreddit?.enabled && (
+          {features.subreddit && subreddit?.enabled && (
             <div className={styles.sectionCard}>
               <div className={styles.sectionHeader}>
                 <h2 className={styles.sectionTitle}>
@@ -1012,7 +1012,7 @@ export default function HomePage() {
         )}
 
         {/* Subreddit Digest Section */}
-        {subreddit?.enabled && (
+        {features.subreddit && subreddit?.enabled && (
           <div className={styles.sectionCard}>
             <div className={styles.sectionHeader}>
               <h2 className={styles.sectionTitle}>

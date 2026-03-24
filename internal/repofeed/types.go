@@ -1,3 +1,5 @@
+//go:build !norepofeed
+
 package repofeed
 
 // ActivityStatus represents the state of a developer's activity.
@@ -57,3 +59,6 @@ func RepoSlug(name string) string {
 	}
 	return string(result)
 }
+
+// IsAvailable reports whether the repofeed module is included in this build.
+func IsAvailable() bool { return true }

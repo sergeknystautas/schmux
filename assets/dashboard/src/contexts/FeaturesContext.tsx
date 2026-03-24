@@ -10,6 +10,12 @@ type FeaturesContextValue = {
 const DEFAULT_FEATURES: Features = {
   tunnel: true,
   github: true,
+  telemetry: true,
+  update: true,
+  dashboardsx: true,
+  model_registry: true,
+  repofeed: true,
+  subreddit: true,
 };
 
 const FeaturesContext = createContext<FeaturesContextValue | null>(null);

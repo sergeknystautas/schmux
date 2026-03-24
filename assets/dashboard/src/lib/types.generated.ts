@@ -138,6 +138,12 @@ export interface ExternalDiffCommand {
 export interface Features {
   tunnel: boolean;
   github: boolean;
+  telemetry: boolean;
+  update: boolean;
+  dashboardsx: boolean;
+  model_registry: boolean;
+  repofeed: boolean;
+  subreddit: boolean;
 }
 
 export interface FileDiff {

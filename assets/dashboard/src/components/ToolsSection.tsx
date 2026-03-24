@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useConfig } from '../contexts/ConfigContext';
 import { useCuration } from '../contexts/CurationContext';
 import { useOverlay } from '../contexts/OverlayContext';
+import { useFeatures } from '../contexts/FeaturesContext';
 import { getLoreProposals } from '../lib/api';
 import { getAllSpawnEntries } from '../lib/emergence-api';
 import Tooltip from './Tooltip';
@@ -31,6 +32,7 @@ export default function ToolsSection({
   const { config, isNotConfigured } = useConfig();
   const { proposalVersion } = useCuration();
   const { overlayUnreadCount, markOverlaysRead } = useOverlay();
+  const { features } = useFeatures();
 
   // Persist collapsed state
   useEffect(() => {
@@ -121,7 +123,7 @@ export default function ToolsSection({
     {
       to: '/repofeed',
       label: 'Repofeed',
-      hidden: !config?.repos?.length,
+      hidden: !features.repofeed || !config?.repos?.length,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M4 11a9 9 0 0 1 9 9"></path>

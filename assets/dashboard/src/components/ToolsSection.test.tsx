@@ -29,6 +29,22 @@ vi.mock('../contexts/OverlayContext', () => ({
   }),
 }));
 
+vi.mock('../contexts/FeaturesContext', () => ({
+  useFeatures: () => ({
+    features: {
+      tunnel: true,
+      github: true,
+      telemetry: true,
+      update: true,
+      dashboardsx: true,
+      model_registry: true,
+      repofeed: true,
+      subreddit: true,
+    },
+    loading: false,
+  }),
+}));
+
 // Mock the API
 vi.mock('../lib/api', () => ({
   getLoreProposals: vi.fn().mockResolvedValue({

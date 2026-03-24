@@ -66,11 +66,17 @@ Response:
 ```json
 {
   "tunnel": true,
-  "github": true
+  "github": true,
+  "telemetry": true,
+  "update": true,
+  "dashboardsx": true,
+  "model_registry": true,
+  "repofeed": true,
+  "subreddit": true
 }
 ```
 
-When a module is excluded via build tags (`-tags notunnel,nogithub`), its field is `false`.
+When a module is excluded via build tags (e.g. `-tags notunnel,nogithub,notelemetry,noupdate,nodashboardsx,nomodelregistry,norepofeed,nosubreddit`), its field is `false`.
 
 ### GET /api/healthz
 

@@ -1,3 +1,5 @@
+//go:build !nodashboardsx
+
 package dashboard
 
 import (

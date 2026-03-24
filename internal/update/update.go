@@ -1,3 +1,5 @@
+//go:build !noupdate
+
 // Package update provides self-update functionality for schmux.
 package update
 
@@ -394,6 +396,9 @@ func downloadAndInstallAssets(ver string, checksums map[string]string) error {
 	}
 	return nil
 }
+
+// IsAvailable reports whether the update module is included in this build.
+func IsAvailable() bool { return true }
 
 // copyFile copies a file from src to dst.
 func copyFile(src, dst string) error {

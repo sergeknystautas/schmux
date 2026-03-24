@@ -1,3 +1,5 @@
+//go:build !nodashboardsx
+
 package dashboardsx
 
 import (
@@ -57,3 +59,6 @@ func GetStatus(cfg ConfigReader) (*Status, error) {
 
 	return s, nil
 }
+
+// IsAvailable reports whether the dashboardsx module is included in this build.
+func IsAvailable() bool { return true }

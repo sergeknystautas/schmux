@@ -1,3 +1,5 @@
+//go:build !nosubreddit
+
 package subreddit
 
 import (

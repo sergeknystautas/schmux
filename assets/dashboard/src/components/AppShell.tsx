@@ -294,7 +294,7 @@ export default function AppShell() {
     ? workspaces?.find((ws) => ws.id === currentWorkspaceId)
     : null;
 
-  const showUpdateBadge = versionInfo?.update_available;
+  const showUpdateBadge = features.update && versionInfo?.update_available;
   const nudgenikEnabled = Boolean(config?.nudgenik?.target);
 
   const handleWorkspaceClick = (workspaceId: string) => {

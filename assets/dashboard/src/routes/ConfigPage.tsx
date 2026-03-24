@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useFeatures } from '../contexts/FeaturesContext';
 import {
   getConfig,
   updateConfig,
@@ -68,6 +69,13 @@ export default function ConfigPage() {
   const { isNotConfigured, isFirstRun, completeFirstRun, reloadConfig } = useConfig();
   const { show, confirm, prompt, alert } = useModal();
   const { success, error: toastError } = useToast();
+  const { features } = useFeatures();
+
+  const isTabHidden = (slug: string) => {
+    if (slug === 'subreddit' && !features.subreddit) return true;
+    if (slug === 'repofeed' && !features.repofeed) return true;
+    return false;
+  };
 
   const initialStep = searchParams.get('tab') ? slugToStep(searchParams.get('tab')) : 1;
   const {
@@ -1178,6 +1186,7 @@ export default function ConfigPage() {
             {Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1).map((stepNum) => {
               const isCurrent = stepNum === state.currentStep;
               const stepLabel = TABS[stepNum - 1];
+              if (isTabHidden(TAB_SLUGS[stepNum - 1])) return null;
 
               return (
                 <div
@@ -1236,6 +1245,7 @@ export default function ConfigPage() {
             const isCompleted = isFirstRun && stepNum < state.currentStep;
             const isCurrent = stepNum === state.currentStep;
             const stepLabel = TABS[stepNum - 1];
+            if (isTabHidden(TAB_SLUGS[stepNum - 1])) return null;
 
             return (
               <div
@@ -1374,7 +1384,7 @@ export default function ConfigPage() {
             />
           )}
 
-          {currentTab === 7 && (
+          {features.subreddit && currentTab === 7 && (
             <SubredditTab
               subredditTarget={state.subredditTarget}
               subredditInterval={state.subredditInterval}
@@ -1388,7 +1398,7 @@ export default function ConfigPage() {
             />
           )}
 
-          {currentTab === 8 && (
+          {features.repofeed && currentTab === 8 && (
             <RepofeedTab
               repofeedEnabled={state.repofeedEnabled}
               repofeedPublishInterval={state.repofeedPublishInterval}

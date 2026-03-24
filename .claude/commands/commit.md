@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git add:*), Bash(git commit:*), Bash(./test.sh*), Bash(go vet:*)
+allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git add:*), Bash(git commit:*), Bash(./test.sh*), Bash(go vet:*), Bash(go build:*)
 description: Create a git commit with definition-of-done enforcement
 ---
 
@@ -89,7 +89,57 @@ Continue to Step 4.
 
 ---
 
-### Step 4: Self-Assessment Checklist
+### Step 4: Module Exclusion Build Check (conditional)
+
+**Skip this step if no Go files are staged.**
+
+Several packages can be excluded from the binary via build tags. If you modify files in an excludable module, the disabled build must still compile. Check the staged file list against this mapping:
+
+| Staged path prefix                        | Tag to verify     |
+| ----------------------------------------- | ----------------- |
+| `internal/telemetry/`                     | `notelemetry`     |
+| `internal/update/`                        | `noupdate`        |
+| `internal/models/registry`                | `nomodelregistry` |
+| `internal/dashboardsx/`                   | `nodashboardsx`   |
+| `internal/dashboard/handlers_dashboardsx` | `nodashboardsx`   |
+| `cmd/schmux/dashboardsx`                  | `nodashboardsx`   |
+| `internal/repofeed/`                      | `norepofeed`      |
+| `internal/dashboard/handlers_repofeed`    | `norepofeed`      |
+| `cmd/schmux/repofeed`                     | `norepofeed`      |
+| `internal/subreddit/`                     | `nosubreddit`     |
+| `internal/dashboard/handlers_subreddit`   | `nosubreddit`     |
+| `internal/tunnel/`                        | `notunnel`        |
+| `internal/github/`                        | `nogithub`        |
+
+**Broad-impact files** — if ANY of these are staged, verify ALL exclusion tags:
+
+- `internal/daemon/daemon.go`
+- `internal/dashboard/server.go`
+- `internal/dashboard/handlers_features.go`
+- `internal/api/contracts/features.go`
+
+For each affected tag, run: `go build -tags <tag> ./cmd/schmux`
+
+If verifying all tags (broad-impact file touched), run:
+
+```
+go build -tags notelemetry ./cmd/schmux
+go build -tags noupdate ./cmd/schmux
+go build -tags nomodelregistry ./cmd/schmux
+go build -tags nodashboardsx ./cmd/schmux
+go build -tags norepofeed ./cmd/schmux
+go build -tags nosubreddit ./cmd/schmux
+go build -tags notunnel ./cmd/schmux
+go build -tags nogithub ./cmd/schmux
+```
+
+**If any exclusion build fails:** STOP. Update the corresponding `_disabled.go` stub to match your changes, then re-invoke `/commit` from the beginning.
+
+**If all exclusion builds pass (or no excludable modules are staged):** Continue to Step 5.
+
+---
+
+### Step 5: Self-Assessment Checklist
 
 Answer each item with YES or NO based on the actual state of your changes. A rationalized YES is a NO.
 
@@ -107,11 +157,11 @@ Answer each item with YES or NO based on the actual state of your changes. A rat
 
 **If any item is NO:** STOP. Fix the gap, then re-invoke `/commit` from the beginning.
 
-**If all items are YES:** Continue to Step 5.
+**If all items are YES:** Continue to Step 6.
 
 ---
 
-### Step 5: Create the Commit
+### Step 6: Create the Commit
 
 All checks passed. Stage all relevant files and create a single commit.
 
