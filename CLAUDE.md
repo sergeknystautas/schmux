@@ -120,6 +120,12 @@ For faster iteration during development:
 - Run unit tests only: `./test.sh --quick` (or `go test ./...`)
 - Skip E2E/scenario tests and let CI handle them on PRs
 
+## ⚠️ `./test.sh --quick` Is NOT a Substitute for `./test.sh`
+
+**`--quick` skips typecheck and other critical validation.** Code that passes `--quick` can still be broken. Do not use `--quick` to declare work complete or to satisfy the definition of done.
+
+The pre-commit requirement says `./test.sh`. That means `./test.sh` — not `./test.sh --quick`, not `go test ./...`, not vitest. Run exactly what you are told to run. If `./test.sh` is specified, run `./test.sh`. Do not substitute a faster alternative and assume it's equivalent. It isn't, and skipping checks is how broken code gets committed.
+
 ## Code Architecture
 
 ```
