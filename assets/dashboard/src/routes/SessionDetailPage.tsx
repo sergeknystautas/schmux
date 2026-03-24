@@ -253,14 +253,9 @@ export default function SessionDetailPage() {
   }) => {
     success(`Diagnostic captured: ${result.verdict} (${result.diagDir})`);
 
-    // Determine target for diagnostic agent
-    const diagTarget = config.desync?.target || '';
-    let target = diagTarget;
-    if (!target) {
-      // Fall back to first enabled model
-      const firstModel = config.models?.find((m) => config.enabled_models?.[m.id]);
-      target = firstModel?.id || '';
-    }
+    // Determine target for diagnostic agent.
+    // Empty string means the user explicitly chose "None (capture only)".
+    const target = config.desync?.target || '';
 
     // Find the workspace for this session
     const ws = workspaces?.find((w) => w.id === sessionData?.workspace_id);
@@ -311,12 +306,8 @@ export default function SessionDetailPage() {
   }) => {
     success(`IO workspace capture: ${result.verdict} (${result.diagDir})`);
 
-    const diagTarget = config.io_workspace_telemetry?.target || '';
-    let target = diagTarget;
-    if (!target) {
-      const firstModel = config.models?.find((m) => config.enabled_models?.[m.id]);
-      target = firstModel?.id || '';
-    }
+    // Empty string means the user explicitly chose "None (capture only)".
+    const target = config.io_workspace_telemetry?.target || '';
 
     const ws = workspaces?.find((w) => w.id === sessionData?.workspace_id);
     if (!target || !ws) {
