@@ -123,7 +123,7 @@ test.describe.serial('Terminal sync: round-trip', () => {
     await page.evaluate(() => {
       const terminal = (window as any).__schmuxTerminal;
       if (!terminal) throw new Error('__schmuxTerminal not found');
-      terminal.write('\x1b[H\x1b[2JCORRUPTED_BUFFER_CONTENT_12345');
+      terminal.write('\x1b[H\x1b[JCORRUPTED_BUFFER_CONTENT_12345');
     });
 
     // Wait for xterm.js to process the write

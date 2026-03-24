@@ -68,7 +68,7 @@ test.describe.serial('Scrollback survives sync correction', () => {
     await page.evaluate(() => {
       const terminal = (window as any).__schmuxTerminal;
       if (!terminal) throw new Error('__schmuxTerminal not found');
-      terminal.write('\x1b[H\x1b[2JCORRUPTED_SYNC_SCROLLBACK_TEST');
+      terminal.write('\x1b[H\x1b[JCORRUPTED_SYNC_SCROLLBACK_TEST');
     });
     await new Promise((r) => setTimeout(r, 200));
 

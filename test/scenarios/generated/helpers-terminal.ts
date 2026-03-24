@@ -229,14 +229,21 @@ export async function openTerminal(page: Page, sessionId: string, tmuxName: stri
     await new Promise((r) => setTimeout(r, 100));
   }
 
-  // Clear both scrollback and visible screen to sync state:
-  // - \033[3J clears xterm.js scrollback (tmux ignores it for its own buffer)
-  // - \033[H\033[2J moves cursor home and clears visible screen in both
-  // After this, the shell re-displays its prompt via live stream, ensuring
-  // cursor position parity between tmux and xterm.js.
-  sendTmuxCommand(tmuxName, "printf '\\033[3J\\033[H\\033[2J'");
+  // Clear xterm.js state directly — the sanitize filter strips \033[2J and
+  // \033[3J from the WebSocket stream, so escape-sequence-based clearing no
+  // longer reaches xterm.js. Reset it programmatically instead.
+  await page.evaluate(() => {
+    const terminal = (window as any).__schmuxTerminal;
+    if (terminal) terminal.reset();
+  });
+  await new Promise((r) => setTimeout(r, 300));
+
+  // Clear tmux visible screen using ED0 (\033[J from cursor-home), which the
+  // sanitize filter allows through. The shell re-displays its prompt via the
+  // live stream, and the freshly-reset xterm.js receives it cleanly.
+  sendTmuxCommand(tmuxName, "printf '\\033[H\\033[J'");
   await new Promise((r) => setTimeout(r, 500));
-  // Clear tmux's scrollback history separately (tmux ignores \033[3J])
+  // Clear tmux's scrollback history (xterm.js scrollback was cleared by reset)
   clearTmuxHistory(tmuxName);
   await new Promise((r) => setTimeout(r, 200));
 }

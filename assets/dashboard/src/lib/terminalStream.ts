@@ -13,6 +13,29 @@ import { compareScreens } from './syncCompare';
 import { buildSurgicalCorrection, buildCursorCorrection } from './surgicalCorrection';
 
 /**
+ * Strip escape sequences that destroy scrollback or reset terminal state.
+ * TUI applications (Claude Code) send these during full redraws, but in the
+ * web dashboard they destroy bootstrap scrollback that users need for history.
+ *
+ * Stripped sequences:
+ * - \x1b[2J  ED mode 2 (clear screen) — causes xterm.js buffer restructuring
+ * - \x1b[3J  ED mode 3 (clear scrollback) — directly destroys scrollback
+ * - \x1bc    RIS (Reset to Initial State) — full terminal reset
+ *
+ * Preserved sequences:
+ * - \x1b[0J, \x1b[1J  (clear below/above cursor — safe)
+ * - \x1b[?1;2c etc.   (DA responses — 'c' is CSI final byte, not ESC+c)
+ */
+export function sanitizeScrollbackSequences(data: string): string {
+  // Fast path: skip regex if no ESC character present
+  if (!data.includes('\x1b')) return data;
+  return data
+    .replace(/\x1b\[2J/g, '')
+    .replace(/\x1b\[3J/g, '')
+    .replace(/\x1bc/g, '');
+}
+
+/**
  * Send a clipboard image to the server, which writes it to the system
  * clipboard and triggers Ctrl+V in the tmux session.
  */
@@ -78,6 +101,7 @@ export default class TerminalStream {
   private disposed = false;
   private wasDisplaced = false;
   private bootstrapped = false;
+  private lastKnownBufferLength = 0;
   private bootstrapComplete = false;
   private utf8Decoder = new TextDecoder();
   private lastBinaryTime = 0;
@@ -249,6 +273,22 @@ export default class TerminalStream {
     this.terminal.loadAddon(new WebLinksAddon());
     this.terminal.loadAddon(new Unicode11Addon());
     this.terminal.unicode.activeVersion = '11';
+
+    // Detect buffer collapse after write parsing — catches resets that bypass
+    // our sanitize filter (e.g. xterm.js internal RIS handling).
+    this.terminal.onWriteParsed(() => {
+      const buf = this.terminal?.buffer.active;
+      if (!buf) return;
+      const rows = this.terminal?.rows ?? 0;
+      if (this.lastKnownBufferLength > rows + 20 && buf.length <= rows) {
+        this.tsLog('buffer.collapsed', {
+          from: this.lastKnownBufferLength,
+          to: buf.length,
+        });
+      }
+      this.lastKnownBufferLength = buf.length;
+    });
+
     this.tsLog('initTerminal', { cols, rows });
     this.terminal.open(this.containerElement);
 
@@ -333,8 +373,24 @@ export default class TerminalStream {
       }
     });
 
+    let prevBufferLength = 0;
     this.terminal.onRender((range) => {
       if (!this.lifecycleLogging) return;
+      const buf = this.terminal?.buffer.active;
+      const curLen = buf?.length ?? 0;
+      // Detect sudden scrollback drops (> 20 lines lost)
+      if (prevBufferLength > 0 && curLen < prevBufferLength - 20) {
+        this.tsLog('scrollback.drop', {
+          from: prevBufferLength,
+          to: curLen,
+          delta: curLen - prevBufferLength,
+          baseY: buf?.baseY ?? 0,
+          viewportY: buf?.viewportY ?? 0,
+          activeBuffer:
+            this.terminal?.buffer.active === this.terminal?.buffer.normal ? 'normal' : 'alternate',
+        });
+      }
+      prevBufferLength = curLen;
       const rowsRendered = range.end - range.start + 1;
       const totalRows = this.terminal?.rows ?? 0;
       const isFull = rowsRendered >= totalRows && totalRows > 0;
@@ -342,9 +398,9 @@ export default class TerminalStream {
         start: range.start,
         end: range.end,
         rows: totalRows,
-        scrollback: this.terminal?.buffer.active.length ?? 0,
-        baseY: this.terminal?.buffer.active.baseY ?? 0,
-        viewportY: this.terminal?.buffer.active.viewportY ?? 0,
+        scrollback: curLen,
+        baseY: buf?.baseY ?? 0,
+        viewportY: buf?.viewportY ?? 0,
         writing: this.writingToTerminal,
         writeRAF: this.writeRAFPending,
         scrollRAF: this.scrollRAFPending,
@@ -1086,9 +1142,20 @@ export default class TerminalStream {
   // synchronous layout reflow (~4-8ms). Under burst output (N events per frame),
   // this causes N forced reflows, blocking the main thread and delaying keystroke
   // echo processing. Deferring to rAF collapses N reflows into one natural reflow.
+  private sanitizeTerminalData(data: string): string {
+    const result = sanitizeScrollbackSequences(data);
+    if (result.length !== data.length) {
+      this.tsLog('sanitize.stripped', {
+        removed: data.length - result.length,
+        dataLen: data.length,
+      });
+    }
+    return result;
+  }
+
   private writeTerminal(data: string, cb?: () => void) {
     this.writingToTerminal = true;
-    this.terminal!.write(data, () => {
+    this.terminal!.write(this.sanitizeTerminalData(data), () => {
       cb?.();
       if (!this.scrollRAFPending) {
         this.scrollRAFPending = true;
