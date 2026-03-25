@@ -8,6 +8,7 @@ Doc-gate policy:
 
 - Any API-affecting code change must update `docs/api.md`. CI enforces this rule.
 - Internal refactorings that touch API packages without changing the API surface still bump this file to satisfy the doc gate.
+- VCS subprocess execution sets `GIT_TERMINAL_PROMPT=0` and uses process-group kill to prevent credential-prompt hangs and orphaned child processes.
 
 General conventions:
 

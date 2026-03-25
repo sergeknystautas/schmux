@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -15,6 +17,19 @@ var ioTelemetryMu sync.Mutex
 func (m *Manager) runCmd(ctx context.Context, binary string, workspaceID string, trigger RefreshTrigger, dir string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir = dir
+
+	// Start the command in its own process group so we can kill the entire
+	// tree (including children like git-remote-https) on context timeout.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		// Kill the entire process group (negative PID).
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	cmd.WaitDelay = 3 * time.Second
+
+	// Prevent VCS commands from prompting for credentials on a terminal,
+	// which would hang indefinitely in a daemon process.
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 
 	releaseWatcherSuppression := func() {}
 	if m != nil && m.gitWatcher != nil {
