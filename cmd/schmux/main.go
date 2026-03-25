@@ -9,6 +9,10 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/daemon"
+	"github.com/sergeknystautas/schmux/internal/dashboardsx"
+	"github.com/sergeknystautas/schmux/internal/github"
+	"github.com/sergeknystautas/schmux/internal/repofeed"
+	"github.com/sergeknystautas/schmux/internal/tunnel"
 	"github.com/sergeknystautas/schmux/internal/update"
 	"github.com/sergeknystautas/schmux/internal/version"
 	"github.com/sergeknystautas/schmux/pkg/cli"
@@ -271,28 +275,38 @@ func printUsage() {
 	fmt.Println("  events          Show session event history")
 	fmt.Println("  capture         Capture terminal output from a session")
 	fmt.Println("  branches        Show all workspaces with VCS state")
-	fmt.Println("  repofeed        Show developer activity feed across repos")
+	if repofeed.IsAvailable() {
+		fmt.Println("  repofeed        Show developer activity feed across repos")
+	}
 	fmt.Println("  end-shift       Signal floor manager shift rotation complete")
 	fmt.Println()
 	fmt.Println("Workspace Commands:")
 	fmt.Println("  refresh-overlay Refresh overlay files for a workspace")
 	fmt.Println("  inspect         Inspect VCS state of a workspace")
 	fmt.Println()
-	fmt.Println("Remote Commands:")
-	fmt.Println("  remote on       Start remote access tunnel")
-	fmt.Println("  remote off      Stop remote access tunnel")
-	fmt.Println("  remote status   Show remote access tunnel status")
-	fmt.Println()
-	fmt.Println("HTTPS (dashboard.sx):")
-	fmt.Println("  dashboardsx setup       Set up HTTPS via Let's Encrypt")
-	fmt.Println("  dashboardsx status      Show dashboard.sx status")
-	fmt.Println("  dashboardsx disable     Disable HTTPS")
-	fmt.Println("  dashboardsx renew-cert  Renew the TLS certificate")
-	fmt.Println()
+	if tunnel.IsAvailable() {
+		fmt.Println("Remote Commands:")
+		fmt.Println("  remote on       Start remote access tunnel")
+		fmt.Println("  remote off      Stop remote access tunnel")
+		fmt.Println("  remote status   Show remote access tunnel status")
+		fmt.Println()
+	}
+	if dashboardsx.IsAvailable() {
+		fmt.Println("HTTPS (dashboard.sx):")
+		fmt.Println("  dashboardsx setup       Set up HTTPS via Let's Encrypt")
+		fmt.Println("  dashboardsx status      Show dashboard.sx status")
+		fmt.Println("  dashboardsx disable     Disable HTTPS")
+		fmt.Println("  dashboardsx renew-cert  Renew the TLS certificate")
+		fmt.Println()
+	}
 	fmt.Println("Other:")
-	fmt.Println("  auth github  Configure GitHub auth")
+	if github.IsAvailable() {
+		fmt.Println("  auth github  Configure GitHub auth")
+	}
 	fmt.Println("  version     Show version")
-	fmt.Println("  update      Update schmux to the latest version")
+	if update.IsAvailable() {
+		fmt.Println("  update      Update schmux to the latest version")
+	}
 	fmt.Println("  help        Show this help message")
 	fmt.Println()
 	fmt.Println("Examples:")
@@ -301,5 +315,7 @@ func printUsage() {
 	fmt.Println("  schmux list                         # List all sessions")
 	fmt.Println("  schmux attach <session-id>           # Attach to a session")
 	fmt.Println("  schmux refresh-overlay <workspace>   # Refresh overlay files")
-	fmt.Println("  schmux auth github                   # Configure GitHub auth")
+	if github.IsAvailable() {
+		fmt.Println("  schmux auth github                   # Configure GitHub auth")
+	}
 }
