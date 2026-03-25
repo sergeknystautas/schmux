@@ -67,6 +67,9 @@ func main() {
 				os.Exit(1)
 			}
 			fmt.Println("schmux daemon started")
+			if _, url, _, err := daemon.Status(); err == nil && url != "" {
+				fmt.Printf("Dashboard: %s\n", url)
+			}
 		} else { // daemon-run
 			devProxy, background, devMode := parseDaemonRunFlags(os.Args[2:])
 			d := daemon.NewDaemon()
