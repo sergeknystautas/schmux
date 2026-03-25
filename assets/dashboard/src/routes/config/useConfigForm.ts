@@ -30,6 +30,8 @@ export type ConfigSnapshot = {
   gitStatusTimeout: number;
   xtermQueryTimeout: number;
   xtermOperationTimeout: number;
+  xtermStripClearScreen: boolean;
+  xtermUseWebGL: boolean;
   networkAccess: boolean;
   authEnabled: boolean;
   authProvider: string;
@@ -147,6 +149,8 @@ export type ConfigFormState = {
   gitStatusTimeout: number;
   xtermQueryTimeout: number;
   xtermOperationTimeout: number;
+  xtermStripClearScreen: boolean;
+  xtermUseWebGL: boolean;
   networkAccess: boolean;
   authEnabled: boolean;
   authProvider: string;
@@ -313,6 +317,8 @@ export const initialState: ConfigFormState = {
   gitStatusTimeout: 30000,
   xtermQueryTimeout: 5000,
   xtermOperationTimeout: 10000,
+  xtermStripClearScreen: true,
+  xtermUseWebGL: true,
   networkAccess: false,
   authEnabled: false,
   authProvider: 'github',
@@ -608,6 +614,8 @@ export function useConfigForm(initialStep: number = 1) {
         state.gitStatusTimeout !== oc.gitStatusTimeout ||
         state.xtermQueryTimeout !== oc.xtermQueryTimeout ||
         state.xtermOperationTimeout !== oc.xtermOperationTimeout ||
+        state.xtermStripClearScreen !== oc.xtermStripClearScreen ||
+        state.xtermUseWebGL !== oc.xtermUseWebGL ||
         state.networkAccess !== oc.networkAccess ||
         state.authEnabled !== oc.authEnabled ||
         state.authProvider !== oc.authProvider ||
@@ -699,6 +707,8 @@ export function useConfigForm(initialStep: number = 1) {
       gitStatusTimeout: state.gitStatusTimeout,
       xtermQueryTimeout: state.xtermQueryTimeout,
       xtermOperationTimeout: state.xtermOperationTimeout,
+      xtermStripClearScreen: state.xtermStripClearScreen,
+      xtermUseWebGL: state.xtermUseWebGL,
       networkAccess: state.networkAccess,
       authEnabled: state.authEnabled,
       authProvider: state.authProvider,

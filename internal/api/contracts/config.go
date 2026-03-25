@@ -104,8 +104,10 @@ type Sessions struct {
 
 // Xterm represents terminal capture and timeout settings.
 type Xterm struct {
-	QueryTimeoutMs     int `json:"query_timeout_ms"`
-	OperationTimeoutMs int `json:"operation_timeout_ms"`
+	QueryTimeoutMs     int  `json:"query_timeout_ms"`
+	OperationTimeoutMs int  `json:"operation_timeout_ms"`
+	StripClearScreen   bool `json:"strip_clear_screen"`
+	UseWebGL           bool `json:"use_webgl"`
 }
 
 // Network controls server binding and TLS.
@@ -232,8 +234,10 @@ type SessionsUpdate struct {
 
 // XtermUpdate represents partial xterm updates.
 type XtermUpdate struct {
-	QueryTimeoutMs     *int `json:"query_timeout_ms,omitempty"`
-	OperationTimeoutMs *int `json:"operation_timeout_ms,omitempty"`
+	QueryTimeoutMs     *int  `json:"query_timeout_ms,omitempty"`
+	OperationTimeoutMs *int  `json:"operation_timeout_ms,omitempty"`
+	StripClearScreen   *bool `json:"strip_clear_screen,omitempty"`
+	UseWebGL           *bool `json:"use_webgl,omitempty"`
 }
 
 // NetworkUpdate represents partial network updates.

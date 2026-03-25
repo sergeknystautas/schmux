@@ -167,6 +167,8 @@ export default function SessionDetailPage() {
 
     const terminalStream = new TerminalStream(sessionData.id, terminalRef.current, {
       followTail: true,
+      stripClearScreen: config.xterm?.strip_clear_screen !== false,
+      useWebGL: config.xterm?.use_webgl !== false,
       onResume: (showing) => {
         setShowResume(showing);
         setFollowTail(!showing);

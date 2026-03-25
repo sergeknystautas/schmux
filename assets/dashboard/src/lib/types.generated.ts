@@ -557,10 +557,14 @@ export interface UpdateSpawnEntryRequest {
 export interface Xterm {
   query_timeout_ms: number;
   operation_timeout_ms: number;
+  strip_clear_screen: boolean;
+  use_webgl: boolean;
 }
 
 export interface XtermUpdate {
   query_timeout_ms?: number;
   operation_timeout_ms?: number;
+  strip_clear_screen?: boolean;
+  use_webgl?: boolean;
 }
 

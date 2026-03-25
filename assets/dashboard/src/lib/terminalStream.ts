@@ -65,6 +65,10 @@ type TerminalStreamOptions = {
   onStatusChange?: (status: 'connected' | 'disconnected' | 'reconnecting' | 'error') => void;
   onResume?: (showing: boolean) => void;
   onSelectedLinesChange?: (lines: string[]) => void;
+  /** Strip clear-screen sequences (\x1b[2J, \x1b[3J, \x1bc) to preserve scrollback. Default: true */
+  stripClearScreen?: boolean;
+  /** Use WebGL renderer for GPU-accelerated rendering. Default: true */
+  useWebGL?: boolean;
 };
 
 type SelectedLine = {
@@ -152,6 +156,10 @@ export default class TerminalStream {
   // Clipboard image paste interception
   private imagePasteHandler: ((e: Event) => void) | null = null;
 
+  // Configurable behaviors
+  private stripClearScreen: boolean;
+  private useWebGL: boolean;
+
   // Terminal recreation count — set by SessionDetailPage, read during diagnostic capture
   recreationCount = 0;
 
@@ -201,6 +209,8 @@ export default class TerminalStream {
     this.onStatusChange = options.onStatusChange || (() => {});
     this.onResume = options.onResume || (() => {});
     this.onSelectedLinesChange = options.onSelectedLinesChange || (() => {});
+    this.stripClearScreen = options.stripClearScreen !== false;
+    this.useWebGL = options.useWebGL !== false;
 
     this.terminal = null;
     this.tmuxCols = null;
@@ -301,14 +311,16 @@ export default class TerminalStream {
     // WebGL renderer: double-buffered GPU rendering eliminates canvas tearing
     // that causes visible flicker during burst output. Falls back to the
     // default canvas renderer if WebGL is unavailable.
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => {
-        webgl.dispose();
-      });
-      this.terminal.loadAddon(webgl);
-    } catch {
-      // WebGL not available — canvas renderer will be used
+    if (this.useWebGL) {
+      try {
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => {
+          webgl.dispose();
+        });
+        this.terminal.loadAddon(webgl);
+      } catch {
+        // WebGL not available — canvas renderer will be used
+      }
     }
     // xterm.js doesn't reliably emit Alt/Option+Enter through onData on macOS,
     // but Codex uses Meta/Alt+Enter for inserting a blank line. Map it
@@ -1177,6 +1189,7 @@ export default class TerminalStream {
   // this causes N forced reflows, blocking the main thread and delaying keystroke
   // echo processing. Deferring to rAF collapses N reflows into one natural reflow.
   private sanitizeTerminalData(data: string): string {
+    if (!this.stripClearScreen) return data;
     const result = sanitizeScrollbackSequences(data);
     if (result.length !== data.length) {
       this.tsLog('sanitize.stripped', {

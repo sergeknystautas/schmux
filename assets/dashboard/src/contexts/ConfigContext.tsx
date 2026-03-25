@@ -37,6 +37,8 @@ const DEFAULT_CONFIG: ConfigResponse = {
   xterm: {
     query_timeout_ms: 5000,
     operation_timeout_ms: 10000,
+    strip_clear_screen: true,
+    use_webgl: true,
   },
   network: {
     bind_address: '127.0.0.1',

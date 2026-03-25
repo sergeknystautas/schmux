@@ -384,8 +384,10 @@ type SessionsConfig struct {
 
 // XtermConfig represents terminal capture and timeout settings.
 type XtermConfig struct {
-	QueryTimeoutMs     int `json:"query_timeout_ms"`
-	OperationTimeoutMs int `json:"operation_timeout_ms"`
+	QueryTimeoutMs     int   `json:"query_timeout_ms"`
+	OperationTimeoutMs int   `json:"operation_timeout_ms"`
+	StripClearScreen   *bool `json:"strip_clear_screen,omitempty"`
+	UseWebGL           *bool `json:"use_webgl,omitempty"`
 }
 
 // DashboardSXConfig holds dashboard.sx HTTPS provisioning configuration.
@@ -1925,6 +1927,26 @@ func (c *Config) GetXtermOperationTimeoutMs() int {
 		return DefaultXtermOperationTimeoutMs
 	}
 	return c.Xterm.OperationTimeoutMs
+}
+
+// GetXtermStripClearScreen returns whether clear-screen sequences should be stripped. Defaults to true.
+func (c *Config) GetXtermStripClearScreen() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Xterm == nil || c.Xterm.StripClearScreen == nil {
+		return true
+	}
+	return *c.Xterm.StripClearScreen
+}
+
+// GetXtermUseWebGL returns whether the WebGL renderer should be used. Defaults to true.
+func (c *Config) GetXtermUseWebGL() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Xterm == nil || c.Xterm.UseWebGL == nil {
+		return true
+	}
+	return *c.Xterm.UseWebGL
 }
 
 // GitCloneTimeout returns the git clone timeout as a time.Duration.

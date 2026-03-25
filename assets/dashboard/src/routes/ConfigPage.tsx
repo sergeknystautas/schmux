@@ -157,6 +157,8 @@ export default function ConfigPage() {
             gitStatusTimeout: data.sessions?.git_status_timeout_ms || 30000,
             xtermQueryTimeout: data.xterm?.query_timeout_ms || 5000,
             xtermOperationTimeout: data.xterm?.operation_timeout_ms || 10000,
+            xtermStripClearScreen: data.xterm?.strip_clear_screen !== false,
+            xtermUseWebGL: data.xterm?.use_webgl !== false,
             networkAccess: netAccess,
             authEnabled: data.access_control?.enabled || false,
             authProvider: data.access_control?.provider || 'github',
@@ -234,6 +236,8 @@ export default function ConfigPage() {
             gitStatusTimeout: data.sessions?.git_status_timeout_ms || 30000,
             xtermQueryTimeout: data.xterm?.query_timeout_ms || 5000,
             xtermOperationTimeout: data.xterm?.operation_timeout_ms || 10000,
+            xtermStripClearScreen: data.xterm?.strip_clear_screen !== false,
+            xtermUseWebGL: data.xterm?.use_webgl !== false,
             networkAccess: netAccess,
             authEnabled: data.access_control?.enabled || false,
             authProvider: data.access_control?.provider || 'github',
@@ -592,6 +596,8 @@ export default function ConfigPage() {
         xterm: {
           query_timeout_ms: state.xtermQueryTimeout,
           operation_timeout_ms: state.xtermOperationTimeout,
+          strip_clear_screen: state.xtermStripClearScreen,
+          use_webgl: state.xtermUseWebGL,
         },
         network: {
           bind_address: state.networkAccess ? '0.0.0.0' : '127.0.0.1',
@@ -1434,6 +1440,8 @@ export default function ConfigPage() {
               gitStatusTimeout={state.gitStatusTimeout}
               xtermQueryTimeout={state.xtermQueryTimeout}
               xtermOperationTimeout={state.xtermOperationTimeout}
+              xtermStripClearScreen={state.xtermStripClearScreen}
+              xtermUseWebGL={state.xtermUseWebGL}
               nudgenikTargetMissing={nudgenikTargetMissing}
               branchSuggestTargetMissing={branchSuggestTargetMissing}
               conflictResolveTargetMissing={conflictResolveTargetMissing}

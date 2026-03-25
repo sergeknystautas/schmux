@@ -42,7 +42,12 @@ const configFixture: ConfigResponse = {
     git_clone_timeout_ms: 300000,
     git_status_timeout_ms: 30000,
   },
-  xterm: { query_timeout_ms: 5000, operation_timeout_ms: 10000 },
+  xterm: {
+    query_timeout_ms: 5000,
+    operation_timeout_ms: 10000,
+    strip_clear_screen: true,
+    use_webgl: true,
+  },
   network: {
     bind_address: '127.0.0.1',
     port: 7337,

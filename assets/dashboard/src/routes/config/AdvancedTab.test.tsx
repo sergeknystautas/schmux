@@ -41,6 +41,8 @@ const defaultProps = {
   gitStatusTimeout: 30000,
   xtermQueryTimeout: 5000,
   xtermOperationTimeout: 10000,
+  xtermStripClearScreen: true,
+  xtermUseWebGL: true,
   nudgenikTargetMissing: false,
   branchSuggestTargetMissing: false,
   conflictResolveTargetMissing: false,
