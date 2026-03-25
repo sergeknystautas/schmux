@@ -268,7 +268,7 @@ export default function SessionDetailPage() {
     }
 
     // Build diagnostic prompt
-    const prompt = `Investigate the terminal desync diagnostic capture at ${result.diagDir}. Read the meta.json, screen-tmux.txt, screen-xterm.txt, screen-diff.txt, ringbuffer-backend.txt, and ringbuffer-frontend.txt to understand the visual discrepancies. Then analyze the relevant source code to understand why these discrepancies exist and identify root causes. Propose concrete fixes if warranted.`;
+    const prompt = `Read .claude/skills/terminal-desync-investigation/SKILL.md and follow it to investigate the diagnostic capture at ${result.diagDir}. Identify root causes and propose fixes.`;
 
     try {
       const response = await spawnSessions({
