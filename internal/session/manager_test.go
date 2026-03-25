@@ -1042,3 +1042,388 @@ func TestMarkSessionDisposingNotFound(t *testing.T) {
 		t.Error("expected error for nonexistent session")
 	}
 }
+
+func TestResolveTarget(t *testing.T) {
+	t.Run("user run target", func(t *testing.T) {
+		cfg := &config.Config{
+			WorkspacePath: "/tmp/workspaces",
+			RunTargets: []config.RunTarget{
+				{Name: "lint", Command: "golangci-lint run"},
+			},
+		}
+		st := state.New("", nil)
+		statePath := filepath.Join(t.TempDir(), "state.json")
+		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+		m := New(cfg, st, statePath, wm, nil)
+
+		resolved, err := m.ResolveTarget(context.Background(), "lint")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resolved.Kind != TargetKindUser {
+			t.Errorf("expected TargetKindUser, got %v", resolved.Kind)
+		}
+		if resolved.Command != "golangci-lint run" {
+			t.Errorf("expected 'golangci-lint run', got %q", resolved.Command)
+		}
+		if resolved.Promptable {
+			t.Error("user run targets should not be promptable")
+		}
+		if resolved.Name != "lint" {
+			t.Errorf("expected name 'lint', got %q", resolved.Name)
+		}
+	})
+
+	t.Run("builtin tool name fallback", func(t *testing.T) {
+		cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+		st := state.New("", nil)
+		statePath := filepath.Join(t.TempDir(), "state.json")
+		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+		m := New(cfg, st, statePath, wm, nil)
+
+		resolved, err := m.ResolveTarget(context.Background(), "claude")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resolved.Kind != TargetKindModel {
+			t.Errorf("expected TargetKindModel, got %v", resolved.Kind)
+		}
+		if resolved.Command != "claude" {
+			t.Errorf("expected command 'claude', got %q", resolved.Command)
+		}
+		if !resolved.Promptable {
+			t.Error("builtin tools should be promptable")
+		}
+		if resolved.ToolName != "claude" {
+			t.Errorf("expected ToolName 'claude', got %q", resolved.ToolName)
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		m, _ := newTestManager(t)
+
+		_, err := m.ResolveTarget(context.Background(), "nonexistent-target-xyz")
+		if err == nil {
+			t.Fatal("expected error for unknown target")
+		}
+		if !strings.Contains(err.Error(), "not found") {
+			t.Errorf("expected error containing 'not found', got: %v", err)
+		}
+	})
+
+	t.Run("user target takes precedence over builtin name", func(t *testing.T) {
+		// If user defines a run target named "claude", it should match
+		// as a user target (not builtin), because config is checked first
+		// after models.
+		cfg := &config.Config{
+			WorkspacePath: "/tmp/workspaces",
+			RunTargets: []config.RunTarget{
+				{Name: "claude", Command: "my-custom-claude-wrapper"},
+			},
+		}
+		st := state.New("", nil)
+		statePath := filepath.Join(t.TempDir(), "state.json")
+		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+		m := New(cfg, st, statePath, wm, nil)
+
+		resolved, err := m.ResolveTarget(context.Background(), "claude")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resolved.Kind != TargetKindUser {
+			t.Errorf("expected TargetKindUser (user target override), got %v", resolved.Kind)
+		}
+		if resolved.Command != "my-custom-claude-wrapper" {
+			t.Errorf("expected custom command, got %q", resolved.Command)
+		}
+	})
+
+	t.Run("all builtin tool names resolve", func(t *testing.T) {
+		m, _ := newTestManager(t)
+		builtins := detect.GetBuiltinToolNames()
+
+		for _, name := range builtins {
+			resolved, err := m.ResolveTarget(context.Background(), name)
+			if err != nil {
+				t.Errorf("builtin %q should resolve, got error: %v", name, err)
+				continue
+			}
+			if !resolved.Promptable {
+				t.Errorf("builtin %q should be promptable", name)
+			}
+		}
+	})
+}
+
+func TestResolveWorkspace(t *testing.T) {
+	t.Run("by workspace ID found", func(t *testing.T) {
+		m, st := newTestManager(t)
+		wsPath := t.TempDir()
+		st.AddWorkspace(state.Workspace{
+			ID:     "ws-resolve-1",
+			Repo:   "https://github.com/test/repo.git",
+			Branch: "main",
+			Path:   wsPath,
+		})
+
+		ws, err := m.resolveWorkspace(context.Background(), SpawnOptions{
+			WorkspaceID: "ws-resolve-1",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if ws.ID != "ws-resolve-1" {
+			t.Errorf("expected workspace ID 'ws-resolve-1', got %q", ws.ID)
+		}
+		if ws.Path != wsPath {
+			t.Errorf("expected path %q, got %q", wsPath, ws.Path)
+		}
+	})
+
+	t.Run("by workspace ID not found", func(t *testing.T) {
+		m, _ := newTestManager(t)
+
+		_, err := m.resolveWorkspace(context.Background(), SpawnOptions{
+			WorkspaceID: "nonexistent-ws",
+		})
+		if err == nil {
+			t.Fatal("expected error for nonexistent workspace")
+		}
+		if !strings.Contains(err.Error(), "workspace not found") {
+			t.Errorf("expected 'workspace not found' error, got: %v", err)
+		}
+	})
+}
+
+func TestDispose_StoppedSession(t *testing.T) {
+	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	statePath := t.TempDir() + "/state.json"
+	st := state.New(statePath, nil)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	m := New(cfg, st, statePath, wm, nil)
+
+	wsPath := t.TempDir()
+	st.AddWorkspace(state.Workspace{ID: "ws-d1", Repo: "https://example.com/r.git", Branch: "main", Path: wsPath})
+	st.AddSession(state.Session{
+		ID:          "sess-d1",
+		WorkspaceID: "ws-d1",
+		Target:      "claude",
+		TmuxSession: "schmux-nonexistent-session-xyz",
+		Status:      "stopped",
+	})
+
+	err := m.Dispose(context.Background(), "sess-d1")
+	if err != nil {
+		t.Fatalf("Dispose() error: %v", err)
+	}
+
+	// Session should be removed from state
+	_, found := st.GetSession("sess-d1")
+	if found {
+		t.Error("session should have been removed from state after dispose")
+	}
+
+	// Workspace should still exist (workspaces persist after session disposal)
+	_, wsFound := st.GetWorkspace("ws-d1")
+	if !wsFound {
+		t.Error("workspace should not be removed when session is disposed")
+	}
+}
+
+func TestDispose_CleansUpTracker(t *testing.T) {
+	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	statePath := t.TempDir() + "/state.json"
+	st := state.New(statePath, nil)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	m := New(cfg, st, statePath, wm, nil)
+
+	st.AddWorkspace(state.Workspace{ID: "ws-d2", Repo: "https://example.com/r.git", Branch: "main", Path: t.TempDir()})
+	st.AddSession(state.Session{
+		ID:          "sess-d2",
+		WorkspaceID: "ws-d2",
+		Target:      "claude",
+		TmuxSession: "schmux-nonexistent-session-d2",
+		Status:      "stopped",
+	})
+
+	// Create a tracker for this session
+	tracker, err := m.GetTracker("sess-d2")
+	if err != nil {
+		t.Fatalf("GetTracker: %v", err)
+	}
+	if tracker == nil {
+		t.Fatal("tracker should not be nil")
+	}
+
+	// Verify tracker exists before dispose
+	m.mu.RLock()
+	_, trackerExists := m.trackers["sess-d2"]
+	m.mu.RUnlock()
+	if !trackerExists {
+		t.Fatal("tracker should exist before dispose")
+	}
+
+	// Dispose should clean up the tracker
+	err = m.Dispose(context.Background(), "sess-d2")
+	if err != nil {
+		t.Fatalf("Dispose() error: %v", err)
+	}
+
+	m.mu.RLock()
+	_, trackerExists = m.trackers["sess-d2"]
+	m.mu.RUnlock()
+	if trackerExists {
+		t.Error("tracker should have been removed after dispose")
+	}
+}
+
+func TestDispose_LastSessionNotifiesCompound(t *testing.T) {
+	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	statePath := t.TempDir() + "/state.json"
+	st := state.New(statePath, nil)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	m := New(cfg, st, statePath, wm, nil)
+
+	st.AddWorkspace(state.Workspace{ID: "ws-d3", Repo: "https://example.com/r.git", Branch: "main", Path: t.TempDir()})
+	st.AddSession(state.Session{
+		ID:          "sess-d3",
+		WorkspaceID: "ws-d3",
+		Target:      "claude",
+		TmuxSession: "schmux-nonexistent-d3",
+		Status:      "stopped",
+	})
+
+	var callbackWorkspaceID string
+	var callbackIsActive bool
+	callbackCalled := false
+	m.SetCompoundCallback(func(wsID string, active bool) {
+		callbackCalled = true
+		callbackWorkspaceID = wsID
+		callbackIsActive = active
+	})
+
+	err := m.Dispose(context.Background(), "sess-d3")
+	if err != nil {
+		t.Fatalf("Dispose() error: %v", err)
+	}
+
+	if !callbackCalled {
+		t.Error("compound callback should have been called for last session in workspace")
+	}
+	if callbackWorkspaceID != "ws-d3" {
+		t.Errorf("expected workspace ID 'ws-d3', got %q", callbackWorkspaceID)
+	}
+	if callbackIsActive {
+		t.Error("expected active=false when last session is disposed")
+	}
+}
+
+func TestDispose_NotLastSessionSkipsCompound(t *testing.T) {
+	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	statePath := t.TempDir() + "/state.json"
+	st := state.New(statePath, nil)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	m := New(cfg, st, statePath, wm, nil)
+
+	st.AddWorkspace(state.Workspace{ID: "ws-d4", Repo: "https://example.com/r.git", Branch: "main", Path: t.TempDir()})
+	// Two sessions in the same workspace
+	st.AddSession(state.Session{
+		ID:          "sess-d4a",
+		WorkspaceID: "ws-d4",
+		Target:      "claude",
+		TmuxSession: "schmux-nonexistent-d4a",
+		Status:      "stopped",
+	})
+	st.AddSession(state.Session{
+		ID:          "sess-d4b",
+		WorkspaceID: "ws-d4",
+		Target:      "codex",
+		TmuxSession: "schmux-nonexistent-d4b",
+		Status:      "running",
+	})
+
+	callbackCalled := false
+	m.SetCompoundCallback(func(wsID string, active bool) {
+		callbackCalled = true
+	})
+
+	// Dispose only the first session — second still exists
+	err := m.Dispose(context.Background(), "sess-d4a")
+	if err != nil {
+		t.Fatalf("Dispose() error: %v", err)
+	}
+
+	if callbackCalled {
+		t.Error("compound callback should NOT be called when other sessions remain in workspace")
+	}
+}
+
+func TestRevertSessionStatus(t *testing.T) {
+	t.Run("restores original status", func(t *testing.T) {
+		cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+		statePath := t.TempDir() + "/state.json"
+		st := state.New(statePath, nil)
+		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+		m := New(cfg, st, statePath, wm, nil)
+
+		st.AddWorkspace(state.Workspace{ID: "ws-r1", Repo: "https://example.com/r.git", Branch: "main", Path: t.TempDir()})
+		st.AddSession(state.Session{ID: "sess-r1", WorkspaceID: "ws-r1", Target: "claude", TmuxSession: "test-r1", Status: "running"})
+
+		// Mark as disposing
+		prevStatus, err := m.MarkSessionDisposing("sess-r1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if prevStatus != "running" {
+			t.Fatalf("expected previous status 'running', got %q", prevStatus)
+		}
+
+		// Revert
+		m.RevertSessionStatus("sess-r1", prevStatus)
+
+		sess, found := st.GetSession("sess-r1")
+		if !found {
+			t.Fatal("session should still exist")
+		}
+		if sess.Status != "running" {
+			t.Errorf("expected status 'running' after revert, got %q", sess.Status)
+		}
+	})
+
+	t.Run("nonexistent session does not panic", func(t *testing.T) {
+		m, _ := newTestManager(t)
+		// Should not panic
+		m.RevertSessionStatus("nonexistent", "running")
+	})
+}
+
+func TestStop_CleansUpAllTrackers(t *testing.T) {
+	m, st := newTestManager(t)
+
+	// Add two sessions and create trackers for them
+	st.AddSession(state.Session{ID: "s-stop1", TmuxSession: "t1"})
+	st.AddSession(state.Session{ID: "s-stop2", TmuxSession: "t2"})
+
+	tracker1, err := m.GetTracker("s-stop1")
+	if err != nil {
+		t.Fatalf("GetTracker s-stop1: %v", err)
+	}
+	tracker2, err := m.GetTracker("s-stop2")
+	if err != nil {
+		t.Fatalf("GetTracker s-stop2: %v", err)
+	}
+	if tracker1 == nil || tracker2 == nil {
+		t.Fatal("trackers should not be nil")
+	}
+
+	// Stop should clean up all trackers
+	m.Stop()
+
+	m.mu.RLock()
+	remaining := len(m.trackers)
+	m.mu.RUnlock()
+
+	if remaining != 0 {
+		t.Errorf("expected 0 trackers after Stop, got %d", remaining)
+	}
+}

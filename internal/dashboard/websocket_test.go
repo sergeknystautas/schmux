@@ -1,12 +1,16 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -1176,4 +1180,85 @@ func TestAsyncInputSender_TimingFlowsToQueue(t *testing.T) {
 	}
 
 	close(inputBatchCh)
+}
+
+// makeWSRequest creates an HTTP request with chi route context for a WebSocket endpoint.
+func makeWSRequest(t *testing.T, path, sessionID string) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", sessionID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	return req
+}
+
+func TestHandleTerminalWebSocket_MissingSessionID(t *testing.T) {
+	server, _, _ := newTestServer(t)
+
+	req := makeWSRequest(t, "/ws/terminal/", "")
+	rr := httptest.NewRecorder()
+	server.handleTerminalWebSocket(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleTerminalWebSocket_SessionNotRunning(t *testing.T) {
+	server, _, st := newTestServer(t)
+
+	// Add a session that is stopped (not running)
+	st.AddSession(state.Session{
+		ID:          "sess-ws-1",
+		TmuxSession: "schmux-nonexistent-ws1",
+		Status:      "stopped",
+	})
+
+	req := makeWSRequest(t, "/ws/terminal/sess-ws-1", "sess-ws-1")
+	rr := httptest.NewRecorder()
+	server.handleTerminalWebSocket(rr, req)
+
+	// Session exists in state but IsRunning returns false → 410 Gone
+	if rr.Code != http.StatusGone {
+		t.Errorf("expected 410 (session not running), got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleTerminalWebSocket_SessionNotFound(t *testing.T) {
+	server, _, _ := newTestServer(t)
+
+	// Session ID doesn't exist in state at all
+	req := makeWSRequest(t, "/ws/terminal/nonexistent-sess", "nonexistent-sess")
+	rr := httptest.NewRecorder()
+	server.handleTerminalWebSocket(rr, req)
+
+	// IsRunning returns false for nonexistent → 410 Gone
+	if rr.Code != http.StatusGone {
+		t.Errorf("expected 410, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestWaitForTrackerAttach_TimesOut(t *testing.T) {
+	// Use the session manager's GetTracker to get a real tracker for a nonexistent
+	// tmux session — it won't be attached, so waitForTrackerAttach should time out.
+	srv, _, st := newTestServer(t)
+	st.AddSession(state.Session{ID: "sess-wait", TmuxSession: "nonexistent-tmux-wait"})
+
+	tracker, err := srv.session.GetTracker("sess-wait")
+	if err != nil {
+		t.Fatalf("GetTracker: %v", err)
+	}
+	defer srv.session.Stop()
+
+	start := time.Now()
+	waitForTrackerAttach(tracker, 50*time.Millisecond)
+	elapsed := time.Since(start)
+
+	// Should exit after ~50ms timeout since tracker can't attach
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("waitForTrackerAttach took too long: %v (expected ~50ms timeout)", elapsed)
+	}
+	if elapsed < 40*time.Millisecond {
+		t.Errorf("waitForTrackerAttach returned too quickly: %v (expected ~50ms)", elapsed)
+	}
 }

@@ -12,6 +12,110 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 )
 
+func TestIsValidResourceID(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		want bool
+	}{
+		{"valid short ID", "ws-abc123", true},
+		{"valid UUID-style", "a1b2c3d4-e5f6-7890-abcd-ef1234567890", true},
+		{"empty string", "", false},
+		{"contains slash", "ws/evil", false},
+		{"contains backslash", "ws\\evil", false},
+		{"contains dot", "ws.evil", false},
+		{"contains null byte", "ws\x00evil", false},
+		{"path traversal", "../etc/passwd", false},
+		{"too long", strings.Repeat("a", 129), false},
+		{"exactly 128 chars", strings.Repeat("a", 128), true},
+		{"simple name", "my-workspace", true},
+		{"with underscores", "my_workspace_123", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isValidResourceID(tt.id)
+			if got != tt.want {
+				t.Errorf("isValidResourceID(%q) = %v, want %v", tt.id, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCheckWSOrigin(t *testing.T) {
+	t.Run("allows localhost when auth not required", func(t *testing.T) {
+		cfg := &config.Config{
+			Network: &config.NetworkConfig{Port: 7337},
+		}
+		s := &Server{config: cfg}
+
+		req := httptest.NewRequest("GET", "/ws/terminal/test", nil)
+		req.Header.Set("Origin", "http://localhost:7337")
+		if !s.checkWSOrigin(req) {
+			t.Error("should allow localhost origin")
+		}
+	})
+
+	t.Run("allows empty origin when auth not required", func(t *testing.T) {
+		cfg := &config.Config{
+			Network: &config.NetworkConfig{Port: 7337},
+		}
+		s := &Server{config: cfg}
+
+		req := httptest.NewRequest("GET", "/ws/terminal/test", nil)
+		// No Origin header
+		if !s.checkWSOrigin(req) {
+			t.Error("should allow empty origin when auth not required (CLI/curl clients)")
+		}
+	})
+
+	t.Run("rejects unknown origin", func(t *testing.T) {
+		cfg := &config.Config{
+			Network: &config.NetworkConfig{Port: 7337},
+		}
+		s := &Server{config: cfg}
+
+		req := httptest.NewRequest("GET", "/ws/terminal/test", nil)
+		req.Header.Set("Origin", "http://evil.com")
+		if s.checkWSOrigin(req) {
+			t.Error("should reject unknown origin")
+		}
+	})
+
+	t.Run("allows configured public_base_url", func(t *testing.T) {
+		cfg := &config.Config{
+			Network: &config.NetworkConfig{
+				Port:          7337,
+				PublicBaseURL: "https://schmux.example.com:7337",
+			},
+			AccessControl: &config.AccessControlConfig{Enabled: true},
+		}
+		s := &Server{config: cfg}
+
+		req := httptest.NewRequest("GET", "/ws/terminal/test", nil)
+		req.Header.Set("Origin", "https://schmux.example.com:7337")
+		if !s.checkWSOrigin(req) {
+			t.Error("should allow configured public_base_url origin")
+		}
+	})
+
+	t.Run("rejects empty origin when auth required", func(t *testing.T) {
+		cfg := &config.Config{
+			Network: &config.NetworkConfig{Port: 7337},
+			AccessControl: &config.AccessControlConfig{
+				Enabled: true,
+			},
+		}
+		s := &Server{config: cfg}
+
+		req := httptest.NewRequest("GET", "/ws/terminal/test", nil)
+		// No Origin header — with auth required, isAllowedOrigin("") returns false
+		if s.checkWSOrigin(req) {
+			t.Error("should reject empty origin when auth required")
+		}
+	})
+}
+
 func TestIsAllowedOrigin(t *testing.T) {
 	t.Run("empty origin returns false", func(t *testing.T) {
 		cfg := &config.Config{}

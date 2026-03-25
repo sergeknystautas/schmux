@@ -112,3 +112,206 @@ func TestHandleUpdateNickname_Guards(t *testing.T) {
 		}
 	})
 }
+
+func TestHandleDispose_NonexistentSession(t *testing.T) {
+	server, _, _ := newTestServer(t)
+
+	req := makeSessionRequest(t, http.MethodDelete, "/api/sessions/nonexistent-id/dispose", "nonexistent-id", nil)
+	rr := httptest.NewRecorder()
+	server.handleDispose(rr, req)
+
+	// MarkSessionDisposing fails silently (warns), then Dispose returns error → 500
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 for nonexistent session, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleDispose_SuccessfulDispose(t *testing.T) {
+	server, _, st := newTestServer(t)
+
+	st.AddWorkspace(state.Workspace{
+		ID:     "ws-disp",
+		Repo:   "https://github.com/test/repo",
+		Branch: "main",
+		Path:   t.TempDir(),
+	})
+	st.AddSession(state.Session{
+		ID:          "sess-disp",
+		WorkspaceID: "ws-disp",
+		Target:      "command",
+		TmuxSession: "schmux-nonexistent-xyz",
+		Status:      "stopped",
+	})
+
+	req := makeSessionRequest(t, http.MethodDelete, "/api/sessions/sess-disp/dispose", "sess-disp", nil)
+	rr := httptest.NewRecorder()
+	server.handleDispose(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if resp["status"] != "ok" {
+		t.Errorf("expected status 'ok', got %q", resp["status"])
+	}
+
+	// Session should be gone from state
+	if _, found := st.GetSession("sess-disp"); found {
+		t.Error("session should have been removed from state")
+	}
+}
+
+func TestHandleDispose_AlreadyDisposing(t *testing.T) {
+	server, _, st := newTestServer(t)
+
+	st.AddWorkspace(state.Workspace{
+		ID:     "ws-adis",
+		Repo:   "https://github.com/test/repo",
+		Branch: "main",
+		Path:   t.TempDir(),
+	})
+	st.AddSession(state.Session{
+		ID:          "sess-adis",
+		WorkspaceID: "ws-adis",
+		Target:      "command",
+		TmuxSession: "schmux-nonexistent-adis",
+		Status:      state.SessionStatusDisposing,
+	})
+
+	req := makeSessionRequest(t, http.MethodDelete, "/api/sessions/sess-adis/dispose", "sess-adis", nil)
+	rr := httptest.NewRecorder()
+	server.handleDispose(rr, req)
+
+	// Idempotent — should return OK without re-disposing
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 (idempotent), got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if resp["status"] != "ok" {
+		t.Errorf("expected status 'ok', got %q", resp["status"])
+	}
+}
+
+func TestHandleDisposeWorkspace_NonexistentWorkspace(t *testing.T) {
+	server, _, _ := newTestServer(t)
+
+	req := makeWorkspaceRequest(t, http.MethodDelete, "/api/workspaces/nonexistent-ws/dispose", "nonexistent-ws", nil)
+	rr := httptest.NewRecorder()
+	server.handleDisposeWorkspace(rr, req)
+
+	// MarkWorkspaceDisposing fails, then Dispose also fails → 400
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for nonexistent workspace, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleDisposeWorkspace_NoGitRepo(t *testing.T) {
+	server, _, st := newTestServer(t)
+
+	// Temp dir without git — Dispose runs git safety checks and fails
+	wsDir := t.TempDir()
+	st.AddWorkspace(state.Workspace{
+		ID:     "ws-nogit",
+		Repo:   "https://github.com/test/repo",
+		Branch: "main",
+		Path:   wsDir,
+	})
+
+	req := makeWorkspaceRequest(t, http.MethodDelete, "/api/workspaces/ws-nogit/dispose", "ws-nogit", nil)
+	rr := httptest.NewRecorder()
+	server.handleDisposeWorkspace(rr, req)
+
+	// Safety check fails → 400
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 (safety check failure), got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Workspace status should be reverted (not stuck in "disposing")
+	ws, found := st.GetWorkspace("ws-nogit")
+	if !found {
+		t.Fatal("workspace should still exist after failed dispose")
+	}
+	if ws.Status == "disposing" {
+		t.Error("workspace status should have been reverted after failed dispose")
+	}
+}
+
+func TestHandleDisposeWorkspaceAll_NonexistentWorkspace(t *testing.T) {
+	server, _, _ := newTestServer(t)
+
+	req := makeWorkspaceRequest(t, http.MethodDelete, "/api/workspaces/nonexistent-ws/dispose-all", "nonexistent-ws", nil)
+	rr := httptest.NewRecorder()
+	server.handleDisposeWorkspaceAll(rr, req)
+
+	// MarkWorkspaceDisposing fails, then DisposeForce also fails → 400
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for nonexistent workspace, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleDisposeWorkspaceAll_WithSessions(t *testing.T) {
+	server, _, st := newTestServer(t)
+
+	wsDir := t.TempDir()
+	st.AddWorkspace(state.Workspace{
+		ID:     "ws-all",
+		Repo:   "https://github.com/test/repo",
+		Branch: "main",
+		Path:   wsDir,
+	})
+	st.AddSession(state.Session{
+		ID:          "sess-all-1",
+		WorkspaceID: "ws-all",
+		Target:      "command",
+		TmuxSession: "schmux-nonexistent-all1",
+		Status:      "stopped",
+	})
+	st.AddSession(state.Session{
+		ID:          "sess-all-2",
+		WorkspaceID: "ws-all",
+		Target:      "command",
+		TmuxSession: "schmux-nonexistent-all2",
+		Status:      "stopped",
+	})
+
+	req := makeWorkspaceRequest(t, http.MethodDelete, "/api/workspaces/ws-all/dispose-all", "ws-all", nil)
+	rr := httptest.NewRecorder()
+	server.handleDisposeWorkspaceAll(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if resp["status"] != "ok" {
+		t.Errorf("expected status 'ok', got %v", resp["status"])
+	}
+	disposed, ok := resp["sessions_disposed"].(float64)
+	if !ok || disposed != 2 {
+		t.Errorf("expected sessions_disposed=2, got %v", resp["sessions_disposed"])
+	}
+
+	// Both sessions should be gone
+	if _, found := st.GetSession("sess-all-1"); found {
+		t.Error("session sess-all-1 should have been removed")
+	}
+	if _, found := st.GetSession("sess-all-2"); found {
+		t.Error("session sess-all-2 should have been removed")
+	}
+
+	// Workspace should be gone
+	if _, found := st.GetWorkspace("ws-all"); found {
+		t.Error("workspace should have been removed")
+	}
+}
