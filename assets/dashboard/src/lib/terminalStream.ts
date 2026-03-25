@@ -124,6 +124,12 @@ export default class TerminalStream {
   private writeRAFPending = false;
   private pendingWriteCb: (() => void) | null = null;
 
+  // Write guard debounce: instead of clearing writingToTerminal in a rAF
+  // (which fires before xterm's setTimeout chunks), we clear it via a short
+  // debounced timer that re-arms on each xterm scroll event. This keeps the
+  // guard up while xterm is still processing chunked writes.
+  private writeGuardTimer: ReturnType<typeof setTimeout> | null = null;
+
   // ResizeObserver cleanup references
   private resizeObserver: ResizeObserver | null = null;
   private windowResizeHandler: (() => void) | null = null;
@@ -359,6 +365,14 @@ export default class TerminalStream {
     // Render instrumentation: detect full-screen redraws for flicker diagnosis.
     // Deferred until lifecycleLogging is enabled (see enableRenderLogging).
     this.terminal.onScroll((_newPosition) => {
+      // Re-arm write guard clear on each internal scroll event.
+      // xterm processes large writes across multiple setTimeout chunks;
+      // each chunk fires scroll events. Re-arming keeps the guard up
+      // until the last chunk finishes.
+      if (this.writingToTerminal) {
+        this.armWriteGuardClear();
+      }
+
       if (!this.lifecycleLogging) return;
       if (!this.writingToTerminal && !this.writeRAFPending && !this.scrollRAFPending) {
         const buf = this.terminal?.buffer.active;
@@ -554,7 +568,7 @@ export default class TerminalStream {
       this.terminal!.scrollToBottom();
     }
     requestAnimationFrame(() => {
-      this.writingToTerminal = false;
+      this.armWriteGuardClear();
     });
 
     // Note: Don't send resize to backend here - WebSocket isn't connected yet
@@ -600,7 +614,7 @@ export default class TerminalStream {
       this.scrollRAFPending = true;
       requestAnimationFrame(() => {
         this.scrollRAFPending = false;
-        this.writingToTerminal = false;
+        this.armWriteGuardClear();
       });
     }
     // If scrollRAFPending is already set, the pending writeTerminal rAF will
@@ -619,6 +633,22 @@ export default class TerminalStream {
         })
       );
     }
+  }
+
+  /**
+   * Schedule clearing writingToTerminal after a short debounce.
+   *
+   * xterm.js splits large writes into multiple setTimeout chunks (each ~12ms).
+   * Our write callback fires after the first chunk, but subsequent chunks
+   * continue to fire scroll events. Re-arming this timer from onScroll keeps
+   * the guard up until xterm's last chunk finishes.
+   */
+  private armWriteGuardClear() {
+    if (this.writeGuardTimer) clearTimeout(this.writeGuardTimer);
+    this.writeGuardTimer = setTimeout(() => {
+      this.writingToTerminal = false;
+      this.writeGuardTimer = null;
+    }, 8);
   }
 
   resizeTerminal() {
@@ -731,6 +761,10 @@ export default class TerminalStream {
       this.scrollViewport.removeEventListener('scroll', this.scrollHandler);
       this.scrollHandler = null;
       this.scrollViewport = null;
+    }
+    if (this.writeGuardTimer) {
+      clearTimeout(this.writeGuardTimer);
+      this.writeGuardTimer = null;
     }
     if (this.imagePasteHandler) {
       document.removeEventListener('paste', this.imagePasteHandler, { capture: true });
@@ -1172,11 +1206,16 @@ export default class TerminalStream {
             });
           }
           this.scrollRAFPending = false;
-          this.writingToTerminal = false;
+          // writingToTerminal is NOT cleared here — xterm may still be
+          // processing data via setTimeout chunks. armWriteGuardClear()
+          // handles clearing after the last chunk finishes.
         });
       } else {
         if (this.diagnostics) this.diagnostics.scrollCoalesceHits++;
       }
+      // Arm debounced guard clear — will be re-armed by onScroll if
+      // xterm is still processing setTimeout chunks.
+      this.armWriteGuardClear();
     });
   }
 
@@ -1203,12 +1242,13 @@ export default class TerminalStream {
 
   handleUserScroll() {
     if (!this.terminal) return;
-    if (this.writingToTerminal || this.scrollRAFPending) {
+    if (this.writingToTerminal || this.scrollRAFPending || this.writeRAFPending) {
       if (this.diagnostics) this.diagnostics.scrollSuppressedCount++;
       if (this.lifecycleLogging) {
         this.tsLog('scroll.suppressed', {
           writing: this.writingToTerminal,
           scrollRAF: this.scrollRAFPending,
+          writeRAF: this.writeRAFPending,
         });
       }
       return;

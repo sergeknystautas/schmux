@@ -1012,11 +1012,16 @@ describe('TerminalStream scroll suppression during resize', () => {
   let stream: TerminalStream;
 
   beforeEach(() => {
+    vi.useFakeTimers();
     const container = document.createElement('div');
     Object.defineProperty(container, 'getBoundingClientRect', {
       value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
     });
     stream = new TerminalStream('test-session', container);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('does not disable followTail when resize triggers scroll events', async () => {
@@ -1104,6 +1109,9 @@ describe('TerminalStream scroll suppression during resize', () => {
     expect((stream as any).scrollRAFPending).toBe(true);
 
     rafCallbacks.forEach((cb) => cb(0));
+    // writingToTerminal is now cleared by armWriteGuardClear (setTimeout),
+    // not directly in the rAF. Advance timers to let it fire.
+    await vi.advanceTimersByTimeAsync(10);
     expect((stream as any).writingToTerminal).toBe(false);
     expect((stream as any).scrollRAFPending).toBe(false);
   });
@@ -1166,10 +1174,136 @@ describe('TerminalStream scroll suppression during resize', () => {
     expect(rafCallbacks).toHaveLength(1); // no new rAF added
     expect((stream as any).writingToTerminal).toBe(true);
 
-    // The scroll rAF fires and clears both flags
+    // The scroll rAF fires and clears scrollRAFPending; armWriteGuardClear
+    // handles writingToTerminal via setTimeout.
     rafCallbacks.forEach((cb) => cb(0));
+    await vi.advanceTimersByTimeAsync(10);
     expect((stream as any).writingToTerminal).toBe(false);
     expect((stream as any).scrollRAFPending).toBe(false);
+  });
+
+  it('writingToTerminal stays true after rAF fires until armWriteGuardClear timeout expires', async () => {
+    // Core fix validation: the rAF no longer clears writingToTerminal.
+    // It stays true until the debounced setTimeout (8ms) fires.
+    await stream.initialized;
+    const terminal = stream.terminal!;
+
+    vi.mocked(terminal.write).mockImplementation((_data: any, cb?: () => void) => {
+      if (cb) cb();
+    });
+
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+
+    (stream as any).scrollRAFPending = false;
+    (stream as any).writingToTerminal = false;
+
+    // Simulate writeTerminal
+    (stream as any).writeTerminal('some data');
+
+    expect((stream as any).writingToTerminal).toBe(true);
+
+    // Fire the rAF — writingToTerminal must still be true
+    rafCallbacks.forEach((cb) => cb(0));
+    expect((stream as any).writingToTerminal).toBe(true);
+    expect((stream as any).scrollRAFPending).toBe(false);
+
+    // Advance 4ms — still within the 8ms guard window
+    await vi.advanceTimersByTimeAsync(4);
+    expect((stream as any).writingToTerminal).toBe(true);
+
+    // Advance past the 8ms guard window
+    await vi.advanceTimersByTimeAsync(5);
+    expect((stream as any).writingToTerminal).toBe(false);
+  });
+
+  it('onScroll re-arms the write guard, keeping it up across simulated setTimeout chunks', async () => {
+    // Simulates xterm's setTimeout chunking: after the rAF clears scrollRAFPending,
+    // xterm fires more scroll events from subsequent setTimeout chunks.
+    // The onScroll re-arming must keep writingToTerminal = true.
+    await stream.initialized;
+    const terminal = stream.terminal!;
+
+    vi.mocked(terminal.write).mockImplementation((_data: any, cb?: () => void) => {
+      if (cb) cb();
+    });
+
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+
+    (stream as any).scrollRAFPending = false;
+    (stream as any).writingToTerminal = false;
+
+    // Write data
+    (stream as any).writeTerminal('chunk data');
+    expect((stream as any).writingToTerminal).toBe(true);
+
+    // Fire the rAF (scrollToBottom)
+    rafCallbacks.forEach((cb) => cb(0));
+    expect((stream as any).writingToTerminal).toBe(true); // still guarded
+
+    // Advance 5ms — simulating xterm's setTimeout chunk firing
+    await vi.advanceTimersByTimeAsync(5);
+    // Simulate xterm firing a scroll event from a setTimeout chunk
+    // (this is what xterm.onScroll handler does — re-arms the timer)
+    (stream as any).armWriteGuardClear();
+    expect((stream as any).writingToTerminal).toBe(true);
+
+    // Advance another 5ms — simulate another chunk
+    await vi.advanceTimersByTimeAsync(5);
+    (stream as any).armWriteGuardClear();
+    expect((stream as any).writingToTerminal).toBe(true);
+
+    // Now stop re-arming (xterm finished all chunks) and wait for timeout
+    await vi.advanceTimersByTimeAsync(10);
+    expect((stream as any).writingToTerminal).toBe(false);
+  });
+
+  it('handleUserScroll is suppressed during simulated setTimeout chunks after rAF', async () => {
+    // The actual user-visible bug: after the rAF clears, a scroll event from
+    // xterm's next setTimeout chunk would pass through handleUserScroll and
+    // falsely disable followTail. With the fix, the guard stays up.
+    await stream.initialized;
+    const terminal = stream.terminal!;
+
+    vi.mocked(terminal.write).mockImplementation((_data: any, cb?: () => void) => {
+      if (cb) cb();
+    });
+
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+
+    (stream as any).scrollRAFPending = false;
+    (stream as any).writingToTerminal = false;
+    (stream as any).followTail = true;
+
+    // Make isAtBottom return false (simulating viewport not at bottom
+    // during a TUI redraw — this is what triggers the oscillation)
+    (terminal.buffer.active as any).viewportY = 0;
+    (terminal.buffer.active as any).baseY = 100;
+
+    // Write data
+    (stream as any).writeTerminal('tui redraw data');
+
+    // Fire the rAF
+    rafCallbacks.forEach((cb) => cb(0));
+
+    // Simulate a scroll event arriving from xterm's setTimeout chunk.
+    // Before the fix, writingToTerminal would be false here and
+    // handleUserScroll would disable followTail.
+    stream.handleUserScroll();
+
+    // followTail must still be true — the scroll was from xterm, not the user
+    expect((stream as any).followTail).toBe(true);
   });
 });
 
