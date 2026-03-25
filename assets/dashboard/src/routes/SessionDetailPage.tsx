@@ -396,6 +396,7 @@ export default function SessionDetailPage() {
 
   const handleDispose = useCallback(async () => {
     if (!sessionId) return;
+    if (sessionData?.status === 'disposing') return;
 
     const sessionDisplay = sessionData?.nickname
       ? `${sessionData.nickname} (${sessionId})`
@@ -1068,6 +1069,7 @@ export default function SessionDetailPage() {
               className="btn btn--danger"
               style={{ width: '100%' }}
               onClick={handleDispose}
+              disabled={sessionData?.status === 'disposing'}
               data-testid="dispose-session"
             >
               <svg

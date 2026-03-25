@@ -1067,3 +1067,69 @@ func TestRefreshWorkspaceConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestMarkWorkspaceDisposing(t *testing.T) {
+	cfg := &config.Config{WorkspacePath: t.TempDir()}
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath, nil)
+	mgr := New(cfg, st, statePath, testLogger())
+
+	st.AddWorkspace(state.Workspace{
+		ID:     "ws-1",
+		Repo:   "https://example.com/repo.git",
+		Branch: "main",
+		Path:   t.TempDir(),
+		Status: state.WorkspaceStatusRunning,
+	})
+
+	prevStatus, err := mgr.MarkWorkspaceDisposing("ws-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prevStatus != state.WorkspaceStatusRunning {
+		t.Errorf("expected previous status 'running', got %q", prevStatus)
+	}
+
+	w, found := st.GetWorkspace("ws-1")
+	if !found {
+		t.Fatal("workspace not found")
+	}
+	if w.Status != state.WorkspaceStatusDisposing {
+		t.Errorf("expected disposing, got %q", w.Status)
+	}
+}
+
+func TestMarkWorkspaceDisposingIdempotent(t *testing.T) {
+	cfg := &config.Config{WorkspacePath: t.TempDir()}
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath, nil)
+	mgr := New(cfg, st, statePath, testLogger())
+
+	st.AddWorkspace(state.Workspace{
+		ID:     "ws-1",
+		Repo:   "https://example.com/repo.git",
+		Branch: "main",
+		Path:   t.TempDir(),
+		Status: state.WorkspaceStatusDisposing,
+	})
+
+	prevStatus, err := mgr.MarkWorkspaceDisposing("ws-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prevStatus != state.WorkspaceStatusDisposing {
+		t.Errorf("expected disposing (idempotent), got %q", prevStatus)
+	}
+}
+
+func TestMarkWorkspaceDisposingNotFound(t *testing.T) {
+	cfg := &config.Config{WorkspacePath: t.TempDir()}
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath, nil)
+	mgr := New(cfg, st, statePath, testLogger())
+
+	_, err := mgr.MarkWorkspaceDisposing("nonexistent")
+	if err == nil {
+		t.Error("expected error for nonexistent workspace")
+	}
+}

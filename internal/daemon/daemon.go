@@ -695,6 +695,32 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		}
 	}()
 
+	// Reconcile workspaces/sessions stuck in "disposing" status from a previous crash.
+	// Run in a goroutine to avoid blocking daemon startup (disposal can take up to 60s).
+	go func() {
+		for _, w := range st.GetWorkspaces() {
+			if w.Status == state.WorkspaceStatusDisposing {
+				logger.Info("retrying stuck workspace disposal", "workspace_id", w.ID)
+				retryCtx, retryCancel := context.WithTimeout(context.Background(), 60*time.Second)
+				if err := wm.DisposeForce(retryCtx, w.ID); err != nil {
+					logger.Warn("stuck workspace disposal failed, leaving as disposing", "workspace_id", w.ID, "err", err)
+				}
+				retryCancel()
+			}
+		}
+		for _, sess := range st.GetSessions() {
+			if sess.Status == state.SessionStatusDisposing {
+				logger.Info("retrying stuck session disposal", "session_id", sess.ID)
+				retryCtx, retryCancel := context.WithTimeout(context.Background(), 30*time.Second)
+				if err := sm.Dispose(retryCtx, sess.ID); err != nil {
+					logger.Warn("stuck session disposal failed, leaving as disposing", "session_id", sess.ID, "err", err)
+				}
+				retryCancel()
+			}
+		}
+		server.BroadcastSessions()
+	}()
+
 	// Create and start git watcher for filesystem-based change detection.
 	// Started after server creation so broadcasts reach WebSocket clients.
 	gitWatcher := workspace.NewGitWatcher(cfg, wm, server.BroadcastSessions, gitWatcherLog)

@@ -324,6 +324,7 @@ export default function SessionTabs({
     event.stopPropagation();
 
     const sess = sessions.find((s) => s.id === sessionId);
+    if (sess?.status === 'disposing') return;
     let sessionDisplay = sessionId;
     if (sess?.nickname) {
       sessionDisplay = `${sess.nickname} (${sessionId})`;
@@ -352,7 +353,7 @@ export default function SessionTabs({
   const renderSessionTab = (sess: SessionResponse) => {
     const isCurrent = sess.id === currentSessionId;
     const displayName = sess.nickname || sess.target;
-    const disabled = isLocked;
+    const disabled = isLocked || sess.status === 'disposing';
 
     // run_targets are command-only now; if not in run_targets, it's a model = promptable
     const isCommand = (config?.run_targets || []).some((t) => t.name === sess.target);

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1673,5 +1674,45 @@ func TestFindWorkspaceByRepoBranch(t *testing.T) {
 	_, found = s.FindWorkspaceByRepoBranch("myrepo", "nonexistent")
 	if found {
 		t.Error("expected not found")
+	}
+}
+
+func TestWorkspaceStatusConstants(t *testing.T) {
+	if WorkspaceStatusProvisioning != "provisioning" {
+		t.Errorf("expected provisioning, got %s", WorkspaceStatusProvisioning)
+	}
+	if WorkspaceStatusRunning != "running" {
+		t.Errorf("expected running, got %s", WorkspaceStatusRunning)
+	}
+	if WorkspaceStatusFailed != "failed" {
+		t.Errorf("expected failed, got %s", WorkspaceStatusFailed)
+	}
+	if WorkspaceStatusDisposing != "disposing" {
+		t.Errorf("expected disposing, got %s", WorkspaceStatusDisposing)
+	}
+}
+
+func TestWorkspaceStatusPersisted(t *testing.T) {
+	w := Workspace{
+		ID:     "test-1",
+		Repo:   "https://example.com/repo.git",
+		Branch: "main",
+		Path:   "/tmp/test",
+		Status: WorkspaceStatusRunning,
+	}
+	data, err := json.Marshal(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"status":"running"`) {
+		t.Errorf("expected status in JSON, got %s", string(data))
+	}
+
+	var w2 Workspace
+	if err := json.Unmarshal(data, &w2); err != nil {
+		t.Fatal(err)
+	}
+	if w2.Status != WorkspaceStatusRunning {
+		t.Errorf("expected running after roundtrip, got %s", w2.Status)
 	}
 }

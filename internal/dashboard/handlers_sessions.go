@@ -80,6 +80,7 @@ type WorkspaceResponseItem struct {
 	LocalUniqueCommits      int                   `json:"local_unique_commits"`         // commits in local not in remote
 	RemoteUniqueCommits     int                   `json:"remote_unique_commits"`        // commits in remote not in local
 	Previews                []previewResponse     `json:"previews,omitempty"`
+	Status                  string                `json:"status,omitempty"`
 }
 
 // buildSessionsResponse builds the sessions/workspaces response data.
@@ -183,6 +184,7 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			LocalUniqueCommits:      ws.LocalUniqueCommits,
 			RemoteUniqueCommits:     ws.RemoteUniqueCommits,
 			Previews:                []previewResponse{},
+			Status:                  ws.Status,
 		}
 		if s.previewManager != nil {
 			previews := s.state.GetWorkspacePreviews(ws.ID)

@@ -64,6 +64,15 @@ const (
 	SessionStatusStopped      = "stopped"
 	SessionStatusFailed       = "failed"
 	SessionStatusQueued       = "queued"
+	SessionStatusDisposing    = "disposing"
+)
+
+// Workspace status constants.
+const (
+	WorkspaceStatusProvisioning = "provisioning"
+	WorkspaceStatusRunning      = "running"
+	WorkspaceStatusFailed       = "failed"
+	WorkspaceStatusDisposing    = "disposing"
 )
 
 // Workspace represents a workspace directory state.
@@ -90,6 +99,7 @@ type Workspace struct {
 	ConflictOnBranch        *string           `json:"conflict_on_branch,omitempty"` // Branch name where sync conflict was detected
 	OverlayManifest         map[string]string `json:"overlay_manifest,omitempty"`   // relPath → SHA-256 hash at copy time
 	PortBlock               int               `json:"port_block,omitempty"`         // 0 = unassigned; 1-indexed block for stable preview ports
+	Status                  string            `json:"status,omitempty"`
 }
 
 // WorkspacePreview represents a workspace preview proxy mapping.
@@ -134,7 +144,7 @@ type Session struct {
 	RemoteHostID string `json:"remote_host_id,omitempty"` // Empty for local sessions
 	RemotePaneID string `json:"remote_pane_id,omitempty"` // tmux pane ID on remote (e.g., "%5")
 	RemoteWindow string `json:"remote_window,omitempty"`  // tmux window ID on remote (e.g., "@3")
-	Status       string `json:"status,omitempty"`         // Status for remote sessions: "provisioning", "running", "failed"
+	Status       string `json:"status,omitempty"`         // "provisioning", "running", "failed", "disposing" (used for all sessions during disposal, remote sessions during lifecycle)
 }
 
 // New creates a new empty State instance.

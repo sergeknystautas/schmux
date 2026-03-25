@@ -257,7 +257,9 @@ export default function WorkspaceHeader({
             <button
               className="btn btn--sm btn--ghost btn--danger btn--bordered"
               onClick={handleDisposeWorkspace}
-              disabled={isLocked || isDevLive || hasRunningSessions}
+              disabled={
+                isLocked || isDevLive || hasRunningSessions || workspace.status === 'disposing'
+              }
               aria-label={`Dispose ${workspace.id}`}
             >
               <svg

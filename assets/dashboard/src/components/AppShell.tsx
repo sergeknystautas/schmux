@@ -298,6 +298,8 @@ export default function AppShell() {
   const nudgenikEnabled = Boolean(config?.nudgenik?.target);
 
   const handleWorkspaceClick = (workspaceId: string) => {
+    const ws = workspaces?.find((w) => w.id === workspaceId);
+    if (ws?.status === 'disposing') return;
     navigateToWorkspace(navigate, workspaces || [], workspaceId);
   };
 
@@ -560,6 +562,7 @@ export default function AppShell() {
         if (isDevLive) return;
         const hasRunningSessions = workspace.sessions?.some((s) => s.running) ?? false;
         if (hasRunningSessions) return;
+        if (workspace.status === 'disposing') return;
         const accepted = await confirm(`Dispose workspace ${workspace.id}?`, { danger: true });
         if (!accepted) return;
 
@@ -773,7 +776,7 @@ export default function AppShell() {
                 <div
                   key={workspace.id}
                   ref={isWorkspaceActive ? activeWorkspaceRef : null}
-                  className={`nav-workspace${isWorkspaceActive ? ' nav-workspace--active' : ''}${isDevLive ? ' nav-workspace--dev-live' : ''}`}
+                  className={`nav-workspace${isWorkspaceActive ? ' nav-workspace--active' : ''}${isDevLive ? ' nav-workspace--dev-live' : ''}${workspace.status === 'disposing' ? ' nav-workspace--disposing' : ''}`}
                 >
                   <div
                     className="nav-workspace__header"
@@ -942,14 +945,17 @@ export default function AppShell() {
                         return (
                           <div
                             key={sess.id}
-                            className={`nav-session${isActive ? ' nav-session--active' : ''}`}
+                            className={`nav-session${isActive ? ' nav-session--active' : ''}${sess.status === 'disposing' ? ' nav-session--disposing' : ''}`}
                             data-tour={
                               wsIndex === 0 && sessIndex === 0 ? 'sidebar-session' : undefined
                             }
-                            onClick={() => handleSessionClick(sess.id)}
+                            onClick={() =>
+                              sess.status !== 'disposing' && handleSessionClick(sess.id)
+                            }
                             role="button"
                             tabIndex={0}
                             onKeyDown={(e) => {
+                              if (sess.status === 'disposing') return;
                               if (e.key === 'Enter' || e.key === ' ') {
                                 e.preventDefault();
                                 handleSessionClick(sess.id);

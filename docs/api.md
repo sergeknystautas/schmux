@@ -226,6 +226,8 @@ Notes:
 - `last_output_at` may be omitted when no activity has been observed since daemon start.
 - `repo_name` is the configured repo name from `config.json`, populated when the workspace repo URL matches a configured repo. May be empty for workspaces from unconfigured repos.
 - `nudge_state` values: `Working`, `Idle`, `Needs Input`, `Needs Attention`, `Needs Feature Clarification`, `Completed`, `Error`. State priority prevents lower-tier states from overwriting higher-tier ones: tier 0 (Working, Idle) < tier 1 (Needs Input, Needs Attention) < tier 2 (Completed, Error). Only `Working` can reset a terminal state (new turn started).
+- Workspace `status` field: `provisioning` (being created), `running` (ready), `failed` (creation failed), `disposing` (being torn down). Omitted for pre-existing workspaces (treat as `running`).
+- Session `status` field includes `disposing` during teardown. Dispose endpoints return 200 OK if the item is already in `disposing` status (idempotent).
 - Unrecognized workspace sub-routes return 404.
 
 ### POST /api/workspaces/scan
@@ -518,7 +520,7 @@ Notes:
 
 ### POST /api/sessions/{sessionId}/dispose
 
-Dispose a session.
+Dispose a session. Sets the session status to `disposing` and broadcasts immediately for visual feedback before starting teardown. Returns 200 OK if the session is already disposing (idempotent). Reverts status on failure.
 
 Response:
 
@@ -688,7 +690,7 @@ Errors:
 
 ### POST /api/workspaces/{workspaceId}/dispose
 
-Dispose a workspace (fails if workspace has active sessions). Disposal runs with an independent server-side timeout and will complete even if the client disconnects.
+Dispose a workspace (fails if workspace has active sessions). Sets workspace status to `disposing` and broadcasts immediately for visual feedback before starting teardown. Returns 200 OK if already disposing (idempotent). Reverts status on failure. Disposal runs with an independent server-side timeout and will complete even if the client disconnects.
 
 Response:
 
@@ -704,7 +706,7 @@ Errors:
 
 Dispose a workspace and all its sessions.
 
-Disposes all sessions in the workspace first, then disposes the workspace itself. Both phases run with independent server-side timeouts and will complete even if the client disconnects.
+Sets workspace and all session statuses to `disposing` and broadcasts immediately before starting teardown. Returns 200 OK if already disposing (idempotent). Reverts workspace status on failure. Disposes all sessions concurrently first, then disposes the workspace itself. Both phases run with independent server-side timeouts and will complete even if the client disconnects.
 
 Response:
 

@@ -225,3 +225,30 @@ func TestBroadcastWorkspaceLocked(t *testing.T) {
 		t.Errorf("locked = %v, want true", msg["locked"])
 	}
 }
+
+func TestBroadcastIncludesWorkspaceStatus(t *testing.T) {
+	srv, _, st := newTestServer(t)
+
+	st.AddWorkspace(state.Workspace{
+		ID:     "ws-status",
+		Repo:   "https://example.com/repo.git",
+		Branch: "main",
+		Path:   t.TempDir(),
+		Status: state.WorkspaceStatusRunning,
+	})
+
+	conn, cleanup := dialTestDashboardWS(t, srv)
+	defer cleanup()
+
+	// Consume initial snapshot
+	readDashboardMsg(t, conn, 500*time.Millisecond)
+
+	srv.BroadcastSessions()
+
+	msg := readDashboardMsg(t, conn, 500*time.Millisecond)
+	workspaces := msg["workspaces"].([]interface{})
+	ws := workspaces[0].(map[string]interface{})
+	if ws["status"] != "running" {
+		t.Errorf("expected status=running, got %v", ws["status"])
+	}
+}

@@ -11,6 +11,7 @@ export interface SessionResponse {
   nudge_state?: string;
   nudge_summary?: string;
   nudge_seq?: number;
+  status?: string;
   // Remote session fields
   remote_host_id?: string;
   remote_pane_id?: string;
@@ -50,6 +51,7 @@ export interface WorkspaceResponse {
   local_unique_commits?: number; // commits in local not in remote
   remote_unique_commits?: number; // commits in remote not in local
   previews?: WorkspacePreview[];
+  status?: string;
 }
 
 export interface WorkspacePreview {

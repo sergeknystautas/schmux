@@ -416,6 +416,11 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 						m.state.UpdateOverlayManifest(w.ID, manifest)
 					}
 				}
+				// Backfill running status for pre-existing workspaces
+				if w.Status == "" {
+					w.Status = state.WorkspaceStatusRunning
+					m.state.UpdateWorkspace(w)
+				}
 				return &w, nil
 			}
 		}
@@ -453,6 +458,10 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 				}
 				// Update branch in state only after successful prepare
 				w.Branch = branch
+				// Backfill running status for pre-existing workspaces
+				if w.Status == "" {
+					w.Status = state.WorkspaceStatusRunning
+				}
 				if err := m.state.UpdateWorkspace(w); err != nil {
 					return nil, fmt.Errorf("failed to update workspace in state: %w", err)
 				}
@@ -470,8 +479,15 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 
 	// Prepare the workspace
 	if err := m.prepare(ctx, w.ID, w.Branch); err != nil {
+		w.Status = state.WorkspaceStatusFailed
+		m.state.UpdateWorkspace(*w)
+		m.state.Save()
 		return nil, fmt.Errorf("failed to prepare workspace: %w", err)
 	}
+	// Mark workspace as running after successful prepare
+	w.Status = state.WorkspaceStatusRunning
+	m.state.UpdateWorkspace(*w)
+	m.state.Save()
 
 	return w, nil
 }
@@ -568,6 +584,7 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 		Branch: branch,
 		Path:   workspacePath,
 		VCS:    repoConfig.VCS,
+		Status: state.WorkspaceStatusProvisioning,
 	}
 
 	if err := m.state.AddWorkspace(w); err != nil {
@@ -593,7 +610,10 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 	// Track workspace creation
 	m.trackWorkspaceCreated(w.ID, repoURL, branch)
 
-	return &w, nil
+	// Re-read from state so the returned workspace includes all mutations
+	// (e.g., overlay manifest set by UpdateOverlayManifest after AddWorkspace).
+	current, _ := m.state.GetWorkspace(w.ID)
+	return &current, nil
 }
 
 // CreateLocalRepo creates a new workspace with a fresh local git repository.
@@ -1008,6 +1028,43 @@ func (m *Manager) EnsureAll() {
 	}
 }
 
+// MarkWorkspaceDisposing sets a workspace's status to "disposing" and saves state.
+// Returns the previous status (for rollback) and any error.
+func (m *Manager) MarkWorkspaceDisposing(workspaceID string) (previousStatus string, err error) {
+	w, found := m.state.GetWorkspace(workspaceID)
+	if !found {
+		return "", fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+	if w.Status == state.WorkspaceStatusDisposing {
+		return state.WorkspaceStatusDisposing, nil
+	}
+	previousStatus = w.Status
+	w.Status = state.WorkspaceStatusDisposing
+	if err := m.state.UpdateWorkspace(w); err != nil {
+		return previousStatus, fmt.Errorf("failed to update workspace: %w", err)
+	}
+	if err := m.state.Save(); err != nil {
+		return previousStatus, fmt.Errorf("failed to save state: %w", err)
+	}
+	return previousStatus, nil
+}
+
+// RevertWorkspaceStatus restores a workspace's status after a failed disposal.
+func (m *Manager) RevertWorkspaceStatus(workspaceID, previousStatus string) {
+	w, found := m.state.GetWorkspace(workspaceID)
+	if !found {
+		return
+	}
+	w.Status = previousStatus
+	if err := m.state.UpdateWorkspace(w); err != nil {
+		m.logger.Error("failed to revert workspace status", "workspace_id", workspaceID, "err", err)
+		return
+	}
+	if err := m.state.Save(); err != nil {
+		m.logger.Error("failed to save state after status revert", "workspace_id", workspaceID, "err", err)
+	}
+}
+
 // Dispose deletes a workspace by removing its directory and removing it from state.
 func (m *Manager) Dispose(ctx context.Context, workspaceID string) error {
 	return m.dispose(ctx, workspaceID, false)
@@ -1314,7 +1371,10 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 	// Track workspace creation
 	m.trackWorkspaceCreated(w.ID, source.Repo, newBranch)
 
-	return &w, nil
+	// Re-read from state so the returned workspace includes all mutations
+	// (e.g., overlay manifest set by UpdateOverlayManifest after AddWorkspace).
+	current, _ := m.state.GetWorkspace(w.ID)
+	return &current, nil
 }
 
 // getWorkspaceHEAD returns the current commit hash for a workspace.

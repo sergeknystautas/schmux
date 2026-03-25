@@ -983,3 +983,62 @@ func TestAppendPersonaFlags(t *testing.T) {
 		})
 	}
 }
+
+func TestMarkSessionDisposing(t *testing.T) {
+	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	statePath := t.TempDir() + "/state.json"
+	st := state.New(statePath, nil)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	m := New(cfg, st, statePath, wm, nil)
+
+	st.AddWorkspace(state.Workspace{ID: "ws-1", Repo: "https://example.com/r.git", Branch: "main", Path: t.TempDir()})
+	st.AddSession(state.Session{ID: "sess-1", WorkspaceID: "ws-1", Target: "claude", TmuxSession: "test", Status: "stopped"})
+
+	prevStatus, err := m.MarkSessionDisposing("sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prevStatus != "stopped" {
+		t.Errorf("expected previous status 'stopped', got %q", prevStatus)
+	}
+
+	sess, found := st.GetSession("sess-1")
+	if !found {
+		t.Fatal("session not found")
+	}
+	if sess.Status != state.SessionStatusDisposing {
+		t.Errorf("expected disposing, got %q", sess.Status)
+	}
+}
+
+func TestMarkSessionDisposingIdempotent(t *testing.T) {
+	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	statePath := t.TempDir() + "/state.json"
+	st := state.New(statePath, nil)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	m := New(cfg, st, statePath, wm, nil)
+
+	st.AddWorkspace(state.Workspace{ID: "ws-1", Repo: "https://example.com/r.git", Branch: "main", Path: t.TempDir()})
+	st.AddSession(state.Session{ID: "sess-1", WorkspaceID: "ws-1", Target: "claude", TmuxSession: "test", Status: state.SessionStatusDisposing})
+
+	prevStatus, err := m.MarkSessionDisposing("sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prevStatus != state.SessionStatusDisposing {
+		t.Errorf("expected disposing (idempotent), got %q", prevStatus)
+	}
+}
+
+func TestMarkSessionDisposingNotFound(t *testing.T) {
+	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	statePath := t.TempDir() + "/state.json"
+	st := state.New(statePath, nil)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	m := New(cfg, st, statePath, wm, nil)
+
+	_, err := m.MarkSessionDisposing("nonexistent")
+	if err == nil {
+		t.Error("expected error for nonexistent session")
+	}
+}

@@ -42,7 +42,7 @@ export function findNextWorkspaceWithSessions(
   direction: 1 | -1
 ): number {
   for (let i = currentIndex + direction; i >= 0 && i < workspaces.length; i += direction) {
-    if (workspaces[i].sessions?.length) return i;
+    if (workspaces[i].sessions?.length && workspaces[i].status !== 'disposing') return i;
   }
   return -1;
 }

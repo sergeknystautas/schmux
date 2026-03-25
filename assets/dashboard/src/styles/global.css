@@ -1140,6 +1140,21 @@ body {
   border-left-color: var(--color-accent);
 }
 
+.nav-workspace--disposing {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.nav-workspace--disposing .nav-workspace__header {
+  color: var(--color-text-muted, #888);
+}
+
+.nav-session--disposing {
+  opacity: 0.5;
+  pointer-events: none;
+  color: var(--color-text-muted, #888);
+}
+
 .nav-session__row1 {
   display: flex;
   align-items: center;

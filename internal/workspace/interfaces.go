@@ -177,6 +177,13 @@ type WorkspaceManager interface {
 
 	// IsWorkspaceLocked returns true if a sync operation is running on the workspace.
 	IsWorkspaceLocked(workspaceID string) bool
+
+	// MarkWorkspaceDisposing sets a workspace's status to "disposing" and saves state.
+	// Returns the previous status (for rollback) and any error.
+	MarkWorkspaceDisposing(workspaceID string) (previousStatus string, err error)
+
+	// RevertWorkspaceStatus restores a workspace's status after a failed disposal.
+	RevertWorkspaceStatus(workspaceID, previousStatus string)
 }
 
 // Ensure *Manager implements WorkspaceManager at compile time.

@@ -20,11 +20,29 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), s.config.DisposeGracePeriod()+10*time.Second)
+	// Mark as disposing and broadcast immediately for visual feedback
 	sessionLog := logging.Sub(s.logger, "session")
+	prevStatus, markErr := s.session.MarkSessionDisposing(sessionID)
+	if markErr != nil {
+		sessionLog.Warn("mark disposing failed, proceeding with dispose", "session_id", sessionID, "err", markErr)
+	} else if prevStatus == "disposing" {
+		// Idempotent: already disposing, return success
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		return
+	} else {
+		s.BroadcastSessions()
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), s.config.DisposeGracePeriod()+10*time.Second)
 	if err := s.session.Dispose(ctx, sessionID); err != nil {
 		cancel()
 		sessionLog.Error("dispose failed", "session_id", sessionID, "err", err)
+		// Revert status on failure
+		if markErr == nil {
+			s.session.RevertSessionStatus(sessionID, prevStatus)
+			s.BroadcastSessions()
+		}
 		writeJSONError(w, fmt.Sprintf("Failed to dispose session: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -72,13 +90,29 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	// Mark as disposing and broadcast immediately for visual feedback
+	workspaceLog := logging.Sub(s.logger, "workspace")
+	prevWsStatus, markErr := s.workspace.MarkWorkspaceDisposing(workspaceID)
+	if markErr != nil {
+		workspaceLog.Warn("mark disposing failed, proceeding with dispose", "workspace_id", workspaceID, "err", markErr)
+	} else if prevWsStatus == "disposing" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		return
+	} else {
+		s.BroadcastSessions()
+	}
+
 	// Use an independent context so disposal completes even if the client disconnects
 	wsCtx, wsCancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer wsCancel()
 
-	workspaceLog := logging.Sub(s.logger, "workspace")
 	if err := s.workspace.Dispose(wsCtx, workspaceID); err != nil {
 		workspaceLog.Error("dispose failed", "workspace_id", workspaceID, "err", err)
+		if markErr == nil {
+			s.workspace.RevertWorkspaceStatus(workspaceID, prevWsStatus)
+			s.BroadcastSessions()
+		}
 		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -116,15 +150,33 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	// First, dispose all sessions in the workspace concurrently
+	// Mark workspace as disposing and broadcast immediately
+	workspaceLog := logging.Sub(s.logger, "workspace")
+	prevWsStatus, markErr := s.workspace.MarkWorkspaceDisposing(workspaceID)
+	if markErr != nil {
+		workspaceLog.Warn("mark disposing failed, proceeding with dispose", "workspace_id", workspaceID, "err", markErr)
+	} else if prevWsStatus == "disposing" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		return
+	}
+
+	// Mark all sessions as disposing
 	sessions := s.state.GetSessions()
 	var wsSessions []string
 	for _, sess := range sessions {
 		if sess.WorkspaceID == workspaceID {
 			wsSessions = append(wsSessions, sess.ID)
+			if _, sessMarkErr := s.session.MarkSessionDisposing(sess.ID); sessMarkErr != nil {
+				workspaceLog.Warn("failed to mark session disposing", "session_id", sess.ID, "err", sessMarkErr)
+			}
 		}
 	}
 
+	// Broadcast immediately — everything grays out at once
+	s.BroadcastSessions()
+
+	// Dispose all sessions concurrently
 	type disposeResult struct {
 		sessionID string
 		err       error
@@ -143,7 +195,6 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 	}
 
 	var sessionsDisposed []string
-	workspaceLog := logging.Sub(s.logger, "workspace")
 	for range wsSessions {
 		res := <-results
 		if res.err != nil {
@@ -169,6 +220,10 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 	defer wsCancel()
 	if err := s.workspace.DisposeForce(wsCtx, workspaceID); err != nil {
 		workspaceLog.Error("dispose-all workspace failed", "workspace_id", workspaceID, "err", err)
+		if markErr == nil {
+			s.workspace.RevertWorkspaceStatus(workspaceID, prevWsStatus)
+			go s.BroadcastSessions()
+		}
 		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -179,6 +234,8 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	workspaceLog.Info("dispose-all success", "workspace_id", workspaceID, "sessions_disposed", len(sessionsDisposed))
+
+	go s.BroadcastSessions()
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{

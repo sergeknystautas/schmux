@@ -1143,6 +1143,39 @@ func (m *Manager) IsRunning(ctx context.Context, sessionID string) bool {
 	return true
 }
 
+// MarkSessionDisposing sets a session's status to "disposing" and saves state.
+// Called by handlers before the blocking Dispose() call to give immediate visual feedback.
+// Returns the previous status (for rollback on failure) and any error.
+func (m *Manager) MarkSessionDisposing(sessionID string) (previousStatus string, err error) {
+	sess, found := m.state.GetSession(sessionID)
+	if !found {
+		return "", fmt.Errorf("session not found: %s", sessionID)
+	}
+	if sess.Status == state.SessionStatusDisposing {
+		return state.SessionStatusDisposing, nil // already disposing — idempotent
+	}
+	previousStatus = sess.Status
+	if !m.state.UpdateSessionFunc(sessionID, func(s *state.Session) {
+		s.Status = state.SessionStatusDisposing
+	}) {
+		return previousStatus, fmt.Errorf("session disappeared during status update: %s", sessionID)
+	}
+	if err := m.state.Save(); err != nil {
+		return previousStatus, fmt.Errorf("failed to save state: %w", err)
+	}
+	return previousStatus, nil
+}
+
+// RevertSessionStatus restores a session's status after a failed disposal.
+func (m *Manager) RevertSessionStatus(sessionID, previousStatus string) {
+	m.state.UpdateSessionFunc(sessionID, func(s *state.Session) {
+		s.Status = previousStatus
+	})
+	if err := m.state.Save(); err != nil {
+		m.logger.Error("failed to save state after status revert", "session_id", sessionID, "err", err)
+	}
+}
+
 // Dispose disposes of a session.
 func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 	sess, found := m.state.GetSession(sessionID)
