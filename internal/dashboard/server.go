@@ -96,11 +96,12 @@ func (w *wsConn) IsClosed() bool {
 
 // ServerOptions holds optional configuration for NewServer.
 type ServerOptions struct {
-	Shutdown    func()          // Callback to trigger daemon shutdown
-	DevRestart  func()          // Callback to trigger dev mode restart (exit code 42)
-	DevProxy    bool            // When true, proxy non-API routes to Vite dev server
-	DevMode     bool            // When true, dev mode API endpoints are enabled
-	ShutdownCtx context.Context // Context cancelled on daemon shutdown; defaults to context.Background()
+	Shutdown          func()          // Callback to trigger daemon shutdown
+	DevRestart        func()          // Callback to trigger dev mode restart (exit code 42)
+	DevProxy          bool            // When true, proxy non-API routes to Vite dev server
+	DevMode           bool            // When true, dev mode API endpoints are enabled
+	ShutdownCtx       context.Context // Context cancelled on daemon shutdown; defaults to context.Background()
+	DashboardDistPath string          // Optional explicit dashboard dist path override (mainly for tests)
 }
 
 // Server represents the dashboard HTTP server.
@@ -178,6 +179,9 @@ type Server struct {
 
 	// Embedded dashboard assets (nil if not available)
 	dashboardFS fs.FS
+
+	// Optional explicit dashboard dist path override.
+	dashboardDistPath string
 
 	// Cached default branches: repoURL -> {branch, fetchedAt}
 	defaultBranchCache   map[string]defaultBranchEntry
@@ -286,6 +290,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		devProxy:           opts.DevProxy,
 		devMode:            opts.DevMode,
 		shutdownCtx:        shutdownCtx,
+		dashboardDistPath:  opts.DashboardDistPath,
 		wsConns:            make(map[string][]*wsConn),
 		sessionsConns:      make(map[*wsConn]bool),
 		rotationLocks:      make(map[string]*sync.Mutex),
@@ -1027,6 +1032,10 @@ func normalizeOrigin(value string) (string, error) {
 // getDashboardDistPath returns the path to the built dashboard assets.
 // Prioritizes local build for development, falls back to cached assets.
 func (s *Server) getDashboardDistPath() string {
+	if s.dashboardDistPath != "" {
+		return s.dashboardDistPath
+	}
+
 	// Local dev build - check FIRST (before cached assets)
 	candidates := []string{
 		"./assets/dashboard/dist",
