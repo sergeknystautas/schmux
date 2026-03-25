@@ -249,9 +249,18 @@ export interface GitCommitDetailResponse {
   files: FileDiff[];
 }
 
+export interface VSCodeServerInfo {
+  hostname?: string;
+  web_server_url?: string;
+  has_vscode_server?: boolean;
+  tunnel_running?: boolean;
+}
+
 export interface OpenVSCodeResponse {
   success: boolean;
   message: string;
+  vscode_uri?: string;
+  server_info?: VSCodeServerInfo;
 }
 
 export interface DiffExternalResponse {

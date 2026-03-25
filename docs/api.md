@@ -1271,19 +1271,50 @@ Errors:
 
 ### POST /api/open-vscode/{workspaceId}
 
-Opens VS Code in a new window for the workspace.
+Opens VS Code for the workspace. Supports two modes:
 
-Response:
+**Default mode** (local client): Executes the `code` command on the server to open VS Code locally.
+
+**URI mode** (`?mode=uri`, remote client): Returns a `vscode://` URI for opening VS Code from a remote browser via the Remote-SSH extension. Also detects VS Code Server processes on the host.
+
+Query parameters:
+
+- `mode=uri` — Return a VS Code Remote URI instead of executing a local command. Use when the browser is on a different machine than the schmux server.
+
+Response (default mode):
 
 ```json
 { "success": true, "message": "You can now switch to VS Code." }
 ```
 
+Response (URI mode):
+
+```json
+{
+  "success": true,
+  "message": "Open the VS Code URI to connect remotely.",
+  "vscode_uri": "vscode://vscode-remote/ssh-remote+hostname/path/to/workspace",
+  "server_info": {
+    "hostname": "dev-server.local",
+    "web_server_url": "http://dev-server.local:8000",
+    "has_vscode_server": true,
+    "tunnel_running": false
+  }
+}
+```
+
+The `server_info` field is only present when VS Code Server processes are detected. Fields:
+
+- `hostname` — Server hostname
+- `web_server_url` — URL if `code serve-web` is running (direct browser access)
+- `has_vscode_server` — `true` if `~/.vscode-server/` exists (SSH Remote was used before)
+- `tunnel_running` — `true` if `code tunnel` is running
+
 Errors:
 
 - 404 with JSON if workspace not found or directory missing
-- 404 with JSON if `code` command not found in PATH
-- 500 with JSON on launch failure
+- 404 with JSON if `code` command not found in PATH (default mode only)
+- 500 with JSON on launch failure or hostname resolution failure
 
 ### POST /api/workspaces/{workspaceId}/linear-sync-from-main
 

@@ -442,7 +442,12 @@ func (s *Server) handleRemoteDiff(w http.ResponseWriter, r *http.Request, ws sta
 	}
 }
 
-// handleOpenVSCode opens VS Code in a new window for the specified workspace.
+// handleOpenVSCode opens VS Code for the specified workspace.
+//
+// Two modes controlled by ?mode= query parameter:
+//   - (default): Executes the "code" command on the server to open VS Code locally.
+//   - mode=uri:  Returns a vscode:// URI for opening VS Code from a remote browser
+//     via the Remote-SSH extension, without executing anything on the server.
 func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 	// Extract workspace ID from chi wildcard param
 	workspaceID := chi.URLParam(r, "*")
@@ -452,9 +457,18 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type OpenVSCodeResponse struct {
-		Success bool   `json:"success"`
-		Message string `json:"message"`
+		Success    bool   `json:"success"`
+		Message    string `json:"message"`
+		VSCodeURI  string `json:"vscode_uri,omitempty"`
+		ServerInfo *struct {
+			Hostname        string `json:"hostname,omitempty"`
+			WebServerURL    string `json:"web_server_url,omitempty"`
+			HasVSCodeServer bool   `json:"has_vscode_server,omitempty"`
+			TunnelRunning   bool   `json:"tunnel_running,omitempty"`
+		} `json:"server_info,omitempty"`
 	}
+
+	uriMode := r.URL.Query().Get("mode") == "uri"
 
 	// Get workspace from state
 	ws, found := s.state.GetWorkspace(workspaceID)
@@ -467,6 +481,14 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	// --- URI mode: return a vscode:// URI for remote browser clients ---
+	if uriMode {
+		s.handleOpenVSCodeURI(w, ws)
+		return
+	}
+
+	// --- Local execution mode (original behavior) ---
 
 	// Use ResolveVSCodePath to find VS Code command
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -646,6 +668,116 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 		Success: true,
 		Message: "You can now switch to VS Code.",
 	})
+}
+
+// handleOpenVSCodeURI handles the URI mode of the VS Code endpoint.
+// It returns a vscode:// URI and server detection info so a remote browser
+// can open VS Code with SSH Remote or connect to a running VS Code Server.
+func (s *Server) handleOpenVSCodeURI(w http.ResponseWriter, ws state.Workspace) {
+	type serverInfoPayload struct {
+		Hostname        string `json:"hostname,omitempty"`
+		WebServerURL    string `json:"web_server_url,omitempty"`
+		HasVSCodeServer bool   `json:"has_vscode_server,omitempty"`
+		TunnelRunning   bool   `json:"tunnel_running,omitempty"`
+	}
+
+	type OpenVSCodeResponse struct {
+		Success    bool               `json:"success"`
+		Message    string             `json:"message"`
+		VSCodeURI  string             `json:"vscode_uri,omitempty"`
+		ServerInfo *serverInfoPayload `json:"server_info,omitempty"`
+	}
+
+	var sshHostname string
+	var wsPath string
+
+	if ws.IsRemoteWorkspace() {
+		// Remote workspace: use the remote host's hostname and remote path
+		host, found := s.state.GetRemoteHost(ws.RemoteHostID)
+		if !found {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			writeJSON(w, OpenVSCodeResponse{
+				Success: false,
+				Message: fmt.Sprintf("remote host %s not found", ws.RemoteHostID),
+			})
+			return
+		}
+
+		// Try live connection if hostname is missing
+		if host.Hostname == "" && s.remoteManager != nil {
+			if conn := s.remoteManager.GetConnection(ws.RemoteHostID); conn != nil {
+				if liveHostname := conn.Hostname(); liveHostname != "" {
+					host.Hostname = liveHostname
+					s.state.UpdateRemoteHost(conn.Host())
+					_ = s.state.Save()
+				}
+			}
+		}
+
+		if host.Hostname == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSON(w, OpenVSCodeResponse{
+				Success: false,
+				Message: "remote host has no hostname",
+			})
+			return
+		}
+
+		sshHostname = host.Hostname
+		wsPath = ws.RemotePath
+	} else {
+		// Local workspace: resolve the server's own hostname
+		sshHostname = s.resolveServerHostname()
+		if sshHostname == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			writeJSON(w, OpenVSCodeResponse{
+				Success: false,
+				Message: "Cannot determine server hostname. Set network.dashboard_hostname in config.",
+			})
+			return
+		}
+		wsPath = ws.Path
+	}
+
+	// Build the vscode:// URI for SSH Remote
+	vsCodeURI := detect.BuildVSCodeRemoteURI(sshHostname, wsPath)
+	s.logger.Info("open-vscode (uri mode)", "uri", vsCodeURI, "hostname", sshHostname, "path", wsPath)
+
+	// Detect VS Code server processes on this machine
+	serverInfo := detect.DetectVSCodeServer()
+	var infoPayload *serverInfoPayload
+	if serverInfo.WebServerRunning || serverInfo.TunnelRunning || serverInfo.HasVSCodeServer {
+		infoPayload = &serverInfoPayload{
+			Hostname:        serverInfo.Hostname,
+			HasVSCodeServer: serverInfo.HasVSCodeServer,
+			TunnelRunning:   serverInfo.TunnelRunning,
+		}
+		if serverInfo.WebServerRunning && serverInfo.WebServerPort > 0 {
+			infoPayload.WebServerURL = fmt.Sprintf("http://%s:%d", sshHostname, serverInfo.WebServerPort)
+		}
+	}
+
+	writeJSON(w, OpenVSCodeResponse{
+		Success:    true,
+		Message:    "Open the VS Code URI to connect remotely.",
+		VSCodeURI:  vsCodeURI,
+		ServerInfo: infoPayload,
+	})
+}
+
+// resolveServerHostname returns the SSH-reachable hostname for this server.
+// Uses dashboard_hostname from config if set, otherwise falls back to os.Hostname().
+func (s *Server) resolveServerHostname() string {
+	if h := s.config.GetDashboardHostname(); h != "" {
+		return h
+	}
+	if h, err := os.Hostname(); err == nil {
+		return h
+	}
+	return ""
 }
 
 func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {

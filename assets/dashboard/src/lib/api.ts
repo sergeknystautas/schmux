@@ -331,8 +331,12 @@ export async function validateTLS(certPath: string, keyPath: string): Promise<TL
   return response.json();
 }
 
-export async function openVSCode(workspaceId: string): Promise<OpenVSCodeResponse> {
-  const response = await apiFetch(`/api/open-vscode/${workspaceId}`, {
+export async function openVSCode(
+  workspaceId: string,
+  options?: { mode?: 'uri' }
+): Promise<OpenVSCodeResponse> {
+  const params = options?.mode ? `?mode=${options.mode}` : '';
+  const response = await apiFetch(`/api/open-vscode/${workspaceId}${params}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
   });
