@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -116,11 +117,23 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveFileIfExists(w http.ResponseWriter, r *http.Request, requestPath string) bool {
-	distPath := s.getDashboardDistPath()
 	cleanPath := filepath.Clean(strings.TrimPrefix(requestPath, "/"))
 	if strings.HasPrefix(cleanPath, "..") {
 		return false
 	}
+	// Try embedded FS first
+	if s.dashboardFS != nil {
+		if f, err := s.dashboardFS.Open(cleanPath); err == nil {
+			defer f.Close()
+			stat, err := f.Stat()
+			if err == nil && !stat.IsDir() {
+				http.ServeFileFS(w, r, s.dashboardFS, cleanPath)
+				return true
+			}
+		}
+	}
+	// Fall back to disk
+	distPath := s.getDashboardDistPath()
 	filePath := filepath.Join(distPath, cleanPath)
 	if _, err := os.Stat(filePath); err == nil {
 		http.ServeFile(w, r, filePath)
@@ -131,6 +144,15 @@ func (s *Server) serveFileIfExists(w http.ResponseWriter, r *http.Request, reque
 
 // serveAppIndex serves the built React index.html from the dist directory.
 func (s *Server) serveAppIndex(w http.ResponseWriter, r *http.Request) {
+	// Try embedded FS first
+	if s.dashboardFS != nil {
+		if content, err := fs.ReadFile(s.dashboardFS, "index.html"); err == nil {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Write(content)
+			return
+		}
+	}
+	// Fall back to disk
 	distPath := s.getDashboardDistPath()
 	filePath := filepath.Join(distPath, "index.html")
 

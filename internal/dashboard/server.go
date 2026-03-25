@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -20,6 +21,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
+	dashboardassets "github.com/sergeknystautas/schmux/assets"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/assets"
 	"github.com/sergeknystautas/schmux/internal/config"
@@ -174,6 +176,9 @@ type Server struct {
 	// Linear sync resolve conflict state (embedded for field promotion)
 	linearSyncState
 
+	// Embedded dashboard assets (nil if not available)
+	dashboardFS fs.FS
+
 	// Cached default branches: repoURL -> {branch, fetchedAt}
 	defaultBranchCache   map[string]defaultBranchEntry
 	defaultBranchCacheMu sync.RWMutex
@@ -300,6 +305,8 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 			crTrackers:                      make(map[string]*session.SessionTracker),
 		},
 	}
+	s.dashboardFS = dashboardassets.FS()
+
 	s.previewManager = preview.NewManager(
 		st,
 		cfg.GetPreviewMaxPerWorkspace(),
@@ -471,6 +478,10 @@ func (s *Server) ClearRemoteAuth() {
 
 // LogDashboardAssetPath logs where dashboard assets are being served from.
 func (s *Server) LogDashboardAssetPath() {
+	if s.dashboardFS != nil {
+		s.logger.Info("serving from embedded assets")
+		return
+	}
 	path := s.getDashboardDistPath()
 	// Determine source type for clearer message
 	if strings.HasPrefix(path, filepath.Join(os.Getenv("HOME"), ".schmux")) {
@@ -528,9 +539,14 @@ func (s *Server) Start() error {
 		r.Handle("/*", viteProxy)
 		s.logger.Info("dev-proxy enabled: proxying to Vite", "target", "http://localhost:5173")
 	} else {
-		r.With(s.authMiddleware).Handle("/assets/*",
-			http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(s.getDashboardDistPath(), "assets")))),
-		)
+		var assetHandler http.Handler
+		if s.dashboardFS != nil {
+			assetsSubFS, _ := fs.Sub(s.dashboardFS, "assets")
+			assetHandler = http.StripPrefix("/assets/", http.FileServer(http.FS(assetsSubFS)))
+		} else {
+			assetHandler = http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(s.getDashboardDistPath(), "assets"))))
+		}
+		r.With(s.authMiddleware).Handle("/assets/*", assetHandler)
 		r.HandleFunc("/*", s.handleApp)
 	}
 

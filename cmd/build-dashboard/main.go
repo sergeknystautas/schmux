@@ -49,6 +49,12 @@ func main() {
 		fatalf("npm run build failed: %v", err)
 	}
 
+	// Restore .gitkeep so go:embed always finds the dist directory on fresh clones
+	gitkeep := filepath.Join(frontendDir, "dist", ".gitkeep")
+	if err := os.WriteFile(gitkeep, nil, 0644); err != nil {
+		fatalf("failed to restore .gitkeep: %v", err)
+	}
+
 	if runTests {
 		if err := runCmd(repoRoot, "go", "test", "./..."); err != nil {
 			fatalf("go test failed: %v", err)
