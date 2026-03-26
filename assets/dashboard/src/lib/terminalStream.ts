@@ -140,6 +140,9 @@ export default class TerminalStream {
 
   // Scroll listener cleanup
   private scrollHandler: (() => void) | null = null;
+  private wheelHandler: ((e: WheelEvent) => void) | null = null;
+  private wheelCooldown = false;
+  private wheelCooldownTimer: ReturnType<typeof setTimeout> | null = null;
   private scrollViewport: Element | null = null;
 
   // Multi-line selection state
@@ -281,6 +284,9 @@ export default class TerminalStream {
         brightMagenta: '#d670d6',
         brightCyan: '#29b8db',
         brightWhite: '#ffffff',
+        scrollbarSliderBackground: '#444',
+        scrollbarSliderHoverBackground: '#a0a0a0',
+        scrollbarSliderActiveBackground: '#c0c0c0',
       },
       scrollback: 5000,
       convertEol: true,
@@ -461,6 +467,27 @@ export default class TerminalStream {
         };
         this.scrollViewport = viewport;
         viewport.addEventListener('scroll', this.scrollHandler);
+
+        // Wheel events are definitively user-initiated — bypass the write
+        // guard so upward scrolls disable followTail even during active output.
+        // Attached to the container in capture phase because xterm.js v6's
+        // custom scrollbar overlay may intercept wheel events before they
+        // reach the viewport. A short cooldown prevents the subsequent DOM
+        // scroll event from immediately re-enabling followTail.
+        this.wheelHandler = (e: WheelEvent) => {
+          if (e.deltaY < 0 && this.followTail) {
+            this.setFollow(false, 'userScroll');
+            this.wheelCooldown = true;
+            if (this.wheelCooldownTimer) clearTimeout(this.wheelCooldownTimer);
+            this.wheelCooldownTimer = setTimeout(() => {
+              this.wheelCooldown = false;
+              this.wheelCooldownTimer = null;
+            }, 150);
+          } else if (e.deltaY > 0 && !this.followTail && this.isAtBottom(1)) {
+            this.setFollow(true, 'userScroll');
+          }
+        };
+        this.containerElement.addEventListener('wheel', this.wheelHandler as EventListener, true);
       } else if (attempts < 10) {
         setTimeout(() => tryAttach(attempts + 1), 50 * (attempts + 1));
       }
@@ -772,8 +799,16 @@ export default class TerminalStream {
     if (this.scrollHandler && this.scrollViewport) {
       this.scrollViewport.removeEventListener('scroll', this.scrollHandler);
       this.scrollHandler = null;
-      this.scrollViewport = null;
     }
+    if (this.wheelHandler) {
+      this.containerElement.removeEventListener('wheel', this.wheelHandler as EventListener, true);
+      this.wheelHandler = null;
+    }
+    if (this.wheelCooldownTimer) {
+      clearTimeout(this.wheelCooldownTimer);
+      this.wheelCooldownTimer = null;
+    }
+    this.scrollViewport = null;
     if (this.writeGuardTimer) {
       clearTimeout(this.writeGuardTimer);
       this.writeGuardTimer = null;
@@ -1255,6 +1290,7 @@ export default class TerminalStream {
 
   handleUserScroll() {
     if (!this.terminal) return;
+    if (this.wheelCooldown) return;
     if (this.writingToTerminal || this.scrollRAFPending || this.writeRAFPending) {
       if (this.diagnostics) this.diagnostics.scrollSuppressedCount++;
       if (this.lifecycleLogging) {

@@ -63,27 +63,109 @@
   --easing: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Global scrollbar styling */
-* {
+/* Dashboard scrollbar styling — scoped to known scrollable surfaces.
+ * Do NOT use * { scrollbar-width } — it bleeds into xterm.js internals
+ * and interferes with terminal scroll event handling. */
+body,
+.app-shell__content,
+.events-page__table-wrapper,
+.curator-terminal__body,
+.nav-workspaces,
+.spawn-content,
+.tab-panel,
+.wizard__content,
+.log-viewer__output,
+.modal__body,
+.diff-file-list,
+.diff-viewer-wrapper,
+.markdown-preview-content,
+.commit-workflow__file-list,
+.repo-tabs,
+.overlay-event__diff,
+.session-tabs__main {
   scrollbar-width: thin;
   scrollbar-color: var(--color-border) transparent;
 }
 
-*::-webkit-scrollbar {
+body::-webkit-scrollbar,
+.app-shell__content::-webkit-scrollbar,
+.events-page__table-wrapper::-webkit-scrollbar,
+.curator-terminal__body::-webkit-scrollbar,
+.nav-workspaces::-webkit-scrollbar,
+.spawn-content::-webkit-scrollbar,
+.tab-panel::-webkit-scrollbar,
+.wizard__content::-webkit-scrollbar,
+.log-viewer__output::-webkit-scrollbar,
+.modal__body::-webkit-scrollbar,
+.diff-file-list::-webkit-scrollbar,
+.diff-viewer-wrapper::-webkit-scrollbar,
+.markdown-preview-content::-webkit-scrollbar,
+.commit-workflow__file-list::-webkit-scrollbar,
+.repo-tabs::-webkit-scrollbar,
+.overlay-event__diff::-webkit-scrollbar,
+.session-tabs__main::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
-*::-webkit-scrollbar-track {
+body::-webkit-scrollbar-track,
+.app-shell__content::-webkit-scrollbar-track,
+.events-page__table-wrapper::-webkit-scrollbar-track,
+.curator-terminal__body::-webkit-scrollbar-track,
+.nav-workspaces::-webkit-scrollbar-track,
+.spawn-content::-webkit-scrollbar-track,
+.tab-panel::-webkit-scrollbar-track,
+.wizard__content::-webkit-scrollbar-track,
+.log-viewer__output::-webkit-scrollbar-track,
+.modal__body::-webkit-scrollbar-track,
+.diff-file-list::-webkit-scrollbar-track,
+.diff-viewer-wrapper::-webkit-scrollbar-track,
+.markdown-preview-content::-webkit-scrollbar-track,
+.commit-workflow__file-list::-webkit-scrollbar-track,
+.repo-tabs::-webkit-scrollbar-track,
+.overlay-event__diff::-webkit-scrollbar-track,
+.session-tabs__main::-webkit-scrollbar-track {
   background: transparent;
 }
 
-*::-webkit-scrollbar-thumb {
+body::-webkit-scrollbar-thumb,
+.app-shell__content::-webkit-scrollbar-thumb,
+.events-page__table-wrapper::-webkit-scrollbar-thumb,
+.curator-terminal__body::-webkit-scrollbar-thumb,
+.nav-workspaces::-webkit-scrollbar-thumb,
+.spawn-content::-webkit-scrollbar-thumb,
+.tab-panel::-webkit-scrollbar-thumb,
+.wizard__content::-webkit-scrollbar-thumb,
+.log-viewer__output::-webkit-scrollbar-thumb,
+.modal__body::-webkit-scrollbar-thumb,
+.diff-file-list::-webkit-scrollbar-thumb,
+.diff-viewer-wrapper::-webkit-scrollbar-thumb,
+.markdown-preview-content::-webkit-scrollbar-thumb,
+.commit-workflow__file-list::-webkit-scrollbar-thumb,
+.repo-tabs::-webkit-scrollbar-thumb,
+.overlay-event__diff::-webkit-scrollbar-thumb,
+.session-tabs__main::-webkit-scrollbar-thumb {
   background: var(--color-border);
   border-radius: 4px;
 }
 
-*::-webkit-scrollbar-thumb:hover {
+body::-webkit-scrollbar-thumb:hover,
+.app-shell__content::-webkit-scrollbar-thumb:hover,
+.events-page__table-wrapper::-webkit-scrollbar-thumb:hover,
+.curator-terminal__body::-webkit-scrollbar-thumb:hover,
+.nav-workspaces::-webkit-scrollbar-thumb:hover,
+.spawn-content::-webkit-scrollbar-thumb:hover,
+.tab-panel::-webkit-scrollbar-thumb:hover,
+.wizard__content::-webkit-scrollbar-thumb:hover,
+.log-viewer__output::-webkit-scrollbar-thumb:hover,
+.modal__body::-webkit-scrollbar-thumb:hover,
+.diff-file-list::-webkit-scrollbar-thumb:hover,
+.diff-viewer-wrapper::-webkit-scrollbar-thumb:hover,
+.markdown-preview-content::-webkit-scrollbar-thumb:hover,
+.commit-workflow__file-list::-webkit-scrollbar-thumb:hover,
+.repo-tabs::-webkit-scrollbar-thumb:hover,
+.overlay-event__diff::-webkit-scrollbar-thumb:hover,
+.session-tabs__main::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-muted);
 }
 
@@ -2875,7 +2957,8 @@ body {
 .log-viewer__new-content {
   position: absolute;
   bottom: var(--spacing-lg);
-  right: var(--spacing-lg);
+  right: calc(var(--spacing-lg) + 16px);
+  z-index: 12;
   padding: var(--spacing-sm) var(--spacing-md);
   background-color: var(--color-accent);
   color: white;
@@ -2919,10 +3002,47 @@ body {
   margin: var(--spacing-sm);
 }
 
-#terminal .xterm-viewport {
+#terminal .xterm-viewport,
+.terminal-xterm .xterm-viewport {
   overflow-y: scroll !important;
   width: 100%;
   height: 100%;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+#terminal .xterm-viewport::-webkit-scrollbar,
+.terminal-xterm .xterm-viewport::-webkit-scrollbar {
+  width: 8px;
+}
+
+#terminal .xterm-viewport::-webkit-scrollbar-track,
+.terminal-xterm .xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#terminal .xterm-viewport::-webkit-scrollbar-thumb,
+.terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+
+#terminal .xterm-viewport::-webkit-scrollbar-thumb:hover,
+.terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* xterm.js v6 custom scrollbar — thin pill-shaped thumb */
+#terminal .xterm-scrollable-element .scrollbar,
+.terminal-xterm .xterm-scrollable-element .scrollbar {
+  width: 8px !important;
+}
+
+#terminal .xterm-scrollable-element .slider,
+.terminal-xterm .xterm-scrollable-element .slider {
+  border-radius: 4px;
+  left: 0 !important;
+  width: 8px !important;
 }
 
 /* Terminal focus indicator - subtle border glow when xterm has focus */

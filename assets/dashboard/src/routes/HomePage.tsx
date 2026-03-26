@@ -293,6 +293,8 @@ export default function HomePage() {
   const fm = useFloorManager();
   const { containerRef: fmTerminalRef } = useTerminalStream({
     sessionId: fm.enabled && fm.running ? fm.tmuxSession : null,
+    stripClearScreen: config.xterm?.strip_clear_screen !== false,
+    useWebGL: config.xterm?.use_webgl !== false,
   });
 
   const handleDismissHero = () => {
