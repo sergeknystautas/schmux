@@ -18,6 +18,9 @@ import (
 
 const previewAutoDetectCooldown = 45 * time.Second
 
+// pidFieldRegex matches the pid= field in ss output.
+var pidFieldRegex = regexp.MustCompile(`pid=(\d+)`)
+
 // pruneAgentPreviews removes previews whose target port is owned directly by
 // the session's agent process. Called on daemon startup to clean up previews
 // that were created before the agent-port filter existed.
@@ -41,76 +44,6 @@ func (s *Server) pruneAgentPreviews() {
 	}
 }
 
-// scanExistingSessionsForPreviews checks all local sessions for listening ports
-// and creates previews for any web servers found. Called on daemon startup.
-func (s *Server) scanExistingSessionsForPreviews() {
-	if s.previewManager == nil {
-		return
-	}
-
-	sessions := s.state.GetSessions()
-	for _, sess := range sessions {
-		// Skip remote sessions
-		if sess.RemoteHostID != "" || sess.Pid <= 0 {
-			continue
-		}
-
-		ws, found := s.state.GetWorkspace(sess.WorkspaceID)
-		if !found || ws.RemoteHostID != "" {
-			continue
-		}
-
-		// Find ports this session is listening on
-		listeningPorts := detectListeningPortsByPID(sess.Pid)
-		if len(listeningPorts) == 0 {
-			continue
-		}
-
-		// Filter out ports owned directly by the agent process (not its children)
-		listeningPorts = filterAgentPorts(sess.Pid, listeningPorts)
-		if len(listeningPorts) == 0 {
-			continue
-		}
-
-		// Filter out ports we already have previews for
-		ports := s.filterExistingPreviews(ws.ID, listeningPorts)
-		if len(ports) == 0 {
-			continue
-		}
-
-		// Filter out our own proxy ports
-		ports = s.filterProxyPorts(ports)
-		if len(ports) == 0 {
-			continue
-		}
-
-		// Filter out ports that don't speak HTTP
-		ports = filterNonHTTPPorts(ports)
-		if len(ports) == 0 {
-			continue
-		}
-
-		// Create previews for found ports
-		previewLog := logging.Sub(s.logger, "preview")
-		now := time.Now().UTC()
-		for _, lp := range ports {
-			key := fmt.Sprintf("%s:%d", ws.ID, lp.Port)
-			s.previewDetectMu.Lock()
-			s.previewDetect[key] = now
-			s.previewDetectMu.Unlock()
-
-			ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-			created, err := s.previewManager.CreateOrGet(ctx, ws, lp.Host, lp.Port, sess.ID)
-			cancel()
-			if err != nil {
-				previewLog.Debug("failed to create preview", "host", lp.Host, "port", lp.Port, "err", err)
-				continue
-			}
-			previewLog.Info("created preview", "workspace_id", ws.ID, "host", lp.Host, "port", lp.Port, "proxy_port", created.ProxyPort)
-		}
-	}
-}
-
 func (s *Server) handleSessionOutputChunk(sessionID string, chunk []byte) {
 	if s.previewManager == nil || len(chunk) == 0 {
 		return
@@ -124,26 +57,14 @@ func (s *Server) handleSessionOutputChunk(sessionID string, chunk []byte) {
 		return
 	}
 
-	// Find http(s):// URLs in terminal output, extract ports
+	// Find http(s):// URLs in terminal output, extract ports with host info
 	candidatePorts := detectPortsFromChunk(chunk)
 	if len(candidatePorts) == 0 {
 		return
 	}
 
-	// Verify which ports the session is actually listening on
-	listeningPorts := detectListeningPortsByPID(sess.Pid)
-	if len(listeningPorts) == 0 {
-		return
-	}
-
-	// Only keep ports that are actually listening (with host info)
-	ports := intersectPorts(candidatePorts, listeningPorts)
-	if len(ports) == 0 {
-		return
-	}
-
 	// Filter out ports owned directly by the agent process (not its children)
-	ports = filterAgentPorts(sess.Pid, ports)
+	ports := filterAgentPorts(sess.Pid, candidatePorts)
 	if len(ports) == 0 {
 		return
 	}
@@ -166,10 +87,24 @@ func (s *Server) handleSessionOutputChunk(sessionID string, chunk []byte) {
 		return
 	}
 
+	// Build PID tree for ownership lookup
+	descendantPIDs := make(map[int]bool)
+	for _, dpid := range getDescendantPIDs(sess.Pid) {
+		descendantPIDs[dpid] = true
+	}
+
 	// Create previews for verified ports
+	previewLog := logging.Sub(s.logger, "preview")
 	now := time.Now().UTC()
 	var createdPreview *string // ID of first created preview for navigation
 	for _, lp := range ports {
+		// Look up which PID owns this port
+		ownerPID, err := preview.LookupPortOwner(lp.Port)
+		if err != nil || !descendantPIDs[ownerPID] {
+			// Port not owned by a descendant of this session — discard
+			continue
+		}
+
 		key := fmt.Sprintf("%s:%d", ws.ID, lp.Port)
 		s.previewDetectMu.Lock()
 		last, hasLast := s.previewDetect[key]
@@ -181,13 +116,16 @@ func (s *Server) handleSessionOutputChunk(sessionID string, chunk []byte) {
 		s.previewDetectMu.Unlock()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-		created, err := s.previewManager.CreateOrGet(ctx, ws, lp.Host, lp.Port, sess.ID)
+		result, wasCreated, err := s.previewManager.CreateOrGet(ctx, ws, lp.Host, lp.Port, sess.ID, ownerPID)
 		cancel()
 		if err != nil {
 			continue
 		}
-		if createdPreview == nil {
-			createdPreview = &created.ID
+		if wasCreated {
+			previewLog.Info("created", "host", lp.Host, "port", lp.Port, "session", sess.ID, "server_pid", ownerPID, "trigger", "autodetect")
+			if createdPreview == nil {
+				createdPreview = &result.ID
+			}
 		}
 	}
 
@@ -205,22 +143,37 @@ var urlRegex = regexp.MustCompile(`(?i)(https?)://([a-zA-Z0-9.\[\]-]+)(:(\d+))?`
 var ansiRegex = regexp.MustCompile(`\x1b(?:\[[0-9;?]*[a-zA-Z@]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[^[\]])`)
 
 // detectPortsFromChunk finds http(s):// URLs in terminal output and extracts ports.
-// Defaults to 80 for http, 443 for https if no port specified.
-func detectPortsFromChunk(chunk []byte) []int {
+// Only accepts loopback hosts (localhost, 127.0.0.1, ::1). Defaults to 80 for http,
+// 443 for https if no port specified. Deduplicates by host+port pair.
+func detectPortsFromChunk(chunk []byte) []preview.ListeningPort {
 	clean := ansiRegex.ReplaceAllString(string(chunk), "")
 	if clean == "" {
 		return nil
 	}
 
-	seen := make(map[int]bool)
-	var ports []int
+	type hostPort struct {
+		host string
+		port int
+	}
+	seen := make(map[hostPort]bool)
+	var ports []preview.ListeningPort
 
 	for _, match := range urlRegex.FindAllStringSubmatch(clean, -1) {
 		if len(match) < 5 {
 			continue
 		}
 		scheme := strings.ToLower(match[1])
+		rawHost := match[2]
 		portStr := match[4]
+
+		// Validate host is loopback
+		host := strings.TrimSpace(strings.ToLower(rawHost))
+		switch host {
+		case "localhost", "127.0.0.1", "::1":
+			// valid loopback — keep as-is
+		default:
+			continue
+		}
 
 		var port int
 		if portStr != "" {
@@ -238,14 +191,20 @@ func detectPortsFromChunk(chunk []byte) []int {
 			}
 		}
 
-		if seen[port] {
+		key := hostPort{host: host, port: port}
+		if seen[key] {
 			continue
 		}
-		seen[port] = true
-		ports = append(ports, port)
+		seen[key] = true
+		ports = append(ports, preview.ListeningPort{Host: host, Port: port, OwnerPID: 0})
 	}
 
-	sort.Ints(ports)
+	sort.Slice(ports, func(i, j int) bool {
+		if ports[i].Port != ports[j].Port {
+			return ports[i].Port < ports[j].Port
+		}
+		return ports[i].Host < ports[j].Host
+	})
 	return ports
 }
 
@@ -257,48 +216,9 @@ func (s *Server) filterExistingPreviews(workspaceID string, ports []preview.List
 		if _, exists := s.state.FindPreview(workspaceID, lp.Host, lp.Port); exists {
 			continue
 		}
-		// Also check with the other loopback address (in case preview was created with different host)
-		otherHost := "::1"
-		if lp.Host == "::1" {
-			otherHost = "127.0.0.1"
-		}
-		if _, exists := s.state.FindPreview(workspaceID, otherHost, lp.Port); exists {
-			continue
-		}
 		filtered = append(filtered, lp)
 	}
 	return filtered
-}
-
-// intersectPorts returns listening ports from candidates that are in the listening set.
-// Returns preview.ListeningPort entries with host information from the listening set.
-func intersectPorts(candidates []int, listening []preview.ListeningPort) []preview.ListeningPort {
-	// Build map with IPv4 preference
-	listeningMap := make(map[int]preview.ListeningPort)
-	for _, lp := range listening {
-		// Prefer IPv4 over IPv6 if both exist
-		if existing, ok := listeningMap[lp.Port]; !ok || (existing.Host == "::1" && lp.Host == "127.0.0.1") {
-			listeningMap[lp.Port] = lp
-		}
-	}
-
-	// Build candidate set
-	candidateSet := make(map[int]bool)
-	for _, p := range candidates {
-		candidateSet[p] = true
-	}
-
-	// Build result from the map (which has IPv4 preference applied)
-	var result []preview.ListeningPort
-	for port, lp := range listeningMap {
-		if candidateSet[port] {
-			result = append(result, lp)
-		}
-	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Port < result[j].Port
-	})
-	return result
 }
 
 // filterProxyPorts removes ports that are our proxy ports (ephemeral ports we assigned)
@@ -482,6 +402,13 @@ func detectPortsViaSS(pid int) []preview.ListeningPort {
 		if !strings.Contains(line, pidStr) {
 			continue
 		}
+
+		// Extract ownerPID from pid= field in line
+		var ownerPID int
+		if pidMatch := pidFieldRegex.FindStringSubmatch(line); len(pidMatch) >= 2 {
+			ownerPID, _ = strconv.Atoi(pidMatch[1])
+		}
+
 		fields := strings.Fields(line)
 		for _, field := range fields {
 			var host string
@@ -527,10 +454,10 @@ func detectPortsViaSS(pid int) []preview.ListeningPort {
 			// For wildcards, only update if we don't have an entry or current is IPv6
 			if isWildcard {
 				if !hasExisting || existing.Host == "::1" {
-					portMap[port] = preview.ListeningPort{Host: host, Port: port}
+					portMap[port] = preview.ListeningPort{Host: host, Port: port, OwnerPID: ownerPID}
 				}
 			} else {
-				portMap[port] = preview.ListeningPort{Host: host, Port: port}
+				portMap[port] = preview.ListeningPort{Host: host, Port: port, OwnerPID: ownerPID}
 			}
 		}
 	}
@@ -611,10 +538,10 @@ func detectPortsViaLsof(pid int) []preview.ListeningPort {
 		// For wildcards, only update if we don't have an entry or current is IPv6
 		if isWildcard {
 			if !hasExisting || existing.Host == "::1" {
-				portMap[port] = preview.ListeningPort{Host: host, Port: port}
+				portMap[port] = preview.ListeningPort{Host: host, Port: port, OwnerPID: pid}
 			}
 		} else {
-			portMap[port] = preview.ListeningPort{Host: host, Port: port}
+			portMap[port] = preview.ListeningPort{Host: host, Port: port, OwnerPID: pid}
 		}
 	}
 

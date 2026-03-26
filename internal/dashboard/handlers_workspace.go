@@ -10,17 +10,21 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/sergeknystautas/schmux/internal/logging"
+	"github.com/sergeknystautas/schmux/internal/preview"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 type previewResponse struct {
-	ID          string `json:"id"`
-	WorkspaceID string `json:"workspace_id"`
-	TargetHost  string `json:"target_host"`
-	TargetPort  int    `json:"target_port"`
-	ProxyPort   int    `json:"proxy_port"`
-	Status      string `json:"status"`
-	LastError   string `json:"last_error,omitempty"`
+	ID              string `json:"id"`
+	WorkspaceID     string `json:"workspace_id"`
+	TargetHost      string `json:"target_host"`
+	TargetPort      int    `json:"target_port"`
+	ProxyPort       int    `json:"proxy_port"`
+	Status          string `json:"status"`
+	LastError       string `json:"last_error,omitempty"`
+	ServerPID       int    `json:"server_pid,omitempty"`
+	SourceSessionID string `json:"source_session_id,omitempty"`
 }
 
 // validateWorkspaceID is a chi middleware that validates the {workspaceID} URL parameter.
@@ -124,12 +128,87 @@ func (s *Server) handlePreviewsDelete(w http.ResponseWriter, r *http.Request) {
 // The frontend constructs the preview URL using window.location.hostname and proxy_port.
 func toPreviewResponse(p state.WorkspacePreview) previewResponse {
 	return previewResponse{
-		ID:          p.ID,
-		WorkspaceID: p.WorkspaceID,
-		TargetHost:  p.TargetHost,
-		TargetPort:  p.TargetPort,
-		ProxyPort:   p.ProxyPort,
-		Status:      p.Status,
-		LastError:   p.LastError,
+		ID:              p.ID,
+		WorkspaceID:     p.WorkspaceID,
+		TargetHost:      p.TargetHost,
+		TargetPort:      p.TargetPort,
+		ProxyPort:       p.ProxyPort,
+		Status:          p.Status,
+		LastError:       p.LastError,
+		ServerPID:       p.ServerPID,
+		SourceSessionID: p.SourceSessionID,
 	}
+}
+
+type createPreviewRequest struct {
+	TargetPort      int    `json:"target_port"`
+	TargetHost      string `json:"target_host"`
+	SourceSessionID string `json:"source_session_id"`
+}
+
+func (s *Server) handlePreviewsCreate(w http.ResponseWriter, r *http.Request) {
+	_, ws, ok := s.previewsWorkspaceCheck(w, r)
+	if !ok {
+		return
+	}
+
+	var req createPreviewRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.TargetPort <= 0 || req.TargetPort > 65535 {
+		http.Error(w, "target_port must be between 1 and 65535", http.StatusBadRequest)
+		return
+	}
+
+	host := req.TargetHost
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	host, err := preview.NormalizeTargetHost(host)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.SourceSessionID != "" {
+		if _, found := s.state.GetSession(req.SourceSessionID); !found {
+			http.Error(w, "source session not found", http.StatusBadRequest)
+			return
+		}
+	}
+
+	ownerPID, err := preview.LookupPortOwner(req.TargetPort)
+	if err != nil {
+		http.Error(w, "nothing is listening on that port", http.StatusUnprocessableEntity)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	result, created, err := s.previewManager.CreateOrGet(ctx, ws, host, req.TargetPort, req.SourceSessionID, ownerPID)
+	if err != nil {
+		if strings.Contains(err.Error(), "limit reached") {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if created {
+		previewLog := logging.Sub(s.logger, "preview")
+		previewLog.Info("created", "host", host, "port", req.TargetPort, "session", req.SourceSessionID, "server_pid", ownerPID, "trigger", "post-api")
+		go s.BroadcastSessions()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if created {
+		w.WriteHeader(http.StatusCreated)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+	json.NewEncoder(w).Encode(toPreviewResponse(result))
 }

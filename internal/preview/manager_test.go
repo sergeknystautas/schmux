@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -56,7 +57,7 @@ func TestNormalizeTargetHost(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := normalizeTargetHost(tt.host)
+			_, err := NormalizeTargetHost(tt.host)
 			if tt.wantErr && err == nil {
 				t.Fatal("expected error")
 			}
@@ -83,7 +84,7 @@ func TestManagerCreateOrGetReuse(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	first, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "")
+	first, _, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "", 0)
 	if err != nil {
 		t.Fatalf("create preview: %v", err)
 	}
@@ -91,7 +92,7 @@ func TestManagerCreateOrGetReuse(t *testing.T) {
 		t.Fatalf("expected ready status, got %s", first.Status)
 	}
 
-	second, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "")
+	second, _, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "", 0)
 	if err != nil {
 		t.Fatalf("create preview second time: %v", err)
 	}
@@ -109,7 +110,7 @@ func TestManagerRemoteWorkspaceUnsupported(t *testing.T) {
 	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, nil)
 	defer m.Stop()
 
-	_, err := m.CreateOrGet(context.Background(), ws, "127.0.0.1", 5173, "")
+	_, _, err := m.CreateOrGet(context.Background(), ws, "127.0.0.1", 5173, "", 0)
 	if err == nil {
 		t.Fatal("expected error for remote workspace")
 	}
@@ -128,7 +129,7 @@ func TestManagerStablePortSurvivesRestart(t *testing.T) {
 	// First "daemon run": create a preview, note its port.
 	m1 := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	first, err := m1.CreateOrGet(ctx, ws, "127.0.0.1", upstreamPort, "")
+	first, _, err := m1.CreateOrGet(ctx, ws, "127.0.0.1", upstreamPort, "", 0)
 	cancel()
 	if err != nil {
 		t.Fatalf("create preview: %v", err)
@@ -148,7 +149,7 @@ func TestManagerStablePortSurvivesRestart(t *testing.T) {
 
 	ws2, _ := st2.GetWorkspace("ws-1")
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
-	second, err := m2.CreateOrGet(ctx2, ws2, "127.0.0.1", upstreamPort, "")
+	second, _, err := m2.CreateOrGet(ctx2, ws2, "127.0.0.1", upstreamPort, "", 0)
 	cancel2()
 	if err != nil {
 		t.Fatalf("recreate preview after restart: %v", err)
@@ -172,11 +173,11 @@ func TestManagerDifferentWorkspacesGetDifferentBlocks(t *testing.T) {
 	defer m.Stop()
 
 	ctx := context.Background()
-	p1, err := m.CreateOrGet(ctx, ws1, "127.0.0.1", testServerPort(upstream1), "")
+	p1, _, err := m.CreateOrGet(ctx, ws1, "127.0.0.1", testServerPort(upstream1), "", 0)
 	if err != nil {
 		t.Fatalf("create preview ws1: %v", err)
 	}
-	p2, err := m.CreateOrGet(ctx, ws2, "127.0.0.1", testServerPort(upstream2), "")
+	p2, _, err := m.CreateOrGet(ctx, ws2, "127.0.0.1", testServerPort(upstream2), "", 0)
 	if err != nil {
 		t.Fatalf("create preview ws2: %v", err)
 	}
@@ -223,7 +224,7 @@ func TestManagerReconcileWorkspaceRemovesStalePreview(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	p, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "sess-1")
+	p, _, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "sess-1", 0)
 	if err != nil {
 		t.Fatalf("create preview: %v", err)
 	}
@@ -255,7 +256,7 @@ func TestManagerReconcileDeletesWhenSessionDead(t *testing.T) {
 	defer m.Stop()
 
 	ctx := context.Background()
-	p, err := m.CreateOrGet(ctx, ws, "127.0.0.1", testServerPort(upstream), "sess-dead")
+	p, _, err := m.CreateOrGet(ctx, ws, "127.0.0.1", testServerPort(upstream), "sess-dead", 0)
 	if err != nil {
 		t.Fatalf("create preview: %v", err)
 	}
@@ -295,7 +296,7 @@ func TestManagerReconcileRecreatesListener(t *testing.T) {
 	defer m.Stop()
 
 	ctx := context.Background()
-	p, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "sess-1")
+	p, _, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "sess-1", 0)
 	if err != nil {
 		t.Fatalf("create preview: %v", err)
 	}
@@ -349,7 +350,7 @@ func TestManagerWebSocketProxying(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	preview, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "")
+	preview, _, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "", 0)
 	if err != nil {
 		t.Fatalf("create preview: %v", err)
 	}
@@ -393,11 +394,11 @@ func TestManagerDeleteBySession(t *testing.T) {
 	defer m.Stop()
 
 	ctx := context.Background()
-	p1, err := m.CreateOrGet(ctx, ws, "127.0.0.1", testServerPort(upstream1), "sess-a")
+	p1, _, err := m.CreateOrGet(ctx, ws, "127.0.0.1", testServerPort(upstream1), "sess-a", 0)
 	if err != nil {
 		t.Fatalf("create p1: %v", err)
 	}
-	p2, err := m.CreateOrGet(ctx, ws, "127.0.0.1", testServerPort(upstream2), "sess-b")
+	p2, _, err := m.CreateOrGet(ctx, ws, "127.0.0.1", testServerPort(upstream2), "sess-b", 0)
 	if err != nil {
 		t.Fatalf("create p2: %v", err)
 	}
@@ -432,7 +433,7 @@ func TestManagerCreateOrGetSetsSourceSessionID(t *testing.T) {
 	defer m.Stop()
 
 	ctx := context.Background()
-	p, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "sess-abc")
+	p, _, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "sess-abc", 0)
 	if err != nil {
 		t.Fatalf("create preview: %v", err)
 	}
@@ -441,11 +442,143 @@ func TestManagerCreateOrGetSetsSourceSessionID(t *testing.T) {
 	}
 
 	// Second call reuses existing, source session ID stays
-	p2, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "sess-xyz")
+	p2, _, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "sess-xyz", 0)
 	if err != nil {
 		t.Fatalf("reuse preview: %v", err)
 	}
 	if p2.SourceSessionID != "sess-abc" {
 		t.Fatalf("expected original source session preserved, got %q", p2.SourceSessionID)
+	}
+}
+
+func TestLookupPortOwner(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	pid, err := LookupPortOwner(port)
+	if err != nil {
+		t.Fatalf("LookupPortOwner: %v", err)
+	}
+	if pid != os.Getpid() {
+		t.Fatalf("expected pid %d, got %d", os.Getpid(), pid)
+	}
+}
+
+func TestLookupPortOwnerNotListening(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+
+	_, err = LookupPortOwner(port)
+	if err == nil {
+		t.Fatal("expected error for closed port")
+	}
+}
+
+func TestReconcileDeletesDeadServerPID(t *testing.T) {
+	ws := state.Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir()}
+	st, _ := newPreviewTestState(t, ws)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer upstream.Close()
+
+	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, nil)
+	defer m.Stop()
+
+	ctx := context.Background()
+	// Use dead PID 999999 as serverPID
+	p, _, err := m.CreateOrGet(ctx, ws, "127.0.0.1", testServerPort(upstream), "", 999999)
+	if err != nil {
+		t.Fatalf("create preview: %v", err)
+	}
+
+	changed, err := m.ReconcileWorkspace(ws.ID)
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected reconcile to report changes")
+	}
+	if _, found := st.GetPreview(p.ID); found {
+		t.Fatal("expected preview with dead server PID to be deleted")
+	}
+}
+
+func TestReconcileKeepsAliveOutOfTreeServerPID(t *testing.T) {
+	ws := state.Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir()}
+	st, _ := newPreviewTestState(t, ws)
+
+	// Start a real listener so LookupPortOwner can find this process as the owner.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	// Session with PID=1 (not in our process tree, not dead but irrelevant).
+	st.AddSession(state.Session{ID: "sess-1", WorkspaceID: "ws-1", Pid: 1})
+
+	// noPortsDetector: session PID tree doesn't own the port.
+	noPortsDetector := func(pid int) []ListeningPort { return nil }
+
+	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, noPortsDetector)
+	defer m.Stop()
+
+	ctx := context.Background()
+	// Use our own PID as serverPID — alive and owns the port.
+	p, _, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "sess-1", os.Getpid())
+	if err != nil {
+		t.Fatalf("create preview: %v", err)
+	}
+
+	changed, err := m.ReconcileWorkspace(ws.ID)
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	_ = changed // may or may not recreate listener; we only care it is kept
+	if _, found := st.GetPreview(p.ID); !found {
+		t.Fatal("expected preview with alive out-of-tree server PID to be kept")
+	}
+}
+
+func TestReconcileSessionLessPreview(t *testing.T) {
+	ws := state.Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir()}
+	st, _ := newPreviewTestState(t, ws)
+
+	// Start a real listener so LookupPortOwner can find this process as the owner.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, nil)
+	defer m.Stop()
+
+	ctx := context.Background()
+	// No SourceSessionID, serverPID = our own PID (alive, owns port).
+	p, _, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port, "", os.Getpid())
+	if err != nil {
+		t.Fatalf("create preview: %v", err)
+	}
+
+	changed, err := m.ReconcileWorkspace(ws.ID)
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	_ = changed
+	if _, found := st.GetPreview(p.ID); !found {
+		t.Fatal("expected session-less preview with alive server PID to be kept")
 	}
 }

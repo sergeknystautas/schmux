@@ -8,15 +8,22 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os/exec"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
+
+// Compiled regexes for ss output parsing.
+var ssPIDRegex = regexp.MustCompile(`pid=(\d+)`)
 
 const (
 	StatusReady   = "ready"
@@ -25,8 +32,9 @@ const (
 
 // ListeningPort represents a detected listening port with its host address.
 type ListeningPort struct {
-	Host string
-	Port int
+	Host     string
+	Port     int
+	OwnerPID int
 }
 
 // PortDetector returns the listening ports for a process and its descendants.
@@ -98,24 +106,24 @@ func (m *Manager) Stop() {
 	}
 }
 
-func (m *Manager) CreateOrGet(ctx context.Context, ws state.Workspace, targetHost string, targetPort int, sourceSessionID string) (state.WorkspacePreview, error) {
+func (m *Manager) CreateOrGet(ctx context.Context, ws state.Workspace, targetHost string, targetPort int, sourceSessionID string, serverPID int) (state.WorkspacePreview, bool, error) {
 	if ws.RemoteHostID != "" {
-		return state.WorkspacePreview{}, ErrRemoteUnsupported
+		return state.WorkspacePreview{}, false, ErrRemoteUnsupported
 	}
-	host, err := normalizeTargetHost(targetHost)
+	host, err := NormalizeTargetHost(targetHost)
 	if err != nil {
-		return state.WorkspacePreview{}, err
+		return state.WorkspacePreview{}, false, err
 	}
 	if targetPort <= 0 || targetPort > 65535 {
-		return state.WorkspacePreview{}, fmt.Errorf("target port must be between 1 and 65535")
+		return state.WorkspacePreview{}, false, fmt.Errorf("target port must be between 1 and 65535")
 	}
 
 	if existing, ok := m.state.FindPreview(ws.ID, host, targetPort); ok {
 		preview, err := m.ensureListener(ctx, existing)
 		if err != nil {
-			return state.WorkspacePreview{}, err
+			return state.WorkspacePreview{}, false, err
 		}
-		return preview, nil
+		return preview, false, nil
 	}
 
 	// Hold m.mu across cap check, port assignment, and state upsert to prevent
@@ -125,13 +133,13 @@ func (m *Manager) CreateOrGet(ctx context.Context, ws state.Workspace, targetHos
 	m.mu.Lock()
 	if err := m.enforceCaps(ws.ID); err != nil {
 		m.mu.Unlock()
-		return state.WorkspacePreview{}, err
+		return state.WorkspacePreview{}, false, err
 	}
 
 	proxyPort, err := m.pickStablePortLocked(ws.ID)
 	if err != nil {
 		m.mu.Unlock()
-		return state.WorkspacePreview{}, err
+		return state.WorkspacePreview{}, false, err
 	}
 
 	now := time.Now().UTC()
@@ -142,6 +150,7 @@ func (m *Manager) CreateOrGet(ctx context.Context, ws state.Workspace, targetHos
 		TargetPort:      targetPort,
 		ProxyPort:       proxyPort,
 		SourceSessionID: sourceSessionID,
+		ServerPID:       serverPID,
 		CreatedAt:       now,
 		LastUsedAt:      now,
 	}
@@ -149,7 +158,7 @@ func (m *Manager) CreateOrGet(ctx context.Context, ws state.Workspace, targetHos
 	// cap checks and port picks see this preview counted.
 	if err := m.state.UpsertPreview(preview); err != nil {
 		m.mu.Unlock()
-		return state.WorkspacePreview{}, err
+		return state.WorkspacePreview{}, false, err
 	}
 	if err := m.state.Save(); err != nil {
 		if removeErr := m.state.RemovePreview(preview.ID); removeErr != nil {
@@ -158,7 +167,7 @@ func (m *Manager) CreateOrGet(ctx context.Context, ws state.Workspace, targetHos
 			}
 		}
 		m.mu.Unlock()
-		return state.WorkspacePreview{}, err
+		return state.WorkspacePreview{}, false, err
 	}
 	m.mu.Unlock()
 
@@ -167,9 +176,9 @@ func (m *Manager) CreateOrGet(ctx context.Context, ws state.Workspace, targetHos
 		// Roll back the reservation on listener failure.
 		_ = m.state.RemovePreview(preview.ID)
 		_ = m.state.Save()
-		return state.WorkspacePreview{}, err
+		return state.WorkspacePreview{}, false, err
 	}
-	return result, nil
+	return result, true, nil
 }
 
 func (m *Manager) List(ctx context.Context, workspaceID string) ([]state.WorkspacePreview, error) {
@@ -245,57 +254,115 @@ func (m *Manager) DeleteWorkspace(workspaceID string) error {
 // whether the source session's PID tree still owns the target port.
 // Returns true when preview set changed.
 func (m *Manager) ReconcileWorkspace(workspaceID string) (bool, error) {
+	return m.ReconcileWorkspaceWithCache(workspaceID, nil)
+}
+
+func (m *Manager) ReconcileWorkspaceWithCache(workspaceID string, cache PortOwnerCache) (bool, error) {
 	previews := m.state.GetWorkspacePreviews(workspaceID)
 	if len(previews) == 0 {
 		return false, nil
 	}
 	changed := false
-	for _, preview := range previews {
-		// Look up source session
-		sess, hasSess := m.state.GetSession(preview.SourceSessionID)
-
-		// No source session or PID not set → delete
-		if !hasSess || sess.Pid <= 0 {
-			if err := m.Delete(workspaceID, preview.ID); err != nil {
-				return changed, err
-			}
-			changed = true
-			continue
-		}
-
-		// Check if session's PID tree still owns the target port
-		ownsPort := false
-		if m.portDetector != nil {
-			for _, lp := range m.portDetector(sess.Pid) {
-				if lp.Port == preview.TargetPort {
-					ownsPort = true
-					break
-				}
-			}
-		}
-
-		if !ownsPort {
-			if err := m.Delete(workspaceID, preview.ID); err != nil {
-				return changed, err
-			}
-			changed = true
-			continue
-		}
-
-		// Port still owned — ensure proxy listener is running
-		m.mu.Lock()
-		_, hasEntry := m.entries[preview.ID]
-		m.mu.Unlock()
-		if !hasEntry {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			if _, err := m.ensureListener(ctx, preview); err != nil {
+	for _, p := range previews {
+		// Step 1: Session check
+		var sess state.Session
+		var hasSess bool
+		if p.SourceSessionID != "" {
+			sess, hasSess = m.state.GetSession(p.SourceSessionID)
+			if !hasSess || sess.Pid <= 0 {
 				if m.logger != nil {
-					m.logger.Warn("failed to recreate listener", "preview_id", preview.ID, "err", err)
+					m.logger.Info("deleted", "id", p.ID, "host", p.TargetHost, "port", p.TargetPort, "reason", "session-gone", "session", p.SourceSessionID)
+				}
+				if err := m.Delete(workspaceID, p.ID); err != nil {
+					return changed, err
+				}
+				changed = true
+				continue
+			}
+		}
+
+		// Step 2: ServerPID alive check
+		if p.ServerPID > 0 && !isProcessAlive(p.ServerPID) {
+			if m.logger != nil {
+				m.logger.Info("deleted", "id", p.ID, "host", p.TargetHost, "port", p.TargetPort, "reason", "server-pid-dead", "server_pid", p.ServerPID)
+			}
+			if err := m.Delete(workspaceID, p.ID); err != nil {
+				return changed, err
+			}
+			changed = true
+			continue
+		}
+
+		// Step 3: PID tree check (session-bound only, non-terminal)
+		if p.SourceSessionID != "" && hasSess {
+			ownsPort := false
+			if m.portDetector != nil {
+				for _, lp := range m.portDetector(sess.Pid) {
+					if lp.Port == p.TargetPort {
+						ownsPort = true
+						break
+					}
 				}
 			}
-			cancel()
-			changed = true
+			if ownsPort {
+				m.mu.Lock()
+				_, hasEntry := m.entries[p.ID]
+				m.mu.Unlock()
+				if !hasEntry {
+					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+					if _, err := m.ensureListener(ctx, p); err != nil {
+						if m.logger != nil {
+							m.logger.Warn("failed to recreate listener", "preview_id", p.ID, "err", err)
+						}
+					}
+					cancel()
+					changed = true
+				}
+				continue
+			}
+			// Fall through to step 4 (non-terminal)
 		}
+
+		// Step 4: Port ownership (keeps POST API previews alive)
+		if p.ServerPID > 0 {
+			var currentOwner int
+			var found bool
+			if cache != nil {
+				currentOwner, found = cache[p.TargetPort]
+			} else {
+				var err error
+				currentOwner, err = LookupPortOwner(p.TargetPort)
+				found = err == nil
+			}
+			if found && currentOwner == p.ServerPID {
+				m.mu.Lock()
+				_, hasEntry := m.entries[p.ID]
+				m.mu.Unlock()
+				if !hasEntry {
+					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+					if _, err := m.ensureListener(ctx, p); err != nil {
+						if m.logger != nil {
+							m.logger.Warn("failed to recreate listener", "preview_id", p.ID, "err", err)
+						}
+					}
+					cancel()
+					changed = true
+				}
+				continue
+			}
+			if m.logger != nil && found {
+				m.logger.Info("deleted", "id", p.ID, "host", p.TargetHost, "port", p.TargetPort, "reason", "port-owner-changed", "server_pid", p.ServerPID, "current_owner", currentOwner)
+			}
+		}
+
+		// Step 5: All checks failed
+		if m.logger != nil {
+			m.logger.Info("deleted", "id", p.ID, "host", p.TargetHost, "port", p.TargetPort, "reason", "all-checks-failed")
+		}
+		if err := m.Delete(workspaceID, p.ID); err != nil {
+			return changed, err
+		}
+		changed = true
 	}
 	if changed {
 		if err := m.state.Save(); err != nil {
@@ -503,7 +570,7 @@ func (m *Manager) isPortFree(port int) bool {
 	return true
 }
 
-func normalizeTargetHost(host string) (string, error) {
+func NormalizeTargetHost(host string) (string, error) {
 	host = strings.TrimSpace(strings.ToLower(host))
 	if host == "" {
 		host = "127.0.0.1"
@@ -516,4 +583,205 @@ func normalizeTargetHost(host string) (string, error) {
 		return "", ErrTargetHostNotAllowed
 	}
 	return host, nil
+}
+
+// LookupPortOwner finds which PID is listening on a TCP port.
+// Uses lsof on macOS, ss on Linux. Prefers IPv4, lowest PID for ties.
+func LookupPortOwner(port int) (int, error) {
+	pid, err := lookupPortOwnerViaLsof(port)
+	if err == nil {
+		return pid, nil
+	}
+	return lookupPortOwnerViaSS(port)
+}
+
+func lookupPortOwnerViaLsof(port int) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 750*time.Millisecond)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "lsof", "-Pan", "-iTCP:"+strconv.Itoa(port), "-sTCP:LISTEN")
+	out, err := cmd.Output()
+	if err != nil || len(out) == 0 {
+		return 0, fmt.Errorf("no listener on port %d", port)
+	}
+
+	type candidate struct {
+		pid  int
+		ipv4 bool
+	}
+	var candidates []candidate
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		// NAME is second-to-last field, (LISTEN) is last
+		if len(fields) < 2 || fields[len(fields)-1] != "(LISTEN)" {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[1])
+		if err != nil || pid <= 0 {
+			continue
+		}
+		isIPv4 := strings.Contains(line, "IPv4")
+		candidates = append(candidates, candidate{pid: pid, ipv4: isIPv4})
+	}
+
+	if len(candidates) == 0 {
+		return 0, fmt.Errorf("no listener on port %d", port)
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].ipv4 != candidates[j].ipv4 {
+			return candidates[i].ipv4
+		}
+		return candidates[i].pid < candidates[j].pid
+	})
+	return candidates[0].pid, nil
+}
+
+func lookupPortOwnerViaSS(port int) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 750*time.Millisecond)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "ss", "-tlnp", "sport", "=", strconv.Itoa(port))
+	out, err := cmd.Output()
+	if err != nil || len(out) == 0 {
+		return 0, fmt.Errorf("no listener on port %d", port)
+	}
+
+	type candidate struct {
+		pid  int
+		ipv4 bool
+	}
+	var candidates []candidate
+	for _, line := range strings.Split(string(out), "\n") {
+		if !strings.Contains(line, "LISTEN") {
+			continue
+		}
+		pidMatch := ssPIDRegex.FindStringSubmatch(line)
+		if len(pidMatch) < 2 {
+			continue
+		}
+		pid, err := strconv.Atoi(pidMatch[1])
+		if err != nil || pid <= 0 {
+			continue
+		}
+		isIPv4 := !strings.Contains(line, "[::]") && !strings.Contains(line, ":::")
+		candidates = append(candidates, candidate{pid: pid, ipv4: isIPv4})
+	}
+	if len(candidates) == 0 {
+		return 0, fmt.Errorf("no listener on port %d", port)
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].ipv4 != candidates[j].ipv4 {
+			return candidates[i].ipv4
+		}
+		return candidates[i].pid < candidates[j].pid
+	})
+	return candidates[0].pid, nil
+}
+
+func isProcessAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	return syscall.Kill(pid, 0) == nil
+}
+
+// PortOwnerCache maps port numbers to their owning PIDs.
+// Built once per reconciliation tick via a batch lsof/ss call.
+type PortOwnerCache map[int]int
+
+// BuildPortOwnerCache runs a single lsof/ss call to snapshot all TCP LISTEN ports.
+func BuildPortOwnerCache() PortOwnerCache {
+	cache := make(PortOwnerCache)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "lsof", "-Pan", "-iTCP", "-sTCP:LISTEN")
+	out, err := cmd.Output()
+	if err == nil {
+		parseLsofCacheOutput(out, cache)
+		return cache
+	}
+
+	cmd = exec.CommandContext(ctx, "ss", "-tlnp")
+	out, err = cmd.Output()
+	if err == nil {
+		parseSSCacheOutput(out, cache)
+	}
+	return cache
+}
+
+func parseLsofCacheOutput(out []byte, cache PortOwnerCache) {
+	type entry struct {
+		pid  int
+		ipv4 bool
+	}
+	portEntries := make(map[int][]entry)
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		// NAME is second-to-last field, (LISTEN) is last
+		if len(fields) < 2 || fields[len(fields)-1] != "(LISTEN)" {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[1])
+		if err != nil || pid <= 0 {
+			continue
+		}
+		// NAME field: e.g. "*:7337" or "[::1]:9323" or "127.0.0.1:3000"
+		name := fields[len(fields)-2]
+		colonIdx := strings.LastIndex(name, ":")
+		if colonIdx < 0 {
+			continue
+		}
+		port, err := strconv.Atoi(name[colonIdx+1:])
+		if err != nil || port <= 0 {
+			continue
+		}
+		isIPv4 := strings.Contains(line, "IPv4")
+		portEntries[port] = append(portEntries[port], entry{pid: pid, ipv4: isIPv4})
+	}
+	for port, entries := range portEntries {
+		sort.Slice(entries, func(i, j int) bool {
+			if entries[i].ipv4 != entries[j].ipv4 {
+				return entries[i].ipv4
+			}
+			return entries[i].pid < entries[j].pid
+		})
+		cache[port] = entries[0].pid
+	}
+}
+
+func parseSSCacheOutput(out []byte, cache PortOwnerCache) {
+	type entry struct {
+		pid  int
+		ipv4 bool
+	}
+	portEntries := make(map[int][]entry)
+	portRe := regexp.MustCompile(`:(\d+)\s`)
+	for _, line := range strings.Split(string(out), "\n") {
+		if !strings.Contains(line, "LISTEN") {
+			continue
+		}
+		portMatch := portRe.FindStringSubmatch(line)
+		pidMatch := ssPIDRegex.FindStringSubmatch(line)
+		if len(portMatch) < 2 || len(pidMatch) < 2 {
+			continue
+		}
+		port, _ := strconv.Atoi(portMatch[1])
+		pid, _ := strconv.Atoi(pidMatch[1])
+		if port > 0 && pid > 0 {
+			isIPv4 := !strings.Contains(line, "[::]") && !strings.Contains(line, ":::")
+			portEntries[port] = append(portEntries[port], entry{pid: pid, ipv4: isIPv4})
+		}
+	}
+	for port, entries := range portEntries {
+		sort.Slice(entries, func(i, j int) bool {
+			if entries[i].ipv4 != entries[j].ipv4 {
+				return entries[i].ipv4
+			}
+			return entries[i].pid < entries[j].pid
+		})
+		cache[port] = entries[0].pid
+	}
 }

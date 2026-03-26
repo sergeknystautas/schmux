@@ -62,6 +62,8 @@ export interface WorkspacePreview {
   proxy_port: number;
   status: 'ready' | 'degraded';
   last_error?: string;
+  server_pid?: number;
+  source_session_id?: string;
 }
 
 export interface SessionWithWorkspace extends SessionResponse {

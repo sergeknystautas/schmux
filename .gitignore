@@ -50,6 +50,9 @@ test/scenarios/generated/test-results/
 test/scenarios/generated/playwright-report/
 test/scenarios/artifacts/
 
+# Superpowers brainstorm sessions
+.superpowers/
+
 # Cross-compiled build artifacts
 build/
 

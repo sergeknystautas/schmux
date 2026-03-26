@@ -298,6 +298,24 @@ echo '{"ts":"2026-02-18T14:30:00Z","type":"status","state":"working","message":"
 4. **Signal working** when starting a new task (describe what you're doing)
 5. Keep messages concise (under 100 characters)
 
+## Web Preview Registration
+
+When you launch a web server that the user should access through their browser,
+register it with schmux so a preview proxy is created in the dashboard:
+
+` + "```" + `
+curl -s -X POST "http://localhost:7337/api/workspaces/$SCHMUX_WORKSPACE_ID/previews" \
+  -H "Content-Type: application/json" \
+  -d "{\"target_port\": PORT, \"source_session_id\": \"$SCHMUX_SESSION_ID\"}"
+` + "```" + `
+
+Replace ` + "`PORT`" + ` with the port your server is listening on (e.g., 5173, 3000, 8080).
+The proxy URL is returned in the response under ` + "`proxy_port`" + `.
+
+Schmux can also auto-detect servers from terminal output URLs, but explicit
+registration is more reliable — especially for servers launched via ` + "`nohup`" + ` or ` + "`disown`" + `
+that run outside the session's process tree.
+
 ## Friction Capture
 
 When you hit a wall — wrong command, missing file, failed build, wrong assumption —

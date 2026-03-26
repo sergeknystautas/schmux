@@ -1,6 +1,10 @@
 package dashboard
 
-import "time"
+import (
+	"time"
+
+	"github.com/sergeknystautas/schmux/internal/preview"
+)
 
 func (s *Server) previewReconcileLoop() {
 	if s.previewManager == nil {
@@ -11,12 +15,13 @@ func (s *Server) previewReconcileLoop() {
 	for {
 		select {
 		case <-ticker.C:
+			cache := preview.BuildPortOwnerCache()
 			changed := false
 			for _, ws := range s.state.GetWorkspaces() {
 				if ws.RemoteHostID != "" {
 					continue
 				}
-				updated, err := s.previewManager.ReconcileWorkspace(ws.ID)
+				updated, err := s.previewManager.ReconcileWorkspaceWithCache(ws.ID, cache)
 				if err != nil {
 					continue
 				}

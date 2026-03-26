@@ -16,7 +16,7 @@ import (
 func TestDetectPortsFromChunk(t *testing.T) {
 	chunk := []byte("ready in 300ms\nLocal: http://localhost:5173/\nNetwork: use --host to expose")
 	ports := detectPortsFromChunk(chunk)
-	if len(ports) != 1 || ports[0] != 5173 {
+	if len(ports) != 1 || ports[0].Port != 5173 {
 		t.Fatalf("expected [5173], got %#v", ports)
 	}
 }
@@ -27,7 +27,7 @@ func TestDetectPortsFromChunk_MultipleURLs(t *testing.T) {
 	if len(ports) != 2 {
 		t.Fatalf("expected 2 ports, got %#v", ports)
 	}
-	if ports[0] != 3000 || ports[1] != 8080 {
+	if ports[0].Port != 3000 || ports[1].Port != 8080 {
 		t.Fatalf("expected [3000, 8080], got %#v", ports)
 	}
 }
@@ -35,7 +35,7 @@ func TestDetectPortsFromChunk_MultipleURLs(t *testing.T) {
 func TestDetectPortsFromChunk_DefaultPort(t *testing.T) {
 	chunk := []byte("Visit http://localhost/ for info")
 	ports := detectPortsFromChunk(chunk)
-	if len(ports) != 1 || ports[0] != 80 {
+	if len(ports) != 1 || ports[0].Port != 80 {
 		t.Fatalf("expected [80] (default http port), got %#v", ports)
 	}
 }
@@ -43,7 +43,7 @@ func TestDetectPortsFromChunk_DefaultPort(t *testing.T) {
 func TestDetectPortsFromChunk_HttpsDefaultPort(t *testing.T) {
 	chunk := []byte("Secure: https://localhost/")
 	ports := detectPortsFromChunk(chunk)
-	if len(ports) != 1 || ports[0] != 443 {
+	if len(ports) != 1 || ports[0].Port != 443 {
 		t.Fatalf("expected [443] (default https port), got %#v", ports)
 	}
 }
@@ -56,12 +56,22 @@ func TestDetectPortsFromChunk_NoFalsePositive(t *testing.T) {
 	}
 }
 
-func TestDetectPortsFromChunk_AnyHost(t *testing.T) {
-	// We don't filter by host - lsof/ss will verify the port is actually listening
+func TestDetectPortsFromChunk_NonLoopbackRejected(t *testing.T) {
+	// Non-loopback hosts are rejected — only localhost/127.0.0.1/::1 are accepted
 	chunk := []byte("API at http://api.example.com:8080/")
 	ports := detectPortsFromChunk(chunk)
-	if len(ports) != 1 || ports[0] != 8080 {
-		t.Fatalf("expected [8080], got %#v", ports)
+	if len(ports) != 0 {
+		t.Fatalf("expected no ports for non-loopback host, got %#v", ports)
+	}
+}
+
+func TestDetectPortsFromChunk_DedupByHostPort(t *testing.T) {
+	// Same host+port appearing twice should dedup
+	chunk := []byte("http://localhost:3000 and http://localhost:3000/app and http://127.0.0.1:3000")
+	ports := detectPortsFromChunk(chunk)
+	// localhost:3000 and 127.0.0.1:3000 are different host+port pairs
+	if len(ports) != 2 {
+		t.Fatalf("expected 2 (localhost:3000 and 127.0.0.1:3000), got %#v", ports)
 	}
 }
 
@@ -97,57 +107,6 @@ func TestFilterExistingPreviews(t *testing.T) {
 	filtered := srv.filterExistingPreviews("ws-1", ports)
 	if len(filtered) != 1 || filtered[0].Port != 3000 {
 		t.Fatalf("expected only port 3000, got %#v", filtered)
-	}
-}
-
-func TestIntersectPorts(t *testing.T) {
-	candidates := []int{3000, 5173, 8080}
-	listening := []preview.ListeningPort{
-		{Host: "127.0.0.1", Port: 5173},
-		{Host: "127.0.0.1", Port: 8080},
-		{Host: "127.0.0.1", Port: 9000},
-	} // 3000 not listening, 9000 not in candidates
-
-	ports := intersectPorts(candidates, listening)
-	if len(ports) != 2 {
-		t.Fatalf("expected 2 ports, got %#v", ports)
-	}
-	// Should be sorted
-	if ports[0].Port != 5173 || ports[1].Port != 8080 {
-		t.Fatalf("expected [5173, 8080], got %#v", ports)
-	}
-}
-
-func TestIntersectPorts_PrefersIPv4(t *testing.T) {
-	candidates := []int{5173}
-	// Both IPv4 and IPv6 listening on same port
-	listening := []preview.ListeningPort{
-		{Host: "::1", Port: 5173},
-		{Host: "127.0.0.1", Port: 5173},
-	}
-
-	ports := intersectPorts(candidates, listening)
-	if len(ports) != 1 {
-		t.Fatalf("expected 1 port, got %#v", ports)
-	}
-	// Should prefer IPv4
-	if ports[0].Host != "127.0.0.1" {
-		t.Fatalf("expected IPv4 (127.0.0.1), got %s", ports[0].Host)
-	}
-}
-
-func TestIntersectPorts_IPv6Only(t *testing.T) {
-	candidates := []int{5173}
-	listening := []preview.ListeningPort{
-		{Host: "::1", Port: 5173},
-	}
-
-	ports := intersectPorts(candidates, listening)
-	if len(ports) != 1 {
-		t.Fatalf("expected 1 port, got %#v", ports)
-	}
-	if ports[0].Host != "::1" || ports[0].Port != 5173 {
-		t.Fatalf("expected [::1:5173], got %#v", ports)
 	}
 }
 

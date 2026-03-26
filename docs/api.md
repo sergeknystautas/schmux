@@ -272,6 +272,22 @@ non-HTTP listeners (e.g. IPC, gRPC) are filtered out.
 
 Response: array of preview objects from the create endpoint.
 
+### POST /api/workspaces/{workspaceId}/previews
+
+Create a preview proxy for a local port.
+
+Request body:
+
+| Field             | Type   | Required | Description                        |
+| ----------------- | ------ | -------- | ---------------------------------- |
+| target_port       | int    | yes      | Port to proxy (1-65535)            |
+| target_host       | string | no       | Loopback host (default: 127.0.0.1) |
+| source_session_id | string | no       | Bind lifecycle to a session        |
+
+Response: `201 Created` with preview object on creation, `200 OK` on dedup (exact host+port match).
+
+Errors: 400 (bad input), 404 (workspace not found), 409 (cap reached), 422 (port not listening)
+
 ### DELETE /api/workspaces/{workspaceId}/previews/{previewId}
 
 Delete a preview mapping and stop its listener.

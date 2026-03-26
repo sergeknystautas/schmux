@@ -115,6 +115,7 @@ type WorkspacePreview struct {
 	CreatedAt       time.Time `json:"created_at"`
 	LastUsedAt      time.Time `json:"last_used_at"`
 	LastHealthyAt   time.Time `json:"last_healthy_at,omitempty"`
+	ServerPID       int       `json:"server_pid,omitempty"`
 }
 
 type RepoBase struct {

@@ -345,11 +345,8 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 	// Start rate limiter cleanup goroutines
 	go s.connectLimiter.startCleanup(10 * time.Minute)
 	go s.remoteAuthLimiter.startCleanup(10 * time.Minute)
-	// Clean up stale agent-port previews, then scan for new web server ports
-	go func() {
-		s.pruneAgentPreviews()
-		s.scanExistingSessionsForPreviews()
-	}()
+	// Clean up stale agent-port previews
+	go s.pruneAgentPreviews()
 	return s
 }
 
@@ -674,6 +671,7 @@ func (s *Server) Start() error {
 				r.Get("/inspect", s.handleInspectWorkspace)
 				// Preview routes
 				r.Get("/previews", s.handlePreviewsList)
+				r.Post("/previews", s.handlePreviewsCreate)
 				r.Delete("/previews/{previewID}", s.handlePreviewsDelete)
 
 				// Git graph/commit routes
