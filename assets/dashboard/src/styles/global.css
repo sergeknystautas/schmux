@@ -63,6 +63,30 @@
   --easing: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Global scrollbar styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
 /* Dark mode via system preference */
 @media (prefers-color-scheme: dark) {
   :root {
@@ -2899,28 +2923,6 @@ body {
   overflow-y: scroll !important;
   width: 100%;
   height: 100%;
-}
-
-#terminal .xterm-viewport::-webkit-scrollbar {
-  width: 8px;
-}
-
-#terminal .xterm-viewport::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-#terminal .xterm-viewport::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 4px;
-}
-
-#terminal .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-muted);
-}
-
-#terminal .xterm-viewport {
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
 }
 
 /* Terminal focus indicator - subtle border glow when xterm has focus */
