@@ -21,6 +21,8 @@ func (s *Server) handleDiagnosticAppend(w http.ResponseWriter, r *http.Request) 
 		ScrollStats        string `json:"scrollStats"`
 		WsEvents           string `json:"wsEvents"`
 		LifecycleEvents    string `json:"lifecycleEvents"`
+		WriteRaceStats     string `json:"writeRaceStats"`
+		SlowReactRenders   string `json:"slowReactRenders"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -51,6 +53,12 @@ func (s *Server) handleDiagnosticAppend(w http.ResponseWriter, r *http.Request) 
 	}
 	if req.LifecycleEvents != "" {
 		os.WriteFile(filepath.Join(req.DiagDir, "lifecycle-events.json"), []byte(req.LifecycleEvents), 0o644)
+	}
+	if req.WriteRaceStats != "" {
+		os.WriteFile(filepath.Join(req.DiagDir, "write-race-stats.json"), []byte(req.WriteRaceStats), 0o644)
+	}
+	if req.SlowReactRenders != "" {
+		os.WriteFile(filepath.Join(req.DiagDir, "slow-react-renders.json"), []byte(req.SlowReactRenders), 0o644)
 	}
 	w.WriteHeader(http.StatusOK)
 }

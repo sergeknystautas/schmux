@@ -409,7 +409,7 @@ describe('TerminalStream bootstrap write chaining', () => {
     stream = new TerminalStream('test-session', container);
   });
 
-  it('calls scrollToBottom only after bootstrap write callback fires', async () => {
+  it('does not call scrollToBottom after writes — viewport sync handles it', async () => {
     await stream.initialized;
     const terminal = stream.terminal!;
 
@@ -432,19 +432,18 @@ describe('TerminalStream bootstrap write chaining', () => {
     // Send bootstrap frame (seq=0)
     stream.handleOutput(buildSeqFrame(0n, 'chunk1'));
 
-    // scrollToBottom should NOT have been called yet (write hasn't "completed")
-    expect(terminal.scrollToBottom).not.toHaveBeenCalled();
-
-    // Simulate xterm.js completing the write — schedules coalesced rAF
+    // Simulate xterm.js completing the write
     writeCallbacks[0]();
-    expect(terminal.scrollToBottom).not.toHaveBeenCalled();
 
-    // Fire the rAF — now scrollToBottom runs (followTail defaults to true)
+    // Fire all rAFs
     rafCallbacks.forEach((cb) => cb(0));
-    expect(terminal.scrollToBottom).toHaveBeenCalledTimes(1);
+
+    // scrollToBottom should NOT be called — xterm's Viewport._sync already
+    // positions the viewport at buffer.ydisp during parse (Fix 1).
+    expect(terminal.scrollToBottom).not.toHaveBeenCalled();
   });
 
-  it('calls scrollToBottom via callback on live frames too', async () => {
+  it('does not call scrollToBottom on live frames either', async () => {
     await stream.initialized;
     const terminal = stream.terminal!;
 
@@ -468,19 +467,17 @@ describe('TerminalStream bootstrap write chaining', () => {
     // Send live frame (writeLiveFrame defers to rAF)
     stream.handleOutput(buildSeqFrame(1n, 'live-data'));
 
-    // scrollToBottom should NOT have been called yet
-    expect(terminal.scrollToBottom).not.toHaveBeenCalled();
-
     // Fire the write-coalescing rAF — this calls writeTerminal, which calls terminal.write
     rafCallbacks.shift()!(0);
 
-    // Simulate write completion — schedules scroll rAF
+    // Simulate write completion
     writeCallbacks[0]();
-    expect(terminal.scrollToBottom).not.toHaveBeenCalled();
 
-    // Fire the scroll rAF — now it should fire
+    // Fire remaining rAFs
     rafCallbacks.forEach((cb) => cb(0));
-    expect(terminal.scrollToBottom).toHaveBeenCalledTimes(1);
+
+    // scrollToBottom should NOT be called (Fix 1)
+    expect(terminal.scrollToBottom).not.toHaveBeenCalled();
   });
 });
 

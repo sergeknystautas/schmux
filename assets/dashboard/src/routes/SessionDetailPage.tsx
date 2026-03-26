@@ -152,6 +152,9 @@ export default function SessionDetailPage() {
     }
   }, [sessionData?.id, sessionData?.nudge_seq, markAsViewed, ackSession]);
 
+  // Track slow React renders for diagnostic capture
+  const slowRendersRef = useRef<{ ts: number; phase: string; durationMs: number }[]>([]);
+
   // Ref for diagnostic completion handler to avoid stale closures
   const diagnosticCompleteRef = useRef<
     (result: { diagDir: string; verdict: string; findings: string[] }) => void
@@ -196,6 +199,8 @@ export default function SessionDetailPage() {
     if (desyncEnabledRef.current) {
       terminalStream.lifecycleLogging = true;
       terminalStream.enableDiagnostics();
+      terminalStream.enableWriteRaceDiagnostics();
+      terminalStream.slowReactRenders = slowRendersRef.current;
       terminalStream.onStatsUpdate = (stats) => {
         setBackendStats(stats as unknown as BackendStats);
       };
@@ -241,6 +246,7 @@ export default function SessionDetailPage() {
       if (diagnosticsInterval) {
         clearInterval(diagnosticsInterval);
       }
+      terminalStream.disableWriteRaceDiagnostics();
       terminalStream.disableDiagnostics();
       terminalStream.disconnect();
       setBackendStats(null);
@@ -596,131 +602,227 @@ export default function SessionDetailPage() {
         : 'Connecting...';
 
   return (
-    <>
-      {currentWorkspace && (
-        <>
-          <WorkspaceHeader workspace={currentWorkspace} />
-          <SessionTabs
-            sessions={currentWorkspace.sessions || []}
-            currentSessionId={sessionId}
-            workspace={currentWorkspace}
-          />
-        </>
-      )}
+    <React.Profiler
+      id="SessionDetailPage"
+      onRender={(_id, phase, actualDuration) => {
+        if (actualDuration > 50) {
+          slowRendersRef.current.push({
+            ts: Date.now(),
+            phase,
+            durationMs: Math.round(actualDuration),
+          });
+          if (slowRendersRef.current.length > 20) {
+            slowRendersRef.current = slowRendersRef.current.slice(-20);
+          }
+        }
+      }}
+    >
+      <>
+        {currentWorkspace && (
+          <>
+            <WorkspaceHeader workspace={currentWorkspace} />
+            <SessionTabs
+              sessions={currentWorkspace.sessions || []}
+              currentSessionId={sessionId}
+              workspace={currentWorkspace}
+            />
+          </>
+        )}
 
-      <div
-        className={`session-detail${sidebarCollapsed ? ' session-detail--sidebar-collapsed' : ''}`}
-      >
-        <div className="session-detail__main">
-          {remoteDisconnected ? (
-            <div
-              className="empty-state"
-              style={{
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <div className="empty-state__icon">
-                <svg
-                  width="48"
-                  height="48"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="var(--color-error)"
-                  strokeWidth="1.5"
-                >
-                  <line x1="1" y1="1" x2="23" y2="23" />
-                  <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
-                  <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
-                  <path d="M10.71 5.05A16 16 0 0 1 22.56 9" />
-                  <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" />
-                  <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
-                  <line x1="12" y1="20" x2="12.01" y2="20" />
-                </svg>
-              </div>
-              <h3 className="empty-state__title">Remote host disconnected</h3>
-              <p className="empty-state__description">
-                The connection to{' '}
-                {sessionData.remote_hostname || sessionData.remote_flavor_name || 'the remote host'}{' '}
-                has been lost. Reconnect to resume terminal streaming.
-              </p>
-              <button
-                className="btn btn--primary"
-                style={{ marginTop: 'var(--spacing-md)' }}
-                onClick={async () => {
-                  if (!sessionData.remote_host_id) return;
-                  try {
-                    const result = await reconnectRemoteHost(sessionData.remote_host_id);
-                    setReconnectModal({
-                      hostId: sessionData.remote_host_id,
-                      flavorId: result.flavor_id,
-                      displayName: result.hostname || sessionData.remote_flavor_name || 'Remote',
-                      provisioningSessionId: result.provisioning_session_id || null,
-                    });
-                  } catch (err) {
-                    alert('Reconnect Failed', getErrorMessage(err, 'Failed to reconnect'));
-                  }
+        <div
+          className={`session-detail${sidebarCollapsed ? ' session-detail--sidebar-collapsed' : ''}`}
+        >
+          <div className="session-detail__main">
+            {remoteDisconnected ? (
+              <div
+                className="empty-state"
+                style={{
+                  height: '100%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
               >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
+                <div className="empty-state__icon">
+                  <svg
+                    width="48"
+                    height="48"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="var(--color-error)"
+                    strokeWidth="1.5"
+                  >
+                    <line x1="1" y1="1" x2="23" y2="23" />
+                    <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
+                    <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
+                    <path d="M10.71 5.05A16 16 0 0 1 22.56 9" />
+                    <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" />
+                    <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+                    <line x1="12" y1="20" x2="12.01" y2="20" />
+                  </svg>
+                </div>
+                <h3 className="empty-state__title">Remote host disconnected</h3>
+                <p className="empty-state__description">
+                  The connection to{' '}
+                  {sessionData.remote_hostname ||
+                    sessionData.remote_flavor_name ||
+                    'the remote host'}{' '}
+                  has been lost. Reconnect to resume terminal streaming.
+                </p>
+                <button
+                  className="btn btn--primary"
+                  style={{ marginTop: 'var(--spacing-md)' }}
+                  onClick={async () => {
+                    if (!sessionData.remote_host_id) return;
+                    try {
+                      const result = await reconnectRemoteHost(sessionData.remote_host_id);
+                      setReconnectModal({
+                        hostId: sessionData.remote_host_id,
+                        flavorId: result.flavor_id,
+                        displayName: result.hostname || sessionData.remote_flavor_name || 'Remote',
+                        provisioningSessionId: result.provisioning_session_id || null,
+                      });
+                    } catch (err) {
+                      alert('Reconnect Failed', getErrorMessage(err, 'Failed to reconnect'));
+                    }
+                  }}
                 >
-                  <polyline points="23 4 23 10 17 10" />
-                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                </svg>
-                Reconnect
-              </button>
-            </div>
-          ) : (
-            <div className="log-viewer" data-tour="terminal-log-viewer">
-              <div
-                className="log-viewer__header"
-                style={
-                  sessionData.persona_color
-                    ? { borderBottom: `6px solid ${sessionData.persona_color}` }
-                    : undefined
-                }
-              >
-                <div className="log-viewer__info">
-                  <Tooltip
-                    content={
-                      wsStatus === 'connected' && !controlModeAttached
-                        ? 'Terminal output stalled — tmux control mode reconnecting'
-                        : wsStatus === 'connected'
-                          ? 'WebSocket connected - receiving real-time terminal output'
-                          : wsStatus === 'disconnected'
-                            ? 'WebSocket disconnected - unable to receive terminal output'
-                            : 'WebSocket connecting...'
-                    }
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
                   >
-                    <div className={`connection-pill ${wsPillClass}`}>
-                      <span className="connection-pill__dot"></span>
-                      <span>{wsPillText}</span>
-                    </div>
-                  </Tooltip>
-                  <Tooltip
-                    content={
-                      sessionData.running ? 'Agent process is running' : 'Agent process has stopped'
-                    }
-                  >
-                    <div className={`status-pill ${statusClass}`} data-testid="session-status">
-                      <span className="status-pill__dot"></span>
-                      <span>{statusText}</span>
-                    </div>
-                  </Tooltip>
-                  {!sessionData.remote_host_id && config.system_capabilities?.iterm2_available && (
-                    <Tooltip content="Open tmux session in iTerm2">
-                      <a
-                        className="iterm2-link"
-                        href={`iterm2:///command?c=${encodeURIComponent(sessionData.attach_cmd)}`}
+                    <polyline points="23 4 23 10 17 10" />
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                  </svg>
+                  Reconnect
+                </button>
+              </div>
+            ) : (
+              <div className="log-viewer" data-tour="terminal-log-viewer">
+                <div
+                  className="log-viewer__header"
+                  style={
+                    sessionData.persona_color
+                      ? { borderBottom: `6px solid ${sessionData.persona_color}` }
+                      : undefined
+                  }
+                >
+                  <div className="log-viewer__info">
+                    <Tooltip
+                      content={
+                        wsStatus === 'connected' && !controlModeAttached
+                          ? 'Terminal output stalled — tmux control mode reconnecting'
+                          : wsStatus === 'connected'
+                            ? 'WebSocket connected - receiving real-time terminal output'
+                            : wsStatus === 'disconnected'
+                              ? 'WebSocket disconnected - unable to receive terminal output'
+                              : 'WebSocket connecting...'
+                      }
+                    >
+                      <div className={`connection-pill ${wsPillClass}`}>
+                        <span className="connection-pill__dot"></span>
+                        <span>{wsPillText}</span>
+                      </div>
+                    </Tooltip>
+                    <Tooltip
+                      content={
+                        sessionData.running
+                          ? 'Agent process is running'
+                          : 'Agent process has stopped'
+                      }
+                    >
+                      <div className={`status-pill ${statusClass}`} data-testid="session-status">
+                        <span className="status-pill__dot"></span>
+                        <span>{statusText}</span>
+                      </div>
+                    </Tooltip>
+                    {!sessionData.remote_host_id &&
+                      config.system_capabilities?.iterm2_available && (
+                        <Tooltip content="Open tmux session in iTerm2">
+                          <a
+                            className="iterm2-link"
+                            href={`iterm2:///command?c=${encodeURIComponent(sessionData.attach_cmd)}`}
+                          >
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                            >
+                              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                              <polyline points="15 3 21 3 21 9" />
+                              <line x1="10" y1="14" x2="21" y2="3" />
+                            </svg>
+                            <span>iTerm2</span>
+                          </a>
+                        </Tooltip>
+                      )}
+                    {config.desync?.enabled && (
+                      <StreamMetricsPanel
+                        backendStats={backendStats}
+                        frontendStats={frontendStats}
+                        onDiagnosticCapture={() => terminalStreamRef.current?.sendDiagnostic()}
+                      />
+                    )}
+                    {config.io_workspace_telemetry?.enabled && (
+                      <IOWorkspaceMetricsPanel
+                        stats={ioWorkspaceStats}
+                        onCapture={() => terminalStreamRef.current?.sendIOWorkspaceDiagnostic()}
+                      />
+                    )}
+                  </div>
+                  <div className="log-viewer__actions">
+                    {selectionMode ? (
+                      <>
+                        <Tooltip
+                          content={`Copy ${selectedLines.length} selected line${selectedLines.length !== 1 ? 's' : ''}`}
+                        >
+                          <button
+                            className="btn btn--sm btn--primary"
+                            onClick={handleCopySelectedLines}
+                            disabled={selectedLines.length === 0}
+                          >
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                            >
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                            <span>Copy</span>
+                          </button>
+                        </Tooltip>
+                        <Tooltip content="Cancel selection">
+                          <button className="btn btn--sm" onClick={handleCancelSelection}>
+                            Cancel
+                          </button>
+                        </Tooltip>
+                      </>
+                    ) : (
+                      <Tooltip content="Select lines to copy">
+                        <button className="btn btn--sm" onClick={handleToggleSelectionMode}>
+                          Select lines
+                        </button>
+                      </Tooltip>
+                    )}
+                    <Tooltip content="Download log">
+                      <button
+                        className="btn btn--sm"
+                        onClick={() => {
+                          terminalStreamRef.current?.downloadOutput();
+                          success('Downloaded session log');
+                        }}
                       >
                         <svg
                           width="14"
@@ -730,378 +832,303 @@ export default function SessionDetailPage() {
                           stroke="currentColor"
                           strokeWidth="2"
                         >
-                          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                          <polyline points="15 3 21 3 21 9" />
-                          <line x1="10" y1="14" x2="21" y2="3" />
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                          <polyline points="7 10 12 15 17 10"></polyline>
+                          <line x1="12" y1="15" x2="12" y2="3"></line>
                         </svg>
-                        <span>iTerm2</span>
-                      </a>
-                    </Tooltip>
-                  )}
-                  {config.desync?.enabled && (
-                    <StreamMetricsPanel
-                      backendStats={backendStats}
-                      frontendStats={frontendStats}
-                      onDiagnosticCapture={() => terminalStreamRef.current?.sendDiagnostic()}
-                    />
-                  )}
-                  {config.io_workspace_telemetry?.enabled && (
-                    <IOWorkspaceMetricsPanel
-                      stats={ioWorkspaceStats}
-                      onCapture={() => terminalStreamRef.current?.sendIOWorkspaceDiagnostic()}
-                    />
-                  )}
-                </div>
-                <div className="log-viewer__actions">
-                  {selectionMode ? (
-                    <>
-                      <Tooltip
-                        content={`Copy ${selectedLines.length} selected line${selectedLines.length !== 1 ? 's' : ''}`}
-                      >
-                        <button
-                          className="btn btn--sm btn--primary"
-                          onClick={handleCopySelectedLines}
-                          disabled={selectedLines.length === 0}
-                        >
-                          <svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                          >
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                          </svg>
-                          <span>Copy</span>
-                        </button>
-                      </Tooltip>
-                      <Tooltip content="Cancel selection">
-                        <button className="btn btn--sm" onClick={handleCancelSelection}>
-                          Cancel
-                        </button>
-                      </Tooltip>
-                    </>
-                  ) : (
-                    <Tooltip content="Select lines to copy">
-                      <button className="btn btn--sm" onClick={handleToggleSelectionMode}>
-                        Select lines
                       </button>
                     </Tooltip>
-                  )}
-                  <Tooltip content="Download log">
-                    <button
-                      className="btn btn--sm"
-                      onClick={() => {
-                        terminalStreamRef.current?.downloadOutput();
-                        success('Downloaded session log');
-                      }}
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                        <polyline points="7 10 12 15 17 10"></polyline>
-                        <line x1="12" y1="15" x2="12" y2="3"></line>
-                      </svg>
-                    </button>
-                  </Tooltip>
-                  <Tooltip content="Toggle sidebar">
-                    <button className="btn btn--sm sidebar-toggle-btn" onClick={toggleSidebar}>
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                        <line x1="9" y1="3" x2="9" y2="21"></line>
-                      </svg>
-                    </button>
-                  </Tooltip>
+                    <Tooltip content="Toggle sidebar">
+                      <button className="btn btn--sm sidebar-toggle-btn" onClick={toggleSidebar}>
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                          <line x1="9" y1="3" x2="9" y2="21"></line>
+                        </svg>
+                      </button>
+                    </Tooltip>
+                  </div>
                 </div>
-              </div>
-              <div
-                key={sessionData.id}
-                id="terminal"
-                className="log-viewer__output"
-                data-tour="terminal-viewport"
-                ref={terminalRef}
-                data-testid="terminal-viewport"
-                style={{ cursor: selectionMode ? 'pointer' : undefined }}
-              ></div>
+                <div
+                  key={sessionData.id}
+                  id="terminal"
+                  className="log-viewer__output"
+                  data-tour="terminal-viewport"
+                  ref={terminalRef}
+                  data-testid="terminal-viewport"
+                  style={{ cursor: selectionMode ? 'pointer' : undefined }}
+                ></div>
 
-              {showResume ? (
-                <button
-                  className="log-viewer__new-content"
-                  onClick={() => {
-                    terminalStreamRef.current?.jumpToBottom();
-                    terminalStreamRef.current?.focus();
-                  }}
-                >
-                  Resume
-                </button>
-              ) : null}
-            </div>
-          )}
-        </div>
-
-        <aside
-          className="session-detail__sidebar"
-          data-tour="session-detail-sidebar"
-          data-testid="session-sidebar"
-        >
-          <div className="metadata-field">
-            <span className="metadata-field__label">Session ID</span>
-            <span className="metadata-field__value metadata-field__value--mono">
-              {sessionData.id}
-            </span>
-          </div>
-
-          <div className="metadata-field">
-            <span className="metadata-field__label">Target</span>
-            <span className="metadata-field__value">{sessionData.target}</span>
-          </div>
-
-          {sessionData.model && sessionData.model.context_window ? (
-            <div className="metadata-field">
-              <span className="metadata-field__label">Context Window</span>
-              <span className="metadata-field__value">
-                {(sessionData.model.context_window / 1000).toFixed(0)}K tokens
-              </span>
-            </div>
-          ) : null}
-          {sessionData.model &&
-          (sessionData.model.cost_input_per_mtok || sessionData.model.cost_output_per_mtok) ? (
-            <div className="metadata-field">
-              <span className="metadata-field__label">Pricing</span>
-              <span className="metadata-field__value">
-                ${sessionData.model.cost_input_per_mtok || 0} / $
-                {sessionData.model.cost_output_per_mtok || 0} per MTok
-              </span>
-            </div>
-          ) : null}
-
-          {sessionData.nickname ? (
-            <div className="metadata-field" data-testid="session-nickname">
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  width: '100%',
-                }}
-              >
-                <span className="metadata-field__label">Nickname</span>
-                <Tooltip content="Edit nickname">
-                  <button className="btn btn--sm btn--ghost" onClick={handleEditNickname}>
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                    </svg>
-                  </button>
-                </Tooltip>
-              </div>
-              <span className="metadata-field__value">{sessionData.nickname}</span>
-            </div>
-          ) : (
-            <div className="metadata-field" data-testid="session-nickname">
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  width: '100%',
-                }}
-              >
-                <span className="metadata-field__label">Nickname</span>
-                <Tooltip content="Add nickname">
-                  <button className="btn btn--sm btn--ghost" onClick={handleEditNickname}>
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <line x1="12" y1="5" x2="12" y2="19"></line>
-                      <line x1="5" y1="12" x2="19" y2="12"></line>
-                    </svg>
-                  </button>
-                </Tooltip>
-              </div>
-              <span
-                className="metadata-field__value"
-                style={{ color: 'var(--color-text-muted)', fontStyle: 'italic' }}
-              >
-                Not set
-              </span>
-            </div>
-          )}
-
-          {sessionData.persona_id && (
-            <div className="metadata-field">
-              <span className="metadata-field__label">Persona</span>
-              <span className="metadata-field__value">
-                {sessionData.persona_icon && (
-                  <span style={{ color: sessionData.persona_color, marginRight: '4px' }}>
-                    {sessionData.persona_icon}
-                  </span>
-                )}
-                {sessionData.persona_name || sessionData.persona_id}
-              </span>
-            </div>
-          )}
-
-          <div className="metadata-field">
-            <span className="metadata-field__label">Created</span>
-            <Tooltip content={formatTimestamp(sessionData.created_at)}>
-              <span className="metadata-field__value" style={{ alignSelf: 'flex-start' }}>
-                {formatRelativeTime(sessionData.created_at)}
-              </span>
-            </Tooltip>
-          </div>
-
-          <div className="metadata-field">
-            <span className="metadata-field__label">Last Activity</span>
-            <Tooltip
-              content={
-                sessionData.last_output_at ? formatTimestamp(sessionData.last_output_at) : 'Never'
-              }
-            >
-              <span className="metadata-field__value" style={{ alignSelf: 'flex-start' }}>
-                {sessionData.last_output_at
-                  ? formatRelativeTime(sessionData.last_output_at)
-                  : 'Never'}
-              </span>
-            </Tooltip>
-          </div>
-
-          {sessionData.remote_host_id && (
-            <>
-              <hr
-                style={{
-                  border: 'none',
-                  borderTop: '1px solid var(--color-border)',
-                  margin: 'var(--spacing-md) 0',
-                }}
-              />
-              <div className="metadata-field">
-                <span className="metadata-field__label">Environment</span>
-                <span
-                  className="metadata-field__value"
-                  style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}
-                >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
+                {showResume ? (
+                  <button
+                    className="log-viewer__new-content"
+                    onClick={() => {
+                      terminalStreamRef.current?.jumpToBottom();
+                      terminalStreamRef.current?.focus();
+                    }}
                   >
-                    <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
-                    <line x1="1" y1="10" x2="23" y2="10" />
-                  </svg>
-                  {sessionData.remote_flavor_name || 'Remote'}
+                    Resume
+                  </button>
+                ) : null}
+              </div>
+            )}
+          </div>
+
+          <aside
+            className="session-detail__sidebar"
+            data-tour="session-detail-sidebar"
+            data-testid="session-sidebar"
+          >
+            <div className="metadata-field">
+              <span className="metadata-field__label">Session ID</span>
+              <span className="metadata-field__value metadata-field__value--mono">
+                {sessionData.id}
+              </span>
+            </div>
+
+            <div className="metadata-field">
+              <span className="metadata-field__label">Target</span>
+              <span className="metadata-field__value">{sessionData.target}</span>
+            </div>
+
+            {sessionData.model && sessionData.model.context_window ? (
+              <div className="metadata-field">
+                <span className="metadata-field__label">Context Window</span>
+                <span className="metadata-field__value">
+                  {(sessionData.model.context_window / 1000).toFixed(0)}K tokens
                 </span>
               </div>
-              {sessionData.remote_hostname && (
-                <div className="metadata-field">
-                  <span className="metadata-field__label">Hostname</span>
-                  <span
-                    className="metadata-field__value metadata-field__value--mono"
-                    style={{ fontSize: '0.75rem' }}
-                  >
-                    {sessionData.remote_hostname}
-                  </span>
+            ) : null}
+            {sessionData.model &&
+            (sessionData.model.cost_input_per_mtok || sessionData.model.cost_output_per_mtok) ? (
+              <div className="metadata-field">
+                <span className="metadata-field__label">Pricing</span>
+                <span className="metadata-field__value">
+                  ${sessionData.model.cost_input_per_mtok || 0} / $
+                  {sessionData.model.cost_output_per_mtok || 0} per MTok
+                </span>
+              </div>
+            ) : null}
+
+            {sessionData.nickname ? (
+              <div className="metadata-field" data-testid="session-nickname">
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    width: '100%',
+                  }}
+                >
+                  <span className="metadata-field__label">Nickname</span>
+                  <Tooltip content="Edit nickname">
+                    <button className="btn btn--sm btn--ghost" onClick={handleEditNickname}>
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                      </svg>
+                    </button>
+                  </Tooltip>
                 </div>
-              )}
-            </>
-          )}
+                <span className="metadata-field__value">{sessionData.nickname}</span>
+              </div>
+            ) : (
+              <div className="metadata-field" data-testid="session-nickname">
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    width: '100%',
+                  }}
+                >
+                  <span className="metadata-field__label">Nickname</span>
+                  <Tooltip content="Add nickname">
+                    <button className="btn btn--sm btn--ghost" onClick={handleEditNickname}>
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                      </svg>
+                    </button>
+                  </Tooltip>
+                </div>
+                <span
+                  className="metadata-field__value"
+                  style={{ color: 'var(--color-text-muted)', fontStyle: 'italic' }}
+                >
+                  Not set
+                </span>
+              </div>
+            )}
 
-          <hr
-            style={{
-              border: 'none',
-              borderTop: '1px solid var(--color-border)',
-              margin: 'var(--spacing-md) 0',
-            }}
-          />
+            {sessionData.persona_id && (
+              <div className="metadata-field">
+                <span className="metadata-field__label">Persona</span>
+                <span className="metadata-field__value">
+                  {sessionData.persona_icon && (
+                    <span style={{ color: sessionData.persona_color, marginRight: '4px' }}>
+                      {sessionData.persona_icon}
+                    </span>
+                  )}
+                  {sessionData.persona_name || sessionData.persona_id}
+                </span>
+              </div>
+            )}
 
-          <div className="form-group">
-            <label className="form-group__label">Attach Command</label>
-            <div className="copy-field">
-              <span className="copy-field__value">{sessionData.attach_cmd}</span>
-              <Tooltip content="Copy attach command">
-                <button className="copy-field__btn" onClick={handleCopyAttach}>
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                  </svg>
-                </button>
+            <div className="metadata-field">
+              <span className="metadata-field__label">Created</span>
+              <Tooltip content={formatTimestamp(sessionData.created_at)}>
+                <span className="metadata-field__value" style={{ alignSelf: 'flex-start' }}>
+                  {formatRelativeTime(sessionData.created_at)}
+                </span>
               </Tooltip>
             </div>
-          </div>
 
-          <div style={{ marginTop: 'auto' }}>
-            <button
-              className="btn btn--danger"
-              style={{ width: '100%' }}
-              onClick={handleDispose}
-              disabled={sessionData?.status === 'disposing'}
-              data-testid="dispose-session"
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
+            <div className="metadata-field">
+              <span className="metadata-field__label">Last Activity</span>
+              <Tooltip
+                content={
+                  sessionData.last_output_at ? formatTimestamp(sessionData.last_output_at) : 'Never'
+                }
               >
-                <polyline points="3 6 5 6 21 6"></polyline>
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-              </svg>
-              Dispose Session
-            </button>
-          </div>
-        </aside>
-      </div>
+                <span className="metadata-field__value" style={{ alignSelf: 'flex-start' }}>
+                  {sessionData.last_output_at
+                    ? formatRelativeTime(sessionData.last_output_at)
+                    : 'Never'}
+                </span>
+              </Tooltip>
+            </div>
 
-      {reconnectModal && (
-        <ConnectionProgressModal
-          flavorId={reconnectModal.flavorId}
-          flavorName={reconnectModal.displayName}
-          provisioningSessionId={reconnectModal.provisioningSessionId}
-          onClose={() => setReconnectModal(null)}
-          onConnected={() => {
-            setReconnectModal(null);
-          }}
-        />
-      )}
-    </>
+            {sessionData.remote_host_id && (
+              <>
+                <hr
+                  style={{
+                    border: 'none',
+                    borderTop: '1px solid var(--color-border)',
+                    margin: 'var(--spacing-md) 0',
+                  }}
+                />
+                <div className="metadata-field">
+                  <span className="metadata-field__label">Environment</span>
+                  <span
+                    className="metadata-field__value"
+                    style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+                      <line x1="1" y1="10" x2="23" y2="10" />
+                    </svg>
+                    {sessionData.remote_flavor_name || 'Remote'}
+                  </span>
+                </div>
+                {sessionData.remote_hostname && (
+                  <div className="metadata-field">
+                    <span className="metadata-field__label">Hostname</span>
+                    <span
+                      className="metadata-field__value metadata-field__value--mono"
+                      style={{ fontSize: '0.75rem' }}
+                    >
+                      {sessionData.remote_hostname}
+                    </span>
+                  </div>
+                )}
+              </>
+            )}
+
+            <hr
+              style={{
+                border: 'none',
+                borderTop: '1px solid var(--color-border)',
+                margin: 'var(--spacing-md) 0',
+              }}
+            />
+
+            <div className="form-group">
+              <label className="form-group__label">Attach Command</label>
+              <div className="copy-field">
+                <span className="copy-field__value">{sessionData.attach_cmd}</span>
+                <Tooltip content="Copy attach command">
+                  <button className="copy-field__btn" onClick={handleCopyAttach}>
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                  </button>
+                </Tooltip>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 'auto' }}>
+              <button
+                className="btn btn--danger"
+                style={{ width: '100%' }}
+                onClick={handleDispose}
+                disabled={sessionData?.status === 'disposing'}
+                data-testid="dispose-session"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                </svg>
+                Dispose Session
+              </button>
+            </div>
+          </aside>
+        </div>
+
+        {reconnectModal && (
+          <ConnectionProgressModal
+            flavorId={reconnectModal.flavorId}
+            flavorName={reconnectModal.displayName}
+            provisioningSessionId={reconnectModal.provisioningSessionId}
+            onClose={() => setReconnectModal(null)}
+            onConnected={() => {
+              setReconnectModal(null);
+            }}
+          />
+        )}
+      </>
+    </React.Profiler>
   );
 }

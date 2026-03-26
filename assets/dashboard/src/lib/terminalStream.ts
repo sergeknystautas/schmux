@@ -11,6 +11,7 @@ import { csrfHeaders } from './csrf';
 import { stripAnsi } from './ansiStrip';
 import { compareScreens } from './syncCompare';
 import { buildSurgicalCorrection, buildCursorCorrection } from './surgicalCorrection';
+import { WriteRaceDiagnostics } from './writeRaceDiagnostics';
 
 /**
  * Strip escape sequences that destroy scrollback or reset terminal state.
@@ -159,6 +160,9 @@ export default class TerminalStream {
   // Clipboard image paste interception
   private imagePasteHandler: ((e: Event) => void) | null = null;
 
+  // Viewport sync patch cleanup (Fix 2 + 3)
+  private _viewportPatchCleanup: (() => void) | null = null;
+
   // Configurable behaviors
   private stripClearScreen: boolean;
   private useWebGL: boolean;
@@ -171,6 +175,8 @@ export default class TerminalStream {
 
   // Diagnostics
   diagnostics: StreamDiagnostics | null = null;
+  writeRaceDiag: WriteRaceDiagnostics | null = null;
+  slowReactRenders: { ts: number; phase: string; durationMs: number }[] = [];
   latestStats: Record<string, unknown> | null = null;
   onStatsUpdate: ((stats: Record<string, unknown>) => void) | null = null;
   onDiagnosticResponse: ((msg: Record<string, unknown>) => void) | null = null;
@@ -186,9 +192,6 @@ export default class TerminalStream {
     if (this.diagnostics) {
       this.diagnostics.recordLifecycleEvent(event, detail);
     }
-    const ts = new Date().toISOString().slice(11, 23);
-    const extra = detail ? ' ' + JSON.stringify(detail) : '';
-    console.log(`[TerminalStream ${ts}] ${event}${extra}`);
   }
 
   // IO workspace telemetry
@@ -376,6 +379,10 @@ export default class TerminalStream {
       }
     };
     document.addEventListener('paste', this.imagePasteHandler, { capture: true });
+
+    // Fix 2 + 3: Patch Viewport to fix scroll cascading and defer sync.
+    // Must be called after terminal.open() which creates the Viewport.
+    this._patchViewportSync();
 
     this._attachScrollListener();
     this.setupResizeHandler();
@@ -675,6 +682,75 @@ export default class TerminalStream {
   }
 
   /**
+   * Patch xterm.js Viewport to fix two performance issues:
+   *
+   * Fix 2 — Suppress _handleScroll during _sync:
+   *   In Viewport._sync(), _suppressOnScrollHandler is cleared before
+   *   setScrollPosition(), allowing _handleScroll to fire and create cascading
+   *   scroll events (2x amplification: 12,348 events in a typical session).
+   *   This wrapper suppresses _handleScroll for the entire _sync duration.
+   *
+   * Fix 3 — Defer onScroll → _sync to requestAnimationFrame:
+   *   During InputHandler.parse(), each linefeed fires BufferService.onScroll
+   *   → Viewport._sync() synchronously, causing N DOM mutations (one per line).
+   *   Deferring to rAF collapses N updates into 1.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _patchViewportSync(): void {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const core = (this.terminal as any)?._core;
+    const vp = core?._viewport;
+    if (!vp) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const origSync: (...args: any[]) => any = vp._sync;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const origHandleScroll: (...args: any[]) => any = vp._handleScroll;
+    let inSync = false;
+    let deferredSyncRAF: number | undefined;
+
+    // Fix 2: Suppress _handleScroll during entire _sync execution.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vp._handleScroll = function (this: any, ...args: any[]) {
+      if (inSync) return;
+      return origHandleScroll.apply(this, args);
+    };
+
+    // Fix 3: Defer _sync when called from BufferService.onScroll (no args).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vp._sync = function (this: any, ...args: any[]) {
+      if (args.length === 0) {
+        // Called from onScroll → defer to next animation frame.
+        // Multiple scroll events coalesce into one deferred sync.
+        if (deferredSyncRAF !== undefined) return;
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        const self = this;
+        deferredSyncRAF = requestAnimationFrame(() => {
+          deferredSyncRAF = undefined;
+          // Call original _sync with no args → uses buffer.ydisp as default.
+          // This ensures the scrollbar syncs to the final scroll position.
+          inSync = true;
+          origSync.call(self);
+          inSync = false;
+        });
+        return;
+      }
+      // Called with explicit ydisp (from queueSync callback) → run immediately
+      inSync = true;
+      origSync.apply(this, args);
+      inSync = false;
+    };
+
+    this._viewportPatchCleanup = () => {
+      if (deferredSyncRAF !== undefined) {
+        cancelAnimationFrame(deferredSyncRAF);
+      }
+      vp._sync = origSync;
+      vp._handleScroll = origHandleScroll;
+    };
+  }
+
+  /**
    * Schedule clearing writingToTerminal after a short debounce.
    *
    * xterm.js splits large writes into multiple setTimeout chunks (each ~12ms).
@@ -817,6 +893,11 @@ export default class TerminalStream {
       document.removeEventListener('paste', this.imagePasteHandler, { capture: true });
       this.imagePasteHandler = null;
     }
+    // Dispose write-race diagnostics and viewport patches before terminal disposal
+    this.writeRaceDiag?.dispose();
+    this.writeRaceDiag = null;
+    this._viewportPatchCleanup?.();
+    this._viewportPatchCleanup = null;
     // Dispose terminal before closing WebSocket so the onmessage guard
     // (if (this.terminal)) prevents writes to a disposed terminal.
     if (this.terminal) {
@@ -886,6 +967,11 @@ export default class TerminalStream {
             lifecycleEvents: this.diagnostics
               ? JSON.stringify(this.diagnostics.lifecycleSnapshot())
               : null,
+            writeRaceStats: this.writeRaceDiag
+              ? JSON.stringify(this.writeRaceDiag.snapshot())
+              : null,
+            slowReactRenders:
+              this.slowReactRenders.length > 0 ? JSON.stringify(this.slowReactRenders) : null,
           }),
         })
         .then(() => {
@@ -908,6 +994,20 @@ export default class TerminalStream {
     this.onIOWorkspaceStatsUpdate = null;
     this.onIOWorkspaceDiagnosticComplete = null;
     this.latestIOWorkspaceStats = null;
+  }
+
+  enableWriteRaceDiagnostics(): void {
+    if (this.writeRaceDiag) return;
+    if (!this.terminal) {
+      console.warn('[WriteRace] Cannot enable — terminal not initialized');
+      return;
+    }
+    this.writeRaceDiag = new WriteRaceDiagnostics(this.terminal);
+  }
+
+  disableWriteRaceDiagnostics(): void {
+    this.writeRaceDiag?.dispose();
+    this.writeRaceDiag = null;
   }
 
   sendDiagnostic(): void {
@@ -1004,8 +1104,15 @@ export default class TerminalStream {
       if (!this.bootstrapped) {
         this.bootstrapped = true;
         this.tsLog('bootstrap.reset', { dataLen: text.length, seq: seq.toString() });
+        // Hide terminal during reset→write to prevent blank frame flash.
+        // reset() clears the buffer and triggers a render (blank screen),
+        // but write() parses asynchronously via setTimeout. Without hiding,
+        // the user sees a blank frame before the bootstrap data appears.
+        this.containerElement.style.visibility = 'hidden';
         this.terminal!.reset();
-        this.writeTerminal(text);
+        this.writeTerminal(text, () => {
+          this.containerElement.style.visibility = '';
+        });
       } else {
         inputLatency.recordFrameProcessed();
         inputLatency.markReceived();
@@ -1236,27 +1343,19 @@ export default class TerminalStream {
   }
 
   private writeTerminal(data: string, cb?: () => void) {
+    const tracker = this.writeRaceDiag?.beginWrite(data.length);
     this.writingToTerminal = true;
     this.terminal!.write(this.sanitizeTerminalData(data), () => {
+      tracker?.finish();
       cb?.();
+      // Fix 1: scrollToBottom removed — xterm's BufferService.scroll() already
+      // sets buffer.ydisp = buffer.ybase when isUserScrolling is false, and the
+      // deferred Viewport._sync (Fix 3) syncs the scrollbar position.
+      // Diagnostics confirmed 100% of scrollToBottom calls were redundant.
       if (!this.scrollRAFPending) {
         this.scrollRAFPending = true;
         requestAnimationFrame(() => {
-          if (this.followTail) {
-            this.terminal!.scrollToBottom();
-          } else if (this.lifecycleLogging) {
-            const buf = this.terminal?.buffer.active;
-            this.tsLog('scrollToBottom.skipped', {
-              followTail: false,
-              viewportY: buf?.viewportY ?? -1,
-              baseY: buf?.baseY ?? -1,
-              scrollback: buf?.length ?? -1,
-            });
-          }
           this.scrollRAFPending = false;
-          // writingToTerminal is NOT cleared here — xterm may still be
-          // processing data via setTimeout chunks. armWriteGuardClear()
-          // handles clearing after the last chunk finishes.
         });
       } else {
         if (this.diagnostics) this.diagnostics.scrollCoalesceHits++;

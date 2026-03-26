@@ -3322,7 +3322,11 @@ Receives frontend diagnostic artifacts and writes them to an existing diagnostic
   "gapStats": "{...}",
   "cursorXterm": "{...}",
   "scrollEvents": "[{...}, ...]",
-  "scrollStats": "{...}"
+  "scrollStats": "{...}",
+  "wsEvents": "[{...}, ...]",
+  "lifecycleEvents": "[{...}, ...]",
+  "writeRaceStats": "{...}",
+  "slowReactRenders": "[{...}, ...]"
 }
 ```
 
@@ -3337,6 +3341,10 @@ All fields are optional strings except `diagDir` (required). Files are written b
 - `cursor-xterm.json` — xterm cursor position
 - `scroll-events.json` — scroll state transition ring buffer (last 100 events)
 - `scroll-stats.json` — scroll diagnostic counters (followLostCount, scrollSuppressedCount, scrollCoalesceHits, resizeCount, lastResizeTs, recreationCount)
+- `ws-events.json` — WebSocket connection lifecycle events
+- `lifecycle-events.json` — frontend terminal lifecycle event timeline
+- `write-race-stats.json` — xterm.js write/render performance telemetry (parse timing, viewport sync counts, render duration, main thread stalls, buffer switches)
+- `slow-react-renders.json` — React renders exceeding 50ms (SessionDetailPage profiler)
 
 **Response:** `200 OK` (empty body)
 

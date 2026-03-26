@@ -27,16 +27,17 @@ SessionTracker  →  WebSocket handler  →  browser  →  xterm.js
 
 ### Key source files
 
-| Layer        | File                                             | Purpose                                         |
-| ------------ | ------------------------------------------------ | ----------------------------------------------- |
-| tmux wrapper | `internal/tmux/tmux.go`                          | CreateSession, CapturePane, resize              |
-| Control mode | `internal/session/tracker.go`                    | SessionTracker, fan-out, OutputLog              |
-| WebSocket    | `internal/dashboard/websocket.go`                | Bootstrap, sequenced frames, sync, gap handling |
-| Frontend     | `assets/dashboard/src/lib/terminalStream.ts`     | handleOutput, writeLiveFrame, sanitize, scroll  |
-| Sanitize     | `assets/dashboard/src/lib/terminalStream.ts:29`  | `sanitizeScrollbackSequences()`                 |
-| Sync compare | `assets/dashboard/src/lib/syncCompare.ts`        | Line-by-line text comparison                    |
-| Surgical fix | `assets/dashboard/src/lib/surgicalCorrection.ts` | Row-level viewport correction                   |
-| Diagnostics  | `assets/dashboard/src/lib/streamDiagnostics.ts`  | Ring buffers, counters, capture                 |
+| Layer        | File                                               | Purpose                                         |
+| ------------ | -------------------------------------------------- | ----------------------------------------------- |
+| tmux wrapper | `internal/tmux/tmux.go`                            | CreateSession, CapturePane, resize              |
+| Control mode | `internal/session/tracker.go`                      | SessionTracker, fan-out, OutputLog              |
+| WebSocket    | `internal/dashboard/websocket.go`                  | Bootstrap, sequenced frames, sync, gap handling |
+| Frontend     | `assets/dashboard/src/lib/terminalStream.ts`       | handleOutput, writeLiveFrame, sanitize, scroll  |
+| Sanitize     | `assets/dashboard/src/lib/terminalStream.ts:29`    | `sanitizeScrollbackSequences()`                 |
+| Sync compare | `assets/dashboard/src/lib/syncCompare.ts`          | Line-by-line text comparison                    |
+| Surgical fix | `assets/dashboard/src/lib/surgicalCorrection.ts`   | Row-level viewport correction                   |
+| Diagnostics  | `assets/dashboard/src/lib/streamDiagnostics.ts`    | Ring buffers, counters, capture                 |
+| Write-race   | `assets/dashboard/src/lib/writeRaceDiagnostics.ts` | xterm write/render perf, stall detection        |
 
 ### Key docs
 
@@ -72,6 +73,55 @@ automatedFindings           → pre-computed diagnosis hints
 **gap-stats.json** — `gapsDetected` non-zero means events were lost in transit. Compare `lastReceivedSeq` with `meta.json`'s `counters.currentSeq`.
 
 **scroll-stats.json** — `followLostCount` non-zero means followTail was disabled unexpectedly (viewport stopped tracking the bottom).
+
+**write-race-stats.json** — xterm.js write/render performance telemetry. Collected silently by monkey-patching xterm internals. Key sections:
+
+```
+aggregates:
+  totalWrites              → total terminal.write() calls
+  avgWriteMs / avgParseMs  → per-write performance (parse = InputHandler.parse time)
+  longestWriteMs           → worst case; >16ms = dropped frame
+  longestParseMs           → worst parse; compare with longestWriteMs to see wait time
+  avgScrollsPerWrite       → scroll events per write (linefeeds during parse)
+  avgViewportSyncsPerWrite → Viewport._sync calls per write (should match scrolls)
+  totalHandleScrollDuringSync → should be 0; non-zero = suppress bug still firing
+  totalRefreshCalls        → RenderService.refreshRows calls during writes
+  totalFullRefreshes       → refreshRows(0, rows-1) calls; ratio to total = wasted work
+  fullRefreshRatio         → % of refreshes that are full-screen
+  redundantScrollToBottom  → should be 0; non-zero = scrollToBottom fix not working
+
+render:
+  totalRenders             → actual renderer.renderRows() calls
+  avgRenderMs              → time per render; >10ms = renderer bottleneck
+  longestRenderMs          → worst render; >16ms = dropped frame from rendering
+  longestRenderRows        → row count for worst render
+
+stalls:                    → main thread gaps >100ms (detected by setInterval watchdog)
+  ts                       → when the stall ended
+  gapMs                    → duration (100-200ms = minor, >500ms = severe)
+  inWrite                  → true = blocked by xterm parse; false = React/GC/browser
+
+bufferSwitches:            → normal ↔ alternate buffer transitions
+  ts, buffer               → "normal" or "alternate"; frequent switches = TUI app redraws
+
+recentWrites:              → last 50 write events with per-write detail
+  totalMs, parseMs, waitMs → timing breakdown
+  scrollsDuringWrite       → linefeeds in this write
+  handleScrollDuringSyncCount → suppress bug instances in this write
+  baseYDelta, viewportYDelta  → buffer position change (negative = buffer reset/collapse)
+```
+
+Interpretation guide:
+
+- `longestParseMs > 16` → InputHandler.parse blocked the main thread past one frame
+- `totalHandleScrollDuringSync > 0` → The Viewport.\_suppressOnScrollHandler bug is firing (should be rare with Fix 2)
+- `stalls` with `inWrite=false` → Main thread blocked by something outside xterm (React re-render, GC, browser layout)
+- `stalls` with `inWrite=true` → Main thread blocked by xterm parse (very large data chunk)
+- `baseYDelta` large negative → Terminal was reset (bootstrap reconnect); correlate with `bufferSwitches`
+- `avgRenderMs > 5` → Renderer is slow (WebGL context issues, texture atlas rebuilds)
+- `fullRefreshRatio > 60%` → Claude Code's TUI is redrawing all rows on each update (expected for TUI apps)
+
+**slow-react-renders.json** — React renders of SessionDetailPage that exceeded 50ms. Each entry has `ts`, `phase` (mount/update), `durationMs`. If stalls in write-race-stats correlate with entries here, React re-rendering is the root cause. Common triggers: session/workspace WebSocket broadcasts causing context re-renders, diagnostic stats interval updates.
 
 **lifecycle-events.json** — Timeline of all frontend events. This is the most detailed source. Parse with:
 
@@ -196,7 +246,11 @@ The pipeline intentionally modifies the byte stream in several places. Read each
 
 4. **`writeLiveFrame()` batching** in `terminalStream.ts` — coalesces multiple WebSocket frames into a single `terminal.write()` per animation frame. This changes the atomicity of operations — sequences that the application sent as separate events become one concatenated write.
 
-5. **`writeTerminal()` scroll coalescing** — `scrollToBottom()` is deferred to a rAF callback and coalesced across writes. Read the `writingToTerminal` / `scrollRAFPending` flag interaction carefully.
+5. **`writeTerminal()` scroll guard** — Read the `writingToTerminal` / `scrollRAFPending` / `writeRAFPending` flag interaction carefully.
+
+6. **Viewport sync patches** in `_patchViewportSync()` — Runtime monkey-patches on xterm's Viewport to fix scroll cascading and defer synchronous DOM work. Read the method comments for details.
+
+7. **Bootstrap flash prevention** — Container visibility is toggled around `terminal.reset()` + bootstrap write to prevent blank-screen flash during reconnect.
 
 ### Step 6: Form and test hypotheses
 
