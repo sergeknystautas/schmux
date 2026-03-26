@@ -846,6 +846,14 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	// Wire compounding callbacks
 	if compounder != nil {
+		// Per-workspace generation counter prevents stale dispose goroutines from
+		// removing watches that were re-added by a subsequent AddWorkspace call.
+		// Race: dispose goroutine starts Reconcile (up to 2min), new session spawns
+		// and calls AddWorkspace, then the stale goroutine calls RemoveWorkspace —
+		// tearing down the newly-added watches.
+		var compoundGenMu sync.Mutex
+		compoundGen := make(map[string]int64)
+
 		sm.SetCompoundCallback(func(workspaceID string, isSpawn bool) {
 			w, found := st.GetWorkspace(workspaceID)
 			if !found || w.RemoteHostID != "" {
@@ -865,14 +873,27 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 					manifest = make(map[string]string)
 				}
 				declaredPaths := cfg.GetOverlayPaths(repoConfig.Name)
+				compoundGenMu.Lock()
+				compoundGen[workspaceID]++
+				compoundGenMu.Unlock()
 				compounder.AddWorkspace(workspaceID, w.Path, overlayDir, w.Repo, manifest, declaredPaths)
 			} else {
 				// Last session disposed — reconcile overlay files before the workspace goes dormant.
 				// Run in a goroutine to avoid blocking the dispose HTTP handler.
+				compoundGenMu.Lock()
+				gen := compoundGen[workspaceID]
+				compoundGenMu.Unlock()
 				go func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 					defer cancel()
 					compounder.Reconcile(ctx, workspaceID)
+					compoundGenMu.Lock()
+					stale := compoundGen[workspaceID] != gen
+					compoundGenMu.Unlock()
+					if stale {
+						compoundLog.Info("skipping RemoveWorkspace (workspace re-added during reconcile)", "workspace_id", workspaceID)
+						return
+					}
 					compounder.RemoveWorkspace(workspaceID)
 				}()
 			}
@@ -882,7 +903,12 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
 			compounder.Reconcile(ctx, workspaceID)
-			compounder.RemoveWorkspace(workspaceID)
+			compoundGenMu.Lock()
+			stale := compoundGen[workspaceID] != 0
+			compoundGenMu.Unlock()
+			if !stale {
+				compounder.RemoveWorkspace(workspaceID)
+			}
 		})
 
 		// Start watches for existing active workspaces
@@ -908,6 +934,9 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 				manifest = make(map[string]string)
 			}
 			declaredPaths := cfg.GetOverlayPaths(repoConfig.Name)
+			compoundGenMu.Lock()
+			compoundGen[wsID]++
+			compoundGenMu.Unlock()
 			compounder.AddWorkspace(wsID, w.Path, overlayDir, w.Repo, manifest, declaredPaths)
 		}
 		compounder.Start()
