@@ -76,8 +76,9 @@ func (m *Manager) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the floor manager, killing its tmux session.
-func (m *Manager) Stop() {
+// Detach stops the floor manager's monitoring and tracker without killing the
+// tmux session. The session survives so the next daemon start can reconnect.
+func (m *Manager) Detach() {
 	m.mu.Lock()
 	if m.stopped {
 		m.mu.Unlock()
@@ -85,7 +86,6 @@ func (m *Manager) Stop() {
 	}
 	m.stopped = true
 	close(m.stopCh)
-	tmuxSess := m.tmuxSession
 	tracker := m.tracker
 	m.tracker = nil
 	m.mu.Unlock()
@@ -93,6 +93,17 @@ func (m *Manager) Stop() {
 	if tracker != nil {
 		tracker.Stop()
 	}
+}
+
+// Stop stops the floor manager and kills its tmux session.
+// Use Detach() instead if the session should survive (e.g. daemon shutdown).
+func (m *Manager) Stop() {
+	m.mu.Lock()
+	tmuxSess := m.tmuxSession
+	m.tmuxSession = ""
+	m.mu.Unlock()
+
+	m.Detach()
 
 	if tmuxSess != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -287,6 +298,16 @@ func (m *Manager) monitor(ctx context.Context) {
 }
 
 func (m *Manager) checkAndRestart(ctx context.Context) {
+	// Stop the old tracker before creating a new one to avoid leaking
+	// goroutines that try to attach to the dead tmux session.
+	m.mu.Lock()
+	oldTracker := m.tracker
+	m.tracker = nil
+	m.mu.Unlock()
+	if oldTracker != nil {
+		oldTracker.Stop()
+	}
+
 	// Try resume first
 	if err := m.spawnResume(ctx); err != nil {
 		m.logger.Warn("resume failed, trying fresh spawn", "err", err)

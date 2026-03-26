@@ -617,6 +617,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		}
 	}
 
+	// stopFloorManager kills the FM session (for explicit user disable).
 	stopFloorManager := func() {
 		fmMu.Lock()
 		defer fmMu.Unlock()
@@ -624,9 +625,32 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 			return
 		}
 		fmInjector.Stop()
-		fm.Stop()
+		fm.Stop() // kills the tmux session
 		server.SetFloorManager(nil)
 		// Rebuild event handlers without the injector
+		eventHandlers["status"] = []events.EventHandler{dashHandler}
+		if devMode {
+			monitorHandler := events.NewMonitorHandler(func(sessionID string, raw events.RawEvent, data []byte) {
+				server.BroadcastEvent(sessionID, data)
+			})
+			eventHandlers["status"] = append(eventHandlers["status"], monitorHandler)
+		}
+		sm.SetEventHandlers(eventHandlers)
+		fm = nil
+		fmInjector = nil
+	}
+
+	// detachFloorManager stops monitoring but leaves the tmux session alive
+	// so the next daemon start can reconnect to it.
+	detachFloorManager := func() {
+		fmMu.Lock()
+		defer fmMu.Unlock()
+		if fm == nil {
+			return
+		}
+		fmInjector.Stop()
+		fm.Detach() // keeps the tmux session alive
+		server.SetFloorManager(nil)
 		eventHandlers["status"] = []events.EventHandler{dashHandler}
 		if devMode {
 			monitorHandler := events.NewMonitorHandler(func(sessionID string, raw events.RawEvent, data []byte) {
@@ -1351,8 +1375,8 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		compounder.Stop()
 	}
 
-	// Stop floor manager
-	stopFloorManager()
+	// Detach floor manager — leave tmux session alive for reconnection on restart
+	detachFloorManager()
 
 	// Stop dashboard server
 	if err := server.Stop(); err != nil {

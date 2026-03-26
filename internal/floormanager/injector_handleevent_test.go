@@ -201,7 +201,7 @@ func TestStop_ClearsPendingMessages(t *testing.T) {
 	}
 }
 
-func TestFlush_NoOpWhenTmuxSessionEmpty(t *testing.T) {
+func TestFlush_RetainsPendingWhenTmuxSessionEmpty(t *testing.T) {
 	inj := newTestInjector(t, 50) // short debounce
 	defer inj.Stop()
 
@@ -212,14 +212,14 @@ func TestFlush_NoOpWhenTmuxSessionEmpty(t *testing.T) {
 	// Wait for debounce timer to fire
 	time.Sleep(200 * time.Millisecond)
 
-	// flush should have run but returned early since TmuxSession() is ""
-	// No panic, no error — this is the expected safe path.
+	// flush should have run but returned early since TmuxSession() is "".
+	// Messages are preserved in pending so they can be retried once the
+	// session comes back (e.g. after FM restart).
 	inj.mu.Lock()
 	pendingCount := len(inj.pending)
 	inj.mu.Unlock()
 
-	// After flush, pending should be cleared (even though tmux send failed)
-	if pendingCount != 0 {
-		t.Errorf("expected pending cleared after flush, got %d", pendingCount)
+	if pendingCount != 1 {
+		t.Errorf("expected 1 pending message retained after flush with empty session, got %d", pendingCount)
 	}
 }

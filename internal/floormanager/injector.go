@@ -99,6 +99,11 @@ func (inj *Injector) flush(ctx context.Context) {
 
 	tmuxSession := inj.manager.TmuxSession()
 	if tmuxSession == "" {
+		// Session not available yet (e.g. between restart). Put messages back
+		// so they are retried on the next flush after the session comes back.
+		inj.mu.Lock()
+		inj.pending = append(messages, inj.pending...)
+		inj.mu.Unlock()
 		return
 	}
 
