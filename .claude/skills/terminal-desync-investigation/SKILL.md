@@ -33,7 +33,6 @@ SessionTracker  →  WebSocket handler  →  browser  →  xterm.js
 | Control mode | `internal/session/tracker.go`                      | SessionTracker, fan-out, OutputLog              |
 | WebSocket    | `internal/dashboard/websocket.go`                  | Bootstrap, sequenced frames, sync, gap handling |
 | Frontend     | `assets/dashboard/src/lib/terminalStream.ts`       | handleOutput, writeLiveFrame, sanitize, scroll  |
-| Sanitize     | `assets/dashboard/src/lib/terminalStream.ts:29`    | `sanitizeScrollbackSequences()`                 |
 | Sync compare | `assets/dashboard/src/lib/syncCompare.ts`          | Line-by-line text comparison                    |
 | Surgical fix | `assets/dashboard/src/lib/surgicalCorrection.ts`   | Row-level viewport correction                   |
 | Diagnostics  | `assets/dashboard/src/lib/streamDiagnostics.ts`    | Ring buffers, counters, capture                 |
@@ -191,7 +190,7 @@ for name, path in [('backend', 'ringbuffer-backend.txt'), ('frontend', 'ringbuff
           f"RIS={d.count(b'\\x1bc')} HOME={d.count(b'\\x1b[H')}")
 ```
 
-If counts differ between backend and frontend, something in the pipeline is modifying the stream (check `escbuf.SplitClean`, `sanitizeScrollbackSequences`, or input filtering in the WebSocket handler).
+If counts differ between backend and frontend, something in the pipeline is modifying the stream (check `escbuf.SplitClean` or input filtering in the WebSocket handler).
 
 **Identify drawing patterns** — group escape sequences into logical operations:
 
@@ -238,19 +237,17 @@ Also verify: xterm.js version (`package.json`), addon list (check `node_modules/
 
 The pipeline intentionally modifies the byte stream in several places. Read each transform and understand what it strips, why, and what side effects it has:
 
-1. **`sanitizeScrollbackSequences()`** in `terminalStream.ts` — strips sequences that would destroy scrollback. Read the function and its comments to see exactly what's removed.
+1. **`escbuf.SplitClean()`** in `internal/escbuf/escbuf.go` — holds back incomplete ANSI sequences at WebSocket frame boundaries to prevent splits. Can delay delivery of escape sequences by one frame.
 
-2. **`escbuf.SplitClean()`** in `internal/escbuf/escbuf.go` — holds back incomplete ANSI sequences at WebSocket frame boundaries to prevent splits. Can delay delivery of escape sequences by one frame.
+2. **Input filtering** in `websocket.go` — terminal query responses (DA1, DA2, OSC 10/11) from xterm.js are dropped and not forwarded to tmux. Check if the filter has false positives.
 
-3. **Input filtering** in `websocket.go` — terminal query responses (DA1, DA2, OSC 10/11) from xterm.js are dropped and not forwarded to tmux. Check if the filter has false positives.
+3. **`writeLiveFrame()` batching** in `terminalStream.ts` — coalesces multiple WebSocket frames into a single `terminal.write()` per animation frame. This changes the atomicity of operations — sequences that the application sent as separate events become one concatenated write.
 
-4. **`writeLiveFrame()` batching** in `terminalStream.ts` — coalesces multiple WebSocket frames into a single `terminal.write()` per animation frame. This changes the atomicity of operations — sequences that the application sent as separate events become one concatenated write.
+4. **`writeTerminal()` scroll guard** — Read the `writingToTerminal` / `scrollRAFPending` / `writeRAFPending` flag interaction carefully.
 
-5. **`writeTerminal()` scroll guard** — Read the `writingToTerminal` / `scrollRAFPending` / `writeRAFPending` flag interaction carefully.
+5. **Viewport sync patches** in `_patchViewportSync()` — Runtime monkey-patches on xterm's Viewport to fix scroll cascading and defer synchronous DOM work. Read the method comments for details.
 
-6. **Viewport sync patches** in `_patchViewportSync()` — Runtime monkey-patches on xterm's Viewport to fix scroll cascading and defer synchronous DOM work. Read the method comments for details.
-
-7. **Bootstrap flash prevention** — Container visibility is toggled around `terminal.reset()` + bootstrap write to prevent blank-screen flash during reconnect.
+6. **Bootstrap flash prevention** — Container visibility is toggled around `terminal.reset()` + bootstrap write to prevent blank-screen flash during reconnect.
 
 ### Step 6: Form and test hypotheses
 

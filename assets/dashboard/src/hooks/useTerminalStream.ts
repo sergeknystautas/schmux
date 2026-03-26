@@ -12,8 +12,6 @@ type TerminalStreamOptions = {
   onStatusChange?: (status: 'connected' | 'disconnected' | 'reconnecting' | 'error') => void;
   /** Called when multi-line selection changes */
   onSelectedLinesChange?: (lines: string[]) => void;
-  /** Strip clear-screen sequences to preserve scrollback. Default: true */
-  stripClearScreen?: boolean;
   /** Use WebGL renderer for GPU-accelerated rendering. Default: true */
   useWebGL?: boolean;
 };
@@ -36,7 +34,6 @@ export function useTerminalStream(options: TerminalStreamOptions) {
     onResume,
     onStatusChange,
     onSelectedLinesChange,
-    stripClearScreen,
     useWebGL,
   } = options;
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -50,7 +47,6 @@ export function useTerminalStream(options: TerminalStreamOptions) {
       onResume,
       onStatusChange,
       onSelectedLinesChange,
-      stripClearScreen,
       useWebGL,
     });
     streamRef.current = stream;

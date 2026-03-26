@@ -386,7 +386,6 @@ type SessionsConfig struct {
 type XtermConfig struct {
 	QueryTimeoutMs     int   `json:"query_timeout_ms"`
 	OperationTimeoutMs int   `json:"operation_timeout_ms"`
-	StripClearScreen   *bool `json:"strip_clear_screen,omitempty"`
 	UseWebGL           *bool `json:"use_webgl,omitempty"`
 }
 
@@ -1927,16 +1926,6 @@ func (c *Config) GetXtermOperationTimeoutMs() int {
 		return DefaultXtermOperationTimeoutMs
 	}
 	return c.Xterm.OperationTimeoutMs
-}
-
-// GetXtermStripClearScreen returns whether clear-screen sequences should be stripped. Defaults to true.
-func (c *Config) GetXtermStripClearScreen() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if c.Xterm == nil || c.Xterm.StripClearScreen == nil {
-		return true
-	}
-	return *c.Xterm.StripClearScreen
 }
 
 // GetXtermUseWebGL returns whether the WebGL renderer should be used. Defaults to true.

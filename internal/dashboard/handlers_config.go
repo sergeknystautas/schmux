@@ -120,7 +120,6 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		Xterm: contracts.Xterm{
 			QueryTimeoutMs:     s.config.GetXtermQueryTimeoutMs(),
 			OperationTimeoutMs: s.config.GetXtermOperationTimeoutMs(),
-			StripClearScreen:   s.config.GetXtermStripClearScreen(),
 			UseWebGL:           s.config.GetXtermUseWebGL(),
 		},
 		Network: contracts.Network{
@@ -420,9 +419,6 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Xterm.OperationTimeoutMs != nil && *req.Xterm.OperationTimeoutMs > 0 {
 			cfg.Xterm.OperationTimeoutMs = *req.Xterm.OperationTimeoutMs
-		}
-		if req.Xterm.StripClearScreen != nil {
-			cfg.Xterm.StripClearScreen = req.Xterm.StripClearScreen
 		}
 		if req.Xterm.UseWebGL != nil {
 			cfg.Xterm.UseWebGL = req.Xterm.UseWebGL

@@ -106,7 +106,6 @@ type Sessions struct {
 type Xterm struct {
 	QueryTimeoutMs     int  `json:"query_timeout_ms"`
 	OperationTimeoutMs int  `json:"operation_timeout_ms"`
-	StripClearScreen   bool `json:"strip_clear_screen"`
 	UseWebGL           bool `json:"use_webgl"`
 }
 
@@ -236,7 +235,6 @@ type SessionsUpdate struct {
 type XtermUpdate struct {
 	QueryTimeoutMs     *int  `json:"query_timeout_ms,omitempty"`
 	OperationTimeoutMs *int  `json:"operation_timeout_ms,omitempty"`
-	StripClearScreen   *bool `json:"strip_clear_screen,omitempty"`
 	UseWebGL           *bool `json:"use_webgl,omitempty"`
 }
 

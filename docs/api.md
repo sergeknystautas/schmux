@@ -786,7 +786,6 @@ Response:
   "xterm": {
     "query_timeout_ms": 0,
     "operation_timeout_ms": 0,
-    "strip_clear_screen": true,
     "use_webgl": true
   },
   "network": {
@@ -887,7 +886,6 @@ Request:
   "xterm": {
     "query_timeout_ms": 0,
     "operation_timeout_ms": 0,
-    "strip_clear_screen": true,
     "use_webgl": true
   },
   "network": {

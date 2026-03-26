@@ -14,29 +14,6 @@ import { buildSurgicalCorrection, buildCursorCorrection } from './surgicalCorrec
 import { WriteRaceDiagnostics } from './writeRaceDiagnostics';
 
 /**
- * Strip escape sequences that destroy scrollback or reset terminal state.
- * TUI applications (Claude Code) send these during full redraws, but in the
- * web dashboard they destroy bootstrap scrollback that users need for history.
- *
- * Stripped sequences:
- * - \x1b[2J  ED mode 2 (clear screen) — causes xterm.js buffer restructuring
- * - \x1b[3J  ED mode 3 (clear scrollback) — directly destroys scrollback
- * - \x1bc    RIS (Reset to Initial State) — full terminal reset
- *
- * Preserved sequences:
- * - \x1b[0J, \x1b[1J  (clear below/above cursor — safe)
- * - \x1b[?1;2c etc.   (DA responses — 'c' is CSI final byte, not ESC+c)
- */
-export function sanitizeScrollbackSequences(data: string): string {
-  // Fast path: skip regex if no ESC character present
-  if (!data.includes('\x1b')) return data;
-  return data
-    .replace(/\x1b\[2J/g, '')
-    .replace(/\x1b\[3J/g, '')
-    .replace(/\x1bc/g, '');
-}
-
-/**
  * Send a clipboard image to the server, which writes it to the system
  * clipboard and triggers Ctrl+V in the tmux session.
  */
@@ -66,8 +43,6 @@ type TerminalStreamOptions = {
   onStatusChange?: (status: 'connected' | 'disconnected' | 'reconnecting' | 'error') => void;
   onResume?: (showing: boolean) => void;
   onSelectedLinesChange?: (lines: string[]) => void;
-  /** Strip clear-screen sequences (\x1b[2J, \x1b[3J, \x1bc) to preserve scrollback. Default: true */
-  stripClearScreen?: boolean;
   /** Use WebGL renderer for GPU-accelerated rendering. Default: true */
   useWebGL?: boolean;
 };
@@ -164,7 +139,6 @@ export default class TerminalStream {
   private _viewportPatchCleanup: (() => void) | null = null;
 
   // Configurable behaviors
-  private stripClearScreen: boolean;
   private useWebGL: boolean;
 
   // Terminal recreation count — set by SessionDetailPage, read during diagnostic capture
@@ -215,7 +189,6 @@ export default class TerminalStream {
     this.onStatusChange = options.onStatusChange || (() => {});
     this.onResume = options.onResume || (() => {});
     this.onSelectedLinesChange = options.onSelectedLinesChange || (() => {});
-    this.stripClearScreen = options.stripClearScreen !== false;
     this.useWebGL = options.useWebGL !== false;
 
     this.terminal = null;
@@ -1331,15 +1304,7 @@ export default class TerminalStream {
   // this causes N forced reflows, blocking the main thread and delaying keystroke
   // echo processing. Deferring to rAF collapses N reflows into one natural reflow.
   private sanitizeTerminalData(data: string): string {
-    if (!this.stripClearScreen) return data;
-    const result = sanitizeScrollbackSequences(data);
-    if (result.length !== data.length) {
-      this.tsLog('sanitize.stripped', {
-        removed: data.length - result.length,
-        dataLen: data.length,
-      });
-    }
-    return result;
+    return data;
   }
 
   private writeTerminal(data: string, cb?: () => void) {

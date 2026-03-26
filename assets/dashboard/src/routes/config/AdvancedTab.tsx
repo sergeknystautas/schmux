@@ -26,7 +26,6 @@ type AdvancedTabProps = {
   gitStatusTimeout: number;
   xtermQueryTimeout: number;
   xtermOperationTimeout: number;
-  xtermStripClearScreen: boolean;
   xtermUseWebGL: boolean;
   nudgenikTargetMissing: boolean;
   branchSuggestTargetMissing: boolean;
@@ -65,7 +64,6 @@ export default function AdvancedTab({
   gitStatusTimeout,
   xtermQueryTimeout,
   xtermOperationTimeout,
-  xtermStripClearScreen,
   xtermUseWebGL,
   nudgenikTargetMissing,
   branchSuggestTargetMissing,
@@ -604,28 +602,6 @@ export default function AdvancedTab({
                 Maximum time to wait for xterm operations (default: 10000ms)
               </p>
             </div>
-          </div>
-
-          <div className="form-group">
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--spacing-xs)',
-                cursor: 'pointer',
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={xtermStripClearScreen}
-                onChange={(e) => setField('xtermStripClearScreen', e.target.checked)}
-              />
-              <span>Strip clear-screen sequences</span>
-            </label>
-            <p className="form-group__hint">
-              Strips escape sequences that clear the screen or scrollback (ESC[2J, ESC[3J, ESC c) to
-              preserve terminal history. Disable if you need accurate screen clearing behavior.
-            </p>
           </div>
 
           <div className="form-group">

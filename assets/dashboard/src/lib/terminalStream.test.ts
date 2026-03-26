@@ -39,7 +39,7 @@ vi.mock('@xterm/addon-webgl', () => ({
   })),
 }));
 
-import TerminalStream, { sanitizeScrollbackSequences } from './terminalStream';
+import TerminalStream from './terminalStream';
 import { inputLatency } from './inputLatency';
 
 /** Build a sequenced binary frame with 8-byte big-endian header. */
@@ -1850,55 +1850,5 @@ describe('TerminalStream scroll without diagnostics', () => {
     // Verify jumpToBottom recovery also works without diagnostics
     stream.jumpToBottom();
     expect((stream as any).followTail).toBe(true);
-  });
-});
-
-describe('sanitizeScrollbackSequences', () => {
-  it('strips ED mode 2 (clear screen)', () => {
-    expect(sanitizeScrollbackSequences('\x1b[2J')).toBe('');
-  });
-
-  it('strips ED mode 3 (clear scrollback)', () => {
-    expect(sanitizeScrollbackSequences('\x1b[3J')).toBe('');
-  });
-
-  it('strips RIS (\\x1bc)', () => {
-    expect(sanitizeScrollbackSequences('\x1bc')).toBe('');
-  });
-
-  it('strips all three from a combined TUI redraw sequence', () => {
-    const input = '\x1b[?2026h\x1b[2J\x1b[3J\x1b[H\x1b[1mClaude Code\x1b[0m';
-    const expected = '\x1b[?2026h\x1b[H\x1b[1mClaude Code\x1b[0m';
-    expect(sanitizeScrollbackSequences(input)).toBe(expected);
-  });
-
-  it('preserves ED mode 0 (clear below cursor)', () => {
-    expect(sanitizeScrollbackSequences('\x1b[0J')).toBe('\x1b[0J');
-  });
-
-  it('preserves ED mode 1 (clear above cursor)', () => {
-    expect(sanitizeScrollbackSequences('\x1b[1J')).toBe('\x1b[1J');
-  });
-
-  it('preserves normal text containing the letter c', () => {
-    expect(sanitizeScrollbackSequences('const x = 42;')).toBe('const x = 42;');
-  });
-
-  it('does not match CSI sequences ending in c (DA response) as RIS', () => {
-    expect(sanitizeScrollbackSequences('\x1b[?1;2c')).toBe('\x1b[?1;2c');
-  });
-
-  it('strips multiple occurrences in a single string', () => {
-    expect(sanitizeScrollbackSequences('\x1b[2Jhello\x1b[3Jworld\x1b[2J')).toBe('helloworld');
-  });
-
-  it('fast-paths strings without ESC', () => {
-    const input = 'plain text with no escapes';
-    expect(sanitizeScrollbackSequences(input)).toBe(input);
-  });
-
-  it('preserves SGR color sequences', () => {
-    const input = '\x1b[38;2;100;200;50mcolored text\x1b[0m';
-    expect(sanitizeScrollbackSequences(input)).toBe(input);
   });
 });
