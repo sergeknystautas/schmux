@@ -138,6 +138,13 @@ export default class TerminalStream {
   // Xterm title change debouncing
   private titleDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Tab visibility tracking — correlate background throttling with desyncs
+  private visibilityHandler: (() => void) | null = null;
+
+  // Write coalesce burst metrics — how many frames queue per rAF tick
+  private writeCoalesceCount = 0;
+  private writeCoalesceFirstTs = 0;
+
   // Viewport sync patch cleanup (Fix 2 + 3)
   private _viewportPatchCleanup: (() => void) | null = null;
 
@@ -369,6 +376,18 @@ export default class TerminalStream {
       }
     };
     document.addEventListener('paste', this.imagePasteHandler, { capture: true });
+
+    // Track tab visibility changes to correlate background throttling with desyncs.
+    this.visibilityHandler = () => {
+      const buf = this.terminal?.buffer.active;
+      this.tsLog('tab.visibility', {
+        state: document.visibilityState,
+        baseY: buf?.baseY ?? -1,
+        viewportY: buf?.viewportY ?? -1,
+        lines: buf?.length ?? -1,
+      });
+    };
+    document.addEventListener('visibilitychange', this.visibilityHandler);
 
     // Fix 2 + 3: Patch Viewport to fix scroll cascading and defer sync.
     // Must be called after terminal.open() which creates the Viewport.
@@ -887,6 +906,10 @@ export default class TerminalStream {
       document.removeEventListener('paste', this.imagePasteHandler, { capture: true });
       this.imagePasteHandler = null;
     }
+    if (this.visibilityHandler) {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
+      this.visibilityHandler = null;
+    }
     // Dispose write-race diagnostics and viewport patches before terminal disposal
     this.writeRaceDiag?.dispose();
     this.writeRaceDiag = null;
@@ -1362,14 +1385,27 @@ export default class TerminalStream {
 
     if (!this.writeRAFPending) {
       this.writeRAFPending = true;
+      this.writeCoalesceCount = 1;
+      this.writeCoalesceFirstTs = performance.now();
       requestAnimationFrame(() => {
+        const coalesced = this.writeCoalesceCount;
+        const latencyMs = performance.now() - this.writeCoalesceFirstTs;
         this.writeRAFPending = false;
         const buffered = this.writeBuffer;
         const writeCb = this.pendingWriteCb;
         this.writeBuffer = '';
         this.pendingWriteCb = null;
+        if (coalesced > 5 || latencyMs > 100) {
+          this.tsLog('write.burst', {
+            framesCoalesced: coalesced,
+            deliveryLatencyMs: Math.round(latencyMs),
+            bufferedBytes: buffered.length,
+          });
+        }
         this.writeTerminal(buffered, writeCb ?? undefined);
       });
+    } else {
+      this.writeCoalesceCount++;
     }
   }
 
