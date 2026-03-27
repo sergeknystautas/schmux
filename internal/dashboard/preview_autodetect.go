@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -100,9 +102,18 @@ func (s *Server) handleSessionOutputChunk(sessionID string, chunk []byte) {
 	for _, lp := range ports {
 		// Look up which PID owns this port
 		ownerPID, err := preview.LookupPortOwner(lp.Port)
-		if err != nil || !descendantPIDs[ownerPID] {
-			// Port not owned by a descendant of this session — discard
+		if err != nil {
 			continue
+		}
+
+		// Check PID tree first, then fall back to PID file match
+		trigger := "autodetect"
+		if !descendantPIDs[ownerPID] {
+			if !matchesBrainstormPIDFile(ws.Path, ownerPID) {
+				previewLog.Debug("pid file scan no match", "port", lp.Port, "owner", ownerPID, "workspace", ws.Path)
+				continue
+			}
+			trigger = "pid-file"
 		}
 
 		key := fmt.Sprintf("%s:%d", ws.ID, lp.Port)
@@ -122,7 +133,7 @@ func (s *Server) handleSessionOutputChunk(sessionID string, chunk []byte) {
 			continue
 		}
 		if wasCreated {
-			previewLog.Info("created", "host", lp.Host, "port", lp.Port, "session", sess.ID, "server_pid", ownerPID, "trigger", "autodetect")
+			previewLog.Info("created", "host", lp.Host, "port", lp.Port, "session", sess.ID, "server_pid", ownerPID, "trigger", trigger)
 			if createdPreview == nil {
 				createdPreview = &result.ID
 			}
@@ -237,6 +248,27 @@ func (s *Server) filterProxyPorts(ports []preview.ListeningPort) []preview.Liste
 		}
 	}
 	return filtered
+}
+
+// matchesBrainstormPIDFile checks if the given PID matches any
+// .superpowers/brainstorm/*/state/server.pid file in the workspace.
+func matchesBrainstormPIDFile(workspacePath string, pid int) bool {
+	pattern := filepath.Join(workspacePath, ".superpowers", "brainstorm", "*", "state", "server.pid")
+	matches, err := filepath.Glob(pattern)
+	if err != nil || len(matches) == 0 {
+		return false
+	}
+	pidStr := strconv.Itoa(pid)
+	for _, path := range matches {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		if strings.TrimSpace(string(data)) == pidStr {
+			return true
+		}
+	}
+	return false
 }
 
 // probeHTTP checks whether a host:port speaks HTTP by sending a HEAD request.

@@ -268,3 +268,82 @@ func TestProbeHTTP_Redirect(t *testing.T) {
 		t.Fatal("expected probeHTTP to return true for server that redirects")
 	}
 }
+
+func TestMatchesBrainstormPIDFile_Match(t *testing.T) {
+	wsPath := t.TempDir()
+	stateDir := filepath.Join(wsPath, ".superpowers", "brainstorm", "12345-1700000000", "state")
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "server.pid"), []byte("42\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if !matchesBrainstormPIDFile(wsPath, 42) {
+		t.Error("expected match for PID 42")
+	}
+}
+
+func TestMatchesBrainstormPIDFile_NoMatch(t *testing.T) {
+	wsPath := t.TempDir()
+	stateDir := filepath.Join(wsPath, ".superpowers", "brainstorm", "12345-1700000000", "state")
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "server.pid"), []byte("99\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if matchesBrainstormPIDFile(wsPath, 42) {
+		t.Error("expected no match for PID 42 when file contains 99")
+	}
+}
+
+func TestMatchesBrainstormPIDFile_NoPIDFiles(t *testing.T) {
+	wsPath := t.TempDir()
+
+	if matchesBrainstormPIDFile(wsPath, 42) {
+		t.Error("expected no match when no PID files exist")
+	}
+}
+
+func TestMatchesBrainstormPIDFile_GarbageContent(t *testing.T) {
+	wsPath := t.TempDir()
+	stateDir := filepath.Join(wsPath, ".superpowers", "brainstorm", "12345-1700000000", "state")
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "server.pid"), []byte("not-a-pid\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if matchesBrainstormPIDFile(wsPath, 42) {
+		t.Error("expected no match when PID file contains garbage")
+	}
+}
+
+func TestMatchesBrainstormPIDFile_MultipleSessions(t *testing.T) {
+	wsPath := t.TempDir()
+
+	// First session — different PID
+	stateDir1 := filepath.Join(wsPath, ".superpowers", "brainstorm", "11111-1700000000", "state")
+	if err := os.MkdirAll(stateDir1, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir1, "server.pid"), []byte("99\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Second session — matching PID
+	stateDir2 := filepath.Join(wsPath, ".superpowers", "brainstorm", "22222-1700000000", "state")
+	if err := os.MkdirAll(stateDir2, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir2, "server.pid"), []byte("42\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if !matchesBrainstormPIDFile(wsPath, 42) {
+		t.Error("expected match when second session has matching PID")
+	}
+}
