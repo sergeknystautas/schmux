@@ -27,6 +27,7 @@ vi.mock('@xterm/xterm', () => {
       registerEscHandler: vi.fn(() => ({ dispose: vi.fn() })),
     };
     onWriteParsed = vi.fn();
+    onTitleChange = vi.fn();
   }
   return { Terminal: MockTerminal };
 });
