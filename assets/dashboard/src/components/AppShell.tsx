@@ -988,7 +988,7 @@ export default function AppShell() {
                                     <line x1="1" y1="10" x2="23" y2="10" />
                                   </svg>
                                 )}
-                                {sess.nickname || sess.target}
+                                {sess.nickname || sess.xterm_title || sess.target}
                               </span>
                               {sess.persona_icon && (
                                 <span

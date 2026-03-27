@@ -453,6 +453,7 @@ func TestAPIContract_MissingIDErrors(t *testing.T) {
 		{"diff missing id", http.MethodGet, "/api/diff/", server.handleDiff, ""},
 		{"open vscode missing id", http.MethodPost, "/api/open-vscode/", server.handleOpenVSCode, ""},
 		{"sessions nickname missing id", http.MethodPut, "/api/sessions-nickname/", server.handleUpdateNickname, "sessionID"},
+		{"sessions xterm-title missing id", http.MethodPut, "/api/sessions-xterm-title/", server.handleUpdateXtermTitle, "sessionID"},
 	}
 
 	for _, tt := range tests {

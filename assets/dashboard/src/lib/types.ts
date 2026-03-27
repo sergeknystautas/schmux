@@ -4,6 +4,7 @@ export interface SessionResponse {
   branch: string;
   branch_url?: string;
   nickname?: string;
+  xterm_title?: string;
   created_at: string;
   last_output_at?: string;
   running: boolean;

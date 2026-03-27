@@ -250,6 +250,44 @@ describe('SessionTabs', () => {
     });
   });
 
+  describe('xterm title display', () => {
+    it('shows xterm_title when no nickname is set', async () => {
+      mockMatchMediaMobile();
+      const sessions = [makeSession('s1', { xterm_title: 'claude > Working' })];
+      await renderTabs(sessions);
+
+      expect(screen.getByText('claude > Working')).toBeInTheDocument();
+    });
+
+    it('prefers nickname over xterm_title', async () => {
+      mockMatchMediaMobile();
+      const sessions = [
+        makeSession('s1', { nickname: 'my-agent', xterm_title: 'claude > Working' }),
+      ];
+      await renderTabs(sessions);
+
+      expect(screen.getByText('my-agent')).toBeInTheDocument();
+      expect(screen.queryByText('claude > Working')).not.toBeInTheDocument();
+    });
+
+    it('falls back to target when neither nickname nor xterm_title is set', async () => {
+      mockMatchMediaMobile();
+      const sessions = [makeSession('s1')];
+      await renderTabs(sessions);
+
+      expect(screen.getByText('target-s1')).toBeInTheDocument();
+    });
+
+    it('shows xterm_title in sortable tabs (desktop)', async () => {
+      mockMatchMediaDesktop();
+      const sessions = [makeSession('s1', { xterm_title: 'agent status' })];
+      const workspace = makeWorkspace({ sessions });
+      await renderTabs(sessions, workspace);
+
+      expect(screen.getByText('agent status')).toBeInTheDocument();
+    });
+  });
+
   describe('Tab order from localStorage', () => {
     it('renders session tabs in custom order from localStorage', async () => {
       mockMatchMediaDesktop();

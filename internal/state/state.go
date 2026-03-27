@@ -136,6 +136,7 @@ type Session struct {
 	Pid          int       `json:"pid"` // PID of the target process from tmux pane
 	LastOutputAt time.Time `json:"-"`   // Last time terminal had new output (in-memory only, not persisted)
 	LastSignalAt time.Time `json:"-"`   // Last time agent sent a direct signal (in-memory only, not persisted)
+	XtermTitle   string    `json:"-"`   // Window title from OSC 0/2 escape sequences (in-memory only, not persisted)
 	// NudgeSeq is a monotonic counter for frontend notification dedup.
 	// Only incremented by direct agent status events (HandleStatusEvent), NOT by
 	// nudgenik polls or manual nudge clears — the UI notification sound
@@ -452,6 +453,23 @@ func (s *State) UpdateSessionLastOutput(sessionID string, t time.Time) {
 			return
 		}
 	}
+}
+
+// UpdateSessionXtermTitle atomically updates just the XtermTitle field.
+// Returns true if the title actually changed.
+func (s *State) UpdateSessionXtermTitle(sessionID, title string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Sessions {
+		if s.Sessions[i].ID == sessionID {
+			if s.Sessions[i].XtermTitle == title {
+				return false
+			}
+			s.Sessions[i].XtermTitle = title
+			return true
+		}
+	}
+	return false
 }
 
 // UpdateSessionLastSignal atomically updates just the LastSignalAt field.

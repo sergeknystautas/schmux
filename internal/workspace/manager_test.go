@@ -690,6 +690,10 @@ func (m *mockStateStore) UpdateSessionLastSignal(sessionID string, t time.Time) 
 	m.state.UpdateSessionLastSignal(sessionID, t)
 }
 
+func (m *mockStateStore) UpdateSessionXtermTitle(sessionID, title string) bool {
+	return m.state.UpdateSessionXtermTitle(sessionID, title)
+}
+
 func (m *mockStateStore) IncrementNudgeSeq(sessionID string) uint64 {
 	return m.state.IncrementNudgeSeq(sessionID)
 }

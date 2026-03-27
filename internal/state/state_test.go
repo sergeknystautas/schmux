@@ -938,6 +938,71 @@ func TestLastSignalAtNotPersisted(t *testing.T) {
 	}
 }
 
+func TestUpdateSessionXtermTitle(t *testing.T) {
+	s := New("", nil)
+	s.AddSession(Session{ID: "sess-1", TmuxSession: "test"})
+
+	t.Run("sets title and returns true", func(t *testing.T) {
+		changed := s.UpdateSessionXtermTitle("sess-1", "Working on feature X")
+		if !changed {
+			t.Error("expected changed=true for initial title set")
+		}
+		sess, _ := s.GetSession("sess-1")
+		if sess.XtermTitle != "Working on feature X" {
+			t.Errorf("XtermTitle = %q, want %q", sess.XtermTitle, "Working on feature X")
+		}
+	})
+
+	t.Run("returns false when title unchanged", func(t *testing.T) {
+		changed := s.UpdateSessionXtermTitle("sess-1", "Working on feature X")
+		if changed {
+			t.Error("expected changed=false when title is the same")
+		}
+	})
+
+	t.Run("returns true when title changes", func(t *testing.T) {
+		changed := s.UpdateSessionXtermTitle("sess-1", "New title")
+		if !changed {
+			t.Error("expected changed=true when title differs")
+		}
+		sess, _ := s.GetSession("sess-1")
+		if sess.XtermTitle != "New title" {
+			t.Errorf("XtermTitle = %q, want %q", sess.XtermTitle, "New title")
+		}
+	})
+
+	t.Run("returns false for nonexistent session", func(t *testing.T) {
+		changed := s.UpdateSessionXtermTitle("nonexistent", "title")
+		if changed {
+			t.Error("expected changed=false for nonexistent session")
+		}
+	})
+}
+
+func TestXtermTitleNotPersisted(t *testing.T) {
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+
+	s := New(statePath, nil)
+	s.AddSession(Session{ID: "sess-1", TmuxSession: "test"})
+	s.UpdateSessionXtermTitle("sess-1", "My Title")
+	if err := s.Save(); err != nil {
+		t.Fatalf("Save() failed: %v", err)
+	}
+
+	loaded, err := Load(statePath, nil)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+	sess, found := loaded.GetSession("sess-1")
+	if !found {
+		t.Fatal("session not found after load")
+	}
+	if sess.XtermTitle != "" {
+		t.Errorf("XtermTitle should be empty after load, got %q", sess.XtermTitle)
+	}
+}
+
 func TestLastOutputAtNotPersisted(t *testing.T) {
 	// LastOutputAt has json:"-" and should NOT survive save/load
 	tmpDir := t.TempDir()

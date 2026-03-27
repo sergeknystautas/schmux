@@ -80,7 +80,9 @@ function SortableSessionTab({
     >
       <div className="session-tab__row1">
         {isWorkingState && <WorkingSpinner />}
-        <span className="session-tab__name">{sess.nickname || sess.target}</span>
+        <span className="session-tab__name">
+          {sess.nickname || sess.xterm_title || sess.target}
+        </span>
         <Tooltip
           content={
             !sess.running
@@ -352,7 +354,7 @@ export default function SessionTabs({
   // Helper to render a session tab
   const renderSessionTab = (sess: SessionResponse) => {
     const isCurrent = sess.id === currentSessionId;
-    const displayName = sess.nickname || sess.target;
+    const displayName = sess.nickname || sess.xterm_title || sess.target;
     const disabled = isLocked || sess.status === 'disposing';
 
     // run_targets are command-only now; if not in run_targets, it's a model = promptable

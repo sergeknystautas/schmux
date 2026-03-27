@@ -17,6 +17,7 @@ type StateStore interface {
 	RemoveSession(id string) error
 	UpdateSessionLastOutput(sessionID string, t time.Time)
 	UpdateSessionLastSignal(sessionID string, t time.Time)
+	UpdateSessionXtermTitle(sessionID, title string) bool
 	IncrementNudgeSeq(sessionID string) uint64
 	GetNudgeSeq(sessionID string) uint64
 	UpdateSessionNudge(sessionID, nudge string) error

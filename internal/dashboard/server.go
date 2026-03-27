@@ -626,6 +626,7 @@ func (s *Server) Start() error {
 			r.Post("/sessions/{sessionID}/tell", s.handleTellSession)
 			r.Put("/sessions-nickname/{sessionID}", s.handleUpdateNickname)
 			r.Patch("/sessions-nickname/{sessionID}", s.handleUpdateNickname)
+			r.Put("/sessions-xterm-title/{sessionID}", s.handleUpdateXtermTitle)
 
 			// Config routes
 			r.Get("/config", s.handleConfigGet)

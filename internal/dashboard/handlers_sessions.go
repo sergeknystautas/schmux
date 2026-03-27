@@ -22,6 +22,7 @@ type SessionResponseItem struct {
 	Branch       string `json:"branch"`
 	BranchURL    string `json:"branch_url,omitempty"`
 	Nickname     string `json:"nickname,omitempty"`
+	XtermTitle   string `json:"xterm_title,omitempty"`
 	CreatedAt    string `json:"created_at"`
 	LastOutputAt string `json:"last_output_at,omitempty"`
 	Running      bool   `json:"running"`
@@ -296,6 +297,7 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			Branch:           wsResp.Branch,
 			BranchURL:        wsResp.BranchURL,
 			Nickname:         sess.Nickname,
+			XtermTitle:       sess.XtermTitle,
 			CreatedAt:        sess.CreatedAt.Format(time.RFC3339),
 			LastOutputAt:     lastOutputAt,
 			Running:          running,

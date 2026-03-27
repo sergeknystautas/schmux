@@ -135,6 +135,9 @@ export default class TerminalStream {
   // Clipboard image paste interception
   private imagePasteHandler: ((e: Event) => void) | null = null;
 
+  // Xterm title change debouncing
+  private titleDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
   // Viewport sync patch cleanup (Fix 2 + 3)
   private _viewportPatchCleanup: (() => void) | null = null;
 
@@ -285,6 +288,20 @@ export default class TerminalStream {
         });
       }
       this.lastKnownBufferLength = buf.length;
+    });
+
+    // Report xterm title changes (OSC 0/2) to the backend so the tab label updates.
+    this.terminal.onTitleChange((title: string) => {
+      if (this.titleDebounceTimer) clearTimeout(this.titleDebounceTimer);
+      this.titleDebounceTimer = setTimeout(() => {
+        transport
+          .fetch(`/api/sessions-xterm-title/${encodeURIComponent(this.sessionId)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+            body: JSON.stringify({ title }),
+          })
+          .catch(() => {});
+      }, 300);
     });
 
     this.tsLog('initTerminal', { cols, rows });
@@ -861,6 +878,10 @@ export default class TerminalStream {
     if (this.writeGuardTimer) {
       clearTimeout(this.writeGuardTimer);
       this.writeGuardTimer = null;
+    }
+    if (this.titleDebounceTimer) {
+      clearTimeout(this.titleDebounceTimer);
+      this.titleDebounceTimer = null;
     }
     if (this.imagePasteHandler) {
       document.removeEventListener('paste', this.imagePasteHandler, { capture: true });

@@ -195,6 +195,7 @@ Response:
         "target": "target-name",
         "branch": "branch",
         "nickname": "optional",
+        "xterm_title": "optional",
         "created_at": "YYYY-MM-DDTHH:MM:SS",
         "last_output_at": "YYYY-MM-DDTHH:MM:SS",
         "running": true,
@@ -757,6 +758,22 @@ Errors:
 
 - 409 with JSON: `{"error":"nickname already in use"}`
 - 500: "Failed to rename session: ..."
+
+### PUT /api/sessions-xterm-title/{sessionId}
+
+Update a session's xterm title (reported by the frontend when xterm.js detects an OSC 0/2 title change). The title is in-memory only and not persisted across daemon restarts. A broadcast is sent only when the title actually changes.
+
+Request:
+
+```json
+{ "title": "Working on feature X" }
+```
+
+Response:
+
+```json
+{ "status": "ok" }
+```
 
 ### GET /api/config
 

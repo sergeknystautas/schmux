@@ -113,6 +113,73 @@ func TestHandleUpdateNickname_Guards(t *testing.T) {
 	})
 }
 
+func TestHandleUpdateXtermTitle(t *testing.T) {
+	server, _, st := newTestServer(t)
+
+	st.AddWorkspace(state.Workspace{
+		ID:     "ws-title",
+		Repo:   "https://github.com/test/repo",
+		Branch: "main",
+		Path:   t.TempDir(),
+	})
+	st.AddSession(state.Session{
+		ID:          "sess-title",
+		WorkspaceID: "ws-title",
+		Target:      "claude",
+	})
+
+	t.Run("updates title successfully", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{"title": "Working on feature X"})
+		req := makeSessionRequest(t, http.MethodPut, "/api/sessions-xterm-title/sess-title", "sess-title", body)
+		rr := httptest.NewRecorder()
+		server.handleUpdateXtermTitle(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+		sess, _ := st.GetSession("sess-title")
+		if sess.XtermTitle != "Working on feature X" {
+			t.Errorf("XtermTitle = %q, want %q", sess.XtermTitle, "Working on feature X")
+		}
+	})
+
+	t.Run("rejects missing session ID", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{"title": "test"})
+		req := makeSessionRequest(t, http.MethodPut, "/api/sessions-xterm-title/", "", body)
+		rr := httptest.NewRecorder()
+		server.handleUpdateXtermTitle(rr, req)
+
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("rejects malformed body", func(t *testing.T) {
+		req := makeSessionRequest(t, http.MethodPut, "/api/sessions-xterm-title/sess-title", "sess-title", []byte(`{broken`))
+		rr := httptest.NewRecorder()
+		server.handleUpdateXtermTitle(rr, req)
+
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("clears title with empty string", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{"title": ""})
+		req := makeSessionRequest(t, http.MethodPut, "/api/sessions-xterm-title/sess-title", "sess-title", body)
+		rr := httptest.NewRecorder()
+		server.handleUpdateXtermTitle(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+		sess, _ := st.GetSession("sess-title")
+		if sess.XtermTitle != "" {
+			t.Errorf("XtermTitle should be empty after clearing, got %q", sess.XtermTitle)
+		}
+	})
+}
+
 func TestHandleDispose_NonexistentSession(t *testing.T) {
 	server, _, _ := newTestServer(t)
 

@@ -293,6 +293,36 @@ func (s *Server) handleUpdateNickname(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleUpdateXtermTitle handles xterm title change reports from the frontend.
+// PUT /api/sessions-xterm-title/{sessionID}
+func (s *Server) handleUpdateXtermTitle(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+
+	sessionID := chi.URLParam(r, "sessionID")
+	if sessionID == "" {
+		writeJSONError(w, "session ID is required", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	changed := s.state.UpdateSessionXtermTitle(sessionID, req.Title)
+	if changed {
+		go s.BroadcastSessions()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "update-xterm-title", "err", err)
+	}
+}
+
 // handleAskNudgenik handles GET requests to ask NudgeNik about a session's output.
 // GET /api/askNudgenik/{sessionId}
 //
