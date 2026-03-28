@@ -76,8 +76,6 @@ func TestGitStatus_WatcherStillReturnsAccurateLocalState(t *testing.T) {
 	tmpDir := t.TempDir()
 	cloneDir := filepath.Join(tmpDir, "clone")
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
-	runGit(t, cloneDir, "config", "user.email", "test@test.com")
-	runGit(t, cloneDir, "config", "user.name", "Test")
 
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{WorkspacePath: tmpDir}
@@ -118,8 +116,6 @@ func TestGitStatus_ReturnsCurrentBranch(t *testing.T) {
 	tmpDir := t.TempDir()
 	cloneDir := filepath.Join(tmpDir, "clone")
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
-	runGit(t, cloneDir, "config", "user.email", "test@test.com")
-	runGit(t, cloneDir, "config", "user.name", "Test")
 
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{WorkspacePath: tmpDir}
@@ -260,8 +256,6 @@ func TestUpdateVCSStatus_NoDuplicateBranchQueries(t *testing.T) {
 	tmpDir := t.TempDir()
 	cloneDir := filepath.Join(tmpDir, "clone")
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
-	runGit(t, cloneDir, "config", "user.email", "test@test.com")
-	runGit(t, cloneDir, "config", "user.name", "Test")
 
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{WorkspacePath: tmpDir}
@@ -317,8 +311,6 @@ func TestUpdateVCSStatus_NoDuplicateRemoteBranchCheck(t *testing.T) {
 	tmpDir := t.TempDir()
 	cloneDir := filepath.Join(tmpDir, "clone")
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
-	runGit(t, cloneDir, "config", "user.email", "test@test.com")
-	runGit(t, cloneDir, "config", "user.name", "Test")
 
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{WorkspacePath: tmpDir}
@@ -797,8 +789,6 @@ func TestCommitsSyncedWithRemote_DerivedFromRevList(t *testing.T) {
 	tmpDir := t.TempDir()
 	cloneDir := filepath.Join(tmpDir, "clone")
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
-	runGit(t, cloneDir, "config", "user.email", "test@test.com")
-	runGit(t, cloneDir, "config", "user.name", "Test")
 
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{WorkspacePath: tmpDir}
@@ -849,8 +839,6 @@ func TestCommitsSyncedWithRemote_FalseWhenAhead(t *testing.T) {
 	tmpDir := t.TempDir()
 	cloneDir := filepath.Join(tmpDir, "clone")
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
-	runGit(t, cloneDir, "config", "user.email", "test@test.com")
-	runGit(t, cloneDir, "config", "user.name", "Test")
 
 	// Make a local commit that's not pushed
 	writeFile(t, cloneDir, "local.txt", "local change")
@@ -885,8 +873,6 @@ func TestOrphanCheck_SkippedWhenSynced(t *testing.T) {
 	tmpDir := t.TempDir()
 	cloneDir := filepath.Join(tmpDir, "clone")
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
-	runGit(t, cloneDir, "config", "user.email", "test@test.com")
-	runGit(t, cloneDir, "config", "user.name", "Test")
 
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{WorkspacePath: tmpDir}
@@ -944,8 +930,6 @@ func TestOrphanCheck_StillRunsWhenAhead(t *testing.T) {
 	tmpDir := t.TempDir()
 	cloneDir := filepath.Join(tmpDir, "clone")
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
-	runGit(t, cloneDir, "config", "user.email", "test@test.com")
-	runGit(t, cloneDir, "config", "user.name", "Test")
 
 	// Create a local commit to make workspace ahead
 	writeFile(t, cloneDir, "ahead.txt", "ahead")

@@ -22,22 +22,13 @@ func setupPushTest(t *testing.T) (string, string, *Manager, *state.State, string
 
 	tmpDir := t.TempDir()
 
-	// Create bare remote repo
+	// Create bare remote from template repo
 	remoteDir := filepath.Join(tmpDir, "remote.git")
-	runGit(t, tmpDir, "init", "--bare", remoteDir)
+	runGit(t, tmpDir, "clone", "--bare", templateRepoDir, remoteDir)
 
 	// Create a working clone
 	cloneDir := filepath.Join(tmpDir, "clone")
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
-	runGit(t, cloneDir, "config", "user.email", "test@test.com")
-	runGit(t, cloneDir, "config", "user.name", "Test")
-
-	// Make initial commit on main (explicitly create branch to avoid relying on git's default)
-	runGit(t, cloneDir, "checkout", "-b", "main")
-	writeFile(t, cloneDir, "README.md", "test")
-	runGit(t, cloneDir, "add", ".")
-	runGit(t, cloneDir, "commit", "-m", "initial")
-	runGit(t, cloneDir, "push", "origin", "main")
 
 	// Set up workspace manager
 	statePath := filepath.Join(tmpDir, "state.json")

@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,22 +24,35 @@ func runGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
+// copyDir recursively copies src into dst (which must already exist).
+func copyDir(t *testing.T, src, dst string) {
+	t.Helper()
+	err := filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(src, path)
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0644)
+	})
+	if err != nil {
+		t.Fatalf("copyDir: %v", err)
+	}
+}
+
 // gitTestWorkTree creates a working git tree with an initial commit.
 // Returns the path to the repo (auto-cleanup via t.TempDir).
 func gitTestWorkTree(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-
-	// Initialize repo on main branch
-	runGit(t, dir, "init", "-b", "main")
-	runGit(t, dir, "config", "user.email", "test@test.com")
-	runGit(t, dir, "config", "user.name", "Test User")
-
-	// Create initial commit
-	writeFile(t, dir, "README.md", "test repo")
-	runGit(t, dir, "add", ".")
-	runGit(t, dir, "commit", "-m", "initial")
-
+	copyDir(t, templateRepoDir, dir)
 	return dir
 }
 
@@ -345,28 +359,14 @@ func TestCheckGitSafety_PushedToOriginBranch(t *testing.T) {
 		t.Skip("git not available")
 	}
 
-	// Create a bare "remote" repo so pushes are always accepted regardless
-	// of the local push.default setting.
+	// Create a bare "remote" repo from template
 	tmpDir := t.TempDir()
 	bareDir := filepath.Join(tmpDir, "remote.git")
-	runGit(t, tmpDir, "init", "--bare", "-b", "main", bareDir)
-
-	// Seed the bare remote with an initial commit
-	seedDir := t.TempDir()
-	runGit(t, tmpDir, "clone", bareDir, seedDir)
-	runGit(t, seedDir, "config", "user.email", "test@test.com")
-	runGit(t, seedDir, "config", "user.name", "Test")
-	runGit(t, seedDir, "checkout", "-b", "main")
-	writeFile(t, seedDir, "README.md", "test repo")
-	runGit(t, seedDir, "add", ".")
-	runGit(t, seedDir, "commit", "-m", "initial")
-	runGit(t, seedDir, "push", "origin", "main")
+	runGit(t, tmpDir, "clone", "--bare", templateRepoDir, bareDir)
 
 	// Create a local clone
 	localDir := filepath.Join(tmpDir, "local")
 	runGit(t, tmpDir, "clone", bareDir, "local")
-	runGit(t, localDir, "config", "user.email", "test@test.com")
-	runGit(t, localDir, "config", "user.name", "Test")
 
 	// Create a feature branch FROM origin/main (simulating schmux's addWorktree
 	// with: git worktree add -b feature/test path origin/main)
@@ -642,8 +642,6 @@ func TestUpdateLocalDefaultBranch_SkipsOnDivergedBranches(t *testing.T) {
 	runGit(t, bareRepoPath, "worktree", "add", divergeWorktree, "main")
 	writeFile(t, divergeWorktree, "local-only.txt", "local commit")
 	runGit(t, divergeWorktree, "add", ".")
-	runGit(t, divergeWorktree, "config", "user.email", "test@test.com")
-	runGit(t, divergeWorktree, "config", "user.name", "Test")
 	runGit(t, divergeWorktree, "commit", "-m", "local divergent commit")
 	runGit(t, bareRepoPath, "worktree", "remove", divergeWorktree)
 
@@ -750,8 +748,6 @@ func TestHasCommonAncestor_NormalBranch(t *testing.T) {
 	tmpDir := t.TempDir()
 	cloneDir := filepath.Join(tmpDir, "clone")
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
-	runGit(t, cloneDir, "config", "user.email", "test@test.com")
-	runGit(t, cloneDir, "config", "user.name", "Test")
 
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{WorkspacePath: tmpDir}
@@ -792,8 +788,6 @@ func TestHasCommonAncestor_OrphanBranch(t *testing.T) {
 	tmpDir := t.TempDir()
 	cloneDir := filepath.Join(tmpDir, "clone")
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
-	runGit(t, cloneDir, "config", "user.email", "test@test.com")
-	runGit(t, cloneDir, "config", "user.name", "Test")
 
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{WorkspacePath: tmpDir}
@@ -891,35 +885,14 @@ func TestCheckWorkspaceClean(t *testing.T) {
 		t.Skip("git not available")
 	}
 
-	// Setup: create a bare repo with an initial commit
-	bareDir := t.TempDir()
-	cmd := exec.Command("git", "init", "--bare", "-b", "main", bareDir)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git init --bare: %v\n%s", err, out)
-	}
-
-	// Create a temporary working dir to push initial commit
-	initDir := t.TempDir()
-	cmd = exec.Command("git", "clone", bareDir, initDir)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git clone: %v\n%s", err, out)
-	}
-	runGit(t, initDir, "config", "user.email", "test@test.com")
-	runGit(t, initDir, "config", "user.name", "test")
-	runGit(t, initDir, "checkout", "-b", "main")
-	os.WriteFile(filepath.Join(initDir, "README.md"), []byte("hello"), 0644)
-	runGit(t, initDir, "add", ".")
-	runGit(t, initDir, "commit", "-m", "init")
-	runGit(t, initDir, "push", "origin", "main")
+	// Setup: create a bare repo from template
+	tmpDir := t.TempDir()
+	bareDir := filepath.Join(tmpDir, "remote.git")
+	runGit(t, tmpDir, "clone", "--bare", templateRepoDir, bareDir)
 
 	// Clone the repo into the actual workDir
 	workDir := t.TempDir()
-	cmd = exec.Command("git", "clone", bareDir, workDir)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git clone: %v\n%s", err, out)
-	}
-	runGit(t, workDir, "config", "user.email", "test@test.com")
-	runGit(t, workDir, "config", "user.name", "test")
+	runGit(t, tmpDir, "clone", bareDir, workDir)
 
 	// Create schmux/lore branch at same commit
 	runGit(t, workDir, "checkout", "-b", "schmux/lore")

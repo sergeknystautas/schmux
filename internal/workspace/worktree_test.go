@@ -443,8 +443,6 @@ func TestAddWorktree_DivergedLocalBranchPrefersOrigin(t *testing.T) {
 	runGit(t, bareRepoPath, "worktree", "add", divergeWorktree, "main")
 	writeFile(t, divergeWorktree, "local-only.txt", "local divergent commit")
 	runGit(t, divergeWorktree, "add", ".")
-	runGit(t, divergeWorktree, "config", "user.email", "test@test.com")
-	runGit(t, divergeWorktree, "config", "user.name", "Test")
 	runGit(t, divergeWorktree, "commit", "-m", "local divergent commit")
 	runGit(t, bareRepoPath, "worktree", "remove", divergeWorktree)
 

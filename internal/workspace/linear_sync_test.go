@@ -234,8 +234,6 @@ func TestLinearSyncFromDefault_RejectsOrphanDefaultBranch(t *testing.T) {
 	tmpDir := t.TempDir()
 	cloneDir := filepath.Join(tmpDir, "clone")
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
-	runGit(t, cloneDir, "config", "user.email", "test@test.com")
-	runGit(t, cloneDir, "config", "user.name", "Test")
 
 	// Make a local commit on the feature branch so we're "ahead"
 	runGit(t, cloneDir, "checkout", "-b", "feature")

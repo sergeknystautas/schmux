@@ -277,8 +277,6 @@ func TestGetOrCreate_BranchReuse_DivergedSkipsReuse(t *testing.T) {
 	}
 
 	// Add a diverging commit directly in the workspace (not on origin/main)
-	runGit(t, ws1.Path, "config", "user.email", "test@test.com")
-	runGit(t, ws1.Path, "config", "user.name", "Test User")
 	writeFile(t, ws1.Path, "diverged.txt", "diverged content")
 	runGit(t, ws1.Path, "add", ".")
 	runGit(t, ws1.Path, "commit", "-m", "diverging commit")

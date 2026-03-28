@@ -218,9 +218,9 @@ func TestExecuteInputValidation(t *testing.T) {
 
 func TestExecuteAcceptsEmptySchemaLabel(t *testing.T) {
 	ctx := context.Background()
-	_, err := Execute(ctx, "claude", "claude", "test prompt", "", nil, "", nil)
-	// Empty schema label should be accepted — the function should proceed past
-	// validation and fail on something else (e.g., command not found in test env).
+	// Use a non-existent binary so Execute fails fast at exec, not at validation.
+	// We only care that empty schemaLabel passes validation — not that the command succeeds.
+	_, err := Execute(ctx, "claude", "/nonexistent-schmux-test-binary", "test prompt", "", nil, "", nil)
 	if err != nil && strings.Contains(err.Error(), "schema label cannot be empty") {
 		t.Fatal("Execute should accept empty schema label to allow prompt-only JSON output without constrained decoding")
 	}

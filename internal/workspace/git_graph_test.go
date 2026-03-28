@@ -18,20 +18,13 @@ func setupWorkspaceGraphTest(t *testing.T, branch string) (mgr *Manager, remoteD
 	t.Helper()
 	wsID = "ws-test-1"
 
-	// Create "remote" repo
+	// Copy template repo as "remote"
 	remoteDir = t.TempDir()
-	runGit(t, remoteDir, "init", "-b", "main")
-	runGit(t, remoteDir, "config", "user.email", "test@test.com")
-	runGit(t, remoteDir, "config", "user.name", "Test User")
-	writeFile(t, remoteDir, "README.md", "initial")
-	runGit(t, remoteDir, "add", ".")
-	runGit(t, remoteDir, "commit", "-m", "initial commit")
+	copyDir(t, templateRepoDir, remoteDir)
 
 	// Clone into workspace dir
 	wsDir = filepath.Join(t.TempDir(), "workspace")
 	runGit(t, t.TempDir(), "clone", remoteDir, wsDir)
-	runGit(t, wsDir, "config", "user.email", "test@test.com")
-	runGit(t, wsDir, "config", "user.name", "Test User")
 
 	// Create and checkout branch if not main
 	if branch != "main" {
@@ -66,6 +59,23 @@ func commitOnRemote(t *testing.T, remoteDir, wsDir, filename, msg string) {
 	runGit(t, remoteDir, "add", ".")
 	runGit(t, remoteDir, "commit", "-m", msg)
 	runGit(t, wsDir, "fetch", "origin")
+}
+
+// commitNOnRemote adds n empty commits to the remote and does a single fetch.
+func commitNOnRemote(t *testing.T, remoteDir, wsDir string, n int, prefix string) {
+	t.Helper()
+	for i := 0; i < n; i++ {
+		runGit(t, remoteDir, "commit", "--allow-empty", "-m", fmt.Sprintf("%s %d", prefix, i))
+	}
+	runGit(t, wsDir, "fetch", "origin")
+}
+
+// commitNOnWorkspace adds n empty commits to the workspace's current branch.
+func commitNOnWorkspace(t *testing.T, wsDir string, n int, prefix string) {
+	t.Helper()
+	for i := 0; i < n; i++ {
+		runGit(t, wsDir, "commit", "--allow-empty", "-m", fmt.Sprintf("%s %d", prefix, i))
+	}
 }
 
 func getHash(t *testing.T, dir, ref string) string {
@@ -354,9 +364,7 @@ func TestGitGraph_MaxCommits(t *testing.T) {
 	ctx := context.Background()
 
 	// Add many commits
-	for i := 0; i < 20; i++ {
-		commitOnWorkspace(t, wsDir, "file"+string(rune('a'+i))+".txt", "commit "+string(rune('a'+i)))
-	}
+	commitNOnWorkspace(t, wsDir, 20, "commit")
 
 	resp, err := mgr.GetGitGraph(ctx, wsID, 5, 2)
 	if err != nil {
@@ -433,10 +441,8 @@ func TestGitGraph_Trimming(t *testing.T) {
 	mgr, remoteDir, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-trim")
 	ctx := context.Background()
 
-	// Add 15 commits to remote main
-	for i := 0; i < 15; i++ {
-		commitOnRemote(t, remoteDir, wsDir, "remote"+string(rune('a'+i))+".txt", "remote-"+string(rune('a'+i)))
-	}
+	// Add 15 commits to remote main (single fetch at end)
+	commitNOnRemote(t, remoteDir, wsDir, 15, "remote")
 
 	// Add 1 local commit
 	commitOnWorkspace(t, wsDir, "local.txt", "local work")
@@ -558,9 +564,7 @@ func TestGitGraph_LocalTruncated(t *testing.T) {
 	ctx := context.Background()
 
 	// Add 10 commits on the local branch
-	for i := 0; i < 10; i++ {
-		commitOnWorkspace(t, wsDir, fmt.Sprintf("file%d.txt", i), fmt.Sprintf("commit %d", i))
-	}
+	commitNOnWorkspace(t, wsDir, 10, "commit")
 
 	// Request with maxTotal=5 — should truncate local commits
 	resp, err := mgr.GetGitGraph(ctx, wsID, 5, 2)
@@ -596,9 +600,7 @@ func TestGitGraph_LocalNotTruncated(t *testing.T) {
 	ctx := context.Background()
 
 	// Add 3 commits — well under limit
-	for i := 0; i < 3; i++ {
-		commitOnWorkspace(t, wsDir, fmt.Sprintf("file%d.txt", i), fmt.Sprintf("commit %d", i))
-	}
+	commitNOnWorkspace(t, wsDir, 3, "commit")
 
 	resp, err := mgr.GetGitGraph(ctx, wsID, 200, 5)
 	if err != nil {
@@ -643,8 +645,9 @@ func TestGitGraph_ManyMergeCommits(t *testing.T) {
 
 	// Create pattern: local commit, then merge from main, repeat
 	for i := 0; i < 5; i++ {
-		commitOnWorkspace(t, wsDir, fmt.Sprintf("local%d.txt", i), fmt.Sprintf("local %d", i))
-		commitOnRemote(t, remoteDir, wsDir, fmt.Sprintf("remote%d.txt", i), fmt.Sprintf("remote %d", i))
+		runGit(t, wsDir, "commit", "--allow-empty", "-m", fmt.Sprintf("local %d", i))
+		runGit(t, remoteDir, "commit", "--allow-empty", "-m", fmt.Sprintf("remote %d", i))
+		runGit(t, wsDir, "fetch", "origin")
 		runGit(t, wsDir, "merge", "origin/main", "-m", fmt.Sprintf("merge %d", i))
 	}
 
@@ -678,9 +681,7 @@ func TestGitGraph_ManyAheadBranchMembership(t *testing.T) {
 	ctx := context.Background()
 
 	// Create 15 local commits (simulating many-ahead scenario)
-	for i := 0; i < 15; i++ {
-		commitOnWorkspace(t, wsDir, fmt.Sprintf("feature%d.txt", i), fmt.Sprintf("feature commit %d", i))
-	}
+	commitNOnWorkspace(t, wsDir, 15, "feature")
 
 	// Create 1 commit on remote main (1 behind)
 	commitOnRemote(t, remoteDir, wsDir, "remote-ahead.txt", "remote ahead of fork")
