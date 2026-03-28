@@ -283,41 +283,54 @@ func TestStatsMessage_JSON(t *testing.T) {
 	}
 }
 
-// TestTerminalSizeTracking verifies that the SessionTracker has fields to store
-// terminal dimensions received from WebSocket resize messages.
+// TestTerminalSizeTracking verifies that Resize() validates dimensions and
+// stores them for diagnostic capture, even when no control mode client is attached.
 func TestTerminalSizeTracking(t *testing.T) {
-	// This test verifies the fix for terminal desync: backend should track terminal size
-	// so that DiagnosticCapture includes correct Cols/Rows instead of defaulting to 0x0.
 	srv, _, st := newTestServer(t)
 	st.AddSession(state.Session{ID: "test-session", TmuxSession: "test"})
 
-	// Get the tracker
 	tracker, err := srv.session.GetTracker("test-session")
 	if err != nil {
 		t.Fatalf("failed to get tracker: %v", err)
 	}
 	t.Cleanup(tracker.Stop)
 
-	// Initially, terminal size fields should be zero
+	// Initially, terminal size should be zero
 	if tracker.LastTerminalCols.Load() != 0 || tracker.LastTerminalRows.Load() != 0 {
 		t.Errorf("initial terminal size should be 0x0, got %dx%d",
 			tracker.LastTerminalCols.Load(), tracker.LastTerminalRows.Load())
 	}
 
-	// Directly set the terminal dimensions to simulate what Resize() does
-	// (We can't call actual Resize without a control mode client)
-	tracker.LastTerminalCols.Store(120)
-	tracker.LastTerminalRows.Store(40)
-
-	// Verify the fields were set
+	// Resize stores dimensions even without a control mode client (returns "not attached")
+	err = tracker.Resize(120, 40)
+	if err == nil {
+		t.Error("Resize without control mode client should return error")
+	}
 	if tracker.LastTerminalCols.Load() != 120 || tracker.LastTerminalRows.Load() != 40 {
-		t.Errorf("terminal size after assignment should be 120x40, got %dx%d",
+		t.Errorf("Resize should store dimensions even on error, got %dx%d",
 			tracker.LastTerminalCols.Load(), tracker.LastTerminalRows.Load())
+	}
+
+	// Invalid dimensions should be rejected without changing stored values
+	err = tracker.Resize(0, 40)
+	if err == nil {
+		t.Error("Resize(0, 40) should return error for invalid cols")
+	}
+	if tracker.LastTerminalCols.Load() != 120 {
+		t.Errorf("invalid Resize should not change stored cols, got %d", tracker.LastTerminalCols.Load())
+	}
+
+	err = tracker.Resize(80, -1)
+	if err == nil {
+		t.Error("Resize(80, -1) should return error for invalid rows")
+	}
+	if tracker.LastTerminalRows.Load() != 40 {
+		t.Errorf("invalid Resize should not change stored rows, got %d", tracker.LastTerminalRows.Load())
 	}
 }
 
 // TestDiagnosticCaptureIncludesTerminalSize verifies that DiagnosticCapture
-// correctly includes terminal dimensions from the tracker.
+// built from tracker state after Resize() has correct dimensions (not 0x0).
 func TestDiagnosticCaptureIncludesTerminalSize(t *testing.T) {
 	srv, _, st := newTestServer(t)
 	st.AddSession(state.Session{ID: "test-session", TmuxSession: "test"})
@@ -328,12 +341,20 @@ func TestDiagnosticCaptureIncludesTerminalSize(t *testing.T) {
 	}
 	t.Cleanup(tracker.Stop)
 
-	// Simulate terminal size being stored from a resize message
-	tracker.LastTerminalCols.Store(120)
-	tracker.LastTerminalRows.Store(40)
-
-	// Create a DiagnosticCapture using the stored terminal size
+	// Before any resize, diagnostic should show 0x0
 	diag := &DiagnosticCapture{
+		Cols: int(tracker.LastTerminalCols.Load()),
+		Rows: int(tracker.LastTerminalRows.Load()),
+	}
+	if diag.Cols != 0 || diag.Rows != 0 {
+		t.Errorf("diagnostic before resize should be 0x0, got %dx%d", diag.Cols, diag.Rows)
+	}
+
+	// After Resize(), diagnostic built the same way as production code
+	// (websocket.go:907-908) should reflect the new dimensions.
+	_ = tracker.Resize(120, 40) // error expected (no cmClient), but dimensions stored
+
+	diag = &DiagnosticCapture{
 		Timestamp:  time.Now(),
 		SessionID:  "test-session",
 		Cols:       int(tracker.LastTerminalCols.Load()),
@@ -344,7 +365,6 @@ func TestDiagnosticCaptureIncludesTerminalSize(t *testing.T) {
 		Verdict:    "Test verdict",
 	}
 
-	// Verify the diagnostic has correct dimensions, not 0x0
 	if diag.Cols != 120 {
 		t.Errorf("diagnostic Cols = %d, want 120", diag.Cols)
 	}
@@ -1002,33 +1022,6 @@ func TestPendingInputQueue_MultipleSamples(t *testing.T) {
 	}
 	if p.SampleCount != 3 {
 		t.Errorf("SampleCount = %d, want 3 (all keystrokes should be recorded)", p.SampleCount)
-	}
-}
-
-// TestPendingInputQueue_DiscardOnEmptyData verifies that a queue entry is
-// discarded when an echo event has no data.
-func TestPendingInputQueue_DiscardOnEmptyData(t *testing.T) {
-	type pendingInputTiming struct {
-		dispatch      time.Duration
-		sendKeys      time.Duration
-		t3            time.Time
-		outputChDepth int
-	}
-
-	var queue []pendingInputTiming
-	queue = append(queue, pendingInputTiming{
-		dispatch: time.Millisecond,
-		sendKeys: 10 * time.Millisecond,
-		t3:       time.Now(),
-	})
-
-	// Simulate an echo with empty data — should discard the front entry
-	if len(queue) > 0 {
-		queue = queue[1:]
-	}
-
-	if len(queue) != 0 {
-		t.Errorf("queue should be empty after discard, got %d", len(queue))
 	}
 }
 

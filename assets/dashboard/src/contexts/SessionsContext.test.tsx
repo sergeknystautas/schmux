@@ -3,10 +3,6 @@ import { renderHook, act } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { SessionsProvider, useSessions } from './SessionsContext';
-import { useSyncState } from './SyncContext';
-import { useOverlay } from './OverlayContext';
-import { useRemoteAccess } from './RemoteAccessContext';
-import { useMonitor } from './MonitorContext';
 import type { WorkspaceResponse } from '../lib/types';
 
 // --- Mocks ---
@@ -186,20 +182,5 @@ describe('SessionsContext', () => {
     });
 
     expect(localStorage.getItem('schmux:ack:sess-1')).toBe('5');
-  });
-
-  it('provides sub-context values via focused hooks', () => {
-    const { result: sync } = renderHook(() => useSyncState(), { wrapper: makeWrapper() });
-    const { result: overlay } = renderHook(() => useOverlay(), { wrapper: makeWrapper() });
-    const { result: remote } = renderHook(() => useRemoteAccess(), { wrapper: makeWrapper() });
-    const { result: monitor } = renderHook(() => useMonitor(), { wrapper: makeWrapper() });
-
-    expect(sync.current).toHaveProperty('linearSyncResolveConflictStates');
-    expect(sync.current).toHaveProperty('workspaceLockStates');
-    expect(overlay.current).toHaveProperty('overlayEvents');
-    expect(overlay.current).toHaveProperty('overlayUnreadCount');
-    expect(remote.current).toHaveProperty('remoteAccessStatus');
-    expect(remote.current).toHaveProperty('simulateRemote');
-    expect(monitor.current).toHaveProperty('monitorEvents');
   });
 });

@@ -16,22 +16,17 @@ import (
 )
 
 // writeStatusEvent writes a status event to the session's event file in JSONL format.
-func writeStatusEvent(t *testing.T, workspacePath, sessionID, state, message string) {
+func writeEvent(t *testing.T, workspacePath, sessionID string, fields map[string]string) {
 	t.Helper()
 	eventsDir := filepath.Join(workspacePath, ".schmux", "events")
 	if err := os.MkdirAll(eventsDir, 0755); err != nil {
 		t.Fatalf("Failed to create events dir: %v", err)
 	}
 	eventFile := filepath.Join(eventsDir, sessionID+".jsonl")
-	event := map[string]string{
-		"ts":   time.Now().UTC().Format(time.RFC3339),
-		"type": "status",
+	if fields["ts"] == "" {
+		fields["ts"] = time.Now().UTC().Format(time.RFC3339)
 	}
-	event["state"] = state
-	if message != "" {
-		event["message"] = message
-	}
-	data, err := json.Marshal(event)
+	data, err := json.Marshal(fields)
 	if err != nil {
 		t.Fatalf("Failed to marshal event: %v", err)
 	}
@@ -47,6 +42,18 @@ func writeStatusEvent(t *testing.T, workspacePath, sessionID, state, message str
 	if err := f.Sync(); err != nil {
 		t.Fatalf("Failed to sync event file: %v", err)
 	}
+}
+
+func writeStatusEvent(t *testing.T, workspacePath, sessionID, state, message string) {
+	t.Helper()
+	fields := map[string]string{
+		"type":  "status",
+		"state": state,
+	}
+	if message != "" {
+		fields["message"] = message
+	}
+	writeEvent(t, workspacePath, sessionID, fields)
 }
 
 func TestMain(m *testing.M) {

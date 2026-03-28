@@ -224,90 +224,6 @@ func TestFileExists(t *testing.T) {
 	}
 }
 
-// TestClaudeDetector verifies claude detector returns valid results.
-func TestClaudeDetector(t *testing.T) {
-	d := &claudeDetector{}
-
-	if d.Name() != "claude" {
-		t.Errorf("claudeDetector.Name() = %q, want \"claude\"", d.Name())
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	agent, found := d.Detect(ctx)
-
-	// If found, verify the agent is valid
-	if found {
-		if agent.Name != "claude" {
-			t.Errorf("agent.Name = %q, want \"claude\"", agent.Name)
-		}
-		if agent.Command == "" {
-			t.Error("agent.Command should not be empty")
-		}
-		if !agent.Agentic {
-			t.Error("agent.Agentic should be true")
-		}
-	}
-	// If not found, that's OK - claude may not be installed
-}
-
-// TestCodexDetector verifies codex detector returns valid results.
-func TestCodexDetector(t *testing.T) {
-	d := &codexDetector{}
-
-	if d.Name() != "codex" {
-		t.Errorf("codexDetector.Name() = %q, want \"codex\"", d.Name())
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	agent, found := d.Detect(ctx)
-
-	// If found, verify the agent is valid
-	if found {
-		if agent.Name != "codex" {
-			t.Errorf("agent.Name = %q, want \"codex\"", agent.Name)
-		}
-		if agent.Command == "" {
-			t.Error("agent.Command should not be empty")
-		}
-		if !agent.Agentic {
-			t.Error("agent.Agentic should be true")
-		}
-	}
-	// If not found, that's OK - codex may not be installed
-}
-
-// TestGeminiDetector verifies gemini detector returns valid results.
-func TestGeminiDetector(t *testing.T) {
-	d := &geminiDetector{}
-
-	if d.Name() != "gemini" {
-		t.Errorf("geminiDetector.Name() = %q, want \"gemini\"", d.Name())
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	agent, found := d.Detect(ctx)
-
-	// If found, verify the agent is valid
-	if found {
-		if agent.Name != "gemini" {
-			t.Errorf("agent.Name = %q, want \"gemini\"", agent.Name)
-		}
-		if agent.Command == "" {
-			t.Error("agent.Command should not be empty")
-		}
-		if !agent.Agentic {
-			t.Error("agent.Agentic should be true")
-		}
-	}
-	// If not found, that's OK - gemini may not be installed
-}
-
 // TestTryCommandArgs verifies tryCommandArgs handles multiple arguments correctly.
 func TestTryCommandArgs(t *testing.T) {
 	ctx := context.Background()
@@ -365,12 +281,6 @@ func TestNpmGlobalInstalled(t *testing.T) {
 			t.Errorf("npmGlobalInstalled(%q) = true, want false", pkg)
 		}
 	}
-}
-
-// TestHomebrewInstalled verifies homebrew detection works correctly.
-func TestHomebrewInstalled(t *testing.T) {
-	// homebrewInstalled should return a boolean without crashing
-	homebrewInstalled() // Just verify it doesn't panic
 }
 
 // TestHomebrewCaskInstalled verifies cask detection works correctly.

@@ -245,10 +245,17 @@ func TestE2ESessionEvents(t *testing.T) {
 		t.Fatal("Could not determine workspace path")
 	}
 
-	// Write multiple status events
+	// Write multiple status events plus a failure event for filter testing
 	writeStatusEvent(t, wsPath, sessionID, "working", "building")
 	writeStatusEvent(t, wsPath, sessionID, "completed", "done")
 	writeStatusEvent(t, wsPath, sessionID, "needs_input", "waiting")
+	writeEvent(t, wsPath, sessionID, map[string]string{
+		"type":     "failure",
+		"tool":     "Bash",
+		"input":    "go build ./...",
+		"error":    "undefined: Foo",
+		"category": "build_failure",
+	})
 
 	// Poll until events are written and readable
 	env.PollUntil(3*time.Second, "events written", func() bool {
@@ -265,7 +272,7 @@ func TestE2ESessionEvents(t *testing.T) {
 		var events []json.RawMessage
 		json.NewDecoder(resp.Body).Decode(&events)
 		resp.Body.Close()
-		return len(events) >= 3
+		return len(events) >= 4
 	})
 
 	t.Run("GetAllEvents", func(t *testing.T) {
@@ -294,32 +301,46 @@ func TestE2ESessionEvents(t *testing.T) {
 	})
 
 	t.Run("FilterByType", func(t *testing.T) {
+		// First, get total count (includes the failure event)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, env.DaemonURL+"/api/sessions/"+sessionID+"/events?type=status", nil)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, env.DaemonURL+"/api/sessions/"+sessionID+"/events", nil)
 		resp, err := http.DefaultClient.Do(req)
+		cancel()
+		if err != nil {
+			t.Fatalf("GET all events failed: %v", err)
+		}
+		var allEvents []json.RawMessage
+		json.NewDecoder(resp.Body).Decode(&allEvents)
+		resp.Body.Close()
+		totalCount := len(allEvents)
+
+		// Now filter by status — should exclude the failure event
+		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+		req, _ = http.NewRequestWithContext(ctx, http.MethodGet, env.DaemonURL+"/api/sessions/"+sessionID+"/events?type=status", nil)
+		resp, err = http.DefaultClient.Do(req)
 		cancel()
 		if err != nil {
 			t.Fatalf("GET events with filter failed: %v", err)
 		}
 		defer resp.Body.Close()
 
-		var events []struct {
+		var filtered []struct {
 			Type string `json:"type"`
 		}
-		json.NewDecoder(resp.Body).Decode(&events)
+		json.NewDecoder(resp.Body).Decode(&filtered)
 
-		// All generated events are status type, so count should be same
-		if len(events) < 3 {
-			t.Fatalf("Expected at least 3 status events, got %d", len(events))
+		if len(filtered) < 3 {
+			t.Fatalf("Expected at least 3 status events, got %d", len(filtered))
 		}
 
-		// Verify every returned event actually matches the requested filter type.
-		// NOTE: In this test all events happen to be "status" type, so the filter
-		// doesn't exclude anything. A more thorough test would generate events of
-		// different types and verify the non-matching ones are excluded.
-		for i, evt := range events {
+		// The filter must have actually excluded the failure event
+		if len(filtered) >= totalCount {
+			t.Errorf("Filter did not exclude non-status events: got %d filtered vs %d total", len(filtered), totalCount)
+		}
+
+		for i, evt := range filtered {
 			if evt.Type != "status" {
-				t.Errorf("event[%d] has type %q, expected 'status' (filter should exclude non-matching types)", i, evt.Type)
+				t.Errorf("event[%d] has type %q, expected 'status'", i, evt.Type)
 			}
 		}
 	})
