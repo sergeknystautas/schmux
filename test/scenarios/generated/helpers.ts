@@ -99,7 +99,7 @@ export async function waitForHealthy(timeoutMs: number = 15_000): Promise<void> 
     } catch {
       // not ready yet
     }
-    await sleep(500);
+    await sleep(200);
   }
   throw new Error(`Daemon not healthy after ${timeoutMs}ms`);
 }
@@ -316,7 +316,7 @@ export async function waitForSessionRunning(
     } catch {
       // API not ready yet
     }
-    await sleep(500);
+    await sleep(200);
   }
   throw new Error(`Session${sessionId ? ` ${sessionId}` : 's'} not running after ${timeoutMs}ms`);
 }

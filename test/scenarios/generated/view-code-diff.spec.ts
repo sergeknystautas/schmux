@@ -37,8 +37,8 @@ test.describe.serial('View code changes in a workspace', () => {
 
     // Wait for the agent to start and modify the file, then for git status to detect changes
     // Git status polling interval is 10s, so we need to wait long enough
-    for (let i = 0; i < 25; i++) {
-      await sleep(1000);
+    for (let i = 0; i < 125; i++) {
+      await sleep(200);
       try {
         const resp = await apiGet<{ files?: Array<{ new_path?: string }> }>(
           `/api/diff/${workspaceId}`

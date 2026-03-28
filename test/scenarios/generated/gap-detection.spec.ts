@@ -212,9 +212,6 @@ test.describe.serial('Gap detection: sequenced frame protocol', () => {
     );
     await waitForSentinel(sessionId, sentinel);
 
-    // After the flood, give a moment for any gap replay to complete
-    await new Promise((r) => setTimeout(r, 1000));
-
     // The critical assertion: regardless of whether gaps occurred,
     // the terminal content should match tmux ground truth.
     // If gaps occurred and replay worked, content matches.

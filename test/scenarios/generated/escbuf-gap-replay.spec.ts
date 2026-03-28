@@ -139,7 +139,6 @@ test.describe.serial('Escbuf holdback & gap replay fixes', () => {
       "for i in $(seq 1 200); do printf '\\033[38;5;196m\\033[48;5;21mColored %d\\033[0m\\n' $i; done"
     );
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 500));
 
     // Should have received binary frames
     expect(seqs.length).toBeGreaterThan(0);

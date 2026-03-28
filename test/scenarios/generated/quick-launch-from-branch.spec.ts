@@ -59,7 +59,7 @@ test.describe.serial('Quick launch a session from a recent branch', () => {
       } catch {
         // not ready yet
       }
-      await sleep(1000);
+      await sleep(200);
     }
   });
 
