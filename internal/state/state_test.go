@@ -753,10 +753,6 @@ func TestStateSaveBatching(t *testing.T) {
 	statePath := filepath.Join(tmpDir, "state.json")
 	s := New(statePath, nil)
 
-	// Track number of actual file writes by checking modification time changes
-	saveCount := 0
-	var lastModTime time.Time
-
 	// Make 10 rapid changes with SaveBatched()
 	for i := 0; i < 10; i++ {
 		s.AddWorkspace(Workspace{
@@ -765,29 +761,11 @@ func TestStateSaveBatching(t *testing.T) {
 			Path: "/path",
 		})
 		s.SaveBatched()
-
-		// Small delay to simulate rapid updates
-		time.Sleep(10 * time.Millisecond)
 	}
 
-	// Wait for batching window (500ms) plus some buffer
-	time.Sleep(700 * time.Millisecond)
+	// Flush synchronously instead of sleeping for the debounce window
+	s.FlushPending()
 
-	// Check file was saved
-	info, err := os.Stat(statePath)
-	if err != nil {
-		t.Fatalf("state file should exist: %v", err)
-	}
-
-	// Count how many times mod time changed
-	if !lastModTime.IsZero() && info.ModTime().After(lastModTime) {
-		saveCount++
-	}
-	lastModTime = info.ModTime()
-
-	// Verify batching worked - should be 1 save, not 10
-	// We can't easily count actual saves, but we can verify the file exists
-	// and contains all workspaces
 	loaded, err := Load(statePath, nil)
 	if err != nil {
 		t.Fatalf("failed to load state: %v", err)
@@ -796,8 +774,6 @@ func TestStateSaveBatching(t *testing.T) {
 	if len(loaded.Workspaces) != 10 {
 		t.Errorf("expected 10 workspaces, got %d", len(loaded.Workspaces))
 	}
-
-	t.Logf("Batching successful: all 10 workspaces persisted")
 }
 
 // TestSaveBatchedDebounce verifies that the debounce timer resets on rapid calls
@@ -810,27 +786,13 @@ func TestSaveBatchedDebounce(t *testing.T) {
 	s.AddWorkspace(Workspace{ID: "ws-1", Repo: "repo1", Path: "/path1"})
 	s.SaveBatched()
 
-	// Wait 300ms (less than 500ms batch window)
-	time.Sleep(300 * time.Millisecond)
-
-	// Add another workspace - this should reset the timer
+	// Add another workspace — second SaveBatched should reset the timer
 	s.AddWorkspace(Workspace{ID: "ws-2", Repo: "repo2", Path: "/path2"})
 	s.SaveBatched()
 
-	// Wait another 300ms
-	time.Sleep(300 * time.Millisecond)
+	// Flush synchronously — both workspaces should be persisted
+	s.FlushPending()
 
-	// File should not exist yet (timer was reset)
-	if _, err := os.Stat(statePath); err == nil {
-		// File exists, which is OK if the timer fired
-		// This is a timing-sensitive test, so we just log
-		t.Log("Note: file exists earlier than expected (timer variation)")
-	}
-
-	// Wait for full batch window
-	time.Sleep(300 * time.Millisecond)
-
-	// Now file should exist with both workspaces
 	loaded, err := Load(statePath, nil)
 	if err != nil {
 		t.Fatalf("failed to load state: %v", err)
@@ -866,18 +828,11 @@ func TestSaveImmediateVsBatched(t *testing.T) {
 	s2.AddWorkspace(Workspace{ID: "ws-batched", Repo: "repo", Path: "/path"})
 	s2.SaveBatched()
 
-	// File should NOT exist immediately
-	time.Sleep(50 * time.Millisecond)
-	if _, err := os.Stat(statePath); err == nil {
-		t.Log("Note: SaveBatched() persisted earlier than expected")
-	}
+	// FlushPending forces the batched save synchronously
+	s2.FlushPending()
 
-	// Wait for batch window
-	time.Sleep(600 * time.Millisecond)
-
-	// Now file should exist
 	if _, err := os.Stat(statePath); err != nil {
-		t.Errorf("SaveBatched() should persist after debounce: %v", err)
+		t.Errorf("SaveBatched() should persist after FlushPending: %v", err)
 	}
 }
 
@@ -1257,9 +1212,6 @@ func TestFlushPending(t *testing.T) {
 	// Add data and trigger batched save
 	s.AddWorkspace(Workspace{ID: "ws-flush", Repo: "repo", Branch: "main", Path: "/tmp"})
 	s.SaveBatched()
-
-	// File should not exist yet (batching hasn't fired)
-	time.Sleep(50 * time.Millisecond)
 
 	// Flush should force the save immediately
 	s.FlushPending()

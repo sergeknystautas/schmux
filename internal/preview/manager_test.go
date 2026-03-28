@@ -459,12 +459,20 @@ func TestLookupPortOwner(t *testing.T) {
 	defer ln.Close()
 	port := ln.Addr().(*net.TCPAddr).Port
 
-	pid, err := LookupPortOwner(port)
-	if err != nil {
-		t.Fatalf("LookupPortOwner: %v", err)
-	}
-	if pid != os.Getpid() {
-		t.Fatalf("expected pid %d, got %d", os.Getpid(), pid)
+	// Retry — lsof may not see the socket immediately after net.Listen
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		pid, err := LookupPortOwner(port)
+		if err == nil {
+			if pid != os.Getpid() {
+				t.Fatalf("expected pid %d, got %d", os.Getpid(), pid)
+			}
+			return // success
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("LookupPortOwner: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 

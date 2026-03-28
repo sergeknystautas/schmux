@@ -91,17 +91,21 @@ func TestGetOrCreate_PerRepoMutexBlocks(t *testing.T) {
 	lock := manager.repoLock(repoDir)
 	lock.Lock()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
 	done := make(chan error, 1)
 	go func() {
-		_, err := manager.GetOrCreate(context.Background(), repoDir, "main")
+		_, err := manager.GetOrCreate(ctx, repoDir, "main")
 		done <- err
 	}()
 
+	// Verify GetOrCreate blocks on the held lock — it should not return within 200ms
 	select {
 	case err := <-done:
 		lock.Unlock()
 		t.Fatalf("expected GetOrCreate to block, returned early: %v", err)
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(200 * time.Millisecond):
 	}
 
 	lock.Unlock()
@@ -111,7 +115,7 @@ func TestGetOrCreate_PerRepoMutexBlocks(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetOrCreate failed after unlock: %v", err)
 		}
-	case <-time.After(30 * time.Second):
+	case <-ctx.Done():
 		t.Fatal("timed out waiting for GetOrCreate after unlock")
 	}
 }

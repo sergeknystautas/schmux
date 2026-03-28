@@ -122,8 +122,15 @@ func TestProbeHTTP_ValidServer(t *testing.T) {
 	go srv.Serve(ln)
 	defer srv.Close()
 
-	if !probeHTTP("127.0.0.1", port, 1*time.Second) {
-		t.Fatal("expected probeHTTP to return true for HTTP server")
+	// Retry probe — server goroutine may not have entered Accept() yet
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if probeHTTP("127.0.0.1", port, 500*time.Millisecond) {
+			return // success
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("expected probeHTTP to return true for HTTP server")
+		}
 	}
 }
 

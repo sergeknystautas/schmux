@@ -51,40 +51,13 @@ func TestValidateCommitHash(t *testing.T) {
 	}
 }
 
-// setupTestRepo creates a temporary git repository for testing.
+// setupTestRepo creates a fresh empty git repository for testing.
+// Uses global gitconfig for user identity (no per-repo config calls needed).
 func setupTestRepo(t *testing.T) (string, func()) {
 	t.Helper()
-
-	dir, err := os.MkdirTemp("", "git-commit-test-*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-
-	cleanup := func() {
-		os.RemoveAll(dir)
-	}
-
-	// Initialize git repo
-	run := func(args ...string) {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=Test Author",
-			"GIT_AUTHOR_EMAIL=test@example.com",
-			"GIT_COMMITTER_NAME=Test Author",
-			"GIT_COMMITTER_EMAIL=test@example.com",
-		)
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %v failed: %v\noutput: %s", args, err, output)
-		}
-	}
-
-	run("init")
-	run("config", "user.email", "test@example.com")
-	run("config", "user.name", "Test Author")
-
-	return dir, cleanup
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	return dir, func() {} // t.TempDir handles cleanup
 }
 
 func TestGetCommitDetail_BasicCommit(t *testing.T) {
