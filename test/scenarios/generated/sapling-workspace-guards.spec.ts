@@ -53,17 +53,23 @@ test.describe.serial('Sapling workspace VCS support', () => {
 
     workspaceId = results[0].workspace_id;
 
-    // Wait for status polling
-    await sleep(12000);
-
-    // Get workspace path from the sessions API
-    const sessRes = await fetch('http://localhost:7337/api/sessions');
-    const workspaces = (await sessRes.json()) as Array<{ id: string; path: string }>;
-    const ws = workspaces.find((w) => w.id === workspaceId);
-    if (!ws?.path) {
-      throw new Error(`Could not find workspace path for ${workspaceId}`);
+    // Poll until workspace path is available in the sessions API
+    const pathDeadline = Date.now() + 30_000;
+    let foundPath = '';
+    while (Date.now() < pathDeadline) {
+      const sessRes = await fetch('http://localhost:7337/api/sessions');
+      const workspaces = (await sessRes.json()) as Array<{ id: string; path: string }>;
+      const ws = workspaces.find((w) => w.id === workspaceId);
+      if (ws?.path) {
+        foundPath = ws.path;
+        break;
+      }
+      await sleep(500);
     }
-    workspacePath = ws.path;
+    if (!foundPath) {
+      throw new Error(`Could not find workspace path for ${workspaceId} within 30s`);
+    }
+    workspacePath = foundPath;
   });
 
   test('sessions API includes sapling workspace', async () => {

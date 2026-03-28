@@ -58,9 +58,6 @@ test.describe.serial('Resize scroll stability', () => {
     );
     await waitForSentinel(sessionId, sentinel, 30_000);
 
-    // Wait for xterm.js to finish rendering
-    await new Promise((r) => setTimeout(r, 1000));
-
     // Verify viewport is at bottom before resize (poll to handle rendering lag)
     const pollViewportAtBottom = async (label: string): Promise<void> => {
       const deadline = Date.now() + 5_000;
@@ -90,9 +87,6 @@ test.describe.serial('Resize scroll stability', () => {
       }
     });
 
-    // Wait for the debounced resize to fire (300ms debounce + margin)
-    await new Promise((r) => setTimeout(r, 1000));
-
     // The viewport must still be at the bottom after the resize.
     // Before the fix, fitTerminal() would fire DOM scroll events that
     // disabled followTail, leaving the viewport stuck above the bottom.
@@ -105,7 +99,6 @@ test.describe.serial('Resize scroll stability', () => {
         container.style.height = '';
       }
     });
-    await new Promise((r) => setTimeout(r, 1000));
 
     // Still at bottom after growing back
     await pollViewportAtBottom('after restore');
@@ -125,7 +118,6 @@ test.describe.serial('Resize scroll stability', () => {
       'for i in $(seq 1 200); do echo "follow-tail-test-$i"; done'
     );
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 500));
 
     // Verify followTail is true before resize
     const followBefore = await page.evaluate(() => {
@@ -145,9 +137,10 @@ test.describe.serial('Resize scroll stability', () => {
         container.style.height = `${currentHeight - 40}px`;
       }
     });
-    await new Promise((r) => setTimeout(r, 600));
 
-    // Resume button should NOT appear — followTail must stay true
+    // Wait for resize debounce (300ms) to fire, then check follow state.
+    // Use Playwright's auto-retry — expect the Resume button to stay hidden.
+    await expect(page.locator('.log-viewer__new-content')).toBeHidden({ timeout: 5_000 });
     const resumeVisibleAfter = await page.locator('.log-viewer__new-content').isVisible();
     expect(resumeVisibleAfter).toBe(false);
 
@@ -158,7 +151,9 @@ test.describe.serial('Resize scroll stability', () => {
         container.style.height = '';
       }
     });
-    await new Promise((r) => setTimeout(r, 600));
+
+    // Wait for resize debounce, then verify Resume button stays hidden
+    await expect(page.locator('.log-viewer__new-content')).toBeHidden({ timeout: 5_000 });
 
     // Still no Resume button
     const resumeVisibleRestored = await page.locator('.log-viewer__new-content').isVisible();

@@ -87,8 +87,12 @@ test.describe.serial('Command spawn triggers immediate WebSocket broadcast', () 
       });
     });
 
-    // Wait a moment for the WebSocket to connect
-    await sleep(500);
+    // Wait for WebSocket to connect (state transition, not fixed delay)
+    await new Promise<void>((resolve, reject) => {
+      if (ws.readyState === WS.OPEN) return resolve();
+      ws.once('open', resolve);
+      ws.once('error', reject);
+    });
 
     // Spawn a command session (like a "shell" quick launch)
     const spawnRes = await apiPost<

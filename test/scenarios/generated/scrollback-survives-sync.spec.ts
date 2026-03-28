@@ -60,12 +60,8 @@ test.describe.serial('Scrollback survives sync correction', () => {
     );
     await waitForSentinel(sessionId, fillSentinel, 30_000);
 
-    // Allow xterm.js rendering to stabilize after heavy output.
-    // Under Docker contention, 500 lines of scrollback take time to render.
-    await new Promise((r) => setTimeout(r, 2000));
-
     // Verify scrollback matches before corruption.
-    // Use a generous retry budget for the 500-line comparison.
+    // assertTerminalMatchesTmux retries internally, handling rendering lag.
     await assertTerminalMatchesTmux(page, tmuxName, { scrollbackLines: 500 });
 
     // Corrupt xterm.js viewport to force a sync correction.
@@ -75,13 +71,17 @@ test.describe.serial('Scrollback survives sync correction', () => {
       if (!terminal) throw new Error('__schmuxTerminal not found');
       terminal.write('\x1b[H\x1b[JCORRUPTED_SYNC_SCROLLBACK_TEST');
     });
-    await new Promise((r) => setTimeout(r, 200));
 
-    // Verify corruption actually happened
-    const xtermAfterCorruption = await readXtermBuffer(page);
-    const hasCorruption = xtermAfterCorruption.some((line) =>
-      line.includes('CORRUPTED_SYNC_SCROLLBACK_TEST')
-    );
+    // Wait for corruption to appear in xterm.js buffer (state check, not fixed delay)
+    const corruptDeadline = Date.now() + 5_000;
+    let hasCorruption = false;
+    while (Date.now() < corruptDeadline && !hasCorruption) {
+      const xtermAfterCorruption = await readXtermBuffer(page);
+      hasCorruption = xtermAfterCorruption.some((line) =>
+        line.includes('CORRUPTED_SYNC_SCROLLBACK_TEST')
+      );
+      if (!hasCorruption) await new Promise((r) => setTimeout(r, 50));
+    }
     expect(hasCorruption).toBe(true);
 
     // Wait for the sync goroutine to detect the mismatch and correct it.

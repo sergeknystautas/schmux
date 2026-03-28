@@ -126,14 +126,16 @@ test.describe.serial('Terminal sync: round-trip', () => {
       terminal.write('\x1b[H\x1b[JCORRUPTED_BUFFER_CONTENT_12345');
     });
 
-    // Wait for xterm.js to process the write
-    await new Promise((r) => setTimeout(r, 200));
-
-    // Verify the buffer is actually corrupted (doesn't match tmux)
-    const xtermAfterCorruption = await readXtermBuffer(page);
-    const hasCorruption = xtermAfterCorruption.some((line) =>
-      line.includes('CORRUPTED_BUFFER_CONTENT_12345')
-    );
+    // Wait for corruption to appear in xterm.js buffer
+    const corruptDeadline = Date.now() + 5_000;
+    let hasCorruption = false;
+    while (Date.now() < corruptDeadline && !hasCorruption) {
+      const xtermAfterCorruption = await readXtermBuffer(page);
+      hasCorruption = xtermAfterCorruption.some((line) =>
+        line.includes('CORRUPTED_BUFFER_CONTENT_12345')
+      );
+      if (!hasCorruption) await new Promise((r) => setTimeout(r, 50));
+    }
     expect(hasCorruption).toBe(true);
 
     // Wait for the sync goroutine to detect the desync and correct it.
@@ -224,8 +226,13 @@ test.describe.serial('Terminal sync: round-trip', () => {
       terminal.write('\x1b[1;1H');
     });
 
-    // Wait for xterm.js to process the write
-    await new Promise((r) => setTimeout(r, 200));
+    // Wait for xterm.js cursor to move to corrupted position
+    const cursorDeadline = Date.now() + 5_000;
+    while (Date.now() < cursorDeadline) {
+      const pos = await getXtermCursorPosition(page);
+      if (pos.x === 0 && pos.y === 0) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
 
     // Verify the cursor IS desynced now
     const xtermCursor = await getXtermCursorPosition(page);

@@ -49,11 +49,8 @@ test.describe.serial('Quick launch a session from a recent branch', () => {
       targets: { 'echo-agent': 1 },
     });
 
-    // Wait for bare clone to be ready and branches to be queryable
-    await sleep(3000);
-
     // Poll recent-branches API until branches appear (bare clone may take a moment)
-    for (let attempt = 0; attempt < 10; attempt++) {
+    for (let attempt = 0; attempt < 30; attempt++) {
       try {
         const branches = await apiGet<Array<{ branch: string }>>('/api/recent-branches?limit=10');
         if (branches && branches.length > 0) {

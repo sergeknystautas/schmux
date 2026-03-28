@@ -40,7 +40,7 @@ test.describe.serial('Git stage and discard operations', () => {
 
     // Wait for the agent to modify files and git status to detect changes
     for (let i = 0; i < 25; i++) {
-      await sleep(1000);
+      await sleep(200);
       try {
         const resp = await apiGet<{ files?: Array<{ new_path?: string }> }>(
           `/api/diff/${workspaceId}`
@@ -82,10 +82,15 @@ test.describe.serial('Git stage and discard operations', () => {
   });
 
   test('diff API reflects state after stage and discard', async () => {
-    // Give git status a moment to update after the operations
-    await sleep(2000);
-
-    const resp = await apiGet<{ files?: Array<{ new_path?: string }> }>(`/api/diff/${workspaceId}`);
+    // Poll diff API until extra.txt disappears (proves discard completed)
+    const diffDeadline = Date.now() + 15_000;
+    let resp: { files?: Array<{ new_path?: string }> } = {};
+    while (Date.now() < diffDeadline) {
+      resp = await apiGet<{ files?: Array<{ new_path?: string }> }>(`/api/diff/${workspaceId}`);
+      const hasExtra = resp.files?.some((f) => f.new_path === 'extra.txt');
+      if (!hasExtra) break;
+      await sleep(200);
+    }
 
     // README.md should still appear (staged but not committed — diff vs HEAD still shows it)
     const readmeFile = resp.files?.find((f) => f.new_path === 'README.md');
@@ -124,7 +129,7 @@ test.describe.serial('Git discard all changes', () => {
 
     // Wait for changes to appear
     for (let i = 0; i < 25; i++) {
-      await sleep(1000);
+      await sleep(200);
       try {
         const resp = await apiGet<{ files?: Array<{ new_path?: string }> }>(
           `/api/diff/${workspaceId}`
@@ -147,12 +152,20 @@ test.describe.serial('Git discard all changes', () => {
   });
 
   test('diff API shows no changes after full discard', async () => {
-    await sleep(2000);
-
-    const resp = await apiGet<{ files?: Array<{ new_path?: string }> }>(`/api/diff/${workspaceId}`);
+    // Poll diff API until all changes disappear (proves discard completed)
+    const diffDeadline = Date.now() + 15_000;
+    let fileCount = -1;
+    while (Date.now() < diffDeadline) {
+      const resp = await apiGet<{ files?: Array<{ new_path?: string }> }>(
+        `/api/diff/${workspaceId}`
+      );
+      fileCount = resp.files?.length ?? 0;
+      if (fileCount === 0) break;
+      await sleep(200);
+    }
 
     // All changes should be gone — git clean + checkout restores to HEAD
-    expect(resp.files?.length ?? 0).toBe(0);
+    expect(fileCount).toBe(0);
   });
 });
 

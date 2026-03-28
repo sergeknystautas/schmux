@@ -236,16 +236,49 @@ export async function openTerminal(page: Page, sessionId: string, tmuxName: stri
     const terminal = (window as any).__schmuxTerminal;
     if (terminal) terminal.reset();
   });
-  await new Promise((r) => setTimeout(r, 300));
+
+  // Wait for reset to take effect by polling until buffer is empty
+  const resetDeadline = Date.now() + 5_000;
+  while (Date.now() < resetDeadline) {
+    const isEmpty = await page.evaluate(() => {
+      const terminal = (window as any).__schmuxTerminal;
+      if (!terminal) return false;
+      const buffer = terminal.buffer.active;
+      for (let i = 0; i < terminal.rows; i++) {
+        const line = buffer.getLine(buffer.baseY + i);
+        if (line && line.translateToString(true).trim()) return false;
+      }
+      return true;
+    });
+    if (isEmpty) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
 
   // Clear tmux visible screen using ED0 (\033[J from cursor-home), which the
   // sanitize filter allows through. The shell re-displays its prompt via the
   // live stream, and the freshly-reset xterm.js receives it cleanly.
   sendTmuxCommand(tmuxName, "printf '\\033[H\\033[J'");
-  await new Promise((r) => setTimeout(r, 500));
-  // Clear tmux's scrollback history (xterm.js scrollback was cleared by reset)
+
+  // Wait for shell prompt to re-appear in xterm.js (proves clear + redraw completed)
+  const promptDeadline = Date.now() + 5_000;
+  while (Date.now() < promptDeadline) {
+    const hasPrompt = await page.evaluate(() => {
+      const terminal = (window as any).__schmuxTerminal;
+      if (!terminal) return false;
+      const buffer = terminal.buffer.active;
+      for (let i = 0; i < terminal.rows; i++) {
+        const line = buffer.getLine(buffer.baseY + i);
+        if (line && line.translateToString(true).trim()) return true;
+      }
+      return false;
+    });
+    if (hasPrompt) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+
+  // Clear tmux's scrollback history (xterm.js scrollback was cleared by reset).
+  // This is a synchronous local tmux command — no wait needed.
   clearTmuxHistory(tmuxName);
-  await new Promise((r) => setTimeout(r, 200));
 }
 
 function shellQuote(s: string): string {

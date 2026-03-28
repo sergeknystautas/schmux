@@ -18,6 +18,7 @@ import {
   clearTmuxHistory,
   openTerminal,
 } from './helpers-terminal';
+import { waitForTerminalOutput } from './helpers';
 
 // ---------------------------------------------------------------------------
 // Tier 1: Encoding
@@ -243,7 +244,8 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
 
     // Clean up: show cursor again so subsequent tests aren't affected
     sendTmuxCommand(tmuxName, "printf '\\033[?25h'");
-    await new Promise((r) => setTimeout(r, 200));
+    // Wait for cursor to become visible (state check instead of fixed delay)
+    await assertCursorVisibilityMatchesTmux(page, tmuxName);
   });
 
   test('dense cursor repositioning: rapid CUP + content painting', async ({ page }) => {
@@ -608,9 +610,7 @@ test.describe.serial('Terminal fidelity: compounding', () => {
     );
     await waitForSentinel(sessionId, sentinel, 30_000);
 
-    // Allow extra rendering time for multi-byte UTF-8 characters
-    await new Promise((r) => setTimeout(r, 500));
-
+    // assertTerminalMatchesTmux retries internally, handling rendering lag
     await assertTerminalMatchesTmux(page, tmuxName);
   });
 
@@ -665,8 +665,8 @@ test.describe.serial('Terminal fidelity: compounding', () => {
     // Start a background flood
     sendTmuxCommand(tmuxName, 'for i in $(seq 1 200); do echo "flood-$i"; sleep 0.02; done &');
 
-    // Wait mid-flood, then reload to test reconnection during output
-    await new Promise((r) => setTimeout(r, 1000));
+    // Wait until flood output appears in terminal (state check, not fixed delay)
+    await waitForTerminalOutput(sessionId, 'flood-', 10_000);
     await page.reload();
     await waitForDashboardLive(page);
     await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
@@ -678,9 +678,7 @@ test.describe.serial('Terminal fidelity: compounding', () => {
     // Clear screen to establish known state after the chaotic reconnection,
     // then verify the terminal pipeline is still functional.
     sendTmuxCommand(tmuxName, 'clear');
-    await new Promise((r) => setTimeout(r, 500));
     clearTmuxHistory(tmuxName);
-    await new Promise((r) => setTimeout(r, 300));
 
     const sentinel = sendTmuxCommandWithSentinel(
       tmuxName,
@@ -712,9 +710,9 @@ test.describe.serial('Terminal fidelity: compounding', () => {
     // Start a background flood that generates rapid output
     sendTmuxCommand(tmuxName, 'for i in $(seq 1 500); do echo "flood-line-$i"; done &');
 
-    // While the flood is running, send cursor repositioning commands
+    // Wait for flood to start producing output, then send cursor commands
     // (simulating a TUI updating its status bar during heavy output)
-    await new Promise((r) => setTimeout(r, 200)); // let flood start
+    await waitForTerminalOutput(sessionId, 'flood-line-', 10_000);
     const sequence = [
       '\\033[1;1H\\033[2KStatus: processing...',
       '\\033[1;22H', // cursor after "processing..."

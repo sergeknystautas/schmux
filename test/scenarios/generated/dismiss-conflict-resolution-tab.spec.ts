@@ -129,7 +129,8 @@ test.describe.serial('Dismiss conflict resolution tab after completion', () => {
 
     // Wait for several WebSocket broadcast cycles to ensure stale
     // re-broadcasts don't bring the tab back (the core bug this fixes).
-    await sleep(2000);
+    // Negative assertion: we must wait some time to verify it stays gone.
+    await page.waitForTimeout(2000);
 
     // The tab should still be gone — this is the key verification.
     // Before the fix, stale WS broadcasts would re-add the dismissed state.

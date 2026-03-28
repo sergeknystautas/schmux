@@ -80,8 +80,7 @@ test.describe.serial('Escbuf holdback & gap replay fixes', () => {
     );
     await waitForSentinel(sessionId, sentinel);
 
-    // Let rendering settle
-    await new Promise((r) => setTimeout(r, 500));
+    // Sentinel received — all data delivered; gap stats are immediately available
 
     const snapshot = await getGapSnapshot(page);
 
@@ -174,8 +173,7 @@ test.describe.serial('Escbuf holdback & gap replay fixes', () => {
     );
     await waitForSentinel(sessionId, sentinel, 45_000);
 
-    // Settling time for any gap replay to complete
-    await new Promise((r) => setTimeout(r, 1000));
+    // Sentinel received — all data delivered; gap stats are immediately available
 
     const snapshot = await getGapSnapshot(page);
 
@@ -217,8 +215,7 @@ test.describe.serial('Escbuf holdback & gap replay fixes', () => {
     );
     await waitForSentinel(sessionId, sentinel);
 
-    // Settling time
-    await new Promise((r) => setTimeout(r, 1000));
+    // Sentinel received — all data delivered; gap stats are immediately available
 
     const snapshot = await getGapSnapshot(page);
 
