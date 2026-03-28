@@ -121,6 +121,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			QueryTimeoutMs:     s.config.GetXtermQueryTimeoutMs(),
 			OperationTimeoutMs: s.config.GetXtermOperationTimeoutMs(),
 			UseWebGL:           s.config.GetXtermUseWebGL(),
+			SyncCheckEnabled:   s.config.GetXtermSyncCheckEnabled(),
 		},
 		Network: contracts.Network{
 			BindAddress:   s.config.GetBindAddress(),
@@ -422,6 +423,9 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Xterm.UseWebGL != nil {
 			cfg.Xterm.UseWebGL = req.Xterm.UseWebGL
+		}
+		if req.Xterm.SyncCheckEnabled != nil {
+			cfg.Xterm.SyncCheckEnabled = req.Xterm.SyncCheckEnabled
 		}
 	}
 

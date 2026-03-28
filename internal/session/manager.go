@@ -1464,6 +1464,7 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 		}
 	}
 	tracker := NewSessionTracker(sess.ID, sess.TmuxSession, m.state, eventFilePath, m.eventHandlers, outputCb, m.logger)
+	tracker.SyncCheckEnabled = m.config.GetXtermSyncCheckEnabled()
 	m.trackers[sess.ID] = tracker
 
 	m.mu.Unlock()

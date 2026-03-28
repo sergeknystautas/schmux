@@ -490,78 +490,80 @@ drainBootstrap:
 
 	// Periodic defense-in-depth sync — sends screen snapshots for paranoia desync detection.
 	// Also triggers immediately when tmux pauses output delivery (pause-after).
-	go func() {
-		timer := time.NewTimer(5 * time.Second)
-		defer timer.Stop()
+	// Disabled by default: the sync's capture-pane commands contend with ContinuePane
+	// on the control mode stdinMu mutex, which can extend pane pause duration during
+	// TUI redraws and amplify visual stutter. See docs/specs/terminal-stutter-analysis.md.
+	if s.config.GetXtermSyncCheckEnabled() {
+		go func() {
+			timer := time.NewTimer(5 * time.Second)
+			defer timer.Stop()
 
-		interval := 60 * time.Second
-		if s.devMode {
-			interval = 10 * time.Second
-		}
-		var lastDropsSeen int64
+			interval := 60 * time.Second
+			var lastDropsSeen int64
 
-		doSync := func(reason string) {
-			if conn.IsClosed() {
-				return
+			doSync := func(reason string) {
+				if conn.IsClosed() {
+					return
+				}
+
+				syncStart := time.Now()
+				capCtx, capCancel := context.WithTimeout(context.Background(), 2*time.Second)
+				screen, err := tracker.CapturePane(capCtx)
+				capCancel()
+				capDur := time.Since(syncStart)
+				if err != nil {
+					return
+				}
+
+				cursorStart := time.Now()
+				cursorCtx, cursorCancel := context.WithTimeout(context.Background(), 2*time.Second)
+				cursor, err := tracker.GetCursorState(cursorCtx)
+				cursorCancel()
+				cursorDur := time.Since(cursorStart)
+				if err != nil {
+					return
+				}
+
+				totalDur := time.Since(syncStart)
+				if s.devMode {
+					logging.Sub(s.logger, "sync").Info("sync commands completed",
+						"session_id", sessionID[:8],
+						"reason", reason,
+						"capture_ms", capDur.Milliseconds(),
+						"cursor_ms", cursorDur.Milliseconds(),
+						"total_ms", totalDur.Milliseconds(),
+						"screen_len", len(screen),
+					)
+				}
+
+				counters := tracker.DiagnosticCounters()
+				currentDrops := counters["eventsDropped"] + counters["clientFanOutDrops"] + counters["fanOutDrops"]
+				forced := currentDrops > lastDropsSeen || reason == "pause"
+				lastDropsSeen = currentDrops
+
+				msg := buildSyncMessage(screen, cursor)
+				msg.Forced = forced
+				data, _ := json.Marshal(msg)
+				syncChecksSent.Add(1)
+				if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+					tracker.Counters.WsWriteErrors.Add(1)
+				}
 			}
 
-			syncStart := time.Now()
-			capCtx, capCancel := context.WithTimeout(context.Background(), 2*time.Second)
-			screen, err := tracker.CapturePane(capCtx)
-			capCancel()
-			capDur := time.Since(syncStart)
-			if err != nil {
-				return
+			for {
+				select {
+				case <-timer.C:
+					doSync("timer")
+					timer.Reset(interval)
+				case <-tracker.SyncTrigger():
+					doSync("pause")
+					timer.Reset(interval)
+				case <-sessionDead:
+					return
+				}
 			}
-
-			cursorStart := time.Now()
-			cursorCtx, cursorCancel := context.WithTimeout(context.Background(), 2*time.Second)
-			cursor, err := tracker.GetCursorState(cursorCtx)
-			cursorCancel()
-			cursorDur := time.Since(cursorStart)
-			if err != nil {
-				return
-			}
-
-			totalDur := time.Since(syncStart)
-			if s.devMode {
-				logging.Sub(s.logger, "sync").Info("sync commands completed",
-					"session_id", sessionID[:8],
-					"reason", reason,
-					"capture_ms", capDur.Milliseconds(),
-					"cursor_ms", cursorDur.Milliseconds(),
-					"total_ms", totalDur.Milliseconds(),
-					"screen_len", len(screen),
-				)
-			}
-
-			counters := tracker.DiagnosticCounters()
-			currentDrops := counters["eventsDropped"] + counters["clientFanOutDrops"] + counters["fanOutDrops"]
-			forced := currentDrops > lastDropsSeen || reason == "pause"
-			lastDropsSeen = currentDrops
-
-			msg := buildSyncMessage(screen, cursor)
-			msg.Forced = forced
-			data, _ := json.Marshal(msg)
-			syncChecksSent.Add(1)
-			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-				tracker.Counters.WsWriteErrors.Add(1)
-			}
-		}
-
-		for {
-			select {
-			case <-timer.C:
-				doSync("timer")
-				timer.Reset(interval)
-			case <-tracker.SyncTrigger():
-				doSync("pause")
-				timer.Reset(interval)
-			case <-sessionDead:
-				return
-			}
-		}
-	}()
+		}()
+	}
 
 	// Latency instrumentation: track per-keystroke timing segments.
 	latencyCollector := NewLatencyCollector()

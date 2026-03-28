@@ -31,6 +31,7 @@ function makeSnapshot(overrides: Partial<ConfigSnapshot> = {}): ConfigSnapshot {
     xtermQueryTimeout: 5000,
     xtermOperationTimeout: 10000,
     xtermUseWebGL: true,
+    xtermSyncCheckEnabled: false,
     networkAccess: false,
     authEnabled: false,
     authProvider: 'github',

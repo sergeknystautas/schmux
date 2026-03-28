@@ -42,6 +42,7 @@ const defaultProps = {
   xtermQueryTimeout: 5000,
   xtermOperationTimeout: 10000,
   xtermUseWebGL: true,
+  xtermSyncCheckEnabled: false,
   nudgenikTargetMissing: false,
   branchSuggestTargetMissing: false,
   conflictResolveTargetMissing: false,

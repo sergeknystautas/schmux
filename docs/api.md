@@ -822,7 +822,8 @@ Response:
   "xterm": {
     "query_timeout_ms": 0,
     "operation_timeout_ms": 0,
-    "use_webgl": true
+    "use_webgl": true,
+    "sync_check_enabled": false
   },
   "network": {
     "bind_address": "127.0.0.1",
@@ -922,7 +923,8 @@ Request:
   "xterm": {
     "query_timeout_ms": 0,
     "operation_timeout_ms": 0,
-    "use_webgl": true
+    "use_webgl": true,
+    "sync_check_enabled": false
   },
   "network": {
     "bind_address": "127.0.0.1",

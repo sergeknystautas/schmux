@@ -95,6 +95,12 @@ type SessionTracker struct {
 	// Terminal size tracking for diagnostics (accessed from multiple goroutines)
 	LastTerminalCols atomic.Int32
 	LastTerminalRows atomic.Int32
+
+	// SyncCheckEnabled controls whether pause-after flow control is enabled.
+	// When false (default), tmux pause-after is not set, avoiding the stdinMu
+	// race condition between ContinuePane and sync commands that can extend
+	// pane pause duration during TUI redraws.
+	SyncCheckEnabled bool
 }
 
 // IsAttached reports whether the tracker currently has an active control mode attachment.
@@ -474,14 +480,18 @@ func (t *SessionTracker) attachControlMode() error {
 	defer t.closeControlMode()
 
 	// Enable pause-after so tmux sends %pause instead of silently dropping
-	// output when this control mode client falls behind.
-	pauseCtx, pauseCancel := context.WithTimeout(ctx, 5*time.Second)
-	if err := client.EnablePauseAfter(pauseCtx, 1); err != nil {
-		if t.logger != nil {
-			t.logger.Warn("failed to enable pause-after", "session", t.sessionID[:8], "err", err)
+	// output when this control mode client falls behind. Only enabled when
+	// sync check is active — pause-after triggers sync commands that contend
+	// with ContinuePane on stdinMu, amplifying TUI redraw stutter.
+	if t.SyncCheckEnabled {
+		pauseCtx, pauseCancel := context.WithTimeout(ctx, 5*time.Second)
+		if err := client.EnablePauseAfter(pauseCtx, 1); err != nil {
+			if t.logger != nil {
+				t.logger.Warn("failed to enable pause-after", "session", t.sessionID[:8], "err", err)
+			}
 		}
+		pauseCancel()
 	}
-	pauseCancel()
 
 	// Subscribe to output from the control mode client and fan out to
 	// tracker-level subscribers (which survive reconnections)
