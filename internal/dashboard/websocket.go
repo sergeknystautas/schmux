@@ -495,6 +495,9 @@ drainBootstrap:
 		defer timer.Stop()
 
 		interval := 60 * time.Second
+		if s.devMode {
+			interval = 10 * time.Second
+		}
 		var lastDropsSeen int64
 
 		doSync := func(reason string) {

@@ -164,6 +164,7 @@ type Server struct {
 	previewManager  *preview.Manager
 	previewDetect   map[string]time.Time // workspaceID:port -> last detect time
 	previewDetectMu sync.Mutex
+	lookupPortOwner func(port int) (int, error) // nil → preview.LookupPortOwner
 
 	// Tunnel manager for remote access
 	tunnelManager *tunnel.Manager

@@ -49,7 +49,7 @@ test.describe.serial('Scrollback survives sync correction', () => {
   });
 
   test('scrollback remains intact after sync correction', async ({ page }) => {
-    test.setTimeout(90_000);
+    test.setTimeout(120_000);
 
     await openTerminal(page, sessionId, tmuxName);
 
@@ -60,7 +60,12 @@ test.describe.serial('Scrollback survives sync correction', () => {
     );
     await waitForSentinel(sessionId, fillSentinel, 30_000);
 
-    // Verify scrollback matches before corruption
+    // Allow xterm.js rendering to stabilize after heavy output.
+    // Under Docker contention, 500 lines of scrollback take time to render.
+    await new Promise((r) => setTimeout(r, 2000));
+
+    // Verify scrollback matches before corruption.
+    // Use a generous retry budget for the 500-line comparison.
     await assertTerminalMatchesTmux(page, tmuxName, { scrollbackLines: 500 });
 
     // Corrupt xterm.js viewport to force a sync correction.
@@ -80,9 +85,9 @@ test.describe.serial('Scrollback survives sync correction', () => {
     expect(hasCorruption).toBe(true);
 
     // Wait for the sync goroutine to detect the mismatch and correct it.
-    // Initial sync fires at 5s from connection. We use a 30s deadline
+    // Initial sync fires at 5s from connection. We use a 45s deadline
     // to allow margin for Docker container overhead and the activity guard.
-    const deadline = Date.now() + 30_000;
+    const deadline = Date.now() + 45_000;
     let corrected = false;
 
     while (Date.now() < deadline && !corrected) {

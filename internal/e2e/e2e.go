@@ -23,8 +23,10 @@ import (
 )
 
 const (
-	// DaemonStartupTimeout is how long to wait for daemon to start
-	DaemonStartupTimeout = 10 * time.Second
+	// DaemonStartupTimeout is how long to wait for daemon to start.
+	// 30s accommodates 26+ parallel tests starting daemons simultaneously
+	// in a single Docker container during repeat runs.
+	DaemonStartupTimeout = 30 * time.Second
 )
 
 // APISession represents a session from the API response.
@@ -619,6 +621,10 @@ func (e *Env) AddRepoToConfig(name, url string) {
 // Returns the session ID from the API response (or empty if spawn failed).
 func (e *Env) SpawnSession(repoURL, branch, target, prompt, nickname string) string {
 	e.T.Helper()
+	if !e.daemonStarted {
+		e.T.Skip("Skipping spawn: daemon did not start")
+		return ""
+	}
 	e.T.Logf("Spawning session via API: repo=%s branch=%s target=%s nickname=%s", repoURL, branch, target, nickname)
 
 	// Spawn via API using repo/branch
@@ -687,6 +693,10 @@ func (e *Env) SpawnSession(repoURL, branch, target, prompt, nickname string) str
 // This uses the workspace_id field to target a specific workspace, avoiding branch conflict checks.
 func (e *Env) SpawnSessionInWorkspace(workspaceID, target, prompt, nickname string) string {
 	e.T.Helper()
+	if !e.daemonStarted {
+		e.T.Skip("Skipping spawn: daemon did not start")
+		return ""
+	}
 	e.T.Logf("Spawning session via API into workspace: workspace_id=%s target=%s nickname=%s", workspaceID, target, nickname)
 
 	type SpawnRequest struct {

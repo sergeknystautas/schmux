@@ -180,7 +180,11 @@ func (s *Server) handlePreviewsCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	ownerPID, err := preview.LookupPortOwner(req.TargetPort)
+	lookupFn := preview.LookupPortOwner
+	if s.lookupPortOwner != nil {
+		lookupFn = s.lookupPortOwner
+	}
+	ownerPID, err := lookupFn(req.TargetPort)
 	if err != nil {
 		http.Error(w, "nothing is listening on that port", http.StatusUnprocessableEntity)
 		return

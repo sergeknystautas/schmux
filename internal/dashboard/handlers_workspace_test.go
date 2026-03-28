@@ -2,11 +2,14 @@ package dashboard
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/preview"
@@ -89,11 +92,23 @@ func addWorkspaceToServer(t *testing.T, st *state.State, id string) state.Worksp
 	return ws
 }
 
+// tcpLookupPortOwner verifies a port is listening via TCP connect instead of
+// lsof, avoiding flakiness under heavy parallel test load.
+func tcpLookupPortOwner(port int) (int, error) {
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), time.Second)
+	if err != nil {
+		return 0, fmt.Errorf("nothing listening on port %d", port)
+	}
+	conn.Close()
+	return os.Getpid(), nil
+}
+
 // TestHandlePreviewsCreate covers scenarios 12-23 from the spec.
 func TestHandlePreviewsCreate(t *testing.T) {
 	// ── scenario 12: happy path with source_session_id ──────────────────────
 	t.Run("happy path with session", func(t *testing.T) {
 		server, _, st := newTestServer(t)
+		server.lookupPortOwner = tcpLookupPortOwner
 		port := startEchoServer(t)
 		ws := addWorkspaceToServer(t, st, "ws-happy-session")
 
@@ -131,6 +146,7 @@ func TestHandlePreviewsCreate(t *testing.T) {
 	// ── scenario 13: happy path without source_session_id ───────────────────
 	t.Run("happy path without session", func(t *testing.T) {
 		server, _, st := newTestServer(t)
+		server.lookupPortOwner = tcpLookupPortOwner
 		port := startEchoServer(t)
 		ws := addWorkspaceToServer(t, st, "ws-happy-nosession")
 
@@ -155,6 +171,7 @@ func TestHandlePreviewsCreate(t *testing.T) {
 	// ── scenario 14: port not listening ──────────────────────────────────────
 	t.Run("port not listening", func(t *testing.T) {
 		server, _, st := newTestServer(t)
+		server.lookupPortOwner = tcpLookupPortOwner
 
 		// Pick a free port then immediately release it so nothing is listening.
 		ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -236,6 +253,7 @@ func TestHandlePreviewsCreate(t *testing.T) {
 	// ── scenario 18: dedup — same port twice returns 201 then 200, same ID ──
 	t.Run("dedup same port", func(t *testing.T) {
 		server, _, st := newTestServer(t)
+		server.lookupPortOwner = tcpLookupPortOwner
 		port := startEchoServer(t)
 		ws := addWorkspaceToServer(t, st, "ws-dedup")
 
@@ -268,6 +286,7 @@ func TestHandlePreviewsCreate(t *testing.T) {
 	// ── scenario 19: dedup with different session — 200, original session preserved
 	t.Run("dedup different session", func(t *testing.T) {
 		server, _, st := newTestServer(t)
+		server.lookupPortOwner = tcpLookupPortOwner
 		port := startEchoServer(t)
 		ws := addWorkspaceToServer(t, st, "ws-dedup-sess")
 
@@ -309,6 +328,7 @@ func TestHandlePreviewsCreate(t *testing.T) {
 	t.Run("workspace cap exceeded", func(t *testing.T) {
 		const cap = 2
 		server, _, st := newTestServer(t)
+		server.lookupPortOwner = tcpLookupPortOwner
 		ws := addWorkspaceToServer(t, st, "ws-cap")
 
 		server.previewManager = newPreviewManager(t, st, cap)

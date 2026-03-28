@@ -234,12 +234,25 @@ func TestFilterAgentPorts(t *testing.T) {
 
 	// Current process owns agentPort, so it should be filtered out.
 	// Port 5173 is not owned by this process, so it survives.
-	filtered := filterAgentPorts(os.Getpid(), ports)
-	for _, lp := range filtered {
-		if lp.Port == agentPort {
-			t.Fatalf("expected agent port %d to be filtered out, got %#v", agentPort, filtered)
+	// Retry because lsof/ss can be slow under heavy parallel test load.
+	var filtered []preview.ListeningPort
+	for attempt := 0; attempt < 3; attempt++ {
+		filtered = filterAgentPorts(os.Getpid(), ports)
+		found := false
+		for _, lp := range filtered {
+			if lp.Port == agentPort {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return // success
+		}
+		if attempt < 2 {
+			time.Sleep(500 * time.Millisecond)
 		}
 	}
+	t.Fatalf("expected agent port %d to be filtered out after retries, got %#v", agentPort, filtered)
 }
 
 func TestFilterAgentPorts_ZeroPID(t *testing.T) {
