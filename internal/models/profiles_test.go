@@ -48,7 +48,7 @@ func TestGetProfile_Unknown(t *testing.T) {
 }
 
 func TestGetProfile_AllProviders(t *testing.T) {
-	expected := []string{"anthropic", "openai", "google", "moonshotai", "zai", "minimax"}
+	expected := []string{"anthropic", "openai", "google", "moonshotai", "zai-coding-plan", "minimax"}
 	for _, name := range expected {
 		if _, ok := GetProviderProfile(name); !ok {
 			t.Errorf("missing profile for %q", name)
@@ -63,7 +63,7 @@ func TestCanonicalProvider(t *testing.T) {
 	}{
 		{"anthropic", "anthropic"},
 		{"moonshotai", "moonshot"},
-		{"zai", "zai"},
+		{"zai-coding-plan", "zai"},
 		{"minimax", "minimax"},
 	}
 	for _, tt := range tests {

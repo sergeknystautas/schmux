@@ -46,7 +46,7 @@ var providerProfiles = map[string]ProviderProfile{
 		UsageURL:        "https://platform.moonshot.ai/console/account",
 		Category:        "third-party",
 	},
-	"zai": {
+	"zai-coding-plan": {
 		Runner:          "claude",
 		Endpoint:        "https://api.z.ai/api/anthropic",
 		RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
