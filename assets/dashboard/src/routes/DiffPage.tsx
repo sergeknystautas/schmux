@@ -299,7 +299,7 @@ export default function DiffPage() {
           </>
         )}
         <div className="diff-page">
-          <div className="loading-state" style={{ flex: 1 }}>
+          <div className="loading-state flex-1">
             <div className="spinner"></div>
             <span>Loading diff...</span>
           </div>
@@ -355,8 +355,8 @@ export default function DiffPage() {
 
         <div className="diff-layout" ref={containerRef}>
           <div
-            className={`diff-sidebar${keyboardFocus === 'left' ? ' diff-sidebar--focused' : ''}`}
-            style={{ width: `${sidebarWidth}px`, flexShrink: 0 }}
+            className={`diff-sidebar${keyboardFocus === 'left' ? ' diff-sidebar--focused' : ''} flex-shrink-0`}
+            style={{ width: `${sidebarWidth}px` }}
             onClick={handleSidebarFocus}
           >
             <h3 className="diff-sidebar__title">Changed Files ({diffData?.files?.length || 0})</h3>
@@ -394,12 +394,12 @@ export default function DiffPage() {
                     </div>
                     <span className="diff-file-item__stats">
                       {file.lines_added > 0 && (
-                        <span style={{ color: 'var(--color-success)' }}>+{file.lines_added}</span>
+                        <span className="text-success">+{file.lines_added}</span>
                       )}
                       {file.lines_removed > 0 && (
                         <span
+                          className="text-error"
                           style={{
-                            color: 'var(--color-error)',
                             marginLeft: file.lines_added > 0 ? '4px' : '0',
                           }}
                         >
@@ -464,7 +464,7 @@ export default function DiffPage() {
                   {selectedFile.status !== 'deleted' &&
                   (selectedFile.new_path?.match(/\.(png|jpg|jpeg|webp|gif)$/i) ||
                     selectedFile.old_path?.match(/\.(png|jpg|jpeg|webp|gif)$/i)) ? (
-                    <div style={{ padding: '20px', textAlign: 'center' }}>
+                    <div className="text-center" style={{ padding: '20px' }}>
                       <img
                         src={getWorkspaceFileUrl(workspaceId || '', selectedFile.new_path || '')}
                         alt={selectedFile.new_path || ''}

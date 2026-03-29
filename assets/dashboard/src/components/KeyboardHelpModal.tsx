@@ -87,7 +87,7 @@ export default function HelpModalProvider({ children }: { children: React.ReactN
               </h2>
             </div>
             <div className="modal__body">
-              <p style={{ marginBottom: 'var(--spacing-md)' }}>
+              <p className="mb-md">
                 Press <kbd>{modKey}</kbd> + <kbd>/</kbd> to enter keyboard mode, then press a key to
                 execute an action.
               </p>
@@ -117,7 +117,7 @@ export default function HelpModalProvider({ children }: { children: React.ReactN
                   })}
                 </tbody>
               </table>
-              <p style={{ marginTop: 'var(--spacing-lg)', marginBottom: 'var(--spacing-md)' }}>
+              <p className="mt-lg mb-md">
                 These shortcuts work directly without entering keyboard mode:
               </p>
               <table className="keyboard-shortcuts-table keyboard-shortcuts-table--two-col">

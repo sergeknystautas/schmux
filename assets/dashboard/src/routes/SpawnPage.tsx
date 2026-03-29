@@ -1054,7 +1054,7 @@ export default function SpawnPage() {
                 <>
                   {mode === 'fresh' && !isRemoteWithoutProvisioning ? (
                     /* Single agent + fresh mode: agent, persona (if available), and repo in flex row */
-                    <div style={{ gridColumn: '1 / -1' }}>
+                    <div className="grid-full">
                       <div
                         data-testid="agent-repo-row"
                         style={{
@@ -1064,7 +1064,7 @@ export default function SpawnPage() {
                         }}
                       >
                         <select
-                          className="select"
+                          className="select flex-1"
                           data-testid="agent-select"
                           value={
                             availableModels.find((item) => (targetCounts[item.name] || 0) > 0)
@@ -1085,7 +1085,6 @@ export default function SpawnPage() {
                               if (selected) toggleAgent(selected.name);
                             }
                           }}
-                          style={{ flex: 1 }}
                         >
                           <option value="">Select agent...</option>
                           {availableModels.map((item) => (
@@ -1100,12 +1099,11 @@ export default function SpawnPage() {
                         {personas.length > 0 && (
                           <select
                             id="persona-select"
-                            className="select"
+                            className="select flex-1"
                             data-tour="spawn-persona-select"
                             data-testid="persona-select"
                             value={selectedPersonaId}
                             onChange={(e) => setSelectedPersonaId(e.target.value)}
-                            style={{ flex: 1 }}
                           >
                             <option value="">No persona</option>
                             {personas.map((p) => (
@@ -1117,7 +1115,7 @@ export default function SpawnPage() {
                         )}
                         <select
                           id="repo"
-                          className="select"
+                          className="select flex-1"
                           data-tour="spawn-repo-select"
                           required
                           value={repo}
@@ -1128,7 +1126,6 @@ export default function SpawnPage() {
                               setNewRepoName('');
                             }
                           }}
-                          style={{ flex: 1 }}
                         >
                           <option value="">Select repository...</option>
                           {repos.map((item) => (
@@ -1143,18 +1140,17 @@ export default function SpawnPage() {
                         <input
                           type="text"
                           id="newRepoName"
-                          className="input"
+                          className="input mt-sm"
                           value={newRepoName}
                           onChange={(event) => setNewRepoName(event.target.value)}
                           placeholder="Repository name"
                           required
-                          style={{ marginTop: 'var(--spacing-sm)' }}
                         />
                       )}
                     </div>
                   ) : (
                     /* Single agent + workspace mode: agent and persona (if available) in flex row */
-                    <div style={{ gridColumn: '1 / -1' }}>
+                    <div className="grid-full">
                       <div
                         data-testid="agent-persona-row"
                         style={{
@@ -1164,7 +1160,7 @@ export default function SpawnPage() {
                         }}
                       >
                         <select
-                          className="select"
+                          className="select flex-1"
                           data-testid="agent-select"
                           value={
                             availableModels.find((item) => (targetCounts[item.name] || 0) > 0)
@@ -1185,7 +1181,6 @@ export default function SpawnPage() {
                               if (selected) toggleAgent(selected.name);
                             }
                           }}
-                          style={{ flex: 1 }}
                         >
                           <option value="">Select agent...</option>
                           {availableModels.map((item) => (
@@ -1200,11 +1195,10 @@ export default function SpawnPage() {
                         {personas.length > 0 && (
                           <select
                             id="persona-select-workspace"
-                            className="select"
+                            className="select flex-1"
                             data-testid="persona-select"
                             value={selectedPersonaId}
                             onChange={(e) => setSelectedPersonaId(e.target.value)}
-                            style={{ flex: 1 }}
                           >
                             <option value="">No persona</option>
                             {personas.map((p) => (
@@ -1254,7 +1248,7 @@ export default function SpawnPage() {
                         </select>
 
                         {repo === '__new__' && (
-                          <div style={{ marginTop: 'var(--spacing-sm)' }}>
+                          <div className="mt-sm">
                             <input
                               type="text"
                               id="newRepoName"
@@ -1270,12 +1264,11 @@ export default function SpawnPage() {
                     </>
                   )}
 
-                  <div style={{ gridColumn: '1 / -1' }}>
+                  <div className="grid-full">
                     <button
                       type="button"
-                      className="btn"
+                      className="btn mb-sm"
                       onClick={() => setModelSelectionMode('single')}
-                      style={{ marginBottom: 'var(--spacing-sm)' }}
                     >
                       Single agent
                     </button>
@@ -1431,29 +1424,20 @@ export default function SpawnPage() {
 
           {/* Branch (shown on suggestion failure or when suggestion is disabled) */}
           {mode === 'fresh' && !isRemoteWithoutProvisioning && showBranchInput && (
-            <div style={{ gridColumn: '1 / -1' }}>
+            <div className="grid-full">
               <input
                 type="text"
                 id="branch"
-                className="input"
+                className="input w-full"
                 value={branch}
                 onChange={(event) => setBranch(event.target.value)}
                 placeholder="Branch (e.g. feature/my-branch)"
-                style={{ width: '100%' }}
               />
             </div>
           )}
         </div>
 
-        <div
-          style={{
-            marginTop: 'var(--spacing-lg)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--spacing-sm)',
-            justifyContent: 'flex-end',
-          }}
-        >
+        <div className="flex-row mt-lg gap-sm" style={{ justifyContent: 'flex-end' }}>
           {/* Create new branch checkbox (only in workspace mode) */}
           {mode === 'workspace' && currentWorkspace && (
             <div style={{ marginRight: 'auto' }}>
@@ -1475,14 +1459,7 @@ export default function SpawnPage() {
                   </span>
                 </Tooltip>
               ) : (
-                <label
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 'var(--spacing-xs)',
-                    cursor: 'pointer',
-                  }}
-                >
+                <label className="flex-row gap-xs cursor-pointer">
                   <input
                     type="checkbox"
                     checked={createBranch}
@@ -1495,12 +1472,11 @@ export default function SpawnPage() {
             </div>
           )}
           <button
-            className="btn btn--primary"
+            className="btn btn--primary flex-row gap-sm"
             onClick={handleEngage}
             disabled={engagePhase !== 'idle'}
             data-tour="spawn-submit"
             data-testid="spawn-submit"
-            style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}
           >
             {engagePhase === 'naming' ? (
               <>

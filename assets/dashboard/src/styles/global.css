@@ -6160,3 +6160,280 @@ body.keyboard-mode-active::after {
   color: var(--color-text-secondary);
   user-select: all;
 }
+
+/* ============================================================================
+ * UTILITY CLASSES
+ * Lightweight layout, spacing, and typography helpers to reduce inline styles.
+ * Prefer component-scoped BEM classes for complex or unique styling.
+ * ============================================================================ */
+
+/* Layout */
+.flex-row {
+  display: flex;
+  align-items: center;
+}
+.flex-col {
+  display: flex;
+  flex-direction: column;
+}
+.flex-1 {
+  flex: 1;
+}
+.flex-shrink-0 {
+  flex-shrink: 0;
+}
+.inline-flex {
+  display: inline-flex;
+  align-items: center;
+}
+.grid-full {
+  grid-column: 1 / -1;
+}
+.w-full {
+  width: 100%;
+}
+.relative {
+  position: relative;
+}
+.cursor-pointer {
+  cursor: pointer;
+  user-select: none;
+}
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Spacing – gap */
+.gap-xs {
+  gap: var(--spacing-xs);
+}
+.gap-sm {
+  gap: var(--spacing-sm);
+}
+.gap-md {
+  gap: var(--spacing-md);
+}
+.gap-lg {
+  gap: var(--spacing-lg);
+}
+
+/* Spacing – margin */
+.m-0 {
+  margin: 0;
+}
+.mt-sm {
+  margin-top: var(--spacing-sm);
+}
+.mt-md {
+  margin-top: var(--spacing-md);
+}
+.mt-lg {
+  margin-top: var(--spacing-lg);
+}
+.mr-sm {
+  margin-right: var(--spacing-sm);
+}
+.mb-0 {
+  margin-bottom: 0;
+}
+.mb-sm {
+  margin-bottom: var(--spacing-sm);
+}
+.mb-md {
+  margin-bottom: var(--spacing-md);
+}
+.mb-lg {
+  margin-bottom: var(--spacing-lg);
+}
+
+/* Spacing – padding */
+.p-0 {
+  padding: 0;
+}
+.p-md {
+  padding: var(--spacing-md);
+}
+.p-lg {
+  padding: var(--spacing-lg);
+}
+
+/* Text alignment */
+.text-right {
+  text-align: right;
+}
+.text-center {
+  text-align: center;
+}
+
+/* Text colors (extending .text-muted, .text-success, .text-error) */
+.text-faint {
+  color: var(--color-text-faint);
+}
+.text-warning {
+  color: var(--color-warning);
+}
+.text-accent {
+  color: var(--color-accent);
+}
+
+/* Typography */
+.font-normal {
+  font-weight: normal;
+}
+
+/* ============================================================================
+ * STREAM METRICS PANEL
+ * Dropdown table for terminal streaming diagnostics
+ * ============================================================================ */
+
+.stream-metrics__dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 100;
+  margin-top: 4px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm);
+  font-size: 0.75rem;
+  min-width: 280px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.stream-metrics__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.stream-metrics__label {
+  padding: 2px 8px 2px 0;
+  color: var(--color-text-muted);
+}
+
+.stream-metrics__value {
+  padding: 2px 0;
+  text-align: right;
+}
+
+.stream-metrics__toggle-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 0.65rem;
+  padding: 2px 0;
+  text-decoration: underline;
+}
+
+.stream-metrics__break-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.65rem;
+  margin-top: 2px;
+  margin-bottom: 4px;
+}
+
+.stream-metrics__break-table th {
+  padding: 1px 4px;
+  font-weight: normal;
+}
+
+.stream-metrics__break-table td {
+  padding: 1px 4px;
+}
+
+.stream-metrics__break-tail {
+  font-family: monospace;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stream-metrics__dist-header {
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  margin-bottom: 4px;
+}
+
+/* ============================================================================
+ * CONFLICT RESOLUTION PROGRESS
+ * Linear sync resolve conflict step display
+ * ============================================================================ */
+
+.conflict-progress__step {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.conflict-progress__elapsed {
+  margin-top: 2px;
+  flex-shrink: 0;
+  min-width: 32px;
+  text-align: right;
+}
+
+.conflict-progress__elapsed-text {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  font-family: monospace;
+}
+
+.conflict-progress__thinking {
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: var(--color-surface-alt, rgba(0, 0, 0, 0.15));
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+  animation: pulse 2s infinite;
+}
+
+.conflict-progress__code {
+  margin: 0;
+  margin-top: 2px;
+  margin-bottom: 4px;
+  padding: 6px 8px;
+  background: var(--color-surface-alt, rgba(0, 0, 0, 0.15));
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  line-height: 1.4;
+  color: var(--color-text);
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 200px;
+  white-space: pre;
+}
+
+.conflict-progress__summary {
+  margin: 0;
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: var(--color-surface-alt, rgba(0, 0, 0, 0.15));
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  line-height: 1.4;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.conflict-progress__file-path {
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+}
+
+.conflict-progress__next-steps {
+  margin-top: 8px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 6px;
+}

@@ -129,10 +129,8 @@ export default function RemoteHostSelector({
   }
 
   return (
-    <div style={{ marginBottom: 'var(--spacing-lg)' }}>
-      <label className="form-group__label" style={{ marginBottom: 'var(--spacing-sm)' }}>
-        Where do you want to run?
-      </label>
+    <div className="mb-lg">
+      <label className="form-group__label mb-sm">Where do you want to run?</label>
       <div
         style={{
           display: 'flex',
@@ -153,7 +151,7 @@ export default function RemoteHostSelector({
             }
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+          <div className="flex-row gap-sm">
             <svg
               width="20"
               height="20"
@@ -174,15 +172,7 @@ export default function RemoteHostSelector({
 
         {/* Remote flavor options */}
         {loading ? (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--spacing-sm)',
-              padding: 'var(--spacing-md)',
-              color: 'var(--color-text-muted)',
-            }}
-          >
+          <div className="flex-row gap-sm p-md text-muted">
             <span className="spinner spinner--small" />
             <span>Loading remote hosts...</span>
           </div>
@@ -205,7 +195,7 @@ export default function RemoteHostSelector({
                   }
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+                <div className="flex-row gap-sm">
                   <svg
                     width="20"
                     height="20"
@@ -217,11 +207,7 @@ export default function RemoteHostSelector({
                     <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
                     <line x1="1" y1="10" x2="23" y2="10" />
                   </svg>
-                  <strong
-                    style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                  >
-                    {flavorStatus.flavor.display_name}
-                  </strong>
+                  <strong className="truncate">{flavorStatus.flavor.display_name}</strong>
                 </div>
                 <div
                   style={{
@@ -248,12 +234,9 @@ export default function RemoteHostSelector({
                   />
                 ) : (
                   <span
+                    className="flex-row gap-xs text-muted"
                     style={{
                       fontSize: '0.75rem',
-                      color: 'var(--color-text-muted)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 'var(--spacing-xs)',
                     }}
                   >
                     <span

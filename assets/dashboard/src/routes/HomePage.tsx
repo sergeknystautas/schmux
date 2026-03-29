@@ -579,11 +579,11 @@ export default function HomePage() {
                       </div>
                       <div className={styles.workspaceStats}>
                         <span className={styles.gitStats} data-testid="git-stats">
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+                          <span className="inline-flex" style={{ gap: 1 }}>
                             {ws.behind}
                             {arrowDown}
                           </span>{' '}
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+                          <span className="inline-flex" style={{ gap: 1 }}>
                             {ws.ahead}
                             {arrowUp}
                           </span>
@@ -631,10 +631,7 @@ export default function HomePage() {
       <div className={`${styles.homePage} ${styles.homePageFM}`}>
         {/* FM Terminal */}
         <div className={styles.fmTerminalColumn}>
-          <div
-            className={styles.sectionCard}
-            style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
-          >
+          <div className={`${styles.sectionCard} flex-1 flex-col`}>
             <div className={styles.sectionHeader}>
               <h2 className={styles.sectionTitle}>
                 <TerminalIcon />
@@ -645,10 +642,10 @@ export default function HomePage() {
               )}
             </div>
             <div
-              className="log-viewer__output terminal-xterm"
+              className="log-viewer__output terminal-xterm flex-1"
               ref={fmTerminalRef}
               data-testid="fm-terminal"
-              style={{ flex: 1, minHeight: 400 }}
+              style={{ minHeight: 400 }}
             />
             {!fm.running && (
               <div className={styles.fmLoading}>
@@ -1156,11 +1153,11 @@ export default function HomePage() {
                         </div>
                         <div className={styles.workspaceStats}>
                           <span className={styles.gitStats} data-testid="git-stats">
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+                            <span className="inline-flex" style={{ gap: 1 }}>
                               {ws.behind}
                               {arrowDown}
                             </span>{' '}
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+                            <span className="inline-flex" style={{ gap: 1 }}>
                               {ws.ahead}
                               {arrowUp}
                             </span>
@@ -1202,7 +1199,7 @@ export default function HomePage() {
                 color: 'var(--color-text-muted)',
               }}
             >
-              <span style={{ flex: 1 }}>
+              <span className="flex-1">
                 Overlay is active for <strong>{o.repo_name}</strong>. Agent config files
                 (.claude/settings.local.json) are automatically synced across workspaces.{' '}
                 <Link

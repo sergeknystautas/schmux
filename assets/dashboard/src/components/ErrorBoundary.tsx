@@ -36,7 +36,8 @@ export default class ErrorBoundary extends Component<Props, State> {
           </details>
           <button
             onClick={() => window.location.reload()}
-            style={{ marginTop: '1rem', padding: '0.5rem 1rem', cursor: 'pointer' }}
+            className="cursor-pointer"
+            style={{ marginTop: '1rem', padding: '0.5rem 1rem' }}
           >
             Reload
           </button>

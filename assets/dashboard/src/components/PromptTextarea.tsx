@@ -305,7 +305,7 @@ export default function PromptTextarea({
   }, []);
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div className="relative">
       <textarea
         ref={textareaRef}
         value={value}

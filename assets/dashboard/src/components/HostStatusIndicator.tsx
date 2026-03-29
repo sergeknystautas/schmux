@@ -61,10 +61,8 @@ export default function HostStatusIndicator({
 
   return (
     <span
+      className="inline-flex gap-xs"
       style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 'var(--spacing-xs)',
         fontSize,
         color: config.color,
       }}
@@ -78,20 +76,18 @@ export default function HostStatusIndicator({
         />
       ) : (
         <span
+          className="flex-shrink-0"
           style={{
             width: dotSize,
             height: dotSize,
             borderRadius: '50%',
             backgroundColor: config.color,
-            flexShrink: 0,
           }}
           data-testid="host-status-indicator"
           data-variant="dot"
         />
       )}
-      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        {config.label}
-      </span>
+      <span className="truncate">{config.label}</span>
     </span>
   );
 }

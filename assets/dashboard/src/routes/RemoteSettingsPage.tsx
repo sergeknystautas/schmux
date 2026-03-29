@@ -182,7 +182,7 @@ export default function RemoteSettingsPage() {
       </div>
 
       <div className="spawn-content">
-        <p style={{ marginBottom: 'var(--spacing-lg)', color: 'var(--color-text-muted)' }}>
+        <p className="mb-lg text-muted">
           Configure remote host flavors for running agents on remote machines via SSH or custom
           connection tools.
         </p>
@@ -199,9 +199,9 @@ export default function RemoteSettingsPage() {
             </button>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
+          <div className="flex-col gap-md">
             {flavors.map((flavor) => (
-              <div key={flavor.id} className="card" style={{ padding: 'var(--spacing-md)' }}>
+              <div key={flavor.id} className="card p-md">
                 <div
                   style={{
                     display: 'flex',
@@ -213,7 +213,7 @@ export default function RemoteSettingsPage() {
                     <h3 style={{ margin: 0, marginBottom: 'var(--spacing-xs)' }}>
                       {flavor.display_name}
                     </h3>
-                    <div style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
+                    <div className="text-muted" style={{ fontSize: '0.875rem' }}>
                       <div>
                         <strong>Flavor:</strong> <code>{flavor.flavor}</code>
                       </div>
@@ -250,7 +250,7 @@ export default function RemoteSettingsPage() {
                       )}
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
+                  <div className="flex-row gap-xs">
                     <button className="btn btn--sm" onClick={() => handleEdit(flavor)}>
                       Edit
                     </button>
@@ -283,11 +283,10 @@ export default function RemoteSettingsPage() {
               <div className="modal__body">
                 {/* Row 1: Name, Flavor, VCS side-by-side */}
                 <div
+                  className="gap-md mb-md"
                   style={{
                     display: 'grid',
                     gridTemplateColumns: '1fr 1fr auto',
-                    gap: 'var(--spacing-md)',
-                    marginBottom: 'var(--spacing-md)',
                   }}
                 >
                   <div className="form-group">
@@ -335,7 +334,7 @@ export default function RemoteSettingsPage() {
                 </div>
 
                 {/* Row 2: Workspace Path full-width */}
-                <div className="form-group" style={{ marginBottom: 'var(--spacing-md)' }}>
+                <div className="form-group mb-md">
                   <label className="form-group__label" htmlFor="workspace_path">
                     Workspace Path *
                   </label>
@@ -354,12 +353,9 @@ export default function RemoteSettingsPage() {
                 </div>
 
                 {/* Row 3: Connect Command */}
-                <div className="form-group" style={{ marginBottom: 'var(--spacing-md)' }}>
+                <div className="form-group mb-md">
                   <label className="form-group__label" htmlFor="connect_command">
-                    Connect Command{' '}
-                    <span style={{ fontWeight: 'normal', color: 'var(--color-text-muted)' }}>
-                      (optional)
-                    </span>
+                    Connect Command <span className="font-normal text-muted">(optional)</span>
                   </label>
                   <input
                     type="text"
@@ -377,12 +373,9 @@ export default function RemoteSettingsPage() {
                 </div>
 
                 {/* Row 4: Hostname Regex (related to connect output) */}
-                <div className="form-group" style={{ marginBottom: 'var(--spacing-md)' }}>
+                <div className="form-group mb-md">
                   <label className="form-group__label" htmlFor="hostname_regex">
-                    Hostname Regex{' '}
-                    <span style={{ fontWeight: 'normal', color: 'var(--color-text-muted)' }}>
-                      (optional)
-                    </span>
+                    Hostname Regex <span className="font-normal text-muted">(optional)</span>
                   </label>
                   <input
                     type="text"
@@ -400,12 +393,9 @@ export default function RemoteSettingsPage() {
                 </div>
 
                 {/* Row 5: Reconnect Command */}
-                <div className="form-group" style={{ marginBottom: 'var(--spacing-md)' }}>
+                <div className="form-group mb-md">
                   <label className="form-group__label" htmlFor="reconnect_command">
-                    Reconnect Command{' '}
-                    <span style={{ fontWeight: 'normal', color: 'var(--color-text-muted)' }}>
-                      (optional)
-                    </span>
+                    Reconnect Command <span className="font-normal text-muted">(optional)</span>
                   </label>
                   <input
                     type="text"
@@ -424,12 +414,9 @@ export default function RemoteSettingsPage() {
                 </div>
 
                 {/* Row 6: Provision Command */}
-                <div className="form-group" style={{ marginBottom: 'var(--spacing-md)' }}>
+                <div className="form-group mb-md">
                   <label className="form-group__label" htmlFor="provision_command">
-                    Provision Command{' '}
-                    <span style={{ fontWeight: 'normal', color: 'var(--color-text-muted)' }}>
-                      (optional)
-                    </span>
+                    Provision Command <span className="font-normal text-muted">(optional)</span>
                   </label>
                   <input
                     type="text"
@@ -450,10 +437,7 @@ export default function RemoteSettingsPage() {
                 {/* Row 7: VS Code Template */}
                 <div className="form-group">
                   <label className="form-group__label" htmlFor="vscode_command_template">
-                    VS Code Template{' '}
-                    <span style={{ fontWeight: 'normal', color: 'var(--color-text-muted)' }}>
-                      (optional)
-                    </span>
+                    VS Code Template <span className="font-normal text-muted">(optional)</span>
                   </label>
                   <input
                     type="text"

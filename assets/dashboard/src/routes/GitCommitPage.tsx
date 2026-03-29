@@ -175,7 +175,7 @@ export default function GitCommitPage() {
 
         {/* Diff layout */}
         {!commitData?.files || commitData.files.length === 0 ? (
-          <div className="empty-state" style={{ flex: 1 }}>
+          <div className="empty-state flex-1">
             <h3 className="empty-state__title">No files changed</h3>
             <p className="empty-state__description">This commit has no file changes</p>
           </div>
@@ -226,12 +226,12 @@ export default function GitCommitPage() {
                       </div>
                       <span className="diff-file-item__stats">
                         {file.lines_added > 0 && (
-                          <span style={{ color: 'var(--color-success)' }}>+{file.lines_added}</span>
+                          <span className="text-success">+{file.lines_added}</span>
                         )}
                         {file.lines_removed > 0 && (
                           <span
+                            className="text-error"
                             style={{
-                              color: 'var(--color-error)',
                               marginLeft: file.lines_added > 0 ? '4px' : '0',
                             }}
                           >

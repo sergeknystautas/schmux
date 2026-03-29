@@ -42,14 +42,7 @@ export default function FloorManagerTab({
         </div>
         <div className="settings-section__body">
           <div className="form-group">
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--spacing-xs)',
-                cursor: 'pointer',
-              }}
-            >
+            <label className="flex-row gap-xs cursor-pointer">
               <input
                 type="checkbox"
                 checked={fmEnabled}

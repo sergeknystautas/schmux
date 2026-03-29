@@ -670,8 +670,7 @@ export default function SessionDetailPage() {
                   has been lost. Reconnect to resume terminal streaming.
                 </p>
                 <button
-                  className="btn btn--primary"
-                  style={{ marginTop: 'var(--spacing-md)' }}
+                  className="btn btn--primary mt-md"
                   onClick={async () => {
                     if (!sessionData.remote_host_id) return;
                     try {
@@ -1029,10 +1028,7 @@ export default function SessionDetailPage() {
                 />
                 <div className="metadata-field">
                   <span className="metadata-field__label">Environment</span>
-                  <span
-                    className="metadata-field__value"
-                    style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}
-                  >
+                  <span className="metadata-field__value flex-row gap-xs">
                     <svg
                       width="14"
                       height="14"

@@ -235,22 +235,20 @@ export default function ConnectionProgressModal({
       case 'provisioning':
         return (
           <div
-            className="spinner"
+            className="spinner mr-sm"
             style={{
               width: `${size}px`,
               height: `${size}px`,
-              marginRight: 'var(--spacing-sm)',
             }}
           />
         );
       case 'connecting':
         return (
           <div
-            className="spinner"
+            className="spinner mr-sm"
             style={{
               width: `${size}px`,
               height: `${size}px`,
-              marginRight: 'var(--spacing-sm)',
             }}
           />
         );
@@ -263,7 +261,7 @@ export default function ConnectionProgressModal({
             fill="none"
             stroke="var(--color-warning)"
             strokeWidth="2"
-            style={{ marginRight: 'var(--spacing-sm)' }}
+            className="mr-sm"
           >
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
@@ -278,7 +276,7 @@ export default function ConnectionProgressModal({
             fill="none"
             stroke="var(--color-success)"
             strokeWidth="2"
-            style={{ marginRight: 'var(--spacing-sm)' }}
+            className="mr-sm"
           >
             <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
             <polyline points="22 4 12 14.01 9 11.01" />
@@ -293,7 +291,7 @@ export default function ConnectionProgressModal({
             fill="none"
             stroke="var(--color-error)"
             strokeWidth="2"
-            style={{ marginRight: 'var(--spacing-sm)' }}
+            className="mr-sm"
           >
             <circle cx="12" cy="12" r="10" />
             <line x1="15" y1="9" x2="9" y2="15" />
@@ -312,17 +310,8 @@ export default function ConnectionProgressModal({
           onClick={(e) => e.stopPropagation()}
           style={{ maxWidth: '500px' }}
         >
-          <div
-            className="modal__header"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <h2 className="modal__title" style={{ margin: 0, flex: 1 }}>
-              Connecting to {flavorName}
-            </h2>
+          <div className="modal__header flex-row" style={{ justifyContent: 'space-between' }}>
+            <h2 className="modal__title m-0 flex-1">Connecting to {flavorName}</h2>
             <button
               onClick={onClose}
               aria-label="Close"
@@ -363,10 +352,7 @@ export default function ConnectionProgressModal({
               </svg>
             </button>
           </div>
-          <div
-            className="modal__body"
-            style={{ padding: 'var(--spacing-lg)', textAlign: 'center' }}
-          >
+          <div className="modal__body p-lg text-center">
             <div className="spinner" style={{ margin: '0 auto var(--spacing-md)' }} />
             <p>Starting connection...</p>
           </div>
@@ -383,32 +369,16 @@ export default function ConnectionProgressModal({
         onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: '900px', maxHeight: '80vh' }}
       >
-        <div
-          className="modal__header"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--spacing-sm)',
-              flex: 1,
-            }}
-          >
+        <div className="modal__header flex-row" style={{ justifyContent: 'space-between' }}>
+          <div className="flex-row gap-sm flex-1">
             {getStatusIcon()}
             <div>
-              <h2 className="modal__title" style={{ margin: 0 }}>
-                {flavorName}
-              </h2>
+              <h2 className="modal__title m-0">{flavorName}</h2>
               <p
+                className="text-muted"
                 style={{
                   margin: '4px 0 0 0',
                   fontSize: '0.875rem',
-                  color: 'var(--color-text-muted)',
                 }}
               >
                 {getStatusMessage()}
@@ -456,7 +426,7 @@ export default function ConnectionProgressModal({
           </button>
         </div>
 
-        <div className="modal__body" style={{ padding: 'var(--spacing-md)' }}>
+        <div className="modal__body p-md">
           <div
             ref={terminalRef}
             style={{

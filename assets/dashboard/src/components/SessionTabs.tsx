@@ -487,7 +487,7 @@ export default function SessionTabs({
         </span>
         {hasChanges && (
           <span className="session-tab__diff-stats">
-            {linesAdded > 0 && <span style={{ color: 'var(--color-success)' }}>+{linesAdded}</span>}
+            {linesAdded > 0 && <span className="text-success">+{linesAdded}</span>}
             {linesRemoved > 0 && (
               <span
                 style={{
@@ -618,7 +618,7 @@ export default function SessionTabs({
                 style={{ width: 10, height: 10, borderWidth: 2, flexShrink: 0 }}
               />
             )}
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span className="truncate">
               {label} {hash}
             </span>
           </span>

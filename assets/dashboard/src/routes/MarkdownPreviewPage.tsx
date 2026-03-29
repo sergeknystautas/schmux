@@ -62,7 +62,7 @@ export default function MarkdownPreviewPage() {
           </>
         )}
         <div className="diff-page">
-          <div className="loading-state" style={{ flex: 1 }}>
+          <div className="loading-state flex-1">
             <div className="spinner"></div>
             <span>Loading preview...</span>
           </div>
@@ -81,7 +81,7 @@ export default function MarkdownPreviewPage() {
           </>
         )}
         <div className="diff-page">
-          <div className="empty-state" style={{ flex: 1 }}>
+          <div className="empty-state flex-1">
             <div className="empty-state__icon">!</div>
             <h3 className="empty-state__title">Failed to load preview</h3>
             <p className="empty-state__description">{error}</p>

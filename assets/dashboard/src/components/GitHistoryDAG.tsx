@@ -293,7 +293,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
           {showPushToDefault &&
             (pushToDefaultDisabled ? (
               <Tooltip content={pushToDefaultTooltip}>
-                <span style={{ display: 'inline-flex' }}>{pushToDefaultButton}</span>
+                <span className="inline-flex">{pushToDefaultButton}</span>
               </Tooltip>
             ) : (
               pushToDefaultButton
@@ -301,7 +301,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
           {showPushToBranch &&
             (pushToBranchDisabled ? (
               <Tooltip content={pushToBranchTooltip}>
-                <span style={{ display: 'inline-flex' }}>{pushToBranchButton}</span>
+                <span className="inline-flex">{pushToBranchButton}</span>
               </Tooltip>
             ) : (
               pushToBranchButton
@@ -379,8 +379,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
       return (
         <div
           key={ln.hash}
-          className="git-dag__file-row"
-          style={{ cursor: 'pointer' }}
+          className="git-dag__file-row cursor-pointer"
           onClick={toggleFile}
           role="button"
           tabIndex={0}
@@ -397,7 +396,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
             checked={isSelected}
             onChange={toggleFile}
             onClick={(e) => e.stopPropagation()}
-            style={{ marginRight: '8px' }}
+            className="mr-sm"
             aria-label={`Select ${filePath}`}
           />
           <span className={`commit-workflow__status ${statusClass}`}>{statusLabel}</span>
@@ -456,7 +455,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
         >
           {!commitMessageConfigured ? (
             <Tooltip content="Select a model in Settings > Code Review > Commit Message">
-              <span style={{ display: 'inline-flex' }}>{commitButton}</span>
+              <span className="inline-flex">{commitButton}</span>
             </Tooltip>
           ) : (
             commitButton
@@ -536,7 +535,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
               ? `Rebasing ${lockState.syncProgress.current}/${lockState.syncProgress.total} commits`
               : `${ln.syncSummary.count} commit${ln.syncSummary.count !== 1 ? 's' : ''}`}
           </span>
-          <span style={{ flex: 1 }} />
+          <span className="flex-1" />
           <span className="git-dag__time">
             {formatRelativeTime(ln.syncSummary.newestTimestamp)}
           </span>

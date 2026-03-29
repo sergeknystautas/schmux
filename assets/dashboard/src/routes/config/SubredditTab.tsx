@@ -192,7 +192,7 @@ export default function SubredditTab({
             <h3 className="settings-section__title">Repositories</h3>
           </div>
           <div className="settings-section__body">
-            <p className="form-group__hint" style={{ marginBottom: '0.75rem' }}>
+            <p className="form-group__hint mb-md">
               Select which repositories should generate posts.
             </p>
             <div className="repo-list">
@@ -202,10 +202,8 @@ export default function SubredditTab({
                 return (
                   <label
                     key={slug}
+                    className="flex-row gap-xs"
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 'var(--spacing-xs)',
                       cursor: enabled ? 'pointer' : 'not-allowed',
                       opacity: enabled ? 1 : 0.6,
                     }}

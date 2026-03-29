@@ -101,14 +101,7 @@ export default function AdvancedTab({
         </div>
         <div className="settings-section__body">
           <div className="form-group">
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--spacing-xs)',
-                cursor: 'pointer',
-              }}
-            >
+            <label className="flex-row gap-xs cursor-pointer">
               <input
                 type="checkbox"
                 checked={loreEnabled}
@@ -161,14 +154,7 @@ export default function AdvancedTab({
           </div>
 
           <div className="form-group">
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--spacing-xs)',
-                cursor: 'pointer',
-              }}
-            >
+            <label className="flex-row gap-xs cursor-pointer">
               <input
                 type="checkbox"
                 checked={loreAutoPR}
@@ -250,14 +236,7 @@ export default function AdvancedTab({
         </div>
         <div className="settings-section__body">
           <div className="form-group">
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--spacing-xs)',
-                cursor: 'pointer',
-              }}
-            >
+            <label className="flex-row gap-xs cursor-pointer">
               <input
                 type="checkbox"
                 checked={desyncEnabled}
@@ -296,14 +275,7 @@ export default function AdvancedTab({
         </div>
         <div className="settings-section__body">
           <div className="form-group">
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--spacing-xs)',
-                cursor: 'pointer',
-              }}
-            >
+            <label className="flex-row gap-xs cursor-pointer">
               <input
                 type="checkbox"
                 checked={ioWorkspaceTelemetryEnabled}
@@ -386,14 +358,7 @@ export default function AdvancedTab({
         </div>
         <div className="settings-section__body">
           <div className="form-group">
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--spacing-xs)',
-                cursor: 'pointer',
-              }}
-            >
+            <label className="flex-row gap-xs cursor-pointer">
               <input
                 type="checkbox"
                 checked={!soundDisabled}
@@ -407,14 +372,7 @@ export default function AdvancedTab({
             </p>
           </div>
           <div className="form-group">
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--spacing-xs)',
-                cursor: 'pointer',
-              }}
-            >
+            <label className="flex-row gap-xs cursor-pointer">
               <input
                 type="checkbox"
                 checked={confirmBeforeClose}
@@ -428,14 +386,7 @@ export default function AdvancedTab({
             </p>
           </div>
           <div className="form-group">
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--spacing-xs)',
-                cursor: 'pointer',
-              }}
-            >
+            <label className="flex-row gap-xs cursor-pointer">
               <input
                 type="checkbox"
                 checked={suggestDisposeAfterPush}
@@ -607,14 +558,7 @@ export default function AdvancedTab({
           </div>
 
           <div className="form-group">
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--spacing-xs)',
-                cursor: 'pointer',
-              }}
-            >
+            <label className="flex-row gap-xs cursor-pointer">
               <input
                 type="checkbox"
                 checked={xtermUseWebGL}
@@ -629,14 +573,7 @@ export default function AdvancedTab({
           </div>
 
           <div className="form-group">
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--spacing-xs)',
-                cursor: 'pointer',
-              }}
-            >
+            <label className="flex-row gap-xs cursor-pointer">
               <input
                 type="checkbox"
                 checked={xtermSyncCheckEnabled}
@@ -658,7 +595,7 @@ export default function AdvancedTab({
             <h3 className="settings-section__title">Sapling Commands</h3>
           </div>
           <div className="settings-section__body">
-            <p className="form-group__hint" style={{ marginBottom: 'var(--spacing-md)' }}>
+            <p className="form-group__hint mb-md">
               Command templates for sapling workspace lifecycle. Uses Go text/template syntax.
             </p>
             {[

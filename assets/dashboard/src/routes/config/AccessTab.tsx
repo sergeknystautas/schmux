@@ -87,23 +87,8 @@ export default function AccessTab({
         <div className="settings-section__body">
           <div className="form-group">
             <label className="form-group__label">Dashboard Access</label>
-            <div
-              style={{
-                display: 'flex',
-                gap: 'var(--spacing-md)',
-                alignItems: 'center',
-                fontSize: '0.9rem',
-              }}
-            >
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--spacing-xs)',
-                  cursor: 'pointer',
-                  fontSize: 'inherit',
-                }}
-              >
+            <div className="flex-row gap-md" style={{ fontSize: '0.9rem' }}>
+              <label className="flex-row gap-xs cursor-pointer" style={{ fontSize: 'inherit' }}>
                 <input
                   type="radio"
                   name="networkAccess"
@@ -114,15 +99,7 @@ export default function AccessTab({
                 />
                 <span>Local access only</span>
               </label>
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--spacing-xs)',
-                  cursor: 'pointer',
-                  fontSize: 'inherit',
-                }}
-              >
+              <label className="flex-row gap-xs cursor-pointer" style={{ fontSize: 'inherit' }}>
                 <input
                   type="radio"
                   name="networkAccess"
@@ -157,12 +134,8 @@ export default function AccessTab({
         <div className="settings-section__body">
           <div className="form-group">
             <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--spacing-xs)',
-                cursor: networkAccess ? 'pointer' : 'not-allowed',
-              }}
+              className="flex-row gap-xs"
+              style={{ cursor: networkAccess ? 'pointer' : 'not-allowed' }}
             >
               <input
                 type="checkbox"
@@ -190,17 +163,16 @@ export default function AccessTab({
           {/* Certificate status and configure button - always visible */}
           <div className="form-group">
             <label className="form-group__label">TLS Certificate</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)' }}>
+            <div className="flex-row gap-md">
               <span style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)' }}>
                 {httpsEnabled ? (
                   tlsHostname ? (
                     <>
-                      <span style={{ color: 'var(--color-success)' }}>Valid</span> for{' '}
-                      <code>{tlsHostname}</code>
+                      <span className="text-success">Valid</span> for <code>{tlsHostname}</code>
                       {tlsExpires && <span> (expires {tlsExpires})</span>}
                     </>
                   ) : (
-                    <span style={{ color: 'var(--color-success)' }}>Configured</span>
+                    <span className="text-success">Configured</span>
                   )
                 ) : (
                   <span style={{ color: 'var(--color-text-tertiary)' }}>Not configured</span>
@@ -244,12 +216,8 @@ export default function AccessTab({
         <div className="settings-section__body">
           <div className="form-group">
             <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--spacing-xs)',
-                cursor: httpsEnabled ? 'pointer' : 'not-allowed',
-              }}
+              className="flex-row gap-xs"
+              style={{ cursor: httpsEnabled ? 'pointer' : 'not-allowed' }}
             >
               <input
                 type="checkbox"
@@ -297,12 +265,12 @@ export default function AccessTab({
 
             <div className="form-group">
               <label className="form-group__label">GitHub OAuth Credentials</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)' }}>
+              <div className="flex-row gap-md">
                 <span style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)' }}>
                   {authClientIdSet && authClientSecretSet ? (
-                    <span style={{ color: 'var(--color-success)' }}>Configured</span>
+                    <span className="text-success">Configured</span>
                   ) : (
-                    <span style={{ color: 'var(--color-warning)' }}>Not configured</span>
+                    <span className="text-warning">Not configured</span>
                   )}
                 </span>
                 <button
@@ -319,7 +287,7 @@ export default function AccessTab({
             {combinedAuthWarnings.length > 0 && (
               <div className="form-group">
                 <p className="form-group__error">Configuration issues:</p>
-                <ul className="form-group__hint" style={{ color: 'var(--color-error)' }}>
+                <ul className="form-group__hint text-error">
                   {combinedAuthWarnings.map((item) => (
                     <li key={item}>{item}</li>
                   ))}
@@ -346,14 +314,7 @@ export default function AccessTab({
         </div>
         <div className="settings-section__body">
           <div className="form-group">
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--spacing-xs)',
-                cursor: 'pointer',
-              }}
-            >
+            <label className="flex-row gap-xs cursor-pointer">
               <input
                 type="checkbox"
                 checked={remoteAccessEnabled}
@@ -385,17 +346,9 @@ export default function AccessTab({
                     <label className="form-group__label" htmlFor="access-password">
                       Access Password
                     </label>
-                    <div
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 'var(--spacing-xs)',
-                      }}
-                    >
+                    <div className="flex-col gap-xs">
                       {remoteAccessPasswordHashSet && (
-                        <p className="form-group__hint" style={{ color: 'var(--color-success)' }}>
-                          Password is configured
-                        </p>
+                        <p className="form-group__hint text-success">Password is configured</p>
                       )}
                       <input
                         type="password"
@@ -462,9 +415,7 @@ export default function AccessTab({
                         </p>
                       )}
                       {passwordSuccess && (
-                        <p className="form-group__hint" style={{ color: 'var(--color-success)' }}>
-                          {passwordSuccess}
-                        </p>
+                        <p className="form-group__hint text-success">{passwordSuccess}</p>
                       )}
                     </div>
                     <p className="form-group__hint">

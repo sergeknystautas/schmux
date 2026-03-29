@@ -282,7 +282,7 @@ export default function OverlayPage() {
           )}
 
           <div className="spawn-content">
-            <p style={{ marginBottom: 'var(--spacing-lg)', color: 'var(--color-text-muted)' }}>
+            <p className="mb-lg text-muted">
               Overlay files are shared across all workspaces for this repo. Agent configs, secrets,
               and dotfiles are automatically copied to new workspaces and kept in sync.
             </p>
@@ -290,8 +290,8 @@ export default function OverlayPage() {
             <SectionHeader title="Auto-managed" />
             {builtinPaths.length === 0 ? (
               <p
+                className="text-faint"
                 style={{
-                  color: 'var(--color-text-faint)',
                   fontSize: '0.875rem',
                   padding: 'var(--spacing-sm) 0',
                 }}
@@ -299,7 +299,7 @@ export default function OverlayPage() {
                 No auto-managed overlay paths.
               </p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}>
+              <div className="flex-col gap-xs">
                 {builtinPaths.map((p) => (
                   <PathRow key={p.path} info={p} />
                 ))}
@@ -309,8 +309,8 @@ export default function OverlayPage() {
             <SectionHeader title="Repo-specific" />
             {repoPaths.length === 0 ? (
               <p
+                className="text-faint"
                 style={{
-                  color: 'var(--color-text-faint)',
                   fontSize: '0.875rem',
                   padding: 'var(--spacing-sm) 0',
                 }}
@@ -318,14 +318,14 @@ export default function OverlayPage() {
                 No repo-specific overlay files configured.
               </p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}>
+              <div className="flex-col gap-xs">
                 {repoPaths.map((p) => (
                   <PathRow key={p.path} info={p} showStatus />
                 ))}
               </div>
             )}
 
-            <div style={{ textAlign: 'center', marginTop: 'var(--spacing-lg)' }}>
+            <div className="text-center mt-lg">
               <button
                 className="btn btn--primary"
                 onClick={handleStartAdd}
@@ -459,7 +459,7 @@ function OverlayEventCard({ event }: { event: OverlayChangeEvent }) {
             </span>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+        <div className="flex-row gap-sm">
           <span className="overlay-event__time">{timeStr}</span>
           <svg
             className={`overlay-event__chevron${expanded ? ' overlay-event__chevron--open' : ''}`}
@@ -495,9 +495,9 @@ function OverlayEventCard({ event }: { event: OverlayChangeEvent }) {
       {expanded && !event.unified_diff && (
         <div className="overlay-event__diff">
           <pre
+            className="text-faint"
             style={{
               padding: 'var(--spacing-sm) var(--spacing-md)',
-              color: 'var(--color-text-faint)',
             }}
           >
             No diff available (new file or binary content)
@@ -513,12 +513,9 @@ function OverlayEventCard({ event }: { event: OverlayChangeEvent }) {
 function SectionHeader({ title }: { title: string }) {
   return (
     <div
+      className="flex-row gap-sm text-muted"
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 'var(--spacing-sm)',
         margin: 'var(--spacing-lg) 0 var(--spacing-sm)',
-        color: 'var(--color-text-muted)',
         fontSize: '0.75rem',
         fontWeight: 600,
         textTransform: 'uppercase',
@@ -526,7 +523,7 @@ function SectionHeader({ title }: { title: string }) {
       }}
     >
       <span>{title}</span>
-      <div style={{ flex: 1, height: '1px', background: 'var(--color-border)' }} />
+      <div className="flex-1" style={{ height: '1px', background: 'var(--color-border)' }} />
     </div>
   );
 }
@@ -543,9 +540,8 @@ function PathRow({ info, showStatus }: { info: OverlayPathInfo; showStatus?: boo
 
   return (
     <div
+      className="flex-row"
       style={{
-        display: 'flex',
-        alignItems: 'center',
         justifyContent: 'space-between',
         padding: 'var(--spacing-sm) var(--spacing-md)',
         borderRadius: 'var(--radius-md)',
@@ -554,15 +550,11 @@ function PathRow({ info, showStatus }: { info: OverlayPathInfo; showStatus?: boo
         fontSize: '0.875rem',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
-        {info.source === 'builtin' && (
-          <span style={{ color: 'var(--color-success)' }}>&#10003;</span>
-        )}
+      <div className="flex-row gap-sm">
+        {info.source === 'builtin' && <span className="text-success">&#10003;</span>}
         <code style={{ fontSize: '0.8125rem' }}>{info.path}</code>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
-        {statusBadge}
-      </div>
+      <div className="flex-row gap-sm">{statusBadge}</div>
     </div>
   );
 }
@@ -578,9 +570,7 @@ function WorkspacePicker({
 
   return (
     <div>
-      <p style={{ marginBottom: 'var(--spacing-md)', color: 'var(--color-text-muted)' }}>
-        Select a workspace to scan for overlay file candidates.
-      </p>
+      <p className="mb-md text-muted">Select a workspace to scan for overlay file candidates.</p>
       <div className="form-group">
         <label className="form-group__label" htmlFor="overlay-workspace-select">
           Workspace
@@ -598,7 +588,7 @@ function WorkspacePicker({
           ))}
         </select>
       </div>
-      <div style={{ marginTop: 'var(--spacing-lg)', textAlign: 'right' }}>
+      <div className="mt-lg text-right">
         <button className="btn btn--primary" onClick={() => onSelect(selectedId)}>
           Scan
         </button>
@@ -629,27 +619,17 @@ function ScanResults({
   return (
     <div>
       {candidates.length === 0 && customPaths.length === 0 ? (
-        <p style={{ color: 'var(--color-text-faint)' }}>
+        <p className="text-faint">
           No overlay file candidates found. You can add custom paths below.
         </p>
       ) : (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--spacing-xs)',
-            marginBottom: 'var(--spacing-md)',
-          }}
-        >
+        <div className="flex-col gap-xs mb-md">
           {candidates.map((c) => (
             <label
               key={c.path}
+              className="flex-row gap-sm cursor-pointer"
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--spacing-sm)',
                 padding: 'var(--spacing-xs) var(--spacing-sm)',
-                cursor: 'pointer',
                 borderRadius: 'var(--radius-md)',
                 fontSize: '0.875rem',
               }}
@@ -659,8 +639,10 @@ function ScanResults({
                 checked={selected.has(c.path)}
                 onChange={() => onToggle(c.path)}
               />
-              <code style={{ flex: 1, fontSize: '0.8125rem' }}>{c.path}</code>
-              <span style={{ color: 'var(--color-text-faint)', fontSize: '0.75rem' }}>
+              <code className="flex-1" style={{ fontSize: '0.8125rem' }}>
+                {c.path}
+              </code>
+              <span className="text-faint" style={{ fontSize: '0.75rem' }}>
                 {formatSize(c.size)}
               </span>
               {c.detected && (
@@ -674,21 +656,21 @@ function ScanResults({
       )}
 
       {customPaths.length > 0 && (
-        <div style={{ marginBottom: 'var(--spacing-md)' }}>
+        <div className="mb-md">
           <SectionHeader title="Custom paths" />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}>
+          <div className="flex-col gap-xs">
             {customPaths.map((p) => (
               <div
                 key={p}
+                className="flex-row gap-sm"
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--spacing-sm)',
                   padding: 'var(--spacing-xs) var(--spacing-sm)',
                   fontSize: '0.875rem',
                 }}
               >
-                <code style={{ flex: 1, fontSize: '0.8125rem' }}>{p}</code>
+                <code className="flex-1" style={{ fontSize: '0.8125rem' }}>
+                  {p}
+                </code>
                 <button
                   className="btn btn--sm btn--danger"
                   onClick={() => onRemoveCustomPath(p)}
@@ -703,7 +685,7 @@ function ScanResults({
       )}
 
       <div style={{ display: 'flex', gap: 'var(--spacing-sm)', alignItems: 'flex-end' }}>
-        <div className="form-group" style={{ flex: 1 }}>
+        <div className="form-group flex-1">
           <label className="form-group__label" htmlFor="overlay-custom-path">
             Custom path
           </label>
@@ -723,10 +705,9 @@ function ScanResults({
           />
         </div>
         <button
-          className="btn btn--sm"
+          className="btn btn--sm mb-0"
           onClick={onAddCustomPath}
           disabled={!customPath.trim()}
-          style={{ marginBottom: 0 }}
         >
           Add
         </button>

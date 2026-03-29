@@ -73,12 +73,8 @@ export function StreamMetricsPanel({ backendStats, frontendStats, onDiagnosticCa
   }, [expanded]);
 
   return (
-    <div className="stream-metrics" ref={panelRef} style={{ position: 'relative' }}>
-      <div
-        className="connection-pill"
-        onClick={() => setExpanded(!expanded)}
-        style={{ cursor: 'pointer', userSelect: 'none' }}
-      >
+    <div className="stream-metrics relative" ref={panelRef}>
+      <div className="connection-pill cursor-pointer" onClick={() => setExpanded(!expanded)}>
         <span>{formatCount(frames)} frames</span>
         <span
           className={drops > 0 ? 'warning' : ''}
@@ -99,130 +95,70 @@ export function StreamMetricsPanel({ backendStats, frontendStats, onDiagnosticCa
         </button>
       )}
       {expanded && (
-        <div
-          className="stream-metrics__dropdown"
-          style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            zIndex: 100,
-            marginTop: '4px',
-            background: 'var(--color-surface)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-md)',
-            padding: 'var(--spacing-sm)',
-            fontSize: '0.75rem',
-            minWidth: '280px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-          }}
-        >
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <div className="stream-metrics__dropdown">
+          <table className="stream-metrics__table">
             <tbody>
               <tr>
-                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
-                  Frames received
-                </td>
-                <td style={{ padding: '2px 0', textAlign: 'right' }}>{frames}</td>
+                <td className="stream-metrics__label">Frames received</td>
+                <td className="stream-metrics__value">{frames}</td>
               </tr>
               <tr>
-                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
-                  Bytes received
-                </td>
-                <td style={{ padding: '2px 0', textAlign: 'right' }}>{formatBytes(bytes)}</td>
+                <td className="stream-metrics__label">Bytes received</td>
+                <td className="stream-metrics__value">{formatBytes(bytes)}</td>
               </tr>
               <tr>
-                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
-                  Events delivered (backend)
-                </td>
-                <td style={{ padding: '2px 0', textAlign: 'right' }}>
-                  {backendStats?.eventsDelivered ?? '—'}
-                </td>
+                <td className="stream-metrics__label">Events delivered (backend)</td>
+                <td className="stream-metrics__value">{backendStats?.eventsDelivered ?? '—'}</td>
               </tr>
               <tr>
-                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
-                  Events dropped (parser)
-                </td>
-                <td
-                  className={parserDrops > 0 ? 'warning' : ''}
-                  style={{ padding: '2px 0', textAlign: 'right' }}
-                >
+                <td className="stream-metrics__label">Events dropped (parser)</td>
+                <td className={`stream-metrics__value${parserDrops > 0 ? ' warning' : ''}`}>
                   {parserDrops}
                 </td>
               </tr>
               <tr>
-                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
-                  Drops (client fan-out)
-                </td>
-                <td
-                  className={clientDrops > 0 ? 'warning' : ''}
-                  style={{ padding: '2px 0', textAlign: 'right' }}
-                >
+                <td className="stream-metrics__label">Drops (client fan-out)</td>
+                <td className={`stream-metrics__value${clientDrops > 0 ? ' warning' : ''}`}>
                   {clientDrops}
                 </td>
               </tr>
               <tr>
-                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
-                  Drops (tracker fan-out)
-                </td>
-                <td
-                  className={trackerDrops > 0 ? 'warning' : ''}
-                  style={{ padding: '2px 0', textAlign: 'right' }}
-                >
+                <td className="stream-metrics__label">Drops (tracker fan-out)</td>
+                <td className={`stream-metrics__value${trackerDrops > 0 ? ' warning' : ''}`}>
                   {trackerDrops}
                 </td>
               </tr>
               <tr>
-                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
-                  Bytes delivered (backend)
-                </td>
-                <td style={{ padding: '2px 0', textAlign: 'right' }}>
+                <td className="stream-metrics__label">Bytes delivered (backend)</td>
+                <td className="stream-metrics__value">
                   {formatBytes(backendStats?.bytesDelivered ?? 0)}
                 </td>
               </tr>
               <tr>
-                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
-                  Throughput
-                </td>
-                <td style={{ padding: '2px 0', textAlign: 'right' }}>
+                <td className="stream-metrics__label">Throughput</td>
+                <td className="stream-metrics__value">
                   {backendStats?.bytesPerSec ? formatBytes(backendStats.bytesPerSec) + '/s' : '—'}
                 </td>
               </tr>
               <tr>
-                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
-                  Bootstrap count
-                </td>
-                <td style={{ padding: '2px 0', textAlign: 'right' }}>
-                  {frontendStats?.bootstrapCount ?? '—'}
-                </td>
+                <td className="stream-metrics__label">Bootstrap count</td>
+                <td className="stream-metrics__value">{frontendStats?.bootstrapCount ?? '—'}</td>
               </tr>
               <tr>
-                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
-                  Sequence breaks
-                </td>
-                <td
-                  className={seqBreaks > 0 ? 'warning' : ''}
-                  style={{ padding: '2px 0', textAlign: 'right' }}
-                >
+                <td className="stream-metrics__label">Sequence breaks</td>
+                <td className={`stream-metrics__value${seqBreaks > 0 ? ' warning' : ''}`}>
                   {seqBreaks}
                 </td>
               </tr>
               {seqBreaks > 0 && (frontendStats?.recentBreaks?.length ?? 0) > 0 && (
                 <tr>
-                  <td colSpan={2} style={{ padding: '0' }}>
+                  <td colSpan={2} className="p-0">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         setShowBreakDetails(!showBreakDetails);
                       }}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: 'var(--color-text-muted)',
-                        cursor: 'pointer',
-                        fontSize: '0.65rem',
-                        padding: '2px 0',
-                        textDecoration: 'underline',
-                      }}
+                      className="stream-metrics__toggle-btn"
                       data-testid="toggle-break-details"
                     >
                       {showBreakDetails ? 'hide details' : 'show details'}
@@ -230,64 +166,21 @@ export function StreamMetricsPanel({ backendStats, frontendStats, onDiagnosticCa
                     {showBreakDetails && (
                       <table
                         data-testid="break-details-table"
-                        style={{
-                          width: '100%',
-                          borderCollapse: 'collapse',
-                          fontSize: '0.65rem',
-                          marginTop: '2px',
-                          marginBottom: '4px',
-                        }}
+                        className="stream-metrics__break-table"
                       >
                         <thead>
-                          <tr style={{ color: 'var(--color-text-muted)' }}>
-                            <th
-                              style={{
-                                padding: '1px 4px',
-                                textAlign: 'left',
-                                fontWeight: 'normal',
-                              }}
-                            >
-                              Frame
-                            </th>
-                            <th
-                              style={{
-                                padding: '1px 4px',
-                                textAlign: 'right',
-                                fontWeight: 'normal',
-                              }}
-                            >
-                              Offset
-                            </th>
-                            <th
-                              style={{
-                                padding: '1px 4px',
-                                textAlign: 'left',
-                                fontWeight: 'normal',
-                              }}
-                            >
-                              Tail (hex)
-                            </th>
+                          <tr className="text-muted">
+                            <th className="text-left">Frame</th>
+                            <th className="text-right">Offset</th>
+                            <th className="text-left">Tail (hex)</th>
                           </tr>
                         </thead>
                         <tbody>
                           {frontendStats!.recentBreaks!.map((brk, idx) => (
                             <tr key={idx}>
-                              <td style={{ padding: '1px 4px' }}>{brk.frameIndex}</td>
-                              <td style={{ padding: '1px 4px', textAlign: 'right' }}>
-                                {formatBytes(brk.byteOffset)}
-                              </td>
-                              <td
-                                style={{
-                                  padding: '1px 4px',
-                                  fontFamily: 'monospace',
-                                  maxWidth: '140px',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
-                                }}
-                              >
-                                {brk.tail}
-                              </td>
+                              <td>{brk.frameIndex}</td>
+                              <td className="text-right">{formatBytes(brk.byteOffset)}</td>
+                              <td className="stream-metrics__break-tail">{brk.tail}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -297,86 +190,51 @@ export function StreamMetricsPanel({ backendStats, frontendStats, onDiagnosticCa
                 </tr>
               )}
               <tr>
-                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
-                  Server seq (output log)
-                </td>
-                <td style={{ padding: '2px 0', textAlign: 'right' }}>
-                  {backendStats?.currentSeq ?? '—'}
-                </td>
+                <td className="stream-metrics__label">Server seq (output log)</td>
+                <td className="stream-metrics__value">{backendStats?.currentSeq ?? '—'}</td>
               </tr>
               <tr>
-                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
-                  Log oldest seq
-                </td>
-                <td style={{ padding: '2px 0', textAlign: 'right' }}>
-                  {backendStats?.logOldestSeq ?? '—'}
-                </td>
+                <td className="stream-metrics__label">Log oldest seq</td>
+                <td className="stream-metrics__value">{backendStats?.logOldestSeq ?? '—'}</td>
               </tr>
               <tr>
-                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
-                  Log total bytes
-                </td>
-                <td style={{ padding: '2px 0', textAlign: 'right' }}>
+                <td className="stream-metrics__label">Log total bytes</td>
+                <td className="stream-metrics__value">
                   {backendStats?.logTotalBytes != null
                     ? formatBytes(backendStats.logTotalBytes)
                     : '—'}
                 </td>
               </tr>
               <tr>
-                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
-                  Control mode reconnects
-                </td>
-                <td style={{ padding: '2px 0', textAlign: 'right' }}>
+                <td className="stream-metrics__label">Control mode reconnects</td>
+                <td className="stream-metrics__value">
                   {backendStats?.controlModeReconnects ?? 0}
                 </td>
               </tr>
               <tr>
-                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
-                  Follow lost (true→false)
-                </td>
-                <td
-                  className={followLost > 0 ? 'warning' : ''}
-                  style={{ padding: '2px 0', textAlign: 'right' }}
-                >
+                <td className="stream-metrics__label">Follow lost (true→false)</td>
+                <td className={`stream-metrics__value${followLost > 0 ? ' warning' : ''}`}>
                   {followLost}
                 </td>
               </tr>
               <tr>
-                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
-                  Scroll suppressed
-                </td>
-                <td style={{ padding: '2px 0', textAlign: 'right' }}>
+                <td className="stream-metrics__label">Scroll suppressed</td>
+                <td className="stream-metrics__value">
                   {frontendStats?.scrollSuppressedCount ?? 0}
                 </td>
               </tr>
               <tr>
-                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
-                  Write coalesce hits
-                </td>
-                <td style={{ padding: '2px 0', textAlign: 'right' }}>
-                  {frontendStats?.scrollCoalesceHits ?? 0}
-                </td>
+                <td className="stream-metrics__label">Write coalesce hits</td>
+                <td className="stream-metrics__value">{frontendStats?.scrollCoalesceHits ?? 0}</td>
               </tr>
               <tr>
-                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
-                  Resizes
-                </td>
-                <td style={{ padding: '2px 0', textAlign: 'right' }}>
-                  {frontendStats?.resizeCount ?? 0}
-                </td>
+                <td className="stream-metrics__label">Resizes</td>
+                <td className="stream-metrics__value">{frontendStats?.resizeCount ?? 0}</td>
               </tr>
               {frontendStats?.frameSizeDist && frontendStats?.frameSizeStats && (
                 <tr>
                   <td colSpan={2} style={{ padding: '12px 0 2px 0' }}>
-                    <div
-                      style={{
-                        color: 'var(--color-text-muted)',
-                        fontSize: '0.7rem',
-                        marginBottom: '4px',
-                      }}
-                    >
-                      Frame size distribution
-                    </div>
+                    <div className="stream-metrics__dist-header">Frame size distribution</div>
                     <FrameSizeHistogram
                       dist={frontendStats.frameSizeDist}
                       median={frontendStats.frameSizeStats.median}

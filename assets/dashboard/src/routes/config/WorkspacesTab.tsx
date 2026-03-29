@@ -100,9 +100,9 @@ export default function WorkspacesTab({
                   >
                     Overlay: {overlayPath}{' '}
                     {overlay?.exists ? (
-                      <span style={{ color: 'var(--color-success)' }}>({fileCount} files)</span>
+                      <span className="text-success">({fileCount} files)</span>
                     ) : (
-                      <span style={{ color: 'var(--color-text-muted)' }}>(empty)</span>
+                      <span className="text-muted">(empty)</span>
                     )}{' '}
                     <span style={{ color: 'var(--color-text-muted)', fontSize: '0.9em' }}>
                       → Manage
@@ -165,11 +165,7 @@ export default function WorkspacesTab({
         </button>
       </div>
 
-      {stepErrors[1] && (
-        <p className="form-group__error" style={{ marginTop: 'var(--spacing-md)' }}>
-          {stepErrors[1]}
-        </p>
-      )}
+      {stepErrors[1] && <p className="form-group__error mt-md">{stepErrors[1]}</p>}
     </div>
   );
 }

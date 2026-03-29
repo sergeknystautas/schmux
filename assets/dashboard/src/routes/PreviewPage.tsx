@@ -171,7 +171,7 @@ export default function PreviewPage() {
             </Tooltip>
           )}
         </div>
-        <div ref={mountRef} style={{ flex: 1, minHeight: 0 }} />
+        <div ref={mountRef} className="flex-1" style={{ minHeight: 0 }} />
       </div>
     </>
   );

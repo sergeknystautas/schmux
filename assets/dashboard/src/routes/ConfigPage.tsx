@@ -1197,12 +1197,11 @@ export default function ConfigPage() {
               return (
                 <div
                   key={stepNum}
-                  className={`wizard__step ${isCurrent ? 'wizard__step--active' : ''}`}
+                  className={`wizard__step cursor-pointer ${isCurrent ? 'wizard__step--active' : ''}`}
                   data-step={stepNum}
                   data-testid={`config-tab-${TAB_SLUGS[stepNum - 1]}`}
                   aria-selected={isCurrent}
                   onClick={() => setCurrentStep(stepNum)}
-                  style={{ cursor: 'pointer' }}
                 >
                   {stepLabel}
                 </div>
@@ -1219,8 +1218,8 @@ export default function ConfigPage() {
             <h1 className="page-header__title">Setup schmux</h1>
           </div>
 
-          <div className="banner banner--info" style={{ marginBottom: 'var(--spacing-lg)' }}>
-            <p style={{ margin: 0 }}>
+          <div className="banner banner--info mb-lg">
+            <p className="m-0">
               <strong>Welcome to schmux!</strong> Complete these steps to start spawning sessions.
             </p>
           </div>
@@ -1228,16 +1227,16 @@ export default function ConfigPage() {
       )}
 
       {state.warning && (
-        <div className="banner banner--warning" style={{ marginBottom: 'var(--spacing-lg)' }}>
-          <p style={{ margin: 0 }}>
+        <div className="banner banner--warning mb-lg">
+          <p className="m-0">
             <strong>Warning:</strong> {state.warning}
           </p>
         </div>
       )}
 
       {state.apiNeedsRestart && (
-        <div className="banner banner--warning" style={{ marginBottom: 'var(--spacing-lg)' }}>
-          <p style={{ margin: 0 }}>
+        <div className="banner banner--warning mb-lg">
+          <p className="m-0">
             <strong>Restart required:</strong> Network access setting has changed. Restart the
             daemon for this setting to take effect: <code>./schmux stop && ./schmux start</code>
           </p>
@@ -1256,11 +1255,10 @@ export default function ConfigPage() {
             return (
               <div
                 key={stepNum}
-                className={`wizard__step ${isCurrent ? 'wizard__step--active' : ''} ${isCompleted ? 'wizard__step--completed' : ''}`}
+                className={`wizard__step cursor-pointer ${isCurrent ? 'wizard__step--active' : ''} ${isCompleted ? 'wizard__step--completed' : ''}`}
                 data-step={stepNum}
                 aria-selected={isCurrent}
                 onClick={() => setCurrentStep(stepNum)}
-                style={{ cursor: 'pointer' }}
               >
                 {stepLabel}
               </div>

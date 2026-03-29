@@ -55,7 +55,7 @@ export default function PersonaForm({
     <div className="persona-form" data-testid="persona-form">
       {/* Name + Icon + Color on one row */}
       <div className="form-row">
-        <div className="form-group" style={{ flex: 1 }}>
+        <div className="form-group flex-1">
           <label className="form-group__label" htmlFor="persona-name">
             Name
           </label>

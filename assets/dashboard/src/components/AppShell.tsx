@@ -858,13 +858,7 @@ export default function AppShell() {
                           : undefined
                       }
                     >
-                      <span
-                        style={{
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
+                      <span className="truncate">
                         {isRemote && workspace.remote_flavor_name
                           ? `${workspace.remote_flavor_name} · ${workspace.remote_flavor || getRepoName(workspace.repo)}`
                           : getRepoName(workspace.repo)}

@@ -27,7 +27,7 @@ export default function ImagePreviewPage() {
           </>
         )}
         <div className="diff-page">
-          <div className="empty-state" style={{ flex: 1 }}>
+          <div className="empty-state flex-1">
             <div className="empty-state__icon">!</div>
             <h3 className="empty-state__title">Invalid image</h3>
             <p className="empty-state__description">This file cannot be previewed</p>

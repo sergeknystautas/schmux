@@ -178,12 +178,7 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
                     }}
                   />
                   {modal.errorMessage && (
-                    <p
-                      className="form-group__error"
-                      style={{ marginTop: 'var(--spacing-sm)', color: 'var(--color-error)' }}
-                    >
-                      {modal.errorMessage}
-                    </p>
+                    <p className="form-group__error mt-sm text-error">{modal.errorMessage}</p>
                   )}
                 </>
               ) : (

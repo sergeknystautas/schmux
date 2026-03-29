@@ -109,19 +109,15 @@ export default function ConfigModals({
               </p>
 
               {tlsModal.hostname && (
-                <div className="banner banner--success" style={{ marginTop: 'var(--spacing-md)' }}>
-                  <p style={{ margin: 0 }}>
+                <div className="banner banner--success mt-md">
+                  <p className="m-0">
                     <strong>Valid certificate</strong> for <code>{tlsModal.hostname}</code>
                     {tlsModal.expires && <span> (expires {tlsModal.expires})</span>}
                   </p>
                 </div>
               )}
 
-              {tlsModal.error && (
-                <p className="form-group__error" style={{ marginTop: 'var(--spacing-sm)' }}>
-                  {tlsModal.error}
-                </p>
-              )}
+              {tlsModal.error && <p className="form-group__error mt-sm">{tlsModal.error}</p>}
             </div>
             <div className="modal__footer">
               <button className="btn" onClick={closeTlsModal}>
@@ -211,9 +207,7 @@ export default function ConfigModals({
                 />
               </div>
               {authSecretsModal.error && (
-                <p className="form-group__error" style={{ marginTop: 'var(--spacing-sm)' }}>
-                  {authSecretsModal.error}
-                </p>
+                <p className="form-group__error mt-sm">{authSecretsModal.error}</p>
               )}
 
               <div

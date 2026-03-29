@@ -38,11 +38,10 @@ export function IOWorkspaceMetricsPanel({ stats, onCapture }: Props) {
   const triggerCounts = stats?.triggerCounts ?? {};
 
   return (
-    <div className="stream-metrics" ref={panelRef} style={{ position: 'relative' }}>
+    <div className="stream-metrics relative" ref={panelRef}>
       <div
-        className="connection-pill"
+        className="connection-pill cursor-pointer"
         onClick={() => setExpanded(!expanded)}
-        style={{ cursor: 'pointer', userSelect: 'none' }}
         title="IO Workspace Telemetry"
       >
         <span>{totalCmds} git cmds</span>
@@ -71,7 +70,7 @@ export function IOWorkspaceMetricsPanel({ stats, onCapture }: Props) {
             boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
           }}
         >
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <table className="w-full" style={{ borderCollapse: 'collapse' }}>
             <tbody>
               <tr>
                 <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
