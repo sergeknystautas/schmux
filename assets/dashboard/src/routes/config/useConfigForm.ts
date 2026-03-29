@@ -17,6 +17,7 @@ export type ConfigSnapshot = {
   quickLaunch: QuickLaunchPreset[];
   externalDiffCommands: { name: string; command: string }[];
   externalDiffCleanupMinutes: number;
+  pastebin: string[];
   nudgenikTarget: string;
   branchSuggestTarget: string;
   conflictResolveTarget: string;
@@ -83,6 +84,12 @@ export type RunTargetEditModalState = {
   error: string;
 } | null;
 
+export type PastebinEditModalState = {
+  index?: number;
+  content: string;
+  error: string;
+} | null;
+
 export type QuickLaunchEditModalState = {
   item: QuickLaunchPreset;
   prompt: string;
@@ -116,6 +123,7 @@ export type ConfigFormState = {
   builtinQuickLaunch: BuiltinQuickLaunchCookbook[];
   externalDiffCommands: { name: string; command: string }[];
   externalDiffCleanupMinutes: number;
+  pastebin: string[];
   modelCatalog: Model[];
   runners: Record<string, RunnerInfo>;
   nudgenikTarget: string;
@@ -237,6 +245,7 @@ export type ConfigFormState = {
   // Modal state
   runTargetEditModal: RunTargetEditModalState;
   quickLaunchEditModal: QuickLaunchEditModalState;
+  pastebinEditModal: PastebinEditModalState;
   authSecretsModal: AuthSecretsModalState;
   tlsModal: TlsModalState;
 
@@ -264,6 +273,9 @@ export type ConfigFormAction =
   | { type: 'UPDATE_QUICK_LAUNCH'; name: string; updates: Partial<QuickLaunchPreset> }
   | { type: 'ADD_DIFF_COMMAND'; command: { name: string; command: string } }
   | { type: 'REMOVE_DIFF_COMMAND'; name: string }
+  | { type: 'ADD_PASTEBIN'; content: string }
+  | { type: 'REMOVE_PASTEBIN'; index: number }
+  | { type: 'UPDATE_PASTEBIN'; index: number; content: string }
   | { type: 'SET_MODELS'; models: Model[] }
   | { type: 'SET_STEP_ERROR'; step: number; error: string | null }
   | { type: 'RESET_NEW_REPO' }
@@ -272,6 +284,8 @@ export type ConfigFormAction =
   | { type: 'RESET_NEW_DIFF' }
   | { type: 'SET_RUN_TARGET_EDIT_MODAL'; modal: RunTargetEditModalState }
   | { type: 'SET_QUICK_LAUNCH_EDIT_MODAL'; modal: QuickLaunchEditModalState }
+  | { type: 'SET_PASTEBIN_EDIT_MODAL'; modal: PastebinEditModalState }
+  | { type: 'UPDATE_PASTEBIN'; index: number; content: string }
   | { type: 'SET_AUTH_SECRETS_MODAL'; modal: AuthSecretsModalState }
   | { type: 'SET_TLS_MODAL'; modal: TlsModalState }
   | { type: 'TOGGLE_MODEL'; modelId: string; enabled: boolean; defaultRunner: string }
@@ -308,6 +322,7 @@ export const initialState: ConfigFormState = {
   selectedCookbookTemplate: null,
   newDiffName: '',
   newDiffCommand: '',
+  pastebin: [],
 
   dashboardPollInterval: 5000,
   viewedBuffer: 5000,
@@ -394,6 +409,7 @@ export const initialState: ConfigFormState = {
 
   runTargetEditModal: null,
   quickLaunchEditModal: null,
+  pastebinEditModal: null,
   authSecretsModal: null,
   tlsModal: null,
 
@@ -472,6 +488,30 @@ function configFormReducer(state: ConfigFormState, action: ConfigFormAction): Co
         ...state,
         externalDiffCommands: state.externalDiffCommands.filter((c) => c.name !== action.name),
       };
+
+    case 'ADD_PASTEBIN': {
+      const updated = [...state.pastebin, action.content].sort((a, b) => a.localeCompare(b));
+      return { ...state, pastebin: updated, pastebinEditModal: null };
+    }
+
+    case 'REMOVE_PASTEBIN':
+      return {
+        ...state,
+        pastebin: state.pastebin.filter((_, i) => i !== action.index),
+      };
+
+    case 'SET_PASTEBIN_EDIT_MODAL':
+      return { ...state, pastebinEditModal: action.modal };
+
+    case 'UPDATE_PASTEBIN': {
+      const updated = [...state.pastebin];
+      updated[action.index] = action.content;
+      return {
+        ...state,
+        pastebin: updated.sort((a, b) => a.localeCompare(b)),
+        pastebinEditModal: null,
+      };
+    }
 
     case 'SET_MODELS':
       return { ...state, modelCatalog: action.models };
@@ -601,6 +641,7 @@ export function useConfigForm(initialStep: number = 1) {
         !arraysMatch(state.quickLaunch, oc.quickLaunch) ||
         !arraysMatch(state.externalDiffCommands, oc.externalDiffCommands) ||
         state.externalDiffCleanupMinutes !== oc.externalDiffCleanupMinutes ||
+        !arraysMatch(state.pastebin, oc.pastebin) ||
         state.nudgenikTarget !== oc.nudgenikTarget ||
         state.branchSuggestTarget !== oc.branchSuggestTarget ||
         state.conflictResolveTarget !== oc.conflictResolveTarget ||
@@ -694,6 +735,7 @@ export function useConfigForm(initialStep: number = 1) {
       quickLaunch: state.quickLaunch,
       externalDiffCommands: state.externalDiffCommands,
       externalDiffCleanupMinutes: state.externalDiffCleanupMinutes,
+      pastebin: state.pastebin,
       nudgenikTarget: state.nudgenikTarget,
       branchSuggestTarget: state.branchSuggestTarget,
       conflictResolveTarget: state.conflictResolveTarget,

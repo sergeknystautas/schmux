@@ -29,15 +29,17 @@ import AccessTab from './config/AccessTab';
 import SubredditTab from './config/SubredditTab';
 import RepofeedTab from './config/RepofeedTab';
 import AdvancedTab from './config/AdvancedTab';
+import PastebinTab from './config/PastebinTab';
 import ConfigModals from './config/ConfigModals';
 import type { ConfigResponse, ConfigUpdateRequest, Model, RunTargetResponse } from '../lib/types';
 import type { Persona } from '../lib/types.generated';
 
-const TOTAL_STEPS = 9;
+const TOTAL_STEPS = 10;
 const TABS = [
   'Workspaces',
   'Sessions',
   'Quick Launch',
+  'Pastebin',
   'Code Review',
   'Floor Manager',
   'Access',
@@ -49,6 +51,7 @@ const TAB_SLUGS = [
   'workspaces',
   'sessions',
   'quicklaunch',
+  'pastebin',
   'codereview',
   'floormanager',
   'access',
@@ -144,6 +147,9 @@ export default function ConfigPage() {
               1,
               (data.external_diff_cleanup_after_ms || 3600000) / 60000
             ),
+            pastebin: (data.pastebin || [])
+              .slice()
+              .sort((a: string, b: string) => a.localeCompare(b)),
             nudgenikTarget: data.nudgenik?.target || '',
             branchSuggestTarget: data.branch_suggest?.target || '',
             conflictResolveTarget: data.conflict_resolve?.target || '',
@@ -223,6 +229,9 @@ export default function ConfigPage() {
               1,
               (data.external_diff_cleanup_after_ms || 3600000) / 60000
             ),
+            pastebin: (data.pastebin || [])
+              .slice()
+              .sort((a: string, b: string) => a.localeCompare(b)),
             nudgenikTarget: data.nudgenik?.target || '',
             branchSuggestTarget: data.branch_suggest?.target || '',
             conflictResolveTarget: data.conflict_resolve?.target || '',
@@ -578,6 +587,7 @@ export default function ConfigPage() {
           60000,
           Math.round(state.externalDiffCleanupMinutes * 60000)
         ),
+        pastebin: state.pastebin,
         nudgenik: {
           target: state.nudgenikTarget || '',
           viewed_buffer_ms: state.viewedBuffer,
@@ -1031,6 +1041,25 @@ export default function ConfigPage() {
     dispatch({ type: 'SET_QUICK_LAUNCH_EDIT_MODAL', modal: null });
   };
 
+  const savePastebinEditModal = () => {
+    if (!state.pastebinEditModal) return;
+    const { index, content } = state.pastebinEditModal;
+
+    if (!content.trim()) {
+      dispatch({
+        type: 'SET_PASTEBIN_EDIT_MODAL',
+        modal: { ...state.pastebinEditModal, error: 'Content cannot be empty' },
+      });
+      return;
+    }
+
+    if (index !== undefined) {
+      dispatch({ type: 'UPDATE_PASTEBIN', index, content: content.trim() });
+    } else {
+      dispatch({ type: 'ADD_PASTEBIN', content: content.trim() });
+    }
+  };
+
   const openAuthSecretsModal = async () => {
     const status = await getAuthSecretsStatus();
     dispatch({
@@ -1323,6 +1352,25 @@ export default function ConfigPage() {
           )}
 
           {currentTab === 4 && (
+            <PastebinTab
+              pastebin={state.pastebin}
+              dispatch={dispatch}
+              onOpenPastebinEditModal={(index, content) => {
+                dispatch({
+                  type: 'SET_PASTEBIN_EDIT_MODAL',
+                  modal: { index, content, error: '' },
+                });
+              }}
+              onOpenAddPastebinModal={() => {
+                dispatch({
+                  type: 'SET_PASTEBIN_EDIT_MODAL',
+                  modal: { content: '', error: '' },
+                });
+              }}
+            />
+          )}
+
+          {currentTab === 5 && (
             <CodeReviewTab
               commitMessageTarget={state.commitMessageTarget}
               prReviewTarget={state.prReviewTarget}
@@ -1338,7 +1386,7 @@ export default function ConfigPage() {
             />
           )}
 
-          {currentTab === 5 && (
+          {currentTab === 6 && (
             <FloorManagerTab
               fmEnabled={state.fmEnabled}
               fmTarget={state.fmTarget}
@@ -1349,7 +1397,7 @@ export default function ConfigPage() {
             />
           )}
 
-          {currentTab === 6 && (
+          {currentTab === 7 && (
             <AccessTab
               networkAccess={state.networkAccess}
               remoteAccessEnabled={state.remoteAccessEnabled}
@@ -1388,7 +1436,7 @@ export default function ConfigPage() {
             />
           )}
 
-          {features.subreddit && currentTab === 7 && (
+          {features.subreddit && currentTab === 8 && (
             <SubredditTab
               subredditTarget={state.subredditTarget}
               subredditInterval={state.subredditInterval}
@@ -1402,7 +1450,7 @@ export default function ConfigPage() {
             />
           )}
 
-          {features.repofeed && currentTab === 8 && (
+          {features.repofeed && currentTab === 9 && (
             <RepofeedTab
               repofeedEnabled={state.repofeedEnabled}
               repofeedPublishInterval={state.repofeedPublishInterval}
@@ -1414,7 +1462,7 @@ export default function ConfigPage() {
             />
           )}
 
-          {currentTab === 9 && (
+          {currentTab === 10 && (
             <AdvancedTab
               loreEnabled={state.loreEnabled}
               loreLLMTarget={state.loreLLMTarget}
@@ -1502,11 +1550,13 @@ export default function ConfigPage() {
         authSecretsModal={state.authSecretsModal}
         runTargetEditModal={state.runTargetEditModal}
         quickLaunchEditModal={state.quickLaunchEditModal}
+        pastebinEditModal={state.pastebinEditModal}
         tlsModal={state.tlsModal}
         dispatch={dispatch}
         onSaveAuthSecrets={saveAuthSecretsModal}
         onSaveRunTargetEdit={saveRunTargetEditModal}
         onSaveQuickLaunchEdit={saveQuickLaunchEditModal}
+        onSavePastebinEdit={savePastebinEditModal}
         onSaveTls={handleTlsModalSave}
         onValidateTls={handleTlsValidate}
         authPublicBaseURL={state.authPublicBaseURL}

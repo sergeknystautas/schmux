@@ -417,15 +417,15 @@ describe('ConfigPage', () => {
       renderConfigPage();
       await waitForWizardLoaded();
 
-      // Advance through all 8 intermediate steps to reach step 9
-      for (let i = 0; i < 8; i++) {
+      // Advance through all 9 intermediate steps to reach step 10
+      for (let i = 0; i < 9; i++) {
         await userEvent.click(screen.getByRole('button', { name: /Next/ }));
         await waitFor(() => {
           expect(mockUpdateConfig).toHaveBeenCalledTimes(i + 1);
         });
       }
 
-      // On step 9, the button should say "Finish Setup"
+      // On step 10, the button should say "Finish Setup"
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Finish Setup/ })).toBeInTheDocument();
       });
@@ -435,8 +435,8 @@ describe('ConfigPage', () => {
       renderConfigPage();
       await waitForWizardLoaded();
 
-      // Advance to step 9
-      for (let i = 0; i < 8; i++) {
+      // Advance to step 10
+      for (let i = 0; i < 9; i++) {
         await userEvent.click(screen.getByRole('button', { name: /Next/ }));
         await waitFor(() => {
           expect(mockUpdateConfig).toHaveBeenCalledTimes(i + 1);
@@ -447,7 +447,7 @@ describe('ConfigPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /Finish Setup/ }));
 
       await waitFor(() => {
-        expect(mockUpdateConfig).toHaveBeenCalledTimes(9);
+        expect(mockUpdateConfig).toHaveBeenCalledTimes(10);
       });
 
       // completeFirstRun should have been called

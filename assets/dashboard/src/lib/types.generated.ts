@@ -36,6 +36,7 @@ export interface ConfigResponse {
   quick_launch: QuickLaunch[];
   external_diff_commands?: ExternalDiffCommand[];
   external_diff_cleanup_after_ms?: number;
+  pastebin?: string[];
   runners: Record<string, RunnerInfo>;
   models: Model[];
   enabled_models?: Record<string, string>;
@@ -70,6 +71,7 @@ export interface ConfigUpdateRequest {
   quick_launch?: QuickLaunch[];
   external_diff_commands?: ExternalDiffCommand[];
   external_diff_cleanup_after_ms?: number;
+  pastebin?: string[];
   nudgenik?: NudgenikUpdate;
   branch_suggest?: BranchSuggestUpdate;
   conflict_resolve?: ConflictResolveUpdate;

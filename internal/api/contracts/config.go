@@ -145,6 +145,7 @@ type ConfigResponse struct {
 	QuickLaunch                []QuickLaunch          `json:"quick_launch"`
 	ExternalDiffCommands       []ExternalDiffCommand  `json:"external_diff_commands,omitempty"`
 	ExternalDiffCleanupAfterMs int                    `json:"external_diff_cleanup_after_ms,omitempty"`
+	Pastebin                   []string               `json:"pastebin,omitempty"`
 	Runners                    map[string]RunnerInfo  `json:"runners"` // tool name -> runner info
 	Models                     []Model                `json:"models"`
 	EnabledModels              map[string]string      `json:"enabled_models,omitempty"` // modelID -> preferred tool
@@ -284,6 +285,7 @@ type ConfigUpdateRequest struct {
 	QuickLaunch                []QuickLaunch               `json:"quick_launch,omitempty"`
 	ExternalDiffCommands       []ExternalDiffCommand       `json:"external_diff_commands,omitempty"`
 	ExternalDiffCleanupAfterMs *int                        `json:"external_diff_cleanup_after_ms,omitempty"`
+	Pastebin                   []string                    `json:"pastebin,omitempty"`
 	Nudgenik                   *NudgenikUpdate             `json:"nudgenik,omitempty"`
 	BranchSuggest              *BranchSuggestUpdate        `json:"branch_suggest,omitempty"`
 	ConflictResolve            *ConflictResolveUpdate      `json:"conflict_resolve,omitempty"`

@@ -67,3 +67,4 @@ dist/website/
 
 # Build-time config defaults (generated per deployment)
 internal/config/defaults/build_defaults.json
+.superpowers/

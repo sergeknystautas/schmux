@@ -563,7 +563,14 @@ export default function SessionDetailPage() {
         {currentWorkspace && (
           <>
             <WorkspaceHeader workspace={currentWorkspace} />
-            <SessionTabs sessions={currentWorkspace.sessions || []} workspace={currentWorkspace} />
+            <SessionTabs
+              sessions={currentWorkspace.sessions || []}
+              workspace={currentWorkspace}
+              onPaste={(content) => {
+                terminalStreamRef.current?.sendInput(content);
+                terminalStreamRef.current?.focus();
+              }}
+            />
           </>
         )}
         <div className="empty-state">
@@ -624,6 +631,10 @@ export default function SessionDetailPage() {
               sessions={currentWorkspace.sessions || []}
               currentSessionId={sessionId}
               workspace={currentWorkspace}
+              onPaste={(content) => {
+                terminalStreamRef.current?.sendInput(content);
+                terminalStreamRef.current?.focus();
+              }}
             />
           </>
         )}

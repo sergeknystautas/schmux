@@ -75,6 +75,7 @@ function makeSnapshot(overrides: Partial<ConfigSnapshot> = {}): ConfigSnapshot {
     saplingCmdCheckRepoBase: '',
     saplingCmdCreateRepoBase: '',
     tmuxBinary: '',
+    pastebin: [],
     ...overrides,
   };
 }
@@ -331,6 +332,47 @@ describe('useConfigForm', () => {
         result.current.dispatch({ type: 'REMOVE_DIFF_COMMAND', name: 'ksdiff' });
       });
       expect(result.current.state.externalDiffCommands).toHaveLength(0);
+    });
+  });
+
+  describe('pastebin', () => {
+    it('ADD_PASTEBIN appends and sorts', () => {
+      const { result } = renderHook(() => useConfigForm());
+      act(() => {
+        result.current.dispatch({ type: 'ADD_PASTEBIN', content: 'beta' });
+        result.current.dispatch({ type: 'ADD_PASTEBIN', content: 'alpha' });
+      });
+      expect(result.current.state.pastebin).toEqual(['alpha', 'beta']);
+    });
+
+    it('REMOVE_PASTEBIN removes by index', () => {
+      const { result } = renderHook(() => useConfigForm());
+      act(() => {
+        result.current.dispatch({
+          type: 'LOAD_CONFIG',
+          state: { pastebin: ['alpha', 'beta', 'gamma'] },
+        });
+      });
+      act(() => {
+        result.current.dispatch({ type: 'REMOVE_PASTEBIN', index: 1 });
+      });
+      expect(result.current.state.pastebin).toEqual(['alpha', 'gamma']);
+    });
+
+    it('ADD_PASTEBIN closes modal', () => {
+      const { result } = renderHook(() => useConfigForm());
+      act(() => {
+        result.current.dispatch({
+          type: 'SET_PASTEBIN_EDIT_MODAL',
+          modal: { content: 'new clip', error: '' },
+        });
+      });
+      expect(result.current.state.pastebinEditModal).not.toBeNull();
+      act(() => {
+        result.current.dispatch({ type: 'ADD_PASTEBIN', content: 'new clip' });
+      });
+      expect(result.current.state.pastebinEditModal).toBeNull();
+      expect(result.current.state.pastebin).toEqual(['new clip']);
     });
   });
 
@@ -752,6 +794,7 @@ describe('useConfigForm', () => {
             saplingCmdCheckRepoBase: snapshot.saplingCmdCheckRepoBase,
             saplingCmdCreateRepoBase: snapshot.saplingCmdCreateRepoBase,
             tmuxBinary: snapshot.tmuxBinary,
+            pastebin: snapshot.pastebin,
           },
         });
       });

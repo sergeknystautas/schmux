@@ -796,6 +796,7 @@ Response:
       "persona_id": "optional"
     }
   ],
+  "pastebin": ["text to paste 1", "text to paste 2"],
   "runners": {
     "claude": { "available": true, "capabilities": ["interactive", "oneshot", "streaming"] },
     "opencode": { "available": true, "capabilities": ["interactive", "oneshot"] }
@@ -910,6 +911,7 @@ Request:
       "persona_id": "optional"
     }
   ],
+  "pastebin": ["text to paste 1", "text to paste 2"],
   "enabled_models": { "claude-sonnet-4-6": "claude" },
   "nudgenik": { "target": "optional", "viewed_buffer_ms": 0, "seen_interval_ms": 0 },
   "compound": { "target": "", "debounce_ms": 2000, "enabled": true, "suppression_ttl_ms": 5000 },

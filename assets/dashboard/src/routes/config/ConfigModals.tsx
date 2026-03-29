@@ -2,6 +2,7 @@ import React from 'react';
 import type {
   AuthSecretsModalState,
   ConfigFormAction,
+  PastebinEditModalState,
   QuickLaunchEditModalState,
   RunTargetEditModalState,
   TlsModalState,
@@ -11,11 +12,13 @@ type ConfigModalsProps = {
   authSecretsModal: AuthSecretsModalState;
   runTargetEditModal: RunTargetEditModalState;
   quickLaunchEditModal: QuickLaunchEditModalState;
+  pastebinEditModal: PastebinEditModalState;
   tlsModal: TlsModalState;
   dispatch: React.Dispatch<ConfigFormAction>;
   onSaveAuthSecrets: () => void;
   onSaveRunTargetEdit: () => void;
   onSaveQuickLaunchEdit: () => void;
+  onSavePastebinEdit: () => void;
   onSaveTls: () => void;
   onValidateTls: () => void;
   authPublicBaseURL: string;
@@ -25,11 +28,13 @@ export default function ConfigModals({
   authSecretsModal,
   runTargetEditModal,
   quickLaunchEditModal,
+  pastebinEditModal,
   tlsModal,
   dispatch,
   onSaveAuthSecrets,
   onSaveRunTargetEdit,
   onSaveQuickLaunchEdit,
+  onSavePastebinEdit,
   onSaveTls,
   onValidateTls,
   authPublicBaseURL,
@@ -39,6 +44,7 @@ export default function ConfigModals({
     dispatch({ type: 'SET_RUN_TARGET_EDIT_MODAL', modal: null });
   const closeQuickLaunchEditModal = () =>
     dispatch({ type: 'SET_QUICK_LAUNCH_EDIT_MODAL', modal: null });
+  const closePastebinEditModal = () => dispatch({ type: 'SET_PASTEBIN_EDIT_MODAL', modal: null });
   const closeTlsModal = () => dispatch({ type: 'SET_TLS_MODAL', modal: null });
 
   return (
@@ -383,6 +389,54 @@ export default function ConfigModals({
                 Cancel
               </button>
               <button className="btn btn--primary" onClick={onSaveQuickLaunchEdit}>
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pastebinEditModal && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="pastebin-edit-modal-title"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') closePastebinEditModal();
+          }}
+        >
+          <div className="modal modal--wide">
+            <div className="modal__header">
+              <h2 className="modal__title" id="pastebin-edit-modal-title">
+                {pastebinEditModal.index !== undefined ? 'Edit clip' : 'Add clip'}
+              </h2>
+            </div>
+            <div className="modal__body">
+              <div className="form-group">
+                <label className="form-group__label">Content</label>
+                <textarea
+                  className="textarea"
+                  value={pastebinEditModal.content}
+                  onChange={(e) =>
+                    dispatch({
+                      type: 'SET_PASTEBIN_EDIT_MODAL',
+                      modal: { ...pastebinEditModal, content: e.target.value, error: '' },
+                    })
+                  }
+                  rows={10}
+                  autoFocus
+                />
+              </div>
+              {pastebinEditModal.error && (
+                <p className="form-group__error">{pastebinEditModal.error}</p>
+              )}
+            </div>
+            <div className="modal__footer">
+              <button className="btn" onClick={closePastebinEditModal}>
+                Cancel
+              </button>
+              <button className="btn btn--primary" onClick={onSavePastebinEdit}>
                 Save
               </button>
             </div>

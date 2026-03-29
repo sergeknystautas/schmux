@@ -72,6 +72,7 @@ type Config struct {
 	QuickLaunch                []QuickLaunch               `json:"quick_launch"`
 	ExternalDiffCommands       []ExternalDiffCommand       `json:"external_diff_commands,omitempty"`
 	ExternalDiffCleanupAfterMs int                         `json:"external_diff_cleanup_after_ms,omitempty"`
+	Pastebin                   []string                    `json:"pastebin,omitempty"`
 	Nudgenik                   *NudgenikConfig             `json:"nudgenik,omitempty"`
 	BranchSuggest              *BranchSuggestConfig        `json:"branch_suggest,omitempty"`
 	ConflictResolve            *ConflictResolveConfig      `json:"conflict_resolve,omitempty"`
@@ -931,6 +932,12 @@ func (c *Config) GetExternalDiffCleanupAfterMs() int {
 	return DefaultExternalDiffCleanupAfterMs
 }
 
+func (c *Config) GetPastebin() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Pastebin
+}
+
 // GetNudgenikTarget returns the configured nudgenik target name, if any.
 func (c *Config) GetNudgenikTarget() string {
 	c.mu.RLock()
@@ -1570,6 +1577,7 @@ func (c *Config) Reload() error {
 	c.QuickLaunch = newCfg.QuickLaunch
 	c.ExternalDiffCommands = newCfg.ExternalDiffCommands
 	c.ExternalDiffCleanupAfterMs = newCfg.ExternalDiffCleanupAfterMs
+	c.Pastebin = newCfg.Pastebin
 	c.Nudgenik = newCfg.Nudgenik
 	c.BranchSuggest = newCfg.BranchSuggest
 	c.ConflictResolve = newCfg.ConflictResolve
@@ -1614,6 +1622,7 @@ func CreateDefault(configPath string) *Config {
 		QuickLaunch:                []QuickLaunch{},
 		ExternalDiffCommands:       []ExternalDiffCommand{},
 		ExternalDiffCleanupAfterMs: DefaultExternalDiffCleanupAfterMs,
+		Pastebin:                   []string{},
 		path:                       configPath,
 	}
 

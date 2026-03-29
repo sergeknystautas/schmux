@@ -17,6 +17,7 @@ import { useSyncState } from '../contexts/SyncContext';
 import { useKeyboardMode } from '../contexts/KeyboardContext';
 import Tooltip from './Tooltip';
 import ActionDropdown from './ActionDropdown';
+import PastebinDropdown from './PastebinDropdown';
 import type { SessionResponse, WorkspaceResponse } from '../lib/types';
 import {
   DndContext,
@@ -130,6 +131,7 @@ type SessionTabsProps = {
   activeGitTab?: boolean;
   activePreviewId?: string;
   activeLinearSyncResolveConflictTab?: boolean;
+  onPaste?: (content: string) => void;
 };
 
 export default function SessionTabs({
@@ -141,6 +143,7 @@ export default function SessionTabs({
   activeGitTab,
   activePreviewId,
   activeLinearSyncResolveConflictTab,
+  onPaste,
 }: SessionTabsProps) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -161,10 +164,18 @@ export default function SessionTabs({
   const [placementAbove, setPlacementAbove] = useState(false);
   const spawnButtonRef = useRef<HTMLButtonElement | null>(null);
   const spawnMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // Pastebin dropdown state
+  const [pastebinOpen, setPastebinOpen] = useState(false);
+  const [pastebinMenuPosition, setPastebinMenuPosition] = useState({ top: 0, left: 0 });
+  const [pastebinPlacementAbove, setPastebinPlacementAbove] = useState(false);
+  const pastebinButtonRef = useRef<HTMLButtonElement | null>(null);
+  const pastebinMenuRef = useRef<HTMLDivElement | null>(null);
   const crState = workspace ? linearSyncResolveConflictStates[workspace.id] : undefined;
   const resolveInProgress = crState?.status === 'in_progress';
   const lockState = workspace ? workspaceLockStates[workspace.id] : undefined;
   const isLocked = resolveInProgress || lockState?.locked;
+  const pastebinEntries = config?.pastebin || [];
 
   // Desktop-only drag: match the CSS mobile breakpoint (768px)
   const [isDesktop, setIsDesktop] = useState(() =>
@@ -265,11 +276,61 @@ export default function SessionTabs({
     };
   }, [spawnMenuOpen]);
 
+  // Calculate pastebin menu position
+  useEffect(() => {
+    if (pastebinOpen && pastebinButtonRef.current) {
+      const rect = pastebinButtonRef.current.getBoundingClientRect();
+      const gap = 4;
+      const edgePadding = 8;
+      const estimatedMenuHeight = pastebinMenuRef.current?.offsetHeight || 300;
+      const spaceBelow = window.innerHeight - rect.bottom - gap;
+      const spaceAbove = rect.top - gap;
+      const shouldPlaceAbove = spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow;
+      setPastebinPlacementAbove(shouldPlaceAbove);
+
+      let left = rect.left;
+      const menuWidth = pastebinMenuRef.current?.offsetWidth;
+      if (menuWidth) {
+        const rightEdge = left + menuWidth;
+        if (rightEdge > window.innerWidth - edgePadding) {
+          left = window.innerWidth - menuWidth - edgePadding;
+        }
+      }
+
+      if (shouldPlaceAbove) {
+        setPastebinMenuPosition({ top: rect.top - gap, left });
+      } else {
+        setPastebinMenuPosition({ top: rect.bottom + gap, left });
+      }
+    }
+  }, [pastebinOpen]);
+
+  // Close pastebin menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (pastebinButtonRef.current?.contains(target)) return;
+      if (pastebinMenuRef.current?.contains(target)) return;
+      setPastebinOpen(false);
+    };
+
+    if (pastebinOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [pastebinOpen]);
+
   useEffect(() => {
     if (isLocked && spawnMenuOpen) {
       setSpawnMenuOpen(false);
     }
-  }, [isLocked, spawnMenuOpen]);
+    if (isLocked && pastebinOpen) {
+      setPastebinOpen(false);
+    }
+  }, [isLocked, spawnMenuOpen, pastebinOpen]);
 
   useEffect(() => {
     if (!workspace || !isLocked) return;
@@ -699,6 +760,61 @@ export default function SessionTabs({
   // Determine if we're showing the add button
   const showAddButton = Boolean(workspace);
 
+  // Helper to render the pastebin button
+  const renderPastebinButton = () => {
+    const hasActiveSession = Boolean(currentSessionId);
+    const disabled = !hasActiveSession;
+
+    return (
+      <>
+        <button
+          ref={pastebinButtonRef}
+          className="session-tab--add"
+          onClick={(e) => {
+            if (isLocked || disabled) return;
+            e.stopPropagation();
+            setPastebinOpen(!pastebinOpen);
+          }}
+          disabled={isLocked || disabled}
+          aria-expanded={pastebinOpen}
+          aria-haspopup="menu"
+          aria-label="Pastebin"
+          style={disabled || isLocked ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+        >
+          <svg viewBox="0 0 256 256" fill="currentColor" width="20" height="20">
+            <path
+              d="M47.174 74.383c0-9.94 8.067-17.87 17.997-17.712l21.398.34s4.011-10.206 17.826-10.206c13.814 0 16.6 9.58 16.6 9.58h23.35c8.841 0 16.066 7.169 16.137 16.007l.123 15.5 11.998-.08c2.206-.015 5.354 1.143 7.02 2.577l27.06 23.28c1.671 1.439 3.026 4.403 3.026 6.608v85.158a3.984 3.984 0 0 1-4.005 3.985l-106.865-.5a4.98 4.98 0 0 1-4.953-5.025l.247-27.695-30.963.195A15.87 15.87 0 0 1 47.174 160.5V74.383zM104 72c4.418 0 8-3.134 8-7s-3.582-7-8-7-8 3.134-8 7 3.582 7 8 7zm-39.622 2.883l1.193 82.848a2.004 2.004 0 0 0 2.037 1.973l23.907-.298a2.043 2.043 0 0 0 2.017-2.023l.23-53.884a15.692 15.692 0 0 1 16.06-15.678l32.068.64a1.975 1.975 0 0 0 2.014-1.966l.12-11.571a2.042 2.042 0 0 0-1.986-2.051l-20.593-.477s-4.914 10.667-17.418 10.667-17.133-11.101-17.133-11.101l-20.544.84a2.067 2.067 0 0 0-1.972 2.08zm107.671 33.413c-1.674-1.437-2.943-.822-2.833 1.401l.727 14.677c.11 2.21 1.986 4.01 4.198 4.017l17.418.062c2.209.008 2.647-1.146.968-2.587l-20.478-17.57zm-59.97-3.415l-.326 88.575 80.378.57V144.46h-32.189c-4.418 0-8.019-3.575-8.041-8.007l-.167-32.275-39.656.704z"
+              fillRule="evenodd"
+            />
+          </svg>
+        </button>
+        {pastebinOpen &&
+          createPortal(
+            <div
+              ref={pastebinMenuRef}
+              style={{
+                position: 'fixed',
+                top: pastebinPlacementAbove ? 'auto' : `${pastebinMenuPosition.top}px`,
+                bottom: pastebinPlacementAbove
+                  ? `${window.innerHeight - pastebinMenuPosition.top}px`
+                  : 'auto',
+                left: `${pastebinMenuPosition.left}px`,
+                zIndex: 9999,
+              }}
+            >
+              <PastebinDropdown
+                entries={pastebinEntries}
+                onPaste={(content) => onPaste?.(content)}
+                onClose={() => setPastebinOpen(false)}
+                disabled={disabled}
+              />
+            </div>,
+            document.body
+          )}
+      </>
+    );
+  };
+
   return (
     <div className="session-tabs" data-tour="session-tabs">
       {/* Session tabs + add button (wrapped so mobile can reorder) */}
@@ -737,6 +853,7 @@ export default function SessionTabs({
 
         {/* Add button */}
         {showAddButton && renderAddButton()}
+        {showAddButton && renderPastebinButton()}
       </div>
 
       {/* Spacer pushes accessory tabs to the right on desktop */}

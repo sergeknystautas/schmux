@@ -96,6 +96,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		QuickLaunch:                quickLaunchResp,
 		ExternalDiffCommands:       externalDiffCommandsResp,
 		ExternalDiffCleanupAfterMs: s.config.GetExternalDiffCleanupAfterMs(),
+		Pastebin:                   s.config.GetPastebin(),
 		Runners:                    catalog.Runners,
 		Models:                     catalog.Models,
 		EnabledModels:              s.models.GetEnabledModels(),
@@ -337,6 +338,11 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		for i, c := range req.ExternalDiffCommands {
 			cfg.ExternalDiffCommands[i] = config.ExternalDiffCommand{Name: c.Name, Command: c.Command}
 		}
+	}
+
+	if req.Pastebin != nil {
+		cfg.Pastebin = make([]string, len(req.Pastebin))
+		copy(cfg.Pastebin, req.Pastebin)
 	}
 
 	if req.ExternalDiffCleanupAfterMs != nil {
