@@ -117,13 +117,34 @@ func TestToFlavorResponse_AllFields(t *testing.T) {
 
 	resp := toFlavorResponse(f)
 
+	if resp.ID != f.ID {
+		t.Errorf("ID: got %q, want %q", resp.ID, f.ID)
+	}
+	if resp.Flavor != f.Flavor {
+		t.Errorf("Flavor: got %q, want %q", resp.Flavor, f.Flavor)
+	}
+	if resp.DisplayName != f.DisplayName {
+		t.Errorf("DisplayName: got %q, want %q", resp.DisplayName, f.DisplayName)
+	}
+	if resp.VCS != f.VCS {
+		t.Errorf("VCS: got %q, want %q", resp.VCS, f.VCS)
+	}
+	if resp.WorkspacePath != f.WorkspacePath {
+		t.Errorf("WorkspacePath: got %q, want %q", resp.WorkspacePath, f.WorkspacePath)
+	}
+	if resp.ConnectCommand != f.ConnectCommand {
+		t.Errorf("ConnectCommand: got %q, want %q", resp.ConnectCommand, f.ConnectCommand)
+	}
+	if resp.ReconnectCommand != f.ReconnectCommand {
+		t.Errorf("ReconnectCommand: got %q, want %q", resp.ReconnectCommand, f.ReconnectCommand)
+	}
+	if resp.ProvisionCommand != f.ProvisionCommand {
+		t.Errorf("ProvisionCommand: got %q, want %q", resp.ProvisionCommand, f.ProvisionCommand)
+	}
 	if resp.HostnameRegex != f.HostnameRegex {
 		t.Errorf("HostnameRegex: got %q, want %q", resp.HostnameRegex, f.HostnameRegex)
 	}
 	if resp.VSCodeCommandTemplate != f.VSCodeCommandTemplate {
 		t.Errorf("VSCodeCommandTemplate: got %q, want %q", resp.VSCodeCommandTemplate, f.VSCodeCommandTemplate)
-	}
-	if resp.ID != f.ID {
-		t.Errorf("ID: got %q, want %q", resp.ID, f.ID)
 	}
 }

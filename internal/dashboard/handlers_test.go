@@ -127,9 +127,9 @@ func TestHandleAskNudgenik(t *testing.T) {
 			wantStatus: http.StatusNotFound,
 		},
 		{
-			name:       "valid session id",
+			name:       "valid session id, nudgenik not configured",
 			sessionID:  "test-session-123",
-			wantStatus: http.StatusOK, // Or 500 if tmux capture fails or CLI unavailable
+			wantStatus: http.StatusInternalServerError, // 500 — nudgenik fails without config
 		},
 	}
 
@@ -145,22 +145,8 @@ func TestHandleAskNudgenik(t *testing.T) {
 
 			server.handleAskNudgenik(rr, req)
 
-			// Check response status
-			// For the valid session case, accept multiple status codes since
-			// behavior depends on configuration and tmux availability:
-			// 200 = nudgenik ran successfully
-			// 400 = session not found or invalid
-			// 500 = nudgenik execution error
-			// 503 = nudgenik not configured
-			if tt.name == "valid session id" {
-				if rr.Code != http.StatusOK && rr.Code != http.StatusBadRequest &&
-					rr.Code != http.StatusInternalServerError && rr.Code != http.StatusServiceUnavailable {
-					t.Errorf("expected status 200, 400, 500, or 503, got %d", rr.Code)
-				}
-			} else {
-				if rr.Code != tt.wantStatus {
-					t.Errorf("expected status %d, got %d", tt.wantStatus, rr.Code)
-				}
+			if rr.Code != tt.wantStatus {
+				t.Errorf("expected status %d, got %d", tt.wantStatus, rr.Code)
 			}
 		})
 	}
@@ -420,18 +406,22 @@ func TestHandleUpdate(t *testing.T) {
 	// responses automatically via r.Post route registration.
 
 	t.Run("concurrent updates are rejected", func(t *testing.T) {
-		// First request
-		req1, _ := http.NewRequest("POST", "/api/update", nil)
-		rr1 := httptest.NewRecorder()
+		// Simulate an update already in progress
+		server.updateMu.Lock()
+		server.updateInProgress = true
+		server.updateMu.Unlock()
+		t.Cleanup(func() {
+			server.updateMu.Lock()
+			server.updateInProgress = false
+			server.updateMu.Unlock()
+		})
 
-		// This test is limited - we can't easily test actual concurrent updates
-		// without mocking the update.Update() function
-		server.handleUpdate(rr1, req1)
+		req, _ := http.NewRequest("POST", "/api/update", nil)
+		rr := httptest.NewRecorder()
+		server.handleUpdate(rr, req)
 
-		// The first request will fail because we're on dev build or no network,
-		// but it should return some status
-		if rr1.Code != http.StatusInternalServerError && rr1.Code != http.StatusOK {
-			t.Logf("first request got status %d (expected 500 or 200)", rr1.Code)
+		if rr.Code != http.StatusConflict {
+			t.Errorf("expected 409 Conflict when update in progress, got %d", rr.Code)
 		}
 	})
 }

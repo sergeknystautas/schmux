@@ -1390,10 +1390,20 @@ func TestRevertSessionStatus(t *testing.T) {
 		}
 	})
 
-	t.Run("nonexistent session does not panic", func(t *testing.T) {
-		m, _ := newTestManager(t)
-		// Should not panic
+	t.Run("nonexistent session does not affect other sessions", func(t *testing.T) {
+		m, st := newTestManager(t)
+		st.AddSession(state.Session{ID: "sess-real", Status: "stopped"})
+
 		m.RevertSessionStatus("nonexistent", "running")
+
+		// The real session must be unchanged
+		sess, found := st.GetSession("sess-real")
+		if !found {
+			t.Fatal("existing session should still exist")
+		}
+		if sess.Status != "stopped" {
+			t.Errorf("existing session status should be unchanged, got %q", sess.Status)
+		}
 	})
 }
 
