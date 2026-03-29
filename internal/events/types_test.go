@@ -25,6 +25,15 @@ func TestStatusEventMarshal(t *testing.T) {
 	if parsed["state"] != "working" {
 		t.Errorf("state = %v, want working", parsed["state"])
 	}
+	if parsed["message"] != "Refactoring auth module" {
+		t.Errorf("message = %v, want 'Refactoring auth module'", parsed["message"])
+	}
+	if parsed["intent"] != "Improve module structure" {
+		t.Errorf("intent = %v, want 'Improve module structure'", parsed["intent"])
+	}
+	if parsed["ts"] != "2026-02-18T14:30:00Z" {
+		t.Errorf("ts = %v, want '2026-02-18T14:30:00Z'", parsed["ts"])
+	}
 }
 
 func TestFailureEventMarshal(t *testing.T) {
@@ -48,6 +57,15 @@ func TestFailureEventMarshal(t *testing.T) {
 	if parsed["tool"] != "Bash" {
 		t.Errorf("tool = %v, want Bash", parsed["tool"])
 	}
+	if parsed["input"] != "go build ./..." {
+		t.Errorf("input = %v, want 'go build ./...'", parsed["input"])
+	}
+	if parsed["error"] != "undefined: Foo" {
+		t.Errorf("error = %v, want 'undefined: Foo'", parsed["error"])
+	}
+	if parsed["category"] != "build_failure" {
+		t.Errorf("category = %v, want 'build_failure'", parsed["category"])
+	}
 }
 
 func TestReflectionEventMarshal(t *testing.T) {
@@ -65,6 +83,9 @@ func TestReflectionEventMarshal(t *testing.T) {
 	if parsed["type"] != "reflection" {
 		t.Errorf("type = %v, want reflection", parsed["type"])
 	}
+	if parsed["text"] != "When using bare repos, run git fetch before git show" {
+		t.Errorf("text = %v, want 'When using bare repos, run git fetch before git show'", parsed["text"])
+	}
 }
 
 func TestFrictionEventMarshal(t *testing.T) {
@@ -81,6 +102,9 @@ func TestFrictionEventMarshal(t *testing.T) {
 	json.Unmarshal(data, &parsed)
 	if parsed["type"] != "friction" {
 		t.Errorf("type = %v, want friction", parsed["type"])
+	}
+	if parsed["text"] != "The build command is go run ./cmd/build-dashboard" {
+		t.Errorf("text = %v, want 'The build command is go run ./cmd/build-dashboard'", parsed["text"])
 	}
 }
 

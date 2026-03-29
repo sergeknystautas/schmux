@@ -133,11 +133,10 @@ func TestHandleClipboardPaste_ClipboardWriteCalled(t *testing.T) {
 		t.Fatal("setClipboardImageFunc was not called")
 	}
 
-	// The handler will fail at GetTracker or SendInput since there's no real
-	// tmux session, but that's expected — we verified clipboard was invoked.
-	// Accept either 404 (tracker not found) or 500 (tracker error).
-	if rr.Code != http.StatusNotFound && rr.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 404 or 500 (no real tracker), got %d", rr.Code)
+	// GetTracker succeeds (creates a tracker), but SendInput fails because
+	// there's no real tmux session — returns 500 "failed to send input".
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 (SendInput fails without tmux), got %d", rr.Code)
 	}
 }
 

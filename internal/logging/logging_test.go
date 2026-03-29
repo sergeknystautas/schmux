@@ -30,7 +30,7 @@ func TestNew_InvalidEnv(t *testing.T) {
 	}
 }
 
-func TestNew_WritesToStderr(t *testing.T) {
+func TestNew_ReturnsNonNil(t *testing.T) {
 	logger := New()
 	if logger == nil {
 		t.Fatal("expected non-nil logger")

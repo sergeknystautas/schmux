@@ -82,7 +82,7 @@ func TestE2ERemoteSSHSmoke(t *testing.T) {
 
 		// Verify hostname is localhost
 		if host.Hostname != "localhost" && host.Hostname != "127.0.0.1" {
-			t.Logf("Note: Hostname is %s (expected localhost or 127.0.0.1)", host.Hostname)
+			t.Errorf("Hostname = %s, want localhost or 127.0.0.1", host.Hostname)
 		}
 	})
 
