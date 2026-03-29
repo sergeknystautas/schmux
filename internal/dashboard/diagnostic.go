@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/sergeknystautas/schmux/internal/session"
 )
 
 // DiagnosticCapture holds all data for a single diagnostic snapshot.
@@ -24,6 +26,8 @@ type DiagnosticCapture struct {
 	CursorTmuxY       int
 	CursorTmuxVisible bool
 	CursorTmuxErr     string // empty if no error
+
+	TmuxHealthSamples []session.HealthProbeSample `json:"-"`
 }
 
 type diagnosticMeta struct {
@@ -85,6 +89,16 @@ func (d *DiagnosticCapture) WriteToDir(dir string) error {
 	// screen-tmux.txt
 	if err := os.WriteFile(filepath.Join(dir, "screen-tmux.txt"), []byte(d.TmuxScreen), 0o644); err != nil {
 		return err
+	}
+	// tmux-health.json — probe RTT samples for performance trending
+	if len(d.TmuxHealthSamples) > 0 {
+		healthJSON, err := json.MarshalIndent(d.TmuxHealthSamples, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(dir, "tmux-health.json"), healthJSON, 0o644); err != nil {
+			return err
+		}
 	}
 	return nil
 }

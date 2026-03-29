@@ -4,6 +4,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { transport } from './transport';
 import { inputLatency } from './inputLatency';
+import { updateTmuxHealth } from './tmuxHealth';
 import { StreamDiagnostics } from './streamDiagnostics';
 import { extractViewportText } from './screenCapture';
 import { computeScreenDiff } from './screenDiff';
@@ -1172,6 +1173,9 @@ export default class TerminalStream {
           inputLatency.updateServerLatency(
             msg.inputLatency as Parameters<typeof inputLatency.updateServerLatency>[0]
           );
+        }
+        if (msg.tmuxHealth) {
+          updateTmuxHealth(msg.tmuxHealth as Parameters<typeof updateTmuxHealth>[0]);
         }
         this.onStatsUpdate?.(msg);
         break;

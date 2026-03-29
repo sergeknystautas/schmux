@@ -101,6 +101,10 @@ type SessionTracker struct {
 	// race condition between ContinuePane and sync commands that can extend
 	// pane pause duration during TUI redraws.
 	SyncCheckEnabled bool
+
+	// HealthProbe measures tmux control mode round-trip time over time.
+	// Always active — samples are collected every 5 seconds.
+	HealthProbe *TmuxHealthProbe
 }
 
 // IsAttached reports whether the tracker currently has an active control mode attachment.
@@ -139,6 +143,7 @@ func NewSessionTracker(sessionID, tmuxSession string, st state.StateStore, event
 		doneCh:         make(chan struct{}),
 		stopCtx:        stopCtx,
 		stopCancel:     stopCancel,
+		HealthProbe:    NewTmuxHealthProbe(),
 	}
 	if eventFilePath != "" && eventHandlers != nil && len(eventHandlers) > 0 {
 		ew, err := events.NewEventWatcher(eventFilePath, sessionID, eventHandlers)
@@ -492,6 +497,30 @@ func (t *SessionTracker) attachControlMode() error {
 		}
 		pauseCancel()
 	}
+
+	// Health probe: measure control mode RTT every 5 seconds.
+	// Runs in a separate goroutine to avoid blocking the output event loop.
+	probeStop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(healthProbeInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				probeCtx, probeCancel := context.WithTimeout(context.Background(), healthProbeTimeout)
+				start := time.Now()
+				_, err := client.Execute(probeCtx, healthProbeCommand)
+				rttUs := float64(time.Since(start).Microseconds())
+				probeCancel()
+				t.HealthProbe.Record(rttUs, err != nil)
+			case <-probeStop:
+				return
+			case <-t.stopCh:
+				return
+			}
+		}
+	}()
+	defer close(probeStop)
 
 	// Subscribe to output from the control mode client and fan out to
 	// tracker-level subscribers (which survive reconnections)

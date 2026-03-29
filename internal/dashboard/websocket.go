@@ -110,22 +110,23 @@ type WSOutputMessage struct {
 
 // WSStatsMessage represents a periodic diagnostics stats message sent on the terminal WebSocket.
 type WSStatsMessage struct {
-	Type              string              `json:"type"`
-	EventsDelivered   int64               `json:"eventsDelivered"`
-	EventsDropped     int64               `json:"eventsDropped"`
-	BytesDelivered    int64               `json:"bytesDelivered"`
-	BytesPerSec       int64               `json:"bytesPerSec"`
-	Reconnects        int64               `json:"controlModeReconnects"`
-	SyncChecksSent    int64               `json:"syncChecksSent"`
-	SyncCorrections   int64               `json:"syncCorrections"`
-	SyncSkippedActive int64               `json:"syncSkippedActive"`
-	ClientFanOutDrops int64               `json:"clientFanOutDrops"`
-	FanOutDrops       int64               `json:"fanOutDrops"`
-	CurrentSeq        uint64              `json:"currentSeq"`
-	LogOldestSeq      uint64              `json:"logOldestSeq"`
-	LogTotalBytes     int64               `json:"logTotalBytes"`
-	SyncDisabled      bool                `json:"syncDisabled"`
-	InputLatency      *LatencyPercentiles `json:"inputLatency,omitempty"`
+	Type              string                       `json:"type"`
+	EventsDelivered   int64                        `json:"eventsDelivered"`
+	EventsDropped     int64                        `json:"eventsDropped"`
+	BytesDelivered    int64                        `json:"bytesDelivered"`
+	BytesPerSec       int64                        `json:"bytesPerSec"`
+	Reconnects        int64                        `json:"controlModeReconnects"`
+	SyncChecksSent    int64                        `json:"syncChecksSent"`
+	SyncCorrections   int64                        `json:"syncCorrections"`
+	SyncSkippedActive int64                        `json:"syncSkippedActive"`
+	ClientFanOutDrops int64                        `json:"clientFanOutDrops"`
+	FanOutDrops       int64                        `json:"fanOutDrops"`
+	CurrentSeq        uint64                       `json:"currentSeq"`
+	LogOldestSeq      uint64                       `json:"logOldestSeq"`
+	LogTotalBytes     int64                        `json:"logTotalBytes"`
+	SyncDisabled      bool                         `json:"syncDisabled"`
+	InputLatency      *LatencyPercentiles          `json:"inputLatency,omitempty"`
+	TmuxHealth        *session.HealthProbeSnapshot `json:"tmuxHealth,omitempty"`
 }
 
 // WSSyncCursor holds cursor position for sync messages.
@@ -723,6 +724,7 @@ drainBootstrap:
 					LogTotalBytes:     tracker.OutputLog().TotalBytes(),
 					SyncDisabled:      true,
 					InputLatency:      latencyCollector.Percentiles(),
+					TmuxHealth:        tracker.HealthProbe.Snapshot(),
 				}
 				data, _ := json.Marshal(statsMsg)
 				conn.WriteMessage(websocket.TextMessage, data)
@@ -902,15 +904,16 @@ drainBootstrap:
 				diagDir := filepath.Join(os.Getenv("HOME"), ".schmux", "diagnostics",
 					fmt.Sprintf("%s-%s", time.Now().Format("2006-01-02T15-04-05"), sessionID))
 				diag := &DiagnosticCapture{
-					Timestamp:  time.Now(),
-					SessionID:  sessionID,
-					Cols:       int(tracker.LastTerminalCols.Load()),
-					Rows:       int(tracker.LastTerminalRows.Load()),
-					Counters:   counters,
-					TmuxScreen: tmuxScreen,
-					RingBuffer: rbSnapshot,
-					Findings:   findings,
-					Verdict:    verdict,
+					Timestamp:         time.Now(),
+					SessionID:         sessionID,
+					Cols:              int(tracker.LastTerminalCols.Load()),
+					Rows:              int(tracker.LastTerminalRows.Load()),
+					Counters:          counters,
+					TmuxScreen:        tmuxScreen,
+					RingBuffer:        rbSnapshot,
+					Findings:          findings,
+					Verdict:           verdict,
+					TmuxHealthSamples: tracker.HealthProbe.AllSamples(),
 				}
 				if curErr == nil {
 					diag.CursorTmuxX = cursorState.X

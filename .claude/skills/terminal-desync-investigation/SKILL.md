@@ -37,6 +37,7 @@ SessionTracker  →  WebSocket handler  →  browser  →  xterm.js
 | Surgical fix | `assets/dashboard/src/lib/surgicalCorrection.ts`   | Row-level viewport correction                   |
 | Diagnostics  | `assets/dashboard/src/lib/streamDiagnostics.ts`    | Ring buffers, counters, capture                 |
 | Write-race   | `assets/dashboard/src/lib/writeRaceDiagnostics.ts` | xterm write/render perf, stall detection        |
+| Tmux health  | `internal/session/tmux_health.go`                  | Control mode RTT probe, ring buffer, stats      |
 
 ### Key docs
 
@@ -121,6 +122,23 @@ Interpretation guide:
 - `fullRefreshRatio > 60%` → Claude Code's TUI is redrawing all rows on each update (expected for TUI apps)
 
 **slow-react-renders.json** — React renders of SessionDetailPage that exceeded 50ms. Each entry has `ts`, `phase` (mount/update), `durationMs`. If stalls in write-race-stats correlate with entries here, React re-rendering is the root cause. Common triggers: session/workspace WebSocket broadcasts causing context re-renders, diagnostic stats interval updates.
+
+**tmux-health.json** — Time series of tmux control mode round-trip time (RTT) probes. Collected every 5 seconds by sending `display-message -p ok` through the control mode connection and measuring response time. Each entry:
+
+```
+ts       — ISO timestamp of the probe
+rtt_ms   — round-trip time in milliseconds
+err      — true if the probe timed out or failed
+```
+
+Interpretation:
+
+- `rtt_ms` baseline should be 0.5-3ms. Values above 10ms indicate tmux is under load.
+- **Gradual increase over time** (trending upward) → tmux performance degradation, likely from scrollback memory pressure or control mode queue growth.
+- **Periodic spikes** → correlate with TUI redraws; each spike is tmux busy processing escape sequences.
+- **Sustained high RTT** (>50ms for >1 minute) → tmux is severely congested, likely the root cause of perceived input latency.
+- **Errors** → control mode connection instability, may trigger reconnection/bootstrap.
+- Compare RTT trends with scrollback.drop events in lifecycle-events.json — if RTT spikes precede scrollback drops, tmux congestion may be triggering Claude Code's TUI recovery redraws.
 
 **lifecycle-events.json** — Timeline of all frontend events. This is the most detailed source. Parse with:
 
