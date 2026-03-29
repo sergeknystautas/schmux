@@ -2488,7 +2488,6 @@ body {
 }
 
 .session-tab__name {
-  font-weight: 500;
   font-size: 0.75rem;
   color: var(--color-text);
   white-space: nowrap;
