@@ -241,4 +241,5 @@ All specs, designs, and implementation plans live in `docs/specs/`. Skills that 
 - [`docs/api.md`](docs/api.md) - Daemon HTTP API contract (client-agnostic)
 - [`docs/react.md`](docs/react.md) - React architecture
 - [`docs/architecture.md`](docs/architecture.md) - Backend architecture
+- [`docs/dev-mode.md`](docs/dev-mode.md) - Dev mode (hot-reload development)
 - [`AGENTS.md`](AGENTS.md) - Architecture guidelines (for non-Claude agents)

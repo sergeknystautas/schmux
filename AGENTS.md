@@ -12,7 +12,7 @@
   - `internal/config/`, `internal/state/` — config/state IO.
   - `internal/detect/` — tool/agent detection adapters; files follow the `adapter_<toolname>.go` naming convention (e.g., `adapter_claude.go`, `adapter_opencode.go`). Use `Glob` to list files before reading if the target filename is uncertain.
 - `assets/dashboard/` — static web UI assets (HTML/CSS/TypeScript) served by the daemon.
-- Docs: `README.md`, `docs/cli.md`, `docs/web.md`, `docs/api.md`, `docs/react.md`, `docs/architecture.md`, `docs/contributing.md`.
+- Docs: `README.md`, `docs/cli.md`, `docs/web.md`, `docs/api.md`, `docs/react.md`, `docs/architecture.md`, `docs/dev-mode.md`, `docs/contributing.md`.
 
 **Known large files**: `internal/config/config.go`, `internal/config/config_test.go`, and `assets/dashboard/src/styles/global.css` all exceed the 25,000-token read limit. Do not attempt to read any of them in full — use search/grep to find specific symbols, or read targeted sections using offset/limit parameters.
 
@@ -122,13 +122,69 @@ Key patterns:
 
 ## Dev Mode (`./dev.sh`)
 
-Hot-reload development mode:
+Hot-reload development mode for simultaneous Go backend and React frontend iteration. Full documentation: [`docs/dev-mode.md`](docs/dev-mode.md).
 
-- Starts Vite dev server (port 5173) + Go daemon with `--dev-mode` flag
-- Backend proxies non-API routes to Vite for HMR
-- Exit code 42 means "restart requested" (from dashboard UI) — not a crash
-- State files: `~/.schmux/dev-state.json`, `~/.schmux/dev-restart.json`, `~/.schmux/dev-build-status.json`
-- Auto-installs Go, Node, tmux via Homebrew if missing
+### How to run
+
+```bash
+./dev.sh          # TUI with split-pane logs
+./dev.sh --plain  # Interleaved stdout (for CI or piping)
+```
+
+Dashboard at http://localhost:7337. Press `q` to stop.
+
+### Architecture
+
+Three layers: `dev.sh` (setup) → `tools/dev-runner/` (TypeScript TUI via Ink) → `schmux daemon-run --dev-mode --dev-proxy`.
+
+- **`--dev-mode`** — Enables `/api/dev/*` endpoints, event broadcasting, and exit-code-42 workspace switching.
+- **`--dev-proxy`** — Proxies non-API HTTP requests to Vite dev server at `http://localhost:5173` for HMR.
+
+### Workspace switching
+
+The dashboard shows "Test"/"Rebuild" buttons on workspaces in the same repo. Clicking one triggers:
+
+1. `POST /api/dev/rebuild` with `{workspace_id, type}` (`"frontend"`, `"backend"`, or `"both"`)
+2. Daemon writes `~/.schmux/dev-restart.json` and exits with code 42
+3. Dev-runner reads the manifest, rebuilds from the target workspace, restarts daemon
+4. Failed builds are safe — the old binary keeps running
+
+### State files
+
+| File                              | Written by | Purpose                                     |
+| --------------------------------- | ---------- | ------------------------------------------- |
+| `~/.schmux/dev-state.json`        | Dev-runner | Current source workspace path               |
+| `~/.schmux/dev-restart.json`      | Daemon     | Restart manifest (workspace path + type)    |
+| `~/.schmux/dev-build-status.json` | Dev-runner | Last build result (success/error/timestamp) |
+
+All cleaned up on dev-runner exit.
+
+### Key files
+
+| File                                 | Purpose                                                   |
+| ------------------------------------ | --------------------------------------------------------- |
+| `dev.sh`                             | Entry point: deps, initial build, delegates to dev-runner |
+| `tools/dev-runner/src/App.tsx`       | Core: startup, workspace switching, keyboard handlers     |
+| `internal/dashboard/handlers_dev.go` | Dev mode HTTP handlers                                    |
+| `internal/daemon/daemon.go`          | `DevRestart()`, `ErrDevRestart`, exit code 42             |
+| `assets/dashboard/vite.config.js`    | Vite pause-watch plugin (safe git operations)             |
+
+### TUI keyboard shortcuts
+
+| Key | Action                               |
+| --- | ------------------------------------ |
+| `r` | Rebuild Go binary and restart daemon |
+| `p` | Git pull, then rebuild and restart   |
+| `w` | Reset workspace to dev root          |
+| `c` | Clear log panels                     |
+| `l` | Toggle log layout                    |
+| `q` | Quit                                 |
+
+### Dev-only dashboard features
+
+- **Event monitor** — Sidebar panel + full page at `/events` (real-time session events)
+- **Diagnostic panels** — Tmux diagnostics, typing performance, curation status
+- **Workspace protection** — Cannot dispose the workspace currently serving dev mode
 
 ## Configuration & Safety Notes
 
