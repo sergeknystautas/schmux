@@ -49,8 +49,11 @@ test.describe.serial('Quick launch a session from a recent branch', () => {
       targets: { 'echo-agent': 1 },
     });
 
-    // Poll recent-branches API until branches appear (bare clone may take a moment)
-    for (let attempt = 0; attempt < 30; attempt++) {
+    // Poll recent-branches API until branches appear.
+    // EnsureOriginQueries runs on the daemon's periodic tick (default 10s),
+    // so we need to wait long enough for the tick to fire and the bare clone
+    // to be created from the local test repo.
+    for (let attempt = 0; attempt < 60; attempt++) {
       try {
         const branches = await apiGet<Array<{ branch: string }>>('/api/recent-branches?limit=10');
         if (branches && branches.length > 0) {
@@ -59,7 +62,7 @@ test.describe.serial('Quick launch a session from a recent branch', () => {
       } catch {
         // not ready yet
       }
-      await sleep(200);
+      await sleep(500);
     }
   });
 

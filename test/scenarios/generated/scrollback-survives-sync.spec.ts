@@ -36,6 +36,7 @@ test.describe.serial('Scrollback survives sync correction', () => {
           promptable: false,
         },
       ],
+      xterm: { sync_check_enabled: true },
     });
 
     const results = await spawnSession({

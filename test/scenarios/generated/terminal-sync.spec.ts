@@ -39,6 +39,7 @@ test.describe.serial('Terminal sync: round-trip', () => {
           promptable: false,
         },
       ],
+      xterm: { sync_check_enabled: true },
     });
 
     const results = await spawnSession({

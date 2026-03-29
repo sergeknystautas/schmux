@@ -26,6 +26,9 @@ interface SetupOptions {
     create_repo_base?: string;
     check_repo_base?: string;
   };
+  xterm?: {
+    sync_check_enabled?: boolean;
+  };
 }
 
 /**
@@ -44,6 +47,7 @@ export async function seedConfig(opts: SetupOptions = {}): Promise<void> {
       ...(opts.repoConfigs || []),
     ],
     ...(opts.saplingCommands ? { sapling_commands: opts.saplingCommands } : {}),
+    ...(opts.xterm ? { xterm: opts.xterm } : {}),
     run_targets: (opts.agents || []).map((a) => ({
       name: a.name,
       command: a.command,
