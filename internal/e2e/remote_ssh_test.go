@@ -125,7 +125,7 @@ func TestE2ERemoteSSHSmoke(t *testing.T) {
 		})
 	})
 
-	t.Run("VerifyHostDisconnected", func(t *testing.T) {
+	t.Run("VerifyHostExistsAfterLastSessionDisposed", func(t *testing.T) {
 		// After disposing the last session, the host should still exist
 		// with a valid status (either connected or disconnected depending on timing)
 		hosts := env.GetRemoteHosts()

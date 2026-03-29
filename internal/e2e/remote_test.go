@@ -429,7 +429,7 @@ func TestE2ERemoteStatePersistence(t *testing.T) {
 				found = true
 				// After restart with lost remote connection, session should not be running
 				if sess.Running {
-					t.Logf("Note: Session is still running (tmux session survived)")
+					t.Errorf("Session should not be running after restart with lost remote connection")
 				}
 			}
 		}

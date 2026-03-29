@@ -245,10 +245,10 @@ func TestE2ESessionEvents(t *testing.T) {
 		t.Fatal("Could not determine workspace path")
 	}
 
-	// Write multiple status events plus a failure event for filter testing
+	// Write multiple events including a failure for filter testing.
+	// needs_input is last so the LastN subtest can assert on it.
 	writeStatusEvent(t, wsPath, sessionID, "working", "building")
 	writeStatusEvent(t, wsPath, sessionID, "completed", "done")
-	writeStatusEvent(t, wsPath, sessionID, "needs_input", "waiting")
 	writeEvent(t, wsPath, sessionID, map[string]string{
 		"type":     "failure",
 		"tool":     "Bash",
@@ -256,6 +256,7 @@ func TestE2ESessionEvents(t *testing.T) {
 		"error":    "undefined: Foo",
 		"category": "build_failure",
 	})
+	writeStatusEvent(t, wsPath, sessionID, "needs_input", "waiting")
 
 	// Poll until events are written and readable
 	env.PollUntil(3*time.Second, "events written", func() bool {
@@ -295,8 +296,8 @@ func TestE2ESessionEvents(t *testing.T) {
 			t.Fatalf("Failed to decode events: %v", err)
 		}
 
-		if len(events) < 3 {
-			t.Fatalf("Expected at least 3 events, got %d", len(events))
+		if len(events) < 4 {
+			t.Fatalf("Expected at least 4 events (3 status + 1 failure), got %d", len(events))
 		}
 	})
 
@@ -714,8 +715,15 @@ func TestE2EGitGraphAndDiff(t *testing.T) {
 			t.Fatalf("Expected 200, got %d: %s", resp.StatusCode, body)
 		}
 
-		// Verify git shows the file as staged (via git status in workspace)
-		// We can verify via the diff endpoint — staged files are included
+		// Verify the file is actually staged by checking git status in the workspace
+		cmd := exec.Command("git", "-C", wsPath, "status", "--porcelain")
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("git status failed: %v", err)
+		}
+		if !strings.Contains(string(out), "A  newfile.txt") {
+			t.Errorf("newfile.txt should be staged (expected 'A  newfile.txt' in git status), got:\n%s", string(out))
+		}
 	})
 
 	t.Run("DiscardUntracked", func(t *testing.T) {
@@ -907,6 +915,17 @@ func TestE2ESaplingDiffAndDiscard(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
 			t.Fatalf("Expected 200 for stage, got %d: %s", resp.StatusCode, body)
+		}
+
+		// Verify the file is actually staged by checking sl status in the workspace
+		cmd := exec.Command("sl", "status", "-C", wsPath)
+		cmd.Dir = wsPath
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("sl status failed: %v", err)
+		}
+		if !strings.Contains(string(out), "staged.txt") {
+			t.Errorf("staged.txt should appear in sl status after staging, got:\n%s", string(out))
 		}
 	})
 }
