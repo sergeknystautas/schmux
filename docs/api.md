@@ -3298,6 +3298,56 @@ Notes:
 - `status` can be `"provisioning"`, `"connecting"`, `"connected"`, or `"disconnected"`
 - Uses real-time connection status from the remote manager when available; falls back to persisted state
 
+## Environment API
+
+Compare the system shell environment against the tmux server environment, and sync individual variables.
+
+### GET /api/environment
+
+Compare the current system environment (from a fresh login shell) against the tmux server's global environment.
+
+The backend spawns `env -i HOME=$HOME USER=$USER SHELL=$SHELL TERM=xterm-256color $SHELL -l -i -c env` with a 10-second timeout, reads `tmux show-environment -g`, filters blocked keys, and returns the comparison.
+
+Response:
+
+```json
+{
+  "vars": [
+    { "key": "PATH", "status": "differs" },
+    { "key": "GOPATH", "status": "in_sync" },
+    { "key": "NVM_DIR", "status": "system_only" },
+    { "key": "LEGACY_VAR", "status": "tmux_only" }
+  ],
+  "blocked": ["TMUX", "TMUX_PANE", "SHLVL", "PWD", "OLDPWD", "_", "COLUMNS", "LINES"]
+}
+```
+
+Status values:
+
+- `in_sync` — key exists in both, values match
+- `differs` — key exists in both, values differ
+- `system_only` — exists in fresh shell but not in tmux server
+- `tmux_only` — exists in tmux server but not in fresh shell
+
+Blocked keys are excluded from comparison (tmux-internal, session-transient, terminal-specific). Prefix matches: `GHOSTTY_*`, `ITERM_*`, `npm_*`.
+
+### POST /api/environment/sync
+
+Sync a single environment variable from the system to the tmux server.
+
+Request:
+
+```json
+{ "key": "PATH" }
+```
+
+Spawns a fresh login shell to get the current value, then calls `tmux set-environment -g KEY VALUE`. Returns 204 on success.
+
+Errors:
+
+- 400 if `key` is empty, blocked, or tmux-only (not present in system environment)
+- 500 if the login shell or tmux command fails
+
 ## Dev Mode Endpoints
 
 These endpoints are only registered when the daemon is started with `--dev-mode` (via `./dev.sh`).

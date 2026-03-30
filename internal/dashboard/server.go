@@ -592,6 +592,7 @@ func (s *Server) Start() error {
 
 		r.Get("/github/status", s.handleGetGitHubStatus)
 		r.Get("/features", s.handleGetFeatures)
+		r.Get("/environment", s.handleGetEnvironment)
 
 		// Dashboard.sx callbacks (no additional CSRF — hit by browser redirect before HTTPS is configured)
 		r.HandleFunc("/dashboardsx/callback", s.handleDashboardSXCallback)
@@ -621,6 +622,7 @@ func (s *Server) Start() error {
 			r.Post("/remote-access/test-notification", s.handleRemoteAccessTestNotification)
 			r.Post("/clipboard-paste", s.handleClipboardPaste)
 			r.Post("/floor-manager/end-shift", s.handleEndShift)
+			r.Post("/environment/sync", s.handleSyncEnvironment)
 
 			// Session routes
 			r.Post("/sessions/{sessionID}/dispose", s.handleDispose)

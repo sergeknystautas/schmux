@@ -132,6 +132,16 @@ export interface EmergenceMetadata {
   last_curated: string;
 }
 
+export interface EnvironmentResponse {
+  vars: EnvironmentVar[];
+  blocked: string[];
+}
+
+export interface EnvironmentVar {
+  key: string;
+  status: string;
+}
+
 export interface ExternalDiffCommand {
   name: string;
   command: string;

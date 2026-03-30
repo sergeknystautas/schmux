@@ -53,6 +53,7 @@ import type {
   SpawnEntry,
   UpdateSpawnEntryRequest,
   Features,
+  EnvironmentResponse,
 } from './types.generated';
 import { csrfHeaders } from './csrf';
 import { transport } from './transport';
@@ -1257,4 +1258,25 @@ export async function getPromptHistory(repo: string): Promise<PromptHistoryRespo
   const response = await fetch(`/api/emergence/${encodeURIComponent(repo)}/prompt-history`);
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch prompt history');
   return response.json();
+}
+
+// ============================================================================
+// Environment API
+// ============================================================================
+
+export async function getEnvironment(): Promise<EnvironmentResponse> {
+  const response = await apiFetch('/api/environment');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch environment');
+  return response.json();
+}
+
+export async function syncEnvironmentVar(key: string): Promise<void> {
+  const response = await apiFetch('/api/environment/sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify({ key }),
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to sync environment variable');
+  }
 }

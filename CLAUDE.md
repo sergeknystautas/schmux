@@ -225,6 +225,7 @@ Routes:
 - `/config` - Settings editor
 - `/repofeed` - Cross-developer activity feed
 - `/settings/remote` - Remote flavor configuration
+- `/environment` - Environment comparison (system vs tmux server)
 - `/events` - Event monitor (dev mode only)
 - `/ws/terminal/{id}` - WebSocket for live terminal output
 - `/ws/dashboard` - WebSocket for real-time session/workspace updates

@@ -144,6 +144,19 @@ export default function ToolsSection({
       ),
     },
     {
+      to: '/environment',
+      label: 'Environment',
+      icon: (
+        <svg viewBox="0 0 16 16" fill="currentColor">
+          <path
+            fillRule="evenodd"
+            clipRule="evenodd"
+            d="M9.71.292a1 1 0 00-1.414 0L4.298 4.29a1 1 0 000 1.414L5.59 6.996 4.293 8.292a3 3 0 101.414 1.414L7.005 8.41l1.292 1.292a1 1 0 001.414 0l3.998-3.998a1 1 0 000-1.414L9.71.292zm-.707 2.121L6.419 4.997l2.584 2.584 2.584-2.584-2.584-2.584zM3 12a1 1 0 100-2 1 1 0 000 2z"
+          />
+        </svg>
+      ),
+    },
+    {
       to: '/tips',
       label: 'Tips',
       disabled: isNotConfigured,

@@ -120,6 +120,40 @@ func CleanTmuxServerEnv(ctx context.Context) {
 	}
 }
 
+// ShowEnvironment returns the tmux server's global environment as a map.
+func ShowEnvironment(ctx context.Context) (map[string]string, error) {
+	args := []string{"show-environment", "-g"}
+	cmd := exec.CommandContext(ctx, binary, args...)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("show-environment failed: %w", err)
+	}
+
+	env := make(map[string]string)
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "-") {
+			continue
+		}
+		if idx := strings.IndexByte(line, '='); idx >= 0 {
+			env[line[:idx]] = line[idx+1:]
+		}
+	}
+	return env, nil
+}
+
+// SetEnvironment sets a global environment variable on the tmux server.
+func SetEnvironment(ctx context.Context, key, value string) error {
+	args := []string{"set-environment", "-g", key, value}
+	cmd := exec.CommandContext(ctx, binary, args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("set-environment %s failed: %w: %s", key, err, string(output))
+	}
+	return nil
+}
+
 // CreateSession creates a new tmux session with the given name, directory, and command.
 func CreateSession(ctx context.Context, name, dir, command string) error {
 	CleanTmuxServerEnv(ctx)

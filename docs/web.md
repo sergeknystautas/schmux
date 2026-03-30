@@ -212,6 +212,10 @@ Linear sync conflict resolution progress view.
 
 Remote flavor configuration for SSH-based remote workspaces.
 
+### Environment (`/environment`)
+
+Compare system shell environment against the tmux server environment. Shows which variables are in sync, differ, or exist only on one side. Sync buttons push individual system values to the tmux server so new sessions pick up changes without restarting.
+
 ### Event Monitor (`/events`, dev mode only)
 
 Real-time event monitor for the unified events system. Shows all events (status, failure, reflection, friction) from active sessions. Sidebar panel shows the last 5 events; full page view at `/events` provides a filterable table with type and session filters, auto-scroll, and expandable rows for raw JSON inspection.

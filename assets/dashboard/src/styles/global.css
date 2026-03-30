@@ -2690,6 +2690,102 @@ body {
   background-color: var(--color-surface-alt);
 }
 
+/* Environment Page */
+.env-table {
+  table-layout: auto;
+}
+
+.env-table th:first-child,
+.env-table td:first-child {
+  width: auto;
+}
+
+.env-table th:nth-child(2),
+.env-table td:nth-child(2) {
+  width: 140px;
+}
+
+.env-table th:nth-child(3),
+.env-table td:nth-child(3) {
+  width: 100px;
+}
+
+.env-table td:first-child code {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.env-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.env-badge--in-sync {
+  background: rgba(13, 188, 121, 0.15);
+  color: #0dbc79;
+}
+
+.env-badge--differs {
+  background: rgba(229, 164, 69, 0.15);
+  color: #e5a445;
+}
+
+.env-badge--system-only {
+  background: rgba(86, 156, 214, 0.15);
+  color: #569cd6;
+}
+
+.env-badge--tmux-only {
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+}
+
+.env-blocked {
+  margin-top: var(--spacing-xl);
+  padding: var(--spacing-lg);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.env-blocked__title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  margin: 0 0 var(--spacing-sm) 0;
+}
+
+.env-blocked__desc {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  margin: 0 0 var(--spacing-md) 0;
+}
+
+.env-blocked__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  margin: 0;
+}
+
+.env-blocked__keys code {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  padding: 1px 6px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+}
+
 .link {
   color: var(--color-accent);
   text-decoration: none;

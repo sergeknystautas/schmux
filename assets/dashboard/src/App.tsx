@@ -31,6 +31,7 @@ import PersonaCreatePage from './routes/PersonaCreatePage';
 import PersonaEditPage from './routes/PersonaEditPage';
 import EventsPage from './routes/EventsPage';
 import RepofeedPage from './routes/RepofeedPage';
+import EnvironmentPage from './routes/EnvironmentPage';
 
 export default function App() {
   const location = useLocation();
@@ -71,6 +72,7 @@ export default function App() {
                           <Route path="/tips" element={<TipsPage />} />
                           <Route path="/config" element={<ConfigPage />} />
                           <Route path="/settings/remote" element={<RemoteSettingsPage />} />
+                          <Route path="/environment" element={<EnvironmentPage />} />
                           <Route path="/overlays" element={<OverlayPage />} />
                           <Route path="/personas" element={<PersonasListPage />} />
                           <Route path="/personas/create" element={<PersonaCreatePage />} />
