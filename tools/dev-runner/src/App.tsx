@@ -6,6 +6,7 @@ import { KeyBar } from './components/KeyBar.js';
 import { useProcess } from './hooks/useProcess.js';
 import { useKeyboard } from './hooks/useKeyboard.js';
 import { build } from './lib/build.js';
+import { cleanEnv } from './lib/cleanEnv.js';
 import { gitPull } from './lib/git.js';
 import { killPort } from './lib/ports.js';
 import {
@@ -156,6 +157,7 @@ export function App({ devRoot, plain }: AppProps) {
   const backend = useProcess({
     command: binaryPath,
     args: ['daemon-run', '--dev-mode', '--dev-proxy'],
+    env: cleanEnv(),
     onLine: addBackendLine,
     onExit: handleDaemonExit,
   });

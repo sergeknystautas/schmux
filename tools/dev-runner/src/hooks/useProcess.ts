@@ -6,6 +6,7 @@ export interface UseProcessOptions {
   command: string;
   args: string[];
   cwd?: string;
+  /** Complete environment for the child process. If omitted, inherits process.env. */
   env?: Record<string, string>;
   onLine: (line: string) => void;
   onExit?: (code: number) => void;
@@ -53,7 +54,7 @@ export function useProcess(opts: UseProcessOptions): UseProcessReturn {
     const proc = spawn(o.command, o.args, {
       cwd: o.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: o.env ? { ...process.env, ...o.env } : process.env,
+      env: o.env ?? process.env,
     });
 
     procRef.current = proc;

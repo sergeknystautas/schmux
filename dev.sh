@@ -31,5 +31,14 @@ fi
 echo "Building schmux CLI..."
 (cd "$SCRIPT_DIR" && go build ./cmd/schmux)
 
+# ── Environment snapshot ─────────────────────────────────────────────────
+# npx injects npm_config_*, npm_package_*, npm_lifecycle_*, INIT_CWD, NODE,
+# and prepends node_modules/.bin to PATH. These leak into the daemon and
+# break npm commands inside spawned sessions. Snapshot the pre-npx state
+# so the dev-runner can restore it before spawning the daemon.
+# See docs/dev-mode.md "Environment isolation" for details.
+export SCHMUX_PRISTINE_NPM_VARS="$(env -0 | grep -z '^npm_' | base64 | tr -d '\n')"
+export SCHMUX_PRISTINE_PATH="$PATH"
+
 # Delegate to TypeScript dev runner
 exec npx --prefix "$RUNNER_DIR" tsx "$RUNNER_DIR/src/main.tsx" "$@"

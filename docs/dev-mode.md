@@ -266,6 +266,47 @@ The `simulate-tunnel` and `clear-password` endpoints are for testing remote acce
 | `assets/dashboard/vite.config.js`               | Vite pause-watch plugin for safe git operations                           |
 | `assets/dashboard/src/hooks/useDevStatus.ts`    | Frontend hook: fetches dev status when dev mode is active                 |
 | `assets/dashboard/src/routes/EventsPage.tsx`    | Full-page event monitor (dev mode only)                                   |
+| `tools/dev-runner/src/lib/cleanEnv.ts`          | Strips npx env pollution before daemon spawn (see Environment isolation)  |
+
+## Environment isolation
+
+### The problem
+
+`dev.sh` launches the dev-runner via `exec npx --prefix tools/dev-runner tsx ...`. When npm runs a script through `npx`, it injects environment variables into the child process:
+
+- **`npm_config_prefix`**, **`npm_config_global_prefix`**, **`npm_config_local_prefix`** — set to `tools/dev-runner/`, redirecting npm's global install location
+- **`npm_config_*`** — npm's full resolved configuration dumped as env vars
+- **`npm_package_*`** — fields from dev-runner's `package.json`
+- **`npm_lifecycle_*`** — script execution metadata
+- **`INIT_CWD`**, **`NODE`** — npm execution context
+- **`PATH`** — prepended with `node_modules/.bin` directory chains
+
+If these vars leak into the schmux daemon, every child process inherits them — including tmux sessions where agents run. An agent running `npm install` or `npm link` inside a session would use `tools/dev-runner/` as its prefix instead of the system npm location.
+
+### The fix
+
+The fix has two parts:
+
+**1. Snapshot (dev.sh):** Before `exec npx`, `dev.sh` exports two snapshot variables:
+
+- `SCHMUX_PRISTINE_PATH` — the original PATH before npx modifies it
+- `SCHMUX_PRISTINE_NPM_VARS` — base64-encoded, NUL-delimited dump of any `npm_*` vars that already existed in the user's shell (e.g., `npm_config_registry` from `.zshrc`). Empty if none existed.
+
+**2. Restore (dev-runner):** `tools/dev-runner/src/lib/cleanEnv.ts` builds a cleaned environment before spawning the daemon:
+
+1. Strip all `npm_*` vars (removes everything npx injected or overwrote)
+2. Decode `SCHMUX_PRISTINE_NPM_VARS` and restore any npm vars that existed before npx (preserving user config)
+3. Strip `INIT_CWD` and `NODE` (npx-only vars)
+4. Restore `PATH` from the snapshot
+5. Remove the `SCHMUX_PRISTINE_*` meta-vars themselves
+
+The daemon process starts with a clean environment. All subsystems — tmux sessions, agent detection, workspace git operations, tunnel management — inherit the restored env without any per-subsystem fixes.
+
+The Vite process is **not** cleaned. It runs inside the npm context and needs the npm vars to function.
+
+### When not running via dev.sh
+
+When the daemon runs directly (`./schmux daemon-run`), the `SCHMUX_PRISTINE_*` vars are absent. `cleanEnv()` detects this and passes the environment through unchanged. The fix has zero effect on production usage.
 
 ## Troubleshooting
 
