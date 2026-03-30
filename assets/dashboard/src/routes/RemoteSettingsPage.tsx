@@ -68,6 +68,22 @@ export default function RemoteSettingsPage() {
     setShowModal(true);
   };
 
+  const handleClone = (flavor: RemoteFlavor) => {
+    setEditingFlavor(null);
+    setFormData({
+      display_name: `${flavor.display_name} (copy)`,
+      flavor: '',
+      workspace_path: flavor.workspace_path,
+      vcs: flavor.vcs,
+      connect_command: flavor.connect_command || '',
+      reconnect_command: flavor.reconnect_command || '',
+      provision_command: flavor.provision_command || '',
+      hostname_regex: flavor.hostname_regex || '',
+      vscode_command_template: flavor.vscode_command_template || '',
+    });
+    setShowModal(true);
+  };
+
   const handleEdit = (flavor: RemoteFlavor) => {
     setEditingFlavor(flavor);
     setFormData({
@@ -251,6 +267,9 @@ export default function RemoteSettingsPage() {
                     </div>
                   </div>
                   <div className="flex-row gap-xs">
+                    <button className="btn btn--sm" onClick={() => handleClone(flavor)}>
+                      Clone
+                    </button>
                     <button className="btn btn--sm" onClick={() => handleEdit(flavor)}>
                       Edit
                     </button>
