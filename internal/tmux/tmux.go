@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -109,12 +110,51 @@ var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07\x1b]*\x07
 // "nested session" detection errors when inherited by tmux sessions.
 var nestingEnvVars = []string{"CLAUDECODE"}
 
-// CleanTmuxServerEnv removes nesting env vars from the tmux server's global
-// environment. This prevents vars like CLAUDECODE (set by a Claude Code session
-// in another terminal) from leaking into sessions created by schmux.
+// tmuxManagedKeys are keys set by tmux itself that should never be stripped,
+// even if they aren't in the system baseline.
+var tmuxManagedKeys = map[string]bool{"TMUX": true, "TMUX_PANE": true}
+
+var (
+	baselineMu   sync.RWMutex
+	baselineKeys map[string]bool
+)
+
+// SetBaseline stores the set of environment variable keys from a fresh login
+// shell. CleanTmuxServerEnv uses this to identify and remove pollution
+// variables that leaked into the tmux server's global environment.
+func SetBaseline(keys map[string]bool) {
+	baselineMu.Lock()
+	defer baselineMu.Unlock()
+	baselineKeys = keys
+}
+
+// CleanTmuxServerEnv removes nesting env vars and pollution from the tmux
+// server's global environment. Pollution is any key present in the tmux server
+// but absent from the system baseline captured at daemon startup.
 func CleanTmuxServerEnv(ctx context.Context) {
 	for _, v := range nestingEnvVars {
 		args := []string{"set-environment", "-g", "-u", v}
+		cmd := exec.CommandContext(ctx, binary, args...)
+		_ = cmd.Run()
+	}
+
+	baselineMu.RLock()
+	baseline := baselineKeys
+	baselineMu.RUnlock()
+
+	if baseline == nil {
+		return
+	}
+
+	env, err := ShowEnvironment(ctx)
+	if err != nil {
+		return
+	}
+	for key := range env {
+		if baseline[key] || tmuxManagedKeys[key] {
+			continue
+		}
+		args := []string{"set-environment", "-g", "-u", key}
 		cmd := exec.CommandContext(ctx, binary, args...)
 		_ = cmd.Run()
 	}

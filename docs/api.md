@@ -371,7 +371,7 @@ Errors are per-result:
 
 Both target-based and command-based spawns trigger an immediate WebSocket broadcast on `/ws/dashboard` so clients can detect the new session without waiting for the next poll cycle.
 
-Environment cleanup: before creating a tmux session, the server removes agent nesting-detection variables (e.g., `CLAUDECODE`) from the tmux server's global environment. This prevents agents from refusing to start when the tmux server was started from (or shares an environment with) another agent session.
+Environment cleanup: before creating a tmux session, the server removes pollution from the tmux server's global environment. This includes agent nesting-detection variables (e.g., `CLAUDECODE`) and any variable not present in the system baseline — a snapshot of the fresh login shell environment captured at daemon startup (and refreshed on `GET /api/environment`). Variables like `npm_config_prefix` that leak into the tmux server from processes like `npx`/`dev.sh` are stripped so new sessions inherit clean state. Keys managed by tmux itself (`TMUX`, `TMUX_PANE`) are preserved.
 
 Global errors (HTTP status codes):
 

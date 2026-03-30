@@ -497,8 +497,24 @@ func (s *Server) LogDashboardAssetPath() {
 	}
 }
 
+// initEnvironmentBaseline captures the system environment from a fresh login
+// shell and stores the key set as the baseline for tmux pollution cleanup.
+func (s *Server) initEnvironmentBaseline() {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	system, err := getSystemEnvironment(ctx)
+	if err != nil {
+		s.logger.Warn("failed to capture environment baseline, pollution cleanup disabled", "err", err)
+		return
+	}
+	updateBaseline(system)
+	s.logger.Info("environment baseline captured", "keys", len(system))
+}
+
 // Start starts the HTTP server.
 func (s *Server) Start() error {
+	s.initEnvironmentBaseline()
+
 	cleanupDelay := time.Duration(s.config.GetExternalDiffCleanupAfterMs()) * time.Millisecond
 	deleted, scheduled := difftool.SweepAndScheduleTempDirs(cleanupDelay, logging.Sub(s.logger, "difftool"))
 	s.logger.Info("difftool temp dirs cleanup", "deleted", deleted, "scheduled", scheduled)
