@@ -28,7 +28,6 @@ export default function ConnectionProgressModal({
   const [errorMessage, setErrorMessage] = useState<string>('');
   const terminalRef = useRef<HTMLDivElement>(null);
   const noSessionModalRef = useRef<HTMLDivElement>(null);
-  const mainModalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -40,7 +39,8 @@ export default function ConnectionProgressModal({
   onConnectedRef.current = onConnected;
 
   useFocusTrap(noSessionModalRef, !provisioningSessionId);
-  useFocusTrap(mainModalRef, !!provisioningSessionId);
+  // No focus trap on the main modal — the xterm.js terminal must hold focus
+  // so YubiKey OTP output reaches the PTY via WebSocket during SSH auth.
 
   // Initialize terminal and WebSocket
   useEffect(() => {
@@ -71,8 +71,9 @@ export default function ConnectionProgressModal({
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    // Focus the terminal so keyboard input goes to it immediately
-    term.focus();
+    // Focus the terminal after layout so keyboard input (including YubiKey OTP)
+    // goes to it immediately. Uses rAF to run after any competing focus calls.
+    requestAnimationFrame(() => term.focus());
 
     // Connect WebSocket
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -364,7 +365,6 @@ export default function ConnectionProgressModal({
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div
-        ref={mainModalRef}
         className="modal"
         onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: '900px', maxHeight: '80vh' }}
@@ -426,7 +426,7 @@ export default function ConnectionProgressModal({
           </button>
         </div>
 
-        <div className="modal__body p-md">
+        <div className="modal__body p-md" onClick={() => xtermRef.current?.focus()}>
           <div
             ref={terminalRef}
             style={{
