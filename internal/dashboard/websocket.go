@@ -1353,6 +1353,62 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 	checkTicker := time.NewTicker(5 * time.Second) // Periodic health check
 	defer checkTicker.Stop()
 
+	// Latency instrumentation: same pattern as local sessions.
+	latencyCollector := NewLatencyCollector()
+	type pendingInputTiming struct {
+		dispatch      time.Duration
+		sendKeys      time.Duration
+		t3            time.Time // SendKeys return time — echo timer starts here
+		outputChDepth int
+	}
+	var pendingInputQueue []pendingInputTiming
+
+	// Async input sender: moves conn.SendKeys() off the select loop so the
+	// control mode round-trip doesn't block echo delivery.
+	type remoteInputBatch struct {
+		data          string
+		t1            time.Time
+		outputChDepth int
+	}
+	type remoteInputResult struct {
+		sendKeysDur   time.Duration
+		t3            time.Time
+		dispatch      time.Duration
+		outputChDepth int
+	}
+	inputBatchCh := make(chan remoteInputBatch, 10)
+	inputDoneCh := make(chan remoteInputResult, 10)
+	go func() {
+		defer close(inputDoneCh)
+		for batch := range inputBatchCh {
+			t2 := time.Now()
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
+			err := conn.SendKeys(ctx, sess.RemotePaneID, batch.data)
+			cancel()
+			t3 := time.Now()
+			if err != nil {
+				logging.Sub(s.logger, "ws").Error("failed to send keys", "session_id", sessionID[:8], "err", err)
+				continue
+			}
+			inputDoneCh <- remoteInputResult{
+				sendKeysDur:   t3.Sub(t2),
+				t3:            t3,
+				dispatch:      t2.Sub(batch.t1),
+				outputChDepth: batch.outputChDepth,
+			}
+		}
+	}()
+	defer close(inputBatchCh)
+
+	// Stats ticker for periodic latency reporting
+	var statsTicker *time.Ticker
+	var statsTickerC <-chan time.Time
+	if s.devMode {
+		statsTicker = time.NewTicker(2 * time.Second)
+		statsTickerC = statsTicker.C
+		defer statsTicker.Stop()
+	}
+
 	// Escape-sequence holdback for remote terminal
 	var escHoldback []byte
 	var escScratch []byte
@@ -1360,6 +1416,7 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 	for {
 		select {
 		case outputEvent, ok := <-outputChan:
+			t4 := time.Now()
 			if !ok {
 				// Flush holdback before disconnect message
 				if len(escHoldback) > 0 {
@@ -1380,7 +1437,51 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 						return
 					}
 				}
+				// Latency: record sample if we have a pending input timing
+				if len(pendingInputQueue) > 0 {
+					pending := pendingInputQueue[0]
+					pendingInputQueue = pendingInputQueue[1:]
+					t5 := time.Now()
+					serverTotalMs := float64(pending.dispatch+pending.sendKeys+t4.Sub(pending.t3)+t5.Sub(t4)) / float64(time.Millisecond)
+					latencyCollector.Add(LatencySample{
+						Dispatch:      pending.dispatch,
+						SendKeys:      pending.sendKeys,
+						Echo:          t4.Sub(pending.t3),
+						FrameSend:     t5.Sub(t4),
+						OutputChDepth: pending.outputChDepth,
+						EchoDataLen:   len(outputEvent.Data),
+					})
+					if s.devMode {
+						sideband, _ := json.Marshal(map[string]interface{}{
+							"type":        "inputEcho",
+							"serverMs":    serverTotalMs,
+							"dispatchMs":  float64(pending.dispatch) / float64(time.Millisecond),
+							"sendKeysMs":  float64(pending.sendKeys) / float64(time.Millisecond),
+							"echoMs":      float64(t4.Sub(pending.t3)) / float64(time.Millisecond),
+							"frameSendMs": float64(t5.Sub(t4)) / float64(time.Millisecond),
+						})
+						wsConn.WriteMessage(websocket.TextMessage, sideband)
+					}
+				}
+			} else if len(pendingInputQueue) > 0 {
+				pendingInputQueue = pendingInputQueue[1:]
 			}
+
+		case <-statsTickerC:
+			statsMsg := map[string]interface{}{
+				"type":         "stats",
+				"inputLatency": latencyCollector.Percentiles(),
+			}
+			data, _ := json.Marshal(statsMsg)
+			wsConn.WriteMessage(websocket.TextMessage, data)
+
+		case result := <-inputDoneCh:
+			pendingInputQueue = append(pendingInputQueue, pendingInputTiming{
+				dispatch:      result.dispatch,
+				sendKeys:      result.sendKeysDur,
+				t3:            result.t3,
+				outputChDepth: result.outputChDepth,
+			})
 
 		case <-checkTicker.C:
 			// Check if remote connection is still active
@@ -1402,13 +1503,16 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 			case "resume":
 				paused = false
 			case "input":
-				// Send keys to remote pane
-				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
-				if err := conn.SendKeys(ctx, sess.RemotePaneID, msg.Data); err != nil {
-					cancel()
-					logging.Sub(s.logger, "ws").Error("failed to send keys", "session_id", sessionID[:8], "err", err)
+				t1 := time.Now()
+				select {
+				case inputBatchCh <- remoteInputBatch{
+					data:          msg.Data,
+					t1:            t1,
+					outputChDepth: len(outputChan),
+				}:
+				default:
+					logging.Sub(s.logger, "ws").Warn("input batch channel full, dropping", "session_id", sessionID[:8])
 				}
-				cancel()
 
 				// Clear nudge atomically — avoid using stale sess pointer.
 				// Escape (\x1b alone) also clears nudge so the spinner stops

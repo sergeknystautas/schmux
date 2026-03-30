@@ -1218,7 +1218,15 @@ export default class TerminalStream {
         break;
       default:
         if (msg.content) {
-          this.writeTerminal(msg.content as string);
+          // Remote sessions send output as text frames ("append").
+          // Track latency the same way binary frames do for local sessions.
+          const renderStart = performance.now();
+          inputLatency.recordFrameProcessed();
+          inputLatency.markReceived();
+          this.writeTerminal(msg.content as string, () => {
+            inputLatency.markRenderTime(performance.now() - renderStart);
+          });
+          inputLatency.recordHandleOutputTime(performance.now() - renderStart);
         }
     }
   }
