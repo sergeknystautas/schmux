@@ -2,6 +2,125 @@
 
 This file tracks high-level changes between releases of schmux.
 
+## Version 1.2.0 (2026-03-31)
+
+### Multiplexed agentic coding
+
+**Agent Signaling** — File-based signal protocol (replacing terminal parsing) with audio notifications, attention states, working spinner, and support for remote sessions and Codex agents. Claude Code hooks integration for signaling instead of system prompt injection.
+
+**Terminal Streaming Pipeline** — Replaced log polling with tmux control mode + binary WebSocket frames for real-time terminal output. Added escape sequence buffer to prevent frame-boundary corruption, periodic sync to auto-correct xterm.js desync, WebGL renderer, and comprehensive diagnostic capture system.
+
+**Web Preview** — See your app's output alongside your agentic coding sessions. Auto-detects dev servers via PID file matching, stable port allocation persists across daemon restarts, reverse proxy with WebSocket upgrade support, browser navigation bar, and auto-navigate to preview page when a server is detected.
+
+**Personas** — Full CRUD management with dedicated routes, session color accents, and 10 built-in personas. Spawn page persona dropdown.
+
+**Model System** — Dynamic model discovery via models.dev registry, multi-runner architecture, tool adapter system (OpenCode support), capability-based filtering in config UI, hook/persona injection for adapters. New models: GPT-5.4, GPT-5.2, GLM-5, MiniMax m2.5, Qwen3 Coder Plus.
+
+**VCS Abstraction** — Sapling support alongside Git. VCS-agnostic diff, stage, discard, amend, and uncommit operations with backend detection guards.
+
+- Subreddit digest with AI-generated cross-repo activity summaries on home page
+- Repofeed for cross-developer intent federation via git orphan branch
+- Conflict resolution with embedded terminal panel and live LLM streaming
+- xterm.js upgraded to v6.0.0
+
+### Learning systems
+
+**Lore System** — Automated learning from agent friction. Hook-based capture of failures and reflections, LLM curator for deduplication and proposal generation, apply-via-PR workflow, and full dashboard UI with proposal cards and inline diffs.
+
+**Floor Manager** — Singleton orchestration agent with tell, events, capture, inspect, and branches CLI commands. Dashboard integration with operator-driven control model.
+
+**Overlay Compounding** — File watcher with debouncing and anti-echo suppression, three-strategy merge engine (skip, fast path, LLM merge), propagation across worktrees, management page with scan/add flow, and CONVENTIONS.md in defaults.
+
+**Emerging Actions** — Automatic action discovery from agent patterns with registry, curation, autocomplete, and consolidated quick launch dropdown.
+
+### Ergonomics
+
+**Keyboard Controls** — Cmd+/ toggles keyboard mode for rapid navigation without a mouse. Cmd+Arrow cycles through workspaces, extensible tab system with unified close and pending navigation.
+
+**Image Attachments** — Paste screenshots and diagrams directly into the spawn prompt. Images are written to the workspace and referenced in the agent's prompt for visual context.
+
+**Pastebin Clips** — Quick-paste snippets into terminal sessions without navigating away from the dashboard.
+
+**Environment Comparison** — Side-by-side view of your shell environment vs the tmux server environment, with one-click sync to fix missing variables that cause agent tool failures.
+
+- Drag-to-reorder session tabs, xterm title reflection in tabs
+- Workspace sort toggle (alpha/time)
+- Safe force-push with confirmation for post-rebase workflows
+- Remote branch tracking with visual ahead/behind indicators
+- Bulk pull button to sync all behind workspaces
+- Git divergence stats on workspace list
+- Commit detail view with keyboard navigation
+- Markdown preview in diff viewer
+
+### Security
+
+**Dashboard.sx** — ACME certificate provisioning via Let's Encrypt, HTTPS server, and CLI commands. TLS config UI with certificate validation.
+
+**Remote Access** — Cloudflared tunnels for phone/tablet dashboard access with PIN auth, CSRF protection, rate limiting, mobile-responsive layout, ntfy push notifications, QR code subscription, and extensive security hardening.
+
+- Constant-time OAuth state comparison
+- CORS restricted to same-port origins with tunnel active
+- HTML-escape to prevent XSS on PIN page
+- Input validation hardening, file permission tightening
+- Request body size limits, X-Forwarded-For validation
+- Token TTL and password policy improvements
+- macOS codesign verification on auto-downloaded cloudflared
+- Focus trap in modals for keyboard accessibility
+- Prevent git credential prompts from hanging daemon processes
+
+### schmux development
+
+**Dev Mode Overhaul** — TypeScript dev runner with Ink/React TUI replacing bash script. Color-coded log levels, toggleable log panel, workspace switching, git pull shortcut, and `--plain` flag for CI.
+
+**Scenario Testing** — Playwright-based end-to-end test infrastructure with 15+ scenario tests covering core user flows. Docker containerization, parallel execution, video recording on failure, and CI workflow.
+
+**Website** — Static marketing site with real product screenshots, interactive guided demo, and 7 feature highlight sections.
+
+- Embedded dashboard assets in binary for single-file distribution
+- Build-time module exclusion for deployment customization
+- Per-package coverage analysis
+- Tmux control mode RTT health probe with dashboard histogram
+- Typing performance stats for remote sessions
+
+### Dashboard & UX
+
+- Tips page with prompt engineering tab, git lifecycle docs, and power tools
+- chi router migration with middleware and route groups
+- TypeScript strict mode
+- Dual-stack IPv6 listener
+- Custom favicon
+- Mobile responsive layout with bottom nav
+- Collapsible Tools section replacing More popover
+- iTerm2 deep link, VS Code for remote browser clients
+- Gray out sessions/workspaces during disposal
+- Toast notifications replacing modal dialogs for non-blocking feedback
+- Configurable clear-screen stripping and WebGL renderer
+- Sidebar badge and overlay activity feed with inline diffs
+- Clone button for remote host flavors
+
+### Infrastructure
+
+- Structured logging via charmbracelet/log
+- TypeScript test runner replacing bash test.sh
+- Nix flake dev environment and justfile
+- Parallel E2E test execution with per-test isolation
+- Definition-of-done enforcement in /commit command
+- go vet in definition of done
+- Split Docker images into base + thin layers
+- Podman fallback when Docker unavailable
+- Dev config backup on daemon start
+- Daemon struct refactor replacing package-level globals
+- Handler split from monolithic handlers.go into domain files
+
+### Performance
+
+- Parallel git status updates with per-cycle caching
+- Deduplicated git fetch across worktrees
+- Overlapped concurrent API fetches
+- Terminal write coalescing to reduce xterm.js render pressure
+- tmux pause-after for reliable control mode delivery
+- Workspace test speedup with shared template repo
+
 ## Version 1.1.2 (2026-02-06)
 
 **Major features:**
