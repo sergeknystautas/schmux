@@ -2,6 +2,8 @@ package tmux
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"os/exec"
 	"testing"
 )
@@ -12,6 +14,17 @@ func TestShowEnvironment(t *testing.T) {
 	}
 
 	ctx := context.Background()
+	sessName := fmt.Sprintf("schmux-env-test-%d", os.Getpid())
+
+	_ = KillSession(ctx, sessName)
+	t.Cleanup(func() {
+		_ = KillSession(ctx, sessName)
+	})
+
+	if err := CreateSession(ctx, sessName, t.TempDir(), "sleep 600"); err != nil {
+		t.Fatal("failed to create session:", err)
+	}
+
 	env, err := ShowEnvironment(ctx)
 	if err != nil {
 		t.Fatalf("ShowEnvironment failed: %v", err)
@@ -28,6 +41,17 @@ func TestSetEnvironment(t *testing.T) {
 	}
 
 	ctx := context.Background()
+	sessName := fmt.Sprintf("schmux-env-set-test-%d", os.Getpid())
+
+	_ = KillSession(ctx, sessName)
+	t.Cleanup(func() {
+		_ = KillSession(ctx, sessName)
+	})
+
+	if err := CreateSession(ctx, sessName, t.TempDir(), "sleep 600"); err != nil {
+		t.Fatal("failed to create session:", err)
+	}
+
 	key := "SCHMUX_TEST_ENV_VAR"
 	value := "test_value_123"
 
@@ -43,7 +67,7 @@ func TestSetEnvironment(t *testing.T) {
 		t.Errorf("expected %q, got %q", value, got)
 	}
 
-	// Clean up
+	// Clean up the env var from the tmux server
 	args := []string{"set-environment", "-g", "-u", key}
 	exec.CommandContext(ctx, binary, args...).Run()
 }
