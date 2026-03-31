@@ -21,6 +21,11 @@ COPY build/schmux-linux /usr/local/bin/schmux
 # Copy dashboard dist (the binary looks for ./assets/dashboard/dist relative to cwd)
 COPY --chown=testuser assets/dashboard/dist ./assets/dashboard/dist
 
+# Copy mock scripts for remote clipboard testing
+COPY test/mock-remote.sh /app/test/mock-remote.sh
+COPY test/mock-clipboard-agent.sh /app/test/mock-clipboard-agent.sh
+RUN chmod +x /app/test/mock-remote.sh /app/test/mock-clipboard-agent.sh
+
 # Copy Playwright test files (node_modules + browsers already in base image)
 # chown so testuser can write test-results/ alongside the test files
 COPY --chown=testuser test/scenarios/generated/*.ts ./test/scenarios/generated/

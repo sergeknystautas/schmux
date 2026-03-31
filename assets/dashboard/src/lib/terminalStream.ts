@@ -27,14 +27,25 @@ async function pasteImageToSession(sessionId: string, imageBlob: Blob): Promise<
   }
   const imageBase64 = btoa(binary);
 
-  const resp = await transport.fetch('/api/clipboard-paste', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-    body: JSON.stringify({ sessionId, imageBase64 }),
+  console.log('[clipboard-paste] sending image', {
+    sessionId: sessionId.slice(0, 8),
+    size: bytes.length,
   });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({ error: 'unknown' }));
-    console.error('[clipboard-paste] failed:', err);
+
+  try {
+    const resp = await transport.fetch('/api/clipboard-paste', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+      body: JSON.stringify({ sessionId, imageBase64 }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: 'unknown' }));
+      console.error('[clipboard-paste] failed:', err);
+    } else {
+      console.log('[clipboard-paste] success');
+    }
+  } catch (err) {
+    console.error('[clipboard-paste] network error:', err);
   }
 }
 
@@ -364,12 +375,18 @@ export default class TerminalStream {
       const ce = e as ClipboardEvent;
       const items = ce.clipboardData?.items;
       if (!items) return;
+      const types = Array.from(items).map((i) => i.type);
       for (const item of Array.from(items)) {
         if (item.type.startsWith('image/')) {
           e.preventDefault();
           e.stopPropagation();
           const blob = item.getAsFile();
           if (blob) {
+            console.log('[clipboard-paste] image detected in paste event', {
+              type: item.type,
+              size: blob.size,
+              allTypes: types,
+            });
             pasteImageToSession(this.sessionId, blob);
           }
           return;

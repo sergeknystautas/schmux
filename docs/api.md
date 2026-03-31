@@ -738,7 +738,9 @@ Response:
 
 Paste an image from the browser clipboard into a tmux session.
 
-Writes the image to the system clipboard (macOS only via osascript) and sends Ctrl+V (0x16) to the specified tmux session so the terminal application picks up the image.
+**Local sessions:** Writes the image to the system clipboard (macOS only via osascript) and sends Ctrl+V (0x16) to the tmux session so the terminal application picks up the image.
+
+**Remote sessions:** Transfers the image to the remote host via base64 (through `RunCommand`), sets the remote X11 clipboard via `xclip` (`DISPLAY=:99`), and sends Ctrl+V to the remote pane. Requires `xclip` and `Xvfb` on the remote host. Max 2MB for remote transfers.
 
 Request (max 10MB body):
 
@@ -759,7 +761,7 @@ Errors:
 
 - 400: "method not allowed", "invalid request body", "sessionId and imageBase64 are required", "invalid base64 image data"
 - 404: "session not found"
-- 500: "failed to process image", "failed to set clipboard: ...", "remote manager not configured", "session tracker not found", "failed to send input"
+- 500: "failed to process image", "failed to set clipboard: ...", "remote manager not configured", "session tracker not found", "failed to send input", "failed to paste image on remote host: ..."
 - 503: "remote host not connected"
 
 ### POST /api/workspaces/{workspaceId}/dispose

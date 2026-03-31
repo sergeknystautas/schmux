@@ -141,7 +141,15 @@ func TestHandleClipboardPaste_ClipboardWriteCalled(t *testing.T) {
 }
 
 func TestHandleClipboardPaste_ClipboardError(t *testing.T) {
-	server, _, _ := newTestServer(t)
+	server, _, st := newTestServer(t)
+
+	// Add a local session so the lookup succeeds and reaches the clipboard code
+	st.AddSession(state.Session{
+		ID:          "sess-12345678",
+		WorkspaceID: "ws-1",
+		Target:      "test",
+		TmuxSession: "test-tmux",
+	})
 
 	origFunc := setClipboardImageFunc
 	setClipboardImageFunc = func(string) error {

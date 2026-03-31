@@ -22,6 +22,10 @@ cat > ~/.schmux/config.json <<'CONFIG'
 CONFIG
 mkdir -p /tmp/schmux-test-workspaces
 
+# Start Xvfb for remote clipboard paste tests (provides X11 clipboard via xclip)
+Xvfb :99 -screen 0 1x1x8 &>/dev/null &
+export DISPLAY=:99
+
 # Start the schmux daemon in the background
 cd /app
 schmux daemon-run --dev-mode &

@@ -360,10 +360,18 @@ func (c *Client) DiscardedStale() int64 {
 
 // CreateWindow creates a new window with a command.
 // Returns the window ID and pane ID.
+// If command is empty, the default shell is started (omitting the command
+// argument entirely so tmux doesn't receive an empty string that exits immediately).
 func (c *Client) CreateWindow(ctx context.Context, name, workdir, command string) (windowID, paneID string, err error) {
-	// Build command
-	cmd := fmt.Sprintf("new-window -n %s -c %s -P -F '#{window_id} #{pane_id}' %s",
-		shellutil.Quote(name), shellutil.Quote(workdir), shellutil.Quote(command))
+	// Build command — omit the command arg when empty so tmux starts the default shell
+	var cmd string
+	if command == "" {
+		cmd = fmt.Sprintf("new-window -n %s -c %s -P -F '#{window_id} #{pane_id}'",
+			shellutil.Quote(name), shellutil.Quote(workdir))
+	} else {
+		cmd = fmt.Sprintf("new-window -n %s -c %s -P -F '#{window_id} #{pane_id}' %s",
+			shellutil.Quote(name), shellutil.Quote(workdir), shellutil.Quote(command))
+	}
 
 	output, err := c.Execute(ctx, cmd)
 	if err != nil {

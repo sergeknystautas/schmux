@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     bash \
     curl \
+    xclip \
+    xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 # Install sapling (sl) from latest GitHub release
