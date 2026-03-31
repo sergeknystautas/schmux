@@ -2123,6 +2123,10 @@ func (c *Config) GetDashboardHostname() string {
 
 // isLocalHostname checks if a hostname resolves to an IP on this machine.
 func isLocalHostname(hostname string) bool {
+	// Match the machine's own hostname even if it doesn't resolve in DNS.
+	if machineHost, err := os.Hostname(); err == nil && strings.EqualFold(hostname, machineHost) {
+		return true
+	}
 	addrs, err := net.LookupHost(hostname)
 	if err != nil {
 		return false
