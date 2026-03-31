@@ -55,6 +55,7 @@ export function useProcess(opts: UseProcessOptions): UseProcessReturn {
       cwd: o.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: o.env ?? process.env,
+      detached: true,
     });
 
     procRef.current = proc;
