@@ -465,6 +465,9 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		st.Save()
 	}
 
+	// Normalize bare repo paths — rename non-conforming directories to {name}.git
+	config.NormalizeBarePaths(cfg, st)
+
 	// Create managers
 	ensure.SetLogger(logging.Sub(workspaceLog, "ensure"))
 	// Wire lore instruction store for private layer injection at spawn time

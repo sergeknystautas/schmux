@@ -1059,7 +1059,7 @@ Response:
 
 Errors:
 
-- 400 for validation errors (plain text). Config validation checks structural integrity (non-empty names, no duplicates, non-empty targets) but does not validate whether referenced targets exist at save time — target resolution happens at spawn time.
+- 400 for validation errors (plain text). Config validation checks structural integrity (non-empty names, no duplicate repo names, non-empty targets) but does not validate whether referenced targets exist at save time — target resolution happens at spawn time.
 - 500 for save/reload errors (plain text)
 
 ### POST /api/tls/validate

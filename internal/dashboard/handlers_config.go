@@ -279,6 +279,15 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		// Check for duplicate repo names
+		seenNames := make(map[string]bool, len(req.Repos))
+		for _, repo := range req.Repos {
+			if seenNames[repo.Name] {
+				http.Error(w, fmt.Sprintf("duplicate repo name: %q", repo.Name), http.StatusBadRequest)
+				return
+			}
+			seenNames[repo.Name] = true
+		}
 		// Build lookup of existing repos by URL to preserve bare_path
 		existingByURL := make(map[string]string, len(cfg.Repos))
 		for _, repo := range cfg.Repos {

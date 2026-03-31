@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -710,4 +711,20 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 			t.Fatal("expected non-409 when dev mode is off, got 409")
 		}
 	})
+}
+
+func TestAPIContract_ConfigUpdateRejectsDuplicateRepoNames(t *testing.T) {
+	server, _, _ := newTestServer(t)
+
+	body := []byte(`{"repos":[{"name":"react","url":"https://github.com/facebook/react.git"},{"name":"react","url":"https://github.com/preactjs/react.git"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	server.handleConfigUpdate(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400 for duplicate repo names, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "duplicate repo name") {
+		t.Errorf("error message should mention duplicate repo name, got: %s", rr.Body.String())
+	}
 }

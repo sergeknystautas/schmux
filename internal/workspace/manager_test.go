@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -1137,5 +1138,30 @@ func TestMarkWorkspaceDisposingNotFound(t *testing.T) {
 	_, err := mgr.MarkWorkspaceDisposing("nonexistent")
 	if err == nil {
 		t.Error("expected error for nonexistent workspace")
+	}
+}
+
+func TestCreateLocalRepo_RejectsDuplicateName(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+	statePath := filepath.Join(tmpDir, "state.json")
+
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.Repos = []config.Repo{
+		{Name: "myrepo", URL: "https://github.com/user/myrepo.git", BarePath: "myrepo.git"},
+	}
+	cfg.Save()
+
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	_, err := m.CreateLocalRepo(context.Background(), "myrepo", "main")
+	if err == nil {
+		t.Fatal("expected error for duplicate repo name")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("error should mention name already exists, got: %v", err)
 	}
 }

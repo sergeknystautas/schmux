@@ -629,6 +629,11 @@ func (m *Manager) CreateLocalRepo(ctx context.Context, repoName, branch string) 
 		return nil, fmt.Errorf("invalid repo name: %s", repoName)
 	}
 
+	// Reject duplicate repo names
+	if _, found := m.config.FindRepo(repoName); found {
+		return nil, fmt.Errorf("repo name %q already exists in config", repoName)
+	}
+
 	// Construct the repo URL for state (local:{name})
 	repoURL := fmt.Sprintf("local:%s", repoName)
 

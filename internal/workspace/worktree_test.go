@@ -44,11 +44,11 @@ func TestCreateLocalRepo(t *testing.T) {
 			wantErr:  false,
 		},
 		{
-			name:     "creates second workspace",
-			repoName: "myproject",
-			branch:   "main",
-			wantID:   "myproject-002",
-			wantErr:  false,
+			name:        "rejects duplicate repo name",
+			repoName:    "myproject",
+			branch:      "main",
+			wantErr:     true,
+			errContains: "already exists",
 		},
 		{
 			name:     "creates workspace with different name",
