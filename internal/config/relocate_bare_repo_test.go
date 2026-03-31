@@ -30,7 +30,7 @@ func createBareRepoWithWorktrees(t *testing.T, basePath, bareName string, numWor
 	if err := os.MkdirAll(remoteDir, 0755); err != nil {
 		t.Fatalf("failed to create remote dir: %v", err)
 	}
-	runGitCmd(t, remoteDir, "init", "--bare")
+	runGitCmd(t, remoteDir, "init", "--bare", "-b", "main")
 
 	// Create a temporary working copy to make an initial commit
 	workDir := filepath.Join(basePath, "work-tmp")
