@@ -46,6 +46,17 @@ export async function readDaemonPid(): Promise<number | null> {
   }
 }
 
+export async function readConfigPort(): Promise<number> {
+  try {
+    const raw = await readFile(join(SCHMUX_DIR, 'config.json'), 'utf-8');
+    const cfg = JSON.parse(raw) as { network?: { port?: number } };
+    const port = cfg?.network?.port;
+    return typeof port === 'number' && port > 0 ? port : 7337;
+  } catch {
+    return 7337;
+  }
+}
+
 export async function cleanupStateFiles(): Promise<void> {
   for (const path of [paths.devState, paths.devRestart, paths.buildStatus]) {
     await rm(path, { force: true });

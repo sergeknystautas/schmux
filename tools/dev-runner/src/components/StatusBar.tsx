@@ -7,6 +7,7 @@ interface StatusBarProps {
   workspace: string;
   backendStatus: ProcessStatus;
   frontendStatus: ProcessStatus;
+  port: number;
 }
 
 function statusDot(status: ProcessStatus): React.ReactNode {
@@ -46,7 +47,7 @@ function statusLabel(status: ProcessStatus): string {
   }
 }
 
-export function StatusBar({ devRoot, workspace, backendStatus, frontendStatus }: StatusBarProps) {
+export function StatusBar({ devRoot, workspace, backendStatus, frontendStatus, port }: StatusBarProps) {
   const isSameWorkspace = devRoot === workspace;
   const workspaceAnnotation = isSameWorkspace ? ' (same as dev root)' : ' (switched)';
 
@@ -72,7 +73,7 @@ export function StatusBar({ devRoot, workspace, backendStatus, frontendStatus }:
       </Text>
       <Text>
         <Text dimColor>Dashboard </Text>
-        <Text color="cyan">http://localhost:7337</Text>
+        <Text color="cyan">{`http://localhost:${port}`}</Text>
       </Text>
       <Text>
         <Text>Backend </Text>

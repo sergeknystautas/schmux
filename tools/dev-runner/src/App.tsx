@@ -14,6 +14,7 @@ import {
   readRestartManifest,
   writeDevState,
   readDaemonPid,
+  readConfigPort,
   cleanupStateFiles,
   paths,
 } from './lib/state.js';
@@ -46,6 +47,7 @@ export function App({ devRoot, plain }: AppProps) {
     'init'
   );
   const [errorMsg, setErrorMsg] = useState('');
+  const [dashboardPort, setDashboardPort] = useState(7337);
   const [backendStatusOverride, setBackendStatusOverride] = useState<ProcessStatus | null>(null);
   const [layout, setLayout] = useState<'horizontal' | 'vertical'>('vertical');
   const binaryPath = `${devRoot}/tmp/schmux`;
@@ -210,6 +212,10 @@ export function App({ devRoot, plain }: AppProps) {
 
         // Ensure ~/.schmux directory exists
         await ensureSchmuxDir();
+
+        // Read configured port for StatusBar display
+        const port = await readConfigPort();
+        if (!cancelled) setDashboardPort(port);
 
         // Stop existing daemon if running
         const existingPid = await readDaemonPid();
@@ -424,6 +430,7 @@ export function App({ devRoot, plain }: AppProps) {
             workspace={workspace}
             backendStatus={effectiveBackendStatus}
             frontendStatus={frontend.status}
+            port={dashboardPort}
           />
           <KeyBar canRestart={canRestart} plain canResetWorkspace={canResetWorkspace} />
         </Box>
@@ -450,6 +457,7 @@ export function App({ devRoot, plain }: AppProps) {
         workspace={workspace}
         backendStatus={effectiveBackendStatus}
         frontendStatus={frontend.status}
+        port={dashboardPort}
       />
       <Box flexDirection={layout === 'horizontal' ? 'row' : 'column'} flexGrow={1}>
         <LogPanel
