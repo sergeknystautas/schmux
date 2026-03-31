@@ -10,6 +10,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -81,6 +82,7 @@ type WorkspaceResponseItem struct {
 	LocalUniqueCommits      int                   `json:"local_unique_commits"`         // commits in local not in remote
 	RemoteUniqueCommits     int                   `json:"remote_unique_commits"`        // commits in remote not in local
 	Previews                []previewResponse     `json:"previews,omitempty"`
+	Tabs                    []contracts.Tab       `json:"tabs"`
 	Status                  string                `json:"status,omitempty"`
 }
 
@@ -201,6 +203,27 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			}
 			workspaceMap[ws.ID].Previews = items
 		}
+
+		// Populate tabs from workspace state
+		wsTabs := ws.Tabs
+		tabItems := make([]contracts.Tab, 0, len(wsTabs))
+		for _, tab := range wsTabs {
+			label := tab.Label
+			// Derive diff tab label from workspace git stats
+			if tab.Kind == "diff" {
+				label = fmt.Sprintf("%d file%s changed", ws.FilesChanged, pluralS(ws.FilesChanged))
+			}
+			tabItems = append(tabItems, contracts.Tab{
+				ID:        tab.ID,
+				Kind:      tab.Kind,
+				Label:     label,
+				Route:     tab.Route,
+				Closable:  tab.Closable,
+				Meta:      tab.Meta,
+				CreatedAt: tab.CreatedAt.Format(time.RFC3339),
+			})
+		}
+		workspaceMap[ws.ID].Tabs = tabItems
 	}
 
 	// Pre-compute IsRunning status for all sessions in parallel.
@@ -359,6 +382,14 @@ func parseNudgeSummary(nudge string) (string, string) {
 	}
 
 	return strings.TrimSpace(result.State), strings.TrimSpace(result.Summary)
+}
+
+// pluralS returns "s" if n != 1, otherwise "".
+func pluralS(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 // cachedDefaultBranch returns the default branch for a repo URL, using a

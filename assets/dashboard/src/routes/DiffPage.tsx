@@ -1,13 +1,14 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
-import { getDiff, diffExternal, getErrorMessage, getWorkspaceFileUrl } from '../lib/api';
+import { getDiff, diffExternal, getErrorMessage, getWorkspaceFileUrl, createTab } from '../lib/api';
 import useTheme from '../hooks/useTheme';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import { useRemoteAccess } from '../contexts/RemoteAccessContext';
 import { useModal } from '../components/ModalProvider';
 import { useToast } from '../components/ToastProvider';
+import { usePendingNavigation } from '../lib/navigation';
 import useSidebarLayout from '../hooks/useSidebarLayout';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
@@ -44,6 +45,8 @@ export default function DiffPage() {
   const { simulateRemote } = useRemoteAccess();
   const { alert } = useModal();
   const { success: toastSuccess } = useToast();
+  const { setPendingNavigation } = usePendingNavigation();
+  const [openingPreview, setOpeningPreview] = useState(false);
   const [diffData, setDiffData] = useState<DiffResponse | null>(null);
   const diffDataRef = useRef<DiffResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -250,7 +253,7 @@ export default function DiffPage() {
         {workspace && (
           <>
             <WorkspaceHeader workspace={workspace} />
-            <SessionTabs sessions={workspace.sessions || []} workspace={workspace} activeDiffTab />
+            <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
           </>
         )}
         <div className="empty-state">
@@ -272,7 +275,7 @@ export default function DiffPage() {
         {workspace && (
           <>
             <WorkspaceHeader workspace={workspace} />
-            <SessionTabs sessions={workspace.sessions || []} workspace={workspace} activeDiffTab />
+            <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
           </>
         )}
         <div className="empty-state diff-tab-empty">
@@ -295,7 +298,7 @@ export default function DiffPage() {
         {workspace && (
           <>
             <WorkspaceHeader workspace={workspace} />
-            <SessionTabs sessions={workspace.sessions || []} workspace={workspace} activeDiffTab />
+            <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
           </>
         )}
         <div className="diff-page">
@@ -313,7 +316,7 @@ export default function DiffPage() {
       {workspace && (
         <>
           <WorkspaceHeader workspace={workspace} />
-          <SessionTabs sessions={workspace.sessions || []} workspace={workspace} activeDiffTab />
+          <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
         </>
       )}
 
@@ -432,13 +435,32 @@ export default function DiffPage() {
                     {selectedFile.status !== 'deleted' &&
                       (selectedFile.new_path?.match(/\.(md|mdx)$/i) ||
                         selectedFile.old_path?.match(/\.(md|mdx)$/i)) && (
-                        <Link
+                        <button
                           className="diff-content__preview-btn"
-                          to={`/diff/${workspaceId}/md/${encodeURIComponent(selectedFile.new_path || '')}`}
                           title="Preview markdown"
+                          disabled={openingPreview}
+                          onClick={async () => {
+                            const filepath = selectedFile.new_path || '';
+                            const route = `/diff/${workspaceId}/md/${encodeURIComponent(filepath)}`;
+                            if (workspaceId) {
+                              setOpeningPreview(true);
+                              try {
+                                await createTab(workspaceId, {
+                                  kind: 'markdown',
+                                  label: filepath.split('/').pop() || filepath,
+                                  route,
+                                  closable: true,
+                                  meta: { filepath },
+                                });
+                                setPendingNavigation({ type: 'tab', workspaceId, tabRoute: route });
+                              } catch {
+                                setOpeningPreview(false);
+                              }
+                            }
+                          }}
                         >
-                          Preview
-                        </Link>
+                          {openingPreview ? <span className="spinner spinner--small" /> : 'Preview'}
+                        </button>
                       )}
                     {/* Image preview: only for non-deleted image files */}
                     {selectedFile.status !== 'deleted' &&

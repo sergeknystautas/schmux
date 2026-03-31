@@ -112,11 +112,22 @@ test.describe.serial('Dismiss conflict resolution tab after completion', () => {
     await page.goto(`/sessions/${sessionId}`);
     await waitForDashboardLive(page);
 
-    // The conflict tab should show with the dismiss button (failed state).
-    // Use exact: true to avoid matching the outer tab wrapper which also
-    // contains "Dismiss conflict resolution" in its accessible name.
+    // Find the resolve-conflict tab from workspace state to get its label.
+    // The close button aria-label is "Close {tab.label}".
+    interface WorkspaceWithTabs {
+      id: string;
+      tabs?: Array<{ id: string; kind: string; label: string; route: string }>;
+    }
+    const workspaces = await fetch(`${BASE_URL}/api/sessions`).then(
+      (r) => r.json() as Promise<WorkspaceWithTabs[]>
+    );
+    const ws = workspaces.find((w) => w.id === workspaceId);
+    const crTab = ws?.tabs?.find((t) => t.kind === 'resolve-conflict');
+    const closeLabel = crTab ? `Close ${crTab.label}` : 'Close Conflict Resolution';
+
+    // The conflict tab should show with the close (X) button (failed state, closable=true).
     const dismissButton = page.getByRole('button', {
-      name: 'Dismiss conflict resolution',
+      name: closeLabel,
       exact: true,
     });
     await expect(dismissButton).toBeVisible({ timeout: 15000 });

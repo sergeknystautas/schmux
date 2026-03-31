@@ -65,7 +65,7 @@ export default function App() {
                           <Route path="/git/:workspaceId" element={<GitGraphPage />} />
                           <Route path="/git/:workspaceId/:commitHash" element={<GitCommitPage />} />
                           <Route
-                            path="/resolve-conflict/:workspaceId"
+                            path="/resolve-conflict/:workspaceId/:tabId"
                             element={<LinearSyncResolveConflictPage />}
                           />
                           <Route path="/spawn" element={<SpawnPage key={location.key} />} />

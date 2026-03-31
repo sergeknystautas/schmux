@@ -28,7 +28,7 @@ export default function GitGraphPage() {
   return (
     <>
       <WorkspaceHeader workspace={workspace} />
-      <SessionTabs sessions={workspace.sessions || []} workspace={workspace} activeGitTab />
+      <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
       <GitHistoryDAG workspaceId={workspaceId} />
     </>
   );

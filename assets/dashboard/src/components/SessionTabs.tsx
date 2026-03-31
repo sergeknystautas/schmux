@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { disposeSession, dismissLinearSyncResolveConflictState, getErrorMessage } from '../lib/api';
+import { disposeSession, closeTab, getErrorMessage } from '../lib/api';
 import {
   formatRelativeTime,
   formatTimestamp,
@@ -19,6 +19,7 @@ import Tooltip from './Tooltip';
 import ActionDropdown from './ActionDropdown';
 import PastebinDropdown from './PastebinDropdown';
 import type { SessionResponse, WorkspaceResponse } from '../lib/types';
+import type { Tab } from '../lib/types.generated';
 import {
   DndContext,
   closestCenter,
@@ -31,6 +32,7 @@ import {
 import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useTabOrder } from '../hooks/useTabOrder';
+import { useAccessoryTabOrder } from '../hooks/useAccessoryTabOrder';
 
 function SortableSessionTab({
   sess,
@@ -122,11 +124,82 @@ function SortableSessionTab({
   );
 }
 
+function SortableAccessoryTab({
+  tab,
+  isActive,
+  badgeContent,
+  onTabClick,
+  onClose,
+}: {
+  tab: Tab;
+  isActive: boolean;
+  badgeContent: React.ReactNode;
+  onTabClick: () => void;
+  onClose?: (e: React.MouseEvent) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: tab.id,
+  });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      className={`session-tab session-tab--diff${isActive ? ' session-tab--active' : ''}${isDragging ? ' session-tab--dragging' : ''}`}
+      onClick={onTabClick}
+      role="button"
+      tabIndex={0}
+      data-tour={`${tab.kind}-tab`}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onTabClick();
+        }
+      }}
+      style={style}
+    >
+      <div className="session-tab__row1">
+        <span className="session-tab__name">
+          {tab.label.length > 20 ? tab.label.slice(0, 17) + '…' : tab.label}
+        </span>
+        {badgeContent}
+        {tab.closable && onClose && (
+          <Tooltip content="Close tab" variant="warning">
+            <button
+              className="btn btn--sm btn--ghost btn--danger session-tab__dispose"
+              onClick={onClose}
+              aria-label={`Close ${tab.label}`}
+            >
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                strokeLinecap="round"
+              >
+                <line x1="4" y1="4" x2="20" y2="20"></line>
+                <line x1="20" y1="4" x2="4" y2="20"></line>
+              </svg>
+            </button>
+          </Tooltip>
+        )}
+      </div>
+    </div>
+  );
+}
+
 type SessionTabsProps = {
   sessions: SessionResponse[];
   currentSessionId?: string;
   workspace?: WorkspaceResponse;
-  activeDiffTab?: boolean;
   activeSpawnTab?: boolean;
   activeGitTab?: boolean;
   activePreviewId?: string;
@@ -138,7 +211,6 @@ export default function SessionTabs({
   sessions,
   currentSessionId,
   workspace,
-  activeDiffTab,
   activeSpawnTab,
   activeGitTab,
   activePreviewId,
@@ -151,12 +223,8 @@ export default function SessionTabs({
   const { alert, confirm } = useModal();
   const { config } = useConfig();
   const { waitForSession } = useSessions();
-  const {
-    linearSyncResolveConflictStates,
-    clearLinearSyncResolveConflictState,
-    workspaceLockStates,
-  } = useSyncState();
-  const { setContext, clearContext } = useKeyboardMode();
+  const { workspaceLockStates, linearSyncResolveConflictStates } = useSyncState();
+  const { setContext, clearContext, registerAction, unregisterAction } = useKeyboardMode();
 
   // Spawn dropdown state
   const [spawnMenuOpen, setSpawnMenuOpen] = useState(false);
@@ -190,6 +258,12 @@ export default function SessionTabs({
   }, []);
 
   const { orderedSessions, reorder, startDrag, endDrag } = useTabOrder(workspace?.id, sessions);
+  const {
+    orderedTabs: orderedAccessoryTabs,
+    reorder: reorderAccessory,
+    startDrag: startAccessoryDrag,
+    endDrag: endAccessoryDrag,
+  } = useAccessoryTabOrder(workspace?.id, workspace?.tabs || []);
   const dragEnabled = isDesktop && !isLocked && !!workspace;
 
   const pointerSensor = useSensor(PointerSensor, {
@@ -209,24 +283,6 @@ export default function SessionTabs({
       endDrag();
     }
   };
-
-  // VCS-specific UI should appear for workspaces with VCS support.
-  // Local workspaces: show for git (default when vcs is omitted).
-  // Remote workspaces: always show (backend handles VCS abstraction).
-  const isRemote = Boolean(workspace?.remote_host_id);
-  const isVCS =
-    isRemote || !workspace?.vcs || workspace.vcs === 'git' || workspace.vcs === 'sapling';
-  const isGit =
-    !workspace?.vcs ||
-    workspace.vcs === 'git' ||
-    workspace.vcs === 'git-worktree' ||
-    workspace.vcs === 'git-clone';
-
-  // Calculate if we should show diff tab
-  const linesAdded = workspace?.lines_added ?? 0;
-  const linesRemoved = workspace?.lines_removed ?? 0;
-  const filesChanged = workspace?.files_changed ?? 0;
-  const hasChanges = filesChanged > 0 || linesAdded > 0 || linesRemoved > 0;
 
   // Calculate spawn menu position
   useEffect(() => {
@@ -332,14 +388,6 @@ export default function SessionTabs({
     }
   }, [isLocked, spawnMenuOpen, pastebinOpen]);
 
-  useEffect(() => {
-    if (!workspace || !isLocked) return;
-    const target = resolveInProgress ? `/resolve-conflict/${workspace.id}` : `/git/${workspace.id}`;
-    if (location.pathname !== target) {
-      navigate(target, { replace: true });
-    }
-  }, [workspace, isLocked, resolveInProgress, location.pathname, navigate]);
-
   // Set keyboard context for the active workspace/session
   useEffect(() => {
     if (!workspace) return;
@@ -353,33 +401,73 @@ export default function SessionTabs({
     };
   }, [workspace?.id, currentSessionId, setContext, clearContext]);
 
-  const handleDiffTabClick = () => {
-    if (workspace) {
-      navigate(`/diff/${workspace.id}`);
-    }
-  };
+  // Register W keyboard action: dispose active session or close active closable accessory tab
+  useEffect(() => {
+    if (!workspace) return;
+    const scope = { type: 'workspace', id: workspace.id } as const;
 
-  const handleGitTabClick = () => {
-    if (workspace) {
-      navigate(`/git/${workspace.id}`);
-    }
-  };
+    const handleCloseTab = async () => {
+      if (!workspace) return;
 
-  const handleResolveConflictTabClick = () => {
-    if (workspace) {
-      navigate(`/resolve-conflict/${workspace.id}`);
-    }
-  };
+      // If a session is active, dispose it (with confirmation)
+      if (currentSessionId) {
+        const sess = sessions.find((s) => s.id === currentSessionId);
+        if (sess?.status === 'disposing') return;
+        const sessionDisplay = sess?.nickname
+          ? `${sess.nickname} (${currentSessionId})`
+          : currentSessionId;
+        const accepted = await confirm(`Dispose session ${sessionDisplay}?`, { danger: true });
+        if (!accepted) return;
+        try {
+          await disposeSession(currentSessionId);
+          success('Session disposed');
+        } catch (err) {
+          alert('Dispose Failed', `Failed to dispose: ${getErrorMessage(err, 'Unknown error')}`);
+        }
+        return;
+      }
+
+      // Otherwise, close the active closable accessory tab
+      const activeTab = (workspace.tabs || []).find(
+        (t) =>
+          t.closable &&
+          (location.pathname === t.route || location.pathname.startsWith(t.route + '/'))
+      );
+      if (!activeTab) return;
+      try {
+        await closeTab(workspace.id, activeTab.id);
+        const firstSession = workspace.sessions?.[0];
+        navigate(firstSession ? `/sessions/${firstSession.id}` : '/');
+      } catch (err) {
+        toastError(`Failed to close tab: ${getErrorMessage(err, 'Unknown error')}`);
+      }
+    };
+
+    registerAction({
+      key: 'w',
+      description: currentSessionId ? 'Dispose session' : 'Close tab',
+      handler: handleCloseTab,
+      scope,
+    });
+
+    return () => unregisterAction('w', false, scope);
+  }, [
+    workspace,
+    currentSessionId,
+    sessions,
+    location.pathname,
+    registerAction,
+    unregisterAction,
+    confirm,
+    success,
+    alert,
+    toastError,
+    navigate,
+  ]);
 
   const handleSpawnTabClick = () => {
     if (workspace) {
       navigate(`/spawn?workspace_id=${workspace.id}`);
-    }
-  };
-
-  const handlePreviewTabClick = (previewId: string) => {
-    if (workspace) {
-      navigate(`/preview/${workspace.id}/${previewId}`);
     }
   };
 
@@ -525,28 +613,43 @@ export default function SessionTabs({
     );
   };
 
-  // Helper to render the diff tab (always shown)
-  const renderDiffTab = () => (
-    <div
-      className={`session-tab session-tab--diff${activeDiffTab ? ' session-tab--active' : ''}${isLocked ? ' session-tab--disabled' : ''}`}
-      onClick={() => !isLocked && handleDiffTabClick()}
-      role="button"
-      tabIndex={isLocked ? -1 : 0}
-      data-tour="diff-tab"
-      onKeyDown={(e) => {
-        if (isLocked) return;
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          handleDiffTabClick();
+  // Compute per-tab derived data for accessory tabs
+  const getAccessoryTabProps = (tab: Tab) => {
+    // A tab is active if the URL matches its route, but only if no other tab
+    // has a longer (more specific) route that also matches.
+    const allTabs = workspace?.tabs || [];
+    const pathMatches = (route: string) =>
+      location.pathname === route || location.pathname.startsWith(route + '/');
+    const hasMoreSpecificMatch =
+      pathMatches(tab.route) &&
+      allTabs.some(
+        (other) =>
+          other.id !== tab.id && pathMatches(other.route) && other.route.length > tab.route.length
+      );
+    const isActive = pathMatches(tab.route) && !hasMoreSpecificMatch;
+
+    const handleClose = tab.closable
+      ? async (event: React.MouseEvent) => {
+          event.stopPropagation();
+          if (!workspace) return;
+          try {
+            await closeTab(workspace.id, tab.id);
+            if (isActive) {
+              const firstSession = workspace.sessions?.[0];
+              navigate(firstSession ? `/sessions/${firstSession.id}` : '/');
+            }
+          } catch (err) {
+            toastError(`Failed to close tab: ${getErrorMessage(err, 'Unknown error')}`);
+          }
         }
-      }}
-      style={isLocked ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
-    >
-      <div className="session-tab__row1">
-        <span className="session-tab__name">
-          {filesChanged} file{filesChanged !== 1 ? 's' : ''} changed
-        </span>
-        {hasChanges && (
+      : undefined;
+
+    let badgeContent: React.ReactNode = null;
+    if (tab.kind === 'diff') {
+      const linesAdded = workspace?.lines_added ?? 0;
+      const linesRemoved = workspace?.lines_removed ?? 0;
+      if (linesAdded > 0 || linesRemoved > 0) {
+        badgeContent = (
           <span className="session-tab__diff-stats">
             {linesAdded > 0 && <span className="text-success">+{linesAdded}</span>}
             {linesRemoved > 0 && (
@@ -560,135 +663,64 @@ export default function SessionTabs({
               </span>
             )}
           </span>
-        )}
-      </div>
-    </div>
-  );
+        );
+      }
+    } else if (tab.kind === 'preview') {
+      const status = tab.meta?.status;
+      badgeContent = (
+        <span
+          style={{
+            marginLeft: 8,
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            backgroundColor:
+              status === 'degraded' ? 'var(--color-warning)' : 'var(--color-success)',
+            flexShrink: 0,
+          }}
+        />
+      );
+    } else if (tab.kind === 'resolve-conflict' && tab.meta?.status === 'in_progress') {
+      badgeContent = (
+        <div
+          className="spinner spinner--small"
+          style={{ width: 10, height: 10, borderWidth: 2, flexShrink: 0, marginLeft: 6 }}
+        />
+      );
+    }
 
-  // Helper to render the git tab
-  const renderGitTab = () => (
-    <div
-      className={`session-tab session-tab--diff${activeGitTab ? ' session-tab--active' : ''}${isLocked ? ' session-tab--disabled' : ''}`}
-      onClick={() => !isLocked && handleGitTabClick()}
-      role="button"
-      tabIndex={isLocked ? -1 : 0}
-      data-tour="git-tab"
-      onKeyDown={(e) => {
-        if (isLocked) return;
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          handleGitTabClick();
-        }
-      }}
-      style={isLocked ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
-    >
-      <div className="session-tab__row1">
-        <span className="session-tab__name">commit graph</span>
-      </div>
-    </div>
-  );
-
-  const renderPreviewTab = (preview: NonNullable<WorkspaceResponse['previews']>[number]) => {
-    const isActive = activePreviewId === preview.id;
-    const disabled = isLocked;
-    const statusTitle =
-      preview.status === 'degraded'
-        ? preview.last_error || 'Upstream server unavailable'
-        : `Preview ${preview.target_port}`;
-    return (
-      <div
-        key={preview.id}
-        className={`session-tab session-tab--diff${isActive ? ' session-tab--active' : ''}${disabled ? ' session-tab--disabled' : ''}`}
-        onClick={() => !disabled && handlePreviewTabClick(preview.id)}
-        role="button"
-        tabIndex={disabled ? -1 : 0}
-        title={statusTitle}
-        onKeyDown={(e) => {
-          if (disabled) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            handlePreviewTabClick(preview.id);
-          }
-        }}
-        style={disabled ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
-      >
-        <div className="session-tab__row1">
-          <span className="session-tab__name">web:{preview.target_port}</span>
-          <span
-            style={{
-              marginLeft: 8,
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              backgroundColor:
-                preview.status === 'degraded' ? 'var(--color-warning)' : 'var(--color-success)',
-              flexShrink: 0,
-            }}
-          />
-        </div>
-      </div>
-    );
+    return { isActive, badgeContent, handleClose, handleClick: () => navigate(tab.route) };
   };
 
-  // Helper to render the resolve conflict tab (only when state exists)
-  const renderResolveConflictTab = () => {
-    if (!crState && !activeLinearSyncResolveConflictTab) return null;
-    const hash = crState?.hash ? crState.hash.substring(0, 7) : '...';
-    const isActive = crState ? crState.status === 'in_progress' : true;
-    const isFailed = crState?.status === 'failed';
-    const label = isActive
-      ? 'Resolving conflict on'
-      : isFailed
-        ? 'Resolve conflict failed on'
-        : 'Resolve conflict on';
-
-    const handleDismissTab = async (event: React.MouseEvent) => {
-      event.stopPropagation();
-      if (!workspace) return;
-      clearLinearSyncResolveConflictState(workspace.id);
-      const firstSession = workspace.sessions?.[0];
-      navigate(firstSession ? `/sessions/${firstSession.id}` : '/');
-      try {
-        await dismissLinearSyncResolveConflictState(workspace.id);
-      } catch {
-        // State will be cleared via next WS broadcast
-      }
-    };
-
+  // Render an accessory tab without sortable wrapping (used in non-DnD mode)
+  const renderAccessoryTab = (tab: Tab) => {
+    const { isActive, badgeContent, handleClose, handleClick } = getAccessoryTabProps(tab);
     return (
       <div
-        className={`session-tab session-tab--diff${activeLinearSyncResolveConflictTab ? ' session-tab--active' : ''}`}
-        onClick={handleResolveConflictTabClick}
+        key={tab.id}
+        className={`session-tab session-tab--diff${isActive ? ' session-tab--active' : ''}`}
+        onClick={handleClick}
         role="button"
         tabIndex={0}
+        data-tour={`${tab.kind}-tab`}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            handleResolveConflictTabClick();
+            handleClick();
           }
         }}
       >
         <div className="session-tab__row1">
-          <span
-            className="session-tab__name"
-            style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}
-          >
-            {isActive && (
-              <div
-                className="spinner spinner--small"
-                style={{ width: 10, height: 10, borderWidth: 2, flexShrink: 0 }}
-              />
-            )}
-            <span className="truncate">
-              {label} {hash}
-            </span>
+          <span className="session-tab__name">
+            {tab.label.length > 20 ? tab.label.slice(0, 17) + '…' : tab.label}
           </span>
-          {!isActive && (
-            <Tooltip content="Dismiss" variant="warning">
+          {badgeContent}
+          {tab.closable && handleClose && (
+            <Tooltip content="Close tab" variant="warning">
               <button
                 className="btn btn--sm btn--ghost btn--danger session-tab__dispose"
-                onClick={handleDismissTab}
-                aria-label="Dismiss conflict resolution"
+                onClick={handleClose}
+                aria-label={`Close ${tab.label}`}
               >
                 <svg
                   width="10"
@@ -861,13 +893,43 @@ export default function SessionTabs({
 
       {/* Accessory tabs: on mobile, CSS order moves these below the content pane */}
       <div className="session-tabs__accessory">
-        {(workspace?.previews || []).map((preview) => renderPreviewTab(preview))}
-
-        {isGit && renderResolveConflictTab()}
-
-        {isGit && renderDiffTab()}
-
-        {isGit && renderGitTab()}
+        {dragEnabled ? (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={() => startAccessoryDrag()}
+            onDragEnd={(event: DragEndEvent) => {
+              const { active, over } = event;
+              if (over && active.id !== over.id) {
+                reorderAccessory(String(active.id), String(over.id));
+              } else {
+                endAccessoryDrag();
+              }
+            }}
+          >
+            <SortableContext
+              items={orderedAccessoryTabs.map((t) => t.id)}
+              strategy={horizontalListSortingStrategy}
+            >
+              {orderedAccessoryTabs.map((tab) => {
+                const { isActive, badgeContent, handleClose, handleClick } =
+                  getAccessoryTabProps(tab);
+                return (
+                  <SortableAccessoryTab
+                    key={tab.id}
+                    tab={tab}
+                    isActive={isActive}
+                    badgeContent={badgeContent}
+                    onTabClick={handleClick}
+                    onClose={handleClose}
+                  />
+                );
+              })}
+            </SortableContext>
+          </DndContext>
+        ) : (
+          orderedAccessoryTabs.map((tab) => renderAccessoryTab(tab))
+        )}
       </div>
     </div>
   );

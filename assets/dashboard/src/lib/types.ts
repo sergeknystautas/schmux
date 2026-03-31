@@ -52,6 +52,7 @@ export interface WorkspaceResponse {
   local_unique_commits?: number; // commits in local not in remote
   remote_unique_commits?: number; // commits in remote not in local
   previews?: WorkspacePreview[];
+  tabs?: Tab[];
   status?: string;
 }
 
@@ -113,7 +114,7 @@ export interface BuiltinQuickLaunchCookbook {
   prompt: string;
 }
 
-import type { PullRequest } from './types.generated';
+import type { PullRequest, Tab } from './types.generated';
 
 export type {
   ConfigResponse,
@@ -129,6 +130,7 @@ export type {
   Notifications,
   NotificationsUpdate,
   RunnerInfo,
+  Tab,
   TLSValidateResponse,
 } from './types.generated';
 
@@ -294,7 +296,7 @@ export type ApiError = Error & { isConflict?: boolean };
 export type PendingNavigation =
   | { type: 'session'; id: string }
   | { type: 'workspace'; id: string }
-  | { type: 'preview'; workspaceId: string; previewId: string };
+  | { type: 'tab'; workspaceId: string; tabRoute: string };
 
 export interface LinearSyncResponse {
   success: boolean;
@@ -319,6 +321,7 @@ export interface ConflictResolution {
 export interface LinearSyncResolveConflictResponse {
   started: boolean;
   workspace_id?: string;
+  tab_id?: string;
   message?: string;
 }
 

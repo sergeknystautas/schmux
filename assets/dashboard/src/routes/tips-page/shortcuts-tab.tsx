@@ -78,6 +78,12 @@ export function ShortcutsTab() {
           </tr>
           <tr>
             <td>
+              <span className={styles.keyCombo}>W</span>
+            </td>
+            <td>Dispose active session or close active tab</td>
+          </tr>
+          <tr>
+            <td>
               <span className={styles.keyCombo}>Shift+W</span>
             </td>
             <td>Dispose workspace (requires confirmation)</td>
@@ -97,9 +103,9 @@ export function ShortcutsTab() {
         <tbody>
           <tr>
             <td>
-              <span className={styles.keyCombo}>W</span>
+              <span className={styles.keyCombo}>↓</span>
             </td>
-            <td>Dispose session (requires confirmation)</td>
+            <td>Resume / scroll to bottom</td>
           </tr>
         </tbody>
       </table>

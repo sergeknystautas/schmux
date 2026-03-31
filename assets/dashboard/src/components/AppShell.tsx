@@ -26,11 +26,13 @@ import {
   isRemoteClient,
 } from '../lib/utils';
 import { sortSessionsByTabOrder, TAB_ORDER_CHANGED_EVENT } from '../lib/tabOrder';
+import { sortTabsByOrder } from '../lib/accessoryTabOrder';
 import { navigateToWorkspace, findNextWorkspaceWithSessions } from '../lib/navigation';
 import { useModal } from './ModalProvider';
 import { useToast } from './ToastProvider';
 import {
   disposeWorkspace,
+  closeTab,
   getErrorMessage,
   openVSCode,
   reconnectRemoteHost,
@@ -269,27 +271,30 @@ export default function AppShell() {
     }
   }, [connected, devRebuilding]);
 
-  // Check if we're on a workspace-scoped page
-  const diffMatch = location.pathname.match(/^\/diff\/(.+)$/);
-  const previewMatch = location.pathname.match(/^\/preview\/([^\/]+)\/([^\/]+)$/);
-  const resolveConflictMatch = location.pathname.match(/^\/resolve-conflict\/([^\/]+)$/);
-  const gitMatch = location.pathname.match(/^\/git\/([^\/]+)$/);
+  // Check if we're on a session detail page
+  const sessionMatch = location.pathname.match(/^\/sessions\/([^\/]+)$/);
+  const currentSession = sessionMatch && sessionId ? sessionsById[sessionId] : null;
+
+  // Check if we're on a workspace-scoped tab page
   const spawnWorkspaceId =
     location.pathname === '/spawn'
       ? new URLSearchParams(location.search).get('workspace_id')
       : null;
-  const activeWorkspaceId =
-    diffMatch?.[1] ??
-    previewMatch?.[1] ??
-    resolveConflictMatch?.[1] ??
-    gitMatch?.[1] ??
-    spawnWorkspaceId ??
-    null;
 
-  // Check if we're on a session detail page and get workspace info
-  const sessionMatch = location.pathname.match(/^\/sessions\/([^\/]+)$/);
-  const currentSession = sessionMatch && sessionId ? sessionsById[sessionId] : null;
-  const currentWorkspaceId = currentSession?.workspace_id || activeWorkspaceId || previewMatch?.[1];
+  const activeWorkspaceId = (() => {
+    if (spawnWorkspaceId) return spawnWorkspaceId;
+    if (!workspaces) return null;
+    for (const ws of workspaces) {
+      for (const tab of ws.tabs || []) {
+        if (location.pathname === tab.route || location.pathname.startsWith(tab.route + '/')) {
+          return ws.id;
+        }
+      }
+    }
+    return null;
+  })();
+
+  const currentWorkspaceId = currentSession?.workspace_id || activeWorkspaceId;
   const currentWorkspace = currentWorkspaceId
     ? workspaces?.find((ws) => ws.id === currentWorkspaceId)
     : null;
@@ -405,15 +410,12 @@ export default function AppShell() {
         if (!context.workspaceId) return;
         const workspace = workspaces?.find((ws) => ws.id === context.workspaceId);
         if (!workspace) return;
-        const isVCS = !workspace.vcs || workspace.vcs === 'git';
-
         const tabs: string[] = sortSessionsByTabOrder(workspace.id, workspace.sessions || []).map(
           (s) => `/sessions/${s.id}`
         );
-        (workspace.previews || []).forEach((p) => tabs.push(`/preview/${workspace.id}/${p.id}`));
-        if (isVCS) {
-          tabs.push(`/diff/${workspace.id}`);
-          tabs.push(`/git/${workspace.id}`);
+        // Add accessory tabs from server state
+        for (const tab of sortTabsByOrder(workspace.id, workspace.tabs || [])) {
+          tabs.push(tab.route);
         }
         if (tabs.length <= 1) return;
 

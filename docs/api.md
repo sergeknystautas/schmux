@@ -217,6 +217,17 @@ Response:
         "proxy_port": 53000,
         "status": "ready"
       }
+    ],
+    "tabs": [
+      {
+        "id": "tab-uuid",
+        "kind": "markdown",
+        "label": "README.md",
+        "route": "/diff/{workspaceId}/md/README.md",
+        "closable": true,
+        "meta": { "filepath": "README.md" },
+        "created_at": "2025-01-15T10:00:00Z"
+      }
     ]
   }
 ]
@@ -230,6 +241,7 @@ Notes:
 - `nudge_state` values: `Working`, `Idle`, `Needs Input`, `Needs Attention`, `Needs Feature Clarification`, `Completed`, `Error`. State priority prevents lower-tier states from overwriting higher-tier ones: tier 0 (Working, Idle) < tier 1 (Needs Input, Needs Attention) < tier 2 (Completed, Error). Only `Working` can reset a terminal state (new turn started).
 - Workspace `status` field: `provisioning` (being created), `running` (ready), `failed` (creation failed), `disposing` (being torn down). Omitted for pre-existing workspaces (treat as `running`).
 - Session `status` field includes `disposing` during teardown. Dispose endpoints return 200 OK if the item is already in `disposing` status (idempotent).
+- Workspace `tabs` array contains Tab objects with fields: `id` (UUID), `kind` (tab type), `label`, `route`, `closable`, `meta` (type-specific metadata), and `created_at`.
 - Unrecognized workspace sub-routes return 404.
 
 ### POST /api/workspaces/scan
@@ -300,6 +312,48 @@ Response:
 ```json
 { "status": "ok" }
 ```
+
+### POST /api/workspaces/{workspaceId}/tabs
+
+Create a workspace tab. Only certain kinds (`markdown`, `commit`) are allowed for client creation. Server-managed kinds (`diff`, `git`, `preview`, `resolve-conflict`) are created automatically.
+
+Request:
+
+```json
+{
+  "kind": "markdown",
+  "label": "README.md",
+  "route": "/diff/{workspaceId}/md/README.md",
+  "closable": true,
+  "meta": { "filepath": "README.md" }
+}
+```
+
+Response: `200 OK`
+
+```json
+{ "id": "generated-uuid", "status": "ok" }
+```
+
+Errors:
+
+- 400: "invalid request body", "unsupported tab kind"
+- 404: "workspace not found"
+
+### DELETE /api/workspaces/{workspaceId}/tabs/{tabId}
+
+Close a workspace tab. Only closable tabs can be deleted. For preview tabs, cascades to preview proxy teardown.
+
+Response: `200 OK`
+
+```json
+{ "status": "ok" }
+```
+
+Errors:
+
+- 400: "tab is not closable"
+- 404: "workspace not found", "tab not found"
 
 ### POST /api/spawn
 

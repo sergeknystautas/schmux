@@ -96,7 +96,7 @@ export default function GitCommitPage() {
         {workspace && (
           <>
             <WorkspaceHeader workspace={workspace} />
-            <SessionTabs sessions={workspace.sessions || []} workspace={workspace} activeGitTab />
+            <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
           </>
         )}
         <div className="empty-state">
@@ -117,7 +117,7 @@ export default function GitCommitPage() {
         {workspace && (
           <>
             <WorkspaceHeader workspace={workspace} />
-            <SessionTabs sessions={workspace.sessions || []} workspace={workspace} activeGitTab />
+            <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
           </>
         )}
         <div className="diff-page">
@@ -135,7 +135,7 @@ export default function GitCommitPage() {
       {workspace && (
         <>
           <WorkspaceHeader workspace={workspace} />
-          <SessionTabs sessions={workspace.sessions || []} workspace={workspace} activeGitTab />
+          <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
         </>
       )}
 
@@ -143,10 +143,7 @@ export default function GitCommitPage() {
         {/* Commit header */}
         <div className="commit-header">
           <div className="commit-header__nav">
-            <Link to={`/git/${workspaceId}`} className="commit-header__back">
-              Graph
-            </Link>
-            <span className="commit-header__hash">{commitData?.short_hash}</span>
+            <span className="commit-header__hash">Commit {commitData?.short_hash}</span>
             {commitData?.is_merge && (
               <span className="badge badge--neutral commit-header__merge-badge">
                 Merge commit (diff vs first parent)

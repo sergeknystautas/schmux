@@ -33,6 +33,12 @@ type StateStore interface {
 	UpdateOverlayManifest(workspaceID string, manifest map[string]string)
 	UpdateOverlayManifestEntry(workspaceID, relPath, hash string)
 
+	// Tab operations
+	GetWorkspaceTabs(workspaceID string) []Tab
+	AddTab(workspaceID string, tab Tab) error
+	UpdateTab(workspaceID string, tab Tab) error
+	RemoveTab(workspaceID, tabID string) error
+
 	// Preview operations
 	GetPreviews() []WorkspacePreview
 	GetWorkspacePreviews(workspaceID string) []WorkspacePreview

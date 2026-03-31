@@ -7,12 +7,14 @@ import SessionTabs from '../components/SessionTabs';
 import LinearSyncResolveConflictProgress from '../components/LinearSyncResolveConflictProgress';
 
 export default function LinearSyncResolveConflictPage() {
-  const { workspaceId } = useParams();
+  const { workspaceId, tabId } = useParams();
   const navigate = useNavigate();
   const { workspaces } = useSessions();
   const { linearSyncResolveConflictStates } = useSyncState();
 
   const workspace = workspaces?.find((ws) => ws.id === workspaceId);
+  const tab = workspace?.tabs?.find((t) => t.id === tabId);
+  const conflictHash = tab?.meta?.hash;
   const crState = workspaceId ? linearSyncResolveConflictStates[workspaceId] : undefined;
 
   // Navigate home if workspace was disposed
@@ -34,11 +36,7 @@ export default function LinearSyncResolveConflictPage() {
   return (
     <>
       <WorkspaceHeader workspace={workspace} />
-      <SessionTabs
-        sessions={workspace.sessions || []}
-        workspace={workspace}
-        activeLinearSyncResolveConflictTab
-      />
+      <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
       <div className="spawn-content">
         {crState ? (
           <LinearSyncResolveConflictProgress workspaceId={workspaceId} />

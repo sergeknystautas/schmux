@@ -442,6 +442,7 @@ func (s *Server) handleRemoteDiff(w http.ResponseWriter, r *http.Request, ws sta
 	}
 }
 
+// ensureMarkdownTabs creates markdown accessory tabs for every .md/.mdx file
 // handleOpenVSCode opens VS Code for the specified workspace.
 //
 // Two modes controlled by ?mode= query parameter:

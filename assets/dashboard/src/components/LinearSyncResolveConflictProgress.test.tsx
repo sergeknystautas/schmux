@@ -115,27 +115,26 @@ describe('LinearSyncResolveConflictProgress', () => {
     expect(screen.getByText('Resolving conflicts...')).toBeInTheDocument();
   });
 
-  it('auto-dismisses when status is done and no more commits behind', () => {
+  it('does NOT auto-dismiss when status is done and no more commits behind', () => {
     const state = makeState({ status: 'done' });
     mockLinearSyncResolveConflictStates = { 'ws-1': state };
     mockWorkspaces = [makeWorkspace({ behind: 0 })];
 
     render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
 
-    expect(clearLinearSyncResolveConflictState).toHaveBeenCalledWith('ws-1');
-    expect(navigate).toHaveBeenCalledWith('/sessions/session-1');
-    expect(mockDismissLinearSyncResolveConflictState).toHaveBeenCalledWith('ws-1');
+    expect(clearLinearSyncResolveConflictState).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
   });
 
-  it('auto-dismisses to / when done with no sessions', () => {
+  it('does NOT auto-dismiss when done with no sessions', () => {
     const state = makeState({ status: 'done' });
     mockLinearSyncResolveConflictStates = { 'ws-1': state };
     mockWorkspaces = [makeWorkspace({ behind: 0, sessions: [], session_count: 0 })];
 
     render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
 
-    expect(clearLinearSyncResolveConflictState).toHaveBeenCalledWith('ws-1');
-    expect(navigate).toHaveBeenCalledWith('/');
+    expect(clearLinearSyncResolveConflictState).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it('does NOT auto-dismiss when done but has more commits behind', () => {

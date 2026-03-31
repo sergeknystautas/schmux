@@ -226,6 +226,42 @@ func TestBroadcastWorkspaceLocked(t *testing.T) {
 	}
 }
 
+func TestBroadcast_IncludesTabs(t *testing.T) {
+	srv, _, st := newTestServer(t)
+
+	st.AddWorkspace(state.Workspace{
+		ID:     "ws-tab",
+		Repo:   "https://example.com/repo.git",
+		Branch: "main",
+		Path:   t.TempDir(),
+	})
+
+	conn, cleanup := dialTestDashboardWS(t, srv)
+	defer cleanup()
+
+	msg := readDashboardMsg(t, conn, 2*time.Second)
+	if msg["type"] != "sessions" {
+		t.Fatalf("expected sessions message, got %s", msg["type"])
+	}
+
+	workspaces, ok := msg["workspaces"].([]interface{})
+	if !ok || len(workspaces) == 0 {
+		t.Fatal("no workspaces in broadcast")
+	}
+	ws := workspaces[0].(map[string]interface{})
+	tabs, ok := ws["tabs"].([]interface{})
+	if !ok {
+		t.Fatal("tabs field missing from workspace response")
+	}
+	if len(tabs) < 2 {
+		t.Fatalf("expected at least 2 tabs (diff + git), got %d", len(tabs))
+	}
+	firstTab := tabs[0].(map[string]interface{})
+	if firstTab["kind"] != "diff" {
+		t.Errorf("first tab kind = %q, want diff", firstTab["kind"])
+	}
+}
+
 func TestBroadcastIncludesWorkspaceStatus(t *testing.T) {
 	srv, _, st := newTestServer(t)
 

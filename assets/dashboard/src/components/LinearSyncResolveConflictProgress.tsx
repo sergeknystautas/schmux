@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { dismissLinearSyncResolveConflictState, getGitGraph } from '../lib/api';
+import { getGitGraph } from '../lib/api';
 import { useSessions } from '../contexts/SessionsContext';
 import { useSyncState } from '../contexts/SyncContext';
 import { useSync } from '../hooks/useSync';
@@ -173,32 +172,14 @@ export default function LinearSyncResolveConflictProgress({
   workspaceId,
 }: LinearSyncResolveConflictProgressProps) {
   const { workspaces } = useSessions();
-  const { linearSyncResolveConflictStates, clearLinearSyncResolveConflictState } = useSyncState();
-  const navigate = useNavigate();
+  const { linearSyncResolveConflictStates } = useSyncState();
   const state: LinearSyncResolveConflictStatePayload | undefined =
     linearSyncResolveConflictStates[workspaceId];
   const [continuing, setContinuing] = useState(false);
   const { handleLinearSyncFromMain } = useSync();
   const bottomRef = useRef<HTMLDivElement>(null);
-
-  // Auto-dismiss when resolution completes and there are no more commits to sync
   const workspace = workspaces?.find((ws) => ws.id === workspaceId);
   const hasMoreCommits = (workspace?.behind ?? 0) > 0;
-  useEffect(() => {
-    if (state?.status === 'done' && !hasMoreCommits) {
-      clearLinearSyncResolveConflictState(workspaceId);
-      const firstSession = workspace?.sessions?.[0];
-      navigate(firstSession ? `/sessions/${firstSession.id}` : '/');
-      dismissLinearSyncResolveConflictState(workspaceId).catch(() => {});
-    }
-  }, [
-    state?.status,
-    hasMoreCommits,
-    workspaceId,
-    clearLinearSyncResolveConflictState,
-    navigate,
-    workspace?.sessions,
-  ]);
 
   // Auto-scroll to bottom as new steps arrive or existing steps update
   useEffect(() => {

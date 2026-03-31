@@ -420,22 +420,6 @@ export default function SessionDetailPage() {
     }
   }, [sessionId, sessionData?.nickname, confirm, success, alert]);
 
-  // Register keyboard shortcut for dispose (W key)
-  useEffect(() => {
-    if (!sessionId) return;
-    const scope = { type: 'session', id: sessionId } as const;
-    const action = {
-      key: 'w',
-      description: 'Dispose session',
-      handler: handleDispose,
-      scope,
-    };
-
-    registerAction(action);
-
-    return () => unregisterAction('w', false, scope);
-  }, [registerAction, unregisterAction, handleDispose, sessionId]);
-
   // Register keyboard shortcut for resume/scroll to bottom (Down arrow)
   useEffect(() => {
     if (!sessionId) return;

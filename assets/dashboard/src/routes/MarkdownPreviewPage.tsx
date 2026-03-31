@@ -58,7 +58,7 @@ export default function MarkdownPreviewPage() {
         {workspace && (
           <>
             <WorkspaceHeader workspace={workspace} />
-            <SessionTabs sessions={workspace.sessions || []} workspace={workspace} activeDiffTab />
+            <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
           </>
         )}
         <div className="diff-page">
@@ -77,7 +77,7 @@ export default function MarkdownPreviewPage() {
         {workspace && (
           <>
             <WorkspaceHeader workspace={workspace} />
-            <SessionTabs sessions={workspace.sessions || []} workspace={workspace} activeDiffTab />
+            <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
           </>
         )}
         <div className="diff-page">
@@ -99,7 +99,7 @@ export default function MarkdownPreviewPage() {
       {workspace && (
         <>
           <WorkspaceHeader workspace={workspace} />
-          <SessionTabs sessions={workspace.sessions || []} workspace={workspace} activeDiffTab />
+          <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
         </>
       )}
 
@@ -116,9 +116,6 @@ export default function MarkdownPreviewPage() {
           <div className="diff-content__header">
             <h2 className="diff-content__title">
               {selectedFile.new_path || selectedFile.old_path}
-              <Link to={`/diff/${workspaceId}`} className="diff-content__preview-btn">
-                Back
-              </Link>
             </h2>
           </div>
           <div className="diff-viewer-wrapper">

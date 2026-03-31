@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/session"
+	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
@@ -367,8 +369,24 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 			})
 			return
 		}
-		// Auto-clear completed/failed state
+		// Auto-clear completed/failed state and its tab
 		s.deleteLinearSyncResolveConflictState(workspaceID)
+		s.removeResolveConflictTab(workspaceID)
+	}
+
+	// Create the server-managed tab for this conflict resolution session.
+	tabID := uuid.NewString()
+	crTab := state.Tab{
+		ID:        tabID,
+		Kind:      "resolve-conflict",
+		Label:     "Conflict Resolution",
+		Route:     fmt.Sprintf("/resolve-conflict/%s/%s", workspaceID, tabID),
+		Closable:  false,
+		Meta:      map[string]string{"status": "in_progress"},
+		CreatedAt: time.Now(),
+	}
+	if err := s.state.AddTab(workspaceID, crTab); err != nil {
+		logging.Sub(s.logger, "workspace").Warn("linear-sync-resolve-conflict: failed to add tab", "err", err)
 	}
 
 	// Create state and insert before launching goroutine
@@ -398,6 +416,7 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 				logging.Sub(s.logger, "workspace").Error("linear-sync-resolve-conflict PANIC", "err", r)
 				s.cleanupCRTrackers(crState)
 				crState.Finish("failed", fmt.Sprintf("Internal error: %v", r), nil)
+				s.finalizeResolveConflictTab(workspaceID, tabID, "", "failed")
 				go s.BroadcastSessions()
 			}
 		}()
@@ -430,6 +449,12 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 
 			if step.Hash != "" {
 				crState.SetHash(step.Hash, step.HashMessage)
+				// Update tab label to include the short hash for user context
+				shortHash := step.Hash
+				if len(shortHash) > 7 {
+					shortHash = shortHash[:7]
+				}
+				s.updateResolveConflictTab(workspaceID, tabID, "Conflict "+shortHash, step.Hash, "in_progress")
 			}
 			stepPayload := LinearSyncResolveConflictStep{
 				Action:             step.Action,
@@ -481,6 +506,7 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 		if err != nil {
 			crLog.Error("linear-sync-resolve-conflict failed", "workspace_id", workspaceID, "err", err)
 			crState.Finish("failed", fmt.Sprintf("Failed to resolve conflict: %v", err), nil)
+			s.finalizeResolveConflictTab(workspaceID, tabID, crState.Hash, "failed")
 		} else if result.Success {
 			var resolutions []LinearSyncResolveConflictResolution
 			for _, r := range result.Resolutions {
@@ -495,6 +521,7 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 			}
 			crState.Hash = result.Hash
 			crState.Finish("done", result.Message, resolutions)
+			s.finalizeResolveConflictTab(workspaceID, tabID, result.Hash, "done")
 
 			// Clear ConflictOnBranch on successful resolution
 			if ws, found := s.state.GetWorkspace(workspaceID); found {
@@ -521,6 +548,7 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 			}
 			crState.Hash = result.Hash
 			crState.Finish("failed", result.Message, resolutions)
+			s.finalizeResolveConflictTab(workspaceID, tabID, result.Hash, "failed")
 		}
 
 		crLog.Info("linear-sync-resolve-conflict done", "workspace_id", workspaceID, "status", crState.Status)
@@ -533,6 +561,7 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"started":      true,
 		"workspace_id": workspaceID,
+		"tab_id":       tabID,
 	}); err != nil {
 		s.logger.Error("failed to encode response", "handler", "resolve-conflict", "err", err)
 	}
@@ -561,7 +590,60 @@ func (s *Server) handleDeleteLinearSyncResolveConflictState(w http.ResponseWrite
 	}
 
 	s.deleteLinearSyncResolveConflictState(workspaceID)
+	s.removeResolveConflictTab(workspaceID)
 	go s.BroadcastSessions()
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// updateResolveConflictTab updates the label and meta of the resolve-conflict tab.
+func (s *Server) updateResolveConflictTab(workspaceID, tabID, label, hash, status string) {
+	tabs := s.state.GetWorkspaceTabs(workspaceID)
+	for _, t := range tabs {
+		if t.ID == tabID {
+			t.Label = label
+			t.Meta = map[string]string{"hash": hash, "status": status}
+			if err := s.state.UpdateTab(workspaceID, t); err != nil {
+				logging.Sub(s.logger, "workspace").Warn("linear-sync-resolve-conflict: failed to update tab", "err", err)
+			}
+			return
+		}
+	}
+}
+
+// finalizeResolveConflictTab makes the resolve-conflict tab closable and updates its status.
+func (s *Server) finalizeResolveConflictTab(workspaceID, tabID, hash, status string) {
+	tabs := s.state.GetWorkspaceTabs(workspaceID)
+	for _, t := range tabs {
+		if t.ID == tabID {
+			// Update label to include short hash if available
+			if hash != "" {
+				shortHash := hash
+				if len(shortHash) > 7 {
+					shortHash = shortHash[:7]
+				}
+				t.Label = "Conflict " + shortHash
+			}
+			t.Closable = true
+			t.Meta = map[string]string{"hash": hash, "status": status}
+			if err := s.state.UpdateTab(workspaceID, t); err != nil {
+				logging.Sub(s.logger, "workspace").Warn("linear-sync-resolve-conflict: failed to finalize tab", "err", err)
+			}
+			s.state.Save() //nolint:errcheck
+			return
+		}
+	}
+}
+
+// removeResolveConflictTab removes all resolve-conflict tabs from the workspace.
+func (s *Server) removeResolveConflictTab(workspaceID string) {
+	tabs := s.state.GetWorkspaceTabs(workspaceID)
+	for _, t := range tabs {
+		if t.Kind == "resolve-conflict" {
+			if err := s.state.RemoveTab(workspaceID, t.ID); err != nil {
+				logging.Sub(s.logger, "workspace").Warn("linear-sync-resolve-conflict: failed to remove tab", "err", err)
+			}
+		}
+	}
+	s.state.Save() //nolint:errcheck
 }

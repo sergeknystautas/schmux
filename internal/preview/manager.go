@@ -178,6 +178,19 @@ func (m *Manager) CreateOrGet(ctx context.Context, ws state.Workspace, targetHos
 		_ = m.state.Save()
 		return state.WorkspacePreview{}, false, err
 	}
+
+	// Create a corresponding accessory tab for this preview.
+	previewTab := state.Tab{
+		ID:        "sys-preview-" + preview.ID,
+		Kind:      "preview",
+		Label:     fmt.Sprintf("web:%d", preview.TargetPort),
+		Route:     fmt.Sprintf("/preview/%s/%s", ws.ID, preview.ID),
+		Closable:  true,
+		Meta:      map[string]string{"preview_id": preview.ID},
+		CreatedAt: preview.CreatedAt,
+	}
+	_ = m.state.AddTab(ws.ID, previewTab)
+
 	return result, true, nil
 }
 
@@ -215,6 +228,8 @@ func (m *Manager) Delete(workspaceID, previewID string) error {
 	if err := m.state.RemovePreview(previewID); err != nil {
 		return err
 	}
+	// Remove the corresponding accessory tab.
+	_ = m.state.RemoveTab(workspaceID, "sys-preview-"+previewID)
 	return m.state.Save()
 }
 

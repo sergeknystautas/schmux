@@ -91,11 +91,7 @@ export default function PreviewPage() {
   return (
     <>
       <WorkspaceHeader workspace={workspace} />
-      <SessionTabs
-        sessions={workspace.sessions || []}
-        workspace={workspace}
-        activePreviewId={preview?.id}
-      />
+      <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
       <div
         style={{
           flex: 1,

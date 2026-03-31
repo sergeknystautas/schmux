@@ -559,6 +559,16 @@ export interface TLSValidateResponse {
   error?: string;
 }
 
+export interface Tab {
+  id: string;
+  kind: string;
+  label: string;
+  route: string;
+  closable: boolean;
+  meta?: Record<string, string>;
+  created_at: string;
+}
+
 export interface UpdateSpawnEntryRequest {
   name?: string;
   command?: string;

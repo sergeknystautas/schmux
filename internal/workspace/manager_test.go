@@ -733,6 +733,20 @@ func (m *mockStateStore) GetWorkspacesByRemoteHostID(hostID string) []state.Work
 	return m.state.GetWorkspacesByRemoteHostID(hostID)
 }
 
+// Tab methods
+func (m *mockStateStore) GetWorkspaceTabs(workspaceID string) []state.Tab {
+	return m.state.GetWorkspaceTabs(workspaceID)
+}
+func (m *mockStateStore) AddTab(workspaceID string, tab state.Tab) error {
+	return m.state.AddTab(workspaceID, tab)
+}
+func (m *mockStateStore) UpdateTab(workspaceID string, tab state.Tab) error {
+	return m.state.UpdateTab(workspaceID, tab)
+}
+func (m *mockStateStore) RemoveTab(workspaceID, tabID string) error {
+	return m.state.RemoveTab(workspaceID, tabID)
+}
+
 func (m *mockStateStore) Save() error {
 	if m.failSave {
 		return fmt.Errorf("mock state save failure")

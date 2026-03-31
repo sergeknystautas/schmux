@@ -2539,6 +2539,9 @@ body {
   display: inline-flex;
   align-items: center;
   flex: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
 }
 
 .session-tab__diff-stats {

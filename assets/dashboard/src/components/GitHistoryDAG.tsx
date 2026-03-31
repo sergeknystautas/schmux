@@ -10,6 +10,7 @@ import {
   spawnCommitSession,
   pushToBranch,
   getConfig,
+  createTab,
 } from '../lib/api';
 import { computeLayout, GRAPH_COLOR, HIGHLIGHT_COLOR, ROW_HEIGHT } from '../lib/gitGraphLayout';
 import type { GitGraphLayout, LayoutNode, LayoutEdge, LaneLine } from '../lib/gitGraphLayout';
@@ -48,6 +49,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   const [isAmending, setIsAmending] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
   const [isUncommitting, setIsUncommitting] = useState(false);
+  const [isNavigatingCommit, setIsNavigatingCommit] = useState<string | null>(null);
   const [commitMessageConfigured, setCommitMessageConfigured] = useState(false);
   const { handleSmartSync, handleLinearSyncToMain, handlePushToBranch } = useSync();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -563,13 +565,34 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
         style={{ height: lay.rowHeight }}
         title={ln.node.hash}
       >
-        <Link
-          to={`/git/${workspaceId}/${ln.node.short_hash}`}
+        <button
           className="git-dag__hash"
           title="View commit details"
+          disabled={isNavigatingCommit !== null}
+          onClick={async () => {
+            if (isNavigatingCommit) return;
+            const route = `/git/${workspaceId}/${ln.node.short_hash}`;
+            setIsNavigatingCommit(ln.node.short_hash);
+            try {
+              await createTab(workspaceId, {
+                kind: 'commit',
+                label: `commit ${ln.node.short_hash}`,
+                route,
+                closable: true,
+                meta: { hash: ln.node.hash },
+              });
+              setPendingNavigation({ type: 'tab', workspaceId, tabRoute: route });
+            } catch {
+              setIsNavigatingCommit(null);
+            }
+          }}
         >
-          {ln.node.short_hash}
-        </Link>
+          {isNavigatingCommit === ln.node.short_hash ? (
+            <span className="spinner spinner--small" />
+          ) : (
+            ln.node.short_hash
+          )}
+        </button>
         <span className="git-dag__message">
           {ln.node.is_head.length > 0 && (
             <span className="git-dag__head-labels">

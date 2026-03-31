@@ -100,6 +100,36 @@ type Workspace struct {
 	OverlayManifest         map[string]string `json:"overlay_manifest,omitempty"`   // relPath → SHA-256 hash at copy time
 	PortBlock               int               `json:"port_block,omitempty"`         // 0 = unassigned; 1-indexed block for stable preview ports
 	Status                  string            `json:"status,omitempty"`
+	Tabs                    []Tab             `json:"tabs,omitempty"`
+}
+
+// Tab represents an accessory tab in a workspace (diff, git, preview, markdown, etc.).
+type Tab struct {
+	ID        string            `json:"id"`
+	Kind      string            `json:"kind"`
+	Label     string            `json:"label"`
+	Route     string            `json:"route"`
+	Closable  bool              `json:"closable"`
+	Meta      map[string]string `json:"meta,omitempty"`
+	CreatedAt time.Time         `json:"created_at"`
+}
+
+// tabDedupKey returns the deduplication key for a tab based on kind.
+func tabDedupKey(tab Tab) string {
+	switch tab.Kind {
+	case "diff", "git":
+		return tab.Kind // singleton per workspace
+	case "preview":
+		return tab.Kind + ":" + tab.Meta["preview_id"]
+	case "markdown":
+		return tab.Kind + ":" + tab.Meta["filepath"]
+	case "resolve-conflict":
+		return tab.Kind + ":" + tab.Meta["hash"]
+	case "commit":
+		return tab.Kind + ":" + tab.Meta["hash"]
+	default:
+		return tab.Kind + ":" + tab.ID
+	}
 }
 
 // WorkspacePreview represents a workspace preview proxy mapping.
@@ -195,6 +225,46 @@ func Load(path string, logger *log.Logger) (*State, error) {
 		st.Previews = map[string]WorkspacePreview{}
 	}
 
+	// Migrate: seed baseline tabs via addTabLocked (dedup-safe).
+	if st.logger != nil {
+		for _, w := range st.Workspaces {
+			st.logger.Info("TAB-DEBUG: Load migration starting", "workspace", w.ID, "existing_tab_count", len(w.Tabs))
+			for _, t := range w.Tabs {
+				st.logger.Info("TAB-DEBUG: existing tab", "workspace", w.ID, "tab_id", t.ID, "kind", t.Kind, "label", t.Label)
+			}
+		}
+	}
+	tabsMigrated := false
+	for i := range st.Workspaces {
+		w := &st.Workspaces[i]
+		if w.Tabs == nil {
+			w.Tabs = []Tab{}
+		}
+		vcs := w.VCS
+		if vcs == "" || vcs == "git" || vcs == "sapling" {
+			now := time.Now()
+			// Reverse order: addTabLocked prepends, so git first → diff second → [diff, git]
+			if st.addTabLocked(w.ID, Tab{ID: "sys-git-" + w.ID, Kind: "git", Label: "commit graph", Route: "/git/" + w.ID, Closable: false, CreatedAt: now}) == nil {
+				tabsMigrated = true
+			}
+			if st.addTabLocked(w.ID, Tab{ID: "sys-diff-" + w.ID, Kind: "diff", Label: "Diff", Route: "/diff/" + w.ID, Closable: false, CreatedAt: now}) == nil {
+				tabsMigrated = true
+			}
+		}
+		for _, preview := range st.Previews {
+			if preview.WorkspaceID != w.ID {
+				continue
+			}
+			if st.addTabLocked(w.ID, Tab{
+				ID: "sys-preview-" + preview.ID, Kind: "preview",
+				Label: fmt.Sprintf("web:%d", preview.TargetPort), Route: "/preview/" + w.ID + "/" + preview.ID,
+				Closable: true, Meta: map[string]string{"preview_id": preview.ID}, CreatedAt: preview.CreatedAt,
+			}) == nil {
+				tabsMigrated = true
+			}
+		}
+	}
+
 	// Reset LastOutputAt for all loaded sessions to avoid treating restored
 	// sessions as "recently active" on startup, which would block git status updates.
 	for i := range st.Sessions {
@@ -202,7 +272,7 @@ func Load(path string, logger *log.Logger) (*State, error) {
 	}
 
 	// Migrate legacy model IDs in session targets
-	if migrateSessionTargets(st.Sessions) {
+	if migrateSessionTargets(st.Sessions) || tabsMigrated {
 		// Best-effort save to persist migration
 		_ = st.saveNow()
 	}
@@ -325,7 +395,22 @@ func (s *State) AddWorkspace(w Workspace) error {
 			return nil
 		}
 	}
+	// Append first so addTabLocked can find the workspace
+	needsSeed := w.Tabs == nil
+	if needsSeed {
+		w.Tabs = []Tab{}
+	}
 	s.Workspaces = append(s.Workspaces, w)
+	// Seed baseline tabs for VCS-capable workspaces via addTabLocked (dedup-safe)
+	if needsSeed {
+		vcs := w.VCS
+		if vcs == "" || vcs == "git" || vcs == "sapling" {
+			now := time.Now()
+			// Reverse order: addTabLocked prepends, so git first → diff second → [diff, git]
+			s.addTabLocked(w.ID, Tab{ID: "sys-git-" + w.ID, Kind: "git", Label: "commit graph", Route: "/git/" + w.ID, Closable: false, CreatedAt: now})
+			s.addTabLocked(w.ID, Tab{ID: "sys-diff-" + w.ID, Kind: "diff", Label: "Diff", Route: "/diff/" + w.ID, Closable: false, CreatedAt: now})
+		}
+	}
 	return nil
 }
 
@@ -375,6 +460,93 @@ func (s *State) UpdateWorkspace(w Workspace) error {
 		}
 	}
 	return fmt.Errorf("workspace not found: %s", w.ID)
+}
+
+// GetWorkspaceTabs returns a copy of the tabs for the given workspace.
+func (s *State) GetWorkspaceTabs(workspaceID string) []Tab {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, w := range s.Workspaces {
+		if w.ID == workspaceID {
+			result := make([]Tab, len(w.Tabs))
+			copy(result, w.Tabs)
+			return result
+		}
+	}
+	return []Tab{}
+}
+
+// AddTab adds a tab to a workspace. Idempotent by (kind, dedup_key): if a tab
+// with the same dedup key already exists, it is updated in place.
+func (s *State) AddTab(workspaceID string, tab Tab) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.addTabLocked(workspaceID, tab)
+}
+
+// addTabLocked is the lock-free core of AddTab. Caller must hold s.mu.
+func (s *State) addTabLocked(workspaceID string, tab Tab) error {
+	for i, w := range s.Workspaces {
+		if w.ID != workspaceID {
+			continue
+		}
+		key := tabDedupKey(tab)
+		for j, existing := range w.Tabs {
+			if tabDedupKey(existing) == key {
+				s.Workspaces[i].Tabs[j] = tab
+				if s.logger != nil {
+					s.logger.Info("TAB-DEBUG: updated existing tab", "workspace", workspaceID, "dedup_key", key, "tab_id", tab.ID, "existing_id", existing.ID, "kind", tab.Kind, "label", tab.Label)
+				}
+				return nil
+			}
+		}
+		s.Workspaces[i].Tabs = append([]Tab{tab}, s.Workspaces[i].Tabs...)
+		if s.logger != nil {
+			s.logger.Info("TAB-DEBUG: added new tab", "workspace", workspaceID, "dedup_key", key, "tab_id", tab.ID, "kind", tab.Kind, "label", tab.Label, "total_tabs", len(s.Workspaces[i].Tabs))
+		}
+		return nil
+	}
+	return fmt.Errorf("workspace not found: %s", workspaceID)
+}
+
+// UpdateTab updates a tab by ID within a workspace.
+// Returns an error if the workspace or tab is not found.
+func (s *State) UpdateTab(workspaceID string, tab Tab) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, w := range s.Workspaces {
+		if w.ID != workspaceID {
+			continue
+		}
+		for j, existing := range w.Tabs {
+			if existing.ID == tab.ID {
+				s.Workspaces[i].Tabs[j] = tab
+				return nil
+			}
+		}
+		return fmt.Errorf("tab not found: %s", tab.ID)
+	}
+	return fmt.Errorf("workspace not found: %s", workspaceID)
+}
+
+// RemoveTab removes a tab by ID from a workspace.
+// Returns an error if the workspace is not found.
+func (s *State) RemoveTab(workspaceID, tabID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, w := range s.Workspaces {
+		if w.ID != workspaceID {
+			continue
+		}
+		for j, existing := range w.Tabs {
+			if existing.ID == tabID {
+				s.Workspaces[i].Tabs = append(w.Tabs[:j], w.Tabs[j+1:]...)
+				return nil
+			}
+		}
+		return nil
+	}
+	return fmt.Errorf("workspace not found: %s", workspaceID)
 }
 
 // AddSession adds a session to the state.

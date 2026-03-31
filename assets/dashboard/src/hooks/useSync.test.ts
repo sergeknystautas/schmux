@@ -27,6 +27,15 @@ vi.mock('../contexts/SyncContext', () => ({
   useSyncState: () => ({ clearLinearSyncResolveConflictState }),
 }));
 
+const setPendingNavigation = vi.fn();
+vi.mock('../lib/navigation', () => ({
+  usePendingNavigation: () => ({
+    setPendingNavigation,
+    pendingNavigation: null,
+    clearPendingNavigation: vi.fn(),
+  }),
+}));
+
 const mockLinearSyncFromMain = vi.fn();
 const mockLinearSyncToMain = vi.fn();
 const mockDisposeWorkspaceAll = vi.fn();

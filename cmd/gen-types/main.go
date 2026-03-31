@@ -44,6 +44,7 @@ func main() {
 		reflect.TypeOf(contracts.PromptHistoryResponse{}),
 		reflect.TypeOf(contracts.Features{}),
 		reflect.TypeOf(contracts.EnvironmentResponse{}),
+		reflect.TypeOf(contracts.Tab{}),
 	}
 
 	typeMap := collectTypes(rootTypes)

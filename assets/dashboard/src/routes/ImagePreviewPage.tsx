@@ -23,7 +23,7 @@ export default function ImagePreviewPage() {
         {workspace && (
           <>
             <WorkspaceHeader workspace={workspace} />
-            <SessionTabs sessions={workspace.sessions || []} workspace={workspace} activeDiffTab />
+            <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
           </>
         )}
         <div className="diff-page">
@@ -43,7 +43,7 @@ export default function ImagePreviewPage() {
   return (
     <>
       <WorkspaceHeader workspace={workspace} />
-      <SessionTabs sessions={workspace.sessions || []} workspace={workspace} activeDiffTab />
+      <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
 
       <div className="diff-page">
         <div

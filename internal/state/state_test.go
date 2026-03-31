@@ -1476,6 +1476,229 @@ func TestUpdateOverlayManifestEntry(t *testing.T) {
 	})
 }
 
+func TestTabCRUD(t *testing.T) {
+	s := New("", nil)
+	// Use explicit Tabs=[]Tab{} to bypass seeding so we start with zero tabs
+	s.AddWorkspace(Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir(), Tabs: []Tab{}})
+
+	tab := Tab{
+		ID:        "tab-1",
+		Kind:      "markdown",
+		Label:     "README",
+		Route:     "/notes/ws-1/readme",
+		Closable:  true,
+		Meta:      map[string]string{"filepath": "/README.md"},
+		CreatedAt: time.Now(),
+	}
+
+	t.Run("AddTab inserts a new tab", func(t *testing.T) {
+		if err := s.AddTab("ws-1", tab); err != nil {
+			t.Fatalf("AddTab() failed: %v", err)
+		}
+		tabs := s.GetWorkspaceTabs("ws-1")
+		if len(tabs) != 1 {
+			t.Fatalf("expected 1 tab, got %d", len(tabs))
+		}
+		if tabs[0].ID != "tab-1" {
+			t.Errorf("tab ID = %q, want 'tab-1'", tabs[0].ID)
+		}
+	})
+
+	t.Run("UpdateTab changes tab fields", func(t *testing.T) {
+		updated := tab
+		updated.Label = "Updated README"
+		if err := s.UpdateTab("ws-1", updated); err != nil {
+			t.Fatalf("UpdateTab() failed: %v", err)
+		}
+		tabs := s.GetWorkspaceTabs("ws-1")
+		if tabs[0].Label != "Updated README" {
+			t.Errorf("Label = %q, want 'Updated README'", tabs[0].Label)
+		}
+	})
+
+	t.Run("UpdateTab returns error for unknown tab", func(t *testing.T) {
+		err := s.UpdateTab("ws-1", Tab{ID: "nonexistent-tab"})
+		if err == nil {
+			t.Error("expected error for unknown tab ID")
+		}
+	})
+
+	t.Run("RemoveTab deletes tab by ID", func(t *testing.T) {
+		if err := s.RemoveTab("ws-1", "tab-1"); err != nil {
+			t.Fatalf("RemoveTab() failed: %v", err)
+		}
+		tabs := s.GetWorkspaceTabs("ws-1")
+		if len(tabs) != 0 {
+			t.Errorf("expected 0 tabs after remove, got %d", len(tabs))
+		}
+	})
+
+	t.Run("RemoveTab is idempotent for missing tab", func(t *testing.T) {
+		// Removing a tab that does not exist should not error
+		if err := s.RemoveTab("ws-1", "tab-1"); err != nil {
+			t.Errorf("RemoveTab for missing tab should not error: %v", err)
+		}
+	})
+
+	t.Run("AddTab returns error for unknown workspace", func(t *testing.T) {
+		err := s.AddTab("nonexistent-ws", tab)
+		if err == nil {
+			t.Error("expected error for unknown workspace")
+		}
+	})
+
+	t.Run("UpdateTab returns error for unknown workspace", func(t *testing.T) {
+		err := s.UpdateTab("nonexistent-ws", tab)
+		if err == nil {
+			t.Error("expected error for unknown workspace")
+		}
+	})
+
+	t.Run("RemoveTab returns error for unknown workspace", func(t *testing.T) {
+		err := s.RemoveTab("nonexistent-ws", "tab-1")
+		if err == nil {
+			t.Error("expected error for unknown workspace")
+		}
+	})
+
+	t.Run("GetWorkspaceTabs returns empty slice for unknown workspace", func(t *testing.T) {
+		tabs := s.GetWorkspaceTabs("nonexistent-ws")
+		if tabs == nil {
+			t.Error("expected non-nil empty slice, got nil")
+		}
+		if len(tabs) != 0 {
+			t.Errorf("expected 0 tabs, got %d", len(tabs))
+		}
+	})
+}
+
+func TestTabIdempotency(t *testing.T) {
+	s := New("", nil)
+	s.AddWorkspace(Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir(), Tabs: []Tab{}})
+
+	tab := Tab{
+		ID:        "tab-a",
+		Kind:      "diff",
+		Label:     "Diff",
+		Route:     "/git/ws-1",
+		Closable:  false,
+		CreatedAt: time.Now(),
+	}
+
+	// Add once
+	if err := s.AddTab("ws-1", tab); err != nil {
+		t.Fatalf("first AddTab failed: %v", err)
+	}
+
+	// Add again with same kind (same dedup key) but different label
+	tab2 := tab
+	tab2.ID = "tab-b"
+	tab2.Label = "Updated Diff"
+	if err := s.AddTab("ws-1", tab2); err != nil {
+		t.Fatalf("second AddTab failed: %v", err)
+	}
+
+	tabs := s.GetWorkspaceTabs("ws-1")
+	if len(tabs) != 1 {
+		t.Fatalf("expected 1 tab after idempotent add, got %d", len(tabs))
+	}
+	if tabs[0].Label != "Updated Diff" {
+		t.Errorf("Label = %q, want 'Updated Diff' (should be upserted)", tabs[0].Label)
+	}
+
+	// Verify preview tabs deduplicate by preview_id
+	previewTab1 := Tab{
+		ID:       "prev-tab-1",
+		Kind:     "preview",
+		Label:    "Preview 1",
+		Route:    "/preview/ws-1/prev-1",
+		Closable: true,
+		Meta:     map[string]string{"preview_id": "prev-1"},
+	}
+	previewTab2 := Tab{
+		ID:       "prev-tab-2",
+		Kind:     "preview",
+		Label:    "Preview 1 Updated",
+		Route:    "/preview/ws-1/prev-1",
+		Closable: true,
+		Meta:     map[string]string{"preview_id": "prev-1"},
+	}
+	s.AddTab("ws-1", previewTab1)
+	s.AddTab("ws-1", previewTab2)
+
+	tabs = s.GetWorkspaceTabs("ws-1")
+	previewCount := 0
+	for _, tab := range tabs {
+		if tab.Kind == "preview" {
+			previewCount++
+			if tab.Label != "Preview 1 Updated" {
+				t.Errorf("preview tab Label = %q, want 'Preview 1 Updated'", tab.Label)
+			}
+		}
+	}
+	if previewCount != 1 {
+		t.Errorf("expected 1 preview tab, got %d", previewCount)
+	}
+}
+
+func TestLoadMigratesTabsForExistingWorkspaces(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+	data := []byte(`{"workspaces":[{"id":"ws-1","repo":"repo","branch":"main","path":"/tmp/ws1"}],"sessions":[]}`)
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	s, err := Load(path, nil)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	tabs := s.GetWorkspaceTabs("ws-1")
+	if len(tabs) < 2 {
+		t.Fatalf("expected at least 2 seeded tabs after migration, got %d", len(tabs))
+	}
+
+	kinds := map[string]bool{}
+	for _, tab := range tabs {
+		kinds[tab.Kind] = true
+	}
+	if !kinds["diff"] {
+		t.Error("expected a 'diff' tab to be seeded")
+	}
+	if !kinds["git"] {
+		t.Error("expected a 'git' tab to be seeded")
+	}
+}
+
+func TestAddWorkspaceSeedsTabs(t *testing.T) {
+	s := New("", nil)
+
+	t.Run("VCS git workspace gets diff and git tabs", func(t *testing.T) {
+		s.AddWorkspace(Workspace{ID: "ws-git", Repo: "repo", Branch: "main", Path: "/tmp"})
+		tabs := s.GetWorkspaceTabs("ws-git")
+		kinds := map[string]bool{}
+		for _, tab := range tabs {
+			kinds[tab.Kind] = true
+		}
+		if !kinds["diff"] || !kinds["git"] {
+			t.Errorf("expected diff+git tabs, got kinds: %v", kinds)
+		}
+	})
+
+	t.Run("workspace with explicit Tabs is not seeded", func(t *testing.T) {
+		existing := Tab{ID: "custom-tab", Kind: "markdown", Label: "Notes", Route: "/notes"}
+		s.AddWorkspace(Workspace{ID: "ws-custom", Repo: "repo", Branch: "main", Path: "/tmp", Tabs: []Tab{existing}})
+		tabs := s.GetWorkspaceTabs("ws-custom")
+		if len(tabs) != 1 {
+			t.Fatalf("expected 1 tab (no seeding), got %d", len(tabs))
+		}
+		if tabs[0].ID != "custom-tab" {
+			t.Errorf("tab ID = %q, want 'custom-tab'", tabs[0].ID)
+		}
+	})
+}
+
 func TestGetSessionsByRemoteHostID(t *testing.T) {
 	t.Parallel()
 	s := &State{

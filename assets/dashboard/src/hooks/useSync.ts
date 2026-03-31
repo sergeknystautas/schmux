@@ -14,6 +14,7 @@ import {
 import { useModal } from '../components/ModalProvider';
 import { useToast } from '../components/ToastProvider';
 import { useSyncState } from '../contexts/SyncContext';
+import { usePendingNavigation } from '../lib/navigation';
 import type { WorkspaceResponse } from '../lib/types';
 
 export function useSync() {
@@ -21,18 +22,22 @@ export function useSync() {
   const { alert, confirm, show } = useModal();
   const { error: toastError, success: toastSuccess } = useToast();
   const { clearLinearSyncResolveConflictState } = useSyncState();
+  const { setPendingNavigation } = usePendingNavigation();
 
   const startConflictResolution = useCallback(
     async (workspaceId: string): Promise<void> => {
       clearLinearSyncResolveConflictState(workspaceId);
-      navigate(`/resolve-conflict/${workspaceId}`);
       try {
-        await linearSyncResolveConflict(workspaceId);
+        const result = await linearSyncResolveConflict(workspaceId);
+        if (result.tab_id) {
+          const route = `/resolve-conflict/${workspaceId}/${result.tab_id}`;
+          setPendingNavigation({ type: 'tab', workspaceId, tabRoute: route });
+        }
       } catch (err) {
         toastError(getErrorMessage(err, 'Failed to start conflict resolution'));
       }
     },
-    [navigate, toastError, clearLinearSyncResolveConflictState]
+    [setPendingNavigation, toastError, clearLinearSyncResolveConflictState]
   );
 
   const handleLinearSyncFromMain = useCallback(

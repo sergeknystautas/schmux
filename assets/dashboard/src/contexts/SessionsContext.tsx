@@ -69,7 +69,11 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     repofeedUpdateCount,
   } = useSessionsWebSocket({
     onPreviewDetected: (workspaceId, previewId) => {
-      setPendingNavigationState({ type: 'preview', workspaceId, previewId });
+      setPendingNavigationState({
+        type: 'tab',
+        workspaceId,
+        tabRoute: `/preview/${workspaceId}/${previewId}`,
+      });
     },
   });
   const [overlayReadCount, setOverlayReadCount] = useState(0);
@@ -226,13 +230,16 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
         navigate(`/sessions/${pendingNavigation.id}`);
         setPendingNavigationState(null);
       }
-    } else if (pendingNavigation.type === 'preview') {
-      const workspace = workspaces.find((ws) =>
-        (ws.previews || []).some((p) => p.id === pendingNavigation.previewId)
-      );
+    } else if (pendingNavigation.type === 'tab') {
+      const workspace = workspaces.find((ws) => ws.id === pendingNavigation.workspaceId);
       if (workspace) {
-        navigate(`/preview/${pendingNavigation.workspaceId}/${pendingNavigation.previewId}`);
-        setPendingNavigationState(null);
+        const tabExists = (workspace.tabs || []).some(
+          (tab) => tab.route === pendingNavigation.tabRoute
+        );
+        if (tabExists) {
+          navigate(pendingNavigation.tabRoute);
+          setPendingNavigationState(null);
+        }
       }
     } else if (pendingNavigation.type === 'workspace') {
       const workspace = workspaces.find((ws) => ws.id === pendingNavigation.id);

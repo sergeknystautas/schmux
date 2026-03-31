@@ -712,6 +712,10 @@ func (s *Server) Start() error {
 				r.Post("/git-uncommit", s.handleGitUncommit)
 				r.Post("/refresh-overlay", s.handleRefreshOverlay)
 
+				// Tab routes
+				r.Post("/tabs", s.handleTabCreate)
+				r.Delete("/tabs/{tabID}", s.handleTabDelete)
+
 				// Workspace dispose routes
 				r.Post("/dispose", s.handleDisposeWorkspace)
 				r.Post("/dispose-all", s.handleDisposeWorkspaceAll)

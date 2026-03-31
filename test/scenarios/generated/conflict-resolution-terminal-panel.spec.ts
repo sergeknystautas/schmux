@@ -215,7 +215,20 @@ RESPONSE
   });
 
   test('05 resolve-conflict page shows status heading or auto-redirects', async ({ page }) => {
-    await page.goto(`/resolve-conflict/${workspaceId}`);
+    // Find the resolve-conflict tab's route from workspace state.
+    // The tab is a server-managed entity with kind="resolve-conflict".
+    interface WorkspaceWithTabs {
+      id: string;
+      tabs?: Array<{ id: string; kind: string; route: string }>;
+    }
+    const workspaces = await fetch(`${BASE_URL}/api/sessions`).then(
+      (r) => r.json() as Promise<WorkspaceWithTabs[]>
+    );
+    const ws = workspaces.find((w) => w.id === workspaceId);
+    const crTab = ws?.tabs?.find((t) => t.kind === 'resolve-conflict');
+    const conflictRoute = crTab?.route ?? `/resolve-conflict/${workspaceId}`;
+
+    await page.goto(conflictRoute);
     await waitForDashboardLive(page);
 
     // After resolution completes, the page auto-redirects to session or home
@@ -239,8 +252,20 @@ RESPONSE
   });
 
   test('06 resolve-conflict page shows final status or auto-redirects', async ({ page }) => {
-    // Resolution already finished (verified by tests 02-04), state may be cleared
-    await page.goto(`/resolve-conflict/${workspaceId}`);
+    // Resolution already finished (verified by tests 02-04), state may be cleared.
+    // Find the resolve-conflict tab's route from workspace state (if tab still exists).
+    interface WorkspaceWithTabs {
+      id: string;
+      tabs?: Array<{ id: string; kind: string; route: string }>;
+    }
+    const workspaces = await fetch(`${BASE_URL}/api/sessions`).then(
+      (r) => r.json() as Promise<WorkspaceWithTabs[]>
+    );
+    const ws = workspaces.find((w) => w.id === workspaceId);
+    const crTab = ws?.tabs?.find((t) => t.kind === 'resolve-conflict');
+    const conflictRoute = crTab?.route ?? `/resolve-conflict/${workspaceId}`;
+
+    await page.goto(conflictRoute);
     await waitForDashboardLive(page);
 
     // After resolution completes, the page may auto-redirect to session or home

@@ -253,6 +253,38 @@ export async function disposeWorkspaceAll(
   return response.json();
 }
 
+export async function createTab(
+  workspaceId: string,
+  tab: {
+    kind: string;
+    label: string;
+    route: string;
+    closable: boolean;
+    meta?: Record<string, string>;
+  }
+): Promise<{ id: string; status: string }> {
+  const response = await apiFetch(`/api/workspaces/${workspaceId}/tabs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify(tab),
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to create tab');
+  }
+  return response.json();
+}
+
+export async function closeTab(workspaceId: string, tabId: string): Promise<{ status: string }> {
+  const response = await apiFetch(`/api/workspaces/${workspaceId}/tabs/${tabId}`, {
+    method: 'DELETE',
+    headers: { ...csrfHeaders() },
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to close tab');
+  }
+  return response.json();
+}
+
 export async function getDiff(workspaceId: string): Promise<DiffResponse> {
   const response = await apiFetch(`/api/diff/${workspaceId}`);
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch diff');

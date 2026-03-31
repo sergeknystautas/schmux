@@ -41,6 +41,8 @@ vi.mock('../contexts/KeyboardContext', () => ({
   useKeyboardMode: () => ({
     setContext: vi.fn(),
     clearContext: vi.fn(),
+    registerAction: vi.fn(),
+    unregisterAction: vi.fn(),
   }),
 }));
 
