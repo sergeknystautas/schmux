@@ -37,7 +37,7 @@ func createBareRepoWithWorktrees(t *testing.T, basePath, bareName string, numWor
 	if err := os.MkdirAll(workDir, 0755); err != nil {
 		t.Fatalf("failed to create work dir: %v", err)
 	}
-	runGitCmd(t, workDir, "init")
+	runGitCmd(t, workDir, "init", "-b", "main")
 	runGitCmd(t, workDir, "config", "user.email", "test@test.com")
 	runGitCmd(t, workDir, "config", "user.name", "Test")
 
