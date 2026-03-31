@@ -147,6 +147,26 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Detect git URL in repo field and register if new
+	if req.Repo != "" && isGitURL(req.Repo) {
+		if _, found := s.config.FindRepoByURL(req.Repo); !found {
+			existingNames := make([]string, 0, len(s.config.Repos))
+			for _, r := range s.config.Repos {
+				existingNames = append(existingNames, r.Name)
+			}
+			name := repoNameFromURL(req.Repo, existingNames)
+			s.config.Repos = append(s.config.Repos, config.Repo{
+				Name:     name,
+				URL:      req.Repo,
+				BarePath: name + ".git",
+			})
+			if err := s.config.Save(); err != nil {
+				writeJSONError(w, fmt.Sprintf("failed to register repo: %v", err), http.StatusInternalServerError)
+				return
+			}
+		}
+	}
+
 	// Server-side branch conflict check for worktree mode
 	// This catches race conditions where UI check passed but another spawn claimed the branch
 	if req.WorkspaceID == "" && s.config.UseWorktrees() {

@@ -560,6 +560,14 @@ export default function SpawnPage() {
         toastError('Please enter a repository name');
         return false;
       }
+      if (repo === '__new__' && /^(https?:\/\/|git@|ssh:\/\/|git:\/\/)/.test(newRepoName.trim())) {
+        const matchingRepo = repos.find((r) => r.url === newRepoName.trim());
+        if (matchingRepo) {
+          setRepo(matchingRepo.url);
+          setNewRepoName('');
+          return false;
+        }
+      }
       if (mode === 'fresh' && !branchSuggestTarget && !branch.trim()) {
         toastError('Please enter a branch name');
         return false;
@@ -578,6 +586,7 @@ export default function SpawnPage() {
     totalPromptableCount,
     mode,
     repo,
+    repos,
     newRepoName,
     branchSuggestTarget,
     branch,
@@ -661,7 +670,12 @@ export default function SpawnPage() {
         }
         setEngagePhase('spawning');
         try {
-          const actualRepo = repo === '__new__' ? `local:${newRepoName.trim()}` : repo;
+          const actualRepo =
+            repo === '__new__'
+              ? /^(https?:\/\/|git@|ssh:\/\/|git:\/\/)/.test(newRepoName.trim())
+                ? newRepoName.trim()
+                : `local:${newRepoName.trim()}`
+              : repo;
           const actualBranch =
             mode === 'fresh' ? branch.trim() || getDefaultBranch(actualRepo) : '';
           const response = await spawnSessions({
@@ -713,7 +727,12 @@ export default function SpawnPage() {
       // Command target: spawn immediately with the command
       setEngagePhase('spawning');
       try {
-        const actualRepo = repo === '__new__' ? `local:${newRepoName.trim()}` : repo;
+        const actualRepo =
+          repo === '__new__'
+            ? /^(https?:\/\/|git@|ssh:\/\/|git:\/\/)/.test(newRepoName.trim())
+              ? newRepoName.trim()
+              : `local:${newRepoName.trim()}`
+            : repo;
         const actualBranch =
           mode === 'fresh' ? branch.trim() || getDefaultBranch(actualRepo) : branch;
         const response = await spawnSessions({
@@ -759,7 +778,12 @@ export default function SpawnPage() {
       if (count > 0) selectedTargets[name] = count;
     });
 
-    const actualRepo = repo === '__new__' ? `local:${newRepoName.trim()}` : repo;
+    const actualRepo =
+      repo === '__new__'
+        ? /^(https?:\/\/|git@|ssh:\/\/|git:\/\/)/.test(newRepoName.trim())
+          ? newRepoName.trim()
+          : `local:${newRepoName.trim()}`
+        : repo;
     let actualBranch = branch;
     let actualNickname = nickname;
     let newBranch: string | undefined;
@@ -1133,7 +1157,7 @@ export default function SpawnPage() {
                               {item.name}
                             </option>
                           ))}
-                          <option value="__new__">+ Create New Repository</option>
+                          <option value="__new__">+ Add Repository</option>
                         </select>
                       </div>
                       {repo === '__new__' && (
@@ -1143,9 +1167,14 @@ export default function SpawnPage() {
                           className="input mt-sm"
                           value={newRepoName}
                           onChange={(event) => setNewRepoName(event.target.value)}
-                          placeholder="Repository name"
+                          placeholder="Name or git URL"
                           required
                         />
+                      )}
+                      {repo === '__new__' && (
+                        <span className="form-group__hint">
+                          Enter a name to create locally, or paste a git URL to clone.
+                        </span>
                       )}
                     </div>
                   ) : (
@@ -1244,7 +1273,7 @@ export default function SpawnPage() {
                               {item.name}
                             </option>
                           ))}
-                          <option value="__new__">+ Create New Repository</option>
+                          <option value="__new__">+ Add Repository</option>
                         </select>
 
                         {repo === '__new__' && (
@@ -1255,9 +1284,18 @@ export default function SpawnPage() {
                               className="input"
                               value={newRepoName}
                               onChange={(event) => setNewRepoName(event.target.value)}
-                              placeholder="Repository name"
+                              placeholder="Name or git URL"
                               required
                             />
+                            <p
+                              style={{
+                                color: 'var(--color-text-secondary)',
+                                fontSize: '0.75rem',
+                                marginTop: 'var(--spacing-xs)',
+                              }}
+                            >
+                              Enter a name to create locally, or paste a git URL to clone.
+                            </p>
                           </div>
                         )}
                       </div>

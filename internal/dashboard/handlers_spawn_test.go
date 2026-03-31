@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/config"
 )
 
 func postSpawnJSON(t *testing.T, handler http.HandlerFunc, body interface{}) *httptest.ResponseRecorder {
@@ -142,6 +143,78 @@ func TestParseNudgeSummary_Whitespace(t *testing.T) {
 	state, summary := parseNudgeSummary("   ")
 	if state != "" || summary != "" {
 		t.Errorf("parseNudgeSummary(\"   \") = (%q, %q), want (\"\", \"\")", state, summary)
+	}
+}
+
+func TestHandleSpawnPost_GitURLRegistersRepo(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+
+	if len(cfg.Repos) != 0 {
+		t.Fatalf("expected 0 repos, got %d", len(cfg.Repos))
+	}
+
+	body := SpawnRequest{
+		Repo:    "https://github.com/anthropics/claude-code.git",
+		Branch:  "main",
+		Targets: map[string]int{"command": 1},
+		Prompt:  "hello",
+	}
+	postSpawnJSON(t, server.handleSpawnPost, body)
+
+	_, found := cfg.FindRepoByURL("https://github.com/anthropics/claude-code.git")
+	if !found {
+		t.Error("expected git URL to be registered in config after spawn request")
+	}
+}
+
+func TestHandleSpawnPost_GitURLExistingRepoSkipsRegistration(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+
+	cfg.Repos = append(cfg.Repos, config.Repo{
+		Name:     "claude-code",
+		URL:      "https://github.com/anthropics/claude-code.git",
+		BarePath: "claude-code.git",
+	})
+
+	body := SpawnRequest{
+		Repo:    "https://github.com/anthropics/claude-code.git",
+		Branch:  "main",
+		Targets: map[string]int{"command": 1},
+		Prompt:  "hello",
+	}
+	postSpawnJSON(t, server.handleSpawnPost, body)
+
+	count := 0
+	for _, r := range cfg.Repos {
+		if r.URL == "https://github.com/anthropics/claude-code.git" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected 1 repo entry, got %d", count)
+	}
+}
+
+func TestHandleSpawnPost_GitURLGeneratesCorrectName(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+
+	body := SpawnRequest{
+		Repo:    "https://github.com/anthropics/claude-code.git",
+		Branch:  "main",
+		Targets: map[string]int{"command": 1},
+		Prompt:  "hello",
+	}
+	postSpawnJSON(t, server.handleSpawnPost, body)
+
+	repo, found := cfg.FindRepoByURL("https://github.com/anthropics/claude-code.git")
+	if !found {
+		t.Fatal("repo not registered")
+	}
+	if repo.Name != "claude-code" {
+		t.Errorf("repo name = %q, want %q", repo.Name, "claude-code")
+	}
+	if repo.BarePath != "claude-code.git" {
+		t.Errorf("repo bare path = %q, want %q", repo.BarePath, "claude-code.git")
 	}
 }
 
