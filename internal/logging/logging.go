@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/log"
@@ -31,7 +32,18 @@ func New(forceColor ...bool) *log.Logger {
 		// SetOutput auto-detects the writer as non-TTY (Ascii profile),
 		// so charmbracelet/log emits plain text. The levelColorWriter
 		// then wraps each line in the appropriate ANSI color.
-		logger.SetOutput(&levelColorWriter{w: os.Stderr})
+		output := io.Writer(&levelColorWriter{w: os.Stderr})
+
+		// In dev mode, also write to the daemon log file so agents
+		// running in tmux sessions can see daemon output.
+		if homeDir, err := os.UserHomeDir(); err == nil {
+			logPath := filepath.Join(homeDir, ".schmux", "daemon-startup.log")
+			if logF, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
+				output = io.MultiWriter(output, logF)
+			}
+		}
+
+		logger.SetOutput(output)
 	}
 	return logger
 }
