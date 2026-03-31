@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -239,16 +240,20 @@ func TestIsAllowedOrigin(t *testing.T) {
 	})
 
 	t.Run("dashboard_hostname origin allowed", func(t *testing.T) {
+		localHost, err := os.Hostname()
+		if err != nil {
+			t.Skip("cannot get hostname")
+		}
 		cfg := &config.Config{
 			Network: &config.NetworkConfig{
 				Port:              7337,
-				DashboardHostname: "dashboard.example.com",
+				DashboardHostname: localHost,
 			},
 		}
 		s := &Server{config: cfg}
 
-		if !s.isAllowedOrigin("http://dashboard.example.com:7337") {
-			t.Error("dashboard_hostname origin should be allowed")
+		if !s.isAllowedOrigin("http://" + localHost + ":7337") {
+			t.Errorf("dashboard_hostname origin %q should be allowed", localHost)
 		}
 		if s.isAllowedOrigin("http://evil.com:7337") {
 			t.Error("non-dashboard origin should be rejected")
@@ -256,10 +261,14 @@ func TestIsAllowedOrigin(t *testing.T) {
 	})
 
 	t.Run("dashboard_hostname with TLS uses https origin", func(t *testing.T) {
+		localHost, err := os.Hostname()
+		if err != nil {
+			t.Skip("cannot get hostname")
+		}
 		cfg := &config.Config{
 			Network: &config.NetworkConfig{
 				Port:              7337,
-				DashboardHostname: "dashboard.example.com",
+				DashboardHostname: localHost,
 				TLS: &config.TLSConfig{
 					CertPath: "/path/to/cert.pem",
 					KeyPath:  "/path/to/key.pem",
@@ -268,11 +277,25 @@ func TestIsAllowedOrigin(t *testing.T) {
 		}
 		s := &Server{config: cfg}
 
-		if !s.isAllowedOrigin("https://dashboard.example.com:7337") {
-			t.Error("dashboard_hostname with TLS should allow https origin")
+		if !s.isAllowedOrigin("https://" + localHost + ":7337") {
+			t.Errorf("dashboard_hostname with TLS should allow https origin for %q", localHost)
 		}
-		if s.isAllowedOrigin("http://dashboard.example.com:7337") {
+		if s.isAllowedOrigin("http://" + localHost + ":7337") {
 			t.Error("http origin should be rejected when TLS enabled")
+		}
+	})
+
+	t.Run("non-local dashboard_hostname is ignored", func(t *testing.T) {
+		cfg := &config.Config{
+			Network: &config.NetworkConfig{
+				Port:              7337,
+				DashboardHostname: "not.a.local.host.example.com",
+			},
+		}
+		s := &Server{config: cfg}
+
+		if s.isAllowedOrigin("http://not.a.local.host.example.com:7337") {
+			t.Error("non-local dashboard_hostname origin should not be allowed")
 		}
 	})
 }

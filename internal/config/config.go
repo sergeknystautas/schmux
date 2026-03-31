@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -2102,13 +2103,42 @@ func (c *Config) GetTLSEnabled() bool {
 }
 
 // GetDashboardHostname returns the configured dashboard hostname.
+// Returns empty if the hostname doesn't resolve to a local interface,
+// allowing callers to fall back to localhost.
 func (c *Config) GetDashboardHostname() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if c.Network == nil {
 		return ""
 	}
-	return strings.TrimSpace(c.Network.DashboardHostname)
+	hostname := strings.TrimSpace(c.Network.DashboardHostname)
+	if hostname == "" {
+		return ""
+	}
+	if !isLocalHostname(hostname) {
+		return ""
+	}
+	return hostname
+}
+
+// isLocalHostname checks if a hostname resolves to an IP on this machine.
+func isLocalHostname(hostname string) bool {
+	addrs, err := net.LookupHost(hostname)
+	if err != nil {
+		return false
+	}
+	localAddrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return false
+	}
+	for _, a := range addrs {
+		for _, la := range localAddrs {
+			if ipnet, ok := la.(*net.IPNet); ok && ipnet.IP.String() == a {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // GetDashboardURL returns the full URL for the dashboard.

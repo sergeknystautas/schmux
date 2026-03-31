@@ -2816,7 +2816,8 @@ func TestDashboardHostname(t *testing.T) {
 	}{
 		{"nil network returns empty", nil, ""},
 		{"empty hostname returns empty", &NetworkConfig{}, ""},
-		{"returns configured hostname", &NetworkConfig{DashboardHostname: "my.host.com"}, "my.host.com"},
+		{"returns localhost", &NetworkConfig{DashboardHostname: "localhost"}, "localhost"},
+		{"non-local hostname returns empty", &NetworkConfig{DashboardHostname: "not.a.local.host.example.com"}, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -2826,6 +2827,17 @@ func TestDashboardHostname(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("returns machine hostname", func(t *testing.T) {
+		h, err := os.Hostname()
+		if err != nil {
+			t.Skip("cannot get hostname")
+		}
+		cfg := &Config{Network: &NetworkConfig{DashboardHostname: h}}
+		if got := cfg.GetDashboardHostname(); got != h {
+			t.Errorf("GetDashboardHostname() = %q, want %q", got, h)
+		}
+	})
 }
 
 func TestDashboardURL(t *testing.T) {
@@ -2837,17 +2849,22 @@ func TestDashboardURL(t *testing.T) {
 	}{
 		{
 			"composes http URL",
-			&NetworkConfig{DashboardHostname: "my.host.com", Port: 7337},
-			"http://my.host.com:7337",
+			&NetworkConfig{DashboardHostname: "localhost", Port: 7337},
+			"http://localhost:7337",
 		},
 		{
 			"composes https URL when TLS enabled",
 			&NetworkConfig{
-				DashboardHostname: "my.host.com",
+				DashboardHostname: "localhost",
 				Port:              7337,
 				TLS:               &TLSConfig{CertPath: "/cert.pem", KeyPath: "/key.pem"},
 			},
-			"https://my.host.com:7337",
+			"https://localhost:7337",
+		},
+		{
+			"falls back when hostname is non-local",
+			&NetworkConfig{DashboardHostname: "not.a.local.host.example.com", Port: 7337, PublicBaseURL: "http://fallback.example.com"},
+			"http://fallback.example.com",
 		},
 		{
 			"falls back to public_base_url when hostname empty",

@@ -64,10 +64,14 @@ func TestIntegrationBuildDefaultsFullPipeline(t *testing.T) {
 		t.Errorf("dashboard_hostname: got %q, want %q", cfg.Network.DashboardHostname, wantHostname)
 	}
 
-	// Verify: GetDashboardURL composes correctly
-	wantURL := "http://" + wantHostname + ":44102"
-	if got := cfg.GetDashboardURL(); got != wantURL {
-		t.Errorf("GetDashboardURL: got %q, want %q", got, wantURL)
+	// Verify: GetDashboardURL falls back when hostname is not local
+	if got := cfg.GetDashboardURL(); got != "" {
+		t.Errorf("GetDashboardURL: got %q, want empty (non-local hostname should fall back)", got)
+	}
+
+	// Verify: GetDashboardHostname returns empty for non-local hostname
+	if got := cfg.GetDashboardHostname(); got != "" {
+		t.Errorf("GetDashboardHostname: got %q, want empty (non-local hostname)", got)
 	}
 
 	// Verify: repos set from build defaults
