@@ -2886,3 +2886,44 @@ func TestDashboardURL(t *testing.T) {
 		})
 	}
 }
+
+func TestTimelapseConfig_Defaults(t *testing.T) {
+	c := &Config{}
+	if !c.GetTimelapseEnabled() {
+		t.Error("expected timelapse enabled by default")
+	}
+	if c.GetTimelapseRetentionDays() != 7 {
+		t.Errorf("retention = %d, want 7", c.GetTimelapseRetentionDays())
+	}
+	if c.GetTimelapseMaxFileSizeMB() != 50 {
+		t.Errorf("maxFileSize = %d, want 50", c.GetTimelapseMaxFileSizeMB())
+	}
+	if c.GetTimelapseMaxTotalStorageMB() != 500 {
+		t.Errorf("maxTotalStorage = %d, want 500", c.GetTimelapseMaxTotalStorageMB())
+	}
+}
+
+func TestTimelapseConfig_Explicit(t *testing.T) {
+	enabled := false
+	days := 14
+	fileSize := 100
+	totalSize := 1000
+	c := &Config{Timelapse: &TimelapseConfig{
+		Enabled:           &enabled,
+		RetentionDays:     &days,
+		MaxFileSizeMB:     &fileSize,
+		MaxTotalStorageMB: &totalSize,
+	}}
+	if c.GetTimelapseEnabled() {
+		t.Error("expected timelapse disabled")
+	}
+	if c.GetTimelapseRetentionDays() != 14 {
+		t.Errorf("retention = %d, want 14", c.GetTimelapseRetentionDays())
+	}
+	if c.GetTimelapseMaxFileSizeMB() != 100 {
+		t.Errorf("maxFileSize = %d, want 100", c.GetTimelapseMaxFileSizeMB())
+	}
+	if c.GetTimelapseMaxTotalStorageMB() != 1000 {
+		t.Errorf("maxTotalStorage = %d, want 1000", c.GetTimelapseMaxTotalStorageMB())
+	}
+}

@@ -17,11 +17,11 @@ func NewMockControlSource(bufSize int) *MockControlSource {
 	return &MockControlSource{events: make(chan SourceEvent, bufSize)}
 }
 
-func (m *MockControlSource) Events() <-chan SourceEvent              { return m.events }
-func (m *MockControlSource) SendKeys(keys string) error              { return nil }
-func (m *MockControlSource) CaptureVisible() (string, error)         { return "", nil }
-func (m *MockControlSource) CaptureLines(n int) (string, error)      { return "", nil }
-func (m *MockControlSource) Resize(cols, rows int) error             { return nil }
+func (m *MockControlSource) Events() <-chan SourceEvent         { return m.events }
+func (m *MockControlSource) SendKeys(keys string) error         { return nil }
+func (m *MockControlSource) CaptureVisible() (string, error)    { return "", nil }
+func (m *MockControlSource) CaptureLines(n int) (string, error) { return "", nil }
+func (m *MockControlSource) Resize(cols, rows int) error        { return nil }
 func (m *MockControlSource) GetCursorState() (controlmode.CursorState, error) {
 	return controlmode.CursorState{}, nil
 }

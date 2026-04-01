@@ -250,6 +250,13 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "timelapse":
+		cmd := NewTimelapseCommand()
+		if err := cmd.Run(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", command)
 		printUsage()

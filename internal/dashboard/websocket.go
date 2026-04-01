@@ -1246,6 +1246,7 @@ func nudgeStateTier(displayState string) int {
 		return 0
 	}
 }
+
 // handleProvisionWebSocket streams PTY I/O for remote host provisioning.
 func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request) {
 	provisionID := chi.URLParam(r, "id")

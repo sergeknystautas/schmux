@@ -1653,12 +1653,14 @@ body {
 .tools-section__icons {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
+  gap: 3px;
   flex: 1;
+  min-width: 0;
 }
 
 .tools-section__icons > :last-child {
   margin-left: auto;
+  flex-shrink: 0;
 }
 
 .tools-section__icon {
@@ -1667,7 +1669,9 @@ body {
   align-items: center;
   justify-content: center;
   width: 28px;
+  min-width: 22px;
   height: 28px;
+  flex-shrink: 1;
   border-radius: var(--radius-sm);
   color: var(--color-text-muted);
   text-decoration: none;

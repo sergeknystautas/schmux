@@ -2,6 +2,7 @@ package session
 
 import (
 	"testing"
+	"time"
 )
 
 func TestOutputLog_AppendAndReplay(t *testing.T) {
@@ -221,5 +222,56 @@ func TestOutputLog_ReplayFromZeroOnEmptyLog(t *testing.T) {
 	entries = log.ReplayFrom(1)
 	if entries != nil {
 		t.Errorf("ReplayFrom(1) on empty log returned %d entries, want nil", len(entries))
+	}
+}
+
+func TestOutputLogNotify_WaitForNew(t *testing.T) {
+	ol := NewOutputLog(100)
+
+	// WaitForNew should return true immediately if data already exists
+	ol.Append([]byte("existing"))
+	stopCh := make(chan struct{})
+	if !ol.WaitForNew(0, stopCh) {
+		t.Error("WaitForNew should return true when data already exists")
+	}
+
+	// WaitForNew should block until Append is called
+	done := make(chan bool, 1)
+	go func() {
+		done <- ol.WaitForNew(1, stopCh)
+	}()
+
+	// Append should wake the waiter
+	ol.Append([]byte("new data"))
+
+	select {
+	case result := <-done:
+		if !result {
+			t.Error("WaitForNew should return true after Append")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("WaitForNew did not return within timeout")
+	}
+}
+
+func TestOutputLogNotify_WaitForNew_StopCh(t *testing.T) {
+	ol := NewOutputLog(100)
+	stopCh := make(chan struct{})
+
+	done := make(chan bool, 1)
+	go func() {
+		done <- ol.WaitForNew(0, stopCh)
+	}()
+
+	// Close stopCh should wake the waiter and return false
+	close(stopCh)
+
+	select {
+	case result := <-done:
+		if result {
+			t.Error("WaitForNew should return false when stopCh is closed")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("WaitForNew did not return within timeout after stopCh closed")
 	}
 }

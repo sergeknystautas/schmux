@@ -44,6 +44,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
+	"github.com/sergeknystautas/schmux/internal/timelapse"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
 	"github.com/sergeknystautas/schmux/internal/update"
@@ -504,6 +505,26 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	ensure.SetInstructionStore(lore.NewInstructionStore(loreInstructionsDir))
 	wm := workspace.New(cfg, st, statePath, workspaceLog)
 	sm := session.New(cfg, st, statePath, wm, sessionLog)
+
+	// Wire timelapse recording if enabled
+	if cfg.GetTimelapseEnabled() {
+		home, _ := os.UserHomeDir()
+		recordingsDir := filepath.Join(home, ".schmux", "recordings")
+		maxBytes := int64(cfg.GetTimelapseMaxFileSizeMB()) * 1024 * 1024
+
+		if notice := timelapse.ShowFirstRunNotice(recordingsDir); notice != "" {
+			sessionLog.Info(notice)
+		}
+
+		sm.SetRecorderFactory(func(sessionID string, outputLog *session.OutputLog, gapCh <-chan session.SourceEvent) session.Runnable {
+			rec, err := timelapse.NewRecorder(sessionID, outputLog, gapCh, recordingsDir, maxBytes, 80, 24)
+			if err != nil {
+				sessionLog.Warn("failed to create timelapse recorder", "session", sessionID, "err", err)
+				return nil
+			}
+			return rec
+		})
+	}
 
 	// Wire telemetry to managers
 	wm.SetTelemetry(tel)

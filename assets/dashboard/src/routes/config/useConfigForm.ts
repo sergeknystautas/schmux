@@ -69,6 +69,10 @@ export type ConfigSnapshot = {
   fmTarget: string;
   fmRotationThreshold: number;
   fmDebounceMs: number;
+  timelapseEnabled: boolean;
+  timelapseRetentionDays: number;
+  timelapseMaxFileSizeMB: number;
+  timelapseMaxTotalStorageMB: number;
   ioWorkspaceTelemetryEnabled: boolean;
   ioWorkspaceTelemetryTarget: string;
   saplingCmdCreateWorkspace: string;
@@ -221,6 +225,12 @@ export type ConfigFormState = {
   fmTarget: string;
   fmRotationThreshold: number;
   fmDebounceMs: number;
+
+  // Timelapse
+  timelapseEnabled: boolean;
+  timelapseRetentionDays: number;
+  timelapseMaxFileSizeMB: number;
+  timelapseMaxTotalStorageMB: number;
 
   ioWorkspaceTelemetryEnabled: boolean;
   ioWorkspaceTelemetryTarget: string;
@@ -390,6 +400,10 @@ export const initialState: ConfigFormState = {
   fmTarget: '',
   fmRotationThreshold: 150,
   fmDebounceMs: 2000,
+  timelapseEnabled: true,
+  timelapseRetentionDays: 7,
+  timelapseMaxFileSizeMB: 50,
+  timelapseMaxTotalStorageMB: 500,
   ioWorkspaceTelemetryEnabled: false,
   ioWorkspaceTelemetryTarget: '',
 
@@ -693,6 +707,10 @@ export function useConfigForm(initialStep: number = 1) {
         state.fmTarget !== oc.fmTarget ||
         state.fmRotationThreshold !== oc.fmRotationThreshold ||
         state.fmDebounceMs !== oc.fmDebounceMs ||
+        state.timelapseEnabled !== oc.timelapseEnabled ||
+        state.timelapseRetentionDays !== oc.timelapseRetentionDays ||
+        state.timelapseMaxFileSizeMB !== oc.timelapseMaxFileSizeMB ||
+        state.timelapseMaxTotalStorageMB !== oc.timelapseMaxTotalStorageMB ||
         state.ioWorkspaceTelemetryEnabled !== oc.ioWorkspaceTelemetryEnabled ||
         state.ioWorkspaceTelemetryTarget !== oc.ioWorkspaceTelemetryTarget ||
         state.saplingCmdCreateWorkspace !== oc.saplingCmdCreateWorkspace ||
@@ -787,6 +805,10 @@ export function useConfigForm(initialStep: number = 1) {
       fmTarget: state.fmTarget,
       fmRotationThreshold: state.fmRotationThreshold,
       fmDebounceMs: state.fmDebounceMs,
+      timelapseEnabled: state.timelapseEnabled,
+      timelapseRetentionDays: state.timelapseRetentionDays,
+      timelapseMaxFileSizeMB: state.timelapseMaxFileSizeMB,
+      timelapseMaxTotalStorageMB: state.timelapseMaxTotalStorageMB,
       ioWorkspaceTelemetryEnabled: state.ioWorkspaceTelemetryEnabled,
       ioWorkspaceTelemetryTarget: state.ioWorkspaceTelemetryTarget,
       saplingCmdCreateWorkspace: state.saplingCmdCreateWorkspace,

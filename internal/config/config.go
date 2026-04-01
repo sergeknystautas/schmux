@@ -99,6 +99,7 @@ type Config struct {
 	SaplingCommands            SaplingCommands             `json:"sapling_commands,omitempty"`
 	BuiltInSkills              map[string]bool             `json:"built_in_skills,omitempty"`
 	TmuxBinary                 string                      `json:"tmux_binary,omitempty"`
+	Timelapse                  *TimelapseConfig            `json:"timelapse,omitempty"`
 
 	// Telemetry settings
 	TelemetryEnabled *bool  `json:"telemetry_enabled,omitempty"` // default true
@@ -306,6 +307,14 @@ type FloorManagerConfig struct {
 	Target            string `json:"target,omitempty"`
 	RotationThreshold int    `json:"rotation_threshold,omitempty"`
 	DebounceMs        int    `json:"debounce_ms,omitempty"`
+}
+
+// TimelapseConfig controls terminal session recording.
+type TimelapseConfig struct {
+	Enabled           *bool `json:"enabled,omitempty"`           // default true
+	RetentionDays     *int  `json:"retentionDays,omitempty"`     // default 7
+	MaxFileSizeMB     *int  `json:"maxFileSizeMB,omitempty"`     // default 50
+	MaxTotalStorageMB *int  `json:"maxTotalStorageMB,omitempty"` // default 500
 }
 
 // BranchSuggestConfig represents configuration for branch name suggestion.
@@ -1141,6 +1150,46 @@ func (c *Config) GetFloorManagerDebounceMs() int {
 		return 2000
 	}
 	return c.FloorManager.DebounceMs
+}
+
+// GetTimelapseEnabled returns whether timelapse recording is enabled (default true).
+func (c *Config) GetTimelapseEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Timelapse == nil || c.Timelapse.Enabled == nil {
+		return true
+	}
+	return *c.Timelapse.Enabled
+}
+
+// GetTimelapseRetentionDays returns the recording retention period (default 7).
+func (c *Config) GetTimelapseRetentionDays() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Timelapse == nil || c.Timelapse.RetentionDays == nil {
+		return 7
+	}
+	return *c.Timelapse.RetentionDays
+}
+
+// GetTimelapseMaxFileSizeMB returns the max per-recording size in MB (default 50).
+func (c *Config) GetTimelapseMaxFileSizeMB() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Timelapse == nil || c.Timelapse.MaxFileSizeMB == nil {
+		return 50
+	}
+	return *c.Timelapse.MaxFileSizeMB
+}
+
+// GetTimelapseMaxTotalStorageMB returns the max total storage in MB (default 500).
+func (c *Config) GetTimelapseMaxTotalStorageMB() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Timelapse == nil || c.Timelapse.MaxTotalStorageMB == nil {
+		return 500
+	}
+	return *c.Timelapse.MaxTotalStorageMB
 }
 
 // GetBranchSuggestTarget returns the configured branch suggestion target name, if any.

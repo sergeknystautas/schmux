@@ -8,6 +8,8 @@ import {
   reconnectRemoteHost,
   spawnSessions,
   getErrorMessage,
+  getTimelapseRecordings,
+  exportTimelapseRecording,
 } from '../lib/api';
 import { copyToClipboard, formatRelativeTime, formatTimestamp } from '../lib/utils';
 import { useToast } from '../components/ToastProvider';
@@ -57,6 +59,7 @@ export default function SessionDetailPage() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedLines, setSelectedLines] = useState<string[]>([]);
+  const [timelapseExporting, setTimelapseExporting] = useState(false);
   const terminalRef = useRef<HTMLDivElement | null>(null);
   const terminalStreamRef = useRef<TerminalStream | null>(null);
   const { success, error: toastError } = useToast();
@@ -474,6 +477,31 @@ export default function SessionDetailPage() {
     }
   };
 
+  const handleMakeTimelapse = async () => {
+    if (!sessionId) return;
+    setTimelapseExporting(true);
+    try {
+      // Find recording for this session
+      const recordings = await getTimelapseRecordings();
+      const recording = recordings.find((r) => r.SessionID === sessionId);
+      if (!recording) {
+        toastError(
+          'No recording found for this session. The session may need to produce output first.'
+        );
+        setTimelapseExporting(false);
+        return;
+      }
+      // Export is synchronous — blocks until .cast file is ready
+      await exportTimelapseRecording(recording.RecordingID);
+      setTimelapseExporting(false);
+      window.open(`/api/timelapse/${recording.RecordingID}/download`, '_blank');
+      success('Timelapse exported — downloading .cast file');
+    } catch {
+      toastError('Failed to export timelapse');
+      setTimelapseExporting(false);
+    }
+  };
+
   const handleToggleSelectionMode = () => {
     const newMode = terminalStreamRef.current?.toggleSelectionMode() ?? false;
     setSelectionMode(newMode);
@@ -803,11 +831,22 @@ export default function SessionDetailPage() {
                         </Tooltip>
                       </>
                     ) : (
-                      <Tooltip content="Select lines to copy">
-                        <button className="btn btn--sm" onClick={handleToggleSelectionMode}>
-                          Select lines
-                        </button>
-                      </Tooltip>
+                      <>
+                        <Tooltip content="Select lines to copy">
+                          <button className="btn btn--sm" onClick={handleToggleSelectionMode}>
+                            Select lines
+                          </button>
+                        </Tooltip>
+                        <Tooltip content="Export session as timelapse (.cast)">
+                          <button
+                            className="btn btn--sm"
+                            onClick={handleMakeTimelapse}
+                            disabled={timelapseExporting}
+                          >
+                            {timelapseExporting ? 'Exporting...' : 'Make timelapse'}
+                          </button>
+                        </Tooltip>
+                      </>
                     )}
                     <Tooltip content="Download log">
                       <button

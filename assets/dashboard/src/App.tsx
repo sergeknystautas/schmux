@@ -31,6 +31,7 @@ import PersonaCreatePage from './routes/PersonaCreatePage';
 import PersonaEditPage from './routes/PersonaEditPage';
 import EventsPage from './routes/EventsPage';
 import RepofeedPage from './routes/RepofeedPage';
+import TimelapsePage from './routes/TimelapsePage';
 import EnvironmentPage from './routes/EnvironmentPage';
 
 export default function App() {
@@ -79,6 +80,7 @@ export default function App() {
                           <Route path="/personas/:personaId" element={<PersonaEditPage />} />
                           <Route path="/lore" element={<LorePage />} />
                           <Route path="/events" element={<EventsPage />} />
+                          <Route path="/timelapse" element={<TimelapsePage />} />
                           <Route path="/repofeed" element={<RepofeedPage />} />
                           <Route path="/terminal.html" element={<LegacyTerminalPage />} />
                           <Route path="*" element={<NotFoundPage />} />

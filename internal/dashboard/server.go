@@ -597,6 +597,9 @@ func (s *Server) Start() error {
 		r.Get("/remote/flavor-statuses", s.handleRemoteFlavorStatuses)
 		r.Get("/remote-access/status", s.handleRemoteAccessStatus)
 
+		r.Get("/timelapse", s.handleTimelapseList)
+		r.Get("/timelapse/{recordingId}/download", s.handleTimelapseDownload)
+
 		r.Get("/tls/validate", s.handleTLSValidate)
 		r.Get("/debug/tmux-leak", s.handleDebugTmuxLeak)
 
@@ -636,6 +639,8 @@ func (s *Server) Start() error {
 			r.Post("/remote-access/test-notification", s.handleRemoteAccessTestNotification)
 			r.Post("/clipboard-paste", s.handleClipboardPaste)
 			r.Post("/floor-manager/end-shift", s.handleEndShift)
+			r.Post("/timelapse/{recordingId}/export", s.handleTimelapseExport)
+			r.Delete("/timelapse/{recordingId}", s.handleTimelapseDelete)
 			r.Post("/environment/sync", s.handleSyncEnvironment)
 
 			// Session routes

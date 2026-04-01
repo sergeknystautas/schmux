@@ -75,6 +75,10 @@ function makeSnapshot(overrides: Partial<ConfigSnapshot> = {}): ConfigSnapshot {
     saplingCmdCheckRepoBase: '',
     saplingCmdCreateRepoBase: '',
     tmuxBinary: '',
+    timelapseEnabled: true,
+    timelapseRetentionDays: 7,
+    timelapseMaxFileSizeMB: 50,
+    timelapseMaxTotalStorageMB: 500,
     pastebin: [],
     ...overrides,
   };

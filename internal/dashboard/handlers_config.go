@@ -196,6 +196,12 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			RotationThreshold: s.config.GetFloorManagerRotationThreshold(),
 			DebounceMs:        s.config.GetFloorManagerDebounceMs(),
 		},
+		Timelapse: contracts.Timelapse{
+			Enabled:           s.config.GetTimelapseEnabled(),
+			RetentionDays:     s.config.GetTimelapseRetentionDays(),
+			MaxFileSizeMB:     s.config.GetTimelapseMaxFileSizeMB(),
+			MaxTotalStorageMB: s.config.GetTimelapseMaxTotalStorageMB(),
+		},
 		RemoteAccess: contracts.RemoteAccess{
 			Enabled:         s.config.GetRemoteAccessEnabled(),
 			TimeoutMinutes:  s.config.GetRemoteAccessTimeoutMinutes(),
@@ -657,6 +663,28 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.FloorManager.DebounceMs != nil {
 			cfg.FloorManager.DebounceMs = *req.FloorManager.DebounceMs
+		}
+	}
+
+	if req.Timelapse != nil {
+		if cfg.Timelapse == nil {
+			cfg.Timelapse = &config.TimelapseConfig{}
+		}
+		if req.Timelapse.Enabled != nil {
+			enabled := *req.Timelapse.Enabled
+			cfg.Timelapse.Enabled = &enabled
+		}
+		if req.Timelapse.RetentionDays != nil {
+			days := *req.Timelapse.RetentionDays
+			cfg.Timelapse.RetentionDays = &days
+		}
+		if req.Timelapse.MaxFileSizeMB != nil {
+			size := *req.Timelapse.MaxFileSizeMB
+			cfg.Timelapse.MaxFileSizeMB = &size
+		}
+		if req.Timelapse.MaxTotalStorageMB != nil {
+			size := *req.Timelapse.MaxTotalStorageMB
+			cfg.Timelapse.MaxTotalStorageMB = &size
 		}
 	}
 

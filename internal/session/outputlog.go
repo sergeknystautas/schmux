@@ -13,11 +13,12 @@ type LogEntry struct {
 type OutputLog struct {
 	mu         sync.RWMutex
 	entries    []LogEntry
-	head       int    // next write position
-	size       int    // current number of valid entries
-	cap        int    // max entries
-	nextSeq    uint64 // next sequence number to assign
-	totalBytes int64  // cumulative bytes appended
+	head       int        // next write position
+	size       int        // current number of valid entries
+	cap        int        // max entries
+	nextSeq    uint64     // next sequence number to assign
+	totalBytes int64      // cumulative bytes appended
+	notify     *sync.Cond // signals on Append for waiters (e.g., recorder)
 }
 
 // NewOutputLog creates an output log with the given capacity (max entries).
@@ -26,10 +27,12 @@ func NewOutputLog(capacity int) *OutputLog {
 	if capacity <= 0 {
 		panic("outputlog: capacity must be > 0")
 	}
-	return &OutputLog{
+	ol := &OutputLog{
 		entries: make([]LogEntry, capacity),
 		cap:     capacity,
 	}
+	ol.notify = sync.NewCond(&ol.mu)
+	return ol
 }
 
 // Append adds data to the log and assigns the next sequence number.
@@ -48,6 +51,8 @@ func (l *OutputLog) Append(data []byte) uint64 {
 	l.nextSeq++
 	l.totalBytes += int64(len(data))
 	l.mu.Unlock()
+	// Broadcast OUTSIDE the lock to avoid unnecessary contention.
+	l.notify.Broadcast()
 	return seq
 }
 
@@ -127,4 +132,43 @@ func (l *OutputLog) TotalBytes() int64 {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return l.totalBytes
+}
+
+// WaitForNew blocks until new entries are available after afterSeq,
+// or until stopCh is closed. Returns true if new data is available,
+// false if stopCh was closed.
+func (l *OutputLog) WaitForNew(afterSeq uint64, stopCh <-chan struct{}) bool {
+	// Fast path: check if new data is already available.
+	l.mu.RLock()
+	if l.nextSeq > afterSeq {
+		l.mu.RUnlock()
+		return true
+	}
+	l.mu.RUnlock()
+
+	// Start a goroutine that closes a done channel when stopCh fires,
+	// waking any waiting goroutines.
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-stopCh:
+			l.notify.Broadcast()
+		case <-done:
+		}
+	}()
+	defer close(done)
+
+	l.notify.L.Lock()
+	for l.nextSeq <= afterSeq {
+		// Check stopCh before waiting
+		select {
+		case <-stopCh:
+			l.notify.L.Unlock()
+			return false
+		default:
+		}
+		l.notify.Wait()
+	}
+	l.notify.L.Unlock()
+	return true
 }

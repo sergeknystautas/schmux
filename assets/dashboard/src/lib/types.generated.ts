@@ -56,6 +56,7 @@ export interface ConfigResponse {
   subreddit: Subreddit;
   repofeed: Repofeed;
   floor_manager: FloorManager;
+  timelapse: Timelapse;
   remote_access: RemoteAccess;
   sapling_commands?: SaplingCommandsUpdate;
   tmux_binary?: string;
@@ -89,6 +90,7 @@ export interface ConfigUpdateRequest {
   subreddit?: SubredditUpdate;
   repofeed?: RepofeedUpdate;
   floor_manager?: FloorManagerUpdate;
+  timelapse?: TimelapseUpdate;
   remote_access?: RemoteAccessUpdate;
   enabled_models?: Record<string, string>;
   sapling_commands?: SaplingCommandsUpdate;
@@ -576,6 +578,20 @@ export interface Tab {
   closable: boolean;
   meta?: Record<string, string>;
   created_at: string;
+}
+
+export interface Timelapse {
+  enabled: boolean;
+  retention_days: number;
+  max_file_size_mb: number;
+  max_total_storage_mb: number;
+}
+
+export interface TimelapseUpdate {
+  enabled?: boolean;
+  retention_days?: number;
+  max_file_size_mb?: number;
+  max_total_storage_mb?: number;
 }
 
 export interface UpdateSpawnEntryRequest {

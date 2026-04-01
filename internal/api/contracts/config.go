@@ -174,6 +174,7 @@ type ConfigResponse struct {
 	Subreddit                  Subreddit              `json:"subreddit"`
 	Repofeed                   Repofeed               `json:"repofeed"`
 	FloorManager               FloorManager           `json:"floor_manager"`
+	Timelapse                  Timelapse              `json:"timelapse"`
 	RemoteAccess               RemoteAccess           `json:"remote_access"`
 	SaplingCommands            *SaplingCommandsUpdate `json:"sapling_commands,omitempty"`
 	TmuxBinary                 string                 `json:"tmux_binary,omitempty"`
@@ -312,6 +313,7 @@ type ConfigUpdateRequest struct {
 	Subreddit                  *SubredditUpdate            `json:"subreddit,omitempty"`
 	Repofeed                   *RepofeedUpdate             `json:"repofeed,omitempty"`
 	FloorManager               *FloorManagerUpdate         `json:"floor_manager,omitempty"`
+	Timelapse                  *TimelapseUpdate            `json:"timelapse,omitempty"`
 	RemoteAccess               *RemoteAccessUpdate         `json:"remote_access,omitempty"`
 	EnabledModels              *map[string]string          `json:"enabled_models,omitempty"`
 	SaplingCommands            *SaplingCommandsUpdate      `json:"sapling_commands,omitempty"`
@@ -409,6 +411,22 @@ type FloorManagerUpdate struct {
 	Target            *string `json:"target,omitempty"`
 	RotationThreshold *int    `json:"rotation_threshold,omitempty"`
 	DebounceMs        *int    `json:"debounce_ms,omitempty"`
+}
+
+// Timelapse represents timelapse recording configuration in the API response.
+type Timelapse struct {
+	Enabled           bool `json:"enabled"`
+	RetentionDays     int  `json:"retention_days"`
+	MaxFileSizeMB     int  `json:"max_file_size_mb"`
+	MaxTotalStorageMB int  `json:"max_total_storage_mb"`
+}
+
+// TimelapseUpdate represents partial timelapse config updates.
+type TimelapseUpdate struct {
+	Enabled           *bool `json:"enabled,omitempty"`
+	RetentionDays     *int  `json:"retention_days,omitempty"`
+	MaxFileSizeMB     *int  `json:"max_file_size_mb,omitempty"`
+	MaxTotalStorageMB *int  `json:"max_total_storage_mb,omitempty"`
 }
 
 // RemoteAccess represents remote access configuration in the API response.

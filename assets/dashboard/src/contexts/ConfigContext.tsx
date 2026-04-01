@@ -100,6 +100,12 @@ const DEFAULT_CONFIG: ConfigResponse = {
     rotation_threshold: 150,
     debounce_ms: 2000,
   },
+  timelapse: {
+    enabled: true,
+    retention_days: 7,
+    max_file_size_mb: 50,
+    max_total_storage_mb: 500,
+  },
   remote_access: {
     enabled: false,
     timeout_minutes: 0,

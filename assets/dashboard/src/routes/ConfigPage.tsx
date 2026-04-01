@@ -204,6 +204,10 @@ export default function ConfigPage() {
             fmTarget: data.floor_manager?.target || '',
             fmRotationThreshold: data.floor_manager?.rotation_threshold || 150,
             fmDebounceMs: data.floor_manager?.debounce_ms || 2000,
+            timelapseEnabled: data.timelapse?.enabled ?? true,
+            timelapseRetentionDays: data.timelapse?.retention_days || 7,
+            timelapseMaxFileSizeMB: data.timelapse?.max_file_size_mb || 50,
+            timelapseMaxTotalStorageMB: data.timelapse?.max_total_storage_mb || 500,
             ioWorkspaceTelemetryEnabled: data.io_workspace_telemetry?.enabled || false,
             ioWorkspaceTelemetryTarget: data.io_workspace_telemetry?.target || '',
             saplingCmdCreateWorkspace: data.sapling_commands?.create_workspace || '',
@@ -283,6 +287,10 @@ export default function ConfigPage() {
             fmTarget: data.floor_manager?.target || '',
             fmRotationThreshold: data.floor_manager?.rotation_threshold || 150,
             fmDebounceMs: data.floor_manager?.debounce_ms || 2000,
+            timelapseEnabled: data.timelapse?.enabled ?? true,
+            timelapseRetentionDays: data.timelapse?.retention_days || 7,
+            timelapseMaxFileSizeMB: data.timelapse?.max_file_size_mb || 50,
+            timelapseMaxTotalStorageMB: data.timelapse?.max_total_storage_mb || 500,
             ioWorkspaceTelemetryEnabled: data.io_workspace_telemetry?.enabled || false,
             ioWorkspaceTelemetryTarget: data.io_workspace_telemetry?.target || '',
             saplingCmdCreateWorkspace: data.sapling_commands?.create_workspace || '',
@@ -666,6 +674,12 @@ export default function ConfigPage() {
           target: state.fmTarget || '',
           rotation_threshold: state.fmRotationThreshold,
           debounce_ms: state.fmDebounceMs,
+        },
+        timelapse: {
+          enabled: state.timelapseEnabled,
+          retention_days: state.timelapseRetentionDays,
+          max_file_size_mb: state.timelapseMaxFileSizeMB,
+          max_total_storage_mb: state.timelapseMaxTotalStorageMB,
         },
         io_workspace_telemetry: {
           enabled: state.ioWorkspaceTelemetryEnabled,
@@ -1497,6 +1511,10 @@ export default function ConfigPage() {
               saplingCmdCheckRepoBase={state.saplingCmdCheckRepoBase}
               saplingCmdCreateRepoBase={state.saplingCmdCreateRepoBase}
               tmuxBinary={state.tmuxBinary}
+              timelapseEnabled={state.timelapseEnabled}
+              timelapseRetentionDays={state.timelapseRetentionDays}
+              timelapseMaxFileSizeMB={state.timelapseMaxFileSizeMB}
+              timelapseMaxTotalStorageMB={state.timelapseMaxTotalStorageMB}
               stepErrors={state.stepErrors}
               models={oneshotModels}
               dispatch={dispatch}

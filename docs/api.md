@@ -3543,4 +3543,24 @@ Response:
 - Session ID is derived from the filename (without `.jsonl` extension)
 - Returns at most 200 events, sorted oldest-first
 
-<!-- Test coverage: config getters, dashboard dispose/nickname guards, compound suppression, injector HandleEvent, secrets file migration, nudge summary parsing, curator response parsing, shell argument splitting, conflict state management, persona ID validation, model secrets validation, target-in-use checks, session manager initialization, tracker counters concurrency, embedded dashboard asset serving -->
+---
+
+## Timelapse Recording
+
+### GET /api/timelapse
+
+List all timelapse recordings in `~/.schmux/recordings/`. Returns `RecordingInfo[]` sorted newest-first.
+
+### POST /api/timelapse/{recordingId}/export
+
+Start async export to asciicast v2 (.cast). Returns `202 Accepted` or `200 OK` if cached.
+
+### GET /api/timelapse/{recordingId}/download
+
+Download exported .cast file. Returns `404` if not yet exported.
+
+### DELETE /api/timelapse/{recordingId}
+
+Delete recording and cached export. Returns `204`.
+
+<!-- Test coverage: config getters, dashboard dispose/nickname guards, compound suppression, injector HandleEvent, secrets file migration, nudge summary parsing, curator response parsing, shell argument splitting, conflict state management, persona ID validation, model secrets validation, target-in-use checks, session manager initialization, tracker counters concurrency, embedded dashboard asset serving, timelapse recording, export, storage -->

@@ -37,6 +37,10 @@ type AdvancedTabProps = {
   saplingCmdCheckRepoBase: string;
   saplingCmdCreateRepoBase: string;
   tmuxBinary: string;
+  timelapseEnabled: boolean;
+  timelapseRetentionDays: number;
+  timelapseMaxFileSizeMB: number;
+  timelapseMaxTotalStorageMB: number;
   stepErrors: Record<number, string | null>;
   models: Model[];
   dispatch: React.Dispatch<ConfigFormAction>;
@@ -76,6 +80,10 @@ export default function AdvancedTab({
   saplingCmdCheckRepoBase,
   saplingCmdCreateRepoBase,
   tmuxBinary,
+  timelapseEnabled,
+  timelapseRetentionDays,
+  timelapseMaxFileSizeMB,
+  timelapseMaxTotalStorageMB,
   stepErrors,
   models,
   dispatch,
@@ -638,6 +646,69 @@ export default function AdvancedTab({
           </div>
         </div>
       )}
+
+      <div className="settings-section">
+        <div className="settings-section__header">
+          <h3 className="settings-section__title">Timelapse Recording</h3>
+        </div>
+        <div className="settings-section__body">
+          <div className="form-group">
+            <label className="flex-row gap-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={timelapseEnabled}
+                onChange={(e) => setField('timelapseEnabled', e.target.checked)}
+              />
+              <span>Enable timelapse recording</span>
+            </label>
+            <p className="form-group__hint">
+              Automatically record terminal output for all sessions. Recordings are saved to
+              ~/.schmux/recordings/ and can be exported as .cast files.
+            </p>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-group__label">Retention (days)</label>
+              <input
+                type="number"
+                className="input input--compact"
+                value={timelapseRetentionDays}
+                onChange={(e) =>
+                  setField('timelapseRetentionDays', parseInt(e.target.value, 10) || 7)
+                }
+                min={1}
+                max={365}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-group__label">Max file size (MB)</label>
+              <input
+                type="number"
+                className="input input--compact"
+                value={timelapseMaxFileSizeMB}
+                onChange={(e) =>
+                  setField('timelapseMaxFileSizeMB', parseInt(e.target.value, 10) || 50)
+                }
+                min={1}
+                max={1000}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-group__label">Max total storage (MB)</label>
+              <input
+                type="number"
+                className="input input--compact"
+                value={timelapseMaxTotalStorageMB}
+                onChange={(e) =>
+                  setField('timelapseMaxTotalStorageMB', parseInt(e.target.value, 10) || 500)
+                }
+                min={10}
+                max={10000}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
 
       {stepErrors[5] && <p className="form-group__error">{stepErrors[5]}</p>}
     </div>

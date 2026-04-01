@@ -1312,3 +1312,38 @@ export async function syncEnvironmentVar(key: string): Promise<void> {
     await parseErrorResponse(response, 'Failed to sync environment variable');
   }
 }
+
+// Timelapse Recording API
+
+export interface TimelapseRecording {
+  RecordingID: string;
+  SessionID: string;
+  StartTime: string;
+  Duration: number;
+  FileSize: number;
+  Width: number;
+  Height: number;
+  InProgress: boolean;
+  HasExport: boolean;
+  Path: string;
+}
+
+export async function getTimelapseRecordings(): Promise<TimelapseRecording[]> {
+  const response = await apiFetch('/api/timelapse');
+  if (!response.ok) return [];
+  return response.json();
+}
+
+export async function exportTimelapseRecording(recordingId: string): Promise<void> {
+  await apiFetch(`/api/timelapse/${recordingId}/export`, {
+    method: 'POST',
+    headers: csrfHeaders(),
+  });
+}
+
+export async function deleteTimelapseRecording(recordingId: string): Promise<void> {
+  await apiFetch(`/api/timelapse/${recordingId}`, {
+    method: 'DELETE',
+    headers: csrfHeaders(),
+  });
+}
