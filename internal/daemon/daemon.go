@@ -183,6 +183,7 @@ func Start() error {
 
 	// Start daemon in background
 	cmd := exec.Command(execPath, "daemon-run", "--background")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Dir, _ = os.Getwd()
 	cmd.Stdout = logF
 	cmd.Stderr = logF

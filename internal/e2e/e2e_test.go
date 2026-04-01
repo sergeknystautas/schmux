@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -85,6 +87,104 @@ func isRunningInDocker() bool {
 		strings.Contains(cgroup, "containerd") ||
 		strings.Contains(cgroup, "kubepods") ||
 		strings.Contains(cgroup, "podman")
+}
+
+// TestShellSurvivesDaemonStart verifies that running "schmux start" followed
+// by "schmux stop" does not kill the launching shell.
+func TestShellSurvivesDaemonStart(t *testing.T) {
+	t.Parallel()
+	env := New(t)
+
+	workspaceRoot := t.TempDir()
+	env.CreateConfig(workspaceRoot)
+
+	testEnv := append(os.Environ(), "HOME="+env.HomeDir, "TMUX_TMPDIR="+env.HomeDir)
+
+	// Step 0: start tmux server and create a session (simulates user environment)
+	tmuxStart := exec.Command("tmux", "start-server")
+	tmuxStart.Env = testEnv
+	if out, err := tmuxStart.CombinedOutput(); err != nil {
+		t.Fatalf("failed to start tmux server: %v\n%s", err, out)
+	}
+	tmuxNew := exec.Command("tmux", "new-session", "-d", "-s", "pre-existing")
+	tmuxNew.Env = testEnv
+	if out, err := tmuxNew.CombinedOutput(); err != nil {
+		t.Fatalf("failed to create tmux session: %v\n%s", err, out)
+	}
+
+	// Step 1: schmux start
+	startCmd := exec.Command(env.SchmuxBin, "start")
+	startCmd.Env = testEnv
+	startOut, err := startCmd.CombinedOutput()
+	t.Logf("schmux start output: %s", startOut)
+	if err != nil {
+		t.Fatalf("schmux start failed: %v\noutput: %s", err, startOut)
+	}
+
+	// Step 2: verify daemon is actually running via healthz
+	daemonURL := fmt.Sprintf("http://127.0.0.1:%d", env.DaemonPort())
+	deadline := time.Now().Add(10 * time.Second)
+	daemonReady := false
+	for time.Now().Before(deadline) {
+		resp, herr := http.Get(daemonURL + "/api/healthz")
+		if herr == nil && resp.StatusCode == http.StatusOK {
+			resp.Body.Close()
+			daemonReady = true
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !daemonReady {
+		logPath := filepath.Join(env.HomeDir, ".schmux", "daemon-startup.log")
+		logData, _ := os.ReadFile(logPath)
+		t.Fatalf("daemon never became ready after schmux start\nstartup log:\n%s", logData)
+	}
+	t.Log("daemon is running")
+
+	// Step 3: verify daemon runs in its own session.
+	// Without Setsid, the daemon shares the caller's session. Its children
+	// (tmux attach-session, git, tool detection) can call tcsetpgrp() and
+	// steal the terminal's foreground process group, killing the caller's shell.
+	pidPath := filepath.Join(env.HomeDir, ".schmux", "daemon.pid")
+	pidData, err := os.ReadFile(pidPath)
+	if err != nil {
+		t.Fatalf("failed to read daemon PID file: %v", err)
+	}
+	var daemonPID int
+	fmt.Sscanf(strings.TrimSpace(string(pidData)), "%d", &daemonPID)
+	if daemonPID == 0 {
+		t.Fatal("daemon PID is 0")
+	}
+
+	getSID := func(pid int) int {
+		out, err := exec.Command("ps", "-o", "sid=", "-p", strconv.Itoa(pid)).Output()
+		if err != nil {
+			t.Fatalf("failed to get SID for PID %d: %v", pid, err)
+		}
+		sid, err := strconv.Atoi(strings.TrimSpace(string(out)))
+		if err != nil {
+			t.Fatalf("failed to parse SID for PID %d: %q: %v", pid, string(out), err)
+		}
+		return sid
+	}
+	testSID := getSID(os.Getpid())
+	daemonSID := getSID(daemonPID)
+	t.Logf("test SID=%d, daemon PID=%d SID=%d", testSID, daemonPID, daemonSID)
+
+	// Step 4: schmux stop
+	stopCmd := exec.Command(env.SchmuxBin, "stop")
+	stopCmd.Env = testEnv
+	stopOut, err := stopCmd.CombinedOutput()
+	t.Logf("schmux stop output: %s", stopOut)
+	if err != nil {
+		t.Fatalf("schmux stop failed: %v\noutput: %s", err, stopOut)
+	}
+
+	// Assert AFTER stop so we always clean up.
+	if daemonSID == testSID {
+		t.Fatalf("daemon shares session with caller (SID=%d); "+
+			"must use Setsid so its children cannot steal the terminal foreground group", testSID)
+	}
 }
 
 // TestE2EFullLifecycle runs the full E2E test suite as one integrated test.

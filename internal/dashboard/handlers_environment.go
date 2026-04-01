@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
@@ -118,6 +119,7 @@ func getSystemEnvironment(ctx context.Context) (map[string]string, error) {
 		"TERM=xterm-256color",
 		shell, "-l", "-i", "-c", "env",
 	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 
