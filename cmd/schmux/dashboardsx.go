@@ -3,6 +3,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -126,7 +127,11 @@ func (cmd *DashboardSXCommand) runSetup() error {
 
 	// Step 3: Build registration URL and open browser
 	port := cfg.GetPort()
-	returnURL := fmt.Sprintf("http://%s:%d/api/dashboardsx/callback", selectedIP, port)
+	scheme := "http"
+	if cfg.GetTLSEnabled() {
+		scheme = "https"
+	}
+	returnURL := fmt.Sprintf("%s://%s:%d/api/dashboardsx/callback", scheme, selectedIP, port)
 	params := url.Values{}
 	params.Set("instance_key", instanceKey)
 	params.Set("ip", selectedIP)
@@ -152,7 +157,7 @@ func (cmd *DashboardSXCommand) runSetup() error {
 	cmd.style.Blank()
 
 	// Poll the daemon's provision-status endpoint until complete or error
-	statusURL := fmt.Sprintf("http://localhost:%d/api/dashboardsx/provision-status", port)
+	statusURL := fmt.Sprintf("%s://localhost:%d/api/dashboardsx/provision-status", scheme, port)
 	lastStatus := ""
 	lastMessage := ""
 	for {
@@ -371,7 +376,12 @@ func (cmd *DashboardSXCommand) runRenewCert() error {
 
 // pollProvisionStatus fetches the provision status from the daemon.
 func pollProvisionStatus(statusURL string) (status, domain, message string, err error) {
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // localhost-only poll
+		},
+	}
 	resp, err := client.Get(statusURL)
 	if err != nil {
 		return "", "", "", err
