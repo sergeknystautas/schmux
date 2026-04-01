@@ -941,7 +941,13 @@ Response:
   "system_capabilities": {
     "iterm2_available": true
   },
-  "needs_restart": false
+  "needs_restart": false,
+  "dashboard_sx_status": {
+    "last_heartbeat_time": "2026-04-01T12:00:00Z",
+    "last_heartbeat_status": 200,
+    "cert_domain": "12540.dashboard.sx",
+    "cert_expires_at": "2026-07-01T00:00:00Z"
+  }
 }
 ```
 
@@ -950,6 +956,14 @@ Repos with `"vcs": "sapling"` use the sapling backend instead of git. The `vcs` 
 **`tmux_binary`**: Path to a custom tmux binary. When empty or omitted, the system default from `$PATH` is used. The path is validated on save (must exist, be executable, and output a recognized tmux version string). Changing this field flags `needs_restart`.
 
 **TLS behavior**: The server serves HTTPS whenever `network.tls.cert_path` and `network.tls.key_path` are both set, regardless of whether `access_control.enabled` is true. This allows dashboard.sx HTTPS without requiring GitHub auth.
+
+**`dashboard_sx_status`** (object, optional): Dashboard.sx heartbeat and certificate status. Only present when `network.dashboardsx.enabled` is true and at least one heartbeat has been attempted. All fields are omitted when empty/zero:
+
+- `last_heartbeat_time` (string) — ISO 8601 timestamp of last heartbeat attempt
+- `last_heartbeat_status` (number) — HTTP status code from last heartbeat (0 for network errors)
+- `last_heartbeat_error` (string) — Error message if heartbeat was non-200
+- `cert_domain` (string) — Certificate common name (e.g. `"12540.dashboard.sx"`)
+- `cert_expires_at` (string) — ISO 8601 timestamp of certificate expiry
 
 ### POST/PUT /api/config
 

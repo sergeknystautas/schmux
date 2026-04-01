@@ -15,6 +15,15 @@ import (
 	"github.com/sergeknystautas/schmux/internal/fileutil"
 )
 
+// DashboardSXStatus tracks the last heartbeat response and certificate expiry.
+type DashboardSXStatus struct {
+	LastHeartbeatTime   time.Time `json:"last_heartbeat_time,omitempty"`
+	LastHeartbeatStatus int       `json:"last_heartbeat_status,omitempty"`
+	LastHeartbeatError  string    `json:"last_heartbeat_error,omitempty"`
+	CertDomain          string    `json:"cert_domain,omitempty"`
+	CertExpiresAt       time.Time `json:"cert_expires_at,omitempty"`
+}
+
 // State represents the application state.
 type State struct {
 	Workspaces   []Workspace                 `json:"workspaces"`
@@ -25,6 +34,7 @@ type State struct {
 	NeedsRestart bool                        `json:"needs_restart,omitempty"` // true if daemon needs restart for config changes to take effect
 	RemoteHosts  []RemoteHost                `json:"remote_hosts,omitempty"`  // connected/cached remote hosts
 	Previews     map[string]WorkspacePreview `json:"previews,omitempty"`      // persisted preview mappings (proxy port must survive restart)
+	DashboardSX  *DashboardSXStatus          `json:"dashboard_sx,omitempty"`
 	path         string                      // path to the state file
 	logger       *log.Logger
 	mu           sync.RWMutex
@@ -906,6 +916,24 @@ func (s *State) GetNeedsRestart() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.NeedsRestart
+}
+
+// GetDashboardSXStatus returns a copy of the dashboard.sx status, or nil.
+func (s *State) GetDashboardSXStatus() *DashboardSXStatus {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.DashboardSX == nil {
+		return nil
+	}
+	cp := *s.DashboardSX
+	return &cp
+}
+
+// SetDashboardSXStatus sets the dashboard.sx status.
+func (s *State) SetDashboardSXStatus(status *DashboardSXStatus) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.DashboardSX = status
 }
 
 // GetPullRequests returns a copy of the stored pull requests.

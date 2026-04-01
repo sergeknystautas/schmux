@@ -253,3 +253,28 @@ func GetCertExpiry() (time.Time, error) {
 
 	return cert.NotAfter, nil
 }
+
+// GetCertDomain parses the certificate and returns the common name.
+func GetCertDomain() (string, error) {
+	certPath, err := CertPath()
+	if err != nil {
+		return "", err
+	}
+
+	data, err := os.ReadFile(certPath)
+	if err != nil {
+		return "", err
+	}
+
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return "", fmt.Errorf("no PEM block found in certificate")
+	}
+
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return "", err
+	}
+
+	return cert.Subject.CommonName, nil
+}

@@ -50,18 +50,19 @@ type HeartbeatRequest struct {
 }
 
 // Heartbeat sends a keep-alive signal to dashboard.sx.
-func (c *Client) Heartbeat() error {
+// Returns the HTTP status code and any error.
+func (c *Client) Heartbeat() (int, error) {
 	body := HeartbeatRequest{
 		InstanceKey: c.InstanceKey,
 	}
 	c.log("POST %s/heartbeat", c.ServiceURL)
-	_, err := c.post("/heartbeat", body)
+	status, _, err := c.post("/heartbeat", body)
 	if err != nil {
 		c.log("  → error: %v", err)
 	} else {
 		c.log("  → OK")
 	}
-	return err
+	return status, err
 }
 
 // CertProvisioningStartRequest is the request body for POST /cert-provisioning/start.
@@ -84,7 +85,7 @@ func (c *Client) CertProvisioningStart() (*CertProvisioningStartResponse, error)
 		Code:        c.Code,
 	}
 	c.log("POST %s/cert-provisioning/start (code=%s)", c.ServiceURL, c.Code)
-	data, err := c.post("/cert-provisioning/start", body)
+	_, data, err := c.post("/cert-provisioning/start", body)
 	if err != nil {
 		c.log("  → error: %v", err)
 		return nil, err
@@ -117,7 +118,7 @@ func (c *Client) DNSChallengeCreate(challengeToken, value string) error {
 		ChallengeValue: value,
 	}
 	c.log("POST %s/dns-challenge", c.ServiceURL)
-	_, err := c.post("/dns-challenge", body)
+	_, _, err := c.post("/dns-challenge", body)
 	if err != nil {
 		c.log("  → error: %v", err)
 	} else {
@@ -178,7 +179,7 @@ func (c *Client) CallbackExchange(callbackToken string) (*CallbackExchangeRespon
 		CallbackToken: callbackToken,
 	}
 	c.log("POST %s/callback/exchange", c.ServiceURL)
-	data, err := c.post("/callback/exchange", body)
+	_, data, err := c.post("/callback/exchange", body)
 	if err != nil {
 		c.log("  → error: %v", err)
 		return nil, err
@@ -192,27 +193,27 @@ func (c *Client) CallbackExchange(callbackToken string) (*CallbackExchangeRespon
 	return &resp, nil
 }
 
-// post sends a POST request with JSON body and returns the response body.
-func (c *Client) post(path string, body interface{}) ([]byte, error) {
+// post sends a POST request with JSON body and returns the HTTP status code and response body.
+func (c *Client) post(path string, body interface{}) (int, []byte, error) {
 	data, err := json.Marshal(body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return 0, nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	resp, err := c.HTTPClient.Post(c.ServiceURL+path, "application/json", bytes.NewReader(data))
 	if err != nil {
-		return nil, fmt.Errorf("%s request failed: %w", path, err)
+		return 0, nil, fmt.Errorf("%s request failed: %w", path, err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read %s response: %w", path, err)
+		return resp.StatusCode, nil, fmt.Errorf("failed to read %s response: %w", path, err)
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("%s returned %d: %s", path, resp.StatusCode, string(respBody))
+		return resp.StatusCode, nil, fmt.Errorf("%s returned %d: %s", path, resp.StatusCode, string(respBody))
 	}
 
-	return respBody, nil
+	return resp.StatusCode, respBody, nil
 }

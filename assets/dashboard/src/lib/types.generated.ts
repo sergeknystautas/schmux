@@ -61,6 +61,7 @@ export interface ConfigResponse {
   tmux_binary?: string;
   system_capabilities: SystemCapabilities;
   needs_restart: boolean;
+  dashboard_sx_status?: DashboardSXStatus;
 }
 
 export interface ConfigUpdateRequest {
@@ -110,6 +111,14 @@ export interface CreateSpawnEntryRequest {
   command?: string;
   prompt?: string;
   target?: string;
+}
+
+export interface DashboardSXStatus {
+  last_heartbeat_time?: string;
+  last_heartbeat_status?: number;
+  last_heartbeat_error?: string;
+  cert_domain?: string;
+  cert_expires_at?: string;
 }
 
 export interface Desync {

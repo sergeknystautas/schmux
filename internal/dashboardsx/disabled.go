@@ -58,7 +58,17 @@ func NewClient(_, _, _ string) *Client {
 	return &Client{}
 }
 
-func StartHeartbeat(_ context.Context, _ *Client) {}
+type HeartbeatStatus struct {
+	Time       time.Time
+	StatusCode int
+	Error      string
+}
+
+type HeartbeatStatusWriter interface {
+	SetHeartbeatStatus(status *HeartbeatStatus)
+}
+
+func StartHeartbeat(_ context.Context, _ *Client, _ HeartbeatStatusWriter) {}
 
 func StartAutoRenewal(_ context.Context, _ *Client, _ string) {}
 
@@ -80,6 +90,14 @@ func NewServiceDNSProvider(_ *Client) (*ServiceDNSProvider, error) {
 
 func ProvisionCert(_, _ string, _ bool, _ challenge.Provider, _ StatusFunc) error {
 	return fmt.Errorf("dashboardsx is not available in this build")
+}
+
+func GetCertExpiry() (time.Time, error) {
+	return time.Time{}, fmt.Errorf("dashboardsx is not available in this build")
+}
+
+func GetCertDomain() (string, error) {
+	return "", fmt.Errorf("dashboardsx is not available in this build")
 }
 
 func IsAvailable() bool { return false }

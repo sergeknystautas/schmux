@@ -26,7 +26,7 @@ func TestClient_Heartbeat(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, "test-key", "abc12")
-	if err := client.Heartbeat(); err != nil {
+	if _, err := client.Heartbeat(); err != nil {
 		t.Fatalf("Heartbeat() error: %v", err)
 	}
 	if received.InstanceKey != "test-key" {
@@ -41,7 +41,7 @@ func TestClient_Heartbeat_Error(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, "test-key", "abc12")
-	if err := client.Heartbeat(); err == nil {
+	if _, err := client.Heartbeat(); err == nil {
 		t.Fatal("expected error from 503 response")
 	}
 }
@@ -151,6 +151,41 @@ func TestClient_CallbackExchange(t *testing.T) {
 	}
 	if resp.Email != "user@example.com" {
 		t.Errorf("Email = %q, want %q", resp.Email, "user@example.com")
+	}
+}
+
+func TestHeartbeatReturnsStatusCode(t *testing.T) {
+	tests := []struct {
+		name           string
+		serverStatus   int
+		expectedStatus int
+		expectErr      bool
+	}{
+		{"success", 200, 200, false},
+		{"forbidden", 403, 403, true},
+		{"server error", 500, 500, true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.serverStatus)
+				w.Write([]byte(`{"ok":true}`))
+			}))
+			defer srv.Close()
+
+			client := NewClient(srv.URL, "test-key", "12345")
+			status, err := client.Heartbeat()
+			if status != tc.expectedStatus {
+				t.Errorf("expected status %d, got %d", tc.expectedStatus, status)
+			}
+			if tc.expectErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tc.expectErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
 	}
 }
 

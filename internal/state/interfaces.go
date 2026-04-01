@@ -74,6 +74,10 @@ type StateStore interface {
 	GetNeedsRestart() bool
 	SetNeedsRestart(needsRestart bool) error
 
+	// DashboardSX status
+	GetDashboardSXStatus() *DashboardSXStatus
+	SetDashboardSXStatus(status *DashboardSXStatus)
+
 	// Persistence
 	Save() error
 }

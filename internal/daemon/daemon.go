@@ -83,6 +83,23 @@ type Daemon struct {
 	githubStatus contracts.GitHubStatus
 }
 
+// heartbeatStateWriter adapts state.StateStore to dashboardsx.HeartbeatStatusWriter.
+type heartbeatStateWriter struct {
+	state state.StateStore
+}
+
+func (w *heartbeatStateWriter) SetHeartbeatStatus(s *dashboardsx.HeartbeatStatus) {
+	existing := w.state.GetDashboardSXStatus()
+	if existing == nil {
+		existing = &state.DashboardSXStatus{}
+	}
+	existing.LastHeartbeatTime = s.Time
+	existing.LastHeartbeatStatus = s.StatusCode
+	existing.LastHeartbeatError = s.Error
+	w.state.SetDashboardSXStatus(existing)
+	w.state.Save()
+}
+
 // NewDaemon creates a new Daemon with initialized channels and context.
 func NewDaemon() *Daemon {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -397,31 +414,6 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		}
 	}
 
-	// Check dashboard.sx certificate expiry and start background services
-	if cfg.GetDashboardSXEnabled() {
-		if status, err := dashboardsx.GetStatus(cfg); err == nil && status.HasCert && status.DaysUntilExpiry < 30 {
-			logger.Warn("certificate expiring soon — run 'schmux dashboardsx renew-cert'", "days_left", status.DaysUntilExpiry)
-		}
-
-		// Start heartbeat and auto-renewal goroutines
-		instanceKey, err := dashboardsx.EnsureInstanceKey()
-		if err != nil {
-			logger.Warn("failed to read instance key", "err", err)
-		} else {
-			serviceURL := dashboardsx.DefaultServiceURL
-			if cfg.Network != nil && cfg.Network.DashboardSX != nil && cfg.Network.DashboardSX.ServiceURL != "" {
-				serviceURL = cfg.Network.DashboardSX.ServiceURL
-			}
-			client := dashboardsx.NewClient(serviceURL, instanceKey, cfg.GetDashboardSXCode())
-
-			go dashboardsx.StartHeartbeat(d.shutdownCtx, client)
-
-			if email := cfg.GetDashboardSXEmail(); email != "" {
-				go dashboardsx.StartAutoRenewal(d.shutdownCtx, client, email)
-			}
-		}
-	}
-
 	// Initialize telemetry
 	var tel telemetry.Telemetry = &telemetry.NoopTelemetry{}
 	if cfg.GetTelemetryEnabled() {
@@ -468,6 +460,42 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	// Normalize bare repo paths — rename non-conforming directories to {name}.git
 	config.NormalizeBarePaths(cfg, st)
+
+	// Populate dashboard.sx status and start background services
+	if cfg.GetDashboardSXEnabled() {
+		// Populate cert info in state
+		dxStatus := st.GetDashboardSXStatus()
+		if dxStatus == nil {
+			dxStatus = &state.DashboardSXStatus{}
+		}
+		if domain, err := dashboardsx.GetCertDomain(); err == nil {
+			dxStatus.CertDomain = domain
+		}
+		if expiry, err := dashboardsx.GetCertExpiry(); err == nil {
+			dxStatus.CertExpiresAt = expiry
+		}
+		st.SetDashboardSXStatus(dxStatus)
+		st.Save()
+
+		// Start heartbeat and auto-renewal goroutines
+		instanceKey, err := dashboardsx.EnsureInstanceKey()
+		if err != nil {
+			logger.Warn("failed to read instance key", "err", err)
+		} else {
+			serviceURL := dashboardsx.DefaultServiceURL
+			if cfg.Network != nil && cfg.Network.DashboardSX != nil && cfg.Network.DashboardSX.ServiceURL != "" {
+				serviceURL = cfg.Network.DashboardSX.ServiceURL
+			}
+			client := dashboardsx.NewClient(serviceURL, instanceKey, cfg.GetDashboardSXCode())
+
+			writer := &heartbeatStateWriter{state: st}
+			go dashboardsx.StartHeartbeat(d.shutdownCtx, client, writer)
+
+			if email := cfg.GetDashboardSXEmail(); email != "" {
+				go dashboardsx.StartAutoRenewal(d.shutdownCtx, client, email)
+			}
+		}
+	}
 
 	// Create managers
 	ensure.SetLogger(logging.Sub(workspaceLog, "ensure"))

@@ -136,6 +136,15 @@ type SystemCapabilities struct {
 	ITerm2Available bool `json:"iterm2_available"`
 }
 
+// DashboardSXStatus represents dashboard.sx heartbeat and certificate status.
+type DashboardSXStatus struct {
+	LastHeartbeatTime   string `json:"last_heartbeat_time,omitempty"`
+	LastHeartbeatStatus int    `json:"last_heartbeat_status,omitempty"`
+	LastHeartbeatError  string `json:"last_heartbeat_error,omitempty"`
+	CertDomain          string `json:"cert_domain,omitempty"`
+	CertExpiresAt       string `json:"cert_expires_at,omitempty"`
+}
+
 // ConfigResponse represents the API response for GET /api/config.
 type ConfigResponse struct {
 	WorkspacePath              string                 `json:"workspace_path"`
@@ -170,6 +179,7 @@ type ConfigResponse struct {
 	TmuxBinary                 string                 `json:"tmux_binary,omitempty"`
 	SystemCapabilities         SystemCapabilities     `json:"system_capabilities"`
 	NeedsRestart               bool                   `json:"needs_restart"`
+	DashboardSXStatus          *DashboardSXStatus     `json:"dashboard_sx_status,omitempty"`
 }
 
 // Desync represents desync diagnostic capture configuration in the API response.

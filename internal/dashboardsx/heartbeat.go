@@ -25,32 +25,53 @@ const (
 	heartbeatJitter       = 2 * time.Hour // ±2 hours
 )
 
+// HeartbeatStatus is the result of a single heartbeat attempt.
+type HeartbeatStatus struct {
+	Time       time.Time
+	StatusCode int
+	Error      string
+}
+
+// HeartbeatStatusWriter persists heartbeat results.
+type HeartbeatStatusWriter interface {
+	SetHeartbeatStatus(status *HeartbeatStatus)
+}
+
 // StartHeartbeat runs a background heartbeat loop that sends keep-alive
 // signals to the dashboard.sx service. It sends one immediately, then
 // every 24h ± 2h (randomized to prevent surveillance).
 // The goroutine exits when ctx is cancelled.
-func StartHeartbeat(ctx context.Context, client *Client) {
-	// Send initial heartbeat immediately
-	if err := client.Heartbeat(); err != nil {
-		if pkgLogger != nil {
-			pkgLogger.Error("heartbeat failed", "err", err)
+func StartHeartbeat(ctx context.Context, client *Client, writer HeartbeatStatusWriter) {
+	recordHeartbeat := func() {
+		statusCode, err := client.Heartbeat()
+		s := &HeartbeatStatus{
+			Time:       time.Now(),
+			StatusCode: statusCode,
 		}
-	} else {
-		if pkgLogger != nil {
-			pkgLogger.Info("heartbeat sent")
+		if err != nil {
+			s.Error = err.Error()
+			if pkgLogger != nil {
+				pkgLogger.Error("heartbeat failed", "err", err)
+			}
+		} else {
+			if pkgLogger != nil {
+				pkgLogger.Info("heartbeat sent")
+			}
+		}
+		if writer != nil {
+			writer.SetHeartbeatStatus(s)
 		}
 	}
+
+	// Send initial heartbeat immediately
+	recordHeartbeat()
 
 	for {
 		interval := heartbeatInterval()
 		timer := time.NewTimer(interval)
 		select {
 		case <-timer.C:
-			if err := client.Heartbeat(); err != nil {
-				if pkgLogger != nil {
-					pkgLogger.Error("heartbeat failed", "err", err)
-				}
-			}
+			recordHeartbeat()
 		case <-ctx.Done():
 			timer.Stop()
 			return

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
@@ -205,6 +206,24 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			},
 		},
 		NeedsRestart: s.state.GetNeedsRestart(),
+		DashboardSXStatus: func() *contracts.DashboardSXStatus {
+			st := s.state.GetDashboardSXStatus()
+			if st == nil {
+				return nil
+			}
+			result := &contracts.DashboardSXStatus{
+				LastHeartbeatStatus: st.LastHeartbeatStatus,
+				LastHeartbeatError:  st.LastHeartbeatError,
+				CertDomain:          st.CertDomain,
+			}
+			if !st.LastHeartbeatTime.IsZero() {
+				result.LastHeartbeatTime = st.LastHeartbeatTime.Format(time.RFC3339)
+			}
+			if !st.CertExpiresAt.IsZero() {
+				result.CertExpiresAt = st.CertExpiresAt.Format(time.RFC3339)
+			}
+			return result
+		}(),
 		SystemCapabilities: contracts.SystemCapabilities{
 			ITerm2Available: detect.ITerm2Available(),
 		},

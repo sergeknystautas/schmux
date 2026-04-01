@@ -712,6 +712,9 @@ func (m *mockStateStore) SetPullRequests(_ []contracts.PullRequest) {}
 func (m *mockStateStore) GetPublicRepos() []string                  { return nil }
 func (m *mockStateStore) SetPublicRepos(_ []string)                 {}
 
+func (m *mockStateStore) GetDashboardSXStatus() *state.DashboardSXStatus  { return nil }
+func (m *mockStateStore) SetDashboardSXStatus(_ *state.DashboardSXStatus) {}
+
 // Remote host methods
 func (m *mockStateStore) GetRemoteHosts() []state.RemoteHost { return nil }
 func (m *mockStateStore) GetRemoteHost(id string) (state.RemoteHost, bool) {

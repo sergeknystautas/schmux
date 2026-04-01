@@ -264,6 +264,32 @@ export default function HomePage() {
   } = useSessions();
   const { config, loading: configLoading, getRepoName } = useConfig();
   const { features } = useFeatures();
+
+  // dashboard.sx alerts
+  const dxStatus = config.dashboard_sx_status;
+  const dxAlerts: { key: string; text: string }[] = [];
+  if (dxStatus) {
+    if (dxStatus.last_heartbeat_status && dxStatus.last_heartbeat_status !== 200) {
+      const time = dxStatus.last_heartbeat_time
+        ? new Date(dxStatus.last_heartbeat_time).toLocaleString()
+        : 'unknown';
+      dxAlerts.push({
+        key: 'heartbeat',
+        text: `heartbeat: ${time} ${dxStatus.last_heartbeat_status} ${dxStatus.last_heartbeat_error || ''}`.trim(),
+      });
+    }
+    if (dxStatus.cert_expires_at) {
+      const daysLeft = Math.ceil(
+        (new Date(dxStatus.cert_expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+      );
+      if (daysLeft <= 30) {
+        dxAlerts.push({
+          key: 'cert',
+          text: `certificate: ${dxStatus.cert_domain || 'unknown'} expires in ${daysLeft} days`,
+        });
+      }
+    }
+  }
   const { success, error: toastError } = useToast();
   const { alert } = useModal();
   const { setPendingNavigation } = usePendingNavigation();
@@ -658,6 +684,18 @@ export default function HomePage() {
 
         {/* Sidebar */}
         <div className={styles.fmSideColumn}>
+          {dxAlerts.length > 0 && (
+            <div
+              className="banner banner--warning mb-md"
+              data-testid="dashboardsx-alerts"
+              style={{ flexDirection: 'column', alignItems: 'flex-start' }}
+            >
+              <strong>dashboard.sx alerts</strong>
+              {dxAlerts.map((a) => (
+                <div key={a.key}>{a.text}</div>
+              ))}
+            </div>
+          )}
           {!heroDismissed && (
             <div className={styles.heroSection}>
               <button
@@ -790,6 +828,18 @@ export default function HomePage() {
     <div className={styles.homePage}>
       {/* Left Column - Quick Actions */}
       <div className={styles.leftColumn}>
+        {dxAlerts.length > 0 && (
+          <div
+            className="banner banner--warning mb-md"
+            data-testid="dashboardsx-alerts"
+            style={{ flexDirection: 'column', alignItems: 'flex-start' }}
+          >
+            <strong>dashboard.sx alerts</strong>
+            {dxAlerts.map((a) => (
+              <div key={a.key}>{a.text}</div>
+            ))}
+          </div>
+        )}
         {/* Hero Section - dismissable */}
         {!heroDismissed && (
           <div className={styles.heroSection}>
