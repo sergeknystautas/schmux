@@ -47,8 +47,8 @@ type Parser struct {
 	events    chan Event
 
 	// Current command being parsed
-	currentCmdID   int
-	currentLines   []string
+	currentCmdID  int
+	currentLines  []string
 	inCommandResp bool
 
 	// Signal when the first control mode protocol line is seen.

@@ -740,7 +740,9 @@ Paste an image from the browser clipboard into a tmux session.
 
 **Local sessions:** Writes the image to the system clipboard (macOS only via osascript) and sends Ctrl+V (0x16) to the tmux session so the terminal application picks up the image.
 
-**Remote sessions:** Transfers the image to the remote host via base64 (through `RunCommand`), sets the remote X11 clipboard via `xclip` (`DISPLAY=:99`), and sends Ctrl+V to the remote pane. Requires `xclip` and `Xvfb` on the remote host. Max 2MB for remote transfers.
+**Remote sessions:** Transfers the image to the remote host via base64 (through `RunCommand`), then tries two approaches in order: (1) sets the remote X11 clipboard via `xclip` and sends Ctrl+V, or (2) if xclip is unavailable, leaves the file on disk and types the file path into the agent's input. Max 2MB for remote transfers. The response includes `method` ("clipboard" or "file") and `file_path` (set when file fallback is used).
+
+The frontend also intercepts Ctrl+V (`\x16`) keystrokes: when the browser clipboard contains an image, it calls this API instead of forwarding the raw keystroke. Drag-and-drop of image files onto the terminal is also supported.
 
 Request (max 10MB body):
 
@@ -754,7 +756,8 @@ Request (max 10MB body):
 Response:
 
 ```json
-{ "status": "ok" }
+{ "status": "ok", "method": "clipboard", "file_path": "" }
+{ "status": "ok", "method": "file", "file_path": "/tmp/schmux-clipboard-abc123.png" }
 ```
 
 Errors:
@@ -762,7 +765,7 @@ Errors:
 - 400: "method not allowed", "invalid request body", "sessionId and imageBase64 are required", "invalid base64 image data"
 - 404: "session not found"
 - 500: "failed to process image", "failed to set clipboard: ...", "remote manager not configured", "session tracker not found", "failed to send input", "failed to paste image on remote host: ..."
-- 503: "remote host not connected"
+- 503: "remote host not connected", "Remote host is still being provisioned..."
 
 ### POST /api/workspaces/{workspaceId}/dispose
 

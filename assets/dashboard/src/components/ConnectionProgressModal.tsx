@@ -215,10 +215,17 @@ export default function ConnectionProgressModal({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Track whether we've seen 'connecting' (SSH established) to distinguish
+  // initial provisioning from post-connection tool installation.
+  const sawConnectingRef = useRef(false);
+  if (status === 'connecting') sawConnectingRef.current = true;
+
   const getStatusMessage = () => {
     switch (status) {
       case 'provisioning':
-        return 'Provisioning remote host...';
+        return sawConnectingRef.current
+          ? 'Installing required tools...'
+          : 'Provisioning remote host...';
       case 'connecting':
         return 'Connecting to host...';
       case 'reconnecting':

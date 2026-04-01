@@ -634,6 +634,16 @@ func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader) e
 
 	c.notifyStatusChange()
 
+	// Set DISPLAY in the tmux global environment so all panes (including AI agents)
+	// can access the X11 clipboard via xclip. This must happen BEFORE sessions are
+	// spawned so the agent process inherits DISPLAY at startup.
+	// DISPLAY=:99 is the conventional Xvfb display started during provisioning.
+	if _, err := c.client.Execute(ctx, "setenv -g DISPLAY :99"); err != nil {
+		if c.logger != nil {
+			c.logger.Warn("failed to set DISPLAY in tmux environment", "host_id", c.host.ID, "err", err)
+		}
+	}
+
 	// Connection ready - drain pending session queue
 	c.drainPendingQueue(ctx)
 
@@ -1025,24 +1035,34 @@ func (c *Connection) Provision(ctx context.Context, provisionCmd string) error {
 
 	command := cmdStr.String()
 	if c.logger != nil {
-		c.logger.Info("executing provision command", "cmd", command)
+		c.logger.Info("executing provision command", "host_id", c.host.ID, "cmd", command)
 	}
 
-	// Execute provision command with timeout (5 minutes default)
-	provisionCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	// Run provision command in a hidden tmux window (shell command, not tmux command).
+	// Use an independent context — the caller's context (from Connect/Reconnect)
+	// may have little time remaining after SSH setup. Package installation can
+	// take minutes on first run.
+	provisionCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	output, err := c.client.Execute(provisionCtx, command)
+	output, err := c.RunCommand(provisionCtx, c.flavor.WorkspacePath, command)
 	if err != nil {
+		if c.logger != nil {
+			c.logger.Error("provision command failed", "host_id", c.host.ID, "cmd", command, "err", err)
+		}
 		return fmt.Errorf("provision command failed: %w", err)
 	}
 
 	if c.logger != nil {
-		c.logger.Info("provision completed successfully")
-	}
-	if output != "" {
-		if c.logger != nil {
-			c.logger.Debug("provision output", "output", output)
+		// Log output at Info level so provisioning progress is always visible
+		c.logger.Info("provision completed", "host_id", c.host.ID, "output_len", len(output))
+		if output != "" {
+			// Truncate long output to avoid flooding logs
+			logOutput := output
+			if len(logOutput) > 500 {
+				logOutput = logOutput[:500] + "... (truncated)"
+			}
+			c.logger.Info("provision output", "host_id", c.host.ID, "output", logOutput)
 		}
 	}
 

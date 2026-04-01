@@ -18,7 +18,11 @@ import { WriteRaceDiagnostics } from './writeRaceDiagnostics';
  * Send a clipboard image to the server, which writes it to the system
  * clipboard and triggers Ctrl+V in the tmux session.
  */
-async function pasteImageToSession(sessionId: string, imageBlob: Blob): Promise<void> {
+async function pasteImageToSession(
+  sessionId: string,
+  imageBlob: Blob,
+  onError?: (msg: string) => void
+): Promise<void> {
   const buf = await imageBlob.arrayBuffer();
   const bytes = new Uint8Array(buf);
   let binary = '';
@@ -32,20 +36,49 @@ async function pasteImageToSession(sessionId: string, imageBlob: Blob): Promise<
     size: bytes.length,
   });
 
-  try {
-    const resp = await transport.fetch('/api/clipboard-paste', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-      body: JSON.stringify({ sessionId, imageBase64 }),
-    });
-    if (!resp.ok) {
+  const maxRetries = 20; // 20 * 3s = 60s max wait for provisioning
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const resp = await transport.fetch('/api/clipboard-paste', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+        body: JSON.stringify({ sessionId, imageBase64 }),
+      });
+      if (resp.ok) {
+        const result = await resp.json().catch(() => ({}));
+        const method = (result as { method?: string }).method;
+        const filePath = (result as { file_path?: string }).file_path;
+        if (method === 'file') {
+          // File path was typed directly into the agent's input — no message needed
+        } else if (attempt > 0) {
+          onError?.('Image pasted successfully.');
+        }
+        console.log('[clipboard-paste] success', { method, filePath, retries: attempt });
+        return;
+      }
       const err = await resp.json().catch(() => ({ error: 'unknown' }));
-      console.error('[clipboard-paste] failed:', err);
-    } else {
-      console.log('[clipboard-paste] success');
+      const msg = (err as { error?: string }).error || 'Image paste failed';
+
+      // Auto-retry if host is still provisioning (503)
+      if (resp.status === 503 && attempt < maxRetries) {
+        if (attempt === 0) {
+          onError?.(
+            'Clipboard tools are being installed — image will paste automatically when ready...'
+          );
+        }
+        console.log(`[clipboard-paste] provisioning, retrying in 3s (attempt ${attempt + 1})`);
+        await new Promise((r) => setTimeout(r, 3000));
+        continue;
+      }
+
+      console.error('[clipboard-paste] failed:', msg);
+      onError?.(msg);
+      return;
+    } catch (err) {
+      console.error('[clipboard-paste] network error:', err);
+      onError?.('Network error during image paste');
+      return;
     }
-  } catch (err) {
-    console.error('[clipboard-paste] network error:', err);
   }
 }
 
@@ -146,6 +179,10 @@ export default class TerminalStream {
 
   // Clipboard image paste interception
   private imagePasteHandler: ((e: Event) => void) | null = null;
+
+  // Drag-and-drop image support
+  private dropHandler: ((e: Event) => void) | null = null;
+  private dragOverHandler: ((e: Event) => void) | null = null;
 
   // Xterm title change debouncing
   private titleDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -387,13 +424,39 @@ export default class TerminalStream {
               size: blob.size,
               allTypes: types,
             });
-            pasteImageToSession(this.sessionId, blob);
+            pasteImageToSession(this.sessionId, blob, (msg) => {
+              // Show the error inline in the terminal so the user sees it
+              this.terminal?.writeln(`\r\n\x1b[33m[schmux] ${msg}\x1b[0m`);
+            });
           }
           return;
         }
       }
     };
     document.addEventListener('paste', this.imagePasteHandler, { capture: true });
+
+    // Drag-and-drop: accept image files dropped onto the terminal container.
+    this.dragOverHandler = (e: Event) => {
+      e.preventDefault();
+      (e as DragEvent).dataTransfer!.dropEffect = 'copy';
+    };
+    this.dropHandler = (e: Event) => {
+      e.preventDefault();
+      const de = e as DragEvent;
+      const files = de.dataTransfer?.files;
+      if (!files) return;
+      for (const file of Array.from(files)) {
+        if (file.type.startsWith('image/')) {
+          console.log('[clipboard-paste] image dropped', { name: file.name, size: file.size });
+          pasteImageToSession(this.sessionId, file, (msg) => {
+            this.terminal?.writeln(`\r\n\x1b[33m[schmux] ${msg}\x1b[0m`);
+          });
+          return;
+        }
+      }
+    };
+    this.containerElement.addEventListener('dragover', this.dragOverHandler);
+    this.containerElement.addEventListener('drop', this.dropHandler);
 
     // Track tab visibility changes to correlate background throttling with desyncs.
     this.visibilityHandler = () => {
@@ -924,6 +987,14 @@ export default class TerminalStream {
       document.removeEventListener('paste', this.imagePasteHandler, { capture: true });
       this.imagePasteHandler = null;
     }
+    if (this.dropHandler) {
+      this.containerElement.removeEventListener('drop', this.dropHandler);
+      this.dropHandler = null;
+    }
+    if (this.dragOverHandler) {
+      this.containerElement.removeEventListener('dragover', this.dragOverHandler);
+      this.dragOverHandler = null;
+    }
     if (this.visibilityHandler) {
       document.removeEventListener('visibilitychange', this.visibilityHandler);
       this.visibilityHandler = null;
@@ -949,6 +1020,38 @@ export default class TerminalStream {
   }
 
   sendInput(data: string) {
+    // Intercept Ctrl+V (\x16): check if the browser clipboard has an image
+    // and trigger the clipboard paste flow instead of forwarding the raw keystroke.
+    // This handles the case where Claude Code expects Ctrl+V but the browser
+    // only fires paste events on Cmd+V (macOS).
+    if (data === '\x16') {
+      navigator.clipboard
+        .read()
+        .then((items) => {
+          for (const item of items) {
+            const imageType = item.types.find((t) => t.startsWith('image/'));
+            if (imageType) {
+              item.getType(imageType).then((blob) => {
+                pasteImageToSession(this.sessionId, blob, (msg) => {
+                  this.terminal?.writeln(`\r\n\x1b[33m[schmux] ${msg}\x1b[0m`);
+                });
+              });
+              return;
+            }
+          }
+          // No image in clipboard — forward the raw Ctrl+V keystroke
+          this.sendRawInput(data);
+        })
+        .catch(() => {
+          // Clipboard API not available or permission denied — forward raw keystroke
+          this.sendRawInput(data);
+        });
+      return;
+    }
+    this.sendRawInput(data);
+  }
+
+  private sendRawInput(data: string) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       inputLatency.markSent();
       this.ws.send(new TextEncoder().encode(data));

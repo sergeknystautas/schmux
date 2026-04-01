@@ -47,7 +47,13 @@ function statusLabel(status: ProcessStatus): string {
   }
 }
 
-export function StatusBar({ devRoot, workspace, backendStatus, frontendStatus, port }: StatusBarProps) {
+export function StatusBar({
+  devRoot,
+  workspace,
+  backendStatus,
+  frontendStatus,
+  port,
+}: StatusBarProps) {
   const isSameWorkspace = devRoot === workspace;
   const workspaceAnnotation = isSameWorkspace ? ' (same as dev root)' : ' (switched)';
 

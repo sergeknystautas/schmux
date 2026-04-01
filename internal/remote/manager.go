@@ -152,15 +152,30 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 			if m.logger != nil {
 				m.logger.Info("running provision command", "host_id", host.ID)
 			}
+			// Revert status to "provisioning" so the ConnectionProgressModal stays
+			// open with a spinner while tools are being installed. Without this,
+			// the modal sees "connected" and closes, leaving the user with no
+			// feedback during a potentially long provision command.
+			conn.mu.Lock()
+			conn.host.Status = state.RemoteHostStatusProvisioning
+			conn.mu.Unlock()
+			m.state.UpdateRemoteHostStatus(conn.host.ID, state.RemoteHostStatusProvisioning)
+			m.notifyStateChange()
+
 			if err := conn.Provision(ctx, flavor.ProvisionCommand); err != nil {
 				if m.logger != nil {
 					m.logger.Error("provision failed", "err", err)
 				}
 			} else {
 				m.state.UpdateRemoteHostProvisioned(host.ID, true)
-				m.state.SaveBatched()
-				m.notifyStateChange()
 			}
+
+			// Restore connected status now that provisioning is complete
+			conn.mu.Lock()
+			conn.host.Status = state.RemoteHostStatusConnected
+			conn.mu.Unlock()
+			m.state.UpdateRemoteHostStatus(conn.host.ID, state.RemoteHostStatusConnected)
+			m.notifyStateChange()
 		}
 
 		// Update state with final host info
@@ -748,6 +763,21 @@ func (m *Manager) StartReconnect(hostID string, onFail func(hostID string)) (pro
 				onFail(hostID)
 			}
 			return
+		}
+
+		// Re-run provisioning on reconnect: Xvfb is a process that dies on
+		// host reboot, and ephemeral hosts may lose installed packages.
+		// The provision command should be idempotent (e.g., dnf install -y is a no-op
+		// if already installed, pgrep Xvfb || Xvfb :99 & only starts if not running).
+		if flavor.ProvisionCommand != "" {
+			if m.logger != nil {
+				m.logger.Info("re-running provision command on reconnect", "host_id", hostID)
+			}
+			if err := conn.Provision(ctx, flavor.ProvisionCommand); err != nil {
+				if m.logger != nil {
+					m.logger.Error("provision on reconnect failed", "err", err)
+				}
+			}
 		}
 
 		// Reconcile sessions with discovered windows
