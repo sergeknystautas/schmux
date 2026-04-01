@@ -615,23 +615,10 @@ drainBootstrap:
 	}()
 	defer close(inputBatchCh)
 
-	var lastEventTime time.Time
 	for {
 		select {
 		case event, ok := <-outputCh:
 			t4 := time.Now() // latency: output event arrival
-			if s.devMode && !lastEventTime.IsZero() {
-				gap := t4.Sub(lastEventTime)
-				if gap > 500*time.Millisecond {
-					logging.Sub(s.logger, "ws").Info("output gap",
-						"session_id", sessionID[:8],
-						"gap_ms", gap.Milliseconds(),
-						"ch_depth", len(outputCh),
-						"data_len", len(event.Data),
-					)
-				}
-			}
-			lastEventTime = t4
 			if !ok {
 				// Flush any held-back bytes before closing
 				if len(escHoldback) > 0 {

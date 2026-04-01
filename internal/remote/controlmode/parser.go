@@ -49,8 +49,7 @@ type Parser struct {
 	// Current command being parsed
 	currentCmdID   int
 	currentLines   []string
-	inCommandResp  bool
-	commandStartTs time.Time // when %begin was seen
+	inCommandResp bool
 
 	// Signal when the first control mode protocol line is seen.
 	// This indicates tmux has entered control mode and is ready for commands.
@@ -192,7 +191,6 @@ func (p *Parser) parseLine(line string) error {
 		p.inCommandResp = true
 		p.currentCmdID = cmdID
 		p.currentLines = nil
-		p.commandStartTs = time.Now()
 		return nil
 	}
 
@@ -200,16 +198,6 @@ func (p *Parser) parseLine(line string) error {
 	if matches := endRegex.FindStringSubmatch(line); matches != nil {
 		cmdID, _ := strconv.Atoi(matches[2])
 		if p.inCommandResp && p.currentCmdID == cmdID {
-			dur := time.Since(p.commandStartTs)
-			lineCount := len(p.currentLines)
-			if p.logger != nil && (dur > 100*time.Millisecond || lineCount > 100) {
-				p.logger.Info("command response blocked parser",
-					"conn", p.connectionID,
-					"cmd_id", cmdID,
-					"lines", lineCount,
-					"duration_ms", dur.Milliseconds(),
-				)
-			}
 			p.sendResponse(CommandResponse{
 				CommandID: cmdID,
 				Success:   true,
