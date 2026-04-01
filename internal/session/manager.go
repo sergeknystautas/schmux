@@ -53,6 +53,7 @@ type Manager struct {
 	loreCallback            func(repoName, repoURL string, isLastSession bool) // notify lore curator on session dispose
 	terminalCaptureCallback func(sessionID, workspaceID, output string)        // notify on terminal capture before dispose
 	telemetry               telemetry.Telemetry                                // optional, for usage tracking
+	recorderFactory         func(sessionID string, outputLog *OutputLog, gapCh <-chan SourceEvent) Runnable
 }
 
 // remoteSignalMonitor holds a watcher pane and its metadata for a remote session.
@@ -101,6 +102,13 @@ func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace
 // Must be called before Start() — not safe for concurrent use.
 func (m *Manager) SetRemoteManager(rm *remote.Manager) {
 	m.remoteManager = rm
+}
+
+// SetRecorderFactory sets a factory for creating timelapse recorders.
+// The factory receives the sessionID, OutputLog, and gap channel, and returns
+// a Runnable that will be started in a goroutine when the tracker starts.
+func (m *Manager) SetRecorderFactory(fn func(sessionID string, outputLog *OutputLog, gapCh <-chan SourceEvent) Runnable) {
+	m.recorderFactory = fn
 }
 
 // SetModelManager sets the model manager for model resolution.
@@ -506,6 +514,23 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 							m.logger.Warn("failed to create .schmux/events directory", "session", sessionID, "err", mkErr)
 						}
 						mkCancel()
+
+						// Create RemoteSource + tracker for terminal streaming
+						qSource := NewRemoteSource(qConn, result.PaneID)
+						qSource.Start()
+						var qOutputCb func([]byte)
+						if m.outputCallback != nil {
+							sid := sessionID
+							handler := m.outputCallback
+							qOutputCb = func(chunk []byte) {
+								handler(sid, chunk)
+							}
+						}
+						qTracker := NewSessionTracker(sessionID, qSource, m.state, "", nil, qOutputCb, m.logger)
+						m.mu.Lock()
+						m.trackers[sessionID] = qTracker
+						m.mu.Unlock()
+						qTracker.Start()
 					}
 					m.StartRemoteSignalMonitor(updatedSess)
 				}
@@ -555,6 +580,23 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 	}
 
 	m.StartRemoteSignalMonitor(sess)
+
+	// Create RemoteSource + tracker for terminal streaming
+	source := NewRemoteSource(conn, paneID)
+	source.Start()
+	var outputCb func([]byte)
+	if m.outputCallback != nil {
+		sid := sess.ID
+		handler := m.outputCallback
+		outputCb = func(chunk []byte) {
+			handler(sid, chunk)
+		}
+	}
+	tracker := NewSessionTracker(sess.ID, source, m.state, "", nil, outputCb, m.logger)
+	m.mu.Lock()
+	m.trackers[sess.ID] = tracker
+	m.mu.Unlock()
+	tracker.Start()
 
 	// Track session creation (immediate)
 	m.trackSessionCreated(sess.ID, sess.WorkspaceID, sess.Target)
@@ -1463,8 +1505,35 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 			handler(sessionID, chunk)
 		}
 	}
-	tracker := NewSessionTracker(sess.ID, sess.TmuxSession, m.state, eventFilePath, m.eventHandlers, outputCb, m.logger)
-	tracker.SyncCheckEnabled = m.config.GetXtermSyncCheckEnabled()
+
+	// Create appropriate ControlSource based on session type
+	var source ControlSource
+	if sess.IsRemoteSession() && sess.RemotePaneID != "" && m.remoteManager != nil {
+		conn := m.remoteManager.GetConnection(sess.RemoteHostID)
+		if conn != nil && conn.IsConnected() {
+			rs := NewRemoteSource(conn, sess.RemotePaneID)
+			rs.Start()
+			source = rs
+		}
+	}
+	if source == nil {
+		ls := NewLocalSource(sess.ID, sess.TmuxSession, m.logger)
+		ls.SyncCheckEnabled = m.config.GetXtermSyncCheckEnabled()
+		ls.Start()
+		source = ls
+	}
+
+	tracker := NewSessionTracker(sess.ID, source, m.state, eventFilePath, m.eventHandlers, outputCb, m.logger)
+
+	// Wire timelapse recorder if factory is set
+	if m.recorderFactory != nil {
+		factory := m.recorderFactory
+		sid := sess.ID
+		tracker.RecorderFactory = func(ol *OutputLog, gapCh <-chan SourceEvent) Runnable {
+			return factory(sid, ol, gapCh)
+		}
+	}
+
 	m.trackers[sess.ID] = tracker
 
 	m.mu.Unlock()

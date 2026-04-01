@@ -28,7 +28,9 @@ func benchSetup(tb testing.TB) (tracker *SessionTracker, outputCh <-chan Sequenc
 	}
 
 	st := state.New("", nil)
-	tracker = NewSessionTracker("bench-session", tmuxName, st, "", nil, nil, nil)
+	source := NewLocalSource("bench-session", tmuxName, nil)
+	source.Start()
+	tracker = NewSessionTracker("bench-session", source, st, "", nil, nil, nil)
 	tracker.Start()
 
 	// Wait for tracker to attach to control mode.
@@ -77,7 +79,9 @@ func benchSetupStressed(tb testing.TB) (tracker *SessionTracker, outputCh <-chan
 	}
 
 	st := state.New("", nil)
-	tracker = NewSessionTracker("bench-session-stressed", tmuxName, st, "", nil, nil, nil)
+	source2 := NewLocalSource("bench-session-stressed", tmuxName, nil)
+	source2.Start()
+	tracker = NewSessionTracker("bench-session-stressed", source2, st, "", nil, nil, nil)
 	tracker.Start()
 
 	deadline := time.Now().Add(5 * time.Second)

@@ -211,9 +211,11 @@ func (m *Manager) spawn(ctx context.Context) error {
 	}
 
 	// Create a tracker for terminal streaming via WebSocket
+	source := session.NewLocalSource("floor-manager", m.sessionName, nil)
+	source.Start()
 	tracker := session.NewSessionTracker(
 		"floor-manager",
-		m.sessionName,
+		source,
 		nil, // no state store
 		"",  // no event file
 		nil, // no event handlers
@@ -254,9 +256,11 @@ func (m *Manager) spawnResume(ctx context.Context) error {
 	}
 
 	// Create a tracker for terminal streaming via WebSocket
+	source := session.NewLocalSource("floor-manager", m.sessionName, nil)
+	source.Start()
 	tracker := session.NewSessionTracker(
 		"floor-manager",
-		m.sessionName,
+		source,
 		nil, // no state store
 		"",  // no event file
 		nil, // no event handlers

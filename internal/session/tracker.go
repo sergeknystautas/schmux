@@ -3,8 +3,6 @@ package session
 import (
 	"context"
 	"fmt"
-	"io"
-	"os/exec"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,8 +12,13 @@ import (
 	"github.com/sergeknystautas/schmux/internal/events"
 	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/state"
-	"github.com/sergeknystautas/schmux/internal/tmux"
 )
+
+// Runnable is implemented by types that can be started in a goroutine and stopped.
+type Runnable interface {
+	Run()
+	Stop()
+}
 
 const trackerRestartDelay = 500 * time.Millisecond
 const trackerActivityDebounce = 500 * time.Millisecond
@@ -51,67 +54,60 @@ type TrackerCounters struct {
 	WsWriteErrors   atomic.Int64 // WS write failures that caused disconnect
 }
 
-// SessionTracker maintains a long-lived control mode attachment for a tmux session.
-// It tracks output activity and forwards terminal output to subscribers via fan-out.
-// Subscribers survive control mode reconnections — the tracker-level fan-out
-// re-subscribes to the new control mode client automatically.
+// SessionTracker drains events from a ControlSource, maintains a sequenced
+// output log, and fans out to subscribers. The source owns reconnection
+// logic; the tracker just processes events.
 type SessionTracker struct {
 	sessionID      string
-	tmuxSession    string
-	paneID         string
+	source         ControlSource
 	state          state.StateStore
 	eventWatcher   *events.EventWatcher
 	outputCallback func([]byte)
 	logger         *log.Logger
 
-	mu        sync.RWMutex
-	cmClient  *controlmode.Client
-	cmParser  *controlmode.Parser
-	cmCmd     *exec.Cmd
-	cmStdin   io.WriteCloser
 	lastEvent time.Time
 
 	// Tracker-level subscriber fan-out (survives reconnections)
 	subsMu sync.Mutex
 	subs   []chan SequencedOutput
 
-	stopOnce   sync.Once
-	stopCh     chan struct{}
-	doneCh     chan struct{}
-	stopCtx    context.Context
-	stopCancel context.CancelFunc
-
-	lastRetryLog time.Time
+	stopOnce sync.Once
+	stopCh   chan struct{}
+	doneCh   chan struct{}
 
 	Counters TrackerCounters
 
 	// Sequenced output log for replay-based bootstrap and gap recovery
 	outputLog *OutputLog
 
-	// Sync trigger: signaled when tmux pauses output delivery (pause-after).
-	// Websocket handler listens on this to send an immediate sync to the frontend.
-	syncTrigger chan struct{}
+	// gapCh receives Gap and Resize events for the recorder (Phase 1).
+	// nil when recording is not active.
+	gapCh chan SourceEvent
 
 	// Terminal size tracking for diagnostics (accessed from multiple goroutines)
 	LastTerminalCols atomic.Int32
 	LastTerminalRows atomic.Int32
 
-	// SyncCheckEnabled controls whether pause-after flow control is enabled.
-	// When false (default), tmux pause-after is not set, avoiding the stdinMu
-	// race condition between ContinuePane and sync commands that can extend
-	// pane pause duration during TUI redraws.
-	SyncCheckEnabled bool
-
-	// HealthProbe measures tmux control mode round-trip time over time.
-	// Always active — samples are collected every 5 seconds.
+	// HealthProbe provides access to the source's health probe (if available).
+	// Points to the LocalSource's probe for local sessions; empty probe for others.
 	HealthProbe *TmuxHealthProbe
+
+	// RecorderFactory, if set, is called from run() to create a recorder.
+	// The returned Runnable is started in a goroutine and stopped on exit.
+	RecorderFactory func(outputLog *OutputLog, gapCh <-chan SourceEvent) Runnable
 }
 
-// IsAttached reports whether the tracker currently has an active control mode attachment.
+// Source returns the underlying ControlSource.
+func (t *SessionTracker) Source() ControlSource {
+	return t.source
+}
+
+// IsAttached reports whether the source currently has an active attachment.
 func (t *SessionTracker) IsAttached() bool {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return t.cmClient != nil
+	if ls, ok := t.source.(*LocalSource); ok {
+		return ls.IsAttached()
+	}
+	return true // non-local sources are considered attached while alive
 }
 
 // OutputLog returns the sequenced output log for this session.
@@ -119,31 +115,37 @@ func (t *SessionTracker) OutputLog() *OutputLog {
 	return t.outputLog
 }
 
-// SyncTrigger returns a channel that fires when the tracker detects a tmux
-// output pause (via pause-after). Listeners should perform an immediate
-// capture-pane sync to resync the frontend.
+// SyncTrigger returns a channel that fires when the source detects a tmux
+// output pause (via pause-after). Returns nil for non-local sources.
 func (t *SessionTracker) SyncTrigger() <-chan struct{} {
-	return t.syncTrigger
+	if ls, ok := t.source.(*LocalSource); ok {
+		return ls.SyncTrigger
+	}
+	return nil
 }
 
-// NewSessionTracker creates a tracker for a session.
+// NewSessionTracker creates a tracker that drains events from a ControlSource.
 // If eventFilePath is non-empty and eventHandlers is non-nil, an EventWatcher
 // is created for the unified event system.
-func NewSessionTracker(sessionID, tmuxSession string, st state.StateStore, eventFilePath string, eventHandlers map[string][]events.EventHandler, outputCallback func([]byte), logger *log.Logger) *SessionTracker {
-	stopCtx, stopCancel := context.WithCancel(context.Background())
+func NewSessionTracker(sessionID string, source ControlSource, st state.StateStore, eventFilePath string, eventHandlers map[string][]events.EventHandler, outputCallback func([]byte), logger *log.Logger) *SessionTracker {
+	// Derive HealthProbe from the source if it's a LocalSource.
+	var healthProbe *TmuxHealthProbe
+	if ls, ok := source.(*LocalSource); ok {
+		healthProbe = ls.HealthProbe
+	} else {
+		healthProbe = NewTmuxHealthProbe()
+	}
+
 	t := &SessionTracker{
 		sessionID:      sessionID,
-		tmuxSession:    tmuxSession,
+		source:         source,
 		state:          st,
 		outputCallback: outputCallback,
 		logger:         logger,
 		outputLog:      NewOutputLog(50000), // 50,000 entries ≈ 5MB at ~100 bytes/event
-		syncTrigger:    make(chan struct{}, 1),
 		stopCh:         make(chan struct{}),
 		doneCh:         make(chan struct{}),
-		stopCtx:        stopCtx,
-		stopCancel:     stopCancel,
-		HealthProbe:    NewTmuxHealthProbe(),
+		HealthProbe:    healthProbe,
 	}
 	if eventFilePath != "" && eventHandlers != nil && len(eventHandlers) > 0 {
 		ew, err := events.NewEventWatcher(eventFilePath, sessionID, eventHandlers)
@@ -163,14 +165,11 @@ func (t *SessionTracker) Start() {
 	go t.run()
 }
 
-// Stop terminates the tracker and closes the control mode connection.
+// Stop terminates the tracker by closing the source and cleaning up.
 func (t *SessionTracker) Stop() {
 	t.stopOnce.Do(func() {
 		close(t.stopCh)
-		// Cancel the context used by attachControlMode() so the tmux process
-		// is killed immediately even if closeControlMode() races with cmd storage.
-		t.stopCancel()
-		t.closeControlMode()
+		t.source.Close()
 		if t.eventWatcher != nil {
 			t.eventWatcher.Stop()
 		}
@@ -189,11 +188,12 @@ func (t *SessionTracker) Stop() {
 	})
 }
 
-// SetTmuxSession updates the target tmux session name.
+// SetTmuxSession updates the target tmux session name on the underlying source.
+// Only effective for LocalSource; no-op for other source types.
 func (t *SessionTracker) SetTmuxSession(name string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.tmuxSession = name
+	if ls, ok := t.source.(*LocalSource); ok {
+		ls.SetTmuxSession(name)
+	}
 }
 
 // SubscribeOutput returns a buffered channel that receives output events for this session.
@@ -249,91 +249,47 @@ func (t *SessionTracker) fanOut(event controlmode.OutputEvent) {
 	}
 }
 
-// SendInput sends terminal input to the session via control mode.
+// SendInput sends terminal input to the session via the source.
 func (t *SessionTracker) SendInput(data string) error {
-	t.mu.RLock()
-	client := t.cmClient
-	paneID := t.paneID
-	t.mu.RUnlock()
-	if client == nil {
-		return fmt.Errorf("not attached")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	return client.SendKeys(ctx, paneID, data)
+	return t.source.SendKeys(data)
 }
 
-// Resize updates the terminal dimensions via control mode.
+// Resize updates the terminal dimensions via the source.
 func (t *SessionTracker) Resize(cols, rows int) error {
 	if cols <= 0 || rows <= 0 {
 		return fmt.Errorf("invalid size %dx%d", cols, rows)
 	}
-	// Store the terminal size for diagnostics
 	t.LastTerminalCols.Store(int32(cols))
 	t.LastTerminalRows.Store(int32(rows))
-
-	t.mu.RLock()
-	client := t.cmClient
-	t.mu.RUnlock()
-	if client == nil {
-		return fmt.Errorf("not attached")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	return client.ResizeWindow(ctx, t.paneID, cols, rows)
+	return t.source.Resize(cols, rows)
 }
 
-// CaptureLastLines captures scrollback from tmux via control mode.
+// CaptureLastLines captures scrollback via the source.
 func (t *SessionTracker) CaptureLastLines(ctx context.Context, lines int) (string, error) {
-	t.mu.RLock()
-	client := t.cmClient
-	paneID := t.paneID
-	t.mu.RUnlock()
-	if client == nil {
-		return "", fmt.Errorf("not attached")
-	}
-	return client.CapturePaneLines(ctx, paneID, lines)
+	return t.source.CaptureLines(lines)
 }
 
 // CapturePane captures the visible screen of the pane (no scrollback).
-// Returns the raw output including ANSI escape sequences.
 func (t *SessionTracker) CapturePane(ctx context.Context) (string, error) {
-	t.mu.RLock()
-	client := t.cmClient
-	paneID := t.paneID
-	t.mu.RUnlock()
-	if client == nil {
-		return "", fmt.Errorf("not attached")
-	}
-	return client.CapturePaneVisible(ctx, paneID)
+	return t.source.CaptureVisible()
 }
 
 // GetCursorState returns the cursor position and visibility for the tracked pane.
 func (t *SessionTracker) GetCursorState(ctx context.Context) (controlmode.CursorState, error) {
-	t.mu.RLock()
-	client := t.cmClient
-	paneID := t.paneID
-	t.mu.RUnlock()
-	if client == nil {
-		return controlmode.CursorState{}, fmt.Errorf("not attached")
-	}
-	return client.GetCursorState(ctx, paneID)
+	return t.source.GetCursorState()
 }
 
 // GetCursorPosition returns the cursor position (x, y) for the tracked pane.
 func (t *SessionTracker) GetCursorPosition(ctx context.Context) (x, y int, err error) {
-	t.mu.RLock()
-	client := t.cmClient
-	paneID := t.paneID
-	t.mu.RUnlock()
-	if client == nil {
-		return 0, 0, fmt.Errorf("not attached")
+	cs, err := t.source.GetCursorState()
+	if err != nil {
+		return 0, 0, err
 	}
-	return client.GetCursorPosition(ctx, paneID)
+	return cs.X, cs.Y, nil
 }
 
 // DiagnosticCounters returns a snapshot of pipeline counters including drop counts
-// at all three fan-out layers: parser, client, and tracker.
+// at all fan-out layers.
 func (t *SessionTracker) DiagnosticCounters() map[string]int64 {
 	result := map[string]int64{
 		"eventsDelivered":       t.Counters.EventsDelivered.Load(),
@@ -343,14 +299,15 @@ func (t *SessionTracker) DiagnosticCounters() map[string]int64 {
 		"wsConnections":         t.Counters.WsConnections.Load(),
 		"wsWriteErrors":         t.Counters.WsWriteErrors.Load(),
 	}
-	t.mu.RLock()
-	if t.cmParser != nil {
-		result["eventsDropped"] = t.cmParser.DroppedOutputs()
+	// Source-specific diagnostics (LocalSource exposes parser/client counters)
+	if ls, ok := t.source.(*LocalSource); ok {
+		if parser := ls.Parser(); parser != nil {
+			result["eventsDropped"] = parser.DroppedOutputs()
+		}
+		if client := ls.Client(); client != nil {
+			result["clientFanOutDrops"] = client.DroppedFanOut()
+		}
 	}
-	if t.cmClient != nil {
-		result["clientFanOutDrops"] = t.cmClient.DroppedFanOut()
-	}
-	t.mu.RUnlock()
 	if t.outputLog != nil {
 		result["currentSeq"] = int64(t.outputLog.CurrentSeq())
 		result["logOldestSeq"] = int64(t.outputLog.OldestSeq())
@@ -362,178 +319,19 @@ func (t *SessionTracker) DiagnosticCounters() map[string]int64 {
 func (t *SessionTracker) run() {
 	defer close(t.doneCh)
 
-	for {
-		select {
-		case <-t.stopCh:
-			return
-		default:
-		}
-
-		err := t.attachControlMode()
-		if err != nil && err != io.EOF {
-			// Check for permanent errors (session no longer exists)
-			if isPermanentError(err) {
-				if t.logger != nil {
-					t.logger.Debug("stopping: tmux session no longer exists", "session", t.sessionID)
-				}
-				return
-			}
-			t.Counters.Reconnects.Add(1)
-			now := time.Now()
-			if t.shouldLogRetry(now) {
-				if t.logger != nil {
-					t.logger.Warn("control mode failed", "session", t.sessionID, "err", err)
-				}
-			}
-		}
-
-		if t.waitOrStop(trackerRestartDelay) {
-			return
+	// Start timelapse recorder if factory is set
+	if t.RecorderFactory != nil {
+		t.gapCh = make(chan SourceEvent, 100)
+		recorder := t.RecorderFactory(t.outputLog, t.gapCh)
+		if recorder != nil {
+			go recorder.Run()
+			defer recorder.Stop()
 		}
 	}
-}
 
-func (t *SessionTracker) attachControlMode() error {
-	t.mu.RLock()
-	target := t.tmuxSession
-	t.mu.RUnlock()
-
-	ctx, cancel := context.WithCancel(t.stopCtx)
-	defer cancel()
-
-	// Start tmux in control mode (-C, canonical mode with echo)
-	// Note: -CC (non-canonical) requires a TTY via tcgetattr, which fails
-	// when launched from exec.Command. -C works without a TTY, and the parser
-	// ignores command echo since it only processes %-prefixed protocol lines.
-	cmd := exec.CommandContext(ctx, tmux.Binary(), "-C", "attach-session", "-t", "="+target)
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return fmt.Errorf("failed to create stdin pipe: %w", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		stdin.Close()
-		return fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		stdin.Close()
-		return fmt.Errorf("failed to start control mode: %w", err)
-	}
-
-	// Create parser and client
-	parser := controlmode.NewParser(stdout, t.logger, t.sessionID)
-	go parser.Run()
-	client := controlmode.NewClient(stdin, parser, t.logger)
-	client.Start()
-
-	// Wait for control mode to be ready
-	readyCtx, readyCancel := context.WithTimeout(ctx, 10*time.Second)
-	select {
-	case <-parser.ControlModeReady():
-		readyCancel()
-	case <-readyCtx.Done():
-		readyCancel()
-		stdin.Close()
-		cmd.Process.Kill()
-		cmd.Wait()
-		return fmt.Errorf("control mode not ready within timeout")
-	}
-
-	// Synchronize the FIFO command queue. When tmux enters control mode
-	// via attach-session, it may send an implicit initial response (for the
-	// attach itself). If this response arrives after we've already queued our
-	// first command, it shifts the queue — each command receives the previous
-	// command's response. We detect and absorb this offset by sending a
-	// sentinel command and verifying its response content.
-	const sentinel = "__SCHMUX_SYNC__"
-	syncCtx, syncCancel := context.WithTimeout(ctx, 5*time.Second)
-	for attempts := 0; attempts < 3; attempts++ {
-		output, err := client.Execute(syncCtx, fmt.Sprintf("display-message -p '%s'", sentinel))
-		if err != nil {
-			syncCancel()
-			stdin.Close()
-			cmd.Process.Kill()
-			cmd.Wait()
-			return fmt.Errorf("control mode sync failed: %w", err)
-		}
-		if strings.TrimSpace(output) == sentinel {
-			break // FIFO queue is synchronized
-		}
-		// Got a stale response (implicit attach response), try again
-	}
-	syncCancel()
-
-	// Discover pane ID
-	paneID, err := t.discoverPaneID(ctx, client)
-	if err != nil {
-		stdin.Close()
-		cmd.Process.Kill()
-		cmd.Wait()
-		return fmt.Errorf("failed to discover pane ID: %w", err)
-	}
-
-	// Store references
-	t.mu.Lock()
-	t.cmClient = client
-	t.cmParser = parser
-	t.cmCmd = cmd
-	t.cmStdin = stdin
-	t.paneID = paneID
-	t.mu.Unlock()
-
-	defer t.closeControlMode()
-
-	// Enable pause-after so tmux sends %pause instead of silently dropping
-	// output when this control mode client falls behind. Only enabled when
-	// sync check is active — pause-after triggers sync commands that contend
-	// with ContinuePane on stdinMu, amplifying TUI redraw stutter.
-	if t.SyncCheckEnabled {
-		pauseCtx, pauseCancel := context.WithTimeout(ctx, 5*time.Second)
-		if err := client.EnablePauseAfter(pauseCtx, 1); err != nil {
-			if t.logger != nil {
-				t.logger.Warn("failed to enable pause-after", "session", t.sessionID[:8], "err", err)
-			}
-		}
-		pauseCancel()
-	}
-
-	// Health probe: measure control mode RTT every 5 seconds.
-	// Runs in a separate goroutine to avoid blocking the output event loop.
-	probeStop := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(healthProbeInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				probeCtx, probeCancel := context.WithTimeout(context.Background(), healthProbeTimeout)
-				start := time.Now()
-				_, err := client.Execute(probeCtx, healthProbeCommand)
-				rttUs := float64(time.Since(start).Microseconds())
-				probeCancel()
-				t.HealthProbe.Record(rttUs, err != nil)
-			case <-probeStop:
-				return
-			case <-t.stopCh:
-				return
-			}
-		}
-	}()
-	defer close(probeStop)
-
-	// Subscribe to output from the control mode client and fan out to
-	// tracker-level subscribers (which survive reconnections)
-	outputCh := client.SubscribeOutput(paneID)
-	defer client.UnsubscribeOutput(paneID, outputCh)
-
-	for {
-		select {
-		case event, ok := <-outputCh:
-			if !ok {
-				return io.EOF
-			}
-
+	for event := range t.source.Events() {
+		switch event.Type {
+		case SourceOutput:
 			// Activity tracking (debounced)
 			now := time.Now()
 			shouldUpdate := t.lastEvent.IsZero() || now.Sub(t.lastEvent) >= trackerActivityDebounce
@@ -545,97 +343,25 @@ func (t *SessionTracker) attachControlMode() error {
 			}
 
 			// Fan out to all tracker-level subscribers
-			t.fanOut(event)
+			t.fanOut(controlmode.OutputEvent{Data: event.Data})
 
 			// Also invoke the output callback (preview autodetect)
 			if t.outputCallback != nil {
 				t.outputCallback([]byte(event.Data))
 			}
 
-		case pausedPane := <-client.Pauses():
-			if t.logger != nil {
-				t.logger.Info("tmux paused output, triggering sync and continue",
-					"session", t.sessionID[:8], "pane", pausedPane)
+		case SourceGap:
+			if t.gapCh != nil {
+				t.gapCh <- event
 			}
-			// Signal websocket handler to do an immediate capture-pane sync
-			select {
-			case t.syncTrigger <- struct{}{}:
-			default:
-			}
-			// Resume output delivery
-			contCtx, contCancel := context.WithTimeout(ctx, 2*time.Second)
-			if err := client.ContinuePane(contCtx, pausedPane); err != nil && t.logger != nil {
-				t.logger.Warn("failed to continue pane", "pane", pausedPane, "err", err)
-			}
-			contCancel()
 
-		case <-t.stopCh:
-			return io.EOF
+		case SourceResize:
+			if t.gapCh != nil {
+				t.gapCh <- event
+			}
+
+		case SourceClosed:
+			return
 		}
-	}
-}
-
-func (t *SessionTracker) discoverPaneID(ctx context.Context, client *controlmode.Client) (string, error) {
-	output, err := client.Execute(ctx, "list-panes -F '#{pane_id}'")
-	if err != nil {
-		return "", err
-	}
-	paneID := strings.TrimSpace(output)
-	if paneID == "" {
-		return "", fmt.Errorf("no pane found")
-	}
-	// Return first pane if multiple
-	if idx := strings.Index(paneID, "\n"); idx > 0 {
-		paneID = paneID[:idx]
-	}
-	// Validate pane ID format (%N where N is a number)
-	if len(paneID) < 2 || paneID[0] != '%' {
-		return "", fmt.Errorf("invalid pane ID format: %q", paneID)
-	}
-	return paneID, nil
-}
-
-func (t *SessionTracker) closeControlMode() {
-	t.mu.Lock()
-	stdin := t.cmStdin
-	cmd := t.cmCmd
-	client := t.cmClient
-	t.cmClient = nil
-	t.cmParser = nil
-	t.cmCmd = nil
-	t.cmStdin = nil
-	t.mu.Unlock()
-
-	if client != nil {
-		client.Close()
-	}
-	if stdin != nil {
-		stdin.Close()
-	}
-	if cmd != nil && cmd.Process != nil {
-		cmd.Process.Kill()
-		cmd.Wait()
-	}
-}
-
-func (t *SessionTracker) shouldLogRetry(now time.Time) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.lastRetryLog.IsZero() || now.Sub(t.lastRetryLog) >= trackerRetryLogInterval {
-		t.lastRetryLog = now
-		return true
-	}
-	return false
-}
-
-func (t *SessionTracker) waitOrStop(d time.Duration) bool {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-
-	select {
-	case <-timer.C:
-		return false
-	case <-t.stopCh:
-		return true
 	}
 }

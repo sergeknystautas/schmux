@@ -4,12 +4,10 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
-	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 func TestFanOut_SlowConsumerDropped(t *testing.T) {
-	st := state.New("", nil)
-	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil, nil)
+	tracker, _ := newTestTracker("s1")
 
 	// Add a fast consumer via normal subscription
 	fastCh := tracker.SubscribeOutput()
@@ -73,8 +71,7 @@ func TestFanOut_SlowConsumerDropped(t *testing.T) {
 // TestFanOut_MultipleSubscribers_Upstream tests basic multi-subscriber fanOut.
 // See also TestFanOut_MultipleSubscribers in tracker_test.go for seq verification.
 func TestFanOut_MultipleSubscribers_Upstream(t *testing.T) {
-	st := state.New("", nil)
-	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil, nil)
+	tracker, _ := newTestTracker("s1")
 
 	ch1 := tracker.SubscribeOutput()
 	ch2 := tracker.SubscribeOutput()
@@ -104,8 +101,7 @@ func TestFanOut_MultipleSubscribers_Upstream(t *testing.T) {
 }
 
 func TestFanOut_NoSubscribers(t *testing.T) {
-	st := state.New("", nil)
-	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil, nil)
+	tracker, _ := newTestTracker("s1")
 
 	// fanOut with no subscribers should not panic
 	event := controlmode.OutputEvent{Data: "orphan"}
@@ -120,8 +116,7 @@ func TestFanOut_NoSubscribers(t *testing.T) {
 }
 
 func TestFanOut_DropDoesNotAffectOtherSubscribers(t *testing.T) {
-	st := state.New("", nil)
-	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil, nil)
+	tracker, _ := newTestTracker("s1")
 
 	// Two fast subscribers
 	fast1 := tracker.SubscribeOutput()

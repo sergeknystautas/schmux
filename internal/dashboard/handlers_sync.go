@@ -427,9 +427,11 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 			if step.Action == "llm_session" && step.TmuxSession != "" {
 				if step.Status == "in_progress" {
 					crState.SetTmuxSession(step.TmuxSession)
+					source := session.NewLocalSource(step.TmuxSession, step.TmuxSession, nil)
+					source.Start()
 					tracker := session.NewSessionTracker(
 						step.TmuxSession,
-						step.TmuxSession,
+						source,
 						nil, // no state store
 						"",  // no event file
 						nil, // no event handlers

@@ -6,22 +6,37 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
-func TestSessionTrackerInputResizeWithoutControlMode(t *testing.T) {
+// newTestTracker creates a SessionTracker backed by a MockControlSource for testing.
+func newTestTracker(sessionID string) (*SessionTracker, *MockControlSource) {
 	st := state.New("", nil)
-	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil, nil)
+	mock := NewMockControlSource(100)
+	tracker := NewSessionTracker(sessionID, mock, st, "", nil, nil, nil)
+	return tracker, mock
+}
 
-	if err := tracker.SendInput("abc"); err == nil {
+func TestSessionTrackerInputResizeWithoutControlMode(t *testing.T) {
+	tracker, _ := newTestTracker("s1")
+
+	// MockControlSource returns nil for SendKeys/Resize (always "attached"),
+	// so these won't error with the mock. Test the real LocalSource path instead.
+	source := NewLocalSource("s1", "tmux-s1", nil)
+	st := state.New("", nil)
+	localTracker := NewSessionTracker("s1", source, st, "", nil, nil, nil)
+
+	if err := localTracker.SendInput("abc"); err == nil {
 		t.Fatal("expected error when control mode is not attached")
 	}
-	err := tracker.Resize(80, 24)
+	err := localTracker.Resize(80, 24)
 	if err == nil {
 		t.Fatal("expected error when control mode is not attached")
 	}
+	_ = tracker // use the mock tracker elsewhere
 }
 
 func TestTrackerCounters_Increment(t *testing.T) {
@@ -84,8 +99,7 @@ func TestTrackerCounters_Increment(t *testing.T) {
 }
 
 func TestSubscribeUnsubscribeOutput(t *testing.T) {
-	st := state.New("", nil)
-	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil, nil)
+	tracker, _ := newTestTracker("s1")
 
 	// Subscribe creates a channel that stays open (survives reconnections)
 	ch := tracker.SubscribeOutput()
@@ -118,8 +132,9 @@ func TestSubscribeUnsubscribeOutput(t *testing.T) {
 }
 
 func TestCapturePane_NoControlMode(t *testing.T) {
+	source := NewLocalSource("test-id", "test-tmux", nil)
 	st := state.New("", nil)
-	tracker := NewSessionTracker("test-id", "test-tmux", st, "", nil, nil, nil)
+	tracker := NewSessionTracker("test-id", source, st, "", nil, nil, nil)
 
 	_, err := tracker.CapturePane(context.Background())
 	if err == nil {
@@ -128,14 +143,13 @@ func TestCapturePane_NoControlMode(t *testing.T) {
 }
 
 func TestTrackerOutputLog_FanOutRecordsSequences(t *testing.T) {
-	st := state.New("", nil)
-	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil, nil)
+	tracker, _ := newTestTracker("s1")
 
 	// Subscribe so we can also verify events arrive
 	ch := tracker.SubscribeOutput()
 	defer tracker.UnsubscribeOutput(ch)
 
-	// Simulate fan-out (normally called by attachControlMode)
+	// Simulate fan-out (normally called by run() draining source events)
 	tracker.fanOut(controlmode.OutputEvent{PaneID: "%0", Data: "hello"})
 	tracker.fanOut(controlmode.OutputEvent{PaneID: "%0", Data: "world"})
 
@@ -164,8 +178,7 @@ func TestTrackerOutputLog_FanOutRecordsSequences(t *testing.T) {
 }
 
 func TestFanOut_ConcurrentSequences(t *testing.T) {
-	st := state.New("", nil)
-	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil, nil)
+	tracker, _ := newTestTracker("s1")
 
 	ch := tracker.SubscribeOutput()
 	defer tracker.UnsubscribeOutput(ch)
@@ -202,8 +215,7 @@ func TestFanOut_ConcurrentSequences(t *testing.T) {
 }
 
 func TestFanOut_SlowConsumerDrop(t *testing.T) {
-	st := state.New("", nil)
-	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil, nil)
+	tracker, _ := newTestTracker("s1")
 
 	slowCh := tracker.SubscribeOutput()
 	defer tracker.UnsubscribeOutput(slowCh)
@@ -238,8 +250,7 @@ func TestFanOut_SlowConsumerDrop(t *testing.T) {
 }
 
 func TestFanOut_MultipleSubscribers(t *testing.T) {
-	st := state.New("", nil)
-	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil, nil)
+	tracker, _ := newTestTracker("s1")
 
 	const numSubs = 3
 	channels := make([]<-chan SequencedOutput, numSubs)
@@ -324,8 +335,7 @@ func TestIsPermanentError(t *testing.T) {
 // UnsubscribeOutput calls don't panic. This is the regression test for the
 // send-to-closed-channel bug where UnsubscribeOutput used to close(sub).
 func TestFanOut_ConcurrentUnsubscribe(t *testing.T) {
-	st := state.New("", nil)
-	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil, nil)
+	tracker, _ := newTestTracker("s1")
 
 	const numGoroutines = 100
 	var wg sync.WaitGroup
@@ -356,4 +366,76 @@ func TestFanOut_ConcurrentUnsubscribe(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+// TestTrackerRecorderFactory verifies that the RecorderFactory is called
+// and the recorder runs alongside the tracker.
+func TestTrackerRecorderFactory(t *testing.T) {
+	mock := NewMockControlSource(100)
+	st := state.New("", nil)
+	tracker := NewSessionTracker("s1", mock, st, "", nil, nil, nil)
+
+	started := make(chan struct{})
+	stopped := make(chan struct{})
+
+	tracker.RecorderFactory = func(ol *OutputLog, gapCh <-chan SourceEvent) Runnable {
+		return &testRunnable{started: started, stopped: stopped}
+	}
+
+	tracker.Start()
+
+	// Emit an event to trigger the run loop
+	mock.Emit(SourceEvent{Type: SourceOutput, Data: "hello"})
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("recorder was not started")
+	}
+
+	mock.Close()
+	tracker.Stop()
+
+	select {
+	case <-stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("recorder was not stopped")
+	}
+}
+
+type testRunnable struct {
+	started chan struct{}
+	stopped chan struct{}
+}
+
+func (r *testRunnable) Run()  { close(r.started); <-r.stopped }
+func (r *testRunnable) Stop() { close(r.stopped) }
+
+// TestTrackerRunDrainsSourceEvents verifies that the tracker's run() method
+// correctly drains events from the source and fans them out.
+func TestTrackerRunDrainsSourceEvents(t *testing.T) {
+	tracker, mock := newTestTracker("s1")
+
+	ch := tracker.SubscribeOutput()
+	defer tracker.UnsubscribeOutput(ch)
+
+	tracker.Start()
+
+	// Emit output events through the mock source
+	mock.Emit(SourceEvent{Type: SourceOutput, Data: "hello"})
+	mock.Emit(SourceEvent{Type: SourceOutput, Data: "world"})
+
+	// Verify they arrive at the subscriber
+	ev1 := <-ch
+	if ev1.Data != "hello" {
+		t.Errorf("event 1 data = %q, want 'hello'", ev1.Data)
+	}
+	ev2 := <-ch
+	if ev2.Data != "world" {
+		t.Errorf("event 2 data = %q, want 'world'", ev2.Data)
+	}
+
+	// Close the source, which should cause run() to exit
+	mock.Close()
+	tracker.Stop()
 }
