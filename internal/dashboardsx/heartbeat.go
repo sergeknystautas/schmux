@@ -5,7 +5,9 @@ package dashboardsx
 import (
 	"context"
 	"crypto/rand"
+	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -18,6 +20,41 @@ var pkgLogger *log.Logger
 // SetLogger sets the package-level logger for dashboardsx operations.
 func SetLogger(l *log.Logger) {
 	pkgLogger = l
+}
+
+// legoLogAdapter routes lego's stdlib-style log calls through a charmbracelet logger,
+// stripping lego's bracketed level prefixes ([INFO], [WARN]) and mapping them to
+// the correct charmbracelet level.
+type legoLogAdapter struct {
+	l *log.Logger
+}
+
+func (a *legoLogAdapter) Fatal(args ...any)                 { a.route(fmt.Sprint(args...)) }
+func (a *legoLogAdapter) Fatalln(args ...any)               { a.route(fmt.Sprint(args...)) }
+func (a *legoLogAdapter) Fatalf(format string, args ...any) { a.route(fmt.Sprintf(format, args...)) }
+func (a *legoLogAdapter) Print(args ...any)                 { a.route(fmt.Sprint(args...)) }
+func (a *legoLogAdapter) Println(args ...any)               { a.route(fmt.Sprint(args...)) }
+func (a *legoLogAdapter) Printf(format string, args ...any) { a.route(fmt.Sprintf(format, args...)) }
+
+func (a *legoLogAdapter) route(msg string) {
+	msg = strings.TrimSpace(msg)
+	switch {
+	case strings.HasPrefix(msg, "[WARN] "):
+		a.l.Warn(msg[7:])
+	case strings.HasPrefix(msg, "[INFO] "):
+		a.l.Info(msg[7:])
+	default:
+		a.l.Info(msg)
+	}
+}
+
+// LegoLogger returns a lego-compatible logger that routes through pkgLogger.
+// Returns nil if pkgLogger is not set.
+func LegoLogger() *legoLogAdapter {
+	if pkgLogger == nil {
+		return nil
+	}
+	return &legoLogAdapter{l: pkgLogger}
 }
 
 const (

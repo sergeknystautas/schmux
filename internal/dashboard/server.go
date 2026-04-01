@@ -778,6 +778,7 @@ func (s *Server) Start() error {
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
 		ReadHeaderTimeout: readHeaderTimeout,
+		ErrorLog:          s.logger.StandardLog(log.StandardLogOptions{ForceLevel: log.ErrorLevel}),
 	}
 
 	scheme := "http"

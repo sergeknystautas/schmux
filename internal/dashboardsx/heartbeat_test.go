@@ -3,8 +3,11 @@
 package dashboardsx
 
 import (
+	"bytes"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/log"
 )
 
 func TestHeartbeatInterval(t *testing.T) {
@@ -17,6 +20,38 @@ func TestHeartbeatInterval(t *testing.T) {
 		if interval < minInterval || interval > maxInterval {
 			t.Errorf("heartbeatInterval() = %v, want between %v and %v", interval, minInterval, maxInterval)
 		}
+	}
+}
+
+func TestLegoLogAdapter(t *testing.T) {
+	var buf bytes.Buffer
+	logger := log.NewWithOptions(&buf, log.Options{Level: log.DebugLevel})
+
+	adapter := &legoLogAdapter{l: logger}
+
+	tests := []struct {
+		name      string
+		input     string
+		wantLevel string
+		wantMsg   string
+	}{
+		{"info prefix", "[INFO] [example.com] acme: obtaining cert", "INFO", "[example.com] acme: obtaining cert"},
+		{"warn prefix", "[WARN] rate limited", "WARN", "rate limited"},
+		{"no prefix", "some other message", "INFO", "some other message"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			buf.Reset()
+			adapter.Printf("%s", tc.input)
+			output := buf.String()
+			if !bytes.Contains([]byte(output), []byte(tc.wantLevel)) {
+				t.Errorf("expected level %s in output %q", tc.wantLevel, output)
+			}
+			if !bytes.Contains([]byte(output), []byte(tc.wantMsg)) {
+				t.Errorf("expected message %q in output %q", tc.wantMsg, output)
+			}
+		})
 	}
 }
 

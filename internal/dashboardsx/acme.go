@@ -18,6 +18,7 @@ import (
 	"github.com/go-acme/lego/v4/challenge"
 	"github.com/go-acme/lego/v4/challenge/dns01"
 	"github.com/go-acme/lego/v4/lego"
+	legolog "github.com/go-acme/lego/v4/log"
 	"github.com/go-acme/lego/v4/registration"
 )
 
@@ -109,6 +110,10 @@ func ProvisionCert(code, email string, staging bool, provider challenge.Provider
 		Email:        email,
 		Registration: reg,
 		Key:          key,
+	}
+
+	if adapter := LegoLogger(); adapter != nil {
+		legolog.Logger = adapter
 	}
 
 	caServer := "production"
