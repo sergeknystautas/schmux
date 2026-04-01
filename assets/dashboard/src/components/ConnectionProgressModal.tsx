@@ -433,7 +433,10 @@ export default function ConnectionProgressModal({
           </button>
         </div>
 
-        <div className="modal__body p-md" onClick={() => xtermRef.current?.focus()}>
+        <div
+          className="modal__body modal__body--terminal p-md"
+          onClick={() => xtermRef.current?.focus()}
+        >
           <div
             ref={terminalRef}
             style={{
