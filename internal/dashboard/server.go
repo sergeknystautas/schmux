@@ -346,8 +346,6 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 	// Start rate limiter cleanup goroutines
 	go s.connectLimiter.startCleanup(10 * time.Minute)
 	go s.remoteAuthLimiter.startCleanup(10 * time.Minute)
-	// Clean up stale agent-port previews
-	go s.pruneAgentPreviews()
 	return s
 }
 

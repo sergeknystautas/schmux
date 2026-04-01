@@ -23,29 +23,6 @@ const previewAutoDetectCooldown = 45 * time.Second
 // pidFieldRegex matches the pid= field in ss output.
 var pidFieldRegex = regexp.MustCompile(`pid=(\d+)`)
 
-// pruneAgentPreviews removes previews whose target port is owned directly by
-// the session's agent process. Called on daemon startup to clean up previews
-// that were created before the agent-port filter existed.
-func (s *Server) pruneAgentPreviews() {
-	if s.previewManager == nil {
-		return
-	}
-	for _, p := range s.state.GetPreviews() {
-		sess, ok := s.state.GetSession(p.SourceSessionID)
-		if !ok || sess.Pid <= 0 {
-			continue
-		}
-		agentPorts := detectPortsViaSS(sess.Pid)
-		agentPorts = append(agentPorts, detectPortsViaLsof(sess.Pid)...)
-		for _, lp := range agentPorts {
-			if lp.Port == p.TargetPort {
-				_ = s.previewManager.Delete(p.WorkspaceID, p.ID)
-				break
-			}
-		}
-	}
-}
-
 func (s *Server) handleSessionOutputChunk(sessionID string, chunk []byte) {
 	if s.previewManager == nil || len(chunk) == 0 {
 		return
@@ -65,14 +42,8 @@ func (s *Server) handleSessionOutputChunk(sessionID string, chunk []byte) {
 		return
 	}
 
-	// Filter out ports owned directly by the agent process (not its children)
-	ports := filterAgentPorts(sess.Pid, candidatePorts)
-	if len(ports) == 0 {
-		return
-	}
-
 	// Filter out ports we already have previews for
-	ports = s.filterExistingPreviews(ws.ID, ports)
+	ports := s.filterExistingPreviews(ws.ID, candidatePorts)
 	if len(ports) == 0 {
 		return
 	}
@@ -83,14 +54,21 @@ func (s *Server) handleSessionOutputChunk(sessionID string, chunk []byte) {
 		return
 	}
 
+	// Filter out the daemon's own listening port
+	ports = s.filterDaemonPort(ports)
+	if len(ports) == 0 {
+		return
+	}
+
 	// Filter out ports that don't speak HTTP
 	ports = filterNonHTTPPorts(ports)
 	if len(ports) == 0 {
 		return
 	}
 
-	// Build PID tree for ownership lookup
+	// Build PID tree for ownership lookup (includes session PID itself)
 	descendantPIDs := make(map[int]bool)
+	descendantPIDs[sess.Pid] = true
 	for _, dpid := range getDescendantPIDs(sess.Pid) {
 		descendantPIDs[dpid] = true
 	}
@@ -271,64 +249,52 @@ func matchesBrainstormPIDFile(workspacePath string, pid int) bool {
 	return false
 }
 
-// probeHTTP checks whether a host:port speaks HTTP by sending a HEAD request.
-// Returns true if a valid HTTP response is received within the timeout.
-func probeHTTP(host string, port int, timeout time.Duration) bool {
-	addr := host
-	if strings.Contains(host, ":") {
-		addr = "[" + host + "]"
-	}
-	url := fmt.Sprintf("http://%s:%d/", addr, port)
-
-	client := &http.Client{
-		Timeout: timeout,
-		Transport: &http.Transport{
-			DialContext: (&net.Dialer{Timeout: timeout}).DialContext,
-		},
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	req, err := http.NewRequest("HEAD", url, nil)
-	if err != nil {
-		return false
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-	resp.Body.Close()
-	return true
-}
-
+// filterNonHTTPPorts removes ports that don't speak HTTP by sending a HEAD request
+// to each. Returns only ports that respond with a valid HTTP response.
 func filterNonHTTPPorts(ports []preview.ListeningPort) []preview.ListeningPort {
+	timeout := 1 * time.Second
 	var filtered []preview.ListeningPort
 	for _, lp := range ports {
-		if probeHTTP(lp.Host, lp.Port, 1*time.Second) {
-			filtered = append(filtered, lp)
+		addr := lp.Host
+		if strings.Contains(lp.Host, ":") {
+			addr = "[" + lp.Host + "]"
 		}
+		url := fmt.Sprintf("http://%s:%d/", addr, lp.Port)
+
+		client := &http.Client{
+			Timeout: timeout,
+			Transport: &http.Transport{
+				DialContext: (&net.Dialer{Timeout: timeout}).DialContext,
+			},
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
+
+		req, err := http.NewRequest("HEAD", url, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		resp.Body.Close()
+		filtered = append(filtered, lp)
 	}
 	return filtered
 }
 
-func filterAgentPorts(sessionPID int, ports []preview.ListeningPort) []preview.ListeningPort {
-	if sessionPID <= 0 {
-		return ports
-	}
-	agentPorts := make(map[int]bool)
-	for _, lp := range detectPortsViaSS(sessionPID) {
-		agentPorts[lp.Port] = true
-	}
-	for _, lp := range detectPortsViaLsof(sessionPID) {
-		agentPorts[lp.Port] = true
-	}
-	if len(agentPorts) == 0 {
+// filterDaemonPort removes the daemon's own listening port to prevent
+// creating a preview for schmux's web UI during dev mode.
+func (s *Server) filterDaemonPort(ports []preview.ListeningPort) []preview.ListeningPort {
+	daemonPort := s.config.GetPort()
+	if daemonPort <= 0 {
 		return ports
 	}
 	var filtered []preview.ListeningPort
 	for _, lp := range ports {
-		if !agentPorts[lp.Port] {
+		if lp.Port != daemonPort {
 			filtered = append(filtered, lp)
 		}
 	}

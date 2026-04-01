@@ -281,9 +281,11 @@ Errors:
 List known previews for a workspace. Previews are auto-detected when a session's
 terminal output contains an HTTP URL and the port is confirmed to be listening.
 Detected ports are validated with an HTTP HEAD probe before a preview is created;
-non-HTTP listeners (e.g. IPC, gRPC) are filtered out. Servers launched via
-`nohup`/`disown` (outside the session's PID tree) are detected if they write a
-PID file to `.superpowers/brainstorm/*/state/server.pid` in the workspace.
+non-HTTP listeners (e.g. IPC, gRPC) are filtered out. The daemon's own
+listening port is excluded to prevent self-detection during dev mode. Servers
+launched via `nohup`/`disown` (outside the session's PID tree) are detected if
+they write a PID file to `.superpowers/brainstorm/*/state/server.pid` in the
+workspace.
 
 Response: array of preview objects from the create endpoint.
 

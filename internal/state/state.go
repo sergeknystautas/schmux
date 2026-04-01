@@ -501,9 +501,15 @@ func (s *State) addTabLocked(workspaceID string, tab Tab) error {
 			}
 		}
 		s.Workspaces[i].Tabs = append([]Tab{tab}, s.Workspaces[i].Tabs...)
-		if s.logger != nil {
-			s.logger.Info("TAB-DEBUG: added new tab", "workspace", workspaceID, "dedup_key", key, "tab_id", tab.ID, "kind", tab.Kind, "label", tab.Label, "total_tabs", len(s.Workspaces[i].Tabs))
-		}
+		// if s.logger != nil {
+		// 	caller := "unknown"
+		// 	if pc, _, _, ok := runtime.Caller(2); ok {
+		// 		if fn := runtime.FuncForPC(pc); fn != nil {
+		// 			caller = fn.Name()
+		// 		}
+		// 	}
+		// 	s.logger.Info("TAB-DEBUG: added new tab", "workspace", workspaceID, "dedup_key", key, "tab_id", tab.ID, "kind", tab.Kind, "label", tab.Label, "total_tabs", len(s.Workspaces[i].Tabs), "caller", caller)
+		// }
 		return nil
 	}
 	return fmt.Errorf("workspace not found: %s", workspaceID)

@@ -1,23 +1,35 @@
 # Preview Proxy
 
+## Requirements
+
+The preview system exists to show web servers running inside schmux sessions. There are three scenarios:
+
+1. **Session-launched dev server.** A process in a tmux session (agent or command) listens on an HTTP port. Show a preview. This covers both agent sessions (Claude starts `npm run dev`) and command sessions (`vellum start` run directly by schmux). These are the same requirement — a process in the session has a port, show it.
+
+2. **Orphaned PID (visual companion).** The brainstorming skill launches a Node.js server via `nohup ... & disown`, which reparents it to PID 1. The process is outside the session's PID tree, so ownership is verified via `.superpowers/brainstorm/*/state/server.pid` files instead. This is a positive exception to the PID-tree ownership check.
+
+3. **Schmux dev mode (blocked).** When the schmux workspace itself runs `dev.sh`, it starts schmux's own web UI. We do not show a preview for this. This is a negative exception — filter out the daemon's own listening port.
+
+No other filtering scenarios exist. There is no requirement to filter agent MCP servers, internal tooling ports, or any other case.
+
 ## What it does
 
-Detects dev servers launched by agent sessions, creates reverse-proxy listeners on stable ports, and cleans up proxies when the originating session dies. Previews are workspace-scoped, session-owned, and persisted across daemon restarts.
+Detects dev servers running in tmux sessions, creates reverse-proxy listeners on stable ports, and cleans up proxies when the originating session dies. Previews are workspace-scoped, session-owned, and persisted across daemon restarts.
 
 ## Key files
 
-| File                                           | Purpose                                                                                                                                                      |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `internal/preview/manager.go`                  | Core preview lifecycle: `CreateOrGet`, `Delete`, `DeleteBySession`, `DeleteWorkspace`, `ReconcileWorkspace`, stable port allocation, reverse proxy setup     |
-| `internal/preview/manager_test.go`             | Unit tests for caps, port allocation, session cleanup, reconcile                                                                                             |
-| `internal/dashboard/preview_autodetect.go`     | `scanExistingSessionsForPreviews` (startup scan), `handleSessionOutputChunk` (terminal URL detection), `detectListeningPortsByPID` (PID-tree port ownership) |
-| `internal/dashboard/preview_reconcile.go`      | 5-second reconcile loop calling `ReconcileWorkspace` per local workspace                                                                                     |
-| `internal/dashboard/handlers_dispose.go`       | `handleDispose` calls `DeleteBySession` on session disposal                                                                                                  |
-| `internal/dashboard/handlers_workspace.go`     | `handlePreviewsList` (GET), `handlePreviewsCreate` (POST), `handlePreviewsDelete` (DELETE)                                                                   |
-| `internal/dashboard/server.go`                 | Route registration: `/api/workspaces/{workspaceID}/previews` and `/api/workspaces/{workspaceID}/previews/{previewID}`                                        |
-| `internal/state/state.go`                      | `WorkspacePreview` struct with `SourceSessionID`, `ProxyPort`, `PortBlock` on workspace                                                                      |
-| `assets/dashboard/src/lib/previewKeepAlive.ts` | Iframe parking lot: LRU cache of up to 10 iframes, show/hide/refresh/back operations                                                                         |
-| `assets/dashboard/src/routes/PreviewPage.tsx`  | Route `/preview/:workspaceId/:previewId` — preview iframe container                                                                                          |
+| File                                           | Purpose                                                                                                                                                  |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `internal/preview/manager.go`                  | Core preview lifecycle: `CreateOrGet`, `Delete`, `DeleteBySession`, `DeleteWorkspace`, `ReconcileWorkspace`, stable port allocation, reverse proxy setup |
+| `internal/preview/manager_test.go`             | Unit tests for caps, port allocation, session cleanup, reconcile                                                                                         |
+| `internal/dashboard/preview_autodetect.go`     | `handleSessionOutputChunk` (terminal URL detection), `detectListeningPortsByPID` (PID-tree port ownership), `filterDaemonPort` (block daemon's own port) |
+| `internal/dashboard/preview_reconcile.go`      | 5-second reconcile loop calling `ReconcileWorkspace` per local workspace                                                                                 |
+| `internal/dashboard/handlers_dispose.go`       | `handleDispose` calls `DeleteBySession` on session disposal                                                                                              |
+| `internal/dashboard/handlers_workspace.go`     | `handlePreviewsList` (GET), `handlePreviewsCreate` (POST), `handlePreviewsDelete` (DELETE)                                                               |
+| `internal/dashboard/server.go`                 | Route registration: `/api/workspaces/{workspaceID}/previews` and `/api/workspaces/{workspaceID}/previews/{previewID}`                                    |
+| `internal/state/state.go`                      | `WorkspacePreview` struct with `SourceSessionID`, `ProxyPort`, `PortBlock` on workspace                                                                  |
+| `assets/dashboard/src/lib/previewKeepAlive.ts` | Iframe parking lot: LRU cache of up to 10 iframes, show/hide/refresh/back operations                                                                     |
+| `assets/dashboard/src/routes/PreviewPage.tsx`  | Route `/preview/:workspaceId/:previewId` — preview iframe container                                                                                      |
 
 ## Architecture decisions
 
@@ -26,8 +38,8 @@ Detects dev servers launched by agent sessions, creates reverse-proxy listeners 
 - **5-step reconciliation.** Per preview: (1) session check, (2) ServerPID alive check, (3) PID tree check (non-terminal), (4) port ownership check (keeps POST API previews alive), (5) delete. Steps are ordered by cost. A batch `lsof` cache is built once per tick for step 4 lookups.
 - **Stable port allocation via per-workspace port blocks.** Each workspace gets a block of ports (default: 10 ports starting at base 53000). `PortBlock` is persisted on the workspace, so previews get the same proxy port across daemon restarts. Port assignment picks the lowest free slot in the block, skipping ports occupied by external processes.
 - **POST endpoint for explicit preview creation.** `POST /api/workspaces/{id}/previews` lets agents register out-of-PID-tree servers (e.g., the visual companion launched via `nohup`/`disown`). The endpoint verifies the port is listening, looks up the owner PID, and creates a preview with `ServerPID` tracking. Agent instructions injected into session files tell agents to call this when they launch a web server.
-- **Auto-detection has two triggers.** `scanExistingSessionsForPreviews` runs at daemon startup to pick up dev servers that started while the daemon was down. `handleSessionOutputChunk` fires on every terminal output chunk, regex-matches `http(s)://` URLs, does a per-port `lookupPortOwner` to verify the port is in the session's PID tree, and creates previews for verified ports. Only loopback hosts are accepted; non-loopback URLs are discarded. A 45-second cooldown prevents repeated creation attempts for the same workspace:port. No fallback for out-of-PID-tree servers — those use the POST API.
-- **Daemon restart handled by the reconcile loop, not a separate startup path.** On restart, persisted previews have `SourceSessionID` and stable `ProxyPort`. The first reconcile tick (+5s) checks each preview's source session PID. If the PID still owns the port, `ensureListener` recreates the proxy. If not, the preview is deleted. `scanExistingSessionsForPreviews` handles net-new detection for sessions that started servers while the daemon was down.
+- **Auto-detection fires on terminal output.** `handleSessionOutputChunk` fires on every terminal output chunk, regex-matches `http(s)://` URLs, and runs candidates through a filter pipeline: (1) existing preview dedup, (2) proxy port filter, (3) daemon's own port filter, (4) HTTP probe. Ports that pass are checked for PID ownership — the port must be owned by the session PID itself, a descendant of it, or match a brainstorm PID file. Only loopback hosts are accepted; non-loopback URLs are discarded. A 45-second cooldown prevents repeated creation attempts for the same workspace:port. No fallback for out-of-PID-tree servers — those use the POST API.
+- **Daemon restart handled by the reconcile loop.** On restart, persisted previews have `SourceSessionID` and stable `ProxyPort`. The first reconcile tick (+5s) checks each preview's source session PID. If the PID still owns the port, `ensureListener` recreates the proxy. If not, the preview is deleted.
 - **Target host restricted to loopback, preserved as-is.** `NormalizeTargetHost` only allows `127.0.0.1`, `::1`, and `localhost` — but does not rewrite them. The stored host is what the proxy connects to. This prevents IPv6-only servers from breaking when the host is rewritten to `127.0.0.1`. The `networkAccess` config flag controls whether the proxy listener binds to `0.0.0.0` (for remote access) or `127.0.0.1`.
 - **Sensitive headers stripped before forwarding.** The reverse proxy's custom `Director` removes `Cookie`, `Authorization`, and `X-CSRF-Token` headers before forwarding to the upstream dev server. Without this, schmux session cookies would leak to the proxied application.
 - **Iframe parking lot for instant preview switching.** The frontend keeps up to 10 iframes alive in a hidden parking lot div. Navigating between previews moves iframes in and out of the visible area without reloading them. LRU eviction removes the oldest iframe when the cap is reached.

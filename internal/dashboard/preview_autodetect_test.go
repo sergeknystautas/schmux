@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/preview"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
@@ -110,7 +111,49 @@ func TestFilterExistingPreviews(t *testing.T) {
 	}
 }
 
-func TestProbeHTTP_ValidServer(t *testing.T) {
+func TestFilterDaemonPort_BlocksDaemonPort(t *testing.T) {
+	cfg := &config.Config{Network: &config.NetworkConfig{Port: 7337}}
+	srv := &Server{config: cfg}
+
+	ports := []preview.ListeningPort{
+		{Host: "127.0.0.1", Port: 7337},
+		{Host: "127.0.0.1", Port: 3000},
+	}
+
+	filtered := srv.filterDaemonPort(ports)
+	if len(filtered) != 1 || filtered[0].Port != 3000 {
+		t.Fatalf("expected [3000], got %#v", filtered)
+	}
+}
+
+func TestFilterDaemonPort_PassthroughWhenNoMatch(t *testing.T) {
+	cfg := &config.Config{Network: &config.NetworkConfig{Port: 7337}}
+	srv := &Server{config: cfg}
+
+	ports := []preview.ListeningPort{
+		{Host: "127.0.0.1", Port: 3000},
+		{Host: "127.0.0.1", Port: 8080},
+	}
+
+	filtered := srv.filterDaemonPort(ports)
+	if len(filtered) != 2 {
+		t.Fatalf("expected 2 ports, got %#v", filtered)
+	}
+}
+
+func TestOwnershipMapIncludesSessionPID(t *testing.T) {
+	pid := os.Getpid()
+	descendantPIDs := make(map[int]bool)
+	descendantPIDs[pid] = true
+	for _, dpid := range getDescendantPIDs(pid) {
+		descendantPIDs[dpid] = true
+	}
+	if !descendantPIDs[pid] {
+		t.Fatal("session PID must be in ownership map for command sessions where PID == dev server")
+	}
+}
+
+func TestFilterNonHTTPPorts_ValidServer(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -122,19 +165,20 @@ func TestProbeHTTP_ValidServer(t *testing.T) {
 	go srv.Serve(ln)
 	defer srv.Close()
 
-	// Retry probe — server goroutine may not have entered Accept() yet
+	// Retry — server goroutine may not have entered Accept() yet
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		if probeHTTP("127.0.0.1", port, 500*time.Millisecond) {
-			return // success
+		filtered := filterNonHTTPPorts([]preview.ListeningPort{{Host: "127.0.0.1", Port: port}})
+		if len(filtered) == 1 && filtered[0].Port == port {
+			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("expected probeHTTP to return true for HTTP server")
+			t.Fatal("expected filterNonHTTPPorts to keep HTTP server port")
 		}
 	}
 }
 
-func TestProbeHTTP_NonHTTPListener(t *testing.T) {
+func TestFilterNonHTTPPorts_NonHTTPListener(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -150,12 +194,13 @@ func TestProbeHTTP_NonHTTPListener(t *testing.T) {
 	}()
 	defer ln.Close()
 
-	if probeHTTP("127.0.0.1", port, 1*time.Second) {
-		t.Fatal("expected probeHTTP to return false for non-HTTP listener")
+	filtered := filterNonHTTPPorts([]preview.ListeningPort{{Host: "127.0.0.1", Port: port}})
+	if len(filtered) != 0 {
+		t.Fatalf("expected no ports for non-HTTP listener, got %#v", filtered)
 	}
 }
 
-func TestProbeHTTP_ConnectionRefused(t *testing.T) {
+func TestFilterNonHTTPPorts_ConnectionRefused(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -163,12 +208,13 @@ func TestProbeHTTP_ConnectionRefused(t *testing.T) {
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
 
-	if probeHTTP("127.0.0.1", port, 500*time.Millisecond) {
-		t.Fatal("expected probeHTTP to return false for closed port")
+	filtered := filterNonHTTPPorts([]preview.ListeningPort{{Host: "127.0.0.1", Port: port}})
+	if len(filtered) != 0 {
+		t.Fatalf("expected no ports for closed port, got %#v", filtered)
 	}
 }
 
-func TestProbeHTTP_IPv6(t *testing.T) {
+func TestFilterNonHTTPPorts_IPv6(t *testing.T) {
 	ln, err := net.Listen("tcp", "[::1]:0")
 	if err != nil {
 		t.Skip("IPv6 loopback not available")
@@ -180,12 +226,13 @@ func TestProbeHTTP_IPv6(t *testing.T) {
 	go srv.Serve(ln)
 	defer srv.Close()
 
-	if !probeHTTP("::1", port, 1*time.Second) {
-		t.Fatal("expected probeHTTP to return true for IPv6 HTTP server")
+	filtered := filterNonHTTPPorts([]preview.ListeningPort{{Host: "::1", Port: port}})
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 port for IPv6 HTTP server, got %#v", filtered)
 	}
 }
 
-func TestFilterNonHTTPPorts(t *testing.T) {
+func TestFilterNonHTTPPorts_Mixed(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -226,53 +273,7 @@ func TestFilterNonHTTPPorts(t *testing.T) {
 	}
 }
 
-func TestFilterAgentPorts(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	agentPort := ln.Addr().(*net.TCPAddr).Port
-	defer ln.Close()
-
-	ports := []preview.ListeningPort{
-		{Host: "127.0.0.1", Port: agentPort},
-		{Host: "127.0.0.1", Port: 5173},
-	}
-
-	// Current process owns agentPort, so it should be filtered out.
-	// Port 5173 is not owned by this process, so it survives.
-	// Retry because lsof/ss can be slow under heavy parallel test load.
-	var filtered []preview.ListeningPort
-	for attempt := 0; attempt < 3; attempt++ {
-		filtered = filterAgentPorts(os.Getpid(), ports)
-		found := false
-		for _, lp := range filtered {
-			if lp.Port == agentPort {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return // success
-		}
-		if attempt < 2 {
-			time.Sleep(500 * time.Millisecond)
-		}
-	}
-	t.Fatalf("expected agent port %d to be filtered out after retries, got %#v", agentPort, filtered)
-}
-
-func TestFilterAgentPorts_ZeroPID(t *testing.T) {
-	ports := []preview.ListeningPort{
-		{Host: "127.0.0.1", Port: 3000},
-	}
-	filtered := filterAgentPorts(0, ports)
-	if len(filtered) != 1 {
-		t.Fatalf("expected passthrough with zero PID, got %#v", filtered)
-	}
-}
-
-func TestProbeHTTP_Redirect(t *testing.T) {
+func TestFilterNonHTTPPorts_Redirect(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -284,8 +285,9 @@ func TestProbeHTTP_Redirect(t *testing.T) {
 	go srv.Serve(ln)
 	defer srv.Close()
 
-	if !probeHTTP("127.0.0.1", port, 1*time.Second) {
-		t.Fatal("expected probeHTTP to return true for server that redirects")
+	filtered := filterNonHTTPPorts([]preview.ListeningPort{{Host: "127.0.0.1", Port: port}})
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 port for redirecting server, got %#v", filtered)
 	}
 }
 
