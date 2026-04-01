@@ -1,14 +1,18 @@
 package models
 
 import (
+	"io"
 	"testing"
 
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 )
 
+var testLogger = log.NewWithOptions(io.Discard, log.Options{})
+
 func TestValidateSecrets(t *testing.T) {
-	mm := New(&config.Config{}, nil, "")
+	mm := New(&config.Config{}, nil, "", testLogger)
 
 	tests := []struct {
 		name    string
@@ -104,7 +108,7 @@ func TestIsTargetInUse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := New(tt.cfg, nil, "")
+			mm := New(tt.cfg, nil, "", testLogger)
 			got := mm.IsTargetInUse(tt.targetName)
 			if got != tt.want {
 				t.Errorf("IsTargetInUse() = %v, want %v", got, tt.want)
@@ -114,7 +118,7 @@ func TestIsTargetInUse(t *testing.T) {
 }
 
 func TestGetCatalogStructure(t *testing.T) {
-	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "")
+	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "", testLogger)
 
 	catalog, err := mm.GetCatalog()
 	if err != nil {
@@ -159,7 +163,7 @@ func TestGetCatalogStructure(t *testing.T) {
 }
 
 func TestRebuildCatalogThreeSources(t *testing.T) {
-	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "")
+	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "", testLogger)
 
 	// With no registry and no user models, only default models should be present
 	catalog, err := mm.GetCatalog()
@@ -177,7 +181,7 @@ func TestRebuildCatalogThreeSources(t *testing.T) {
 }
 
 func TestMergePrecedence(t *testing.T) {
-	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "")
+	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "", testLogger)
 
 	mm.SetRegistryModels([]detect.Model{{
 		ID: "test-model", DisplayName: "Registry Version", Provider: "anthropic",
@@ -202,7 +206,7 @@ func TestDefaultModelsAlwaysPresent(t *testing.T) {
 	mm := New(&config.Config{}, []detect.Tool{
 		{Name: "claude", Command: "claude"},
 		{Name: "codex", Command: "codex"},
-	}, "")
+	}, "", testLogger)
 
 	mm.SetRegistryModels([]detect.Model{{
 		ID: "some-model", Provider: "anthropic",
@@ -217,7 +221,7 @@ func TestDefaultModelsAlwaysPresent(t *testing.T) {
 }
 
 func TestDefaultModelsNotDuplicated(t *testing.T) {
-	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "")
+	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "", testLogger)
 
 	catalog, err := mm.GetCatalog()
 	if err != nil {
@@ -235,7 +239,7 @@ func TestDefaultModelsNotDuplicated(t *testing.T) {
 }
 
 func TestFindModelWithMigration(t *testing.T) {
-	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "")
+	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "", testLogger)
 
 	mm.SetRegistryModels([]detect.Model{{
 		ID: "claude-opus-4-6", Provider: "anthropic",
@@ -253,7 +257,7 @@ func TestFindModelWithMigration(t *testing.T) {
 }
 
 func TestEmptyCatalogOnlyDefaults(t *testing.T) {
-	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "")
+	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "", testLogger)
 
 	// No registry, no user models — should be only defaults
 	catalog, err := mm.GetCatalog()
@@ -271,7 +275,7 @@ func TestEmptyCatalogOnlyDefaults(t *testing.T) {
 }
 
 func TestResolveTargetToTool(t *testing.T) {
-	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "")
+	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "", testLogger)
 	mm.SetRegistryModels([]detect.Model{{
 		ID: "claude-opus-4-6", Provider: "anthropic",
 		Runners: map[string]detect.RunnerSpec{"claude": {ModelValue: "claude-opus-4-6"}},
@@ -295,7 +299,7 @@ func TestResolveTargetToTool(t *testing.T) {
 }
 
 func TestConcurrentCatalogAccess(t *testing.T) {
-	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "")
+	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "", testLogger)
 
 	// Start concurrent readers
 	done := make(chan bool, 10)

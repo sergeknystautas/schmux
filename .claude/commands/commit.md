@@ -79,6 +79,7 @@ Using the categorization from Step 1:
 **If any Go files (`.go`) are staged:**
 
 - Run `go vet ./...`. If it fails, STOP.
+- **Logger lint**: Check that no staged `internal/` Go file imports the standard `"log"` package. Run: `git diff --cached --name-only -- 'internal/*.go' | xargs grep -l '^\t"log"$' 2>/dev/null`. If any files are printed, STOP — they must use `charmbracelet/log` (via `internal/logging`) instead of stdlib `log`. Packages with a `*Server` receiver should use `s.logger`; standalone packages should accept a `*log.Logger` in their constructor or use the `SetLogger` pattern.
 - Run `./test.sh --quick`. If it fails, STOP.
 
 **If behavioral files are staged but none are Go files** (frontend-only changes):

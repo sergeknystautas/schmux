@@ -162,7 +162,7 @@ func TestResolveQuickLaunchByName(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath, nil)
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	mm := models.New(cfg, nil, "")
+	mm := models.New(cfg, nil, "", log.NewWithOptions(io.Discard, log.Options{}))
 	wm.SetModelManager(mm)
 	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
 	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, ServerOptions{})

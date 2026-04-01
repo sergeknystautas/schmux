@@ -73,7 +73,7 @@ func TestHandleLoreApplyMerge_RepoPublic_WorkspaceBased(t *testing.T) {
 	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), logger, contracts.GitHubStatus{}, ServerOptions{
 		ShutdownCtx: shutdownCtx,
 	})
-	server.SetModelManager(models.New(cfg, nil, ""))
+	server.SetModelManager(models.New(cfg, nil, "", log.NewWithOptions(io.Discard, log.Options{})))
 
 	// Set up lore store with a proposal
 	loreDir := filepath.Join(tmpDir, "lore")
@@ -196,7 +196,7 @@ func TestHandleLoreApplyMerge_RepoPublic_ConflictWhenDirty(t *testing.T) {
 	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), logger, contracts.GitHubStatus{}, ServerOptions{
 		ShutdownCtx: shutdownCtx,
 	})
-	server.SetModelManager(models.New(cfg, nil, ""))
+	server.SetModelManager(models.New(cfg, nil, "", log.NewWithOptions(io.Discard, log.Options{})))
 
 	loreDir := filepath.Join(tmpDir, "lore")
 	proposalStore := lore.NewProposalStore(loreDir, logger)

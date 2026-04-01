@@ -1,15 +1,17 @@
 package dashboard
 
 import (
+	"io"
 	"testing"
 
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/models"
 )
 
 func TestValidateModelSecrets(t *testing.T) {
-	mm := models.New(&config.Config{}, nil, "")
+	mm := models.New(&config.Config{}, nil, "", log.NewWithOptions(io.Discard, log.Options{}))
 
 	tests := []struct {
 		name    string
@@ -105,7 +107,7 @@ func TestTargetInUseByNudgenikOrQuickLaunch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := models.New(tt.cfg, nil, "")
+			mm := models.New(tt.cfg, nil, "", log.NewWithOptions(io.Discard, log.Options{}))
 			got := mm.IsTargetInUse(tt.targetName)
 			if got != tt.want {
 				t.Errorf("IsTargetInUse() = %v, want %v", got, tt.want)

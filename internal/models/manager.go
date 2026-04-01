@@ -7,13 +7,13 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
@@ -23,6 +23,7 @@ import (
 // It merges three sources: registry, user-defined, and default_* models.
 type Manager struct {
 	mu            sync.RWMutex
+	logger        *log.Logger
 	config        *config.Config
 	detectedTools []detect.Tool
 	schmuxDir     string
@@ -41,8 +42,9 @@ type Manager struct {
 }
 
 // New creates a ModelManager backed by the given config.
-func New(cfg *config.Config, detectedTools []detect.Tool, schmuxDir string) *Manager {
+func New(cfg *config.Config, detectedTools []detect.Tool, schmuxDir string, logger *log.Logger) *Manager {
 	m := &Manager{
+		logger:         logger,
 		config:         cfg,
 		detectedTools:  detectedTools,
 		schmuxDir:      schmuxDir,
@@ -133,7 +135,7 @@ func (m *Manager) buildRegistryMeta(registryModels []RegistryModel) {
 // Subsequent fetches happen every 24 hours.
 func (m *Manager) StartBackgroundFetch(ctx context.Context) {
 	if m.schmuxDir == "" {
-		log.Println("models: schmuxDir not set, skipping registry fetch")
+		m.logger.Warn("schmuxDir not set, skipping registry fetch")
 		return
 	}
 
@@ -145,7 +147,7 @@ func (m *Manager) StartBackgroundFetch(ctx context.Context) {
 			m.buildRegistryMeta(models)
 			m.rebuildCatalog()
 			m.mu.Unlock()
-			log.Printf("models: loaded %d models from cache", len(models))
+			m.logger.Info("loaded cached models", "count", len(models))
 		}
 	}
 
@@ -153,7 +155,7 @@ func (m *Manager) StartBackgroundFetch(ctx context.Context) {
 	registryCount := len(m.registryModels)
 	m.mu.RUnlock()
 	if registryCount == 0 {
-		log.Println("models: no cached registry data, catalog contains only default models")
+		m.logger.Info("no cached registry data, catalog contains only default models")
 	}
 
 	// Fetch fresh data in background
@@ -182,31 +184,31 @@ func (m *Manager) fetchAndUpdate() {
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Get(RegistryURL)
 	if err != nil {
-		log.Printf("models: failed to fetch registry: %v", err)
+		m.logger.Error("failed to fetch registry", "err", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("models: registry fetch returned status %d", resp.StatusCode)
+		m.logger.Error("registry fetch returned unexpected status", "status", resp.StatusCode)
 		return
 	}
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("models: failed to read registry response: %v", err)
+		m.logger.Error("failed to read registry response", "err", err)
 		return
 	}
 
 	models, err := ParseRegistry(data, RegistryCutoff())
 	if err != nil {
-		log.Printf("models: failed to parse registry: %v", err)
+		m.logger.Error("failed to parse registry", "err", err)
 		return
 	}
 
 	// Save to cache
 	if err := SaveCache(m.schmuxDir, data); err != nil {
-		log.Printf("models: failed to save cache: %v", err)
+		m.logger.Error("failed to save cache", "err", err)
 	}
 
 	// Update catalog
@@ -216,7 +218,7 @@ func (m *Manager) fetchAndUpdate() {
 	m.rebuildCatalog()
 	m.mu.Unlock()
 
-	log.Printf("models: updated catalog with %d registry models", len(models))
+	m.logger.Info("updated catalog from registry", "count", len(models))
 
 	// Notify dashboard of catalog change
 	m.mu.RLock()

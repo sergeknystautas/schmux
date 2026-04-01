@@ -4,7 +4,6 @@ package dashboard
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 
 	"github.com/sergeknystautas/schmux/internal/tunnel"
@@ -19,7 +18,7 @@ func (s *Server) handleRemoteAccessStatus(w http.ResponseWriter, r *http.Request
 	status := s.tunnelManager.Status()
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(status); err != nil {
-		log.Printf("handleRemoteAccessStatus: failed to encode response: %v", err)
+		s.logger.Error("failed to encode response", "handler", "remote-access-status", "err", err)
 	}
 }
 
@@ -41,7 +40,7 @@ func (s *Server) handleRemoteAccessOn(w http.ResponseWriter, r *http.Request) {
 	status := s.tunnelManager.Status()
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(status); err != nil {
-		log.Printf("handleRemoteAccessOn: failed to encode response: %v", err)
+		s.logger.Error("failed to encode response", "handler", "remote-access-on", "err", err)
 	}
 }
 
@@ -56,7 +55,7 @@ func (s *Server) handleRemoteAccessOff(w http.ResponseWriter, r *http.Request) {
 	status := s.tunnelManager.Status()
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(status); err != nil {
-		log.Printf("handleRemoteAccessOff: failed to encode response: %v", err)
+		s.logger.Error("failed to encode response", "handler", "remote-access-off", "err", err)
 	}
 }
 
@@ -80,6 +79,6 @@ func (s *Server) handleRemoteAccessTestNotification(w http.ResponseWriter, r *ht
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]bool{"ok": true}); err != nil {
-		log.Printf("handleRemoteAccessTestNotification: failed to encode response: %v", err)
+		s.logger.Error("failed to encode response", "handler", "remote-access-test-notification", "err", err)
 	}
 }

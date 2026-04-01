@@ -511,7 +511,8 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	// Create model manager (single owner for catalog, resolution, enablement)
 	// schmuxDir is already computed earlier in this function
-	mm := models.New(cfg, detectedTargets, schmuxDir)
+	modelsLog := logging.Sub(logger, "models")
+	mm := models.New(cfg, detectedTargets, schmuxDir, modelsLog)
 
 	// Start background registry fetch
 	mm.StartBackgroundFetch(d.shutdownCtx)
