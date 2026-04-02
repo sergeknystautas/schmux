@@ -2,6 +2,27 @@
 
 This file tracks high-level changes between releases of schmux.
 
+## Version 1.2.1 (2026-04-01)
+
+**Critical fix:**
+
+- Fixed a bug where starting schmux could kill the parent shell — the environment baseline capture hijacked the terminal's foreground process group, orphaning the caller's shell when it exited
+
+**Improvements:**
+
+- Image paste and drag-and-drop for remote sessions — paste screenshots or drag image files into remote terminals
+- Add repositories from git URL directly in the spawn wizard
+- Heartbeat and certificate expiry alerts on the home page for dashboard.sx users
+- Portable builds gracefully fall back to localhost when the configured dashboard hostname doesn't resolve locally
+
+**Bug fixes:**
+
+- Fixed HTTPS callback and provision-status URLs when TLS is enabled (dashboard.sx)
+- Dev server preview detection now works for command sessions, not just agent sessions
+- Consolidated remaining stdlib log calls through charmbracelet/log
+- Removed noisy output-gap and parser-blocked log messages
+- Fixed icon clipping in collapsed tools row
+
 ## Version 1.2.0 (2026-03-31)
 
 ### Multiplexed agentic coding
