@@ -1,6 +1,7 @@
 package timelapse
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,34 +29,42 @@ func TestRecorder_BasicRecording(t *testing.T) {
 
 	rec.Stop()
 
-	// Read the recording file
-	files, _ := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+	// Read the recording file (.cast format)
+	files, _ := filepath.Glob(filepath.Join(dir, "*.cast"))
 	if len(files) != 1 {
 		t.Fatalf("expected 1 recording file, got %d", len(files))
 	}
 
 	data, _ := os.ReadFile(files[0])
 	content := string(data)
+	lines := strings.Split(strings.TrimSpace(content), "\n")
 
-	// Should have header, 2 output records, and end record
+	if len(lines) < 3 {
+		t.Fatalf("expected at least 3 lines (header + 2 events), got %d", len(lines))
+	}
+
+	// First line should be asciicast v2 header
+	var header map[string]interface{}
+	if err := json.Unmarshal([]byte(lines[0]), &header); err != nil {
+		t.Fatalf("invalid header JSON: %v", err)
+	}
+	if header["version"].(float64) != 2 {
+		t.Errorf("header version = %v, want 2", header["version"])
+	}
+
+	// Parse events using ReadCastEvents
 	var records []Record
-	ReadRecords(strings.NewReader(content), func(rec Record) bool {
+	ReadCastEvents(strings.NewReader(content), func(rec Record) bool {
 		records = append(records, rec)
 		return true
 	})
 
-	if len(records) < 4 {
-		t.Fatalf("expected at least 4 records (header + 2 output + end), got %d", len(records))
+	if len(records) < 3 {
+		t.Fatalf("expected at least 3 records (header + 2 output), got %d", len(records))
 	}
 
 	if records[0].Type != RecordHeader {
 		t.Errorf("first record type = %q, want header", records[0].Type)
-	}
-	if records[0].Version != 1 {
-		t.Errorf("header version = %d, want 1", records[0].Version)
-	}
-	if records[0].SessionID != "test-session" {
-		t.Errorf("header sessionId = %q, want test-session", records[0].SessionID)
 	}
 
 	// Find output records
@@ -65,8 +74,8 @@ func TestRecorder_BasicRecording(t *testing.T) {
 			outputs = append(outputs, r)
 		}
 	}
-	if len(outputs) != 2 {
-		t.Fatalf("expected 2 output records, got %d", len(outputs))
+	if len(outputs) < 2 {
+		t.Fatalf("expected at least 2 output records, got %d", len(outputs))
 	}
 	if outputs[0].D != "hello" {
 		t.Errorf("output 0 data = %q, want hello", outputs[0].D)
@@ -75,15 +84,9 @@ func TestRecorder_BasicRecording(t *testing.T) {
 		t.Errorf("output 1 data = %q, want world", outputs[1].D)
 	}
 
-	// First output should have t=0.xxx (very small)
+	// First output should have t close to 0
 	if outputs[0].T == nil {
 		t.Fatal("first output T should not be nil")
-	}
-
-	// Last record should be end
-	last := records[len(records)-1]
-	if last.Type != RecordEnd {
-		t.Errorf("last record type = %q, want end", last.Type)
 	}
 
 	// Check file permissions
@@ -118,18 +121,29 @@ func TestRecorder_MaxBytesCap(t *testing.T) {
 		t.Fatal("recorder did not stop within timeout after size cap")
 	}
 
-	// Verify end record was written
-	files, _ := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+	// Verify recording file exists
+	files, _ := filepath.Glob(filepath.Join(dir, "*.cast"))
 	if len(files) != 1 {
 		t.Fatalf("expected 1 file, got %d", len(files))
 	}
 	data, _ := os.ReadFile(files[0])
-	if !strings.Contains(string(data), `"type":"end"`) {
-		t.Error("recording should contain end record after size cap")
+	content := string(data)
+
+	// Should have an asciicast header
+	lines := strings.Split(strings.TrimSpace(content), "\n")
+	if len(lines) < 1 {
+		t.Fatal("recording should have at least a header line")
+	}
+	var header map[string]interface{}
+	if err := json.Unmarshal([]byte(lines[0]), &header); err != nil {
+		t.Fatalf("invalid header: %v", err)
+	}
+	if header["version"].(float64) != 2 {
+		t.Error("header version should be 2")
 	}
 }
 
-func TestRecorder_GapAndResizeEvents(t *testing.T) {
+func TestRecorder_ResizeEvents(t *testing.T) {
 	dir := t.TempDir()
 	ol := session.NewOutputLog(1000)
 	gapCh := make(chan session.SourceEvent, 10)
@@ -144,11 +158,7 @@ func TestRecorder_GapAndResizeEvents(t *testing.T) {
 	// Send output first (to trigger recorder loop)
 	ol.Append([]byte("output1"))
 
-	// Send gap and resize events
-	gapCh <- session.SourceEvent{
-		Type:   session.SourceGap,
-		Reason: "reconnect",
-	}
+	// Send resize event
 	gapCh <- session.SourceEvent{
 		Type:   session.SourceResize,
 		Width:  120,
@@ -161,19 +171,33 @@ func TestRecorder_GapAndResizeEvents(t *testing.T) {
 
 	rec.Stop()
 
-	// Verify gap and resize records
-	files, _ := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+	// Verify resize event in the .cast file
+	files, _ := filepath.Glob(filepath.Join(dir, "*.cast"))
 	data, _ := os.ReadFile(files[0])
 	content := string(data)
 
-	if !strings.Contains(content, `"type":"gap"`) {
-		t.Error("recording should contain gap record")
+	// Should contain a resize event line like [t,"r","120x40"]
+	if !strings.Contains(content, `"r"`) {
+		t.Error("recording should contain resize event")
 	}
-	if !strings.Contains(content, `"reconnect"`) {
-		t.Error("gap record should contain reason")
+	if !strings.Contains(content, `"120x40"`) {
+		t.Error("resize event should contain dimensions")
 	}
-	if !strings.Contains(content, `"type":"resize"`) {
-		t.Error("recording should contain resize record")
+
+	// Parse and verify resize record
+	var records []Record
+	ReadCastEvents(strings.NewReader(content), func(rec Record) bool {
+		records = append(records, rec)
+		return true
+	})
+	var foundResize bool
+	for _, r := range records {
+		if r.Type == RecordResize && r.Width == 120 && r.Height == 40 {
+			foundResize = true
+		}
+	}
+	if !foundResize {
+		t.Error("should have a resize record with 120x40")
 	}
 }
 
@@ -201,22 +225,20 @@ func TestRecorder_BufferOverrun(t *testing.T) {
 
 	rec.Stop()
 
-	// Verify buffer_overrun gap record exists
-	files, _ := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+	// Verify recording file exists and has header
+	files, _ := filepath.Glob(filepath.Join(dir, "*.cast"))
 	data, _ := os.ReadFile(files[0])
 	content := string(data)
 
-	if !strings.Contains(content, `"buffer_overrun"`) {
-		// Buffer overrun may not always trigger depending on timing,
-		// but the recorder should still produce a valid file
-		t.Log("buffer_overrun not detected (timing-dependent)")
+	lines := strings.Split(strings.TrimSpace(content), "\n")
+	if len(lines) < 1 {
+		t.Fatal("recording should have at least a header")
 	}
-
-	// File should at least have header and end
-	if !strings.Contains(content, `"type":"header"`) {
-		t.Error("recording should contain header")
+	var header map[string]interface{}
+	if err := json.Unmarshal([]byte(lines[0]), &header); err != nil {
+		t.Fatalf("invalid header: %v", err)
 	}
-	if !strings.Contains(content, `"type":"end"`) {
-		t.Error("recording should contain end record")
+	if header["version"].(float64) != 2 {
+		t.Error("header version should be 2")
 	}
 }

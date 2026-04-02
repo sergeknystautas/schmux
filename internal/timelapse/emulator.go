@@ -55,6 +55,29 @@ func (e *ScreenEmulator) CellText() [][]rune {
 	return grid
 }
 
+// CellGrid returns a fresh 2D rune grid with the given dimensions.
+// Useful when the caller tracks width/height separately from the emulator.
+func (e *ScreenEmulator) CellGrid(width, height int) [][]rune {
+	grid := make([][]rune, height)
+	for y := 0; y < height; y++ {
+		row := make([]rune, width)
+		for x := 0; x < width; x++ {
+			if x < e.cols && y < e.rows {
+				g := e.term.Cell(x, y)
+				if g.Char == 0 {
+					row[x] = ' '
+				} else {
+					row[x] = g.Char
+				}
+			} else {
+				row[x] = ' '
+			}
+		}
+		grid[y] = row
+	}
+	return grid
+}
+
 // ScreenText returns the visible screen content as a string (rows joined by newlines).
 func (e *ScreenEmulator) ScreenText() string {
 	grid := e.CellText()

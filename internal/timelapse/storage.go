@@ -1,6 +1,7 @@
 package timelapse
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -10,27 +11,32 @@ import (
 
 // RecordingInfo holds metadata for a single recording file.
 type RecordingInfo struct {
-	RecordingID string
-	SessionID   string
-	StartTime   time.Time
-	Duration    float64
-	FileSize    int64
-	Width       int
-	Height      int
-	InProgress  bool
-	HasExport   bool
-	Path        string
+	RecordingID   string
+	SessionID     string
+	StartTime     time.Time
+	Duration      float64
+	FileSize      int64
+	Width         int
+	Height        int
+	InProgress    bool
+	HasCompressed bool
+	Path          string
 }
 
 // ListRecordings returns metadata for all recordings in dir.
+// It looks for .cast files that are NOT compressed (no .timelapse.cast suffix).
 func ListRecordings(dir string) ([]RecordingInfo, error) {
-	matches, err := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+	matches, err := filepath.Glob(filepath.Join(dir, "*.cast"))
 	if err != nil {
 		return nil, err
 	}
 
 	var result []RecordingInfo
 	for _, path := range matches {
+		// Skip compressed timelapse files
+		if strings.HasSuffix(path, ".timelapse.cast") {
+			continue
+		}
 		info, err := parseRecordingInfo(path)
 		if err != nil {
 			continue // skip malformed files
@@ -58,39 +64,44 @@ func parseRecordingInfo(path string) (RecordingInfo, error) {
 		return RecordingInfo{}, err
 	}
 
-	recordingID := strings.TrimSuffix(filepath.Base(path), ".jsonl")
-	castPath := strings.TrimSuffix(path, ".jsonl") + ".cast"
-	_, castErr := os.Stat(castPath)
+	recordingID := strings.TrimSuffix(filepath.Base(path), ".cast")
+	compressedPath := strings.TrimSuffix(path, ".cast") + ".timelapse.cast"
+	_, compressedErr := os.Stat(compressedPath)
 
-	info := RecordingInfo{
-		RecordingID: recordingID,
-		FileSize:    stat.Size(),
-		Path:        path,
-		InProgress:  true, // assumed until we find an end record
-		HasExport:   castErr == nil,
+	// Derive SessionID from recording ID: "<sessionID>-<unixTimestamp>"
+	sessionID := recordingID
+	if lastDash := strings.LastIndex(recordingID, "-"); lastDash > 0 {
+		sessionID = recordingID[:lastDash]
 	}
 
-	// Read header and optionally the end record
-	ReadRecords(f, func(rec Record) bool {
+	info := RecordingInfo{
+		RecordingID:   recordingID,
+		SessionID:     sessionID,
+		FileSize:      stat.Size(),
+		Path:          path,
+		InProgress:    true, // assumed until we see events with timestamps
+		HasCompressed: compressedErr == nil,
+	}
+
+	// Read the asciicast v2 header (first line is a JSON object)
+	// and scan events to determine duration.
+	ReadCastEvents(f, func(rec Record) bool {
 		switch rec.Type {
 		case RecordHeader:
-			info.SessionID = rec.SessionID
 			info.Width = rec.Width
 			info.Height = rec.Height
-			if t, err := time.Parse(time.RFC3339, rec.StartTime); err == nil {
-				info.StartTime = t
+			// StartTime may be a Unix timestamp string from the cast header
+			if rec.StartTime != "" {
+				// Try as unix timestamp first (recorder writes epoch seconds)
+				if ts, err := json.Number(rec.StartTime).Int64(); err == nil && ts > 0 {
+					info.StartTime = time.Unix(ts, 0)
+				}
 			}
-			return true // continue to look for end
-		case RecordEnd:
-			info.InProgress = false
-			if rec.T != nil {
-				info.Duration = *rec.T
-			}
-			return false // done
+			return true // continue to scan events
 		case RecordOutput:
-			// Track duration from last output as fallback for in-progress
 			if rec.T != nil {
 				info.Duration = *rec.T
+				info.InProgress = false // has at least one event
 			}
 			return true
 		default:
@@ -116,9 +127,9 @@ func PruneRecordings(dir string, retentionDays int, maxTotalBytes int64) error {
 	for _, r := range recordings {
 		if !r.StartTime.IsZero() && r.StartTime.Before(cutoff) && !r.InProgress {
 			os.Remove(r.Path)
-			// Also remove cached .cast export
-			castPath := strings.TrimSuffix(r.Path, ".jsonl") + ".cast"
-			os.Remove(castPath)
+			// Also remove compressed .timelapse.cast
+			compressedPath := strings.TrimSuffix(r.Path, ".cast") + ".timelapse.cast"
+			os.Remove(compressedPath)
 		} else {
 			remaining = append(remaining, r)
 		}
@@ -141,8 +152,8 @@ func PruneRecordings(dir string, retentionDays int, maxTotalBytes int64) error {
 			break // don't evict in-progress recordings
 		}
 		os.Remove(oldest.Path)
-		castPath := strings.TrimSuffix(oldest.Path, ".jsonl") + ".cast"
-		os.Remove(castPath)
+		compressedPath := strings.TrimSuffix(oldest.Path, ".cast") + ".timelapse.cast"
+		os.Remove(compressedPath)
 		totalBytes -= oldest.FileSize
 		remaining = remaining[1:]
 	}

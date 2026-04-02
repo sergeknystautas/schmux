@@ -60,6 +60,7 @@ export default function SessionDetailPage() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedLines, setSelectedLines] = useState<string[]>([]);
   const [timelapseExporting, setTimelapseExporting] = useState(false);
+  const [timelapseAvailable, setTimelapseAvailable] = useState(false);
   const terminalRef = useRef<HTMLDivElement | null>(null);
   const terminalStreamRef = useRef<TerminalStream | null>(null);
   const { success, error: toastError } = useToast();
@@ -96,6 +97,14 @@ export default function SessionDetailPage() {
   useEffect(() => {
     ioWorkspaceTelemetryEnabledRef.current = config.io_workspace_telemetry?.enabled ?? false;
   }, [config.io_workspace_telemetry?.enabled]);
+
+  // Check if a timelapse recording exists for this session
+  useEffect(() => {
+    if (!sessionId) return;
+    getTimelapseRecordings().then((recordings) => {
+      setTimelapseAvailable(recordings.some((r) => r.SessionID === sessionId));
+    });
+  }, [sessionId]);
 
   const sessionData = sessionId ? sessionsById[sessionId] : null;
   const sessionMissing = !sessionsLoading && !sessionsError && sessionId && !sessionData;
@@ -837,15 +846,23 @@ export default function SessionDetailPage() {
                             Select lines
                           </button>
                         </Tooltip>
-                        <Tooltip content="Export session as timelapse (.cast)">
-                          <button
-                            className="btn btn--sm"
-                            onClick={handleMakeTimelapse}
-                            disabled={timelapseExporting}
+                        {config.timelapse?.enabled !== false && (
+                          <Tooltip
+                            content={
+                              timelapseAvailable
+                                ? 'Export session as timelapse (.cast)'
+                                : 'No recording available yet'
+                            }
                           >
-                            {timelapseExporting ? 'Exporting...' : 'Make timelapse'}
-                          </button>
-                        </Tooltip>
+                            <button
+                              className="btn btn--sm"
+                              onClick={handleMakeTimelapse}
+                              disabled={!timelapseAvailable || timelapseExporting}
+                            >
+                              {timelapseExporting ? 'Exporting...' : 'Make timelapse'}
+                            </button>
+                          </Tooltip>
+                        )}
                       </>
                     )}
                     <Tooltip content="Download log">

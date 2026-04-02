@@ -28,7 +28,7 @@ func (c *TimelapseCommand) Run(args []string) error {
 		return c.list()
 	case "export":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: schmux timelapse export <recording-id> [-o output.cast]")
+			return fmt.Errorf("usage: schmux timelapse export <recording-id> [-o output.timelapse.cast]")
 		}
 		outputPath := ""
 		for i := 2; i < len(args); i++ {
@@ -87,18 +87,18 @@ func (c *TimelapseCommand) list() error {
 
 func (c *TimelapseCommand) export(recordingID, outputPath string) error {
 	dir := recordingsDir()
-	recordingPath := filepath.Join(dir, recordingID+".jsonl")
+	recordingPath := filepath.Join(dir, recordingID+".cast")
 
 	if _, err := os.Stat(recordingPath); os.IsNotExist(err) {
 		return fmt.Errorf("recording not found: %s", recordingID)
 	}
 
 	if outputPath == "" {
-		outputPath = recordingID + ".cast"
+		outputPath = recordingID + ".timelapse.cast"
 	}
 
 	fmt.Fprintf(os.Stderr, "Note: recordings may contain sensitive terminal output. Review before sharing.\n")
-	fmt.Fprintf(os.Stderr, "Exporting %s -> %s\n", recordingID, outputPath)
+	fmt.Fprintf(os.Stderr, "Compressing %s -> %s\n", recordingID, outputPath)
 
 	exp := timelapse.NewExporter(recordingPath, outputPath, func(pct float64) {
 		fmt.Fprintf(os.Stderr, "\rProgress: %.0f%%", pct*100)
@@ -108,21 +108,21 @@ func (c *TimelapseCommand) export(recordingID, outputPath string) error {
 		return fmt.Errorf("export failed: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "\rExport complete: %s\n", outputPath)
+	fmt.Fprintf(os.Stderr, "\rCompression complete: %s\n", outputPath)
 	return nil
 }
 
 func (c *TimelapseCommand) delete(recordingID string) error {
 	dir := recordingsDir()
-	jsonlPath := filepath.Join(dir, recordingID+".jsonl")
 	castPath := filepath.Join(dir, recordingID+".cast")
+	compressedPath := filepath.Join(dir, recordingID+".timelapse.cast")
 
-	if _, err := os.Stat(jsonlPath); os.IsNotExist(err) {
+	if _, err := os.Stat(castPath); os.IsNotExist(err) {
 		return fmt.Errorf("recording not found: %s", recordingID)
 	}
 
-	os.Remove(jsonlPath)
-	os.Remove(castPath) // may not exist
+	os.Remove(castPath)
+	os.Remove(compressedPath) // may not exist
 	fmt.Printf("Deleted recording: %s\n", recordingID)
 	return nil
 }

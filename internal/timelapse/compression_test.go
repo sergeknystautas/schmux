@@ -11,24 +11,13 @@ func buildTestRecording(outputs []struct {
 	data string
 }) string {
 	var buf bytes.Buffer
-	WriteRecord(&buf, Record{
-		Type:      RecordHeader,
-		Version:   1,
-		Width:     40,
-		Height:    10,
-		StartTime: "2026-03-31T12:00:00Z",
-	})
+	// Write asciicast v2 header
+	fmt.Fprintln(&buf, `{"version":2,"width":40,"height":10,"env":{"TERM":"xterm-256color"}}`)
+	// Write output events
 	for _, o := range outputs {
-		WriteRecord(&buf, Record{
-			Type: RecordOutput,
-			T:    floatPtr(o.t),
-			D:    o.data,
-		})
+		escaped := jsonEscapeBytes([]byte(o.data))
+		fmt.Fprintf(&buf, "[%.6f,\"o\",%s]\n", o.t, escaped)
 	}
-	WriteRecord(&buf, Record{
-		Type: RecordEnd,
-		T:    floatPtr(outputs[len(outputs)-1].t + 0.1),
-	})
 	return buf.String()
 }
 
@@ -178,7 +167,7 @@ func TestClassifyIntervals_MergingAdjacentIntervals(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// After initial content, all subsequent snapshots are identical → merged Filler
+	// After initial content, all subsequent snapshots are identical -> merged Filler
 	if len(intervals) > 2 {
 		// Should be at most Content + Filler (merged)
 		t.Logf("got %d intervals, expected at most 2", len(intervals))

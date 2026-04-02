@@ -5,13 +5,14 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sergeknystautas/schmux/internal/session"
 )
 
-// Recorder writes a continuous NDJSON recording of session output.
-// It tails the OutputLog using WaitForNew and records output, gap,
-// and resize events.
+// Recorder writes a continuous asciicast v2 recording (.cast) of session output.
+// It tails the OutputLog using WaitForNew and writes events directly in the
+// asciicast format so recordings are immediately playable with asciinema.
 type Recorder struct {
 	recordingID  string
 	sessionID    string
@@ -21,7 +22,8 @@ type Recorder struct {
 	startTime    time.Time
 	startWaitSeq uint64 // captured at construction to avoid missing entries
 	lastSeq      uint64
-	seenFirst    bool // true after processing at least one entry
+	seenFirst    bool   // true after processing at least one entry
+	utf8Pending  []byte // buffered incomplete UTF-8 sequence from previous chunk
 	bytesWritten int64
 	maxBytes     int64
 	stopCh       chan struct{}
@@ -43,7 +45,7 @@ func NewRecorder(
 	}
 
 	recordingID := fmt.Sprintf("%s-%d", sessionID, time.Now().Unix())
-	filename := filepath.Join(recordingDir, recordingID+".jsonl")
+	filename := filepath.Join(recordingDir, recordingID+".cast")
 
 	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
@@ -57,7 +59,7 @@ func NewRecorder(
 		gapCh:        gapCh,
 		file:         file,
 		startTime:    time.Now(),
-		startWaitSeq: outputLog.CurrentSeq(),
+		startWaitSeq: 0, // start from beginning to capture events that arrived before Run()
 		maxBytes:     maxBytes,
 		stopCh:       make(chan struct{}),
 		doneCh:       make(chan struct{}),
@@ -73,26 +75,16 @@ func (r *Recorder) Run() {
 	defer close(r.doneCh)
 	defer r.file.Close()
 
-	// Write header
-	header := Record{
-		Type:        RecordHeader,
-		Version:     1,
-		RecordingID: r.recordingID,
-		SessionID:   r.sessionID,
-		StartTime:   r.startTime.Format(time.RFC3339),
-	}
-	if err := r.writeRecord(header); err != nil {
-		return
-	}
+	// Write asciicast v2 header (includes sessionId as custom field for querying)
+	header := fmt.Sprintf(`{"version":2,"width":80,"height":24,"timestamp":%d,"title":"%s","env":{"TERM":"xterm-256color"}}`,
+		r.startTime.Unix(), r.sessionID)
+	r.writeLine(header)
 
-	// waitSeq is captured at construction time (startWaitSeq) so that entries
-	// appended between NewRecorder and Run() are not missed.
 	waitSeq := r.startWaitSeq
 
 	for {
 		// Wait for new output
 		if !r.outputLog.WaitForNew(waitSeq, r.stopCh) {
-			r.writeEndRecord()
 			return
 		}
 
@@ -108,14 +100,6 @@ func (r *Recorder) Run() {
 		if r.seenFirst {
 			oldestSeq := r.outputLog.OldestSeq()
 			if oldestSeq > r.lastSeq+1 {
-				t := r.elapsed()
-				gapRec := Record{
-					Type:     RecordGap,
-					T:        floatPtr(t),
-					Reason:   "buffer_overrun",
-					LostSeqs: [2]uint64{r.lastSeq + 1, oldestSeq - 1},
-				}
-				r.writeRecord(gapRec)
 				replayFrom = oldestSeq
 			}
 		}
@@ -123,26 +107,15 @@ func (r *Recorder) Run() {
 		// Replay available entries
 		entries := r.outputLog.ReplayFrom(replayFrom)
 		if entries == nil {
-			// Data was evicted; skip ahead to oldest available
 			oldest := r.outputLog.OldestSeq()
 			entries = r.outputLog.ReplayFrom(oldest)
 		}
 
 		for _, entry := range entries {
-			t := r.elapsed()
-			rec := Record{
-				Type: RecordOutput,
-				T:    floatPtr(t),
-				Seq:  entry.Seq,
-				D:    string(entry.Data),
-			}
-			if err := r.writeRecord(rec); err != nil {
-				return
-			}
+			r.writeOutputEvent(entry.Data)
 			r.lastSeq = entry.Seq
 			r.seenFirst = true
 		}
-		// Advance wait position to current high-water mark
 		waitSeq = r.outputLog.CurrentSeq()
 
 		// Drain gap/resize events (non-blocking)
@@ -150,7 +123,6 @@ func (r *Recorder) Run() {
 
 		// Check size cap
 		if r.maxBytes > 0 && r.bytesWritten >= r.maxBytes {
-			r.writeEndRecord()
 			return
 		}
 	}
@@ -162,34 +134,51 @@ func (r *Recorder) Stop() {
 	<-r.doneCh
 }
 
-func (r *Recorder) elapsed() float64 {
-	return time.Since(r.startTime).Seconds()
-}
-
-func (r *Recorder) writeRecord(rec Record) error {
-	n, err := r.file.Stat()
-	if err != nil {
-		return err
+// writeOutputEvent writes an asciicast output event, buffering incomplete
+// UTF-8 sequences to avoid splitting multi-byte characters across events.
+func (r *Recorder) writeOutputEvent(data []byte) {
+	// Prepend any pending bytes from the previous chunk
+	if len(r.utf8Pending) > 0 {
+		data = append(r.utf8Pending, data...)
+		r.utf8Pending = nil
 	}
-	_ = n // stat for position tracking not needed; we track bytesWritten
 
-	err = WriteRecord(r.file, rec)
-	if err == nil {
-		// Estimate bytes written (re-serialization is wasteful, use stat delta)
-		after, _ := r.file.Stat()
-		if after != nil {
-			r.bytesWritten = after.Size()
+	// Check for incomplete UTF-8 at the end
+	if len(data) > 0 && !utf8.Valid(data) {
+		// Find the last valid UTF-8 boundary
+		trimmed := trimIncompleteUTF8(data)
+		if len(trimmed) < len(data) {
+			r.utf8Pending = make([]byte, len(data)-len(trimmed))
+			copy(r.utf8Pending, data[len(trimmed):])
+			data = trimmed
 		}
 	}
-	return err
+
+	if len(data) == 0 {
+		return
+	}
+
+	t := r.elapsed()
+	escaped := jsonEscapeBytes(data)
+	line := fmt.Sprintf("[%.6f,\"o\",%s]", t, escaped)
+	r.writeLine(line)
 }
 
-func (r *Recorder) writeEndRecord() {
-	end := Record{
-		Type: RecordEnd,
-		T:    floatPtr(r.elapsed()),
-	}
-	r.writeRecord(end)
+// writeResizeEvent writes an asciicast resize event (custom type "r").
+func (r *Recorder) writeResizeEvent(width, height int) {
+	t := r.elapsed()
+	line := fmt.Sprintf("[%.6f,\"r\",\"%dx%d\"]", t, width, height)
+	r.writeLine(line)
+}
+
+func (r *Recorder) writeLine(line string) {
+	n, _ := fmt.Fprintln(r.file, line)
+	r.bytesWritten += int64(n)
+	r.file.Sync() // ensure data is visible to readers immediately
+}
+
+func (r *Recorder) elapsed() float64 {
+	return time.Since(r.startTime).Seconds()
 }
 
 func (r *Recorder) drainGapCh() {
@@ -199,29 +188,52 @@ func (r *Recorder) drainGapCh() {
 	for {
 		select {
 		case event := <-r.gapCh:
-			t := r.elapsed()
-			switch event.Type {
-			case session.SourceGap:
-				rec := Record{
-					Type:   RecordGap,
-					T:      floatPtr(t),
-					Reason: event.Reason,
-				}
-				if event.Snapshot != "" {
-					rec.Snapshot = &event.Snapshot
-				}
-				r.writeRecord(rec)
-			case session.SourceResize:
-				rec := Record{
-					Type:   RecordResize,
-					T:      floatPtr(t),
-					Width:  event.Width,
-					Height: event.Height,
-				}
-				r.writeRecord(rec)
+			if event.Type == session.SourceResize {
+				r.writeResizeEvent(event.Width, event.Height)
 			}
 		default:
 			return
 		}
 	}
+}
+
+// trimIncompleteUTF8 returns data with any trailing incomplete UTF-8
+// sequence removed. The removed bytes should be prepended to the next chunk.
+func trimIncompleteUTF8(data []byte) []byte {
+	if len(data) == 0 {
+		return data
+	}
+
+	// Walk backwards from the end to find the start of the last rune
+	for i := len(data) - 1; i >= 0 && i >= len(data)-4; i-- {
+		b := data[i]
+
+		if b < 0x80 {
+			// ASCII byte — everything up to and including this is valid
+			return data[:i+1]
+		}
+
+		if b&0xC0 == 0xC0 {
+			// This is a leading byte — check if the sequence is complete
+			var expectedLen int
+			switch {
+			case b&0xE0 == 0xC0:
+				expectedLen = 2
+			case b&0xF0 == 0xE0:
+				expectedLen = 3
+			case b&0xF8 == 0xF0:
+				expectedLen = 4
+			}
+			remaining := len(data) - i
+			if remaining < expectedLen {
+				// Incomplete — trim from this byte
+				return data[:i]
+			}
+			// Complete — all data is valid
+			return data
+		}
+		// Continuation byte (10xxxxxx) — keep looking for the leading byte
+	}
+
+	return data
 }

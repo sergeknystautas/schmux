@@ -25,7 +25,8 @@ export default function TimelapsePage() {
     setExporting((prev) => new Set(prev).add(recordingId));
     try {
       await exportTimelapseRecording(recordingId);
-      fetchRecordings(); // refresh list to show Download button
+      fetchRecordings();
+      window.open(`/api/timelapse/${recordingId}/download?type=timelapse`, '_blank');
     } finally {
       setExporting((prev) => {
         const next = new Set(prev);
@@ -70,7 +71,11 @@ export default function TimelapsePage() {
     <div className="page-content" style={{ padding: 'var(--spacing-lg)' }}>
       <h1>Timelapse Recordings</h1>
       <p style={{ color: 'var(--text-secondary)', marginBottom: 'var(--spacing-md)' }}>
-        Terminal sessions are automatically recorded. Export to .cast for playback with asciinema.
+        Terminal sessions are recorded as .cast files, playable with{' '}
+        <a href="https://asciinema.org/" target="_blank" rel="noopener noreferrer">
+          asciinema
+        </a>
+        . Compress creates a timelapse with idle time removed.
       </p>
 
       {recordings.length === 0 ? (
@@ -84,7 +89,7 @@ export default function TimelapsePage() {
               <th style={{ padding: 'var(--spacing-sm)' }}>Duration</th>
               <th style={{ padding: 'var(--spacing-sm)' }}>Size</th>
               <th style={{ padding: 'var(--spacing-sm)' }}>Status</th>
-              <th style={{ padding: 'var(--spacing-sm)' }}>Actions</th>
+              <th style={{ padding: 'var(--spacing-sm)' }}>Download</th>
             </tr>
           </thead>
           <tbody>
@@ -108,22 +113,17 @@ export default function TimelapsePage() {
                   </span>
                 </td>
                 <td style={{ padding: 'var(--spacing-sm)' }}>
-                  <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
+                  <div style={{ display: 'flex', gap: 'var(--spacing-xs)', flexWrap: 'wrap' }}>
+                    <button className="btn btn--sm" onClick={() => handleDownload(rec.RecordingID)}>
+                      Original
+                    </button>
                     <button
                       className="btn btn--sm"
                       onClick={() => handleExport(rec.RecordingID)}
                       disabled={exporting.has(rec.RecordingID)}
                     >
-                      {exporting.has(rec.RecordingID) ? 'Exporting...' : 'Export'}
+                      {exporting.has(rec.RecordingID) ? 'Creating...' : 'Timelapse'}
                     </button>
-                    {rec.HasExport && (
-                      <button
-                        className="btn btn--sm"
-                        onClick={() => handleDownload(rec.RecordingID)}
-                      >
-                        Download
-                      </button>
-                    )}
                     <button
                       className="btn btn--sm btn--danger"
                       onClick={() => handleDelete(rec.RecordingID)}

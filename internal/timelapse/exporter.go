@@ -1,18 +1,22 @@
 package timelapse
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"os"
 )
 
-const fillerDuration = 0.3 // compressed filler intervals become 300ms
+const (
+	// scrollBeatDuration is the pause inserted before each scroll event
+	// so it's visible during playback.
+	scrollBeatDuration = 0.3
+	// fillerEventDuration is the timestamp advance for non-scroll events,
+	// making them near-instant during playback.
+	fillerEventDuration = 0.001
+)
 
-// Exporter converts a timelapse recording (.jsonl) to an asciicast v2 file (.cast).
-// It uses a two-pass pipeline:
-// Pass 1: Classify intervals (content vs filler) and collect keyframes
-// Pass 2: Write compressed .cast file
+// Exporter converts a full timelapse recording (.cast) to a compressed .cast file.
+// All events are preserved (maintaining correct terminal state) but timestamps
+// are rewritten: scroll moments get a visible pause, everything else is near-instant.
 type Exporter struct {
 	recordingPath string
 	outputPath    string
@@ -28,9 +32,8 @@ func NewExporter(recordingPath, outputPath string, progressFn func(float64)) *Ex
 	}
 }
 
-// Export runs the two-pass export pipeline.
+// Export runs the single-pass time-compression pipeline.
 func (e *Exporter) Export() error {
-	// Read recording header for dimensions
 	header, err := e.readHeader()
 	if err != nil {
 		return fmt.Errorf("read header: %w", err)
@@ -44,69 +47,91 @@ func (e *Exporter) Export() error {
 		height = 24
 	}
 
-	// Pass 1: Classify intervals
+	// Read all events
 	e.reportProgress(0.1)
-	pass1Data, err := os.ReadFile(e.recordingPath)
+	f, err := os.Open(e.recordingPath)
 	if err != nil {
-		return fmt.Errorf("read recording: %w", err)
+		return fmt.Errorf("open recording: %w", err)
 	}
+	defer f.Close()
 
-	emu := NewScreenEmulator(width, height)
-	intervals, err := ClassifyIntervals(bytes.NewReader(pass1Data), emu)
-	if err != nil {
-		return fmt.Errorf("classify intervals: %w", err)
-	}
+	var records []Record
+	ReadCastEvents(f, func(rec Record) bool {
+		records = append(records, rec)
+		return true
+	})
 
-	e.reportProgress(0.4)
+	e.reportProgress(0.3)
 
-	// Pass 2: Write .cast file with compressed timestamps
-	emu.Reset()
+	// Create output
 	outFile, err := os.OpenFile(e.outputPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
-		return fmt.Errorf("create output file: %w", err)
+		return fmt.Errorf("create output: %w", err)
 	}
 	defer outFile.Close()
 
-	// Calculate durations for header
-	var originalDuration float64
-	var compressedDuration float64
-	if len(intervals) > 0 {
-		originalDuration = intervals[len(intervals)-1].End
-		for _, iv := range intervals {
-			if iv.Type == Content {
-				compressedDuration += iv.End - iv.Start
-			} else {
-				compressedDuration += fillerDuration
-			}
-		}
-	}
-
-	castHeader := CastHeader{
-		Width:            width,
-		Height:           height,
-		Duration:         compressedDuration,
-		Title:            header.RecordingID,
-		OriginalDuration: originalDuration,
-		CompressionRatio: func() float64 {
-			if originalDuration > 0 {
-				return compressedDuration / originalDuration
-			}
-			return 1
-		}(),
-		RecordingID: header.RecordingID,
-	}
-
-	cw, err := NewCastWriter(outFile, castHeader)
+	cw, err := NewCastWriter(outFile, CastHeader{
+		Width:  width,
+		Height: height,
+		Title:  header.RecordingID,
+	})
 	if err != nil {
 		return fmt.Errorf("create cast writer: %w", err)
 	}
 
-	e.reportProgress(0.5)
+	// Single-pass: feed each event to the emulator, check for scroll,
+	// emit all events with compressed timestamps
+	emu := NewScreenEmulator(width, height)
+	prevGrid := emu.CellGrid(width, height)
+	var compressedT float64
+	totalEvents := 0
 
-	// Replay recording and write events with compressed timestamps
-	err = e.writeCompressedEvents(bytes.NewReader(pass1Data), cw, emu, intervals)
-	if err != nil {
-		return fmt.Errorf("write events: %w", err)
+	for _, rec := range records {
+		if rec.Type != RecordOutput {
+			continue
+		}
+		totalEvents++
+	}
+
+	eventIdx := 0
+	for _, rec := range records {
+		if rec.Type == RecordResize {
+			if rec.Width > 0 && rec.Height > 0 {
+				emu.Resize(rec.Width, rec.Height)
+				width, height = rec.Width, rec.Height
+				prevGrid = emu.CellGrid(width, height)
+				// Emit resize event
+				cw.WriteEvent(compressedT, fmt.Sprintf("\033[8;%d;%dt", rec.Height, rec.Width))
+			}
+			continue
+		}
+
+		if rec.Type != RecordOutput {
+			continue
+		}
+		eventIdx++
+
+		// Feed to emulator
+		emu.Write([]byte(rec.D))
+
+		// Snapshot and check for scroll
+		currGrid := emu.CellGrid(width, height)
+		scrolled := detectScrollGrid(prevGrid, currGrid, width, height)
+
+		if scrolled {
+			compressedT += scrollBeatDuration
+		} else {
+			compressedT += fillerEventDuration
+		}
+
+		// Emit ALL events with compressed timestamp
+		cw.WriteEvent(compressedT, rec.D)
+		prevGrid = currGrid
+
+		// Report progress
+		if totalEvents > 0 && eventIdx%100 == 0 {
+			e.reportProgress(0.3 + 0.7*float64(eventIdx)/float64(totalEvents))
+		}
 	}
 
 	e.reportProgress(1.0)
@@ -121,7 +146,7 @@ func (e *Exporter) readHeader() (Record, error) {
 	defer f.Close()
 
 	var header Record
-	ReadRecords(f, func(rec Record) bool {
+	ReadCastEvents(f, func(rec Record) bool {
 		if rec.Type == RecordHeader {
 			header = rec
 			return false
@@ -131,96 +156,55 @@ func (e *Exporter) readHeader() (Record, error) {
 	return header, nil
 }
 
-func (e *Exporter) writeCompressedEvents(recording io.Reader, cw *CastWriter, emu *ScreenEmulator, intervals []Interval) error {
-	var records []Record
-	ReadRecords(recording, func(rec Record) bool {
-		records = append(records, rec)
-		return true
-	})
-
-	totalRecords := len(records)
-	var compressedT float64
-	var lastInterval *Interval // track filler→content transitions
-
-	for i, rec := range records {
-		if rec.Type != RecordOutput || rec.T == nil {
-			continue
-		}
-
-		origT := *rec.T
-
-		// Always feed to emulator so its state stays current
-		emu.Write([]byte(rec.D))
-
-		// If no intervals were classified, pass through all events
-		if len(intervals) == 0 {
-			cw.WriteEvent(compressedT, rec.D)
-			compressedT += 0.001
-			continue
-		}
-
-		iv := findInterval(intervals, origT)
-		if iv == nil {
-			// Events outside classified intervals are treated as filler
-			continue
-		}
-
-		switch iv.Type {
-		case Content:
-			// At each content interval boundary, emit a single keyframe
-			// showing the full screen state. This is cleaner than replaying
-			// individual events (which include spinner noise within the
-			// same 500ms window as the scroll).
-			if lastInterval == nil || lastInterval != iv {
-				baseT := compressedTimeBase(intervals, iv)
-				compressedT = baseT
-				keyframe := emu.RenderKeyframe()
-				cw.WriteEvent(compressedT, keyframe)
-			}
-
-		case Filler:
-			// Skip — emulator still processes it for state tracking
-		}
-
-		lastInterval = iv
-
-		if totalRecords > 0 && i%100 == 0 {
-			pct := 0.5 + 0.5*float64(i)/float64(totalRecords)
-			e.reportProgress(pct)
-		}
-	}
-
-	return nil
-}
-
-// compressedTimeBase returns the compressed start time for an interval.
-func compressedTimeBase(intervals []Interval, target *Interval) float64 {
-	var t float64
-	for i := range intervals {
-		if &intervals[i] == target {
-			return t
-		}
-		if intervals[i].Type == Content {
-			t += intervals[i].End - intervals[i].Start
-		} else {
-			t += fillerDuration
-		}
-	}
-	return t
-}
-
-// findInterval returns the interval containing time t, or nil.
-func findInterval(intervals []Interval, t float64) *Interval {
-	for i := range intervals {
-		if t >= intervals[i].Start && t <= intervals[i].End {
-			return &intervals[i]
-		}
-	}
-	return nil
-}
-
 func (e *Exporter) reportProgress(pct float64) {
 	if e.progressFn != nil {
 		e.progressFn(pct)
 	}
+}
+
+// detectScrollGrid checks if currGrid is a scrolled version of prevGrid.
+func detectScrollGrid(prev, curr [][]rune, width, height int) bool {
+	rows := height
+	if len(prev) < rows {
+		rows = len(prev)
+	}
+	if len(curr) < rows {
+		rows = len(curr)
+	}
+	if rows < 3 {
+		return false
+	}
+
+	for k := 1; k <= 5 && k < rows; k++ {
+		matches := 0
+		compared := 0
+		for y := 0; y+k < rows; y++ {
+			if rowBlank(prev[y+k]) {
+				continue
+			}
+			if rowsEqualSlice(curr[y], prev[y]) {
+				continue
+			}
+			compared++
+			if rowsEqualSlice(curr[y], prev[y+k]) {
+				matches++
+			}
+		}
+		if compared >= 3 && float64(matches)/float64(compared) >= 0.4 {
+			return true
+		}
+	}
+	return false
+}
+
+func rowsEqualSlice(a, b []rune) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

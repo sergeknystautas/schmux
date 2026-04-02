@@ -1324,7 +1324,7 @@ export interface TimelapseRecording {
   Width: number;
   Height: number;
   InProgress: boolean;
-  HasExport: boolean;
+  HasCompressed: boolean;
   Path: string;
 }
 

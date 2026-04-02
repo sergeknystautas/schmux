@@ -1,6 +1,7 @@
 package timelapse
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,30 +10,23 @@ import (
 
 func createTestRecording(t *testing.T, dir, id, sessionID string, startTime time.Time, duration float64) string {
 	t.Helper()
-	path := filepath.Join(dir, id+".jsonl")
+	path := filepath.Join(dir, id+".cast")
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		t.Fatal(err)
 	}
-	WriteRecord(f, Record{
-		Type:        RecordHeader,
-		Version:     1,
-		RecordingID: id,
-		SessionID:   sessionID,
-		StartTime:   startTime.Format(time.RFC3339),
-		Width:       80,
-		Height:      24,
-	})
-	WriteRecord(f, Record{
-		Type: RecordOutput,
-		T:    floatPtr(0),
-		Seq:  0,
-		D:    "test output",
-	})
-	WriteRecord(f, Record{
-		Type: RecordEnd,
-		T:    floatPtr(duration),
-	})
+
+	// Write asciicast v2 header
+	header := fmt.Sprintf(`{"version":2,"width":80,"height":24,"timestamp":%d,"env":{"TERM":"xterm-256color"}}`,
+		startTime.Unix())
+	fmt.Fprintln(f, header)
+
+	// Write an output event
+	fmt.Fprintf(f, "[%.6f,\"o\",\"test output\"]\n", 0.0)
+
+	// Write a final output event at the given duration
+	fmt.Fprintf(f, "[%.6f,\"o\",\"final\"]\n", duration)
+
 	f.Close()
 	return path
 }
@@ -58,14 +52,55 @@ func TestListRecordings(t *testing.T) {
 	if recordings[1].RecordingID != "s1-1001" {
 		t.Errorf("second recording = %q, want s1-1001", recordings[1].RecordingID)
 	}
-	if recordings[0].SessionID != "s2" {
-		t.Errorf("sessionID = %q, want s2", recordings[0].SessionID)
-	}
 	if recordings[0].InProgress {
-		t.Error("recording should be complete (has end record)")
+		t.Error("recording should not be in-progress (has output events)")
 	}
 	if recordings[0].Duration != 60.0 {
 		t.Errorf("duration = %f, want 60.0", recordings[0].Duration)
+	}
+}
+
+func TestListRecordings_SkipsCompressedFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	now := time.Now()
+	createTestRecording(t, dir, "s1-1001", "s1", now.Add(-1*time.Hour), 60.0)
+
+	// Create a compressed file that should be skipped
+	compressedPath := filepath.Join(dir, "s1-1001.timelapse.cast")
+	os.WriteFile(compressedPath, []byte(`{"version":2,"width":80,"height":24}`+"\n"), 0600)
+
+	recordings, err := ListRecordings(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recordings) != 1 {
+		t.Fatalf("expected 1 recording (compressed should be skipped), got %d", len(recordings))
+	}
+	if recordings[0].RecordingID != "s1-1001" {
+		t.Errorf("recording = %q, want s1-1001", recordings[0].RecordingID)
+	}
+}
+
+func TestListRecordings_HasCompressed(t *testing.T) {
+	dir := t.TempDir()
+
+	now := time.Now()
+	createTestRecording(t, dir, "s1-1001", "s1", now.Add(-1*time.Hour), 60.0)
+
+	// Initially, no compressed file
+	recordings, _ := ListRecordings(dir)
+	if recordings[0].HasCompressed {
+		t.Error("should not have compressed file yet")
+	}
+
+	// Create compressed file
+	compressedPath := filepath.Join(dir, "s1-1001.timelapse.cast")
+	os.WriteFile(compressedPath, []byte(`{"version":2,"width":80,"height":24}`+"\n"), 0600)
+
+	recordings, _ = ListRecordings(dir)
+	if !recordings[0].HasCompressed {
+		t.Error("should have compressed file")
 	}
 }
 
@@ -95,7 +130,7 @@ func TestPruneRecordings_SizeBased(t *testing.T) {
 	dir := t.TempDir()
 
 	now := time.Now()
-	// Create 3 recordings (each ~100 bytes)
+	// Create 3 recordings
 	createTestRecording(t, dir, "r1-1", "s1", now.Add(-3*time.Hour), 10.0)
 	createTestRecording(t, dir, "r2-2", "s2", now.Add(-2*time.Hour), 10.0)
 	createTestRecording(t, dir, "r3-3", "s3", now.Add(-1*time.Hour), 10.0)

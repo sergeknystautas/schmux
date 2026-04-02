@@ -45,21 +45,53 @@ func NewCastWriter(w io.Writer, header CastHeader) (*CastWriter, error) {
 }
 
 // WriteEvent writes an output event at the given timestamp.
+// Data is raw terminal bytes — we JSON-escape manually to avoid
+// json.Marshal replacing invalid UTF-8 with \uFFFD.
 func (c *CastWriter) WriteEvent(timestamp float64, data string) error {
 	// asciicast v2 event: [timestamp, "o", data]
-	event := [3]interface{}{timestamp, "o", data}
-	line, err := json.Marshal(event)
-	if err != nil {
-		return err
-	}
-	line = append(line, '\n')
-	_, err = c.w.Write(line)
+	// Manually build JSON to preserve raw bytes in the data string
+	escapedData := jsonEscapeBytes([]byte(data))
+	line := fmt.Sprintf("[%.6f,\"o\",%s]\n", timestamp, escapedData)
+	_, err := c.w.Write([]byte(line))
 	return err
 }
 
 // WriteKeyframe writes a keyframe (clear + full redraw) at the given timestamp.
 func (c *CastWriter) WriteKeyframe(timestamp float64, keyframe string) error {
 	return c.WriteEvent(timestamp, keyframe)
+}
+
+// jsonEscapeBytes produces a JSON string literal from raw bytes,
+// escaping control characters and quotes but preserving all bytes.
+func jsonEscapeBytes(b []byte) string {
+	var buf []byte
+	buf = append(buf, '"')
+	for _, c := range b {
+		switch c {
+		case '"':
+			buf = append(buf, '\\', '"')
+		case '\\':
+			buf = append(buf, '\\', '\\')
+		case '\n':
+			buf = append(buf, '\\', 'n')
+		case '\r':
+			buf = append(buf, '\\', 'r')
+		case '\t':
+			buf = append(buf, '\\', 't')
+		case '\b':
+			buf = append(buf, '\\', 'b')
+		case '\f':
+			buf = append(buf, '\\', 'f')
+		default:
+			if c < 0x20 {
+				buf = append(buf, fmt.Sprintf("\\u%04x", c)...)
+			} else {
+				buf = append(buf, c)
+			}
+		}
+	}
+	buf = append(buf, '"')
+	return string(buf)
 }
 
 // Offset returns the current time offset in the compressed timeline.

@@ -1,150 +1,123 @@
 package timelapse
 
 import (
-	"bytes"
-	"encoding/json"
 	"strings"
 	"testing"
 )
 
-func TestRecordSerialization_Header(t *testing.T) {
-	rec := Record{
-		Type:        RecordHeader,
-		Version:     1,
-		RecordingID: "abc123",
-		SessionID:   "s1",
-		Width:       80,
-		Height:      24,
-		StartTime:   "2026-03-31T12:00:00Z",
-	}
-	var buf bytes.Buffer
-	if err := WriteRecord(&buf, rec); err != nil {
-		t.Fatal(err)
-	}
-
-	// Verify NDJSON (ends with newline)
-	line := buf.String()
-	if !strings.HasSuffix(line, "\n") {
-		t.Error("record should end with newline")
-	}
-
-	// Roundtrip
-	var got Record
-	if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Type != RecordHeader || got.Version != 1 || got.RecordingID != "abc123" {
-		t.Errorf("header roundtrip failed: %+v", got)
-	}
-	// T should be nil for header
-	if got.T != nil {
-		t.Errorf("header T should be nil, got %v", *got.T)
-	}
-}
-
-func TestRecordSerialization_OutputAtT0(t *testing.T) {
-	// Critical test: t=0.0 must NOT be omitted by omitempty
-	rec := Record{
-		Type: RecordOutput,
-		T:    floatPtr(0.0),
-		Seq:  0,
-		D:    "hello",
-	}
-	data, err := json.Marshal(rec)
+func TestReadCastEvents_HeaderAndOutputs(t *testing.T) {
+	input := `{"version":2,"width":80,"height":24,"timestamp":1743393600,"env":{"TERM":"xterm-256color"}}
+[0.000000,"o","hello"]
+[0.500000,"o","world"]
+`
+	var records []Record
+	err := ReadCastEvents(strings.NewReader(input), func(rec Record) bool {
+		records = append(records, rec)
+		return true
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	// Verify "t":0 is present in the JSON
-	if !strings.Contains(string(data), `"t":0`) {
-		t.Errorf("t=0.0 was omitted from JSON: %s", data)
+	if len(records) != 3 {
+		t.Fatalf("expected 3 records, got %d", len(records))
 	}
-
-	// Roundtrip
-	var got Record
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatal(err)
+	if records[0].Type != RecordHeader {
+		t.Errorf("record 0 type = %q, want header", records[0].Type)
 	}
-	if got.T == nil {
-		t.Fatal("T should not be nil after roundtrip")
+	if records[0].Width != 80 || records[0].Height != 24 {
+		t.Errorf("header dims = %dx%d, want 80x24", records[0].Width, records[0].Height)
 	}
-	if *got.T != 0.0 {
-		t.Errorf("T = %f, want 0.0", *got.T)
+	if records[0].Version != 2 {
+		t.Errorf("header version = %d, want 2", records[0].Version)
 	}
-}
-
-func TestRecordSerialization_Gap(t *testing.T) {
-	snapshot := "$ cursor here"
-	rec := Record{
-		Type:     RecordGap,
-		T:        floatPtr(5.2),
-		Reason:   "buffer_overrun",
-		LostSeqs: [2]uint64{10, 20},
-		Snapshot: &snapshot,
+	if records[1].Type != RecordOutput {
+		t.Errorf("record 1 type = %q, want output", records[1].Type)
 	}
-	var buf bytes.Buffer
-	if err := WriteRecord(&buf, rec); err != nil {
-		t.Fatal(err)
+	if records[1].D != "hello" {
+		t.Errorf("record 1 data = %q, want hello", records[1].D)
 	}
-
-	var got Record
-	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
-		t.Fatal(err)
+	if records[1].T == nil || *records[1].T != 0.0 {
+		t.Errorf("record 1 T = %v, want 0.0", records[1].T)
 	}
-	if got.Reason != "buffer_overrun" {
-		t.Errorf("Reason = %q, want buffer_overrun", got.Reason)
+	if records[2].D != "world" {
+		t.Errorf("record 2 data = %q, want world", records[2].D)
 	}
-	if got.LostSeqs != [2]uint64{10, 20} {
-		t.Errorf("LostSeqs = %v, want [10 20]", got.LostSeqs)
-	}
-	if got.Snapshot == nil || *got.Snapshot != "$ cursor here" {
-		t.Errorf("Snapshot = %v, want '$ cursor here'", got.Snapshot)
+	if records[2].T == nil || *records[2].T != 0.5 {
+		t.Errorf("record 2 T = %v, want 0.5", records[2].T)
 	}
 }
 
-func TestRecordSerialization_Resize(t *testing.T) {
-	rec := Record{
-		Type:   RecordResize,
-		T:      floatPtr(1.5),
-		Width:  120,
-		Height: 40,
-	}
-	data, err := json.Marshal(rec)
+func TestReadCastEvents_ResizeEvent(t *testing.T) {
+	input := `{"version":2,"width":80,"height":24}
+[1.500000,"r","120x40"]
+`
+	var records []Record
+	err := ReadCastEvents(strings.NewReader(input), func(rec Record) bool {
+		records = append(records, rec)
+		return true
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var got Record
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatal(err)
+	if len(records) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(records))
 	}
-	if got.Width != 120 || got.Height != 40 {
-		t.Errorf("resize = %dx%d, want 120x40", got.Width, got.Height)
+	if records[1].Type != RecordResize {
+		t.Errorf("record 1 type = %q, want resize", records[1].Type)
+	}
+	if records[1].Width != 120 || records[1].Height != 40 {
+		t.Errorf("resize = %dx%d, want 120x40", records[1].Width, records[1].Height)
+	}
+	if records[1].T == nil || *records[1].T != 1.5 {
+		t.Errorf("record 1 T = %v, want 1.5", records[1].T)
 	}
 }
 
-func TestRecordSerialization_End(t *testing.T) {
-	rec := Record{
-		Type: RecordEnd,
-		T:    floatPtr(300.5),
-	}
-	data, err := json.Marshal(rec)
+func TestReadCastEvents_StopEarly(t *testing.T) {
+	input := `{"version":2,"width":80,"height":24}
+[0.000000,"o","a"]
+[1.000000,"o","b"]
+[2.000000,"o","c"]
+`
+	var count int
+	err := ReadCastEvents(strings.NewReader(input), func(rec Record) bool {
+		count++
+		return count < 2 // stop after header + first output
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var got Record
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Type != RecordEnd || got.T == nil || *got.T != 300.5 {
-		t.Errorf("end roundtrip: %+v", got)
+	if count != 2 {
+		t.Errorf("count = %d, want 2", count)
 	}
 }
 
-func TestReadRecords(t *testing.T) {
-	input := `{"type":"header","version":1,"recordingId":"r1","sessionId":"s1","width":80,"height":24,"startTime":"2026-03-31T12:00:00Z"}
-{"type":"output","t":0,"seq":0,"d":"hello"}
-{"type":"output","t":0.5,"seq":1,"d":"world"}
-{"type":"end","t":1.0}
+func TestReadCastEvents_EscapedData(t *testing.T) {
+	// Data with special characters that are JSON-escaped
+	input := `{"version":2,"width":80,"height":24}
+[0.000000,"o","hello\nworld\ttab"]
+`
+	var records []Record
+	err := ReadCastEvents(strings.NewReader(input), func(rec Record) bool {
+		records = append(records, rec)
+		return true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(records))
+	}
+	// JSON unmarshal should decode the escapes
+	if records[1].D != "hello\nworld\ttab" {
+		t.Errorf("data = %q, want %q", records[1].D, "hello\nworld\ttab")
+	}
+}
+
+func TestReadRecords_BackwardCompat(t *testing.T) {
+	// ReadRecords should work as an alias for ReadCastEvents
+	input := `{"version":2,"width":80,"height":24}
+[0.000000,"o","hello"]
 `
 	var records []Record
 	err := ReadRecords(strings.NewReader(input), func(rec Record) bool {
@@ -154,34 +127,22 @@ func TestReadRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 4 {
-		t.Fatalf("expected 4 records, got %d", len(records))
-	}
-	if records[0].Type != RecordHeader {
-		t.Errorf("record 0 type = %q, want header", records[0].Type)
+	if len(records) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(records))
 	}
 	if records[1].D != "hello" {
-		t.Errorf("record 1 data = %q, want hello", records[1].D)
-	}
-	if records[3].Type != RecordEnd {
-		t.Errorf("record 3 type = %q, want end", records[3].Type)
+		t.Errorf("data = %q, want hello", records[1].D)
 	}
 }
 
-func TestReadRecords_StopEarly(t *testing.T) {
-	input := `{"type":"output","t":0,"seq":0,"d":"a"}
-{"type":"output","t":1,"seq":1,"d":"b"}
-{"type":"output","t":2,"seq":2,"d":"c"}
-`
-	var count int
-	err := ReadRecords(strings.NewReader(input), func(rec Record) bool {
-		count++
-		return count < 2 // stop after first
-	})
-	if err != nil {
-		t.Fatal(err)
+func TestRecordStruct_DIsString(t *testing.T) {
+	// Verify that Record.D is a string type (can hold arbitrary bytes as Go string)
+	rec := Record{
+		Type: RecordOutput,
+		T:    floatPtr(0.0),
+		D:    "hello\x00world", // arbitrary bytes in Go string
 	}
-	if count != 2 {
-		t.Errorf("count = %d, want 2", count)
+	if rec.D != "hello\x00world" {
+		t.Errorf("D = %q, want hello\\x00world", rec.D)
 	}
 }

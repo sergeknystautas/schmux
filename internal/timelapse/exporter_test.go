@@ -1,7 +1,6 @@
 package timelapse
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,51 +11,35 @@ import (
 
 func createSyntheticRecording(t *testing.T, dir string) string {
 	t.Helper()
-	path := filepath.Join(dir, "test-recording.jsonl")
+	path := filepath.Join(dir, "test-recording.cast")
 	f, err := os.Create(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Header
-	WriteRecord(f, Record{
-		Type:        RecordHeader,
-		Version:     1,
-		RecordingID: "test-export",
-		SessionID:   "s1",
-		Width:       40,
-		Height:      10,
-		StartTime:   "2026-03-31T12:00:00Z",
-	})
+	// Asciicast v2 header
+	fmt.Fprintln(f, `{"version":2,"width":40,"height":10,"timestamp":1711875300,"env":{"TERM":"xterm-256color"}}`)
 
-	// Burst of output with distinct lines (triggers scroll detection)
+	// Burst of scrolling output with distinct lines
 	for i := 0; i < 15; i++ {
-		WriteRecord(f, Record{
-			Type: RecordOutput,
-			T:    floatPtr(float64(i) * 0.1),
-			Seq:  uint64(i),
-			D:    fmt.Sprintf("output line %03d with unique content here\r\n", i),
-		})
+		data := fmt.Sprintf("output line %03d with unique content here\r\n", i)
+		escaped := jsonEscapeBytes([]byte(data))
+		fmt.Fprintf(f, "[%.6f,\"o\",%s]\n", float64(i)*0.1, escaped)
 	}
 
-	// Idle gap (3 seconds with no output)
-	// ... nothing happens from t=1.5 to t=4.0
-
-	// More distinct output after idle
-	for i := 0; i < 15; i++ {
-		WriteRecord(f, Record{
-			Type: RecordOutput,
-			T:    floatPtr(4.0 + float64(i)*0.1),
-			Seq:  uint64(15 + i),
-			D:    fmt.Sprintf("after idle line %03d unique text here\r\n", i),
-		})
+	// Idle gap — spinner-like single-char updates (no scroll)
+	for i := 0; i < 20; i++ {
+		data := fmt.Sprintf("\033[5;1H%c", "abcdef"[i%6])
+		escaped := jsonEscapeBytes([]byte(data))
+		fmt.Fprintf(f, "[%.6f,\"o\",%s]\n", 1.5+float64(i)*0.15, escaped)
 	}
 
-	// End
-	WriteRecord(f, Record{
-		Type: RecordEnd,
-		T:    floatPtr(4.5),
-	})
+	// More scrolling output after idle
+	for i := 0; i < 15; i++ {
+		data := fmt.Sprintf("after idle line %03d unique text here\r\n", i)
+		escaped := jsonEscapeBytes([]byte(data))
+		fmt.Fprintf(f, "[%.6f,\"o\",%s]\n", 4.5+float64(i)*0.1, escaped)
+	}
 
 	f.Close()
 	return path
@@ -65,19 +48,17 @@ func createSyntheticRecording(t *testing.T, dir string) string {
 func TestExporter_BasicExport(t *testing.T) {
 	dir := t.TempDir()
 	recordingPath := createSyntheticRecording(t, dir)
-	outputPath := filepath.Join(dir, "output.cast")
+	outputPath := filepath.Join(dir, "output.timelapse.cast")
 
 	var lastProgress float64
 	exp := NewExporter(recordingPath, outputPath, func(pct float64) {
 		lastProgress = pct
 	})
 
-	err := exp.Export()
-	if err != nil {
+	if err := exp.Export(); err != nil {
 		t.Fatal(err)
 	}
 
-	// Verify output file exists
 	info, err := os.Stat(outputPath)
 	if err != nil {
 		t.Fatal(err)
@@ -86,97 +67,106 @@ func TestExporter_BasicExport(t *testing.T) {
 		t.Error("output file is empty")
 	}
 
-	// Verify it's valid asciicast v2 (NDJSON with header)
+	// Valid asciicast v2
 	data, _ := os.ReadFile(outputPath)
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 	if len(lines) < 2 {
-		t.Fatalf("expected at least 2 lines (header + events), got %d", len(lines))
+		t.Fatalf("expected at least 2 lines, got %d", len(lines))
 	}
 
-	// Verify header
 	var header map[string]interface{}
 	if err := json.Unmarshal([]byte(lines[0]), &header); err != nil {
-		t.Fatalf("invalid header JSON: %v", err)
+		t.Fatalf("invalid header: %v", err)
 	}
 	if header["version"].(float64) != 2 {
-		t.Errorf("header version = %v, want 2", header["version"])
-	}
-	if header["width"].(float64) != 40 {
-		t.Errorf("header width = %v, want 40", header["width"])
+		t.Errorf("version = %v, want 2", header["version"])
 	}
 
-	// Verify events are valid
-	for i, line := range lines[1:] {
-		var event [3]interface{}
-		if err := json.Unmarshal([]byte(line), &event); err != nil {
-			t.Errorf("invalid event JSON at line %d: %v", i+1, err)
-		}
-	}
-
-	// Verify progress was reported
 	if lastProgress < 0.9 {
-		t.Errorf("lastProgress = %f, expected near 1.0", lastProgress)
+		t.Errorf("lastProgress = %f, want near 1.0", lastProgress)
 	}
-
-	// Verify file permissions
 	if info.Mode().Perm() != 0600 {
-		t.Errorf("file permissions = %o, want 0600", info.Mode().Perm())
+		t.Errorf("permissions = %o, want 0600", info.Mode().Perm())
 	}
 }
 
-func TestExporter_CompressedDuration(t *testing.T) {
+func TestExporter_AllEventsPreserved(t *testing.T) {
 	dir := t.TempDir()
 	recordingPath := createSyntheticRecording(t, dir)
-	outputPath := filepath.Join(dir, "output.cast")
-
-	exp := NewExporter(recordingPath, outputPath, nil)
-	err := exp.Export()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Read the .cast header to check duration
-	data, _ := os.ReadFile(outputPath)
-	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-
-	var header struct {
-		Duration float64 `json:"duration"`
-	}
-	json.Unmarshal([]byte(lines[0]), &header)
-
-	// The compressed duration should be shorter than the original (4.5s)
-	// because the idle gap (1.0s to 4.0s) is compressed to 300ms
-	if header.Duration >= 4.5 {
-		t.Errorf("compressed duration = %f, should be less than original (4.5)", header.Duration)
-	}
-	t.Logf("compressed duration: %.2fs (original: 4.5s)", header.Duration)
-}
-
-func TestExporter_PreservesContent(t *testing.T) {
-	dir := t.TempDir()
-	recordingPath := createSyntheticRecording(t, dir)
-	outputPath := filepath.Join(dir, "output.cast")
+	outputPath := filepath.Join(dir, "output.timelapse.cast")
 
 	exp := NewExporter(recordingPath, outputPath, nil)
 	if err := exp.Export(); err != nil {
 		t.Fatal(err)
 	}
 
-	// Read all event data from the .cast file
-	data, _ := os.ReadFile(outputPath)
-	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-
-	var allData bytes.Buffer
-	for _, line := range lines[1:] {
-		var event [3]interface{}
-		if err := json.Unmarshal([]byte(line), &event); err != nil {
-			continue
-		}
-		allData.WriteString(event[2].(string))
+	countEvents := func(path string) int {
+		n := 0
+		f, _ := os.Open(path)
+		defer f.Close()
+		ReadCastEvents(f, func(rec Record) bool {
+			if rec.Type == RecordOutput {
+				n++
+			}
+			return true
+		})
+		return n
 	}
 
-	content := allData.String()
-	if !strings.Contains(content, "output line") {
-		t.Error("exported content should contain 'output line'")
+	orig := countEvents(recordingPath)
+	comp := countEvents(outputPath)
+	if comp != orig {
+		t.Errorf("compressed has %d events, original has %d — all should be preserved", comp, orig)
+	}
+}
+
+func TestExporter_CompressedDuration(t *testing.T) {
+	dir := t.TempDir()
+	recordingPath := createSyntheticRecording(t, dir)
+	outputPath := filepath.Join(dir, "output.timelapse.cast")
+
+	if err := NewExporter(recordingPath, outputPath, nil).Export(); err != nil {
+		t.Fatal(err)
+	}
+
+	data, _ := os.ReadFile(outputPath)
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	lastLine := lines[len(lines)-1]
+	var ev [3]json.RawMessage
+	json.Unmarshal([]byte(lastLine), &ev)
+	var compDuration float64
+	json.Unmarshal(ev[0], &compDuration)
+
+	// Original spans ~6s, compressed should be shorter
+	if compDuration >= 6.0 {
+		t.Errorf("compressed duration = %.1fs, should be < 6.0s", compDuration)
+	}
+	t.Logf("compressed: %.2fs (original: ~6.0s)", compDuration)
+}
+
+func TestExporter_PreservesContent(t *testing.T) {
+	dir := t.TempDir()
+	recordingPath := createSyntheticRecording(t, dir)
+	outputPath := filepath.Join(dir, "output.timelapse.cast")
+
+	if err := NewExporter(recordingPath, outputPath, nil).Export(); err != nil {
+		t.Fatal(err)
+	}
+
+	f, _ := os.Open(outputPath)
+	defer f.Close()
+	var all strings.Builder
+	ReadCastEvents(f, func(rec Record) bool {
+		if rec.Type == RecordOutput {
+			all.WriteString(rec.D)
+		}
+		return true
+	})
+
+	if !strings.Contains(all.String(), "output line") {
+		t.Error("should contain 'output line'")
+	}
+	if !strings.Contains(all.String(), "after idle") {
+		t.Error("should contain 'after idle'")
 	}
 }
