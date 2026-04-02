@@ -153,7 +153,6 @@ func (s *Server) handleRemoteFlavorUpdate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Get existing flavor first (Flavor field is immutable)
 	existing, found := s.config.GetRemoteFlavor(id)
 	if !found {
 		http.Error(w, "Flavor not found", http.StatusNotFound)
@@ -162,6 +161,7 @@ func (s *Server) handleRemoteFlavorUpdate(w http.ResponseWriter, r *http.Request
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req struct {
+		Flavor                string `json:"flavor"`
 		DisplayName           string `json:"display_name"`
 		VCS                   string `json:"vcs"`
 		WorkspacePath         string `json:"workspace_path"`
@@ -176,9 +176,15 @@ func (s *Server) handleRemoteFlavorUpdate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// If flavor not provided in update, keep the existing value
+	flavor := req.Flavor
+	if flavor == "" {
+		flavor = existing.Flavor
+	}
+
 	rf := config.RemoteFlavor{
 		ID:                    id,
-		Flavor:                existing.Flavor, // Keep existing (immutable)
+		Flavor:                flavor,
 		DisplayName:           req.DisplayName,
 		VCS:                   req.VCS,
 		WorkspacePath:         req.WorkspacePath,

@@ -3228,12 +3228,13 @@ Errors:
 
 ### PUT /api/config/remote-flavors/{id}
 
-Updates an existing remote flavor. The `flavor` field is immutable.
+Updates an existing remote flavor. All fields except `id` are mutable. If `flavor` is omitted or empty, the existing value is preserved.
 
 Request:
 
 ```json
 {
+  "flavor": "new-flavor-name",
   "display_name": "Updated Name",
   "vcs": "git",
   "workspace_path": "/home/user/workspaces",
