@@ -503,7 +503,7 @@ export default function SessionDetailPage() {
       // Export is synchronous — blocks until .cast file is ready
       await exportTimelapseRecording(recording.RecordingID);
       setTimelapseExporting(false);
-      window.open(`/api/timelapse/${recording.RecordingID}/download`, '_blank');
+      window.open(`/api/timelapse/${recording.RecordingID}/download?type=timelapse`, '_blank');
       success('Timelapse exported — downloading .cast file');
     } catch {
       toastError('Failed to export timelapse');
