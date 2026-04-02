@@ -14,6 +14,7 @@ type RecordingInfo struct {
 	RecordingID   string
 	SessionID     string
 	StartTime     time.Time
+	ModTime       time.Time
 	Duration      float64
 	FileSize      int64
 	Width         int
@@ -44,9 +45,9 @@ func ListRecordings(dir string) ([]RecordingInfo, error) {
 		result = append(result, info)
 	}
 
-	// Sort by start time, newest first
+	// Sort by modification time, newest first
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].StartTime.After(result[j].StartTime)
+		return result[i].ModTime.After(result[j].ModTime)
 	})
 
 	return result, nil
@@ -77,6 +78,7 @@ func parseRecordingInfo(path string) (RecordingInfo, error) {
 	info := RecordingInfo{
 		RecordingID:   recordingID,
 		SessionID:     sessionID,
+		ModTime:       stat.ModTime(),
 		FileSize:      stat.Size(),
 		Path:          path,
 		InProgress:    true, // assumed until we see events with timestamps

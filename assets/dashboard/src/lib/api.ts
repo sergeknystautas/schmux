@@ -1340,6 +1340,7 @@ export interface TimelapseRecording {
   RecordingID: string;
   SessionID: string;
   StartTime: string;
+  ModTime: string;
   Duration: number;
   FileSize: number;
   Width: number;

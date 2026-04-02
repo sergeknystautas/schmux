@@ -65,6 +65,18 @@ export default function TimelapsePage() {
     return `${Math.floor(seconds / 3600)}h${Math.floor((seconds % 3600) / 60)}m`;
   };
 
+  const formatRelativeTime = (iso: string) => {
+    const diff = Date.now() - new Date(iso).getTime();
+    const seconds = Math.floor(diff / 1000);
+    if (seconds < 60) return 'just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  };
+
   const formatSize = (bytes: number) => {
     if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -106,6 +118,7 @@ export default function TimelapsePage() {
             <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
               <th style={{ padding: 'var(--spacing-sm)' }}>Recording</th>
               <th style={{ padding: 'var(--spacing-sm)' }}>Session</th>
+              <th style={{ padding: 'var(--spacing-sm)' }}>Last Modified</th>
               <th style={{ padding: 'var(--spacing-sm)' }}>Duration</th>
               <th style={{ padding: 'var(--spacing-sm)' }}>Size</th>
               <th style={{ padding: 'var(--spacing-sm)' }}>Status</th>
@@ -120,6 +133,12 @@ export default function TimelapsePage() {
                 </td>
                 <td style={{ padding: 'var(--spacing-sm)' }}>
                   {rec.SessionID?.slice(0, 12) || '\u2014'}
+                </td>
+                <td
+                  style={{ padding: 'var(--spacing-sm)', color: 'var(--text-secondary)' }}
+                  title={rec.ModTime ? new Date(rec.ModTime).toLocaleString() : ''}
+                >
+                  {rec.ModTime ? formatRelativeTime(rec.ModTime) : '\u2014'}
                 </td>
                 <td style={{ padding: 'var(--spacing-sm)' }}>{formatDuration(rec.Duration)}</td>
                 <td style={{ padding: 'var(--spacing-sm)' }}>{formatSize(rec.FileSize)}</td>
