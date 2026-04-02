@@ -1362,6 +1362,30 @@ Errors:
 - 404: "workspace not found"
 - 400: "workspace ID is required"
 
+### GET /api/file/{workspaceId}/{filepath}
+
+Serves a raw file from a workspace directory. Supports image files (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`) and markdown files (`.md`, `.mdx`). Verifies case-sensitive filename match on case-insensitive filesystems (macOS APFS).
+
+Path:
+
+- `{workspaceId}` — workspace identifier
+- `{filepath}` — URL-encoded relative file path within the workspace
+
+Security:
+
+- Path traversal is blocked
+- `.gitignore` patterns are respected
+- Only allowed file extensions are served
+- Directories cannot be served
+
+Response: Raw file content with appropriate `Content-Type` header.
+
+Errors:
+
+- 400: `"workspace ID is required"` / `"invalid path format"`
+- 403: `"file type not allowed"` / `"invalid file path"` / `"cannot serve directory"` / `"file is ignored by git"`
+- 404: `"workspace not found"` / `"file not found"`
+
 ### POST /api/diff-external/{workspaceId}
 
 Launches an external diff tool for all changed files in a workspace.

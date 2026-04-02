@@ -297,6 +297,17 @@ export function getWorkspaceFileUrl(workspaceId: string, filePath: string): stri
   return `/api/file/${workspaceId}/${encoded}`;
 }
 
+// Fetch file content as text (for markdown preview)
+export async function getFileContent(workspaceId: string, filePath: string): Promise<string> {
+  const url = getWorkspaceFileUrl(workspaceId, filePath);
+  const response = await apiFetch(url);
+  if (!response.ok) {
+    if (response.status === 404) throw new Error('File not found');
+    await parseErrorResponse(response, 'Failed to fetch file');
+  }
+  return response.text();
+}
+
 export async function getAuthMe(): Promise<{ login: string; avatar_url?: string; name?: string }> {
   const response = await apiFetch('/auth/me');
   if (!response.ok) {

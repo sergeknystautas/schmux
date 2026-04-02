@@ -2,57 +2,49 @@ import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { getDiff, getErrorMessage } from '../lib/api';
+import { getFileContent, getErrorMessage } from '../lib/api';
 import { useSessions } from '../contexts/SessionsContext';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
-import type { DiffResponse } from '../lib/types';
 
 export default function MarkdownPreviewPage() {
   const { workspaceId, filepath } = useParams();
   const navigate = useNavigate();
   const { workspaces } = useSessions();
-  const [diffData, setDiffData] = useState<DiffResponse | null>(null);
+  const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const workspace = workspaces?.find((ws) => ws.id === workspaceId);
   const workspaceExists = workspaceId && workspaces?.some((ws) => ws.id === workspaceId);
+  const decodedFilepath = filepath || '';
 
+  // Redirect home if workspace no longer exists
   useEffect(() => {
     if (!loading && workspaceId && !workspaceExists) {
       navigate('/');
     }
   }, [loading, workspaceId, workspaceExists, navigate]);
 
+  // Fetch file content directly
   useEffect(() => {
-    const loadDiff = async () => {
+    const loadFile = async () => {
+      if (!workspaceId || !decodedFilepath) return;
       setLoading(true);
       setError('');
       try {
-        const data = await getDiff(workspaceId || '');
-        setDiffData(data);
+        const text = await getFileContent(workspaceId, decodedFilepath);
+        setContent(text);
       } catch (err) {
-        setError(getErrorMessage(err, 'Failed to load diff'));
+        setError(getErrorMessage(err, 'Failed to load file'));
       } finally {
         setLoading(false);
       }
     };
-    loadDiff();
-  }, [workspaceId]);
+    loadFile();
+  }, [workspaceId, decodedFilepath]);
 
-  // Find the file in the diff data
-  const decodedFilepath = filepath ? decodeURIComponent(filepath) : '';
-  const selectedFile = diffData?.files?.find((f) => (f.new_path || f.old_path) === decodedFilepath);
-
-  // Navigate back if file not found or not markdown
-  useEffect(() => {
-    if (!loading && diffData && (!selectedFile || !decodedFilepath.match(/\.(md|mdx)$/i))) {
-      navigate(`/diff/${workspaceId}`);
-    }
-  }, [loading, diffData, selectedFile, workspaceId, navigate, decodedFilepath]);
-
-  if (loading || !selectedFile || !decodedFilepath.match(/\.(md|mdx)$/i)) {
+  if (loading) {
     return (
       <>
         {workspace && (
@@ -114,15 +106,11 @@ export default function MarkdownPreviewPage() {
           }}
         >
           <div className="diff-content__header">
-            <h2 className="diff-content__title">
-              {selectedFile.new_path || selectedFile.old_path}
-            </h2>
+            <h2 className="diff-content__title">{decodedFilepath}</h2>
           </div>
           <div className="diff-viewer-wrapper">
             <div className="markdown-preview-content">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {selectedFile.new_content || ''}
-              </ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
             </div>
           </div>
         </div>

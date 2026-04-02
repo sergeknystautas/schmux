@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -25,4 +26,20 @@ func isPathWithinDir(fullPath, baseDir string) bool {
 	cleanFull := filepath.Clean(fullPath)
 	cleanBase := filepath.Clean(baseDir)
 	return strings.HasPrefix(cleanFull, cleanBase+string(filepath.Separator)) || cleanFull == cleanBase
+}
+
+// caseSensitiveFileExists checks whether a file with the exact given name
+// (case-sensitive) exists in dir. This is needed because macOS APFS is
+// case-insensitive — os.Stat("Foo.md") succeeds even if the file is "foo.md".
+func caseSensitiveFileExists(dir, filename string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.Name() == filename {
+			return true
+		}
+	}
+	return false
 }

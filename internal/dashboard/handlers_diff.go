@@ -273,9 +273,9 @@ func (s *Server) getFileContent(ctx context.Context, workspacePath, filePath, tr
 	return string(output)
 }
 
-// handleFile serves raw file content from a workspace for image previews.
+// handleFile serves raw file content from a workspace for image and markdown previews.
 // Path format: /api/file/{workspaceId}/...
-// Security: only allows image files, blocks path traversal, checks .gitignore.
+// Security: only allows allowed file types, blocks path traversal, checks .gitignore.
 func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 
 	// Extract workspace ID and file path from chi wildcard param
@@ -320,6 +320,7 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveWorkspaceFile serves a file from a local workspace with security checks.
+// Supports image files and markdown files for preview functionality.
 func (s *Server) serveWorkspaceFile(w http.ResponseWriter, r *http.Request, ws state.Workspace, filePath string) {
 	// Validate file path - block path traversal
 	fullPath := filepath.Join(ws.Path, filePath)
@@ -344,7 +345,14 @@ func (s *Server) serveWorkspaceFile(w http.ResponseWriter, r *http.Request, ws s
 		return
 	}
 
-	// Only allow image files
+	// Verify exact case match — macOS (APFS) is case-insensitive,
+	// so os.Stat may resolve a different casing than requested.
+	if !caseSensitiveFileExists(filepath.Dir(cleanFullPath), filepath.Base(filePath)) {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+
+	// Only allow specific file types
 	ext := strings.ToLower(filepath.Ext(filePath))
 	allowedExts := map[string]string{
 		".png":  "image/png",
@@ -352,12 +360,17 @@ func (s *Server) serveWorkspaceFile(w http.ResponseWriter, r *http.Request, ws s
 		".jpeg": "image/jpeg",
 		".webp": "image/webp",
 		".gif":  "image/gif",
+		".md":   "text/markdown; charset=utf-8",
+		".mdx":  "text/markdown; charset=utf-8",
 	}
 	contentType, allowed := allowedExts[ext]
 	if !allowed {
-		http.Error(w, "only image files are allowed", http.StatusForbidden)
+		http.Error(w, "file type not allowed", http.StatusForbidden)
 		return
 	}
+
+	// Markdown files are text and may change, skip long cache
+	isText := ext == ".md" || ext == ".mdx"
 
 	// Check .gitignore - load gitignore patterns and check if file matches
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -375,7 +388,9 @@ func (s *Server) serveWorkspaceFile(w http.ResponseWriter, r *http.Request, ws s
 
 	// Serve the file
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Cache-Control", "public, max-age=3600")
+	if !isText {
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+	}
 	http.ServeFile(w, r, cleanFullPath)
 }
 
