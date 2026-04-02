@@ -38,6 +38,7 @@ type SpawnRequest struct {
 	ActionID         string         `json:"action_id,omitempty"`         // action registry ID for usage tracking
 	Resume           bool           `json:"resume,omitempty"`            // resume mode: use agent's resume command
 	RemoteFlavorID   string         `json:"remote_flavor_id,omitempty"`  // optional: spawn on remote host
+	RemoteHostID     string         `json:"remote_host_id,omitempty"`    // optional: spawn on specific existing remote host
 	NewBranch        string         `json:"new_branch,omitempty"`        // create new workspace with this branch from source workspace
 	PersonaID        string         `json:"persona_id,omitempty"`        // optional: behavioral persona for the agent
 	ImageAttachments []string       `json:"image_attachments,omitempty"` // base64-encoded PNGs, max 5
@@ -83,11 +84,29 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Auto-detect remote flavor when spawning into a remote workspace
-	if req.WorkspaceID != "" && req.RemoteFlavorID == "" {
+	// Auto-detect remote host/flavor from request or workspace
+	remoteHostID := req.RemoteHostID
+	if remoteHostID == "" && req.WorkspaceID != "" {
 		if ws, found := s.state.GetWorkspace(req.WorkspaceID); found && ws.RemoteHostID != "" {
-			if host, found := s.state.GetRemoteHost(ws.RemoteHostID); found {
-				req.RemoteFlavorID = host.FlavorID
+			remoteHostID = ws.RemoteHostID
+		}
+	}
+	if remoteHostID != "" && req.RemoteFlavorID == "" {
+		if host, found := s.state.GetRemoteHost(remoteHostID); found {
+			req.RemoteFlavorID = host.FlavorID
+		}
+	}
+	// When spawning with a flavor but no specific host, reuse an existing
+	// connected host for that flavor. This is the default for adding sessions
+	// to an existing workspace (e.g., CLI callers, E2E tests). New hosts are
+	// only created when no connected host exists or when explicitly requested
+	// via the "+ New host" card (which sets remote_host_id).
+	if remoteHostID == "" && req.RemoteFlavorID != "" && s.remoteManager != nil {
+		conns := s.remoteManager.GetConnectionsByFlavorID(req.RemoteFlavorID)
+		for _, conn := range conns {
+			if conn.IsConnected() {
+				remoteHostID = conn.Host().ID
+				break
 			}
 		}
 	}
@@ -249,7 +268,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	}
 	sessionLog := logging.Sub(s.logger, "session")
 	if req.RemoteFlavorID != "" {
-		sessionLog.Info("spawn request (remote)", "flavor_id", req.RemoteFlavorID, "targets", req.Targets, "prompt", promptPreview)
+		sessionLog.Info("spawn request (remote)", "flavor_id", req.RemoteFlavorID, "host_id", remoteHostID, "req_host_id", req.RemoteHostID, "targets", req.Targets, "prompt", promptPreview)
 	} else {
 		sessionLog.Info("spawn request (local)", "repo", req.Repo, "branch", req.Branch, "workspace_id", req.WorkspaceID, "targets", req.Targets, "prompt", promptPreview)
 	}
@@ -329,7 +348,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			// Route to remote or local spawn based on request
 			if req.RemoteFlavorID != "" {
 				// Remote spawn - use SpawnRemote()
-				sess, err = s.session.SpawnRemote(ctx, req.RemoteFlavorID, targetName, req.Prompt, nickname)
+				sess, err = s.session.SpawnRemote(ctx, req.RemoteFlavorID, remoteHostID, targetName, req.Prompt, nickname)
 			} else {
 				// Local spawn - use existing Spawn()
 				sess, err = s.session.Spawn(ctx, session.SpawnOptions{

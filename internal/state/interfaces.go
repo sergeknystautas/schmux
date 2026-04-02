@@ -56,6 +56,7 @@ type StateStore interface {
 	GetRemoteHosts() []RemoteHost
 	GetRemoteHost(id string) (RemoteHost, bool)
 	GetRemoteHostByFlavorID(flavorID string) (RemoteHost, bool)
+	GetRemoteHostsByFlavorID(flavorID string) []RemoteHost
 	GetRemoteHostByHostname(hostname string) (RemoteHost, bool)
 	AddRemoteHost(rh RemoteHost) error
 	UpdateRemoteHost(rh RemoteHost) error

@@ -27,6 +27,7 @@ describe('getHostStatus', () => {
       'disconnected',
       'expired',
       'reconnecting',
+      'failed',
     ];
     for (const status of validStatuses) {
       expect(getHostStatus({ status } as RemoteHost)).toBe(status);
@@ -90,6 +91,19 @@ describe('HostStatusIndicator', () => {
     expect(
       c3.querySelector('[data-testid="host-status-indicator"][data-variant="spinner"]')
     ).toBeInTheDocument();
+  });
+
+  // Bug 2: "failed" status must render with error color and "Failed" label
+  it('renders "Failed" label with error color for status "failed"', () => {
+    const { container } = render(<HostStatusIndicator status="failed" />);
+    expect(screen.getByText('Failed')).toBeInTheDocument();
+    // Should use error color (same as disconnected), not muted
+    const indicator = container.querySelector(
+      '[data-testid="host-status-indicator"]'
+    ) as HTMLElement;
+    expect(indicator).toBeInTheDocument();
+    // Should render as a static dot (not a spinner)
+    expect(indicator?.getAttribute('data-variant')).toBe('dot');
   });
 
   it('renders static dot for non-spinner statuses', () => {

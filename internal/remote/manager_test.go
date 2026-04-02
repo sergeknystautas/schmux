@@ -2,6 +2,8 @@ package remote
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -23,57 +25,63 @@ func TestManager_ConnectRace(t *testing.T) {
 		},
 	}
 
-	st := &state.State{
-		Workspaces:  []state.Workspace{},
-		Sessions:    []state.Session{},
-		RemoteHosts: []state.RemoteHost{},
-	}
+	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
 
 	mgr := NewManager(cfg, st, nil)
 
-	// Launch multiple goroutines trying to connect to same flavor
+	// Launch multiple goroutines trying to StartConnect to same flavor.
+	// Each should get a unique provisioning session ID (no 1:1 enforcement).
 	const numGoroutines = 10
 	var wg sync.WaitGroup
-	errors := make(chan error, numGoroutines)
+	type result struct {
+		sessionID string
+		err       error
+	}
+	results := make(chan result, numGoroutines)
 
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-			defer cancel()
-
-			// This will fail because we don't have actual "dev" command,
-			// but it tests the race condition in connection creation
-			_, err := mgr.Connect(ctx, "test-flavor")
-			if err != nil {
-				errors <- err
-			}
+			sid, err := mgr.StartConnect("test-flavor")
+			results <- result{sessionID: sid, err: err}
 		}()
 	}
 
 	wg.Wait()
-	close(errors)
+	close(results)
 
-	// Count errors (all should fail since we can't actually connect)
+	// Collect results
+	sessionIDs := make(map[string]bool)
 	errCount := 0
-	for range errors {
-		errCount++
+	for r := range results {
+		if r.err != nil {
+			errCount++
+			continue
+		}
+		sessionIDs[r.sessionID] = true
 	}
 
 	// The important thing is that we didn't panic due to race condition
-	// All goroutines should have either succeeded or failed gracefully
-	t.Logf("Got %d errors from %d concurrent connect attempts", errCount, numGoroutines)
+	// All goroutines should have succeeded with unique session IDs
+	t.Logf("Got %d errors and %d unique session IDs from %d concurrent connect attempts", errCount, len(sessionIDs), numGoroutines)
 
-	// Verify only one connection attempt was made (no duplicates)
-	// Check the connections map
+	if errCount > 0 {
+		t.Errorf("expected no errors, got %d", errCount)
+	}
+
+	// Each goroutine should have gotten a different provisioning session ID
+	if len(sessionIDs) != numGoroutines {
+		t.Errorf("expected %d unique session IDs, got %d", numGoroutines, len(sessionIDs))
+	}
+
+	// Verify all connections are tracked in the map
 	mgr.mu.RLock()
 	connCount := len(mgr.connections)
 	mgr.mu.RUnlock()
 
-	// Should be 0 or 1 (since connection will fail without actual dev command)
-	if connCount > 1 {
-		t.Errorf("expected at most 1 connection, got %d (race condition!)", connCount)
+	if connCount != numGoroutines {
+		t.Errorf("expected %d connections in map, got %d", numGoroutines, connCount)
 	}
 }
 
@@ -283,14 +291,148 @@ func TestManager_GetFlavorStatuses(t *testing.T) {
 		t.Errorf("expected 2 flavor statuses, got %d", len(statuses))
 	}
 
-	// Verify both flavors are disconnected initially
+	// Verify both flavors have empty hosts initially
 	for _, status := range statuses {
-		if status.Connected {
-			t.Errorf("flavor %s should not be connected", status.Flavor.ID)
+		if len(status.Hosts) != 0 {
+			t.Errorf("flavor %s should have no hosts, got %d", status.Flavor.ID, len(status.Hosts))
 		}
-		if status.Status != "disconnected" {
-			t.Errorf("expected status 'disconnected', got '%s'", status.Status)
-		}
+	}
+}
+
+func TestManager_GetConnectionsByFlavorID(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.RemoteFlavors = []config.RemoteFlavor{
+		{
+			ID:            "www",
+			Flavor:        "www",
+			DisplayName:   "WWW",
+			WorkspacePath: "/workspace",
+			VCS:           "git",
+		},
+		{
+			ID:            "gpu",
+			Flavor:        "gpu",
+			DisplayName:   "GPU",
+			WorkspacePath: "/workspace",
+			VCS:           "git",
+		},
+	}
+
+	st := &state.State{
+		Workspaces:  []state.Workspace{},
+		Sessions:    []state.Session{},
+		RemoteHosts: []state.RemoteHost{},
+	}
+
+	mgr := NewManager(cfg, st, nil)
+
+	// Create two "www" connections and one "gpu" connection
+	www1 := NewConnection(ConnectionConfig{
+		FlavorID:      "www",
+		Flavor:        "www",
+		DisplayName:   "WWW",
+		WorkspacePath: "/workspace",
+		VCS:           "git",
+	})
+	www2 := NewConnection(ConnectionConfig{
+		FlavorID:      "www",
+		Flavor:        "www",
+		DisplayName:   "WWW",
+		WorkspacePath: "/workspace",
+		VCS:           "git",
+	})
+	gpu1 := NewConnection(ConnectionConfig{
+		FlavorID:      "gpu",
+		Flavor:        "gpu",
+		DisplayName:   "GPU",
+		WorkspacePath: "/workspace",
+		VCS:           "git",
+	})
+
+	mgr.mu.Lock()
+	mgr.connections[www1.host.ID] = www1
+	mgr.connections[www2.host.ID] = www2
+	mgr.connections[gpu1.host.ID] = gpu1
+	mgr.mu.Unlock()
+
+	// Verify GetConnectionsByFlavorID("www") returns 2
+	wwwConns := mgr.GetConnectionsByFlavorID("www")
+	if len(wwwConns) != 2 {
+		t.Errorf("expected 2 www connections, got %d", len(wwwConns))
+	}
+
+	// Verify GetConnectionsByFlavorID("gpu") returns 1
+	gpuConns := mgr.GetConnectionsByFlavorID("gpu")
+	if len(gpuConns) != 1 {
+		t.Errorf("expected 1 gpu connection, got %d", len(gpuConns))
+	}
+
+	// Verify GetConnectionsByFlavorID("nonexistent") returns 0
+	noneConns := mgr.GetConnectionsByFlavorID("nonexistent")
+	if len(noneConns) != 0 {
+		t.Errorf("expected 0 nonexistent connections, got %d", len(noneConns))
+	}
+}
+
+func TestManager_GetFlavorStatuses_MultiHost(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.RemoteFlavors = []config.RemoteFlavor{
+		{
+			ID:            "www",
+			Flavor:        "www",
+			DisplayName:   "WWW",
+			WorkspacePath: "/workspace",
+			VCS:           "git",
+		},
+	}
+
+	st := &state.State{
+		Workspaces:  []state.Workspace{},
+		Sessions:    []state.Session{},
+		RemoteHosts: []state.RemoteHost{},
+	}
+
+	mgr := NewManager(cfg, st, nil)
+
+	// Create two "www" connections
+	www1 := NewConnection(ConnectionConfig{
+		FlavorID:      "www",
+		Flavor:        "www",
+		DisplayName:   "WWW",
+		WorkspacePath: "/workspace",
+		VCS:           "git",
+	})
+	www2 := NewConnection(ConnectionConfig{
+		FlavorID:      "www",
+		Flavor:        "www",
+		DisplayName:   "WWW",
+		WorkspacePath: "/workspace",
+		VCS:           "git",
+	})
+
+	mgr.mu.Lock()
+	mgr.connections[www1.host.ID] = www1
+	mgr.connections[www2.host.ID] = www2
+	mgr.mu.Unlock()
+
+	// Verify GetFlavorStatuses returns 1 FlavorStatus entry
+	statuses := mgr.GetFlavorStatuses()
+	if len(statuses) != 1 {
+		t.Fatalf("expected 1 flavor status, got %d", len(statuses))
+	}
+
+	// with 2 HostStatus entries in its Hosts slice
+	if len(statuses[0].Hosts) != 2 {
+		t.Errorf("expected 2 hosts in flavor status, got %d", len(statuses[0].Hosts))
+	}
+
+	// Verify each host has a unique host ID
+	hostIDs := make(map[string]bool)
+	for _, h := range statuses[0].Hosts {
+		hostIDs[h.HostID] = true
+	}
+	if len(hostIDs) != 2 {
+		t.Errorf("expected 2 unique host IDs, got %d", len(hostIDs))
 	}
 }
 
@@ -524,4 +666,79 @@ func TestConnectWithAndWithoutProgress(t *testing.T) {
 	// The important part is they don't panic and use the same logic
 	t.Logf("Connect() error: %v", err)
 	t.Logf("ConnectWithProgress() error: %v", err2)
+}
+
+func TestManager_StartConnect_CreatesWorkspace(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.RemoteFlavors = []config.RemoteFlavor{{
+		ID:             "www",
+		Flavor:         "www",
+		DisplayName:    "WWW",
+		WorkspacePath:  "~/fbsource",
+		ConnectCommand: "echo connected",
+	}}
+	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
+	mgr := NewManager(cfg, st, nil)
+
+	_, err := mgr.StartConnect("www")
+	if err != nil {
+		t.Fatalf("StartConnect failed: %v", err)
+	}
+
+	// StartConnect creates a host immediately. The workspace should also be
+	// created immediately (not deferred to SpawnRemote), so it appears on
+	// the home page and in WebSocket broadcasts as soon as the host exists.
+	hosts := st.GetRemoteHostsByFlavorID("www")
+	if len(hosts) != 1 {
+		t.Fatalf("expected 1 host, got %d", len(hosts))
+	}
+
+	workspaceID := fmt.Sprintf("remote-%s", hosts[0].ID)
+	ws, found := st.GetWorkspace(workspaceID)
+	if !found {
+		t.Fatalf("expected workspace %s to be created on StartConnect, but not found", workspaceID)
+	}
+	if ws.RemoteHostID != hosts[0].ID {
+		t.Errorf("workspace.RemoteHostID = %q, want %q", ws.RemoteHostID, hosts[0].ID)
+	}
+	if ws.Path != "~/fbsource" {
+		t.Errorf("workspace.Path = %q, want ~/fbsource", ws.Path)
+	}
+}
+
+func TestManager_ConnectMultipleHostsSameFlavor(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.RemoteFlavors = []config.RemoteFlavor{{
+		ID:             "www",
+		Flavor:         "www",
+		DisplayName:    "WWW",
+		WorkspacePath:  "~/fbsource",
+		ConnectCommand: "echo connected",
+	}}
+	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
+	mgr := NewManager(cfg, st, nil)
+
+	// Two StartConnect calls should produce two different provisioning sessions
+	provID1, err := mgr.StartConnect("www")
+	if err != nil {
+		t.Fatalf("first StartConnect failed: %v", err)
+	}
+
+	provID2, err := mgr.StartConnect("www")
+	if err != nil {
+		t.Fatalf("second StartConnect failed: %v", err)
+	}
+
+	if provID1 == provID2 {
+		t.Fatalf("expected different provisioning session IDs, both got %s", provID1)
+	}
+
+	// Verify two distinct hosts were created in state
+	hosts := st.GetRemoteHostsByFlavorID("www")
+	if len(hosts) != 2 {
+		t.Fatalf("expected 2 hosts in state, got %d", len(hosts))
+	}
+	if hosts[0].ID == hosts[1].ID {
+		t.Fatalf("expected different host IDs")
+	}
 }

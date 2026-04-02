@@ -75,6 +75,11 @@ type Connection struct {
 	// %output matches.
 	controlModeEstablished atomic.Bool
 
+	// Cancel function for the connect context, called during Close()
+	// to unblock waitForControlMode if the connection is shut down.
+	connectCancel   context.CancelFunc
+	connectCancelMu sync.Mutex
+
 	// Provisioning session ID (local tmux session for interactive terminal)
 	provisioningSessionID string
 
@@ -549,6 +554,13 @@ func (c *Connection) parseProvisioningOutput(r io.Reader) {
 			}
 		}
 		if err != nil {
+			if c.logger != nil {
+				controlModeReady := c.controlModeEstablished.Load()
+				c.mu.RLock()
+				hn := c.hostname
+				c.mu.RUnlock()
+				c.logger.Info("PTY read ended", "host_id", c.host.ID, "hostname", hn, "control_mode_ready", controlModeReady, "err", err)
+			}
 			break
 		}
 	}
@@ -601,26 +613,27 @@ func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader) e
 	// before sending any commands. During provisioning, SSH/auth output
 	// comes first and tmux hasn't entered control mode yet - sending
 	// commands too early means they go to the shell and are lost.
+	// Uses the parent context timeout (5 minutes from StartConnect) rather than
+	// a short fixed timeout, because OD provisioning (SSH auth, reservation,
+	// ControlMaster setup) can take 30+ seconds before tmux even starts.
 	if c.logger != nil {
 		c.logger.Info("waiting for control mode protocol", "host_id", c.host.ID)
 	}
-	waitCtx, cancel := context.WithTimeout(ctx, ControlModeReadyTimeout)
-	defer cancel()
 
 	select {
 	case <-c.parser.ControlModeReady():
 		if c.logger != nil {
 			c.logger.Info("control mode protocol detected, sending ready check", "host_id", c.host.ID)
 		}
-	case <-waitCtx.Done():
-		return fmt.Errorf("control mode not ready: %w", waitCtx.Err())
+	case <-ctx.Done():
+		return fmt.Errorf("control mode not ready: %w", ctx.Err())
 	}
 
 	// Start the client (processes responses/output/events)
 	c.client.Start()
 
 	// Now it's safe to send commands - tmux is in control mode
-	if err := c.client.WaitForReady(waitCtx, ControlModeReadyTimeout); err != nil {
+	if err := c.client.WaitForReady(ctx, ControlModeReadyTimeout); err != nil {
 		return fmt.Errorf("control mode not ready: %w", err)
 	}
 
@@ -633,6 +646,38 @@ func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader) e
 	c.mu.Unlock()
 
 	c.notifyStatusChange()
+
+	// Hostname fallback: if provisioning output didn't contain a hostname
+	// (regex didn't match), try to extract it from the remote tmux server.
+	c.mu.RLock()
+	hostnameEmpty := c.hostname == ""
+	c.mu.RUnlock()
+
+	if hostnameEmpty {
+		if c.logger != nil {
+			c.logger.Info("hostname not extracted from provisioning output, trying tmux fallback", "host_id", c.host.ID)
+		}
+		fallbackCtx, fallbackCancel := context.WithTimeout(ctx, 5*time.Second)
+		defer fallbackCancel()
+
+		if resp, err := c.client.Execute(fallbackCtx, "display-message -p '#{host}'"); err == nil {
+			h := strings.TrimSpace(resp)
+			if h != "" {
+				c.mu.Lock()
+				c.hostname = h
+				c.host.Hostname = h
+				c.mu.Unlock()
+				c.notifyStatusChange()
+				if c.logger != nil {
+					c.logger.Info("hostname extracted via tmux fallback", "host_id", c.host.ID, "hostname", h)
+				}
+			}
+		} else {
+			if c.logger != nil {
+				c.logger.Warn("tmux hostname fallback failed, leaving hostname empty", "host_id", c.host.ID, "err", err)
+			}
+		}
+	}
 
 	// Set DISPLAY in the tmux global environment so all panes (including AI agents)
 	// can access the X11 clipboard via xclip. This must happen BEFORE sessions are
@@ -660,6 +705,13 @@ func (c *Connection) Close() error {
 		c.mu.Unlock()
 
 		c.notifyStatusChange()
+
+		// Cancel the connect context to unblock waitForControlMode
+		c.connectCancelMu.Lock()
+		if c.connectCancel != nil {
+			c.connectCancel()
+		}
+		c.connectCancelMu.Unlock()
 
 		// Close control pipe writer (unblocks parseProvisioningOutput if blocked on write)
 		if c.controlPipeWriter != nil {
@@ -727,8 +779,12 @@ func (c *Connection) monitorProcess() {
 		return
 	}
 
+	exitCode := -1
+	if c.cmd.ProcessState != nil {
+		exitCode = c.cmd.ProcessState.ExitCode()
+	}
 	if c.logger != nil {
-		c.logger.Warn("SSH process exited unexpectedly", "host_id", hostID, "hostname", hostname, "err", err)
+		c.logger.Warn("SSH process exited unexpectedly", "host_id", hostID, "hostname", hostname, "exit_code", exitCode, "err", err)
 	}
 
 	// Trigger connection cleanup (sets status to disconnected, notifies callbacks).
@@ -752,6 +808,14 @@ func (c *Connection) ProvisioningOutput() string {
 	c.provisioningMu.Lock()
 	defer c.provisioningMu.Unlock()
 	return c.provisioningOutput.String()
+}
+
+// SetConnectCancel stores a cancel function that will be called during Close()
+// to unblock any pending waitForControlMode select.
+func (c *Connection) SetConnectCancel(cancel context.CancelFunc) {
+	c.connectCancelMu.Lock()
+	c.connectCancel = cancel
+	c.connectCancelMu.Unlock()
 }
 
 // ProvisioningSessionID returns the local tmux session ID used for provisioning.
@@ -1003,7 +1067,10 @@ func (c *Connection) Provision(ctx context.Context, provisionCmd string) error {
 		return nil
 	}
 
-	if !c.IsConnected() {
+	// Check that control mode is established (client is ready to send commands).
+	// Don't use IsConnected() here because the caller may have temporarily set
+	// status to "provisioning" for UI feedback while the provision command runs.
+	if c.client == nil || !c.controlModeEstablished.Load() {
 		return fmt.Errorf("not connected")
 	}
 

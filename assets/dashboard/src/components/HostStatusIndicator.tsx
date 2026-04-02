@@ -7,7 +7,8 @@ export type HostStatus =
   | 'connecting'
   | 'disconnected'
   | 'expired'
-  | 'reconnecting';
+  | 'reconnecting'
+  | 'failed';
 
 const validStatuses: HostStatus[] = [
   'ready',
@@ -17,6 +18,7 @@ const validStatuses: HostStatus[] = [
   'disconnected',
   'expired',
   'reconnecting',
+  'failed',
 ];
 
 function isValidStatus(s: string): s is HostStatus {
@@ -50,6 +52,8 @@ export default function HostStatusIndicator({
         return { color: 'var(--color-error)', label: 'Disconnected', icon: null };
       case 'expired':
         return { color: 'var(--color-text-muted)', label: 'Expired', icon: null };
+      case 'failed':
+        return { color: 'var(--color-error)', label: 'Failed', icon: null };
       default:
         return { color: 'var(--color-text-muted)', label: 'Unknown', icon: null };
     }

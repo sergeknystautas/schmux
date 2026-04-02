@@ -63,6 +63,7 @@ const (
 	RemoteHostStatusConnecting   = "connecting"
 	RemoteHostStatusConnected    = "connected"
 	RemoteHostStatusDisconnected = "disconnected"
+	RemoteHostStatusFailed       = "failed"
 	RemoteHostStatusExpired      = "expired"
 	RemoteHostStatusReconnecting = "reconnecting"
 )
@@ -1002,6 +1003,19 @@ func (s *State) GetRemoteHostByFlavorID(flavorID string) (RemoteHost, bool) {
 		}
 	}
 	return RemoteHost{}, false
+}
+
+// GetRemoteHostsByFlavorID returns all remote hosts matching the given flavor ID.
+func (s *State) GetRemoteHostsByFlavorID(flavorID string) []RemoteHost {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var hosts []RemoteHost
+	for _, rh := range s.RemoteHosts {
+		if rh.FlavorID == flavorID {
+			hosts = append(hosts, rh)
+		}
+	}
+	return hosts
 }
 
 // GetRemoteHostByHostname returns a remote host by hostname.

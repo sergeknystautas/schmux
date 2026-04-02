@@ -13,8 +13,8 @@ runtime errors (e.g., xterm.js addon compatibility issues).
 
 ## Verifications
 
-- The spawn page loads and shows a "Remote Host" flavor card with "Click to connect"
-- Clicking the flavor card opens the connection progress modal
+- The spawn page loads and shows a "+ New [flavor] host" card with "Provision a new instance"
+- Clicking the "+ New host" card opens the connection progress modal
 - The modal contains a terminal container (dark background div for xterm)
 - No uncaught JavaScript errors occur when the modal opens (catches xterm addon init failures)
 - The modal header shows the flavor display name

@@ -19,7 +19,6 @@ type Manager struct {
 
 	connections map[string]*Connection // hostID -> connection
 	mu          sync.RWMutex
-	connectMu   sync.Mutex // Serializes connection creation
 
 	// Callback for state updates
 	onStateChange func()
@@ -43,8 +42,7 @@ func (m *Manager) SetStateChangeCallback(cb func()) {
 }
 
 // Connect connects to a remote host by flavor ID.
-// If already connected, returns the existing connection.
-// If the host is cached but disconnected, attempts to reconnect.
+// Each call creates a new connection (multiple hosts per flavor are allowed).
 func (m *Manager) Connect(ctx context.Context, flavorID string) (*Connection, error) {
 	return m.connectInternal(ctx, flavorID, nil)
 }
@@ -58,38 +56,6 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 		return "", fmt.Errorf("remote flavor not found: %s", flavorID)
 	}
 
-	// Check existing connections
-	m.mu.RLock()
-	for _, conn := range m.connections {
-		if conn.flavor.ID == flavorID {
-			status := conn.Status()
-			if conn.IsConnected() || status == state.RemoteHostStatusProvisioning || status == state.RemoteHostStatusConnecting {
-				sid := conn.ProvisioningSessionID()
-				m.mu.RUnlock()
-				return sid, nil
-			}
-		}
-	}
-	m.mu.RUnlock()
-
-	// Acquire creation lock to prevent duplicate connections
-	m.connectMu.Lock()
-	defer m.connectMu.Unlock()
-
-	// Double-check after acquiring lock
-	m.mu.RLock()
-	for _, conn := range m.connections {
-		if conn.flavor.ID == flavorID {
-			status := conn.Status()
-			if conn.IsConnected() || status == state.RemoteHostStatusProvisioning || status == state.RemoteHostStatusConnecting {
-				sid := conn.ProvisioningSessionID()
-				m.mu.RUnlock()
-				return sid, nil
-			}
-		}
-	}
-	m.mu.RUnlock()
-
 	// Create new connection (session ID is generated immediately in NewConnection)
 	cfg := ConnectionConfigFromFlavor(flavor)
 	cfg.OnStatusChange = m.handleStatusChange
@@ -97,21 +63,17 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 	conn := NewConnection(cfg)
 
 	// Register in map immediately so WebSocket handler can find it.
-	// Clean up old failed/expired connections for this flavor first.
 	m.mu.Lock()
-	for id, c := range m.connections {
-		if c.flavor.ID == flavorID {
-			s := c.Status()
-			if s == state.RemoteHostStatusDisconnected || s == state.RemoteHostStatusExpired {
-				delete(m.connections, id)
-			}
-		}
-	}
 	m.connections[conn.host.ID] = conn
 	m.mu.Unlock()
 
 	// Add to state (shows provisioning status in UI)
 	m.state.AddRemoteHost(conn.Host())
+
+	// Create workspace immediately so the host appears on the home page and in
+	// WebSocket broadcasts as soon as it exists (not deferred to first spawn).
+	// Host:Workspace is 1:1 — each remote host gets its own workspace.
+	m.ensureWorkspaceForHost(conn.Host(), flavor)
 	if err := m.state.Save(); err != nil {
 		m.mu.Lock()
 		delete(m.connections, conn.host.ID)
@@ -126,10 +88,22 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 		m.logger.Info("StartConnect", "host_id", conn.host.ID, "flavor", flavorID, "session_id", sessionID)
 	}
 
-	// Connect in background
+	// Connect in background with a hard timeout on provisioning.
+	// 5 minutes covers slow SSH auth, MFA prompts, and initial connection setup.
+	// If provisioning exceeds this, the connection transitions to "failed".
+	// The context is also canceled when conn.Close() is called (e.g., during daemon shutdown)
+	// so the goroutine doesn't block for 5 minutes.
+	//
+	// IMPORTANT: Create the context and set the cancel BEFORE starting the goroutine.
+	// If Close() is called before the goroutine starts, SetConnectCancel inside the
+	// goroutine would race with Close()'s connectCancel() call and the cancel would
+	// never fire, leaving the goroutine blocked for the full 5-minute timeout.
+	connectCtx, connectCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	conn.SetConnectCancel(connectCancel)
+
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-		defer cancel()
+		ctx := connectCtx
+		defer connectCancel()
 
 		if err := conn.Connect(ctx); err != nil {
 			if m.logger != nil {
@@ -138,9 +112,9 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 			// Keep connection in map so provisioning_session_id remains available
 			// for the frontend ConnectionProgressModal polling to detect failure.
 			conn.mu.Lock()
-			conn.host.Status = state.RemoteHostStatusDisconnected
+			conn.host.Status = state.RemoteHostStatusFailed
 			conn.mu.Unlock()
-			m.state.UpdateRemoteHostStatus(conn.host.ID, state.RemoteHostStatusDisconnected)
+			m.state.UpdateRemoteHostStatus(conn.host.ID, state.RemoteHostStatusFailed)
 			m.state.SaveBatched()
 			m.notifyStateChange()
 			return
@@ -178,8 +152,19 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 			m.notifyStateChange()
 		}
 
-		// Update state with final host info
-		m.state.UpdateRemoteHost(conn.Host())
+		// Update state with final host info (hostname may have been extracted)
+		finalHost := conn.Host()
+		m.state.UpdateRemoteHost(finalHost)
+
+		// Update workspace branch to hostname now that it's known
+		if finalHost.Hostname != "" {
+			workspaceID := fmt.Sprintf("remote-%s", finalHost.ID)
+			if ws, found := m.state.GetWorkspace(workspaceID); found && ws.Branch != finalHost.Hostname {
+				ws.Branch = finalHost.Hostname
+				m.state.UpdateWorkspace(ws)
+			}
+		}
+
 		if err := m.state.Save(); err != nil {
 			if m.logger != nil {
 				m.logger.Error("failed to persist final state", "err", err)
@@ -215,98 +200,6 @@ func (m *Manager) connectInternal(ctx context.Context, flavorID string, onProgre
 		return nil, fmt.Errorf("remote flavor not found: %s", flavorID)
 	}
 
-	// First check with read lock
-	m.mu.RLock()
-	for _, conn := range m.connections {
-		if conn.flavor.ID == flavorID {
-			status := conn.Status()
-			// Return existing if connected or in progress
-			if conn.IsConnected() || status == state.RemoteHostStatusProvisioning || status == state.RemoteHostStatusConnecting {
-				m.mu.RUnlock()
-				if onProgress != nil {
-					if conn.IsConnected() {
-						onProgress("already connected")
-					} else {
-						onProgress("connection in progress")
-					}
-				}
-				return conn, nil
-			}
-		}
-	}
-	m.mu.RUnlock()
-
-	// Not found - acquire creation lock to prevent race
-	m.connectMu.Lock()
-	defer m.connectMu.Unlock()
-
-	// Double-check after acquiring lock (another goroutine may have created it)
-	m.mu.RLock()
-	for _, conn := range m.connections {
-		if conn.flavor.ID == flavorID {
-			status := conn.Status()
-			// Return existing if connected or in progress
-			if conn.IsConnected() || status == state.RemoteHostStatusProvisioning || status == state.RemoteHostStatusConnecting {
-				m.mu.RUnlock()
-				if onProgress != nil {
-					if conn.IsConnected() {
-						onProgress("already connected")
-					} else {
-						onProgress("connection in progress")
-					}
-				}
-				return conn, nil
-			}
-		}
-	}
-	m.mu.RUnlock()
-
-	// Still not found - proceed with connection creation
-
-	// Check if we have a cached host in state that we can reconnect to
-	host, found := m.state.GetRemoteHostByFlavorID(flavorID)
-	if found && host.Hostname != "" && !host.ExpiresAt.Before(time.Now()) {
-		if onProgress != nil {
-			onProgress(fmt.Sprintf("reconnecting to %s", host.Hostname))
-		}
-
-		// Try to reconnect to existing host
-		cfg := ConnectionConfigFromFlavor(flavor)
-		cfg.OnStatusChange = m.handleStatusChange
-		cfg.OnProgress = onProgress
-		cfg.Logger = m.logger
-		conn := NewConnection(cfg)
-
-		// Update existing host ID
-		conn.host.ID = host.ID
-		conn.host.Hostname = host.Hostname
-		conn.host.UUID = host.UUID
-
-		if err := conn.Reconnect(ctx, host.Hostname); err != nil {
-			// Reconnection failed, fall through to new connection
-			if onProgress != nil {
-				onProgress(fmt.Sprintf("reconnection failed: %v, provisioning new host", err))
-			} else if m.logger != nil {
-				m.logger.Warn("reconnection failed, provisioning new host", "hostname", host.Hostname, "err", err)
-			}
-		} else {
-			// Reconnection successful
-			m.mu.Lock()
-			m.connections[conn.host.ID] = conn
-			m.mu.Unlock()
-
-			// Update state (use batched save for status updates)
-			m.state.UpdateRemoteHost(conn.Host())
-			m.state.SaveBatched()
-			m.notifyStateChange()
-
-			if onProgress != nil {
-				onProgress("reconnected successfully")
-			}
-			return conn, nil
-		}
-	}
-
 	// Create new connection
 	if onProgress != nil {
 		onProgress("provisioning new host")
@@ -320,6 +213,7 @@ func (m *Manager) connectInternal(ctx context.Context, flavorID string, onProgre
 
 	// Add to state before connecting (shows provisioning status)
 	m.state.AddRemoteHost(conn.Host())
+	m.ensureWorkspaceForHost(conn.Host(), flavor)
 	if err := m.state.Save(); err != nil {
 		return nil, fmt.Errorf("failed to persist state: %w", err)
 	}
@@ -338,7 +232,7 @@ func (m *Manager) connectInternal(ctx context.Context, flavorID string, onProgre
 	}
 
 	// Run provisioning if needed (first connection only)
-	host = conn.Host()
+	host := conn.Host()
 	if !host.Provisioned && flavor.ProvisionCommand != "" {
 		if m.logger != nil {
 			m.logger.Info("running provision command", "host_id", host.ID)
@@ -362,8 +256,19 @@ func (m *Manager) connectInternal(ctx context.Context, flavorID string, onProgre
 	m.connections[conn.host.ID] = conn
 	m.mu.Unlock()
 
-	// Update state with final host info
-	m.state.UpdateRemoteHost(conn.Host())
+	// Update state with final host info (hostname may have been extracted)
+	finalHost := conn.Host()
+	m.state.UpdateRemoteHost(finalHost)
+
+	// Update workspace branch to hostname now that it's known
+	if finalHost.Hostname != "" {
+		workspaceID := fmt.Sprintf("remote-%s", finalHost.ID)
+		if ws, found := m.state.GetWorkspace(workspaceID); found && ws.Branch != finalHost.Hostname {
+			ws.Branch = finalHost.Hostname
+			m.state.UpdateWorkspace(ws)
+		}
+	}
+
 	if err := m.state.Save(); err != nil {
 		return nil, fmt.Errorf("failed to persist state: %w", err)
 	}
@@ -478,17 +383,17 @@ func (m *Manager) RunCommand(ctx context.Context, hostID, workdir, command strin
 	return conn.RunCommand(ctx, workdir, command)
 }
 
-// GetConnectionByFlavorID returns the connection for a flavor ID.
-// Returns nil if not connected.
-func (m *Manager) GetConnectionByFlavorID(flavorID string) *Connection {
+// GetConnectionsByFlavorID returns all connections for a flavor (may be empty).
+func (m *Manager) GetConnectionsByFlavorID(flavorID string) []*Connection {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	var conns []*Connection
 	for _, conn := range m.connections {
-		if conn.flavor.ID == flavorID && conn.IsConnected() {
-			return conn
+		if conn.flavor.ID == flavorID {
+			conns = append(conns, conn)
 		}
 	}
-	return nil
+	return conns
 }
 
 // IsConnected checks if a host is connected.
@@ -499,7 +404,8 @@ func (m *Manager) IsConnected(hostID string) bool {
 	return exists && conn.IsConnected()
 }
 
-// IsFlavorConnected checks if a flavor has an active connection.
+// IsFlavorConnected checks if a flavor has at least one active connection
+// across all hosts provisioned for that flavor.
 func (m *Manager) IsFlavorConnected(flavorID string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -593,6 +499,31 @@ func (m *Manager) handleStatusChange(hostID, status string) {
 		}
 	}
 	m.notifyStateChange()
+}
+
+// ensureWorkspaceForHost creates a workspace for a remote host if one doesn't
+// already exist. This is called immediately when a host is created (not deferred
+// to SpawnRemote) so the workspace appears on the home page right away.
+func (m *Manager) ensureWorkspaceForHost(host state.RemoteHost, flavor config.RemoteFlavor) {
+	workspaceID := fmt.Sprintf("remote-%s", host.ID)
+	if _, found := m.state.GetWorkspace(workspaceID); found {
+		return // Already exists
+	}
+
+	branch := host.Hostname
+	if branch == "" {
+		branch = flavor.DisplayName
+	}
+
+	ws := state.Workspace{
+		ID:           workspaceID,
+		Repo:         flavor.DisplayName,
+		Branch:       branch,
+		Path:         flavor.WorkspacePath,
+		RemoteHostID: host.ID,
+		RemotePath:   flavor.WorkspacePath,
+	}
+	m.state.AddWorkspace(ws)
 }
 
 // notifyStateChange calls the state change callback if set.
@@ -842,16 +773,20 @@ func (m *Manager) MarkStaleHostsDisconnected() int {
 	return count
 }
 
-// GetFlavors returns all configured remote flavors with their connection status.
-type FlavorStatus struct {
-	Flavor    config.RemoteFlavor
-	Connected bool
-	Status    string // "provisioning", "connecting", "connected", "disconnected"
-	Hostname  string
-	HostID    string
+// HostStatus represents the status of a single remote host within a flavor.
+type HostStatus struct {
+	HostID   string `json:"host_id"`
+	Hostname string `json:"hostname"`
+	Status   string `json:"status"`
 }
 
-// GetFlavorStatuses returns all configured flavors with their connection status.
+// FlavorStatus represents a flavor with the status of all its hosts.
+type FlavorStatus struct {
+	Flavor config.RemoteFlavor `json:"flavor"`
+	Hosts  []HostStatus        `json:"hosts"`
+}
+
+// GetFlavorStatuses returns all configured flavors with the status of all their hosts.
 func (m *Manager) GetFlavorStatuses() []FlavorStatus {
 	flavors := m.config.GetRemoteFlavors()
 	result := make([]FlavorStatus, len(flavors))
@@ -862,17 +797,17 @@ func (m *Manager) GetFlavorStatuses() []FlavorStatus {
 	for i, flavor := range flavors {
 		status := FlavorStatus{
 			Flavor: flavor,
-			Status: "disconnected", // Default status
+			Hosts:  []HostStatus{},
 		}
 
-		// Check if connected and get status
+		// Collect all hosts for this flavor
 		for _, conn := range m.connections {
 			if conn.flavor.ID == flavor.ID {
-				status.Connected = conn.IsConnected()
-				status.Status = conn.Status()
-				status.Hostname = conn.Hostname()
-				status.HostID = conn.host.ID
-				break
+				status.Hosts = append(status.Hosts, HostStatus{
+					HostID:   conn.host.ID,
+					Hostname: conn.Hostname(),
+					Status:   conn.Status(),
+				})
 			}
 		}
 

@@ -362,10 +362,11 @@ func (m *Manager) GetRemoteManager() *remote.Manager {
 
 // SpawnRemote creates a new session on a remote host.
 // flavorID identifies the remote flavor to connect to.
+// hostID, when non-empty, reuses an existing host connection instead of creating a new one.
 // targetName is the agent to run (e.g., "claude").
 // prompt is only used if the target is promptable.
 // nickname is an optional human-friendly name for the session.
-func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt, nickname string) (*state.Session, error) {
+func (m *Manager) SpawnRemote(ctx context.Context, flavorID, hostID, targetName, prompt, nickname string) (*state.Session, error) {
 	if m.remoteManager == nil {
 		return nil, fmt.Errorf("remote manager not configured")
 	}
@@ -375,10 +376,19 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 		return nil, err
 	}
 
-	// Connect to or get existing connection for this flavor
-	conn, err := m.remoteManager.Connect(ctx, flavorID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to remote host: %w", err)
+	var conn *remote.Connection
+	if hostID != "" {
+		// Spawn on existing host (add session to existing workspace)
+		conn = m.remoteManager.GetConnection(hostID)
+		if conn == nil {
+			return nil, fmt.Errorf("remote host %s not found or not connected", hostID)
+		}
+	} else {
+		// Create new host (new workspace)
+		conn, err = m.remoteManager.Connect(ctx, flavorID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to remote host: %w", err)
+		}
 	}
 
 	host := conn.Host()

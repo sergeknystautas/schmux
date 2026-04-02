@@ -239,9 +239,9 @@ export default function SpawnPage() {
   // Get branch suggest target from config
   const branchSuggestTarget = config?.branch_suggest?.target || '';
 
-  // Remote flavors without a provisioning command don't need repo/branch selection
-  const isRemoteWithoutProvisioning =
-    environment.type === 'remote' && !environment.flavor.provision_command;
+  // Remote spawns don't need repo/branch selection — the workspace is determined
+  // by the flavor's workspace_path on the remote host, not by a git clone.
+  const isRemoteSpawn = environment.type === 'remote';
 
   // Show branch input immediately when suggestion is disabled
   useEffect(() => {
@@ -687,6 +687,7 @@ export default function SpawnPage() {
             workspace_id: prefillWorkspaceId || '',
             resume: true,
             remote_flavor_id: environment.type === 'remote' ? environment.flavorId : undefined,
+            remote_host_id: environment.type === 'remote' ? environment.hostId : undefined,
             persona_id: selectedPersonaId || undefined,
           });
           if (handleSpawnResult(response)) {
@@ -743,6 +744,7 @@ export default function SpawnPage() {
           targets: { [command]: 1 },
           workspace_id: prefillWorkspaceId || '',
           remote_flavor_id: environment.type === 'remote' ? environment.flavorId : undefined,
+          remote_host_id: environment.type === 'remote' ? environment.hostId : undefined,
           persona_id: selectedPersonaId || undefined,
         });
         if (handleSpawnResult(response)) {
@@ -848,6 +850,7 @@ export default function SpawnPage() {
         targets: selectedTargets,
         workspace_id: prefillWorkspaceId || '',
         remote_flavor_id: environment.type === 'remote' ? environment.flavorId : undefined,
+        remote_host_id: environment.type === 'remote' ? environment.hostId : undefined,
         new_branch: newBranch,
         persona_id: selectedPersonaId || undefined,
         image_attachments: imageAttachments.length > 0 ? imageAttachments : undefined,
@@ -1076,7 +1079,7 @@ export default function SpawnPage() {
             <>
               {modelSelectionMode === 'single' ? (
                 <>
-                  {mode === 'fresh' && !isRemoteWithoutProvisioning ? (
+                  {mode === 'fresh' && !isRemoteSpawn ? (
                     /* Single agent + fresh mode: agent, persona (if available), and repo in flex row */
                     <div className="grid-full">
                       <div
@@ -1244,7 +1247,7 @@ export default function SpawnPage() {
               ) : (
                 <>
                   {/* Multi/Advanced mode: repo on its own row first (fresh only) */}
-                  {mode === 'fresh' && !isRemoteWithoutProvisioning && (
+                  {mode === 'fresh' && !isRemoteSpawn && (
                     <>
                       <label
                         htmlFor="repo"
@@ -1461,7 +1464,7 @@ export default function SpawnPage() {
           )}
 
           {/* Branch (shown on suggestion failure or when suggestion is disabled) */}
-          {mode === 'fresh' && !isRemoteWithoutProvisioning && showBranchInput && (
+          {mode === 'fresh' && !isRemoteSpawn && showBranchInput && (
             <div className="grid-full">
               <input
                 type="text"

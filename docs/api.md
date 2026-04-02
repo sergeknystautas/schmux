@@ -3295,7 +3295,7 @@ Notes:
 
 ### POST /api/remote/hosts/connect
 
-Starts a connection to a remote host asynchronously. Returns immediately; poll `/api/remote/hosts` for status updates.
+Starts a connection to a remote host asynchronously. Every call creates a new host instance (multiple hosts per flavor are allowed). Returns immediately; poll `/api/remote/hosts` for status updates.
 
 Request:
 
@@ -3305,9 +3305,7 @@ Request:
 }
 ```
 
-Response (200, if already connected): a `RemoteHostResponse` object with current connection state.
-
-Response (202, if connecting):
+Response (202):
 
 ```json
 {
@@ -3354,7 +3352,11 @@ Errors:
 
 ### DELETE /api/remote/hosts/{id}
 
-Disconnects and removes a remote host.
+Disconnects a remote host. With `?dismiss=true`, also removes all associated sessions, workspaces, and the host record from state.
+
+Query parameters:
+
+- `dismiss` (optional, boolean): When `true`, removes all sessions and workspaces associated with the host, deletes the host from state, and disconnects. When `false` (default), only disconnects.
 
 Response: 204 No Content
 
@@ -3365,7 +3367,7 @@ Errors:
 
 ### GET /api/remote/flavor-statuses
 
-Returns all flavors with their real-time connection status.
+Returns all flavors with the status of all their hosts. Each flavor contains a `hosts` array with one entry per provisioned host instance.
 
 Response:
 
@@ -3384,17 +3386,29 @@ Response:
       "hostname_regex": "dev-\\d+\\.example\\.com",
       "vscode_command_template": "code --remote ssh-remote+{hostname}"
     },
-    "connected": true,
-    "status": "connected",
-    "hostname": "dev-001.example.com",
-    "host_id": "remote-abc123"
+    "hosts": [
+      {
+        "host_id": "remote-abc123",
+        "hostname": "dev-001.example.com",
+        "status": "connected",
+        "connected": true
+      },
+      {
+        "host_id": "remote-def456",
+        "hostname": "dev-002.example.com",
+        "status": "provisioning",
+        "connected": false
+      }
+    ]
   }
 ]
 ```
 
 Notes:
 
-- `status` can be `"provisioning"`, `"connecting"`, `"connected"`, or `"disconnected"`
+- Each host's `status` can be `"provisioning"`, `"connecting"`, `"connected"`, or `"disconnected"`
+- `connected` is `true` when `status` is `"connected"`
+- `hosts` may be empty (no hosts provisioned) or contain multiple entries (multi-instance)
 - Uses real-time connection status from the remote manager when available; falls back to persisted state
 
 ## Environment API

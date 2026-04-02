@@ -195,6 +195,49 @@ func TestConnection_HostnameExtraction(t *testing.T) {
 	}
 }
 
+func TestConnection_HostnameExtractionNoMatch(t *testing.T) {
+	cfg := ConnectionConfig{
+		FlavorID:      "test-flavor",
+		Flavor:        "test",
+		DisplayName:   "Test Flavor",
+		WorkspacePath: "/tmp/test",
+		VCS:           "git",
+	}
+
+	conn := NewConnection(cfg)
+
+	// Simulate provisioning output that does NOT contain a hostname match.
+	// This exercises the code path where the hostname stays empty and
+	// the tmux fallback (display-message) would be attempted after
+	// control mode is established.
+	output := strings.NewReader("Connecting to remote host...\nAuthentication successful\nSetting up environment\n")
+	done := make(chan struct{})
+	go func() {
+		conn.parseProvisioningOutput(output)
+		close(done)
+	}()
+
+	// Wait for parsing to complete
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("parseProvisioningOutput did not complete in time")
+	}
+
+	// Hostname should remain empty since output didn't match the regex
+	if hostname := conn.Hostname(); hostname != "" {
+		t.Errorf("expected empty hostname, got %q", hostname)
+	}
+
+	// Status should remain provisioning (not changed to connecting)
+	conn.mu.RLock()
+	status := conn.host.Status
+	conn.mu.RUnlock()
+	if status != "provisioning" {
+		t.Errorf("expected status 'provisioning', got %q", status)
+	}
+}
+
 func TestPendingSessionResult(t *testing.T) {
 	// Test that PendingSessionResult properly carries window and pane IDs
 	result := PendingSessionResult{
@@ -245,6 +288,60 @@ func TestConnectionConfig_Validation(t *testing.T) {
 				t.Errorf("flavor ID mismatch: expected %s, got %s", tt.cfg.FlavorID, conn.flavor.ID)
 			}
 		})
+	}
+}
+
+// TestProvision_SucceedsWhenControlModeEstablished verifies Bug 4:
+// Provision() must succeed when controlModeEstablished is true even if the
+// host status is "provisioning". Previously Provision() called IsConnected()
+// which required status=="connected", causing a self-inflicted failure when
+// the caller set status to "provisioning" for UI feedback.
+func TestProvision_SucceedsWhenControlModeEstablished(t *testing.T) {
+	cfg := ConnectionConfig{
+		FlavorID:      "test-flavor",
+		Flavor:        "test",
+		DisplayName:   "Test Flavor",
+		WorkspacePath: "/tmp/test",
+		VCS:           "git",
+	}
+
+	conn := NewConnection(cfg)
+
+	// Simulate the state after Connect() succeeds but before Provision() runs:
+	// - controlModeEstablished is true (connection is ready)
+	// - host status is "provisioning" (caller set it for UI feedback)
+	conn.controlModeEstablished.Store(true)
+	conn.mu.Lock()
+	conn.host.Status = "provisioning"
+	conn.mu.Unlock()
+
+	// Provision with empty command should succeed (no-op)
+	err := conn.Provision(context.Background(), "")
+	if err != nil {
+		t.Errorf("Provision with empty command should succeed, got: %v", err)
+	}
+
+	// Now verify that Provision with a real command checks controlModeEstablished
+	// rather than IsConnected(). Since we have no real client, it should return
+	// "not connected" only if controlModeEstablished is false.
+	conn.controlModeEstablished.Store(false)
+	err = conn.Provision(context.Background(), "echo hello")
+	if err == nil {
+		t.Error("Provision should fail when controlModeEstablished is false")
+	}
+	if err.Error() != "not connected" {
+		t.Errorf("expected 'not connected' error, got: %v", err)
+	}
+
+	// With controlModeEstablished=true but no client, it should still fail
+	// (but NOT because of status check - because client is nil)
+	conn.controlModeEstablished.Store(true)
+	err = conn.Provision(context.Background(), "echo hello")
+	if err == nil {
+		t.Error("Provision should fail when client is nil")
+	}
+	if err.Error() != "not connected" {
+		t.Errorf("expected 'not connected' error, got: %v", err)
 	}
 }
 

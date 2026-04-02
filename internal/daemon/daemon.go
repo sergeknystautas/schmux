@@ -256,8 +256,10 @@ func Stop() error {
 	}
 
 	// Wait for process to exit by polling (process.Wait() doesn't work for non-child processes)
-	// Check every 100ms, up to 5 seconds
-	deadline := time.Now().Add(5 * time.Second)
+	// Check every 100ms, up to 10 seconds. The shutdown sequence includes remote host
+	// disconnection, session manager stop, and HTTP server shutdown, which can take
+	// several seconds under CPU contention (e.g., Docker containers).
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		// Check if process still exists by sending signal 0
 		if err := process.Signal(syscall.Signal(0)); err != nil {
@@ -1415,6 +1417,9 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	// Stop session manager (kills tmux attach-client processes)
 	sm.Stop()
+
+	// Disconnect all remote hosts (cancels pending connect goroutines, kills SSH processes)
+	remoteManager.DisconnectAll()
 
 	// Stop tunnel manager
 	tunnelMgr.Stop()

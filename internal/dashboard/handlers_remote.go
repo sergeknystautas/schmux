@@ -312,25 +312,6 @@ func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Check if already connected
-	if conn := s.remoteManager.GetConnectionByFlavorID(req.FlavorID); conn != nil && conn.IsConnected() {
-		host := conn.Host()
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(RemoteHostResponse{
-			ID:          host.ID,
-			FlavorID:    host.FlavorID,
-			DisplayName: flavor.DisplayName,
-			Hostname:    host.Hostname,
-			Status:      host.Status,
-			VCS:         flavor.VCS,
-			ConnectedAt: host.ConnectedAt.Format("2006-01-02T15:04:05Z07:00"),
-			ExpiresAt:   host.ExpiresAt.Format("2006-01-02T15:04:05Z07:00"),
-		}); err != nil {
-			s.logger.Error("failed to encode response", "handler", "remote-host-connect", "err", err)
-		}
-		return
-	}
-
 	// Start connection (returns immediately with provisioning session ID)
 	provisioningSessionID, err := s.remoteManager.StartConnect(req.FlavorID)
 	if err != nil {
@@ -431,34 +412,59 @@ func (s *Server) handleRemoteHostDisconnect(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Disconnect via remote manager if available
-	if s.remoteManager != nil {
-		if err := s.remoteManager.Disconnect(hostID); err != nil {
-			remoteLog := logging.Sub(s.logger, "remote")
-			remoteLog.Warn("disconnect failed", "err", err)
+	dismiss := r.URL.Query().Get("dismiss") == "true"
+
+	if dismiss {
+		// Dismiss: remove all associated sessions, workspaces, and the host itself
+		for _, sess := range s.state.GetSessionsByRemoteHostID(hostID) {
+			s.state.RemoveSession(sess.ID)
 		}
-	} else {
-		// Fallback: just update state
-		if err := s.state.UpdateRemoteHostStatus(hostID, state.RemoteHostStatusDisconnected); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to update host: %v", err), http.StatusInternalServerError)
-			return
+		for _, ws := range s.state.GetWorkspacesByRemoteHostID(hostID) {
+			s.state.RemoveWorkspace(ws.ID)
+		}
+		s.state.RemoveRemoteHost(hostID)
+		if s.remoteManager != nil {
+			s.remoteManager.Disconnect(hostID)
 		}
 		if err := s.state.Save(); err != nil {
 			http.Error(w, "Failed to save state", http.StatusInternalServerError)
 			return
+		}
+	} else {
+		// Default: disconnect only
+		if s.remoteManager != nil {
+			if err := s.remoteManager.Disconnect(hostID); err != nil {
+				remoteLog := logging.Sub(s.logger, "remote")
+				remoteLog.Warn("disconnect failed", "err", err)
+			}
+		} else {
+			// Fallback: just update state
+			if err := s.state.UpdateRemoteHostStatus(hostID, state.RemoteHostStatusDisconnected); err != nil {
+				http.Error(w, fmt.Sprintf("Failed to update host: %v", err), http.StatusInternalServerError)
+				return
+			}
+			if err := s.state.Save(); err != nil {
+				http.Error(w, "Failed to save state", http.StatusInternalServerError)
+				return
+			}
 		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// RemoteFlavorStatusResponse represents a flavor with its connection status.
+// RemoteFlavorStatusResponse represents a flavor with the status of all its hosts.
 type RemoteFlavorStatusResponse struct {
-	Flavor    RemoteFlavorResponse `json:"flavor"`
-	Connected bool                 `json:"connected"`
-	Status    string               `json:"status"` // "provisioning", "connecting", "connected", "disconnected"
-	Hostname  string               `json:"hostname,omitempty"`
-	HostID    string               `json:"host_id,omitempty"`
+	Flavor RemoteFlavorResponse   `json:"flavor"`
+	Hosts  []RemoteHostStatusItem `json:"hosts"`
+}
+
+// RemoteHostStatusItem represents the status of a single remote host within a flavor.
+type RemoteHostStatusItem struct {
+	HostID    string `json:"host_id"`
+	Hostname  string `json:"hostname"`
+	Status    string `json:"status"`
+	Connected bool   `json:"connected"`
 }
 
 // handleRemoteFlavorStatuses returns all flavors with their connection status.
@@ -470,13 +476,18 @@ func (s *Server) handleRemoteFlavorStatuses(w http.ResponseWriter, r *http.Reque
 		statuses := s.remoteManager.GetFlavorStatuses()
 		response := make([]RemoteFlavorStatusResponse, len(statuses))
 		for i, fs := range statuses {
-			response[i] = RemoteFlavorStatusResponse{
-				Flavor:    toFlavorResponse(fs.Flavor),
-				Connected: fs.Connected,
-				Status:    fs.Status,
-				Hostname:  fs.Hostname,
-				HostID:    fs.HostID,
+			resp := RemoteFlavorStatusResponse{
+				Flavor: toFlavorResponse(fs.Flavor),
 			}
+			for _, h := range fs.Hosts {
+				resp.Hosts = append(resp.Hosts, RemoteHostStatusItem{
+					HostID:    h.HostID,
+					Hostname:  h.Hostname,
+					Status:    h.Status,
+					Connected: h.Status == "connected",
+				})
+			}
+			response[i] = resp
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(response); err != nil {
@@ -488,29 +499,25 @@ func (s *Server) handleRemoteFlavorStatuses(w http.ResponseWriter, r *http.Reque
 	// Fallback: use state-based connection status
 	hosts := s.state.GetRemoteHosts()
 
-	// Build a map of flavor ID -> connected host
-	flavorToHost := make(map[string]state.RemoteHost)
+	// Build a map of flavor ID -> all hosts
+	flavorToHosts := make(map[string][]state.RemoteHost)
 	for _, h := range hosts {
-		if h.Status == state.RemoteHostStatusConnected {
-			flavorToHost[h.FlavorID] = h
-		}
+		flavorToHosts[h.FlavorID] = append(flavorToHosts[h.FlavorID], h)
 	}
 
 	response := make([]RemoteFlavorStatusResponse, len(flavors))
 	for i, f := range flavors {
 		resp := RemoteFlavorStatusResponse{
-			Flavor:    toFlavorResponse(f),
-			Connected: false,
-			Status:    "disconnected",
+			Flavor: toFlavorResponse(f),
 		}
-
-		if host, found := flavorToHost[f.ID]; found {
-			resp.Connected = true
-			resp.Status = host.Status
-			resp.Hostname = host.Hostname
-			resp.HostID = host.ID
+		for _, host := range flavorToHosts[f.ID] {
+			resp.Hosts = append(resp.Hosts, RemoteHostStatusItem{
+				HostID:    host.ID,
+				Hostname:  host.Hostname,
+				Status:    host.Status,
+				Connected: host.Status == state.RemoteHostStatusConnected,
+			})
 		}
-
 		response[i] = resp
 	}
 

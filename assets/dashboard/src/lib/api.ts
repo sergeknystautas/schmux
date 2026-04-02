@@ -771,6 +771,16 @@ export async function disconnectRemoteHost(hostId: string): Promise<void> {
   }
 }
 
+export async function dismissRemoteHost(hostId: string): Promise<void> {
+  const response = await apiFetch(`/api/remote/hosts/${encodeURIComponent(hostId)}?dismiss=true`, {
+    method: 'DELETE',
+    headers: { ...csrfHeaders() },
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to dismiss remote host');
+  }
+}
+
 // ============================================================================
 // Git Commit Workflow API
 // ============================================================================

@@ -46,7 +46,7 @@ test.describe('Remote host connection modal renders without errors', () => {
     const pageErrors: Error[] = [];
     page.on('pageerror', (err) => pageErrors.push(err));
 
-    // Mock the flavor-statuses endpoint to show our flavor as disconnected
+    // Mock the flavor-statuses endpoint to show our flavor with no hosts
     await page.route('**/api/remote/flavor-statuses', (route) =>
       route.fulfill({
         status: 200,
@@ -60,10 +60,7 @@ test.describe('Remote host connection modal renders without errors', () => {
               workspace_path: '/tmp/workspace',
               vcs: 'git',
             },
-            connected: false,
-            host_id: '',
-            hostname: '',
-            status: '',
+            hosts: [],
           },
         ]),
       })
@@ -114,14 +111,14 @@ test.describe('Remote host connection modal renders without errors', () => {
     await page.goto('/spawn');
     await waitForDashboardLive(page);
 
-    // Verify: the remote flavor card shows "Click to connect"
-    const flavorCard = page.locator('text=Test Remote Host');
-    await expect(flavorCard).toBeVisible({ timeout: 10_000 });
-    const clickToConnect = page.locator('text=Click to connect');
-    await expect(clickToConnect).toBeVisible();
+    // Verify: the "+ New host" card shows for the flavor
+    const newHostCard = page.locator('text=New Test Remote Host host');
+    await expect(newHostCard).toBeVisible({ timeout: 10_000 });
+    const provisionText = page.locator('text=Provision a new instance');
+    await expect(provisionText).toBeVisible();
 
-    // Click the flavor card to trigger connection
-    await flavorCard.click();
+    // Click the "+ New host" card to trigger connection
+    await newHostCard.click();
 
     // Verify: the connection modal opens
     const modal = page.locator('.modal-overlay');

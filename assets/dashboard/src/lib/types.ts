@@ -146,6 +146,7 @@ export interface SpawnRequest {
   action_id?: string; // action registry ID for usage tracking
   resume?: boolean; // resume mode: use agent's resume command
   remote_flavor_id?: string; // optional: spawn on remote host
+  remote_host_id?: string; // optional: spawn on specific remote host instance
   new_branch?: string; // create new workspace with this branch from source workspace
   persona_id?: string; // optional: behavioral persona for the agent
   image_attachments?: string[]; // base64-encoded PNGs, max 5
@@ -402,12 +403,23 @@ export interface RemoteFlavor {
   vscode_command_template?: string;
 }
 
+export interface RemoteHostStatus {
+  host_id: string;
+  hostname: string;
+  status:
+    | 'provisioning'
+    | 'connecting'
+    | 'connected'
+    | 'disconnected'
+    | 'expired'
+    | 'reconnecting'
+    | 'failed';
+  connected: boolean;
+}
+
 export interface RemoteFlavorStatus {
   flavor: RemoteFlavor;
-  connected: boolean;
-  status: 'provisioning' | 'connecting' | 'connected' | 'disconnected' | 'expired' | 'reconnecting';
-  hostname: string;
-  host_id: string;
+  hosts: RemoteHostStatus[];
 }
 
 export interface RemoteHost {
@@ -417,7 +429,14 @@ export interface RemoteHost {
   uuid: string;
   connected_at: string;
   expires_at: string;
-  status: 'provisioning' | 'connecting' | 'connected' | 'disconnected' | 'expired' | 'reconnecting';
+  status:
+    | 'provisioning'
+    | 'connecting'
+    | 'connected'
+    | 'disconnected'
+    | 'expired'
+    | 'reconnecting'
+    | 'failed';
   provisioned: boolean;
   provisioning_session_id?: string; // Local tmux session ID for interactive provisioning terminal
 }

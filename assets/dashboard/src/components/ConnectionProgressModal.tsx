@@ -145,7 +145,11 @@ export default function ConnectionProgressModal({
         const host =
           hosts.find((h) => h.provisioning_session_id === provisioningSessionId) ||
           hosts.find(
-            (h) => h.flavor_id === flavorId && h.status !== 'disconnected' && h.status !== 'expired'
+            (h) =>
+              h.flavor_id === flavorId &&
+              h.status !== 'disconnected' &&
+              h.status !== 'expired' &&
+              h.status !== 'failed'
           ) ||
           hosts.find((h) => h.flavor_id === flavorId);
 
@@ -166,7 +170,11 @@ export default function ConnectionProgressModal({
             setStatus('connecting');
           } else if (host.status === 'reconnecting') {
             setStatus('reconnecting');
-          } else if (host.status === 'disconnected' || host.status === 'expired') {
+          } else if (
+            host.status === 'disconnected' ||
+            host.status === 'expired' ||
+            host.status === 'failed'
+          ) {
             setStatus('error');
             setErrorMessage(`Connection failed: host ${host.status}`);
             if (pollIntervalRef.current) {

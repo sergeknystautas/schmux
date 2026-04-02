@@ -16,6 +16,7 @@ import {
   checkoutPR,
   getOverlays,
   dismissOverlayNudge,
+  dismissRemoteHost,
   getErrorMessage,
   linearSyncFromMain,
   getGitGraph,
@@ -291,7 +292,7 @@ export default function HomePage() {
     }
   }
   const { success, error: toastError } = useToast();
-  const { alert } = useModal();
+  const { alert, confirm } = useModal();
   const { setPendingNavigation } = usePendingNavigation();
   const navigate = useNavigate();
 
@@ -533,6 +534,22 @@ export default function HomePage() {
     navigateToWorkspace(navigate, workspaces, workspaceId);
   };
 
+  const handleDismissRemoteWorkspace = async (e: React.MouseEvent, ws: WorkspaceResponse) => {
+    e.stopPropagation(); // Don't navigate to workspace
+    if (!ws.remote_host_id) return;
+    const accepted = await confirm('This will remove the workspace and all its sessions.', {
+      danger: true,
+      confirmText: 'Dismiss',
+    });
+    if (!accepted) return;
+    try {
+      await dismissRemoteHost(ws.remote_host_id);
+      success('Remote workspace dismissed');
+    } catch (err) {
+      await alert('Dismiss Failed', getErrorMessage(err, 'Failed to dismiss remote workspace'));
+    }
+  };
+
   const loading = sessionsLoading || configLoading;
 
   // Shared sidebar content: workspaces, connection, tips
@@ -591,6 +608,10 @@ export default function HomePage() {
               <div className={styles.tableBody}>
                 {workspaces.map((ws) => {
                   const runningCount = ws.sessions.filter((s) => s.running).length;
+                  const isRemoteDead =
+                    ws.remote_host_id &&
+                    (ws.remote_host_status === 'expired' ||
+                      ws.remote_host_status === 'disconnected');
                   return (
                     <button
                       key={ws.id}
@@ -604,6 +625,24 @@ export default function HomePage() {
                         <span className={styles.workspaceRepo}>{getRepoName(ws.repo)}</span>
                       </div>
                       <div className={styles.workspaceStats}>
+                        {isRemoteDead && (
+                          <span
+                            className={styles.scanButton}
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => handleDismissRemoteWorkspace(e, ws)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                handleDismissRemoteWorkspace(e as unknown as React.MouseEvent, ws);
+                              }
+                            }}
+                            style={{ fontSize: '0.7rem', color: 'var(--color-error)' }}
+                            data-testid={`dismiss-workspace-${ws.id}`}
+                          >
+                            Dismiss
+                          </span>
+                        )}
                         <span className={styles.gitStats} data-testid="git-stats">
                           <span className="inline-flex" style={{ gap: 1 }}>
                             {ws.behind}
@@ -1189,6 +1228,10 @@ export default function HomePage() {
                 <div className={styles.tableBody}>
                   {workspaces.map((ws) => {
                     const runningCount = ws.sessions.filter((s) => s.running).length;
+                    const isRemoteDead =
+                      ws.remote_host_id &&
+                      (ws.remote_host_status === 'expired' ||
+                        ws.remote_host_status === 'disconnected');
                     return (
                       <button
                         key={ws.id}
@@ -1202,6 +1245,27 @@ export default function HomePage() {
                           <span className={styles.workspaceRepo}>{getRepoName(ws.repo)}</span>
                         </div>
                         <div className={styles.workspaceStats}>
+                          {isRemoteDead && (
+                            <span
+                              className={styles.scanButton}
+                              role="button"
+                              tabIndex={0}
+                              onClick={(e) => handleDismissRemoteWorkspace(e, ws)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  handleDismissRemoteWorkspace(
+                                    e as unknown as React.MouseEvent,
+                                    ws
+                                  );
+                                }
+                              }}
+                              style={{ fontSize: '0.7rem', color: 'var(--color-error)' }}
+                              data-testid={`dismiss-workspace-${ws.id}`}
+                            >
+                              Dismiss
+                            </span>
+                          )}
                           <span className={styles.gitStats} data-testid="git-stats">
                             <span className="inline-flex" style={{ gap: 1 }}>
                               {ws.behind}

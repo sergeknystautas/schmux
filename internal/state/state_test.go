@@ -348,6 +348,31 @@ func TestRemoteHostCRUD(t *testing.T) {
 		}
 	})
 
+	t.Run("GetRemoteHostsByFlavorID", func(t *testing.T) {
+		s := &State{
+			RemoteHosts: []RemoteHost{
+				{ID: "remote-aaa", FlavorID: "www", Hostname: "devvm1.od"},
+				{ID: "remote-bbb", FlavorID: "www", Hostname: "devvm2.od"},
+				{ID: "remote-ccc", FlavorID: "gpu", Hostname: "devvm3.od"},
+			},
+		}
+
+		hosts := s.GetRemoteHostsByFlavorID("www")
+		if len(hosts) != 2 {
+			t.Fatalf("expected 2 hosts, got %d", len(hosts))
+		}
+
+		hosts = s.GetRemoteHostsByFlavorID("gpu")
+		if len(hosts) != 1 {
+			t.Fatalf("expected 1 host, got %d", len(hosts))
+		}
+
+		hosts = s.GetRemoteHostsByFlavorID("nonexistent")
+		if len(hosts) != 0 {
+			t.Fatalf("expected 0 hosts, got %d", len(hosts))
+		}
+	})
+
 	t.Run("GetRemoteHostByHostname", func(t *testing.T) {
 		s := New("", nil)
 

@@ -80,10 +80,12 @@ func TestE2ERemoteSSHSmoke(t *testing.T) {
 		}
 		t.Logf("SSH remote host connected: %s (hostname: %s)", host.ID, host.Hostname)
 
-		// Verify hostname is localhost (may be empty in Docker SSH environments
-		// where the hostname hasn't been resolved yet)
-		if host.Hostname != "" && host.Hostname != "localhost" && host.Hostname != "127.0.0.1" {
-			t.Errorf("Hostname = %q, want localhost, 127.0.0.1, or empty", host.Hostname)
+		// Verify hostname is non-empty. In Docker, SSH to localhost resolves the
+		// hostname via tmux's #{host} fallback, which returns the container ID
+		// (e.g., "ef73ceafd16d") rather than "localhost". Any non-empty hostname
+		// is valid — it confirms the tmux hostname extraction worked.
+		if host.Hostname == "" {
+			t.Error("expected non-empty hostname after SSH connection")
 		}
 	})
 

@@ -1,20 +1,21 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import HostStatusIndicator, { getHostStatus, type HostStatus } from './HostStatusIndicator';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import HostStatusIndicator from './HostStatusIndicator';
 import ConnectionProgressModal from './ConnectionProgressModal';
 import {
   getRemoteFlavorStatuses,
   getErrorMessage,
   getRemoteHosts,
   connectRemoteHost,
+  reconnectRemoteHost,
 } from '../lib/api';
 import { useToast } from './ToastProvider';
 import { useModal } from './ModalProvider';
 import { useSessions } from '../contexts/SessionsContext';
-import type { RemoteFlavor, RemoteFlavorStatus, RemoteHost } from '../lib/types';
+import type { RemoteFlavor, RemoteFlavorStatus, RemoteHostStatus, RemoteHost } from '../lib/types';
 
 export type EnvironmentSelection =
   | { type: 'local' }
-  | { type: 'remote'; flavorId: string; flavor: RemoteFlavor; host?: RemoteHost };
+  | { type: 'remote'; flavorId: string; flavor: RemoteFlavor; host?: RemoteHost; hostId?: string };
 
 interface RemoteHostSelectorProps {
   value: EnvironmentSelection;
@@ -34,7 +35,7 @@ export default function RemoteHostSelector({
   const [connecting, setConnecting] = useState<string | null>(null);
   const [connectingFlavor, setConnectingFlavor] = useState<RemoteFlavor | null>(null);
   const [provisioningSessionId, setProvisioningSessionId] = useState<string | null>(null);
-  const { error: toastError, success: toastSuccess } = useToast();
+  const { success: toastSuccess } = useToast();
   const { alert } = useModal();
   const { workspaces } = useSessions();
   const activeRef = useRef(true);
@@ -63,18 +64,19 @@ export default function RemoteHostSelector({
     onChange({ type: 'local' });
   };
 
-  const handleSelectRemote = useCallback(
-    async (flavorStatus: RemoteFlavorStatus) => {
-      if (flavorStatus.connected && flavorStatus.host_id) {
+  const handleSelectExistingHost = useCallback(
+    async (flavorStatus: RemoteFlavorStatus, hostStatus: RemoteHostStatus) => {
+      if (hostStatus.connected) {
         // Already connected - fetch full host data from API
         try {
           const hosts = await getRemoteHosts();
-          const fullHost = hosts.find((h) => h.id === flavorStatus.host_id);
+          const fullHost = hosts.find((h) => h.id === hostStatus.host_id);
           onChange({
             type: 'remote',
             flavorId: flavorStatus.flavor.id,
             flavor: flavorStatus.flavor,
             host: fullHost,
+            hostId: hostStatus.host_id,
           });
         } catch (err) {
           console.error('Failed to fetch host data:', err);
@@ -83,30 +85,59 @@ export default function RemoteHostSelector({
             type: 'remote',
             flavorId: flavorStatus.flavor.id,
             flavor: flavorStatus.flavor,
+            hostId: hostStatus.host_id,
           });
         }
-      } else {
-        // Need to connect - start connection and show modal
+      } else if (hostStatus.status === 'disconnected' || hostStatus.status === 'expired') {
+        // Disconnected/expired host - trigger reconnect
         setConnecting(flavorStatus.flavor.id);
         setConnectingFlavor(flavorStatus.flavor);
-
         try {
-          // Start the connection (returns 202 with provisioning session ID)
-          const response = await connectRemoteHost({ flavor_id: flavorStatus.flavor.id });
+          const response = await reconnectRemoteHost(hostStatus.host_id);
           setProvisioningSessionId(response.provisioning_session_id || null);
         } catch (err) {
-          alert('Connection Failed', getErrorMessage(err, 'Failed to start connection'));
+          alert('Reconnect Failed', getErrorMessage(err, 'Failed to reconnect'));
           setConnecting(null);
           setConnectingFlavor(null);
         }
+      } else {
+        // Provisioning/connecting - select it
+        onChange({
+          type: 'remote',
+          flavorId: flavorStatus.flavor.id,
+          flavor: flavorStatus.flavor,
+          hostId: hostStatus.host_id,
+        });
       }
     },
-    [onChange, onConnectionComplete, toastError, toastSuccess]
+    [onChange, alert]
   );
 
-  const isSelected = (type: 'local' | string) => {
+  const handleSelectNewHost = useCallback(
+    async (flavorStatus: RemoteFlavorStatus) => {
+      // Start a new connection for this flavor
+      setConnecting(flavorStatus.flavor.id);
+      setConnectingFlavor(flavorStatus.flavor);
+
+      try {
+        const response = await connectRemoteHost({ flavor_id: flavorStatus.flavor.id });
+        setProvisioningSessionId(response.provisioning_session_id || null);
+      } catch (err) {
+        alert('Connection Failed', getErrorMessage(err, 'Failed to start connection'));
+        setConnecting(null);
+        setConnectingFlavor(null);
+      }
+    },
+    [alert]
+  );
+
+  const isSelected = (type: 'local' | string, hostId?: string) => {
     if (type === 'local') return value.type === 'local';
-    return value.type === 'remote' && value.flavorId === type;
+    if (value.type !== 'remote') return false;
+    if (value.flavorId !== type) return false;
+    // If hostId is specified, match on it; otherwise just match flavor
+    if (hostId) return value.hostId === hostId;
+    return !value.hostId;
   };
 
   const cardStyle = (selected: boolean) => ({
@@ -179,78 +210,106 @@ export default function RemoteHostSelector({
         ) : (
           flavors.map((flavorStatus) => {
             const isConnecting = connecting === flavorStatus.flavor.id;
-            const selected = isSelected(flavorStatus.flavor.id);
-
+            // Render existing host cards (if any) + a "New host" card
             return (
-              <div
-                key={flavorStatus.flavor.id}
-                style={cardStyle(selected)}
-                onClick={() => !disabled && !isConnecting && handleSelectRemote(flavorStatus)}
-                role="button"
-                tabIndex={disabled || isConnecting ? -1 : 0}
-                onKeyDown={(e) => {
-                  if (!disabled && !isConnecting && (e.key === 'Enter' || e.key === ' ')) {
-                    e.preventDefault();
-                    handleSelectRemote(flavorStatus);
-                  }
-                }}
-              >
-                <div className="flex-row gap-sm">
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
-                    <line x1="1" y1="10" x2="23" y2="10" />
-                  </svg>
-                  <strong className="truncate">{flavorStatus.flavor.display_name}</strong>
-                </div>
+              <React.Fragment key={flavorStatus.flavor.id}>
+                {(flavorStatus.hosts || []).map((hostStatus) => {
+                  const selected = isSelected(flavorStatus.flavor.id, hostStatus.host_id);
+                  return (
+                    <div
+                      key={hostStatus.host_id}
+                      style={cardStyle(selected)}
+                      onClick={() =>
+                        !disabled &&
+                        !isConnecting &&
+                        handleSelectExistingHost(flavorStatus, hostStatus)
+                      }
+                      role="button"
+                      tabIndex={disabled || isConnecting ? -1 : 0}
+                      onKeyDown={(e) => {
+                        if (!disabled && !isConnecting && (e.key === 'Enter' || e.key === ' ')) {
+                          e.preventDefault();
+                          handleSelectExistingHost(flavorStatus, hostStatus);
+                        }
+                      }}
+                    >
+                      <div className="flex-row gap-sm">
+                        <svg
+                          width="20"
+                          height="20"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+                          <line x1="1" y1="10" x2="23" y2="10" />
+                        </svg>
+                        <strong className="truncate">
+                          {hostStatus.hostname || flavorStatus.flavor.display_name}
+                        </strong>
+                      </div>
+                      <div
+                        style={{
+                          fontSize: '0.75rem',
+                          color: 'var(--color-text-muted)',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {flavorStatus.flavor.display_name}
+                      </div>
+                      <HostStatusIndicator
+                        status={hostStatus.status || 'disconnected'}
+                        hostname={hostStatus.hostname}
+                      />
+                    </div>
+                  );
+                })}
+
+                {/* "+ New host" card */}
                 <div
                   style={{
-                    fontSize: '0.75rem',
-                    color: 'var(--color-text-muted)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
+                    ...cardStyle(false),
+                    borderStyle: 'dashed',
+                  }}
+                  onClick={() => !disabled && !isConnecting && handleSelectNewHost(flavorStatus)}
+                  role="button"
+                  tabIndex={disabled || isConnecting ? -1 : 0}
+                  onKeyDown={(e) => {
+                    if (!disabled && !isConnecting && (e.key === 'Enter' || e.key === ' ')) {
+                      e.preventDefault();
+                      handleSelectNewHost(flavorStatus);
+                    }
                   }}
                 >
-                  {flavorStatus.flavor.flavor}
-                </div>
-                {isConnecting ? (
-                  <HostStatusIndicator status="provisioning" />
-                ) : flavorStatus.connected ? (
-                  <HostStatusIndicator
-                    status={flavorStatus.status || 'connected'}
-                    hostname={flavorStatus.hostname}
-                  />
-                ) : flavorStatus.status === 'provisioning' ||
-                  flavorStatus.status === 'connecting' ? (
-                  <HostStatusIndicator
-                    status={flavorStatus.status}
-                    hostname={flavorStatus.hostname}
-                  />
-                ) : (
-                  <span
-                    className="flex-row gap-xs text-muted"
+                  <div className="flex-row gap-sm">
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    >
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
+                    <strong className="truncate">
+                      New {flavorStatus.flavor.display_name} host
+                    </strong>
+                  </div>
+                  <div
                     style={{
                       fontSize: '0.75rem',
+                      color: 'var(--color-text-muted)',
                     }}
                   >
-                    <span
-                      style={{
-                        width: '6px',
-                        height: '6px',
-                        borderRadius: '50%',
-                        backgroundColor: 'var(--color-text-muted)',
-                      }}
-                    />
-                    Click to connect
-                  </span>
-                )}
-              </div>
+                    Provision a new instance
+                  </div>
+                </div>
+              </React.Fragment>
             );
           })
         )}
@@ -267,7 +326,7 @@ export default function RemoteHostSelector({
             setConnectingFlavor(null);
             setProvisioningSessionId(null);
           }}
-          onConnected={(host) => {
+          onConnected={async (host) => {
             setConnecting(null);
             setConnectingFlavor(null);
             setProvisioningSessionId(null);
@@ -276,9 +335,17 @@ export default function RemoteHostSelector({
               flavorId: connectingFlavor.id,
               flavor: connectingFlavor,
               host,
+              hostId: host.id,
             });
             onConnectionComplete?.(host);
             toastSuccess(`Connected to ${connectingFlavor.display_name}`);
+            // Re-fetch flavor statuses so host cards update immediately
+            try {
+              const statuses = await getRemoteFlavorStatuses();
+              setFlavors(statuses);
+            } catch {
+              // WebSocket will update eventually
+            }
           }}
         />
       )}
