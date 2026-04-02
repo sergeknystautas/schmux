@@ -5,8 +5,10 @@ import {
   deleteTimelapseRecording,
   type TimelapseRecording,
 } from '../lib/api';
+import { useModal } from '../components/ModalProvider';
 
 export default function TimelapsePage() {
+  const { confirm } = useModal();
   const [recordings, setRecordings] = useState<TimelapseRecording[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState<Set<string>>(new Set());
@@ -41,8 +43,19 @@ export default function TimelapsePage() {
   };
 
   const handleDelete = async (recordingId: string) => {
-    if (!confirm(`Delete recording ${recordingId}?`)) return;
+    const accepted = await confirm(`Delete recording ${recordingId}?`, { danger: true });
+    if (!accepted) return;
     await deleteTimelapseRecording(recordingId);
+    fetchRecordings();
+  };
+
+  const handleDeleteAll = async () => {
+    const accepted = await confirm(
+      `Delete all ${recordings.length} recording${recordings.length !== 1 ? 's' : ''}? This cannot be undone.`,
+      { danger: true }
+    );
+    if (!accepted) return;
+    await Promise.all(recordings.map((r) => deleteTimelapseRecording(r.RecordingID)));
     fetchRecordings();
   };
 
@@ -69,7 +82,14 @@ export default function TimelapsePage() {
 
   return (
     <div className="page-content" style={{ padding: 'var(--spacing-lg)' }}>
-      <h1>Timelapse Recordings</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <h1>Timelapse Recordings</h1>
+        {recordings.length > 0 && (
+          <button className="btn btn--sm btn--danger" onClick={handleDeleteAll}>
+            Delete all
+          </button>
+        )}
+      </div>
       <p style={{ color: 'var(--text-secondary)', marginBottom: 'var(--spacing-md)' }}>
         Terminal sessions are recorded as .cast files, playable with{' '}
         <a href="https://asciinema.org/" target="_blank" rel="noopener noreferrer">
@@ -114,11 +134,14 @@ export default function TimelapsePage() {
                 </td>
                 <td style={{ padding: 'var(--spacing-sm)' }}>
                   <div style={{ display: 'flex', gap: 'var(--spacing-xs)', flexWrap: 'wrap' }}>
-                    <button className="btn btn--sm" onClick={() => handleDownload(rec.RecordingID)}>
+                    <button
+                      className="btn btn--sm btn--secondary"
+                      onClick={() => handleDownload(rec.RecordingID)}
+                    >
                       Original
                     </button>
                     <button
-                      className="btn btn--sm"
+                      className="btn btn--sm btn--secondary"
                       onClick={() => handleExport(rec.RecordingID)}
                       disabled={exporting.has(rec.RecordingID)}
                     >

@@ -90,7 +90,7 @@ export function StreamMetricsPanel({ backendStats, frontendStats, onDiagnosticCa
         )}
       </div>
       {onDiagnosticCapture && (
-        <button className="btn btn--sm" onClick={onDiagnosticCapture}>
+        <button className="btn btn--sm btn--secondary" onClick={onDiagnosticCapture}>
           Diagnose
         </button>
       )}

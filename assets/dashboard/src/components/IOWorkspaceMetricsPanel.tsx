@@ -48,7 +48,7 @@ export function IOWorkspaceMetricsPanel({ stats, onCapture }: Props) {
         <span>{formatDuration(totalMs)}</span>
       </div>
       {onCapture && (
-        <button className="btn btn--sm" onClick={onCapture}>
+        <button className="btn btn--sm btn--secondary" onClick={onCapture}>
           Diagnose
         </button>
       )}

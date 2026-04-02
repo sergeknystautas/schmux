@@ -203,3 +203,64 @@ test.describe('Timelapse disabled hides UI elements', () => {
     await expect(btn).toHaveCount(0);
   });
 });
+
+test.describe('Delete all recordings', () => {
+  let repoPath: string;
+
+  test.beforeAll(async () => {
+    await waitForHealthy();
+    repoPath = await createTestRepo('timelapse-delete-all');
+
+    await seedConfig({
+      repos: [repoPath],
+      agents: [
+        {
+          name: 'delete-all-agent',
+          command: "sh -c 'echo DELETE_ALL_READY; sleep 600'",
+        },
+      ],
+    });
+
+    // Spawn two sessions to create multiple recordings
+    await spawnSession({
+      repo: repoPath,
+      branch: 'del-all-1',
+      targets: { 'delete-all-agent': 1 },
+    });
+    await spawnSession({
+      repo: repoPath,
+      branch: 'del-all-2',
+      targets: { 'delete-all-agent': 1 },
+    });
+    await waitForSessionRunning();
+    await sleep(3000); // let recorders create files
+  });
+
+  test('delete all button removes all recordings after confirmation', async ({ page }) => {
+    // Verify recordings exist
+    let recordings = await apiGet<TimelapseRecording[]>('/api/timelapse');
+    expect(recordings.length).toBeGreaterThanOrEqual(1);
+
+    // Navigate to timelapse page
+    await page.goto('/timelapse');
+    await waitForDashboardLive(page);
+    await expect(page.locator('table')).toBeVisible({ timeout: 5000 });
+
+    // Click "Delete all"
+    const deleteAllBtn = page.getByRole('button', { name: 'Delete all' });
+    await expect(deleteAllBtn).toBeVisible();
+    await deleteAllBtn.click();
+
+    // Confirm in modal dialog
+    const confirmBtn = page.getByRole('button', { name: 'Confirm' });
+    await expect(confirmBtn).toBeVisible();
+    await confirmBtn.click();
+
+    // Table should disappear, replaced by empty state
+    await expect(page.getByText('No recordings found')).toBeVisible({ timeout: 5000 });
+
+    // API confirms no recordings remain
+    recordings = await apiGet<TimelapseRecording[]>('/api/timelapse');
+    expect(recordings.length).toBe(0);
+  });
+});
