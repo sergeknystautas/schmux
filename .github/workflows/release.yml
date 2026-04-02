@@ -9,15 +9,90 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  quick-tests:
+    name: Quick Tests
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: assets/dashboard/package-lock.json
+
+      - name: Enforce API doc updates
+        run: scripts/check-api-docs.sh
+
+      - name: Run quick tests
+        run: ./test.sh --quick --verbose
+
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run E2E tests
+        run: ./test.sh --e2e --verbose
+
+      - name: Clean up dangling images
+        if: always()
+        run: docker image prune -af
+
+  scenario-tests:
+    name: Scenario Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: assets/dashboard/package-lock.json
+
+      - name: Run scenario tests
+        run: ./test.sh --scenarios --verbose
+
+      - name: Upload test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scenario-test-artifacts
+          path: test/scenarios/artifacts/
+          retention-days: 7
+
+      - name: Clean up dangling images
+        if: always()
+        run: docker image prune -af
+
+  release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+    needs: [quick-tests, e2e-tests, scenario-tests]
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: assets/dashboard/package-lock.json
 
       - uses: actions/setup-go@v5
@@ -28,9 +103,6 @@ jobs:
         run: |
           go run ./cmd/build-dashboard
           tar -czf dashboard-assets.tar.gz -C assets/dashboard/dist .
-
-      - name: Run tests
-        run: ./test.sh --all
 
       - name: Extract version
         id: version
