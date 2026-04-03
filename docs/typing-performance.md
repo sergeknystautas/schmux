@@ -33,10 +33,10 @@ c3: render complete
 
 | Segment                  | Computation | Code location                               |
 | ------------------------ | ----------- | ------------------------------------------- |
-| dispatch (→ "handler")      | s2 - s1     | `websocket.go:618` `batch.t2.Sub(batch.t1)` |
-| sendKeys (→ "transport")    | s3 - s2     | `websocket.go:616` `t3.Sub(t2)`             |
-| echo (→ "tmux + agent")     | s4 - s3     | `websocket.go:672` `t4.Sub(pending.t3)`     |
-| frameSend (→ "ws write")    | s5 - s4     | `websocket.go:673` `t5.Sub(t4)`             |
+| dispatch (→ "handler")   | s2 - s1     | `websocket.go:618` `batch.t2.Sub(batch.t1)` |
+| sendKeys (→ "transport") | s3 - s2     | `websocket.go:616` `t3.Sub(t2)`             |
+| echo (→ "tmux + agent")  | s4 - s3     | `websocket.go:672` `t4.Sub(pending.t3)`     |
+| frameSend (→ "ws write") | s5 - s4     | `websocket.go:673` `t5.Sub(t4)`             |
 
 These are sent to the client as a JSON sideband message (`type: "inputEcho"`) with fields `dispatchMs`, `sendKeysMs`, `echoMs`, `frameSendMs`.
 
@@ -50,8 +50,8 @@ These are sent to the client as a JSON sideband message (`type: "inputEcho"`) wi
 
 ### Residual
 
-| Segment | Computation                                                              |
-| ------- | ------------------------------------------------------------------------ |
+| Segment    | Computation                                                                |
+| ---------- | -------------------------------------------------------------------------- |
 | unmeasured | total - (handler + transport + tmux + agent + ws write + js queue + xterm) |
 
 This is the only segment that crosses clock boundaries. It captures WebSocket upstream transit, WebSocket downstream transit, and any unmeasured overhead. The residual is computed per-tuple (clamped to 0) then medianed across the cohort. The displayed total is the cohort's median RTT, independent of segment sum.
@@ -74,8 +74,8 @@ Segment display order (causal): handler, transport, tmux + agent, ws write, js q
 
 ## What Each Segment Captures for Local vs Remote
 
-| Segment     | Local session                                           | Remote session                                                                        |
-| ----------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Segment      | Local session                                           | Remote session                                                                        |
+| ------------ | ------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | handler      | Go handler: decode WS msg, coalesce keystrokes (~0.5ms) | Same (~0.5ms)                                                                         |
 | transport    | Unix socket write + tmux ack (~0.5ms)                   | SSH upstream + tmux dispatch + SSH downstream for ack (~85ms)                         |
 | tmux + agent | Program processes key + tmux detects output (~13ms)     | Program processes key + tmux detects output + SSH downstream for %output (~6ms + SSH) |
@@ -88,24 +88,9 @@ Key insight: for remote sessions, SSH latency hides in `transport` (2 hops for s
 
 ## Known Issues
 
-### 1. P50/P99 breakdown uses single-tuple picking (inaccurate)
+### ~~1. P50/P99 breakdown uses single-tuple picking~~ (resolved)
 
-**RESOLVED** -- Replaced with cohort-median computation. Typical breakdown uses the IQR cohort (P25-P75 tuples), outlier breakdown uses the P95+ cohort. Each segment value is the median within that cohort. Minimum 5 tuples per cohort required. The displayed total is the cohort's median RTT (independent of segment sum), and bar widths use `segmentSum` for proportional sizing.
-
-**File**: `inputLatency.ts`, `getBreakdown()` method.
-
-The breakdown picks a single keystroke tuple whose `clientRTT` is closest to the target percentile (P50 or P99). The segment values shown are from that one keystroke, not percentiles of each segment independently.
-
-**Problem**: The picked tuple may not be representative. For example:
-
-- P99 total is 235ms (true percentile across all samples)
-- The closest tuple has segments summing to 84ms
-- The `network` residual absorbs the 150ms gap
-- This makes `network` appear huge when it's really just a statistical artifact
-
-**Better approach**: Compute each segment's percentile independently: P99 of all handler values, P99 of all tmux cmd values, etc. Then `network = total - sum(segment percentiles)`, clamped to zero. The segments won't sum exactly to total (percentiles of parts don't equal percentile of sum), but the individual segment values will be accurate representations of their own distributions.
-
-**Alternative approach**: Instead of percentile-picking, bucket all tuples into P50-adjacent and P99-adjacent groups (e.g., tuples within 10% of the target RTT) and average the segments within each group. This gives a representative breakdown without the single-tuple noise.
+Replaced with cohort-median computation. The breakdown now shows two cohorts: **Typical** (IQR, P25-P75 tuples) and **Outlier** (P95+ tuples). Each segment value is the median within that cohort, not from a single picked tuple. Minimum 5 tuples per cohort; below that, the bar shows "insufficient data." The displayed total is the cohort's median RTT (independent of segment sum), and bar widths use `segmentSum` as their denominator so segments fill proportionally without overflowing.
 
 ### 2. FIFO queue pairing can mismatch keystrokes with output
 
@@ -121,21 +106,37 @@ The `echo` timer (s4 - s3) starts when `SendKeys` returns (the ack arrived over 
 
 The `sendKeys` timer (s3 - s2) includes: stdin mutex wait, writing the command to the SSH pipe, SSH encrypting + transmitting, tmux processing, SSH return trip. For local sessions this is ~0.5ms (Unix socket). For remote it's ~85ms (dominated by SSH RTT). The `mutexWait` and `executeNet` sub-segments are available in `ServerSegmentTuple` but are no longer exposed in the UI breakdown.
 
-### 5. Stale `lastInputTime` causes bogus samples from non-echo output
+### ~~5. Stale `lastInputTime` causes bogus samples~~ (resolved)
 
-**RESOLVED** -- 2-second staleness timeout added to `markReceived()`. If `performance.now() - lastInputTime > 2000`, the pending measurement is discarded and `lastInputTime` is reset to zero.
+`markReceived()` now discards any pending measurement where `performance.now() - lastInputTime > 2000` (2 seconds). Keystrokes that don't produce output within 2s are not meaningful latency samples — the agent is thinking, not echoing.
 
-**File**: `inputLatency.ts`, `markSent()` / `markReceived()`.
+### ~~6. `unmeasured` residual can go negative~~ (resolved)
 
-`markSent()` sets `lastInputTime` on every keystroke. `markReceived()` records a sample using the first output frame that arrives after a keystroke. But if the program doesn't immediately echo the keystroke (e.g., typing in a password prompt, or the agent is busy), `lastInputTime` stays non-zero indefinitely. When unrelated output eventually arrives (e.g., Claude streaming a response minutes later), the first frame matches `markReceived()` and records a bogus RTT of seconds or minutes.
+Residual is now computed per-tuple (clamped to 0) then medianed across the cohort. The displayed total is the cohort's median RTT, independent of segment sum. Segment medians may not sum to the displayed total (medians of parts ≠ parts of medians), but each value is independently honest. Bar widths use `segmentSum` as their denominator to prevent visual overflow.
 
-**Fix**: Add a staleness timeout. If `performance.now() - lastInputTime > threshold` (e.g., 2 seconds), discard the pending measurement in `markReceived()` and reset `lastInputTime` to zero. Keystrokes that don't produce output within 2s are not meaningful latency samples.
+## Breakdown Methodology
 
-### 6. `unmeasured` residual can go negative
+**File**: `inputLatency.ts`, `getBreakdown()` method.
 
-**RESOLVED** -- Residual is now computed per-tuple (clamped to 0) then medianed across the cohort. The displayed total is the cohort's median RTT, independent of segment sum. Per-tuple clamping eliminates the negative-residual artifact; the segment sum and total are presented independently.
+The breakdown shows where keystroke latency goes for two cohorts:
 
-If server-reported segments + client segments exceed the client RTT (possible due to clock skew or timing jitter), the residual goes negative. It's clamped to zero, but this means the displayed segments can sum to MORE than total (the excess is hidden by the clamp). This happens rarely but is theoretically possible.
+- **Typical** — all tuples whose total RTT falls in the IQR (P25-P75). Represents a normal keystroke.
+- **Outlier** — all tuples whose total RTT exceeds P95. Represents a jittery keystroke.
+
+Each cohort requires at least 5 valid paired tuples. Percentile boundaries are computed from valid paired tuple RTTs (after the `serverTotal > clientRTT` mismatch filter), not from raw samples.
+
+For each cohort, the median of each segment is computed independently. The residual (`unmeasured`) is computed per-tuple first (`max(0, clientRTT - sum_of_segments)`), then medianed across the cohort like any other segment.
+
+The `jsQueue` segment uses a per-tuple `receiveLag` value — a MessageChannel probe fired from `recordServerSegments()` that measures event loop congestion at sideband processing time. When `receiveLag` is undefined (probe hasn't fired yet), it defaults to 0.
+
+The `LatencyBreakdown` type returns:
+
+- `total` — cohort's median RTT, used for the label and cross-bar scaling
+- `segmentSum` — sum of segment medians, used as the denominator for bar widths
+
+These differ because medians of parts ≠ parts of medians. Both are independently honest.
+
+Segments are ordered by causal flow (handler → transport → tmux + agent → ws write → js queue → xterm → unmeasured) and color-coded by ownership: green for schmux code, gray for host environment, blue for browser.
 
 ## Per-Machine Tracking
 

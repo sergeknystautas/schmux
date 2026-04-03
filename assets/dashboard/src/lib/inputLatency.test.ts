@@ -454,7 +454,11 @@ describe('InputLatencyTracker', () => {
     const lags = [0.5, 0.5, 0.5, 0.5, 0.5, 1, 1, 1, 1, 50];
     for (let i = 0; i < lags.length; i++) {
       inputLatency.serverSegmentSamples.push({
-        dispatch: 1, sendKeys: 1, echo: 1, frameSend: 0.5, total: 3.5,
+        dispatch: 1,
+        sendKeys: 1,
+        echo: 1,
+        frameSend: 0.5,
+        total: 3.5,
         receiveLag: lags[i],
       });
     }

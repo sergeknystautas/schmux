@@ -242,13 +242,13 @@ function Histogram({
 
 // Causal ordering: follows the keystroke's journey through the system
 const SEGMENTS = [
-  'handler',    // schmux receives and decodes
-  'tmuxCmd',    // keystroke travels to tmux (transport)
+  'handler', // schmux receives and decodes
+  'tmuxCmd', // keystroke travels to tmux (transport)
   'paneOutput', // tmux + agent processes
-  'wsWrite',    // schmux sends output frame
-  'jsQueue',    // browser event loop picks it up
-  'xterm',      // terminal renders
-  'network',    // unmeasured residual
+  'wsWrite', // schmux sends output frame
+  'jsQueue', // browser event loop picks it up
+  'xterm', // terminal renders
+  'network', // unmeasured residual
 ] as const;
 
 const SEGMENT_COLORS: Record<string, string> = {
@@ -350,12 +350,20 @@ function LatencyBreakdownBars() {
   return (
     <div className="typing-perf__breakdown" data-testid="latency-breakdown">
       {typical ? (
-        <BreakdownRow label="Typical" breakdown={typical} scale={maxTotal > 0 ? typical.total / maxTotal : 1} />
+        <BreakdownRow
+          label="Typical"
+          breakdown={typical}
+          scale={maxTotal > 0 ? typical.total / maxTotal : 1}
+        />
       ) : (
         <div className="typing-perf__insufficient">Typical: insufficient data</div>
       )}
       {outlier ? (
-        <BreakdownRow label="Outlier" breakdown={outlier} scale={maxTotal > 0 ? outlier.total / maxTotal : 1} />
+        <BreakdownRow
+          label="Outlier"
+          breakdown={outlier}
+          scale={maxTotal > 0 ? outlier.total / maxTotal : 1}
+        />
       ) : (
         <div className="typing-perf__insufficient">Outlier: insufficient data</div>
       )}

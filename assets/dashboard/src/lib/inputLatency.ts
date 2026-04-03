@@ -244,7 +244,7 @@ export class InputLatencyTracker {
 
   getWireContext(): WireContext | null {
     const receiveLags = this.serverSegmentSamples
-      .map(s => s.receiveLag)
+      .map((s) => s.receiveLag)
       .filter((v): v is number => v !== undefined);
     if (
       this.framesBetweenSamples.length === 0 &&
