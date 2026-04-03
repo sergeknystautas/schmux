@@ -2555,6 +2555,21 @@ func (rf *RemoteFlavor) GetReconnectCommandTemplate() string {
 	return baseCmd + ` tmux -CC new-session -A -s schmux`
 }
 
+// GetAttachCommandTemplate returns a human-friendly attach command for this flavor.
+// Unlike GetReconnectCommandTemplate, this uses `attach-session` without -CC
+// (control mode), so users get a normal interactive tmux session.
+func (rf *RemoteFlavor) GetAttachCommandTemplate() string {
+	var baseCmd string
+	if rf.ReconnectCommand != "" {
+		baseCmd = rf.ReconnectCommand
+	} else if rf.ConnectCommand != "" {
+		baseCmd = rf.ConnectCommand
+	} else {
+		baseCmd = `ssh -tt {{.Hostname}} --`
+	}
+	return baseCmd + ` tmux attach-session -t schmux`
+}
+
 // AddRemoteFlavor adds a new remote flavor to the config.
 // If no ID is provided, one is generated from the flavor string.
 func (c *Config) AddRemoteFlavor(rf RemoteFlavor) error {

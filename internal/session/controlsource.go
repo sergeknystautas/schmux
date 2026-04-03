@@ -31,7 +31,7 @@ type SourceEvent struct {
 // Implementations own reconnection logic; the tracker just drains Events().
 type ControlSource interface {
 	Events() <-chan SourceEvent
-	SendKeys(keys string) error
+	SendKeys(keys string) (controlmode.SendKeysTimings, error)
 	CaptureVisible() (string, error)    // visible screen (no scrollback)
 	CaptureLines(n int) (string, error) // last N lines of scrollback
 	GetCursorState() (controlmode.CursorState, error)

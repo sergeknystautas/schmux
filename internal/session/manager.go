@@ -275,7 +275,7 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 
 			// Type the event watcher script into the pane
 			watcherScript := events.RemoteWatcherScript(eventsFilePath)
-			if err := conn.SendKeys(ctx, paneID, watcherScript+"\n"); err != nil {
+			if _, err := conn.SendKeys(ctx, paneID, watcherScript+"\n"); err != nil {
 				eventsLog := logging.Sub(m.logger, "events")
 				eventsLog.Error("failed to send watcher script", "session", sessionID, "err", err)
 				conn.KillSession(ctx, windowID)

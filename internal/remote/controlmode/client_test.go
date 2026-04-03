@@ -205,7 +205,7 @@ func TestClient_ContextTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
 
-	_, err := client.Execute(ctx, "test command")
+	_, _, err := client.Execute(ctx, "test command")
 	if err == nil {
 		t.Error("expected timeout error")
 	}
@@ -277,7 +277,7 @@ func TestExecuteTimeoutNoLeak(t *testing.T) {
 	// Execute 100 commands that will all timeout
 	for i := 0; i < 100; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
-		_, err := client.Execute(ctx, "test command")
+		_, _, err := client.Execute(ctx, "test command")
 		cancel() // Important: always call cancel
 		if err == nil {
 			t.Errorf("command %d: expected timeout error", i)
@@ -319,7 +319,7 @@ func TestClientSendKeys_MetaEnterPreserved(t *testing.T) {
 	client.Start()
 	defer client.Close()
 
-	if err := client.SendKeys(context.Background(), "%1", "\x1b\r"); err != nil {
+	if _, err := client.SendKeys(context.Background(), "%1", "\x1b\r"); err != nil {
 		t.Fatalf("SendKeys returned error: %v", err)
 	}
 
@@ -346,7 +346,7 @@ func TestClientSendKeys_LiteralAndMetaEnterSequence(t *testing.T) {
 	client.Start()
 	defer client.Close()
 
-	if err := client.SendKeys(context.Background(), "%7", "abc\x1b\rd"); err != nil {
+	if _, err := client.SendKeys(context.Background(), "%7", "abc\x1b\rd"); err != nil {
 		t.Fatalf("SendKeys returned error: %v", err)
 	}
 
@@ -396,7 +396,7 @@ func TestClientSendKeys_MetaBackspacePreserved(t *testing.T) {
 			client.Start()
 			defer client.Close()
 
-			if err := client.SendKeys(context.Background(), "%2", tt.in); err != nil {
+			if _, err := client.SendKeys(context.Background(), "%2", tt.in); err != nil {
 				t.Fatalf("SendKeys returned error: %v", err)
 			}
 
@@ -438,7 +438,7 @@ func TestCloseOrphanedChannels(t *testing.T) {
 	client.respChansMu.Unlock()
 
 	// Execute will register, timeout, and deregister
-	_, err := client.Execute(ctx, "test")
+	_, _, err := client.Execute(ctx, "test")
 	if err == nil {
 		t.Error("expected timeout error")
 	}
@@ -454,6 +454,21 @@ func TestCloseOrphanedChannels(t *testing.T) {
 	}
 
 	// Close should not panic even if registry is empty
+	client.Close()
+}
+
+func TestClientDoubleClose(t *testing.T) {
+	input := strings.NewReader("")
+	parser := NewParser(input, nil)
+
+	var stdin strings.Builder
+	client := NewClient(&stdin, parser, nil)
+	client.Start()
+
+	// First close should succeed
+	client.Close()
+
+	// Second close should not panic
 	client.Close()
 }
 
@@ -661,7 +676,7 @@ func TestStaleResponsesDiscardedOnReconnect(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	result, err := client.Execute(ctx, "display-message -p 'ready'")
+	result, _, err := client.Execute(ctx, "display-message -p 'ready'")
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
@@ -742,7 +757,7 @@ func TestResponsesAfterEpochDeliveredNormally(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	result1, err := client.Execute(ctx, "cmd1")
+	result1, _, err := client.Execute(ctx, "cmd1")
 	if err != nil {
 		t.Fatalf("first Execute returned error: %v", err)
 	}
@@ -750,7 +765,7 @@ func TestResponsesAfterEpochDeliveredNormally(t *testing.T) {
 		t.Errorf("first command: expected 'first', got %q", result1)
 	}
 
-	result2, err := client.Execute(ctx, "cmd2")
+	result2, _, err := client.Execute(ctx, "cmd2")
 	if err != nil {
 		t.Fatalf("second Execute returned error: %v", err)
 	}

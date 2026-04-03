@@ -127,7 +127,7 @@ func BenchmarkSendInputEcho(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := tracker.SendInput("x"); err != nil {
+		if _, err := tracker.SendInput("x"); err != nil {
 			b.Fatalf("SendInput failed: %v", err)
 		}
 		select {
@@ -152,7 +152,7 @@ func TestLatencyPercentiles(t *testing.T) {
 
 	// Warm-up keystrokes (discarded).
 	for i := 0; i < warmup; i++ {
-		if err := tracker.SendInput("w"); err != nil {
+		if _, err := tracker.SendInput("w"); err != nil {
 			t.Fatalf("warmup SendInput failed: %v", err)
 		}
 		select {
@@ -169,7 +169,7 @@ func TestLatencyPercentiles(t *testing.T) {
 	durations := make([]time.Duration, 0, measured)
 	for i := 0; i < measured; i++ {
 		start := time.Now()
-		if err := tracker.SendInput("x"); err != nil {
+		if _, err := tracker.SendInput("x"); err != nil {
 			t.Fatalf("SendInput failed at iteration %d: %v", i, err)
 		}
 		select {
@@ -202,7 +202,7 @@ func TestLatencyPercentilesStressed(t *testing.T) {
 
 	// Warm-up.
 	for i := 0; i < warmup; i++ {
-		if err := tracker.SendInput("x"); err != nil {
+		if _, err := tracker.SendInput("x"); err != nil {
 			t.Fatalf("warmup SendInput failed: %v", err)
 		}
 		select {
@@ -228,7 +228,7 @@ func TestLatencyPercentilesStressed(t *testing.T) {
 		}
 
 		start := time.Now()
-		if err := tracker.SendInput("x"); err != nil {
+		if _, err := tracker.SendInput("x"); err != nil {
 			t.Fatalf("SendInput failed at iteration %d: %v", i, err)
 		}
 		select {

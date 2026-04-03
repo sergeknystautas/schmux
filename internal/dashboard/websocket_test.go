@@ -856,6 +856,12 @@ func TestStatsMessage_InputLatencyContextFields(t *testing.T) {
 			FrameSendP50:     0.1,
 			FrameSendP99:     0.3,
 			SampleCount:      42,
+			MutexWaitP50:     0.2,
+			MutexWaitP99:     1.5,
+			ExecuteNetP50:    1.8,
+			ExecuteNetP99:    4.0,
+			ExecuteCountP50:  1.0,
+			ExecuteCountP99:  3.0,
 			OutputChDepthP50: 0.0,
 			OutputChDepthP99: 3.0,
 			EchoDataLenP50:   1.0,
@@ -872,6 +878,24 @@ func TestStatsMessage_InputLatencyContextFields(t *testing.T) {
 	il, ok := decoded["inputLatency"].(map[string]interface{})
 	if !ok {
 		t.Fatal("inputLatency field missing or not an object")
+	}
+	if il["mutexWaitP50"].(float64) != 0.2 {
+		t.Errorf("mutexWaitP50 = %v, want 0.2", il["mutexWaitP50"])
+	}
+	if il["mutexWaitP99"].(float64) != 1.5 {
+		t.Errorf("mutexWaitP99 = %v, want 1.5", il["mutexWaitP99"])
+	}
+	if il["executeNetP50"].(float64) != 1.8 {
+		t.Errorf("executeNetP50 = %v, want 1.8", il["executeNetP50"])
+	}
+	if il["executeNetP99"].(float64) != 4.0 {
+		t.Errorf("executeNetP99 = %v, want 4.0", il["executeNetP99"])
+	}
+	if il["executeCountP50"].(float64) != 1.0 {
+		t.Errorf("executeCountP50 = %v, want 1.0", il["executeCountP50"])
+	}
+	if il["executeCountP99"].(float64) != 3.0 {
+		t.Errorf("executeCountP99 = %v, want 3.0", il["executeCountP99"])
 	}
 	if il["outputChDepthP50"].(float64) != 0.0 {
 		t.Errorf("outputChDepthP50 = %v, want 0.0", il["outputChDepthP50"])
@@ -890,8 +914,16 @@ func TestStatsMessage_InputLatencyContextFields(t *testing.T) {
 func TestInputEchoSidebandFormat(t *testing.T) {
 	// Verify the inputEcho sideband message format matches what the frontend expects
 	sideband, err := json.Marshal(map[string]interface{}{
-		"type":     "inputEcho",
-		"serverMs": 5.2,
+		"type":         "inputEcho",
+		"serverMs":     5.2,
+		"dispatchMs":   0.1,
+		"sendKeysMs":   3.0,
+		"echoMs":       1.5,
+		"frameSendMs":  0.6,
+		"mutexWaitMs":  0.3,
+		"executeNetMs": 2.7,
+		"executeCount": 2,
+		"sessionType":  "remote",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -903,6 +935,18 @@ func TestInputEchoSidebandFormat(t *testing.T) {
 	}
 	if decoded["serverMs"].(float64) != 5.2 {
 		t.Errorf("serverMs = %v, want 5.2", decoded["serverMs"])
+	}
+	if decoded["mutexWaitMs"].(float64) != 0.3 {
+		t.Errorf("mutexWaitMs = %v, want 0.3", decoded["mutexWaitMs"])
+	}
+	if decoded["executeNetMs"].(float64) != 2.7 {
+		t.Errorf("executeNetMs = %v, want 2.7", decoded["executeNetMs"])
+	}
+	if decoded["executeCount"].(float64) != 2.0 {
+		t.Errorf("executeCount = %v, want 2", decoded["executeCount"])
+	}
+	if decoded["sessionType"] != "remote" {
+		t.Errorf("sessionType = %v, want remote", decoded["sessionType"])
 	}
 }
 

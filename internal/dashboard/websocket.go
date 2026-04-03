@@ -110,6 +110,7 @@ type WSOutputMessage struct {
 // WSStatsMessage represents a periodic diagnostics stats message sent on the terminal WebSocket.
 type WSStatsMessage struct {
 	Type              string                       `json:"type"`
+	SessionType       string                       `json:"sessionType"` // "local" or "remote"
 	EventsDelivered   int64                        `json:"eventsDelivered"`
 	EventsDropped     int64                        `json:"eventsDropped"`
 	BytesDelivered    int64                        `json:"bytesDelivered"`
@@ -216,6 +217,11 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	sessionType := "local"
+	if sess.IsRemoteSession() {
+		sessionType = "remote"
+	}
+
 	rawConn, err := s.upgradeWebSocket(w, r, 4096, 8192)
 	if err != nil {
 		return
@@ -281,7 +287,7 @@ resizeWaitLoop:
 			case "input":
 				if !isTerminalResponse(msg.Data) {
 					s.clearNudgeOnInput(sessionID, msg.Data)
-					if err := tracker.SendInput(msg.Data); err != nil {
+					if _, err := tracker.SendInput(msg.Data); err != nil {
 						logging.Sub(s.logger, "terminal").Error("failed to send input", "err", err)
 					}
 				}
@@ -568,6 +574,9 @@ drainBootstrap:
 		sendKeys      time.Duration
 		t3            time.Time // SendKeys return time — echo timer starts here
 		outputChDepth int       // len(outputCh) when input case fired
+		mutexWait     time.Duration
+		executeNet    time.Duration
+		executeCount  int
 	}
 	// FIFO queue: each keystroke pushes its timing; each echo event pops the
 	// oldest. This replaces a singleton pointer that silently discarded all
@@ -587,6 +596,9 @@ drainBootstrap:
 		t3            time.Time // post-SendKeys
 		dispatch      time.Duration
 		outputChDepth int
+		mutexWait     time.Duration
+		executeNet    time.Duration
+		executeCount  int
 	}
 	inputBatchCh := make(chan inputBatch, 10)
 	inputDoneCh := make(chan inputResult, 10)
@@ -594,7 +606,7 @@ drainBootstrap:
 		defer close(inputDoneCh)
 		for batch := range inputBatchCh {
 			t2 := time.Now()
-			err := tracker.SendInput(batch.data)
+			timings, err := tracker.SendInput(batch.data)
 			t3 := time.Now()
 			if err != nil {
 				logging.Sub(s.logger, "terminal").Error("failed to send input", "err", err)
@@ -605,6 +617,9 @@ drainBootstrap:
 				t3:            t3,
 				dispatch:      batch.t2.Sub(batch.t1),
 				outputChDepth: batch.outputChDepth,
+				mutexWait:     timings.MutexWait,
+				executeNet:    timings.ExecuteNet,
+				executeCount:  timings.ExecuteCount,
 			}
 		}
 	}()
@@ -656,6 +671,9 @@ drainBootstrap:
 						SendKeys:      pending.sendKeys,
 						Echo:          t4.Sub(pending.t3),
 						FrameSend:     t5.Sub(t4),
+						MutexWait:     pending.mutexWait,
+						ExecuteNet:    pending.executeNet,
+						ExecuteCount:  pending.executeCount,
 						OutputChDepth: pending.outputChDepth,
 						EchoDataLen:   len(event.Data),
 					})
@@ -664,12 +682,16 @@ drainBootstrap:
 					// residual instead of combining independent percentiles.
 					if s.devMode {
 						sideband, _ := json.Marshal(map[string]interface{}{
-							"type":        "inputEcho",
-							"serverMs":    serverTotalMs,
-							"dispatchMs":  float64(pending.dispatch) / float64(time.Millisecond),
-							"sendKeysMs":  float64(pending.sendKeys) / float64(time.Millisecond),
-							"echoMs":      float64(t4.Sub(pending.t3)) / float64(time.Millisecond),
-							"frameSendMs": float64(t5.Sub(t4)) / float64(time.Millisecond),
+							"type":         "inputEcho",
+							"serverMs":     serverTotalMs,
+							"dispatchMs":   float64(pending.dispatch) / float64(time.Millisecond),
+							"sendKeysMs":   float64(pending.sendKeys) / float64(time.Millisecond),
+							"echoMs":       float64(t4.Sub(pending.t3)) / float64(time.Millisecond),
+							"frameSendMs":  float64(t5.Sub(t4)) / float64(time.Millisecond),
+							"mutexWaitMs":  float64(pending.mutexWait) / float64(time.Millisecond),
+							"executeNetMs": float64(pending.executeNet) / float64(time.Millisecond),
+							"executeCount": pending.executeCount,
+							"sessionType":  sessionType,
 						})
 						conn.WriteMessage(websocket.TextMessage, sideband)
 					}
@@ -691,6 +713,7 @@ drainBootstrap:
 				prevTime = now
 				statsMsg := WSStatsMessage{
 					Type:              "stats",
+					SessionType:       sessionType,
 					EventsDelivered:   counters["eventsDelivered"],
 					EventsDropped:     counters["eventsDropped"],
 					BytesDelivered:    counters["bytesDelivered"],
@@ -730,6 +753,9 @@ drainBootstrap:
 				sendKeys:      result.sendKeysDur,
 				t3:            result.t3,
 				outputChDepth: result.outputChDepth,
+				mutexWait:     result.mutexWait,
+				executeNet:    result.executeNet,
+				executeCount:  result.executeCount,
 			})
 		case <-sessionDead:
 			// Flush any held-back bytes before closing
@@ -1116,7 +1142,7 @@ resizeWait:
 			}
 			switch msg.Type {
 			case "input":
-				if err := tracker.SendInput(msg.Data); err != nil {
+				if _, err := tracker.SendInput(msg.Data); err != nil {
 					s.logger.Error("fm terminal: failed to send input", "err", err)
 				}
 			case "resize":

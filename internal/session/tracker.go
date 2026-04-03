@@ -128,11 +128,13 @@ func (t *SessionTracker) SyncTrigger() <-chan struct{} {
 // If eventFilePath is non-empty and eventHandlers is non-nil, an EventWatcher
 // is created for the unified event system.
 func NewSessionTracker(sessionID string, source ControlSource, st state.StateStore, eventFilePath string, eventHandlers map[string][]events.EventHandler, outputCallback func([]byte), logger *log.Logger) *SessionTracker {
-	// Derive HealthProbe from the source if it's a LocalSource.
 	var healthProbe *TmuxHealthProbe
-	if ls, ok := source.(*LocalSource); ok {
-		healthProbe = ls.HealthProbe
-	} else {
+	switch s := source.(type) {
+	case *LocalSource:
+		healthProbe = s.HealthProbe
+	case *RemoteSource:
+		healthProbe = s.healthProbe
+	default:
 		healthProbe = NewTmuxHealthProbe()
 	}
 
@@ -250,7 +252,7 @@ func (t *SessionTracker) fanOut(event controlmode.OutputEvent) {
 }
 
 // SendInput sends terminal input to the session via the source.
-func (t *SessionTracker) SendInput(data string) error {
+func (t *SessionTracker) SendInput(data string) (controlmode.SendKeysTimings, error) {
 	return t.source.SendKeys(data)
 }
 

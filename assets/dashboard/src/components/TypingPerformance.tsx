@@ -39,6 +39,10 @@ export default function TypingPerformance() {
   const stats = inputLatency.getStats();
   const dist = inputLatency.getDistribution();
 
+  const latestSegment =
+    inputLatency.serverSegmentSamples[inputLatency.serverSegmentSamples.length - 1];
+  const sessionType = latestSegment?.sessionType;
+
   return (
     <div className="typing-perf">
       <div className="typing-perf__header">
@@ -48,6 +52,7 @@ export default function TypingPerformance() {
           </span>
           <span className="nav-section-title">Typing Performance</span>
         </button>
+        {sessionType && <span className="typing-perf__session-type">{sessionType}</span>}
         {!collapsed && stats && stats.count > 0 && (
           <button className="typing-perf__reset" onClick={() => inputLatency.reset()}>
             Reset
@@ -60,7 +65,15 @@ export default function TypingPerformance() {
           <div className="typing-perf__empty">Type in a terminal to collect samples</div>
         ) : (
           <>
-            {dist && <Histogram dist={dist} median={stats.median} p99={stats.p99} />}
+            {dist && (
+              <Histogram
+                dist={dist}
+                median={stats.median}
+                p99={stats.p99}
+                avg={stats.avg}
+                stddev={stats.stddev}
+              />
+            )}
             <LatencyBreakdownBars />
           </>
         ))}
@@ -72,15 +85,18 @@ function Histogram({
   dist,
   median,
   p99,
+  avg,
+  stddev,
 }: {
   dist: LatencyDistribution;
   median: number;
   p99: number;
+  avg: number;
+  stddev: number;
 }) {
   const { buckets, maxCount, maxMs } = dist;
 
-  // Generous padding so centered labels never clip
-  const padL = 8;
+  const padL = 0;
   const padR = 8;
   const chartW = 200;
   const chartH = 44;
@@ -90,12 +106,16 @@ function Histogram({
 
   const barW = plotW / buckets.length;
 
-  const toX = (ms: number) => padL + Math.min(ms / maxMs, 1) * plotW;
+  const toX = (ms: number) => padL + Math.min(Math.max(ms, 0) / maxMs, 1) * plotW;
 
   const medianX = toX(median);
   const p99X = toX(p99);
   const medianColor = colorForMs(median);
   const p99Color = colorForMs(p99);
+
+  // ±1σ band around the mean
+  const sigmaLoX = toX(avg - stddev);
+  const sigmaHiX = toX(avg + stddev);
 
   return (
     <div className="typing-perf__chart">
@@ -104,6 +124,15 @@ function Histogram({
         viewBox={`0 0 ${chartW} ${chartH}`}
         style={{ display: 'block', overflow: 'visible' }}
       >
+        {/* ±1σ shaded band */}
+        <rect
+          x={sigmaLoX}
+          y={0}
+          width={sigmaHiX - sigmaLoX}
+          height={plotH}
+          fill="rgba(255,255,255,0.06)"
+        />
+
         {/* Bars */}
         {buckets.map((count, i) => {
           if (count === 0) return null;
@@ -186,6 +215,18 @@ function Histogram({
           {Math.round(p99)}ms
         </text>
 
+        {/* σ label on x-axis showing P50+σ value */}
+        <text
+          x={sigmaHiX}
+          y={chartH - 1}
+          textAnchor="middle"
+          fill="rgba(255,255,255,0.4)"
+          fontSize={7}
+          fontFamily="Menlo, Monaco, 'Courier New', monospace"
+        >
+          {Math.round(median + stddev)}ms
+        </text>
+
         {/* X-axis baseline */}
         <line
           x1={padL}
@@ -203,6 +244,8 @@ function Histogram({
 const SEGMENT_COLORS: Record<string, string> = {
   dispatch: 'rgba(160, 160, 160, 0.7)',
   sendKeys: 'rgba(100, 160, 220, 0.7)',
+  mutexWait: 'rgba(220, 80, 80, 0.7)',
+  executeNet: 'rgba(80, 130, 200, 0.7)',
   echo: 'rgba(160, 100, 180, 0.7)',
   frameSend: 'rgba(80, 160, 180, 0.7)',
   eventLoopLag: 'rgba(180, 170, 80, 0.7)',
@@ -213,6 +256,8 @@ const SEGMENT_COLORS: Record<string, string> = {
 const SEGMENT_LABELS: Record<string, string> = {
   dispatch: 'dispatch',
   sendKeys: 'sendKeys',
+  mutexWait: 'mutex',
+  executeNet: 'execNet',
   echo: 'echo',
   frameSend: 'frameSend',
   eventLoopLag: 'evtLoop',
@@ -223,6 +268,8 @@ const SEGMENT_LABELS: Record<string, string> = {
 const SEGMENTS = [
   'dispatch',
   'sendKeys',
+  'mutexWait',
+  'executeNet',
   'echo',
   'frameSend',
   'eventLoopLag',
@@ -256,7 +303,11 @@ function BreakdownRow({
       <div className="typing-perf__bar-track">
         <div className="typing-perf__bar-fill" style={{ width: `${scale * 100}%` }}>
           {SEGMENTS.map((seg) => {
-            const value = breakdown[seg];
+            const value = breakdown[seg as keyof LatencyBreakdown];
+            if (value === undefined) return null;
+            if (seg === 'sendKeys' && breakdown.mutexWait != null) return null;
+            if ((seg === 'mutexWait' || seg === 'executeNet') && breakdown.mutexWait == null)
+              return null;
             const pct = (value / total) * 100;
             if (pct < 0.5) return null;
             return (
@@ -275,7 +326,11 @@ function BreakdownRow({
       {showTooltip && (
         <div className="typing-perf__tooltip" data-testid="breakdown-tooltip">
           {SEGMENTS.map((seg) => {
-            const value = breakdown[seg];
+            const value = breakdown[seg as keyof LatencyBreakdown];
+            if (value === undefined) return null;
+            if (seg === 'sendKeys' && breakdown.mutexWait != null) return null;
+            if ((seg === 'mutexWait' || seg === 'executeNet') && breakdown.mutexWait == null)
+              return null;
             if (value < 0.05) return null;
             return (
               <div key={seg} className="typing-perf__tooltip-row">

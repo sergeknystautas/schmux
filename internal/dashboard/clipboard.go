@@ -130,7 +130,7 @@ func (s *Server) handleClipboardPaste(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, "session tracker not found", http.StatusNotFound)
 			return
 		}
-		if err := tracker.SendInput("\x16"); err != nil {
+		if _, err := tracker.SendInput("\x16"); err != nil {
 			logger.Error("failed to send ctrl+v to session", "err", err)
 			writeJSONError(w, "failed to send input", http.StatusInternalServerError)
 			return
@@ -199,7 +199,7 @@ func remoteClipboardPaste(ctx context.Context, conn *remote.Connection, paneID s
 	output, err := conn.RunCommand(cmdCtx, "/tmp", clipCmd)
 	if err == nil && strings.Contains(output, "OK") {
 		// xclip succeeded — send Ctrl+V so the agent reads from clipboard
-		if err := conn.SendKeys(cmdCtx, paneID, "\x16"); err != nil {
+		if _, err := conn.SendKeys(cmdCtx, paneID, "\x16"); err != nil {
 			return nil, fmt.Errorf("failed to send Ctrl+V to remote pane: %w", err)
 		}
 		logger.Info("clipboard paste via xclip", "path", tmpPath)
@@ -211,7 +211,7 @@ func remoteClipboardPaste(ctx context.Context, conn *remote.Connection, paneID s
 	// have to manually copy-paste it. The agent (Claude Code) can read image
 	// files when given a path.
 	logger.Info("xclip not available, typing file path into pane", "path", tmpPath)
-	if err := conn.SendKeys(cmdCtx, paneID, tmpPath); err != nil {
+	if _, err := conn.SendKeys(cmdCtx, paneID, tmpPath); err != nil {
 		return &remoteClipboardPasteResult{Method: "file", FilePath: tmpPath}, nil
 	}
 	return &remoteClipboardPasteResult{Method: "file", FilePath: tmpPath}, nil

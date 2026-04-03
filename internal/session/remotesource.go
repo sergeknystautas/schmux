@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"math/rand"
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/remote"
@@ -12,27 +13,29 @@ import (
 // a remote.Connection. It subscribes to the connection's output events
 // and translates them to SourceEvents.
 type RemoteSource struct {
-	conn   *remote.Connection
-	paneID string
-	events chan SourceEvent
-	stopCh chan struct{}
-	doneCh chan struct{}
+	conn        *remote.Connection
+	paneID      string
+	events      chan SourceEvent
+	stopCh      chan struct{}
+	doneCh      chan struct{}
+	healthProbe *TmuxHealthProbe
 }
 
 // NewRemoteSource creates a RemoteSource for a remote pane.
 func NewRemoteSource(conn *remote.Connection, paneID string) *RemoteSource {
 	return &RemoteSource{
-		conn:   conn,
-		paneID: paneID,
-		events: make(chan SourceEvent, 1000),
-		stopCh: make(chan struct{}),
-		doneCh: make(chan struct{}),
+		conn:        conn,
+		paneID:      paneID,
+		events:      make(chan SourceEvent, 1000),
+		stopCh:      make(chan struct{}),
+		doneCh:      make(chan struct{}),
+		healthProbe: NewTmuxHealthProbe(),
 	}
 }
 
 func (s *RemoteSource) Events() <-chan SourceEvent { return s.events }
 
-func (s *RemoteSource) SendKeys(keys string) error {
+func (s *RemoteSource) SendKeys(keys string) (controlmode.SendKeysTimings, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	return s.conn.SendKeys(ctx, s.paneID, keys)
@@ -81,16 +84,45 @@ func (s *RemoteSource) run() {
 	outputCh := s.conn.SubscribeOutput(s.paneID)
 	defer s.conn.UnsubscribeOutput(s.paneID, outputCh)
 
+	probeStop := make(chan struct{})
+	go func() {
+		jitter := time.Duration(rand.Int63n(int64(healthProbeInterval)))
+		select {
+		case <-time.After(jitter):
+		case <-probeStop:
+			return
+		case <-s.stopCh:
+			return
+		}
+
+		ticker := time.NewTicker(healthProbeInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				ctx, cancel := context.WithTimeout(context.Background(), healthProbeTimeout)
+				start := time.Now()
+				_, _, err := s.conn.ExecuteHealthProbe(ctx)
+				rttUs := float64(time.Since(start).Microseconds())
+				cancel()
+				s.healthProbe.Record(rttUs, err != nil)
+			case <-probeStop:
+				return
+			case <-s.stopCh:
+				return
+			}
+		}
+	}()
+	defer close(probeStop)
+
 	for {
 		select {
 		case event, ok := <-outputCh:
 			if !ok {
-				// Connection's output channel closed — connection dropped.
 				s.emit(SourceEvent{Type: SourceClosed})
 				return
 			}
 			s.emit(SourceEvent{Type: SourceOutput, Data: event.Data})
-
 		case <-s.stopCh:
 			s.emit(SourceEvent{Type: SourceClosed})
 			return

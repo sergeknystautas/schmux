@@ -16,6 +16,11 @@ type LatencySample struct {
 	Echo      time.Duration // SendKeys return → next output event arrives
 	FrameSend time.Duration // output event → WriteMessage
 
+	// Sub-SendKeys breakdown: mutex contention vs network time.
+	MutexWait    time.Duration // time waiting for stdinMu
+	ExecuteNet   time.Duration // sum of Execute() round-trips (excluding mutex wait)
+	ExecuteCount int           // number of Execute() calls per keystroke
+
 	// Context fields: cheap reads at measurement time that help diagnose
 	// whether P99 latency correlates with backpressure or correlation errors.
 	OutputChDepth int // len(outputCh) when the input case fired
@@ -34,6 +39,14 @@ type LatencyPercentiles struct {
 	FrameSendP50 float64 `json:"frameSendP50"`
 	FrameSendP99 float64 `json:"frameSendP99"`
 	SampleCount  int     `json:"sampleCount"`
+
+	// Sub-SendKeys breakdown percentiles (milliseconds)
+	MutexWaitP50    float64 `json:"mutexWaitP50"`
+	MutexWaitP99    float64 `json:"mutexWaitP99"`
+	ExecuteNetP50   float64 `json:"executeNetP50"`
+	ExecuteNetP99   float64 `json:"executeNetP99"`
+	ExecuteCountP50 float64 `json:"executeCountP50"`
+	ExecuteCountP99 float64 `json:"executeCountP99"`
 
 	// Context field percentiles (raw counts, not durations)
 	OutputChDepthP50 float64 `json:"outputChDepthP50"`
@@ -80,6 +93,9 @@ func (lc *LatencyCollector) Percentiles() *LatencyPercentiles {
 	sendKeys := make([]float64, n)
 	echo := make([]float64, n)
 	frameSend := make([]float64, n)
+	mutexWait := make([]float64, n)
+	executeNet := make([]float64, n)
+	executeCount := make([]float64, n)
 	outputChDepth := make([]float64, n)
 	echoDataLen := make([]float64, n)
 
@@ -94,6 +110,9 @@ func (lc *LatencyCollector) Percentiles() *LatencyPercentiles {
 		sendKeys[i] = float64(s.SendKeys) / float64(time.Millisecond)
 		echo[i] = float64(s.Echo) / float64(time.Millisecond)
 		frameSend[i] = float64(s.FrameSend) / float64(time.Millisecond)
+		mutexWait[i] = float64(s.MutexWait) / float64(time.Millisecond)
+		executeNet[i] = float64(s.ExecuteNet) / float64(time.Millisecond)
+		executeCount[i] = float64(s.ExecuteCount)
 		outputChDepth[i] = float64(s.OutputChDepth)
 		echoDataLen[i] = float64(s.EchoDataLen)
 	}
@@ -108,6 +127,12 @@ func (lc *LatencyCollector) Percentiles() *LatencyPercentiles {
 		FrameSendP50:     percentile(frameSend, 0.50),
 		FrameSendP99:     percentile(frameSend, 0.99),
 		SampleCount:      n,
+		MutexWaitP50:     percentile(mutexWait, 0.50),
+		MutexWaitP99:     percentile(mutexWait, 0.99),
+		ExecuteNetP50:    percentile(executeNet, 0.50),
+		ExecuteNetP99:    percentile(executeNet, 0.99),
+		ExecuteCountP50:  percentile(executeCount, 0.50),
+		ExecuteCountP99:  percentile(executeCount, 0.99),
 		OutputChDepthP50: percentile(outputChDepth, 0.50),
 		OutputChDepthP99: percentile(outputChDepth, 0.99),
 		EchoDataLenP50:   percentile(echoDataLen, 0.50),

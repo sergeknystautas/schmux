@@ -284,9 +284,9 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 				remoteHostname = host.Hostname
 				if flavor, found := s.config.GetRemoteFlavor(host.FlavorID); found {
 					remoteFlavorName = flavor.DisplayName
-					// Build remote attach command from reconnect template + hostname
+					// Build human-friendly remote attach command (no -CC control mode)
 					if host.Hostname != "" {
-						templateStr := flavor.GetReconnectCommandTemplate()
+						templateStr := flavor.GetAttachCommandTemplate()
 						if tmpl, err := template.New("attach").Parse(templateStr); err == nil {
 							var cmdStr strings.Builder
 							tmplData := struct {

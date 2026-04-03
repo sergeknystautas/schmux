@@ -660,7 +660,7 @@ func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader) e
 		fallbackCtx, fallbackCancel := context.WithTimeout(ctx, 5*time.Second)
 		defer fallbackCancel()
 
-		if resp, err := c.client.Execute(fallbackCtx, "display-message -p '#{host}'"); err == nil {
+		if resp, _, err := c.client.Execute(fallbackCtx, "display-message -p '#{host}'"); err == nil {
 			h := strings.TrimSpace(resp)
 			if h != "" {
 				c.mu.Lock()
@@ -683,7 +683,7 @@ func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader) e
 	// can access the X11 clipboard via xclip. This must happen BEFORE sessions are
 	// spawned so the agent process inherits DISPLAY at startup.
 	// DISPLAY=:99 is the conventional Xvfb display started during provisioning.
-	if _, err := c.client.Execute(ctx, "setenv -g DISPLAY :99"); err != nil {
+	if _, _, err := c.client.Execute(ctx, "setenv -g DISPLAY :99"); err != nil {
 		if c.logger != nil {
 			c.logger.Warn("failed to set DISPLAY in tmux environment", "host_id", c.host.ID, "err", err)
 		}
@@ -723,6 +723,15 @@ func (c *Connection) Close() error {
 			c.client.Close()
 		}
 
+		// Kill the process BEFORE closing the PTY. On some kernels, closing
+		// a PTY fd doesn't unblock a blocked Read() — the process kill is
+		// what actually tears down the backing fd and unblocks readers.
+		// Don't call cmd.Wait() here — the monitorProcess goroutine is the
+		// sole caller of Wait() to avoid double-wait races.
+		if c.cmd != nil && c.cmd.Process != nil {
+			c.cmd.Process.Kill()
+		}
+
 		// Close PTY (this also closes stdin/stdout since they point to it)
 		if c.pty != nil {
 			c.pty.Close()
@@ -741,12 +750,14 @@ func (c *Connection) Close() error {
 		c.ptySubscribers = nil
 		c.ptySubscribersMu.Unlock()
 
-		// Kill the process. Don't call cmd.Wait() here — the monitorProcess
-		// goroutine is the sole caller of Wait() to avoid double-wait races.
-		// monitorProcess will detect the kill and handle cleanup.
-		if c.cmd != nil && c.cmd.Process != nil {
-			c.cmd.Process.Kill()
+		// Notify pending session callers so they don't block forever.
+		c.pendingSessionsMu.Lock()
+		for _, p := range c.pendingSessions {
+			p.CompleteCh <- PendingSessionResult{Error: fmt.Errorf("connection closed")}
+			close(p.CompleteCh)
 		}
+		c.pendingSessions = nil
+		c.pendingSessionsMu.Unlock()
 	})
 
 	return closeErr
@@ -855,13 +866,14 @@ func (c *Connection) SubscribePTYOutput() chan []byte {
 	return ch
 }
 
-// UnsubscribePTYOutput removes a PTY output subscriber.
+// UnsubscribePTYOutput removes a PTY output subscriber and closes its channel.
 func (c *Connection) UnsubscribePTYOutput(ch chan []byte) {
 	c.ptySubscribersMu.Lock()
 	defer c.ptySubscribersMu.Unlock()
 	for i, sub := range c.ptySubscribers {
 		if sub == ch {
 			c.ptySubscribers = append(c.ptySubscribers[:i], c.ptySubscribers[i+1:]...)
+			close(ch)
 			return
 		}
 	}
@@ -916,11 +928,19 @@ func (c *Connection) KillSession(ctx context.Context, windowID string) error {
 }
 
 // SendKeys sends keys to a pane on the remote host.
-func (c *Connection) SendKeys(ctx context.Context, paneID, keys string) error {
+func (c *Connection) SendKeys(ctx context.Context, paneID, keys string) (controlmode.SendKeysTimings, error) {
 	if !c.IsConnected() {
-		return fmt.Errorf("not connected")
+		return controlmode.SendKeysTimings{}, fmt.Errorf("not connected")
 	}
 	return c.client.SendKeys(ctx, paneID, keys)
+}
+
+// ExecuteHealthProbe runs a lightweight no-op command for RTT measurement.
+func (c *Connection) ExecuteHealthProbe(ctx context.Context) (string, time.Duration, error) {
+	if !c.IsConnected() {
+		return "", 0, fmt.Errorf("not connected")
+	}
+	return c.client.Execute(ctx, "display-message -p ok")
 }
 
 // SubscribeOutput subscribes to output from a pane.
@@ -994,10 +1014,11 @@ func (c *Connection) QueueSession(ctx context.Context, sessionID, name, workdir,
 		Command:    command,
 		CompleteCh: ch,
 	})
+	n := len(c.pendingSessions)
 	c.pendingSessionsMu.Unlock()
 
 	if c.logger != nil {
-		c.logger.Info("queued session", "session_id", sessionID, "pending", len(c.pendingSessions))
+		c.logger.Info("queued session", "session_id", sessionID, "pending", n)
 	}
 
 	return ch

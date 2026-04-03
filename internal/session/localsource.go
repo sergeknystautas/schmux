@@ -69,13 +69,13 @@ func NewLocalSource(sessionID, tmuxSession string, logger *log.Logger) *LocalSou
 
 func (s *LocalSource) Events() <-chan SourceEvent { return s.events }
 
-func (s *LocalSource) SendKeys(keys string) error {
+func (s *LocalSource) SendKeys(keys string) (controlmode.SendKeysTimings, error) {
 	s.mu.RLock()
 	client := s.cmClient
 	paneID := s.paneID
 	s.mu.RUnlock()
 	if client == nil {
-		return fmt.Errorf("not attached")
+		return controlmode.SendKeysTimings{}, fmt.Errorf("not attached")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -223,7 +223,7 @@ func (s *LocalSource) attach() error {
 	const sentinel = "__SCHMUX_SYNC__"
 	syncCtx, syncCancel := context.WithTimeout(ctx, 5*time.Second)
 	for attempts := 0; attempts < 3; attempts++ {
-		output, err := client.Execute(syncCtx, fmt.Sprintf("display-message -p '%s'", sentinel))
+		output, _, err := client.Execute(syncCtx, fmt.Sprintf("display-message -p '%s'", sentinel))
 		if err != nil {
 			syncCancel()
 			stdin.Close()
@@ -289,7 +289,7 @@ func (s *LocalSource) attach() error {
 			case <-ticker.C:
 				probeCtx, probeCancel := context.WithTimeout(context.Background(), healthProbeTimeout)
 				start := time.Now()
-				_, err := client.Execute(probeCtx, healthProbeCommand)
+				_, _, err := client.Execute(probeCtx, healthProbeCommand)
 				rttUs := float64(time.Since(start).Microseconds())
 				probeCancel()
 				s.HealthProbe.Record(rttUs, err != nil)
@@ -397,7 +397,7 @@ func (s *LocalSource) emit(e SourceEvent) {
 }
 
 func (s *LocalSource) discoverPaneID(ctx context.Context, client *controlmode.Client) (string, error) {
-	output, err := client.Execute(ctx, "list-panes -F '#{pane_id}'")
+	output, _, err := client.Execute(ctx, "list-panes -F '#{pane_id}'")
 	if err != nil {
 		return "", err
 	}

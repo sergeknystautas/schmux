@@ -36,7 +36,7 @@ func TestLocalSource_ImplementsControlSource(t *testing.T) {
 func TestLocalSource_MethodsFailWhenNotAttached(t *testing.T) {
 	source := NewLocalSource("s1", "tmux-s1", nil)
 
-	if err := source.SendKeys("abc"); err == nil {
+	if _, err := source.SendKeys("abc"); err == nil {
 		t.Error("SendKeys should fail when not attached")
 	}
 	if _, err := source.CaptureVisible(); err == nil {

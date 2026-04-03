@@ -15,6 +15,7 @@ export type LatencyStats = {
   p99: number;
   max: number;
   avg: number;
+  stddev: number;
 };
 
 export type LatencyDistribution = {
@@ -35,6 +36,12 @@ export type ServerLatencySegments = {
   frameSendP50: number;
   frameSendP99: number;
   sampleCount: number;
+  mutexWaitP50?: number;
+  mutexWaitP99?: number;
+  executeNetP50?: number;
+  executeNetP99?: number;
+  executeCountP50?: number;
+  executeCountP99?: number;
   // Context fields: diagnose whether P99 correlates with backpressure
   outputChDepthP50?: number;
   outputChDepthP99?: number;
@@ -49,6 +56,10 @@ export type ServerSegmentTuple = {
   echo: number;
   frameSend: number;
   total: number;
+  mutexWait?: number;
+  executeNet?: number;
+  executeCount?: number;
+  sessionType?: 'local' | 'remote';
 };
 
 // Full latency breakdown for a single percentile level (P50 or P99).
@@ -61,6 +72,8 @@ export type LatencyBreakdown = {
   wireResidual: number;
   render: number;
   total: number;
+  mutexWait?: number;
+  executeNet?: number;
 };
 
 export type WireContext = {
@@ -190,13 +203,21 @@ export class InputLatencyTracker {
     if (arr.length === 0) return null;
     const sorted = [...arr].sort((a, b) => a - b);
     const sum = sorted.reduce((a, b) => a + b, 0);
+    const avg = sum / sorted.length;
+    let variance = 0;
+    for (const v of sorted) {
+      const d = v - avg;
+      variance += d * d;
+    }
+    variance /= sorted.length;
     return {
       count: sorted.length,
       median: sorted[Math.floor(sorted.length / 2)],
       p95: sorted[Math.floor(sorted.length * 0.95)],
       p99: sorted[Math.floor(sorted.length * 0.99)],
       max: sorted[sorted.length - 1],
-      avg: sum / sorted.length,
+      avg,
+      stddev: Math.sqrt(variance),
     };
   }
 
@@ -288,6 +309,8 @@ export class InputLatencyTracker {
       render: number;
       eventLoopLag: number;
       wireResidual: number;
+      mutexWait?: number;
+      executeNet?: number;
     };
     const tuples: FullTuple[] = [];
     for (let i = 0; i < pairedCount; i++) {
@@ -309,6 +332,8 @@ export class InputLatencyTracker {
         render,
         eventLoopLag: Math.min(eventLoopLag, infra),
         wireResidual,
+        mutexWait: seg.mutexWait,
+        executeNet: seg.executeNet,
       });
     }
     if (tuples.length < 3) return null;
@@ -339,6 +364,8 @@ export class InputLatencyTracker {
       wireResidual: picked.wireResidual,
       render: picked.render,
       total: picked.clientRTT,
+      mutexWait: picked.mutexWait,
+      executeNet: picked.executeNet,
     };
   }
 }

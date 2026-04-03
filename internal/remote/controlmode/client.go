@@ -55,8 +55,9 @@ type Client struct {
 	pauseCh chan string
 
 	// Lifecycle
-	running bool
-	closeCh chan struct{}
+	running   bool
+	closeCh   chan struct{}
+	closeOnce sync.Once
 }
 
 // WindowInfo represents information about a tmux window.
@@ -120,35 +121,37 @@ func (c *Client) drainBufferedResponses() {
 	}
 }
 
-// Close shuts down the client.
+// Close shuts down the client. Safe to call multiple times.
 func (c *Client) Close() {
-	c.pendingMu.Lock()
-	c.running = false
-	close(c.closeCh)
-	// Send error responses to any pending commands still waiting
-	for _, ch := range c.pendingQueue {
-		// Send error response - channel is buffered so won't block
-		// Don't close the channel - caller may still be in select waiting for it
-		ch <- CommandResponse{Success: false, Content: "client closed"}
-	}
-	c.pendingQueue = nil
-	c.pendingMu.Unlock()
+	c.closeOnce.Do(func() {
+		c.pendingMu.Lock()
+		c.running = false
+		close(c.closeCh)
+		// Send error responses to any pending commands still waiting
+		for _, ch := range c.pendingQueue {
+			// Send error response - channel is buffered so won't block
+			// Don't close the channel - caller may still be in select waiting for it
+			ch <- CommandResponse{Success: false, Content: "client closed"}
+		}
+		c.pendingQueue = nil
+		c.pendingMu.Unlock()
 
-	// Close all orphaned response channels to prevent leaks
-	c.respChansMu.Lock()
-	for ch := range c.respChans {
-		close(ch)
-	}
-	c.respChans = nil
-	c.respChansMu.Unlock()
+		// Close all orphaned response channels to prevent leaks
+		c.respChansMu.Lock()
+		for ch := range c.respChans {
+			close(ch)
+		}
+		c.respChans = nil
+		c.respChansMu.Unlock()
 
-	c.parser.Close()
+		c.parser.Close()
+	})
 }
 
 // Execute sends a command and waits for the response.
 // FIFO ordering is critical: responses are matched to commands in order sent.
 // Timeout/cancellation does NOT remove from queue to prevent misdelivery.
-func (c *Client) Execute(ctx context.Context, cmd string) (string, error) {
+func (c *Client) Execute(ctx context.Context, cmd string) (string, time.Duration, error) {
 	// Create response channel
 	respCh := make(chan CommandResponse, 1)
 
@@ -168,7 +171,7 @@ func (c *Client) Execute(ctx context.Context, cmd string) (string, error) {
 	c.pendingMu.Lock()
 	if !c.running {
 		c.pendingMu.Unlock()
-		return "", fmt.Errorf("client not running")
+		return "", 0, fmt.Errorf("client not running")
 	}
 	c.pendingQueue = append(c.pendingQueue, respCh)
 	c.firstCommandSent = true
@@ -177,13 +180,15 @@ func (c *Client) Execute(ctx context.Context, cmd string) (string, error) {
 	// Send command (tmux control mode assigns IDs automatically based on order)
 	// Commands are matched to responses in FIFO order
 	// Protect stdin write with mutex to prevent concurrent command interleaving
+	mutexStart := time.Now()
 	c.stdinMu.Lock()
+	mutexWait := time.Since(mutexStart)
 	_, err := fmt.Fprintf(c.stdin, "%s\n", cmd)
 	c.stdinMu.Unlock()
 	if err != nil {
 		// Failed to send - leave channel in queue but don't listen to it
 		// processResponses will still try to deliver, but we won't be waiting
-		return "", fmt.Errorf("failed to send command: %w", err)
+		return "", mutexWait, fmt.Errorf("failed to send command: %w", err)
 	}
 
 	// Wait for response
@@ -193,9 +198,9 @@ func (c *Client) Execute(ctx context.Context, cmd string) (string, error) {
 			if c.logger != nil {
 				c.logger.Error("command failed", "cmd", cmd, "err", resp.Content)
 			}
-			return "", fmt.Errorf("command failed: %s", resp.Content)
+			return "", mutexWait, fmt.Errorf("command failed: %s", resp.Content)
 		}
-		return resp.Content, nil
+		return resp.Content, mutexWait, nil
 	case <-ctx.Done():
 		// DO NOT remove from queue or close channel - just stop listening
 		// The response will still arrive and be sent to this buffered channel (won't block)
@@ -204,10 +209,10 @@ func (c *Client) Execute(ctx context.Context, cmd string) (string, error) {
 		if c.logger != nil {
 			c.logger.Error("command timeout", "cmd", cmd)
 		}
-		return "", ctx.Err()
+		return "", mutexWait, ctx.Err()
 	case <-c.closeCh:
 		// Client is closing, channel will be cleaned up by defer
-		return "", fmt.Errorf("client closed")
+		return "", mutexWait, fmt.Errorf("client closed")
 	}
 }
 
@@ -341,13 +346,13 @@ func (c *Client) Pauses() <-chan string {
 // When set, tmux sends %pause instead of silently dropping output when the
 // client falls behind by the specified number of seconds.
 func (c *Client) EnablePauseAfter(ctx context.Context, seconds int) error {
-	_, err := c.Execute(ctx, fmt.Sprintf("refresh-client -f pause-after=%d", seconds))
+	_, _, err := c.Execute(ctx, fmt.Sprintf("refresh-client -f pause-after=%d", seconds))
 	return err
 }
 
 // ContinuePane resumes output delivery for a paused pane.
 func (c *Client) ContinuePane(ctx context.Context, paneID string) error {
-	_, err := c.Execute(ctx, fmt.Sprintf("refresh-client -A %s:continue", paneID))
+	_, _, err := c.Execute(ctx, fmt.Sprintf("refresh-client -A %s:continue", paneID))
 	return err
 }
 
@@ -373,7 +378,7 @@ func (c *Client) CreateWindow(ctx context.Context, name, workdir, command string
 			shellutil.Quote(name), shellutil.Quote(workdir), shellutil.Quote(command))
 	}
 
-	output, err := c.Execute(ctx, cmd)
+	output, _, err := c.Execute(ctx, cmd)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create window: %w", err)
 	}
@@ -389,7 +394,7 @@ func (c *Client) CreateWindow(ctx context.Context, name, workdir, command string
 
 // KillWindow kills a window by ID.
 func (c *Client) KillWindow(ctx context.Context, windowID string) error {
-	_, err := c.Execute(ctx, fmt.Sprintf("kill-window -t %s", windowID))
+	_, _, err := c.Execute(ctx, fmt.Sprintf("kill-window -t %s", windowID))
 	return err
 }
 
@@ -398,30 +403,38 @@ func (c *Client) KillWindow(ctx context.Context, windowID string) error {
 // special characters (sent as tmux key names). This is necessary because
 // tmux control mode command parsing can mishandle raw control characters
 // embedded in the command string.
-func (c *Client) SendKeys(ctx context.Context, paneID, keys string) error {
-	for _, run := range ClassifyKeyRuns(nil, keys) {
+func (c *Client) SendKeys(ctx context.Context, paneID, keys string) (SendKeysTimings, error) {
+	var timings SendKeysTimings
+	runs := ClassifyKeyRuns(nil, keys)
+	timings.ExecuteCount = len(runs)
+	for _, run := range runs {
 		var cmd string
 		if run.Literal {
 			cmd = fmt.Sprintf("send-keys -t %s -l %s", paneID, shellutil.Quote(run.Text))
 		} else {
 			cmd = fmt.Sprintf("send-keys -t %s %s", paneID, run.Text)
 		}
-		if _, err := c.Execute(ctx, cmd); err != nil {
-			return err
+		execStart := time.Now()
+		_, mutexWait, err := c.Execute(ctx, cmd)
+		if err != nil {
+			return timings, err
 		}
+		execDur := time.Since(execStart)
+		timings.MutexWait += mutexWait
+		timings.ExecuteNet += max(0, execDur-mutexWait)
 	}
-	return nil
+	return timings, nil
 }
 
 // SendEnter sends an Enter key to a pane.
 func (c *Client) SendEnter(ctx context.Context, paneID string) error {
-	_, err := c.Execute(ctx, fmt.Sprintf("send-keys -t %s Enter", paneID))
+	_, _, err := c.Execute(ctx, fmt.Sprintf("send-keys -t %s Enter", paneID))
 	return err
 }
 
 // ListWindows returns all windows in the current session.
 func (c *Client) ListWindows(ctx context.Context) ([]WindowInfo, error) {
-	output, err := c.Execute(ctx, "list-windows -F '#{window_id} #{window_name} #{pane_id}'")
+	output, _, err := c.Execute(ctx, "list-windows -F '#{window_id} #{window_name} #{pane_id}'")
 	if err != nil {
 		return nil, err
 	}
@@ -446,7 +459,7 @@ func (c *Client) ListWindows(ctx context.Context) ([]WindowInfo, error) {
 
 // GetPaneInfo returns information about a specific pane.
 func (c *Client) GetPaneInfo(ctx context.Context, paneID string) (pid int, title string, err error) {
-	output, err := c.Execute(ctx, fmt.Sprintf("display-message -p -t %s '#{pane_pid} #{pane_title}'", paneID))
+	output, _, err := c.Execute(ctx, fmt.Sprintf("display-message -p -t %s '#{pane_pid} #{pane_title}'", paneID))
 	if err != nil {
 		return 0, "", err
 	}
@@ -469,13 +482,13 @@ func (c *Client) GetPaneInfo(ctx context.Context, paneID string) (pid int, title
 
 // ResizeWindow resizes a window to specific dimensions.
 func (c *Client) ResizeWindow(ctx context.Context, windowID string, width, height int) error {
-	_, err := c.Execute(ctx, fmt.Sprintf("resize-window -t %s -x %d -y %d", windowID, width, height))
+	_, _, err := c.Execute(ctx, fmt.Sprintf("resize-window -t %s -x %d -y %d", windowID, width, height))
 	return err
 }
 
 // SetOption sets a tmux option.
 func (c *Client) SetOption(ctx context.Context, option, value string) error {
-	_, err := c.Execute(ctx, fmt.Sprintf("set-option %s %s", option, value))
+	_, _, err := c.Execute(ctx, fmt.Sprintf("set-option %s %s", option, value))
 	return err
 }
 
@@ -485,14 +498,16 @@ func (c *Client) CapturePaneLines(ctx context.Context, paneID string, lines int)
 	// Use -e flag to include ANSI escape sequences (colors, bold, etc.)
 	// Without -e, tmux strips all formatting from the output
 	cmd := fmt.Sprintf("capture-pane -e -t %s -p -S -%d", paneID, lines)
-	return c.Execute(ctx, cmd)
+	output, _, err := c.Execute(ctx, cmd)
+	return output, err
 }
 
 // CapturePaneVisible captures only the visible screen of a pane (no scrollback).
 // Returns the raw output including ANSI escape sequences (colors, formatting).
 func (c *Client) CapturePaneVisible(ctx context.Context, paneID string) (string, error) {
 	cmd := fmt.Sprintf("capture-pane -e -t %s -p", paneID)
-	return c.Execute(ctx, cmd)
+	output, _, err := c.Execute(ctx, cmd)
+	return output, err
 }
 
 // CursorState holds the cursor position and visibility for a pane.
@@ -504,7 +519,7 @@ type CursorState struct {
 
 // GetCursorState returns the cursor position and visibility for a pane.
 func (c *Client) GetCursorState(ctx context.Context, paneID string) (CursorState, error) {
-	output, err := c.Execute(ctx, fmt.Sprintf("display-message -p -t %s '#{cursor_x} #{cursor_y} #{cursor_flag}'", paneID))
+	output, _, err := c.Execute(ctx, fmt.Sprintf("display-message -p -t %s '#{cursor_x} #{cursor_y} #{cursor_flag}'", paneID))
 	if err != nil {
 		return CursorState{}, fmt.Errorf("failed to get cursor state: %w", err)
 	}
@@ -540,7 +555,7 @@ func (c *Client) WaitForReady(ctx context.Context, timeout time.Duration) error 
 	defer cancel()
 
 	// Send a simple command and verify we get a response
-	_, err := c.Execute(ctx, "display-message -p 'ready'")
+	_, _, err := c.Execute(ctx, "display-message -p 'ready'")
 	return err
 }
 
@@ -563,7 +578,7 @@ var paneIDRegex = regexp.MustCompile(`%\d+`)
 
 // GetWindowPaneID returns the pane ID for a window.
 func (c *Client) GetWindowPaneID(ctx context.Context, windowID string) (string, error) {
-	output, err := c.Execute(ctx, fmt.Sprintf("list-panes -t %s -F '#{pane_id}'", windowID))
+	output, _, err := c.Execute(ctx, fmt.Sprintf("list-panes -t %s -F '#{pane_id}'", windowID))
 	if err != nil {
 		return "", err
 	}
@@ -604,7 +619,7 @@ func (c *Client) RunCommand(ctx context.Context, workdir, command string) (strin
 	// Create a hidden window with the default shell (no command = default shell).
 	// This avoids all tmux command-quoting issues because we don't embed the
 	// VCS command in the new-window invocation.
-	output, err := c.Execute(ctx, "new-window -d -n schmux-cmd -P -F '#{window_id} #{pane_id}'")
+	output, _, err := c.Execute(ctx, "new-window -d -n schmux-cmd -P -F '#{window_id} #{pane_id}'")
 	if err != nil {
 		return "", fmt.Errorf("failed to create command window: %w", err)
 	}
@@ -651,12 +666,12 @@ func (c *Client) RunCommand(ctx context.Context, workdir, command string) (strin
 	// Send command as literal keystrokes via send-keys -l.
 	// This bypasses tmux's command parser entirely — the text goes straight to the
 	// shell in the pane. tmuxQuote handles only the tmux protocol quoting layer.
-	_, err = c.Execute(ctx, fmt.Sprintf("send-keys -t %s -l %s", paneID, tmuxQuote(fullCmd)))
+	_, _, err = c.Execute(ctx, fmt.Sprintf("send-keys -t %s -l %s", paneID, tmuxQuote(fullCmd)))
 	if err != nil {
 		return "", fmt.Errorf("failed to send command keys: %w", err)
 	}
 	// Press Enter to execute
-	_, err = c.Execute(ctx, fmt.Sprintf("send-keys -t %s Enter", paneID))
+	_, _, err = c.Execute(ctx, fmt.Sprintf("send-keys -t %s Enter", paneID))
 	if err != nil {
 		return "", fmt.Errorf("failed to send Enter: %w", err)
 	}
@@ -675,7 +690,7 @@ func (c *Client) RunCommand(ctx context.Context, workdir, command string) (strin
 		case <-c.closeCh:
 			return "", fmt.Errorf("client closed")
 		case <-ticker.C:
-			captured, captureErr := c.Execute(ctx, fmt.Sprintf("capture-pane -t %s -p -S -50000", paneID))
+			captured, _, captureErr := c.Execute(ctx, fmt.Sprintf("capture-pane -t %s -p -S -50000", paneID))
 			if captureErr != nil {
 				return "", fmt.Errorf("capture-pane failed: %w", captureErr)
 			}

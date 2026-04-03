@@ -142,7 +142,7 @@ func BenchmarkExecuteRoundtrip(b *testing.B) {
 	ctx := context.Background()
 	b.ResetTimer()
 	for b.Loop() {
-		client.Execute(ctx, "list-sessions")
+		_, _, _ = client.Execute(ctx, "list-sessions")
 	}
 	b.StopTimer()
 

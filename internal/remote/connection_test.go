@@ -238,6 +238,77 @@ func TestConnection_HostnameExtractionNoMatch(t *testing.T) {
 	}
 }
 
+func TestConnection_CloseNotifiesPendingSessions(t *testing.T) {
+	cfg := ConnectionConfig{
+		FlavorID:      "test-flavor",
+		Flavor:        "test",
+		DisplayName:   "Test Flavor",
+		WorkspacePath: "/tmp/test",
+		VCS:           "git",
+	}
+
+	conn := NewConnection(cfg)
+
+	// Queue multiple sessions
+	ch1 := conn.QueueSession(context.Background(), "s1", "win1", "/tmp", "cmd1")
+	ch2 := conn.QueueSession(context.Background(), "s2", "win2", "/tmp", "cmd2")
+
+	// Close the connection — should notify all pending callers
+	conn.Close()
+
+	// Both channels should receive error results without blocking
+	select {
+	case result := <-ch1:
+		if result.Error == nil {
+			t.Error("expected error result for session s1")
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("pending session s1 was not notified on Close()")
+	}
+
+	select {
+	case result := <-ch2:
+		if result.Error == nil {
+			t.Error("expected error result for session s2")
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("pending session s2 was not notified on Close()")
+	}
+
+	// Queue should be empty after close
+	conn.pendingSessionsMu.Lock()
+	remaining := len(conn.pendingSessions)
+	conn.pendingSessionsMu.Unlock()
+	if remaining != 0 {
+		t.Errorf("expected empty queue after close, got %d", remaining)
+	}
+}
+
+func TestConnection_UnsubscribePTYOutputClosesChannel(t *testing.T) {
+	cfg := ConnectionConfig{
+		FlavorID:      "test-flavor",
+		Flavor:        "test",
+		DisplayName:   "Test Flavor",
+		WorkspacePath: "/tmp/test",
+		VCS:           "git",
+	}
+
+	conn := NewConnection(cfg)
+	ch := conn.SubscribePTYOutput()
+
+	conn.UnsubscribePTYOutput(ch)
+
+	// Channel should be closed — reading should return zero value immediately
+	select {
+	case _, ok := <-ch:
+		if ok {
+			t.Error("expected channel to be closed")
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("channel was not closed after unsubscribe")
+	}
+}
+
 func TestPendingSessionResult(t *testing.T) {
 	// Test that PendingSessionResult properly carries window and pane IDs
 	result := PendingSessionResult{

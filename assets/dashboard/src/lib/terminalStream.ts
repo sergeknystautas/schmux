@@ -1306,6 +1306,11 @@ export default class TerminalStream {
           echo: (msg.echoMs as number) ?? 0,
           frameSend: (msg.frameSendMs as number) ?? 0,
           total: (msg.serverMs as number) ?? 0,
+          mutexWait: msg.mutexWaitMs != null ? (msg.mutexWaitMs as number) : undefined,
+          executeNet: msg.executeNetMs != null ? (msg.executeNetMs as number) : undefined,
+          executeCount: msg.executeCount != null ? (msg.executeCount as number) : undefined,
+          sessionType:
+            msg.sessionType != null ? (msg.sessionType as 'local' | 'remote') : undefined,
         });
         break;
       case 'diagnostic':

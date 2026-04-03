@@ -1,5 +1,7 @@
 package controlmode
 
+import "time"
+
 // KeyRun represents a contiguous run of keys that can be sent to tmux in a
 // single send-keys command. Literal runs contain printable text sent with -l;
 // non-literal runs contain a single tmux key name (e.g., "Enter", "Up").
@@ -144,4 +146,12 @@ func ClassifyKeyRuns(dst []KeyRun, keys string) []KeyRun {
 		i += advance
 	}
 	return runs
+}
+
+// SendKeysTimings records per-keystroke timing breakdown from Client.SendKeys.
+// MutexWait and ExecuteNet are non-overlapping and partition the SendKeys duration.
+type SendKeysTimings struct {
+	MutexWait    time.Duration // time blocked on stdinMu across all Execute() calls
+	ExecuteNet   time.Duration // sum of Execute() round-trips, EXCLUDING mutex wait
+	ExecuteCount int           // number of Execute() calls (= number of key runs)
 }

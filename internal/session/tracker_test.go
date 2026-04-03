@@ -29,7 +29,7 @@ func TestSessionTrackerInputResizeWithoutControlMode(t *testing.T) {
 	st := state.New("", nil)
 	localTracker := NewSessionTracker("s1", source, st, "", nil, nil, nil)
 
-	if err := localTracker.SendInput("abc"); err == nil {
+	if _, err := localTracker.SendInput("abc"); err == nil {
 		t.Fatal("expected error when control mode is not attached")
 	}
 	err := localTracker.Resize(80, 24)

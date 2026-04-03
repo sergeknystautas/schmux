@@ -48,7 +48,7 @@ func (s *Server) handleTellSession(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, "remote host not connected", http.StatusServiceUnavailable)
 			return
 		}
-		if err := conn.SendKeys(r.Context(), sess.RemotePaneID, text+"\n"); err != nil {
+		if _, err := conn.SendKeys(r.Context(), sess.RemotePaneID, text+"\n"); err != nil {
 			writeJSONError(w, fmt.Sprintf("failed to send message: %v", err), http.StatusInternalServerError)
 			return
 		}
