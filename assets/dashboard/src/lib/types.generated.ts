@@ -60,6 +60,7 @@ export interface ConfigResponse {
   remote_access: RemoteAccess;
   sapling_commands?: SaplingCommandsUpdate;
   tmux_binary?: string;
+  recycle_workspaces?: boolean;
   system_capabilities: SystemCapabilities;
   needs_restart: boolean;
   dashboard_sx_status?: DashboardSXStatus;
@@ -95,6 +96,7 @@ export interface ConfigUpdateRequest {
   enabled_models?: Record<string, string>;
   sapling_commands?: SaplingCommandsUpdate;
   tmux_binary?: string;
+  recycle_workspaces?: boolean;
 }
 
 export interface ConflictResolve {

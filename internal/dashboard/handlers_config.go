@@ -150,7 +150,8 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			Enabled: s.config.GetIOWorkspaceTelemetryEnabled(),
 			Target:  s.config.GetIOWorkspaceTelemetryTarget(),
 		},
-		TmuxBinary: s.config.TmuxBinary,
+		TmuxBinary:        s.config.TmuxBinary,
+		RecycleWorkspaces: s.config.RecycleWorkspaces,
 		SaplingCommands: func() *contracts.SaplingCommandsUpdate {
 			sc := s.config.SaplingCommands
 			if sc.CreateWorkspace == "" && sc.RemoveWorkspace == "" && sc.CheckRepoBase == "" && sc.CreateRepoBase == "" {
@@ -730,6 +731,10 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 			}
 			cfg.TmuxBinary = path
 		}
+	}
+
+	if req.RecycleWorkspaces != nil {
+		cfg.RecycleWorkspaces = *req.RecycleWorkspaces
 	}
 
 	warnings, err := cfg.ValidateForSave()

@@ -335,6 +335,56 @@ func TestAPIContract_ConfigUpdatePreservesBarePath(t *testing.T) {
 	}
 }
 
+func TestAPIContract_ConfigUpdatePersistsRecycleWorkspaces(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+
+	// Verify default is false
+	if cfg.RecycleWorkspaces {
+		t.Fatal("RecycleWorkspaces should default to false")
+	}
+
+	// Enable via config update API
+	body := []byte(`{"recycle_workspaces": true}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	server.handleConfigUpdate(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify persisted in live config
+	if !cfg.RecycleWorkspaces {
+		t.Error("RecycleWorkspaces should be true after config update")
+	}
+
+	// Verify it appears in the GET response
+	getReq := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	getRR := httptest.NewRecorder()
+	server.handleConfigGet(getRR, getReq)
+
+	var resp contracts.ConfigResponse
+	if err := json.NewDecoder(getRR.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode config response: %v", err)
+	}
+	if !resp.RecycleWorkspaces {
+		t.Error("recycle_workspaces should be true in GET /api/config response")
+	}
+
+	// Disable via config update API
+	body = []byte(`{"recycle_workspaces": false}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
+	rr = httptest.NewRecorder()
+	server.handleConfigUpdate(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200 on disable, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if cfg.RecycleWorkspaces {
+		t.Error("RecycleWorkspaces should be false after disabling")
+	}
+}
+
 func TestAPIContract_SessionsShape(t *testing.T) {
 	server, _, st := newTestServer(t)
 
