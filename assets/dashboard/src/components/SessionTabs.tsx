@@ -627,6 +627,10 @@ export default function SessionTabs({
           other.id !== tab.id && pathMatches(other.route) && other.route.length > tab.route.length
       );
     const isActive = pathMatches(tab.route) && !hasMoreSpecificMatch;
+    const resolveConflictStatus =
+      tab.kind === 'resolve-conflict'
+        ? workspace?.resolve_conflicts?.find((item) => item.hash === tab.meta?.hash)?.status
+        : null;
 
     const handleClose = tab.closable
       ? async (event: React.MouseEvent) => {
@@ -680,7 +684,7 @@ export default function SessionTabs({
           }}
         />
       );
-    } else if (tab.kind === 'resolve-conflict' && tab.meta?.status === 'in_progress') {
+    } else if (tab.kind === 'resolve-conflict' && resolveConflictStatus === 'in_progress') {
       badgeContent = (
         <div
           className="spinner spinner--small"

@@ -1,15 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getGitGraph } from '../lib/api';
 import { useSessions } from '../contexts/SessionsContext';
-import { useSyncState } from '../contexts/SyncContext';
 import { useSync } from '../hooks/useSync';
-import type {
-  LinearSyncResolveConflictStatePayload,
-  LinearSyncResolveConflictStep,
-} from '../lib/types';
+import type { LinearSyncResolveConflictStep, ResolveConflictRecordPayload } from '../lib/types';
 
 type LinearSyncResolveConflictProgressProps = {
   workspaceId: string;
+  resolveConflict: ResolveConflictRecordPayload;
+  displayHash: string;
 };
 
 function StepIcon({ status }: { status: string }) {
@@ -170,11 +168,10 @@ function StepRow({ step }: { step: LinearSyncResolveConflictStep }) {
 
 export default function LinearSyncResolveConflictProgress({
   workspaceId,
+  resolveConflict,
+  displayHash,
 }: LinearSyncResolveConflictProgressProps) {
   const { workspaces } = useSessions();
-  const { linearSyncResolveConflictStates } = useSyncState();
-  const state: LinearSyncResolveConflictStatePayload | undefined =
-    linearSyncResolveConflictStates[workspaceId];
   const [continuing, setContinuing] = useState(false);
   const { handleLinearSyncFromMain } = useSync();
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -186,13 +183,11 @@ export default function LinearSyncResolveConflictProgress({
     if (bottomRef.current && typeof bottomRef.current.scrollIntoView === 'function') {
       bottomRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
-  }, [state?.steps]);
+  }, [resolveConflict.steps]);
 
-  if (!state) return null;
-
-  const isActive = state.status === 'in_progress';
-  const isDone = state.status === 'done';
-  const isFailed = state.status === 'failed';
+  const isActive = resolveConflict.status === 'in_progress';
+  const isDone = resolveConflict.status === 'done';
+  const isFailed = resolveConflict.status === 'failed';
 
   const handleContinue = async () => {
     setContinuing(true);
@@ -221,7 +216,7 @@ export default function LinearSyncResolveConflictProgress({
           <strong>
             {isActive
               ? (() => {
-                  const conflictFiles = state.steps
+                  const conflictFiles = resolveConflict.steps
                     .filter((s) => s.action === 'conflict_detected' && s.files)
                     .flatMap((s) => s.files!);
                   return conflictFiles.length > 0
@@ -232,7 +227,7 @@ export default function LinearSyncResolveConflictProgress({
                 ? 'Conflict resolution completed'
                 : 'Conflict resolution failed'}
           </strong>
-          {state.hash && (
+          {resolveConflict.hash && (
             <div
               style={{
                 color: 'var(--color-text-muted)',
@@ -241,8 +236,8 @@ export default function LinearSyncResolveConflictProgress({
                 marginTop: 2,
               }}
             >
-              {state.hash.substring(0, 7)}
-              {state.hash_message ? ` ${state.hash_message}` : ''}
+              {displayHash}
+              {resolveConflict.hash_message ? ` ${resolveConflict.hash_message}` : ''}
             </div>
           )}
         </div>
@@ -250,8 +245,8 @@ export default function LinearSyncResolveConflictProgress({
 
       {/* Steps */}
       <div className="flex-col">
-        {state.steps.map((step) => (
-          <StepRow key={step.action} step={step} />
+        {resolveConflict.steps.map((step, index) => (
+          <StepRow key={`${step.action}-${step.at}-${step.local_commit || index}`} step={step} />
         ))}
       </div>
 

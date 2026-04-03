@@ -4,48 +4,17 @@ import (
 	"encoding/json"
 	"sync"
 	"time"
+
+	"github.com/sergeknystautas/schmux/internal/state"
 )
 
-// LinearSyncResolveConflictStep represents a single step in the conflict resolution process.
-type LinearSyncResolveConflictStep struct {
-	Action             string              `json:"action"`
-	Status             string              `json:"status"` // "in_progress", "done", "failed"
-	Message            []string            `json:"message"`
-	At                 string              `json:"at"`
-	LocalCommit        string              `json:"local_commit,omitempty"`
-	LocalCommitMessage string              `json:"local_commit_message,omitempty"`
-	Files              []string            `json:"files,omitempty"`
-	ConflictDiffs      map[string][]string `json:"conflict_diffs,omitempty"` // file path -> conflict marker hunks
-	Confidence         string              `json:"confidence,omitempty"`
-	Summary            string              `json:"summary,omitempty"`
-	Created            *bool               `json:"created,omitempty"` // for wip_commit step
-	TmuxSession        string              `json:"tmux_session,omitempty"`
-}
-
-// LinearSyncResolveConflictResolution is the per-conflict summary included in the final state.
-type LinearSyncResolveConflictResolution struct {
-	LocalCommit        string   `json:"local_commit"`
-	LocalCommitMessage string   `json:"local_commit_message"`
-	AllResolved        bool     `json:"all_resolved"`
-	Confidence         string   `json:"confidence"`
-	Summary            string   `json:"summary"`
-	Files              []string `json:"files"`
-}
+type LinearSyncResolveConflictStep = state.ResolveConflictStep
+type LinearSyncResolveConflictResolution = state.ResolveConflictResolution
 
 // LinearSyncResolveConflictState is the full operation state, broadcast over the dashboard WebSocket.
 type LinearSyncResolveConflictState struct {
-	mu          sync.Mutex                            `json:"-"`
-	Type        string                                `json:"type"` // always "linear_sync_resolve_conflict"
-	WorkspaceID string                                `json:"workspace_id"`
-	Status      string                                `json:"status"` // "in_progress", "done", "failed"
-	Hash        string                                `json:"hash,omitempty"`
-	HashMessage string                                `json:"hash_message,omitempty"`
-	TmuxSession string                                `json:"tmux_session,omitempty"`
-	StartedAt   string                                `json:"started_at"`
-	FinishedAt  string                                `json:"finished_at,omitempty"`
-	Message     string                                `json:"message,omitempty"`
-	Steps       []LinearSyncResolveConflictStep       `json:"steps"`
-	Resolutions []LinearSyncResolveConflictResolution `json:"resolutions,omitempty"`
+	mu sync.Mutex `json:"-"`
+	state.ResolveConflict
 }
 
 // AddStep appends a new step and returns its index.
@@ -55,16 +24,16 @@ func (s *LinearSyncResolveConflictState) AddStep(step LinearSyncResolveConflictS
 	if step.At == "" {
 		step.At = time.Now().Format(time.RFC3339)
 	}
-	s.Steps = append(s.Steps, step)
-	return len(s.Steps) - 1
+	s.ResolveConflict.Steps = append(s.ResolveConflict.Steps, step)
+	return len(s.ResolveConflict.Steps) - 1
 }
 
 // UpdateStep updates an existing step by index.
 func (s *LinearSyncResolveConflictState) UpdateStep(idx int, fn func(*LinearSyncResolveConflictStep)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if idx >= 0 && idx < len(s.Steps) {
-		fn(&s.Steps[idx])
+	if idx >= 0 && idx < len(s.ResolveConflict.Steps) {
+		fn(&s.ResolveConflict.Steps[idx])
 	}
 }
 
@@ -73,8 +42,8 @@ func (s *LinearSyncResolveConflictState) UpdateStep(idx int, fn func(*LinearSync
 func (s *LinearSyncResolveConflictState) UpdateLastMatchingStep(action, localCommit string, fn func(*LinearSyncResolveConflictStep)) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for i := len(s.Steps) - 1; i >= 0; i-- {
-		step := &s.Steps[i]
+	for i := len(s.ResolveConflict.Steps) - 1; i >= 0; i-- {
+		step := &s.ResolveConflict.Steps[i]
 		if step.Status != "in_progress" || step.Action != action {
 			continue
 		}
@@ -91,10 +60,10 @@ func (s *LinearSyncResolveConflictState) UpdateLastMatchingStep(action, localCom
 func (s *LinearSyncResolveConflictState) Finish(status, message string, resolutions []LinearSyncResolveConflictResolution) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.Status = status
-	s.Message = message
-	s.FinishedAt = time.Now().Format(time.RFC3339)
-	s.Resolutions = resolutions
+	s.ResolveConflict.Status = status
+	s.ResolveConflict.Message = message
+	s.ResolveConflict.FinishedAt = time.Now().Format(time.RFC3339)
+	s.ResolveConflict.Resolutions = resolutions
 }
 
 // SetHash sets the rebased hash and its commit message if not already set.
@@ -104,30 +73,37 @@ func (s *LinearSyncResolveConflictState) SetHash(hash, hashMessage string) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.Hash == "" {
-		s.Hash = hash
-		s.HashMessage = hashMessage
+	if s.ResolveConflict.Hash == "" {
+		s.ResolveConflict.Hash = shortHash(hash)
+		s.ResolveConflict.HashMessage = hashMessage
 	}
 }
 
 func (s *LinearSyncResolveConflictState) SetTmuxSession(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.TmuxSession = name
+	s.ResolveConflict.TmuxSession = name
 }
 
 func (s *LinearSyncResolveConflictState) ClearTmuxSession() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.TmuxSession = ""
+	s.ResolveConflict.TmuxSession = ""
 }
 
 // MarshalJSON produces a thread-safe JSON snapshot.
 func (s *LinearSyncResolveConflictState) MarshalJSON() ([]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	type Alias LinearSyncResolveConflictState
-	return json.Marshal((*Alias)(s))
+	type Alias state.ResolveConflict
+	alias := Alias(s.ResolveConflict)
+	return json.Marshal(alias)
+}
+
+func (s *LinearSyncResolveConflictState) Snapshot() state.ResolveConflict {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return state.CopyResolveConflicts([]state.ResolveConflict{s.ResolveConflict})[0]
 }
 
 // linearSyncResolveConflictStates manages the in-memory state map on the Server.

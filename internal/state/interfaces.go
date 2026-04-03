@@ -36,8 +36,11 @@ type StateStore interface {
 	// Tab operations
 	GetWorkspaceTabs(workspaceID string) []Tab
 	AddTab(workspaceID string, tab Tab) error
-	UpdateTab(workspaceID string, tab Tab) error
 	RemoveTab(workspaceID, tabID string) error
+	GetWorkspaceResolveConflicts(workspaceID string) []ResolveConflict
+	GetResolveConflict(workspaceID, hash string) (ResolveConflict, bool)
+	UpsertResolveConflict(workspaceID string, conflict ResolveConflict) error
+	RemoveResolveConflict(workspaceID, hash string) error
 
 	// Preview operations
 	GetPreviews() []WorkspacePreview

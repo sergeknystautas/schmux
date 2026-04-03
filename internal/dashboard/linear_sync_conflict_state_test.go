@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"sync"
 	"testing"
+
+	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 func TestAddStep(t *testing.T) {
@@ -157,7 +159,7 @@ func TestUpdateLastMatchingStep_WrongAction(t *testing.T) {
 }
 
 func TestFinish(t *testing.T) {
-	s := &LinearSyncResolveConflictState{Status: "in_progress"}
+	s := &LinearSyncResolveConflictState{ResolveConflict: state.ResolveConflict{Status: "in_progress"}}
 
 	resolutions := []LinearSyncResolveConflictResolution{
 		{LocalCommit: "abc", AllResolved: true, Confidence: "high"},
@@ -182,7 +184,7 @@ func TestFinish(t *testing.T) {
 }
 
 func TestFinish_Failed(t *testing.T) {
-	s := &LinearSyncResolveConflictState{Status: "in_progress"}
+	s := &LinearSyncResolveConflictState{ResolveConflict: state.ResolveConflict{Status: "in_progress"}}
 	s.Finish("failed", "merge conflict", nil)
 
 	if s.Status != "failed" {
@@ -195,10 +197,10 @@ func TestFinish_Failed(t *testing.T) {
 
 func TestSetHash(t *testing.T) {
 	s := &LinearSyncResolveConflictState{}
-	s.SetHash("abc123", "initial commit")
+	s.SetHash("abc123456789", "initial commit")
 
-	if s.Hash != "abc123" {
-		t.Errorf("hash = %q, want %q", s.Hash, "abc123")
+	if s.Hash != "abc1234" {
+		t.Errorf("hash = %q, want %q", s.Hash, "abc1234")
 	}
 	if s.HashMessage != "initial commit" {
 		t.Errorf("hash message = %q, want %q", s.HashMessage, "initial commit")
@@ -229,10 +231,12 @@ func TestSetHash_DoesNotOverwrite(t *testing.T) {
 
 func TestMarshalJSON(t *testing.T) {
 	s := &LinearSyncResolveConflictState{
-		Type:        "linear_sync_resolve_conflict",
-		WorkspaceID: "ws-1",
-		Status:      "in_progress",
-		StartedAt:   "2024-01-01T00:00:00Z",
+		ResolveConflict: state.ResolveConflict{
+			Type:        "linear_sync_resolve_conflict",
+			WorkspaceID: "ws-1",
+			Status:      "in_progress",
+			StartedAt:   "2024-01-01T00:00:00Z",
+		},
 	}
 	s.AddStep(LinearSyncResolveConflictStep{
 		Action: "rebase",
@@ -263,7 +267,7 @@ func TestMarshalJSON(t *testing.T) {
 
 func TestConcurrentAccess(t *testing.T) {
 	s := &LinearSyncResolveConflictState{
-		Status: "in_progress",
+		ResolveConflict: state.ResolveConflict{Status: "in_progress"},
 	}
 
 	var wg sync.WaitGroup

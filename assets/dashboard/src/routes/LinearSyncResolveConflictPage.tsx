@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useSessions } from '../contexts/SessionsContext';
-import { useSyncState } from '../contexts/SyncContext';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import LinearSyncResolveConflictProgress from '../components/LinearSyncResolveConflictProgress';
@@ -10,12 +9,12 @@ export default function LinearSyncResolveConflictPage() {
   const { workspaceId, tabId } = useParams();
   const navigate = useNavigate();
   const { workspaces } = useSessions();
-  const { linearSyncResolveConflictStates } = useSyncState();
 
   const workspace = workspaces?.find((ws) => ws.id === workspaceId);
   const tab = workspace?.tabs?.find((t) => t.id === tabId);
   const conflictHash = tab?.meta?.hash;
-  const crState = workspaceId ? linearSyncResolveConflictStates[workspaceId] : undefined;
+  const displayHash = conflictHash ? conflictHash.slice(0, 7) : '';
+  const resolveConflict = workspace?.resolve_conflicts?.find((item) => item.hash === conflictHash);
 
   // Navigate home if workspace was disposed
   useEffect(() => {
@@ -38,12 +37,15 @@ export default function LinearSyncResolveConflictPage() {
       <WorkspaceHeader workspace={workspace} />
       <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
       <div className="spawn-content">
-        {crState ? (
-          <LinearSyncResolveConflictProgress workspaceId={workspaceId} />
+        {resolveConflict ? (
+          <LinearSyncResolveConflictProgress
+            workspaceId={workspaceId}
+            resolveConflict={resolveConflict}
+            displayHash={displayHash}
+          />
         ) : (
           <div className="loading-state">
-            <div className="spinner"></div>
-            <span>Starting conflict resolution...</span>
+            <span>Conflict record unavailable.</span>
           </div>
         )}
       </div>

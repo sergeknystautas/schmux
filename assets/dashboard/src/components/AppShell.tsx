@@ -181,7 +181,7 @@ export default function AppShell() {
             }
           );
           if (resolveConfirmed) {
-            await startConflictResolution(event.workspace_id);
+            await startConflictResolution(event.workspace_id, event.conflicting_hash);
           }
         } else if (event.success) {
           const branch = event.branch || 'main';

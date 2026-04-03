@@ -290,6 +290,39 @@ describe('SessionTabs', () => {
     });
   });
 
+  describe('resolve-conflict tab badges', () => {
+    it('shows in-progress spinner from workspace resolve_conflicts state', async () => {
+      mockMatchMediaMobile();
+      const workspace = makeWorkspace({
+        tabs: [
+          {
+            id: 'sys-resolve-conflict-abcdef1',
+            kind: 'resolve-conflict',
+            label: 'Conflict abcdef1',
+            route: '/resolve-conflict/ws-1/sys-resolve-conflict-abcdef1',
+            closable: false,
+            meta: { hash: 'abcdef1' },
+            created_at: new Date().toISOString(),
+          },
+        ],
+        resolve_conflicts: [
+          {
+            type: 'linear_sync_resolve_conflict',
+            workspace_id: 'ws-1',
+            status: 'in_progress',
+            hash: 'abcdef1',
+            started_at: new Date().toISOString(),
+            steps: [],
+          },
+        ],
+      });
+
+      await renderTabs([], workspace);
+
+      expect(document.querySelector('.spinner.spinner--small')).not.toBeNull();
+    });
+  });
+
   describe('Tab order from localStorage', () => {
     it('renders session tabs in custom order from localStorage', async () => {
       mockMatchMediaDesktop();

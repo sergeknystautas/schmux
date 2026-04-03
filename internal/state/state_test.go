@@ -1529,25 +1529,6 @@ func TestTabCRUD(t *testing.T) {
 		}
 	})
 
-	t.Run("UpdateTab changes tab fields", func(t *testing.T) {
-		updated := tab
-		updated.Label = "Updated README"
-		if err := s.UpdateTab("ws-1", updated); err != nil {
-			t.Fatalf("UpdateTab() failed: %v", err)
-		}
-		tabs := s.GetWorkspaceTabs("ws-1")
-		if tabs[0].Label != "Updated README" {
-			t.Errorf("Label = %q, want 'Updated README'", tabs[0].Label)
-		}
-	})
-
-	t.Run("UpdateTab returns error for unknown tab", func(t *testing.T) {
-		err := s.UpdateTab("ws-1", Tab{ID: "nonexistent-tab"})
-		if err == nil {
-			t.Error("expected error for unknown tab ID")
-		}
-	})
-
 	t.Run("RemoveTab deletes tab by ID", func(t *testing.T) {
 		if err := s.RemoveTab("ws-1", "tab-1"); err != nil {
 			t.Fatalf("RemoveTab() failed: %v", err)
@@ -1567,13 +1548,6 @@ func TestTabCRUD(t *testing.T) {
 
 	t.Run("AddTab returns error for unknown workspace", func(t *testing.T) {
 		err := s.AddTab("nonexistent-ws", tab)
-		if err == nil {
-			t.Error("expected error for unknown workspace")
-		}
-	})
-
-	t.Run("UpdateTab returns error for unknown workspace", func(t *testing.T) {
-		err := s.UpdateTab("nonexistent-ws", tab)
 		if err == nil {
 			t.Error("expected error for unknown workspace")
 		}
@@ -1663,6 +1637,67 @@ func TestTabIdempotency(t *testing.T) {
 	}
 	if previewCount != 1 {
 		t.Errorf("expected 1 preview tab, got %d", previewCount)
+	}
+}
+
+func TestRemoveTabDoesNotAliasStaleWorkspaceCopy(t *testing.T) {
+	s := New("", nil)
+	if err := s.AddWorkspace(Workspace{
+		ID:     "ws-stale",
+		Repo:   "repo",
+		Branch: "main",
+		Path:   t.TempDir(),
+		Tabs: []Tab{
+			{ID: "tab-markdown", Kind: "markdown", Label: "README", Route: "/readme", Closable: true},
+			{ID: "sys-diff-ws-stale", Kind: "diff", Label: "Diff", Route: "/diff/ws-stale", Closable: false},
+			{ID: "sys-git-ws-stale", Kind: "git", Label: "commit graph", Route: "/git/ws-stale", Closable: false},
+		},
+	}); err != nil {
+		t.Fatalf("AddWorkspace() failed: %v", err)
+	}
+
+	stale, found := s.GetWorkspace("ws-stale")
+	if !found {
+		t.Fatal("workspace not found")
+	}
+
+	if err := s.RemoveTab("ws-stale", "tab-markdown"); err != nil {
+		t.Fatalf("RemoveTab() failed: %v", err)
+	}
+	afterRemove, found := s.GetWorkspace("ws-stale")
+	if !found {
+		t.Fatal("workspace not found after remove")
+	}
+	if got := len(afterRemove.Tabs); got != 2 {
+		t.Fatalf("expected 2 tabs immediately after remove, got %d", got)
+	}
+	if afterRemove.Tabs[0].ID != "sys-diff-ws-stale" || afterRemove.Tabs[1].ID != "sys-git-ws-stale" {
+		t.Fatalf("expected diff/git tabs immediately after remove, got %+v", afterRemove.Tabs)
+	}
+
+	// A stale Get-modify-Update write still overwrites newer workspace fields.
+	// This regression test is specifically guarding against slice aliasing corruption:
+	// after the stale write restores the old 3-tab slice header, the third slot must
+	// still contain the original markdown tab rather than an orphaned duplicate caused
+	// by RemoveTab reusing the old backing array in place.
+	stale.LinesAdded = 7
+	if err := s.UpdateWorkspace(stale); err != nil {
+		t.Fatalf("UpdateWorkspace() failed: %v", err)
+	}
+
+	updated, found := s.GetWorkspace("ws-stale")
+	if !found {
+		t.Fatal("workspace not found after update")
+	}
+
+	if got := len(updated.Tabs); got != 3 {
+		t.Fatalf("expected stale workspace write to preserve original tab count, got %d", got)
+	}
+	if updated.Tabs[0].ID != "tab-markdown" {
+		t.Fatalf("expected first tab to remain markdown from stale copy, got %q", updated.Tabs[0].ID)
+	}
+	if updated.Tabs[1].ID != "sys-diff-ws-stale" || updated.Tabs[2].ID != "sys-git-ws-stale" {
+		t.Fatalf("expected diff/git tabs to remain intact, got %+v", updated.Tabs)
 	}
 }
 

@@ -204,9 +204,9 @@ In-app iframe for workspace dev server previews. Proxied through the daemon's pr
 
 Interactive commit graph for a workspace's git history.
 
-### Conflict Resolution (`/resolve-conflict/:workspaceId`)
+### Conflict Resolution (`/resolve-conflict/:workspaceId/:tabId`)
 
-Linear sync conflict resolution progress view.
+Linear sync conflict resolution progress view for a persisted resolve-conflict tab.
 
 ### Remote Settings (`/settings/remote`)
 

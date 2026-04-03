@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import LinearSyncResolveConflictProgress from './LinearSyncResolveConflictProgress';
-import type { LinearSyncResolveConflictStatePayload, WorkspaceResponse } from '../lib/types';
+import type { ResolveConflictRecordPayload, WorkspaceResponse } from '../lib/types';
 
 // --- Mocks ---
 
@@ -10,26 +10,15 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => navigate,
 }));
 
-const mockDismissLinearSyncResolveConflictState = vi.fn().mockResolvedValue(undefined);
 vi.mock('../lib/api', () => ({
-  dismissLinearSyncResolveConflictState: (...args: unknown[]) =>
-    mockDismissLinearSyncResolveConflictState(...args),
+  getGitGraph: vi.fn(),
 }));
 
-const clearLinearSyncResolveConflictState = vi.fn();
-let mockLinearSyncResolveConflictStates: Record<string, LinearSyncResolveConflictStatePayload> = {};
 let mockWorkspaces: WorkspaceResponse[] = [];
 
 vi.mock('../contexts/SessionsContext', () => ({
   useSessions: () => ({
     workspaces: mockWorkspaces,
-  }),
-}));
-
-vi.mock('../contexts/SyncContext', () => ({
-  useSyncState: () => ({
-    linearSyncResolveConflictStates: mockLinearSyncResolveConflictStates,
-    clearLinearSyncResolveConflictState,
   }),
 }));
 
@@ -68,8 +57,8 @@ function makeWorkspace(overrides: Partial<WorkspaceResponse> = {}): WorkspaceRes
 }
 
 function makeState(
-  overrides: Partial<LinearSyncResolveConflictStatePayload> = {}
-): LinearSyncResolveConflictStatePayload {
+  overrides: Partial<ResolveConflictRecordPayload> = {}
+): ResolveConflictRecordPayload {
   return {
     type: 'linear_sync_resolve_conflict',
     workspace_id: 'ws-1',
@@ -90,84 +79,100 @@ function makeState(
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockLinearSyncResolveConflictStates = {};
   mockWorkspaces = [];
 });
 
 // --- Tests ---
 
 describe('LinearSyncResolveConflictProgress', () => {
-  it('returns null when no state exists for workspace', () => {
-    mockWorkspaces = [makeWorkspace()];
-
-    const { container } = render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
-
-    expect(container.innerHTML).toBe('');
-  });
-
   it('renders in-progress state with spinner', () => {
     const state = makeState({ status: 'in_progress' });
-    mockLinearSyncResolveConflictStates = { 'ws-1': state };
     mockWorkspaces = [makeWorkspace()];
 
-    render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
+    render(
+      <LinearSyncResolveConflictProgress
+        workspaceId="ws-1"
+        resolveConflict={state}
+        displayHash="abc1234"
+      />
+    );
 
     expect(screen.getByText('Resolving conflicts...')).toBeInTheDocument();
   });
 
   it('does NOT auto-dismiss when status is done and no more commits behind', () => {
     const state = makeState({ status: 'done' });
-    mockLinearSyncResolveConflictStates = { 'ws-1': state };
     mockWorkspaces = [makeWorkspace({ behind: 0 })];
 
-    render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
+    render(
+      <LinearSyncResolveConflictProgress
+        workspaceId="ws-1"
+        resolveConflict={state}
+        displayHash="abc1234"
+      />
+    );
 
-    expect(clearLinearSyncResolveConflictState).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
   });
 
   it('does NOT auto-dismiss when done with no sessions', () => {
     const state = makeState({ status: 'done' });
-    mockLinearSyncResolveConflictStates = { 'ws-1': state };
     mockWorkspaces = [makeWorkspace({ behind: 0, sessions: [], session_count: 0 })];
 
-    render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
+    render(
+      <LinearSyncResolveConflictProgress
+        workspaceId="ws-1"
+        resolveConflict={state}
+        displayHash="abc1234"
+      />
+    );
 
-    expect(clearLinearSyncResolveConflictState).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
   });
 
   it('does NOT auto-dismiss when done but has more commits behind', () => {
     const state = makeState({ status: 'done' });
-    mockLinearSyncResolveConflictStates = { 'ws-1': state };
     mockWorkspaces = [makeWorkspace({ behind: 3 })];
 
-    render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
+    render(
+      <LinearSyncResolveConflictProgress
+        workspaceId="ws-1"
+        resolveConflict={state}
+        displayHash="abc1234"
+      />
+    );
 
-    expect(clearLinearSyncResolveConflictState).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
     expect(screen.getByText('Continue syncing')).toBeInTheDocument();
   });
 
   it('does NOT auto-dismiss when status is in_progress', () => {
     const state = makeState({ status: 'in_progress' });
-    mockLinearSyncResolveConflictStates = { 'ws-1': state };
     mockWorkspaces = [makeWorkspace({ behind: 0 })];
 
-    render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
+    render(
+      <LinearSyncResolveConflictProgress
+        workspaceId="ws-1"
+        resolveConflict={state}
+        displayHash="abc1234"
+      />
+    );
 
-    expect(clearLinearSyncResolveConflictState).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
   });
 
   it('does NOT auto-dismiss when status is failed', () => {
     const state = makeState({ status: 'failed' });
-    mockLinearSyncResolveConflictStates = { 'ws-1': state };
     mockWorkspaces = [makeWorkspace({ behind: 0 })];
 
-    render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
+    render(
+      <LinearSyncResolveConflictProgress
+        workspaceId="ws-1"
+        resolveConflict={state}
+        displayHash="abc1234"
+      />
+    );
 
-    expect(clearLinearSyncResolveConflictState).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
     expect(screen.getByText('Conflict resolution failed')).toBeInTheDocument();
   });
@@ -175,10 +180,15 @@ describe('LinearSyncResolveConflictProgress', () => {
   describe('terminal panel', () => {
     it('does not render terminal panel when tmux_session is absent', () => {
       const state = makeState({ status: 'in_progress' });
-      mockLinearSyncResolveConflictStates = { 'ws-1': state };
       mockWorkspaces = [makeWorkspace()];
 
-      render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
+      render(
+        <LinearSyncResolveConflictProgress
+          workspaceId="ws-1"
+          resolveConflict={state}
+          displayHash="abc1234"
+        />
+      );
 
       expect(screen.queryByText('Agent output')).not.toBeInTheDocument();
     });
@@ -188,10 +198,15 @@ describe('LinearSyncResolveConflictProgress', () => {
         status: 'done',
         tmux_session: 'cr-ws-1-abc1234',
       });
-      mockLinearSyncResolveConflictStates = { 'ws-1': state };
       mockWorkspaces = [makeWorkspace({ behind: 3 })];
 
-      render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
+      render(
+        <LinearSyncResolveConflictProgress
+          workspaceId="ws-1"
+          resolveConflict={state}
+          displayHash="abc1234"
+        />
+      );
 
       expect(screen.queryByText('Agent output')).not.toBeInTheDocument();
     });

@@ -706,7 +706,6 @@ func (s *Server) Start() error {
 				r.Post("/linear-sync-to-main", s.handleLinearSyncToMain)
 				r.Post("/push-to-branch", s.handlePushToBranch)
 				r.Post("/linear-sync-resolve-conflict", s.handleLinearSyncResolveConflict)
-				r.Delete("/linear-sync-resolve-conflict-state", s.handleDeleteLinearSyncResolveConflictState)
 
 				// Git operation routes
 				r.Post("/git-commit-stage", s.handleGitCommitStage)

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -180,6 +181,103 @@ func TestHandleTabDelete(t *testing.T) {
 			t.Fatal("tab should have been removed")
 		}
 	}
+}
+
+func TestHandleTabDelete_RemovesResolveConflictRecord(t *testing.T) {
+	srv, _, st := newTestServer(t)
+	hash := "abcdef1"
+	if err := st.AddWorkspace(state.Workspace{
+		ID:     "ws-tab-rc",
+		Repo:   "https://example.com/repo.git",
+		Branch: "main",
+		Path:   t.TempDir(),
+		Tabs: []state.Tab{
+			{
+				ID:       "sys-resolve-conflict-abcdef1",
+				Kind:     "resolve-conflict",
+				Label:    "Conflict abcdef1",
+				Route:    "/resolve-conflict/ws-tab-rc/sys-resolve-conflict-abcdef1",
+				Closable: true,
+				Meta:     map[string]string{"hash": hash},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to add workspace: %v", err)
+	}
+	if err := st.UpsertResolveConflict("ws-tab-rc", state.ResolveConflict{
+		Type:        "linear_sync_resolve_conflict",
+		WorkspaceID: "ws-tab-rc",
+		Status:      "done",
+		Hash:        hash,
+		StartedAt:   time.Now().Format(time.RFC3339),
+		Steps:       []state.ResolveConflictStep{},
+	}); err != nil {
+		t.Fatalf("failed to add resolve conflict: %v", err)
+	}
+	srv.setLinearSyncResolveConflictState("ws-tab-rc", &LinearSyncResolveConflictState{
+		ResolveConflict: state.ResolveConflict{
+			Type:        "linear_sync_resolve_conflict",
+			WorkspaceID: "ws-tab-rc",
+			Status:      "done",
+			Hash:        hash,
+			StartedAt:   time.Now().Format(time.RFC3339),
+			Steps:       []state.ResolveConflictStep{},
+		},
+	})
+
+	req := makeTabRequest(
+		t,
+		http.MethodDelete,
+		"/api/workspaces/ws-tab-rc/tabs/sys-resolve-conflict-abcdef1",
+		"ws-tab-rc",
+		"sys-resolve-conflict-abcdef1",
+		nil,
+	)
+	rr := httptest.NewRecorder()
+	srv.handleTabDelete(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("DELETE resolve-conflict tab: status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+
+	if _, found := st.GetResolveConflict("ws-tab-rc", hash); found {
+		t.Fatal("resolve-conflict record should have been removed")
+	}
+	if srv.getLinearSyncResolveConflictState("ws-tab-rc") != nil {
+		t.Fatal("live resolve-conflict state should have been cleared")
+	}
+}
+
+func TestEnsureResolveConflictTab_UsesShortHashKey(t *testing.T) {
+	srv, _, st := newTestServer(t)
+	if err := st.AddWorkspace(state.Workspace{
+		ID:     "ws-tab-short",
+		Repo:   "https://example.com/repo.git",
+		Branch: "main",
+		Path:   t.TempDir(),
+	}); err != nil {
+		t.Fatalf("failed to add workspace: %v", err)
+	}
+
+	srv.ensureResolveConflictTab("ws-tab-short", "abcdef123456")
+
+	tabs := st.GetWorkspaceTabs("ws-tab-short")
+	for _, tab := range tabs {
+		if tab.Kind != "resolve-conflict" {
+			continue
+		}
+		if tab.ID != "sys-resolve-conflict-abcdef1" {
+			t.Fatalf("resolve-conflict tab id = %q, want short-hash key", tab.ID)
+		}
+		if tab.Route != "/resolve-conflict/ws-tab-short/sys-resolve-conflict-abcdef1" {
+			t.Fatalf("resolve-conflict tab route = %q", tab.Route)
+		}
+		if tab.Meta["hash"] != "abcdef1" {
+			t.Fatalf("resolve-conflict tab hash = %q", tab.Meta["hash"])
+		}
+		return
+	}
+	t.Fatal("resolve-conflict tab not found")
 }
 
 func TestHandleTabDelete_NonClosable(t *testing.T) {

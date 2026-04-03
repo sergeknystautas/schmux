@@ -53,6 +53,7 @@ export interface WorkspaceResponse {
   remote_unique_commits?: number; // commits in remote not in local
   previews?: WorkspacePreview[];
   tabs?: Tab[];
+  resolve_conflicts?: ResolveConflictRecordPayload[];
   status?: string;
 }
 
@@ -322,7 +323,6 @@ export interface ConflictResolution {
 export interface LinearSyncResolveConflictResponse {
   started: boolean;
   workspace_id?: string;
-  tab_id?: string;
   message?: string;
 }
 
@@ -340,7 +340,7 @@ export interface LinearSyncResolveConflictStep {
   created?: boolean;
 }
 
-export interface LinearSyncResolveConflictStatePayload {
+export interface ResolveConflictRecordPayload {
   type: 'linear_sync_resolve_conflict';
   workspace_id: string;
   status: 'in_progress' | 'done' | 'failed';
@@ -353,6 +353,8 @@ export interface LinearSyncResolveConflictStatePayload {
   steps: LinearSyncResolveConflictStep[];
   resolutions?: ConflictResolution[];
 }
+
+export type LinearSyncResolveConflictStatePayload = ResolveConflictRecordPayload;
 
 export interface WorkspaceLockState {
   locked: boolean;

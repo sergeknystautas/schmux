@@ -78,7 +78,18 @@ func (s *Server) handleTabDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "tab not found", http.StatusNotFound)
 		return
 	}
-	if !found.Closable {
+	closable := found.Closable
+	if found.Kind == "resolve-conflict" {
+		hash := found.Meta["hash"]
+		if hash != "" {
+			if conflict, ok := s.state.GetResolveConflict(workspaceID, hash); ok {
+				closable = conflict.Status != "in_progress"
+			} else {
+				closable = true
+			}
+		}
+	}
+	if !closable {
 		http.Error(w, "tab is not closable", http.StatusBadRequest)
 		return
 	}
@@ -88,14 +99,20 @@ func (s *Server) handleTabDelete(w http.ResponseWriter, r *http.Request) {
 		s.previewManager.Delete(workspaceID, found.Meta["preview_id"]) //nolint:errcheck
 	}
 
-	// For resolve-conflict tabs, also clear the in-memory CR state.
-	if found.Kind == "resolve-conflict" {
-		s.deleteLinearSyncResolveConflictState(workspaceID)
-	}
-
 	if err := s.state.RemoveTab(workspaceID, tabID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if found.Kind == "resolve-conflict" && found.Meta["hash"] != "" {
+		if err := s.state.RemoveResolveConflict(workspaceID, found.Meta["hash"]); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if current := s.getLinearSyncResolveConflictState(workspaceID); current != nil &&
+			current.Hash == found.Meta["hash"] &&
+			current.Status != "in_progress" {
+			s.deleteLinearSyncResolveConflictState(workspaceID)
+		}
 	}
 
 	s.state.Save() //nolint:errcheck

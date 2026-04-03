@@ -228,6 +228,20 @@ Response:
         "meta": { "filepath": "README.md" },
         "created_at": "2025-01-15T10:00:00Z"
       }
+    ],
+    "resolve_conflicts": [
+      {
+        "type": "linear_sync_resolve_conflict",
+        "workspace_id": "workspace-id",
+        "status": "done",
+        "hash": "abcdef1234567890",
+        "hash_message": "Fix upstream conflict",
+        "started_at": "2025-01-15T10:00:00Z",
+        "finished_at": "2025-01-15T10:01:30Z",
+        "message": "Conflict resolution completed",
+        "steps": [],
+        "resolutions": []
+      }
     ]
   }
 ]
@@ -241,7 +255,8 @@ Notes:
 - `nudge_state` values: `Working`, `Idle`, `Needs Input`, `Needs Attention`, `Needs Feature Clarification`, `Completed`, `Error`. State priority prevents lower-tier states from overwriting higher-tier ones: tier 0 (Working, Idle) < tier 1 (Needs Input, Needs Attention) < tier 2 (Completed, Error). Only `Working` can reset a terminal state (new turn started).
 - Workspace `status` field: `provisioning` (being created), `running` (ready), `failed` (creation failed), `disposing` (being torn down). Omitted for pre-existing workspaces (treat as `running`).
 - Session `status` field includes `disposing` during teardown. Dispose endpoints return 200 OK if the item is already in `disposing` status (idempotent).
-- Workspace `tabs` array contains Tab objects with fields: `id` (UUID), `kind` (tab type), `label`, `route`, `closable`, `meta` (type-specific metadata), and `created_at`.
+- Workspace `tabs` array contains Tab objects with fields: `id`, `kind` (tab type), `label`, `route`, `closable`, `meta` (type-specific metadata), and `created_at`.
+- Workspace `resolve_conflicts` contains persisted conflict-process records keyed by the 7-character short hash; resolve-conflict tabs point at these records via `tabs[].meta.hash`.
 - Unrecognized workspace sub-routes return 404.
 
 ### POST /api/workspaces/scan
@@ -1825,21 +1840,11 @@ Errors:
 Notes:
 
 - Progress steps are broadcast as `linear_sync_resolve_conflict` messages on the `/ws/dashboard` WebSocket
+- The persisted `resolve-conflict` accessory tab is created when the first hash-bearing progress step arrives and uses the 7-character short hash in its tab id/route
+- Conflict process state is persisted on the workspace and remains available until the user closes the matching resolve-conflict tab
 - Auto-clears completed/failed state on new request
 - Clears `conflict_on_branch` on successful resolution
 - Pauses Vite file watching during resolution to avoid transform errors
-
-### DELETE /api/workspaces/{workspaceId}/linear-sync-resolve-conflict-state
-
-Dismisses a completed or failed conflict resolution state.
-
-Response (200): empty body
-
-Errors:
-
-- 400: "workspace ID is required"
-- 404: no conflict resolution state found
-- 409 with JSON: `{"message":"operation still in progress"}`
 
 ### GET /api/prs
 

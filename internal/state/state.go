@@ -112,6 +112,7 @@ type Workspace struct {
 	PortBlock               int               `json:"port_block,omitempty"`         // 0 = unassigned; 1-indexed block for stable preview ports
 	Status                  string            `json:"status,omitempty"`
 	Tabs                    []Tab             `json:"tabs,omitempty"`
+	ResolveConflicts        []ResolveConflict `json:"resolve_conflicts,omitempty"`
 }
 
 // Tab represents an accessory tab in a workspace (diff, git, preview, markdown, etc.).
@@ -123,6 +124,125 @@ type Tab struct {
 	Closable  bool              `json:"closable"`
 	Meta      map[string]string `json:"meta,omitempty"`
 	CreatedAt time.Time         `json:"created_at"`
+}
+
+type ResolveConflictStep struct {
+	Action             string              `json:"action"`
+	Status             string              `json:"status"`
+	Message            []string            `json:"message"`
+	At                 string              `json:"at"`
+	LocalCommit        string              `json:"local_commit,omitempty"`
+	LocalCommitMessage string              `json:"local_commit_message,omitempty"`
+	Files              []string            `json:"files,omitempty"`
+	ConflictDiffs      map[string][]string `json:"conflict_diffs,omitempty"`
+	Confidence         string              `json:"confidence,omitempty"`
+	Summary            string              `json:"summary,omitempty"`
+	Created            *bool               `json:"created,omitempty"`
+	TmuxSession        string              `json:"tmux_session,omitempty"`
+}
+
+type ResolveConflictResolution struct {
+	LocalCommit        string   `json:"local_commit"`
+	LocalCommitMessage string   `json:"local_commit_message"`
+	AllResolved        bool     `json:"all_resolved"`
+	Confidence         string   `json:"confidence"`
+	Summary            string   `json:"summary"`
+	Files              []string `json:"files"`
+}
+
+type ResolveConflict struct {
+	Type        string                      `json:"type"`
+	WorkspaceID string                      `json:"workspace_id"`
+	Status      string                      `json:"status"`
+	Hash        string                      `json:"hash"`
+	HashMessage string                      `json:"hash_message,omitempty"`
+	TmuxSession string                      `json:"tmux_session,omitempty"`
+	StartedAt   string                      `json:"started_at"`
+	FinishedAt  string                      `json:"finished_at,omitempty"`
+	Message     string                      `json:"message,omitempty"`
+	Steps       []ResolveConflictStep       `json:"steps"`
+	Resolutions []ResolveConflictResolution `json:"resolutions,omitempty"`
+}
+
+func copyStringMap(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func copyStringSlice(src []string) []string {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make([]string, len(src))
+	copy(dst, src)
+	return dst
+}
+
+func copyConflictDiffs(src map[string][]string) map[string][]string {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string][]string, len(src))
+	for k, v := range src {
+		dst[k] = copyStringSlice(v)
+	}
+	return dst
+}
+
+func copyTabs(src []Tab) []Tab {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make([]Tab, len(src))
+	for i, tab := range src {
+		dst[i] = tab
+		dst[i].Meta = copyStringMap(tab.Meta)
+	}
+	return dst
+}
+
+func copyResolveConflicts(src []ResolveConflict) []ResolveConflict {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make([]ResolveConflict, len(src))
+	for i, conflict := range src {
+		dst[i] = conflict
+		dst[i].Steps = make([]ResolveConflictStep, len(conflict.Steps))
+		for j, step := range conflict.Steps {
+			dst[i].Steps[j] = step
+			dst[i].Steps[j].Message = copyStringSlice(step.Message)
+			dst[i].Steps[j].Files = copyStringSlice(step.Files)
+			dst[i].Steps[j].ConflictDiffs = copyConflictDiffs(step.ConflictDiffs)
+			if step.Created != nil {
+				created := *step.Created
+				dst[i].Steps[j].Created = &created
+			}
+		}
+		dst[i].Resolutions = make([]ResolveConflictResolution, len(conflict.Resolutions))
+		for j, resolution := range conflict.Resolutions {
+			dst[i].Resolutions[j] = resolution
+			dst[i].Resolutions[j].Files = copyStringSlice(resolution.Files)
+		}
+	}
+	return dst
+}
+
+func CopyResolveConflicts(src []ResolveConflict) []ResolveConflict {
+	return copyResolveConflicts(src)
+}
+
+func copyWorkspace(w Workspace) Workspace {
+	w.OverlayManifest = copyStringMap(w.OverlayManifest)
+	w.Tabs = copyTabs(w.Tabs)
+	w.ResolveConflicts = copyResolveConflicts(w.ResolveConflicts)
+	return w
 }
 
 // tabDedupKey returns the deduplication key for a tab based on kind.
@@ -431,7 +551,7 @@ func (s *State) GetWorkspace(id string) (Workspace, bool) {
 	defer s.mu.RUnlock()
 	for _, w := range s.Workspaces {
 		if w.ID == id {
-			return w, true
+			return copyWorkspace(w), true
 		}
 	}
 	return Workspace{}, false
@@ -443,7 +563,9 @@ func (s *State) GetWorkspaces() []Workspace {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	workspaces := make([]Workspace, len(s.Workspaces))
-	copy(workspaces, s.Workspaces)
+	for i, w := range s.Workspaces {
+		workspaces[i] = copyWorkspace(w)
+	}
 	return workspaces
 }
 
@@ -453,7 +575,7 @@ func (s *State) FindWorkspaceByRepoBranch(repo, branch string) (Workspace, bool)
 	defer s.mu.RUnlock()
 	for _, w := range s.Workspaces {
 		if w.Repo == repo && w.Branch == branch {
-			return w, true
+			return copyWorkspace(w), true
 		}
 	}
 	return Workspace{}, false
@@ -466,7 +588,7 @@ func (s *State) UpdateWorkspace(w Workspace) error {
 	defer s.mu.Unlock()
 	for i, existing := range s.Workspaces {
 		if existing.ID == w.ID {
-			s.Workspaces[i] = w
+			s.Workspaces[i] = copyWorkspace(w)
 			return nil
 		}
 	}
@@ -479,12 +601,79 @@ func (s *State) GetWorkspaceTabs(workspaceID string) []Tab {
 	defer s.mu.RUnlock()
 	for _, w := range s.Workspaces {
 		if w.ID == workspaceID {
-			result := make([]Tab, len(w.Tabs))
-			copy(result, w.Tabs)
-			return result
+			return copyTabs(w.Tabs)
 		}
 	}
 	return []Tab{}
+}
+
+func (s *State) GetWorkspaceResolveConflicts(workspaceID string) []ResolveConflict {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, w := range s.Workspaces {
+		if w.ID == workspaceID {
+			return copyResolveConflicts(w.ResolveConflicts)
+		}
+	}
+	return []ResolveConflict{}
+}
+
+func (s *State) GetResolveConflict(workspaceID, hash string) (ResolveConflict, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, w := range s.Workspaces {
+		if w.ID != workspaceID {
+			continue
+		}
+		for _, conflict := range w.ResolveConflicts {
+			if conflict.Hash == hash {
+				return copyResolveConflicts([]ResolveConflict{conflict})[0], true
+			}
+		}
+		return ResolveConflict{}, false
+	}
+	return ResolveConflict{}, false
+}
+
+func (s *State) UpsertResolveConflict(workspaceID string, conflict ResolveConflict) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, w := range s.Workspaces {
+		if w.ID != workspaceID {
+			continue
+		}
+		next := copyResolveConflicts([]ResolveConflict{conflict})[0]
+		for j, existing := range w.ResolveConflicts {
+			if existing.Hash == conflict.Hash {
+				s.Workspaces[i].ResolveConflicts[j] = next
+				return nil
+			}
+		}
+		s.Workspaces[i].ResolveConflicts = append([]ResolveConflict{next}, s.Workspaces[i].ResolveConflicts...)
+		return nil
+	}
+	return fmt.Errorf("workspace not found: %s", workspaceID)
+}
+
+func (s *State) RemoveResolveConflict(workspaceID, hash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, w := range s.Workspaces {
+		if w.ID != workspaceID {
+			continue
+		}
+		for j, existing := range w.ResolveConflicts {
+			if existing.Hash == hash {
+				next := make([]ResolveConflict, 0, len(w.ResolveConflicts)-1)
+				next = append(next, w.ResolveConflicts[:j]...)
+				next = append(next, w.ResolveConflicts[j+1:]...)
+				s.Workspaces[i].ResolveConflicts = next
+				return nil
+			}
+		}
+		return nil
+	}
+	return fmt.Errorf("workspace not found: %s", workspaceID)
 }
 
 // AddTab adds a tab to a workspace. Idempotent by (kind, dedup_key): if a tab
@@ -526,26 +715,6 @@ func (s *State) addTabLocked(workspaceID string, tab Tab) error {
 	return fmt.Errorf("workspace not found: %s", workspaceID)
 }
 
-// UpdateTab updates a tab by ID within a workspace.
-// Returns an error if the workspace or tab is not found.
-func (s *State) UpdateTab(workspaceID string, tab Tab) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i, w := range s.Workspaces {
-		if w.ID != workspaceID {
-			continue
-		}
-		for j, existing := range w.Tabs {
-			if existing.ID == tab.ID {
-				s.Workspaces[i].Tabs[j] = tab
-				return nil
-			}
-		}
-		return fmt.Errorf("tab not found: %s", tab.ID)
-	}
-	return fmt.Errorf("workspace not found: %s", workspaceID)
-}
-
 // RemoveTab removes a tab by ID from a workspace.
 // Returns an error if the workspace is not found.
 func (s *State) RemoveTab(workspaceID, tabID string) error {
@@ -557,7 +726,10 @@ func (s *State) RemoveTab(workspaceID, tabID string) error {
 		}
 		for j, existing := range w.Tabs {
 			if existing.ID == tabID {
-				s.Workspaces[i].Tabs = append(w.Tabs[:j], w.Tabs[j+1:]...)
+				next := make([]Tab, 0, len(w.Tabs)-1)
+				next = append(next, w.Tabs[:j]...)
+				next = append(next, w.Tabs[j+1:]...)
+				s.Workspaces[i].Tabs = next
 				return nil
 			}
 		}

@@ -9,6 +9,15 @@ import type { WorkspaceResponse } from '../lib/types';
 
 const mockWorkspaces: WorkspaceResponse[] = [];
 let mockReturnOverrides: Record<string, unknown> = {};
+const mockNavigate = vi.fn();
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  };
+});
 
 vi.mock('../hooks/useSessionsWebSocket', () => ({
   default: () => ({
@@ -59,6 +68,7 @@ function makeWrapper() {
 beforeEach(() => {
   mockWorkspaces.length = 0;
   mockReturnOverrides = {};
+  mockNavigate.mockReset();
   localStorage.clear();
 });
 
@@ -182,5 +192,46 @@ describe('SessionsContext', () => {
     });
 
     expect(localStorage.getItem('schmux:ack:sess-1')).toBe('5');
+  });
+
+  it('navigates to resolve-conflict route by short hash', () => {
+    mockWorkspaces.push({
+      id: 'ws-1',
+      repo: 'r',
+      branch: 'main',
+      path: '/tmp',
+      session_count: 0,
+      sessions: [],
+      ahead: 0,
+      behind: 0,
+      lines_added: 0,
+      lines_removed: 0,
+      files_changed: 0,
+      tabs: [
+        {
+          id: 'sys-resolve-conflict-abcdef1',
+          kind: 'resolve-conflict',
+          label: 'Conflict abcdef1',
+          route: '/resolve-conflict/ws-1/sys-resolve-conflict-abcdef1',
+          closable: true,
+          meta: { hash: 'abcdef1' },
+          created_at: new Date().toISOString(),
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useSessions(), { wrapper: makeWrapper() });
+
+    act(() => {
+      result.current.setPendingNavigation({
+        type: 'tab',
+        workspaceId: 'ws-1',
+        tabRoute: '/resolve-conflict/ws-1/sys-resolve-conflict-abcdef1',
+      });
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith(
+      '/resolve-conflict/ws-1/sys-resolve-conflict-abcdef1'
+    );
   });
 });

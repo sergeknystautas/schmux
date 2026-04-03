@@ -744,11 +744,20 @@ func (m *mockStateStore) GetWorkspacesByRemoteHostID(hostID string) []state.Work
 func (m *mockStateStore) GetWorkspaceTabs(workspaceID string) []state.Tab {
 	return m.state.GetWorkspaceTabs(workspaceID)
 }
+func (m *mockStateStore) GetWorkspaceResolveConflicts(workspaceID string) []state.ResolveConflict {
+	return m.state.GetWorkspaceResolveConflicts(workspaceID)
+}
+func (m *mockStateStore) GetResolveConflict(workspaceID, hash string) (state.ResolveConflict, bool) {
+	return m.state.GetResolveConflict(workspaceID, hash)
+}
+func (m *mockStateStore) UpsertResolveConflict(workspaceID string, conflict state.ResolveConflict) error {
+	return m.state.UpsertResolveConflict(workspaceID, conflict)
+}
+func (m *mockStateStore) RemoveResolveConflict(workspaceID, hash string) error {
+	return m.state.RemoveResolveConflict(workspaceID, hash)
+}
 func (m *mockStateStore) AddTab(workspaceID string, tab state.Tab) error {
 	return m.state.AddTab(workspaceID, tab)
-}
-func (m *mockStateStore) UpdateTab(workspaceID string, tab state.Tab) error {
-	return m.state.UpdateTab(workspaceID, tab)
 }
 func (m *mockStateStore) RemoveTab(workspaceID, tabID string) error {
 	return m.state.RemoveTab(workspaceID, tabID)

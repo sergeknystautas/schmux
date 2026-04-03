@@ -151,14 +151,4 @@ test.describe.serial('Dismiss conflict resolution tab after completion', () => {
     const sessionTab = page.locator('.session-tab').first();
     await expect(sessionTab).toBeVisible();
   });
-
-  test('DELETE API confirms state was dismissed', async () => {
-    // The dismiss click in the previous test sent the DELETE request.
-    // Verify by trying again — should return 404 (already gone).
-    const res = await fetch(
-      `${BASE_URL}/api/workspaces/${workspaceId}/linear-sync-resolve-conflict-state`,
-      { method: 'DELETE' }
-    );
-    expect(res.status).toBe(404);
-  });
 });

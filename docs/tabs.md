@@ -43,6 +43,8 @@ type Tab struct {
 
 Tabs live inside the Workspace struct as `Tabs []Tab`, persisted in `state.json`, and broadcast to all clients via WebSocket.
 
+For tab kinds that need substantial persisted page state, the tab stays lightweight and points to adjacent workspace-owned state instead of storing that process data in the tab itself. For example, `resolve-conflict` tabs use `meta.hash` to point at persisted `workspace.resolve_conflicts` records.
+
 The diff tab's `label` is empty in state.json and derived at broadcast time from workspace git stats (`"{n} files changed"`). This avoids high-churn writes to state for a value that changes with every file edit.
 
 ### Ownership

@@ -55,35 +55,36 @@ type SessionModelInfo struct {
 
 // WorkspaceResponseItem represents a workspace in the API response.
 type WorkspaceResponseItem struct {
-	ID                      string                `json:"id"`
-	Repo                    string                `json:"repo"`
-	RepoName                string                `json:"repo_name,omitempty"`
-	DefaultBranch           string                `json:"default_branch,omitempty"`
-	Branch                  string                `json:"branch"`
-	BranchURL               string                `json:"branch_url,omitempty"`
-	Path                    string                `json:"path"`
-	SessionCount            int                   `json:"session_count"`
-	Sessions                []SessionResponseItem `json:"sessions"`
-	QuickLaunch             []string              `json:"quick_launch,omitempty"`
-	Ahead                   int                   `json:"ahead"`
-	Behind                  int                   `json:"behind"`
-	LinesAdded              int                   `json:"lines_added"`
-	LinesRemoved            int                   `json:"lines_removed"`
-	FilesChanged            int                   `json:"files_changed"`
-	RemoteHostID            string                `json:"remote_host_id,omitempty"`
-	RemoteHostStatus        string                `json:"remote_host_status,omitempty"`
-	RemoteFlavorName        string                `json:"remote_flavor_name,omitempty"`
-	RemoteFlavor            string                `json:"remote_flavor,omitempty"`
-	VCS                     string                `json:"vcs,omitempty"`                // "git", "sapling", etc. Omitted defaults to "git".
-	ConflictOnBranch        string                `json:"conflict_on_branch,omitempty"` // Branch where sync conflict was detected
-	CommitsSyncedWithRemote bool                  `json:"commits_synced_with_remote"`   // true if local HEAD matches origin/{branch}
-	DefaultBranchOrphaned   bool                  `json:"default_branch_orphaned"`      // true if origin/default has no common ancestor with HEAD
-	RemoteBranchExists      bool                  `json:"remote_branch_exists"`         // true if origin/{branch} exists
-	LocalUniqueCommits      int                   `json:"local_unique_commits"`         // commits in local not in remote
-	RemoteUniqueCommits     int                   `json:"remote_unique_commits"`        // commits in remote not in local
-	Previews                []previewResponse     `json:"previews,omitempty"`
-	Tabs                    []contracts.Tab       `json:"tabs"`
-	Status                  string                `json:"status,omitempty"`
+	ID                      string                  `json:"id"`
+	Repo                    string                  `json:"repo"`
+	RepoName                string                  `json:"repo_name,omitempty"`
+	DefaultBranch           string                  `json:"default_branch,omitempty"`
+	Branch                  string                  `json:"branch"`
+	BranchURL               string                  `json:"branch_url,omitempty"`
+	Path                    string                  `json:"path"`
+	SessionCount            int                     `json:"session_count"`
+	Sessions                []SessionResponseItem   `json:"sessions"`
+	QuickLaunch             []string                `json:"quick_launch,omitempty"`
+	Ahead                   int                     `json:"ahead"`
+	Behind                  int                     `json:"behind"`
+	LinesAdded              int                     `json:"lines_added"`
+	LinesRemoved            int                     `json:"lines_removed"`
+	FilesChanged            int                     `json:"files_changed"`
+	RemoteHostID            string                  `json:"remote_host_id,omitempty"`
+	RemoteHostStatus        string                  `json:"remote_host_status,omitempty"`
+	RemoteFlavorName        string                  `json:"remote_flavor_name,omitempty"`
+	RemoteFlavor            string                  `json:"remote_flavor,omitempty"`
+	VCS                     string                  `json:"vcs,omitempty"`                // "git", "sapling", etc. Omitted defaults to "git".
+	ConflictOnBranch        string                  `json:"conflict_on_branch,omitempty"` // Branch where sync conflict was detected
+	CommitsSyncedWithRemote bool                    `json:"commits_synced_with_remote"`   // true if local HEAD matches origin/{branch}
+	DefaultBranchOrphaned   bool                    `json:"default_branch_orphaned"`      // true if origin/default has no common ancestor with HEAD
+	RemoteBranchExists      bool                    `json:"remote_branch_exists"`         // true if origin/{branch} exists
+	LocalUniqueCommits      int                     `json:"local_unique_commits"`         // commits in local not in remote
+	RemoteUniqueCommits     int                     `json:"remote_unique_commits"`        // commits in remote not in local
+	Previews                []previewResponse       `json:"previews,omitempty"`
+	Tabs                    []contracts.Tab         `json:"tabs"`
+	ResolveConflicts        []state.ResolveConflict `json:"resolve_conflicts,omitempty"`
+	Status                  string                  `json:"status,omitempty"`
 }
 
 // buildSessionsResponse builds the sessions/workspaces response data.
@@ -187,6 +188,7 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			LocalUniqueCommits:      ws.LocalUniqueCommits,
 			RemoteUniqueCommits:     ws.RemoteUniqueCommits,
 			Previews:                []previewResponse{},
+			ResolveConflicts:        ws.ResolveConflicts,
 			Status:                  ws.Status,
 		}
 		if s.previewManager != nil {
@@ -204,21 +206,33 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			workspaceMap[ws.ID].Previews = items
 		}
 
-		// Populate tabs from workspace state
+		// Populate tabs from workspace state.
 		wsTabs := ws.Tabs
+		resolveConflictsByHash := make(map[string]state.ResolveConflict, len(ws.ResolveConflicts))
+		for _, conflict := range ws.ResolveConflicts {
+			resolveConflictsByHash[conflict.Hash] = conflict
+		}
 		tabItems := make([]contracts.Tab, 0, len(wsTabs))
 		for _, tab := range wsTabs {
 			label := tab.Label
+			closable := tab.Closable
 			// Derive diff tab label from workspace git stats
 			if tab.Kind == "diff" {
 				label = fmt.Sprintf("%d file%s changed", ws.FilesChanged, pluralS(ws.FilesChanged))
+			}
+			if tab.Kind == "resolve-conflict" {
+				hash := tab.Meta["hash"]
+				if conflict, ok := resolveConflictsByHash[hash]; ok {
+					closable = conflict.Status != "in_progress"
+					label = "Conflict " + shortHash(conflict.Hash)
+				}
 			}
 			tabItems = append(tabItems, contracts.Tab{
 				ID:        tab.ID,
 				Kind:      tab.Kind,
 				Label:     label,
 				Route:     tab.Route,
-				Closable:  tab.Closable,
+				Closable:  closable,
 				Meta:      tab.Meta,
 				CreatedAt: tab.CreatedAt.Format(time.RFC3339),
 			})

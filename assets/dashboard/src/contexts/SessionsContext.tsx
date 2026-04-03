@@ -233,11 +233,13 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     } else if (pendingNavigation.type === 'tab') {
       const workspace = workspaces.find((ws) => ws.id === pendingNavigation.workspaceId);
       if (workspace) {
-        const tabExists = (workspace.tabs || []).some(
+        const exactTab = (workspace.tabs || []).find(
           (tab) => tab.route === pendingNavigation.tabRoute
         );
-        if (tabExists) {
-          navigate(pendingNavigation.tabRoute);
+        const targetRoute = exactTab?.route ?? null;
+
+        if (targetRoute) {
+          navigate(targetRoute);
           setPendingNavigationState(null);
         }
       }

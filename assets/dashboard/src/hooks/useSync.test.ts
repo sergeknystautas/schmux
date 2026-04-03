@@ -109,6 +109,38 @@ describe('useSync', () => {
     });
   });
 
+  describe('handleSmartSync', () => {
+    it('passes the known conflict hash into conflict resolution', async () => {
+      const { result } = renderHook(() => useSync());
+
+      await act(() =>
+        result.current.handleSmartSync(
+          {
+            id: 'ws-1',
+            repo: 'r',
+            branch: 'feature',
+            path: '/tmp/ws-1',
+            session_count: 0,
+            sessions: [],
+            ahead: 0,
+            behind: 0,
+            lines_added: 0,
+            lines_removed: 0,
+            files_changed: 0,
+            conflict_on_branch: 'feature',
+          },
+          'abc1234deadbeef'
+        )
+      );
+
+      expect(setPendingNavigation).toHaveBeenCalledWith({
+        type: 'tab',
+        workspaceId: 'ws-1',
+        tabRoute: '/resolve-conflict/ws-1/sys-resolve-conflict-abc1234',
+      });
+    });
+  });
+
   describe('handleLinearSyncToMain', () => {
     it('does not show success dialog after dispose — navigates directly to /', async () => {
       mockLinearSyncToMain.mockResolvedValue({

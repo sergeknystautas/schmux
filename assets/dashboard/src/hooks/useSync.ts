@@ -25,14 +25,15 @@ export function useSync() {
   const { setPendingNavigation } = usePendingNavigation();
 
   const startConflictResolution = useCallback(
-    async (workspaceId: string): Promise<void> => {
+    async (workspaceId: string, conflictHash?: string): Promise<void> => {
       clearLinearSyncResolveConflictState(workspaceId);
+      if (conflictHash) {
+        const shortHash = conflictHash.slice(0, 7);
+        const route = `/resolve-conflict/${workspaceId}/sys-resolve-conflict-${shortHash}`;
+        setPendingNavigation({ type: 'tab', workspaceId, tabRoute: route });
+      }
       try {
-        const result = await linearSyncResolveConflict(workspaceId);
-        if (result.tab_id) {
-          const route = `/resolve-conflict/${workspaceId}/${result.tab_id}`;
-          setPendingNavigation({ type: 'tab', workspaceId, tabRoute: route });
-        }
+        await linearSyncResolveConflict(workspaceId);
       } catch (err) {
         toastError(getErrorMessage(err, 'Failed to start conflict resolution'));
       }
@@ -63,7 +64,7 @@ export function useSync() {
             }
           );
           if (resolveConfirmed) {
-            await startConflictResolution(workspaceId);
+            await startConflictResolution(workspaceId, result.conflicting_hash);
           }
         } else {
           await alert('Error', 'Sync failed.');
@@ -172,7 +173,7 @@ export function useSync() {
 
       if (hasKnownConflict) {
         // Known conflict on current branch - go straight to conflict resolution
-        await startConflictResolution(workspace.id);
+        await startConflictResolution(workspace.id, hash);
       } else {
         // Try clean sync first
         await handleLinearSyncFromMain(workspace.id, hash);

@@ -575,19 +575,6 @@ export async function linearSyncResolveConflict(
   return response.json();
 }
 
-export async function dismissLinearSyncResolveConflictState(workspaceId: string): Promise<void> {
-  const response = await apiFetch(
-    `/api/workspaces/${workspaceId}/linear-sync-resolve-conflict-state`,
-    {
-      method: 'DELETE',
-      headers: { ...csrfHeaders() },
-    }
-  );
-  if (!response.ok) {
-    await parseErrorResponse(response, 'Failed to dismiss');
-  }
-}
-
 export async function getRecentBranches(limit: number = 10): Promise<RecentBranch[]> {
   const response = await apiFetch(`/api/recent-branches?limit=${limit}`);
   if (!response.ok) {

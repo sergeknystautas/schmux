@@ -262,6 +262,161 @@ func TestBroadcast_IncludesTabs(t *testing.T) {
 	}
 }
 
+func TestBroadcast_ResolveConflictTabUsesPersistedTab(t *testing.T) {
+	srv, _, st := newTestServer(t)
+
+	st.AddWorkspace(state.Workspace{
+		ID:     "ws-conflict",
+		Repo:   "https://example.com/repo.git",
+		Branch: "main",
+		Path:   t.TempDir(),
+		Tabs: []state.Tab{
+			{
+				ID:        "sys-resolve-conflict-abcdef1",
+				Kind:      "resolve-conflict",
+				Label:     "Conflict abcdef1",
+				Route:     "/resolve-conflict/ws-conflict/sys-resolve-conflict-abcdef1",
+				Closable:  true,
+				Meta:      map[string]string{"hash": "abcdef1"},
+				CreatedAt: time.Now(),
+			},
+		},
+		ResolveConflicts: []state.ResolveConflict{
+			{
+				Type:        "linear_sync_resolve_conflict",
+				WorkspaceID: "ws-conflict",
+				Status:      "in_progress",
+				Hash:        "abcdef1",
+				StartedAt:   time.Now().Format(time.RFC3339),
+				Steps:       []state.ResolveConflictStep{},
+			},
+		},
+	})
+
+	conn, cleanup := dialTestDashboardWS(t, srv)
+	defer cleanup()
+
+	msg := readDashboardMsg(t, conn, 2*time.Second)
+	if msg["type"] != "sessions" {
+		t.Fatalf("expected sessions message, got %s", msg["type"])
+	}
+
+	workspaces, ok := msg["workspaces"].([]interface{})
+	if !ok || len(workspaces) == 0 {
+		t.Fatal("no workspaces in broadcast")
+	}
+
+	var ws map[string]interface{}
+	for _, item := range workspaces {
+		candidate := item.(map[string]interface{})
+		if candidate["id"] == "ws-conflict" {
+			ws = candidate
+			break
+		}
+	}
+	if ws == nil {
+		t.Fatal("ws-conflict not found in broadcast")
+	}
+
+	tabs, ok := ws["tabs"].([]interface{})
+	if !ok {
+		t.Fatal("tabs field missing from workspace response")
+	}
+
+	found := false
+	for _, raw := range tabs {
+		tab := raw.(map[string]interface{})
+		if tab["kind"] != "resolve-conflict" {
+			continue
+		}
+		found = true
+		if tab["id"] != "sys-resolve-conflict-abcdef1" {
+			t.Fatalf("resolve-conflict id = %q", tab["id"])
+		}
+		if tab["label"] != "Conflict abcdef1" {
+			t.Fatalf("resolve-conflict label = %q", tab["label"])
+		}
+		if tab["closable"] != false {
+			t.Fatalf("resolve-conflict closable = %v, want false", tab["closable"])
+		}
+	}
+	if !found {
+		t.Fatal("expected persisted resolve-conflict tab in broadcast")
+	}
+}
+
+func TestBroadcast_ResolveConflictTabsUseMatchingPersistedRecords(t *testing.T) {
+	srv, _, st := newTestServer(t)
+
+	st.AddWorkspace(state.Workspace{
+		ID:     "ws-conflicts",
+		Repo:   "https://example.com/repo.git",
+		Branch: "main",
+		Path:   t.TempDir(),
+		Tabs: []state.Tab{
+			{
+				ID:        "sys-resolve-conflict-abcdef1",
+				Kind:      "resolve-conflict",
+				Label:     "Conflict abcdef1",
+				Route:     "/resolve-conflict/ws-conflicts/sys-resolve-conflict-abcdef1",
+				Closable:  true,
+				Meta:      map[string]string{"hash": "abcdef1"},
+				CreatedAt: time.Now(),
+			},
+			{
+				ID:        "sys-resolve-conflict-1234567",
+				Kind:      "resolve-conflict",
+				Label:     "Conflict 1234567",
+				Route:     "/resolve-conflict/ws-conflicts/sys-resolve-conflict-1234567",
+				Closable:  true,
+				Meta:      map[string]string{"hash": "1234567"},
+				CreatedAt: time.Now(),
+			},
+		},
+		ResolveConflicts: []state.ResolveConflict{
+			{
+				Type:        "linear_sync_resolve_conflict",
+				WorkspaceID: "ws-conflicts",
+				Status:      "done",
+				Hash:        "abcdef1",
+				StartedAt:   time.Now().Format(time.RFC3339),
+				Steps:       []state.ResolveConflictStep{},
+			},
+			{
+				Type:        "linear_sync_resolve_conflict",
+				WorkspaceID: "ws-conflicts",
+				Status:      "in_progress",
+				Hash:        "1234567",
+				StartedAt:   time.Now().Format(time.RFC3339),
+				Steps:       []state.ResolveConflictStep{},
+			},
+		},
+	})
+
+	conn, cleanup := dialTestDashboardWS(t, srv)
+	defer cleanup()
+
+	msg := readDashboardMsg(t, conn, 2*time.Second)
+	workspaces := msg["workspaces"].([]interface{})
+	ws := workspaces[0].(map[string]interface{})
+	tabs := ws["tabs"].([]interface{})
+
+	found := map[string]map[string]interface{}{}
+	for _, raw := range tabs {
+		tab := raw.(map[string]interface{})
+		if tab["kind"] == "resolve-conflict" {
+			found[tab["id"].(string)] = tab
+		}
+	}
+
+	if found["sys-resolve-conflict-abcdef1"]["closable"] != true {
+		t.Fatalf("done tab should be closable, got %v", found["sys-resolve-conflict-abcdef1"]["closable"])
+	}
+	if found["sys-resolve-conflict-1234567"]["closable"] != false {
+		t.Fatalf("in-progress tab should not be closable, got %v", found["sys-resolve-conflict-1234567"]["closable"])
+	}
+}
+
 func TestBroadcastIncludesWorkspaceStatus(t *testing.T) {
 	srv, _, st := newTestServer(t)
 
