@@ -248,7 +248,7 @@ const SEGMENTS = [
   'wsWrite', // schmux sends output frame
   'jsQueue', // browser event loop picks it up
   'xterm', // terminal renders
-  'network', // unmeasured residual
+  'network', // system jitter residual
 ] as const;
 
 const SEGMENT_COLORS: Record<string, string> = {
@@ -272,7 +272,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   paneOutput: 'tmux + agent',
   jsQueue: 'js queue',
   xterm: 'xterm',
-  network: 'unmeasured',
+  network: 'system',
 };
 
 function BreakdownRow({

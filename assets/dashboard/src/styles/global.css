@@ -420,13 +420,13 @@ body {
 }
 
 .typing-perf__bar-label {
-  width: 24px;
+  width: 46px;
   flex-shrink: 0;
   color: var(--color-text-tertiary);
 }
 
 .typing-perf__bar-total {
-  width: 36px;
+  width: 38px;
   flex-shrink: 0;
   text-align: right;
   color: var(--color-text-secondary);

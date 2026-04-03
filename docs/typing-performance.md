@@ -52,9 +52,9 @@ These are sent to the client as a JSON sideband message (`type: "inputEcho"`) wi
 
 | Segment    | Computation                                                                |
 | ---------- | -------------------------------------------------------------------------- |
-| unmeasured | total - (handler + transport + tmux + agent + ws write + js queue + xterm) |
+| system | total - (handler + transport + tmux + agent + ws write + js queue + xterm) |
 
-This is the only segment that crosses clock boundaries. It captures WebSocket upstream transit, WebSocket downstream transit, and any unmeasured overhead. The residual is computed per-tuple (clamped to 0) then medianed across the cohort. The displayed total is the cohort's median RTT, independent of segment sum.
+This is the only segment that crosses clock boundaries. It captures WebSocket upstream transit, WebSocket downstream transit, and any system overhead. The residual is computed per-tuple (clamped to 0) then medianed across the cohort. The displayed total is the cohort's median RTT, independent of segment sum.
 
 ## Display Names
 
@@ -68,9 +68,9 @@ The segments were renamed for clarity. The wire protocol names (server JSON) are
 | frameSendMs               | frameSend                          | ws write          | schmux code   |
 | (computed)                | (evtLoop probe)                    | js queue          | page ↔ schmux |
 | (computed)                | (render timer)                     | xterm             | schmux code   |
-| (residual)                | (residual)                         | unmeasured        | page ↔ schmux |
+| (residual)                | (residual)                         | system        | page ↔ schmux |
 
-Segment display order (causal): handler, transport, tmux + agent, ws write, js queue, xterm, unmeasured.
+Segment display order (causal): handler, transport, tmux + agent, ws write, js queue, xterm, system.
 
 ## What Each Segment Captures for Local vs Remote
 
@@ -82,7 +82,7 @@ Segment display order (causal): handler, transport, tmux + agent, ws write, js q
 | ws write     | Serialize frame + WS write (~0.1ms)                     | Same (~0.1ms)                                                                         |
 | js queue     | JS event loop delay before processing WS message (~1ms) | Same (~1-3ms)                                                                         |
 | xterm        | xterm.js parse + paint (~0.5ms)                         | Same (~0.5ms)                                                                         |
-| unmeasured   | WS loopback both directions (~1ms)                      | WS loopback + unmeasured SSH overhead (~varies)                                       |
+| system   | WS loopback both directions (~1ms)                      | WS loopback + system SSH overhead (~varies)                                       |
 
 Key insight: for remote sessions, SSH latency hides in `transport` (2 hops for send-keys ack) and `tmux + agent` (1 hop for %output notification). These two segments are the ones that change dramatically between local and remote.
 
@@ -110,7 +110,7 @@ The `sendKeys` timer (s3 - s2) includes: stdin mutex wait, writing the command t
 
 `markReceived()` now discards any pending measurement where `performance.now() - lastInputTime > 2000` (2 seconds). Keystrokes that don't produce output within 2s are not meaningful latency samples — the agent is thinking, not echoing.
 
-### ~~6. `unmeasured` residual can go negative~~ (resolved)
+### ~~6. `system` residual can go negative~~ (resolved)
 
 Residual is now computed per-tuple (clamped to 0) then medianed across the cohort. The displayed total is the cohort's median RTT, independent of segment sum. Segment medians may not sum to the displayed total (medians of parts ≠ parts of medians), but each value is independently honest. Bar widths use `segmentSum` as their denominator to prevent visual overflow.
 
@@ -125,7 +125,7 @@ The breakdown shows where keystroke latency goes for two cohorts:
 
 Each cohort requires at least 5 valid paired tuples. Percentile boundaries are computed from valid paired tuple RTTs (after the `serverTotal > clientRTT` mismatch filter), not from raw samples.
 
-For each cohort, the median of each segment is computed independently. The residual (`unmeasured`) is computed per-tuple first (`max(0, clientRTT - sum_of_segments)`), then medianed across the cohort like any other segment.
+For each cohort, the median of each segment is computed independently. The residual (`system`) is computed per-tuple first (`max(0, clientRTT - sum_of_segments)`), then medianed across the cohort like any other segment.
 
 The `jsQueue` segment uses a per-tuple `receiveLag` value — a MessageChannel probe fired from `recordServerSegments()` that measures event loop congestion at sideband processing time. When `receiveLag` is undefined (probe hasn't fired yet), it defaults to 0.
 
@@ -136,7 +136,7 @@ The `LatencyBreakdown` type returns:
 
 These differ because medians of parts ≠ parts of medians. Both are independently honest.
 
-Segments are ordered by causal flow (handler → transport → tmux + agent → ws write → js queue → xterm → unmeasured) and color-coded by ownership: green for schmux code, gray for host environment, blue for browser.
+Segments are ordered by causal flow (handler → transport → tmux + agent → ws write → js queue → xterm → system) and color-coded by ownership: green for schmux code, gray for host environment, blue for browser.
 
 ## Per-Machine Tracking
 
