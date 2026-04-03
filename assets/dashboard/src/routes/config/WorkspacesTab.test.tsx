@@ -9,6 +9,7 @@ const dispatch = vi.fn<(action: ConfigFormAction) => void>();
 
 const defaultProps = {
   workspacePath: '/home/user/workspaces',
+  recycleWorkspaces: false,
   repos: [] as { name: string; url: string; default_branch?: string }[],
   overlays: [],
   newRepoName: '',

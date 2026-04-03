@@ -139,6 +139,8 @@ export default function ConfigPage() {
           state: {
             workspacePath: data.workspace_path || '',
             sourceCodeManagement: data.source_code_management || 'git-worktree',
+            recycleWorkspaces:
+              (data as unknown as { recycle_workspaces?: boolean }).recycle_workspaces ?? false,
             repos: (data.repos || []).sort((a, b) => a.name.localeCompare(b.name)),
             commandTargets: commandItems,
             quickLaunch: (data.quick_launch || []).sort((a, b) => a.name.localeCompare(b.name)),
@@ -225,6 +227,8 @@ export default function ConfigPage() {
           const originalConfig: ConfigSnapshot = {
             workspacePath: data.workspace_path || '',
             sourceCodeManagement: data.source_code_management || 'git-worktree',
+            recycleWorkspaces:
+              (data as unknown as { recycle_workspaces?: boolean }).recycle_workspaces ?? false,
             repos: (data.repos || []).sort((a, b) => a.name.localeCompare(b.name)),
             commandTargets: commandItems,
             quickLaunch: data.quick_launch || [],
@@ -581,9 +585,10 @@ export default function ConfigPage() {
     try {
       const runTargets = state.commandTargets.map((t) => ({ name: t.name, command: t.command }));
 
-      const updateRequest: ConfigUpdateRequest = {
+      const updateRequest: ConfigUpdateRequest & { recycle_workspaces?: boolean } = {
         workspace_path: state.workspacePath,
         source_code_management: state.sourceCodeManagement,
+        recycle_workspaces: state.recycleWorkspaces,
         repos: state.repos,
         run_targets: runTargets,
         quick_launch: state.quickLaunch.map((q) => ({
@@ -1316,6 +1321,7 @@ export default function ConfigPage() {
           {currentTab === 1 && (
             <WorkspacesTab
               workspacePath={state.workspacePath}
+              recycleWorkspaces={state.recycleWorkspaces}
               repos={state.repos}
               overlays={state.overlays}
               newRepoName={state.newRepoName}

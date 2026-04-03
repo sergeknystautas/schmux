@@ -12,6 +12,7 @@ function makeSnapshot(overrides: Partial<ConfigSnapshot> = {}): ConfigSnapshot {
   return {
     workspacePath: '/home/test/workspaces',
     sourceCodeManagement: 'git-worktree',
+    recycleWorkspaces: false,
     repos: [{ name: 'repo1', url: 'git@github.com:user/repo1.git' }],
     commandTargets: [],
     quickLaunch: [],

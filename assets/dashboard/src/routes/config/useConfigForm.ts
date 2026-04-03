@@ -12,6 +12,7 @@ import type {
 export type ConfigSnapshot = {
   workspacePath: string;
   sourceCodeManagement: string;
+  recycleWorkspaces: boolean;
   repos: RepoResponse[];
   commandTargets: RunTargetResponse[];
   quickLaunch: QuickLaunchPreset[];
@@ -178,6 +179,7 @@ export type ConfigFormState = {
   authSecretsChanged: boolean;
   authWarnings: string[];
   apiNeedsRestart: boolean;
+  recycleWorkspaces: boolean;
   soundDisabled: boolean;
   confirmBeforeClose: boolean;
   suggestDisposeAfterPush: boolean;
@@ -359,6 +361,7 @@ export const initialState: ConfigFormState = {
   authSecretsChanged: false,
   authWarnings: [],
   apiNeedsRestart: false,
+  recycleWorkspaces: false,
   soundDisabled: false,
   confirmBeforeClose: false,
   suggestDisposeAfterPush: true,
@@ -678,6 +681,7 @@ export function useConfigForm(initialStep: number = 1) {
         state.authSessionTTLMinutes !== oc.authSessionTTLMinutes ||
         state.authTlsCertPath !== oc.authTlsCertPath ||
         state.authTlsKeyPath !== oc.authTlsKeyPath ||
+        state.recycleWorkspaces !== oc.recycleWorkspaces ||
         state.soundDisabled !== oc.soundDisabled ||
         state.confirmBeforeClose !== oc.confirmBeforeClose ||
         state.suggestDisposeAfterPush !== oc.suggestDisposeAfterPush ||
@@ -748,6 +752,7 @@ export function useConfigForm(initialStep: number = 1) {
     return {
       workspacePath: state.workspacePath,
       sourceCodeManagement: state.sourceCodeManagement,
+      recycleWorkspaces: state.recycleWorkspaces,
       repos: state.repos,
       commandTargets: state.commandTargets,
       quickLaunch: state.quickLaunch,
