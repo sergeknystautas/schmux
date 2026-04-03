@@ -74,6 +74,7 @@ export type LatencyBreakdown = {
   xterm: number;
   tmuxCmd: number;
   paneOutput: number;
+  segmentSum: number;
   total: number;
 };
 
@@ -426,6 +427,9 @@ export class InputLatencyTracker {
       }
     }
 
+    const segmentSum = picked.network + picked.jsQueue + picked.handler +
+      picked.wsWrite + picked.xterm + picked.tmuxCmd + picked.paneOutput;
+
     return {
       network: picked.network,
       jsQueue: picked.jsQueue,
@@ -434,6 +438,7 @@ export class InputLatencyTracker {
       xterm: picked.xterm,
       tmuxCmd: picked.tmuxCmd,
       paneOutput: picked.paneOutput,
+      segmentSum,
       total: targetRTT,
     };
   }

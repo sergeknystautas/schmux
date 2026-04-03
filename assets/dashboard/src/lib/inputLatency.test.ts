@@ -614,6 +614,51 @@ describe('InputLatencyTracker', () => {
     expect(inputLatency.samples.length).toBe(1);
   });
 
+  it('getBreakdown returns segmentSum field', () => {
+    const originalMC = globalThis.MessageChannel;
+    class MockMessageChannel {
+      port1 = { onmessage: null as ((ev: any) => void) | null };
+      port2 = {
+        postMessage: () => {
+          if (this.port1.onmessage) {
+            this.port1.onmessage({} as any);
+          }
+        },
+      };
+    }
+    globalThis.MessageChannel = MockMessageChannel as any;
+
+    const mockNow = vi.spyOn(performance, 'now');
+    for (let i = 0; i < 5; i++) {
+      // markSent: 3 calls (lastInputTime, sentTime, lagHandler)
+      mockNow.mockReturnValueOnce(100);
+      mockNow.mockReturnValueOnce(100);
+      mockNow.mockReturnValueOnce(101);
+      // markReceived: 1 call (rtt)
+      mockNow.mockReturnValueOnce(130);
+      inputLatency.markSent();
+      inputLatency.markReceived();
+      inputLatency.markRenderTime(2);
+      // recordServerSegments: 2 calls (probeStart, probeHandler)
+      mockNow.mockReturnValueOnce(200);
+      mockNow.mockReturnValueOnce(201);
+      inputLatency.recordServerSegments({
+        dispatch: 1, sendKeys: 2, echo: 3, frameSend: 0.5, total: 6.5,
+      });
+    }
+    mockNow.mockRestore();
+    globalThis.MessageChannel = originalMC;
+
+    const breakdown = inputLatency.getBreakdown('p50');
+    expect(breakdown).not.toBeNull();
+    expect(breakdown!.segmentSum).toBeDefined();
+    expect(breakdown!.segmentSum).toBeGreaterThan(0);
+    // segmentSum should equal sum of all segments
+    const sum = breakdown!.network + breakdown!.jsQueue + breakdown!.handler +
+      breakdown!.wsWrite + breakdown!.xterm + breakdown!.tmuxCmd + breakdown!.paneOutput;
+    expect(breakdown!.segmentSum).toBeCloseTo(sum, 5);
+  });
+
   it('getBreakdown falls back to lagSamples when receiveLagSamples is empty', () => {
     const mockNow = vi.spyOn(performance, 'now');
     for (let i = 0; i < 3; i++) {
