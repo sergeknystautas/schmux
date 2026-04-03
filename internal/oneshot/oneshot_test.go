@@ -272,6 +272,11 @@ func TestParseClaudeStructuredOutput(t *testing.T) {
 			input:    `{"result":"<SUMMARY>test</SUMMARY>\n<MERGED>\n# Project\n\nContent here\n</MERGED>","is_error":false}`,
 			expected: "<SUMMARY>test</SUMMARY>\n<MERGED>\n# Project\n\nContent here\n</MERGED>",
 		},
+		{
+			name:     "null structured_output falls through to result",
+			input:    `{"structured_output":null,"result":"fallback text","is_error":false}`,
+			expected: "fallback text",
+		},
 	}
 
 	for _, tt := range tests {

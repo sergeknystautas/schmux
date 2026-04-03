@@ -161,7 +161,7 @@ func ExtractLatestFromCapture(capture string) (string, error) {
 func ParseResult(raw string) (Result, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return Result{}, ErrInvalidResponse
+		return Result{}, fmt.Errorf("%w: empty response", ErrInvalidResponse)
 	}
 
 	if strings.HasPrefix(trimmed, "```") {
@@ -173,7 +173,7 @@ func ParseResult(raw string) (Result, error) {
 	start := strings.Index(trimmed, "{")
 	end := strings.LastIndex(trimmed, "}")
 	if start == -1 || end == -1 || end <= start {
-		return Result{}, ErrInvalidResponse
+		return Result{}, fmt.Errorf("%w: no JSON object found in: %s", ErrInvalidResponse, truncateForError(trimmed))
 	}
 
 	payload := trimmed[start : end+1]
@@ -193,4 +193,12 @@ func ParseResult(raw string) (Result, error) {
 
 func normalizeJSONPayload(payload string) string {
 	return oneshot.NormalizeJSONPayload(payload)
+}
+
+func truncateForError(s string) string {
+	const maxLen = 200
+	if len(s) <= maxLen {
+		return fmt.Sprintf("%q", s)
+	}
+	return fmt.Sprintf("%q...[%d bytes total]", s[:maxLen], len(s))
 }

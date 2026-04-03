@@ -2,6 +2,7 @@ package nudgenik
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
@@ -67,6 +68,7 @@ func TestParseResult(t *testing.T) {
 		raw       string
 		wantOK    bool
 		wantState string
+		wantMsg   string // substring expected in error message
 	}{
 		{
 			name:      "valid json",
@@ -87,14 +89,22 @@ func TestParseResult(t *testing.T) {
 			wantState: "Completed",
 		},
 		{
-			name:   "empty string",
-			raw:    "",
-			wantOK: false,
+			name:    "empty string",
+			raw:     "",
+			wantOK:  false,
+			wantMsg: "empty response",
 		},
 		{
-			name:   "no json at all",
-			raw:    "just plain text with no braces",
-			wantOK: false,
+			name:    "no json at all",
+			raw:     "just plain text with no braces",
+			wantOK:  false,
+			wantMsg: "no JSON object found",
+		},
+		{
+			name:    "null literal",
+			raw:     "null",
+			wantOK:  false,
+			wantMsg: "no JSON object found",
 		},
 		{
 			name:   "invalid json",
@@ -125,6 +135,8 @@ func TestParseResult(t *testing.T) {
 				}
 			} else if err == nil {
 				t.Fatalf("ParseResult() expected error, got %+v", got)
+			} else if tt.wantMsg != "" && !strings.Contains(err.Error(), tt.wantMsg) {
+				t.Errorf("ParseResult() error = %q, want substring %q", err.Error(), tt.wantMsg)
 			}
 		})
 	}

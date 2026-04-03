@@ -501,7 +501,7 @@ func parseClaudeStructuredOutput(output string) string {
 		return output
 	}
 
-	if raw, ok := envelope["structured_output"]; ok && len(raw) > 0 {
+	if raw, ok := envelope["structured_output"]; ok && len(raw) > 0 && string(raw) != "null" {
 		return string(raw)
 	}
 
