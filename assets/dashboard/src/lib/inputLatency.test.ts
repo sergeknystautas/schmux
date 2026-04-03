@@ -640,10 +640,10 @@ describe('getBreakdown cohort-median', () => {
     expect(breakdown!.total).toBeGreaterThan(50);
   });
 
-  it('returns null for outlier cohort when fewer than 5 P95+ tuples', () => {
-    // 80 samples total. P95 index = floor(80*0.95) = 76.
-    // P95+ cohort = indices 77..79 = only 3 tuples (need 5).
-    addSamples(80, 30, 2);
+  it('returns null for outlier cohort when fewer than 3 P95+ tuples', () => {
+    // 40 samples total. P95 index = floor(40*0.95) = 38.
+    // P95+ cohort = indices 39 = only 1 tuple (need 3).
+    addSamples(40, 30, 2);
     const breakdown = inputLatency.getBreakdown('outlier');
     expect(breakdown).toBeNull();
   });

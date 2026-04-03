@@ -402,7 +402,7 @@ export class InputLatencyTracker {
     } else {
       cohort = tuples.filter((t) => t.clientRTT > p95);
     }
-    if (cohort.length < 5) return null;
+    if (cohort.length < 3) return null;
 
     // Compute median of each segment within the cohort
     const median = (arr: number[]) => {
