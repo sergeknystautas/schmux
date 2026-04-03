@@ -240,38 +240,39 @@ function Histogram({
   );
 }
 
-// Segment order: page↔schmux, then schmux code, then schmux↔host
+// Causal ordering: follows the keystroke's journey through the system
 const SEGMENTS = [
-  'network',
-  'jsQueue',
-  'handler',
-  'wsWrite',
-  'xterm',
-  'tmuxCmd',
-  'paneOutput',
+  'handler',    // schmux receives and decodes
+  'tmuxCmd',    // keystroke travels to tmux (transport)
+  'paneOutput', // tmux + agent processes
+  'wsWrite',    // schmux sends output frame
+  'jsQueue',    // browser event loop picks it up
+  'xterm',      // terminal renders
+  'network',    // unmeasured residual
 ] as const;
 
 const SEGMENT_COLORS: Record<string, string> = {
-  // page ↔ schmux
-  network: 'rgba(190, 150, 80, 0.7)',
-  jsQueue: 'rgba(180, 170, 80, 0.7)',
-  // schmux code
-  handler: 'rgba(160, 160, 160, 0.7)',
-  wsWrite: 'rgba(80, 160, 180, 0.7)',
-  xterm: 'rgba(80, 170, 120, 0.7)',
-  // schmux ↔ host
-  tmuxCmd: 'rgba(80, 130, 200, 0.7)',
-  paneOutput: 'rgba(160, 100, 180, 0.7)',
+  // schmux (ours) — green family
+  handler: 'rgba(80, 170, 120, 0.7)',
+  wsWrite: 'rgba(100, 190, 140, 0.7)',
+  // host environment (theirs) — gray family
+  tmuxCmd: 'rgba(160, 160, 160, 0.7)',
+  paneOutput: 'rgba(130, 130, 130, 0.7)',
+  // browser — blue family
+  jsQueue: 'rgba(80, 130, 200, 0.7)',
+  xterm: 'rgba(100, 150, 220, 0.7)',
+  // catch-all
+  network: 'rgba(190, 150, 80, 0.5)',
 };
 
 const SEGMENT_LABELS: Record<string, string> = {
-  network: 'network',
-  jsQueue: 'js queue',
   handler: 'handler',
   wsWrite: 'ws write',
+  tmuxCmd: 'transport',
+  paneOutput: 'tmux + agent',
+  jsQueue: 'js queue',
   xterm: 'xterm',
-  tmuxCmd: 'tmux cmd',
-  paneOutput: 'pane output',
+  network: 'unmeasured',
 };
 
 function BreakdownRow({
@@ -285,7 +286,7 @@ function BreakdownRow({
 }) {
   const [showTooltip, setShowTooltip] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
-  const total = breakdown.total;
+  const { total, segmentSum } = breakdown;
   if (total <= 0) return null;
 
   return (
@@ -302,7 +303,7 @@ function BreakdownRow({
           {SEGMENTS.map((seg) => {
             const value = breakdown[seg as keyof LatencyBreakdown] as number;
             if (value == null) return null;
-            const pct = (value / total) * 100;
+            const pct = segmentSum > 0 ? (value / segmentSum) * 100 : 0;
             if (pct < 0.5) return null;
             return (
               <div
@@ -348,11 +349,15 @@ function LatencyBreakdownBars() {
 
   return (
     <div className="typing-perf__breakdown" data-testid="latency-breakdown">
-      {typical && (
+      {typical ? (
         <BreakdownRow label="Typical" breakdown={typical} scale={maxTotal > 0 ? typical.total / maxTotal : 1} />
+      ) : (
+        <div className="typing-perf__insufficient">Typical: insufficient data</div>
       )}
-      {outlier && (
+      {outlier ? (
         <BreakdownRow label="Outlier" breakdown={outlier} scale={maxTotal > 0 ? outlier.total / maxTotal : 1} />
+      ) : (
+        <div className="typing-perf__insufficient">Outlier: insufficient data</div>
       )}
     </div>
   );

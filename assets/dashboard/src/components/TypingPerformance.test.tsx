@@ -114,7 +114,7 @@ describe('TypingPerformance', () => {
 
     // Tooltip should appear with segment values
     expect(screen.getByTestId('breakdown-tooltip')).toBeInTheDocument();
-    expect(screen.getByText('tmux cmd')).toBeInTheDocument();
+    expect(screen.getByText('transport')).toBeInTheDocument();
 
     // Mouse leave hides tooltip
     fireEvent.mouseLeave(barRow);
