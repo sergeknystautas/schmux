@@ -62,6 +62,7 @@ export type ServerSegmentTuple = {
   executeNet?: number;
   executeCount?: number;
   sessionType?: 'local' | 'remote';
+  receiveLag?: number; // event loop lag at sideband processing time
 };
 
 // Full latency breakdown for a single percentile level (P50 or P99).
@@ -206,20 +207,6 @@ export class InputLatencyTracker {
     }
     this._frameCounter = 0;
 
-    // Receive-time event loop lag probe: measures JS main thread congestion
-    // at the moment the echo frame is being processed — captures congestion
-    // that the send-time probe misses (e.g., burst output processing).
-    const recvTime = now;
-    const channel = new MessageChannel();
-    channel.port1.onmessage = () => {
-      const lag = performance.now() - recvTime;
-      this.receiveLagSamples.push(lag);
-      if (this.receiveLagSamples.length > MAX_SAMPLES) {
-        this.receiveLagSamples = this.receiveLagSamples.slice(-MAX_SAMPLES);
-      }
-    };
-    channel.port2.postMessage(null);
-
     this.version++;
   }
 
@@ -228,6 +215,17 @@ export class InputLatencyTracker {
     if (this.serverSegmentSamples.length > MAX_SAMPLES) {
       this.serverSegmentSamples = this.serverSegmentSamples.slice(-MAX_SAMPLES);
     }
+
+    // Event loop lag probe: measures JS main thread congestion at the moment
+    // the sideband message is processed. The callback fires in a subsequent
+    // macrotask and writes directly into the just-pushed tuple.
+    const probeStart = performance.now();
+    const channel = new MessageChannel();
+    const target = this.serverSegmentSamples[this.serverSegmentSamples.length - 1];
+    channel.port1.onmessage = () => {
+      target.receiveLag = performance.now() - probeStart;
+    };
+    channel.port2.postMessage(null);
   }
 
   markRenderTime(ms: number) {

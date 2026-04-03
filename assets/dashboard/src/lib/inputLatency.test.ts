@@ -184,6 +184,33 @@ describe('InputLatencyTracker', () => {
     expect(inputLatency.serverSegmentSamples).toEqual([tuple1, tuple2]);
   });
 
+  it('recordServerSegments fires MessageChannel probe and stores receiveLag on the tuple', () => {
+    const originalMC = globalThis.MessageChannel;
+    class MockMessageChannel {
+      port1 = { onmessage: null as ((ev: any) => void) | null };
+      port2 = {
+        postMessage: () => {
+          if (this.port1.onmessage) {
+            this.port1.onmessage({} as any);
+          }
+        },
+      };
+    }
+    globalThis.MessageChannel = MockMessageChannel as any;
+
+    const mockNow = vi.spyOn(performance, 'now');
+    mockNow.mockReturnValueOnce(500); // probe start
+    mockNow.mockReturnValueOnce(503); // handler fires: lag = 3ms
+    const tuple = { dispatch: 1, sendKeys: 2, echo: 3, frameSend: 0.5, total: 6.5 };
+    inputLatency.recordServerSegments(tuple);
+
+    mockNow.mockRestore();
+    globalThis.MessageChannel = originalMC;
+
+    const stored = inputLatency.serverSegmentSamples[0];
+    expect((stored as any).receiveLag).toBe(3);
+  });
+
   it('reset clears serverSegmentSamples and lagSamples', () => {
     inputLatency.recordServerSegments({
       dispatch: 1,
@@ -416,8 +443,6 @@ describe('InputLatencyTracker', () => {
     inputLatency.recordFrameProcessed();
 
     mockNow.mockReturnValueOnce(130);
-    // markReceived also fires a MessageChannel probe, so mock the time for it
-    mockNow.mockReturnValueOnce(130);
     inputLatency.markReceived();
     mockNow.mockRestore();
 
@@ -427,7 +452,6 @@ describe('InputLatencyTracker', () => {
     const mockNow2 = vi.spyOn(performance, 'now');
     mockNow2.mockReturnValueOnce(200);
     inputLatency.markSent();
-    mockNow2.mockReturnValueOnce(210);
     mockNow2.mockReturnValueOnce(210);
     inputLatency.markReceived();
     mockNow2.mockRestore();
@@ -443,7 +467,7 @@ describe('InputLatencyTracker', () => {
     expect(inputLatency.handleOutputTimeSamples).toEqual([1.5, 3.2, 0.8]);
   });
 
-  it('receive-time lag probe fires and records in receiveLagSamples', () => {
+  it('markReceived no longer fires receive-time lag probe', () => {
     const originalMC = globalThis.MessageChannel;
     class MockMessageChannel {
       port1 = { onmessage: null as ((ev: any) => void) | null };
@@ -464,16 +488,15 @@ describe('InputLatencyTracker', () => {
     mockNow.mockReturnValueOnce(102);
     inputLatency.markSent();
 
-    // markReceived: now=130 (used for both rtt and recvTime), recvLagHandler=133
-    mockNow.mockReturnValueOnce(130); // performance.now() → now (rtt + recvTime)
-    mockNow.mockReturnValueOnce(133); // handler fires: receive lag = 133 - 130 = 3ms
+    // markReceived: only reads performance.now() once for rtt calculation
+    mockNow.mockReturnValueOnce(130); // performance.now() → now
     inputLatency.markReceived();
 
     mockNow.mockRestore();
     globalThis.MessageChannel = originalMC;
 
-    expect(inputLatency.receiveLagSamples.length).toBe(1);
-    expect(inputLatency.receiveLagSamples[0]).toBe(3);
+    // Probe moved to recordServerSegments — receiveLagSamples stays empty
+    expect(inputLatency.receiveLagSamples.length).toBe(0);
   });
 
   it('getWireContext returns correct P50/P99 values', () => {
@@ -581,9 +604,8 @@ describe('InputLatencyTracker', () => {
     mockNow.mockReturnValueOnce(102); // lag handler fires
     inputLatency.markSent();
     // 1500ms later — within 2s threshold
-    // markReceived: now=1600 (rtt + recvTime), recvLagHandler=1602
-    mockNow.mockReturnValueOnce(1600); // performance.now() → now (rtt + recvTime)
-    mockNow.mockReturnValueOnce(1602); // receive lag handler fires: lag = 1602 - 1600 = 2ms
+    // markReceived: now=1600 (rtt calculation only, no receive lag probe)
+    mockNow.mockReturnValueOnce(1600); // performance.now() → now
     inputLatency.markReceived();
 
     mockNow.mockRestore();
