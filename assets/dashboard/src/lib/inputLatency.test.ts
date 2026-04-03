@@ -464,10 +464,9 @@ describe('InputLatencyTracker', () => {
     mockNow.mockReturnValueOnce(102);
     inputLatency.markSent();
 
-    // markReceived: rtt measured at 130, recvTime=130, recvLagHandler=133
-    mockNow.mockReturnValueOnce(130); // performance.now() for rtt
-    mockNow.mockReturnValueOnce(130); // recvTime in receive lag probe
-    mockNow.mockReturnValueOnce(133); // handler fires: receive lag = 3ms
+    // markReceived: now=130 (used for both rtt and recvTime), recvLagHandler=133
+    mockNow.mockReturnValueOnce(130); // performance.now() → now (rtt + recvTime)
+    mockNow.mockReturnValueOnce(133); // handler fires: receive lag = 133 - 130 = 3ms
     inputLatency.markReceived();
 
     mockNow.mockRestore();
@@ -526,6 +525,71 @@ describe('InputLatencyTracker', () => {
     expect(breakdown).not.toBeNull();
     // Should use receiveLagSamples (8), not lagSamples (1)
     expect(breakdown!.jsQueue).toBe(8);
+  });
+
+  it('markReceived discards samples when lastInputTime is stale (>2s)', () => {
+    const originalMC = globalThis.MessageChannel;
+    class MockMessageChannel {
+      port1 = { onmessage: null as ((ev: any) => void) | null };
+      port2 = {
+        postMessage: () => {
+          if (this.port1.onmessage) {
+            this.port1.onmessage({} as any);
+          }
+        },
+      };
+    }
+    globalThis.MessageChannel = MockMessageChannel as any;
+
+    const mockNow = vi.spyOn(performance, 'now');
+    // markSent: lastInputTime, sentTime, lagHandler
+    mockNow.mockReturnValueOnce(100); // lastInputTime
+    mockNow.mockReturnValueOnce(100); // sentTime in lag probe
+    mockNow.mockReturnValueOnce(102); // lag handler fires
+    inputLatency.markSent();
+    // 2500ms later — exceeds 2s staleness threshold
+    // markReceived: only now is read (staleness guard returns early before lag probe)
+    mockNow.mockReturnValueOnce(2600); // performance.now() → now (rtt > 2000, early return)
+    inputLatency.markReceived();
+
+    mockNow.mockRestore();
+    globalThis.MessageChannel = originalMC;
+
+    // Sample should have been discarded
+    expect(inputLatency.getStats()).toBeNull();
+    expect(inputLatency.samples.length).toBe(0);
+  });
+
+  it('markReceived keeps samples within staleness threshold', () => {
+    const originalMC = globalThis.MessageChannel;
+    class MockMessageChannel {
+      port1 = { onmessage: null as ((ev: any) => void) | null };
+      port2 = {
+        postMessage: () => {
+          if (this.port1.onmessage) {
+            this.port1.onmessage({} as any);
+          }
+        },
+      };
+    }
+    globalThis.MessageChannel = MockMessageChannel as any;
+
+    const mockNow = vi.spyOn(performance, 'now');
+    // markSent: lastInputTime, sentTime, lagHandler
+    mockNow.mockReturnValueOnce(100); // lastInputTime
+    mockNow.mockReturnValueOnce(100); // sentTime in lag probe
+    mockNow.mockReturnValueOnce(102); // lag handler fires
+    inputLatency.markSent();
+    // 1500ms later — within 2s threshold
+    // markReceived: now=1600 (rtt + recvTime), recvLagHandler=1602
+    mockNow.mockReturnValueOnce(1600); // performance.now() → now (rtt + recvTime)
+    mockNow.mockReturnValueOnce(1602); // receive lag handler fires: lag = 1602 - 1600 = 2ms
+    inputLatency.markReceived();
+
+    mockNow.mockRestore();
+    globalThis.MessageChannel = originalMC;
+
+    expect(inputLatency.samples.length).toBe(1);
   });
 
   it('getBreakdown falls back to lagSamples when receiveLagSamples is empty', () => {

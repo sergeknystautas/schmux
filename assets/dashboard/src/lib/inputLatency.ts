@@ -185,7 +185,13 @@ export class InputLatencyTracker {
 
   markReceived() {
     if (this.lastInputTime === 0) return;
-    const rtt = performance.now() - this.lastInputTime;
+    const now = performance.now();
+    const rtt = now - this.lastInputTime;
+    // Staleness guard: discard if >2s since keystroke (agent is thinking, not echoing)
+    if (rtt > 2000) {
+      this.lastInputTime = 0;
+      return;
+    }
     this.lastInputTime = 0;
     this.samples.push(rtt);
     if (this.samples.length > MAX_SAMPLES) {
@@ -203,7 +209,7 @@ export class InputLatencyTracker {
     // Receive-time event loop lag probe: measures JS main thread congestion
     // at the moment the echo frame is being processed — captures congestion
     // that the send-time probe misses (e.g., burst output processing).
-    const recvTime = performance.now();
+    const recvTime = now;
     const channel = new MessageChannel();
     channel.port1.onmessage = () => {
       const lag = performance.now() - recvTime;
