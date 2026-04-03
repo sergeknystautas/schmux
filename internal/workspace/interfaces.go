@@ -114,6 +114,12 @@ type WorkspaceManager interface {
 	// DisposeForce deletes a workspace, skipping safety checks (active sessions, git status).
 	DisposeForce(ctx context.Context, workspaceID string) error
 
+	// Purge permanently deletes a recyclable workspace (files + state).
+	Purge(ctx context.Context, workspaceID string) error
+
+	// PurgeAll permanently deletes all recyclable workspaces for a repo (or all repos if empty).
+	PurgeAll(ctx context.Context, repoURL string) (int, error)
+
 	// Scan scans the workspace directory and reconciles state with filesystem.
 	// Returns what was added, updated, and removed.
 	Scan() (ScanResult, error)

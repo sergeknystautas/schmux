@@ -622,6 +622,8 @@ func (s *Server) Start() error {
 			r.Post("/spawn", s.handleSpawnPost)
 			r.Post("/update", s.handleUpdate)
 			r.Post("/workspaces/scan", s.handleWorkspacesScan)
+			r.Delete("/workspaces/purge", s.handlePurgeAll)
+			r.Get("/workspaces/recyclable", s.handleGetRecyclableWorkspaces)
 			r.Post("/suggest-branch", s.handleSuggestBranch)
 			r.Post("/prepare-branch-spawn", s.handlePrepareBranchSpawn)
 			r.Post("/check-branch-conflict", s.handleCheckBranchConflict)
@@ -721,6 +723,7 @@ func (s *Server) Start() error {
 				// Workspace dispose routes
 				r.Post("/dispose", s.handleDisposeWorkspace)
 				r.Post("/dispose-all", s.handleDisposeWorkspaceAll)
+				r.Delete("/purge", s.handlePurgeWorkspace)
 			})
 
 			// Lore routes

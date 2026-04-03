@@ -253,7 +253,7 @@ Notes:
 - `last_output_at` may be omitted when no activity has been observed since daemon start.
 - `repo_name` is the configured repo name from `config.json`, populated when the workspace repo URL matches a configured repo. May be empty for workspaces from unconfigured repos.
 - `nudge_state` values: `Working`, `Idle`, `Needs Input`, `Needs Attention`, `Needs Feature Clarification`, `Completed`, `Error`. State priority prevents lower-tier states from overwriting higher-tier ones: tier 0 (Working, Idle) < tier 1 (Needs Input, Needs Attention) < tier 2 (Completed, Error). Only `Working` can reset a terminal state (new turn started).
-- Workspace `status` field: `provisioning` (being created), `running` (ready), `failed` (creation failed), `disposing` (being torn down). Omitted for pre-existing workspaces (treat as `running`).
+- Workspace `status` field: `provisioning` (being created), `running` (ready), `failed` (creation failed), `disposing` (being torn down), `recyclable` (disposed but directory kept on disk for reuse). Omitted for pre-existing workspaces (treat as `running`). Recyclable workspaces are hidden from `buildSessionsResponse` and not included in WebSocket broadcasts.
 - Session `status` field includes `disposing` during teardown. Dispose endpoints return 200 OK if the item is already in `disposing` status (idempotent).
 - Workspace `tabs` array contains Tab objects with fields: `id`, `kind` (tab type), `label`, `route`, `closable`, `meta` (type-specific metadata), and `created_at`.
 - Workspace `resolve_conflicts` contains persisted conflict-process records keyed by the 7-character short hash; resolve-conflict tabs point at these records via `tabs[].meta.hash`.
@@ -814,6 +814,40 @@ Errors:
 
 - 400 with JSON: `{"error":"..."}` (e.g., dirty workspace)
 
+### DELETE /api/workspaces/{workspaceId}/purge
+
+Permanently delete a recyclable workspace (files + state). Only works on workspaces with `"recyclable"` status. Returns error if the workspace is not recyclable.
+
+Response:
+
+```json
+{ "status": "ok" }
+```
+
+Errors:
+
+- 400 with JSON: `{"error":"workspace test-001 is not recyclable (status: running)"}`
+
+### DELETE /api/workspaces/purge
+
+Permanently delete all recyclable workspaces. Optionally filter by repo URL with `?repo=URL`.
+
+Response:
+
+```json
+{ "status": "ok", "purged": 3 }
+```
+
+### GET /api/workspaces/recyclable
+
+Get counts of recyclable workspaces, broken down by repo.
+
+Response:
+
+```json
+{ "total": 3, "by_repo": { "schmux": 2, "other": 1 } }
+```
+
 ### PUT/PATCH /api/sessions-nickname/{sessionId}
 
 Update a session nickname.
@@ -861,6 +895,7 @@ Response:
 {
   "workspace_path": "/path",
   "source_code_management": "git-worktree",
+  "recycle_workspaces": false,
   "repos": [{ "name": "repo", "url": "https://...", "vcs": "sapling" }],
   "run_targets": [{ "name": "target", "type": "promptable", "command": "...", "source": "user" }],
   "quick_launch": [
@@ -990,6 +1025,7 @@ Request:
 {
   "workspace_path": "/path",
   "source_code_management": "git-worktree",
+  "recycle_workspaces": false,
   "repos": [{ "name": "repo", "url": "https://...", "vcs": "sapling" }],
   "run_targets": [{ "name": "target", "type": "promptable", "command": "...", "source": "user" }],
   "quick_launch": [

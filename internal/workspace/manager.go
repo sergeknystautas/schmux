@@ -383,15 +383,65 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 		return nil, fmt.Errorf("failed to get workspace: %w", err)
 	}
 
-	// Handle local repositories (format: "local:{name}")
+	// Acquire per-repo lock. Both local and remote repos go through this now,
+	// so Tier 0 is protected from concurrent callers claiming the same workspace.
+	lock := m.repoLock(repoURL)
+	lock.Lock()
+	defer lock.Unlock()
+
+	// Tier 0: Reuse a recyclable workspace for the same repo.
+	if m.config.RecycleWorkspaces {
+		for _, w := range m.state.GetWorkspaces() {
+			if w.Status != state.WorkspaceStatusRecyclable || w.Repo != repoURL {
+				continue
+			}
+			// Verify directory still exists
+			if _, err := os.Stat(w.Path); os.IsNotExist(err) {
+				m.logger.Warn("recyclable workspace directory missing, cleaning up", "id", w.ID)
+				m.state.RemoveWorkspace(w.ID)
+				m.state.Save()
+				continue
+			}
+			// Divergence safety check (skip for non-git or local repos)
+			if IsGitVCS(w.VCS) && !strings.HasPrefix(repoURL, "local:") && !m.isUpToDateWithDefault(ctx, w.Path, repoURL) {
+				m.logger.Info("recyclable workspace diverged, skipping", "id", w.ID, "branch", w.Branch)
+				continue
+			}
+			m.logger.Info("reusing recyclable workspace", "id", w.ID, "old_branch", w.Branch, "new_branch", branch)
+
+			if err := m.prepare(ctx, w.ID, branch); err != nil {
+				m.logger.Warn("failed to prepare recyclable workspace, skipping", "id", w.ID, "err", err)
+				continue
+			}
+			// Re-copy overlay files
+			if repoConfig, found := m.findRepoByURL(repoURL); found {
+				if manifest, err := m.copyOverlayFiles(ctx, repoConfig.Name, w.Path); err != nil {
+					m.logger.Warn("failed to re-copy overlay files", "err", err)
+				} else if manifest != nil {
+					m.state.UpdateOverlayManifest(w.ID, manifest)
+				}
+			}
+			// Promote to running
+			w.Branch = branch
+			w.Status = state.WorkspaceStatusRunning
+			if err := m.state.UpdateWorkspace(w); err != nil {
+				return nil, fmt.Errorf("failed to update workspace: %w", err)
+			}
+			m.state.Save()
+			// Re-add filesystem watches
+			if m.gitWatcher != nil {
+				m.gitWatcher.AddWorkspace(w.ID, w.Path)
+			}
+			return &w, nil
+		}
+	}
+
+	// Handle local repositories — moved after Tier 0 so local repos can be recycled,
+	// but still before Tiers 1–2 which don't apply to local repos.
 	if strings.HasPrefix(repoURL, "local:") {
 		repoName := strings.TrimPrefix(repoURL, "local:")
 		return m.CreateLocalRepo(ctx, repoName, branch)
 	}
-
-	lock := m.repoLock(repoURL)
-	lock.Lock()
-	defer lock.Unlock()
 
 	// Try to find an existing workspace with matching repoURL and branch
 	for _, w := range m.state.GetWorkspaces() {
@@ -416,8 +466,8 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 						m.state.UpdateOverlayManifest(w.ID, manifest)
 					}
 				}
-				// Backfill running status for pre-existing workspaces
-				if w.Status == "" {
+				// Promote to running status on reuse (covers recyclable and pre-existing workspaces)
+				if w.Status != state.WorkspaceStatusRunning {
 					w.Status = state.WorkspaceStatusRunning
 					m.state.UpdateWorkspace(w)
 				}
@@ -458,8 +508,8 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 				}
 				// Update branch in state only after successful prepare
 				w.Branch = branch
-				// Backfill running status for pre-existing workspaces
-				if w.Status == "" {
+				// Promote to running status on reuse (covers recyclable and pre-existing workspaces)
+				if w.Status != state.WorkspaceStatusRunning {
 					w.Status = state.WorkspaceStatusRunning
 				}
 				if err := m.state.UpdateWorkspace(w); err != nil {
@@ -473,7 +523,17 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 	// Create a new workspace
 	w, err := m.create(ctx, repoURL, branch)
 	if err != nil {
-		return nil, err
+		// If create failed because a recyclable worktree holds the branch,
+		// purge the conflicting workspace and retry.
+		if m.config.RecycleWorkspaces && strings.Contains(err.Error(), "already checked out") {
+			if purged := m.purgeRecyclableWithBranch(ctx, repoURL, branch); purged {
+				m.logger.Info("purged conflicting recyclable workspace, retrying create", "branch", branch)
+				w, err = m.create(ctx, repoURL, branch)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 	m.logger.Info("created", "id", w.ID, "path", w.Path, "branch", w.Branch, "repo", repoURL)
 
@@ -978,6 +1038,9 @@ func (m *Manager) UpdateAllVCSStatus(ctx context.Context) {
 		if w.RemoteHostID != "" {
 			continue
 		}
+		if w.Status == state.WorkspaceStatusRecyclable {
+			continue
+		}
 		localWorkspaces = append(localWorkspaces, w)
 	}
 
@@ -1027,6 +1090,9 @@ func (m *Manager) EnsureAll() {
 		if w.RemoteHostID != "" {
 			continue
 		}
+		if w.Status == state.WorkspaceStatusRecyclable {
+			continue
+		}
 		if err := m.ensurer.ForWorkspace(w.ID); err != nil {
 			m.logger.Warn("failed to ensure workspace", "id", w.ID, "err", err)
 		}
@@ -1070,19 +1136,78 @@ func (m *Manager) RevertWorkspaceStatus(workspaceID, previousStatus string) {
 	}
 }
 
+// purgeRecyclableWithBranch finds and deletes a recyclable workspace that holds the given branch.
+// Returns true if a workspace was purged.
+func (m *Manager) purgeRecyclableWithBranch(ctx context.Context, repoURL, branch string) bool {
+	for _, w := range m.state.GetWorkspaces() {
+		if w.Status == state.WorkspaceStatusRecyclable && w.Repo == repoURL && w.Branch == branch {
+			m.logger.Info("purging recyclable workspace holding branch", "id", w.ID, "branch", branch)
+			// Use skipRecycling=true to force real deletion
+			if err := m.dispose(ctx, w.ID, true, true); err != nil {
+				m.logger.Warn("failed to purge recyclable workspace", "id", w.ID, "err", err)
+				return false
+			}
+			return true
+		}
+	}
+	return false
+}
+
 // Dispose deletes a workspace by removing its directory and removing it from state.
 func (m *Manager) Dispose(ctx context.Context, workspaceID string) error {
-	return m.dispose(ctx, workspaceID, false)
+	return m.dispose(ctx, workspaceID, false, false)
 }
 
 // DisposeForce disposes a workspace without safety checks (active sessions,
 // unsaved changes). Used by dispose-all where sessions were already disposed
 // and the user explicitly wants to destroy everything.
 func (m *Manager) DisposeForce(ctx context.Context, workspaceID string) error {
-	return m.dispose(ctx, workspaceID, true)
+	return m.dispose(ctx, workspaceID, true, false)
 }
 
-func (m *Manager) dispose(ctx context.Context, workspaceID string, force bool) error {
+// Purge permanently deletes a recyclable workspace (files + state).
+// Unlike Dispose, this always deletes regardless of RecycleWorkspaces config.
+// Returns error if workspace is not recyclable.
+func (m *Manager) Purge(ctx context.Context, workspaceID string) error {
+	w, found := m.state.GetWorkspace(workspaceID)
+	if !found {
+		return fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+	if w.Status != state.WorkspaceStatusRecyclable {
+		return fmt.Errorf("workspace %s is not recyclable (status: %s)", workspaceID, w.Status)
+	}
+
+	// force=true (skip safety checks), skipRecycling=true (actually delete)
+	return m.dispose(ctx, workspaceID, true, true)
+}
+
+// PurgeAll permanently deletes all recyclable workspaces.
+// If repoURL is non-empty, only purges workspaces for that repo.
+// Returns the number of workspaces purged.
+func (m *Manager) PurgeAll(ctx context.Context, repoURL string) (int, error) {
+	var toPurge []string
+	for _, w := range m.state.GetWorkspaces() {
+		if w.Status != state.WorkspaceStatusRecyclable {
+			continue
+		}
+		if repoURL != "" && w.Repo != repoURL {
+			continue
+		}
+		toPurge = append(toPurge, w.ID)
+	}
+
+	purged := 0
+	for _, id := range toPurge {
+		if err := m.Purge(ctx, id); err != nil {
+			m.logger.Warn("failed to purge workspace", "id", id, "err", err)
+			continue
+		}
+		purged++
+	}
+	return purged, nil
+}
+
+func (m *Manager) dispose(ctx context.Context, workspaceID string, force bool, skipRecycling bool) error {
 	w, found := m.state.GetWorkspace(workspaceID)
 	if !found {
 		return fmt.Errorf("workspace not found: %s", workspaceID)
@@ -1139,6 +1264,40 @@ func (m *Manager) dispose(ctx context.Context, workspaceID string, force bool) e
 	// Remove filesystem watches before directory removal
 	if m.gitWatcher != nil {
 		m.gitWatcher.RemoveWorkspace(workspaceID)
+	}
+
+	// Clean up diff temp dirs (in OS temp, not workspace — no backup churn)
+	if err := difftool.CleanupWorkspaceTempDirs(workspaceID); err != nil {
+		m.logger.Warn("failed to cleanup diff temp dirs", "id", workspaceID, "err", err)
+	}
+
+	// Recycle: keep directory on disk, mark as recyclable for future reuse.
+	// Only recycle if the directory actually exists — recycling a missing directory
+	// would create a stale entry that Tier 0 can't reuse.
+	if m.config.RecycleWorkspaces && !skipRecycling && dirExists {
+		w.Status = state.WorkspaceStatusRecyclable
+		if err := m.state.UpdateWorkspace(w); err != nil {
+			return fmt.Errorf("failed to mark workspace as recyclable: %w", err)
+		}
+		if err := m.state.Save(); err != nil {
+			return fmt.Errorf("failed to save state: %w", err)
+		}
+
+		// Clean up in-memory maps
+		m.workspaceConfigsMu.Lock()
+		delete(m.workspaceConfigs, workspaceID)
+		m.workspaceConfigsMu.Unlock()
+
+		m.lockedWorkspacesMu.Lock()
+		delete(m.lockedWorkspaces, workspaceID)
+		m.lockedWorkspacesMu.Unlock()
+
+		m.workspaceGatesMu.Lock()
+		delete(m.workspaceGates, workspaceID)
+		m.workspaceGatesMu.Unlock()
+
+		m.logger.Info("recycled (directory preserved)", "id", workspaceID)
+		return nil
 	}
 
 	backend := m.backendForWorkspace(workspaceID)
@@ -1200,10 +1359,6 @@ func (m *Manager) dispose(ctx context.Context, workspaceID string, force bool) e
 	}
 	if err := m.state.Save(); err != nil {
 		return fmt.Errorf("failed to save state: %w", err)
-	}
-
-	if err := difftool.CleanupWorkspaceTempDirs(workspaceID); err != nil {
-		m.logger.Warn("failed to cleanup diff temp dirs", "id", workspaceID, "err", err)
 	}
 
 	// Clean up per-workspace maps to prevent unbounded growth

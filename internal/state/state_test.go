@@ -1992,6 +1992,12 @@ func TestWorkspaceStatusConstants(t *testing.T) {
 	}
 }
 
+func TestWorkspaceStatusRecyclable_Constant(t *testing.T) {
+	if WorkspaceStatusRecyclable != "recyclable" {
+		t.Errorf("WorkspaceStatusRecyclable = %q, want %q", WorkspaceStatusRecyclable, "recyclable")
+	}
+}
+
 func TestWorkspaceStatusPersisted(t *testing.T) {
 	w := Workspace{
 		ID:     "test-1",

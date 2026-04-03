@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/sergeknystautas/schmux/internal/logging"
+	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
@@ -244,4 +245,73 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 	}); err != nil {
 		s.logger.Error("failed to encode response", "handler", "dispose-all", "err", err)
 	}
+}
+
+func (s *Server) handlePurgeWorkspace(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceID")
+	if workspaceID == "" {
+		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	if err := s.workspace.Purge(ctx, workspaceID); err != nil {
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if s.previewManager != nil {
+		s.previewManager.DeleteWorkspace(workspaceID)
+	}
+
+	go s.BroadcastSessions()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (s *Server) handlePurgeAll(w http.ResponseWriter, r *http.Request) {
+	repoURL := r.URL.Query().Get("repo")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	purged, err := s.workspace.PurgeAll(ctx, repoURL)
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	go s.BroadcastSessions()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "ok",
+		"purged": purged,
+	})
+}
+
+func (s *Server) handleGetRecyclableWorkspaces(w http.ResponseWriter, r *http.Request) {
+	workspaces := s.state.GetWorkspaces()
+	total := 0
+	byRepo := make(map[string]int)
+	for _, ws := range workspaces {
+		if ws.Status != state.WorkspaceStatusRecyclable {
+			continue
+		}
+		total++
+		repoName := ws.Repo
+		if rc, found := s.config.FindRepoByURL(ws.Repo); found {
+			repoName = rc.Name
+		}
+		byRepo[repoName]++
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"total":   total,
+		"by_repo": byRepo,
+	})
 }

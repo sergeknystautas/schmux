@@ -2927,3 +2927,27 @@ func TestTimelapseConfig_Explicit(t *testing.T) {
 		t.Errorf("maxTotalStorage = %d, want 1000", c.GetTimelapseMaxTotalStorageMB())
 	}
 }
+
+func TestRecycleWorkspaces_DefaultFalse(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{}
+	if cfg.RecycleWorkspaces {
+		t.Error("RecycleWorkspaces should default to false")
+	}
+}
+
+func TestRecycleWorkspaces_ParsesFromJSON(t *testing.T) {
+	t.Parallel()
+	jsonData := `{"workspace_path": "/tmp/test", "recycle_workspaces": true, "repos": [], "run_targets": []}`
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+	os.WriteFile(cfgPath, []byte(jsonData), 0644)
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if !cfg.RecycleWorkspaces {
+		t.Error("RecycleWorkspaces should be true when set in JSON")
+	}
+}

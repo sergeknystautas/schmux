@@ -1180,3 +1180,256 @@ func TestCreateLocalRepo_RejectsDuplicateName(t *testing.T) {
 		t.Errorf("error should mention name already exists, got: %v", err)
 	}
 }
+
+func TestDispose_RecycleWorkspaces_KeepsDirectory(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{
+		WorkspacePath:     tmpDir,
+		RecycleWorkspaces: true,
+	}
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	workspaceID := "test-001"
+	workspacePath := filepath.Join(tmpDir, workspaceID)
+	os.MkdirAll(workspacePath, 0755)
+	exec.Command("git", "init", "-q", workspacePath).Run()
+
+	st.AddWorkspace(state.Workspace{
+		ID:     workspaceID,
+		Repo:   "test",
+		Branch: "main",
+		Path:   workspacePath,
+		Status: state.WorkspaceStatusRunning,
+	})
+
+	err := m.Dispose(context.Background(), workspaceID)
+	if err != nil {
+		t.Fatalf("Dispose() error = %v", err)
+	}
+
+	// Directory should still exist
+	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
+		t.Error("workspace directory should NOT be deleted when recycle_workspaces is true")
+	}
+
+	// Workspace should still be in state with "recyclable" status
+	w, found := st.GetWorkspace(workspaceID)
+	if !found {
+		t.Fatal("workspace should still exist in state")
+	}
+	if w.Status != state.WorkspaceStatusRecyclable {
+		t.Errorf("status = %q, want %q", w.Status, state.WorkspaceStatusRecyclable)
+	}
+}
+
+func TestDispose_RecycleWorkspaces_ForceStillRecycles(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{
+		WorkspacePath:     tmpDir,
+		RecycleWorkspaces: true,
+	}
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	workspaceID := "test-001"
+	workspacePath := filepath.Join(tmpDir, workspaceID)
+	os.MkdirAll(workspacePath, 0755)
+	exec.Command("git", "init", "-q", workspacePath).Run()
+
+	st.AddWorkspace(state.Workspace{
+		ID:     workspaceID,
+		Repo:   "test",
+		Branch: "main",
+		Path:   workspacePath,
+		Status: state.WorkspaceStatusRunning,
+	})
+
+	// DisposeForce should also recycle (force only skips safety checks)
+	err := m.DisposeForce(context.Background(), workspaceID)
+	if err != nil {
+		t.Fatalf("DisposeForce() error = %v", err)
+	}
+
+	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
+		t.Error("workspace directory should NOT be deleted when recycle_workspaces is true, even with force")
+	}
+
+	w, found := st.GetWorkspace(workspaceID)
+	if !found {
+		t.Fatal("workspace should still exist in state")
+	}
+	if w.Status != state.WorkspaceStatusRecyclable {
+		t.Errorf("status = %q, want %q", w.Status, state.WorkspaceStatusRecyclable)
+	}
+}
+
+func TestDispose_RecycleDisabled_StillDeletesDirectory(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{
+		WorkspacePath:     tmpDir,
+		RecycleWorkspaces: false,
+	}
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	workspaceID := "test-001"
+	workspacePath := filepath.Join(tmpDir, workspaceID)
+	os.MkdirAll(workspacePath, 0755)
+	exec.Command("git", "init", "-q", workspacePath).Run()
+
+	st.AddWorkspace(state.Workspace{
+		ID:     workspaceID,
+		Repo:   "test",
+		Branch: "main",
+		Path:   workspacePath,
+	})
+
+	err := m.Dispose(context.Background(), workspaceID)
+	if err != nil {
+		t.Fatalf("Dispose() error = %v", err)
+	}
+
+	// Directory should be deleted (original behavior)
+	if _, err := os.Stat(workspacePath); !os.IsNotExist(err) {
+		t.Error("workspace directory should be deleted when recycle_workspaces is false")
+	}
+
+	// Workspace should be removed from state
+	_, found := st.GetWorkspace(workspaceID)
+	if found {
+		t.Error("workspace should be removed from state")
+	}
+}
+
+func TestPurge_DeletesRecyclableWorkspace(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{
+		WorkspacePath:     tmpDir,
+		RecycleWorkspaces: true,
+	}
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	workspaceID := "test-001"
+	workspacePath := filepath.Join(tmpDir, workspaceID)
+	os.MkdirAll(workspacePath, 0755)
+	exec.Command("git", "init", "-q", workspacePath).Run()
+
+	st.AddWorkspace(state.Workspace{
+		ID:     workspaceID,
+		Repo:   "test",
+		Branch: "main",
+		Path:   workspacePath,
+		Status: state.WorkspaceStatusRecyclable,
+	})
+
+	err := m.Purge(context.Background(), workspaceID)
+	if err != nil {
+		t.Fatalf("Purge() error = %v", err)
+	}
+
+	if _, err := os.Stat(workspacePath); !os.IsNotExist(err) {
+		t.Error("workspace directory should be deleted after purge")
+	}
+
+	_, found := st.GetWorkspace(workspaceID)
+	if found {
+		t.Error("workspace should be removed from state after purge")
+	}
+}
+
+func TestPurge_RejectsNonRecyclableWorkspace(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{WorkspacePath: tmpDir}
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	st.AddWorkspace(state.Workspace{
+		ID:     "test-001",
+		Repo:   "test",
+		Branch: "main",
+		Path:   filepath.Join(tmpDir, "test-001"),
+		Status: state.WorkspaceStatusRunning,
+	})
+
+	err := m.Purge(context.Background(), "test-001")
+	if err == nil {
+		t.Error("Purge() should reject non-recyclable workspace")
+	}
+}
+
+func TestPurgeAll_DeletesAllRecyclable(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{
+		WorkspacePath:     tmpDir,
+		RecycleWorkspaces: true,
+	}
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	for i, status := range []string{state.WorkspaceStatusRecyclable, state.WorkspaceStatusRecyclable, state.WorkspaceStatusRunning} {
+		id := fmt.Sprintf("test-%03d", i+1)
+		path := filepath.Join(tmpDir, id)
+		os.MkdirAll(path, 0755)
+		exec.Command("git", "init", "-q", path).Run()
+		st.AddWorkspace(state.Workspace{
+			ID: id, Repo: "test", Branch: "main", Path: path, Status: status,
+		})
+	}
+
+	purged, err := m.PurgeAll(context.Background(), "")
+	if err != nil {
+		t.Fatalf("PurgeAll() error = %v", err)
+	}
+	if purged != 2 {
+		t.Errorf("PurgeAll() purged %d, want 2", purged)
+	}
+
+	_, found := st.GetWorkspace("test-003")
+	if !found {
+		t.Error("running workspace should not be purged")
+	}
+}
+
+func TestUpdateAllVCSStatus_SkipsRecyclable(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{WorkspacePath: tmpDir}
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	recyclablePath := filepath.Join(tmpDir, "recyclable-001")
+	os.MkdirAll(recyclablePath, 0755)
+	exec.Command("git", "init", "-q", recyclablePath).Run()
+
+	st.AddWorkspace(state.Workspace{
+		ID:     "recyclable-001",
+		Repo:   "test",
+		Branch: "main",
+		Path:   recyclablePath,
+		Status: state.WorkspaceStatusRecyclable,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	m.UpdateAllVCSStatus(ctx)
+
+	w, _ := st.GetWorkspace("recyclable-001")
+	if w.Status != state.WorkspaceStatusRecyclable {
+		t.Errorf("status changed to %q during polling, expected recyclable", w.Status)
+	}
+}

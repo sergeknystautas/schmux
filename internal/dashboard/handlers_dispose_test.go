@@ -4,8 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -380,5 +384,57 @@ func TestHandleDisposeWorkspaceAll_WithSessions(t *testing.T) {
 	// Workspace should be gone
 	if _, found := st.GetWorkspace("ws-all"); found {
 		t.Error("workspace should have been removed")
+	}
+}
+
+func TestHandlePurgeWorkspace(t *testing.T) {
+	server, _, st := newTestServer(t)
+
+	workspacePath := filepath.Join(t.TempDir(), "test-001")
+	os.MkdirAll(workspacePath, 0755)
+	exec.Command("git", "init", "-q", workspacePath).Run()
+
+	st.AddWorkspace(state.Workspace{
+		ID:     "test-001",
+		Repo:   "test",
+		Branch: "main",
+		Path:   workspacePath,
+		Status: state.WorkspaceStatusRecyclable,
+	})
+
+	req := makeWorkspaceRequest(t, http.MethodDelete, "/api/workspaces/test-001/purge", "test-001", nil)
+	rr := httptest.NewRecorder()
+	server.handlePurgeWorkspace(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	_, found := st.GetWorkspace("test-001")
+	if found {
+		t.Error("workspace should be removed after purge")
+	}
+}
+
+func TestHandlePurgeAll(t *testing.T) {
+	server, _, st := newTestServer(t)
+
+	for i := 0; i < 3; i++ {
+		id := fmt.Sprintf("test-%03d", i+1)
+		path := filepath.Join(t.TempDir(), id)
+		os.MkdirAll(path, 0755)
+		exec.Command("git", "init", "-q", path).Run()
+		st.AddWorkspace(state.Workspace{
+			ID: id, Repo: "test", Branch: "main", Path: path,
+			Status: state.WorkspaceStatusRecyclable,
+		})
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/workspaces/purge", nil)
+	rr := httptest.NewRecorder()
+	server.handlePurgeAll(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
 }

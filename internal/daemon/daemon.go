@@ -776,6 +776,9 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	}()
 
 	// Reconcile workspaces/sessions stuck in "disposing" status from a previous crash.
+	// When recycle_workspaces is enabled, DisposeForce will recycle (mark as recyclable)
+	// instead of deleting, which is the correct recovery behavior — the workspace
+	// directory is preserved for future reuse.
 	// Run in a goroutine to avoid blocking daemon startup (disposal can take up to 60s).
 	go func() {
 		for _, w := range st.GetWorkspaces() {

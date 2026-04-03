@@ -84,6 +84,7 @@ const (
 	WorkspaceStatusRunning      = "running"
 	WorkspaceStatusFailed       = "failed"
 	WorkspaceStatusDisposing    = "disposing"
+	WorkspaceStatusRecyclable   = "recyclable"
 )
 
 // Workspace represents a workspace directory state.

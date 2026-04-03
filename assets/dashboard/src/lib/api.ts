@@ -1321,6 +1321,35 @@ export async function syncEnvironmentVar(key: string): Promise<void> {
   }
 }
 
+// ============================================================================
+// Recyclable Workspaces API
+// ============================================================================
+
+export interface RecyclableWorkspacesResponse {
+  total: number;
+  by_repo: Record<string, number>;
+}
+
+export interface PurgeWorkspacesResponse {
+  status: string;
+  purged: number;
+}
+
+export async function getRecyclableWorkspaces(): Promise<RecyclableWorkspacesResponse> {
+  const response = await apiFetch('/api/workspaces/recyclable');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch recyclable workspaces');
+  return response.json();
+}
+
+export async function purgeWorkspaces(): Promise<PurgeWorkspacesResponse> {
+  const response = await apiFetch('/api/workspaces/purge', {
+    method: 'DELETE',
+    headers: { ...csrfHeaders() },
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to purge workspaces');
+  return response.json();
+}
+
 // Timelapse Recording API
 
 export interface TimelapseRecording {
