@@ -29,11 +29,11 @@ Cross-developer intent federation — publishes what you're working on and surfa
 ## Gotchas
 
 - **Temp index file must not exist.** `GitOps.WriteDevFile` creates a temp file for `GIT_INDEX_FILE`, then immediately deletes it so git can create a fresh index. If the 0-byte file exists, git errors with "index file smaller than expected".
-- **`RepoSlug()` exists in three places.** `repofeed.RepoSlug()` (Go, exported), `dashboard.repoSlug()` (Go, unexported in handlers_subreddit.go), and `repoSlug()` (TypeScript, in RepofeedTab.tsx). They must produce identical output for config repo toggles to work.
+- **`RepoSlug()` exists in three places with a known divergence.** `repofeed.RepoSlug()` (Go, exported), `dashboard.repoSlug()` (Go, unexported in handlers_subreddit.go), and `repoSlug()` (TypeScript, in RepofeedTab.tsx). The TypeScript version strips leading/trailing hyphens via `.replace(/^-|-$/g, '')` but the Go versions do not. This means they can produce different output for repo names starting or ending with special characters.
 - **`TOTAL_STEPS` in ConfigPage.tsx.** When adding a new config tab, you must bump `TOTAL_STEPS` — it controls how many tab buttons are rendered. Missing this causes tabs after the new one to be invisible.
 - **No publish loop yet.** The publisher tracks session activity in memory but does not have a goroutine to periodically write and push to the orphan branch. The git write/push infrastructure (`WriteDevFile`, `PushToRemote`) exists but is not wired into a daemon loop.
 - **No LLM summarization yet.** The design spec calls for LLM-based prompt summarization for long prompts. The current publisher stores intents verbatim from event data.
-- **`FetchFromRemote` silently fails.** If the `dev-repofeed` branch doesn't exist on the remote yet (no one has published), the fetch fails gracefully with a debug log. The consumer continues with an empty file list.
+- **`FetchFromRemote` returns an error on failure.** If the `dev-repofeed` branch doesn't exist on the remote, `FetchFromRemote` returns an error. The consumer loop in `daemon.go` logs it at debug level and continues with an empty file list.
 
 ## Common modification patterns
 

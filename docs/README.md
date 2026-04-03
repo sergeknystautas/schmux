@@ -29,16 +29,20 @@ When modifying a subsystem, read its guide first. The guide tells you which file
 | File                                 | Description                                                      |
 | ------------------------------------ | ---------------------------------------------------------------- |
 | [architecture.md](architecture.md)   | Backend architecture overview, router, JSON schema               |
-| [models.md](models.md)               | Model catalog, RunnerSpec, model config editor                   |
+| [models.md](models.md)               | Model catalog, registry, provider profiles                       |
 | [tool-adapters.md](tool-adapters.md) | ToolAdapter interface, per-agent adapters                        |
-| [sessions.md](sessions.md)           | Session lifecycle, spawn modes, resume                           |
-| [workspaces.md](workspaces.md)       | Workspace management, locking, ensure, preview proxy             |
+| [sessions.md](sessions.md)           | Session lifecycle, ControlSource, spawn modes, resume            |
+| [workspaces.md](workspaces.md)       | Workspace management, VCS abstraction, recyclable workspaces     |
 | [remote.md](remote.md)               | Remote access (Cloudflare tunnel) and remote sessions (SSH/tmux) |
-| [https.md](https.md)                 | HTTPS via dashboard.sx, ACME, TLS config UI                      |
+| [https.md](https.md)                 | HTTPS via dashboard.sx, ACME, TLS config UI, status alerts       |
+| [timelapse.md](timelapse.md)         | Session recording, time-compressed replay, asciicast export      |
 | [git-features.md](git-features.md)   | Git graph, status watcher, commit detail, PR discovery           |
-| [floor-manager.md](floor-manager.md) | Floor manager agency, CLI tools, VCS abstraction                 |
+| [floor-manager.md](floor-manager.md) | Floor manager agency, CLI tools                                  |
 | [overlays.md](overlays.md)           | Overlay compounding, file propagation, manifests                 |
+| [lore.md](lore.md)                   | Continual learning: proposals, curator, instructions             |
 | [personas.md](personas.md)           | Persona YAML files, built-ins, prompt delivery                   |
+| [nudgenik.md](nudgenik.md)           | NudgeNik session status classification                           |
+| [repofeed.md](repofeed.md)           | Cross-developer activity feed                                    |
 | [telemetry.md](telemetry.md)         | PostHog telemetry, IO workspace telemetry                        |
 | [preview.md](preview.md)             | Preview proxy lifecycle, auto-detection, port allocation         |
 | [subreddit.md](subreddit.md)         | Subreddit news feed (per-repo posts, upvotes)                    |
@@ -53,27 +57,26 @@ When modifying a subsystem, read its guide first. The guide tells you which file
 | [demo.md](demo.md)                         | Interactive demo, mock transport, tour system                                 |
 | [tooltip-examples.md](tooltip-examples.md) | Tooltip component usage examples                                              |
 
-### Testing
+### Infrastructure
 
-| File                     | Description                                               |
-| ------------------------ | --------------------------------------------------------- |
-| [testing.md](testing.md) | Test infrastructure, scenario testing, definition of done |
-| [e2e.md](e2e.md)         | E2E testing in Docker                                     |
+| File                                           | Description                                 |
+| ---------------------------------------------- | ------------------------------------------- |
+| [terminal-pipeline.md](terminal-pipeline.md)   | Terminal streaming pipeline and diagnostics |
+| [dev-mode.md](dev-mode.md)                     | Hot-reload development, workspace switching |
+| [testing.md](testing.md)                       | Test infrastructure, scenario testing       |
+| [e2e.md](e2e.md)                               | E2E testing in Docker                       |
+| [schmux-directories.md](schmux-directories.md) | Directory layout (`~/.schmux/`)             |
 
 ### Other
 
-| File                                                     | Description                                 |
-| -------------------------------------------------------- | ------------------------------------------- |
-| [agent-signaling.md](agent-signaling.md)                 | Agent signaling protocol                    |
-| [claude-code-hooks.md](claude-code-hooks.md)             | Claude Code hooks integration               |
-| [nudgenik.md](nudgenik.md)                               | NudgeNik feature                            |
-| [targets.md](targets.md)                                 | Targets (multi-agent coordination)          |
-| [terminal-pipeline.md](terminal-pipeline.md)             | Terminal streaming pipeline and diagnostics |
-| [websocket-sessions-spec.md](websocket-sessions-spec.md) | WebSocket dashboard protocol                |
-| [schmux-directories.md](schmux-directories.md)           | Directory layout (`~/.schmux/`)             |
-| [oneshot.md](oneshot.md)                                 | Oneshot mode architecture                   |
-| [git-graph-parameters.md](git-graph-parameters.md)       | Git graph parameter semantics               |
-| [worktree-migration.md](worktree-migration.md)           | Git worktree migration                      |
+| File                                               | Description                         |
+| -------------------------------------------------- | ----------------------------------- |
+| [agent-signaling.md](agent-signaling.md)           | Agent signaling protocol            |
+| [claude-code-hooks.md](claude-code-hooks.md)       | Claude Code hooks integration       |
+| [targets.md](targets.md)                           | Run targets (command-only)          |
+| [oneshot.md](oneshot.md)                           | Oneshot mode architecture           |
+| [git-graph-parameters.md](git-graph-parameters.md) | Git graph parameter semantics       |
+| [tabs.md](tabs.md)                                 | Tab system (sessions + accessories) |
 
 ## Subdirectories
 

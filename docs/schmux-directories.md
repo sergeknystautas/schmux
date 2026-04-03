@@ -11,25 +11,23 @@ Schmux uses two types of directories:
 
 `~/.schmux/`
 
-| Path                      | Purpose                                                | Created By                           | Notes                              |
-| ------------------------- | ------------------------------------------------------ | ------------------------------------ | ---------------------------------- |
-| `config.json`             | Main configuration (repos, agents, workspace path)     | User or `schmux init`                | Required for daemon                |
-| `state.json`              | Runtime state (workspaces, sessions, PIDs)             | Daemon                               | Auto-managed                       |
-| `daemon.pid`              | PID file for running daemon                            | `schmux start`                       | Used to check if daemon is running |
-| `daemon.started`          | Timestamp marker for daemon startup                    | `schmux start`                       | Used for health checks             |
-| `daemon-startup.log`      | Daemon startup logs                                    | Daemon                               | First few seconds of output        |
-| `secrets.json`            | Encrypted secrets storage                              | `schmux secret set`                  | Git should NEVER see this          |
-| `signaling.md`            | Agent signaling instructions template                  | `ensure.SignalingInstructionsFile()` | Injected via CLI flags             |
-| `dashboard/`              | Downloaded dashboard assets                            | `internal/assets`                    | For standalone binary              |
-| `lore/`                   | Central lore state directory                           | `internal/lore`                      | See below                          |
-| `lore/<repo>/state.jsonl` | Lore state-change records (proposed/applied/dismissed) | Curator                              | Aggregated from all workspaces     |
-| `lore-proposals/`         | Curated lore proposals awaiting review                 | Curator                              | JSON files per proposal            |
-| `overlays/<repo>/`        | Overlay files synced across workspaces                 | Workspace manager                    | .env, config files, etc.           |
-| `repos/`                  | Bare git clones of repositories                        | Workspace manager                    | Source for worktrees               |
-| `schemas/`                | JSON schemas for oneshot validation                    | `internal/oneshot`                   | Auto-downloaded                    |
-| `dev-state.json`          | Dev mode state (current worktree)                      | `dev.sh` wrapper                     | Development only                   |
-| `dev-build-status.json`   | Dev mode build status                                  | `dev.sh` wrapper                     | Development only                   |
-| `dev-restart.json`        | Dev mode restart manifest                              | Dashboard                            | Development only                   |
+| Path                     | Purpose                                            | Created By                           | Notes                                |
+| ------------------------ | -------------------------------------------------- | ------------------------------------ | ------------------------------------ |
+| `config.json`            | Main configuration (repos, agents, workspace path) | User or `schmux init`                | Required for daemon                  |
+| `state.json`             | Runtime state (workspaces, sessions, PIDs)         | Daemon                               | Auto-managed                         |
+| `daemon.pid`             | PID file for running daemon                        | `schmux start`                       | Used to check if daemon is running   |
+| `daemon.started`         | Timestamp marker for daemon startup                | `schmux start`                       | Used for health checks               |
+| `daemon-startup.log`     | Daemon startup logs                                | Daemon                               | First few seconds of output          |
+| `secrets.json`           | Encrypted secrets storage                          | `schmux secret set`                  | Git should NEVER see this            |
+| `signaling.md`           | Agent signaling instructions template              | `ensure.SignalingInstructionsFile()` | Injected via CLI flags               |
+| `dashboard/`             | Downloaded dashboard assets                        | `internal/assets`                    | For standalone binary                |
+| `lore-proposals/<repo>/` | Curated lore proposals awaiting review             | Curator                              | JSON files per proposal              |
+| `overlays/<repo>/`       | Overlay files synced across workspaces             | Workspace manager                    | .env, config files, etc.             |
+| `repos/`                 | Bare git clones of repositories                    | Workspace manager                    | Source for worktrees                 |
+| `schemas/`               | JSON schemas for oneshot validation                | `internal/oneshot`                   | Generated from Go structs at startup |
+| `dev-state.json`         | Dev mode state (current worktree)                  | `dev.sh` wrapper                     | Development only                     |
+| `dev-build-status.json`  | Dev mode build status                              | `dev.sh` wrapper                     | Development only                     |
+| `dev-restart.json`       | Dev mode restart manifest                          | Dashboard                            | Development only                     |
 
 ### Code Locations
 
@@ -47,21 +45,18 @@ Schmux uses two types of directories:
 
 `<workspace>/.schmux/`
 
-| Path                       | Purpose                             | Created By                 | Lifecycle                         |
-| -------------------------- | ----------------------------------- | -------------------------- | --------------------------------- |
-| `signal/<session-id>`      | Agent status signaling file         | Session spawn              | Per-session, not auto-cleaned     |
-| `lore.jsonl`               | Lore scratchpad (friction capture)  | Hooks/agents               | Append-only, pruned after 30 days |
-| `hooks/capture-failure.sh` | PostToolUseFailure hook script      | `ensure.LoreHookScripts()` | Re-created on each spawn          |
-| `hooks/stop-gate.sh`       | Stop hook for session gating        | `ensure.LoreHookScripts()` | Re-created on each spawn          |
-| `config.json`              | Per-workspace repo config overrides | Workspace manager          | Optional, for namespaced configs  |
+| Path                        | Purpose                                   | Created By        | Lifecycle                                 |
+| --------------------------- | ----------------------------------------- | ----------------- | ----------------------------------------- |
+| `events/<session-id>.jsonl` | Agent event JSONL file (status, friction) | Session spawn     | Per-session, env var `SCHMUX_EVENTS_FILE` |
+| `lore.jsonl`                | Lore scratchpad (friction capture)        | Hooks/agents      | Append-only, pruned after 30 days         |
+| `config.json`               | Per-workspace repo config overrides       | Workspace manager | Optional, for namespaced configs          |
 
 ### Code Locations
 
-- **Signal directory**: `internal/session/manager.go:626-647` - Creates `.schmux/signal/` and sets `SCHMUX_STATUS_FILE`
+- **Events directory**: `internal/session/manager.go` - Creates `.schmux/events/` and sets `SCHMUX_EVENTS_FILE`
 - **Lore scratchpad**: `internal/lore/scratchpad.go` - Append/read JSONL entries
-- **Hook scripts**: `internal/workspace/ensure/manager.go:540-557` - `LoreHookScripts()` writes embedded scripts
-- **Remote signal**: `internal/session/manager.go:492-517` - Creates `.schmux/signal/` on remote hosts
-- **Workspace config**: `internal/workspace/config.go:22-25` - Per-workspace config loading
+- **Hook scripts**: `internal/detect/` - `EnsureGlobalHookScripts()` writes to `~/.schmux/hooks/`
+- **Workspace config**: `internal/workspace/config.go` - Per-workspace config loading
 
 ---
 
@@ -73,9 +68,8 @@ When schmux creates a workspace, daemon-managed files (signal files, hook script
 
 ```
 Untracked files:
-  .schmux/signal/
+  .schmux/events/
   .schmux/hooks/
-  .schmux/lore.jsonl
 ```
 
 We can't ignore `.schmux/` entirely because `.schmux/config.json` is a user-managed file that should remain visible.
@@ -86,9 +80,12 @@ Schmux writes specific exclude patterns to `.git/info/exclude` using managed mar
 
 ```gitignore
 # SCHMUX:BEGIN - managed by schmux, do not edit
-.schmux/signal/
 .schmux/hooks/
-.schmux/lore.jsonl
+.schmux/events/
+.opencode/plugins/schmux.ts
+.opencode/commands/schmux-*.md
+.opencode/commands/commit.md
+.claude/skills/schmux-*/
 # SCHMUX:END
 ```
 

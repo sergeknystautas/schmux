@@ -100,9 +100,9 @@ The `Env` struct provides isolated test environments:
 - `New(t)` — creates an isolated HOME, finds the schmux binary
 - `DaemonStart()` / `DaemonStop()` — manages the daemon lifecycle
 - `SpawnSession()` / `DisposeSession()` — session management
-- `PollUntil(timeout, msg, check)` — polls every 200ms until check returns true
+- `WaitForDashboardSession()` / `WaitForSessionNudgeState()` — polling helpers for session state
 - `ConnectDashboardWebSocket()` / `ConnectTerminalWebSocket()` — WebSocket helpers
-- `CaptureArtifacts()` — dumps logs, config, state, tmux output on failure
+- `CaptureArtifacts()` — dumps daemon logs, config.json, state.json, tmux ls, and API sessions on failure
 
 ### Playwright (`test/scenarios/generated/helpers.ts`)
 

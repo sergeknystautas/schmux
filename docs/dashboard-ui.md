@@ -6,22 +6,22 @@ The web dashboard provides real-time monitoring, session spawning, and workspace
 
 ## Key files
 
-| File                                                        | Purpose                                                                                               |
-| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `assets/dashboard/src/components/AppShell.tsx`              | Root layout: sidebar, workspace list, sort toggle, dev-mode panels, ToolsSection placement            |
-| `assets/dashboard/src/components/ToolsSection.tsx`          | Collapsible tools nav (Overlays, Lore, Personas, Remote Hosts, Tips, Config)                          |
-| `assets/dashboard/src/components/ToolsSection.test.tsx`     | Tests for toggle behavior, badge rendering, localStorage persistence                                  |
-| `assets/dashboard/src/components/ActionDropdown.tsx`        | Per-workspace "+" dropdown: Quick Launch presets + emerged actions with spawn logic                   |
-| `assets/dashboard/src/components/ActionDropdown.module.css` | CSS modules for dropdown sections, confidence dots, manage links                                      |
-| `assets/dashboard/src/components/EventMonitor.tsx`          | Sidebar panel: last 5 events, collapsible, color-coded by type                                        |
-| `assets/dashboard/src/routes/EventsPage.tsx`                | Full-page `/events` view: filterable table with auto-scroll and JSON expansion                        |
-| `assets/dashboard/src/contexts/MonitorContext.tsx`          | React context providing `monitorEvents` and `clearMonitorEvents`                                      |
-| `assets/dashboard/src/routes/SpawnPage.tsx`                 | Spawn wizard: persona dropdown layout, image paste handling, draft persistence                        |
-| `assets/dashboard/src/lib/quicklaunch.ts`                   | Resolves Quick Launch items from global config + per-workspace presets                                |
-| `internal/events/monitorhandler.go`                         | Backend: `MonitorHandler` forwards all event types via callback (dev-mode only)                       |
-| `internal/dashboard/handlers_events.go`                     | Backend: `GET /api/dev/events/history` scans `.schmux/events/*.jsonl` across workspaces               |
-| `internal/dashboard/handlers_spawn.go`                      | Backend: `SpawnRequest` struct with `ImageAttachments`, validation, file writing, prompt modification |
-| `assets/dashboard/src/styles/global.css`                    | Styles for tools-section, event-monitor, workspace sort toggle, spawn form layout                     |
+| File                                                        | Purpose                                                                                                        |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `assets/dashboard/src/components/AppShell.tsx`              | Root layout: sidebar, workspace list, sort toggle, dev-mode panels, ToolsSection placement                     |
+| `assets/dashboard/src/components/ToolsSection.tsx`          | Collapsible tools nav (Overlays, Lore, Personas, Repofeed, Timelapse, Remote Hosts, Environment, Tips, Config) |
+| `assets/dashboard/src/components/ToolsSection.test.tsx`     | Tests for toggle behavior, badge rendering, localStorage persistence                                           |
+| `assets/dashboard/src/components/ActionDropdown.tsx`        | Per-workspace "+" dropdown: Quick Launch presets + emerged actions with spawn logic                            |
+| `assets/dashboard/src/components/ActionDropdown.module.css` | CSS modules for dropdown sections, confidence dots, manage links                                               |
+| `assets/dashboard/src/components/EventMonitor.tsx`          | Sidebar panel: last 5 events, collapsible, color-coded by type                                                 |
+| `assets/dashboard/src/routes/EventsPage.tsx`                | Full-page `/events` view: filterable table with auto-scroll and JSON expansion                                 |
+| `assets/dashboard/src/contexts/MonitorContext.tsx`          | React context providing `monitorEvents` and `clearMonitorEvents`                                               |
+| `assets/dashboard/src/routes/SpawnPage.tsx`                 | Spawn wizard: persona dropdown layout, image paste handling, draft persistence                                 |
+| `assets/dashboard/src/lib/quicklaunch.ts`                   | Resolves Quick Launch items from global config + per-workspace presets                                         |
+| `internal/events/monitorhandler.go`                         | Backend: `MonitorHandler` forwards all event types via callback (dev-mode only)                                |
+| `internal/dashboard/handlers_events.go`                     | Backend: `GET /api/dev/events/history` scans `.schmux/events/*.jsonl` across workspaces                        |
+| `internal/dashboard/handlers_spawn.go`                      | Backend: `SpawnRequest` struct with `ImageAttachments`, validation, file writing, prompt modification          |
+| `assets/dashboard/src/styles/global.css`                    | Styles for tools-section, event-monitor, workspace sort toggle, spawn form layout                              |
 
 ## Architecture decisions
 

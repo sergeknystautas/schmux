@@ -9,6 +9,10 @@ Oneshot is schmux's prompt-in/result-out execution mode for AI agents. It's used
 | NudgeNik         | `internal/nudgenik`        | `nudgenik`         | Classifies agent terminal state (stuck, waiting, completed, etc.) |
 | Branch Suggest   | `internal/branchsuggest`   | `branch-suggest`   | Generates a git branch name and nickname from a user prompt       |
 | Conflict Resolve | `internal/conflictresolve` | `conflict-resolve` | Resolves git rebase conflicts via LLM, reports actions per file   |
+| Lore             | `internal/lore`            | `lore`             | Curates learning proposals from agent sessions                    |
+| Subreddit        | `internal/subreddit`       | `subreddit`        | Generates subreddit digest posts                                  |
+| Emergence        | `internal/emergence`       | `emergence`        | Discovers reusable skills from agent behavior                     |
+| Commit Message   | `internal/commitmessage`   | `commitmessage`    | Generates commit messages from workspace diffs                    |
 
 ## Execution Flow
 
@@ -25,7 +29,7 @@ oneshot.ExecuteTarget(ctx, cfg, targetName, prompt, schemaLabel, timeout, dir)
   ├─ detected tools → Execute
   │
   ▼
-oneshot.Execute(ctx, agentName, agentCommand, prompt, schemaLabel, env, dir)
+oneshot.Execute(ctx, agentName, agentCommand, prompt, schemaLabel, env, dir, model)
   │
   ├─ resolveSchema(label) → file path (~/.schmux/schemas/<label>.json)
   │   ├─ Claude: reads file, passes content inline (--json-schema <json>)
@@ -42,9 +46,7 @@ parseResponse(agentName, rawOutput)
 
 ### Schema Files
 
-Schemas are written to `~/.schmux/schemas/` as JSON files. `WriteAllSchemas()` runs on daemon startup to ensure they're current. At execution time, `resolveSchema` returns a file path — the caller reads the file for Claude (inline arg) or passes the path for Codex.
-
-This keeps the interface consistent: every agent gets its schema from a file.
+Schemas are generated at runtime from Go struct definitions using `github.com/swaggest/jsonschema-go` via the `internal/schema` package. Each consumer registers its schema via `init()` (e.g., `schema.Register(schema.LabelNudgeNik, Result{}, "source")`). `WriteAllSchemas()` runs on daemon startup to write them to `~/.schmux/schemas/` as JSON files. At execution time, `resolveSchema` returns a file path — the caller reads the file for Claude (inline arg) or passes the path for Codex.
 
 ### CLI Arguments by Agent
 

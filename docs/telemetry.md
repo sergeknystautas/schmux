@@ -111,13 +111,13 @@ A toggleable diagnostic harness that instruments `exec.Command` calls for git op
 | `internal/workspace/io_workspace_telemetry_test.go`  | Unit tests for recording, snapshots, ring buffer behavior                                                                                                   |
 | `internal/workspace/io_workspace_diagnostic.go`      | Diagnostic capture: `WriteToDir()` produces `meta.json`, `commands-ringbuffer.txt`, `slow-commands.txt`, `by-workspace.txt`; automated findings and verdict |
 | `internal/workspace/io_workspace_diagnostic_test.go` | Tests for diagnostic file output and automated findings                                                                                                     |
-| `internal/workspace/run_git.go`                      | `runGit()` -- instrumented wrapper around `exec.CommandContext(ctx, "git", ...)`, records to telemetry collector                                            |
+| `internal/workspace/run_cmd.go`                      | `runCmd()` -- instrumented wrapper around `exec.CommandContext`, records to telemetry collector. `runGit()` is a thin wrapper that delegates to `runCmd()`  |
 
 ### Architecture decisions
 
 - **Why mirror the terminal desync diagnostic system:** Both systems follow the same shape: in-memory collector, diagnostic capture with `WriteToDir()`, live metrics panel in the dashboard, WebSocket message to trigger capture, config toggle + target selector for auto-analysis. This makes both systems predictable for developers who know one.
 - **Why nil-safe methods:** All `IOWorkspaceTelemetry` methods are no-ops on nil receiver. This eliminates nil checks at every callsite -- callers pass the collector around and call methods without checking if telemetry is enabled.
-- **Why lazy initialization in `runGit()`:** If the config has telemetry enabled but no collector has been set via `SetIOWorkspaceTelemetry()`, `runGit()` lazily creates one. This supports hot-reloading the config toggle without a daemon restart.
+- **Why lazy initialization in `runCmd()`:** If the config has telemetry enabled but no collector has been set via `SetIOWorkspaceTelemetry()`, `runCmd()` lazily creates one. This supports hot-reloading the config toggle without a daemon restart.
 - **Why two ring buffers:** The slow ring (128 entries, threshold >= 100ms) captures only slow commands for focused analysis. The full ring (512 entries) captures all recent commands for context.
 
 ### Data collected
@@ -170,7 +170,7 @@ Computed at capture time:
 ### Gotchas
 
 - The `runGit()` wrapper suppresses git watcher events for the duration of each command to prevent the watcher from triggering redundant refreshes caused by schmux's own git operations.
-- `extractCommandType()` derives the key from the first arg only (e.g., `["status", "--porcelain"]` becomes `git_status`). Subcommands are not distinguished.
+- Command type derivation (inline in `RecordCommand()`) uses the first arg only (e.g., `["status", "--porcelain"]` becomes `git_status`). Subcommands are not distinguished.
 - The lazy initialization path in `runGit()` uses a package-level mutex (`ioTelemetryMu`) separate from the Manager's fields to avoid holding the Manager lock during telemetry creation.
 - Diagnostic captures do not reset the telemetry by default. Pass `reset: true` to `Snapshot()` to clear counters after capture.
 

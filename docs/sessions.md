@@ -9,7 +9,10 @@ Sessions are tmux-backed agent execution environments. Each coding agent (Claude
 | File                                                | Purpose                                                       |
 | --------------------------------------------------- | ------------------------------------------------------------- |
 | `internal/session/manager.go`                       | Session lifecycle: spawn, dispose, buildCommand               |
-| `internal/session/tracker.go`                       | Control mode attachment, output fan-out, OutputLog            |
+| `internal/session/tracker.go`                       | Drains ControlSource, output fan-out, OutputLog               |
+| `internal/session/controlsource.go`                 | ControlSource interface (input boundary for tracker)          |
+| `internal/session/localsource.go`                   | Local tmux control mode source                                |
+| `internal/session/remotesource.go`                  | Remote SSH-tunneled source                                    |
 | `internal/detect/commands.go`                       | Tool modes (promptable, command, resume) and command building |
 | `internal/detect/adapter_claude.go`                 | Claude Code adapter (hooks, resume command)                   |
 | `internal/detect/adapter_codex.go`                  | Codex adapter                                                 |
@@ -39,13 +42,96 @@ Each coding agent runs interactively in its own tmux session.
 ## Session Lifecycle
 
 ```
-spawning → running → done → disposed
+provisioning → running → stopped ──→ disposing → (removed from state)
 ```
 
-- **Spawning**: Creating the workspace and starting the agent
-- **Running**: Agent is actively working
-- **Done**: Agent has exited; session preserved for review
-- **Disposed**: Session removed from tracking; tmux session deleted
+### Status values
+
+| Status         | Meaning                                                         |
+| -------------- | --------------------------------------------------------------- |
+| `provisioning` | Creating the workspace and starting the agent (remote sessions) |
+| `running`      | Agent is actively working                                       |
+| `stopped`      | Agent has exited; session preserved for review                  |
+| `failed`       | Session failed to start or crashed                              |
+| `queued`       | Waiting for a slot (e.g., remote host provisioning)             |
+| `disposing`    | Teardown in progress; sidebar grays out, clicks disabled        |
+
+All constants live in `internal/state/state.go`.
+
+### Workspace status values
+
+| Status         | Meaning                                   |
+| -------------- | ----------------------------------------- |
+| `provisioning` | Workspace creation in progress            |
+| `running`      | Ready for use                             |
+| `failed`       | Creation failed                           |
+| `disposing`    | Teardown in progress                      |
+| `recyclable`   | Marked for reuse to minimize backup churn |
+
+---
+
+## Disposing Status
+
+The `disposing` status provides immediate visual feedback during teardown. Without it, clicking "Dispose" leaves the item looking normal for several seconds while cleanup runs.
+
+### How it works
+
+1. The handler calls `MarkSessionDisposing()` which sets status to `disposing` and saves state.
+2. The handler broadcasts via WebSocket. The client sees the item gray out within ~100ms.
+3. The handler calls the blocking `Dispose()` teardown.
+4. On success: item removed from state; second broadcast reflects removal.
+5. On failure: status reverts to previous value, state saved, broadcast ungrays the item.
+
+`MarkSessionDisposing()` is a separate method from `Dispose()` on the session manager. The handler orchestrates the sequence: mark, broadcast, dispose.
+
+### Client behavior
+
+- Sidebar items with `disposing` status get CSS classes that reduce opacity and set `pointer-events: none`.
+- Dispose buttons are disabled. Keyboard shortcuts check status before triggering.
+- Keyboard navigation (Cmd+Up/Down) skips disposing workspaces.
+
+### Crash recovery
+
+Because `disposing` is persisted via `state.Save()`, daemon restart finds items stuck in this status. On startup, the daemon retries disposal. If retry fails, it reverts to `running` (workspaces) or `stopped` (sessions).
+
+### Idempotency
+
+If an item already has `disposing` status when a dispose request arrives, the handler returns 200 OK (no-op).
+
+---
+
+## ControlSource Interface
+
+`ControlSource` (`internal/session/controlsource.go`) is the input boundary for `SessionTracker`. It decouples the tracker from transport details so local and remote sessions share the exact same downstream pipeline: OutputLog, sequencing, fan-out, gap detection, WebSocket delivery, and recording.
+
+### Why it exists
+
+Before ControlSource, local and remote sessions had completely separate streaming paths. Local sessions went through SessionTracker (with OutputLog, sequencing, gap detection, diagnostics) while remote sessions bypassed it entirely. Any feature built on the tracker silently did not work for remote sessions.
+
+### Interface
+
+```go
+type ControlSource interface {
+    Events() <-chan SourceEvent
+    SendKeys(keys string) (controlmode.SendKeysTimings, error)
+    CaptureVisible() (string, error)
+    CaptureLines(n int) (string, error)
+    GetCursorState() (controlmode.CursorState, error)
+    Resize(cols, rows int) error
+    Close() error
+}
+```
+
+The source emits `SourceEvent` values with a `Type` discriminator: `SourceOutput`, `SourceGap`, `SourceResize`, or `SourceClosed`.
+
+### Implementations
+
+| Source         | File                               | Wraps                                                |
+| -------------- | ---------------------------------- | ---------------------------------------------------- |
+| `LocalSource`  | `internal/session/localsource.go`  | tmux control mode (with reconnection, health probes) |
+| `RemoteSource` | `internal/session/remotesource.go` | `remote.Connection` (SSH tunnel)                     |
+
+`SessionTracker` takes a `ControlSource` at construction via `NewSessionTracker()`. Everything downstream is identical regardless of source type.
 
 ---
 
@@ -424,7 +510,7 @@ Session state is stored at `~/.schmux/state.json` and managed automatically:
 
 - Session ID, workspace, target, nickname
 - Creation time, last activity time
-- Status (spawning, running, done, disposed)
+- Status (`provisioning`, `running`, `stopped`, `failed`, `queued`, `disposing`)
 - Git status at time of spawning
 
 ---
@@ -434,6 +520,8 @@ Session state is stored at `~/.schmux/state.json` and managed automatically:
 - **Conversation state is not persisted by schmux.** The `Session` struct stores ID, workspace, target, tmux session name, etc., but nothing about the agent's conversation state. Each agent stores its own conversation data (e.g., Claude Code in its data directory). Resume (`/resume`) simply invokes the agent's native resume command.
 - **Agent-specific signaling is a session-level concern.** `SignalingInstructions` and `AgentInstructions` are written per-session in `session/manager.go`, not as workspace-level setup. They configure prompt injection for the specific agent being spawned.
 - **No specific conversation resume.** `/resume` resumes the most recent conversation in the workspace directory, not a specific past conversation. No conversation IDs are tracked.
+- **ControlSource unifies local and remote streaming.** SessionTracker consumes a pluggable `ControlSource` interface rather than hardcoding transport logic. Any feature built on the tracker (OutputLog, sequencing, gap detection, recording, diagnostics) works identically for local and remote sessions.
+- **Disposing status is set in the manager, not the handler.** This ensures all disposal callers (HTTP, CLI, automation) get consistent status transitions. Handlers only handle broadcasting.
 
 ---
 
@@ -441,9 +529,14 @@ Session state is stored at `~/.schmux/state.json` and managed automatically:
 
 - **To add a new spawn mode**: add a `ToolMode` constant in `internal/detect/commands.go`, handle it in each tool adapter's `BuildCommandParts()`, and add the UI mode in `SpawnPage.tsx`.
 - **To add a new agent**: create an adapter file `internal/detect/adapter_<name>.go` implementing the `ToolAdapter` interface, register it via `init()`.
-- **To change session lifecycle states**: update the status constants and transitions in `internal/session/manager.go`.
+- **To change session lifecycle states**: update the status constants in `internal/state/state.go`, handle the new status in the session manager's `Dispose()` method, and update the sidebar CSS/logic.
+- **To add a new ControlSource**: implement the `ControlSource` interface in `internal/session/`, pass the new source to `NewSessionTracker()`. No changes to the tracker, OutputLog, fan-out, or WebSocket handlers are needed.
 
 ## Gotchas
 
 - **Resume without prior conversation**: when Claude Code's `--continue` finds no prior conversation in the directory, it starts fresh. There is no warning to the user.
 - **Agent instructions are git-excluded**: the ensure system writes `.schmux/hooks/` and `.schmux/events/` paths to `.git/info/exclude` so they do not pollute git status.
+- **Disposing is persisted**: because `disposing` is saved to `state.json`, a daemon crash during teardown leaves items stuck. The daemon retries on startup, but if retry fails the item reverts to `stopped`/`running` and logs a warning.
+- **Pre-existing workspaces have no status**: workspaces created before the status field was added have an empty `Status`. The client treats empty the same as `running`.
+- **SourceEvent.Data is string, not []byte**: matches `controlmode.OutputEvent.Data`. Conversion to `[]byte` happens at the `OutputLog.Append()` boundary.
+- **BroadcastSessions has 100ms debounce**: the disposing transition relies on this. The delay is imperceptible after a confirmation dialog.

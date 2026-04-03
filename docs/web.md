@@ -96,6 +96,7 @@ Watch terminal output and manage a session.
 - Switch between multiple sessions in the same workspace
 - Terminal viewer area connects visually to tabs
 - Shows "Stopped" instead of time for stopped sessions
+- Pastebin button (icon) next to the spawn "+" button -- sends saved text clips to the active terminal (see [Pastebin](#pastebin))
 
 **Diff tab:**
 
@@ -150,6 +151,10 @@ Single-page wizard to start new sessions. Prompt-first design for faster workflo
 - **AI branch suggestions**: Branch name suggestions based on prompt (when creating new workspace)
 - **Enter to submit**: Press Enter in branch/nickname fields to spawn
 
+**Add Repository (inline):**
+
+The repo dropdown includes `+ Add Repository`. It accepts either a plain project name (to `git init` a new local repo) or a git URL (to clone a remote repo). See [Add Repository via Spawn](#add-repository-via-spawn).
+
 **When spawning into existing workspace:**
 
 - Shows workspace context (header + tabs)
@@ -179,7 +184,7 @@ View git changes for a workspace.
 
 ### Settings (`/config`)
 
-Configure repos, run targets, models, and workspace path.
+Configure repos, run targets, models, workspace path, and pastebin entries.
 
 **Edit mode:**
 
@@ -195,6 +200,7 @@ Configure repos, run targets, models, and workspace path.
 - Model secrets (for third-party models)
 - Workspace overlay status
 - Access control (network access + optional GitHub auth)
+- Pastebin management (add/remove text entries for quick terminal pasting)
 
 ### Preview (`/preview/:workspaceId/:previewId`)
 
@@ -290,6 +296,7 @@ First-class support via `[data-theme="dark"]` attribute. Persists to localStorag
 - SpawnWizard (multi-step form)
 - SessionDetailView (terminal + metadata)
 - LogViewer (xterm.js wrapper)
+- PastebinDropdown (quick-paste from config entries)
 
 ---
 
@@ -318,3 +325,49 @@ Effects: Stops tracking, closes stream, tmux session deleted
 ```
 Type workspace ID to confirm: myproject-001
 ```
+
+---
+
+## Pastebin
+
+A built-in quick-paste feature for sending saved text clips to a terminal session.
+
+Users save text entries (commands, code snippets, boilerplate) once, then paste them into any active session with a single click. Clicking an entry sends its content to the active terminal via WebSocket (`sendInput`) and closes the dropdown.
+
+**UI components:**
+
+- **Button** (`SessionTabs.tsx`): Icon button using the Pastebin SVG logo. Enabled when a session is selected; dimmed otherwise.
+- **Dropdown** (`PastebinDropdown.tsx`): Reuses `ActionDropdown` CSS. Renders entries alphabetically (first line, truncated to 40 chars), plus a "manage" link to Settings. Closes on click-outside only (no Escape handler).
+- **Config tab** (`PastebinTab.tsx`): Tab slug `pastebin` in the Settings page. Lists entries as multi-line textareas with add/remove controls.
+
+**Storage:** Flat `string[]` in `~/.schmux/config.json` under `"pastebin"`. No name field, no struct wrapper -- each entry is the literal text to paste.
+
+**Why config, not state:** Pastebin entries are user-defined presets, not runtime artifacts. They survive daemon restarts, are shared across all sessions, and are edited through the same Settings page as repos and targets.
+
+---
+
+## Add Repository via Spawn
+
+The spawn wizard accepts git URLs directly in the repository input, eliminating the need to edit `config.json` before cloning.
+
+**Detection logic** (`isGitURL` in `internal/dashboard/repo_name.go`): matches `https://`, `http://`, `ssh://`, `git://` prefixes (with path after host) and `git@` prefix (with `:` after host). Everything else is a plain repo name.
+
+**Routing:**
+
+1. **Git URL** -- `FindRepoByURL` checks for duplicates. If not found, a name is generated, a new repo entry is appended to config, and the normal spawn flow clones via `EnsureRepoBase`.
+2. **Plain name** -- creates `local:<name>` repo via `git init`.
+
+**Name generation** (`repoNameFromURL` in `internal/dashboard/repo_name.go`):
+
+1. Strip `.git` suffix, extract last path segment (repo name) and owner, lowercase both
+2. Candidate = repo name (e.g., `claude-code`)
+3. If collision: prepend owner truncated to 6 chars (`anthro-claude-code`)
+4. If still collision: append numeric suffix (`anthro-claude-code-2`)
+
+**Why inline in spawn:** The user's intent at spawn time is "work on this repo" -- forcing a config detour breaks flow. The repo entry persists for future spawns.
+
+**Gotchas:**
+
+- Config entry is registered before cloning starts. A failed clone leaves the entry in config.
+- URL matching is exact-string. `https://...` and `git@...` for the same repo are treated as different entries.
+- Plain name validation rejects `:` to prevent collision with the `local:` prefix sentinel.

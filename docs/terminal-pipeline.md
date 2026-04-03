@@ -2,8 +2,8 @@
 
 How terminal output flows from AI agents to the browser, including the sync/correction mechanism, diagnostics, and known edge cases.
 
-**Last updated:** 2026-02-27
-**Supersedes:** Previously separate specs for control mode streaming, terminal sync, scrollback integrity, terminal hybrid streaming, and cursor position analysis — all consolidated here.
+**Last updated:** 2026-04-03
+**Supersedes:** Previously separate specs for control mode streaming, terminal sync, scrollback integrity, terminal hybrid streaming, cursor position analysis, and xterm scroll diagnostics — all consolidated here.
 
 ---
 
@@ -62,7 +62,7 @@ How terminal output flows from AI agents to the browser, including the sync/corr
      │ Binary frame:                                       │
      │   parse 8-byte seq header (BigEndian uint64)        │
      │   TextDecoder.decode(payload, {stream: true})       │
-     │   terminal.write(text, () => scrollToBottom())      │
+     │   terminal.write(text, callback)                     │
      │                                                     │
      │ Gap detection:                                      │
      │   if seq > lastReceivedSeq + 1 → send gap request   │
@@ -78,7 +78,7 @@ How terminal output flows from AI agents to the browser, including the sync/corr
      │  scrollback: 5000 lines                 │
      │  fontSize: 14, Menlo                    │
      │  convertEol: true                       │
-     │  Unicode11Addon: DISABLED               │
+     │  Unicode11Addon: enabled (v11)          │
      └─────────────────────────────────────────┘
 ```
 
@@ -259,7 +259,7 @@ new Terminal({
 });
 ```
 
-Addons loaded: `WebLinksAddon`. `Unicode11Addon` is **disabled** (commented out, testing performance impact).
+Addons loaded: `WebLinksAddon`, `Unicode11Addon` (v11 active), `WebglAddon` (GPU-accelerated rendering with canvas fallback on context loss).
 
 ### Output Handling
 
@@ -307,7 +307,7 @@ handleOutput(data: string | ArrayBuffer) {
 }
 ```
 
-Key design: `scrollToBottom()` is called inside `terminal.write()`'s completion callback, not synchronously after it. This ensures xterm.js has fully parsed the data before scrolling, eliminating the "scrolling through thousands of lines" artifact on bootstrap.
+Key design: `scrollToBottom()` was removed from the write callback. xterm.js's `BufferService.scroll()` already sets `buffer.ydisp = buffer.ybase` when `isUserScrolling` is false, so explicit scrolling is unnecessary. The write callback now only manages the `scrollRAFPending` flag and arms the write guard clear timer.
 
 ### Scroll Position Tracking
 
@@ -315,6 +315,14 @@ Key design: `scrollToBottom()` is called inside `terminal.write()`'s completion 
 - `isAtBottom()` checks `buffer.viewportY >= buffer.baseY - threshold`
 - `handleUserScroll()` disables auto-follow when user scrolls up
 - Resume button appears when `followTail` is false
+
+### Scroll Suppression
+
+Terminal writes and resizes trigger DOM scroll events via xterm.js internal cursor repositioning. Without suppression, these programmatic scrolls falsely disable `followTail`. The suppression mechanism:
+
+- **`writingToTerminal`** flag is set before `terminal.write()` and `terminal.resize()`, cleared via a debounced timer (8ms). xterm.js splits large writes into multiple `setTimeout` chunks (~12ms each), so a rAF-based clear fires too early.
+- **`scrollRAFPending`** serves as a guard flag for `handleUserScroll` suppression, coalesced via one rAF per animation frame.
+- **Wheel events** bypass the write guard entirely. Upward wheel scrolls disable `followTail` immediately. A 150ms cooldown prevents the subsequent DOM scroll event from conflicting.
 
 ### Resize Handling
 
@@ -442,11 +450,47 @@ Triggered via dashboard button or keyboard shortcut. Captures data from all pipe
 ├── ringbuffer-frontend.txt  # Raw terminal data as received (cat-able)
 ├── screen-tmux.txt          # capture-pane output with ANSI escapes
 ├── screen-xterm.txt         # xterm.js buffer dump with ANSI escapes
-└── screen-diff.txt          # Human-readable row-by-row diff
+├── screen-diff.txt          # Human-readable row-by-row diff
+├── gap-stats.json           # Sequence gap telemetry
+├── cursor-xterm.json        # xterm.js cursor position
+├── scroll-events.json       # Scroll state transition ring buffer
+├── scroll-stats.json        # Scroll diagnostic counters
+├── ws-events.json           # WebSocket connection lifecycle events
+├── lifecycle-events.json    # Terminal stream lifecycle trace
+├── write-race-stats.json    # Write race diagnostic data
+└── slow-react-renders.json  # Slow React render phases
 ```
 
 6. **Agent analysis** — a schmux agent session is automatically spawned to analyze the directory.
 7. **Dashboard display** — visual screen diff (differing cells highlighted), counter stats, automated verdict, and link to the agent session.
+
+### Scroll Diagnostics
+
+The terminal intermittently loses its scroll-to-bottom position. The Resume button appears without user scrolling, and sometimes the screen appears to reload. Scroll diagnostics instrument the scroll suppression mechanism so that when the bug reproduces, clicking "Capture" saves enough state to identify the root cause post-hoc.
+
+**Scroll event ring buffer** (last 100 `ScrollDiagnosticEvent` entries): Each entry records a `followTail` state transition at the `setFollow()` mutation point, capturing trigger source, flag states (`writingToTerminal`, `scrollRAFPending`), viewport position, and sequence number.
+
+**Counters:**
+
+| Counter                   | What it measures                                                                                                |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `followLostCount`         | Times `followTail` went `true -> false` (the symptom)                                                           |
+| `scrollSuppressedCount`   | Times `handleUserScroll` was suppressed by the write guard                                                      |
+| `scrollCoalesceHits`      | Times `writeTerminal` callback found `scrollRAFPending` already set                                             |
+| `resizeCount`             | Times `fitTerminal()` fired                                                                                     |
+| `terminalRecreationCount` | Times the terminal stream React effect ran (lives in `SessionDetailPage` ref, survives across stream instances) |
+
+**Three hypotheses these counters distinguish:**
+
+1. **Write suppression gap** -- `scrollCoalesceHits` measures frequency; scroll events with both guards false near a coalesce hit confirm it.
+2. **Resize/write flag collision** -- `resizeCount` and `lastResizeTs` check if `scrollEvent.ts - lastResizeTs < 100ms`.
+3. **Terminal recreation from dependency change** -- `terminalRecreationCount > 1` at capture time confirms recreation occurred.
+
+**Gotchas:**
+
+- `handleUserScroll` is on the hot path. The diagnostics gate (`if (this.diagnostics)`) must remain a cheap null check.
+- Wheel events bypass the write guard. They appear in the ring buffer but do not increment `scrollSuppressedCount`.
+- `writeRAFPending` is a separate flag from `scrollRAFPending`. The suppression check in `handleUserScroll` tests all three: `writingToTerminal || scrollRAFPending || writeRAFPending`.
 
 ### Performance Impact
 
@@ -455,8 +499,9 @@ Triggered via dashboard button or keyboard shortcut. Captures data from all pipe
 | Atomic counters              | ~1ns per event               | ~64 bytes          |
 | Backend ring buffer (256KB)  | ~50-200ns per event (memcpy) | 256KB/session      |
 | Frontend ring buffer         | ~1-5us per event             | ~256KB/session     |
+| Scroll event ring buffer     | ~0 (on state change only)    | ~10KB/session      |
 | Screen diff (on-demand)      | N/A (not on hot path)        | Transient          |
-| **Total always-on overhead** | **~1-5us per event**         | **~512KB/session** |
+| **Total always-on overhead** | **~1-5us per event**         | **~530KB/session** |
 
 For context, `terminal.write()` alone takes 500-5000us for complex TUI content. The diagnostic overhead is 0.1-1% of the existing rendering cost.
 
@@ -504,6 +549,9 @@ Registration uses `map[string][]*wsConn` — append on connect, remove on discon
 | Sync activity guard                | 2000ms                  | `terminalStream.ts`         |
 | Stats ticker (dev mode)            | 3s                      | `websocket.go`              |
 | Ring buffer (dev mode)             | 256KB                   | `websocket.go`              |
+| Scroll event ring buffer           | 100 entries             | `streamDiagnostics.ts`      |
+| Write guard debounce               | 8ms                     | `terminalStream.ts`         |
+| Wheel cooldown                     | 150ms                   | `terminalStream.ts`         |
 | xterm.js scrollback                | 5000 lines              | `terminalStream.ts`         |
 | Resize debounce                    | 300ms                   | `terminalStream.ts`         |
 | WS reconnect max attempts          | 10                      | `terminalStream.ts`         |

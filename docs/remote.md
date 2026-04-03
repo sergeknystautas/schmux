@@ -118,13 +118,17 @@ Orchestrates AI agents running on remote hosts while keeping the schmux daemon a
 
 ### Key files
 
-| File                                         | Purpose                                                                                                    |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `internal/remote/manager.go`                 | Manages multiple remote host connections, session reconciliation, expiry pruning                           |
-| `internal/remote/connection.go`              | Single connection lifecycle: connect, reconnect, provision, PTY management, control mode setup             |
-| `internal/remote/controlmode/parser.go`      | Parses tmux control mode protocol (`%begin`/`%end`/`%output`/`%exit`) from stdout stream                   |
-| `internal/remote/controlmode/client.go`      | High-level tmux command interface: create/kill windows, send keys, capture pane, FIFO response correlation |
-| `internal/remote/controlmode/keyclassify.go` | Classifies keyboard input into literal text vs. special keys for correct `send-keys` handling              |
+| File                                         | Purpose                                                                                                                  |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `internal/remote/manager.go`                 | Multi-host lifecycle: connect, reconnect, disconnect, expiry pruning, session reconciliation, flavor status              |
+| `internal/remote/connection.go`              | Single connection lifecycle: connect, reconnect, provision, PTY management, control mode setup, health probe             |
+| `internal/remote/controlmode/parser.go`      | Parses tmux control mode protocol (`%begin`/`%end`/`%output`/`%exit`) from stdout stream                                 |
+| `internal/remote/controlmode/client.go`      | High-level tmux command interface: create/kill windows, send keys with timing instrumentation, FIFO response correlation |
+| `internal/remote/controlmode/keyclassify.go` | Key input classification and `SendKeysTimings` type definition                                                           |
+| `internal/session/controlsource.go`          | `ControlSource` interface -- input boundary between SessionTracker and local/remote implementations                      |
+| `internal/session/remotesource.go`           | `RemoteSource`: ControlSource for remote sessions, with health probe goroutine                                           |
+| `internal/session/tmux_health.go`            | `TmuxHealthProbe`: ring-buffer RTT measurement for control mode connections                                              |
+| `internal/dashboard/latency_collector.go`    | `LatencyCollector`: per-keystroke timing ring buffer with sub-SendKeys breakdown percentiles                             |
 
 ### Architecture decisions
 
@@ -134,20 +138,74 @@ Orchestrates AI agents running on remote hosts while keeping the schmux daemon a
 - **Why no auto-reconnect on daemon restart:** Reconnection typically requires interactive authentication (e.g., Yubikey touch). `MarkStaleHostsDisconnected()` marks all previously-connected hosts as disconnected at startup; the user explicitly clicks "Reconnect" in the dashboard.
 - **Why session reconciliation uses IDs only:** After reconnection, sessions are matched to remote tmux windows strictly by window ID or pane ID. Name-based matching is deliberately avoided because tmux window names can change and cause wrong matches.
 
+### Multi-instance hosts
+
+A flavor is a template (what kind of host to provision). A host is an instance (a specific running machine). Multiple hosts can share the same flavor, so you can run isolated workspaces on separate machines of the same type.
+
+```
+Flavor "www"  --->  Host remote-a1b2c3d4 (devvm1234)  --->  Sessions
+              --->  Host remote-e5f6g7h8 (devvm5678)  --->  Sessions
+```
+
+**Architecture decisions:**
+
+- **Why separate flavor from host (1:N):** A 1:1 flavor-to-connection mapping forces all sessions on a flavor to share one machine. This defeats workspace isolation. `Manager.Connect()` always creates a new host, never reuses an existing connection for the flavor.
+- **Why host:workspace is 1:1:** Each remote host provides a single workspace. The host's filesystem is the workspace.
+- **Why UUID identity, not hostname:** The host ID (`remote-{uuid8}`) is generated at provision start, before the hostname is known. Hostname is a display field populated asynchronously.
+- **Why RemoteHost and Workspace stay separate:** Different lifecycle state machines. `RemoteHost` tracks infrastructure (hostname, expiry, connection state). `Workspace` tracks code context (repo, branch, path). The 1:1 relationship is maintained via `Workspace.RemoteHostID`.
+- **Why expired workspaces persist:** When TTL expires, the workspace card stays with an "expired" badge. Session history is preserved until the user dismisses it.
+
+**Key data model:**
+
+- `Manager.connections` is `map[string]*Connection` keyed by host ID. `GetConnectionsByFlavorID()` returns all connections for a flavor.
+- `Session.RemoteHostID` -> `remote.Manager.GetConnection(hostID)` -> `*Connection`.
+- `ensureWorkspaceForHost()` creates the workspace immediately when a host is created.
+
+### Typing profiling
+
+The `sendKeys` segment in the typing performance breakdown is instrumented to expose where latency accumulates. Three non-overlapping sub-timings partition every `SendKeys` call:
+
+```
+sendKeys:  |---mutexWait---|---executeNet (stdin + FIFO)---|---classify overhead---|
+```
+
+**Architecture decisions:**
+
+- **Why instrument at the `Execute()` level:** The three latency sources (mutex contention on `stdinMu`, SSH round-trip, FIFO head-of-line blocking) are only distinguishable inside `Client.Execute()`.
+- **Why `Execute()` returns `(string, time.Duration, error)`:** Returning mutex wait as a stack-local value eliminates shared-mutable-state problems. The ~20 call sites that do not need timings use `_, _, err`.
+- **Why `SendKeysTimings` lives in `controlmode`:** Follows the existing precedent where `ControlSource.GetCursorState()` returns `controlmode.CursorState`. The type flows through: `controlmode.Client.SendKeys` -> `remote.Connection.SendKeys` -> `ControlSource.SendKeys` -> `SessionTracker.SendInput` -> WebSocket handler.
+- **Why health probes for remote sessions:** `RemoteSource` runs a health probe goroutine (`Connection.ExecuteHealthProbe()`, a lightweight `display-message -p ok`). The probe result lets the dashboard distinguish network latency from FIFO head-of-line blocking.
+
+**Decision framework** (for interpreting collected data):
+
+| Dominant cost                               | Indicates                        | Next action                                               |
+| ------------------------------------------- | -------------------------------- | --------------------------------------------------------- |
+| `mutexWait` > 50% of `sendKeys`             | Shared-mutex bottleneck          | Per-session stdin channels or dedicated input SSH channel |
+| `executeNet` dominates, single session      | SSH round-trip cost              | Fire-and-forget `send-keys` or command pipelining         |
+| Health probe RTT diverges from `executeNet` | Contention vs. network separable | Use probe RTT as network baseline                         |
+
 ### Gotchas
 
-- The `parseProvisioningOutput` goroutine is the sole PTY reader. It broadcasts raw bytes to WebSocket subscribers and tees data to a pipe for the control mode parser. Two goroutines must never read from the same PTY fd.
-- After `controlModeEstablished` is set to true, hostname extraction from PTY output stops. Without this guard, tmux `%output` events containing hostnames would cause false-positive status updates.
-- `Connection.Close()` uses `sync.Once` so it is safe to call from both `monitorProcess` (when SSH dies) and explicit disconnect.
-- Pending sessions are queued during connection setup and drained once control mode is ready. This prevents commands from being sent before tmux enters control mode.
-- Host expiry defaults to 12 hours (`DefaultHostExpiry`). `PruneExpiredHosts()` runs periodically to clean up.
+- The `parseProvisioningOutput` goroutine is the sole PTY reader. Two goroutines must never read from the same PTY fd.
+- After `controlModeEstablished` is set to true, hostname extraction from PTY output stops.
+- `Connection.Close()` uses `sync.Once` so it is safe to call from both `monitorProcess` and explicit disconnect.
+- Pending sessions are queued during connection setup and drained once control mode is ready.
+- Host expiry defaults to 12 hours (`DefaultHostExpiry`). `PruneExpiredHosts()` runs periodically.
+- `Manager.Connect()` always creates a new host. There is no "reuse existing connection for this flavor" path.
+- `SetConnectCancel` must be called BEFORE the connect goroutine starts. If `Close()` races, the cancel never fires and the goroutine blocks for the full 5-minute timeout.
+- The `max(0, execDur - mutexWait)` guard in `Client.SendKeys` prevents negative `ExecuteNet` values from macOS clock granularity edge cases.
+- The health probe goroutine in `RemoteSource` subscribes to output BEFORE launching the probe. Reversing this order drops terminal output during the jitter window.
+- `Execute()` returns mutex wait even on error paths.
 
 ### Common modification patterns
 
-- **Add a new remote connection method:** Implement a new `ConnectCommand` template in the flavor config. The template receives `{{.Flavor}}` for connect and `{{.Hostname}}` + `{{.Flavor}}` for reconnect.
-- **Change provisioning behavior:** Edit `Connection.Provision()` in `internal/remote/connection.go`. The provision command is a Go template receiving `{{.WorkspacePath}}` and `{{.VCS}}`.
-- **Add a new tmux command:** Add a method to `controlmode.Client` in `internal/remote/controlmode/client.go`. Use `c.Execute(ctx, cmd)` which handles FIFO queuing and response correlation.
-- **Customize hostname extraction:** Set `hostname_regex` in the remote flavor config. The first capture group is used as the hostname.
+- **Add a new remote connection method:** Implement a new `ConnectCommand` template in the flavor config.
+- **Change provisioning behavior:** Edit `Connection.Provision()` in `internal/remote/connection.go`.
+- **Add a new tmux command:** Add a method to `controlmode.Client`. Use `c.Execute(ctx, cmd)` which handles FIFO queuing and response correlation.
+- **Customize hostname extraction:** Set `hostname_regex` in the remote flavor config.
+- **Add a new timing sub-segment:** Add a field to `controlmode.SendKeysTimings`, propagate through `Connection.SendKeys` -> `ControlSource.SendKeys` -> `SessionTracker.SendInput`. Add to `LatencySample` and `LatencyPercentiles` in `latency_collector.go`.
+- **Change health probe interval:** Constants at the top of `internal/session/tmux_health.go`.
+- **Add host deprovisioning:** Add a `TeardownCommand` field to `config.RemoteFlavor`, execute in `Manager.Disconnect()`.
 
 ### Configuration
 
@@ -173,9 +231,11 @@ Remote flavors are configured in `~/.schmux/config.json` under `remote_flavors`:
 
 ### Test coverage
 
-| Test file                                    | Scope                                                        |
-| -------------------------------------------- | ------------------------------------------------------------ |
-| `internal/remote/manager_test.go`            | Connection lifecycle, flavor status, reconnection            |
-| `internal/remote/connection_test.go`         | Connect/reconnect, PTY management, provisioning              |
-| `internal/remote/controlmode/parser_test.go` | Protocol parsing, edge cases                                 |
-| `internal/remote/controlmode/client_test.go` | Command execution, FIFO correlation, stale response handling |
+| Test file                                    | Scope                                                                          |
+| -------------------------------------------- | ------------------------------------------------------------------------------ |
+| `internal/remote/manager_test.go`            | Multi-host connection lifecycle, flavor status, reconnection, expiry           |
+| `internal/remote/connection_test.go`         | Connect/reconnect, PTY management, provisioning, health probe                  |
+| `internal/remote/controlmode/parser_test.go` | Protocol parsing, edge cases                                                   |
+| `internal/remote/controlmode/client_test.go` | Command execution, FIFO correlation, stale response handling, SendKeys timings |
+| `internal/session/remotesource_test.go`      | RemoteSource event forwarding, health probe lifecycle                          |
+| `internal/session/controlsource_test.go`     | ControlSource interface compliance                                             |

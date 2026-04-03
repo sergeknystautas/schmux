@@ -184,17 +184,16 @@ For icon buttons, always provide `aria-label`:
 </Tooltip>
 ```
 
-## Placement Reference
+## Props Reference
 
-- `placement="top"` - Shows above the trigger (default)
-- `placement="bottom"` - Shows below the trigger
-- `placement="left"` - Shows to the left of the trigger
-- `placement="right"` - Shows to the right of the trigger
+- `content` - Tooltip text (string, required)
+- `placement` - Position relative to trigger: `"top"` (default), `"bottom"`, `"left"`, `"right"`. Auto-adjusts if preferred placement would overflow the viewport.
+- `variant` - Visual style: `"default"` (dark bg), `"warning"` (warning border), `"error"` (error border)
+- `delay` - Show delay in ms (default: `300`)
 
-The component will auto-adjust if the preferred placement would overflow the viewport.
+## Accessibility
 
-## Variant Reference
-
-- `variant="default"` - Dark background, light text (standard)
-- `variant="warning"` - Light background, dark text, warning border
-- `variant="error"` - Light background, error color text, error border
+- Shows on hover and focus (keyboard navigation)
+- Hides on blur/mouseleave
+- Enter/Space keys also trigger the tooltip when the trigger element is focused
+- `aria-describedby` is added to the trigger when the tooltip is visible

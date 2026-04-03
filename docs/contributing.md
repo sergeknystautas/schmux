@@ -15,7 +15,7 @@ These are needed to run schmux (whether installed via script or built from sourc
 
 These are additionally needed to build schmux from source:
 
-- **Go 1.21+** - [Download](https://go.dev/dl/)
+- **Go 1.24+** - [Download](https://go.dev/dl/)
   - macOS: `brew install go`
   - Linux: See [official install guide](https://go.dev/doc/install)
 - **Node.js 18+ & npm** - For building the React dashboard
@@ -143,17 +143,17 @@ Press `Ctrl+B d` to detach without ending the session.
 ### Running Tests
 
 ```bash
-# Run all tests
-go test ./...
+# Run all tests (recommended)
+./test.sh
 
-# Run tests with verbose output
-go test -v ./...
+# Quick tests only (backend + frontend, no Docker)
+./test.sh --quick
+
+# Run Go unit tests directly
+go test ./...
 
 # Run tests for a specific package
 go test ./internal/session
-
-# Run tests with coverage
-go test -cover ./...
 ```
 
 ### Project Structure
@@ -169,12 +169,10 @@ schmux/
 │   ├── session/                # Session lifecycle
 │   ├── daemon/                 # Daemon process management
 │   └── dashboard/              # Web dashboard (server + handlers)
-├── assets/dashboard/           # Frontend assets
-│   ├── index.html             # Session list view
-│   ├── spawn.html             # Spawn form
-│   ├── terminal.html          # Terminal view
-│   ├── styles.css             # Styles
-│   └── app.ts                # TypeScript
+├── assets/dashboard/           # React dashboard (Vite + TypeScript)
+│   ├── src/                   # React components, routes, hooks, lib
+│   ├── index.html             # SPA entry point
+│   └── vite.config.js         # Vite configuration
 ├── README.md                   # Project overview
 └── docs/                       # Documentation
 ```
@@ -227,8 +225,8 @@ schmux/
 7. **Commit** your changes:
 
    ```bash
-   git add -A
-   git commit -m "Description of changes"
+   # Use the /commit command (enforces definition of done)
+   /commit
    ```
 
 8. **Push** and create a pull request

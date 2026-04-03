@@ -2,41 +2,144 @@
 
 ## What it does
 
-Workspaces are isolated git working directories on the filesystem where AI agents run. schmux creates, tracks, and manages these directories so multiple agents can work in parallel without stepping on each other.
+Workspaces are isolated working directories on the filesystem where AI agents run. schmux creates, tracks, and manages these directories so multiple agents can work in parallel without stepping on each other.
 
 ---
 
 ## Key files
 
-| File                                       | Purpose                                                   |
-| ------------------------------------------ | --------------------------------------------------------- |
-| `internal/workspace/manager.go`            | Workspace lifecycle: create, dispose, locking, git status |
-| `internal/workspace/interfaces.go`         | `WorkspaceManager` interface for testability              |
-| `internal/workspace/linear_sync.go`        | Sync-from-main and sync-to-main via cherry-pick           |
-| `internal/workspace/overlay.go`            | Overlay file copying                                      |
-| `internal/workspace/worktree.go`           | Git worktree creation and management                      |
-| `internal/workspace/ensure/manager.go`     | Workspace configuration setup (hooks, git exclude)        |
-| `internal/preview/manager.go`              | Preview proxy lifecycle for workspace web servers         |
-| `internal/dashboard/preview_autodetect.go` | Auto-detect listening ports from terminal output          |
+| File                                       | Purpose                                                     |
+| ------------------------------------------ | ----------------------------------------------------------- |
+| `internal/workspace/manager.go`            | Workspace lifecycle: create, dispose, locking, VCS status   |
+| `internal/workspace/interfaces.go`         | `WorkspaceManager` interface for testability                |
+| `internal/workspace/vcs.go`                | `VCSBackend` interface and VCS-agnostic data types          |
+| `internal/workspace/vcs_git.go`            | Git backend (worktree, bare clone, status, fetch)           |
+| `internal/workspace/vcs_sapling.go`        | Sapling backend (configurable commands, `sl` observability) |
+| `internal/workspace/linear_sync.go`        | Sync-from-main and sync-to-main via cherry-pick             |
+| `internal/workspace/overlay.go`            | Overlay file copying                                        |
+| `internal/workspace/worktree.go`           | Git worktree creation and management                        |
+| `internal/workspace/ensure/manager.go`     | Workspace configuration setup (hooks, git exclude)          |
+| `internal/config/normalize_bare_paths.go`  | Startup normalization of non-conforming bare repo dirs      |
+| `internal/config/relocate_bare_repo.go`    | Bare repo rename utility with worktree fixup                |
+| `internal/preview/manager.go`              | Preview proxy lifecycle for workspace web servers           |
+| `internal/dashboard/preview_autodetect.go` | Auto-detect listening ports from terminal output            |
 
 ---
 
-## Git as the Primary Organizing Format
+## VCS Abstraction
 
-Workspaces are git working directories on your filesystem, not containers or virtualized environments.
+schmux supports both git and Sapling workspaces via a `VCSBackend` strategy-object pattern. VCS-specific operations delegate to the interface while the Manager keeps all VCS-agnostic orchestration (state management, overlays, session coordination, reuse logic).
 
-- Each repository gets sequential workspace directories: `myproject-001`, `myproject-002`, etc.
-- Multiple agents can work in the same workspace simultaneously
-- Workspaces are created on-demand when you spawn sessions
-- Uses git worktrees for efficiency (shared object store, instant creation)
+### The VCSBackend interface
+
+Defined in `internal/workspace/vcs.go`. Two tiers:
+
+- **Tier 1 (Lifecycle):** `EnsureRepoBase`, `CreateWorkspace`, `RemoveWorkspace`, `PruneStale`, `Fetch`, `IsBranchInUse`
+- **Tier 2 (Observability):** `GetStatus`, `GetChangedFiles`, `GetDefaultBranch`, `GetCurrentBranch`, `EnsureQueryRepo`, `FetchQueryRepo`, `ListRecentBranches`, `GetBranchLog`
+- **Not abstracted (Tier 3):** Linear sync, conflict resolution, commit graph, push-to-branch -- these remain git-only.
+
+### Backend resolution
+
+The Manager holds `backends map[string]VCSBackend` with `"git"` and `"sapling"` entries. `backendFor(repoURL)` uses `config.Repo.VCS` (defaults to `"git"`). `backendForWorkspace(workspaceID)` uses `state.Workspace.VCS` (set at creation, persisted).
+
+### Git backend (`vcs_git.go`)
+
+Uses git worktrees backed by a shared bare clone. `EnsureRepoBase` clones a bare repo if missing. `CreateWorkspace` does `git worktree add`. `IsBranchInUse` checks if a branch is already checked out in another worktree.
+
+### Sapling backend (`vcs_sapling.go`)
+
+Uses configurable command templates for lifecycle and `sl` directly for observability. Lifecycle commands are Go `text/template` strings (defaults use `sl clone` / `rm -rf`). Environments with specialized tooling (e.g., EdenFS) override via `sapling_commands` in config. Key differences: `IsBranchInUse` always returns false, `PruneStale` is a no-op, `Fetch` runs `sl pull` per workspace.
+
+---
+
+## GetOrCreate: Workspace Reuse Tiers
+
+`GetOrCreate` in `manager.go` finds or creates a workspace. Tiers evaluated in order; first match wins.
+
+| Tier                      | What it matches                             | What it does                                                                                    |
+| ------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| **0 -- Recyclable**       | Same repo, status `"recyclable"`            | Verifies directory, checks divergence, `prepare()`, re-copies overlays, promotes to `"running"` |
+| **1 -- Same branch**      | Same repo + same branch, no active sessions | `prepare()`, re-copies overlays                                                                 |
+| **2 -- Different branch** | Same repo, any branch, no active sessions   | Checks divergence, `prepare()` with new branch                                                  |
+| **3 -- Create**           | No match                                    | `EnsureRepoBase`, `Fetch`, `CreateWorkspace`, overlays, state                                   |
+
+All tiers promote the workspace to `WorkspaceStatusRunning` on reuse. The per-repo lock (`repoLock`) protects from concurrent callers claiming the same workspace.
+
+---
+
+## Recyclable Workspaces
+
+### Why they exist
+
+Disposing a workspace deletes thousands of files, then respawning recreates them. Backup software (Time Machine, Backblaze) treats every file event as a sync operation, saturating upload bandwidth even though branches typically differ by single-digit percentages.
+
+### How it works
+
+When `recycle_workspaces` is enabled in config, disposing a workspace keeps the directory on disk and marks it `"recyclable"`. On next spawn for the same repo, it is reused via `git checkout` -- only files that differ between branches are touched.
+
+```json
+{ "recycle_workspaces": true }
+```
+
+Default: `false`. Toggle in the config editor at `/config`.
+
+### Dispose path
+
+Recycling is checked inside `dispose()` regardless of the `force` parameter. `force` controls whether safety checks are skipped -- it does NOT control recycling. This is deliberate: `handleDisposeWorkspaceAll` (the normal "dispose workspace + sessions" button) uses `DisposeForce`, and if force bypassed recycling, the most common dispose flow would never recycle.
+
+### Purge API
+
+Separate from dispose. Purge is the explicit "I want disk space back" escape hatch.
+
+```
+DELETE /api/workspaces/{id}/purge      -- single recyclable
+DELETE /api/workspaces/purge?repo=URL  -- all recyclable for a repo
+DELETE /api/workspaces/purge           -- all recyclable
+```
+
+Only operates on recyclable workspaces; calling on a running workspace returns an error.
+
+### Dashboard behavior
+
+- `buildSessionsResponse` excludes recyclable workspaces from WebSocket broadcasts -- main UI stays clean.
+- `GET /api/workspaces/recyclable` provides counts by repo. Dashboard shows a collapsed indicator with "Purge" button.
+- `UpdateAllVCSStatus` and `EnsureAll` skip recyclable workspaces.
+
+### Crash recovery
+
+On daemon startup, workspaces stuck in `"disposing"` are retried via `DisposeForce()`. With recycling on and directory present, the normal dispose path marks them `"recyclable"`. With recycling off, the directory is deleted and the workspace removed from state. If the directory is already gone, the workspace is removed from state.
+
+---
+
+## BarePath Normalization
+
+### The canonical rule
+
+A repo's bare repo directory is derived from its `Name`: for git repos it is `{name}.git`, for sapling repos it is `{name}`. The `BarePath` config field is always derivable.
+
+### Why `detectExistingBarePath` was removed
+
+The system previously tolerated non-conforming filesystem layouts, scanning the disk to discover whatever directory name happened to exist. This was an architectural violation: config and filesystem are supposed to agree. The correct response to disagreement is to fix the filesystem.
+
+### How normalization works
+
+`NormalizeBarePaths()` in `internal/config/normalize_bare_paths.go` runs at daemon startup. For each git repo where `BarePath != Name + ".git"`:
+
+1. Finds the current bare repo on disk
+2. Calls `RelocateBareRepo(oldPath, newPath)` to rename and fix up worktree references
+3. Updates config and state, saves immediately
+
+`RelocateBareRepo` (`internal/config/relocate_bare_repo.go`) renames the directory and rewrites `gitdir:` lines in all worktree `.git` files. It resolves symlinks before string replacement and rolls back the rename if worktree fixup fails.
 
 ---
 
 ## Filesystem-Based, Not Containerized
 
-schmux uses your actual filesystem rather than Docker or other abstracted isolation mechanisms.
+Workspaces are working directories on your filesystem, not containers or virtualized environments.
 
 - Workspace directories live in `~/.schmux-workspaces/` by default
+- Each repository gets sequential workspace directories: `myproject-001`, `myproject-002`, etc.
+- Multiple agents can work in the same workspace simultaneously
 - Full access to your real files, tools, and environment
 - No container startup overhead or complexity
 
@@ -214,10 +317,10 @@ Configure named commands in `~/.schmux/config.json` under `external_diff_command
 
 ```json
 {
-  "external_diff_commands": {
-    "VS Code": "code --diff {old_file} {new_file}",
-    "Kaleidoscope": "ksdiff {old_file} {new_file}"
-  }
+  "external_diff_commands": [
+    { "name": "VS Code", "command": "code --diff {old_file} {new_file}" },
+    { "name": "Kaleidoscope", "command": "ksdiff {old_file} {new_file}" }
+  ]
 }
 ```
 
@@ -450,15 +553,24 @@ Example log output:
 
 ## Common Modification Patterns
 
-- **To add a new ensure step** (e.g., a new file that needs to exist in every workspace): add it to `ensureWorkspace()` in `internal/workspace/ensure/manager.go`. All callers (spawn, overlay refresh, daemon startup) pick it up automatically.
-- **To add a new git exclude pattern**: add the pattern to `excludePatterns` in `internal/workspace/ensure/manager.go`.
-- **To change workspace locking scope**: add `LockWorkspace`/`UnlockWorkspace` calls around the new operation in `internal/workspace/manager.go` or `internal/workspace/linear_sync.go`.
+- **To add a new VCS backend**: implement `VCSBackend` in a new `vcs_*.go` file, register in the Manager's `backends` map.
+- **To add a new VCS operation**: add to `VCSBackend` in `vcs.go`, implement in `vcs_git.go` and `vcs_sapling.go`.
+- **To add a new ensure step**: add to `ensureWorkspace()` in `internal/workspace/ensure/manager.go`. All callers pick it up automatically.
+- **To add a new git exclude pattern**: add to `excludePatterns` in `internal/workspace/ensure/manager.go`.
+- **To change workspace locking scope**: add `LockWorkspace`/`UnlockWorkspace` calls around the operation.
 - **To add a new preview detection pattern**: update the regex in `internal/dashboard/preview_autodetect.go`.
+- **To change the canonical bare path convention**: update `NormalizeBarePaths` in `normalize_bare_paths.go` and `CreateLocalRepo` in `manager.go`.
 
 ## Gotchas
 
-- **Workspace locking is separate from dashboard conflict resolution UI state.** The Manager owns `lockedWorkspaces` for concurrency control; the dashboard maintains `linearSyncResolveConflictStates` for frontend display. These are independent concerns.
-- **`repoLock` in `LinearSyncResolveConflict` is a different lock.** It is a repo-level mutex for serializing concurrent resolve-conflict calls on the same repo. The workspace lock and the repo lock serve different purposes.
+- **`force` does not bypass recycling.** `DisposeForce` skips safety checks. It does NOT skip recycling. The escape hatch for actual file deletion is `Purge`.
+- **`prepare()` runs `git clean -fd`.** When a recyclable workspace is reused, untracked files (build artifacts, `node_modules`) are deleted. Still orders of magnitude less churn than full directory recreation.
+- **Recyclable workspaces hold branch reservations.** A recyclable git worktree keeps its branch checked out. If `create()` collides, `purgeRecyclableWithBranch` deletes the conflicting workspace and retries.
+- **Workspace locking is separate from dashboard conflict resolution UI state.** The Manager owns `lockedWorkspaces` for concurrency control; the dashboard maintains `linearSyncResolveConflictStates` for frontend display. Independent concerns.
+- **`repoLock` in `LinearSyncResolveConflict` is a different lock.** Repo-level mutex for serializing concurrent resolve-conflict calls. Different purpose from workspace lock.
 - **Git-watcher behavior is unchanged by locking.** It still fires events and calls `UpdateGitStatus`. The lock makes `UpdateGitStatus` bail early.
-- **Preview port config is write-once.** Changing `preview_port_base` or `preview_port_block_size` after workspaces have been assigned port blocks invalidates existing preview URLs.
-- **Overlay safety check uses `.gitignore`.** If you add an overlay file that is not covered by `.gitignore`, the copy is silently skipped with a warning — it will not shadow tracked files.
+- **Preview port config is write-once.** Changing `preview_port_base` or `preview_port_block_size` after allocation invalidates existing preview URLs.
+- **Overlay safety check uses `.gitignore`.** If a file is not covered by `.gitignore`, the copy is skipped with a warning.
+- **`NormalizeBarePaths` only runs at startup.** Not on live config reload, to avoid racing with active sessions.
+- **`RelocateBareRepo` resolves symlinks.** Git writes symlink-resolved absolute paths into worktree `.git` files. The utility must resolve symlinks or the string replacement silently fails.
+- **Sapling `IsBranchInUse` always returns false.** Sapling workspaces are independent -- no branch reservation constraint.

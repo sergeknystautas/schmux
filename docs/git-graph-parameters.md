@@ -12,23 +12,20 @@ When there are 15+ main-ahead commits and we limit to 15 total, the local commit
 
 ## Solution: Separate Parameters
 
-| Parameter        | Purpose | Default                                                     | Description |
-| ---------------- | ------- | ----------------------------------------------------------- | ----------- |
-| `max_total`      | 200     | Total commits to display (after applying individual limits) |
-| `max_main_ahead` | 200     | Commits on main AFTER fork point (sync summary region)      |
-| `max_local`      | 50      | Commits on local feature branch                             |
-| `main_context`   | 15      | Commits on main BEFORE fork point (historical context)      |
+| Parameter      | Default | Description                                                 |
+| -------------- | ------- | ----------------------------------------------------------- |
+| `max_total`    | 200     | Total commits to display (after applying individual limits) |
+| `max_local`    | 50      | Commits on local feature branch                             |
+| `main_context` | 5       | Commits on main BEFORE fork point (historical context)      |
 
 ## Algorithm
 
 1. Fetch commits with limits:
-   - Main-ahead commits: limited by `max_main_ahead` (200)
+   - Main-ahead commits: counted but represented as a summary row (not individually fetched)
    - Local branch commits: limited by `max_local` (50)
-   - Context commits: limited by `main_context` (15)
+   - Context commits: limited by `main_context` (5)
 
-2. Build result from: local + main-ahead + context
-
-3. If result < `min_display` (e.g., 20), expand `main_context` proportionally until satisfied
+2. Build result from: local + context (main-ahead shown as collapsed summary)
 
 ## Display Order
 

@@ -32,14 +32,16 @@ Dev mode has three layers: a bash setup script, a TypeScript dev-runner TUI, and
   ├─ Build React dashboard (if dist/ missing)
   ├─ Install dev-runner npm deps (if node_modules/ missing)
   ├─ Build schmux CLI (go build ./cmd/schmux)
-  └─ Delegate to tools/dev-runner/src/main.tsx
+  ├─ Snapshot pre-npx environment (SCHMUX_PRISTINE_*)
+  └─ Delegate to tools/dev-runner/src/main.tsx (via exec npx)
        ├─ Kill existing daemon (if running)
        ├─ Build Go binary → tmp/schmux
        ├─ Kill orphaned Vite processes on port 5173
        ├─ Install dashboard npm deps
        ├─ Write dev-state.json (source workspace)
+       ├─ Build cleaned env via cleanEnv() (strips npx pollution)
        ├─ Start Vite dev server (port 5173)
-       └─ Start daemon: schmux daemon-run --dev-mode --dev-proxy
+       └─ Start daemon: schmux daemon-run --dev-mode --dev-proxy (with cleaned env)
 ```
 
 ### Daemon flags
@@ -156,7 +158,7 @@ When `--dev-proxy` is set, the Go HTTP server routes all non-API requests throug
 During git operations (rebase, merge), source files can temporarily contain conflict markers that cause Vite transform errors. The daemon pauses Vite's file watcher before git operations and resumes it after:
 
 - `POST http://localhost:5173/__dev/pause-watch` — Suppresses HMR updates and blocks Vite server restarts
-- `POST http://localhost:5173/__dev/resume-watch` — Resumes watching; triggers a full page reload if files changed while paused
+- `POST http://localhost:5173/__dev/resume-watch` — Resumes watching; HMR updates suppressed while paused are not replayed
 
 This is implemented as a custom Vite plugin in `assets/dashboard/vite.config.js`.
 
@@ -244,29 +246,39 @@ These endpoints are only registered when the daemon runs with `--dev-mode`.
 | `POST` | `/api/dev/rebuild`              | Triggers workspace switch/rebuild (writes manifest, exits daemon with code 42) |
 | `GET`  | `/api/dev/events/history`       | Returns up to 200 historical monitor events                                    |
 | `POST` | `/api/dev/simulate-tunnel`      | Testing helper: simulates a remote tunnel connection                           |
-| `POST` | `/api/dev/simulate-tunnel/stop` | Testing helper: clears simulated tunnel                                        |
+| `POST` | `/api/dev/simulate-tunnel-stop` | Testing helper: clears simulated tunnel                                        |
 | `POST` | `/api/dev/clear-password`       | Testing helper: clears remote access password                                  |
+| `POST` | `/api/dev/diagnostic-append`    | Appends scroll/lifecycle diagnostic data to a capture directory                |
 
 The `simulate-tunnel` and `clear-password` endpoints are for testing remote access features locally.
 
+These endpoints are always registered (not dev-mode-only):
+
+| Method | Path                    | Purpose                                            |
+| ------ | ----------------------- | -------------------------------------------------- |
+| `GET`  | `/api/environment`      | Returns system-vs-tmux environment comparison      |
+| `POST` | `/api/environment/sync` | Syncs one key from system env into tmux server env |
+
 ## Key files
 
-| File                                            | Purpose                                                                   |
-| ----------------------------------------------- | ------------------------------------------------------------------------- |
-| `dev.sh`                                        | Entry point: dependency setup, initial build, delegates to dev-runner     |
-| `tools/dev-runner/src/main.tsx`                 | Dev-runner entry: alternate screen setup, cleanup handlers                |
-| `tools/dev-runner/src/App.tsx`                  | Dev-runner core: startup sequence, workspace switching, keyboard handlers |
-| `tools/dev-runner/src/components/StatusBar.tsx` | TUI status bar: workspace, dashboard URL, process status                  |
-| `tools/dev-runner/src/components/KeyBar.tsx`    | TUI keyboard shortcut bar                                                 |
-| `tools/dev-runner/src/lib/state.ts`             | State file read/write helpers and path constants                          |
-| `internal/dashboard/handlers_dev.go`            | Dev mode HTTP handlers: status, rebuild, simulate-tunnel                  |
-| `internal/dashboard/server.go`                  | Dev proxy setup and route registration                                    |
-| `internal/daemon/daemon.go`                     | `DevRestart()` method, `ErrDevRestart`, exit code 42 handling             |
-| `cmd/schmux/main.go`                            | `parseDaemonRunFlags`, exit code 42 → `os.Exit(42)`                       |
-| `assets/dashboard/vite.config.js`               | Vite pause-watch plugin for safe git operations                           |
-| `assets/dashboard/src/hooks/useDevStatus.ts`    | Frontend hook: fetches dev status when dev mode is active                 |
-| `assets/dashboard/src/routes/EventsPage.tsx`    | Full-page event monitor (dev mode only)                                   |
-| `tools/dev-runner/src/lib/cleanEnv.ts`          | Strips npx env pollution before daemon spawn (see Environment isolation)  |
+| File                                              | Purpose                                                                   |
+| ------------------------------------------------- | ------------------------------------------------------------------------- |
+| `dev.sh`                                          | Entry point: dependency setup, env snapshot, delegates to dev-runner      |
+| `tools/dev-runner/src/main.tsx`                   | Dev-runner entry: alternate screen setup, cleanup handlers                |
+| `tools/dev-runner/src/App.tsx`                    | Dev-runner core: startup sequence, workspace switching, keyboard handlers |
+| `tools/dev-runner/src/components/StatusBar.tsx`   | TUI status bar: workspace, dashboard URL, process status                  |
+| `tools/dev-runner/src/components/KeyBar.tsx`      | TUI keyboard shortcut bar                                                 |
+| `tools/dev-runner/src/lib/state.ts`               | State file read/write helpers and path constants                          |
+| `internal/dashboard/handlers_dev.go`              | Dev mode HTTP handlers: status, rebuild, simulate-tunnel                  |
+| `internal/dashboard/server.go`                    | Dev proxy setup and route registration                                    |
+| `internal/daemon/daemon.go`                       | `DevRestart()` method, `ErrDevRestart`, exit code 42 handling             |
+| `cmd/schmux/main.go`                              | `parseDaemonRunFlags`, exit code 42 → `os.Exit(42)`                       |
+| `assets/dashboard/vite.config.js`                 | Vite pause-watch plugin for safe git operations                           |
+| `assets/dashboard/src/hooks/useDevStatus.ts`      | Frontend hook: fetches dev status when dev mode is active                 |
+| `assets/dashboard/src/routes/EventsPage.tsx`      | Full-page event monitor (dev mode only)                                   |
+| `tools/dev-runner/src/lib/cleanEnv.ts`            | Strips npx env pollution before daemon spawn (see Environment isolation)  |
+| `internal/dashboard/handlers_environment.go`      | Environment comparison and sync handlers                                  |
+| `assets/dashboard/src/routes/EnvironmentPage.tsx` | System-vs-tmux environment comparison page                                |
 
 ## Environment isolation
 
@@ -307,6 +319,25 @@ The Vite process is **not** cleaned. It runs inside the npm context and needs th
 ### When not running via dev.sh
 
 When the daemon runs directly (`./schmux daemon-run`), the `SCHMUX_PRISTINE_*` vars are absent. `cleanEnv()` detects this and passes the environment through unchanged. The fix has zero effect on production usage.
+
+## Environment page
+
+The Environment page (`/environment`) compares the current system environment against the tmux server's global environment, showing which variables are in sync, which differ, and which exist only on one side. Sync buttons push individual system values into the tmux server so new sessions pick up changes without restarting.
+
+**Why it exists:** The tmux server captures its environment at startup. When you later change `.zshrc` or `.zprofile`, the tmux server retains stale values. Previously the only fix was killing the tmux server, destroying all sessions.
+
+**How it works:** The backend spawns a fresh login shell (`env -i ... $SHELL -l -i -c env`, 10-second timeout) to capture the current system environment, reads the tmux server environment (`tmux show-environment -g`), filters out blocked keys, and compares.
+
+| Status          | Meaning                            | Action |
+| --------------- | ---------------------------------- | ------ |
+| **in sync**     | Key exists in both, values match   | No     |
+| **differs**     | Key exists in both, values differ  | Sync   |
+| **system only** | Exists in login shell but not tmux | Sync   |
+| **tmux only**   | Exists in tmux but not login shell | No     |
+
+Syncing calls `tmux set-environment -g KEY VALUE`. Only new sessions inherit the change -- existing sessions keep their original values.
+
+**Blocked keys:** A hardcoded blocklist excludes tmux-internal (`TMUX`, `TMUX_PANE`), session-transient (`SHLVL`, `PWD`), terminal-specific (`TERM_SESSION_ID`, `GHOSTTY_*`, `ITERM_*`), macOS system (`LaunchInstanceID`, `XPC_*`), and npm pollution (`npm_*`, `INIT_CWD`).
 
 ## Troubleshooting
 

@@ -29,23 +29,23 @@ A persona is a named, reusable behavioral profile that shapes how an agent opera
 - `Manager.List()` silently skips files that fail to parse or read. A malformed YAML file does not break the listing.
 - `Manager.Create()` checks for existence before writing and fails if the ID already exists. `Manager.Update()` fails if the ID does not exist.
 - The personas directory is created with `0700` permissions (user-only), not `0755`.
-- Built-in persona files on disk can be freely modified by the user. The `built_in: true` field in the YAML is informational -- the canonical check for "is this a built-in?" is whether the file exists in the embedded filesystem (`builtinsFS.ReadFile()`).
+- Built-in persona files on disk can be freely modified by the user. The `built_in: true` YAML field determines behavior: the delete handler checks `existing.BuiltIn` to decide whether to reset (restore from embedded FS) or delete. `builtinsFS.ReadFile()` is used inside `ResetBuiltIn()` as a validation guard.
 
 ## Built-in personas
 
-| ID                       | Name                   | Icon      | Color                                                    | Focus |
-| ------------------------ | ---------------------- | --------- | -------------------------------------------------------- | ----- |
-| `api-designer`           | API Designer           | `#1abc9c` | API design, RESTful patterns, error handling             |
-| `docs-writer`            | Docs Writer            | `#3498db` | Documentation drift, stale docs, clarity                 |
-| `mentor`                 | Mentor                 | `#e67e22` | Teaching, explaining, educational code review            |
-| `performance-engineer`   | Performance Engineer   | `#f1c40f` | Bottlenecks, optimization, profiling                     |
-| `qa-engineer`            | QA Engineer            | `#2ecc71` | Edge cases, test coverage gaps, boundary conditions      |
-| `refactoring-specialist` | Refactoring Specialist | `#95a5a6` | Code structure, design patterns, reducing complexity     |
-| `security-auditor`       | Security Auditor       | `#e74c3c` | Vulnerabilities, OWASP top 10, attack surfaces           |
-| `software-architect`     | Software Architect     | `#2c3e50` | System design, scalability, separation of concerns       |
-| `spec-implementer`       | Spec Implementer       | `#8e44ad` | Implementing from specifications, task-by-task execution |
-| `technical-pm`           | Technical PM           | `#f39c12` | Commit analysis, trend identification, progress reports  |
-| `ux-designer`            | UX Designer            | `#9b59b6` | Usability, UI consistency, accessibility                 |
+| ID                       | Name                   | Icon | Color     | Focus                                                    |
+| ------------------------ | ---------------------- | ---- | --------- | -------------------------------------------------------- |
+| `api-designer`           | API Designer           | `🔌` | `#6c5ce7` | API design, RESTful patterns, error handling             |
+| `docs-writer`            | Docs Writer            | `📝` | `#3498db` | Documentation drift, stale docs, clarity                 |
+| `mentor`                 | Mentor                 | `🎓` | `#f1c40f` | Teaching, explaining, educational code review            |
+| `performance-engineer`   | Performance Engineer   | `⚡` | `#ff6348` | Bottlenecks, optimization, profiling                     |
+| `qa-engineer`            | QA Engineer            | `🧪` | `#2ecc71` | Edge cases, test coverage gaps, boundary conditions      |
+| `refactoring-specialist` | Refactoring Specialist | `♻️` | `#1abc9c` | Code structure, design patterns, reducing complexity     |
+| `security-auditor`       | Security Auditor       | `🔒` | `#e74c3c` | Vulnerabilities, OWASP top 10, attack surfaces           |
+| `software-architect`     | Software Architect     | `🏛️` | `#2c3e50` | System design, scalability, separation of concerns       |
+| `spec-implementer`       | Spec Implementer       | `📋` | `#2980b9` | Implementing from specifications, task-by-task execution |
+| `technical-pm`           | Technical PM           | `📊` | `#f39c12` | Commit analysis, trend identification, progress reports  |
+| `ux-designer`            | UX Designer            | `🎨` | `#e91e90` | Usability, UI consistency, accessibility                 |
 
 ## Common modification patterns
 

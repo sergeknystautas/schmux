@@ -15,7 +15,8 @@ The floor manager is a singleton agent session that acts as the conversational c
 | `internal/dashboard/handlers_floormanager.go`   | `GET /api/floor-manager` and `POST /api/floor-manager/end-shift`                            |
 | `internal/dashboard/handlers_tell.go`           | `POST /api/sessions/{id}/tell` -- message injection with `[from FM]` prefix                 |
 | `internal/dashboard/handlers_capture.go`        | `GET /api/sessions/{id}/capture` -- terminal scrollback retrieval                           |
-| `internal/dashboard/handlers_branches.go`       | `GET /api/branches` and `GET /api/workspaces/{id}/inspect`                                  |
+| `internal/dashboard/handlers_branches.go`       | `GET /api/branches`                                                                         |
+| `internal/dashboard/handlers_inspect.go`        | `GET /api/workspaces/{id}/inspect`                                                          |
 | `cmd/schmux/tell.go`                            | CLI: `schmux tell <session> -m "..."`                                                       |
 | `cmd/schmux/events.go`                          | CLI: `schmux events <session> [--type T] [--last N]`                                        |
 | `cmd/schmux/capture.go`                         | CLI: `schmux capture <session> [--lines N]`                                                 |
@@ -27,7 +28,7 @@ The floor manager is a singleton agent session that acts as the conversational c
 ## Architecture decisions
 
 - **Peer to the session manager, not a workspace session.** The FM has no workspace, no event hooks, no presence in the session list. It manages its own tmux session directly via the `tmux` package. This avoids circular dependencies where the session manager would need to treat the FM specially.
-- **Event-driven, not polling.** The `Injector` is registered as an `events.EventHandler` alongside `DashboardHandler` in the daemon's pipeline. It receives `StatusEvent` objects and filters them by state transition (skips `working -> working`).
+- **Event-driven, not polling.** The `Injector` is registered as an `events.EventHandler` alongside `DashboardHandler` in the daemon's pipeline. It receives `StatusEvent` objects and filters them by state transition (skips all transitions TO `working`, not just `working -> working`).
 - **Clear-before-inject pattern.** Both the operator (via WebSocket) and the Injector (via `tmux send-keys`) write to the same terminal PTY. Before every injection, `Ctrl+U` (unix-line-discard) clears partial input. Applied in three places: `Injector.flush()`, `handlers_tell.go`, and `Manager.handleShiftRotation()`.
 - **Least privilege via `.claude/settings.json`.** Destructive commands (`dispose`, `stop`) are never pre-approved. Safety survives context compaction because the tool approval layer is independent of the agent's instructions.
 - **Absolute binary path for FM commands.** `GenerateInstructions()` and `GenerateSettings()` use the resolved `os.Executable()` path so the FM calls the same binary that is currently running, not a potentially stale PATH version.

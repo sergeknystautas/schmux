@@ -1,318 +1,78 @@
-# Targets (Multi-Agent Coordination)
+# Targets
 
-**Problem:** The agentic coding landscape is fragmented—Claude, Codex, Gemini, and more. Each has strengths. Locking into one vendor limits your options, and switching between tools manually is friction that slows you down.
+## What it does
 
----
+A target is anything schmux can spawn into a tmux session. There are three kinds:
 
-## Run Targets
+1. **Builtin tools** -- auto-detected CLI tools (claude, codex, gemini, opencode)
+2. **Models** -- AI models from the registry, user-defined, or defaults
+3. **User-defined commands** -- arbitrary commands configured in `run_targets`
 
-A Run Target is what you can execute—any AI coding tool or command.
+These three kinds are managed by completely separate subsystems. The `run_targets` array in config is only for user-defined commands.
 
-### Three Types of Run Targets
+## Builtin tools
 
-#### 1. Detected Tools
+schmux auto-detects four CLI tools at startup by checking `$PATH`:
 
-Officially supported and auto-detected tools with built-in knowledge:
+| Tool       | Instruction File      |
+| ---------- | --------------------- |
+| `claude`   | `.claude/CLAUDE.md`   |
+| `codex`    | `.codex/AGENTS.md`    |
+| `gemini`   | `.gemini/GEMINI.md`   |
+| `opencode` | `.opencode/AGENTS.md` |
 
-- **Claude** (`claude`) — Anthropic's coding agent
-- **Codex** (`codex`) — OpenAI's coding agent
-- **Gemini** (`gemini`) — Google's coding agent
+No configuration needed. If the binary is on `$PATH`, it is available.
 
-Each detected tool has two command modes:
-
-- **Interactive**: Spawns an interactive shell (e.g., `claude`)
-- **Oneshot**: Prompt-in, immediate output (e.g., `claude -p`)
-
-Detected tools are always **promptable** and support **models**.
-
-#### 2. User Promptable Commands
-
-User-supplied command lines that accept a prompt as their final argument:
-
-```json
-{
-  "name": "my-custom-agent",
-  "type": "promptable",
-  "command": "~/bin/my-agent"
-}
-```
-
-#### 3. User Commands
-
-User-supplied command lines that do not accept prompts (shell scripts, tools):
-
-```json
-{
-  "name": "zsh",
-  "type": "command",
-  "command": "zsh"
-}
-```
-
----
+Detection is handled by `internal/detect/tools.go`. `IsBuiltinToolName()` returns true for these four names and nothing else.
 
 ## Models
 
-Models are the AI models you can use for spawning sessions. They include native Claude models and third-party providers.
+Models are managed entirely by the models subsystem, not by `run_targets`. See [models.md](models.md) for the full reference.
 
-### Native Claude Models
+Key runtime function: `models.Manager.IsModel(name)` determines whether a target name is promptable. It checks:
 
-Native models require no configuration—just select them when spawning.
+1. Is it a known model ID? If so, can it be resolved to an available tool?
+2. Is it a builtin tool name? (always promptable)
+3. Is it a user-defined command? (never promptable)
 
-| ID                  | Display Name      |
-| ------------------- | ----------------- |
-| `claude-opus-4-6`   | Claude Opus 4.6   |
-| `claude-sonnet-4-6` | Claude Sonnet 4.6 |
-| `claude-haiku-4-5`  | Claude Haiku 4.5  |
-| `claude-opus-4-5`   | Claude Opus 4.5   |
-| `claude-opus-4-1`   | Claude Opus 4.1   |
-| `claude-opus-4`     | Claude Opus 4     |
-| `claude-sonnet-4-5` | Claude Sonnet 4.5 |
-| `claude-sonnet-4`   | Claude Sonnet 4   |
-| `claude-sonnet-3-5` | Claude Sonnet 3.5 |
-| `claude-haiku-3-5`  | Claude Haiku 3.5  |
+## User-defined commands
 
-Legacy short aliases (`opus`, `sonnet`, `haiku`, `claude-opus`, `claude-sonnet`, `claude-haiku`) are migrated to the latest model automatically.
-
-### Third-Party Models
-
-Third-party models require API secrets to be configured.
-
-| ID                 | Display Name      | Provider    |
-| ------------------ | ----------------- | ----------- |
-| `kimi-thinking`    | kimi k2 thinking  | Moonshot AI |
-| `kimi-k2.5`        | kimi k2.5         | Moonshot AI |
-| `glm-4.7`          | glm 4.7           | Z.AI        |
-| `glm-4.5-air`      | glm 4.5 air       | Z.AI        |
-| `glm-5`            | glm 5             | Z.AI        |
-| `minimax`          | minimax m2.1      | MiniMax     |
-| `minimax-2.5`      | minimax m2.5      | MiniMax     |
-| `qwen3-coder-plus` | qwen 3 coder plus | DashScope   |
-
-> **Note:** For backward compatibility, `minimax-m2.1` is also accepted as an alias for the `minimax` model.
-
-### Configuration
-
-Third-party models require API secrets. Create `~/.schmux/secrets.json`:
-
-```json
-{
-  "models": {
-    "kimi-thinking": {
-      "ANTHROPIC_AUTH_TOKEN": "sk-..."
-    },
-    "glm-4.7": {
-      "ANTHROPIC_AUTH_TOKEN": "..."
-    },
-    "glm-4.5-air": {
-      "ANTHROPIC_AUTH_TOKEN": "..."
-    },
-    "glm-5": {
-      "ANTHROPIC_AUTH_TOKEN": "..."
-    },
-    "minimax": {
-      "ANTHROPIC_AUTH_TOKEN": "..."
-    },
-    "minimax-2.5": {
-      "ANTHROPIC_AUTH_TOKEN": "..."
-    },
-    "qwen3-coder-plus": {
-      "ANTHROPIC_AUTH_TOKEN": "..."
-    }
-  }
-}
-```
-
-> **See integration docs:**
->
-> - [Qwen3 Coder](https://qwen.ai/blog?id=qwen3-coder)
-> - [Kimi (Moonshot)](https://platform.moonshot.ai/docs/guide/agent-support)
-> - [GLM (Z.AI)](https://docs.z.ai/scenario-example/develop-tools/claude)
-> - [MiniMax](https://platform.minimax.io/docs/api-reference/text-anthropic-api)
-
-Provider-scoped secrets are shared across models for a given provider. For example, adding Moonshot secrets once unlocks both Kimi models.
-
-This file is:
-
-- Created automatically when you first configure a model
-- Never logged or displayed in the UI
-- Read-only to the daemon
-
-### Context Compatibility
-
-Models are available anywhere their base detected tool is allowed:
-
-- Internal use (NudgeNik)
-- Spawn wizard
-- Quick launch presets
-
-Models do **not** apply to user-supplied run targets.
-
-### Codex Models
-
-Codex models can run via the Codex CLI or OpenCode. No API secrets are required—configuration is handled by the tool itself.
-
-| ID                   | Display Name       | Runners         |
-| -------------------- | ------------------ | --------------- |
-| `gpt-5.3-codex`      | gpt 5.3 codex      | codex, opencode |
-| `gpt-5.2-codex`      | gpt 5.2 codex      | codex, opencode |
-| `gpt-5.1-codex-max`  | gpt 5.1 codex max  | codex, opencode |
-| `gpt-5.1-codex`      | gpt 5.1 codex      | codex, opencode |
-| `gpt-5.1-codex-mini` | gpt 5.1 codex mini | codex, opencode |
-| `gpt-5-codex`        | gpt 5 codex        | codex, opencode |
-
-### Google Gemini Models
-
-Gemini models can run via the Gemini CLI or OpenCode.
-
-| ID                       | Display Name             | Runners          |
-| ------------------------ | ------------------------ | ---------------- |
-| `gemini-3.1-pro-preview` | Gemini 3.1 Pro (Preview) | gemini, opencode |
-| `gemini-3-flash-preview` | Gemini 3 Flash (Preview) | gemini, opencode |
-| `gemini-2.5-pro`         | Gemini 2.5 Pro           | gemini, opencode |
-| `gemini-2.5-flash`       | Gemini 2.5 Flash         | gemini, opencode |
-| `gemini-2.5-flash-lite`  | Gemini 2.5 Flash Lite    | gemini, opencode |
-| `gemini-2.0-flash`       | Gemini 2.0 Flash         | gemini, opencode |
-
-### OpenCode Models
-
-| ID             | Display Name        | Runners  |
-| -------------- | ------------------- | -------- |
-| `opencode-zen` | opencode zen (free) | opencode |
-
----
-
-## Built-in Commands
-
-schmux includes a library of pre-defined command templates for common AI coding tasks:
-
-- **code review - local**: Review local changes
-- **code review - branch**: Review current branch
-- **git commit**: Create a thorough git commit
-- **merge in main**: Merge main into current branch
-
-Built-in commands:
-
-- Appear in both the spawn dropdown and spawn wizard
-- Are merged with user-defined commands (built-ins take precedence on duplicate names)
-- Work in production (installed binary) and development
-
----
-
-## User-Defined Run Targets
-
-Define your own commands in `~/.schmux/config.json`:
+The `run_targets` config array holds user-supplied commands. Each entry has exactly two fields:
 
 ```json
 {
   "run_targets": [
-    {
-      "name": "my-custom-agent",
-      "type": "promptable",
-      "command": "/path/to/my-agent"
-    },
-    {
-      "name": "shell",
-      "type": "command",
-      "command": "zsh"
-    }
+    { "name": "shell", "command": "zsh" },
+    { "name": "lint", "command": "./scripts/lint.sh" }
   ]
 }
 ```
 
-**Rules:**
-
-- `type = "promptable"` requires the target accepts the prompt as the final argument
-- `type = "command"` means no prompt is allowed
-- Detected tools do **not** appear in `run_targets` (they're built-in)
-
----
-
-## Quick Launch Presets
-
-Quick Launch provides one-click execution of shell commands or AI agents with prompts.
-
-### Schema
-
-| Field     | Type   | Description                                        |
-| --------- | ------ | -------------------------------------------------- |
-| `name`    | string | Display name (required)                            |
-| `command` | string | Shell command to run directly                      |
-| `target`  | string | Run target (claude, codex, model, or user-defined) |
-| `prompt`  | string | Prompt to send to the target                       |
+There is no `type`, `source`, or `promptable` field. User-defined commands are never promptable -- they cannot receive a prompt argument.
 
 ### Rules
 
-- **Shell command**: Set `command` to run a shell command directly
-- **AI agent**: Set `target` and `prompt` to spawn an agent with a prompt
-- **Either/or**: Use `command` OR `target`+`prompt`, not both
+- `name` and `command` are both required
+- Names must be unique
+- Names must not collide with builtin tool names
+- These commands appear as slash commands in the spawn prompt textarea (e.g., `/shell`)
 
-### Examples
+### Migration
 
-```json
-{
-  "quick_launch": [
-    {
-      "name": "Run Tests",
-      "command": "npm test"
-    },
-    {
-      "name": "Review Changes",
-      "target": "claude-sonnet",
-      "prompt": "Review these changes for bugs and style issues"
-    },
-    {
-      "name": "Review: Kimi",
-      "target": "kimi-thinking",
-      "prompt": "Please review these changes."
-    }
-  ]
-}
-```
+Old configs with `type`, `source`, or `promptable` fields are cleaned automatically. The `drop_run_target_bridge_fields` migration strips these fields and drops entries injected by the old bridge system (entries with `source: "detected"` or `source: "model"`). Only genuine user-defined commands survive.
 
-### Global vs Workspace
+## How the spawn page uses targets
 
-- **Global**: Define in `~/.schmux/config.json` — available for all repos
-- **Workspace**: Define in `<workspace>/.schmux/config.json` — repo-specific presets
+- **Models** are fetched from `/api/config` (the `models` array) and shown as agent options. Availability depends on runner detection and secrets.
+- **User-defined commands** are fetched from the same endpoint (the `run_targets` array) and shown as slash commands in the prompt textarea.
 
-Workspace presets are merged with global presets (workspace takes precedence on name conflicts). See [workspaces.md](workspaces.md#workspace-configuration) for details.
+The two never mix. Models are selected via the agent dropdown. Commands are invoked via `/name` in the prompt.
 
----
+## Key files
 
-## Contexts (Where Targets Are Used)
-
-### Internal Use
-
-- Used by schmux itself (e.g., NudgeNik)
-- **Restricted to detected tools only** (and their models)
-- Uses **oneshot** mode
-
-### Wizard
-
-- Interactive flow for spawning sessions
-- Can use **any run target**
-- For detected tools, uses **interactive** mode
-
-### Quick Launch
-
-- User-configured presets
-- Can use **any run target**
-- Must include a prompt if target is promptable
-- For detected tools, uses **interactive** mode
-
----
-
-## Configuration Structure
-
-```json
-{
-  "workspace_path": "~/schmux-workspaces",
-  "repos": [{ "name": "myproject", "url": "git@github.com:user/myproject.git" }],
-  "run_targets": [
-    { "name": "my-custom-agent", "type": "promptable", "command": "/path/to/my-agent" }
-  ],
-  "quick_launch": [{ "name": "Review: Kimi", "target": "kimi-thinking", "prompt": "..." }]
-}
-```
-
-**Secrets** (optional): `~/.schmux/secrets.json` for third-party model API keys.
+| File                             | Purpose                                                    |
+| -------------------------------- | ---------------------------------------------------------- |
+| `internal/config/run_targets.go` | `RunTarget` struct (Name + Command), validation            |
+| `internal/detect/tools.go`       | `IsBuiltinToolName()`, tool detection, instruction configs |
+| `internal/models/manager.go`     | `IsModel()`, `ResolveModel()` -- model-to-tool resolution  |
+| `internal/detect/commands.go`    | `BuildCommandParts()` -- assembles CLI args for any target |

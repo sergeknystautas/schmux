@@ -2,379 +2,205 @@
 
 Overall architecture and design patterns for the schmux codebase.
 
----
-
 ## Overview
 
-schmux is a **multi-agent AI orchestration system** that runs multiple AI coding agents simultaneously across tmux sessions, each in isolated workspace directories. A web dashboard provides real-time monitoring and management.
+schmux is a multi-agent AI orchestration system that runs multiple AI coding agents simultaneously across tmux sessions, each in isolated workspace directories. A web dashboard provides real-time monitoring and management.
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│ Daemon (internal/daemon/daemon.go)                      │
-├─────────────────────────────────────────────────────────┤
-│  Dashboard Server (:7337)                               │
-│  - HTTP API (internal/dashboard/handlers.go)            │
-│  - WebSocket terminal streaming                         │
-│  - Serves static assets from assets/dashboard/          │
-│                                                         │
-│  Session Manager (internal/session/manager.go)          │
-│  - Spawn/dispose tmux sessions                          │
-│  - Track PIDs, status, terminal output                  │
-│                                                         │
-│  Workspace Manager (internal/workspace/manager.go)      │
-│  - Clone/checkout git repos                             │
-│  - Track workspace directories                          │
-│  - Overlay file copying                                │
-│                                                         │
-│  Preview Manager (internal/preview/manager.go)          │
-│  - Ephemeral proxy ports for workspace web servers      │
-│  - Auto-detect ports from tmux session output           │
-│  - Reconcile/cleanup stale previews                     │
-│                                                         │
-│  tmux Package (internal/tmux/tmux.go)                   │
-│  - tmux CLI wrapper (create, capture, list, kill)       │
-│                                                         │
-│  Config/State (internal/config/, internal/state/)       │
-│  - ~/.schmux/config.json  (repos, targets, workspace)   │
-│  - ~/.schmux/state.json    (workspaces, sessions)       │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│ Daemon (internal/daemon/daemon.go)                       │
+├──────────────────────────────────────────────────────────┤
+│  Dashboard Server (:7337)                                │
+│  - HTTP API + chi router (internal/dashboard/)           │
+│  - WebSocket terminal streaming + dashboard broadcast    │
+│  - Serves embedded React assets or Vite dev proxy        │
+│                                                          │
+│  Session Manager (internal/session/manager.go)           │
+│  - Spawn/dispose tmux sessions                           │
+│  - ControlSource abstraction (local + remote streaming)  │
+│  - SessionTracker: output log, fan-out, event routing    │
+│                                                          │
+│  Workspace Manager (internal/workspace/manager.go)       │
+│  - Clone/checkout git repos (worktrees or full clones)   │
+│  - VCS abstraction (git + sapling backends)              │
+│  - Git watcher, overlay management, linear sync          │
+│                                                          │
+│  Remote Manager (internal/remote/manager.go)             │
+│  - SSH connections via tmux control mode                  │
+│  - Multi-instance hosts per flavor                       │
+│                                                          │
+│  Models Manager (internal/models/manager.go)             │
+│  - Registry-driven model catalog + resolution            │
+│                                                          │
+│  Preview Manager (internal/preview/manager.go)           │
+│  - Reverse proxy for workspace dev servers               │
+│                                                          │
+│  Timelapse (internal/timelapse/)                         │
+│  - Always-on session recording in asciicast v2           │
+│                                                          │
+│  Floor Manager (internal/floormanager/)                  │
+│  - Supervisory agent monitoring session status           │
+│                                                          │
+│  Tunnel Manager (internal/tunnel/)                       │
+│  - Cloudflare tunnel for remote access                   │
+│                                                          │
+│  Config/State (internal/config/, internal/state/)        │
+│  - ~/.schmux/config.json  (repos, targets, models, etc.) │
+│  - ~/.schmux/state.json   (workspaces, sessions)         │
+└──────────────────────────────────────────────────────────┘
 ```
 
----
-
-## Directory Structure
+## Directory structure
 
 ```
-cmd/schmux/              # CLI entry point (main.go)
+cmd/
+├── schmux/              # CLI entry point + subcommands
+├── build-dashboard/     # Go wrapper for building React dashboard
+├── build-website/       # Documentation site builder
+├── gen-types/           # TypeScript type generator from Go contracts
+└── scan-ansi/           # ANSI escape sequence scanner utility
+
+pkg/
+├── cli/                 # Daemon client interface for CLI commands
+└── shellutil/           # Shell quoting and argument splitting
+
 internal/
-├── api/contracts/       # Shared API contract types
+├── api/contracts/       # Shared API contract types (Go → TypeScript)
+├── assets/              # Asset download helpers
+├── benchutil/           # Shared benchmark helpers
 ├── branchsuggest/       # AI-powered branch name suggestion
+├── commitmessage/       # AI commit message generation
+├── compound/            # Bidirectional overlay sync
 ├── config/              # Config IO (~/.schmux/config.json)
 ├── conflictresolve/     # AI-powered conflict resolution
-├── daemon/              # Background process, main loop
-├── dashboard/           # HTTP server + handlers + websockets
-├── detect/              # Tool detection (claude, codex, etc.)
+├── daemon/              # Background process, main wiring loop
+├── dashboard/           # HTTP server + handlers + WebSocket
+├── dashboardsx/         # dashboard.sx TLS provisioning + heartbeat
+├── detect/              # Tool/agent/model detection + adapters
 ├── difftool/            # External diff tool support
-├── github/              # GitHub PR client and discovery
+├── emergence/           # Spawn entry learning (skills)
+├── escbuf/              # ANSI escape split-safe framing
+├── events/              # Agent event system (JSONL watcher + handlers)
+├── fileutil/            # Atomic file write helper
+├── floormanager/        # Supervisory agent (Floor Manager)
+├── github/              # GitHub PR client, discovery, OAuth
+├── logging/             # Structured logging wrappers
+├── lore/                # Continual learning (proposals, curation)
+├── models/              # Model catalog (registry, user-defined, resolution)
 ├── nudgenik/            # AI session status assessment
-├── oneshot/             # One-shot LLM execution
+├── oneshot/             # One-shot LLM execution (structured output)
+├── persona/             # Agent persona management (YAML)
 ├── preview/             # Web preview reverse proxy
-├── provision/           # Remote host provisioning
 ├── remote/              # Remote workspace via SSH
-├── schema/              # JSON schema generation
-├── session/             # Session lifecycle and tracking
-├── signal/              # Agent signal parsing
+│   └── controlmode/     # tmux control mode protocol
+├── repofeed/            # Cross-developer activity feed
+├── schema/              # JSON schema generation from Go structs
+├── session/             # Session lifecycle, ControlSource, Tracker
 ├── state/               # State IO (~/.schmux/state.json)
-├── tmux/                # tmux integration
-├── update/              # Self-update
-├── vcs/                 # VCS abstraction (git, sapling)
-└── workspace/           # Repo clone/checkout + overlays
+├── subreddit/           # AI-generated development digest
+├── telemetry/           # Anonymous usage tracking (PostHog)
+├── timelapse/           # Session recording (asciicast v2)
+├── tmux/                # tmux CLI wrapper (free functions)
+├── tunnel/              # Cloudflare tunnel for remote access
+├── update/              # Self-update mechanism
+├── version/             # Build version info
+└── workspace/           # Repo clone/checkout, VCS operations
     └── ensure/          # Workspace config setup (hooks, git exclude)
 
 assets/dashboard/        # React frontend (built to dist/)
-docs/                    # Documentation
 ```
 
----
+## Key entry point
 
-## Key Packages
+`cmd/schmux/main.go` parses CLI commands and delegates to `internal/daemon/`. The daemon's `Run()` method wires all subsystems together:
 
-### Daemon (`internal/daemon/`)
+1. Load config and state, write PID file
+2. Create managers (session, workspace, remote, models, preview, compound, timelapse, floor manager, tunnel)
+3. Wire managers together via setter methods
+4. Start background goroutines (git polling, NudgeNik, lore, repofeed, subreddit)
+5. Restore trackers for running sessions from persisted state
+6. Handle shutdown signals and dev mode restart (exit code 42)
 
-Long-running background process that coordinates all other packages.
+## ControlSource layer
 
-**Responsibilities:**
-
-- Start/stop lifecycle
-- Coordinate session and workspace managers
-- Host the dashboard server
-
-### Dashboard (`internal/dashboard/`)
-
-HTTP server and WebSocket handler for terminal streaming.
-
-**Key files:**
-
-- `server.go` - HTTP server setup, chi router, route registration
-- `handlers.go` - API endpoint handlers
-- `websocket.go` - WebSocket terminal streaming
-
-### Session (`internal/session/`)
-
-Session lifecycle management and tracking.
-
-**Responsibilities:**
-
-- Spawn sessions (tmux create + agent execution)
-- Track session status (spawning, running, done, disposed)
-- Capture terminal output
-- Dispose sessions
-
-### Workspace (`internal/workspace/`)
-
-Git repository management and workspace creation.
-
-**Responsibilities:**
-
-- Clone and checkout git repos
-- Create sequential workspace directories
-- Copy overlay files
-- Track workspace state (dirty, ahead, behind)
-- Per-workspace locking for sync operations
-
-### Workspace Ensure (`internal/workspace/ensure/`)
-
-Stateful service that ensures workspaces have necessary schmux configuration (agent hooks, git exclude entries). Initialized once at daemon startup with a state reference.
-
-### Preview (`internal/preview/`)
-
-Ephemeral proxy management for workspace web servers.
-
-**Responsibilities:**
-
-- Create proxy listeners on stable per-workspace ports (deterministic from port block allocation)
-- Forward requests to workspace-local servers (e.g., Vite on port 5173)
-- Auto-detect listening ports from tmux session output (via `ss` on Linux, `lsof` on macOS)
-- Reconcile and clean up stale previews when upstream servers die
-
-**Key files:**
-
-- `manager.go` - Preview lifecycle management
-- Auto-detection in `internal/dashboard/preview_autodetect.go`
-
-### Schema (`internal/schema/`)
-
-Centralized JSON schema generation from Go structs using `swaggest/jsonschema-go`. Domain packages register their types via `schema.Register()` in `init()` functions; schemas are generated on first access and cached.
-
-**Key files:**
-
-- `schema.go` - `Register()`, `Get()`, `Labels()`, `GenerateJSON()` API
-
-### tmux (`internal/tmux/`)
-
-tmux CLI wrapper.
-
-**Key functions:**
-
-- `Create(name, command, width, height)` - Create new session
-- `CapturePane(name)` - Get terminal output
-- `ListSessions()` - List all tmux sessions
-- `KillSession(name)` - Delete session
-
----
-
-## HTTP Router (chi)
-
-The dashboard server uses [`go-chi/chi`](https://github.com/go-chi/chi) for route registration. Chi provides middleware groups and method routing that the stdlib `http.ServeMux` lacks.
-
-### Why chi instead of stdlib ServeMux
-
-- **Auth-by-default** — middleware applied to a group automatically covers every route in it. With `ServeMux`, every new route required manually wrapping with `withCORS(withAuthAndCSRF(...))`. Forgetting the wrapper silently left the route unprotected. With chi groups, forgetting is impossible — the group's middleware applies automatically.
-- **Method routing** — `r.Get(...)`, `r.Post(...)`, `r.Delete(...)` eliminate manual `if r.Method != http.MethodPost` guards in handlers. Chi returns 405 Method Not Allowed automatically.
-- **URL parameters** — `chi.URLParam(r, "id")` replaces the custom `extractPathSegment()` function.
-
-### Route structure
+The `ControlSource` interface unifies local and remote terminal streaming:
 
 ```go
-r := chi.NewRouter()
-
-// Public routes (no auth)
-r.HandleFunc("/auth/login", ...)
-r.HandleFunc("/auth/callback", ...)
-
-// WebSocket routes (inline auth + origin check)
-r.HandleFunc("/ws/terminal/{id}", ...)
-r.HandleFunc("/ws/dashboard", ...)
-
-// API routes (auth-by-default)
-r.Route("/api", func(r chi.Router) {
-    r.Use(s.corsMiddleware)
-    r.Use(s.authMiddleware)
-
-    // Read-only endpoints (CORS + Auth only)
-    r.Get("/healthz", ...)
-    r.Get("/sessions", ...)
-
-    // State-changing endpoints (CORS + Auth + CSRF)
-    r.Group(func(r chi.Router) {
-        r.Use(s.csrfMiddleware)
-        r.Post("/spawn", ...)
-        r.Route("/workspaces/{workspaceID}", func(r chi.Router) {
-            r.Use(validateWorkspaceID)
-            // ... workspace sub-routes
-        })
-    })
-})
-```
-
-### Middleware
-
-Three chi-compatible middleware functions (signature: `func(http.Handler) http.Handler`):
-
-- `corsMiddleware` — CORS headers for API routes
-- `authMiddleware` — cookie/session authentication
-- `csrfMiddleware` — CSRF token validation for state-changing operations
-
-WebSocket endpoints do inline auth (auth check must happen before the WebSocket upgrade).
-
-### Gotchas
-
-- **Route ordering**: chi uses first-match routing (not longest-prefix-match like `ServeMux`). More specific patterns must be registered before wildcards.
-- **Trailing slashes**: chi does not auto-redirect `/api/sessions` to `/api/sessions/` like `ServeMux` does.
-- **Adding a new API route**: write the handler, add `r.Post(...)` or `r.Get(...)` inside the appropriate group. Auth and CSRF are automatic from group membership.
-
----
-
-## JSON Schema Generation
-
-The oneshot system (one-shot LLM calls for branch suggestion, conflict resolution, nudgenik assessment) uses JSON schemas to constrain structured output from OpenAI-compatible APIs.
-
-### Architecture decisions
-
-- **Schemas generated from Go structs, not inline strings.** Previously, schemas were maintained as long inline JSON strings in `internal/oneshot/oneshot.go` that could drift from the corresponding Go struct definitions. Now schemas are generated at runtime from the structs using `swaggest/jsonschema-go`.
-- **Why `swaggest/jsonschema-go` over alternatives:** OpenAI's `strict: true` structured outputs require `additionalProperties: false` on all objects and all fields in the `required` array. The more popular `invopop/jsonschema` treats `json:",omitempty"` as "optional" (excludes from required), which causes 400 errors with OpenAI. `swaggest/jsonschema-go` provides explicit `required:"true"` struct tags (opt-in).
-- **Domain packages own their types.** Each package (nudgenik, branchsuggest, conflictresolve) registers its result struct in `init()` via `schema.Register()`. Schemas are generated on first access via `schema.Get()` and cached.
-
-### Adding a new schema
-
-1. Define the result struct in its domain package with `required:"true"` and `additionalProperties:"false"` tags.
-2. Call `schema.Register("label", YourStruct{})` in an `init()` function.
-3. Use `schema.Get("label")` in the oneshot call.
-
----
-
-## Data Flow
-
-### Spawning a Session
-
-```
-1. CLI request or Dashboard spawn
-   |
-2. Session manager validates workspace exists
-   |
-3. Workspace manager creates workspace (if new)
-   |
-4. Ensurer runs ForSpawn (hooks, git exclude)
-   |
-5. tmux package creates session with agent command
-   |
-6. Session manager tracks PID and status
-   |
-7. WebSocket streams terminal output to dashboard
-```
-
-### Terminal Streaming
-
-```
-1. tmux control mode streams %output events to SessionTracker
-   |
-2. Tracker fans out to subscriber channels + OutputLog (sequenced)
-   |
-3. WebSocket handler sends binary frames with sequence headers
-   |
-4. Browser decodes frames, detects gaps, writes to xterm.js
-```
-
-See `docs/terminal-pipeline.md` for the full pipeline reference.
-
----
-
-## Configuration & State
-
-### Config (`~/.schmux/config.json`)
-
-User-editable configuration:
-
-```json
-{
-  "workspace_path": "~/schmux-workspaces",
-  "repos": [...],
-  "run_targets": [...],
-  "quick_launch": [...],
-  "terminal": {
-    "width": 120,
-    "height": 40,
-    "seed_lines": 100
-  }
+type ControlSource interface {
+    Events() <-chan SourceEvent
+    SendKeys(keys string) (controlmode.SendKeysTimings, error)
+    CaptureVisible() (string, error)
+    CaptureLines(n int) (string, error)
+    GetCursorState() (controlmode.CursorState, error)
+    Resize(cols, rows int) error
+    Close() error
 }
 ```
 
-### State (`~/.schmux/state.json`)
+- `LocalSource` -- attaches to local tmux via control mode
+- `RemoteSource` -- wraps a `remote.Connection` for SSH sessions
 
-Managed automatically by the daemon:
+`SessionTracker` is source-agnostic: it drains `Events()`, appends to `OutputLog`, and fans out to WebSocket subscribers. Adding a new session type requires only a new `ControlSource` implementation.
 
-```json
-{
-  "workspaces": [...],
-  "sessions": [...]
-}
-```
+## tmux package
 
-**Note:** Previews are ephemeral and not persisted. They are auto-detected from running tmux sessions on daemon startup and reconciled during runtime.
-
----
-
-## Design Patterns
-
-### Interfaces for Testability
-
-Key packages define interfaces for testing:
+Free functions (not an interface). All take `context.Context` as the first argument:
 
 ```go
-type Tmux interface {
-    Create(name, command string, w, h uint) error
-    CapturePane(name string) (string, error)
-    // ...
-}
+func CreateSession(ctx, name, dir, command) error
+func SessionExists(ctx, name) bool
+func CaptureOutput(ctx, name) (string, error)
+func CaptureLastLines(ctx, name, lines, includeEscapes) (string, error)
+func KillSession(ctx, name) error
+func ListSessions(ctx) ([]string, error)
+func SendKeys(ctx, name, keys) error
+func GetWindowSize(ctx, name) (width, height, error)
+func ResizeWindow(ctx, name, width, height) error
 ```
 
-### Error Handling
+## HTTP router (chi)
 
-- Errors are returned, not panic'd
-- Context-based cancellation for long operations
-- Graceful degradation (e.g., if tmux isn't installed)
+The dashboard uses `go-chi/chi` for routing. Routes are grouped by auth requirements:
 
-### Concurrency
+- **Public routes** -- no auth (remote-auth, OAuth callbacks)
+- **WebSocket routes** -- inline auth before upgrade
+- **API routes** -- auth middleware applied to group
+  - Read-only endpoints: CORS + auth
+  - State-changing endpoints: CORS + auth + CSRF
 
-- Sessions run independently (no coordination between agents)
-- Per-workspace locking coordinates sync operations vs. git status refreshes (see `docs/workspaces.md`)
-- Dashboard handlers are goroutine-safe
-- All WebSocket writes go through `wsConn` wrapper with mutex
+Adding a route: write the handler, add `r.Get(...)` or `r.Post(...)` in the appropriate group. Auth/CSRF are automatic from group membership.
 
----
+## Data flow: spawning a session
 
-## Build & Deployment
-
-### Development
-
-```bash
-go run ./cmd/schmux daemon-run
+```
+POST /api/spawn
+  → Workspace manager: create workspace (worktree add, overlay copy)
+  → Ensurer: install hooks, git exclude, lore instructions
+  → tmux.CreateSession(ctx, name, dir, command)
+  → Session manager: start SessionTracker with ControlSource
+  → Events watcher: monitor agent event files
+  → WebSocket: stream output to dashboard
 ```
 
-### Production
+## Configuration
 
-```bash
-go build ./cmd/schmux
-./schmux start
-```
+`~/.schmux/config.json` -- user-editable. Key fields: `workspace_path`, `repos`, `run_targets`, `quick_launch`, `nudgenik`, `branch_suggest`, `compound`, `lore`, `sessions`, `network`, `access_control`, `remote_flavors`, `remote_access`, `floor_manager`, `timelapse`, `recycle_workspaces`.
 
-### Dashboard
+`~/.schmux/state.json` -- auto-managed by daemon. Contains workspaces and sessions. Accessed through the `StateStore` interface with batched saves.
 
-```bash
-# Build React assets
-go run ./cmd/build-dashboard
+## Design patterns
 
-# Dashboard served from embedded assets
-# or assets/dashboard/dist/ in development
-```
+- **Free functions for tmux** -- no interface, package-level functions with `context.Context`
+- **ControlSource for pluggable streaming** -- SessionTracker is source-agnostic
+- **Manager pattern** -- subsystems created in `Daemon.Run()`, wired via setters, started with shutdown context
+- **Errors returned, not panicked** -- graceful degradation when optional features are unavailable
+- **Per-workspace locking** -- coordinates sync operations vs. git status refreshes
+- **WebSocket write safety** -- all writes through `wsConn` wrapper with mutex
 
----
+## See also
 
-## See Also
-
-- [React Architecture](react.md) — Frontend architecture and patterns
-- [API Reference](../api.md) — HTTP API and WebSocket protocol
-- [Testing Guide](testing.md) — Test conventions and running tests
-- [Terminal Pipeline](terminal-pipeline.md) — Terminal streaming architecture
-- [Workspaces](../workspaces.md) — Workspace management, locking, ensure system
-- [Sessions](../sessions.md) — Session lifecycle and spawn modes
+- [react.md](react.md) -- Frontend architecture
+- [api.md](api.md) -- HTTP API contract
+- [terminal-pipeline.md](terminal-pipeline.md) -- Terminal streaming pipeline
+- [sessions.md](sessions.md) -- Session lifecycle
+- [workspaces.md](workspaces.md) -- Workspace management

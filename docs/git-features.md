@@ -8,14 +8,14 @@ Provides real-time git status monitoring, a visual commit history DAG (modeled a
 
 | File                                                | Purpose                                                                                      |
 | --------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `internal/workspace/git.go`                         | Git status polling, `UpdateGitStatus`, default branch detection                              |
+| `internal/workspace/git.go`                         | Git status polling, `UpdateVCSStatus`, default branch detection                              |
 | `internal/workspace/git_watcher.go`                 | fsnotify-based watcher for `.git` metadata; debounced refresh + broadcast                    |
 | `internal/workspace/git_watcher_test.go`            | Watcher unit tests (resolve gitdir, debounce, worktree shared refs)                          |
 | `internal/workspace/git_graph.go`                   | `GetGitGraph` — fork-point detection, divergence-region scoping, ISL-style topo sort         |
 | `internal/workspace/git_graph_test.go`              | Graph unit tests (ahead/behind, merge commits, trimming, max commits)                        |
 | `internal/workspace/git_commit.go`                  | `GetCommitDetail` — full commit metadata + file diffs for a single commit                    |
 | `internal/workspace/git_commit_test.go`             | Commit detail tests (root commits, renames, binary detection, hash validation)               |
-| `internal/workspace/git_poll_round.go`              | Per-sweep caches: deduplicates `git fetch` and `git worktree list` across workspaces         |
+| `internal/workspace/vcs_poll_round.go`              | Per-sweep caches: deduplicates `git fetch` and `git worktree list` across workspaces         |
 | `internal/workspace/giturl.go`                      | Git URL parsing (SSH/HTTPS normalization)                                                    |
 | `internal/api/contracts/git_graph.go`               | `GitGraphResponse`, `GitGraphNode`, `GitGraphBranch`, `GitGraphDirtyState`                   |
 | `internal/api/contracts/git_commit.go`              | `GitCommitDetailResponse`, `FileDiff`                                                        |
@@ -46,7 +46,7 @@ Provides real-time git status monitoring, a visual commit history DAG (modeled a
 
 ## Gotchas
 
-- **Worktree git dir resolution.** A worktree's `.git` is a file containing `gitdir: <path>`, not a directory. `resolveGitDir()` handles both cases. The watcher must watch both the worktree-specific gitdir and the shared base repo's `refs/` to catch pushes from other worktrees.
+- **Worktree git dir resolution.** A worktree's `.git` is a file containing `gitdir: <path>`, not a directory. `resolveGitDir()` handles both cases. The watcher watches the worktree-specific gitdir and `logs/` but intentionally does NOT watch `refs/` (too noisy during fetches). The poller handles ref changes at the 10s interval.
 - **Null-byte vs pipe delimiters in git log.** The local handler uses `%x00` (null-byte) field delimiters to avoid pipe collisions in commit messages. The remote handler uses `|` (pipe) for shell compatibility. `ParseGitLogOutput` auto-detects the delimiter.
 - **Sapling null hash filtering.** Sapling VCS uses `0000...0000` as a sentinel for absent parents. `ParseGitLogOutput` filters these out so they don't create phantom edges.
 - **Commit hash validation is two-layer.** Format check (`^[a-fA-F0-9]{4,40}$` + forbidden characters) at the handler layer, existence check (`git cat-file -t`) at the workspace layer. Both are needed: format check rejects injection attempts early, existence check catches valid-format hashes from other repos.

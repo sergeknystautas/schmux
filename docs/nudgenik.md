@@ -12,10 +12,10 @@ NudgeNik reads what agents recently did and concludes what they're up to.
 
 NudgeNik summarizes the agent's state into one of:
 
-- **Blocked**: Needs permission to run a command or approve a change
-- **Waiting**: Has a question or needs user input
-- **Working**: Actively making progress
-- **Done**: Completed all work
+- **Needs Input**: Agent has a question or needs user guidance
+- **Needs Feature Clarification**: Agent needs clarification on requirements
+- **Needs Attention**: Agent needs authorization or is stuck
+- **Completed**: Finished all work
 
 This is valuable right now for:
 

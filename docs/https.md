@@ -6,17 +6,17 @@ Provides trusted HTTPS access to schmux over a private network without browser w
 
 ## Key files
 
-| File                                         | Purpose                                                                                                               |
-| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `internal/dashboardsx/client.go`             | HTTP client for the dashboard.sx service API (heartbeat, cert provisioning, DNS challenge, callback exchange)         |
-| `internal/dashboardsx/acme.go`               | ACME/Let's Encrypt integration via the lego library: DNS-01 challenge provider, cert provisioning, account management |
-| `internal/dashboardsx/heartbeat.go`          | Background heartbeat loop (24h +/- 2h jitter) to keep registrations alive                                             |
-| `internal/dashboardsx/renewal.go`            | Background auto-renewal: checks cert expiry daily, renews when within 30 days of expiration                           |
-| `internal/dashboardsx/instance_key.go`       | Generates and persists a 32-byte instance key at `~/.schmux/dashboardsx/instance.key`                                 |
-| `internal/dashboardsx/paths.go`              | File paths for certs, keys, and ACME account under `~/.schmux/dashboardsx/`                                           |
-| `internal/dashboardsx/ip.go`                 | Detects bindable LAN IP addresses, excludes loopback and link-local                                                   |
-| `internal/dashboardsx/status.go`             | Reads filesystem and config to produce current dashboard.sx status (cert presence, expiry, code)                      |
-| `internal/dashboard/handlers_dashboardsx.go` | HTTP handlers: OAuth callback exchange, background cert provisioning, provision status polling                        |
+| File                                         | Purpose                                                                                                                 |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `internal/dashboardsx/client.go`             | HTTP client for the dashboard.sx service API (heartbeat, cert provisioning, DNS challenge, callback exchange)           |
+| `internal/dashboardsx/acme.go`               | ACME/Let's Encrypt integration via the lego library: DNS-01 challenge provider, cert provisioning, account management   |
+| `internal/dashboardsx/heartbeat.go`          | Background heartbeat loop (24h +/- 2h jitter) to keep registrations alive; persists results via `HeartbeatStatusWriter` |
+| `internal/dashboardsx/renewal.go`            | Background auto-renewal: checks cert expiry daily, renews when within 30 days of expiration                             |
+| `internal/dashboardsx/instance_key.go`       | Generates and persists a 32-byte instance key at `~/.schmux/dashboardsx/instance.key`                                   |
+| `internal/dashboardsx/paths.go`              | File paths for certs, keys, and ACME account under `~/.schmux/dashboardsx/`                                             |
+| `internal/dashboardsx/ip.go`                 | Detects bindable LAN IP addresses, excludes loopback and link-local                                                     |
+| `internal/dashboardsx/status.go`             | Reads filesystem and config to produce current dashboard.sx status (cert presence, expiry, code)                        |
+| `internal/dashboard/handlers_dashboardsx.go` | HTTP handlers: OAuth callback exchange, background cert provisioning, provision status polling                          |
 
 ## Architecture decisions
 
@@ -73,6 +73,27 @@ The Access tab in the dashboard settings is organized into a cascading dependenc
 - **Cert expiring within 30 days:** Yellow warning in UI; auto-renewal attempts daily
 - **Port changes:** Dashboard URL auto-updates (composed from hostname + port)
 
+## DashboardSX status alerts
+
+The daemon surfaces dashboard.sx heartbeat failures and certificate expiry warnings on the home page. Before this, both conditions were log-only -- nobody noticed until the URL broke.
+
+**What is tracked:** The `DashboardSXStatus` struct in `internal/state/state.go` stores `LastHeartbeatTime`, `LastHeartbeatStatus` (HTTP status code, 0 for network errors), `LastHeartbeatError`, `CertDomain`, and `CertExpiresAt`.
+
+**How it is populated:**
+
+- **At daemon startup:** If dashboard.sx is enabled, reads `CertDomain` and `CertExpiresAt` from the cert on disk.
+- **On every heartbeat:** `StartHeartbeat` accepts a `HeartbeatStatusWriter` interface. The daemon provides a `heartbeatStateWriter` adapter that merges heartbeat results into the existing status (preserving cert fields) and saves.
+
+**How it reaches the frontend:** Piggybacked on `ConfigResponse.DashboardSXStatus` (same pattern as `NeedsRestart`). The home page computes alerts when `last_heartbeat_status` is not 200 or `cert_expires_at` is within 30 days.
+
+**Why home page, not config page:** The config page is for changing settings. Heartbeat failures are operational alerts that need passive visibility on the landing page.
+
+**Gotchas:**
+
+- The `heartbeatStateWriter` merges results into existing status. Creating a new struct each time would wipe cert fields on every heartbeat.
+- Cert info is populated once at startup from disk. If auto-renewal replaces the cert, `CertExpiresAt` becomes stale until restart.
+- The 30-day frontend alert threshold matches the auto-renewal threshold in `renewal.go`. Keep them in sync.
+
 ## Gotchas
 
 - The dashboard.sx service is hosted on fly.io. DNS is managed via Route 53. The authoritative nameservers for `dashboard.sx` are hardcoded in `acme.go` for DNS-01 verification to bypass recursive resolver caching of negative responses.
@@ -88,6 +109,7 @@ The Access tab in the dashboard settings is organized into a cascading dependenc
 - **Modify the provisioning flow:** Edit `internal/dashboard/handlers_dashboardsx.go` for the HTTP handler and `internal/dashboardsx/acme.go` for the ACME flow.
 - **Adjust auto-renewal threshold:** Change `renewalThresholdDays` in `internal/dashboardsx/renewal.go` (currently 30 days).
 - **Add TLS validation rules:** The `POST /api/tls/validate` endpoint validates file existence, PEM format, cert+key match, hostname extraction, and expiry.
+- **Add new status alerts:** Add fields to `state.DashboardSXStatus`, populate in daemon or heartbeat writer, add to `contracts.DashboardSXStatus`, regenerate types, add alert logic in `HomePage.tsx`.
 
 ## Configuration
 
@@ -123,3 +145,4 @@ The Access tab in the dashboard settings is organized into a cascading dependenc
 | `internal/dashboardsx/ip_test.go`           | IP filtering (loopback, link-local exclusion)                                                  |
 | `internal/dashboardsx/status_test.go`       | Status aggregation from filesystem and config                                                  |
 | `internal/dashboard/handlers_tls_test.go`   | TLS validation endpoint                                                                        |
+| `internal/state/state_dashboardsx_test.go`  | DashboardSXStatus getter/setter and persistence                                                |
