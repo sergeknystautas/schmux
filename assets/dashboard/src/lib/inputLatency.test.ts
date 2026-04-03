@@ -224,7 +224,6 @@ describe('InputLatencyTracker', () => {
     inputLatency.reset();
     expect(inputLatency.serverSegmentSamples).toEqual([]);
     expect(inputLatency.lagSamples).toEqual([]);
-    expect(inputLatency.receiveLagSamples).toEqual([]);
     expect(inputLatency.framesBetweenSamples).toEqual([]);
     expect(inputLatency.handleOutputTimeSamples).toEqual([]);
   });
@@ -440,8 +439,9 @@ describe('InputLatencyTracker', () => {
     mockNow.mockRestore();
     globalThis.MessageChannel = originalMC;
 
-    // Probe moved to recordServerSegments — receiveLagSamples stays empty
-    expect(inputLatency.receiveLagSamples.length).toBe(0);
+    // Probe moved to recordServerSegments — no separate receiveLagSamples array
+    // Verify no server segment samples were added by markReceived
+    expect(inputLatency.serverSegmentSamples.length).toBe(0);
   });
 
   it('getWireContext returns correct P50/P99 values', () => {
@@ -451,7 +451,13 @@ describe('InputLatencyTracker', () => {
     // Add some samples
     inputLatency.framesBetweenSamples = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18];
     inputLatency.handleOutputTimeSamples = [1, 1, 1, 1, 1, 2, 2, 2, 2, 10];
-    inputLatency.receiveLagSamples = [0.5, 0.5, 0.5, 0.5, 0.5, 1, 1, 1, 1, 50];
+    const lags = [0.5, 0.5, 0.5, 0.5, 0.5, 1, 1, 1, 1, 50];
+    for (let i = 0; i < lags.length; i++) {
+      inputLatency.serverSegmentSamples.push({
+        dispatch: 1, sendKeys: 1, echo: 1, frameSend: 0.5, total: 3.5,
+        receiveLag: lags[i],
+      });
+    }
 
     const ctx = inputLatency.getWireContext();
     expect(ctx).not.toBeNull();
@@ -560,7 +566,6 @@ describe('InputLatencyTracker', () => {
       breakdown!.paneOutput;
     expect(breakdown!.segmentSum).toBeCloseTo(sum, 5);
   });
-
 });
 
 describe('getBreakdown cohort-median', () => {

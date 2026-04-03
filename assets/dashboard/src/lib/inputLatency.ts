@@ -93,7 +93,6 @@ type TrackerSnapshot = {
   renderSamples: number[];
   serverSegmentSamples: ServerSegmentTuple[];
   lagSamples: number[];
-  receiveLagSamples: number[];
   framesBetweenSamples: number[];
   handleOutputTimeSamples: number[];
   frameCounter: number;
@@ -106,7 +105,6 @@ export class InputLatencyTracker {
   renderSamples: number[] = [];
   serverSegmentSamples: ServerSegmentTuple[] = []; // per-keystroke paired server-side segments
   lagSamples: number[] = []; // event loop lag samples (MessageChannel-based, send-time)
-  receiveLagSamples: number[] = []; // event loop lag at receive time
   framesBetweenSamples: number[] = []; // output frames between send and receive
   handleOutputTimeSamples: number[] = []; // per-frame binary handler processing time
   private _frameCounter = 0;
@@ -128,7 +126,6 @@ export class InputLatencyTracker {
       renderSamples: this.renderSamples,
       serverSegmentSamples: this.serverSegmentSamples,
       lagSamples: this.lagSamples,
-      receiveLagSamples: this.receiveLagSamples,
       framesBetweenSamples: this.framesBetweenSamples,
       handleOutputTimeSamples: this.handleOutputTimeSamples,
       frameCounter: this._frameCounter,
@@ -143,7 +140,6 @@ export class InputLatencyTracker {
       this.renderSamples = snap.renderSamples;
       this.serverSegmentSamples = snap.serverSegmentSamples;
       this.lagSamples = snap.lagSamples;
-      this.receiveLagSamples = snap.receiveLagSamples;
       this.framesBetweenSamples = snap.framesBetweenSamples;
       this.handleOutputTimeSamples = snap.handleOutputTimeSamples;
       this._frameCounter = snap.frameCounter;
@@ -154,7 +150,6 @@ export class InputLatencyTracker {
       this.renderSamples = [];
       this.serverSegmentSamples = [];
       this.lagSamples = [];
-      this.receiveLagSamples = [];
       this.framesBetweenSamples = [];
       this.handleOutputTimeSamples = [];
       this._frameCounter = 0;
@@ -248,16 +243,19 @@ export class InputLatencyTracker {
   }
 
   getWireContext(): WireContext | null {
+    const receiveLags = this.serverSegmentSamples
+      .map(s => s.receiveLag)
+      .filter((v): v is number => v !== undefined);
     if (
       this.framesBetweenSamples.length === 0 &&
       this.handleOutputTimeSamples.length === 0 &&
-      this.receiveLagSamples.length === 0
+      receiveLags.length === 0
     ) {
       return null;
     }
     const fbStats = this.computeStats(this.framesBetweenSamples);
     const hoStats = this.computeStats(this.handleOutputTimeSamples);
-    const rlStats = this.computeStats(this.receiveLagSamples);
+    const rlStats = this.computeStats(receiveLags);
     return {
       framesBetweenP50: fbStats?.median ?? 0,
       framesBetweenP99: fbStats?.p99 ?? 0,
@@ -326,7 +324,6 @@ export class InputLatencyTracker {
     this.renderSamples = [];
     this.serverSegmentSamples = [];
     this.lagSamples = [];
-    this.receiveLagSamples = [];
     this.framesBetweenSamples = [];
     this.handleOutputTimeSamples = [];
     this._frameCounter = 0;
@@ -393,7 +390,7 @@ export class InputLatencyTracker {
     if (tuples.length < 5) return null;
 
     // Compute percentile boundaries from valid paired tuple RTTs
-    const sortedRTTs = tuples.map(t => t.clientRTT).sort((a, b) => a - b);
+    const sortedRTTs = tuples.map((t) => t.clientRTT).sort((a, b) => a - b);
     const p25 = sortedRTTs[Math.floor(sortedRTTs.length * 0.25)];
     const p75 = sortedRTTs[Math.floor(sortedRTTs.length * 0.75)];
     const p95 = sortedRTTs[Math.floor(sortedRTTs.length * 0.95)];
@@ -401,9 +398,9 @@ export class InputLatencyTracker {
     // Select cohort
     let cohort: FullTuple[];
     if (level === 'typical') {
-      cohort = tuples.filter(t => t.clientRTT >= p25 && t.clientRTT <= p75);
+      cohort = tuples.filter((t) => t.clientRTT >= p25 && t.clientRTT <= p75);
     } else {
-      cohort = tuples.filter(t => t.clientRTT > p95);
+      cohort = tuples.filter((t) => t.clientRTT > p95);
     }
     if (cohort.length < 5) return null;
 
@@ -413,14 +410,14 @@ export class InputLatencyTracker {
       return s[Math.floor(s.length / 2)];
     };
 
-    const handler = median(cohort.map(t => t.handler));
-    const tmuxCmd = median(cohort.map(t => t.tmuxCmd));
-    const paneOutput = median(cohort.map(t => t.paneOutput));
-    const wsWrite = median(cohort.map(t => t.wsWrite));
-    const xtermMedian = median(cohort.map(t => t.xterm));
-    const jsQueue = median(cohort.map(t => t.jsQueue));
-    const network = median(cohort.map(t => t.network));
-    const total = median(cohort.map(t => t.clientRTT));
+    const handler = median(cohort.map((t) => t.handler));
+    const tmuxCmd = median(cohort.map((t) => t.tmuxCmd));
+    const paneOutput = median(cohort.map((t) => t.paneOutput));
+    const wsWrite = median(cohort.map((t) => t.wsWrite));
+    const xtermMedian = median(cohort.map((t) => t.xterm));
+    const jsQueue = median(cohort.map((t) => t.jsQueue));
+    const network = median(cohort.map((t) => t.network));
+    const total = median(cohort.map((t) => t.clientRTT));
     const segmentSum = network + jsQueue + handler + wsWrite + xtermMedian + tmuxCmd + paneOutput;
 
     return {
