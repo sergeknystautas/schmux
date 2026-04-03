@@ -33,10 +33,10 @@ c3: render complete
 
 | Segment                  | Computation | Code location                               |
 | ------------------------ | ----------- | ------------------------------------------- |
-| dispatch (→ "handler")   | s2 - s1     | `websocket.go:618` `batch.t2.Sub(batch.t1)` |
-| sendKeys (→ "tmux cmd")  | s3 - s2     | `websocket.go:616` `t3.Sub(t2)`             |
-| echo (→ "pane output")   | s4 - s3     | `websocket.go:672` `t4.Sub(pending.t3)`     |
-| frameSend (→ "ws write") | s5 - s4     | `websocket.go:673` `t5.Sub(t4)`             |
+| dispatch (→ "handler")      | s2 - s1     | `websocket.go:618` `batch.t2.Sub(batch.t1)` |
+| sendKeys (→ "transport")    | s3 - s2     | `websocket.go:616` `t3.Sub(t2)`             |
+| echo (→ "tmux + agent")     | s4 - s3     | `websocket.go:672` `t4.Sub(pending.t3)`     |
+| frameSend (→ "ws write")    | s5 - s4     | `websocket.go:673` `t5.Sub(t4)`             |
 
 These are sent to the client as a JSON sideband message (`type: "inputEcho"`) with fields `dispatchMs`, `sendKeysMs`, `echoMs`, `frameSendMs`.
 
@@ -52,9 +52,9 @@ These are sent to the client as a JSON sideband message (`type: "inputEcho"`) wi
 
 | Segment | Computation                                                              |
 | ------- | ------------------------------------------------------------------------ |
-| network | total - (handler + tmux cmd + pane output + ws write + js queue + xterm) |
+| unmeasured | total - (handler + transport + tmux + agent + ws write + js queue + xterm) |
 
-This is the only segment that crosses clock boundaries. It captures WebSocket upstream transit, WebSocket downstream transit, and any unmeasured overhead.
+This is the only segment that crosses clock boundaries. It captures WebSocket upstream transit, WebSocket downstream transit, and any unmeasured overhead. The residual is computed per-tuple (clamped to 0) then medianed across the cohort. The displayed total is the cohort's median RTT, independent of segment sum.
 
 ## Display Names
 
@@ -63,32 +63,34 @@ The segments were renamed for clarity. The wire protocol names (server JSON) are
 | Wire name (server→client) | Internal name (ServerSegmentTuple) | Display name (UI) | Bucket        |
 | ------------------------- | ---------------------------------- | ----------------- | ------------- |
 | dispatchMs                | dispatch                           | handler           | schmux code   |
-| sendKeysMs                | sendKeys                           | tmux cmd          | schmux ↔ host |
-| echoMs                    | echo                               | pane output       | schmux ↔ host |
+| sendKeysMs                | sendKeys                           | transport         | schmux ↔ host |
+| echoMs                    | echo                               | tmux + agent      | schmux ↔ host |
 | frameSendMs               | frameSend                          | ws write          | schmux code   |
 | (computed)                | (evtLoop probe)                    | js queue          | page ↔ schmux |
 | (computed)                | (render timer)                     | xterm             | schmux code   |
-| (residual)                | (residual)                         | network           | page ↔ schmux |
+| (residual)                | (residual)                         | unmeasured        | page ↔ schmux |
 
-Segment display order: network, js queue, handler, ws write, xterm, tmux cmd, pane output.
+Segment display order (causal): handler, transport, tmux + agent, ws write, js queue, xterm, unmeasured.
 
 ## What Each Segment Captures for Local vs Remote
 
 | Segment     | Local session                                           | Remote session                                                                        |
 | ----------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| handler     | Go handler: decode WS msg, coalesce keystrokes (~0.5ms) | Same (~0.5ms)                                                                         |
-| tmux cmd    | Unix socket write + tmux ack (~0.5ms)                   | SSH upstream + tmux dispatch + SSH downstream for ack (~85ms)                         |
-| pane output | Program processes key + tmux detects output (~13ms)     | Program processes key + tmux detects output + SSH downstream for %output (~6ms + SSH) |
-| ws write    | Serialize frame + WS write (~0.1ms)                     | Same (~0.1ms)                                                                         |
-| js queue    | JS event loop delay before processing WS message (~1ms) | Same (~1-3ms)                                                                         |
-| xterm       | xterm.js parse + paint (~0.5ms)                         | Same (~0.5ms)                                                                         |
-| network     | WS loopback both directions (~1ms)                      | WS loopback + unmeasured SSH overhead (~varies)                                       |
+| handler      | Go handler: decode WS msg, coalesce keystrokes (~0.5ms) | Same (~0.5ms)                                                                         |
+| transport    | Unix socket write + tmux ack (~0.5ms)                   | SSH upstream + tmux dispatch + SSH downstream for ack (~85ms)                         |
+| tmux + agent | Program processes key + tmux detects output (~13ms)     | Program processes key + tmux detects output + SSH downstream for %output (~6ms + SSH) |
+| ws write     | Serialize frame + WS write (~0.1ms)                     | Same (~0.1ms)                                                                         |
+| js queue     | JS event loop delay before processing WS message (~1ms) | Same (~1-3ms)                                                                         |
+| xterm        | xterm.js parse + paint (~0.5ms)                         | Same (~0.5ms)                                                                         |
+| unmeasured   | WS loopback both directions (~1ms)                      | WS loopback + unmeasured SSH overhead (~varies)                                       |
 
-Key insight: for remote sessions, SSH latency hides in `tmux cmd` (2 hops for send-keys ack) and `pane output` (1 hop for %output notification). These two segments are the ones that change dramatically between local and remote.
+Key insight: for remote sessions, SSH latency hides in `transport` (2 hops for send-keys ack) and `tmux + agent` (1 hop for %output notification). These two segments are the ones that change dramatically between local and remote.
 
 ## Known Issues
 
 ### 1. P50/P99 breakdown uses single-tuple picking (inaccurate)
+
+**RESOLVED** -- Replaced with cohort-median computation. Typical breakdown uses the IQR cohort (P25-P75 tuples), outlier breakdown uses the P95+ cohort. Each segment value is the median within that cohort. Minimum 5 tuples per cohort required. The displayed total is the cohort's median RTT (independent of segment sum), and bar widths use `segmentSum` for proportional sizing.
 
 **File**: `inputLatency.ts`, `getBreakdown()` method.
 
@@ -111,15 +113,17 @@ The breakdown picks a single keystroke tuple whose `clientRTT` is closest to the
 
 The pending input queue is a FIFO: each keystroke pushes timing data, each `%output` event pops the oldest. If the program emits output that isn't in response to a keystroke (e.g., a timer, background process), it pops the wrong keystroke's timing. The `serverTotal > clientRTT` guard (line 393 in `inputLatency.ts`) discards these, but some mismatches slip through.
 
-### 3. `pane output` for remote includes SSH downstream transit
+### 3. `tmux + agent` for remote includes SSH downstream transit
 
-The `echo` timer (s4 - s3) starts when `SendKeys` returns (the ack arrived over SSH) and ends when `%output` arrives. For remote sessions, the `%output` notification must travel over SSH, so `pane output` = program time + SSH one-way. There's no way to separate these without a clock on the remote host.
+The `echo` timer (s4 - s3) starts when `SendKeys` returns (the ack arrived over SSH) and ends when `%output` arrives. For remote sessions, the `%output` notification must travel over SSH, so `tmux + agent` = program time + SSH one-way. There's no way to separate these without a clock on the remote host.
 
-### 4. `tmux cmd` for remote includes SSH round-trip
+### 4. `transport` for remote includes SSH round-trip
 
 The `sendKeys` timer (s3 - s2) includes: stdin mutex wait, writing the command to the SSH pipe, SSH encrypting + transmitting, tmux processing, SSH return trip. For local sessions this is ~0.5ms (Unix socket). For remote it's ~85ms (dominated by SSH RTT). The `mutexWait` and `executeNet` sub-segments are available in `ServerSegmentTuple` but are no longer exposed in the UI breakdown.
 
 ### 5. Stale `lastInputTime` causes bogus samples from non-echo output
+
+**RESOLVED** -- 2-second staleness timeout added to `markReceived()`. If `performance.now() - lastInputTime > 2000`, the pending measurement is discarded and `lastInputTime` is reset to zero.
 
 **File**: `inputLatency.ts`, `markSent()` / `markReceived()`.
 
@@ -127,7 +131,9 @@ The `sendKeys` timer (s3 - s2) includes: stdin mutex wait, writing the command t
 
 **Fix**: Add a staleness timeout. If `performance.now() - lastInputTime > threshold` (e.g., 2 seconds), discard the pending measurement in `markReceived()` and reset `lastInputTime` to zero. Keystrokes that don't produce output within 2s are not meaningful latency samples.
 
-### 6. `network` residual can go negative
+### 6. `unmeasured` residual can go negative
+
+**RESOLVED** -- Residual is now computed per-tuple (clamped to 0) then medianed across the cohort. The displayed total is the cohort's median RTT, independent of segment sum. Per-tuple clamping eliminates the negative-residual artifact; the segment sum and total are presented independently.
 
 If server-reported segments + client segments exceed the client RTT (possible due to clock skew or timing jitter), the residual goes negative. It's clamped to zero, but this means the displayed segments can sum to MORE than total (the excess is hidden by the clamp). This happens rarely but is theoretically possible.
 
