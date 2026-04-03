@@ -1,18 +1,17 @@
 import { useState, useEffect } from 'react';
 import {
-  getRemoteFlavors,
-  createRemoteFlavor,
-  updateRemoteFlavor,
-  deleteRemoteFlavor,
+  getRemoteProfiles,
+  createRemoteProfile,
+  updateRemoteProfile,
+  deleteRemoteProfile,
   getErrorMessage,
 } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
-import type { RemoteFlavor, RemoteFlavorCreateRequest } from '../lib/types';
+import type { RemoteProfile, RemoteProfileCreateRequest, RemoteProfileFlavor } from '../lib/types';
 
-interface FlavorFormData {
+interface ProfileFormData {
   display_name: string;
-  flavor: string;
   workspace_path: string;
   vcs: string;
   connect_command: string;
@@ -20,11 +19,11 @@ interface FlavorFormData {
   provision_command: string;
   hostname_regex: string;
   vscode_command_template: string;
+  flavors: RemoteProfileFlavor[];
 }
 
-const emptyForm: FlavorFormData = {
+const emptyForm: ProfileFormData = {
   display_name: '',
-  flavor: '',
   workspace_path: '',
   vcs: 'sapling',
   connect_command: '',
@@ -32,88 +31,89 @@ const emptyForm: FlavorFormData = {
   provision_command: '',
   hostname_regex: '',
   vscode_command_template: '',
+  flavors: [{ flavor: '' }],
 };
 
 export default function RemoteSettingsPage() {
-  const [flavors, setFlavors] = useState<RemoteFlavor[]>([]);
+  const [profiles, setProfiles] = useState<RemoteProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showModal, setShowModal] = useState(false);
-  const [editingFlavor, setEditingFlavor] = useState<RemoteFlavor | null>(null);
-  const [formData, setFormData] = useState<FlavorFormData>(emptyForm);
+  const [editingProfile, setEditingProfile] = useState<RemoteProfile | null>(null);
+  const [formData, setFormData] = useState<ProfileFormData>(emptyForm);
   const [saving, setSaving] = useState(false);
   const { success: toastSuccess, error: toastError } = useToast();
   const { alert, confirm: modalConfirm } = useModal();
 
-  const loadFlavors = async () => {
+  const loadProfiles = async () => {
     try {
       setLoading(true);
-      const data = await getRemoteFlavors();
-      setFlavors(data);
+      const data = await getRemoteProfiles();
+      setProfiles(data);
       setError('');
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to load remote flavors'));
+      setError(getErrorMessage(err, 'Failed to load remote profiles'));
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadFlavors();
+    loadProfiles();
   }, []);
 
   const handleAdd = () => {
-    setEditingFlavor(null);
+    setEditingProfile(null);
     setFormData(emptyForm);
     setShowModal(true);
   };
 
-  const handleClone = (flavor: RemoteFlavor) => {
-    setEditingFlavor(null);
+  const handleClone = (profile: RemoteProfile) => {
+    setEditingProfile(null);
     setFormData({
-      display_name: `${flavor.display_name} (copy)`,
-      flavor: '',
-      workspace_path: flavor.workspace_path,
-      vcs: flavor.vcs,
-      connect_command: flavor.connect_command || '',
-      reconnect_command: flavor.reconnect_command || '',
-      provision_command: flavor.provision_command || '',
-      hostname_regex: flavor.hostname_regex || '',
-      vscode_command_template: flavor.vscode_command_template || '',
+      display_name: `${profile.display_name} (copy)`,
+      workspace_path: profile.workspace_path,
+      vcs: profile.vcs,
+      connect_command: profile.connect_command || '',
+      reconnect_command: profile.reconnect_command || '',
+      provision_command: profile.provision_command || '',
+      hostname_regex: profile.hostname_regex || '',
+      vscode_command_template: profile.vscode_command_template || '',
+      flavors: profile.flavors.map((f) => ({ ...f, flavor: '' })),
     });
     setShowModal(true);
   };
 
-  const handleEdit = (flavor: RemoteFlavor) => {
-    setEditingFlavor(flavor);
+  const handleEdit = (profile: RemoteProfile) => {
+    setEditingProfile(profile);
     setFormData({
-      display_name: flavor.display_name,
-      flavor: flavor.flavor,
-      workspace_path: flavor.workspace_path,
-      vcs: flavor.vcs,
-      connect_command: flavor.connect_command || '',
-      reconnect_command: flavor.reconnect_command || '',
-      provision_command: flavor.provision_command || '',
-      hostname_regex: flavor.hostname_regex || '',
-      vscode_command_template: flavor.vscode_command_template || '',
+      display_name: profile.display_name,
+      workspace_path: profile.workspace_path,
+      vcs: profile.vcs,
+      connect_command: profile.connect_command || '',
+      reconnect_command: profile.reconnect_command || '',
+      provision_command: profile.provision_command || '',
+      hostname_regex: profile.hostname_regex || '',
+      vscode_command_template: profile.vscode_command_template || '',
+      flavors: profile.flavors.length > 0 ? [...profile.flavors] : [{ flavor: '' }],
     });
     setShowModal(true);
   };
 
-  const handleDelete = async (flavor: RemoteFlavor) => {
+  const handleDelete = async (profile: RemoteProfile) => {
     if (
-      !(await modalConfirm(`Delete "${flavor.display_name}"? This cannot be undone.`, {
+      !(await modalConfirm(`Delete "${profile.display_name}"? This cannot be undone.`, {
         danger: true,
       }))
     ) {
       return;
     }
     try {
-      await deleteRemoteFlavor(flavor.id);
-      toastSuccess(`Deleted "${flavor.display_name}"`);
-      loadFlavors();
+      await deleteRemoteProfile(profile.id);
+      toastSuccess(`Deleted "${profile.display_name}"`);
+      loadProfiles();
     } catch (err) {
-      alert('Delete Failed', getErrorMessage(err, 'Failed to delete flavor'));
+      alert('Delete Failed', getErrorMessage(err, 'Failed to delete profile'));
     }
   };
 
@@ -123,18 +123,19 @@ export default function RemoteSettingsPage() {
       toastError('Display name is required');
       return;
     }
-    if (!formData.flavor.trim()) {
-      toastError('Flavor string is required');
-      return;
-    }
     if (!formData.workspace_path.trim()) {
       toastError('Workspace path is required');
       return;
     }
+    // Validate flavors: at least one with a non-empty flavor string
+    const validFlavors = formData.flavors.filter((f) => f.flavor.trim());
+    if (validFlavors.length === 0) {
+      toastError('At least one flavor is required');
+      return;
+    }
 
-    const request: RemoteFlavorCreateRequest = {
+    const request: RemoteProfileCreateRequest = {
       display_name: formData.display_name.trim(),
-      flavor: formData.flavor.trim(),
       workspace_path: formData.workspace_path.trim(),
       vcs: formData.vcs,
       connect_command: formData.connect_command.trim() || undefined,
@@ -142,24 +143,50 @@ export default function RemoteSettingsPage() {
       provision_command: formData.provision_command.trim() || undefined,
       hostname_regex: formData.hostname_regex.trim() || undefined,
       vscode_command_template: formData.vscode_command_template.trim() || undefined,
+      flavors: validFlavors.map((f) => ({
+        flavor: f.flavor.trim(),
+        display_name: f.display_name?.trim() || undefined,
+        workspace_path: f.workspace_path?.trim() || undefined,
+        provision_command: f.provision_command?.trim() || undefined,
+      })),
     };
 
     try {
       setSaving(true);
-      if (editingFlavor) {
-        await updateRemoteFlavor(editingFlavor.id, request);
+      if (editingProfile) {
+        await updateRemoteProfile(editingProfile.id, request);
         toastSuccess(`Updated "${formData.display_name}"`);
       } else {
-        await createRemoteFlavor(request);
+        await createRemoteProfile(request);
         toastSuccess(`Created "${formData.display_name}"`);
       }
       setShowModal(false);
-      loadFlavors();
+      loadProfiles();
     } catch (err) {
-      alert('Save Failed', getErrorMessage(err, 'Failed to save flavor'));
+      alert('Save Failed', getErrorMessage(err, 'Failed to save profile'));
     } finally {
       setSaving(false);
     }
+  };
+
+  const addFlavor = () => {
+    setFormData({
+      ...formData,
+      flavors: [...formData.flavors, { flavor: '' }],
+    });
+  };
+
+  const removeFlavor = (index: number) => {
+    setFormData({
+      ...formData,
+      flavors: formData.flavors.filter((_, i) => i !== index),
+    });
+  };
+
+  const updateFlavor = (index: number, field: keyof RemoteProfileFlavor, value: string) => {
+    const updated = [...formData.flavors];
+    updated[index] = { ...updated[index], [field]: value };
+    setFormData({ ...formData, flavors: updated });
   };
 
   if (loading) {
@@ -177,7 +204,7 @@ export default function RemoteSettingsPage() {
         <div className="empty-state__icon">!</div>
         <h3 className="empty-state__title">Error</h3>
         <p className="empty-state__description">{error}</p>
-        <button className="btn btn--primary" onClick={loadFlavors}>
+        <button className="btn btn--primary" onClick={loadProfiles}>
           Retry
         </button>
       </div>
@@ -192,32 +219,32 @@ export default function RemoteSettingsPage() {
         </div>
         <div className="app-header__actions">
           <button className="btn btn--primary" onClick={handleAdd}>
-            + Add Flavor
+            + Add Profile
           </button>
         </div>
       </div>
 
       <div className="spawn-content">
         <p className="mb-lg text-muted">
-          Configure remote host flavors for running agents on remote machines via SSH or custom
+          Configure remote host profiles for running agents on remote machines via SSH or custom
           connection tools.
         </p>
 
-        {flavors.length === 0 ? (
+        {profiles.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state__icon">+</div>
-            <h3 className="empty-state__title">No Remote Flavors</h3>
+            <h3 className="empty-state__title">No Remote Profiles</h3>
             <p className="empty-state__description">
-              Add a remote flavor to enable spawning agents on remote hosts.
+              Add a remote profile to enable spawning agents on remote hosts.
             </p>
             <button className="btn btn--primary" onClick={handleAdd}>
-              Add Your First Flavor
+              Add Your First Profile
             </button>
           </div>
         ) : (
           <div className="flex-col gap-md">
-            {flavors.map((flavor) => (
-              <div key={flavor.id} className="card p-md">
+            {profiles.map((profile) => (
+              <div key={profile.id} className="card p-md">
                 <div
                   style={{
                     display: 'flex',
@@ -227,55 +254,56 @@ export default function RemoteSettingsPage() {
                 >
                   <div>
                     <h3 style={{ margin: 0, marginBottom: 'var(--spacing-xs)' }}>
-                      {flavor.display_name}
+                      {profile.display_name}
                     </h3>
                     <div className="text-muted" style={{ fontSize: '0.875rem' }}>
                       <div>
-                        <strong>Flavor:</strong> <code>{flavor.flavor}</code>
+                        <strong>Flavors:</strong>{' '}
+                        {profile.flavors.map((f) => f.display_name || f.flavor).join(', ')}
                       </div>
                       <div>
-                        <strong>Workspace:</strong> <code>{flavor.workspace_path}</code>
+                        <strong>Workspace:</strong> <code>{profile.workspace_path}</code>
                       </div>
                       <div>
-                        <strong>VCS:</strong> <code>{flavor.vcs}</code>
+                        <strong>VCS:</strong> <code>{profile.vcs}</code>
                       </div>
-                      {flavor.connect_command && (
+                      {profile.connect_command && (
                         <div>
-                          <strong>Connect:</strong> <code>{flavor.connect_command}</code>
+                          <strong>Connect:</strong> <code>{profile.connect_command}</code>
                         </div>
                       )}
-                      {flavor.reconnect_command && (
+                      {profile.reconnect_command && (
                         <div>
-                          <strong>Reconnect:</strong> <code>{flavor.reconnect_command}</code>
+                          <strong>Reconnect:</strong> <code>{profile.reconnect_command}</code>
                         </div>
                       )}
-                      {flavor.provision_command && (
+                      {profile.provision_command && (
                         <div>
-                          <strong>Provision:</strong> <code>{flavor.provision_command}</code>
+                          <strong>Provision:</strong> <code>{profile.provision_command}</code>
                         </div>
                       )}
-                      {flavor.hostname_regex && (
+                      {profile.hostname_regex && (
                         <div>
-                          <strong>Hostname Regex:</strong> <code>{flavor.hostname_regex}</code>
+                          <strong>Hostname Regex:</strong> <code>{profile.hostname_regex}</code>
                         </div>
                       )}
-                      {flavor.vscode_command_template && (
+                      {profile.vscode_command_template && (
                         <div>
-                          <strong>VS Code:</strong> <code>{flavor.vscode_command_template}</code>
+                          <strong>VS Code:</strong> <code>{profile.vscode_command_template}</code>
                         </div>
                       )}
                     </div>
                   </div>
                   <div className="flex-row gap-xs">
-                    <button className="btn btn--sm" onClick={() => handleClone(flavor)}>
+                    <button className="btn btn--sm" onClick={() => handleClone(profile)}>
                       Clone
                     </button>
-                    <button className="btn btn--sm" onClick={() => handleEdit(flavor)}>
+                    <button className="btn btn--sm" onClick={() => handleEdit(profile)}>
                       Edit
                     </button>
                     <button
                       className="btn btn--sm btn--danger"
-                      onClick={() => handleDelete(flavor)}
+                      onClick={() => handleDelete(profile)}
                     >
                       Delete
                     </button>
@@ -292,7 +320,7 @@ export default function RemoteSettingsPage() {
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '900px' }}>
             <div className="modal__header">
               <h2 className="modal__title">
-                {editingFlavor ? 'Edit Remote Flavor' : 'Add Remote Flavor'}
+                {editingProfile ? 'Edit Remote Profile' : 'Add Remote Profile'}
               </h2>
               <button className="modal__close" onClick={() => setShowModal(false)}>
                 x
@@ -300,12 +328,12 @@ export default function RemoteSettingsPage() {
             </div>
             <form onSubmit={handleSubmit}>
               <div className="modal__body">
-                {/* Row 1: Name, Flavor, VCS side-by-side */}
+                {/* Row 1: Name, VCS side-by-side */}
                 <div
                   className="gap-md mb-md"
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '1fr 1fr auto',
+                    gridTemplateColumns: '1fr auto',
                   }}
                 >
                   <div className="form-group">
@@ -319,20 +347,6 @@ export default function RemoteSettingsPage() {
                       value={formData.display_name}
                       onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
                       placeholder="e.g., GPU ML Large"
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-group__label" htmlFor="flavor">
-                      Flavor String *
-                    </label>
-                    <input
-                      type="text"
-                      id="flavor"
-                      className="input"
-                      value={formData.flavor}
-                      onChange={(e) => setFormData({ ...formData, flavor: e.target.value })}
-                      placeholder="e.g., dev.example.com"
                       required
                     />
                   </div>
@@ -352,10 +366,90 @@ export default function RemoteSettingsPage() {
                   </div>
                 </div>
 
-                {/* Row 2: Workspace Path full-width */}
+                {/* Flavors section */}
+                <div className="form-group mb-md">
+                  <label className="form-group__label">Flavors *</label>
+                  <span className="form-group__hint mb-sm">
+                    Each flavor represents a host type within this profile (e.g., different machine
+                    sizes).
+                  </span>
+                  {formData.flavors.map((f, i) => (
+                    <div
+                      key={i}
+                      className="form-row mb-sm"
+                      style={{ flexWrap: 'nowrap', alignItems: 'end' }}
+                    >
+                      <div className="form-group" style={{ marginBottom: 0, minWidth: 0 }}>
+                        {i === 0 && (
+                          <label className="form-group__label" style={{ fontSize: '0.75rem' }}>
+                            Flavor String *
+                          </label>
+                        )}
+                        <input
+                          type="text"
+                          className="input"
+                          value={f.flavor}
+                          onChange={(e) => updateFlavor(i, 'flavor', e.target.value)}
+                          placeholder="e.g., dev.example.com"
+                          required
+                        />
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0, minWidth: 0 }}>
+                        {i === 0 && (
+                          <label className="form-group__label" style={{ fontSize: '0.75rem' }}>
+                            Display Name
+                          </label>
+                        )}
+                        <input
+                          type="text"
+                          className="input"
+                          value={f.display_name || ''}
+                          onChange={(e) => updateFlavor(i, 'display_name', e.target.value)}
+                          placeholder="Optional label"
+                        />
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0, minWidth: 0 }}>
+                        {i === 0 && (
+                          <label className="form-group__label" style={{ fontSize: '0.75rem' }}>
+                            Workspace Path
+                          </label>
+                        )}
+                        <input
+                          type="text"
+                          className="input"
+                          value={f.workspace_path || ''}
+                          onChange={(e) => updateFlavor(i, 'workspace_path', e.target.value)}
+                          placeholder={formData.workspace_path || 'e.g., ~/workspace'}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--danger"
+                        onClick={() => removeFlavor(i)}
+                        disabled={formData.flavors.length <= 1}
+                        style={{
+                          flex: 'none',
+                          fontSize: '1.25rem',
+                          padding: 0,
+                          width: '36px',
+                          height: '36px',
+                          justifyContent: 'center',
+                        }}
+                        title="Remove flavor"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  <button type="button" className="btn btn--sm mt-sm" onClick={addFlavor}>
+                    + Add Flavor
+                  </button>
+                </div>
+
+                {/* Workspace Path full-width */}
                 <div className="form-group mb-md">
                   <label className="form-group__label" htmlFor="workspace_path">
-                    Workspace Path *
+                    Default Workspace Path *
                   </label>
                   <input
                     type="text"
@@ -363,15 +457,15 @@ export default function RemoteSettingsPage() {
                     className="input"
                     value={formData.workspace_path}
                     onChange={(e) => setFormData({ ...formData, workspace_path: e.target.value })}
-                    placeholder="e.g., ~/fbsource"
+                    placeholder="e.g., ~/workspace"
                     required
                   />
                   <span className="form-group__hint">
-                    Directory where code lives on the remote host
+                    Default directory on the remote host. Flavors can override this.
                   </span>
                 </div>
 
-                {/* Row 3: Connect Command */}
+                {/* Connect Command */}
                 <div className="form-group mb-md">
                   <label className="form-group__label" htmlFor="connect_command">
                     Connect Command <span className="font-normal text-muted">(optional)</span>
@@ -391,7 +485,7 @@ export default function RemoteSettingsPage() {
                   </span>
                 </div>
 
-                {/* Row 4: Hostname Regex (related to connect output) */}
+                {/* Hostname Regex */}
                 <div className="form-group mb-md">
                   <label className="form-group__label" htmlFor="hostname_regex">
                     Hostname Regex <span className="font-normal text-muted">(optional)</span>
@@ -411,7 +505,7 @@ export default function RemoteSettingsPage() {
                   </span>
                 </div>
 
-                {/* Row 5: Reconnect Command */}
+                {/* Reconnect Command */}
                 <div className="form-group mb-md">
                   <label className="form-group__label" htmlFor="reconnect_command">
                     Reconnect Command <span className="font-normal text-muted">(optional)</span>
@@ -432,7 +526,7 @@ export default function RemoteSettingsPage() {
                   </span>
                 </div>
 
-                {/* Row 6: Provision Command */}
+                {/* Provision Command */}
                 <div className="form-group mb-md">
                   <label className="form-group__label" htmlFor="provision_command">
                     Provision Command <span className="font-normal text-muted">(optional)</span>
@@ -453,7 +547,7 @@ export default function RemoteSettingsPage() {
                   </span>
                 </div>
 
-                {/* Row 7: VS Code Template */}
+                {/* VS Code Template */}
                 <div className="form-group">
                   <label className="form-group__label" htmlFor="vscode_command_template">
                     VS Code Template <span className="font-normal text-muted">(optional)</span>
@@ -485,7 +579,7 @@ export default function RemoteSettingsPage() {
                   Cancel
                 </button>
                 <button type="submit" className="btn btn--primary" disabled={saving}>
-                  {saving ? 'Saving...' : editingFlavor ? 'Save Changes' : 'Add Flavor'}
+                  {saving ? 'Saving...' : editingProfile ? 'Save Changes' : 'Add Profile'}
                 </button>
               </div>
             </form>

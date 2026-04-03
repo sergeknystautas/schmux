@@ -15,7 +15,22 @@ import (
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
+// RemoteProfileResponse represents a remote profile in API responses.
+type RemoteProfileResponse struct {
+	ID                    string                       `json:"id"`
+	DisplayName           string                       `json:"display_name"`
+	VCS                   string                       `json:"vcs"`
+	WorkspacePath         string                       `json:"workspace_path"`
+	ConnectCommand        string                       `json:"connect_command,omitempty"`
+	ReconnectCommand      string                       `json:"reconnect_command,omitempty"`
+	ProvisionCommand      string                       `json:"provision_command,omitempty"`
+	HostnameRegex         string                       `json:"hostname_regex,omitempty"`
+	VSCodeCommandTemplate string                       `json:"vscode_command_template,omitempty"`
+	Flavors               []config.RemoteProfileFlavor `json:"flavors"`
+}
+
 // RemoteFlavorResponse represents a remote flavor in API responses.
+// DEPRECATED: kept for backward compatibility with existing API consumers.
 type RemoteFlavorResponse struct {
 	ID                    string `json:"id"`
 	Flavor                string `json:"flavor"`
@@ -29,7 +44,28 @@ type RemoteFlavorResponse struct {
 	VSCodeCommandTemplate string `json:"vscode_command_template,omitempty"`
 }
 
+// toProfileResponse converts a config.RemoteProfile to a RemoteProfileResponse.
+func toProfileResponse(p config.RemoteProfile) RemoteProfileResponse {
+	flavors := p.Flavors
+	if flavors == nil {
+		flavors = []config.RemoteProfileFlavor{}
+	}
+	return RemoteProfileResponse{
+		ID:                    p.ID,
+		DisplayName:           p.DisplayName,
+		VCS:                   p.VCS,
+		WorkspacePath:         p.WorkspacePath,
+		ConnectCommand:        p.ConnectCommand,
+		ReconnectCommand:      p.ReconnectCommand,
+		ProvisionCommand:      p.ProvisionCommand,
+		HostnameRegex:         p.HostnameRegex,
+		VSCodeCommandTemplate: p.VSCodeCommandTemplate,
+		Flavors:               flavors,
+	}
+}
+
 // toFlavorResponse converts a config.RemoteFlavor to a RemoteFlavorResponse.
+// DEPRECATED: kept for backward compatibility.
 func toFlavorResponse(f config.RemoteFlavor) RemoteFlavorResponse {
 	return RemoteFlavorResponse{
 		ID:                    f.ID,
@@ -48,7 +84,8 @@ func toFlavorResponse(f config.RemoteFlavor) RemoteFlavorResponse {
 // RemoteHostResponse represents a remote host in API responses.
 type RemoteHostResponse struct {
 	ID                    string `json:"id"`
-	FlavorID              string `json:"flavor_id"`
+	ProfileID             string `json:"profile_id"`
+	Flavor                string `json:"flavor"`
 	DisplayName           string `json:"display_name,omitempty"`
 	Hostname              string `json:"hostname"`
 	UUID                  string `json:"uuid,omitempty"`
@@ -60,32 +97,32 @@ type RemoteHostResponse struct {
 	ProvisioningSessionID string `json:"provisioning_session_id,omitempty"` // Local tmux session for interactive provisioning terminal
 }
 
-// handleGetRemoteFlavors returns all configured remote flavors.
-func (s *Server) handleGetRemoteFlavors(w http.ResponseWriter, r *http.Request) {
-	flavors := s.config.GetRemoteFlavors()
-	response := make([]RemoteFlavorResponse, len(flavors))
-	for i, f := range flavors {
-		response[i] = toFlavorResponse(f)
+// handleGetRemoteProfiles returns all configured remote profiles.
+func (s *Server) handleGetRemoteProfiles(w http.ResponseWriter, r *http.Request) {
+	profiles := s.config.GetRemoteProfiles()
+	response := make([]RemoteProfileResponse, len(profiles))
+	for i, p := range profiles {
+		response[i] = toProfileResponse(p)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		s.logger.Error("failed to encode response", "handler", "remote-flavors", "err", err)
+		s.logger.Error("failed to encode response", "handler", "remote-profiles", "err", err)
 	}
 }
 
-// handleCreateRemoteFlavor creates a new remote flavor.
-func (s *Server) handleCreateRemoteFlavor(w http.ResponseWriter, r *http.Request) {
+// handleCreateRemoteProfile creates a new remote profile.
+func (s *Server) handleCreateRemoteProfile(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req struct {
-		Flavor                string `json:"flavor"`
-		DisplayName           string `json:"display_name"`
-		VCS                   string `json:"vcs"`
-		WorkspacePath         string `json:"workspace_path"`
-		ConnectCommand        string `json:"connect_command"`
-		ReconnectCommand      string `json:"reconnect_command"`
-		ProvisionCommand      string `json:"provision_command"`
-		HostnameRegex         string `json:"hostname_regex"`
-		VSCodeCommandTemplate string `json:"vscode_command_template"`
+		DisplayName           string                       `json:"display_name"`
+		VCS                   string                       `json:"vcs"`
+		WorkspacePath         string                       `json:"workspace_path"`
+		ConnectCommand        string                       `json:"connect_command"`
+		ReconnectCommand      string                       `json:"reconnect_command"`
+		ProvisionCommand      string                       `json:"provision_command"`
+		HostnameRegex         string                       `json:"hostname_regex"`
+		VSCodeCommandTemplate string                       `json:"vscode_command_template"`
+		Flavors               []config.RemoteProfileFlavor `json:"flavors"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -93,8 +130,7 @@ func (s *Server) handleCreateRemoteFlavor(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	rf := config.RemoteFlavor{
-		Flavor:                req.Flavor,
+	rp := config.RemoteProfile{
 		DisplayName:           req.DisplayName,
 		VCS:                   req.VCS,
 		WorkspacePath:         req.WorkspacePath,
@@ -103,9 +139,10 @@ func (s *Server) handleCreateRemoteFlavor(w http.ResponseWriter, r *http.Request
 		ProvisionCommand:      req.ProvisionCommand,
 		HostnameRegex:         req.HostnameRegex,
 		VSCodeCommandTemplate: req.VSCodeCommandTemplate,
+		Flavors:               req.Flavors,
 	}
 
-	if err := s.config.AddRemoteFlavor(rf); err != nil {
+	if err := s.config.AddRemoteProfile(rp); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -115,76 +152,78 @@ func (s *Server) handleCreateRemoteFlavor(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Find the added flavor to get the generated ID
-	added, found := s.config.GetRemoteFlavor(config.GenerateRemoteFlavorID(req.Flavor))
+	// Find the added profile to get the generated ID
+	profiles := s.config.GetRemoteProfiles()
+	var addedProfile config.RemoteProfile
+	found := false
+	for _, p := range profiles {
+		if p.DisplayName == req.DisplayName {
+			addedProfile = p
+			found = true
+			break
+		}
+	}
 	if !found {
-		writeJSONError(w, "failed to retrieve created flavor", http.StatusInternalServerError)
+		writeJSONError(w, "failed to retrieve created profile", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(toFlavorResponse(added)); err != nil {
-		s.logger.Error("failed to encode response", "handler", "create-remote-flavor", "err", err)
+	if err := json.NewEncoder(w).Encode(toProfileResponse(addedProfile)); err != nil {
+		s.logger.Error("failed to encode response", "handler", "create-remote-profile", "err", err)
 	}
 }
 
-// handleRemoteFlavorGet handles GET /api/config/remote-flavors/{id}
-func (s *Server) handleRemoteFlavorGet(w http.ResponseWriter, r *http.Request) {
+// handleRemoteProfileGet handles GET /api/config/remote-profiles/{id}
+func (s *Server) handleRemoteProfileGet(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		http.Error(w, "Flavor ID required", http.StatusBadRequest)
+		http.Error(w, "Profile ID required", http.StatusBadRequest)
 		return
 	}
 
-	flavor, found := s.config.GetRemoteFlavor(id)
+	profile, found := s.config.GetRemoteProfile(id)
 	if !found {
-		http.Error(w, "Flavor not found", http.StatusNotFound)
+		http.Error(w, "Profile not found", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(toFlavorResponse(flavor))
+	json.NewEncoder(w).Encode(toProfileResponse(profile))
 }
 
-// handleRemoteFlavorUpdate handles PUT /api/config/remote-flavors/{id}
-func (s *Server) handleRemoteFlavorUpdate(w http.ResponseWriter, r *http.Request) {
+// handleRemoteProfileUpdate handles PUT /api/config/remote-profiles/{id}
+func (s *Server) handleRemoteProfileUpdate(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		http.Error(w, "Flavor ID required", http.StatusBadRequest)
+		http.Error(w, "Profile ID required", http.StatusBadRequest)
 		return
 	}
 
-	existing, found := s.config.GetRemoteFlavor(id)
+	_, found := s.config.GetRemoteProfile(id)
 	if !found {
-		http.Error(w, "Flavor not found", http.StatusNotFound)
+		http.Error(w, "Profile not found", http.StatusNotFound)
 		return
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req struct {
-		Flavor                string `json:"flavor"`
-		DisplayName           string `json:"display_name"`
-		VCS                   string `json:"vcs"`
-		WorkspacePath         string `json:"workspace_path"`
-		ConnectCommand        string `json:"connect_command"`
-		ReconnectCommand      string `json:"reconnect_command"`
-		ProvisionCommand      string `json:"provision_command"`
-		HostnameRegex         string `json:"hostname_regex"`
-		VSCodeCommandTemplate string `json:"vscode_command_template"`
+		DisplayName           string                       `json:"display_name"`
+		VCS                   string                       `json:"vcs"`
+		WorkspacePath         string                       `json:"workspace_path"`
+		ConnectCommand        string                       `json:"connect_command"`
+		ReconnectCommand      string                       `json:"reconnect_command"`
+		ProvisionCommand      string                       `json:"provision_command"`
+		HostnameRegex         string                       `json:"hostname_regex"`
+		VSCodeCommandTemplate string                       `json:"vscode_command_template"`
+		Flavors               []config.RemoteProfileFlavor `json:"flavors"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	// If flavor not provided in update, keep the existing value
-	flavor := req.Flavor
-	if flavor == "" {
-		flavor = existing.Flavor
-	}
-
-	rf := config.RemoteFlavor{
+	rp := config.RemoteProfile{
 		ID:                    id,
-		Flavor:                flavor,
 		DisplayName:           req.DisplayName,
 		VCS:                   req.VCS,
 		WorkspacePath:         req.WorkspacePath,
@@ -193,9 +232,10 @@ func (s *Server) handleRemoteFlavorUpdate(w http.ResponseWriter, r *http.Request
 		ProvisionCommand:      req.ProvisionCommand,
 		HostnameRegex:         req.HostnameRegex,
 		VSCodeCommandTemplate: req.VSCodeCommandTemplate,
+		Flavors:               req.Flavors,
 	}
 
-	if err := s.config.UpdateRemoteFlavor(rf); err != nil {
+	if err := s.config.UpdateRemoteProfile(rp); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -206,18 +246,18 @@ func (s *Server) handleRemoteFlavorUpdate(w http.ResponseWriter, r *http.Request
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(toFlavorResponse(rf))
+	json.NewEncoder(w).Encode(toProfileResponse(rp))
 }
 
-// handleRemoteFlavorDelete handles DELETE /api/config/remote-flavors/{id}
-func (s *Server) handleRemoteFlavorDelete(w http.ResponseWriter, r *http.Request) {
+// handleRemoteProfileDelete handles DELETE /api/config/remote-profiles/{id}
+func (s *Server) handleRemoteProfileDelete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		http.Error(w, "Flavor ID required", http.StatusBadRequest)
+		http.Error(w, "Profile ID required", http.StatusBadRequest)
 		return
 	}
 
-	if err := s.config.RemoveRemoteFlavor(id); err != nil {
+	if err := s.config.RemoveRemoteProfile(id); err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
@@ -240,9 +280,14 @@ func (s *Server) handleRemoteHosts(w http.ResponseWriter, r *http.Request) {
 		vcs := ""
 		provisioningSessionID := ""
 
-		if flavor, found := s.config.GetRemoteFlavor(h.FlavorID); found {
-			displayName = flavor.DisplayName
-			vcs = flavor.VCS
+		if profile, found := s.config.GetRemoteProfile(h.ProfileID); found {
+			if resolved, err := config.ResolveProfileFlavor(profile, h.Flavor); err == nil {
+				displayName = resolved.FlavorDisplayName
+				vcs = resolved.VCS
+			} else {
+				displayName = profile.DisplayName
+				vcs = profile.VCS
+			}
 		}
 
 		// Get provisioning session ID if available
@@ -254,7 +299,8 @@ func (s *Server) handleRemoteHosts(w http.ResponseWriter, r *http.Request) {
 
 		response[i] = RemoteHostResponse{
 			ID:                    h.ID,
-			FlavorID:              h.FlavorID,
+			ProfileID:             h.ProfileID,
+			Flavor:                h.Flavor,
 			DisplayName:           displayName,
 			Hostname:              h.Hostname,
 			UUID:                  h.UUID,
@@ -293,7 +339,8 @@ func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request)
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req struct {
-		FlavorID string `json:"flavor_id"`
+		ProfileID string `json:"profile_id"`
+		Flavor    string `json:"flavor"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -301,8 +348,12 @@ func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if req.FlavorID == "" {
-		http.Error(w, "flavor_id is required", http.StatusBadRequest)
+	if req.ProfileID == "" {
+		http.Error(w, "profile_id is required", http.StatusBadRequest)
+		return
+	}
+	if req.Flavor == "" {
+		http.Error(w, "flavor is required", http.StatusBadRequest)
 		return
 	}
 
@@ -311,15 +362,20 @@ func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Check if flavor exists
-	flavor, found := s.config.GetRemoteFlavor(req.FlavorID)
+	// Check if profile exists and resolve flavor
+	profile, found := s.config.GetRemoteProfile(req.ProfileID)
 	if !found {
-		http.Error(w, fmt.Sprintf("Flavor not found: %s", req.FlavorID), http.StatusNotFound)
+		http.Error(w, fmt.Sprintf("Profile not found: %s", req.ProfileID), http.StatusNotFound)
+		return
+	}
+	resolved, err := config.ResolveProfileFlavor(profile, req.Flavor)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	// Start connection (returns immediately with provisioning session ID)
-	provisioningSessionID, err := s.remoteManager.StartConnect(req.FlavorID)
+	provisioningSessionID, err := s.remoteManager.StartConnect(req.ProfileID, req.Flavor)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to start connection: %v", err), http.StatusInternalServerError)
 		return
@@ -329,10 +385,11 @@ func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	if err := json.NewEncoder(w).Encode(RemoteHostResponse{
-		FlavorID:              req.FlavorID,
-		DisplayName:           flavor.DisplayName,
+		ProfileID:             req.ProfileID,
+		Flavor:                req.Flavor,
+		DisplayName:           resolved.FlavorDisplayName,
 		Status:                state.RemoteHostStatusProvisioning,
-		VCS:                   flavor.VCS,
+		VCS:                   resolved.VCS,
 		ProvisioningSessionID: provisioningSessionID,
 	}); err != nil {
 		s.logger.Error("failed to encode response", "handler", "remote-host-connect", "err", err)
@@ -362,9 +419,14 @@ func (s *Server) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Reques
 
 	displayName := ""
 	vcs := ""
-	if flavor, found := s.config.GetRemoteFlavor(host.FlavorID); found {
-		displayName = flavor.DisplayName
-		vcs = flavor.VCS
+	if profile, found := s.config.GetRemoteProfile(host.ProfileID); found {
+		if resolved, err := config.ResolveProfileFlavor(profile, host.Flavor); err == nil {
+			displayName = resolved.FlavorDisplayName
+			vcs = resolved.VCS
+		} else {
+			displayName = profile.DisplayName
+			vcs = profile.VCS
+		}
 	}
 
 	// Start reconnection asynchronously (returns provisioning session ID for WebSocket terminal)
@@ -399,7 +461,8 @@ func (s *Server) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusAccepted)
 	if err := json.NewEncoder(w).Encode(RemoteHostResponse{
 		ID:                    hostID,
-		FlavorID:              host.FlavorID,
+		ProfileID:             host.ProfileID,
+		Flavor:                host.Flavor,
 		DisplayName:           displayName,
 		Hostname:              host.Hostname,
 		Status:                state.RemoteHostStatusReconnecting,
@@ -459,11 +522,21 @@ func (s *Server) handleRemoteHostDisconnect(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// RemoteFlavorStatusResponse represents a flavor with the status of all its hosts.
-type RemoteFlavorStatusResponse struct {
-	Flavor RemoteFlavorResponse   `json:"flavor"`
+// RemoteProfileStatusResponse represents a profile with the status of all its hosts.
+type RemoteProfileStatusResponse struct {
+	Profile     RemoteProfileResponse   `json:"profile"`
+	FlavorHosts []RemoteFlavorHostGroup `json:"flavor_hosts"`
+}
+
+// RemoteFlavorHostGroup groups hosts by flavor within a profile status response.
+type RemoteFlavorHostGroup struct {
+	Flavor string                 `json:"flavor"`
 	Hosts  []RemoteHostStatusItem `json:"hosts"`
 }
+
+// RemoteFlavorStatusResponse is kept for backward compatibility.
+// DEPRECATED: Use RemoteProfileStatusResponse instead.
+type RemoteFlavorStatusResponse = RemoteProfileStatusResponse
 
 // RemoteHostStatusItem represents the status of a single remote host within a flavor.
 type RemoteHostStatusItem struct {
@@ -473,31 +546,39 @@ type RemoteHostStatusItem struct {
 	Connected bool   `json:"connected"`
 }
 
-// handleRemoteFlavorStatuses returns all flavors with their connection status.
-func (s *Server) handleRemoteFlavorStatuses(w http.ResponseWriter, r *http.Request) {
-	flavors := s.config.GetRemoteFlavors()
+// handleRemoteProfileStatuses returns all profiles with their connection status.
+func (s *Server) handleRemoteProfileStatuses(w http.ResponseWriter, r *http.Request) {
+	profiles := s.config.GetRemoteProfiles()
 
 	// If remote manager is available, use its real-time connection status
 	if s.remoteManager != nil {
-		statuses := s.remoteManager.GetFlavorStatuses()
-		response := make([]RemoteFlavorStatusResponse, len(statuses))
-		for i, fs := range statuses {
-			resp := RemoteFlavorStatusResponse{
-				Flavor: toFlavorResponse(fs.Flavor),
+		statuses := s.remoteManager.GetProfileStatuses()
+		response := make([]RemoteProfileStatusResponse, len(statuses))
+		for i, ps := range statuses {
+			resp := RemoteProfileStatusResponse{
+				Profile:     toProfileResponse(ps.Profile),
+				FlavorHosts: []RemoteFlavorHostGroup{},
 			}
-			for _, h := range fs.Hosts {
-				resp.Hosts = append(resp.Hosts, RemoteHostStatusItem{
-					HostID:    h.HostID,
-					Hostname:  h.Hostname,
-					Status:    h.Status,
-					Connected: h.Status == "connected",
-				})
+			for _, fg := range ps.FlavorHosts {
+				group := RemoteFlavorHostGroup{
+					Flavor: fg.Flavor,
+					Hosts:  []RemoteHostStatusItem{},
+				}
+				for _, h := range fg.Hosts {
+					group.Hosts = append(group.Hosts, RemoteHostStatusItem{
+						HostID:    h.HostID,
+						Hostname:  h.Hostname,
+						Status:    h.Status,
+						Connected: h.Status == "connected",
+					})
+				}
+				resp.FlavorHosts = append(resp.FlavorHosts, group)
 			}
 			response[i] = resp
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(response); err != nil {
-			s.logger.Error("failed to encode response", "handler", "remote-flavor-statuses", "err", err)
+			s.logger.Error("failed to encode response", "handler", "remote-profile-statuses", "err", err)
 		}
 		return
 	}
@@ -505,40 +586,55 @@ func (s *Server) handleRemoteFlavorStatuses(w http.ResponseWriter, r *http.Reque
 	// Fallback: use state-based connection status
 	hosts := s.state.GetRemoteHosts()
 
-	// Build a map of flavor ID -> all hosts
-	flavorToHosts := make(map[string][]state.RemoteHost)
+	// Build a map of profileID -> flavor -> hosts
+	type profileFlavorKey struct {
+		profileID string
+		flavor    string
+	}
+	pfToHosts := make(map[profileFlavorKey][]state.RemoteHost)
 	for _, h := range hosts {
-		flavorToHosts[h.FlavorID] = append(flavorToHosts[h.FlavorID], h)
+		key := profileFlavorKey{h.ProfileID, h.Flavor}
+		pfToHosts[key] = append(pfToHosts[key], h)
 	}
 
-	response := make([]RemoteFlavorStatusResponse, len(flavors))
-	for i, f := range flavors {
-		resp := RemoteFlavorStatusResponse{
-			Flavor: toFlavorResponse(f),
+	response := make([]RemoteProfileStatusResponse, len(profiles))
+	for i, p := range profiles {
+		resp := RemoteProfileStatusResponse{
+			Profile:     toProfileResponse(p),
+			FlavorHosts: []RemoteFlavorHostGroup{},
 		}
-		for _, host := range flavorToHosts[f.ID] {
-			resp.Hosts = append(resp.Hosts, RemoteHostStatusItem{
-				HostID:    host.ID,
-				Hostname:  host.Hostname,
-				Status:    host.Status,
-				Connected: host.Status == state.RemoteHostStatusConnected,
-			})
+		for _, pf := range p.Flavors {
+			group := RemoteFlavorHostGroup{
+				Flavor: pf.Flavor,
+				Hosts:  []RemoteHostStatusItem{},
+			}
+			key := profileFlavorKey{p.ID, pf.Flavor}
+			for _, host := range pfToHosts[key] {
+				group.Hosts = append(group.Hosts, RemoteHostStatusItem{
+					HostID:    host.ID,
+					Hostname:  host.Hostname,
+					Status:    host.Status,
+					Connected: host.Status == state.RemoteHostStatusConnected,
+				})
+			}
+			resp.FlavorHosts = append(resp.FlavorHosts, group)
 		}
 		response[i] = resp
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		s.logger.Error("failed to encode response", "handler", "remote-flavor-statuses", "err", err)
+		s.logger.Error("failed to encode response", "handler", "remote-profile-statuses", "err", err)
 	}
 }
 
 // handleRemoteConnectStream handles GET /api/remote/hosts/connect/stream
 // This streams provisioning progress via Server-Sent Events (SSE).
 func (s *Server) handleRemoteConnectStream(w http.ResponseWriter, r *http.Request) {
-	flavorID := r.URL.Query().Get("flavor_id")
-	if flavorID == "" {
-		http.Error(w, "flavor_id required", http.StatusBadRequest)
+	profileID := r.URL.Query().Get("profile_id")
+	flavorStr := r.URL.Query().Get("flavor")
+	if profileID == "" || flavorStr == "" {
+		http.Error(w, "profile_id and flavor required", http.StatusBadRequest)
 		return
 	}
 
@@ -583,7 +679,7 @@ func (s *Server) handleRemoteConnectStream(w http.ResponseWriter, r *http.Reques
 		ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 		defer cancel()
 
-		_, err := s.remoteManager.ConnectWithProgress(ctx, flavorID, progressCh)
+		_, err := s.remoteManager.ConnectWithProgress(ctx, profileID, flavorStr, progressCh)
 		if err != nil {
 			// Try to send error, but don't panic if channel is closed or nobody listening
 			select {

@@ -15,6 +15,7 @@ import (
 type RemoteSource struct {
 	conn        *remote.Connection
 	paneID      string
+	windowID    string
 	events      chan SourceEvent
 	stopCh      chan struct{}
 	doneCh      chan struct{}
@@ -22,10 +23,11 @@ type RemoteSource struct {
 }
 
 // NewRemoteSource creates a RemoteSource for a remote pane.
-func NewRemoteSource(conn *remote.Connection, paneID string) *RemoteSource {
+func NewRemoteSource(conn *remote.Connection, paneID, windowID string) *RemoteSource {
 	return &RemoteSource{
 		conn:        conn,
 		paneID:      paneID,
+		windowID:    windowID,
 		events:      make(chan SourceEvent, 1000),
 		stopCh:      make(chan struct{}),
 		doneCh:      make(chan struct{}),
@@ -63,7 +65,12 @@ func (s *RemoteSource) GetCursorState() (controlmode.CursorState, error) {
 }
 
 func (s *RemoteSource) Resize(cols, rows int) error {
-	return s.conn.ResizePTY(uint16(cols), uint16(rows))
+	if s.windowID == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return s.conn.Client().ResizeWindow(ctx, s.windowID, cols, rows)
 }
 
 func (s *RemoteSource) Close() error {

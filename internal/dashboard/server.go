@@ -594,7 +594,7 @@ func (s *Server) Start() error {
 		r.Get("/floor-manager", s.handleGetFloorManager)
 		r.Get("/remote/hosts", s.handleRemoteHosts)
 		r.Get("/remote/hosts/connect/stream", s.handleRemoteConnectStream)
-		r.Get("/remote/flavor-statuses", s.handleRemoteFlavorStatuses)
+		r.Get("/remote/profile-statuses", s.handleRemoteProfileStatuses)
 		r.Get("/remote-access/status", s.handleRemoteAccessStatus)
 
 		r.Get("/timelapse", s.handleTimelapseList)
@@ -671,12 +671,12 @@ func (s *Server) Start() error {
 			r.Post("/diff-external/*", s.handleDiffExternal)
 			r.Post("/open-vscode/*", s.handleOpenVSCode)
 
-			// Remote flavor routes
-			r.Get("/config/remote-flavors", s.handleGetRemoteFlavors)
-			r.Post("/config/remote-flavors", s.handleCreateRemoteFlavor)
-			r.Get("/config/remote-flavors/{id}", s.handleRemoteFlavorGet)
-			r.Put("/config/remote-flavors/{id}", s.handleRemoteFlavorUpdate)
-			r.Delete("/config/remote-flavors/{id}", s.handleRemoteFlavorDelete)
+			// Remote profile routes
+			r.Get("/config/remote-profiles", s.handleGetRemoteProfiles)
+			r.Post("/config/remote-profiles", s.handleCreateRemoteProfile)
+			r.Get("/config/remote-profiles/{id}", s.handleRemoteProfileGet)
+			r.Put("/config/remote-profiles/{id}", s.handleRemoteProfileUpdate)
+			r.Delete("/config/remote-profiles/{id}", s.handleRemoteProfileDelete)
 
 			// Persona routes
 			r.Get("/personas", s.handleListPersonas)

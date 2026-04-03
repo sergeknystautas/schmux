@@ -8,7 +8,7 @@ completing the full round-trip.
 ## Preconditions
 
 - The daemon is running
-- A remote flavor is configured (using mock-remote.sh)
+- A remote profile is configured (using mock-remote.sh)
 - A remote session is spawned and connected
 - xclip and Xvfb are installed and running (DISPLAY=:99)
 - The session runs mock-clipboard-agent.sh (reads clipboard on Ctrl+V)

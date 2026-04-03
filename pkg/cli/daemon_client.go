@@ -379,7 +379,8 @@ type SpawnRequest struct {
 	Command         string         `json:"command,omitempty"`
 	QuickLaunchName string         `json:"quick_launch_name,omitempty"`
 	Resume          bool           `json:"resume,omitempty"`
-	RemoteFlavorID  string         `json:"remote_flavor_id,omitempty"`
+	RemoteProfileID string         `json:"remote_profile_id,omitempty"`
+	RemoteFlavor    string         `json:"remote_flavor,omitempty"`
 	NewBranch       string         `json:"new_branch,omitempty"`
 }
 

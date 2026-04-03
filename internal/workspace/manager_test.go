@@ -726,6 +726,15 @@ func (m *mockStateStore) GetRemoteHostByFlavorID(flavorID string) (state.RemoteH
 func (m *mockStateStore) GetRemoteHostsByFlavorID(flavorID string) []state.RemoteHost {
 	return nil
 }
+func (m *mockStateStore) GetRemoteHostByProfileAndFlavor(profileID, flavor string) (state.RemoteHost, bool) {
+	return state.RemoteHost{}, false
+}
+func (m *mockStateStore) GetRemoteHostsByProfileAndFlavor(profileID, flavor string) []state.RemoteHost {
+	return nil
+}
+func (m *mockStateStore) GetRemoteHostsByProfileID(profileID string) []state.RemoteHost {
+	return nil
+}
 func (m *mockStateStore) GetRemoteHostByHostname(hostname string) (state.RemoteHost, bool) {
 	return state.RemoteHost{}, false
 }

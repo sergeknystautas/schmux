@@ -1175,7 +1175,8 @@ func RunCmd(t *testing.T, dir string, name string, args ...string) {
 // RemoteHostResponse represents a remote host from the API.
 type RemoteHostResponse struct {
 	ID          string `json:"id"`
-	FlavorID    string `json:"flavor_id"`
+	ProfileID   string `json:"profile_id"`
+	Flavor      string `json:"flavor"`
 	DisplayName string `json:"display_name,omitempty"`
 	Hostname    string `json:"hostname"`
 	Status      string `json:"status"`
@@ -1184,19 +1185,18 @@ type RemoteHostResponse struct {
 	ExpiresAt   string `json:"expires_at,omitempty"`
 }
 
-// RemoteFlavorResponse represents a remote flavor from the API.
-type RemoteFlavorResponse struct {
+// RemoteProfileResponse represents a remote profile from the API.
+type RemoteProfileResponse struct {
 	ID            string `json:"id"`
-	Flavor        string `json:"flavor"`
 	DisplayName   string `json:"display_name"`
 	VCS           string `json:"vcs"`
 	WorkspacePath string `json:"workspace_path"`
 }
 
-// AddRemoteFlavorToConfig adds a remote flavor to the config file.
-func (e *Env) AddRemoteFlavorToConfig(flavor, displayName, workspacePath, connectCommand string) string {
+// AddRemoteProfileToConfig adds a remote profile to the config file.
+func (e *Env) AddRemoteProfileToConfig(flavor, displayName, workspacePath, connectCommand string) string {
 	e.T.Helper()
-	e.T.Logf("Adding remote flavor to config: %s", displayName)
+	e.T.Logf("Adding remote profile to config: %s", displayName)
 
 	configPath := filepath.Join(e.HomeDir, ".schmux", "config.json")
 
@@ -1205,16 +1205,18 @@ func (e *Env) AddRemoteFlavorToConfig(flavor, displayName, workspacePath, connec
 		e.T.Fatalf("Failed to load config: %v", err)
 	}
 
-	rf := config.RemoteFlavor{
-		Flavor:         flavor,
+	p := config.RemoteProfile{
 		DisplayName:    displayName,
 		VCS:            "git",
 		WorkspacePath:  workspacePath,
 		ConnectCommand: connectCommand,
+		Flavors: []config.RemoteProfileFlavor{
+			{Flavor: flavor},
+		},
 	}
 
-	if err := cfg.AddRemoteFlavor(rf); err != nil {
-		e.T.Fatalf("Failed to add remote flavor: %v", err)
+	if err := cfg.AddRemoteProfile(p); err != nil {
+		e.T.Fatalf("Failed to add remote profile: %v", err)
 	}
 
 	if err := cfg.Save(); err != nil {
@@ -1222,9 +1224,9 @@ func (e *Env) AddRemoteFlavorToConfig(flavor, displayName, workspacePath, connec
 	}
 
 	// Return the generated ID (config generates ID from flavor string)
-	flavorID := config.GenerateRemoteFlavorID(flavor)
-	e.T.Logf("Remote flavor added with ID: %s", flavorID)
-	return flavorID
+	profileID := config.GenerateRemoteFlavorID(flavor)
+	e.T.Logf("Remote profile added with ID: %s", profileID)
+	return profileID
 }
 
 // GetRemoteHosts returns the list of remote hosts from the API.
@@ -1256,22 +1258,22 @@ func (e *Env) GetRemoteHosts() []RemoteHostResponse {
 // SpawnRemoteSession spawns a session on a remote host via the daemon API.
 // Returns the session ID from the API response. Retries up to 3 times on
 // transient "control mode not ready" / "client closed" errors.
-func (e *Env) SpawnRemoteSession(flavorID, target, prompt, nickname string) string {
+func (e *Env) SpawnRemoteSession(profileID, target, prompt, nickname string) string {
 	e.T.Helper()
-	e.T.Logf("Spawning remote session via API: flavor=%s target=%s nickname=%s", flavorID, target, nickname)
+	e.T.Logf("Spawning remote session via API: profile=%s target=%s nickname=%s", profileID, target, nickname)
 
 	type SpawnRequest struct {
-		RemoteFlavorID string         `json:"remote_flavor_id"`
-		Prompt         string         `json:"prompt"`
-		Nickname       string         `json:"nickname,omitempty"`
-		Targets        map[string]int `json:"targets"`
+		RemoteProfileID string         `json:"remote_profile_id"`
+		Prompt          string         `json:"prompt"`
+		Nickname        string         `json:"nickname,omitempty"`
+		Targets         map[string]int `json:"targets"`
 	}
 
 	spawnReqBody := SpawnRequest{
-		RemoteFlavorID: flavorID,
-		Prompt:         prompt,
-		Nickname:       nickname,
-		Targets:        map[string]int{target: 1},
+		RemoteProfileID: profileID,
+		Prompt:          prompt,
+		Nickname:        nickname,
+		Targets:         map[string]int{target: 1},
 	}
 
 	reqBody, err := json.Marshal(spawnReqBody)
@@ -1350,21 +1352,21 @@ func (e *Env) SpawnRemoteSession(flavorID, target, prompt, nickname string) stri
 }
 
 // WaitForRemoteHostStatus waits for a remote host to reach a specific status.
-func (e *Env) WaitForRemoteHostStatus(flavorID, expectedStatus string, timeout time.Duration) *RemoteHostResponse {
+func (e *Env) WaitForRemoteHostStatus(profileID, expectedStatus string, timeout time.Duration) *RemoteHostResponse {
 	e.T.Helper()
 	deadline := time.Now().Add(timeout)
 
 	for time.Now().Before(deadline) {
 		hosts := e.GetRemoteHosts()
 		for _, host := range hosts {
-			if host.FlavorID == flavorID && host.Status == expectedStatus {
+			if host.ProfileID == profileID && host.Status == expectedStatus {
 				return &host
 			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	e.T.Fatalf("Timed out waiting for remote host %s to reach status %s", flavorID, expectedStatus)
+	e.T.Fatalf("Timed out waiting for remote host %s to reach status %s", profileID, expectedStatus)
 	return nil
 }
 

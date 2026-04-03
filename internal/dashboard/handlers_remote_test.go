@@ -112,22 +112,22 @@ func TestCleanupOnceIdempotent(t *testing.T) {
 // When a flavor has no connections, the API must return hosts as an empty JSON
 // array ([]), not null. Go serializes nil slices as null, which crashed the
 // frontend when it tried to call .map() on null.
-func TestHandleRemoteFlavorStatuses_EmptyHostsNotNull(t *testing.T) {
+func TestHandleRemoteProfileStatuses_EmptyHostsNotNull(t *testing.T) {
 	server, cfg, _ := newTestServer(t)
 
-	// Add a remote flavor with no active connections
-	if err := cfg.AddRemoteFlavor(config.RemoteFlavor{
-		Flavor:        "od",
+	// Add a remote profile with no active connections
+	if err := cfg.AddRemoteProfile(config.RemoteProfile{
 		DisplayName:   "OnDemand",
 		VCS:           "git",
 		WorkspacePath: "/data/users/test",
+		Flavors:       []config.RemoteProfileFlavor{{Flavor: "od"}},
 	}); err != nil {
-		t.Fatalf("failed to add remote flavor: %v", err)
+		t.Fatalf("failed to add remote profile: %v", err)
 	}
 
-	req := httptest.NewRequest("GET", "/api/remote/flavor-statuses", nil)
+	req := httptest.NewRequest("GET", "/api/remote/profile-statuses", nil)
 	rr := httptest.NewRecorder()
-	server.handleRemoteFlavorStatuses(rr, req)
+	server.handleRemoteProfileStatuses(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
@@ -140,22 +140,18 @@ func TestHandleRemoteFlavorStatuses_EmptyHostsNotNull(t *testing.T) {
 	}
 
 	// Parse into structured response
-	var statuses []RemoteFlavorStatusResponse
+	var statuses []RemoteProfileStatusResponse
 	if err := json.Unmarshal(raw, &statuses); err != nil {
 		t.Fatalf("failed to unmarshal statuses: %v", err)
 	}
 
 	if len(statuses) == 0 {
-		t.Fatal("expected at least one flavor status")
+		t.Fatal("expected at least one profile status")
 	}
 
-	// The Hosts field should be nil in Go (no connections), but that's the
-	// Go-side representation. The key invariant is that the frontend handles
-	// this by doing (hosts || []).map(...). This test verifies the handler
-	// produces valid JSON that can be parsed.
-	// Also verify the flavor data comes through
-	if statuses[0].Flavor.DisplayName != "OnDemand" {
-		t.Errorf("DisplayName = %q, want %q", statuses[0].Flavor.DisplayName, "OnDemand")
+	// Verify the profile data comes through
+	if statuses[0].Profile.DisplayName != "OnDemand" {
+		t.Errorf("DisplayName = %q, want %q", statuses[0].Profile.DisplayName, "OnDemand")
 	}
 }
 
@@ -168,10 +164,11 @@ func TestHandleRemoteHostDisconnect_DismissRemovesAll(t *testing.T) {
 
 	// Add a remote host, sessions, and workspaces to state
 	st.AddRemoteHost(state.RemoteHost{
-		ID:       hostID,
-		FlavorID: "flavor-od",
-		Status:   state.RemoteHostStatusDisconnected,
-		Hostname: "old.example.com",
+		ID:        hostID,
+		ProfileID: "profile-od",
+		Flavor:    "od",
+		Status:    state.RemoteHostStatusDisconnected,
+		Hostname:  "old.example.com",
 	})
 	st.AddSession(state.Session{
 		ID:           "sess-1",
@@ -219,263 +216,32 @@ func TestHandleRemoteHostDisconnect_DismissRemovesAll(t *testing.T) {
 	}
 }
 
-func TestHandleRemoteFlavorUpdate_AllFields(t *testing.T) {
-	server, cfg, _ := newTestServer(t)
-
-	// Seed a flavor to update
-	if err := cfg.AddRemoteFlavor(config.RemoteFlavor{
-		Flavor:                "od",
-		DisplayName:           "OnDemand",
-		VCS:                   "git",
-		WorkspacePath:         "/data/users/test",
-		ConnectCommand:        "ssh {{.Flavor}}",
-		ReconnectCommand:      "ssh {{.Hostname}}",
-		ProvisionCommand:      "setup.sh",
-		HostnameRegex:         `(od\d+)`,
-		VSCodeCommandTemplate: "code --remote ssh-remote+{{.Hostname}}",
-	}); err != nil {
-		t.Fatalf("failed to add flavor: %v", err)
-	}
-	id := config.GenerateRemoteFlavorID("od")
-
-	tests := []struct {
-		name  string
-		field string // JSON field name
-		value string // new value to send
-		check func(t *testing.T, resp RemoteFlavorResponse)
-	}{
-		{
-			name:  "Flavor",
-			field: "flavor",
-			value: "devserver",
-			check: func(t *testing.T, resp RemoteFlavorResponse) {
-				if resp.Flavor != "devserver" {
-					t.Errorf("Flavor = %q, want %q", resp.Flavor, "devserver")
-				}
-			},
-		},
-		{
-			name:  "DisplayName",
-			field: "display_name",
-			value: "Dev Server",
-			check: func(t *testing.T, resp RemoteFlavorResponse) {
-				if resp.DisplayName != "Dev Server" {
-					t.Errorf("DisplayName = %q, want %q", resp.DisplayName, "Dev Server")
-				}
-			},
-		},
-		{
-			name:  "VCS",
-			field: "vcs",
-			value: "sapling",
-			check: func(t *testing.T, resp RemoteFlavorResponse) {
-				if resp.VCS != "sapling" {
-					t.Errorf("VCS = %q, want %q", resp.VCS, "sapling")
-				}
-			},
-		},
-		{
-			name:  "WorkspacePath",
-			field: "workspace_path",
-			value: "/home/newuser/workspaces",
-			check: func(t *testing.T, resp RemoteFlavorResponse) {
-				if resp.WorkspacePath != "/home/newuser/workspaces" {
-					t.Errorf("WorkspacePath = %q, want %q", resp.WorkspacePath, "/home/newuser/workspaces")
-				}
-			},
-		},
-		{
-			name:  "ConnectCommand",
-			field: "connect_command",
-			value: "cloud-ssh connect {{.Flavor}}",
-			check: func(t *testing.T, resp RemoteFlavorResponse) {
-				if resp.ConnectCommand != "cloud-ssh connect {{.Flavor}}" {
-					t.Errorf("ConnectCommand = %q, want %q", resp.ConnectCommand, "cloud-ssh connect {{.Flavor}}")
-				}
-			},
-		},
-		{
-			name:  "ReconnectCommand",
-			field: "reconnect_command",
-			value: "cloud-ssh reconnect {{.Hostname}}",
-			check: func(t *testing.T, resp RemoteFlavorResponse) {
-				if resp.ReconnectCommand != "cloud-ssh reconnect {{.Hostname}}" {
-					t.Errorf("ReconnectCommand = %q, want %q", resp.ReconnectCommand, "cloud-ssh reconnect {{.Hostname}}")
-				}
-			},
-		},
-		{
-			name:  "ProvisionCommand",
-			field: "provision_command",
-			value: "bootstrap.sh --env prod",
-			check: func(t *testing.T, resp RemoteFlavorResponse) {
-				if resp.ProvisionCommand != "bootstrap.sh --env prod" {
-					t.Errorf("ProvisionCommand = %q, want %q", resp.ProvisionCommand, "bootstrap.sh --env prod")
-				}
-			},
-		},
-		{
-			name:  "HostnameRegex",
-			field: "hostname_regex",
-			value: `(devvm\d+\.example\.com)`,
-			check: func(t *testing.T, resp RemoteFlavorResponse) {
-				if resp.HostnameRegex != `(devvm\d+\.example\.com)` {
-					t.Errorf("HostnameRegex = %q, want %q", resp.HostnameRegex, `(devvm\d+\.example\.com)`)
-				}
-			},
-		},
-		{
-			name:  "VSCodeCommandTemplate",
-			field: "vscode_command_template",
-			value: "code --remote ssh-remote+{{.Hostname}} /workspace",
-			check: func(t *testing.T, resp RemoteFlavorResponse) {
-				if resp.VSCodeCommandTemplate != "code --remote ssh-remote+{{.Hostname}} /workspace" {
-					t.Errorf("VSCodeCommandTemplate = %q, want %q", resp.VSCodeCommandTemplate, "code --remote ssh-remote+{{.Hostname}} /workspace")
-				}
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Reset to known state before each subtest
-			cfg.UpdateRemoteFlavor(config.RemoteFlavor{
-				ID:                    id,
-				Flavor:                "od",
-				DisplayName:           "OnDemand",
-				VCS:                   "git",
-				WorkspacePath:         "/data/users/test",
-				ConnectCommand:        "ssh {{.Flavor}}",
-				ReconnectCommand:      "ssh {{.Hostname}}",
-				ProvisionCommand:      "setup.sh",
-				HostnameRegex:         `(od\d+)`,
-				VSCodeCommandTemplate: "code --remote ssh-remote+{{.Hostname}}",
-			})
-
-			// Build a full valid request body, overriding just the target field
-			base := map[string]string{
-				"flavor":                  "od",
-				"display_name":            "OnDemand",
-				"vcs":                     "git",
-				"workspace_path":          "/data/users/test",
-				"connect_command":         "ssh {{.Flavor}}",
-				"reconnect_command":       "ssh {{.Hostname}}",
-				"provision_command":       "setup.sh",
-				"hostname_regex":          `(od\d+)`,
-				"vscode_command_template": "code --remote ssh-remote+{{.Hostname}}",
-			}
-			base[tt.field] = tt.value
-
-			body, _ := json.Marshal(base)
-			req := httptest.NewRequest("PUT", "/api/config/remote-flavors/"+id, bytes.NewReader(body))
-			req.Header.Set("Content-Type", "application/json")
-			rctx := chi.NewRouteContext()
-			rctx.URLParams.Add("id", id)
-			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
-
-			rr := httptest.NewRecorder()
-			server.handleRemoteFlavorUpdate(rr, req)
-
-			if rr.Code != http.StatusOK {
-				t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
-			}
-
-			var resp RemoteFlavorResponse
-			if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-				t.Fatalf("failed to decode response: %v", err)
-			}
-
-			// ID should remain stable
-			if resp.ID != id {
-				t.Errorf("ID changed: got %q, want %q", resp.ID, id)
-			}
-
-			tt.check(t, resp)
-
-			// Verify persisted to config
-			persisted, found := cfg.GetRemoteFlavor(id)
-			if !found {
-				t.Fatal("flavor not found in config after update")
-			}
-			if persisted.ID != id {
-				t.Errorf("persisted ID = %q, want %q", persisted.ID, id)
-			}
-		})
-	}
-}
-
-func TestHandleRemoteFlavorUpdate_NotFound(t *testing.T) {
+func TestHandleRemoteProfileUpdate_NotFound(t *testing.T) {
 	server, _, _ := newTestServer(t)
 
-	body, _ := json.Marshal(map[string]string{
-		"flavor":         "od",
+	body, _ := json.Marshal(map[string]interface{}{
 		"display_name":   "OnDemand",
 		"vcs":            "git",
 		"workspace_path": "/data/users/test",
+		"flavors":        []map[string]string{{"flavor": "od"}},
 	})
-	req := httptest.NewRequest("PUT", "/api/config/remote-flavors/nonexistent", bytes.NewReader(body))
+	req := httptest.NewRequest("PUT", "/api/config/remote-profiles/nonexistent", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", "nonexistent")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 
 	rr := httptest.NewRecorder()
-	server.handleRemoteFlavorUpdate(rr, req)
+	server.handleRemoteProfileUpdate(rr, req)
 
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", rr.Code)
 	}
 }
 
-func TestHandleRemoteFlavorUpdate_FlavorDefaultsToExisting(t *testing.T) {
-	server, cfg, _ := newTestServer(t)
-
-	if err := cfg.AddRemoteFlavor(config.RemoteFlavor{
-		Flavor:        "od",
-		DisplayName:   "OnDemand",
-		VCS:           "git",
-		WorkspacePath: "/data/users/test",
-	}); err != nil {
-		t.Fatalf("failed to add flavor: %v", err)
-	}
-	id := config.GenerateRemoteFlavorID("od")
-
-	// Send update without flavor field — should keep existing
-	body, _ := json.Marshal(map[string]string{
-		"display_name":   "Updated Name",
-		"vcs":            "git",
-		"workspace_path": "/data/users/test",
-	})
-	req := httptest.NewRequest("PUT", "/api/config/remote-flavors/"+id, bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("id", id)
-	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
-
-	rr := httptest.NewRecorder()
-	server.handleRemoteFlavorUpdate(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp RemoteFlavorResponse
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
-
-	if resp.Flavor != "od" {
-		t.Errorf("Flavor = %q, want %q (should keep existing)", resp.Flavor, "od")
-	}
-	if resp.DisplayName != "Updated Name" {
-		t.Errorf("DisplayName = %q, want %q", resp.DisplayName, "Updated Name")
-	}
-}
-
-func TestToFlavorResponse_AllFields(t *testing.T) {
-	f := config.RemoteFlavor{
+func TestToProfileResponse_AllFields(t *testing.T) {
+	p := config.RemoteProfile{
 		ID:                    "devvm",
-		Flavor:                "devvm",
 		DisplayName:           "DevVM",
 		VCS:                   "hg",
 		WorkspacePath:         "/data/users/$USER",
@@ -484,38 +250,39 @@ func TestToFlavorResponse_AllFields(t *testing.T) {
 		ProvisionCommand:      "setup.sh",
 		HostnameRegex:         `devvm\d+\.example\.com`,
 		VSCodeCommandTemplate: "code --remote ssh-remote+$HOST",
+		Flavors:               []config.RemoteProfileFlavor{{Flavor: "devvm"}},
 	}
 
-	resp := toFlavorResponse(f)
+	resp := toProfileResponse(p)
 
-	if resp.ID != f.ID {
-		t.Errorf("ID: got %q, want %q", resp.ID, f.ID)
+	if resp.ID != p.ID {
+		t.Errorf("ID: got %q, want %q", resp.ID, p.ID)
 	}
-	if resp.Flavor != f.Flavor {
-		t.Errorf("Flavor: got %q, want %q", resp.Flavor, f.Flavor)
+	if resp.DisplayName != p.DisplayName {
+		t.Errorf("DisplayName: got %q, want %q", resp.DisplayName, p.DisplayName)
 	}
-	if resp.DisplayName != f.DisplayName {
-		t.Errorf("DisplayName: got %q, want %q", resp.DisplayName, f.DisplayName)
+	if resp.VCS != p.VCS {
+		t.Errorf("VCS: got %q, want %q", resp.VCS, p.VCS)
 	}
-	if resp.VCS != f.VCS {
-		t.Errorf("VCS: got %q, want %q", resp.VCS, f.VCS)
+	if resp.WorkspacePath != p.WorkspacePath {
+		t.Errorf("WorkspacePath: got %q, want %q", resp.WorkspacePath, p.WorkspacePath)
 	}
-	if resp.WorkspacePath != f.WorkspacePath {
-		t.Errorf("WorkspacePath: got %q, want %q", resp.WorkspacePath, f.WorkspacePath)
+	if resp.ConnectCommand != p.ConnectCommand {
+		t.Errorf("ConnectCommand: got %q, want %q", resp.ConnectCommand, p.ConnectCommand)
 	}
-	if resp.ConnectCommand != f.ConnectCommand {
-		t.Errorf("ConnectCommand: got %q, want %q", resp.ConnectCommand, f.ConnectCommand)
+	if resp.ReconnectCommand != p.ReconnectCommand {
+		t.Errorf("ReconnectCommand: got %q, want %q", resp.ReconnectCommand, p.ReconnectCommand)
 	}
-	if resp.ReconnectCommand != f.ReconnectCommand {
-		t.Errorf("ReconnectCommand: got %q, want %q", resp.ReconnectCommand, f.ReconnectCommand)
+	if resp.ProvisionCommand != p.ProvisionCommand {
+		t.Errorf("ProvisionCommand: got %q, want %q", resp.ProvisionCommand, p.ProvisionCommand)
 	}
-	if resp.ProvisionCommand != f.ProvisionCommand {
-		t.Errorf("ProvisionCommand: got %q, want %q", resp.ProvisionCommand, f.ProvisionCommand)
+	if resp.HostnameRegex != p.HostnameRegex {
+		t.Errorf("HostnameRegex: got %q, want %q", resp.HostnameRegex, p.HostnameRegex)
 	}
-	if resp.HostnameRegex != f.HostnameRegex {
-		t.Errorf("HostnameRegex: got %q, want %q", resp.HostnameRegex, f.HostnameRegex)
+	if resp.VSCodeCommandTemplate != p.VSCodeCommandTemplate {
+		t.Errorf("VSCodeCommandTemplate: got %q, want %q", resp.VSCodeCommandTemplate, p.VSCodeCommandTemplate)
 	}
-	if resp.VSCodeCommandTemplate != f.VSCodeCommandTemplate {
-		t.Errorf("VSCodeCommandTemplate: got %q, want %q", resp.VSCodeCommandTemplate, f.VSCodeCommandTemplate)
+	if len(resp.Flavors) != 1 || resp.Flavors[0].Flavor != "devvm" {
+		t.Errorf("Flavors: got %v, want [{Flavor: devvm}]", resp.Flavors)
 	}
 }

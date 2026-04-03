@@ -225,7 +225,8 @@ func TestHandleSpawnPost_GitURLGeneratesCorrectName(t *testing.T) {
 // spawning on an existing host created a NEW connection instead of reusing.
 func TestSpawnRequest_RemoteHostID_Deserialization(t *testing.T) {
 	payload := `{
-		"remote_flavor_id": "flavor-od",
+		"remote_profile_id": "profile-od",
+		"remote_flavor": "od",
 		"remote_host_id": "host-abc123",
 		"targets": {"claude": 1},
 		"prompt": "hello"
@@ -239,8 +240,8 @@ func TestSpawnRequest_RemoteHostID_Deserialization(t *testing.T) {
 	if req.RemoteHostID != "host-abc123" {
 		t.Errorf("RemoteHostID = %q, want %q", req.RemoteHostID, "host-abc123")
 	}
-	if req.RemoteFlavorID != "flavor-od" {
-		t.Errorf("RemoteFlavorID = %q, want %q", req.RemoteFlavorID, "flavor-od")
+	if req.RemoteProfileID != "profile-od" {
+		t.Errorf("RemoteProfileID = %q, want %q", req.RemoteProfileID, "profile-od")
 	}
 }
 
@@ -252,18 +253,20 @@ func TestHandleSpawnPost_RemoteHostID_PassedToSpawnRemote(t *testing.T) {
 
 	// Register a remote host in state so the auto-detect path finds its flavor
 	st.AddRemoteHost(state.RemoteHost{
-		ID:       "host-existing",
-		FlavorID: "flavor-od",
-		Status:   state.RemoteHostStatusConnected,
-		Hostname: "dev001.example.com",
+		ID:        "host-existing",
+		ProfileID: "profile-od",
+		Flavor:    "od",
+		Status:    state.RemoteHostStatusConnected,
+		Hostname:  "dev001.example.com",
 	})
 
 	// Send spawn request with remote_host_id
 	body := SpawnRequest{
-		RemoteFlavorID: "flavor-od",
-		RemoteHostID:   "host-existing",
-		Targets:        map[string]int{"claude": 1},
-		Prompt:         "hello",
+		RemoteProfileID: "profile-od",
+		RemoteFlavor:    "od",
+		RemoteHostID:    "host-existing",
+		Targets:         map[string]int{"claude": 1},
+		Prompt:          "hello",
 	}
 	rr := postSpawnJSON(t, server.handleSpawnPost, body)
 

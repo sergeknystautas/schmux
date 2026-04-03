@@ -81,7 +81,8 @@ export default function AppShell() {
   // State for reconnect modal (used by sidebar Reconnect button)
   const [reconnectModal, setReconnectModal] = useState<{
     hostId: string;
-    flavorId: string;
+    profileId: string;
+    flavor?: string;
     displayName: string;
     provisioningSessionId: string | null;
   } | null>(null);
@@ -883,7 +884,8 @@ export default function AppShell() {
                               const result = await reconnectRemoteHost(workspace.remote_host_id!);
                               setReconnectModal({
                                 hostId: workspace.remote_host_id!,
-                                flavorId: result.flavor_id,
+                                profileId: result.profile_id,
+                                flavor: result.flavor,
                                 displayName: result.hostname || workspace.branch,
                                 provisioningSessionId: result.provisioning_session_id || null,
                               });
@@ -1040,7 +1042,8 @@ export default function AppShell() {
       <main className="app-shell__content">
         {reconnectModal && (
           <ConnectionProgressModal
-            flavorId={reconnectModal.flavorId}
+            profileId={reconnectModal.profileId}
+            flavor={reconnectModal.flavor}
             flavorName={reconnectModal.displayName}
             provisioningSessionId={reconnectModal.provisioningSessionId}
             onClose={() => setReconnectModal(null)}

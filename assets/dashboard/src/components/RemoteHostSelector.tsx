@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import HostStatusIndicator from './HostStatusIndicator';
 import ConnectionProgressModal from './ConnectionProgressModal';
 import {
-  getRemoteFlavorStatuses,
+  getRemoteProfileStatuses,
   getErrorMessage,
   getRemoteHosts,
   connectRemoteHost,
@@ -11,11 +11,23 @@ import {
 import { useToast } from './ToastProvider';
 import { useModal } from './ModalProvider';
 import { useSessions } from '../contexts/SessionsContext';
-import type { RemoteFlavor, RemoteFlavorStatus, RemoteHostStatus, RemoteHost } from '../lib/types';
+import type {
+  RemoteProfile,
+  RemoteProfileStatus,
+  RemoteHostStatus,
+  RemoteHost,
+} from '../lib/types';
 
 export type EnvironmentSelection =
   | { type: 'local' }
-  | { type: 'remote'; flavorId: string; flavor: RemoteFlavor; host?: RemoteHost; hostId?: string };
+  | {
+      type: 'remote';
+      profileId: string;
+      profile: RemoteProfile;
+      flavor: string;
+      host?: RemoteHost;
+      hostId?: string;
+    };
 
 interface RemoteHostSelectorProps {
   value: EnvironmentSelection;
@@ -30,26 +42,30 @@ export default function RemoteHostSelector({
   onConnectionComplete,
   disabled = false,
 }: RemoteHostSelectorProps) {
-  const [flavors, setFlavors] = useState<RemoteFlavorStatus[]>([]);
+  const [profileStatuses, setProfileStatuses] = useState<RemoteProfileStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState<string | null>(null);
-  const [connectingFlavor, setConnectingFlavor] = useState<RemoteFlavor | null>(null);
+  const [connectingProfileId, setConnectingProfileId] = useState<string | null>(null);
+  const [connectingFlavor, setConnectingFlavor] = useState<string | null>(null);
+  const [connectingDisplayName, setConnectingDisplayName] = useState<string>('');
   const [provisioningSessionId, setProvisioningSessionId] = useState<string | null>(null);
+  // Track selected flavor per profile (for profiles with multiple flavors)
+  const [selectedFlavors, setSelectedFlavors] = useState<Record<string, string>>({});
   const { success: toastSuccess } = useToast();
   const { alert } = useModal();
   const { workspaces } = useSessions();
   const activeRef = useRef(true);
 
-  // Re-fetch flavor statuses on mount and whenever WebSocket broadcasts
+  // Re-fetch profile statuses on mount and whenever WebSocket broadcasts
   // (BroadcastSessions fires on remote host status changes)
   useEffect(() => {
     activeRef.current = true;
     const load = async () => {
       try {
-        const statuses = await getRemoteFlavorStatuses();
-        if (activeRef.current) setFlavors(statuses);
+        const statuses = await getRemoteProfileStatuses();
+        if (activeRef.current) setProfileStatuses(statuses);
       } catch (err) {
-        console.error('Failed to load remote flavor statuses:', err);
+        console.error('Failed to load remote profile statuses:', err);
       } finally {
         if (activeRef.current) setLoading(false);
       }
@@ -60,12 +76,29 @@ export default function RemoteHostSelector({
     };
   }, [workspaces]);
 
+  // Initialize selected flavors for profiles when statuses load
+  useEffect(() => {
+    const newSelected: Record<string, string> = {};
+    for (const ps of profileStatuses) {
+      if (!selectedFlavors[ps.profile.id] && ps.profile.flavors.length > 0) {
+        newSelected[ps.profile.id] = ps.profile.flavors[0].flavor;
+      }
+    }
+    if (Object.keys(newSelected).length > 0) {
+      setSelectedFlavors((prev) => ({ ...prev, ...newSelected }));
+    }
+  }, [profileStatuses]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const getSelectedFlavor = (profileId: string): string => {
+    return selectedFlavors[profileId] || '';
+  };
+
   const handleSelectLocal = () => {
     onChange({ type: 'local' });
   };
 
   const handleSelectExistingHost = useCallback(
-    async (flavorStatus: RemoteFlavorStatus, hostStatus: RemoteHostStatus) => {
+    async (profileStatus: RemoteProfileStatus, flavorStr: string, hostStatus: RemoteHostStatus) => {
       if (hostStatus.connected) {
         // Already connected - fetch full host data from API
         try {
@@ -73,8 +106,9 @@ export default function RemoteHostSelector({
           const fullHost = hosts.find((h) => h.id === hostStatus.host_id);
           onChange({
             type: 'remote',
-            flavorId: flavorStatus.flavor.id,
-            flavor: flavorStatus.flavor,
+            profileId: profileStatus.profile.id,
+            profile: profileStatus.profile,
+            flavor: flavorStr,
             host: fullHost,
             hostId: hostStatus.host_id,
           });
@@ -83,29 +117,35 @@ export default function RemoteHostSelector({
           // Fall back to selection without full host data
           onChange({
             type: 'remote',
-            flavorId: flavorStatus.flavor.id,
-            flavor: flavorStatus.flavor,
+            profileId: profileStatus.profile.id,
+            profile: profileStatus.profile,
+            flavor: flavorStr,
             hostId: hostStatus.host_id,
           });
         }
       } else if (hostStatus.status === 'disconnected' || hostStatus.status === 'expired') {
         // Disconnected/expired host - trigger reconnect
-        setConnecting(flavorStatus.flavor.id);
-        setConnectingFlavor(flavorStatus.flavor);
+        setConnecting(profileStatus.profile.id);
+        setConnectingProfileId(profileStatus.profile.id);
+        setConnectingFlavor(flavorStr);
+        setConnectingDisplayName(profileStatus.profile.display_name);
         try {
           const response = await reconnectRemoteHost(hostStatus.host_id);
           setProvisioningSessionId(response.provisioning_session_id || null);
         } catch (err) {
           alert('Reconnect Failed', getErrorMessage(err, 'Failed to reconnect'));
           setConnecting(null);
+          setConnectingProfileId(null);
           setConnectingFlavor(null);
+          setConnectingDisplayName('');
         }
       } else {
         // Provisioning/connecting - select it
         onChange({
           type: 'remote',
-          flavorId: flavorStatus.flavor.id,
-          flavor: flavorStatus.flavor,
+          profileId: profileStatus.profile.id,
+          profile: profileStatus.profile,
+          flavor: flavorStr,
           hostId: hostStatus.host_id,
         });
       }
@@ -114,18 +154,25 @@ export default function RemoteHostSelector({
   );
 
   const handleSelectNewHost = useCallback(
-    async (flavorStatus: RemoteFlavorStatus) => {
-      // Start a new connection for this flavor
-      setConnecting(flavorStatus.flavor.id);
-      setConnectingFlavor(flavorStatus.flavor);
+    async (profileStatus: RemoteProfileStatus, flavorStr: string) => {
+      // Start a new connection for this profile+flavor
+      setConnecting(profileStatus.profile.id);
+      setConnectingProfileId(profileStatus.profile.id);
+      setConnectingFlavor(flavorStr);
+      setConnectingDisplayName(profileStatus.profile.display_name);
 
       try {
-        const response = await connectRemoteHost({ flavor_id: flavorStatus.flavor.id });
+        const response = await connectRemoteHost({
+          profile_id: profileStatus.profile.id,
+          flavor: flavorStr,
+        });
         setProvisioningSessionId(response.provisioning_session_id || null);
       } catch (err) {
         alert('Connection Failed', getErrorMessage(err, 'Failed to start connection'));
         setConnecting(null);
+        setConnectingProfileId(null);
         setConnectingFlavor(null);
+        setConnectingDisplayName('');
       }
     },
     [alert]
@@ -134,8 +181,8 @@ export default function RemoteHostSelector({
   const isSelected = (type: 'local' | string, hostId?: string) => {
     if (type === 'local') return value.type === 'local';
     if (value.type !== 'remote') return false;
-    if (value.flavorId !== type) return false;
-    // If hostId is specified, match on it; otherwise just match flavor
+    if (value.profileId !== type) return false;
+    // If hostId is specified, match on it; otherwise just match profile
     if (hostId) return value.hostId === hostId;
     return !value.hostId;
   };
@@ -154,8 +201,8 @@ export default function RemoteHostSelector({
     minWidth: '160px',
   });
 
-  // Don't show the selector if no remote flavors are configured
-  if (!loading && flavors.length === 0) {
+  // Don't show the selector if no remote profiles are configured
+  if (!loading && profileStatuses.length === 0) {
     return null;
   }
 
@@ -201,20 +248,27 @@ export default function RemoteHostSelector({
           <HostStatusIndicator status="ready" />
         </div>
 
-        {/* Remote flavor options */}
+        {/* Remote profile options */}
         {loading ? (
           <div className="flex-row gap-sm p-md text-muted">
             <span className="spinner spinner--small" />
             <span>Loading remote hosts...</span>
           </div>
         ) : (
-          flavors.map((flavorStatus) => {
-            const isConnecting = connecting === flavorStatus.flavor.id;
+          profileStatuses.map((profileStatus) => {
+            const isConnecting = connecting === profileStatus.profile.id;
+            const currentFlavor = getSelectedFlavor(profileStatus.profile.id);
+            // Find the flavor_hosts group matching the selected flavor
+            const currentFlavorGroup = profileStatus.flavor_hosts.find(
+              (fg) => fg.flavor === currentFlavor
+            );
+            const hosts = currentFlavorGroup?.hosts || [];
+
             // Render existing host cards (if any) + a "New host" card
             return (
-              <React.Fragment key={flavorStatus.flavor.id}>
-                {(flavorStatus.hosts || []).map((hostStatus) => {
-                  const selected = isSelected(flavorStatus.flavor.id, hostStatus.host_id);
+              <React.Fragment key={profileStatus.profile.id}>
+                {hosts.map((hostStatus) => {
+                  const selected = isSelected(profileStatus.profile.id, hostStatus.host_id);
                   return (
                     <div
                       key={hostStatus.host_id}
@@ -222,14 +276,14 @@ export default function RemoteHostSelector({
                       onClick={() =>
                         !disabled &&
                         !isConnecting &&
-                        handleSelectExistingHost(flavorStatus, hostStatus)
+                        handleSelectExistingHost(profileStatus, currentFlavor, hostStatus)
                       }
                       role="button"
                       tabIndex={disabled || isConnecting ? -1 : 0}
                       onKeyDown={(e) => {
                         if (!disabled && !isConnecting && (e.key === 'Enter' || e.key === ' ')) {
                           e.preventDefault();
-                          handleSelectExistingHost(flavorStatus, hostStatus);
+                          handleSelectExistingHost(profileStatus, currentFlavor, hostStatus);
                         }
                       }}
                     >
@@ -246,7 +300,7 @@ export default function RemoteHostSelector({
                           <line x1="1" y1="10" x2="23" y2="10" />
                         </svg>
                         <strong className="truncate">
-                          {hostStatus.hostname || flavorStatus.flavor.display_name}
+                          {hostStatus.hostname || profileStatus.profile.display_name}
                         </strong>
                       </div>
                       <div
@@ -257,7 +311,7 @@ export default function RemoteHostSelector({
                           textOverflow: 'ellipsis',
                         }}
                       >
-                        {flavorStatus.flavor.display_name}
+                        {profileStatus.profile.display_name}
                       </div>
                       <HostStatusIndicator
                         status={hostStatus.status || 'disconnected'}
@@ -273,13 +327,15 @@ export default function RemoteHostSelector({
                     ...cardStyle(false),
                     borderStyle: 'dashed',
                   }}
-                  onClick={() => !disabled && !isConnecting && handleSelectNewHost(flavorStatus)}
+                  onClick={() =>
+                    !disabled && !isConnecting && handleSelectNewHost(profileStatus, currentFlavor)
+                  }
                   role="button"
                   tabIndex={disabled || isConnecting ? -1 : 0}
                   onKeyDown={(e) => {
                     if (!disabled && !isConnecting && (e.key === 'Enter' || e.key === ' ')) {
                       e.preventDefault();
-                      handleSelectNewHost(flavorStatus);
+                      handleSelectNewHost(profileStatus, currentFlavor);
                     }
                   }}
                 >
@@ -297,7 +353,7 @@ export default function RemoteHostSelector({
                       <line x1="5" y1="12" x2="19" y2="12" />
                     </svg>
                     <strong className="truncate">
-                      New {flavorStatus.flavor.display_name} host
+                      New {profileStatus.profile.display_name} host
                     </strong>
                   </div>
                   <div
@@ -306,7 +362,29 @@ export default function RemoteHostSelector({
                       color: 'var(--color-text-muted)',
                     }}
                   >
-                    Provision a new instance
+                    {profileStatus.profile.flavors.length > 1 ? (
+                      <select
+                        className="select"
+                        style={{ fontSize: '0.75rem', padding: '2px 4px' }}
+                        value={currentFlavor}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          setSelectedFlavors((prev) => ({
+                            ...prev,
+                            [profileStatus.profile.id]: e.target.value,
+                          }));
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {profileStatus.profile.flavors.map((pf) => (
+                          <option key={pf.flavor} value={pf.flavor}>
+                            {pf.display_name || pf.flavor}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      'Provision a new instance'
+                    )}
                   </div>
                 </div>
               </React.Fragment>
@@ -316,33 +394,45 @@ export default function RemoteHostSelector({
       </div>
 
       {/* Connection Progress Modal */}
-      {connecting && connectingFlavor && (
+      {connecting && connectingProfileId && (
         <ConnectionProgressModal
-          flavorId={connecting}
-          flavorName={connectingFlavor.display_name}
+          profileId={connectingProfileId}
+          flavor={connectingFlavor || undefined}
+          flavorName={connectingDisplayName}
           provisioningSessionId={provisioningSessionId}
           onClose={() => {
             setConnecting(null);
+            setConnectingProfileId(null);
             setConnectingFlavor(null);
+            setConnectingDisplayName('');
             setProvisioningSessionId(null);
           }}
           onConnected={async (host) => {
+            const profile = profileStatuses.find(
+              (ps) => ps.profile.id === connectingProfileId
+            )?.profile;
             setConnecting(null);
+            setConnectingProfileId(null);
+            const flavorStr = connectingFlavor || '';
             setConnectingFlavor(null);
+            setConnectingDisplayName('');
             setProvisioningSessionId(null);
-            onChange({
-              type: 'remote',
-              flavorId: connectingFlavor.id,
-              flavor: connectingFlavor,
-              host,
-              hostId: host.id,
-            });
+            if (profile) {
+              onChange({
+                type: 'remote',
+                profileId: profile.id,
+                profile,
+                flavor: flavorStr,
+                host,
+                hostId: host.id,
+              });
+            }
             onConnectionComplete?.(host);
-            toastSuccess(`Connected to ${connectingFlavor.display_name}`);
-            // Re-fetch flavor statuses so host cards update immediately
+            toastSuccess(`Connected to ${profile?.display_name || 'remote host'}`);
+            // Re-fetch profile statuses so host cards update immediately
             try {
-              const statuses = await getRemoteFlavorStatuses();
-              setFlavors(statuses);
+              const statuses = await getRemoteProfileStatuses();
+              setProfileStatuses(statuses);
             } catch {
               // WebSocket will update eventually
             }

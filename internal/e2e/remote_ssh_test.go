@@ -35,20 +35,20 @@ func TestE2ERemoteSSHSmoke(t *testing.T) {
 		env.CreateConfig(workspaceRoot)
 	})
 
-	var flavorID string
-	t.Run("AddSSHRemoteFlavor", func(t *testing.T) {
+	var profileID string
+	t.Run("AddSSHRemoteProfile", func(t *testing.T) {
 		// SSH to localhost with strict host key checking disabled for testing.
 		// -tt forces remote PTY allocation, which tmux needs even in control mode.
-		flavorID = env.AddRemoteFlavorToConfig(
+		profileID = env.AddRemoteProfileToConfig(
 			"localhost",
 			"Localhost via SSH (E2E Test)",
 			"/tmp/ssh-test-workspace",
 			"ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null localhost",
 		)
-		if flavorID == "" {
-			t.Fatal("Expected flavor ID, got empty")
+		if profileID == "" {
+			t.Fatal("Expected profile ID, got empty")
 		}
-		t.Logf("SSH flavor ID: %s", flavorID)
+		t.Logf("SSH profile ID: %s", profileID)
 	})
 
 	t.Run("DaemonStart", func(t *testing.T) {
@@ -65,7 +65,7 @@ func TestE2ERemoteSSHSmoke(t *testing.T) {
 	var sessionID string
 	t.Run("SpawnRemoteSessionViaSSH", func(t *testing.T) {
 		t.Log("Spawning remote session via SSH (this may take a few seconds)...")
-		sessionID = env.SpawnRemoteSession(flavorID, "echo", "", env.Nickname("ssh-test"))
+		sessionID = env.SpawnRemoteSession(profileID, "echo", "", env.Nickname("ssh-test"))
 		if sessionID == "" {
 			t.Fatal("Expected session ID from SSH remote spawn")
 		}
@@ -74,7 +74,7 @@ func TestE2ERemoteSSHSmoke(t *testing.T) {
 
 	t.Run("WaitForSSHConnection", func(t *testing.T) {
 		// SSH connection may take longer than mock
-		host := env.WaitForRemoteHostStatus(flavorID, "connected", 30*time.Second)
+		host := env.WaitForRemoteHostStatus(profileID, "connected", 30*time.Second)
 		if host == nil {
 			t.Fatal("SSH remote host did not connect")
 		}
@@ -134,7 +134,7 @@ func TestE2ERemoteSSHSmoke(t *testing.T) {
 		hosts := env.GetRemoteHosts()
 		found := false
 		for _, host := range hosts {
-			if host.FlavorID == flavorID {
+			if host.ProfileID == profileID {
 				found = true
 				t.Logf("Host status after dispose: %s", host.Status)
 				if host.Status != "connected" && host.Status != "disconnected" {

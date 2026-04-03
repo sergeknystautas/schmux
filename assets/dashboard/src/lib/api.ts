@@ -25,9 +25,9 @@ import type {
   PRRefreshResponse,
   PRsResponse,
   RecentBranch,
-  RemoteFlavor,
-  RemoteFlavorCreateRequest,
-  RemoteFlavorStatus,
+  RemoteProfile,
+  RemoteProfileCreateRequest,
+  RemoteProfileStatus,
   RemoteHost,
   RemoteHostConnectRequest,
   RepofeedListResponse,
@@ -661,51 +661,51 @@ export async function checkoutPR(repoUrl: string, prNumber: number): Promise<PRC
 }
 
 // ============================================================================
-// Remote Flavor API
+// Remote Profile API
 // ============================================================================
 
-export async function getRemoteFlavors(): Promise<RemoteFlavor[]> {
-  const response = await apiFetch('/api/config/remote-flavors');
-  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch remote flavors');
+export async function getRemoteProfiles(): Promise<RemoteProfile[]> {
+  const response = await apiFetch('/api/config/remote-profiles');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch remote profiles');
   return response.json();
 }
 
-export async function createRemoteFlavor(
-  request: RemoteFlavorCreateRequest
-): Promise<RemoteFlavor> {
-  const response = await apiFetch('/api/config/remote-flavors', {
+export async function createRemoteProfile(
+  request: RemoteProfileCreateRequest
+): Promise<RemoteProfile> {
+  const response = await apiFetch('/api/config/remote-profiles', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(request),
   });
   if (!response.ok) {
-    await parseErrorResponse(response, 'Failed to create remote flavor');
+    await parseErrorResponse(response, 'Failed to create remote profile');
   }
   return response.json();
 }
 
-export async function updateRemoteFlavor(
+export async function updateRemoteProfile(
   id: string,
-  request: RemoteFlavorCreateRequest
-): Promise<RemoteFlavor> {
-  const response = await apiFetch(`/api/config/remote-flavors/${encodeURIComponent(id)}`, {
+  request: RemoteProfileCreateRequest
+): Promise<RemoteProfile> {
+  const response = await apiFetch(`/api/config/remote-profiles/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(request),
   });
   if (!response.ok) {
-    await parseErrorResponse(response, 'Failed to update remote flavor');
+    await parseErrorResponse(response, 'Failed to update remote profile');
   }
   return response.json();
 }
 
-export async function deleteRemoteFlavor(id: string): Promise<void> {
-  const response = await apiFetch(`/api/config/remote-flavors/${encodeURIComponent(id)}`, {
+export async function deleteRemoteProfile(id: string): Promise<void> {
+  const response = await apiFetch(`/api/config/remote-profiles/${encodeURIComponent(id)}`, {
     method: 'DELETE',
     headers: { ...csrfHeaders() },
   });
   if (!response.ok) {
-    await parseErrorResponse(response, 'Failed to delete remote flavor');
+    await parseErrorResponse(response, 'Failed to delete remote profile');
   }
 }
 
@@ -719,9 +719,9 @@ export async function getRemoteHosts(): Promise<RemoteHost[]> {
   return response.json();
 }
 
-export async function getRemoteFlavorStatuses(): Promise<RemoteFlavorStatus[]> {
-  const response = await apiFetch('/api/remote/flavor-statuses');
-  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch remote flavor statuses');
+export async function getRemoteProfileStatuses(): Promise<RemoteProfileStatus[]> {
+  const response = await apiFetch('/api/remote/profile-statuses');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch remote profile statuses');
   return response.json();
 }
 

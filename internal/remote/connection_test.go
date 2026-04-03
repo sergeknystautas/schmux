@@ -12,7 +12,7 @@ import (
 
 func TestConnection_QueueSession(t *testing.T) {
 	cfg := ConnectionConfig{
-		FlavorID:      "test-flavor",
+		ProfileID:     "test-flavor",
 		Flavor:        "test",
 		DisplayName:   "Test Flavor",
 		WorkspacePath: "/tmp/test",
@@ -66,7 +66,7 @@ func TestConnection_QueueSession(t *testing.T) {
 
 func TestConnection_ContextCancellation(t *testing.T) {
 	cfg := ConnectionConfig{
-		FlavorID:      "test-flavor",
+		ProfileID:     "test-flavor",
 		Flavor:        "test",
 		DisplayName:   "Test Flavor",
 		WorkspacePath: "/tmp/test",
@@ -118,7 +118,7 @@ func TestConnection_ProvisioningOutput(t *testing.T) {
 	}
 
 	cfg := ConnectionConfig{
-		FlavorID:      "test-flavor",
+		ProfileID:     "test-flavor",
 		Flavor:        "test",
 		DisplayName:   "Test Flavor",
 		WorkspacePath: "/tmp/test",
@@ -160,7 +160,7 @@ func TestConnection_ProvisioningOutput(t *testing.T) {
 
 func TestConnection_HostnameExtraction(t *testing.T) {
 	cfg := ConnectionConfig{
-		FlavorID:      "test-flavor",
+		ProfileID:     "test-flavor",
 		Flavor:        "test",
 		DisplayName:   "Test Flavor",
 		WorkspacePath: "/tmp/test",
@@ -197,7 +197,7 @@ func TestConnection_HostnameExtraction(t *testing.T) {
 
 func TestConnection_HostnameExtractionNoMatch(t *testing.T) {
 	cfg := ConnectionConfig{
-		FlavorID:      "test-flavor",
+		ProfileID:     "test-flavor",
 		Flavor:        "test",
 		DisplayName:   "Test Flavor",
 		WorkspacePath: "/tmp/test",
@@ -240,7 +240,7 @@ func TestConnection_HostnameExtractionNoMatch(t *testing.T) {
 
 func TestConnection_CloseNotifiesPendingSessions(t *testing.T) {
 	cfg := ConnectionConfig{
-		FlavorID:      "test-flavor",
+		ProfileID:     "test-flavor",
 		Flavor:        "test",
 		DisplayName:   "Test Flavor",
 		WorkspacePath: "/tmp/test",
@@ -286,7 +286,7 @@ func TestConnection_CloseNotifiesPendingSessions(t *testing.T) {
 
 func TestConnection_UnsubscribePTYOutputClosesChannel(t *testing.T) {
 	cfg := ConnectionConfig{
-		FlavorID:      "test-flavor",
+		ProfileID:     "test-flavor",
 		Flavor:        "test",
 		DisplayName:   "Test Flavor",
 		WorkspacePath: "/tmp/test",
@@ -339,7 +339,7 @@ func TestConnectionConfig_Validation(t *testing.T) {
 		{
 			name: "valid config",
 			cfg: ConnectionConfig{
-				FlavorID:      "test",
+				ProfileID:     "test",
 				Flavor:        "production",
 				DisplayName:   "Production",
 				WorkspacePath: "/workspace",
@@ -355,8 +355,8 @@ func TestConnectionConfig_Validation(t *testing.T) {
 			if conn == nil && !tt.wantErr {
 				t.Error("expected non-nil connection")
 			}
-			if conn != nil && conn.flavor.ID != tt.cfg.FlavorID {
-				t.Errorf("flavor ID mismatch: expected %s, got %s", tt.cfg.FlavorID, conn.flavor.ID)
+			if conn != nil && conn.flavor.ID != tt.cfg.ProfileID {
+				t.Errorf("profile ID mismatch: expected %s, got %s", tt.cfg.ProfileID, conn.flavor.ID)
 			}
 		})
 	}
@@ -369,7 +369,7 @@ func TestConnectionConfig_Validation(t *testing.T) {
 // the caller set status to "provisioning" for UI feedback.
 func TestProvision_SucceedsWhenControlModeEstablished(t *testing.T) {
 	cfg := ConnectionConfig{
-		FlavorID:      "test-flavor",
+		ProfileID:     "test-flavor",
 		Flavor:        "test",
 		DisplayName:   "Test Flavor",
 		WorkspacePath: "/tmp/test",
@@ -416,47 +416,42 @@ func TestProvision_SucceedsWhenControlModeEstablished(t *testing.T) {
 	}
 }
 
-func TestConnectionConfigFromFlavor(t *testing.T) {
-	f := config.RemoteFlavor{
-		ID:               "devvm",
-		Flavor:           "devvm",
-		DisplayName:      "DevVM",
-		WorkspacePath:    "/data/users/$USER",
-		VCS:              "hg",
-		ConnectCommand:   "ssh $HOST",
-		ReconnectCommand: "ssh $HOST",
-		ProvisionCommand: "setup.sh",
-		HostnameRegex:    `devvm\d+`,
+func TestConnectionConfigFromResolved(t *testing.T) {
+	r := config.ResolvedFlavor{
+		ProfileID:          "devvm",
+		ProfileDisplayName: "DevVM Profile",
+		Flavor:             "devvm",
+		FlavorDisplayName:  "DevVM",
+		WorkspacePath:      "/data/users/$USER",
+		VCS:                "hg",
+		ConnectCommand:     "ssh $HOST",
+		ReconnectCommand:   "ssh $HOST",
+		ProvisionCommand:   "setup.sh",
+		HostnameRegex:      `devvm\d+`,
 	}
 
-	cc := ConnectionConfigFromFlavor(f)
+	cc := ConnectionConfigFromResolved(r)
 
-	if cc.FlavorID != f.ID {
-		t.Errorf("FlavorID: got %q, want %q", cc.FlavorID, f.ID)
+	if cc.ProfileID != r.ProfileID {
+		t.Errorf("ProfileID: got %q, want %q", cc.ProfileID, r.ProfileID)
 	}
-	if cc.Flavor != f.Flavor {
-		t.Errorf("Flavor: got %q, want %q", cc.Flavor, f.Flavor)
+	if cc.Flavor != r.Flavor {
+		t.Errorf("Flavor: got %q, want %q", cc.Flavor, r.Flavor)
 	}
-	if cc.DisplayName != f.DisplayName {
-		t.Errorf("DisplayName: got %q, want %q", cc.DisplayName, f.DisplayName)
+	if cc.DisplayName != r.FlavorDisplayName {
+		t.Errorf("DisplayName: got %q, want %q", cc.DisplayName, r.FlavorDisplayName)
 	}
-	if cc.WorkspacePath != f.WorkspacePath {
-		t.Errorf("WorkspacePath: got %q, want %q", cc.WorkspacePath, f.WorkspacePath)
+	if cc.WorkspacePath != r.WorkspacePath {
+		t.Errorf("WorkspacePath: got %q, want %q", cc.WorkspacePath, r.WorkspacePath)
 	}
-	if cc.VCS != f.VCS {
-		t.Errorf("VCS: got %q, want %q", cc.VCS, f.VCS)
+	if cc.VCS != r.VCS {
+		t.Errorf("VCS: got %q, want %q", cc.VCS, r.VCS)
 	}
-	if cc.ConnectCommand != f.ConnectCommand {
-		t.Errorf("ConnectCommand: got %q, want %q", cc.ConnectCommand, f.ConnectCommand)
+	if cc.ProvisionCommand != r.ProvisionCommand {
+		t.Errorf("ProvisionCommand: got %q, want %q", cc.ProvisionCommand, r.ProvisionCommand)
 	}
-	if cc.ReconnectCommand != f.ReconnectCommand {
-		t.Errorf("ReconnectCommand: got %q, want %q", cc.ReconnectCommand, f.ReconnectCommand)
-	}
-	if cc.ProvisionCommand != f.ProvisionCommand {
-		t.Errorf("ProvisionCommand: got %q, want %q", cc.ProvisionCommand, f.ProvisionCommand)
-	}
-	if cc.HostnameRegex != f.HostnameRegex {
-		t.Errorf("HostnameRegex: got %q, want %q", cc.HostnameRegex, f.HostnameRegex)
+	if cc.HostnameRegex != r.HostnameRegex {
+		t.Errorf("HostnameRegex: got %q, want %q", cc.HostnameRegex, r.HostnameRegex)
 	}
 	// OnStatusChange, OnProgress, Logger should be nil (not set by helper)
 	if cc.OnStatusChange != nil {

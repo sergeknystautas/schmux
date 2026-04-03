@@ -9,7 +9,7 @@ characters are lost and SSH auth times out.
 
 - The daemon is running
 - At least one repository is configured
-- At least one remote flavor is configured
+- At least one remote profile is configured
 
 ## Verifications
 

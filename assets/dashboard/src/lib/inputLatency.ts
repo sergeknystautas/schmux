@@ -10,7 +10,9 @@ const MAX_SAMPLES = 1000;
 
 export type LatencyStats = {
   count: number;
+  p25: number;
   median: number;
+  p75: number;
   p95: number;
   p99: number;
   max: number;
@@ -64,16 +66,14 @@ export type ServerSegmentTuple = {
 
 // Full latency breakdown for a single percentile level (P50 or P99).
 export type LatencyBreakdown = {
-  dispatch: number;
-  sendKeys: number;
-  echo: number;
-  frameSend: number;
-  eventLoopLag: number;
-  wireResidual: number;
-  render: number;
+  network: number;
+  jsQueue: number;
+  handler: number;
+  wsWrite: number;
+  xterm: number;
+  tmuxCmd: number;
+  paneOutput: number;
   total: number;
-  mutexWait?: number;
-  executeNet?: number;
 };
 
 export type WireContext = {
@@ -83,6 +83,20 @@ export type WireContext = {
   handleOutputMsP99: number;
   receiveLagP50: number;
   receiveLagP99: number;
+};
+
+// Snapshot of all mutable tracker state, used for per-machine storage.
+type TrackerSnapshot = {
+  samples: number[];
+  renderSamples: number[];
+  serverSegmentSamples: ServerSegmentTuple[];
+  lagSamples: number[];
+  receiveLagSamples: number[];
+  framesBetweenSamples: number[];
+  handleOutputTimeSamples: number[];
+  frameCounter: number;
+  lastInputTime: number;
+  serverLatency: ServerLatencySegments | null;
 };
 
 export class InputLatencyTracker {
@@ -97,6 +111,60 @@ export class InputLatencyTracker {
   private lastInputTime = 0;
   private version = 0;
   private serverLatency: ServerLatencySegments | null = null;
+
+  // Per-machine data: "local" for all local sessions, remote host ID for remote.
+  private machineKey = 'local';
+  private machineSnapshots = new Map<string, TrackerSnapshot>();
+
+  // Switch to a different machine's dataset. Saves current data, restores
+  // (or creates) the target machine's data. All local sessions share "local".
+  switchMachine(key: string) {
+    if (key === this.machineKey) return;
+    // Save current state
+    this.machineSnapshots.set(this.machineKey, {
+      samples: this.samples,
+      renderSamples: this.renderSamples,
+      serverSegmentSamples: this.serverSegmentSamples,
+      lagSamples: this.lagSamples,
+      receiveLagSamples: this.receiveLagSamples,
+      framesBetweenSamples: this.framesBetweenSamples,
+      handleOutputTimeSamples: this.handleOutputTimeSamples,
+      frameCounter: this._frameCounter,
+      lastInputTime: this.lastInputTime,
+      serverLatency: this.serverLatency,
+    });
+    // Restore or create target
+    this.machineKey = key;
+    const snap = this.machineSnapshots.get(key);
+    if (snap) {
+      this.samples = snap.samples;
+      this.renderSamples = snap.renderSamples;
+      this.serverSegmentSamples = snap.serverSegmentSamples;
+      this.lagSamples = snap.lagSamples;
+      this.receiveLagSamples = snap.receiveLagSamples;
+      this.framesBetweenSamples = snap.framesBetweenSamples;
+      this.handleOutputTimeSamples = snap.handleOutputTimeSamples;
+      this._frameCounter = snap.frameCounter;
+      this.lastInputTime = snap.lastInputTime;
+      this.serverLatency = snap.serverLatency;
+    } else {
+      this.samples = [];
+      this.renderSamples = [];
+      this.serverSegmentSamples = [];
+      this.lagSamples = [];
+      this.receiveLagSamples = [];
+      this.framesBetweenSamples = [];
+      this.handleOutputTimeSamples = [];
+      this._frameCounter = 0;
+      this.lastInputTime = 0;
+      this.serverLatency = null;
+    }
+    this.version++;
+  }
+
+  getMachineKey(): string {
+    return this.machineKey;
+  }
 
   markSent() {
     this.lastInputTime = performance.now();
@@ -212,7 +280,9 @@ export class InputLatencyTracker {
     variance /= sorted.length;
     return {
       count: sorted.length,
+      p25: sorted[Math.floor(sorted.length * 0.25)],
       median: sorted[Math.floor(sorted.length / 2)],
+      p75: sorted[Math.floor(sorted.length * 0.75)],
       p95: sorted[Math.floor(sorted.length * 0.95)],
       p99: sorted[Math.floor(sorted.length * 0.99)],
       max: sorted[sorted.length - 1],
@@ -299,41 +369,38 @@ export class InputLatencyTracker {
       }
     }
 
-    // Build per-keystroke full breakdown tuples and sort by clientRTT
+    // Build per-keystroke full breakdown tuples
     type FullTuple = {
       clientRTT: number;
-      dispatch: number;
-      sendKeys: number;
-      echo: number;
-      frameSend: number;
-      render: number;
-      eventLoopLag: number;
-      wireResidual: number;
-      mutexWait?: number;
-      executeNet?: number;
+      handler: number;
+      tmuxCmd: number;
+      paneOutput: number;
+      wsWrite: number;
+      xterm: number;
+      jsQueue: number;
+      network: number;
     };
     const tuples: FullTuple[] = [];
     for (let i = 0; i < pairedCount; i++) {
       const clientRTT = this.samples[sOff + i];
       const seg = this.serverSegmentSamples[segOff + i];
-      const render = this.renderSamples[rOff + i];
+      const xterm = this.renderSamples[rOff + i];
       const serverTotal = seg.dispatch + seg.sendKeys + seg.echo + seg.frameSend;
       // Invariant: server processing can't exceed the round trip. If it does,
       // the FIFO queue paired this input with the wrong output event — discard.
       if (serverTotal > clientRTT) continue;
-      const infra = Math.max(0, clientRTT - serverTotal - render);
-      const wireResidual = Math.max(0, infra - eventLoopLag);
+      const infra = Math.max(0, clientRTT - serverTotal - xterm);
+      const jsQueue = Math.min(eventLoopLag, infra);
+      const network = Math.max(0, infra - jsQueue);
       tuples.push({
         clientRTT,
-        dispatch: seg.dispatch,
-        sendKeys: seg.sendKeys,
-        echo: seg.echo,
-        frameSend: seg.frameSend,
-        render,
-        eventLoopLag: Math.min(eventLoopLag, infra),
-        wireResidual,
-        mutexWait: seg.mutexWait,
-        executeNet: seg.executeNet,
+        handler: seg.dispatch,
+        tmuxCmd: seg.sendKeys,
+        paneOutput: seg.echo,
+        wsWrite: seg.frameSend,
+        xterm,
+        jsQueue,
+        network,
       });
     }
     if (tuples.length < 3) return null;
@@ -356,16 +423,14 @@ export class InputLatencyTracker {
     }
 
     return {
-      dispatch: picked.dispatch,
-      sendKeys: picked.sendKeys,
-      echo: picked.echo,
-      frameSend: picked.frameSend,
-      eventLoopLag: picked.eventLoopLag,
-      wireResidual: picked.wireResidual,
-      render: picked.render,
-      total: picked.clientRTT,
-      mutexWait: picked.mutexWait,
-      executeNet: picked.executeNet,
+      network: picked.network,
+      jsQueue: picked.jsQueue,
+      handler: picked.handler,
+      wsWrite: picked.wsWrite,
+      xterm: picked.xterm,
+      tmuxCmd: picked.tmuxCmd,
+      paneOutput: picked.paneOutput,
+      total: targetRTT,
     };
   }
 }

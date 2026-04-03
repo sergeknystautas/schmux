@@ -224,18 +224,18 @@ describe('InputLatencyTracker', () => {
     const breakdown = inputLatency.getBreakdown('p50');
     expect(breakdown).not.toBeNull();
     // Segments come from the actual keystroke tuple
-    expect(breakdown!.dispatch).toBe(1);
-    expect(breakdown!.sendKeys).toBe(2);
-    expect(breakdown!.echo).toBe(3);
-    expect(breakdown!.frameSend).toBe(0.5);
-    expect(breakdown!.render).toBe(2);
+    expect(breakdown!.handler).toBe(1);
+    expect(breakdown!.tmuxCmd).toBe(2);
+    expect(breakdown!.paneOutput).toBe(3);
+    expect(breakdown!.wsWrite).toBe(0.5);
+    expect(breakdown!.xterm).toBe(2);
     expect(breakdown!.total).toBe(30);
-    // infra = 30 - 6.5 - 2 = 21.5, no lag → wireResidual=21.5
-    expect(breakdown!.eventLoopLag).toBe(0);
-    expect(breakdown!.wireResidual).toBe(21.5);
+    // infra = 30 - 6.5 - 2 = 21.5, no lag → network=21.5
+    expect(breakdown!.jsQueue).toBe(0);
+    expect(breakdown!.network).toBe(21.5);
   });
 
-  it('getBreakdown with lag samples subtracts eventLoopLag from wireResidual', () => {
+  it('getBreakdown with lag samples subtracts jsQueue from network', () => {
     const mockNow = vi.spyOn(performance, 'now');
     for (let i = 0; i < 3; i++) {
       mockNow.mockReturnValueOnce(100);
@@ -259,10 +259,10 @@ describe('InputLatencyTracker', () => {
     const breakdown = inputLatency.getBreakdown('p50');
     expect(breakdown).not.toBeNull();
     // infra = 30 - 6.5 - 2 = 21.5
-    // eventLoopLag P50 of [5,5,5] = 5
-    // wireResidual = 21.5 - 5 = 16.5
-    expect(breakdown!.eventLoopLag).toBe(5);
-    expect(breakdown!.wireResidual).toBe(16.5);
+    // jsQueue P50 of [5,5,5] = 5
+    // network = 21.5 - 5 = 16.5
+    expect(breakdown!.jsQueue).toBe(5);
+    expect(breakdown!.network).toBe(16.5);
   });
 
   it('getBreakdown picks the keystroke at the P50 rank', () => {
@@ -319,11 +319,11 @@ describe('InputLatencyTracker', () => {
     expect(breakdown).not.toBeNull();
     // P50 index = floor(5/2) = 2, which after sorting by RTT is the 30ms keystroke
     expect(breakdown!.total).toBe(30);
-    expect(breakdown!.dispatch).toBe(1.5);
-    expect(breakdown!.sendKeys).toBe(3);
-    expect(breakdown!.echo).toBe(3);
-    expect(breakdown!.frameSend).toBe(1.5);
-    expect(breakdown!.render).toBe(1);
+    expect(breakdown!.handler).toBe(1.5);
+    expect(breakdown!.tmuxCmd).toBe(3);
+    expect(breakdown!.paneOutput).toBe(3);
+    expect(breakdown!.wsWrite).toBe(1.5);
+    expect(breakdown!.xterm).toBe(1);
   });
 
   it('getBreakdown discards mispaired samples where server > RTT', () => {
@@ -347,7 +347,7 @@ describe('InputLatencyTracker', () => {
     expect(inputLatency.getBreakdown('p50')).toBeNull();
   });
 
-  it('getBreakdown clamps wireResidual to zero when render exceeds infra budget', () => {
+  it('getBreakdown clamps network to zero when render exceeds infra budget', () => {
     const mockNow = vi.spyOn(performance, 'now');
     // RTT of 10ms
     for (let i = 0; i < 3; i++) {
@@ -369,8 +369,8 @@ describe('InputLatencyTracker', () => {
     const breakdown = inputLatency.getBreakdown('p50');
     expect(breakdown).not.toBeNull();
     // infra = max(0, 10 - 3 - 8) = 0 → no room for wire or lag
-    expect(breakdown!.eventLoopLag).toBe(0);
-    expect(breakdown!.wireResidual).toBe(0);
+    expect(breakdown!.jsQueue).toBe(0);
+    expect(breakdown!.network).toBe(0);
   });
 
   it('event loop lag tracker records samples via markSent', async () => {
@@ -500,7 +500,7 @@ describe('InputLatencyTracker', () => {
     expect(ctx!.receiveLagP99).toBe(50);
   });
 
-  it('getBreakdown uses receiveLagSamples for eventLoopLag when available', () => {
+  it('getBreakdown uses receiveLagSamples for jsQueue when available', () => {
     const mockNow = vi.spyOn(performance, 'now');
     for (let i = 0; i < 3; i++) {
       mockNow.mockReturnValueOnce(100);
@@ -525,7 +525,7 @@ describe('InputLatencyTracker', () => {
     const breakdown = inputLatency.getBreakdown('p50');
     expect(breakdown).not.toBeNull();
     // Should use receiveLagSamples (8), not lagSamples (1)
-    expect(breakdown!.eventLoopLag).toBe(8);
+    expect(breakdown!.jsQueue).toBe(8);
   });
 
   it('getBreakdown falls back to lagSamples when receiveLagSamples is empty', () => {
@@ -552,6 +552,6 @@ describe('InputLatencyTracker', () => {
 
     const breakdown = inputLatency.getBreakdown('p50');
     expect(breakdown).not.toBeNull();
-    expect(breakdown!.eventLoopLag).toBe(3);
+    expect(breakdown!.jsQueue).toBe(3);
   });
 });

@@ -114,7 +114,7 @@ describe('TypingPerformance', () => {
 
     // Tooltip should appear with segment values
     expect(screen.getByTestId('breakdown-tooltip')).toBeInTheDocument();
-    expect(screen.getByText('sendKeys')).toBeInTheDocument();
+    expect(screen.getByText('tmux cmd')).toBeInTheDocument();
 
     // Mouse leave hides tooltip
     fireEvent.mouseLeave(barRow);
@@ -130,7 +130,7 @@ describe('TypingPerformance', () => {
     render(<TypingPerformance />);
     // Legend should not exist
     expect(screen.queryByText('evtLoop')).not.toBeInTheDocument();
-    expect(screen.queryByText('wire')).not.toBeInTheDocument();
+    expect(screen.queryByText('execNet')).not.toBeInTheDocument();
     // Context counters should not exist
     expect(screen.queryByTestId('latency-context')).not.toBeInTheDocument();
     expect(screen.queryByText(/chDepth P99:/)).not.toBeInTheDocument();

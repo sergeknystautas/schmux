@@ -39,9 +39,8 @@ export default function TypingPerformance() {
   const stats = inputLatency.getStats();
   const dist = inputLatency.getDistribution();
 
-  const latestSegment =
-    inputLatency.serverSegmentSamples[inputLatency.serverSegmentSamples.length - 1];
-  const sessionType = latestSegment?.sessionType;
+  const machineKey = inputLatency.getMachineKey();
+  const sessionType = machineKey === 'local' ? 'local' : 'remote';
 
   return (
     <div className="typing-perf">
@@ -70,8 +69,8 @@ export default function TypingPerformance() {
                 dist={dist}
                 median={stats.median}
                 p99={stats.p99}
-                avg={stats.avg}
-                stddev={stats.stddev}
+                p25={stats.p25}
+                p75={stats.p75}
               />
             )}
             <LatencyBreakdownBars />
@@ -85,14 +84,14 @@ function Histogram({
   dist,
   median,
   p99,
-  avg,
-  stddev,
+  p25,
+  p75,
 }: {
   dist: LatencyDistribution;
   median: number;
   p99: number;
-  avg: number;
-  stddev: number;
+  p25: number;
+  p75: number;
 }) {
   const { buckets, maxCount, maxMs } = dist;
 
@@ -113,9 +112,9 @@ function Histogram({
   const medianColor = colorForMs(median);
   const p99Color = colorForMs(p99);
 
-  // ±1σ band around the mean
-  const sigmaLoX = toX(avg - stddev);
-  const sigmaHiX = toX(avg + stddev);
+  // IQR band (P25–P75)
+  const iqrLoX = toX(p25);
+  const iqrHiX = toX(p75);
 
   return (
     <div className="typing-perf__chart">
@@ -124,11 +123,11 @@ function Histogram({
         viewBox={`0 0 ${chartW} ${chartH}`}
         style={{ display: 'block', overflow: 'visible' }}
       >
-        {/* ±1σ shaded band */}
+        {/* IQR shaded band (P25–P75) */}
         <rect
-          x={sigmaLoX}
+          x={iqrLoX}
           y={0}
-          width={sigmaHiX - sigmaLoX}
+          width={iqrHiX - iqrLoX}
           height={plotH}
           fill="rgba(255,255,255,0.06)"
         />
@@ -215,16 +214,16 @@ function Histogram({
           {Math.round(p99)}ms
         </text>
 
-        {/* σ label on x-axis showing P50+σ value */}
+        {/* P75 label on x-axis */}
         <text
-          x={sigmaHiX}
+          x={iqrHiX}
           y={chartH - 1}
           textAnchor="middle"
           fill="rgba(255,255,255,0.4)"
           fontSize={7}
           fontFamily="Menlo, Monaco, 'Courier New', monospace"
         >
-          {Math.round(median + stddev)}ms
+          {Math.round(p75)}ms
         </text>
 
         {/* X-axis baseline */}
@@ -241,41 +240,39 @@ function Histogram({
   );
 }
 
+// Segment order: page↔schmux, then schmux code, then schmux↔host
+const SEGMENTS = [
+  'network',
+  'jsQueue',
+  'handler',
+  'wsWrite',
+  'xterm',
+  'tmuxCmd',
+  'paneOutput',
+] as const;
+
 const SEGMENT_COLORS: Record<string, string> = {
-  dispatch: 'rgba(160, 160, 160, 0.7)',
-  sendKeys: 'rgba(100, 160, 220, 0.7)',
-  mutexWait: 'rgba(220, 80, 80, 0.7)',
-  executeNet: 'rgba(80, 130, 200, 0.7)',
-  echo: 'rgba(160, 100, 180, 0.7)',
-  frameSend: 'rgba(80, 160, 180, 0.7)',
-  eventLoopLag: 'rgba(180, 170, 80, 0.7)',
-  wireResidual: 'rgba(190, 150, 80, 0.7)',
-  render: 'rgba(80, 170, 120, 0.7)',
+  // page ↔ schmux
+  network: 'rgba(190, 150, 80, 0.7)',
+  jsQueue: 'rgba(180, 170, 80, 0.7)',
+  // schmux code
+  handler: 'rgba(160, 160, 160, 0.7)',
+  wsWrite: 'rgba(80, 160, 180, 0.7)',
+  xterm: 'rgba(80, 170, 120, 0.7)',
+  // schmux ↔ host
+  tmuxCmd: 'rgba(80, 130, 200, 0.7)',
+  paneOutput: 'rgba(160, 100, 180, 0.7)',
 };
 
 const SEGMENT_LABELS: Record<string, string> = {
-  dispatch: 'dispatch',
-  sendKeys: 'sendKeys',
-  mutexWait: 'mutex',
-  executeNet: 'execNet',
-  echo: 'echo',
-  frameSend: 'frameSend',
-  eventLoopLag: 'evtLoop',
-  wireResidual: 'wire',
-  render: 'render',
+  network: 'network',
+  jsQueue: 'js queue',
+  handler: 'handler',
+  wsWrite: 'ws write',
+  xterm: 'xterm',
+  tmuxCmd: 'tmux cmd',
+  paneOutput: 'pane output',
 };
-
-const SEGMENTS = [
-  'dispatch',
-  'sendKeys',
-  'mutexWait',
-  'executeNet',
-  'echo',
-  'frameSend',
-  'eventLoopLag',
-  'wireResidual',
-  'render',
-] as const;
 
 function BreakdownRow({
   label,
@@ -303,11 +300,8 @@ function BreakdownRow({
       <div className="typing-perf__bar-track">
         <div className="typing-perf__bar-fill" style={{ width: `${scale * 100}%` }}>
           {SEGMENTS.map((seg) => {
-            const value = breakdown[seg as keyof LatencyBreakdown];
-            if (value === undefined) return null;
-            if (seg === 'sendKeys' && breakdown.mutexWait != null) return null;
-            if ((seg === 'mutexWait' || seg === 'executeNet') && breakdown.mutexWait == null)
-              return null;
+            const value = breakdown[seg as keyof LatencyBreakdown] as number;
+            if (value == null) return null;
             const pct = (value / total) * 100;
             if (pct < 0.5) return null;
             return (
@@ -326,12 +320,8 @@ function BreakdownRow({
       {showTooltip && (
         <div className="typing-perf__tooltip" data-testid="breakdown-tooltip">
           {SEGMENTS.map((seg) => {
-            const value = breakdown[seg as keyof LatencyBreakdown];
-            if (value === undefined) return null;
-            if (seg === 'sendKeys' && breakdown.mutexWait != null) return null;
-            if ((seg === 'mutexWait' || seg === 'executeNet') && breakdown.mutexWait == null)
-              return null;
-            if (value < 0.05) return null;
+            const value = breakdown[seg as keyof LatencyBreakdown] as number;
+            if (value == null || value < 0.05) return null;
             return (
               <div key={seg} className="typing-perf__tooltip-row">
                 <span

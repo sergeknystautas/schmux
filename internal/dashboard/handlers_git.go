@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/vcs"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -114,9 +115,13 @@ func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws
 	// Get VCS type from flavor config
 	host, _ := s.state.GetRemoteHost(ws.RemoteHostID)
 	vcsType := ""
-	if host.FlavorID != "" {
-		if flavor, found := s.config.GetRemoteFlavor(host.FlavorID); found {
-			vcsType = flavor.VCS
+	if host.ProfileID != "" {
+		if profile, found := s.config.GetRemoteProfile(host.ProfileID); found {
+			if resolved, err := config.ResolveProfileFlavor(profile, host.Flavor); err == nil {
+				vcsType = resolved.VCS
+			} else {
+				vcsType = profile.VCS
+			}
 		}
 	}
 	cb := vcs.NewCommandBuilder(vcsType)

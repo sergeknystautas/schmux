@@ -48,9 +48,11 @@ type State struct {
 // RemoteHost represents a connected or cached remote host.
 type RemoteHost struct {
 	ID          string    `json:"id"`
-	FlavorID    string    `json:"flavor_id"` // References config RemoteFlavor.ID
-	Hostname    string    `json:"hostname"`  // e.g., "remote-host-456.example.com"
-	UUID        string    `json:"uuid"`      // Remote session UUID
+	ProfileID   string    `json:"profile_id"`          // References config RemoteProfile.ID
+	Flavor      string    `json:"flavor"`              // The flavor string within the profile
+	FlavorID    string    `json:"flavor_id,omitempty"` // DEPRECATED: kept for migration/state compat
+	Hostname    string    `json:"hostname"`            // e.g., "remote-host-456.example.com"
+	UUID        string    `json:"uuid"`                // Remote session UUID
 	ConnectedAt time.Time `json:"connected_at"`
 	ExpiresAt   time.Time `json:"expires_at"`  // +12h from connected_at
 	Status      string    `json:"status"`      // "provisioning", "connecting", "connected", "disconnected"
@@ -350,6 +352,18 @@ func Load(path string, logger *log.Logger) (*State, error) {
 	// Initialize RemoteHosts if nil (existing state files)
 	if st.RemoteHosts == nil {
 		st.RemoteHosts = []RemoteHost{}
+	}
+
+	// Migrate: populate ProfileID from deprecated FlavorID.
+	// Note: Flavor field cannot be populated here (no config access).
+	// Hosts with FlavorID but no Flavor are pre-migration and will be
+	// cleaned up when they expire or disconnect.
+	for i := range st.RemoteHosts {
+		h := &st.RemoteHosts[i]
+		if h.ProfileID == "" && h.FlavorID != "" {
+			h.ProfileID = h.FlavorID
+			h.FlavorID = ""
+		}
 	}
 
 	// Initialize Previews if nil (existing state files)
@@ -1167,6 +1181,7 @@ func (s *State) GetRemoteHost(id string) (RemoteHost, bool) {
 }
 
 // GetRemoteHostByFlavorID returns a remote host by flavor ID.
+// DEPRECATED: Use GetRemoteHostByProfileAndFlavor instead.
 func (s *State) GetRemoteHostByFlavorID(flavorID string) (RemoteHost, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -1179,12 +1194,51 @@ func (s *State) GetRemoteHostByFlavorID(flavorID string) (RemoteHost, bool) {
 }
 
 // GetRemoteHostsByFlavorID returns all remote hosts matching the given flavor ID.
+// DEPRECATED: Use GetRemoteHostsByProfileAndFlavor instead.
 func (s *State) GetRemoteHostsByFlavorID(flavorID string) []RemoteHost {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var hosts []RemoteHost
 	for _, rh := range s.RemoteHosts {
 		if rh.FlavorID == flavorID {
+			hosts = append(hosts, rh)
+		}
+	}
+	return hosts
+}
+
+// GetRemoteHostByProfileAndFlavor returns the first remote host matching the given profile ID and flavor.
+func (s *State) GetRemoteHostByProfileAndFlavor(profileID, flavor string) (RemoteHost, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, rh := range s.RemoteHosts {
+		if rh.ProfileID == profileID && rh.Flavor == flavor {
+			return rh, true
+		}
+	}
+	return RemoteHost{}, false
+}
+
+// GetRemoteHostsByProfileAndFlavor returns all remote hosts matching the given profile ID and flavor.
+func (s *State) GetRemoteHostsByProfileAndFlavor(profileID, flavor string) []RemoteHost {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var hosts []RemoteHost
+	for _, rh := range s.RemoteHosts {
+		if rh.ProfileID == profileID && rh.Flavor == flavor {
+			hosts = append(hosts, rh)
+		}
+	}
+	return hosts
+}
+
+// GetRemoteHostsByProfileID returns all remote hosts matching the given profile ID.
+func (s *State) GetRemoteHostsByProfileID(profileID string) []RemoteHost {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var hosts []RemoteHost
+	for _, rh := range s.RemoteHosts {
+		if rh.ProfileID == profileID {
 			hosts = append(hosts, rh)
 		}
 	}

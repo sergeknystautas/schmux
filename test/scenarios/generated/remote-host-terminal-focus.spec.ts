@@ -24,40 +24,37 @@ test.describe('Remote host provisioning terminal holds focus for YubiKey auth', 
       ],
     });
 
-    // Add a remote flavor via the config API
+    // Add a remote profile via the config API
     await apiPost('/api/config', {
-      remote_flavors: [
+      remote_profiles: [
         {
           id: 'focus-flavor',
-          flavor: 'test:focus',
           display_name: 'Focus Test Host',
           workspace_path: '/tmp/workspace',
           vcs: 'git',
           connect_command: 'echo connecting',
+          flavors: [{ flavor: 'test:focus' }],
         },
       ],
     });
   });
 
   test('terminal receives focus on modal open and refocuses on body click', async ({ page }) => {
-    // Mock the flavor-statuses endpoint to show our flavor as disconnected
-    await page.route('**/api/remote/flavor-statuses', (route) =>
+    // Mock the profile-statuses endpoint to show our profile as disconnected
+    await page.route('**/api/remote/profile-statuses', (route) =>
       route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify([
           {
-            flavor: {
+            profile: {
               id: 'focus-flavor',
-              flavor: 'test:focus',
               display_name: 'Focus Test Host',
               workspace_path: '/tmp/workspace',
               vcs: 'git',
+              flavors: [{ flavor: 'test:focus' }],
             },
-            connected: false,
-            host_id: '',
-            hostname: '',
-            status: '',
+            flavor_hosts: [{ flavor: 'test:focus', hosts: [] }],
           },
         ]),
       })
@@ -70,7 +67,8 @@ test.describe('Remote host provisioning terminal holds focus for YubiKey auth', 
         contentType: 'application/json',
         body: JSON.stringify({
           id: 'focus-host-id',
-          flavor_id: 'focus-flavor',
+          profile_id: 'focus-flavor',
+          flavor: 'test:focus',
           hostname: '',
           uuid: '',
           connected_at: '',
@@ -90,7 +88,8 @@ test.describe('Remote host provisioning terminal holds focus for YubiKey auth', 
         body: JSON.stringify([
           {
             id: 'focus-host-id',
-            flavor_id: 'focus-flavor',
+            profile_id: 'focus-flavor',
+            flavor: 'test:focus',
             hostname: '',
             uuid: '',
             connected_at: '',
@@ -107,7 +106,7 @@ test.describe('Remote host provisioning terminal holds focus for YubiKey auth', 
     await page.goto('/spawn');
     await waitForDashboardLive(page);
 
-    // Click the flavor card to open the connection modal
+    // Click the profile card to open the connection modal
     const flavorCard = page.locator('text=Focus Test Host');
     await expect(flavorCard).toBeVisible({ timeout: 10_000 });
     await flavorCard.click();

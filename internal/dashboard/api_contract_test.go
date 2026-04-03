@@ -206,7 +206,8 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 
 	t.Run("image attachments rejected with remote flavor", func(t *testing.T) {
 		body, _ := json.Marshal(SpawnRequest{
-			RemoteFlavorID:   "some-flavor",
+			RemoteProfileID:  "some-profile",
+			RemoteFlavor:     "some-flavor",
 			Targets:          map[string]int{"claude": 1},
 			Prompt:           "do stuff",
 			ImageAttachments: []string{"iVBORw0KGgo="},

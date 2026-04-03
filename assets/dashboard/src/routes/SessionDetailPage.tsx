@@ -113,7 +113,8 @@ export default function SessionDetailPage() {
   // Remote host disconnection state
   const [reconnectModal, setReconnectModal] = useState<{
     hostId: string;
-    flavorId: string;
+    profileId: string;
+    flavor?: string;
     displayName: string;
     provisioningSessionId: string | null;
   } | null>(null);
@@ -183,6 +184,7 @@ export default function SessionDetailPage() {
     const terminalStream = new TerminalStream(sessionData.id, terminalRef.current, {
       followTail: true,
       useWebGL: config.xterm?.use_webgl !== false,
+      machineKey: sessionData.remote_host_id || 'local',
       onResume: (showing) => {
         setShowResume(showing);
         setFollowTail(!showing);
@@ -709,7 +711,8 @@ export default function SessionDetailPage() {
                       const result = await reconnectRemoteHost(sessionData.remote_host_id);
                       setReconnectModal({
                         hostId: sessionData.remote_host_id,
-                        flavorId: result.flavor_id,
+                        profileId: result.profile_id,
+                        flavor: result.flavor,
                         displayName: result.hostname || sessionData.remote_flavor_name || 'Remote',
                         provisioningSessionId: result.provisioning_session_id || null,
                       });
@@ -1173,7 +1176,8 @@ export default function SessionDetailPage() {
 
         {reconnectModal && (
           <ConnectionProgressModal
-            flavorId={reconnectModal.flavorId}
+            profileId={reconnectModal.profileId}
+            flavor={reconnectModal.flavor}
             flavorName={reconnectModal.displayName}
             provisioningSessionId={reconnectModal.provisioningSessionId}
             onClose={() => setReconnectModal(null)}

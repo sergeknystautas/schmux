@@ -40,6 +40,16 @@ export function computeDistribution(data: TmuxHealthData): TmuxHealthDistributio
 
 let _latestHealth: TmuxHealthData | null = null;
 let _version = 0;
+let _machineKey = 'local';
+const _machineSnapshots = new Map<string, TmuxHealthData | null>();
+
+export function switchTmuxHealthMachine(key: string) {
+  if (key === _machineKey) return;
+  _machineSnapshots.set(_machineKey, _latestHealth);
+  _machineKey = key;
+  _latestHealth = _machineSnapshots.get(key) ?? null;
+  _version++;
+}
 
 export function updateTmuxHealth(data: TmuxHealthData | null) {
   _latestHealth = data;

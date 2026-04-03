@@ -4,7 +4,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { transport } from './transport';
 import { inputLatency } from './inputLatency';
-import { updateTmuxHealth } from './tmuxHealth';
+import { updateTmuxHealth, switchTmuxHealthMachine } from './tmuxHealth';
 import { StreamDiagnostics } from './streamDiagnostics';
 import { extractViewportText } from './screenCapture';
 import { computeScreenDiff } from './screenDiff';
@@ -90,6 +90,8 @@ type TerminalStreamOptions = {
   onSelectedLinesChange?: (lines: string[]) => void;
   /** Use WebGL renderer for GPU-accelerated rendering. Default: true */
   useWebGL?: boolean;
+  /** Machine identity for per-machine latency tracking. "local" for local sessions, remote host ID for remote. */
+  machineKey?: string;
 };
 
 type SelectedLine = {
@@ -199,6 +201,7 @@ export default class TerminalStream {
 
   // Configurable behaviors
   private useWebGL: boolean;
+  private machineKey: string;
 
   // Terminal recreation count — set by SessionDetailPage, read during diagnostic capture
   recreationCount = 0;
@@ -249,6 +252,7 @@ export default class TerminalStream {
     this.onResume = options.onResume || (() => {});
     this.onSelectedLinesChange = options.onSelectedLinesChange || (() => {});
     this.useWebGL = options.useWebGL !== false;
+    this.machineKey = options.machineKey ?? 'local';
 
     this.terminal = null;
     this.tmuxCols = null;
@@ -885,6 +889,11 @@ export default class TerminalStream {
       this.tsLog('ws.onopen');
       this.diagnostics?.recordWsConnect(connectAttempt);
       this.onStatusChange('connected');
+
+      // Switch to this machine's latency/health datasets (local sessions share
+      // one, each remote host gets its own)
+      inputLatency.switchMachine(this.machineKey);
+      switchTmuxHealthMachine(this.machineKey);
 
       // Send resize immediately on connect so backend knows correct dimensions
       // before streaming content

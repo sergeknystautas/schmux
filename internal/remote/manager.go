@@ -41,23 +41,27 @@ func (m *Manager) SetStateChangeCallback(cb func()) {
 	m.mu.Unlock()
 }
 
-// Connect connects to a remote host by flavor ID.
+// Connect connects to a remote host by profile ID and flavor.
 // Each call creates a new connection (multiple hosts per flavor are allowed).
-func (m *Manager) Connect(ctx context.Context, flavorID string) (*Connection, error) {
-	return m.connectInternal(ctx, flavorID, nil)
+func (m *Manager) Connect(ctx context.Context, profileID, flavorStr string) (*Connection, error) {
+	return m.connectInternal(ctx, profileID, flavorStr, nil)
 }
 
 // StartConnect begins connecting to a remote host and returns immediately.
 // Returns the provisioning session ID for WebSocket terminal streaming.
 // The connection runs in the background; poll /api/remote/hosts for status updates.
-func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, err error) {
-	flavor, found := m.config.GetRemoteFlavor(flavorID)
+func (m *Manager) StartConnect(profileID, flavorStr string) (provisioningSessionID string, err error) {
+	profile, found := m.config.GetRemoteProfile(profileID)
 	if !found {
-		return "", fmt.Errorf("remote flavor not found: %s", flavorID)
+		return "", fmt.Errorf("remote profile not found: %s", profileID)
+	}
+	resolved, err := config.ResolveProfileFlavor(profile, flavorStr)
+	if err != nil {
+		return "", err
 	}
 
 	// Create new connection (session ID is generated immediately in NewConnection)
-	cfg := ConnectionConfigFromFlavor(flavor)
+	cfg := ConnectionConfigFromResolved(resolved)
 	cfg.OnStatusChange = m.handleStatusChange
 	cfg.Logger = m.logger
 	conn := NewConnection(cfg)
@@ -73,7 +77,7 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 	// Create workspace immediately so the host appears on the home page and in
 	// WebSocket broadcasts as soon as it exists (not deferred to first spawn).
 	// Host:Workspace is 1:1 — each remote host gets its own workspace.
-	m.ensureWorkspaceForHost(conn.Host(), flavor)
+	m.ensureWorkspaceForHost(conn.Host(), resolved)
 	if err := m.state.Save(); err != nil {
 		m.mu.Lock()
 		delete(m.connections, conn.host.ID)
@@ -85,7 +89,7 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 	sessionID := conn.ProvisioningSessionID()
 
 	if m.logger != nil {
-		m.logger.Info("StartConnect", "host_id", conn.host.ID, "flavor", flavorID, "session_id", sessionID)
+		m.logger.Info("StartConnect", "host_id", conn.host.ID, "profile", profileID, "flavor", flavorStr, "session_id", sessionID)
 	}
 
 	// Connect in background with a hard timeout on provisioning.
@@ -107,7 +111,7 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 
 		if err := conn.Connect(ctx); err != nil {
 			if m.logger != nil {
-				m.logger.Error("connection failed", "flavor", flavorID, "err", err)
+				m.logger.Error("connection failed", "profile", profileID, "flavor", flavorStr, "err", err)
 			}
 			// Keep connection in map so provisioning_session_id remains available
 			// for the frontend ConnectionProgressModal polling to detect failure.
@@ -122,7 +126,7 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 
 		// Run provisioning if needed
 		host := conn.Host()
-		if !host.Provisioned && flavor.ProvisionCommand != "" {
+		if !host.Provisioned && resolved.ProvisionCommand != "" {
 			if m.logger != nil {
 				m.logger.Info("running provision command", "host_id", host.ID)
 			}
@@ -136,7 +140,7 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 			m.state.UpdateRemoteHostStatus(conn.host.ID, state.RemoteHostStatusProvisioning)
 			m.notifyStateChange()
 
-			if err := conn.Provision(ctx, flavor.ProvisionCommand); err != nil {
+			if err := conn.Provision(ctx, resolved.ProvisionCommand); err != nil {
 				if m.logger != nil {
 					m.logger.Error("provision failed", "err", err)
 				}
@@ -158,7 +162,7 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 
 		// Update workspace branch to hostname now that it's known
 		if finalHost.Hostname != "" {
-			workspaceID := fmt.Sprintf("remote-%s", finalHost.ID)
+			workspaceID := finalHost.ID
 			if ws, found := m.state.GetWorkspace(workspaceID); found && ws.Branch != finalHost.Hostname {
 				ws.Branch = finalHost.Hostname
 				m.state.UpdateWorkspace(ws)
@@ -178,7 +182,7 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 
 // ConnectWithProgress connects to a remote host and streams progress updates.
 // Progress messages are sent to the provided channel.
-func (m *Manager) ConnectWithProgress(ctx context.Context, flavorID string, progressCh chan<- string) (*Connection, error) {
+func (m *Manager) ConnectWithProgress(ctx context.Context, profileID, flavorStr string, progressCh chan<- string) (*Connection, error) {
 	// Progress callback to forward messages to channel
 	onProgress := func(msg string) {
 		// Non-blocking send to prevent panic if channel is closed or full
@@ -188,16 +192,20 @@ func (m *Manager) ConnectWithProgress(ctx context.Context, flavorID string, prog
 			// Drop if channel is closed or full - client may have disconnected
 		}
 	}
-	return m.connectInternal(ctx, flavorID, onProgress)
+	return m.connectInternal(ctx, profileID, flavorStr, onProgress)
 }
 
 // connectInternal is the shared implementation for Connect and ConnectWithProgress.
 // The onProgress callback is optional - if nil, progress messages are not sent.
-func (m *Manager) connectInternal(ctx context.Context, flavorID string, onProgress func(string)) (*Connection, error) {
-	// Look up flavor configuration
-	flavor, found := m.config.GetRemoteFlavor(flavorID)
+func (m *Manager) connectInternal(ctx context.Context, profileID, flavorStr string, onProgress func(string)) (*Connection, error) {
+	// Look up profile configuration and resolve flavor
+	profile, found := m.config.GetRemoteProfile(profileID)
 	if !found {
-		return nil, fmt.Errorf("remote flavor not found: %s", flavorID)
+		return nil, fmt.Errorf("remote profile not found: %s", profileID)
+	}
+	resolved, err := config.ResolveProfileFlavor(profile, flavorStr)
+	if err != nil {
+		return nil, err
 	}
 
 	// Create new connection
@@ -205,7 +213,7 @@ func (m *Manager) connectInternal(ctx context.Context, flavorID string, onProgre
 		onProgress("provisioning new host")
 	}
 
-	cfg := ConnectionConfigFromFlavor(flavor)
+	cfg := ConnectionConfigFromResolved(resolved)
 	cfg.OnStatusChange = m.handleStatusChange
 	cfg.OnProgress = onProgress
 	cfg.Logger = m.logger
@@ -213,7 +221,7 @@ func (m *Manager) connectInternal(ctx context.Context, flavorID string, onProgre
 
 	// Add to state before connecting (shows provisioning status)
 	m.state.AddRemoteHost(conn.Host())
-	m.ensureWorkspaceForHost(conn.Host(), flavor)
+	m.ensureWorkspaceForHost(conn.Host(), resolved)
 	if err := m.state.Save(); err != nil {
 		return nil, fmt.Errorf("failed to persist state: %w", err)
 	}
@@ -233,11 +241,11 @@ func (m *Manager) connectInternal(ctx context.Context, flavorID string, onProgre
 
 	// Run provisioning if needed (first connection only)
 	host := conn.Host()
-	if !host.Provisioned && flavor.ProvisionCommand != "" {
+	if !host.Provisioned && resolved.ProvisionCommand != "" {
 		if m.logger != nil {
 			m.logger.Info("running provision command", "host_id", host.ID)
 		}
-		if err := conn.Provision(ctx, flavor.ProvisionCommand); err != nil {
+		if err := conn.Provision(ctx, resolved.ProvisionCommand); err != nil {
 			if m.logger != nil {
 				m.logger.Error("provision failed", "err", err)
 			}
@@ -262,7 +270,7 @@ func (m *Manager) connectInternal(ctx context.Context, flavorID string, onProgre
 
 	// Update workspace branch to hostname now that it's known
 	if finalHost.Hostname != "" {
-		workspaceID := fmt.Sprintf("remote-%s", finalHost.ID)
+		workspaceID := finalHost.ID
 		if ws, found := m.state.GetWorkspace(workspaceID); found && ws.Branch != finalHost.Hostname {
 			ws.Branch = finalHost.Hostname
 			m.state.UpdateWorkspace(ws)
@@ -310,14 +318,18 @@ func (m *Manager) Reconnect(ctx context.Context, hostID string) (*Connection, er
 		return nil, fmt.Errorf("remote host has no hostname: %s", hostID)
 	}
 
-	// Get flavor configuration
-	flavor, found := m.config.GetRemoteFlavor(host.FlavorID)
+	// Get profile configuration and resolve flavor
+	profile, found := m.config.GetRemoteProfile(host.ProfileID)
 	if !found {
-		return nil, fmt.Errorf("remote flavor not found: %s", host.FlavorID)
+		return nil, fmt.Errorf("remote profile not found: %s", host.ProfileID)
+	}
+	resolved, err := config.ResolveProfileFlavor(profile, host.Flavor)
+	if err != nil {
+		return nil, err
 	}
 
 	// Create new connection for reconnection
-	cfg := ConnectionConfigFromFlavor(flavor)
+	cfg := ConnectionConfigFromResolved(resolved)
 	cfg.OnStatusChange = m.handleStatusChange
 	cfg.Logger = m.logger
 	conn := NewConnection(cfg)
@@ -383,13 +395,13 @@ func (m *Manager) RunCommand(ctx context.Context, hostID, workdir, command strin
 	return conn.RunCommand(ctx, workdir, command)
 }
 
-// GetConnectionsByFlavorID returns all connections for a flavor (may be empty).
-func (m *Manager) GetConnectionsByFlavorID(flavorID string) []*Connection {
+// GetConnectionsByProfileAndFlavor returns all connections for a profile+flavor (may be empty).
+func (m *Manager) GetConnectionsByProfileAndFlavor(profileID, flavorStr string) []*Connection {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var conns []*Connection
 	for _, conn := range m.connections {
-		if conn.flavor.ID == flavorID {
+		if conn.host.ProfileID == profileID && conn.flavorStr == flavorStr {
 			conns = append(conns, conn)
 		}
 	}
@@ -404,13 +416,13 @@ func (m *Manager) IsConnected(hostID string) bool {
 	return exists && conn.IsConnected()
 }
 
-// IsFlavorConnected checks if a flavor has at least one active connection
-// across all hosts provisioned for that flavor.
-func (m *Manager) IsFlavorConnected(flavorID string) bool {
+// IsProfileFlavorConnected checks if a profile+flavor has at least one active connection
+// across all hosts provisioned for that combination.
+func (m *Manager) IsProfileFlavorConnected(profileID, flavorStr string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	for _, conn := range m.connections {
-		if conn.flavor.ID == flavorID && conn.IsConnected() {
+		if conn.host.ProfileID == profileID && conn.flavorStr == flavorStr && conn.IsConnected() {
 			return true
 		}
 	}
@@ -504,24 +516,24 @@ func (m *Manager) handleStatusChange(hostID, status string) {
 // ensureWorkspaceForHost creates a workspace for a remote host if one doesn't
 // already exist. This is called immediately when a host is created (not deferred
 // to SpawnRemote) so the workspace appears on the home page right away.
-func (m *Manager) ensureWorkspaceForHost(host state.RemoteHost, flavor config.RemoteFlavor) {
-	workspaceID := fmt.Sprintf("remote-%s", host.ID)
+func (m *Manager) ensureWorkspaceForHost(host state.RemoteHost, resolved config.ResolvedFlavor) {
+	workspaceID := host.ID
 	if _, found := m.state.GetWorkspace(workspaceID); found {
 		return // Already exists
 	}
 
 	branch := host.Hostname
 	if branch == "" {
-		branch = flavor.DisplayName
+		branch = resolved.FlavorDisplayName
 	}
 
 	ws := state.Workspace{
 		ID:           workspaceID,
-		Repo:         flavor.DisplayName,
+		Repo:         resolved.FlavorDisplayName,
 		Branch:       branch,
-		Path:         flavor.WorkspacePath,
+		Path:         resolved.WorkspacePath,
 		RemoteHostID: host.ID,
-		RemotePath:   flavor.WorkspacePath,
+		RemotePath:   resolved.WorkspacePath,
 	}
 	m.state.AddWorkspace(ws)
 }
@@ -543,7 +555,7 @@ func (m *Manager) PruneExpiredHosts() {
 
 	pruned := 0
 	for _, host := range hosts {
-		if host.ExpiresAt.Before(now) {
+		if !host.ExpiresAt.IsZero() && host.ExpiresAt.Before(now) {
 			// Disconnect if connected
 			m.mu.Lock()
 			if conn, exists := m.connections[host.ID]; exists {
@@ -554,13 +566,12 @@ func (m *Manager) PruneExpiredHosts() {
 				}
 				conn.Close()
 				delete(m.connections, host.ID)
-				pruned++
 			}
 			m.mu.Unlock()
 
-			// Update status to expired
-			host.Status = state.RemoteHostStatusExpired
-			m.state.UpdateRemoteHost(host)
+			// Remove expired host from state
+			m.state.RemoveRemoteHost(host.ID)
+			pruned++
 		}
 	}
 
@@ -617,10 +628,14 @@ func (m *Manager) StartReconnect(hostID string, onFail func(hostID string)) (pro
 		return "", fmt.Errorf("remote host has no hostname: %s", hostID)
 	}
 
-	// Get flavor configuration
-	flavor, found := m.config.GetRemoteFlavor(host.FlavorID)
+	// Get profile configuration and resolve flavor
+	profile, found := m.config.GetRemoteProfile(host.ProfileID)
 	if !found {
-		return "", fmt.Errorf("remote flavor not found: %s", host.FlavorID)
+		return "", fmt.Errorf("remote profile not found: %s", host.ProfileID)
+	}
+	resolved, err := config.ResolveProfileFlavor(profile, host.Flavor)
+	if err != nil {
+		return "", err
 	}
 
 	// Check if already reconnecting or connected
@@ -636,7 +651,7 @@ func (m *Manager) StartReconnect(hostID string, onFail func(hostID string)) (pro
 	m.mu.RUnlock()
 
 	// Create new connection for reconnection
-	cfg := ConnectionConfigFromFlavor(flavor)
+	cfg := ConnectionConfigFromResolved(resolved)
 	cfg.OnStatusChange = m.handleStatusChange
 	cfg.Logger = m.logger
 	conn := NewConnection(cfg)
@@ -700,11 +715,11 @@ func (m *Manager) StartReconnect(hostID string, onFail func(hostID string)) (pro
 		// host reboot, and ephemeral hosts may lose installed packages.
 		// The provision command should be idempotent (e.g., dnf install -y is a no-op
 		// if already installed, pgrep Xvfb || Xvfb :99 & only starts if not running).
-		if flavor.ProvisionCommand != "" {
+		if resolved.ProvisionCommand != "" {
 			if m.logger != nil {
 				m.logger.Info("re-running provision command on reconnect", "host_id", hostID)
 			}
-			if err := conn.Provision(ctx, flavor.ProvisionCommand); err != nil {
+			if err := conn.Provision(ctx, resolved.ProvisionCommand); err != nil {
 				if m.logger != nil {
 					m.logger.Error("provision on reconnect failed", "err", err)
 				}
@@ -780,35 +795,48 @@ type HostStatus struct {
 	Status   string `json:"status"`
 }
 
-// FlavorStatus represents a flavor with the status of all its hosts.
-type FlavorStatus struct {
-	Flavor config.RemoteFlavor `json:"flavor"`
-	Hosts  []HostStatus        `json:"hosts"`
+// ProfileStatus represents a profile with the status of all its hosts grouped by flavor.
+type ProfileStatus struct {
+	Profile     config.RemoteProfile `json:"profile"`
+	FlavorHosts []FlavorHostGroup    `json:"flavor_hosts"`
 }
 
-// GetFlavorStatuses returns all configured flavors with the status of all their hosts.
-func (m *Manager) GetFlavorStatuses() []FlavorStatus {
-	flavors := m.config.GetRemoteFlavors()
-	result := make([]FlavorStatus, len(flavors))
+// FlavorHostGroup groups hosts by flavor within a profile.
+type FlavorHostGroup struct {
+	Flavor string       `json:"flavor"`
+	Hosts  []HostStatus `json:"hosts"`
+}
+
+// GetProfileStatuses returns all configured profiles with the status of all their hosts.
+func (m *Manager) GetProfileStatuses() []ProfileStatus {
+	profiles := m.config.GetRemoteProfiles()
+	result := make([]ProfileStatus, len(profiles))
 
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	for i, flavor := range flavors {
-		status := FlavorStatus{
-			Flavor: flavor,
-			Hosts:  []HostStatus{},
+	for i, profile := range profiles {
+		status := ProfileStatus{
+			Profile:     profile,
+			FlavorHosts: []FlavorHostGroup{},
 		}
 
-		// Collect all hosts for this flavor
-		for _, conn := range m.connections {
-			if conn.flavor.ID == flavor.ID {
-				status.Hosts = append(status.Hosts, HostStatus{
-					HostID:   conn.host.ID,
-					Hostname: conn.Hostname(),
-					Status:   conn.Status(),
-				})
+		// Collect hosts for each flavor in this profile
+		for _, pf := range profile.Flavors {
+			group := FlavorHostGroup{
+				Flavor: pf.Flavor,
+				Hosts:  []HostStatus{},
 			}
+			for _, conn := range m.connections {
+				if conn.host.ProfileID == profile.ID && conn.flavorStr == pf.Flavor {
+					group.Hosts = append(group.Hosts, HostStatus{
+						HostID:   conn.host.ID,
+						Hostname: conn.Hostname(),
+						Status:   conn.Status(),
+					})
+				}
+			}
+			status.FlavorHosts = append(status.FlavorHosts, group)
 		}
 
 		result[i] = status

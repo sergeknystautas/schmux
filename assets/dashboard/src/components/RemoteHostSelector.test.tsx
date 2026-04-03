@@ -3,16 +3,16 @@ import { render, screen, act, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import RemoteHostSelector from './RemoteHostSelector';
 import type { EnvironmentSelection } from './RemoteHostSelector';
-import type { RemoteFlavorStatus } from '../lib/types';
+import type { RemoteProfileStatus } from '../lib/types';
 
 // Mock API
-const mockGetRemoteFlavorStatuses = vi.fn<() => Promise<RemoteFlavorStatus[]>>();
+const mockGetRemoteProfileStatuses = vi.fn<() => Promise<RemoteProfileStatus[]>>();
 const mockGetRemoteHosts = vi.fn();
 const mockConnectRemoteHost = vi.fn();
 const mockReconnectRemoteHost = vi.fn();
 
 vi.mock('../lib/api', () => ({
-  getRemoteFlavorStatuses: (...args: unknown[]) => mockGetRemoteFlavorStatuses(...(args as [])),
+  getRemoteProfileStatuses: (...args: unknown[]) => mockGetRemoteProfileStatuses(...(args as [])),
   getRemoteHosts: (...args: unknown[]) => mockGetRemoteHosts(...(args as [])),
   connectRemoteHost: (...args: unknown[]) => mockConnectRemoteHost(...args),
   reconnectRemoteHost: (...args: unknown[]) => mockReconnectRemoteHost(...args),
@@ -45,12 +45,12 @@ vi.mock('../contexts/SessionsContext', () => ({
   }),
 }));
 
-const baseFlavor = {
-  id: 'flavor-od',
-  flavor: 'od',
+const baseProfile = {
+  id: 'profile-od',
   display_name: 'OnDemand',
   vcs: 'hg',
   workspace_path: '/data/users/$USER',
+  flavors: [{ flavor: 'od' }],
 };
 
 function renderSelector(value: EnvironmentSelection = { type: 'local' }, onChange = vi.fn()) {
@@ -62,12 +62,17 @@ describe('RemoteHostSelector', () => {
     vi.clearAllMocks();
   });
 
-  // Bug 1: flavorStatus.hosts is null, causing .map() crash
-  it('renders without crashing when hosts is null in API response', async () => {
-    mockGetRemoteFlavorStatuses.mockResolvedValue([
+  // Bug 1: flavor_hosts has empty hosts, handling gracefully
+  it('renders without crashing when flavor_hosts has null hosts in API response', async () => {
+    mockGetRemoteProfileStatuses.mockResolvedValue([
       {
-        flavor: baseFlavor,
-        hosts: null as unknown as RemoteFlavorStatus['hosts'],
+        profile: baseProfile,
+        flavor_hosts: [
+          {
+            flavor: 'od',
+            hosts: null as unknown as RemoteProfileStatus['flavor_hosts'][0]['hosts'],
+          },
+        ],
       },
     ]);
 
@@ -83,11 +88,11 @@ describe('RemoteHostSelector', () => {
   });
 
   // Bug 1 companion: empty array also works
-  it('renders without crashing when hosts is an empty array', async () => {
-    mockGetRemoteFlavorStatuses.mockResolvedValue([
+  it('renders without crashing when flavor_hosts has empty hosts array', async () => {
+    mockGetRemoteProfileStatuses.mockResolvedValue([
       {
-        flavor: baseFlavor,
-        hosts: [],
+        profile: baseProfile,
+        flavor_hosts: [{ flavor: 'od', hosts: [] }],
       },
     ]);
 
@@ -101,22 +106,27 @@ describe('RemoteHostSelector', () => {
     expect(screen.getByText(/New OnDemand host/)).toBeInTheDocument();
   });
 
-  it('shows per-host cards when flavor has existing hosts', async () => {
-    mockGetRemoteFlavorStatuses.mockResolvedValue([
+  it('shows per-host cards when profile has existing hosts', async () => {
+    mockGetRemoteProfileStatuses.mockResolvedValue([
       {
-        flavor: baseFlavor,
-        hosts: [
+        profile: baseProfile,
+        flavor_hosts: [
           {
-            host_id: 'host-1',
-            hostname: 'dev001.example.com',
-            status: 'connected',
-            connected: true,
-          },
-          {
-            host_id: 'host-2',
-            hostname: 'dev002.example.com',
-            status: 'disconnected',
-            connected: false,
+            flavor: 'od',
+            hosts: [
+              {
+                host_id: 'host-1',
+                hostname: 'dev001.example.com',
+                status: 'connected',
+                connected: true,
+              },
+              {
+                host_id: 'host-2',
+                hostname: 'dev002.example.com',
+                status: 'disconnected',
+                connected: false,
+              },
+            ],
           },
         ],
       },
@@ -134,16 +144,21 @@ describe('RemoteHostSelector', () => {
     expect(screen.getAllByText('dev002.example.com').length).toBeGreaterThan(0);
   });
 
-  it('always shows "+ New host" card with dashed border for every flavor', async () => {
-    mockGetRemoteFlavorStatuses.mockResolvedValue([
+  it('always shows "+ New host" card with dashed border for every profile', async () => {
+    mockGetRemoteProfileStatuses.mockResolvedValue([
       {
-        flavor: baseFlavor,
-        hosts: [
+        profile: baseProfile,
+        flavor_hosts: [
           {
-            host_id: 'host-1',
-            hostname: 'dev001.example.com',
-            status: 'connected',
-            connected: true,
+            flavor: 'od',
+            hosts: [
+              {
+                host_id: 'host-1',
+                hostname: 'dev001.example.com',
+                status: 'connected',
+                connected: true,
+              },
+            ],
           },
         ],
       },
@@ -167,10 +182,15 @@ describe('RemoteHostSelector', () => {
 
   // Bug 6: "+ New host" card shows "Provisioning..." during connection
   it('+ New host card shows static "Provision a new instance" text, never "Provisioning..."', async () => {
-    mockGetRemoteFlavorStatuses.mockResolvedValue([
+    mockGetRemoteProfileStatuses.mockResolvedValue([
       {
-        flavor: baseFlavor,
-        hosts: [{ host_id: 'host-1', hostname: '', status: 'provisioning', connected: false }],
+        profile: baseProfile,
+        flavor_hosts: [
+          {
+            flavor: 'od',
+            hosts: [{ host_id: 'host-1', hostname: '', status: 'provisioning', connected: false }],
+          },
+        ],
       },
     ]);
 
@@ -195,15 +215,20 @@ describe('RemoteHostSelector', () => {
   });
 
   it('connected host card shows hostname and connected status', async () => {
-    mockGetRemoteFlavorStatuses.mockResolvedValue([
+    mockGetRemoteProfileStatuses.mockResolvedValue([
       {
-        flavor: baseFlavor,
-        hosts: [
+        profile: baseProfile,
+        flavor_hosts: [
           {
-            host_id: 'host-1',
-            hostname: 'myhost.example.com',
-            status: 'connected',
-            connected: true,
+            flavor: 'od',
+            hosts: [
+              {
+                host_id: 'host-1',
+                hostname: 'myhost.example.com',
+                status: 'connected',
+                connected: true,
+              },
+            ],
           },
         ],
       },
@@ -224,17 +249,22 @@ describe('RemoteHostSelector', () => {
     expect(strongHostname).toBeTruthy();
   });
 
-  it('clicking connected host card calls onChange with hostId', async () => {
+  it('clicking connected host card calls onChange with profileId', async () => {
     const onChange = vi.fn();
-    mockGetRemoteFlavorStatuses.mockResolvedValue([
+    mockGetRemoteProfileStatuses.mockResolvedValue([
       {
-        flavor: baseFlavor,
-        hosts: [
+        profile: baseProfile,
+        flavor_hosts: [
           {
-            host_id: 'host-abc',
-            hostname: 'myhost.example.com',
-            status: 'connected',
-            connected: true,
+            flavor: 'od',
+            hosts: [
+              {
+                host_id: 'host-abc',
+                hostname: 'myhost.example.com',
+                status: 'connected',
+                connected: true,
+              },
+            ],
           },
         ],
       },
@@ -242,7 +272,8 @@ describe('RemoteHostSelector', () => {
     mockGetRemoteHosts.mockResolvedValue([
       {
         id: 'host-abc',
-        flavor_id: 'flavor-od',
+        profile_id: 'profile-od',
+        flavor: 'od',
         hostname: 'myhost.example.com',
         status: 'connected',
       },
@@ -264,12 +295,12 @@ describe('RemoteHostSelector', () => {
       await userEvent.click(hostCard!);
     });
 
-    // onChange should be called with the host selection including hostId
+    // onChange should be called with the host selection including profileId
     await waitFor(() => {
       expect(onChange).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'remote',
-          flavorId: 'flavor-od',
+          profileId: 'profile-od',
           hostId: 'host-abc',
         })
       );

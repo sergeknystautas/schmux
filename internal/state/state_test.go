@@ -285,10 +285,11 @@ func TestRemoteHostCRUD(t *testing.T) {
 		s := New("", nil)
 
 		rh := RemoteHost{
-			ID:       "host-001",
-			FlavorID: "flavor-1",
-			Hostname: "remote-host-123.example.com",
-			Status:   RemoteHostStatusConnected,
+			ID:        "host-001",
+			ProfileID: "profile-1",
+			Flavor:    "flavor-1",
+			Hostname:  "remote-host-123.example.com",
+			Status:    RemoteHostStatusConnected,
 		}
 
 		if err := s.AddRemoteHost(rh); err != nil {
@@ -308,10 +309,11 @@ func TestRemoteHostCRUD(t *testing.T) {
 		s := New("", nil)
 
 		rh := RemoteHost{
-			ID:       "host-001",
-			FlavorID: "flavor-1",
-			Hostname: "old.host.net",
-			Status:   RemoteHostStatusConnected,
+			ID:        "host-001",
+			ProfileID: "profile-1",
+			Flavor:    "flavor-1",
+			Hostname:  "old.host.net",
+			Status:    RemoteHostStatusConnected,
 		}
 		s.AddRemoteHost(rh)
 
@@ -328,46 +330,76 @@ func TestRemoteHostCRUD(t *testing.T) {
 		}
 	})
 
-	t.Run("GetRemoteHostByFlavorID", func(t *testing.T) {
+	t.Run("GetRemoteHostByProfileAndFlavor", func(t *testing.T) {
 		s := New("", nil)
 
-		s.AddRemoteHost(RemoteHost{ID: "host-1", FlavorID: "flavor-a", Hostname: "a.net"})
-		s.AddRemoteHost(RemoteHost{ID: "host-2", FlavorID: "flavor-b", Hostname: "b.net"})
+		s.AddRemoteHost(RemoteHost{ID: "host-1", ProfileID: "profile-a", Flavor: "www", Hostname: "a.net"})
+		s.AddRemoteHost(RemoteHost{ID: "host-2", ProfileID: "profile-b", Flavor: "gpu", Hostname: "b.net"})
 
-		rh, found := s.GetRemoteHostByFlavorID("flavor-b")
+		rh, found := s.GetRemoteHostByProfileAndFlavor("profile-b", "gpu")
 		if !found {
-			t.Fatal("host not found by flavor ID")
+			t.Fatal("host not found by profile and flavor")
 		}
 		if rh.Hostname != "b.net" {
 			t.Errorf("Hostname = %q, want %q", rh.Hostname, "b.net")
 		}
 
-		_, found = s.GetRemoteHostByFlavorID("nonexistent")
+		_, found = s.GetRemoteHostByProfileAndFlavor("profile-a", "gpu")
 		if found {
-			t.Error("expected nonexistent flavor to not be found")
+			t.Error("expected mismatched profile+flavor to not be found")
+		}
+
+		_, found = s.GetRemoteHostByProfileAndFlavor("nonexistent", "www")
+		if found {
+			t.Error("expected nonexistent profile to not be found")
 		}
 	})
 
-	t.Run("GetRemoteHostsByFlavorID", func(t *testing.T) {
+	t.Run("GetRemoteHostsByProfileAndFlavor", func(t *testing.T) {
 		s := &State{
 			RemoteHosts: []RemoteHost{
-				{ID: "remote-aaa", FlavorID: "www", Hostname: "devvm1.od"},
-				{ID: "remote-bbb", FlavorID: "www", Hostname: "devvm2.od"},
-				{ID: "remote-ccc", FlavorID: "gpu", Hostname: "devvm3.od"},
+				{ID: "remote-aaa", ProfileID: "p1", Flavor: "www", Hostname: "devvm1.od"},
+				{ID: "remote-bbb", ProfileID: "p1", Flavor: "www", Hostname: "devvm2.od"},
+				{ID: "remote-ccc", ProfileID: "p1", Flavor: "gpu", Hostname: "devvm3.od"},
 			},
 		}
 
-		hosts := s.GetRemoteHostsByFlavorID("www")
+		hosts := s.GetRemoteHostsByProfileAndFlavor("p1", "www")
 		if len(hosts) != 2 {
 			t.Fatalf("expected 2 hosts, got %d", len(hosts))
 		}
 
-		hosts = s.GetRemoteHostsByFlavorID("gpu")
+		hosts = s.GetRemoteHostsByProfileAndFlavor("p1", "gpu")
 		if len(hosts) != 1 {
 			t.Fatalf("expected 1 host, got %d", len(hosts))
 		}
 
-		hosts = s.GetRemoteHostsByFlavorID("nonexistent")
+		hosts = s.GetRemoteHostsByProfileAndFlavor("p1", "nonexistent")
+		if len(hosts) != 0 {
+			t.Fatalf("expected 0 hosts, got %d", len(hosts))
+		}
+	})
+
+	t.Run("GetRemoteHostsByProfileID", func(t *testing.T) {
+		s := &State{
+			RemoteHosts: []RemoteHost{
+				{ID: "remote-aaa", ProfileID: "p1", Flavor: "www", Hostname: "devvm1.od"},
+				{ID: "remote-bbb", ProfileID: "p1", Flavor: "gpu", Hostname: "devvm2.od"},
+				{ID: "remote-ccc", ProfileID: "p2", Flavor: "www", Hostname: "devvm3.od"},
+			},
+		}
+
+		hosts := s.GetRemoteHostsByProfileID("p1")
+		if len(hosts) != 2 {
+			t.Fatalf("expected 2 hosts, got %d", len(hosts))
+		}
+
+		hosts = s.GetRemoteHostsByProfileID("p2")
+		if len(hosts) != 1 {
+			t.Fatalf("expected 1 host, got %d", len(hosts))
+		}
+
+		hosts = s.GetRemoteHostsByProfileID("nonexistent")
 		if len(hosts) != 0 {
 			t.Fatalf("expected 0 hosts, got %d", len(hosts))
 		}
@@ -376,8 +408,8 @@ func TestRemoteHostCRUD(t *testing.T) {
 	t.Run("GetRemoteHostByHostname", func(t *testing.T) {
 		s := New("", nil)
 
-		s.AddRemoteHost(RemoteHost{ID: "host-1", FlavorID: "flavor-a", Hostname: "a.net"})
-		s.AddRemoteHost(RemoteHost{ID: "host-2", FlavorID: "flavor-b", Hostname: "b.net"})
+		s.AddRemoteHost(RemoteHost{ID: "host-1", ProfileID: "profile-a", Flavor: "www", Hostname: "a.net"})
+		s.AddRemoteHost(RemoteHost{ID: "host-2", ProfileID: "profile-b", Flavor: "gpu", Hostname: "b.net"})
 
 		rh, found := s.GetRemoteHostByHostname("a.net")
 		if !found {
@@ -397,17 +429,19 @@ func TestRemoteHostCRUD(t *testing.T) {
 		s := New("", nil)
 
 		s.AddRemoteHost(RemoteHost{
-			ID:       "host-001",
-			FlavorID: "flavor-1",
-			Hostname: "old.net",
-			Status:   RemoteHostStatusConnected,
+			ID:        "host-001",
+			ProfileID: "profile-1",
+			Flavor:    "flavor-1",
+			Hostname:  "old.net",
+			Status:    RemoteHostStatusConnected,
 		})
 
 		err := s.UpdateRemoteHost(RemoteHost{
-			ID:       "host-001",
-			FlavorID: "flavor-1",
-			Hostname: "updated.net",
-			Status:   RemoteHostStatusDisconnected,
+			ID:        "host-001",
+			ProfileID: "profile-1",
+			Flavor:    "flavor-1",
+			Hostname:  "updated.net",
+			Status:    RemoteHostStatusDisconnected,
 		})
 		if err != nil {
 			t.Fatalf("UpdateRemoteHost failed: %v", err)
@@ -487,7 +521,8 @@ func TestRemoteHostPersistence(t *testing.T) {
 	now := time.Now().Truncate(time.Second) // Truncate for JSON round-trip
 	s.AddRemoteHost(RemoteHost{
 		ID:          "host-001",
-		FlavorID:    "flavor-1",
+		ProfileID:   "profile-1",
+		Flavor:      "flavor-1",
 		Hostname:    "test.host.net",
 		Status:      RemoteHostStatusConnected,
 		ConnectedAt: now,

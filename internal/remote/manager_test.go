@@ -2,7 +2,6 @@ package remote
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -15,13 +14,13 @@ import (
 func TestManager_ConnectRace(t *testing.T) {
 	// Create test config and state
 	cfg := &config.Config{}
-	cfg.RemoteFlavors = []config.RemoteFlavor{
+	cfg.RemoteProfiles = []config.RemoteProfile{
 		{
 			ID:            "test-flavor",
-			Flavor:        "test",
 			DisplayName:   "Test Flavor",
 			WorkspacePath: "/tmp/test",
 			VCS:           "git",
+			Flavors:       []config.RemoteProfileFlavor{{Flavor: "test"}},
 		},
 	}
 
@@ -29,7 +28,7 @@ func TestManager_ConnectRace(t *testing.T) {
 
 	mgr := NewManager(cfg, st, nil)
 
-	// Launch multiple goroutines trying to StartConnect to same flavor.
+	// Launch multiple goroutines trying to StartConnect to same profile+flavor.
 	// Each should get a unique provisioning session ID (no 1:1 enforcement).
 	const numGoroutines = 10
 	var wg sync.WaitGroup
@@ -43,7 +42,7 @@ func TestManager_ConnectRace(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			sid, err := mgr.StartConnect("test-flavor")
+			sid, err := mgr.StartConnect("test-flavor", "test")
 			results <- result{sessionID: sid, err: err}
 		}()
 	}
@@ -95,7 +94,8 @@ func TestManager_PruneExpiredHosts(t *testing.T) {
 		RemoteHosts: []state.RemoteHost{
 			{
 				ID:          "host-1",
-				FlavorID:    "flavor-1",
+				ProfileID:   "profile-1",
+				Flavor:      "flavor-1",
 				Hostname:    "expired.example.com",
 				Status:      "connected",
 				ConnectedAt: now.Add(-24 * time.Hour),
@@ -103,7 +103,8 @@ func TestManager_PruneExpiredHosts(t *testing.T) {
 			},
 			{
 				ID:          "host-2",
-				FlavorID:    "flavor-2",
+				ProfileID:   "profile-2",
+				Flavor:      "flavor-2",
 				Hostname:    "active.example.com",
 				Status:      "connected",
 				ConnectedAt: now,
@@ -117,13 +118,10 @@ func TestManager_PruneExpiredHosts(t *testing.T) {
 	// Run pruning
 	mgr.PruneExpiredHosts()
 
-	// Verify expired host was updated
-	host1, found := st.GetRemoteHost("host-1")
-	if !found {
-		t.Error("host-1 should still exist in state")
-	}
-	if host1.Status != "expired" {
-		t.Errorf("host-1 status should be 'expired', got '%s'", host1.Status)
+	// Verify expired host was removed from state
+	_, found := st.GetRemoteHost("host-1")
+	if found {
+		t.Error("host-1 should have been removed from state")
 	}
 
 	// Verify active host was not touched
@@ -148,7 +146,7 @@ func TestManager_GetConnection(t *testing.T) {
 
 	// Create a mock connection
 	conn := NewConnection(ConnectionConfig{
-		FlavorID:      "test-flavor",
+		ProfileID:     "test-flavor",
 		Flavor:        "test",
 		DisplayName:   "Test",
 		WorkspacePath: "/tmp",
@@ -188,7 +186,7 @@ func TestManager_IsConnected(t *testing.T) {
 
 	// Create a mock connection
 	conn := NewConnection(ConnectionConfig{
-		FlavorID:      "test-flavor",
+		ProfileID:     "test-flavor",
 		Flavor:        "test",
 		DisplayName:   "Test",
 		WorkspacePath: "/tmp",
@@ -224,7 +222,7 @@ func TestManager_DisconnectAll(t *testing.T) {
 	// Create multiple mock connections
 	for i := 0; i < 3; i++ {
 		conn := NewConnection(ConnectionConfig{
-			FlavorID:      "test-flavor",
+			ProfileID:     "test-flavor",
 			Flavor:        "test",
 			DisplayName:   "Test",
 			WorkspacePath: "/tmp",
@@ -257,22 +255,22 @@ func TestManager_DisconnectAll(t *testing.T) {
 	}
 }
 
-func TestManager_GetFlavorStatuses(t *testing.T) {
+func TestManager_GetProfileStatuses(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.RemoteFlavors = []config.RemoteFlavor{
+	cfg.RemoteProfiles = []config.RemoteProfile{
 		{
-			ID:            "flavor-1",
-			Flavor:        "prod",
+			ID:            "profile-1",
 			DisplayName:   "Production",
 			WorkspacePath: "/workspace",
 			VCS:           "git",
+			Flavors:       []config.RemoteProfileFlavor{{Flavor: "prod"}},
 		},
 		{
-			ID:            "flavor-2",
-			Flavor:        "dev",
+			ID:            "profile-2",
 			DisplayName:   "Development",
 			WorkspacePath: "/workspace",
 			VCS:           "git",
+			Flavors:       []config.RemoteProfileFlavor{{Flavor: "dev"}},
 		},
 	}
 
@@ -285,36 +283,31 @@ func TestManager_GetFlavorStatuses(t *testing.T) {
 	mgr := NewManager(cfg, st, nil)
 
 	// Get statuses
-	statuses := mgr.GetFlavorStatuses()
+	statuses := mgr.GetProfileStatuses()
 
 	if len(statuses) != 2 {
-		t.Errorf("expected 2 flavor statuses, got %d", len(statuses))
+		t.Errorf("expected 2 profile statuses, got %d", len(statuses))
 	}
 
-	// Verify both flavors have empty hosts initially
+	// Verify both profiles have flavor host groups with empty hosts initially
 	for _, status := range statuses {
-		if len(status.Hosts) != 0 {
-			t.Errorf("flavor %s should have no hosts, got %d", status.Flavor.ID, len(status.Hosts))
+		for _, fg := range status.FlavorHosts {
+			if len(fg.Hosts) != 0 {
+				t.Errorf("profile %s flavor %s should have no hosts, got %d", status.Profile.ID, fg.Flavor, len(fg.Hosts))
+			}
 		}
 	}
 }
 
-func TestManager_GetConnectionsByFlavorID(t *testing.T) {
+func TestManager_GetConnectionsByProfileAndFlavor(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.RemoteFlavors = []config.RemoteFlavor{
+	cfg.RemoteProfiles = []config.RemoteProfile{
 		{
-			ID:            "www",
-			Flavor:        "www",
-			DisplayName:   "WWW",
+			ID:            "od",
+			DisplayName:   "OnDemand",
 			WorkspacePath: "/workspace",
 			VCS:           "git",
-		},
-		{
-			ID:            "gpu",
-			Flavor:        "gpu",
-			DisplayName:   "GPU",
-			WorkspacePath: "/workspace",
-			VCS:           "git",
+			Flavors:       []config.RemoteProfileFlavor{{Flavor: "www"}, {Flavor: "gpu"}},
 		},
 	}
 
@@ -328,21 +321,21 @@ func TestManager_GetConnectionsByFlavorID(t *testing.T) {
 
 	// Create two "www" connections and one "gpu" connection
 	www1 := NewConnection(ConnectionConfig{
-		FlavorID:      "www",
+		ProfileID:     "od",
 		Flavor:        "www",
 		DisplayName:   "WWW",
 		WorkspacePath: "/workspace",
 		VCS:           "git",
 	})
 	www2 := NewConnection(ConnectionConfig{
-		FlavorID:      "www",
+		ProfileID:     "od",
 		Flavor:        "www",
 		DisplayName:   "WWW",
 		WorkspacePath: "/workspace",
 		VCS:           "git",
 	})
 	gpu1 := NewConnection(ConnectionConfig{
-		FlavorID:      "gpu",
+		ProfileID:     "od",
 		Flavor:        "gpu",
 		DisplayName:   "GPU",
 		WorkspacePath: "/workspace",
@@ -355,34 +348,34 @@ func TestManager_GetConnectionsByFlavorID(t *testing.T) {
 	mgr.connections[gpu1.host.ID] = gpu1
 	mgr.mu.Unlock()
 
-	// Verify GetConnectionsByFlavorID("www") returns 2
-	wwwConns := mgr.GetConnectionsByFlavorID("www")
+	// Verify GetConnectionsByProfileAndFlavor("od", "www") returns 2
+	wwwConns := mgr.GetConnectionsByProfileAndFlavor("od", "www")
 	if len(wwwConns) != 2 {
 		t.Errorf("expected 2 www connections, got %d", len(wwwConns))
 	}
 
-	// Verify GetConnectionsByFlavorID("gpu") returns 1
-	gpuConns := mgr.GetConnectionsByFlavorID("gpu")
+	// Verify GetConnectionsByProfileAndFlavor("od", "gpu") returns 1
+	gpuConns := mgr.GetConnectionsByProfileAndFlavor("od", "gpu")
 	if len(gpuConns) != 1 {
 		t.Errorf("expected 1 gpu connection, got %d", len(gpuConns))
 	}
 
-	// Verify GetConnectionsByFlavorID("nonexistent") returns 0
-	noneConns := mgr.GetConnectionsByFlavorID("nonexistent")
+	// Verify GetConnectionsByProfileAndFlavor("od", "nonexistent") returns 0
+	noneConns := mgr.GetConnectionsByProfileAndFlavor("od", "nonexistent")
 	if len(noneConns) != 0 {
 		t.Errorf("expected 0 nonexistent connections, got %d", len(noneConns))
 	}
 }
 
-func TestManager_GetFlavorStatuses_MultiHost(t *testing.T) {
+func TestManager_GetProfileStatuses_MultiHost(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.RemoteFlavors = []config.RemoteFlavor{
+	cfg.RemoteProfiles = []config.RemoteProfile{
 		{
-			ID:            "www",
-			Flavor:        "www",
-			DisplayName:   "WWW",
+			ID:            "od",
+			DisplayName:   "OnDemand",
 			WorkspacePath: "/workspace",
 			VCS:           "git",
+			Flavors:       []config.RemoteProfileFlavor{{Flavor: "www"}},
 		},
 	}
 
@@ -396,14 +389,14 @@ func TestManager_GetFlavorStatuses_MultiHost(t *testing.T) {
 
 	// Create two "www" connections
 	www1 := NewConnection(ConnectionConfig{
-		FlavorID:      "www",
+		ProfileID:     "od",
 		Flavor:        "www",
 		DisplayName:   "WWW",
 		WorkspacePath: "/workspace",
 		VCS:           "git",
 	})
 	www2 := NewConnection(ConnectionConfig{
-		FlavorID:      "www",
+		ProfileID:     "od",
 		Flavor:        "www",
 		DisplayName:   "WWW",
 		WorkspacePath: "/workspace",
@@ -415,20 +408,23 @@ func TestManager_GetFlavorStatuses_MultiHost(t *testing.T) {
 	mgr.connections[www2.host.ID] = www2
 	mgr.mu.Unlock()
 
-	// Verify GetFlavorStatuses returns 1 FlavorStatus entry
-	statuses := mgr.GetFlavorStatuses()
+	// Verify GetProfileStatuses returns 1 ProfileStatus entry
+	statuses := mgr.GetProfileStatuses()
 	if len(statuses) != 1 {
-		t.Fatalf("expected 1 flavor status, got %d", len(statuses))
+		t.Fatalf("expected 1 profile status, got %d", len(statuses))
 	}
 
-	// with 2 HostStatus entries in its Hosts slice
-	if len(statuses[0].Hosts) != 2 {
-		t.Errorf("expected 2 hosts in flavor status, got %d", len(statuses[0].Hosts))
+	// with 1 FlavorHostGroup with 2 HostStatus entries
+	if len(statuses[0].FlavorHosts) != 1 {
+		t.Fatalf("expected 1 flavor host group, got %d", len(statuses[0].FlavorHosts))
+	}
+	if len(statuses[0].FlavorHosts[0].Hosts) != 2 {
+		t.Errorf("expected 2 hosts in flavor host group, got %d", len(statuses[0].FlavorHosts[0].Hosts))
 	}
 
 	// Verify each host has a unique host ID
 	hostIDs := make(map[string]bool)
-	for _, h := range statuses[0].Hosts {
+	for _, h := range statuses[0].FlavorHosts[0].Hosts {
 		hostIDs[h.HostID] = true
 	}
 	if len(hostIDs) != 2 {
@@ -464,13 +460,13 @@ func TestManager_SetStateChangeCallback(t *testing.T) {
 // strict ID-only matching logic without requiring a full connection setup.
 func TestReconcileWithRenamedWindows(t *testing.T) {
 	cfg := &config.Config{
-		RemoteFlavors: []config.RemoteFlavor{
+		RemoteProfiles: []config.RemoteProfile{
 			{
 				ID:            "test-flavor",
-				Flavor:        "test",
 				DisplayName:   "Test",
 				WorkspacePath: "/workspace",
 				VCS:           "git",
+				Flavors:       []config.RemoteProfileFlavor{{Flavor: "test"}},
 			},
 		},
 	}
@@ -506,9 +502,10 @@ func TestReconcileWithRenamedWindows(t *testing.T) {
 		},
 		RemoteHosts: []state.RemoteHost{
 			{
-				ID:       "host-1",
-				FlavorID: "test-flavor",
-				Status:   "connected",
+				ID:        "host-1",
+				ProfileID: "test-flavor",
+				Flavor:    "test",
+				Status:    "connected",
 			},
 		},
 	}
@@ -614,13 +611,13 @@ func TestReconcileStrictIDMatching(t *testing.T) {
 // use the same internal implementation (Issue 8 fix - deduplication).
 func TestConnectWithAndWithoutProgress(t *testing.T) {
 	cfg := &config.Config{
-		RemoteFlavors: []config.RemoteFlavor{
+		RemoteProfiles: []config.RemoteProfile{
 			{
 				ID:            "test-flavor",
-				Flavor:        "test",
 				DisplayName:   "Test Flavor",
 				WorkspacePath: "/tmp/test",
 				VCS:           "git",
+				Flavors:       []config.RemoteProfileFlavor{{Flavor: "test"}},
 			},
 		},
 	}
@@ -637,7 +634,7 @@ func TestConnectWithAndWithoutProgress(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	_, err := mgr.Connect(ctx, "test-flavor")
+	_, err := mgr.Connect(ctx, "test-flavor", "test")
 	// Expected to fail since we can't actually connect
 	if err == nil {
 		t.Log("Note: Connect() succeeded unexpectedly (no real connection expected)")
@@ -654,7 +651,7 @@ func TestConnectWithAndWithoutProgress(t *testing.T) {
 		}
 	}()
 
-	_, err2 := mgr.ConnectWithProgress(ctx2, "test-flavor", progressCh)
+	_, err2 := mgr.ConnectWithProgress(ctx2, "test-flavor", "test", progressCh)
 	close(progressCh)
 
 	// Also expected to fail
@@ -670,17 +667,17 @@ func TestConnectWithAndWithoutProgress(t *testing.T) {
 
 func TestManager_StartConnect_CreatesWorkspace(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.RemoteFlavors = []config.RemoteFlavor{{
+	cfg.RemoteProfiles = []config.RemoteProfile{{
 		ID:             "www",
-		Flavor:         "www",
 		DisplayName:    "WWW",
 		WorkspacePath:  "~/fbsource",
 		ConnectCommand: "echo connected",
+		Flavors:        []config.RemoteProfileFlavor{{Flavor: "www"}},
 	}}
 	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
 	mgr := NewManager(cfg, st, nil)
 
-	_, err := mgr.StartConnect("www")
+	_, err := mgr.StartConnect("www", "www")
 	if err != nil {
 		t.Fatalf("StartConnect failed: %v", err)
 	}
@@ -688,12 +685,12 @@ func TestManager_StartConnect_CreatesWorkspace(t *testing.T) {
 	// StartConnect creates a host immediately. The workspace should also be
 	// created immediately (not deferred to SpawnRemote), so it appears on
 	// the home page and in WebSocket broadcasts as soon as the host exists.
-	hosts := st.GetRemoteHostsByFlavorID("www")
+	hosts := st.GetRemoteHostsByProfileAndFlavor("www", "www")
 	if len(hosts) != 1 {
 		t.Fatalf("expected 1 host, got %d", len(hosts))
 	}
 
-	workspaceID := fmt.Sprintf("remote-%s", hosts[0].ID)
+	workspaceID := hosts[0].ID
 	ws, found := st.GetWorkspace(workspaceID)
 	if !found {
 		t.Fatalf("expected workspace %s to be created on StartConnect, but not found", workspaceID)
@@ -708,23 +705,23 @@ func TestManager_StartConnect_CreatesWorkspace(t *testing.T) {
 
 func TestManager_ConnectMultipleHostsSameFlavor(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.RemoteFlavors = []config.RemoteFlavor{{
+	cfg.RemoteProfiles = []config.RemoteProfile{{
 		ID:             "www",
-		Flavor:         "www",
 		DisplayName:    "WWW",
 		WorkspacePath:  "~/fbsource",
 		ConnectCommand: "echo connected",
+		Flavors:        []config.RemoteProfileFlavor{{Flavor: "www"}},
 	}}
 	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
 	mgr := NewManager(cfg, st, nil)
 
 	// Two StartConnect calls should produce two different provisioning sessions
-	provID1, err := mgr.StartConnect("www")
+	provID1, err := mgr.StartConnect("www", "www")
 	if err != nil {
 		t.Fatalf("first StartConnect failed: %v", err)
 	}
 
-	provID2, err := mgr.StartConnect("www")
+	provID2, err := mgr.StartConnect("www", "www")
 	if err != nil {
 		t.Fatalf("second StartConnect failed: %v", err)
 	}
@@ -734,7 +731,7 @@ func TestManager_ConnectMultipleHostsSameFlavor(t *testing.T) {
 	}
 
 	// Verify two distinct hosts were created in state
-	hosts := st.GetRemoteHostsByFlavorID("www")
+	hosts := st.GetRemoteHostsByProfileAndFlavor("www", "www")
 	if len(hosts) != 2 {
 		t.Fatalf("expected 2 hosts in state, got %d", len(hosts))
 	}

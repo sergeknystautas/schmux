@@ -90,6 +90,7 @@ type Config struct {
 	IOWorkspaceTelemetry       *IOWorkspaceTelemetryConfig `json:"io_workspace_telemetry,omitempty"`
 	Notifications              *NotificationsConfig        `json:"notifications,omitempty"`
 	RemoteFlavors              []RemoteFlavor              `json:"remote_flavors,omitempty"`
+	RemoteProfiles             []RemoteProfile             `json:"remote_profiles,omitempty"`
 	RemoteWorkspace            *RemoteWorkspaceConfig      `json:"remote_workspace,omitempty"`
 	RemoteAccess               *RemoteAccessConfig         `json:"remote_access,omitempty"`
 	Models                     *ModelsConfig               `json:"models,omitempty"`
@@ -210,6 +211,46 @@ type RemoteFlavor struct {
 	//
 	// If empty, defaults to: "Establish ControlMaster connection to (\\S+)"
 	HostnameRegex string `json:"hostname_regex,omitempty"`
+}
+
+// RemoteProfile represents a remote host profile configuration.
+// A profile groups shared connection settings with one or more flavors (machine types).
+type RemoteProfile struct {
+	ID                    string                `json:"id"`
+	DisplayName           string                `json:"display_name"`
+	VCS                   string                `json:"vcs"`
+	WorkspacePath         string                `json:"workspace_path"`
+	ConnectCommand        string                `json:"connect_command,omitempty"`
+	ReconnectCommand      string                `json:"reconnect_command,omitempty"`
+	ProvisionCommand      string                `json:"provision_command,omitempty"`
+	HostnameRegex         string                `json:"hostname_regex,omitempty"`
+	VSCodeCommandTemplate string                `json:"vscode_command_template,omitempty"`
+	Flavors               []RemoteProfileFlavor `json:"flavors"`
+}
+
+// RemoteProfileFlavor represents a flavor (machine type) within a remote profile.
+// Flavor-level fields override the profile-level defaults when non-empty.
+type RemoteProfileFlavor struct {
+	Flavor           string `json:"flavor"`
+	DisplayName      string `json:"display_name,omitempty"`
+	WorkspacePath    string `json:"workspace_path,omitempty"`
+	ProvisionCommand string `json:"provision_command,omitempty"`
+}
+
+// ResolvedFlavor holds the merged result of a profile and one of its flavors.
+// All fields are resolved (flavor overrides applied on top of profile defaults).
+type ResolvedFlavor struct {
+	ProfileID             string
+	ProfileDisplayName    string
+	Flavor                string
+	FlavorDisplayName     string
+	VCS                   string
+	WorkspacePath         string
+	ConnectCommand        string
+	ReconnectCommand      string
+	ProvisionCommand      string
+	HostnameRegex         string
+	VSCodeCommandTemplate string
 }
 
 // PrReviewConfig holds configuration for GitHub PR review sessions.
@@ -645,6 +686,16 @@ var migrations = []Migration{
 			if cfg.Compound != nil && detect.IsBuiltinToolName(cfg.Compound.Target) {
 				cfg.Compound.Target = resolve(cfg.Compound.Target)
 			}
+			return nil
+		},
+	},
+	{
+		Name: "migrate_remote_flavors_to_profiles",
+		Detect: func(_ map[string]json.RawMessage, cfg *Config) bool {
+			return len(cfg.RemoteFlavors) > 0 && len(cfg.RemoteProfiles) == 0
+		},
+		Apply: func(_ map[string]json.RawMessage, cfg *Config) error {
+			cfg.MigrateRemoteFlavorsToProfiles()
 			return nil
 		},
 	},
@@ -1645,6 +1696,7 @@ func (c *Config) Reload() error {
 	c.Desync = newCfg.Desync
 	c.Notifications = newCfg.Notifications
 	c.RemoteFlavors = newCfg.RemoteFlavors
+	c.RemoteProfiles = newCfg.RemoteProfiles
 	c.RemoteWorkspace = newCfg.RemoteWorkspace
 	c.RemoteAccess = newCfg.RemoteAccess
 	c.Models = newCfg.Models
@@ -2746,6 +2798,246 @@ func generateRemoteFlavorID(flavor string) string {
 // GenerateRemoteFlavorID is the exported version of generateRemoteFlavorID.
 func GenerateRemoteFlavorID(flavor string) string {
 	return generateRemoteFlavorID(flavor)
+}
+
+// ResolveProfileFlavor merges a profile's defaults with a specific flavor's overrides.
+// Returns an error if the flavor string is not found in the profile's Flavors list.
+func ResolveProfileFlavor(profile RemoteProfile, flavorStr string) (ResolvedFlavor, error) {
+	for _, f := range profile.Flavors {
+		if f.Flavor == flavorStr {
+			resolved := ResolvedFlavor{
+				ProfileID:             profile.ID,
+				ProfileDisplayName:    profile.DisplayName,
+				Flavor:                f.Flavor,
+				VCS:                   profile.VCS,
+				ConnectCommand:        profile.ConnectCommand,
+				ReconnectCommand:      profile.ReconnectCommand,
+				HostnameRegex:         profile.HostnameRegex,
+				VSCodeCommandTemplate: profile.VSCodeCommandTemplate,
+			}
+
+			// FlavorDisplayName: flavor's DisplayName if non-empty, else the flavor string itself
+			if f.DisplayName != "" {
+				resolved.FlavorDisplayName = f.DisplayName
+			} else {
+				resolved.FlavorDisplayName = f.Flavor
+			}
+
+			// WorkspacePath: flavor value if non-empty, else profile value
+			if f.WorkspacePath != "" {
+				resolved.WorkspacePath = f.WorkspacePath
+			} else {
+				resolved.WorkspacePath = profile.WorkspacePath
+			}
+
+			// ProvisionCommand: flavor value if non-empty, else profile value
+			if f.ProvisionCommand != "" {
+				resolved.ProvisionCommand = f.ProvisionCommand
+			} else {
+				resolved.ProvisionCommand = profile.ProvisionCommand
+			}
+
+			return resolved, nil
+		}
+	}
+	return ResolvedFlavor{}, fmt.Errorf("%w: flavor %q not found in profile %q", ErrInvalidConfig, flavorStr, profile.ID)
+}
+
+// GetConnectCommandTemplate returns the full connection command template for this profile.
+// This includes both the user's connection command and the tmux control mode suffix.
+func (p *RemoteProfile) GetConnectCommandTemplate() string {
+	var baseCmd string
+	if p.ConnectCommand != "" {
+		baseCmd = p.ConnectCommand
+	} else {
+		baseCmd = `ssh -tt {{.Flavor}} --`
+	}
+	return baseCmd + ` tmux -CC new-session -A -s schmux`
+}
+
+// GetReconnectCommandTemplate returns the full reconnection command template for this profile.
+// This includes both the user's reconnection command and the tmux control mode suffix.
+func (p *RemoteProfile) GetReconnectCommandTemplate() string {
+	var baseCmd string
+	if p.ReconnectCommand != "" {
+		baseCmd = p.ReconnectCommand
+	} else if p.ConnectCommand != "" {
+		baseCmd = p.ConnectCommand
+	} else {
+		baseCmd = `ssh -tt {{.Hostname}} --`
+	}
+	return baseCmd + ` tmux -CC new-session -A -s schmux`
+}
+
+// GetConnectCommandTemplate returns the full connection command template for this resolved flavor.
+// This includes both the user's connection command and the tmux control mode suffix.
+func (rf *ResolvedFlavor) GetConnectCommandTemplate() string {
+	var baseCmd string
+	if rf.ConnectCommand != "" {
+		baseCmd = rf.ConnectCommand
+	} else {
+		baseCmd = `ssh -tt {{.Flavor}} --`
+	}
+	return baseCmd + ` tmux -CC new-session -A -s schmux`
+}
+
+// GetReconnectCommandTemplate returns the full reconnection command template for this resolved flavor.
+// This includes both the user's reconnection command and the tmux control mode suffix.
+func (rf *ResolvedFlavor) GetReconnectCommandTemplate() string {
+	var baseCmd string
+	if rf.ReconnectCommand != "" {
+		baseCmd = rf.ReconnectCommand
+	} else if rf.ConnectCommand != "" {
+		baseCmd = rf.ConnectCommand
+	} else {
+		baseCmd = `ssh -tt {{.Hostname}} --`
+	}
+	return baseCmd + ` tmux -CC new-session -A -s schmux`
+}
+
+// GetRemoteProfiles returns the list of remote profiles.
+func (c *Config) GetRemoteProfiles() []RemoteProfile {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.RemoteProfiles == nil {
+		return []RemoteProfile{}
+	}
+	return c.RemoteProfiles
+}
+
+// GetRemoteProfile returns a remote profile by ID.
+func (c *Config) GetRemoteProfile(id string) (RemoteProfile, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for _, p := range c.RemoteProfiles {
+		if p.ID == id {
+			return p, true
+		}
+	}
+	return RemoteProfile{}, false
+}
+
+// AddRemoteProfile adds a new remote profile to the config.
+// If no ID is provided, one is generated from the first flavor string.
+func (c *Config) AddRemoteProfile(p RemoteProfile) error {
+	if err := validateRemoteProfile(p); err != nil {
+		return err
+	}
+	if p.VCS == "" {
+		p.VCS = "git"
+	}
+
+	// Generate ID if not provided
+	if p.ID == "" {
+		if len(p.Flavors) > 0 {
+			p.ID = generateRemoteFlavorID(p.Flavors[0].Flavor)
+		}
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// Check for duplicate ID
+	for _, existing := range c.RemoteProfiles {
+		if existing.ID == p.ID {
+			return fmt.Errorf("%w: remote profile with ID %q already exists", ErrInvalidConfig, p.ID)
+		}
+	}
+
+	c.RemoteProfiles = append(c.RemoteProfiles, p)
+	return nil
+}
+
+// UpdateRemoteProfile updates an existing remote profile.
+func (c *Config) UpdateRemoteProfile(p RemoteProfile) error {
+	if p.ID == "" {
+		return fmt.Errorf("%w: profile ID is required", ErrInvalidConfig)
+	}
+	if err := validateRemoteProfile(p); err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i, existing := range c.RemoteProfiles {
+		if existing.ID == p.ID {
+			c.RemoteProfiles[i] = p
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: remote profile not found: %s", ErrInvalidConfig, p.ID)
+}
+
+// RemoveRemoteProfile removes a remote profile by ID.
+func (c *Config) RemoveRemoteProfile(id string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i, p := range c.RemoteProfiles {
+		if p.ID == id {
+			c.RemoteProfiles = append(c.RemoteProfiles[:i], c.RemoteProfiles[i+1:]...)
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: remote profile not found: %s", ErrInvalidConfig, id)
+}
+
+// validateRemoteProfile validates a remote profile configuration.
+func validateRemoteProfile(p RemoteProfile) error {
+	if len(p.Flavors) == 0 {
+		return fmt.Errorf("%w: profile must have at least one flavor", ErrInvalidConfig)
+	}
+	if p.DisplayName == "" {
+		return fmt.Errorf("%w: display_name is required", ErrInvalidConfig)
+	}
+	if p.WorkspacePath == "" {
+		return fmt.Errorf("%w: workspace_path is required", ErrInvalidConfig)
+	}
+	if p.VCS != "" && p.VCS != "git" && p.VCS != "sapling" {
+		return fmt.Errorf("%w: vcs must be 'git' or 'sapling'", ErrInvalidConfig)
+	}
+
+	// Check for empty and duplicate flavor strings
+	seen := make(map[string]bool)
+	for _, f := range p.Flavors {
+		if f.Flavor == "" {
+			return fmt.Errorf("%w: flavor string is required", ErrInvalidConfig)
+		}
+		if seen[f.Flavor] {
+			return fmt.Errorf("%w: duplicate flavor %q in profile", ErrInvalidConfig, f.Flavor)
+		}
+		seen[f.Flavor] = true
+	}
+
+	return nil
+}
+
+// MigrateRemoteFlavorsToProfiles converts old RemoteFlavor entries into RemoteProfile entries.
+// Each old flavor becomes a profile with one child flavor. The existing auto-generated ID is preserved.
+// This is idempotent: it skips if RemoteProfiles already has entries.
+func (c *Config) MigrateRemoteFlavorsToProfiles() {
+	if len(c.RemoteProfiles) > 0 {
+		return
+	}
+
+	for _, old := range c.RemoteFlavors {
+		profile := RemoteProfile{
+			ID:                    old.ID,
+			DisplayName:           old.DisplayName,
+			VCS:                   old.VCS,
+			WorkspacePath:         old.WorkspacePath,
+			ConnectCommand:        old.ConnectCommand,
+			ReconnectCommand:      old.ReconnectCommand,
+			ProvisionCommand:      old.ProvisionCommand,
+			HostnameRegex:         old.HostnameRegex,
+			VSCodeCommandTemplate: old.VSCodeCommandTemplate,
+			Flavors: []RemoteProfileFlavor{
+				{
+					Flavor:      old.Flavor,
+					DisplayName: old.DisplayName,
+				},
+			},
+		}
+		c.RemoteProfiles = append(c.RemoteProfiles, profile)
+	}
 }
 
 // GetTelemetryEnabled returns whether telemetry is enabled.

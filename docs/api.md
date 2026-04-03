@@ -390,7 +390,9 @@ Request:
   "resume": false,
   "persona_id": "optional",
   "action_id": "optional",
-  "image_attachments": ["base64-encoded-png", "..."]
+  "image_attachments": ["base64-encoded-png", "..."],
+  "remote_profile_id": "optional",
+  "remote_flavor": "optional"
 }
 ```
 
@@ -406,7 +408,7 @@ Contract (pre-2093ccf):
 - If multiple sessions are spawned and `nickname` is provided, nicknames are auto-suffixed globally:
   - `"<nickname> (1)"`, `"<nickname> (2)"`, ...
 - `persona_id` is optional. When set, the persona's system prompt is injected into the agent at spawn time (e.g., via `--append-system-prompt-file` for Claude). The persona ID is stored on the session and used to display persona badges in the dashboard.
-- `image_attachments` is optional. Array of base64-encoded PNG strings (max 5). Images are decoded and written to `{workspace}/.schmux/attachments/img-{uuid}.png`. Absolute file paths are appended to the prompt so the agent can reference them. Cannot be used with `resume`, `command`, or `remote_flavor_id`.
+- `image_attachments` is optional. Array of base64-encoded PNG strings (max 5). Images are decoded and written to `{workspace}/.schmux/attachments/img-{uuid}.png`. Absolute file paths are appended to the prompt so the agent can reference them. Cannot be used with `resume`, `command`, or `remote_profile_id`.
 - `action_id` is optional. When set, usage is recorded against the matching spawn entry in the emergence store. When absent and a prompt exactly matches a pinned spawn entry's prompt, usage is recorded automatically.
 
 Resume mode (`resume: true`):
@@ -3206,17 +3208,16 @@ Errors:
 
 ## Remote Workspace API
 
-### GET /api/config/remote-flavors
+### GET /api/config/remote-profiles
 
-Returns all configured remote flavors.
+Returns all configured remote profiles.
 
 Response:
 
 ```json
 [
   {
-    "id": "flavor-id",
-    "flavor": "devserver",
+    "id": "profile-id",
     "display_name": "Dev Server",
     "vcs": "git",
     "workspace_path": "/home/user/workspaces",
@@ -3224,20 +3225,27 @@ Response:
     "reconnect_command": "ssh {hostname}",
     "provision_command": "setup.sh",
     "hostname_regex": "dev-.*",
-    "vscode_command_template": "code --remote ssh-remote+{hostname} {path}"
+    "vscode_command_template": "code --remote ssh-remote+{hostname} {path}",
+    "flavors": [
+      {
+        "flavor": "large",
+        "display_name": "Large Instance",
+        "workspace_path": "/home/user/large-workspaces",
+        "provision_command": "setup-large.sh"
+      }
+    ]
   }
 ]
 ```
 
-### POST /api/config/remote-flavors
+### POST /api/config/remote-profiles
 
-Creates a new remote flavor.
+Creates a new remote profile.
 
 Request:
 
 ```json
 {
-  "flavor": "devserver",
   "display_name": "Dev Server",
   "vcs": "git",
   "workspace_path": "/home/user/workspaces",
@@ -3245,37 +3253,42 @@ Request:
   "reconnect_command": "ssh {hostname}",
   "provision_command": "setup.sh",
   "hostname_regex": "dev-.*",
-  "vscode_command_template": "code --remote ssh-remote+{hostname} {path}"
+  "vscode_command_template": "code --remote ssh-remote+{hostname} {path}",
+  "flavors": [
+    {
+      "flavor": "large",
+      "display_name": "Large Instance"
+    }
+  ]
 }
 ```
 
-Response: the created `RemoteFlavorResponse` object (same shape as GET items).
+Response: the created `RemoteProfileResponse` object (same shape as GET items).
 
 Errors:
 
 - 400: "Invalid request body" or validation error (plain text)
 - 500: "Failed to save config"
 
-### GET /api/config/remote-flavors/{id}
+### GET /api/config/remote-profiles/{id}
 
-Returns a single remote flavor by ID.
+Returns a single remote profile by ID.
 
-Response: a `RemoteFlavorResponse` object.
+Response: a `RemoteProfileResponse` object.
 
 Errors:
 
-- 400: "Flavor ID required"
-- 404: "Flavor not found"
+- 400: "Profile ID required"
+- 404: "Profile not found"
 
-### PUT /api/config/remote-flavors/{id}
+### PUT /api/config/remote-profiles/{id}
 
-Updates an existing remote flavor. All fields except `id` are mutable. If `flavor` is omitted or empty, the existing value is preserved.
+Updates an existing remote profile. All fields except `id` are mutable.
 
 Request:
 
 ```json
 {
-  "flavor": "new-flavor-name",
   "display_name": "Updated Name",
   "vcs": "git",
   "workspace_path": "/home/user/workspaces",
@@ -3283,21 +3296,27 @@ Request:
   "reconnect_command": "ssh {hostname}",
   "provision_command": "setup.sh",
   "hostname_regex": "dev-.*",
-  "vscode_command_template": "code --remote ssh-remote+{hostname} {path}"
+  "vscode_command_template": "code --remote ssh-remote+{hostname} {path}",
+  "flavors": [
+    {
+      "flavor": "large",
+      "display_name": "Large Instance"
+    }
+  ]
 }
 ```
 
-Response: the updated `RemoteFlavorResponse` object.
+Response: the updated `RemoteProfileResponse` object.
 
 Errors:
 
 - 400: "Invalid request body" or validation error (plain text)
-- 404: "Flavor not found"
+- 404: "Profile not found"
 - 500: "Failed to save config"
 
-### DELETE /api/config/remote-flavors/{id}
+### DELETE /api/config/remote-profiles/{id}
 
-Deletes a remote flavor.
+Deletes a remote profile.
 
 Response: 204 No Content
 
@@ -3316,7 +3335,8 @@ Response:
 [
   {
     "id": "remote-abc123",
-    "flavor_id": "flavor-id",
+    "profile_id": "profile-id",
+    "flavor": "large",
     "display_name": "Dev Server",
     "hostname": "dev-001.example.com",
     "uuid": "...",
@@ -3332,18 +3352,19 @@ Response:
 
 Notes:
 
-- `display_name` and `vcs` are resolved from the flavor configuration
+- `display_name` and `vcs` are resolved from the profile and flavor configuration
 - `provisioning_session_id` is set when a provisioning terminal is active (for WebSocket connection)
 
 ### POST /api/remote/hosts/connect
 
-Starts a connection to a remote host asynchronously. Every call creates a new host instance (multiple hosts per flavor are allowed). Returns immediately; poll `/api/remote/hosts` for status updates.
+Starts a connection to a remote host asynchronously. Every call creates a new host instance (multiple hosts per profile+flavor are allowed). Returns immediately; poll `/api/remote/hosts` for status updates.
 
 Request:
 
 ```json
 {
-  "flavor_id": "flavor-id"
+  "profile_id": "profile-id",
+  "flavor": "large"
 }
 ```
 
@@ -3351,7 +3372,8 @@ Response (202):
 
 ```json
 {
-  "flavor_id": "flavor-id",
+  "profile_id": "profile-id",
+  "flavor": "large",
   "display_name": "Dev Server",
   "status": "provisioning",
   "vcs": "git",
@@ -3361,8 +3383,8 @@ Response (202):
 
 Errors:
 
-- 400: "Invalid request body" / "flavor_id is required"
-- 404: "Flavor not found: {id}"
+- 400: "Invalid request body" / "profile_id is required" / "flavor is required"
+- 404: "Profile not found: {id}"
 - 429: "Rate limit exceeded. Max 3 connection attempts per minute."
 - 500: "Failed to start connection: ..."
 - 503: "Remote workspace support not enabled"
@@ -3376,7 +3398,8 @@ Response (202):
 ```json
 {
   "id": "remote-abc123",
-  "flavor_id": "flavor-id",
+  "profile_id": "profile-id",
+  "flavor": "large",
   "display_name": "Dev Server",
   "hostname": "dev-001.example.com",
   "status": "reconnecting",
@@ -3407,18 +3430,17 @@ Errors:
 - 400: "Host ID required"
 - 500: "Failed to update host: ..." / "Failed to save state"
 
-### GET /api/remote/flavor-statuses
+### GET /api/remote/profile-statuses
 
-Returns all flavors with the status of all their hosts. Each flavor contains a `hosts` array with one entry per provisioned host instance.
+Returns all profiles with the status of all their hosts, grouped by flavor. Each profile contains a `flavor_hosts` array with one entry per flavor, each containing a `hosts` array.
 
 Response:
 
 ```json
 [
   {
-    "flavor": {
-      "id": "flavor-id",
-      "flavor": "devserver",
+    "profile": {
+      "id": "profile-id",
       "display_name": "Dev Server",
       "vcs": "git",
       "workspace_path": "/home/user/workspaces",
@@ -3426,20 +3448,31 @@ Response:
       "reconnect_command": "ssh {hostname}",
       "provision_command": "setup.sh",
       "hostname_regex": "dev-\\d+\\.example\\.com",
-      "vscode_command_template": "code --remote ssh-remote+{hostname}"
+      "vscode_command_template": "code --remote ssh-remote+{hostname}",
+      "flavors": [
+        {
+          "flavor": "large",
+          "display_name": "Large Instance"
+        }
+      ]
     },
-    "hosts": [
+    "flavor_hosts": [
       {
-        "host_id": "remote-abc123",
-        "hostname": "dev-001.example.com",
-        "status": "connected",
-        "connected": true
-      },
-      {
-        "host_id": "remote-def456",
-        "hostname": "dev-002.example.com",
-        "status": "provisioning",
-        "connected": false
+        "flavor": "large",
+        "hosts": [
+          {
+            "host_id": "remote-abc123",
+            "hostname": "dev-001.example.com",
+            "status": "connected",
+            "connected": true
+          },
+          {
+            "host_id": "remote-def456",
+            "hostname": "dev-002.example.com",
+            "status": "provisioning",
+            "connected": false
+          }
+        ]
       }
     ]
   }
@@ -3450,7 +3483,7 @@ Notes:
 
 - Each host's `status` can be `"provisioning"`, `"connecting"`, `"connected"`, or `"disconnected"`
 - `connected` is `true` when `status` is `"connected"`
-- `hosts` may be empty (no hosts provisioned) or contain multiple entries (multi-instance)
+- `hosts` within each flavor group may be empty (no hosts provisioned) or contain multiple entries (multi-instance)
 - Uses real-time connection status from the remote manager when available; falls back to persisted state
 
 ## Environment API

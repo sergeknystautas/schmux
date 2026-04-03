@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/go-chi/chi/v5"
 
+	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -53,9 +54,13 @@ func (s *Server) vcsTypeForWorkspace(ws state.Workspace) string {
 	}
 	if ws.RemoteHostID != "" {
 		if host, found := s.state.GetRemoteHost(ws.RemoteHostID); found {
-			if host.FlavorID != "" {
-				if flavor, found := s.config.GetRemoteFlavor(host.FlavorID); found && flavor.VCS != "" {
-					return flavor.VCS
+			if host.ProfileID != "" {
+				if profile, found := s.config.GetRemoteProfile(host.ProfileID); found {
+					if resolved, err := config.ResolveProfileFlavor(profile, host.Flavor); err == nil && resolved.VCS != "" {
+						return resolved.VCS
+					} else if profile.VCS != "" {
+						return profile.VCS
+					}
 				}
 			}
 		}

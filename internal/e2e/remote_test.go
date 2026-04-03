@@ -35,16 +35,16 @@ func TestE2ERemoteBasicLifecycle(t *testing.T) {
 		t.Fatalf("Mock script not found at %s: %v", mockScriptPath, err)
 	}
 
-	var flavorID string
-	t.Run("AddRemoteFlavor", func(t *testing.T) {
-		flavorID = env.AddRemoteFlavorToConfig(
+	var profileID string
+	t.Run("AddRemoteProfile", func(t *testing.T) {
+		profileID = env.AddRemoteProfileToConfig(
 			"mock-remote",
 			"Mock Remote (E2E Test)",
 			"/tmp/test-workspace",
 			mockScriptPath,
 		)
-		if flavorID == "" {
-			t.Fatal("Expected flavor ID, got empty")
+		if profileID == "" {
+			t.Fatal("Expected profile ID, got empty")
 		}
 	})
 
@@ -61,7 +61,7 @@ func TestE2ERemoteBasicLifecycle(t *testing.T) {
 
 	var sessionID string
 	t.Run("SpawnRemoteSession", func(t *testing.T) {
-		sessionID = env.SpawnRemoteSession(flavorID, "echo", "", env.Nickname("remote-test"))
+		sessionID = env.SpawnRemoteSession(profileID, "echo", "", env.Nickname("remote-test"))
 		if sessionID == "" {
 			t.Fatal("Expected session ID from remote spawn")
 		}
@@ -70,7 +70,7 @@ func TestE2ERemoteBasicLifecycle(t *testing.T) {
 
 	t.Run("WaitForConnection", func(t *testing.T) {
 		// Wait for remote host to become connected
-		host := env.WaitForRemoteHostStatus(flavorID, "connected", 15*time.Second)
+		host := env.WaitForRemoteHostStatus(profileID, "connected", 15*time.Second)
 		if host == nil {
 			t.Fatal("Remote host did not connect")
 		}
@@ -146,9 +146,9 @@ func TestE2ERemoteMultipleSessions(t *testing.T) {
 	}
 	mockScriptPath := filepath.Join(cwd, "..", "..", "test", "mock-remote.sh")
 
-	var flavorID string
-	t.Run("AddRemoteFlavor", func(t *testing.T) {
-		flavorID = env.AddRemoteFlavorToConfig(
+	var profileID string
+	t.Run("AddRemoteProfile", func(t *testing.T) {
+		profileID = env.AddRemoteProfileToConfig(
 			"mock-remote-multi",
 			"Mock Remote Multi (E2E Test)",
 			"/tmp/test-workspace",
@@ -170,19 +170,19 @@ func TestE2ERemoteMultipleSessions(t *testing.T) {
 	var session1ID, session2ID, session3ID string
 
 	t.Run("SpawnFirstSession", func(t *testing.T) {
-		session1ID = env.SpawnRemoteSession(flavorID, "echo", "", env.Nickname("agent-one"))
+		session1ID = env.SpawnRemoteSession(profileID, "echo", "", env.Nickname("agent-one"))
 		if session1ID == "" {
 			t.Fatal("Expected session ID from first spawn")
 		}
 
 		// Wait for connection
-		env.WaitForRemoteHostStatus(flavorID, "connected", 15*time.Second)
+		env.WaitForRemoteHostStatus(profileID, "connected", 15*time.Second)
 		env.WaitForSessionRunning(session1ID, 10*time.Second)
 	})
 
 	t.Run("SpawnSecondSession", func(t *testing.T) {
 		// Second session should reuse existing connection (no provisioning delay)
-		session2ID = env.SpawnRemoteSession(flavorID, "echo", "", env.Nickname("agent-two"))
+		session2ID = env.SpawnRemoteSession(profileID, "echo", "", env.Nickname("agent-two"))
 		if session2ID == "" {
 			t.Fatal("Expected session ID from second spawn")
 		}
@@ -192,7 +192,7 @@ func TestE2ERemoteMultipleSessions(t *testing.T) {
 	})
 
 	t.Run("SpawnThirdSession", func(t *testing.T) {
-		session3ID = env.SpawnRemoteSession(flavorID, "echo", "", env.Nickname("agent-three"))
+		session3ID = env.SpawnRemoteSession(profileID, "echo", "", env.Nickname("agent-three"))
 		if session3ID == "" {
 			t.Fatal("Expected session ID from third spawn")
 		}
@@ -236,7 +236,7 @@ func TestE2ERemoteMultipleSessions(t *testing.T) {
 		// Should only have one host (all sessions share it)
 		connectedHosts := 0
 		for _, host := range hosts {
-			if host.FlavorID == flavorID && host.Status == "connected" {
+			if host.ProfileID == profileID && host.Status == "connected" {
 				connectedHosts++
 			}
 		}
@@ -282,9 +282,9 @@ func TestE2ERemoteWebSocketOutput(t *testing.T) {
 	}
 	mockScriptPath := filepath.Join(cwd, "..", "..", "test", "mock-remote.sh")
 
-	var flavorID string
-	t.Run("AddRemoteFlavor", func(t *testing.T) {
-		flavorID = env.AddRemoteFlavorToConfig(
+	var profileID string
+	t.Run("AddRemoteProfile", func(t *testing.T) {
+		profileID = env.AddRemoteProfileToConfig(
 			"mock-remote-ws",
 			"Mock Remote WS (E2E Test)",
 			"/tmp/test-workspace",
@@ -306,12 +306,12 @@ func TestE2ERemoteWebSocketOutput(t *testing.T) {
 	var sessionID string
 	t.Run("SpawnRemoteSession", func(t *testing.T) {
 		// Use 'cat' target which echoes back input
-		sessionID = env.SpawnRemoteSession(flavorID, "cat", "", env.Nickname("ws-test"))
+		sessionID = env.SpawnRemoteSession(profileID, "cat", "", env.Nickname("ws-test"))
 		if sessionID == "" {
 			t.Fatal("Expected session ID from remote spawn")
 		}
 
-		env.WaitForRemoteHostStatus(flavorID, "connected", 15*time.Second)
+		env.WaitForRemoteHostStatus(profileID, "connected", 15*time.Second)
 		env.WaitForSessionRunning(sessionID, 10*time.Second)
 	})
 
@@ -351,9 +351,9 @@ func TestE2ERemoteStatePersistence(t *testing.T) {
 	}
 	mockScriptPath := filepath.Join(cwd, "..", "..", "test", "mock-remote.sh")
 
-	var flavorID string
-	t.Run("AddRemoteFlavor", func(t *testing.T) {
-		flavorID = env.AddRemoteFlavorToConfig(
+	var profileID string
+	t.Run("AddRemoteProfile", func(t *testing.T) {
+		profileID = env.AddRemoteProfileToConfig(
 			"mock-remote-state",
 			"Mock Remote State (E2E Test)",
 			"/tmp/test-workspace",
@@ -367,14 +367,14 @@ func TestE2ERemoteStatePersistence(t *testing.T) {
 
 	var sessionID, hostID, hostname string
 	t.Run("SpawnRemoteSession", func(t *testing.T) {
-		sessionID = env.SpawnRemoteSession(flavorID, "echo", "", env.Nickname("state-test"))
-		env.WaitForRemoteHostStatus(flavorID, "connected", 15*time.Second)
+		sessionID = env.SpawnRemoteSession(profileID, "echo", "", env.Nickname("state-test"))
+		env.WaitForRemoteHostStatus(profileID, "connected", 15*time.Second)
 		env.WaitForSessionRunning(sessionID, 10*time.Second)
 
 		// Capture host info
 		hosts := env.GetRemoteHosts()
 		for _, host := range hosts {
-			if host.FlavorID == flavorID && host.Status == "connected" {
+			if host.ProfileID == profileID && host.Status == "connected" {
 				hostID = host.ID
 				hostname = host.Hostname
 				break
@@ -469,16 +469,16 @@ func TestE2ERemoteHooksProvisioning(t *testing.T) {
 	}
 	mockScriptPath := filepath.Join(cwd, "..", "..", "test", "mock-remote.sh")
 
-	var flavorID string
-	t.Run("AddRemoteFlavor", func(t *testing.T) {
-		flavorID = env.AddRemoteFlavorToConfig(
+	var profileID string
+	t.Run("AddRemoteProfile", func(t *testing.T) {
+		profileID = env.AddRemoteProfileToConfig(
 			"mock-remote-hooks",
 			"Mock Remote Hooks (E2E Test)",
 			remoteWorkspacePath,
 			mockScriptPath,
 		)
-		if flavorID == "" {
-			t.Fatal("Expected flavor ID, got empty")
+		if profileID == "" {
+			t.Fatal("Expected profile ID, got empty")
 		}
 	})
 
@@ -504,7 +504,7 @@ func TestE2ERemoteHooksProvisioning(t *testing.T) {
 	var sessionID string
 	t.Run("SpawnRemoteClaudeSession", func(t *testing.T) {
 		// Target "claude" triggers hooks provisioning (SupportsHooks returns true)
-		sessionID = env.SpawnRemoteSession(flavorID, "claude", "do something", env.Nickname("hooks-test"))
+		sessionID = env.SpawnRemoteSession(profileID, "claude", "do something", env.Nickname("hooks-test"))
 		if sessionID == "" {
 			t.Fatal("Expected session ID from remote spawn")
 		}
@@ -512,7 +512,7 @@ func TestE2ERemoteHooksProvisioning(t *testing.T) {
 	})
 
 	t.Run("WaitForConnection", func(t *testing.T) {
-		host := env.WaitForRemoteHostStatus(flavorID, "connected", 15*time.Second)
+		host := env.WaitForRemoteHostStatus(profileID, "connected", 15*time.Second)
 		if host == nil {
 			t.Fatal("Remote host did not connect")
 		}

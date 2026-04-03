@@ -573,10 +573,12 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 
 		// Get VSCode command template - prefer flavor-specific template over global
 		templateStr := ""
-		if host.FlavorID != "" {
-			if flavor, found := s.config.GetRemoteFlavor(host.FlavorID); found && flavor.VSCodeCommandTemplate != "" {
-				templateStr = flavor.VSCodeCommandTemplate
-				s.logger.Info("open-vscode: using flavor-specific template", "flavor", flavor.DisplayName)
+		if host.ProfileID != "" {
+			if profile, found := s.config.GetRemoteProfile(host.ProfileID); found {
+				if resolved, err := config.ResolveProfileFlavor(profile, host.Flavor); err == nil && resolved.VSCodeCommandTemplate != "" {
+					templateStr = resolved.VSCodeCommandTemplate
+					s.logger.Info("open-vscode: using profile-specific template", "profile", profile.DisplayName)
+				}
 			}
 		}
 		// Fall back to global template if no flavor-specific template

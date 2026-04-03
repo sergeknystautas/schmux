@@ -361,12 +361,12 @@ func (m *Manager) GetRemoteManager() *remote.Manager {
 }
 
 // SpawnRemote creates a new session on a remote host.
-// flavorID identifies the remote flavor to connect to.
+// profileID identifies the remote profile and flavorStr identifies the flavor within it.
 // hostID, when non-empty, reuses an existing host connection instead of creating a new one.
 // targetName is the agent to run (e.g., "claude").
 // prompt is only used if the target is promptable.
 // nickname is an optional human-friendly name for the session.
-func (m *Manager) SpawnRemote(ctx context.Context, flavorID, hostID, targetName, prompt, nickname string) (*state.Session, error) {
+func (m *Manager) SpawnRemote(ctx context.Context, profileID, flavorStr, hostID, targetName, prompt, nickname string) (*state.Session, error) {
 	if m.remoteManager == nil {
 		return nil, fmt.Errorf("remote manager not configured")
 	}
@@ -385,7 +385,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, hostID, targetName,
 		}
 	} else {
 		// Create new host (new workspace)
-		conn, err = m.remoteManager.Connect(ctx, flavorID)
+		conn, err = m.remoteManager.Connect(ctx, profileID, flavorStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to remote host: %w", err)
 		}
@@ -395,11 +395,11 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, hostID, targetName,
 	flavor := conn.Flavor()
 
 	// Create session ID
-	sessionID := fmt.Sprintf("remote-%s-%s", flavorID, uuid.New().String()[:8])
+	sessionID := fmt.Sprintf("remote-%s-%s", flavorStr, uuid.New().String()[:8])
 
 	// Get or create a workspace for this remote host+flavor
 	// Use deterministic ID so all sessions on same host+flavor share a workspace
-	workspaceID := fmt.Sprintf("remote-%s", host.ID)
+	workspaceID := host.ID
 	ws, found := m.state.GetWorkspace(workspaceID)
 	if !found {
 		// Use hostname as the branch name (shown in sidebar/header)
@@ -526,7 +526,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, hostID, targetName,
 						mkCancel()
 
 						// Create RemoteSource + tracker for terminal streaming
-						qSource := NewRemoteSource(qConn, result.PaneID)
+						qSource := NewRemoteSource(qConn, result.PaneID, result.WindowID)
 						qSource.Start()
 						var qOutputCb func([]byte)
 						if m.outputCallback != nil {
@@ -592,7 +592,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, hostID, targetName,
 	m.StartRemoteSignalMonitor(sess)
 
 	// Create RemoteSource + tracker for terminal streaming
-	source := NewRemoteSource(conn, paneID)
+	source := NewRemoteSource(conn, paneID, windowID)
 	source.Start()
 	var outputCb func([]byte)
 	if m.outputCallback != nil {
@@ -1521,7 +1521,7 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 	if sess.IsRemoteSession() && sess.RemotePaneID != "" && m.remoteManager != nil {
 		conn := m.remoteManager.GetConnection(sess.RemoteHostID)
 		if conn != nil && conn.IsConnected() {
-			rs := NewRemoteSource(conn, sess.RemotePaneID)
+			rs := NewRemoteSource(conn, sess.RemotePaneID, sess.RemoteWindow)
 			rs.Start()
 			source = rs
 		}

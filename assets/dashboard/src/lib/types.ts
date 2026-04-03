@@ -146,7 +146,8 @@ export interface SpawnRequest {
   quick_launch_name?: string;
   action_id?: string; // action registry ID for usage tracking
   resume?: boolean; // resume mode: use agent's resume command
-  remote_flavor_id?: string; // optional: spawn on remote host
+  remote_profile_id?: string; // optional: spawn on remote host profile
+  remote_flavor?: string; // optional: flavor within remote profile
   remote_host_id?: string; // optional: spawn on specific remote host instance
   new_branch?: string; // create new workspace with this branch from source workspace
   persona_id?: string; // optional: behavioral persona for the agent
@@ -392,9 +393,8 @@ export interface PRCheckoutResponse {
 }
 
 // Remote workspace types
-export interface RemoteFlavor {
+export interface RemoteProfile {
   id: string;
-  flavor: string;
   display_name: string;
   vcs: string;
   workspace_path: string;
@@ -403,6 +403,14 @@ export interface RemoteFlavor {
   provision_command?: string;
   hostname_regex?: string;
   vscode_command_template?: string;
+  flavors: RemoteProfileFlavor[];
+}
+
+export interface RemoteProfileFlavor {
+  flavor: string;
+  display_name?: string;
+  workspace_path?: string;
+  provision_command?: string;
 }
 
 export interface RemoteHostStatus {
@@ -419,14 +427,21 @@ export interface RemoteHostStatus {
   connected: boolean;
 }
 
-export interface RemoteFlavorStatus {
-  flavor: RemoteFlavor;
+export interface FlavorHostGroup {
+  flavor: string;
   hosts: RemoteHostStatus[];
+}
+
+export interface RemoteProfileStatus {
+  profile: RemoteProfile;
+  flavor_hosts: FlavorHostGroup[];
 }
 
 export interface RemoteHost {
   id: string;
-  flavor_id: string;
+  profile_id: string;
+  flavor: string;
+  display_name?: string;
   hostname: string;
   uuid: string;
   connected_at: string;
@@ -440,30 +455,25 @@ export interface RemoteHost {
     | 'reconnecting'
     | 'failed';
   provisioned: boolean;
+  vcs?: string;
   provisioning_session_id?: string; // Local tmux session ID for interactive provisioning terminal
 }
 
-export interface RemoteFlavorCreateRequest {
+export interface RemoteProfileCreateRequest {
   display_name: string;
-  flavor: string;
-  workspace_path: string;
   vcs: string;
+  workspace_path: string;
   connect_command?: string;
   reconnect_command?: string;
   provision_command?: string;
   hostname_regex?: string;
   vscode_command_template?: string;
+  flavors: RemoteProfileFlavor[];
 }
 
 export interface RemoteHostConnectRequest {
-  flavor_id: string;
-}
-
-export interface RemoteSpawnRequest {
-  flavor_id: string;
-  target: string;
-  prompt: string;
-  nickname: string;
+  profile_id: string;
+  flavor: string;
 }
 
 export interface LoreEntry {

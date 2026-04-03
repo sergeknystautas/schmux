@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -128,10 +129,15 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 				} else {
 					remoteHostStatus = host.Status
 				}
-				if flavor, found := s.config.GetRemoteFlavor(host.FlavorID); found {
-					remoteFlavorName = flavor.DisplayName
-					remoteFlavor = flavor.Flavor
-					vcs = flavor.VCS
+				if profile, found := s.config.GetRemoteProfile(host.ProfileID); found {
+					if resolved, err := config.ResolveProfileFlavor(profile, host.Flavor); err == nil {
+						remoteFlavorName = resolved.FlavorDisplayName
+						remoteFlavor = resolved.Flavor
+						vcs = resolved.VCS
+					} else {
+						remoteFlavorName = profile.DisplayName
+						vcs = profile.VCS
+					}
 				}
 			} else {
 				remoteHostStatus = state.RemoteHostStatusDisconnected
@@ -287,17 +293,34 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 		if sess.RemoteHostID != "" {
 			if host, found := s.state.GetRemoteHost(sess.RemoteHostID); found {
 				remoteHostname = host.Hostname
-				if flavor, found := s.config.GetRemoteFlavor(host.FlavorID); found {
-					remoteFlavorName = flavor.DisplayName
-					// Build human-friendly remote attach command (no -CC control mode)
+				if profile, found := s.config.GetRemoteProfile(host.ProfileID); found {
+					resolved, resolveErr := config.ResolveProfileFlavor(profile, host.Flavor)
+					if resolveErr == nil {
+						remoteFlavorName = resolved.FlavorDisplayName
+					} else {
+						remoteFlavorName = profile.DisplayName
+					}
+					// Build user-facing attach command targeting the specific window
 					if host.Hostname != "" {
-						templateStr := flavor.GetAttachCommandTemplate()
+						reconnectCmd := profile.ReconnectCommand
+						if reconnectCmd == "" {
+							reconnectCmd = profile.ConnectCommand
+						}
+						if reconnectCmd == "" {
+							reconnectCmd = "ssh -tt {{.Hostname}} --"
+						}
+						// Target the agent's window, not the signal monitor pane
+						tmuxTarget := "schmux"
+						if sess.RemoteWindow != "" {
+							tmuxTarget = "schmux:" + sess.RemoteWindow
+						}
+						templateStr := reconnectCmd + " tmux attach -t " + tmuxTarget
 						if tmpl, err := template.New("attach").Parse(templateStr); err == nil {
 							var cmdStr strings.Builder
 							tmplData := struct {
 								Hostname string
 								Flavor   string
-							}{Hostname: host.Hostname, Flavor: flavor.Flavor}
+							}{Hostname: host.Hostname, Flavor: host.Flavor}
 							if err := tmpl.Execute(&cmdStr, tmplData); err == nil {
 								attachCmd = cmdStr.String()
 							}

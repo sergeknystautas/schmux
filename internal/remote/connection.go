@@ -49,12 +49,13 @@ type PendingSessionResult struct {
 
 // Connection represents a connection to a remote host via tmux control mode.
 type Connection struct {
-	host   *state.RemoteHost
-	flavor *config.RemoteFlavor
-	cmd    *exec.Cmd
-	client *controlmode.Client
-	parser *controlmode.Parser
-	logger *log.Logger
+	host      *state.RemoteHost
+	flavor    *config.RemoteFlavor
+	flavorStr string // The flavor string (e.g., "www", "gpu")
+	cmd       *exec.Cmd
+	client    *controlmode.Client
+	parser    *controlmode.Parser
+	logger    *log.Logger
 
 	// PTY for interactive terminal (used during provisioning for auth prompts)
 	pty    *os.File
@@ -111,7 +112,7 @@ type Connection struct {
 
 // ConnectionConfig holds configuration for creating a connection.
 type ConnectionConfig struct {
-	FlavorID         string
+	ProfileID        string
 	Flavor           string // The flavor/environment identifier
 	DisplayName      string
 	WorkspacePath    string
@@ -125,20 +126,20 @@ type ConnectionConfig struct {
 	Logger           *log.Logger
 }
 
-// ConnectionConfigFromFlavor creates a ConnectionConfig from a RemoteFlavor,
-// copying all flavor-derived fields. Callers set OnStatusChange, OnProgress,
+// ConnectionConfigFromResolved creates a ConnectionConfig from a ResolvedFlavor,
+// copying all resolved fields. Callers set OnStatusChange, OnProgress,
 // and Logger separately.
-func ConnectionConfigFromFlavor(f config.RemoteFlavor) ConnectionConfig {
+func ConnectionConfigFromResolved(r config.ResolvedFlavor) ConnectionConfig {
 	return ConnectionConfig{
-		FlavorID:         f.ID,
-		Flavor:           f.Flavor,
-		DisplayName:      f.DisplayName,
-		WorkspacePath:    f.WorkspacePath,
-		VCS:              f.VCS,
-		ConnectCommand:   f.ConnectCommand,
-		ReconnectCommand: f.ReconnectCommand,
-		ProvisionCommand: f.ProvisionCommand,
-		HostnameRegex:    f.HostnameRegex,
+		ProfileID:        r.ProfileID,
+		Flavor:           r.Flavor,
+		DisplayName:      r.FlavorDisplayName,
+		WorkspacePath:    r.WorkspacePath,
+		VCS:              r.VCS,
+		ConnectCommand:   r.ConnectCommand,
+		ReconnectCommand: r.ReconnectCommand,
+		ProvisionCommand: r.ProvisionCommand,
+		HostnameRegex:    r.HostnameRegex,
 	}
 }
 
@@ -167,13 +168,14 @@ func NewConnection(cfg ConnectionConfig) *Connection {
 	conn := &Connection{
 		host: &state.RemoteHost{
 			ID:          hostID,
-			FlavorID:    cfg.FlavorID,
+			ProfileID:   cfg.ProfileID,
+			Flavor:      cfg.Flavor,
 			Status:      state.RemoteHostStatusProvisioning,
 			ConnectedAt: now,
 			ExpiresAt:   now.Add(DefaultHostExpiry),
 		},
 		flavor: &config.RemoteFlavor{
-			ID:               cfg.FlavorID,
+			ID:               cfg.ProfileID,
 			Flavor:           cfg.Flavor,
 			DisplayName:      cfg.DisplayName,
 			WorkspacePath:    cfg.WorkspacePath,
@@ -182,6 +184,7 @@ func NewConnection(cfg ConnectionConfig) *Connection {
 			ReconnectCommand: cfg.ReconnectCommand,
 			ProvisionCommand: cfg.ProvisionCommand,
 		},
+		flavorStr:             cfg.Flavor,
 		logger:                cfg.Logger,
 		onStatusChange:        cfg.OnStatusChange,
 		onProgress:            cfg.OnProgress,
@@ -212,6 +215,11 @@ func (c *Connection) Flavor() config.RemoteFlavor {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return *c.flavor
+}
+
+// FlavorStr returns the flavor string (e.g., "www", "gpu").
+func (c *Connection) FlavorStr() string {
+	return c.flavorStr
 }
 
 // Client returns the control mode client for this connection.
@@ -676,6 +684,15 @@ func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader) e
 			if c.logger != nil {
 				c.logger.Warn("tmux hostname fallback failed, leaving hostname empty", "host_id", c.host.ID, "err", err)
 			}
+		}
+	}
+
+	// Set window-size to manual so each window can be independently resized.
+	// Without this, tmux constrains all windows to the control mode client's
+	// PTY size (80x24), ignoring per-window resize-window commands.
+	if err := c.client.SetOption(ctx, "window-size", "manual"); err != nil {
+		if c.logger != nil {
+			c.logger.Warn("failed to set window-size manual", "host_id", c.host.ID, "err", err)
 		}
 	}
 

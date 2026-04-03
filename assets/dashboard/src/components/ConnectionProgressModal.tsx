@@ -8,7 +8,8 @@ import type { RemoteHost } from '../lib/types';
 import useFocusTrap from '../hooks/useFocusTrap';
 
 interface ConnectionProgressModalProps {
-  flavorId: string;
+  profileId: string;
+  flavor?: string;
   flavorName: string;
   provisioningSessionId: string | null;
   onClose: () => void;
@@ -16,7 +17,8 @@ interface ConnectionProgressModalProps {
 }
 
 export default function ConnectionProgressModal({
-  flavorId,
+  profileId,
+  flavor,
   flavorName,
   provisioningSessionId,
   onClose,
@@ -146,12 +148,13 @@ export default function ConnectionProgressModal({
           hosts.find((h) => h.provisioning_session_id === provisioningSessionId) ||
           hosts.find(
             (h) =>
-              h.flavor_id === flavorId &&
+              h.profile_id === profileId &&
+              (!flavor || h.flavor === flavor) &&
               h.status !== 'disconnected' &&
               h.status !== 'expired' &&
               h.status !== 'failed'
           ) ||
-          hosts.find((h) => h.flavor_id === flavorId);
+          hosts.find((h) => h.profile_id === profileId && (!flavor || h.flavor === flavor));
 
         if (host) {
           if (host.status === 'connected') {
@@ -209,7 +212,7 @@ export default function ConnectionProgressModal({
         pollIntervalRef.current = null;
       }
     };
-  }, [provisioningSessionId, flavorId]);
+  }, [provisioningSessionId, profileId, flavor]);
 
   // Handle window resize
   useEffect(() => {

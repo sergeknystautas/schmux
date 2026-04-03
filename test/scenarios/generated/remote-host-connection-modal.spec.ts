@@ -24,43 +24,43 @@ test.describe('Remote host connection modal renders without errors', () => {
       ],
     });
 
-    // Add a remote flavor via the config API
+    // Add a remote profile via the config API
     await apiPost('/api/config', {
-      remote_flavors: [
+      remote_profiles: [
         {
           id: 'test-flavor',
-          flavor: 'test:basic',
           display_name: 'Test Remote Host',
           workspace_path: '/tmp/workspace',
           vcs: 'git',
           connect_command: 'echo connecting',
+          flavors: [{ flavor: 'test:basic' }],
         },
       ],
     });
   });
 
-  test('clicking a remote flavor card opens the connection modal without errors', async ({
+  test('clicking a remote profile card opens the connection modal without errors', async ({
     page,
   }) => {
     // Collect any uncaught page errors (this catches xterm addon init failures)
     const pageErrors: Error[] = [];
     page.on('pageerror', (err) => pageErrors.push(err));
 
-    // Mock the flavor-statuses endpoint to show our flavor with no hosts
-    await page.route('**/api/remote/flavor-statuses', (route) =>
+    // Mock the profile-statuses endpoint to show our profile with no hosts
+    await page.route('**/api/remote/profile-statuses', (route) =>
       route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify([
           {
-            flavor: {
+            profile: {
               id: 'test-flavor',
-              flavor: 'test:basic',
               display_name: 'Test Remote Host',
               workspace_path: '/tmp/workspace',
               vcs: 'git',
+              flavors: [{ flavor: 'test:basic' }],
             },
-            hosts: [],
+            flavor_hosts: [{ flavor: 'test:basic', hosts: [] }],
           },
         ]),
       })
@@ -74,7 +74,8 @@ test.describe('Remote host connection modal renders without errors', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           id: 'fake-host-id',
-          flavor_id: 'test-flavor',
+          profile_id: 'test-flavor',
+          flavor: 'test:basic',
           hostname: '',
           uuid: '',
           connected_at: '',
@@ -94,7 +95,8 @@ test.describe('Remote host connection modal renders without errors', () => {
         body: JSON.stringify([
           {
             id: 'fake-host-id',
-            flavor_id: 'test-flavor',
+            profile_id: 'test-flavor',
+            flavor: 'test:basic',
             hostname: '',
             uuid: '',
             connected_at: '',
@@ -111,7 +113,7 @@ test.describe('Remote host connection modal renders without errors', () => {
     await page.goto('/spawn');
     await waitForDashboardLive(page);
 
-    // Verify: the "+ New host" card shows for the flavor
+    // Verify: the "+ New host" card shows for the profile
     const newHostCard = page.locator('text=New Test Remote Host host');
     await expect(newHostCard).toBeVisible({ timeout: 10_000 });
     const provisionText = page.locator('text=Provision a new instance');
@@ -124,7 +126,7 @@ test.describe('Remote host connection modal renders without errors', () => {
     const modal = page.locator('.modal-overlay');
     await expect(modal).toBeVisible({ timeout: 10_000 });
 
-    // Verify: the modal header shows the flavor display name
+    // Verify: the modal header shows the profile display name
     await expect(modal.locator('text=Test Remote Host')).toBeVisible();
 
     // Verify: the modal shows a status message

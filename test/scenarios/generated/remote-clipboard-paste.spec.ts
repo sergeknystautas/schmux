@@ -19,9 +19,9 @@ test.describe('Remote clipboard image paste', () => {
     await waitForHealthy();
     repoPath = await createTestRepo('test-remote-clipboard');
 
-    // Write remote_flavors directly into the config file (not exposed in the
+    // Write remote_profiles directly into the config file (not exposed in the
     // config update API). Then trigger a seedConfig API call which reloads the
-    // config from disk, picking up the remote_flavors.
+    // config from disk, picking up the remote_profiles.
     const { writeFileSync, readFileSync } = await import('fs');
     execSync(`mkdir -p ${SCHMUX_HOME}`);
     let existingConfig: Record<string, unknown> = {};
@@ -30,20 +30,20 @@ test.describe('Remote clipboard image paste', () => {
     } catch {
       // File may not exist yet
     }
-    existingConfig.remote_flavors = [
+    existingConfig.remote_profiles = [
       {
         id: 'clipboard-test',
-        flavor: 'mock:clipboard',
         display_name: 'Clipboard Test Host',
         workspace_path: '/tmp/test-workspace',
         vcs: 'git',
         connect_command: '/app/test/mock-remote.sh',
+        flavors: [{ flavor: 'mock:clipboard' }],
       },
     ];
     writeFileSync(`${SCHMUX_HOME}/config.json`, JSON.stringify(existingConfig, null, 2));
 
     // seedConfig triggers a config API POST which calls config.Reload(),
-    // loading our remote_flavors from disk into the live config.
+    // loading our remote_profiles from disk into the live config.
     const { seedConfig } = await import('./helpers');
     await seedConfig({
       repos: [repoPath],
@@ -61,7 +61,7 @@ test.describe('Remote clipboard image paste', () => {
     const connectResp = await fetch(`${BASE_URL}/api/remote/hosts/connect`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ flavor_id: 'clipboard-test' }),
+      body: JSON.stringify({ profile_id: 'clipboard-test', flavor: 'mock:clipboard' }),
     });
     if (!connectResp.ok) {
       const errBody = await connectResp.text();
@@ -73,8 +73,10 @@ test.describe('Remote clipboard image paste', () => {
     for (let i = 0; i < 30; i++) {
       await sleep(1000);
       const hosts =
-        await apiGet<Array<{ id: string; flavor_id: string; status: string }>>('/api/remote/hosts');
-      const host = hosts.find((h) => h.flavor_id === 'clipboard-test');
+        await apiGet<Array<{ id: string; profile_id: string; status: string }>>(
+          '/api/remote/hosts'
+        );
+      const host = hosts.find((h) => h.profile_id === 'clipboard-test');
       if (host?.status === 'connected') {
         connected = true;
         break;
@@ -84,7 +86,8 @@ test.describe('Remote clipboard image paste', () => {
 
     // Spawn a remote session with the clipboard agent
     const spawnResp = await apiPost<Array<{ session_id: string }>>('/api/spawn', {
-      remote_flavor_id: 'clipboard-test',
+      remote_profile_id: 'clipboard-test',
+      remote_flavor: 'mock:clipboard',
       repo: repoPath,
       targets: { 'clipboard-agent': 1 },
     });

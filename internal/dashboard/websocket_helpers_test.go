@@ -198,7 +198,7 @@ func TestVcsTypeForWorkspace_DefaultGit(t *testing.T) {
 func TestVcsTypeForWorkspace_RemoteHostNoFlavor(t *testing.T) {
 	s, _, _ := newTestServer(t)
 	// Add a remote host with no flavor
-	s.state.AddRemoteHost(state.RemoteHost{ID: "host-1", FlavorID: ""})
+	s.state.AddRemoteHost(state.RemoteHost{ID: "host-1", ProfileID: ""})
 	ws := state.Workspace{ID: "ws-1", Repo: "https://github.com/test/repo", RemoteHostID: "host-1"}
 	vcsType := s.vcsTypeForWorkspace(ws)
 	if vcsType != "git" {
@@ -206,17 +206,17 @@ func TestVcsTypeForWorkspace_RemoteHostNoFlavor(t *testing.T) {
 	}
 }
 
-func TestVcsTypeForWorkspace_RemoteHostWithFlavor(t *testing.T) {
+func TestVcsTypeForWorkspace_RemoteHostWithProfile(t *testing.T) {
 	s, cfg, _ := newTestServer(t)
-	// Add a flavor with VCS=sapling
-	cfg.AddRemoteFlavor(config.RemoteFlavor{
-		ID:            "flavor-1",
-		Flavor:        "test-flavor",
-		DisplayName:   "Test Flavor",
+	// Add a profile with VCS=sapling
+	cfg.AddRemoteProfile(config.RemoteProfile{
+		ID:            "profile-1",
+		DisplayName:   "Test Profile",
 		WorkspacePath: "~/workspace",
 		VCS:           "sapling",
+		Flavors:       []config.RemoteProfileFlavor{{Flavor: "test-flavor"}},
 	})
-	s.state.AddRemoteHost(state.RemoteHost{ID: "host-1", FlavorID: "flavor-1"})
+	s.state.AddRemoteHost(state.RemoteHost{ID: "host-1", ProfileID: "profile-1", Flavor: "test-flavor"})
 	ws := state.Workspace{ID: "ws-1", Repo: "https://github.com/test/repo", RemoteHostID: "host-1"}
 	vcsType := s.vcsTypeForWorkspace(ws)
 	if vcsType != "sapling" {
@@ -224,17 +224,17 @@ func TestVcsTypeForWorkspace_RemoteHostWithFlavor(t *testing.T) {
 	}
 }
 
-func TestVcsTypeForWorkspace_RemoteHostFlavorEmptyVCS(t *testing.T) {
+func TestVcsTypeForWorkspace_RemoteHostProfileEmptyVCS(t *testing.T) {
 	s, cfg, _ := newTestServer(t)
-	// Add a flavor with empty VCS (should default to git)
-	cfg.AddRemoteFlavor(config.RemoteFlavor{
-		ID:            "flavor-2",
-		Flavor:        "test-flavor-2",
-		DisplayName:   "Test Flavor 2",
+	// Add a profile with empty VCS (should default to git)
+	cfg.AddRemoteProfile(config.RemoteProfile{
+		ID:            "profile-2",
+		DisplayName:   "Test Profile 2",
 		WorkspacePath: "~/workspace",
 		VCS:           "",
+		Flavors:       []config.RemoteProfileFlavor{{Flavor: "test-flavor-2"}},
 	})
-	s.state.AddRemoteHost(state.RemoteHost{ID: "host-2", FlavorID: "flavor-2"})
+	s.state.AddRemoteHost(state.RemoteHost{ID: "host-2", ProfileID: "profile-2", Flavor: "test-flavor-2"})
 	ws := state.Workspace{ID: "ws-2", Repo: "https://github.com/test/repo", RemoteHostID: "host-2"}
 	vcsType := s.vcsTypeForWorkspace(ws)
 	if vcsType != "git" {
