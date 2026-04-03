@@ -57,8 +57,7 @@ cmd/
 ├── schmux/              # CLI entry point + subcommands
 ├── build-dashboard/     # Go wrapper for building React dashboard
 ├── build-website/       # Documentation site builder
-├── gen-types/           # TypeScript type generator from Go contracts
-└── scan-ansi/           # ANSI escape sequence scanner utility
+└── gen-types/           # TypeScript type generator from Go contracts
 
 pkg/
 ├── cli/                 # Daemon client interface for CLI commands
