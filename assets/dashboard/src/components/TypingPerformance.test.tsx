@@ -80,36 +80,36 @@ describe('TypingPerformance', () => {
   });
 
   it('renders breakdown bars when paired server segments are available', () => {
-    inputLatency.samples = [10, 20, 30, 40, 50];
-    inputLatency.renderSamples = [1, 1, 1, 1, 1];
+    // Need 20+ samples so the IQR cohort has >= 5 members for 'typical' breakdown
+    inputLatency.samples = Array.from({ length: 20 }, (_, i) => 20 + i);
+    inputLatency.renderSamples = Array.from({ length: 20 }, () => 1);
     const tuple = { dispatch: 0.5, sendKeys: 2.0, echo: 3.0, frameSend: 0.1, total: 5.6 };
-    for (let i = 0; i < 5; i++) inputLatency.recordServerSegments(tuple);
+    for (let i = 0; i < 20; i++) inputLatency.serverSegmentSamples.push({ ...tuple });
 
     render(<TypingPerformance />);
     expect(screen.getByTestId('latency-breakdown')).toBeInTheDocument();
-    // P50 appears both in the histogram SVG and in the breakdown bar label
-    const p50Elements = screen.getAllByText('P50');
-    expect(p50Elements.length).toBeGreaterThanOrEqual(2);
-    const p99Elements = screen.getAllByText('P99');
-    expect(p99Elements.length).toBeGreaterThanOrEqual(2);
+    // Typical/Outlier labels appear in the breakdown bars
+    // (P50/P99 still appear in the histogram SVG, but breakdown uses Typical/Outlier)
+    expect(screen.getByText('Typical')).toBeInTheDocument();
   });
 
   it('shows tooltip with segment values on hover', () => {
-    inputLatency.samples = [10, 20, 30, 40, 50];
-    inputLatency.renderSamples = [1, 1, 1, 1, 1];
+    // Need 20+ samples so the IQR cohort has >= 5 members for 'typical' breakdown
+    inputLatency.samples = Array.from({ length: 20 }, (_, i) => 20 + i);
+    inputLatency.renderSamples = Array.from({ length: 20 }, () => 1);
     const tuple = { dispatch: 0.5, sendKeys: 2.0, echo: 3.0, frameSend: 0.1, total: 5.6 };
-    for (let i = 0; i < 5; i++) inputLatency.recordServerSegments(tuple);
+    for (let i = 0; i < 20; i++) inputLatency.serverSegmentSamples.push({ ...tuple });
 
     render(<TypingPerformance />);
     // Tooltip should not be visible initially
     expect(screen.queryByTestId('breakdown-tooltip')).not.toBeInTheDocument();
 
-    // Hover over the P50 bar row
-    const p50Label = screen
-      .getAllByText('P50')
+    // Hover over the Typical bar row
+    const typicalLabel = screen
+      .getAllByText('Typical')
       .find((el) => el.classList.contains('typing-perf__bar-label'));
-    expect(p50Label).toBeDefined();
-    const barRow = p50Label!.closest('.typing-perf__bar-row')!;
+    expect(typicalLabel).toBeDefined();
+    const barRow = typicalLabel!.closest('.typing-perf__bar-row')!;
     fireEvent.mouseEnter(barRow);
 
     // Tooltip should appear with segment values
@@ -122,10 +122,11 @@ describe('TypingPerformance', () => {
   });
 
   it('does not render legend or context counters', () => {
-    inputLatency.samples = [10, 20, 30, 40, 50];
-    inputLatency.renderSamples = [1, 1, 1, 1, 1];
+    // Need 20+ samples so the IQR cohort has >= 5 members
+    inputLatency.samples = Array.from({ length: 20 }, (_, i) => 20 + i);
+    inputLatency.renderSamples = Array.from({ length: 20 }, () => 1);
     const tuple = { dispatch: 0.5, sendKeys: 2.0, echo: 3.0, frameSend: 0.1, total: 5.6 };
-    for (let i = 0; i < 5; i++) inputLatency.recordServerSegments(tuple);
+    for (let i = 0; i < 20; i++) inputLatency.serverSegmentSamples.push({ ...tuple });
 
     render(<TypingPerformance />);
     // Legend should not exist

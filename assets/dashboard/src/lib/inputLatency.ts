@@ -65,7 +65,7 @@ export type ServerSegmentTuple = {
   receiveLag?: number; // event loop lag at sideband processing time
 };
 
-// Full latency breakdown for a single percentile level (P50 or P99).
+// Full latency breakdown for a cohort (typical IQR or outlier P95+).
 export type LatencyBreakdown = {
   network: number;
   jsQueue: number;
@@ -344,37 +344,19 @@ export class InputLatencyTracker {
     return this.serverLatency;
   }
 
-  getBreakdown(level: 'p50' | 'p99'): LatencyBreakdown | null {
-    // Need at least 3 paired samples (client RTT, server segments, render all
-    // aligned by index) to compute a meaningful breakdown.
-    if (this.serverSegmentSamples.length < 3) return null;
+  getBreakdown(level: 'typical' | 'outlier'): LatencyBreakdown | null {
     const pairedCount = Math.min(
       this.samples.length,
       this.serverSegmentSamples.length,
       this.renderSamples.length
     );
-    if (pairedCount < 3) return null;
+    if (pairedCount < 5) return null;
 
-    // Use the most recent paired samples (aligned by index)
     const sOff = this.samples.length - pairedCount;
     const segOff = this.serverSegmentSamples.length - pairedCount;
     const rOff = this.renderSamples.length - pairedCount;
 
-    // Compute event loop lag percentile from receiveLagSamples (or fallback to lagSamples)
-    let eventLoopLag = 0;
-    if (this.receiveLagSamples.length > 0) {
-      const lagStats = this.computeStats(this.receiveLagSamples);
-      if (lagStats) {
-        eventLoopLag = level === 'p50' ? lagStats.median : lagStats.p99;
-      }
-    } else if (this.lagSamples.length > 0) {
-      const lagStats = this.computeStats(this.lagSamples);
-      if (lagStats) {
-        eventLoopLag = level === 'p50' ? lagStats.median : lagStats.p99;
-      }
-    }
-
-    // Build per-keystroke full breakdown tuples
+    // Build per-tuple full breakdowns
     type FullTuple = {
       clientRTT: number;
       handler: number;
@@ -383,7 +365,7 @@ export class InputLatencyTracker {
       wsWrite: number;
       xterm: number;
       jsQueue: number;
-      network: number;
+      network: number; // residual, clamped to 0
     };
     const tuples: FullTuple[] = [];
     for (let i = 0; i < pairedCount; i++) {
@@ -391,12 +373,12 @@ export class InputLatencyTracker {
       const seg = this.serverSegmentSamples[segOff + i];
       const xterm = this.renderSamples[rOff + i];
       const serverTotal = seg.dispatch + seg.sendKeys + seg.echo + seg.frameSend;
-      // Invariant: server processing can't exceed the round trip. If it does,
-      // the FIFO queue paired this input with the wrong output event — discard.
       if (serverTotal > clientRTT) continue;
-      const infra = Math.max(0, clientRTT - serverTotal - xterm);
-      const jsQueue = Math.min(eventLoopLag, infra);
-      const network = Math.max(0, infra - jsQueue);
+
+      // Per design: receiveLag === undefined means 0 ("we don't know")
+      const jsQueue = seg.receiveLag ?? 0;
+      const measured = serverTotal + xterm + jsQueue;
+      const network = Math.max(0, clientRTT - measured);
       tuples.push({
         clientRTT,
         handler: seg.dispatch,
@@ -408,38 +390,49 @@ export class InputLatencyTracker {
         network,
       });
     }
-    if (tuples.length < 3) return null;
+    if (tuples.length < 5) return null;
 
-    // Use the histogram's percentile (from ALL samples) as the target RTT,
-    // then find the closest paired tuple. This keeps the breakdown total
-    // consistent with the histogram P50/P99 labels.
-    const stats = this.getStats();
-    if (!stats) return null;
-    const targetRTT = level === 'p50' ? stats.median : stats.p99;
+    // Compute percentile boundaries from valid paired tuple RTTs
+    const sortedRTTs = tuples.map(t => t.clientRTT).sort((a, b) => a - b);
+    const p25 = sortedRTTs[Math.floor(sortedRTTs.length * 0.25)];
+    const p75 = sortedRTTs[Math.floor(sortedRTTs.length * 0.75)];
+    const p95 = sortedRTTs[Math.floor(sortedRTTs.length * 0.95)];
 
-    let picked = tuples[0];
-    let bestDist = Math.abs(tuples[0].clientRTT - targetRTT);
-    for (let i = 1; i < tuples.length; i++) {
-      const dist = Math.abs(tuples[i].clientRTT - targetRTT);
-      if (dist < bestDist) {
-        bestDist = dist;
-        picked = tuples[i];
-      }
+    // Select cohort
+    let cohort: FullTuple[];
+    if (level === 'typical') {
+      cohort = tuples.filter(t => t.clientRTT >= p25 && t.clientRTT <= p75);
+    } else {
+      cohort = tuples.filter(t => t.clientRTT > p95);
     }
+    if (cohort.length < 5) return null;
 
-    const segmentSum = picked.network + picked.jsQueue + picked.handler +
-      picked.wsWrite + picked.xterm + picked.tmuxCmd + picked.paneOutput;
+    // Compute median of each segment within the cohort
+    const median = (arr: number[]) => {
+      const s = [...arr].sort((a, b) => a - b);
+      return s[Math.floor(s.length / 2)];
+    };
+
+    const handler = median(cohort.map(t => t.handler));
+    const tmuxCmd = median(cohort.map(t => t.tmuxCmd));
+    const paneOutput = median(cohort.map(t => t.paneOutput));
+    const wsWrite = median(cohort.map(t => t.wsWrite));
+    const xtermMedian = median(cohort.map(t => t.xterm));
+    const jsQueue = median(cohort.map(t => t.jsQueue));
+    const network = median(cohort.map(t => t.network));
+    const total = median(cohort.map(t => t.clientRTT));
+    const segmentSum = network + jsQueue + handler + wsWrite + xtermMedian + tmuxCmd + paneOutput;
 
     return {
-      network: picked.network,
-      jsQueue: picked.jsQueue,
-      handler: picked.handler,
-      wsWrite: picked.wsWrite,
-      xterm: picked.xterm,
-      tmuxCmd: picked.tmuxCmd,
-      paneOutput: picked.paneOutput,
+      network,
+      jsQueue,
+      handler,
+      wsWrite,
+      xterm: xtermMedian,
+      tmuxCmd,
+      paneOutput,
+      total,
       segmentSum,
-      total: targetRTT,
     };
   }
 }

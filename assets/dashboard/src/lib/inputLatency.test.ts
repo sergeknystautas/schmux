@@ -147,15 +147,17 @@ describe('InputLatencyTracker', () => {
   });
 
   it('getBreakdown returns null without enough paired segment samples', () => {
-    // Add RTT samples but no server segment tuples
+    // Add 4 RTT samples but no server segment tuples — below the 5 minimum
     const mockNow = vi.spyOn(performance, 'now');
-    mockNow.mockReturnValueOnce(100);
-    inputLatency.markSent();
-    mockNow.mockReturnValueOnce(130);
-    inputLatency.markReceived();
+    for (let i = 0; i < 4; i++) {
+      mockNow.mockReturnValueOnce(100);
+      inputLatency.markSent();
+      mockNow.mockReturnValueOnce(130);
+      inputLatency.markReceived();
+    }
     mockNow.mockRestore();
 
-    expect(inputLatency.getBreakdown('p50')).toBeNull();
+    expect(inputLatency.getBreakdown('typical')).toBeNull();
   });
 
   it('reset clears serverLatency', () => {
@@ -227,175 +229,118 @@ describe('InputLatencyTracker', () => {
     expect(inputLatency.handleOutputTimeSamples).toEqual([]);
   });
 
-  it('getBreakdown returns segments from the same keystroke (paired)', () => {
-    const mockNow = vi.spyOn(performance, 'now');
-    // 3 RTT samples: 30ms each
-    for (let i = 0; i < 3; i++) {
-      mockNow.mockReturnValueOnce(100);
-      inputLatency.markSent();
-      mockNow.mockReturnValueOnce(130);
-      inputLatency.markReceived();
+  it('getBreakdown returns segments from paired tuples (cohort median)', () => {
+    const originalMC = globalThis.MessageChannel;
+    class MockMC {
+      port1 = { onmessage: null as ((ev: any) => void) | null };
+      port2 = {
+        postMessage: () => {
+          if (this.port1.onmessage) this.port1.onmessage({} as any);
+        },
+      };
     }
-    // 3 render samples: 2ms each
-    inputLatency.markRenderTime(2);
-    inputLatency.markRenderTime(2);
-    inputLatency.markRenderTime(2);
+    globalThis.MessageChannel = MockMC as any;
+
+    const mockNow = vi.spyOn(performance, 'now');
+    // 20 RTT samples: all 30ms, 20 render samples: all 2ms
+    for (let i = 0; i < 20; i++) {
+      // markSent: 3 calls
+      mockNow.mockReturnValueOnce(100);
+      mockNow.mockReturnValueOnce(100);
+      mockNow.mockReturnValueOnce(101);
+      // markReceived: 1 call
+      mockNow.mockReturnValueOnce(130);
+      inputLatency.markSent();
+      inputLatency.markReceived();
+      inputLatency.markRenderTime(2);
+      // recordServerSegments: 2 calls
+      mockNow.mockReturnValueOnce(200);
+      mockNow.mockReturnValueOnce(201);
+      inputLatency.recordServerSegments({
+        dispatch: 1,
+        sendKeys: 2,
+        echo: 3,
+        frameSend: 0.5,
+        total: 6.5,
+      });
+    }
     mockNow.mockRestore();
+    globalThis.MessageChannel = originalMC;
 
-    // 3 paired server segment tuples: dispatch=1, sendKeys=2, echo=3, frameSend=0.5
-    const tuple = { dispatch: 1, sendKeys: 2, echo: 3, frameSend: 0.5, total: 6.5 };
-    inputLatency.recordServerSegments(tuple);
-    inputLatency.recordServerSegments(tuple);
-    inputLatency.recordServerSegments(tuple);
-
-    const breakdown = inputLatency.getBreakdown('p50');
+    const breakdown = inputLatency.getBreakdown('typical');
     expect(breakdown).not.toBeNull();
-    // Segments come from the actual keystroke tuple
+    // Cohort medians of uniform data
     expect(breakdown!.handler).toBe(1);
     expect(breakdown!.tmuxCmd).toBe(2);
     expect(breakdown!.paneOutput).toBe(3);
     expect(breakdown!.wsWrite).toBe(0.5);
     expect(breakdown!.xterm).toBe(2);
     expect(breakdown!.total).toBe(30);
-    // infra = 30 - 6.5 - 2 = 21.5, no lag → network=21.5
-    expect(breakdown!.jsQueue).toBe(0);
-    expect(breakdown!.network).toBe(21.5);
+    // receiveLag was set to 1ms by MockMC probe (201-200), network = 30 - 6.5 - 2 - 1 = 20.5
+    expect(breakdown!.jsQueue).toBe(1);
+    expect(breakdown!.network).toBe(20.5);
   });
 
-  it('getBreakdown with lag samples subtracts jsQueue from network', () => {
-    const mockNow = vi.spyOn(performance, 'now');
-    for (let i = 0; i < 3; i++) {
-      mockNow.mockReturnValueOnce(100);
-      inputLatency.markSent();
-      mockNow.mockReturnValueOnce(130);
-      inputLatency.markReceived();
+  it('getBreakdown uses per-tuple receiveLag for jsQueue', () => {
+    // Directly populate arrays to avoid MessageChannel mocking complexity.
+    // 20 uniform samples at 30ms RTT, 2ms render, receiveLag=5 on each tuple.
+    for (let i = 0; i < 20; i++) {
+      inputLatency.samples.push(30);
+      inputLatency.renderSamples.push(2);
+      inputLatency.serverSegmentSamples.push({
+        dispatch: 1,
+        sendKeys: 2,
+        echo: 3,
+        frameSend: 0.5,
+        total: 6.5,
+        receiveLag: 5,
+      });
     }
-    inputLatency.markRenderTime(2);
-    inputLatency.markRenderTime(2);
-    inputLatency.markRenderTime(2);
-    mockNow.mockRestore();
 
-    // Inject receiveLagSamples (preferred over lagSamples)
-    inputLatency.receiveLagSamples = [5, 5, 5];
-
-    const tuple = { dispatch: 1, sendKeys: 2, echo: 3, frameSend: 0.5, total: 6.5 };
-    inputLatency.recordServerSegments(tuple);
-    inputLatency.recordServerSegments(tuple);
-    inputLatency.recordServerSegments(tuple);
-
-    const breakdown = inputLatency.getBreakdown('p50');
+    const breakdown = inputLatency.getBreakdown('typical');
     expect(breakdown).not.toBeNull();
-    // infra = 30 - 6.5 - 2 = 21.5
-    // jsQueue P50 of [5,5,5] = 5
-    // network = 21.5 - 5 = 16.5
+    // jsQueue comes from per-tuple receiveLag (5ms)
+    // network = 30 - 6.5 - 2 - 5 = 16.5
     expect(breakdown!.jsQueue).toBe(5);
     expect(breakdown!.network).toBe(16.5);
   });
 
-  it('getBreakdown picks the keystroke at the P50 rank', () => {
-    const mockNow = vi.spyOn(performance, 'now');
-    // 5 RTT samples with varying latencies: 10, 20, 30, 40, 50
-    const rtts = [10, 20, 30, 40, 50];
-    for (const rtt of rtts) {
-      mockNow.mockReturnValueOnce(100);
-      inputLatency.markSent();
-      mockNow.mockReturnValueOnce(100 + rtt);
-      inputLatency.markReceived();
-    }
-    for (let i = 0; i < 5; i++) inputLatency.markRenderTime(1);
-    mockNow.mockRestore();
-
-    // Each keystroke has different server segments proportional to its RTT
-    inputLatency.recordServerSegments({
-      dispatch: 0.5,
-      sendKeys: 1,
-      echo: 1,
-      frameSend: 0.5,
-      total: 3,
-    });
-    inputLatency.recordServerSegments({
-      dispatch: 1,
-      sendKeys: 2,
-      echo: 2,
-      frameSend: 1,
-      total: 6,
-    });
-    inputLatency.recordServerSegments({
-      dispatch: 1.5,
-      sendKeys: 3,
-      echo: 3,
-      frameSend: 1.5,
-      total: 9,
-    });
-    inputLatency.recordServerSegments({
-      dispatch: 2,
-      sendKeys: 4,
-      echo: 4,
-      frameSend: 2,
-      total: 12,
-    });
-    inputLatency.recordServerSegments({
-      dispatch: 2.5,
-      sendKeys: 5,
-      echo: 5,
-      frameSend: 2.5,
-      total: 15,
-    });
-
-    const breakdown = inputLatency.getBreakdown('p50');
-    expect(breakdown).not.toBeNull();
-    // P50 index = floor(5/2) = 2, which after sorting by RTT is the 30ms keystroke
-    expect(breakdown!.total).toBe(30);
-    expect(breakdown!.handler).toBe(1.5);
-    expect(breakdown!.tmuxCmd).toBe(3);
-    expect(breakdown!.paneOutput).toBe(3);
-    expect(breakdown!.wsWrite).toBe(1.5);
-    expect(breakdown!.xterm).toBe(1);
-  });
-
   it('getBreakdown discards mispaired samples where server > RTT', () => {
-    const mockNow = vi.spyOn(performance, 'now');
-    // RTT of 5ms — server segments sum to 9ms (impossible, mispairing)
-    for (let i = 0; i < 3; i++) {
-      mockNow.mockReturnValueOnce(100);
-      inputLatency.markSent();
-      mockNow.mockReturnValueOnce(105);
-      inputLatency.markReceived();
+    // 5 samples with RTT of 5ms — server segments sum to 9ms (impossible, mispairing)
+    for (let i = 0; i < 5; i++) {
+      inputLatency.samples.push(5);
+      inputLatency.renderSamples.push(0);
+      inputLatency.serverSegmentSamples.push({
+        dispatch: 2,
+        sendKeys: 3,
+        echo: 3,
+        frameSend: 1,
+        total: 9,
+      });
     }
-    for (let i = 0; i < 3; i++) inputLatency.markRenderTime(0);
-    mockNow.mockRestore();
-
-    const tuple = { dispatch: 2, sendKeys: 3, echo: 3, frameSend: 1, total: 9 };
-    inputLatency.recordServerSegments(tuple);
-    inputLatency.recordServerSegments(tuple);
-    inputLatency.recordServerSegments(tuple);
 
     // All samples filtered out → returns null
-    expect(inputLatency.getBreakdown('p50')).toBeNull();
+    expect(inputLatency.getBreakdown('typical')).toBeNull();
   });
 
   it('getBreakdown clamps network to zero when render exceeds infra budget', () => {
-    const mockNow = vi.spyOn(performance, 'now');
-    // RTT of 10ms
-    for (let i = 0; i < 3; i++) {
-      mockNow.mockReturnValueOnce(100);
-      inputLatency.markSent();
-      mockNow.mockReturnValueOnce(110);
-      inputLatency.markReceived();
+    // 20 samples: RTT=10ms, render=8ms, server=3ms
+    // measured = 3 + 8 + 0 (no receiveLag) = 11 > 10 → network clamped to 0
+    for (let i = 0; i < 20; i++) {
+      inputLatency.samples.push(10);
+      inputLatency.renderSamples.push(8);
+      inputLatency.serverSegmentSamples.push({
+        dispatch: 0.5,
+        sendKeys: 1,
+        echo: 1,
+        frameSend: 0.5,
+        total: 3,
+      });
     }
-    // Large render (8ms) — exceeds remaining budget after server (3ms)
-    for (let i = 0; i < 3; i++) inputLatency.markRenderTime(8);
-    mockNow.mockRestore();
 
-    // Server segments sum to 3ms (< 10ms RTT, passes filter)
-    const tuple = { dispatch: 0.5, sendKeys: 1, echo: 1, frameSend: 0.5, total: 3 };
-    inputLatency.recordServerSegments(tuple);
-    inputLatency.recordServerSegments(tuple);
-    inputLatency.recordServerSegments(tuple);
-
-    const breakdown = inputLatency.getBreakdown('p50');
+    const breakdown = inputLatency.getBreakdown('typical');
     expect(breakdown).not.toBeNull();
-    // infra = max(0, 10 - 3 - 8) = 0 → no room for wire or lag
+    // No receiveLag → jsQueue = 0, network = max(0, 10 - 3 - 8 - 0) = 0
     expect(breakdown!.jsQueue).toBe(0);
     expect(breakdown!.network).toBe(0);
   });
@@ -522,34 +467,6 @@ describe('InputLatencyTracker', () => {
     expect(ctx!.receiveLagP99).toBe(50);
   });
 
-  it('getBreakdown uses receiveLagSamples for jsQueue when available', () => {
-    const mockNow = vi.spyOn(performance, 'now');
-    for (let i = 0; i < 3; i++) {
-      mockNow.mockReturnValueOnce(100);
-      inputLatency.markSent();
-      mockNow.mockReturnValueOnce(130);
-      inputLatency.markReceived();
-    }
-    inputLatency.markRenderTime(2);
-    inputLatency.markRenderTime(2);
-    inputLatency.markRenderTime(2);
-    mockNow.mockRestore();
-
-    // Both lag arrays present — receiveLagSamples should take priority
-    inputLatency.lagSamples = [1, 1, 1]; // send-time: 1ms
-    inputLatency.receiveLagSamples = [8, 8, 8]; // receive-time: 8ms
-
-    const tuple = { dispatch: 1, sendKeys: 2, echo: 3, frameSend: 0.5, total: 6.5 };
-    inputLatency.recordServerSegments(tuple);
-    inputLatency.recordServerSegments(tuple);
-    inputLatency.recordServerSegments(tuple);
-
-    const breakdown = inputLatency.getBreakdown('p50');
-    expect(breakdown).not.toBeNull();
-    // Should use receiveLagSamples (8), not lagSamples (1)
-    expect(breakdown!.jsQueue).toBe(8);
-  });
-
   it('markReceived discards samples when lastInputTime is stale (>2s)', () => {
     const originalMC = globalThis.MessageChannel;
     class MockMessageChannel {
@@ -615,74 +532,169 @@ describe('InputLatencyTracker', () => {
   });
 
   it('getBreakdown returns segmentSum field', () => {
-    const originalMC = globalThis.MessageChannel;
-    class MockMessageChannel {
-      port1 = { onmessage: null as ((ev: any) => void) | null };
-      port2 = {
-        postMessage: () => {
-          if (this.port1.onmessage) {
-            this.port1.onmessage({} as any);
-          }
-        },
-      };
-    }
-    globalThis.MessageChannel = MockMessageChannel as any;
-
-    const mockNow = vi.spyOn(performance, 'now');
-    for (let i = 0; i < 5; i++) {
-      // markSent: 3 calls (lastInputTime, sentTime, lagHandler)
-      mockNow.mockReturnValueOnce(100);
-      mockNow.mockReturnValueOnce(100);
-      mockNow.mockReturnValueOnce(101);
-      // markReceived: 1 call (rtt)
-      mockNow.mockReturnValueOnce(130);
-      inputLatency.markSent();
-      inputLatency.markReceived();
-      inputLatency.markRenderTime(2);
-      // recordServerSegments: 2 calls (probeStart, probeHandler)
-      mockNow.mockReturnValueOnce(200);
-      mockNow.mockReturnValueOnce(201);
-      inputLatency.recordServerSegments({
-        dispatch: 1, sendKeys: 2, echo: 3, frameSend: 0.5, total: 6.5,
+    // 20 uniform samples to ensure IQR cohort has >= 5 members
+    for (let i = 0; i < 20; i++) {
+      inputLatency.samples.push(30);
+      inputLatency.renderSamples.push(2);
+      inputLatency.serverSegmentSamples.push({
+        dispatch: 1,
+        sendKeys: 2,
+        echo: 3,
+        frameSend: 0.5,
+        total: 6.5,
       });
     }
-    mockNow.mockRestore();
-    globalThis.MessageChannel = originalMC;
 
-    const breakdown = inputLatency.getBreakdown('p50');
+    const breakdown = inputLatency.getBreakdown('typical');
     expect(breakdown).not.toBeNull();
     expect(breakdown!.segmentSum).toBeDefined();
     expect(breakdown!.segmentSum).toBeGreaterThan(0);
     // segmentSum should equal sum of all segments
-    const sum = breakdown!.network + breakdown!.jsQueue + breakdown!.handler +
-      breakdown!.wsWrite + breakdown!.xterm + breakdown!.tmuxCmd + breakdown!.paneOutput;
+    const sum =
+      breakdown!.network +
+      breakdown!.jsQueue +
+      breakdown!.handler +
+      breakdown!.wsWrite +
+      breakdown!.xterm +
+      breakdown!.tmuxCmd +
+      breakdown!.paneOutput;
     expect(breakdown!.segmentSum).toBeCloseTo(sum, 5);
   });
 
-  it('getBreakdown falls back to lagSamples when receiveLagSamples is empty', () => {
+});
+
+describe('getBreakdown cohort-median', () => {
+  const originalMC = globalThis.MessageChannel;
+  class MockMC {
+    port1 = { onmessage: null as ((ev: any) => void) | null };
+    port2 = {
+      postMessage: () => {
+        if (this.port1.onmessage) {
+          this.port1.onmessage({} as any);
+        }
+      },
+    };
+  }
+
+  beforeEach(() => {
+    inputLatency.reset();
+    globalThis.MessageChannel = MockMC as any;
+  });
+  afterEach(() => {
+    globalThis.MessageChannel = originalMC;
+  });
+
+  function addSamples(count: number, rttBase: number, rttJitter: number) {
     const mockNow = vi.spyOn(performance, 'now');
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < count; i++) {
+      const rtt = rttBase + (i % 2 === 0 ? rttJitter : -rttJitter);
+      // markSent: 3 calls
       mockNow.mockReturnValueOnce(100);
+      mockNow.mockReturnValueOnce(100);
+      mockNow.mockReturnValueOnce(101);
+      // markReceived: 1 call
+      mockNow.mockReturnValueOnce(100 + rtt);
       inputLatency.markSent();
-      mockNow.mockReturnValueOnce(130);
       inputLatency.markReceived();
+      inputLatency.markRenderTime(2);
+      const serverTotal = rtt * 0.3;
+      // recordServerSegments: 2 calls
+      mockNow.mockReturnValueOnce(200);
+      mockNow.mockReturnValueOnce(201);
+      inputLatency.recordServerSegments({
+        dispatch: serverTotal * 0.1,
+        sendKeys: serverTotal * 0.4,
+        echo: serverTotal * 0.4,
+        frameSend: serverTotal * 0.1,
+        total: serverTotal,
+      });
     }
-    inputLatency.markRenderTime(2);
-    inputLatency.markRenderTime(2);
-    inputLatency.markRenderTime(2);
     mockNow.mockRestore();
+  }
 
-    // Only send-time lag available
-    inputLatency.lagSamples = [3, 3, 3];
-    inputLatency.receiveLagSamples = [];
-
-    const tuple = { dispatch: 1, sendKeys: 2, echo: 3, frameSend: 0.5, total: 6.5 };
-    inputLatency.recordServerSegments(tuple);
-    inputLatency.recordServerSegments(tuple);
-    inputLatency.recordServerSegments(tuple);
-
-    const breakdown = inputLatency.getBreakdown('p50');
+  it('typical breakdown uses IQR cohort', () => {
+    addSamples(20, 30, 2);
+    const breakdown = inputLatency.getBreakdown('typical');
     expect(breakdown).not.toBeNull();
-    expect(breakdown!.jsQueue).toBe(3);
+    // All RTTs are near 30ms, so typical total should be close to 30
+    expect(breakdown!.total).toBeGreaterThanOrEqual(25);
+    expect(breakdown!.total).toBeLessThanOrEqual(35);
+  });
+
+  it('outlier breakdown uses P95+ cohort', () => {
+    // 110 samples at 30ms base, 10 samples at 100ms base
+    addSamples(110, 30, 2);
+    addSamples(10, 100, 2);
+    const breakdown = inputLatency.getBreakdown('outlier');
+    expect(breakdown).not.toBeNull();
+    // Outlier total should be in the 100ms range, not 30ms
+    expect(breakdown!.total).toBeGreaterThan(50);
+  });
+
+  it('returns null for outlier cohort when fewer than 5 P95+ tuples', () => {
+    // 80 samples total. P95 index = floor(80*0.95) = 76.
+    // P95+ cohort = indices 77..79 = only 3 tuples (need 5).
+    addSamples(80, 30, 2);
+    const breakdown = inputLatency.getBreakdown('outlier');
+    expect(breakdown).toBeNull();
+  });
+
+  it('segmentSum equals sum of all segment medians', () => {
+    addSamples(20, 30, 2);
+    const breakdown = inputLatency.getBreakdown('typical');
+    expect(breakdown).not.toBeNull();
+    const expectedSum =
+      breakdown!.network +
+      breakdown!.jsQueue +
+      breakdown!.handler +
+      breakdown!.wsWrite +
+      breakdown!.xterm +
+      breakdown!.tmuxCmd +
+      breakdown!.paneOutput;
+    expect(breakdown!.segmentSum).toBeCloseTo(expectedSum, 5);
+  });
+
+  it('residual (network) is per-tuple clamped to zero then medianed', () => {
+    addSamples(20, 30, 2);
+    const breakdown = inputLatency.getBreakdown('typical');
+    expect(breakdown).not.toBeNull();
+    expect(breakdown!.network).toBeGreaterThanOrEqual(0);
+  });
+
+  it('discards mispaired tuples where serverTotal > clientRTT', () => {
+    // Directly populate: all 5 tuples have serverTotal (10) > clientRTT (5)
+    for (let i = 0; i < 5; i++) {
+      inputLatency.samples.push(5);
+      inputLatency.renderSamples.push(1);
+      inputLatency.serverSegmentSamples.push({
+        dispatch: 2.5,
+        sendKeys: 2.5,
+        echo: 2.5,
+        frameSend: 2.5,
+        total: 10,
+      });
+    }
+    expect(inputLatency.getBreakdown('typical')).toBeNull();
+  });
+
+  it('uses per-tuple receiveLag for jsQueue when available', () => {
+    // 20 samples with explicit receiveLag=5 on each tuple
+    for (let i = 0; i < 20; i++) {
+      inputLatency.samples.push(30);
+      inputLatency.renderSamples.push(2);
+      inputLatency.serverSegmentSamples.push({
+        dispatch: 1,
+        sendKeys: 2,
+        echo: 3,
+        frameSend: 0.5,
+        total: 6.5,
+        receiveLag: 5,
+      });
+    }
+    const breakdown = inputLatency.getBreakdown('typical');
+    expect(breakdown).not.toBeNull();
+    expect(breakdown!.jsQueue).toBe(5);
+    // network = 30 - 6.5 - 2 - 5 = 16.5
+    expect(breakdown!.network).toBe(16.5);
   });
 });

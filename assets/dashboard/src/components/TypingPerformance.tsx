@@ -340,19 +340,19 @@ function BreakdownRow({
 }
 
 function LatencyBreakdownBars() {
-  const p50 = inputLatency.getBreakdown('p50');
-  const p99 = inputLatency.getBreakdown('p99');
-  if (!p50 && !p99) return null;
+  const typical = inputLatency.getBreakdown('typical');
+  const outlier = inputLatency.getBreakdown('outlier');
+  if (!typical && !outlier) return null;
 
-  const maxTotal = Math.max(p50?.total ?? 0, p99?.total ?? 0);
+  const maxTotal = Math.max(typical?.total ?? 0, outlier?.total ?? 0);
 
   return (
     <div className="typing-perf__breakdown" data-testid="latency-breakdown">
-      {p50 && (
-        <BreakdownRow label="P50" breakdown={p50} scale={maxTotal > 0 ? p50.total / maxTotal : 1} />
+      {typical && (
+        <BreakdownRow label="Typical" breakdown={typical} scale={maxTotal > 0 ? typical.total / maxTotal : 1} />
       )}
-      {p99 && (
-        <BreakdownRow label="P99" breakdown={p99} scale={maxTotal > 0 ? p99.total / maxTotal : 1} />
+      {outlier && (
+        <BreakdownRow label="Outlier" breakdown={outlier} scale={maxTotal > 0 ? outlier.total / maxTotal : 1} />
       )}
     </div>
   );
