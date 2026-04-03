@@ -336,15 +336,29 @@ func (s *Server) handleAskNudgenik(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get session from state
-	sess, found := s.state.GetSession(sessionID)
-	if !found {
+	// Verify session exists (for proper 404 response)
+	if _, found := s.state.GetSession(sessionID); !found {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
 
+	// Capture via tracker (handles local and remote sessions via ControlSource)
+	tracker, err := s.session.GetTracker(sessionID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("session tracker not available: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	captureCtx, cancel := context.WithTimeout(r.Context(), s.config.XtermOperationTimeout())
+	content, err := tracker.CaptureLastLines(captureCtx, 100)
+	cancel()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to capture session output: %v", err), http.StatusInternalServerError)
+		return
+	}
+
 	ctx := context.Background()
-	result, err := nudgenik.AskForSession(ctx, s.config, sess)
+	result, err := nudgenik.AskForCapture(ctx, s.config, content)
 	if err != nil {
 		nudgenikLog := logging.Sub(s.logger, "nudgenik")
 		switch {

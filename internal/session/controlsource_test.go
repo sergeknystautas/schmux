@@ -11,6 +11,10 @@ import (
 type MockControlSource struct {
 	events chan SourceEvent
 	closed bool
+
+	// CaptureContent is returned by CaptureLines/CaptureVisible when set.
+	CaptureContent string
+	CaptureErr     error
 }
 
 func NewMockControlSource(bufSize int) *MockControlSource {
@@ -21,9 +25,13 @@ func (m *MockControlSource) Events() <-chan SourceEvent { return m.events }
 func (m *MockControlSource) SendKeys(keys string) (controlmode.SendKeysTimings, error) {
 	return controlmode.SendKeysTimings{}, nil
 }
-func (m *MockControlSource) CaptureVisible() (string, error)    { return "", nil }
-func (m *MockControlSource) CaptureLines(n int) (string, error) { return "", nil }
-func (m *MockControlSource) Resize(cols, rows int) error        { return nil }
+func (m *MockControlSource) CaptureVisible() (string, error) {
+	return m.CaptureContent, m.CaptureErr
+}
+func (m *MockControlSource) CaptureLines(n int) (string, error) {
+	return m.CaptureContent, m.CaptureErr
+}
+func (m *MockControlSource) Resize(cols, rows int) error { return nil }
 func (m *MockControlSource) GetCursorState() (controlmode.CursorState, error) {
 	return controlmode.CursorState{}, nil
 }

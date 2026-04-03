@@ -11,7 +11,6 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/schema"
-	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
@@ -87,18 +86,6 @@ type Result struct {
 	Summary    string   `json:"summary" required:"true"`
 	Source     string   `json:"source,omitempty"`
 	_          struct{} `additionalProperties:"false"`
-}
-
-// AskForSession captures the latest session output and asks NudgeNik for feedback.
-func AskForSession(ctx context.Context, cfg *config.Config, sess state.Session) (Result, error) {
-	timeoutCtx, cancel := context.WithTimeout(ctx, cfg.XtermOperationTimeout())
-	content, err := tmux.CaptureLastLines(timeoutCtx, sess.TmuxSession, 100, false)
-	cancel()
-	if err != nil {
-		return Result{}, fmt.Errorf("capture tmux session %s: %w", sess.ID, err)
-	}
-
-	return AskForCapture(ctx, cfg, content)
 }
 
 // AskForCapture extracts the latest response from a raw tmux capture and asks NudgeNik for feedback.

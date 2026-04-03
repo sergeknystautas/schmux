@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -96,6 +97,32 @@ func TestTrackerCounters_Increment(t *testing.T) {
 			t.Errorf("FanOutDrops = %d, want %d", got, want)
 		}
 	})
+}
+
+func TestCaptureLastLinesDelegatesToSource(t *testing.T) {
+	tracker, mock := newTestTracker("s1")
+	mock.CaptureContent = "line1\nline2\n❯\n"
+
+	content, err := tracker.CaptureLastLines(context.Background(), 100)
+	if err != nil {
+		t.Fatalf("CaptureLastLines error: %v", err)
+	}
+	if content != "line1\nline2\n❯\n" {
+		t.Errorf("CaptureLastLines = %q, want %q", content, "line1\nline2\n❯\n")
+	}
+}
+
+func TestCaptureLastLinesPropagatesSourceError(t *testing.T) {
+	tracker, mock := newTestTracker("s1")
+	mock.CaptureErr = fmt.Errorf("SSH connection closed")
+
+	_, err := tracker.CaptureLastLines(context.Background(), 100)
+	if err == nil {
+		t.Fatal("expected error from CaptureLastLines")
+	}
+	if !strings.Contains(err.Error(), "SSH connection closed") {
+		t.Errorf("error = %q, want it to contain 'SSH connection closed'", err.Error())
+	}
 }
 
 func TestSubscribeUnsubscribeOutput(t *testing.T) {

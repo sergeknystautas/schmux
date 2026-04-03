@@ -1535,7 +1535,7 @@ func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *
 		// Session is inactive and has no nudge, ask NudgeNik
 		targetName := cfg.GetNudgenikTarget()
 		logger.Info("asking", "session_id", sess.ID, "target", targetName)
-		nudge := askNudgeNikForSession(ctx, cfg, sess, logger)
+		nudge := askNudgeNikForSession(ctx, cfg, sess, sm, logger)
 		if nudge != "" {
 			sess.Nudge = nudge
 			if err := st.UpdateSession(sess); err != nil {
@@ -1553,8 +1553,24 @@ func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *
 }
 
 // askNudgeNikForSession captures the session output and asks NudgeNik for consultation.
-func askNudgeNikForSession(ctx context.Context, cfg *config.Config, sess state.Session, logger *log.Logger) string {
-	result, err := nudgenik.AskForSession(ctx, cfg, sess)
+// Captures via SessionTracker so both local and remote sessions are handled correctly.
+func askNudgeNikForSession(ctx context.Context, cfg *config.Config, sess state.Session, sm *session.Manager, logger *log.Logger) string {
+	// Capture via tracker (handles local and remote sessions via ControlSource)
+	tracker, err := sm.GetTracker(sess.ID)
+	if err != nil {
+		logger.Error("failed to get tracker", "session_id", sess.ID, "err", err)
+		return ""
+	}
+
+	captureCtx, cancel := context.WithTimeout(ctx, cfg.XtermOperationTimeout())
+	content, err := tracker.CaptureLastLines(captureCtx, 100)
+	cancel()
+	if err != nil {
+		logger.Error("failed to capture", "session_id", sess.ID, "err", err)
+		return ""
+	}
+
+	result, err := nudgenik.AskForCapture(ctx, cfg, content)
 	if err != nil {
 		switch {
 		case errors.Is(err, nudgenik.ErrDisabled):

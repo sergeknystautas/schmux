@@ -166,7 +166,7 @@ Errors:
 - 400: "No response found in session output"
 - 404: "session not found"
 - 503: "Nudgenik is disabled. Configure a target in settings." / "Nudgenik target not found" / "Nudgenik target missing required secrets"
-- 500: "Failed to ask nudgenik: ..."
+- 500: "session tracker not available: ..." / "failed to capture session output: ..." / "Failed to ask nudgenik: ..."
 
 ### GET /api/sessions
 
