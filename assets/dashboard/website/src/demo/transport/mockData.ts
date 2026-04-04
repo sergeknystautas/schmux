@@ -2,13 +2,13 @@ import type {
   WorkspaceResponse,
   SessionResponse,
   DiffResponse,
-  GitGraphResponse,
+  CommitGraphResponse,
 } from '@dashboard/lib/types';
 import type {
   ConfigResponse,
   FileDiff,
-  GitGraphNode,
-  GitGraphBranch,
+  CommitGraphNode,
+  CommitGraphBranch,
 } from '@dashboard/lib/types.generated';
 
 export function createDemoSessions(): SessionResponse[] {
@@ -535,7 +535,7 @@ function createRateLimiterDiff(workspace: WorkspaceResponse | undefined): DiffRe
 }
 
 /** Mock git graph for the commit graph tab */
-export function createDemoGitGraph(workspaceId: string): GitGraphResponse {
+export function createDemoGitGraph(workspaceId: string): CommitGraphResponse {
   const workspace = createDemoWorkspaces().find((ws) => ws.id === workspaceId);
   const branch = workspace?.branch ?? 'feature/user-auth';
   const now = Date.now();
@@ -553,7 +553,7 @@ export function createDemoGitGraph(workspaceId: string): GitGraphResponse {
   };
   const hash = (n: number) => HASHES[String(n)] || n.toString(16).padStart(40, 'f');
 
-  const featureNodes: GitGraphNode[] =
+  const featureNodes: CommitGraphNode[] =
     workspaceId === 'demo-ws-2'
       ? [
           {
@@ -604,7 +604,7 @@ export function createDemoGitGraph(workspaceId: string): GitGraphResponse {
           },
         ];
 
-  const mainNodes: GitGraphNode[] = [
+  const mainNodes: CommitGraphNode[] = [
     {
       hash: hash(2001),
       short_hash: hash(2001).slice(0, 7),
@@ -651,7 +651,7 @@ export function createDemoGitGraph(workspaceId: string): GitGraphResponse {
     },
   ];
 
-  const branches: Record<string, GitGraphBranch> = {
+  const branches: Record<string, CommitGraphBranch> = {
     [branch]: {
       head: workspaceId === 'demo-ws-2' ? hash(3001) : hash(1001),
       is_main: false,

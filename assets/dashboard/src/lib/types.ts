@@ -120,9 +120,9 @@ import type { PullRequest, Tab } from './types.generated';
 export type {
   ConfigResponse,
   ConfigUpdateRequest,
-  GitGraphResponse,
-  GitGraphNode,
-  GitGraphBranch,
+  CommitGraphResponse,
+  CommitGraphNode,
+  CommitGraphBranch,
   Model,
   PRsResponse,
   PullRequest,
@@ -245,7 +245,7 @@ export interface DiffResponse {
   files: FileDiff[];
 }
 
-export interface GitCommitDetailResponse {
+export interface CommitDetailResponse {
   hash: string;
   short_hash: string;
   author_name: string;

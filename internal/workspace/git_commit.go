@@ -21,7 +21,7 @@ const maxFileContentSize = 1024 * 1024
 var commitHashRegex = regexp.MustCompile(`^[a-fA-F0-9]{4,40}$`)
 
 // GetCommitDetail returns detailed information about a specific commit.
-func (m *Manager) GetCommitDetail(ctx context.Context, workspaceID, commitHash string) (*contracts.GitCommitDetailResponse, error) {
+func (m *Manager) GetCommitDetail(ctx context.Context, workspaceID, commitHash string) (*contracts.CommitDetailResponse, error) {
 	// Validate commit hash format
 	if err := validateCommitHash(commitHash); err != nil {
 		return nil, fmt.Errorf("invalid commit hash: %w", err)
@@ -59,7 +59,7 @@ func (m *Manager) GetCommitDetail(ctx context.Context, workspaceID, commitHash s
 		return nil, fmt.Errorf("failed to get commit diff: %w", err)
 	}
 
-	return &contracts.GitCommitDetailResponse{
+	return &contracts.CommitDetailResponse{
 		Hash:        fullHash,
 		ShortHash:   fullHash[:7],
 		AuthorName:  metadata.authorName,

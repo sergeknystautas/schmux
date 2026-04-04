@@ -17,8 +17,8 @@ Provides real-time git status monitoring, a visual commit history DAG (modeled a
 | `internal/workspace/git_commit_test.go`             | Commit detail tests (root commits, renames, binary detection, hash validation)            |
 | `internal/workspace/vcs_poll_round.go`              | Per-sweep caches: deduplicates `git fetch` and `git worktree list` across workspaces      |
 | `internal/workspace/giturl.go`                      | Git URL parsing (SSH/HTTPS normalization)                                                 |
-| `internal/api/contracts/git_graph.go`               | `GitGraphResponse`, `GitGraphNode`, `GitGraphBranch`, `GitGraphDirtyState`                |
-| `internal/api/contracts/git_commit.go`              | `GitCommitDetailResponse`, `FileDiff`                                                     |
+| `internal/api/contracts/commit_graph.go`            | `CommitGraphResponse`, `CommitGraphNode`, `CommitGraphBranch`, `CommitGraphDirtyState`    |
+| `internal/api/contracts/commit_detail.go`           | `CommitDetailResponse`, `FileDiff`                                                        |
 | `internal/api/contracts/pr.go`                      | `PullRequest`, `PRsResponse`, `PRCheckoutRequest/Response`                                |
 | `internal/github/discovery.go`                      | `Discovery` — hourly PR polling, `Refresh`, `Seed` from cached state                      |
 | `internal/github/client.go`                         | `CheckVisibility`, `FetchOpenPRs` — unauthenticated GitHub API calls                      |
@@ -58,10 +58,10 @@ Provides real-time git status monitoring, a visual commit history DAG (modeled a
 
 ## Common modification patterns
 
-- **Add a new field to the git graph response:** Edit the Go struct in `internal/api/contracts/git_graph.go`, populate it in `internal/workspace/git_graph.go` (either `GetGitGraph` or `BuildGraphResponse`), run `go run ./cmd/gen-types` to regenerate TypeScript types, then consume the field in `assets/dashboard/src/lib/gitGraphLayout.ts` or `assets/dashboard/src/components/GitHistoryDAG.tsx`.
+- **Add a new field to the git graph response:** Edit the Go struct in `internal/api/contracts/commit_graph.go`, populate it in `internal/workspace/git_graph.go` (either `GetGitGraph` or `BuildGraphResponse`), run `go run ./cmd/gen-types` to regenerate TypeScript types, then consume the field in `assets/dashboard/src/lib/gitGraphLayout.ts` or `assets/dashboard/src/components/GitHistoryDAG.tsx`.
 - **Add a new virtual node type to the graph:** Add the type string to `LayoutNode.nodeType` in `gitGraphLayout.ts`, insert the node at the right position in `computeLayout`, add rendering logic in `GitHistoryDAG.tsx`, and add layout tests in `gitGraphLayout.test.ts`.
 - **Change the git status polling interval:** The default is in `internal/config/config.go` (`git_status_poll_interval_ms`, default 10000). The config key is `sessions.git_status_poll_interval_ms`.
 - **Change the watcher debounce window:** Config key `sessions.git_status_watch_debounce_ms` (default 1000). Accessed via `cfg.GitStatusWatchDebounce()`.
 - **Add a new git API endpoint:** Register the route in `internal/dashboard/server.go` (under the `/api/workspaces/{workspaceID}` group), implement the handler in `internal/dashboard/handlers_git.go`, and implement the git logic in a new or existing method on `workspace.Manager`.
 - **Support PR discovery for private repos:** Replace the unauthenticated `CheckVisibility` call in `internal/github/client.go` with an authenticated flow using the OAuth token from `internal/github/auth.go`. Update `FetchOpenPRs` to include the `Authorization` header.
-- **Add a new commit detail field:** Edit `GitCommitDetailResponse` in `internal/api/contracts/git_commit.go`, populate it in `internal/workspace/git_commit.go` (`GetCommitDetail`), run `go run ./cmd/gen-types`, and consume it in `assets/dashboard/src/routes/GitCommitPage.tsx`.
+- **Add a new commit detail field:** Edit `CommitDetailResponse` in `internal/api/contracts/commit_detail.go`, populate it in `internal/workspace/git_commit.go` (`GetCommitDetail`), run `go run ./cmd/gen-types`, and consume it in `assets/dashboard/src/routes/GitCommitPage.tsx`.

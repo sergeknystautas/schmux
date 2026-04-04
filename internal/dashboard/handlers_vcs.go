@@ -85,7 +85,7 @@ func (s *Server) handleWorkspaceCommitGraph(w http.ResponseWriter, r *http.Reque
 
 	// Populate dirty state from workspace git stats
 	if ws.FilesChanged > 0 {
-		resp.DirtyState = &contracts.GitGraphDirtyState{
+		resp.DirtyState = &contracts.CommitGraphDirtyState{
 			FilesChanged: ws.FilesChanged,
 			LinesAdded:   ws.LinesAdded,
 			LinesRemoved: ws.LinesRemoved,

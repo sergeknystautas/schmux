@@ -50,6 +50,11 @@ func (s *SaplingCommandBuilder) Log(refs []string, maxCount int) string {
 	// Sapling log with parseable template.
 	// Use {p1node} {p2node} instead of {parents} — the {parents} keyword outputs
 	// "rev:shorthash" format, not full hex hashes like git's %P.
+	//
+	// Use last(revset, N) instead of --limit N because Sapling's ancestors()
+	// returns commits in ascending order (oldest first). --limit N takes the
+	// first N (oldest), while last() takes the final N (newest) — matching
+	// git log's behavior of walking backwards from HEAD.
 	revset := "ancestors(.)"
 	if len(refs) > 1 {
 		quotedRefs := make([]string, len(refs))
@@ -60,8 +65,9 @@ func (s *SaplingCommandBuilder) Log(refs []string, maxCount int) string {
 	} else if len(refs) == 1 && refs[0] != "HEAD" {
 		revset = fmt.Sprintf("ancestors(%s)", refs[0])
 	}
-	return fmt.Sprintf("sl log -T '{node}|{short(node)}|{desc|firstline}|{author|user}|{date|isodate}|{p1node} {p2node}\\n' -r %s --limit %d",
-		shellutil.Quote(revset), maxCount)
+	limitedRevset := fmt.Sprintf("last(%s, %d)", revset, maxCount)
+	return fmt.Sprintf("sl log -T '{node}|{short(node)}|{desc|firstline}|{author|user}|{date|isodate}|{p1node} {p2node}\\n' -r %s",
+		shellutil.Quote(limitedRevset))
 }
 
 func (s *SaplingCommandBuilder) LogRange(refs []string, forkPoint string) string {
@@ -76,7 +82,8 @@ func (s *SaplingCommandBuilder) LogRange(refs []string, forkPoint string) string
 		}
 	}
 	revset := fmt.Sprintf("(%s)::%s", forkPoint, strings.Join(refExprs, "+"))
-	return fmt.Sprintf("sl log -T '{node}|{short(node)}|{desc|firstline}|{author|user}|{date|isodate}|{p1node} {p2node}\\n' -r %s --limit 5000", shellutil.Quote(revset))
+	limitedRevset := fmt.Sprintf("last(%s, 5000)", revset)
+	return fmt.Sprintf("sl log -T '{node}|{short(node)}|{desc|firstline}|{author|user}|{date|isodate}|{p1node} {p2node}\\n' -r %s", shellutil.Quote(limitedRevset))
 }
 
 func (s *SaplingCommandBuilder) ResolveRef(ref string) string {
@@ -101,8 +108,10 @@ func (s *SaplingCommandBuilder) DefaultBranchRef(branch string) string {
 }
 
 func (s *SaplingCommandBuilder) DetectDefaultBranch() string {
-	// Sapling: get the default remote bookmark name (e.g., "main"), fall back to "main"
-	return "sl config remotenames.selectivepulldefault 2>/dev/null || echo main"
+	// Sapling: get the default remote bookmark name (e.g., "main"), fall back to "main".
+	// selectivepulldefault can be a comma-separated list (e.g., "master, fbcode/warm") —
+	// take only the first entry and trim whitespace.
+	return "sl config remotenames.selectivepulldefault 2>/dev/null | cut -d',' -f1 | tr -d ' ' || echo main"
 }
 
 func (s *SaplingCommandBuilder) RevListCount(rangeSpec string) string {

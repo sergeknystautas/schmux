@@ -20,6 +20,53 @@ export interface BranchSuggestUpdate {
   target?: string;
 }
 
+export interface CommitDetailResponse {
+  hash: string;
+  short_hash: string;
+  author_name: string;
+  author_email: string;
+  timestamp: string;
+  message: string;
+  parents: string[];
+  is_merge: boolean;
+  files: FileDiff[];
+}
+
+export interface CommitGraphBranch {
+  head: string;
+  is_main: boolean;
+  workspace_ids: string[];
+}
+
+export interface CommitGraphDirtyState {
+  files_changed: number;
+  lines_added: number;
+  lines_removed: number;
+}
+
+export interface CommitGraphNode {
+  hash: string;
+  short_hash: string;
+  message: string;
+  author: string;
+  timestamp: string;
+  parents: string[];
+  branches: string[];
+  is_head: string[];
+  workspace_ids: string[];
+}
+
+export interface CommitGraphResponse {
+  repo: string;
+  nodes: CommitGraphNode[];
+  branches: Record<string, CommitGraphBranch>;
+  main_ahead_count: number;
+  main_ahead_newest_timestamp?: string;
+  main_ahead_next_hash?: string;
+  local_truncated?: boolean;
+  dirty_state?: CommitGraphDirtyState;
+}
+
 export interface CommitMessage {
   target: string;
 }
@@ -194,53 +241,6 @@ export interface FloorManagerUpdate {
   target?: string;
   rotation_threshold?: number;
   debounce_ms?: number;
-}
-
-export interface GitCommitDetailResponse {
-  hash: string;
-  short_hash: string;
-  author_name: string;
-  author_email: string;
-  timestamp: string;
-  message: string;
-  parents: string[];
-  is_merge: boolean;
-  files: FileDiff[];
-}
-
-export interface GitGraphBranch {
-  head: string;
-  is_main: boolean;
-  workspace_ids: string[];
-}
-
-export interface GitGraphDirtyState {
-  files_changed: number;
-  lines_added: number;
-  lines_removed: number;
-}
-
-export interface GitGraphNode {
-  hash: string;
-  short_hash: string;
-  message: string;
-  author: string;
-  timestamp: string;
-  parents: string[];
-  branches: string[];
-  is_head: string[];
-  workspace_ids: string[];
-}
-
-export interface GitGraphResponse {
-  repo: string;
-  nodes: GitGraphNode[];
-  branches: Record<string, GitGraphBranch>;
-  main_ahead_count: number;
-  main_ahead_newest_timestamp?: string;
-  main_ahead_next_hash?: string;
-  local_truncated?: boolean;
-  dirty_state?: GitGraphDirtyState;
 }
 
 export interface GitHubStatus {

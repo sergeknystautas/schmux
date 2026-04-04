@@ -193,7 +193,7 @@ export function createDemoTransport(options: DemoTransportOptions): Transport & 
         );
       }
 
-      // Commit graph endpoint — returns GitGraphResponse with commit history
+      // Commit graph endpoint — returns CommitGraphResponse with commit history
       if (url.includes('/commit-graph')) {
         const match = url.match(/\/api\/workspaces\/([^/]+)\/commit-graph/);
         const workspaceId = match?.[1] || 'demo-ws-1';

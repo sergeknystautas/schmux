@@ -14,7 +14,7 @@ import {
 } from '../lib/api';
 import { computeLayout, GRAPH_COLOR, HIGHLIGHT_COLOR, ROW_HEIGHT } from '../lib/gitGraphLayout';
 import type { GitGraphLayout, LayoutNode, LayoutEdge, LaneLine } from '../lib/gitGraphLayout';
-import type { GitGraphResponse, FileDiff } from '../lib/types';
+import type { CommitGraphResponse, FileDiff } from '../lib/types';
 import { useSessions } from '../contexts/SessionsContext';
 import { useSyncState } from '../contexts/SyncContext';
 import { useSync } from '../hooks/useSync';
@@ -35,7 +35,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   const navigate = useNavigate();
   const { confirm, alert } = useModal();
   const { setPendingNavigation } = usePendingNavigation();
-  const [data, setData] = useState<GitGraphResponse | null>(null);
+  const [data, setData] = useState<CommitGraphResponse | null>(null);
   const [diffFiles, setDiffFiles] = useState<FileDiff[]>([]);
   const [layout, setLayout] = useState<GitGraphLayout | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +62,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   const ws = workspaces.find((w) => w.id === workspaceId);
   const lockState = workspaceLockStates[workspaceId];
   const isSyncing = syncing || !!lockState?.locked;
+  const isSapling = ws?.vcs === 'sapling';
   const gitFingerprint = ws
     ? `${ws.ahead}:${ws.behind}:${ws.files_changed}:${ws.lines_added}:${ws.lines_removed}`
     : '';
@@ -107,7 +108,10 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
     try {
       const [graphResp, diffResp] = await Promise.all([
         getCommitGraph(workspaceId, { maxTotal: maxCommits }),
-        getDiff(workspaceId).catch(() => ({ files: [] as FileDiff[] })),
+        // Skip diff fetch for sapling — commit/stage/discard actions are not supported
+        isSapling
+          ? Promise.resolve({ files: [] as FileDiff[] })
+          : getDiff(workspaceId).catch(() => ({ files: [] as FileDiff[] })),
       ]);
       setData(graphResp);
       const files = diffResp.files || [];
@@ -292,7 +296,8 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
       return (
         <div key={ln.hash} className="git-dag__row" style={{ height: lay.rowHeight }}>
           <span className="git-dag__you-are-here">You are here</span>
-          {showPushToDefault &&
+          {!isSapling &&
+            showPushToDefault &&
             (pushToDefaultDisabled ? (
               <Tooltip content={pushToDefaultTooltip}>
                 <span className="inline-flex">{pushToDefaultButton}</span>
@@ -300,7 +305,8 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
             ) : (
               pushToDefaultButton
             ))}
-          {showPushToBranch &&
+          {!isSapling &&
+            showPushToBranch &&
             (pushToBranchDisabled ? (
               <Tooltip content={pushToBranchTooltip}>
                 <span className="inline-flex">{pushToBranchButton}</span>

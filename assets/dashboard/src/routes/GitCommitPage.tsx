@@ -8,7 +8,7 @@ import useSidebarLayout from '../hooks/useSidebarLayout';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import { formatRelativeTime, splitPath } from '../lib/utils';
-import type { GitCommitDetailResponse } from '../lib/types';
+import type { CommitDetailResponse } from '../lib/types';
 
 const COMMIT_SIDEBAR_WIDTH_KEY = 'schmux-commit-sidebar-width';
 const COMMIT_KEYBOARD_FOCUS_KEY = 'schmux-commit-keyboard-focus';
@@ -19,7 +19,7 @@ export default function GitCommitPage() {
   const navigate = useNavigate();
   const { theme } = useTheme();
   const { workspaces } = useSessions();
-  const [commitData, setCommitData] = useState<GitCommitDetailResponse | null>(null);
+  const [commitData, setCommitData] = useState<CommitDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);

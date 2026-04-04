@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { computeLayout, ROW_HEIGHT } from './gitGraphLayout';
-import type { GitGraphResponse, FileDiff } from './types';
+import type { CommitGraphResponse, FileDiff } from './types';
 
 function makeNode(
   hash: string,
   branches: string[],
   parents: string[] = [],
   isHead: string[] = []
-): GitGraphResponse['nodes'][0] {
+): CommitGraphResponse['nodes'][0] {
   return {
     hash,
     short_hash: hash.slice(0, 7),
@@ -22,10 +22,10 @@ function makeNode(
 }
 
 function makeResponse(
-  nodes: GitGraphResponse['nodes'],
-  branches: GitGraphResponse['branches'],
-  overrides: Partial<GitGraphResponse> = {}
-): GitGraphResponse {
+  nodes: CommitGraphResponse['nodes'],
+  branches: CommitGraphResponse['branches'],
+  overrides: Partial<CommitGraphResponse> = {}
+): CommitGraphResponse {
   return { repo: 'test-repo', nodes, branches, main_ahead_count: 0, ...overrides };
 }
 

@@ -1,10 +1,10 @@
-import type { GitGraphResponse, GitGraphNode, FileDiff } from './types';
+import type { CommitGraphResponse, CommitGraphNode, FileDiff } from './types';
 
 export interface LayoutNode {
   hash: string;
   column: number;
   y: number;
-  node: GitGraphNode;
+  node: CommitGraphNode;
   nodeType:
     | 'commit'
     | 'you-are-here'
@@ -54,7 +54,7 @@ export interface GitGraphLayout {
 export const ROW_HEIGHT = 28;
 
 /**
- * Compute a column-based layout from the GitGraphResponse.
+ * Compute a column-based layout from the CommitGraphResponse.
  *
  * Column assignment is data-driven from branch info (not hardcoded):
  * - Column 0: main/default branch
@@ -66,7 +66,10 @@ export const ROW_HEIGHT = 28;
  * following ISL's pattern of a single virtual working-copy commit.
  * Branch labels are rendered as badges on commit rows via is_head data.
  */
-export function computeLayout(response: GitGraphResponse, files: FileDiff[] = []): GitGraphLayout {
+export function computeLayout(
+  response: CommitGraphResponse,
+  files: FileDiff[] = []
+): GitGraphLayout {
   const { nodes, branches } = response;
 
   if (nodes.length === 0) {
@@ -102,7 +105,7 @@ export function computeLayout(response: GitGraphResponse, files: FileDiff[] = []
   const columnCount = localBranch !== mainBranch ? nextCol : 1;
 
   // Column assignment: nodes on a non-main branch exclusively → that branch's column
-  const nodeColumn = (node: GitGraphNode): number => {
+  const nodeColumn = (node: CommitGraphNode): number => {
     const onMain = node.branches.includes(mainBranch);
     for (const branchName of node.branches) {
       if (branchName !== mainBranch && branchColumns.has(branchName) && !onMain) {

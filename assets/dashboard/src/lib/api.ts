@@ -6,8 +6,8 @@ import type {
   DetectToolsResponse,
   DiffExternalResponse,
   DiffResponse,
-  GitCommitDetailResponse,
-  GitGraphResponse,
+  CommitDetailResponse,
+  CommitGraphResponse,
   LinearSyncResponse,
   LinearSyncResolveConflictResponse,
   LoreEntriesResponse,
@@ -607,7 +607,7 @@ export async function getCommitGraph(
     /** @deprecated Use mainContext instead */
     context?: number;
   }
-): Promise<GitGraphResponse> {
+): Promise<CommitGraphResponse> {
   const params = new URLSearchParams();
   if (opts?.maxTotal) params.set('max_total', String(opts.maxTotal));
   if (opts?.mainContext) params.set('main_context', String(opts.mainContext));
@@ -624,7 +624,7 @@ export async function getCommitGraph(
 export async function getCommitDetail(
   workspaceId: string,
   commitHash: string
-): Promise<GitCommitDetailResponse> {
+): Promise<CommitDetailResponse> {
   const url = `/api/workspaces/${encodeURIComponent(workspaceId)}/commit-detail/${encodeURIComponent(commitHash)}`;
   const response = await apiFetch(url);
   if (!response.ok) {

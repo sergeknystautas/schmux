@@ -1,6 +1,7 @@
 package vcs
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -212,9 +213,10 @@ func TestSaplingLog(t *testing.T) {
 			if !strings.Contains(got, "{p1node} {p2node}") {
 				t.Errorf("Log() should use {p1node} {p2node} for parent format: %q", got)
 			}
-			wantLimit := strings.Contains(got, "--limit")
-			if !wantLimit {
-				t.Errorf("Log() should include --limit: %q", got)
+			// Must use last() revset to get newest commits (not --limit which takes oldest)
+			wantLast := fmt.Sprintf("last(%s, %d)", tt.wantRev, tt.maxCount)
+			if !strings.Contains(got, wantLast) {
+				t.Errorf("Log() should use last() for newest-first limiting, want %q in %q", wantLast, got)
 			}
 		})
 	}
@@ -482,8 +484,8 @@ func TestSaplingNewestTimestamp(t *testing.T) {
 func TestSaplingLogRange_HasLimit(t *testing.T) {
 	cb := &SaplingCommandBuilder{}
 	got := cb.LogRange([]string{"HEAD"}, "abc123")
-	if !strings.Contains(got, "--limit") {
-		t.Errorf("LogRange() = %q, want --limit to prevent unbounded output", got)
+	if !strings.Contains(got, "last(") {
+		t.Errorf("LogRange() = %q, want last() to prevent unbounded output", got)
 	}
 }
 

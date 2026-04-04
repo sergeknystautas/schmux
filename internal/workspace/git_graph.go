@@ -24,7 +24,7 @@ const (
 //   - maxTotal: Maximum total commits to display (applied after category limits).
 //     The actual result may be smaller than maxTotal if category limits are hit first.
 //   - mainContext: Number of commits on main BEFORE fork point (historical context).
-func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxTotal int, mainContext int) (*contracts.GitGraphResponse, error) {
+func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxTotal int, mainContext int) (*contracts.CommitGraphResponse, error) {
 	if maxTotal <= 0 {
 		maxTotal = defaultMaxTotal
 	}
@@ -113,14 +113,14 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxTotal 
 	return resp, nil
 }
 
-// BuildGraphResponse builds a GitGraphResponse from raw nodes and branch metadata.
+// BuildGraphResponse builds a CommitGraphResponse from raw nodes and branch metadata.
 // This is used by both local and remote graph handlers.
-func BuildGraphResponse(nodes []RawNode, localBranch, defaultBranch, localHead, originMainHead, forkPoint string, branchWorkspaces map[string][]string, repo string, maxTotal int, mainAheadCount int) *contracts.GitGraphResponse {
+func BuildGraphResponse(nodes []RawNode, localBranch, defaultBranch, localHead, originMainHead, forkPoint string, branchWorkspaces map[string][]string, repo string, maxTotal int, mainAheadCount int) *contracts.CommitGraphResponse {
 	if len(nodes) == 0 {
-		return &contracts.GitGraphResponse{
+		return &contracts.CommitGraphResponse{
 			Repo:           repo,
-			Nodes:          []contracts.GitGraphNode{},
-			Branches:       map[string]contracts.GitGraphBranch{},
+			Nodes:          []contracts.CommitGraphNode{},
+			Branches:       map[string]contracts.CommitGraphBranch{},
 			MainAheadCount: mainAheadCount,
 		}
 	}
@@ -154,7 +154,7 @@ func BuildGraphResponse(nodes []RawNode, localBranch, defaultBranch, localHead, 
 	}
 
 	// Build annotated node map keyed by hash.
-	annotatedNodes := make(map[string]contracts.GitGraphNode, len(nodes))
+	annotatedNodes := make(map[string]contracts.CommitGraphNode, len(nodes))
 	for _, n := range nodes {
 		var branchList []string
 		if bm, ok := nodeBranches[n.Hash]; ok {
@@ -174,7 +174,7 @@ func BuildGraphResponse(nodes []RawNode, localBranch, defaultBranch, localHead, 
 			}
 		}
 
-		annotatedNodes[n.Hash] = contracts.GitGraphNode{
+		annotatedNodes[n.Hash] = contracts.CommitGraphNode{
 			Hash:         n.Hash,
 			ShortHash:    n.ShortHash,
 			Message:      n.Message,
@@ -330,7 +330,7 @@ func BuildGraphResponse(nodes []RawNode, localBranch, defaultBranch, localHead, 
 	}
 
 	// Reverse for rendering (heads → roots).
-	resultNodes := make([]contracts.GitGraphNode, 0, len(topoOrder))
+	resultNodes := make([]contracts.CommitGraphNode, 0, len(topoOrder))
 	for i := len(topoOrder) - 1; i >= 0; i-- {
 		resultNodes = append(resultNodes, annotatedNodes[topoOrder[i]])
 	}
@@ -340,21 +340,21 @@ func BuildGraphResponse(nodes []RawNode, localBranch, defaultBranch, localHead, 
 	}
 
 	// Build branches map
-	branchesMap := make(map[string]contracts.GitGraphBranch)
+	branchesMap := make(map[string]contracts.CommitGraphBranch)
 	if originMainHead != "" {
-		branchesMap[defaultBranch] = contracts.GitGraphBranch{
+		branchesMap[defaultBranch] = contracts.CommitGraphBranch{
 			Head:         originMainHead,
 			IsMain:       true,
 			WorkspaceIDs: NonNilSlice(branchWorkspaces[defaultBranch]),
 		}
 	}
-	branchesMap[localBranch] = contracts.GitGraphBranch{
+	branchesMap[localBranch] = contracts.CommitGraphBranch{
 		Head:         localHead,
 		IsMain:       localBranch == defaultBranch,
 		WorkspaceIDs: NonNilSlice(branchWorkspaces[localBranch]),
 	}
 
-	return &contracts.GitGraphResponse{
+	return &contracts.CommitGraphResponse{
 		Repo:           repo,
 		Nodes:          resultNodes,
 		Branches:       branchesMap,

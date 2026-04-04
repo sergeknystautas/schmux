@@ -176,10 +176,10 @@ type WorkspaceManager interface {
 	// GetGitGraph returns the commit graph for a workspace showing local branch vs origin/main.
 	// maxTotal: Maximum total commits to display (applied after category limits)
 	// mainContext: Number of commits on main BEFORE fork point (historical context)
-	GetGitGraph(ctx context.Context, workspaceID string, maxTotal int, mainContext int) (*contracts.GitGraphResponse, error)
+	GetGitGraph(ctx context.Context, workspaceID string, maxTotal int, mainContext int) (*contracts.CommitGraphResponse, error)
 
 	// GetCommitDetail returns detailed information about a specific commit.
-	GetCommitDetail(ctx context.Context, workspaceID, commitHash string) (*contracts.GitCommitDetailResponse, error)
+	GetCommitDetail(ctx context.Context, workspaceID, commitHash string) (*contracts.CommitDetailResponse, error)
 
 	// IsWorkspaceLocked returns true if a sync operation is running on the workspace.
 	IsWorkspaceLocked(workspaceID string) bool

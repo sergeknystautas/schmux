@@ -27,8 +27,8 @@ func main() {
 	rootTypes := []reflect.Type{
 		reflect.TypeOf(contracts.ConfigResponse{}),
 		reflect.TypeOf(contracts.ConfigUpdateRequest{}),
-		reflect.TypeOf(contracts.GitGraphResponse{}),
-		reflect.TypeOf(contracts.GitCommitDetailResponse{}),
+		reflect.TypeOf(contracts.CommitGraphResponse{}),
+		reflect.TypeOf(contracts.CommitDetailResponse{}),
 		reflect.TypeOf(contracts.GitHubStatus{}),
 		reflect.TypeOf(contracts.PRsResponse{}),
 		reflect.TypeOf(contracts.TLSValidateRequest{}),
