@@ -112,7 +112,13 @@ const configFixture: ConfigResponse = {
     confirm_before_close: false,
     suggest_dispose_after_push: true,
   },
-  lore: { enabled: true, llm_target: '', curate_on_dispose: 'session', auto_pr: false },
+  lore: {
+    enabled: true,
+    llm_target: '',
+    curate_on_dispose: 'session',
+    auto_pr: false,
+    public_rule_mode: 'direct_push',
+  },
   subreddit: {
     target: '',
     interval: 30,
@@ -263,6 +269,7 @@ describe('ConfigPage', () => {
       llm_target: '',
       curate_on_dispose: 'session',
       auto_pr: false,
+      public_rule_mode: 'direct_push',
     });
     expect(payload.desync).toEqual({ enabled: false, target: '' });
   });

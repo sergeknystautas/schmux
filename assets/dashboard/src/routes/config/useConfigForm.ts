@@ -49,6 +49,7 @@ export type ConfigSnapshot = {
   loreLLMTarget: string;
   loreCurateOnDispose: string;
   loreAutoPR: boolean;
+  lorePublicRuleMode: string;
   subredditTarget: string;
   subredditInterval: number;
   subredditCheckingRange: number;
@@ -190,6 +191,7 @@ export type ConfigFormState = {
   loreLLMTarget: string;
   loreCurateOnDispose: string;
   loreAutoPR: boolean;
+  lorePublicRuleMode: string;
 
   // Subreddit
   subredditTarget: string;
@@ -370,6 +372,7 @@ export const initialState: ConfigFormState = {
   loreLLMTarget: '',
   loreCurateOnDispose: 'session',
   loreAutoPR: false,
+  lorePublicRuleMode: 'direct_push',
 
   subredditTarget: '',
   subredditInterval: 30,
@@ -688,6 +691,7 @@ export function useConfigForm(initialStep: number = 1) {
         state.loreLLMTarget !== oc.loreLLMTarget ||
         state.loreCurateOnDispose !== oc.loreCurateOnDispose ||
         state.loreAutoPR !== oc.loreAutoPR ||
+        state.lorePublicRuleMode !== oc.lorePublicRuleMode ||
         state.subredditTarget !== oc.subredditTarget ||
         state.subredditInterval !== oc.subredditInterval ||
         state.subredditCheckingRange !== oc.subredditCheckingRange ||
@@ -786,6 +790,7 @@ export function useConfigForm(initialStep: number = 1) {
       loreLLMTarget: state.loreLLMTarget,
       loreCurateOnDispose: state.loreCurateOnDispose,
       loreAutoPR: state.loreAutoPR,
+      lorePublicRuleMode: state.lorePublicRuleMode,
       subredditTarget: state.subredditTarget,
       subredditInterval: state.subredditInterval,
       subredditCheckingRange: state.subredditCheckingRange,

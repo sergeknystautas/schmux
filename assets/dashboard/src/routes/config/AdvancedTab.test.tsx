@@ -21,6 +21,7 @@ const defaultProps = {
   loreLLMTarget: '',
   loreCurateOnDispose: 'session',
   loreAutoPR: false,
+  lorePublicRuleMode: 'direct_push',
   subredditTarget: '',
   subredditHours: 24,
   nudgenikTarget: '',

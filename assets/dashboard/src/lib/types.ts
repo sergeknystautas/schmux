@@ -495,6 +495,14 @@ export interface LoreEntry {
 export type LoreLayer = 'repo_public' | 'repo_private' | 'cross_repo_private';
 export type LoreRuleStatus = 'pending' | 'approved' | 'dismissed';
 
+export interface RuleSourceEntry {
+  type: 'failure' | 'reflection' | 'friction';
+  text?: string;
+  input_summary?: string;
+  error_summary?: string;
+  tool?: string;
+}
+
 export interface LoreRule {
   id: string;
   text: string;
@@ -502,7 +510,7 @@ export interface LoreRule {
   suggested_layer: LoreLayer;
   chosen_layer?: LoreLayer;
   status: LoreRuleStatus;
-  source_entries: string[];
+  source_entries: RuleSourceEntry[];
   merged_at?: string;
 }
 
@@ -539,6 +547,7 @@ export interface LoreMergeApplyResult {
   workspace_id?: string;
   branch?: string;
   pr_url?: string;
+  commit_sha?: string;
 }
 
 export interface LoreProposalsResponse {

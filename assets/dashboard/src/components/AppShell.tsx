@@ -222,9 +222,13 @@ export default function AppShell() {
       const counts: Record<string, number> = {};
       results.forEach((result, i) => {
         if (result.status === 'fulfilled') {
-          counts[repoNames[i]] = (result.value.proposals || []).filter(
-            (p) => p.status === 'pending'
-          ).length;
+          let count = 0;
+          for (const p of result.value.proposals || []) {
+            if (p.status === 'pending' || p.status === 'merging') {
+              count += (p.rules || []).filter((r: any) => r.status === 'pending').length;
+            }
+          }
+          counts[repoNames[i]] = count;
         }
       });
       setLoreCounts(counts);

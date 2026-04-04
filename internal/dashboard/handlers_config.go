@@ -174,6 +174,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			LLMTarget:       s.config.GetLoreTargetRaw(),
 			CurateOnDispose: s.config.GetLoreCurateOnDispose(),
 			AutoPR:          s.config.GetLoreAutoPR(),
+			PublicRuleMode:  s.config.GetLorePublicRuleMode(),
 		},
 		Subreddit: contracts.Subreddit{
 			Target:        s.config.GetSubredditTarget(),
@@ -596,6 +597,13 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		if req.Lore.AutoPR != nil {
 			autoPR := *req.Lore.AutoPR
 			cfg.Lore.AutoPR = &autoPR
+		}
+		if req.Lore.PublicRuleMode != nil {
+			v := *req.Lore.PublicRuleMode
+			switch v {
+			case "direct_push", "create_pr":
+				cfg.Lore.PublicRuleMode = v
+			}
 		}
 	}
 

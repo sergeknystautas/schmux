@@ -63,7 +63,11 @@ export default function ToolsSection({
         let count = 0;
         const pr = proposalResults[i];
         if (pr.status === 'fulfilled') {
-          count += (pr.value.proposals || []).filter((p) => p.status === 'pending').length;
+          for (const p of pr.value.proposals || []) {
+            if (p.status === 'pending' || p.status === 'merging') {
+              count += (p.rules || []).filter((r: any) => r.status === 'pending').length;
+            }
+          }
         }
         const ar = actionResults[i];
         if (ar.status === 'fulfilled') {

@@ -349,6 +349,7 @@ type Lore struct {
 	LLMTarget       string `json:"llm_target"`
 	CurateOnDispose string `json:"curate_on_dispose"`
 	AutoPR          bool   `json:"auto_pr"`
+	PublicRuleMode  string `json:"public_rule_mode,omitempty"`
 }
 
 // LoreUpdate represents partial lore config updates.
@@ -357,6 +358,7 @@ type LoreUpdate struct {
 	LLMTarget       *string `json:"llm_target,omitempty"`
 	CurateOnDispose *string `json:"curate_on_dispose,omitempty"`
 	AutoPR          *bool   `json:"auto_pr,omitempty"`
+	PublicRuleMode  *string `json:"public_rule_mode,omitempty"`
 }
 
 // Subreddit represents subreddit digest configuration in the API response.

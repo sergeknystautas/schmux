@@ -48,7 +48,10 @@ vi.mock('../contexts/FeaturesContext', () => ({
 // Mock the API
 vi.mock('../lib/api', () => ({
   getLoreProposals: vi.fn().mockResolvedValue({
-    proposals: [{ status: 'pending' }, { status: 'pending' }],
+    proposals: [
+      { status: 'pending', rules: [{ status: 'pending' }] },
+      { status: 'pending', rules: [{ status: 'pending' }] },
+    ],
   }),
 }));
 

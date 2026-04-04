@@ -8,6 +8,7 @@ type AdvancedTabProps = {
   loreLLMTarget: string;
   loreCurateOnDispose: string;
   loreAutoPR: boolean;
+  lorePublicRuleMode: string;
   nudgenikTarget: string;
   viewedBuffer: number;
   nudgenikSeenInterval: number;
@@ -50,6 +51,7 @@ export default function AdvancedTab({
   loreLLMTarget,
   loreCurateOnDispose,
   loreAutoPR,
+  lorePublicRuleMode,
   nudgenikTarget,
   viewedBuffer,
   nudgenikSeenInterval,
@@ -171,6 +173,25 @@ export default function AdvancedTab({
             </label>
             <p className="form-group__hint">
               Automatically open a pull request when a lore proposal is applied.
+            </p>
+          </div>
+
+          <div className="form-group">
+            <label className="form-group__label" htmlFor="lore-public-rule-mode">
+              Public Rule Mode
+            </label>
+            <select
+              id="lore-public-rule-mode"
+              className="input"
+              value={lorePublicRuleMode || 'direct_push'}
+              onChange={(e) => setField('lorePublicRuleMode', e.target.value)}
+              disabled={!loreEnabled}
+            >
+              <option value="direct_push">Direct push to main</option>
+              <option value="create_pr">Create pull request</option>
+            </select>
+            <p className="form-group__hint">
+              How public lore rules are committed to the repository.
             </p>
           </div>
         </div>

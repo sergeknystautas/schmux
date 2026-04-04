@@ -263,6 +263,7 @@ export interface Lore {
   llm_target: string;
   curate_on_dispose: string;
   auto_pr: boolean;
+  public_rule_mode?: string;
 }
 
 export interface LoreUpdate {
@@ -270,6 +271,7 @@ export interface LoreUpdate {
   llm_target?: string;
   curate_on_dispose?: string;
   auto_pr?: boolean;
+  public_rule_mode?: string;
 }
 
 export interface Model {

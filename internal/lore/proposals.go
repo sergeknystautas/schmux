@@ -31,16 +31,62 @@ const (
 	RuleDismissed RuleStatus = "dismissed"
 )
 
+// RuleSourceEntry holds displayable data from a raw friction signal.
+type RuleSourceEntry struct {
+	Type         string `json:"type"`                    // "failure", "reflection", "friction"
+	Text         string `json:"text,omitempty"`          // reflection/friction text
+	InputSummary string `json:"input_summary,omitempty"` // for failures: what was attempted
+	ErrorSummary string `json:"error_summary,omitempty"` // for failures: what went wrong
+	Tool         string `json:"tool,omitempty"`
+}
+
 // Rule is a discrete, self-contained instruction extracted by the curator.
 type Rule struct {
-	ID             string     `json:"id"`
-	Text           string     `json:"text"`
-	Category       string     `json:"category"`
-	SuggestedLayer Layer      `json:"suggested_layer"`
-	ChosenLayer    *Layer     `json:"chosen_layer,omitempty"`
-	Status         RuleStatus `json:"status"`
-	SourceEntries  []string   `json:"source_entries"`
-	MergedAt       *time.Time `json:"merged_at,omitempty"`
+	ID             string            `json:"id"`
+	Text           string            `json:"text"`
+	Category       string            `json:"category"`
+	SuggestedLayer Layer             `json:"suggested_layer"`
+	ChosenLayer    *Layer            `json:"chosen_layer,omitempty"`
+	Status         RuleStatus        `json:"status"`
+	SourceEntries  []RuleSourceEntry `json:"source_entries"`
+	MergedAt       *time.Time        `json:"merged_at,omitempty"`
+}
+
+// UnmarshalJSON handles backward compatibility: old proposals stored
+// source_entries as []string (timestamps), new ones use []RuleSourceEntry.
+func (r *Rule) UnmarshalJSON(data []byte) error {
+	type Alias Rule
+	var raw struct {
+		Alias
+		RawSourceEntries json.RawMessage `json:"source_entries"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*r = Rule(raw.Alias)
+
+	if len(raw.RawSourceEntries) == 0 || string(raw.RawSourceEntries) == "null" {
+		return nil
+	}
+
+	// Try structured format first.
+	var structured []RuleSourceEntry
+	if err := json.Unmarshal(raw.RawSourceEntries, &structured); err == nil {
+		r.SourceEntries = structured
+		return nil
+	}
+
+	// Fall back to legacy []string format.
+	var legacy []string
+	if err := json.Unmarshal(raw.RawSourceEntries, &legacy); err == nil {
+		r.SourceEntries = make([]RuleSourceEntry, len(legacy))
+		for i, s := range legacy {
+			r.SourceEntries[i] = RuleSourceEntry{Type: "unknown", Text: s}
+		}
+		return nil
+	}
+
+	return nil
 }
 
 // EffectiveLayer returns ChosenLayer if set, otherwise SuggestedLayer.

@@ -1,15 +1,13 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
 import {
   getLoreProposals,
-  getLoreEntries,
   getLoreStatus,
-  dismissLoreProposal,
+  getLoreEntries,
+  clearLoreEntries,
   updateLoreRule,
   startLoreMerge,
   applyLoreMerge,
-  clearLoreEntries,
   getErrorMessage,
 } from '../lib/api';
 import { getAllSpawnEntries, pinSpawnEntry, dismissSpawnEntry } from '../lib/emergence-api';
@@ -18,491 +16,34 @@ import { useConfig } from '../contexts/ConfigContext';
 import { useCuration } from '../contexts/CurationContext';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
+import { LoreCard } from '../components/LoreCard';
 import useTheme from '../hooks/useTheme';
-import { ProposedActionCard, PinnedActionRow } from '../components/ProposedActionCard';
+import useDevStatus from '../hooks/useDevStatus';
 import type {
-  LoreProposal,
   LoreEntry,
-  LoreStatusResponse,
   LoreRule,
   LoreLayer,
+  LoreMergePreview,
+  LoreStatusResponse,
 } from '../lib/types';
 import styles from '../styles/lore.module.css';
 
-const LAYER_LABELS: Record<LoreLayer, string> = {
+type CardItem =
+  | { kind: 'instruction'; rule: LoreRule; repoName: string; proposalId: string; createdAt: string }
+  | { kind: 'action'; action: SpawnEntry; repoName: string; createdAt: string };
+
+type Phase = 'triage' | 'summary' | 'applying' | 'mergeReview' | 'done';
+
+const LAYER_LABELS: Record<string, string> = {
   repo_public: 'Public',
   repo_private: 'Private',
   cross_repo_private: 'Cross-Repo Private',
 };
 
-function RuleRow({
-  rule,
-  repoName,
-  proposalID,
-  onUpdate,
-}: {
-  rule: LoreRule;
+interface ProposalGroup {
   repoName: string;
-  proposalID: string;
-  onUpdate: (updated: LoreProposal) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [editText, setEditText] = useState(rule.text);
-  const [saving, setSaving] = useState(false);
-  const { alert } = useModal();
-
-  const effectiveLayer = rule.chosen_layer || rule.suggested_layer;
-
-  const handleStatusChange = async (status: 'approved' | 'dismissed') => {
-    setSaving(true);
-    try {
-      const updated = await updateLoreRule(repoName, proposalID, rule.id, { status });
-      onUpdate(updated);
-    } catch (err) {
-      alert('Update Failed', getErrorMessage(err, 'Failed to update rule'));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleLayerChange = async (layer: LoreLayer) => {
-    setSaving(true);
-    try {
-      const updated = await updateLoreRule(repoName, proposalID, rule.id, {
-        chosen_layer: layer,
-      });
-      onUpdate(updated);
-    } catch (err) {
-      alert('Update Failed', getErrorMessage(err, 'Failed to update rule layer'));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleSaveText = async () => {
-    if (editText === rule.text) {
-      setEditing(false);
-      return;
-    }
-    setSaving(true);
-    try {
-      const updated = await updateLoreRule(repoName, proposalID, rule.id, { text: editText });
-      onUpdate(updated);
-      setEditing(false);
-    } catch (err) {
-      alert('Update Failed', getErrorMessage(err, 'Failed to update rule text'));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className={styles.ruleRow} data-status={rule.status} data-testid={`rule-${rule.id}`}>
-      <div className={styles.ruleHeader}>
-        <span className={styles.ruleBadge} data-status={rule.status}>
-          {rule.status}
-        </span>
-        {rule.category && <span className={styles.ruleCategory}>{rule.category}</span>}
-        <span className={styles.ruleLayer}>{LAYER_LABELS[effectiveLayer]}</span>
-      </div>
-
-      {editing ? (
-        <div className={styles.ruleEditArea}>
-          <textarea
-            className={styles.ruleTextarea}
-            value={editText}
-            onChange={(e) => setEditText(e.target.value)}
-            rows={3}
-          />
-          <div className={styles.ruleEditActions}>
-            <button className={styles.dismissButton} onClick={() => setEditing(false)}>
-              Cancel
-            </button>
-            <button className={styles.applyButton} onClick={handleSaveText} disabled={saving}>
-              Save
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div
-          className={styles.ruleText}
-          onClick={() => rule.status === 'pending' && setEditing(true)}
-        >
-          {rule.text}
-        </div>
-      )}
-
-      {rule.status === 'pending' && (
-        <div className={styles.ruleActions}>
-          <div className={styles.layerPicker}>
-            {(['repo_public', 'repo_private', 'cross_repo_private'] as LoreLayer[]).map((layer) => (
-              <label key={layer} className={styles.layerLabel}>
-                <input
-                  type="radio"
-                  name={`layer-${rule.id}`}
-                  checked={effectiveLayer === layer}
-                  onChange={() => handleLayerChange(layer)}
-                  disabled={saving}
-                />
-                {LAYER_LABELS[layer]}
-              </label>
-            ))}
-          </div>
-          <div className={styles.ruleButtons}>
-            <button
-              className={styles.dismissButton}
-              onClick={() => handleStatusChange('dismissed')}
-              disabled={saving}
-            >
-              Dismiss
-            </button>
-            <button
-              className={styles.applyButton}
-              onClick={() => handleStatusChange('approved')}
-              disabled={saving}
-            >
-              Approve
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function RuleReviewCard({
-  proposal,
-  repoName,
-  onProposalUpdate,
-  onDismissProposal,
-}: {
-  proposal: LoreProposal;
-  repoName: string;
-  onProposalUpdate: (p: LoreProposal) => void;
-  onDismissProposal: (p: LoreProposal) => void;
-}) {
-  const { theme } = useTheme();
-  const { alert } = useModal();
-  const { success: toastSuccess } = useToast();
-  const navigate = useNavigate();
-  const [editedPreviews, setEditedPreviews] = useState<Record<string, string>>({});
-  const [applying, setApplying] = useState(false);
-
-  const approvedCount = proposal.rules.filter((r) => r.status === 'approved').length;
-  const pendingCount = proposal.rules.filter((r) => r.status === 'pending').length;
-  const totalCount = proposal.rules.length;
-
-  const isMerging = proposal.status === 'merging';
-  const previews = proposal.merge_previews;
-  const mergeError = proposal.merge_error;
-
-  // Poll while merging to pick up previews when the background job finishes.
-  useEffect(() => {
-    if (!isMerging) return;
-    const interval = setInterval(async () => {
-      try {
-        const updated = await getLoreProposals(repoName);
-        const refreshed = (updated.proposals || []).find((p) => p.id === proposal.id);
-        if (refreshed && refreshed.status !== 'merging') {
-          onProposalUpdate(refreshed);
-        }
-      } catch {
-        // ignore polling errors
-      }
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [isMerging, repoName, proposal.id, onProposalUpdate]);
-
-  // Initialize editedPreviews when previews arrive from the server
-  useEffect(() => {
-    if (previews && previews.length > 0) {
-      const initial: Record<string, string> = {};
-      for (const p of previews) {
-        initial[p.layer] = p.merged_content;
-      }
-      setEditedPreviews(initial);
-    }
-  }, [previews]);
-
-  const handleMerge = async () => {
-    try {
-      await startLoreMerge(repoName, proposal.id);
-      // Optimistically update the proposal status to show the spinner
-      onProposalUpdate({
-        ...proposal,
-        status: 'merging',
-        merge_previews: undefined,
-        merge_error: undefined,
-      });
-    } catch (err) {
-      alert('Merge Failed', getErrorMessage(err, 'Failed to start merge'));
-    }
-  };
-
-  const handleDismissPreviews = async () => {
-    // Clear previews from the proposal on the server
-    onProposalUpdate({ ...proposal, merge_previews: undefined, merge_error: undefined });
-  };
-
-  const handleApplyMerge = async () => {
-    if (!previews) return;
-    setApplying(true);
-    try {
-      const merges = previews.map((p) => ({
-        layer: p.layer,
-        content: editedPreviews[p.layer] ?? p.merged_content,
-      }));
-      const result = await applyLoreMerge(repoName, proposal.id, merges);
-      toastSuccess('Merge applied — workspace ready for review');
-      // Navigate to git view if a workspace was created
-      const publicResult = result.results?.find((r) => r.workspace_id);
-      if (publicResult?.workspace_id) {
-        navigate(`/git/${publicResult.workspace_id}`);
-      }
-      // Reload proposal to reflect applied status
-      const updated = await getLoreProposals(repoName);
-      const refreshed = (updated.proposals || []).find((p) => p.id === proposal.id);
-      if (refreshed) onProposalUpdate(refreshed);
-    } catch (err) {
-      alert('Apply Failed', getErrorMessage(err, 'Failed to apply merge'));
-    } finally {
-      setApplying(false);
-    }
-  };
-
-  return (
-    <div className={styles.proposalCard} data-testid={`lore-proposal-card-${proposal.id}`}>
-      <div className={styles.proposalCardHeader}>
-        <span className={styles.proposalCardBadge} data-status={proposal.status}>
-          {proposal.status}
-        </span>
-        <span className={styles.proposalCardSummary}>
-          {totalCount} rules · {approvedCount} approved · {pendingCount} pending
-        </span>
-        <span className={styles.proposalCardDate}>
-          {new Date(proposal.created_at).toLocaleDateString()}
-        </span>
-      </div>
-
-      {proposal.discarded && proposal.discarded.length > 0 && (
-        <div className={styles.discardedSection}>
-          <span className={styles.discardedLabel}>{proposal.discarded.length} discarded</span>
-        </div>
-      )}
-
-      <div className={styles.ruleList}>
-        {proposal.rules.map((rule) => (
-          <RuleRow
-            key={rule.id}
-            rule={rule}
-            repoName={repoName}
-            proposalID={proposal.id}
-            onUpdate={onProposalUpdate}
-          />
-        ))}
-      </div>
-
-      {/* Merge / Dismiss controls */}
-      {proposal.status === 'pending' && !previews && !mergeError && (
-        <div className={styles.actions} data-testid="lore-actions">
-          <button
-            className={styles.dismissButton}
-            data-testid="lore-dismiss-button"
-            onClick={() => onDismissProposal(proposal)}
-          >
-            Dismiss All
-          </button>
-          <button
-            className={styles.applyButton}
-            data-testid="lore-merge-button"
-            onClick={handleMerge}
-            disabled={approvedCount === 0}
-          >
-            {`Merge ${approvedCount} Rules`}
-          </button>
-        </div>
-      )}
-
-      {/* Merging in progress */}
-      {isMerging && (
-        <div className={styles.mergingStatus} data-testid="lore-merging-status">
-          <div className="spinner spinner--small" />
-          <span>Generating merge preview — this may take a minute…</span>
-        </div>
-      )}
-
-      {/* Merge error */}
-      {mergeError && (
-        <div className={styles.mergeError} data-testid="lore-merge-error">
-          <span>Merge failed: {mergeError}</span>
-          <button className={styles.dismissButton} onClick={handleMerge}>
-            Retry
-          </button>
-        </div>
-      )}
-
-      {/* Merge previews */}
-      {previews && previews.length > 0 && (
-        <div className={styles.mergePreviewSection}>
-          <h4 className={styles.mergePreviewTitle}>Merge Preview</h4>
-          {previews.map((preview) => (
-            <div key={preview.layer} className={styles.mergePreviewCard}>
-              <div className={styles.mergePreviewHeader}>
-                <span className={styles.ruleLayer}>{LAYER_LABELS[preview.layer]}</span>
-                <span className={styles.mergePreviewSummary}>{preview.summary}</span>
-              </div>
-              <div className={styles.diffWrapper}>
-                <ReactDiffViewer
-                  oldValue={preview.current_content}
-                  newValue={editedPreviews[preview.layer] ?? preview.merged_content}
-                  splitView={false}
-                  useDarkTheme={theme === 'dark'}
-                  hideLineNumbers={false}
-                  showDiffOnly={true}
-                  compareMethod={DiffMethod.TRIMMED_LINES}
-                  disableWordDiff={true}
-                  extraLinesSurroundingDiff={3}
-                />
-              </div>
-            </div>
-          ))}
-          <div className={styles.actions}>
-            <button
-              className={styles.dismissButton}
-              onClick={handleDismissPreviews}
-              disabled={applying}
-            >
-              Cancel
-            </button>
-            <button className={styles.applyButton} onClick={handleApplyMerge} disabled={applying}>
-              {applying && <span className="spinner spinner--small" />}
-              {applying ? 'Applying…' : 'Apply Merge'}
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Legacy ProposalCard for v1 proposals (no rules array). */
-function LegacyProposalCard({
-  proposal,
-  onDismiss,
-}: {
-  proposal: LoreProposal;
-  onDismiss: (p: LoreProposal) => void;
-}) {
-  const [activeFile, setActiveFile] = useState(Object.keys(proposal.proposed_files || {})[0] || '');
-  const [showEntries, setShowEntries] = useState(false);
-  const { theme } = useTheme();
-  const files = Object.keys(proposal.proposed_files || {});
-
-  const entriesUsedCount = proposal.entries_used?.length || 0;
-  const entriesDiscardedCount = proposal.entries_discarded
-    ? Object.keys(proposal.entries_discarded).length
-    : 0;
-
-  return (
-    <div className={styles.proposalCard} data-testid={`lore-proposal-card-${proposal.id}`}>
-      <div className={styles.proposalCardHeader}>
-        <span className={styles.proposalCardBadge} data-status={proposal.status}>
-          {proposal.status}
-        </span>
-        <span className={styles.proposalCardSummary}>{proposal.diff_summary}</span>
-        <span className={styles.proposalCardDate}>
-          {new Date(proposal.created_at).toLocaleDateString()}
-        </span>
-      </div>
-
-      {/* File tabs (only if 2+ files) */}
-      {files.length > 1 && (
-        <div className={styles.fileTabs}>
-          {files.map((file) => (
-            <button
-              key={file}
-              className={`${styles.fileTab} ${activeFile === file ? styles.activeTab : ''}`}
-              onClick={() => setActiveFile(file)}
-            >
-              {file}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* File name (when single file) */}
-      {files.length === 1 && <div className={styles.fileName}>{files[0]}</div>}
-
-      {/* Inline diff */}
-      <div className={styles.diffWrapper}>
-        <ReactDiffViewer
-          oldValue={proposal.current_files?.[activeFile] || ''}
-          newValue={proposal.proposed_files?.[activeFile] || ''}
-          splitView={false}
-          useDarkTheme={theme === 'dark'}
-          hideLineNumbers={false}
-          showDiffOnly={true}
-          compareMethod={DiffMethod.TRIMMED_LINES}
-          disableWordDiff={true}
-          extraLinesSurroundingDiff={3}
-        />
-      </div>
-
-      {/* Entries toggle */}
-      {(entriesUsedCount > 0 || entriesDiscardedCount > 0) && (
-        <div className={styles.entriesToggle}>
-          <button className={styles.toggleButton} onClick={() => setShowEntries(!showEntries)}>
-            {showEntries ? '\u25BC' : '\u25B6'} {entriesUsedCount} entries used
-            {entriesDiscardedCount > 0 && ` · ${entriesDiscardedCount} discarded`}
-          </button>
-          {showEntries && (
-            <div className={styles.entriesDetail}>
-              {(proposal.entries_used?.length ?? 0) > 0 && (
-                <div>
-                  <h5>Used</h5>
-                  <ul>
-                    {proposal.entries_used?.map((e, i) => (
-                      <li key={i}>{e}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {proposal.entries_discarded && Object.keys(proposal.entries_discarded).length > 0 && (
-                <div>
-                  <h5>Discarded</h5>
-                  <ul>
-                    {Object.entries(proposal.entries_discarded).map(([text, reason], i) => (
-                      <li key={i}>
-                        {text} — <span className={styles.discardReason}>{reason}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Actions */}
-      <div className={styles.actions} data-testid="lore-actions">
-        {proposal.status === 'pending' && (
-          <button
-            className={styles.dismissButton}
-            data-testid="lore-dismiss-button"
-            onClick={() => onDismiss(proposal)}
-          >
-            Dismiss
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** Returns true if a proposal uses the v2 per-rule model. */
-function isV2Proposal(p: LoreProposal): boolean {
-  return Array.isArray(p.rules) && p.rules.length > 0;
+  proposalId: string;
+  rules: LoreRule[];
 }
 
 export default function LorePage() {
@@ -510,260 +51,399 @@ export default function LorePage() {
   const repos = config?.repos || [];
   const { success: toastSuccess, error: toastError } = useToast();
   const { alert } = useModal();
-  const { activeCurations, pendingCurations, startCuration, onComplete, invalidateProposals } =
+  const { startCuration, activeCurations, pendingCurations, onComplete, invalidateProposals } =
     useCuration();
-  const [searchParams] = useSearchParams();
+  const { theme } = useTheme();
+  const { isDevMode } = useDevStatus();
 
-  const [activeRepo, setActiveRepo] = useState(() => {
-    const paramRepo = searchParams.get('repo');
-    if (paramRepo && repos.find((r) => r.name === paramRepo)) return paramRepo;
-    return repos[0]?.name || '';
-  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [proposals, setProposals] = useState<LoreProposal[]>([]);
-  const [entries, setEntries] = useState<LoreEntry[]>([]);
-  const [allAgents, setAllAgents] = useState<string[]>([]);
-  const [allTypes, setAllTypes] = useState<string[]>([]);
-
-  const curationState = activeRepo ? activeCurations[activeRepo] : undefined;
-  const curating = !!curationState || pendingCurations.has(activeRepo);
-
-  // Lore system status
+  const [cards, setCards] = useState<CardItem[]>([]);
   const [loreStatus, setLoreStatus] = useState<LoreStatusResponse | null>(null);
-
-  // Collapsible sections
-  const [showSignals, setShowSignals] = useState(
-    () => localStorage.getItem('lore-signals-open') === 'true'
-  );
-
-  // Entry filter state
-  const [entryFilters, setEntryFilters] = useState<{
-    state?: string;
-    agent?: string;
-    type?: string;
-  }>({});
-
-  // Per-repo pending counts for tab badges
-  const [repoPendingCounts, setRepoPendingCounts] = useState<Record<string, number>>({});
-
-  // Sub-tabs: instructions vs actions
-  const [activeSubTab, setActiveSubTab] = useState<'instructions' | 'actions'>(() => {
-    const paramTab = searchParams.get('tab');
-    return paramTab === 'actions' ? 'actions' : 'instructions';
-  });
-
-  // Actions tab state
-  const [proposedActions, setProposedActions] = useState<SpawnEntry[]>([]);
-  const [pinnedActions, setPinnedActions] = useState<SpawnEntry[]>([]);
-
-  // Sync activeRepo when repos list changes (e.g., config loaded after mount)
-  useEffect(() => {
-    if (repos.length > 0 && !repos.find((r) => r.name === activeRepo)) {
-      const paramRepo = searchParams.get('repo');
-      const match = paramRepo && repos.find((r) => r.name === paramRepo);
-      setActiveRepo(match ? paramRepo : repos[0].name);
-    }
-  }, [repos, activeRepo, searchParams]);
-
-  const loadProposals = useCallback(async () => {
-    if (!activeRepo) return;
-    try {
-      const proposalData = await getLoreProposals(activeRepo);
-      setProposals(proposalData.proposals || []);
-    } catch (err) {
-      setError(getErrorMessage(err, 'Failed to load lore proposals'));
-    }
-  }, [activeRepo]);
-
-  const loadEntries = useCallback(async () => {
-    if (!activeRepo) return;
-    try {
-      const entryData = await getLoreEntries(activeRepo, entryFilters);
-      setEntries(entryData.entries || []);
-    } catch (err) {
-      setError(getErrorMessage(err, 'Failed to load lore entries'));
-    }
-  }, [activeRepo, entryFilters]);
-
-  // Load all unique agents/types from unfiltered entries
-  const loadFilterOptions = useCallback(async () => {
-    if (!activeRepo) return;
-    try {
-      const entryData = await getLoreEntries(activeRepo);
-      const agents = new Set<string>();
-      const types = new Set<string>();
-      for (const e of entryData.entries || []) {
-        if (e.agent) agents.add(e.agent);
-        if (e.type) types.add(e.type);
-      }
-      setAllAgents(Array.from(agents).sort());
-      setAllTypes(Array.from(types).sort());
-    } catch {
-      // Filter options are non-critical; silently ignore errors
-    }
-  }, [activeRepo]);
-
-  const loadActions = useCallback(async () => {
-    if (!activeRepo) return;
-    try {
-      const all = await getAllSpawnEntries(activeRepo);
-      setProposedActions((all || []).filter((e: SpawnEntry) => e.state === 'proposed'));
-      setPinnedActions((all || []).filter((e: SpawnEntry) => e.state === 'pinned'));
-    } catch {
-      // Non-critical
-    }
-  }, [activeRepo]);
+  const [phase, setPhase] = useState<Phase>('triage');
+  const [mergePreviews, setMergePreviews] = useState<LoreMergePreview[]>([]);
+  const [editedPreviews, setEditedPreviews] = useState<Record<string, string>>({});
+  const [applying, setApplying] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
+  const [debugRepo, setDebugRepo] = useState(repos[0]?.name || '');
+  const [debugEntries, setDebugEntries] = useState<LoreEntry[]>([]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError('');
+
     const statusPromise = getLoreStatus()
       .then(setLoreStatus)
       .catch(() => {});
-    await Promise.all([
-      loadProposals(),
-      loadEntries(),
-      loadFilterOptions(),
-      loadActions(),
-      statusPromise,
-    ]);
 
-    // Fetch pending counts for all repos (for tab badges)
-    if (repos.length > 1) {
-      const [proposalResults, actionResults] = await Promise.all([
-        Promise.allSettled(repos.map((r) => getLoreProposals(r.name))),
-        Promise.allSettled(repos.map((r) => getAllSpawnEntries(r.name))),
-      ]);
-      const counts: Record<string, number> = {};
-      repos.forEach((repo, i) => {
-        let count = 0;
-        const pr = proposalResults[i];
-        if (pr.status === 'fulfilled') {
-          count += (pr.value.proposals || []).filter(
-            (p: LoreProposal) => p.status === 'pending'
-          ).length;
-        }
-        const ar = actionResults[i];
-        if (ar.status === 'fulfilled') {
-          count += (ar.value || []).filter((e: SpawnEntry) => e.state === 'proposed').length;
-        }
-        counts[repo.name] = count;
-      });
-      setRepoPendingCounts(counts);
-    }
+    // Fan out across all repos
+    const allCards: CardItem[] = [];
+    await Promise.allSettled(
+      repos.map(async (repo) => {
+        const [proposalRes, actionRes] = await Promise.all([
+          getLoreProposals(repo.name),
+          getAllSpawnEntries(repo.name),
+        ]);
 
+        // Flatten pending rules from pending/merging proposals
+        for (const proposal of proposalRes.proposals || []) {
+          if (proposal.status !== 'pending' && proposal.status !== 'merging') continue;
+          for (const rule of proposal.rules || []) {
+            if (rule.status !== 'pending') continue;
+            // Deduplicate by normalized text — later proposals win
+            const normalizedText = rule.text.trim().toLowerCase();
+            const existingIdx = allCards.findIndex(
+              (c) => c.kind === 'instruction' && c.rule.text.trim().toLowerCase() === normalizedText
+            );
+            if (existingIdx !== -1) continue;
+            allCards.push({
+              kind: 'instruction',
+              rule,
+              repoName: repo.name,
+              proposalId: proposal.id,
+              createdAt: proposal.created_at,
+            });
+          }
+        }
+
+        // Add proposed actions
+        for (const entry of actionRes || []) {
+          if (entry.state !== 'proposed') continue;
+          allCards.push({
+            kind: 'action',
+            action: entry,
+            repoName: repo.name,
+            createdAt: entry.metadata?.emerged_at || '',
+          });
+        }
+      })
+    );
+
+    // Sort newest first
+    allCards.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+    await statusPromise;
+    setCards(allCards);
     setLoading(false);
-  }, [loadProposals, loadEntries, loadFilterOptions, loadActions, repos]);
+  }, [repos]);
 
-  // Initial load when repo changes
+  // Initial load
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  // Reload only entries when filters change (skip on initial mount)
-  const filtersInitialized = useRef(false);
+  // Reload on curation completion
   useEffect(() => {
-    if (!filtersInitialized.current) {
-      filtersInitialized.current = true;
-      return;
-    }
-    loadEntries();
-  }, [entryFilters]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Handle curation completion (refresh data)
-  useEffect(() => {
-    return onComplete((repoName) => {
-      if (repoName !== activeRepo) return;
+    return onComplete(() => {
       loadData();
     });
-  }, [activeRepo, onComplete, loadData]);
+  }, [onComplete, loadData]);
 
-  const handleTabChange = (repoName: string) => {
-    setActiveRepo(repoName);
-    setEntryFilters({});
-    filtersInitialized.current = false;
-  };
+  const checkTriageComplete = useCallback((updatedCards: CardItem[]) => {
+    const pendingInstructions = updatedCards.filter(
+      (c) => c.kind === 'instruction' && c.rule.status === 'pending'
+    );
+    const pendingActions = updatedCards.filter((c) => c.kind === 'action');
+    const approvedInstructions = updatedCards.filter(
+      (c) => c.kind === 'instruction' && c.rule.status === 'approved'
+    );
 
-  const handleDismiss = async (proposal: LoreProposal) => {
-    if (!activeRepo) return;
-    try {
-      await dismissLoreProposal(activeRepo, proposal.id);
-      toastSuccess('Proposal dismissed');
-      invalidateProposals();
-      loadData();
-    } catch (err) {
-      alert('Dismiss Failed', getErrorMessage(err, 'Failed to dismiss proposal'));
-    }
-  };
-
-  const handleProposalUpdate = (updated: LoreProposal) => {
-    setProposals((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-    invalidateProposals();
-  };
-
-  const handleReCurate = () => {
-    if (!activeRepo) return;
-    startCuration(activeRepo);
-  };
-
-  // Refresh badge count for a single repo (proposals + proposed actions)
-  const refreshRepoBadge = useCallback(async (repo: string) => {
-    try {
-      const [proposalRes, actionRes] = await Promise.all([
-        getLoreProposals(repo),
-        getAllSpawnEntries(repo),
-      ]);
-      let count = 0;
-      count += (proposalRes.proposals || []).filter(
-        (p: LoreProposal) => p.status === 'pending'
-      ).length;
-      count += (actionRes || []).filter((e: SpawnEntry) => e.state === 'proposed').length;
-      setRepoPendingCounts((prev) => ({ ...prev, [repo]: count }));
-    } catch {
-      // Non-critical
+    if (
+      pendingInstructions.length === 0 &&
+      pendingActions.length === 0 &&
+      approvedInstructions.length > 0
+    ) {
+      setPhase('summary');
     }
   }, []);
 
-  const handlePinAction = async (entry: SpawnEntry) => {
-    if (!activeRepo) return;
+  const handleApprove = async (card: CardItem) => {
+    if (card.kind === 'instruction') {
+      try {
+        const updated = await updateLoreRule(card.repoName, card.proposalId, card.rule.id, {
+          status: 'approved',
+        });
+        setCards((prev) => {
+          const next = prev.map((c) => {
+            if (c.kind === 'instruction' && c.rule.id === card.rule.id) {
+              const updatedRule = updated.rules.find((r: LoreRule) => r.id === card.rule.id);
+              return updatedRule ? { ...c, rule: updatedRule } : c;
+            }
+            return c;
+          });
+          checkTriageComplete(next);
+          return next;
+        });
+        invalidateProposals();
+      } catch (err) {
+        alert('Update Failed', getErrorMessage(err, 'Failed to approve rule'));
+      }
+    } else {
+      try {
+        await pinSpawnEntry(card.repoName, card.action.id);
+        setCards((prev) => {
+          const next = prev.filter((c) => !(c.kind === 'action' && c.action.id === card.action.id));
+          checkTriageComplete(next);
+          return next;
+        });
+        toastSuccess(`Pinned "${card.action.name}"`);
+        invalidateProposals();
+      } catch (err) {
+        toastError(getErrorMessage(err, 'Failed to pin action'));
+      }
+    }
+  };
+
+  const handleUnapprove = async (card: CardItem) => {
+    if (card.kind !== 'instruction') return;
     try {
-      await pinSpawnEntry(activeRepo, entry.id);
-      toastSuccess(`Pinned "${entry.name}"`);
-      loadActions();
+      const updated = await updateLoreRule(card.repoName, card.proposalId, card.rule.id, {
+        status: 'pending',
+      });
+      setCards((prev) =>
+        prev.map((c) => {
+          if (c.kind === 'instruction' && c.rule.id === card.rule.id) {
+            const updatedRule = updated.rules.find((r: LoreRule) => r.id === card.rule.id);
+            return updatedRule ? { ...c, rule: updatedRule } : c;
+          }
+          return c;
+        })
+      );
+      setPhase('triage');
       invalidateProposals();
-      refreshRepoBadge(activeRepo);
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to pin action'));
+      alert('Update Failed', getErrorMessage(err, 'Failed to undo approval'));
     }
   };
 
-  const handleDismissAction = async (entry: SpawnEntry) => {
-    if (!activeRepo) return;
+  const handleDismiss = async (card: CardItem) => {
+    if (card.kind === 'instruction') {
+      try {
+        await updateLoreRule(card.repoName, card.proposalId, card.rule.id, {
+          status: 'dismissed',
+        });
+        setCards((prev) => {
+          const next = prev.filter(
+            (c) => !(c.kind === 'instruction' && c.rule.id === card.rule.id)
+          );
+          checkTriageComplete(next);
+          return next;
+        });
+        invalidateProposals();
+      } catch (err) {
+        alert('Dismiss Failed', getErrorMessage(err, 'Failed to dismiss rule'));
+      }
+    } else {
+      try {
+        await dismissSpawnEntry(card.repoName, card.action.id);
+        setCards((prev) => {
+          const next = prev.filter((c) => !(c.kind === 'action' && c.action.id === card.action.id));
+          checkTriageComplete(next);
+          return next;
+        });
+        toastSuccess(`Dismissed "${card.action.name}"`);
+        invalidateProposals();
+      } catch (err) {
+        toastError(getErrorMessage(err, 'Failed to dismiss action'));
+      }
+    }
+  };
+
+  const handleEdit = async (card: CardItem, newText: string) => {
+    if (card.kind !== 'instruction') return;
     try {
-      await dismissSpawnEntry(activeRepo, entry.id);
-      toastSuccess(`Dismissed "${entry.name}"`);
-      loadActions();
+      const updated = await updateLoreRule(card.repoName, card.proposalId, card.rule.id, {
+        text: newText,
+      });
+      setCards((prev) =>
+        prev.map((c) => {
+          if (c.kind === 'instruction' && c.rule.id === card.rule.id) {
+            const updatedRule = updated.rules.find((r: LoreRule) => r.id === card.rule.id);
+            return updatedRule ? { ...c, rule: updatedRule } : c;
+          }
+          return c;
+        })
+      );
+    } catch (err) {
+      alert('Update Failed', getErrorMessage(err, 'Failed to update rule text'));
+    }
+  };
+
+  const handleLayerChange = async (card: CardItem, layer: LoreLayer) => {
+    if (card.kind !== 'instruction') return;
+    try {
+      const updated = await updateLoreRule(card.repoName, card.proposalId, card.rule.id, {
+        chosen_layer: layer,
+      });
+      setCards((prev) =>
+        prev.map((c) => {
+          if (c.kind === 'instruction' && c.rule.id === card.rule.id) {
+            const updatedRule = updated.rules.find((r: LoreRule) => r.id === card.rule.id);
+            return updatedRule ? { ...c, rule: updatedRule } : c;
+          }
+          return c;
+        })
+      );
+    } catch (err) {
+      alert('Update Failed', getErrorMessage(err, 'Failed to update layer'));
+    }
+  };
+
+  const handleApproveAll = async () => {
+    const pendingCards = cards.filter((c) =>
+      c.kind === 'instruction' ? c.rule.status === 'pending' : true
+    );
+    for (const card of pendingCards) {
+      await handleApprove(card);
+    }
+  };
+
+  // Group approved instruction cards by (repoName, proposalId)
+  const buildProposalGroups = (approvedCards: CardItem[]): Map<string, ProposalGroup> => {
+    const groups = new Map<string, ProposalGroup>();
+    for (const card of approvedCards) {
+      if (card.kind !== 'instruction') continue;
+      const key = `${card.repoName}::${card.proposalId}`;
+      if (!groups.has(key)) {
+        groups.set(key, { repoName: card.repoName, proposalId: card.proposalId, rules: [] });
+      }
+      groups.get(key)!.rules.push(card.rule);
+    }
+    return groups;
+  };
+
+  const effectiveLayer = (rule: LoreRule): LoreLayer => {
+    return rule.chosen_layer || rule.suggested_layer;
+  };
+
+  const pollForMergeCompletion = async (
+    groups: Map<string, ProposalGroup>
+  ): Promise<LoreMergePreview[]> => {
+    const groupArr = Array.from(groups.values());
+    const allPreviews: LoreMergePreview[] = [];
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      let allDone = true;
+      for (const group of groupArr) {
+        const proposalRes = await getLoreProposals(group.repoName);
+        const proposal = (proposalRes.proposals || []).find((p) => p.id === group.proposalId);
+        if (proposal && proposal.status === 'merging') {
+          allDone = false;
+        } else if (proposal?.merge_error) {
+          throw new Error(proposal.merge_error);
+        } else if (proposal?.merge_previews) {
+          // Collect previews not yet added
+          for (const preview of proposal.merge_previews) {
+            if (!allPreviews.some((p) => p.layer === preview.layer)) {
+              allPreviews.push(preview);
+            }
+          }
+        }
+      }
+      if (allDone) break;
+    }
+    return allPreviews;
+  };
+
+  const handleApply = async () => {
+    setPhase('applying');
+    setMergePreviews([]);
+    setEditedPreviews({});
+
+    const approvedCards = cards.filter(
+      (c) => c.kind === 'instruction' && c.rule.status === 'approved'
+    );
+    const groups = buildProposalGroups(approvedCards);
+
+    try {
+      // Always start merge for each proposal group (handles both public and private layers)
+      for (const [, group] of groups) {
+        await startLoreMerge(group.repoName, group.proposalId);
+      }
+
+      // Poll until merge completes and previews are available
+      const previews = await pollForMergeCompletion(groups);
+      setMergePreviews(previews);
+
+      // Check if any previews target a public layer
+      const hasPublicPreviews = previews.some((p) => p.layer === 'repo_public');
+
+      if (hasPublicPreviews) {
+        // Apply private layers immediately, show diff for public
+        const privatePreviews = previews.filter((p) => p.layer !== 'repo_public');
+        if (privatePreviews.length > 0) {
+          for (const [, group] of groups) {
+            const merges = privatePreviews
+              .filter((p) => group.rules.some((r) => effectiveLayer(r) === p.layer))
+              .map((p) => ({ layer: p.layer, content: p.merged_content }));
+            if (merges.length > 0) {
+              await applyLoreMerge(group.repoName, group.proposalId, merges);
+            }
+          }
+        }
+        setPhase('mergeReview');
+      } else {
+        // No public layers — apply everything directly
+        for (const [, group] of groups) {
+          const merges = previews
+            .filter((p) => group.rules.some((r) => effectiveLayer(r) === p.layer))
+            .map((p) => ({ layer: p.layer, content: p.merged_content }));
+          if (merges.length > 0) {
+            await applyLoreMerge(group.repoName, group.proposalId, merges);
+          }
+        }
+        toastSuccess(`${approvedCards.length} rules saved`);
+        setPhase('done');
+        invalidateProposals();
+        setTimeout(() => {
+          setPhase('triage');
+          loadData();
+        }, 3000);
+      }
+    } catch (err) {
+      await alert('Merge Failed', getErrorMessage(err, 'Failed to merge rules'));
+      setPhase('summary');
+    }
+  };
+
+  const handleCommitAndPush = async () => {
+    setApplying(true);
+    try {
+      const approvedCards = cards.filter(
+        (c) => c.kind === 'instruction' && c.rule.status === 'approved'
+      );
+      const groups = buildProposalGroups(approvedCards);
+
+      for (const [, group] of groups) {
+        const publicPreviews = mergePreviews
+          .filter(
+            (p) =>
+              p.layer === 'repo_public' && group.rules.some((r) => effectiveLayer(r) === p.layer)
+          )
+          .map((p) => ({
+            layer: p.layer,
+            content: editedPreviews[p.layer] ?? p.merged_content,
+          }));
+        if (publicPreviews.length > 0) {
+          await applyLoreMerge(group.repoName, group.proposalId, publicPreviews, true);
+        }
+      }
+
+      const mode = config?.lore?.public_rule_mode || 'direct_push';
+      toastSuccess(mode === 'create_pr' ? 'PR created' : 'Committed and pushed');
+      setPhase('done');
       invalidateProposals();
-      refreshRepoBadge(activeRepo);
+      setTimeout(() => {
+        setPhase('triage');
+        loadData();
+      }, 3000);
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to dismiss action'));
+      await alert('Push Failed', getErrorMessage(err, 'Failed to push'));
+    } finally {
+      setApplying(false);
     }
   };
-
-  const handleClearSignals = async () => {
-    if (!activeRepo) return;
-    try {
-      const result = await clearLoreEntries(activeRepo);
-      toastSuccess(`Deleted ${result.cleared} signal file(s)`);
-      loadData();
-    } catch (err) {
-      alert('Clear Signals Failed', getErrorMessage(err, 'Failed to clear signals'));
-    }
-  };
-
-  const uniqueAgents = allAgents;
-  const uniqueTypes = allTypes;
 
   if (loading) {
     return <div className="page-loading">Loading lore...</div>;
@@ -778,30 +458,15 @@ export default function LorePage() {
     );
   }
 
-  if (loreStatus && !loreStatus.enabled) {
-    return (
-      <div className="empty-state">
-        <div className="empty-state__icon">!</div>
-        <h3 className="empty-state__title">Lore Disabled</h3>
-        <p className="empty-state__description">
-          The lore system is disabled. <a href="/config?tab=advanced">Enable it in config</a> to
-          start capturing agent learnings.
-        </p>
-      </div>
-    );
-  }
-
-  const pendingProposals = proposals.filter(
-    (p) => p.status === 'pending' || p.status === 'merging'
-  );
-  const rawEntries = entries.filter(
-    (e) => !e.state_change && !(e.type === 'reflection' && (!e.text || e.text === 'none'))
+  const pendingCards = cards.filter((c) =>
+    c.kind === 'instruction' ? c.rule.status === 'pending' : true
   );
 
   return (
     <div className={styles.container} data-testid="lore-page">
       <div className={styles.header}>
         <h2>Lore</h2>
+        <p className={styles.headerSubtitle}>Schmux continual learning system</p>
       </div>
 
       {/* Warning banner */}
@@ -814,213 +479,268 @@ export default function LorePage() {
         </div>
       )}
 
-      {/* Repo tabs — use session-tab classes */}
-      {repos.length > 1 && (
-        <div className="session-tabs">
-          {repos.map((repo) => (
-            <button
-              key={repo.name}
-              className={`session-tab ${activeRepo === repo.name ? 'session-tab--active' : ''}`}
-              data-testid="repo-tab"
-              aria-selected={activeRepo === repo.name}
-              onClick={() => handleTabChange(repo.name)}
-            >
-              <div className="session-tab__row1">
-                <span className="session-tab__name">{repo.name}</span>
-                {repoPendingCounts[repo.name] > 0 && <span className={styles.repoBadge} />}
-              </div>
-            </button>
-          ))}
+      {/* Lore disabled */}
+      {loreStatus && !loreStatus.enabled ? (
+        <div className="empty-state">
+          <div className="empty-state__icon">!</div>
+          <h3 className="empty-state__title">Lore Disabled</h3>
+          <p className="empty-state__description">
+            The lore system is disabled. <a href="/config?tab=advanced">Enable it in config</a> to
+            start capturing agent learnings.
+          </p>
         </div>
-      )}
-
-      <div className={repos.length > 1 ? styles.tabPanel : undefined}>
-        {/* Sub-tab switcher */}
-        <div className={styles.subTabs}>
-          <button
-            className={`${styles.subTab} ${activeSubTab === 'instructions' ? styles.subTabActive : ''}`}
-            onClick={() => setActiveSubTab('instructions')}
-          >
-            Instructions
-            {pendingProposals.length > 0 && <span className={styles.repoBadge} />}
-          </button>
-          <button
-            className={`${styles.subTab} ${activeSubTab === 'actions' ? styles.subTabActive : ''}`}
-            onClick={() => setActiveSubTab('actions')}
-          >
-            Actions
-            {proposedActions.length > 0 && <span className={styles.repoBadge} />}
-          </button>
+      ) : phase === 'done' ? (
+        <div className="empty-state">
+          <p className="empty-state__description">Done. All learnings have been saved.</p>
         </div>
+      ) : phase === 'applying' ? (
+        <div className={styles.mergingStatus}>
+          <span className="spinner spinner--small" />
+          Merging rules...
+        </div>
+      ) : phase === 'summary' ? (
+        (() => {
+          const approvedCards = cards.filter(
+            (c) => c.kind === 'instruction' && c.rule.status === 'approved'
+          );
+          const privateThisRepo = approvedCards.filter(
+            (c) => c.kind === 'instruction' && effectiveLayer(c.rule) === 'repo_private'
+          );
+          const privateAllRepos = approvedCards.filter(
+            (c) => c.kind === 'instruction' && effectiveLayer(c.rule) === 'cross_repo_private'
+          );
+          const publicRules = approvedCards.filter(
+            (c) => c.kind === 'instruction' && effectiveLayer(c.rule) === 'repo_public'
+          );
 
-        {activeSubTab === 'instructions' && (
-          <>
-            {/* Pending proposals */}
-            {pendingProposals.length > 0 ? (
-              <div className={styles.proposalList}>
-                {pendingProposals.map((p) =>
-                  isV2Proposal(p) ? (
-                    <RuleReviewCard
-                      key={p.id}
-                      proposal={p}
-                      repoName={activeRepo}
-                      onProposalUpdate={handleProposalUpdate}
-                      onDismissProposal={handleDismiss}
-                    />
-                  ) : (
-                    <LegacyProposalCard key={p.id} proposal={p} onDismiss={handleDismiss} />
-                  )
+          return (
+            <div className={styles.proposalCard}>
+              <h3>{approvedCards.length} learnings approved</h3>
+              <div style={{ margin: '1rem 0', fontSize: '0.875rem' }}>
+                {privateThisRepo.length > 0 && (
+                  <p>{privateThisRepo.length} private (this repo) — saved immediately</p>
+                )}
+                {privateAllRepos.length > 0 && (
+                  <p>{privateAllRepos.length} private (all repos) — saved immediately</p>
+                )}
+                {publicRules.length > 0 && (
+                  <p>{publicRules.length} public — will be merged into CLAUDE.md</p>
                 )}
               </div>
-            ) : (
-              <div className="empty-state">
-                <p className="empty-state__description">
-                  No pending proposals for agents instructions changes.
-                </p>
+              <div className={styles.actions}>
+                <button className={styles.dismissButton} onClick={() => setPhase('triage')}>
+                  Back
+                </button>
+                <button className={styles.applyButton} onClick={handleApply}>
+                  Apply
+                </button>
               </div>
-            )}
-
-            {/* Raw Signals — collapsed, persisted to localStorage */}
-            <section className={styles.section}>
-              <button
-                className={styles.toggleButton}
-                onClick={() => {
-                  const next = !showSignals;
-                  setShowSignals(next);
-                  localStorage.setItem('lore-signals-open', String(next));
-                }}
-              >
-                {showSignals ? '\u25BC' : '\u25B6'} Raw Signals ({rawEntries.length})
+            </div>
+          );
+        })()
+      ) : phase === 'mergeReview' ? (
+        <div className={styles.proposalCard}>
+          <h3>Review Changes</h3>
+          {mergePreviews
+            .filter((p) => p.layer === 'repo_public')
+            .map((preview) => (
+              <div key={preview.layer} style={{ marginBottom: '1rem' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    marginBottom: '0.5rem',
+                  }}
+                >
+                  <span className={styles.ruleLayer}>
+                    {LAYER_LABELS[preview.layer] || preview.layer}
+                  </span>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    {preview.summary}
+                  </span>
+                </div>
+                <div className={styles.diffWrapper}>
+                  <ReactDiffViewer
+                    oldValue={preview.current_content}
+                    newValue={editedPreviews[preview.layer] ?? preview.merged_content}
+                    splitView={false}
+                    useDarkTheme={theme === 'dark'}
+                    hideLineNumbers={false}
+                    showDiffOnly={true}
+                    compareMethod={DiffMethod.DIFF_TRIMMED_LINES}
+                    disableWordDiff={true}
+                    extraLinesSurroundingDiff={3}
+                  />
+                </div>
+              </div>
+            ))}
+          <div className={styles.actions}>
+            <button
+              className={styles.dismissButton}
+              onClick={() => setPhase('summary')}
+              disabled={applying}
+            >
+              Back
+            </button>
+            <button
+              className={styles.applyButton}
+              onClick={handleCommitAndPush}
+              disabled={applying}
+            >
+              {applying && <span className="spinner spinner--small" />}
+              {(config?.lore?.public_rule_mode || 'direct_push') === 'create_pr'
+                ? 'Create PR'
+                : 'Commit & Push'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Approve All button */}
+          {pendingCards.length >= 2 && (
+            <div className={styles.actions} style={{ marginBottom: '1rem' }}>
+              <button className={styles.applyButton} onClick={handleApproveAll}>
+                Approve All ({pendingCards.length})
               </button>
-              {showSignals && (
-                <>
-                  <div className={styles.filterBar} data-testid="lore-filter-bar">
-                    <select
-                      className={styles.filterSelect}
-                      data-testid="lore-filter-type"
-                      value={entryFilters.type || ''}
-                      onChange={(e) =>
-                        setEntryFilters({ ...entryFilters, type: e.target.value || undefined })
-                      }
-                    >
-                      <option value="">All types</option>
-                      {uniqueTypes.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      className={styles.filterSelect}
-                      data-testid="lore-filter-agent"
-                      value={entryFilters.agent || ''}
-                      onChange={(e) =>
-                        setEntryFilters({ ...entryFilters, agent: e.target.value || undefined })
-                      }
-                    >
-                      <option value="">All agents</option>
-                      {uniqueAgents.map((a) => (
-                        <option key={a} value={a}>
-                          {a}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      className={styles.deleteButton}
-                      onClick={handleClearSignals}
-                      disabled={curating || rawEntries.length === 0}
-                    >
-                      Delete Signals
-                    </button>
-                    <div className={styles.curateArea}>
-                      <button
-                        className={styles.curateButton}
-                        onClick={handleReCurate}
-                        disabled={curating}
-                      >
-                        {curating ? 'Curating...' : 'Trigger Curation'}
-                      </button>
-                      {curationState && (
-                        <span className={styles.curateStatus}>
-                          {curationState.message}
-                          <span className={styles.curateElapsed}>{curationState.elapsed}s</span>
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className={styles.entriesList} data-testid="lore-entries">
-                    {rawEntries.length === 0 ? (
-                      <p className={styles.empty}>No raw signal entries yet.</p>
-                    ) : (
-                      rawEntries.map((e, i) => (
-                        <div key={i} className={styles.entryCard} data-entry-type={e.type}>
-                          <div className={styles.entryMeta}>
-                            <span className={styles.entryType}>{e.type}</span>
-                            <span className={styles.entryAgent}>{e.agent}</span>
-                            {e.tool && <span className={styles.entryTool}>{e.tool}</span>}
-                            {e.category && (
-                              <span className={styles.entryCategory}>{e.category}</span>
-                            )}
-                            <span className={styles.entryTs}>
-                              {new Date(e.ts).toLocaleString()}
-                            </span>
-                          </div>
-                          <div className={styles.entryText}>
-                            {e.type === 'failure'
-                              ? `${e.input_summary} → "${e.error_summary}"`
-                              : e.text}
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </>
+            </div>
+          )}
+
+          {/* Card wall */}
+          {cards.length > 0 ? (
+            <div className={styles.proposalList}>
+              {cards.map((card) => {
+                const key =
+                  card.kind === 'instruction' ? `rule-${card.rule.id}` : `action-${card.action.id}`;
+                return card.kind === 'instruction' ? (
+                  <LoreCard
+                    key={key}
+                    type="instruction"
+                    rule={card.rule}
+                    repoName={card.repoName}
+                    proposalId={card.proposalId}
+                    onApprove={() => handleApprove(card)}
+                    onDismiss={() => handleDismiss(card)}
+                    onEdit={(_, text) => handleEdit(card, text)}
+                    onLayerChange={(_, layer) => handleLayerChange(card, layer)}
+                    onUnapprove={() => handleUnapprove(card)}
+                  />
+                ) : (
+                  <LoreCard
+                    key={key}
+                    type="action"
+                    action={card.action}
+                    repoName={card.repoName}
+                    onApprove={() => handleApprove(card)}
+                    onDismiss={() => handleDismiss(card)}
+                    onEdit={() => {}}
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            <div className="empty-state">
+              <p className="empty-state__description">
+                Nothing to review. New insights will appear here as agents work.
+              </p>
+            </div>
+          )}
+        </>
+      )}
+
+      {isDevMode && (
+        <section style={{ marginTop: '2rem' }}>
+          <button
+            className={styles.toggleButton}
+            onClick={() => {
+              const next = !showDebug;
+              setShowDebug(next);
+              if (next && debugRepo) {
+                getLoreEntries(debugRepo)
+                  .then((res) => setDebugEntries(res.entries || []))
+                  .catch(() => {});
+              }
+            }}
+          >
+            {showDebug ? '\u25BC' : '\u25B6'} Debug
+          </button>
+          {showDebug && (
+            <div style={{ marginTop: '0.75rem' }}>
+              {repos.length > 1 && (
+                <select
+                  className={styles.filterSelect}
+                  value={debugRepo}
+                  onChange={(e) => {
+                    setDebugRepo(e.target.value);
+                    getLoreEntries(e.target.value)
+                      .then((res) => setDebugEntries(res.entries || []))
+                      .catch(() => {});
+                  }}
+                >
+                  {repos.map((r) => (
+                    <option key={r.name} value={r.name}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
               )}
-            </section>
-          </>
-        )}
-
-        {activeSubTab === 'actions' && (
-          <>
-            {/* Proposed actions */}
-            {proposedActions.length > 0 && (
-              <>
-                <div className={styles.actionsSubheading}>Proposed ({proposedActions.length})</div>
-                <div className={styles.actionsList}>
-                  {proposedActions.map((e) => (
-                    <ProposedActionCard
-                      key={e.id}
-                      entry={e}
-                      onPin={handlePinAction}
-                      onDismiss={handleDismissAction}
-                    />
-                  ))}
-                </div>
-              </>
-            )}
-
-            {proposedActions.length === 0 && (
-              <div className="empty-state">
-                <p className="empty-state__description">
-                  No proposed actions. Actions are generated automatically from agent work sessions.
-                </p>
+              <div style={{ display: 'flex', gap: '0.5rem', margin: '0.5rem 0' }}>
+                <button
+                  className={styles.curateButton}
+                  onClick={() => debugRepo && startCuration(debugRepo)}
+                  disabled={!!activeCurations[debugRepo] || pendingCurations.has(debugRepo)}
+                >
+                  {activeCurations[debugRepo] || pendingCurations.has(debugRepo)
+                    ? 'Curating...'
+                    : 'Trigger Curation'}
+                </button>
+                <button
+                  className={styles.deleteButton}
+                  onClick={async () => {
+                    if (!debugRepo) return;
+                    try {
+                      const result = await clearLoreEntries(debugRepo);
+                      toastSuccess(`Deleted ${result.cleared} signal file(s)`);
+                      setDebugEntries([]);
+                    } catch (err) {
+                      alert('Clear Failed', getErrorMessage(err, 'Failed to clear signals'));
+                    }
+                  }}
+                  disabled={debugEntries.length === 0}
+                >
+                  Delete Signals
+                </button>
               </div>
-            )}
-
-            {/* Pinned actions */}
-            {pinnedActions.length > 0 && (
-              <>
-                <div className={styles.actionsSubheading}>Pinned ({pinnedActions.length})</div>
-                <div>
-                  {pinnedActions.map((e) => (
-                    <PinnedActionRow key={e.id} entry={e} />
+              <div className={styles.entriesList}>
+                {debugEntries
+                  .filter(
+                    (e) =>
+                      !e.state_change &&
+                      !(e.type === 'reflection' && (!e.text || e.text === 'none'))
+                  )
+                  .map((e, i) => (
+                    <div key={i} className={styles.entryCard} data-entry-type={e.type}>
+                      <div className={styles.entryMeta}>
+                        <span className={styles.entryType}>{e.type}</span>
+                        <span className={styles.entryAgent}>{e.agent}</span>
+                        {e.tool && <span className={styles.entryTool}>{e.tool}</span>}
+                        <span className={styles.entryTs}>{new Date(e.ts).toLocaleString()}</span>
+                      </div>
+                      <div className={styles.entryText}>
+                        {e.type === 'failure'
+                          ? `${e.input_summary} \u2192 "${e.error_summary}"`
+                          : e.text}
+                      </div>
+                    </div>
                   ))}
-                </div>
-              </>
-            )}
-          </>
-        )}
-      </div>
+                {debugEntries.length === 0 && (
+                  <p className={styles.empty}>No raw signal entries.</p>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }

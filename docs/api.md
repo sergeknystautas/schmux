@@ -1079,6 +1079,7 @@ Request:
     "enabled": true,
     "llm_target": "",
     "auto_pr": false,
+    "public_rule_mode": "direct_push",
     "curate_on_dispose": "session",
     "curate_debounce_ms": 30000,
     "prune_after_days": 30,
@@ -2187,7 +2188,7 @@ Errors:
 
 ### POST /api/lore/{repo}/proposals/{proposalID}/apply-merge
 
-Applies reviewed merge results to their target layers. For `repo_public`, creates a dedicated `schmux/lore` workspace and writes the merged instruction file as an unstaged change (no commit, no push). The user reviews and commits manually. For `repo_private` and `cross_repo_private`, writes directly to the instruction store.
+Applies reviewed merge results to their target layers. For `repo_public`, creates a dedicated `schmux/lore` workspace and writes the merged instruction file as an unstaged change (no commit, no push) by default. When `auto_commit` is true, the daemon commits and pushes (or creates a PR, depending on `public_rule_mode` config) instead of leaving unstaged changes. For `repo_private` and `cross_repo_private`, writes directly to the instruction store.
 
 Request:
 
@@ -2196,9 +2197,13 @@ Request:
   "merges": [
     { "layer": "repo_public", "content": "final merged content" },
     { "layer": "repo_private", "content": "private instructions" }
-  ]
+  ],
+  "auto_commit": false
 }
 ```
+
+- `merges` — array of layer/content pairs to apply.
+- `auto_commit` (boolean, default `false`) — when `true`, the daemon auto-commits and pushes (or creates a PR per `public_rule_mode`) instead of leaving unstaged changes.
 
 Response:
 
@@ -2208,12 +2213,15 @@ Response:
     {
       "layer": "repo_public",
       "status": "applied",
-      "workspace_id": "ws-abc123"
+      "workspace_id": "ws-abc123",
+      "commit_sha": "abc1234"
     },
     { "layer": "repo_private", "status": "applied" }
   ]
 }
 ```
+
+- `commit_sha` (string, optional) — the commit SHA when `auto_commit` was used and the commit succeeded.
 
 After applying, approved rules are marked with `merged_at` timestamps and the proposal status is set to `applied`.
 

@@ -22,10 +22,10 @@ type ExtractionResponse struct {
 
 // ExtractedRule is a discrete rule extracted by the curator LLM.
 type ExtractedRule struct {
-	Text           string   `json:"text"`
-	Category       string   `json:"category"`
-	SuggestedLayer string   `json:"suggested_layer"`
-	SourceEntries  []string `json:"source_entries"`
+	Text           string            `json:"text"`
+	Category       string            `json:"category"`
+	SuggestedLayer string            `json:"suggested_layer"`
+	SourceEntries  []RuleSourceEntry `json:"source_entries"`
 }
 
 // BuildExtractionPrompt constructs the LLM prompt for extracting discrete rules from friction data.
@@ -63,7 +63,15 @@ Output schema:
       "text": "Always use go run ./cmd/build-dashboard instead of npm run build",
       "category": "build",
       "suggested_layer": "repo_public",
-      "source_entries": ["<timestamp or entry key that led to this rule>"]
+      "source_entries": [
+        {
+          "type": "failure|reflection|friction",
+          "text": "reflection or friction text (omit for failures)",
+          "input_summary": "what was attempted (for failures only)",
+          "error_summary": "what went wrong (for failures only)",
+          "tool": "tool name if applicable (omit if none)"
+        }
+      ]
     }
   ],
   "discarded_entries": ["<timestamp or entry key of discarded entries>"]

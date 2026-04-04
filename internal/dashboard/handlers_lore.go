@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -226,7 +227,7 @@ func (s *Server) handleLoreRuleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Status      string  `json:"status"`       // "approved" or "dismissed"
+		Status      string  `json:"status"`       // "approved", "dismissed", or "pending"
 		Text        *string `json:"text"`         // edited text (optional)
 		ChosenLayer *string `json:"chosen_layer"` // layer override (optional)
 	}
@@ -242,10 +243,12 @@ func (s *Server) handleLoreRuleUpdate(w http.ResponseWriter, r *http.Request) {
 		status = lore.RuleApproved
 	case "dismissed":
 		status = lore.RuleDismissed
+	case "pending":
+		status = lore.RulePending
 	case "":
 		// No status change — only updating text or layer
 	default:
-		http.Error(w, "status must be 'approved' or 'dismissed'", http.StatusBadRequest)
+		http.Error(w, "status must be 'approved', 'dismissed', or 'pending'", http.StatusBadRequest)
 		return
 	}
 
@@ -440,7 +443,8 @@ func (s *Server) handleLoreApplyMerge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Merges []mergeApplyRequest `json:"merges"`
+		Merges     []mergeApplyRequest `json:"merges"`
+		AutoCommit bool                `json:"auto_commit"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -509,32 +513,92 @@ func (s *Server) handleLoreApplyMerge(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// Spawn a shell session if the workspace doesn't already have one
-			hasSession := false
-			for _, sess := range s.state.GetSessions() {
-				if sess.WorkspaceID == ws.ID {
-					hasSession = true
-					break
-				}
-			}
-			if !hasSession {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				_, spawnErr := s.session.SpawnCommand(ctx, session.SpawnOptions{
-					WorkspaceID: ws.ID,
-					Command:     "bash",
-					Nickname:    "lore",
-				})
-				cancel()
-				if spawnErr != nil {
-					s.logger.Warn("failed to spawn lore shell session", "workspace", ws.ID, "err", spawnErr)
-				}
-			}
-
-			results = append(results, map[string]string{
+			resultMap := map[string]string{
 				"layer":        m.Layer,
 				"status":       "applied",
 				"workspace_id": ws.ID,
-			})
+			}
+
+			if body.AutoCommit {
+				// Stage the file
+				stageCmd := exec.CommandContext(r.Context(), "git", "-C", ws.Path, "add", targetFile)
+				if out, err := stageCmd.CombinedOutput(); err != nil {
+					http.Error(w, fmt.Sprintf("failed to stage: %s: %s", err, out), 500)
+					return
+				}
+
+				// Count approved rules for commit message
+				approvedCount := 0
+				if p, pErr := s.loreStore.Get(repoName, proposalID); pErr == nil {
+					for _, rule := range p.Rules {
+						if rule.Status == lore.RuleApproved {
+							approvedCount++
+						}
+					}
+				}
+				if approvedCount == 0 {
+					approvedCount = 1 // fallback
+				}
+
+				// Commit with descriptive message
+				commitMsg := fmt.Sprintf("lore: add %d rules from agent learnings", approvedCount)
+				commitCmd := exec.CommandContext(r.Context(), "git", "-C", ws.Path, "commit", "-m", commitMsg)
+				if out, err := commitCmd.CombinedOutput(); err != nil {
+					http.Error(w, fmt.Sprintf("failed to commit: %s: %s", err, out), 500)
+					return
+				}
+
+				// Get commit SHA
+				shaCmd := exec.CommandContext(r.Context(), "git", "-C", ws.Path, "rev-parse", "HEAD")
+				shaOut, _ := shaCmd.Output()
+				commitSHA := strings.TrimSpace(string(shaOut))
+
+				// Push based on config mode
+				mode := "direct_push"
+				if s.config != nil && s.config.Lore != nil {
+					mode = s.config.Lore.GetPublicRuleMode()
+				}
+				if mode == "create_pr" {
+					branch := fmt.Sprintf("lore/rules-%s", time.Now().Format("2006-01-02"))
+					exec.CommandContext(r.Context(), "git", "-C", ws.Path, "checkout", "-b", branch).Run()
+					pushCmd := exec.CommandContext(r.Context(), "git", "-C", ws.Path, "push", "-u", "origin", branch)
+					if out, err := pushCmd.CombinedOutput(); err != nil {
+						http.Error(w, fmt.Sprintf("push to branch failed: %s: %s", err, out), 500)
+						return
+					}
+				} else {
+					pushCmd := exec.CommandContext(r.Context(), "git", "-C", ws.Path, "push", "origin", "HEAD:main")
+					if out, err := pushCmd.CombinedOutput(); err != nil {
+						http.Error(w, fmt.Sprintf("push failed: %s: %s", err, out), 500)
+						return
+					}
+				}
+
+				resultMap["commit_sha"] = commitSHA
+			} else {
+				// Spawn a shell session if the workspace doesn't already have one
+				hasSession := false
+				for _, sess := range s.state.GetSessions() {
+					if sess.WorkspaceID == ws.ID {
+						hasSession = true
+						break
+					}
+				}
+				if !hasSession {
+					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					_, spawnErr := s.session.SpawnCommand(ctx, session.SpawnOptions{
+						WorkspaceID: ws.ID,
+						Command:     "bash",
+						Nickname:    "lore",
+					})
+					cancel()
+					if spawnErr != nil {
+						s.logger.Warn("failed to spawn lore shell session", "workspace", ws.ID, "err", spawnErr)
+					}
+				}
+			}
+
+			results = append(results, resultMap)
 
 		case lore.LayerRepoPrivate, lore.LayerCrossRepoPrivate:
 			if s.loreInstructionStore == nil {
@@ -576,7 +640,14 @@ func (s *Server) handleLoreApplyMerge(w http.ResponseWriter, r *http.Request) {
 		var sourceKeys []string
 		for _, rule := range proposal.Rules {
 			if rule.Status == lore.RuleApproved {
-				sourceKeys = append(sourceKeys, rule.SourceEntries...)
+				for _, se := range rule.SourceEntries {
+					switch se.Type {
+					case "failure":
+						sourceKeys = append(sourceKeys, se.InputSummary)
+					default:
+						sourceKeys = append(sourceKeys, se.Text)
+					}
+				}
 			}
 		}
 		if len(sourceKeys) > 0 {

@@ -182,6 +182,7 @@ export default function ConfigPage() {
             loreLLMTarget: data.lore?.llm_target || '',
             loreCurateOnDispose: data.lore?.curate_on_dispose || 'session',
             loreAutoPR: data.lore?.auto_pr || false,
+            lorePublicRuleMode: data.lore?.public_rule_mode || 'direct_push',
             subredditTarget: data.subreddit?.target || '',
             subredditInterval: data.subreddit?.interval || 30,
             subredditCheckingRange: data.subreddit?.checking_range || 48,
@@ -266,6 +267,7 @@ export default function ConfigPage() {
             loreLLMTarget: data.lore?.llm_target || '',
             loreCurateOnDispose: data.lore?.curate_on_dispose || 'session',
             loreAutoPR: data.lore?.auto_pr || false,
+            lorePublicRuleMode: data.lore?.public_rule_mode || 'direct_push',
             subredditTarget: data.subreddit?.target || '',
             subredditInterval: data.subreddit?.interval || 30,
             subredditCheckingRange: data.subreddit?.checking_range || 48,
@@ -640,6 +642,7 @@ export default function ConfigPage() {
           llm_target: state.loreLLMTarget,
           curate_on_dispose: state.loreCurateOnDispose,
           auto_pr: state.loreAutoPR,
+          public_rule_mode: state.lorePublicRuleMode,
         },
         subreddit: {
           target: state.subredditTarget,
@@ -1483,6 +1486,7 @@ export default function ConfigPage() {
               loreLLMTarget={state.loreLLMTarget}
               loreCurateOnDispose={state.loreCurateOnDispose}
               loreAutoPR={state.loreAutoPR}
+              lorePublicRuleMode={state.lorePublicRuleMode}
               nudgenikTarget={state.nudgenikTarget}
               viewedBuffer={state.viewedBuffer}
               nudgenikSeenInterval={state.nudgenikSeenInterval}

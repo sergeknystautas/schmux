@@ -1,6 +1,7 @@
 package lore
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -24,7 +25,7 @@ func TestProposalStore_SaveAndLoad_V2(t *testing.T) {
 				Category:       "build",
 				SuggestedLayer: LayerRepoPublic,
 				Status:         RulePending,
-				SourceEntries:  []string{"2026-03-04T10:00:00Z"},
+				SourceEntries:  []RuleSourceEntry{{Type: "failure", InputSummary: "2026-03-04T10:00:00Z"}},
 			},
 			{
 				ID:             "r2",
@@ -32,7 +33,7 @@ func TestProposalStore_SaveAndLoad_V2(t *testing.T) {
 				Category:       "environment",
 				SuggestedLayer: LayerCrossRepoPrivate,
 				Status:         RulePending,
-				SourceEntries:  []string{"2026-03-04T11:00:00Z"},
+				SourceEntries:  []RuleSourceEntry{{Type: "reflection", Text: "2026-03-04T11:00:00Z"}},
 			},
 		},
 		Discarded: []string{"2026-03-04T08:00:00Z"},
@@ -381,6 +382,65 @@ func TestDismissedRuleTexts_EmptyRepo(t *testing.T) {
 	texts := store.DismissedRuleTexts("nonexistent")
 	if len(texts) != 0 {
 		t.Errorf("expected empty texts for nonexistent repo, got %d", len(texts))
+	}
+}
+
+func TestRuleSourceEntryJSON(t *testing.T) {
+	rule := Rule{
+		ID:             "r1",
+		Text:           "Always run tests from root",
+		Category:       "testing",
+		SuggestedLayer: LayerRepoPrivate,
+		Status:         RulePending,
+		SourceEntries: []RuleSourceEntry{
+			{Type: "failure", InputSummary: "cd sub && go test", ErrorSummary: "module not found"},
+			{Type: "reflection", Text: "tests must run from root"},
+		},
+	}
+	data, err := json.Marshal(rule)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded Rule
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.SourceEntries) != 2 {
+		t.Fatalf("expected 2 source entries, got %d", len(decoded.SourceEntries))
+	}
+	if decoded.SourceEntries[0].Type != "failure" {
+		t.Errorf("expected type failure, got %s", decoded.SourceEntries[0].Type)
+	}
+	if decoded.SourceEntries[1].Text != "tests must run from root" {
+		t.Errorf("expected reflection text, got %s", decoded.SourceEntries[1].Text)
+	}
+}
+
+func TestRuleSourceEntryJSON_LegacyStringFormat(t *testing.T) {
+	// Old proposals stored source_entries as plain strings (timestamps).
+	raw := `{
+		"id": "r1",
+		"text": "Always run tests from root",
+		"category": "testing",
+		"suggested_layer": "repo_private",
+		"status": "pending",
+		"source_entries": ["2026-03-23T14:11:59Z", "entry-key-abc"]
+	}`
+	var rule Rule
+	if err := json.Unmarshal([]byte(raw), &rule); err != nil {
+		t.Fatalf("failed to unmarshal legacy format: %v", err)
+	}
+	if len(rule.SourceEntries) != 2 {
+		t.Fatalf("expected 2 source entries, got %d", len(rule.SourceEntries))
+	}
+	if rule.SourceEntries[0].Type != "unknown" {
+		t.Errorf("expected type unknown for legacy entry, got %s", rule.SourceEntries[0].Type)
+	}
+	if rule.SourceEntries[0].Text != "2026-03-23T14:11:59Z" {
+		t.Errorf("expected timestamp as text, got %s", rule.SourceEntries[0].Text)
+	}
+	if rule.Text != "Always run tests from root" {
+		t.Errorf("expected rule text preserved, got %s", rule.Text)
 	}
 }
 

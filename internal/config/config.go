@@ -392,6 +392,7 @@ type LoreConfig struct {
 	CurateDebounceMs int      `json:"curate_debounce_ms,omitempty"` // debounce for auto-curation (default 30000)
 	PruneAfterDays   int      `json:"prune_after_days,omitempty"`   // days before pruning applied/dismissed entries (default 30)
 	InstructionFiles []string `json:"instruction_files,omitempty"`  // instruction file patterns to manage
+	PublicRuleMode   string   `json:"public_rule_mode,omitempty"`   // "direct_push" (default) or "create_pr"
 
 	// curateOnDisposeRaw stores the raw JSON value for backward compatibility.
 	// Old configs may have a boolean value (true → "session", false → "never").
@@ -422,6 +423,14 @@ func (lc *LoreConfig) UnmarshalJSON(data []byte) error {
 	}
 	*lc = LoreConfig(alias)
 	return nil
+}
+
+// GetPublicRuleMode returns the configured public rule mode, defaulting to "direct_push".
+func (lc *LoreConfig) GetPublicRuleMode() string {
+	if lc == nil || lc.PublicRuleMode == "" {
+		return "direct_push"
+	}
+	return lc.PublicRuleMode
 }
 
 // SessionsConfig represents session and git-related timing configuration.
@@ -1381,6 +1390,17 @@ func (c *Config) GetLoreCurateOnDispose() string {
 		}
 	}
 	return "session"
+}
+
+// GetLorePublicRuleMode returns the configured public rule mode.
+// Returns "direct_push" or "create_pr". Defaults to "direct_push".
+func (c *Config) GetLorePublicRuleMode() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c == nil || c.Lore == nil {
+		return "direct_push"
+	}
+	return c.Lore.GetPublicRuleMode()
 }
 
 // GetLoreCurateDebounceMs returns the debounce interval for auto-curation in milliseconds.

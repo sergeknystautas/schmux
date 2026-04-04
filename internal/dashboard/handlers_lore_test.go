@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/log"
@@ -235,6 +236,154 @@ func TestHandleLoreApplyMerge_RepoPublic_ConflictWhenDirty(t *testing.T) {
 
 	if rr.Code != http.StatusConflict {
 		t.Errorf("expected 409 Conflict, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleLoreApplyMergeAutoCommit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+
+	// Create a remote git repo with initial commit (bare-like: allow push to checked-out branch)
+	remoteDir := filepath.Join(tmpDir, "remote")
+	os.MkdirAll(remoteDir, 0755)
+	runGitHelper(t, remoteDir, "init", "-b", "main")
+	runGitHelper(t, remoteDir, "config", "user.email", "test@test.com")
+	runGitHelper(t, remoteDir, "config", "user.name", "test")
+	runGitHelper(t, remoteDir, "config", "receive.denyCurrentBranch", "ignore")
+	os.WriteFile(filepath.Join(remoteDir, "CLAUDE.md"), []byte("# Project\n"), 0644)
+	runGitHelper(t, remoteDir, "add", ".")
+	runGitHelper(t, remoteDir, "commit", "-m", "initial")
+
+	// Set up server with real workspace manager
+	configPath := filepath.Join(tmpDir, "config.json")
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	cfg.Repos = []config.Repo{
+		{Name: "testrepo", URL: remoteDir, BarePath: "testrepo-autocommit.git"},
+	}
+	cfg.Save()
+
+	statePath := filepath.Join(tmpDir, "state.json")
+	st := state.New(statePath, nil)
+	logger := log.NewWithOptions(io.Discard, log.Options{})
+	wm := workspace.New(cfg, st, statePath, logger)
+	sm := session.New(cfg, st, statePath, wm, logger)
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), logger, contracts.GitHubStatus{}, ServerOptions{
+		ShutdownCtx: shutdownCtx,
+	})
+	server.SetModelManager(models.New(cfg, nil, "", log.NewWithOptions(io.Discard, log.Options{})))
+
+	// Set up lore store with a proposal containing 2 approved rules
+	loreDir := filepath.Join(tmpDir, "lore")
+	proposalStore := lore.NewProposalStore(loreDir, logger)
+	server.SetLoreStore(proposalStore)
+
+	proposal := &lore.Proposal{
+		ID:     "prop-auto-001",
+		Repo:   "testrepo",
+		Status: lore.ProposalPending,
+		Rules: []lore.Rule{
+			{Text: "Always use semicolons", Status: lore.RuleApproved, SuggestedLayer: lore.LayerRepoPublic},
+			{Text: "Prefer const over let", Status: lore.RuleApproved, SuggestedLayer: lore.LayerRepoPublic},
+		},
+		MergePreviews: []lore.MergePreview{
+			{Layer: lore.LayerRepoPublic, MergedContent: "# Project\n\n- Always use semicolons\n- Prefer const over let\n"},
+		},
+	}
+	proposalStore.Save(proposal)
+
+	t.Cleanup(server.CloseForTest)
+	t.Cleanup(shutdownCancel)
+	t.Cleanup(func() {
+		for _, sess := range st.GetSessions() {
+			sm.Dispose(context.Background(), sess.ID)
+		}
+	})
+
+	// Apply the merge with auto_commit=true
+	body, _ := json.Marshal(map[string]interface{}{
+		"merges": []map[string]string{
+			{"layer": "repo_public", "content": "# Project\n\n- Always use semicolons\n- Prefer const over let\n"},
+		},
+		"auto_commit": true,
+	})
+	req := makeLoreApplyRequest(t, "testrepo", "prop-auto-001", body)
+	rr := httptest.NewRecorder()
+	server.handleLoreApplyMerge(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		Status  string              `json:"status"`
+		Results []map[string]string `json:"results"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(resp.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(resp.Results))
+	}
+	if resp.Results[0]["status"] != "applied" {
+		t.Errorf("expected status=applied, got %q", resp.Results[0]["status"])
+	}
+	if resp.Results[0]["commit_sha"] == "" {
+		t.Error("expected commit_sha in result when auto_commit=true")
+	}
+
+	// Verify the workspace has a clean working tree (changes were committed)
+	wsID := resp.Results[0]["workspace_id"]
+	ws, found := st.GetWorkspace(wsID)
+	if !found {
+		t.Fatalf("workspace %s not found in state", wsID)
+	}
+	cmd := exec.Command("git", "status", "--porcelain")
+	cmd.Dir = ws.Path
+	statusOut, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git status failed: %v", err)
+	}
+	if len(statusOut) != 0 {
+		t.Errorf("expected clean workspace after auto_commit, got: %q", string(statusOut))
+	}
+
+	// Verify the commit message mentions the rule count
+	logCmd := exec.Command("git", "log", "-1", "--format=%s")
+	logCmd.Dir = ws.Path
+	logOut, err := logCmd.Output()
+	if err != nil {
+		t.Fatalf("git log failed: %v", err)
+	}
+	commitMsg := strings.TrimSpace(string(logOut))
+	if commitMsg != "lore: add 2 rules from agent learnings" {
+		t.Errorf("unexpected commit message: %q", commitMsg)
+	}
+
+	// Verify the commit was pushed to the remote
+	remoteLogCmd := exec.Command("git", "log", "-1", "--format=%H", "main")
+	remoteLogCmd.Dir = remoteDir
+	remoteLogOut, err := remoteLogCmd.Output()
+	if err != nil {
+		t.Fatalf("git log on remote failed: %v", err)
+	}
+	remoteSHA := strings.TrimSpace(string(remoteLogOut))
+	if remoteSHA != resp.Results[0]["commit_sha"] {
+		t.Errorf("remote HEAD %s does not match commit_sha %s", remoteSHA, resp.Results[0]["commit_sha"])
+	}
+
+	// Verify no shell session was spawned (auto_commit skips shell)
+	for _, sess := range st.GetSessions() {
+		if sess.WorkspaceID == wsID {
+			t.Error("expected no shell session when auto_commit=true")
+			break
+		}
 	}
 }
 

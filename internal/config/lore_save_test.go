@@ -124,3 +124,22 @@ func TestLoreSaveWithUserConfigStructure(t *testing.T) {
 		t.Errorf("expected CurateOnDispose to be 'session' after reload, got %q", cfg.GetLoreCurateOnDispose())
 	}
 }
+
+func TestLoreConfigPublicRuleMode(t *testing.T) {
+	cfg := &Config{
+		Lore: &LoreConfig{
+			PublicRuleMode: "create_pr",
+		},
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded Config
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Lore == nil || decoded.Lore.PublicRuleMode != "create_pr" {
+		t.Errorf("expected create_pr, got %v", decoded.Lore)
+	}
+}

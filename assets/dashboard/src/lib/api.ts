@@ -1011,14 +1011,15 @@ export async function startLoreMerge(repoName: string, proposalID: string): Prom
 export async function applyLoreMerge(
   repoName: string,
   proposalID: string,
-  merges: { layer: string; content: string }[]
+  merges: { layer: string; content: string }[],
+  autoCommit = false
 ): Promise<{ results: LoreMergeApplyResult[] }> {
   const res = await apiFetch(
     `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(proposalID)}/apply-merge`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-      body: JSON.stringify({ merges }),
+      body: JSON.stringify({ merges, auto_commit: autoCommit }),
     }
   );
   if (!res.ok) await parseErrorResponse(res, 'Failed to apply lore merge');

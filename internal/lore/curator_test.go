@@ -44,7 +44,7 @@ func TestParseExtractionResponse(t *testing.T) {
 				"text": "Use go run ./cmd/build-dashboard instead of npm",
 				"category": "build",
 				"suggested_layer": "repo_public",
-				"source_entries": ["2026-03-04T10:00:00Z"]
+				"source_entries": [{"type": "failure", "input_summary": "npm run build", "error_summary": "command not found"}]
 			}
 		],
 		"discarded_entries": ["2026-03-04T08:00:00Z"]
@@ -61,6 +61,37 @@ func TestParseExtractionResponse(t *testing.T) {
 	}
 	if result.Rules[0].SuggestedLayer != "repo_public" {
 		t.Errorf("unexpected layer: %s", result.Rules[0].SuggestedLayer)
+	}
+}
+
+func TestParseExtractionResponseStructuredSources(t *testing.T) {
+	response := `{
+		"rules": [{
+			"text": "Always run tests from root",
+			"category": "testing",
+			"suggested_layer": "repo_private",
+			"source_entries": [
+				{"type": "failure", "input_summary": "cd sub && go test", "error_summary": "module not found"},
+				{"type": "reflection", "text": "tests must run from root"}
+			]
+		}],
+		"discarded_entries": []
+	}`
+	result, err := ParseExtractionResponse(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Rules) != 1 {
+		t.Fatalf("expected 1 rule, got %d", len(result.Rules))
+	}
+	if len(result.Rules[0].SourceEntries) != 2 {
+		t.Fatalf("expected 2 source entries, got %d", len(result.Rules[0].SourceEntries))
+	}
+	if result.Rules[0].SourceEntries[0].Type != "failure" {
+		t.Errorf("expected failure type, got %s", result.Rules[0].SourceEntries[0].Type)
+	}
+	if result.Rules[0].SourceEntries[0].InputSummary != "cd sub && go test" {
+		t.Errorf("expected input summary, got %s", result.Rules[0].SourceEntries[0].InputSummary)
 	}
 }
 
