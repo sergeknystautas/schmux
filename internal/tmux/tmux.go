@@ -141,6 +141,235 @@ func (s *TmuxServer) Check() error {
 	return nil
 }
 
+// StartServer starts the tmux server for this socket.
+// This is a no-op if the server is already running.
+func (s *TmuxServer) StartServer(ctx context.Context) error {
+	cmd := s.cmd(ctx, "start-server")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to start tmux server: %w", err)
+	}
+	return nil
+}
+
+// CreateSession creates a new tmux session with the given name, directory, and command.
+// Unlike the package-level CreateSession, this does NOT call CleanTmuxServerEnv —
+// with an isolated socket, there is no shared environment to clean.
+func (s *TmuxServer) CreateSession(ctx context.Context, name, dir, command string) error {
+	args := []string{
+		"new-session",
+		"-d",       // detached
+		"-s", name, // session name
+		"-c", dir, // working directory
+		command,
+	}
+
+	cmd := s.cmd(ctx, args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create tmux session: %w: %s", err, string(output))
+	}
+
+	// Set scrollback to 10000 lines (tmux default is 2000)
+	if err := s.SetOption(ctx, name, "history-limit", "10000"); err != nil {
+		if s.logger != nil {
+			s.logger.Warn("failed to set history-limit", "session", name, "err", err)
+		}
+	}
+
+	return nil
+}
+
+// KillSession kills a tmux session.
+func (s *TmuxServer) KillSession(ctx context.Context, name string) error {
+	// tmux kill-session -t <name> (= prefix for exact match)
+	cmd := s.cmd(ctx, "kill-session", "-t", "="+name)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to kill tmux session: %w: %s", err, string(output))
+	}
+	return nil
+}
+
+// SessionExists checks if a tmux session with the given name exists.
+func (s *TmuxServer) SessionExists(ctx context.Context, name string) bool {
+	// tmux has-session -t <name> (= prefix for exact match)
+	cmd := s.cmd(ctx, "has-session", "-t", "="+name)
+	err := cmd.Run()
+	return err == nil
+}
+
+// ListSessions returns a list of all tmux session names.
+func (s *TmuxServer) ListSessions(ctx context.Context) ([]string, error) {
+	// tmux list-sessions -F "#{session_name}"
+	cmd := s.cmd(ctx, "list-sessions", "-F", "#{session_name}")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to list tmux sessions: %w", err)
+	}
+
+	output := strings.TrimSpace(stdout.String())
+	if output == "" {
+		return []string{}, nil
+	}
+
+	sessions := strings.Split(output, "\n")
+	return sessions, nil
+}
+
+// SetOption sets a tmux option on a session.
+func (s *TmuxServer) SetOption(ctx context.Context, sessionName, option, value string) error {
+	cmd := s.cmd(ctx, "set-option", "-t", sessionName, option, value)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to set %s: %w: %s", option, err, string(output))
+	}
+	return nil
+}
+
+// ConfigureStatusBar sets the standard schmux status bar on a tmux session:
+// process name on left, empty center, empty right.
+func (s *TmuxServer) ConfigureStatusBar(ctx context.Context, sessionName string) {
+	_ = s.SetOption(ctx, sessionName, "status-left", "#{pane_current_command} ")
+	_ = s.SetOption(ctx, sessionName, "window-status-format", "")
+	_ = s.SetOption(ctx, sessionName, "window-status-current-format", "")
+	_ = s.SetOption(ctx, sessionName, "status-right", "")
+}
+
+// GetPanePID returns the PID of the first process in the tmux session's pane.
+func (s *TmuxServer) GetPanePID(ctx context.Context, name string) (int, error) {
+	// tmux display-message -p -t <name> "#{pane_pid}"
+	cmd := s.cmd(ctx, "display-message", "-p", "-t", name, "#{pane_pid}")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	if err := cmd.Run(); err != nil {
+		return 0, fmt.Errorf("failed to get pane PID: %w", err)
+	}
+
+	pidStr := strings.TrimSpace(stdout.String())
+	var pid int
+	if _, err := fmt.Sscanf(pidStr, "%d", &pid); err != nil {
+		return 0, fmt.Errorf("failed to parse PID: %w", err)
+	}
+
+	return pid, nil
+}
+
+// GetAttachCommand returns the command to attach to a tmux session on this server's socket.
+func (s *TmuxServer) GetAttachCommand(name string) string {
+	return fmt.Sprintf("%s -L %s attach -t \"=%s\"", s.binary, s.socketName, name)
+}
+
+// CaptureOutput captures the current output of a tmux session, including full scrollback history.
+func (s *TmuxServer) CaptureOutput(ctx context.Context, name string) (string, error) {
+	// -e includes escape sequences for colors/attributes
+	// -p outputs to stdout
+	// -S - captures from the start of the scrollback buffer
+	cmd := s.cmd(ctx, "capture-pane", "-e", "-p", "-S", "-", "-t", name)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to capture tmux output: %w", err)
+	}
+
+	return stdout.String(), nil
+}
+
+// CaptureLastLines captures the last N lines of the pane.
+func (s *TmuxServer) CaptureLastLines(ctx context.Context, name string, lines int, includeEscapes bool) (string, error) {
+	if lines <= 0 {
+		return "", fmt.Errorf("invalid line count: %d", lines)
+	}
+	args := []string{"capture-pane"}
+	if includeEscapes {
+		args = append(args, "-e") // include escape sequences
+	}
+	args = append(args,
+		"-p", // output to stdout
+		"-S", fmt.Sprintf("-%d", lines),
+		"-t", name, // target session/pane
+	)
+
+	cmd := s.cmd(ctx, args...)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to capture tmux output: %w", err)
+	}
+
+	return stdout.String(), nil
+}
+
+// GetCursorState returns the cursor position and visibility for a session.
+// Coordinates are 0-indexed.
+func (s *TmuxServer) GetCursorState(ctx context.Context, sessionName string) (CursorState, error) {
+	cmd := s.cmd(ctx, "display-message", "-p", "-t", sessionName, "#{cursor_x} #{cursor_y} #{cursor_flag}")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return CursorState{}, fmt.Errorf("failed to get cursor state: %w", err)
+	}
+
+	parts := strings.Fields(strings.TrimSpace(stdout.String()))
+	if len(parts) != 3 {
+		return CursorState{}, fmt.Errorf("unexpected cursor state format: %q", stdout.String())
+	}
+
+	var cs CursorState
+	_, err := fmt.Sscanf(parts[0], "%d", &cs.X)
+	if err != nil {
+		return CursorState{}, fmt.Errorf("failed to parse cursor_x: %w", err)
+	}
+	_, err = fmt.Sscanf(parts[1], "%d", &cs.Y)
+	if err != nil {
+		return CursorState{}, fmt.Errorf("failed to parse cursor_y: %w", err)
+	}
+	cs.Visible = parts[2] == "1"
+	return cs, nil
+}
+
+// RenameSession renames an existing tmux session.
+func (s *TmuxServer) RenameSession(ctx context.Context, oldName, newName string) error {
+	cmd := s.cmd(ctx, "rename-session", "-t", "="+oldName, newName)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to rename tmux session: %w: %s", err, string(output))
+	}
+	return nil
+}
+
+// ShowEnvironment returns the tmux server's global environment as a map.
+func (s *TmuxServer) ShowEnvironment(ctx context.Context) (map[string]string, error) {
+	cmd := s.cmd(ctx, "show-environment", "-g")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("show-environment failed: %w", err)
+	}
+
+	env := make(map[string]string)
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "-") {
+			continue
+		}
+		if idx := strings.IndexByte(line, '='); idx >= 0 {
+			env[line[:idx]] = line[idx+1:]
+		}
+	}
+	return env, nil
+}
+
+// SetEnvironment sets a global environment variable on the tmux server.
+func (s *TmuxServer) SetEnvironment(ctx context.Context, key, value string) error {
+	cmd := s.cmd(ctx, "set-environment", "-g", key, value)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("set-environment %s failed: %w: %s", key, err, string(output))
+	}
+	return nil
+}
+
 // ANSI escape sequence regex for stripping terminal codes.
 // Compiled once at package initialization for efficiency.
 var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07\x1b]*\x07|\x1b\][^\x07\x1b]*\x1b\\`)
