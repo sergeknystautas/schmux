@@ -39,6 +39,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/repofeed"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
 	"github.com/sergeknystautas/schmux/internal/update"
 	"github.com/sergeknystautas/schmux/internal/version"
@@ -120,6 +121,7 @@ type Server struct {
 	devMode      bool   // When true, dev mode API endpoints are enabled
 	shutdownCtx  context.Context
 	BoundAddr    chan net.Addr // signals the bound address after listener starts; written exactly once
+	tmuxServer   *tmux.TmuxServer
 
 	// WebSocket connection registry: sessionID -> active connection (for terminal)
 	// Only one connection per session; new connections displace old ones.
@@ -276,7 +278,7 @@ type defaultBranchEntry struct {
 const defaultBranchCacheTTL = 5 * time.Minute
 
 // NewServer creates a new dashboard server.
-func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, prd github.DiscoveryProvider, logger *log.Logger, ghStatus contracts.GitHubStatus, opts ServerOptions) *Server {
+func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, prd github.DiscoveryProvider, logger *log.Logger, ghStatus contracts.GitHubStatus, tmuxServer *tmux.TmuxServer, opts ServerOptions) *Server {
 	// Set package-level logger for standalone helper functions
 	pkgLogger = logger
 
@@ -293,6 +295,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		prDiscovery:        prd,
 		logger:             logger,
 		githubStatus:       ghStatus,
+		tmuxServer:         tmuxServer,
 		shutdown:           opts.Shutdown,
 		devRestart:         opts.DevRestart,
 		devProxy:           opts.DevProxy,

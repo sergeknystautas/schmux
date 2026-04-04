@@ -26,7 +26,7 @@ func TestSessionRuntimeInputResizeWithoutControlMode(t *testing.T) {
 
 	// MockControlSource returns nil for SendKeys/Resize (always "attached"),
 	// so these won't error with the mock. Test the real LocalSource path instead.
-	source := NewLocalSource("s1", "tmux-s1", nil)
+	source := NewLocalSource("s1", "tmux-s1", nil, nil)
 	st := state.New("", nil)
 	localTracker := NewSessionRuntime("s1", source, st, "", nil, nil, nil)
 
@@ -164,7 +164,7 @@ func TestSubscribeUnsubscribeOutput(t *testing.T) {
 }
 
 func TestCapturePane_NoControlMode(t *testing.T) {
-	source := NewLocalSource("test-id", "test-tmux", nil)
+	source := NewLocalSource("test-id", "test-tmux", nil, nil)
 	st := state.New("", nil)
 	tracker := NewSessionRuntime("test-id", source, st, "", nil, nil, nil)
 

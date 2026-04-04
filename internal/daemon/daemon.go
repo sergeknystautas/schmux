@@ -177,19 +177,18 @@ func Start() error {
 	}
 
 	// Apply custom tmux binary from config (if set) before starting the server.
+	tmuxBinary := "tmux"
 	if cfg, err := config.Load(filepath.Join(schmuxDir, "config.json")); err == nil && cfg.TmuxBinary != "" {
+		tmuxBinary = cfg.TmuxBinary
 		tmux.SetBinary(cfg.TmuxBinary)
 	}
 
-	// Ensure tmux log directory exists and start tmux server from there so
-	// verbose server logs land in ~/.schmux/tmux/ on a fresh server start.
-	tmuxLogDir := filepath.Join(schmuxDir, "tmux")
-	if err := os.MkdirAll(tmuxLogDir, 0755); err != nil {
-		return fmt.Errorf("failed to create tmux log directory: %w", err)
-	}
-	tmuxStart := exec.Command(tmux.Binary(), "-v", "start-server")
-	tmuxStart.Dir = tmuxLogDir
-	_ = tmuxStart.Run() // no-op if server already running; ignore error
+	// Construct the TmuxServer that all subsystems will share.
+	startupServer := tmux.NewTmuxServer(tmuxBinary, "schmux", nil)
+
+	// Start the tmux server (no-op if already running).
+	ctx := context.Background()
+	_ = startupServer.StartServer(ctx) // ignore error: best-effort
 
 	// Get the path to the current executable
 	execPath, err := os.Executable()
@@ -417,6 +416,13 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		logger.Info("using custom tmux binary", "path", cfg.TmuxBinary)
 	}
 
+	// Construct the TmuxServer that all subsystems will share.
+	tmuxBin := cfg.TmuxBinary
+	if tmuxBin == "" {
+		tmuxBin = "tmux"
+	}
+	tmuxServer := tmux.NewTmuxServer(tmuxBin, "schmux", logging.Sub(logger, "tmux"))
+
 	if cfg.GetAuthEnabled() {
 		if _, err := config.EnsureSessionSecret(); err != nil {
 			return fmt.Errorf("failed to initialize auth session secret: %w", err)
@@ -512,7 +518,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	loreInstructionsDir := filepath.Join(homeDir, ".schmux", "instructions")
 	ensure.SetInstructionStore(lore.NewInstructionStore(loreInstructionsDir))
 	wm := workspace.New(cfg, st, statePath, workspaceLog)
-	sm := session.New(cfg, st, statePath, wm, sessionLog)
+	sm := session.New(cfg, st, statePath, wm, tmuxServer, sessionLog)
 
 	// Wire timelapse recording if enabled
 	if cfg.GetTimelapseEnabled() {
@@ -597,7 +603,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	}
 
 	// Create dashboard server
-	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, logger, d.githubStatus, dashboard.ServerOptions{
+	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, logger, d.githubStatus, tmuxServer, dashboard.ServerOptions{
 		Shutdown:    d.Shutdown,
 		DevRestart:  d.DevRestart,
 		DevProxy:    devProxy,
@@ -666,7 +672,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		if fm != nil {
 			return // already running
 		}
-		fm = floormanager.New(cfg, sm, homeDir, fmLog)
+		fm = floormanager.New(cfg, sm, tmuxServer, homeDir, fmLog)
 		fmInjector = floormanager.NewInjector(fm, cfg.GetFloorManagerDebounceMs(), fmLog)
 		server.SetFloorManager(fm)
 		eventHandlers["status"] = append(eventHandlers["status"], fmInjector)

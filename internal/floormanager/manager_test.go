@@ -103,7 +103,7 @@ func newTestFMManager(t *testing.T, fmTarget string) *Manager {
 	st := state.New("", nil)
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
 
 	return &Manager{
 		cfg:         cfg,
@@ -259,7 +259,7 @@ func TestResolveSessionName(t *testing.T) {
 		st := state.New("", nil)
 		statePath := filepath.Join(t.TempDir(), "state.json")
 		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-		sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
+		sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
 
 		st.AddSession(state.Session{ID: "sess-nick", Nickname: "my-agent"})
 
@@ -275,7 +275,7 @@ func TestResolveSessionName(t *testing.T) {
 		st := state.New("", nil)
 		statePath := filepath.Join(t.TempDir(), "state.json")
 		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-		sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
+		sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
 
 		st.AddSession(state.Session{ID: "sess-no-nick", Nickname: ""})
 
@@ -292,10 +292,10 @@ func TestNew(t *testing.T) {
 	st := state.New("", nil)
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
 
 	homeDir := t.TempDir()
-	m := New(cfg, sm, homeDir, log.NewWithOptions(io.Discard, log.Options{}))
+	m := New(cfg, sm, nil, homeDir, log.NewWithOptions(io.Discard, log.Options{}))
 
 	if m == nil {
 		t.Fatal("New returned nil")
