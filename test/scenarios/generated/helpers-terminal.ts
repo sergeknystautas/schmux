@@ -147,10 +147,10 @@ function compareTerminalContent(tmuxLines: string[], xtermLines: string[]): stri
 export async function assertTerminalMatchesTmux(
   page: Page,
   sessionId: string,
-  options?: { scrollbackLines?: number }
+  options?: { scrollbackLines?: number; maxRetries?: number }
 ): Promise<void> {
   const tmuxSession = sessionId;
-  const maxRetries = 50;
+  const maxRetries = options?.maxRetries ?? 50;
   const retryDelayMs = 200;
 
   let lastMismatches: string[] = [];

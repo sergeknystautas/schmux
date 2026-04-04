@@ -36,11 +36,12 @@ func TestE2ERemoteSSHSmoke(t *testing.T) {
 	})
 
 	var profileID string
+	flavor := "localhost"
 	t.Run("AddSSHRemoteProfile", func(t *testing.T) {
 		// SSH to localhost with strict host key checking disabled for testing.
 		// -tt forces remote PTY allocation, which tmux needs even in control mode.
 		profileID = env.AddRemoteProfileToConfig(
-			"localhost",
+			flavor,
 			"Localhost via SSH (E2E Test)",
 			"/tmp/ssh-test-workspace",
 			"ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null localhost",
@@ -65,7 +66,7 @@ func TestE2ERemoteSSHSmoke(t *testing.T) {
 	var sessionID string
 	t.Run("SpawnRemoteSessionViaSSH", func(t *testing.T) {
 		t.Log("Spawning remote session via SSH (this may take a few seconds)...")
-		sessionID = env.SpawnRemoteSession(profileID, "echo", "", env.Nickname("ssh-test"))
+		sessionID = env.SpawnRemoteSession(profileID, flavor, "echo", "", env.Nickname("ssh-test"))
 		if sessionID == "" {
 			t.Fatal("Expected session ID from SSH remote spawn")
 		}

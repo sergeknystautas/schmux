@@ -543,7 +543,9 @@ func (s *Server) handleLoreApplyMerge(w http.ResponseWriter, r *http.Request) {
 
 				// Commit with descriptive message
 				commitMsg := fmt.Sprintf("lore: add %d rules from agent learnings", approvedCount)
-				commitCmd := exec.CommandContext(r.Context(), "git", "-C", ws.Path, "commit", "-m", commitMsg)
+				commitCmd := exec.CommandContext(r.Context(), "git", "-C", ws.Path,
+					"-c", "user.name=schmux", "-c", "user.email=schmux@noreply",
+					"commit", "-m", commitMsg)
 				if out, err := commitCmd.CombinedOutput(); err != nil {
 					http.Error(w, fmt.Sprintf("failed to commit: %s: %s", err, out), 500)
 					return

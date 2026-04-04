@@ -209,8 +209,18 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
 
   test('scroll region', async ({ page }) => {
     test.setTimeout(30_000);
+    // Scroll region CSI 3;8r needs enough visible rows to avoid overflow
+    // artifacts. Set a tall viewport so the terminal has ≥20 rows regardless
+    // of how many workspaces other specs added to the sidebar.
+    await page.setViewportSize({ width: 1280, height: 1080 });
 
     await openTerminal(page, sessionId, tmuxName);
+
+    // Verify tmux and xterm.js are synced before scroll region test.
+    // openTerminal can race under load — if the clear hasn't fully propagated
+    // through the control-mode pipeline, the scroll region output starts at
+    // the wrong cursor position, producing a row offset.
+    await assertTerminalMatchesTmux(page, tmuxName);
 
     // Set scroll region to rows 3-8, output lines within it, then reset
     const sentinel = sendTmuxCommandWithSentinel(
@@ -500,8 +510,28 @@ test.describe.serial('Terminal fidelity: scrollback', () => {
     await waitForDashboardLive(page);
     await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
 
-    // Verify after reload (retrying assertion handles bootstrap rendering lag)
-    await assertTerminalMatchesTmux(page, tmuxName);
+    // Wait for bootstrap content to appear in xterm.js before comparing.
+    // Under load (multiple sessions from prior tiers), the WebSocket bootstrap
+    // can take several seconds to deliver capture-pane data.
+    const bootstrapDeadline = Date.now() + 15_000;
+    while (Date.now() < bootstrapDeadline) {
+      const hasExpectedContent = await page.evaluate(() => {
+        const terminal = (window as any).__schmuxTerminal;
+        if (!terminal) return false;
+        const buffer = terminal.buffer.active;
+        for (let i = 0; i < buffer.baseY + terminal.rows; i++) {
+          const line = buffer.getLine(i);
+          if (line && line.translateToString(true).includes('reconnect-line')) return true;
+        }
+        return false;
+      });
+      if (hasExpectedContent) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+
+    // Verify after reload — use extra retries because bootstrap delivery under
+    // load (4 concurrent sessions from prior tiers) can take 10+ seconds.
+    await assertTerminalMatchesTmux(page, tmuxName, { maxRetries: 150 });
   });
 
   test('cursor position correct after bootstrap', async ({ page }) => {

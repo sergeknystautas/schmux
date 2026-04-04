@@ -45,9 +45,13 @@ func ListRecordings(dir string) ([]RecordingInfo, error) {
 		result = append(result, info)
 	}
 
-	// Sort by modification time, newest first
+	// Sort by start time (from cast header), newest first; fall back to ModTime
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].ModTime.After(result[j].ModTime)
+		ti, tj := result[i].StartTime, result[j].StartTime
+		if ti.IsZero() || tj.IsZero() {
+			return result[i].ModTime.After(result[j].ModTime)
+		}
+		return ti.After(tj)
 	})
 
 	return result, nil

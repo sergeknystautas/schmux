@@ -2203,7 +2203,7 @@ Request:
 ```
 
 - `merges` — array of layer/content pairs to apply.
-- `auto_commit` (boolean, default `false`) — when `true`, the daemon auto-commits and pushes (or creates a PR per `public_rule_mode`) instead of leaving unstaged changes.
+- `auto_commit` (boolean, default `false`) — when `true`, the daemon auto-commits (as `schmux <schmux@noreply>`) and pushes (or creates a PR per `public_rule_mode`) instead of leaving unstaged changes.
 
 Response:
 

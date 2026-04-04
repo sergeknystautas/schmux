@@ -9,6 +9,7 @@ export default defineConfig({
   globalSetup: './global-setup.ts',
   use: {
     baseURL: 'http://localhost:7337',
+    viewport: { width: 1280, height: 1080 },
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
     video: process.env.RECORD_VIDEO ? 'on' : 'retain-on-failure',

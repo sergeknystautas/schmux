@@ -1258,12 +1258,13 @@ func (e *Env) GetRemoteHosts() []RemoteHostResponse {
 // SpawnRemoteSession spawns a session on a remote host via the daemon API.
 // Returns the session ID from the API response. Retries up to 3 times on
 // transient "control mode not ready" / "client closed" errors.
-func (e *Env) SpawnRemoteSession(profileID, target, prompt, nickname string) string {
+func (e *Env) SpawnRemoteSession(profileID, flavor, target, prompt, nickname string) string {
 	e.T.Helper()
-	e.T.Logf("Spawning remote session via API: profile=%s target=%s nickname=%s", profileID, target, nickname)
+	e.T.Logf("Spawning remote session via API: profile=%s flavor=%s target=%s nickname=%s", profileID, flavor, target, nickname)
 
 	type SpawnRequest struct {
 		RemoteProfileID string         `json:"remote_profile_id"`
+		RemoteFlavor    string         `json:"remote_flavor,omitempty"`
 		Prompt          string         `json:"prompt"`
 		Nickname        string         `json:"nickname,omitempty"`
 		Targets         map[string]int `json:"targets"`
@@ -1271,6 +1272,7 @@ func (e *Env) SpawnRemoteSession(profileID, target, prompt, nickname string) str
 
 	spawnReqBody := SpawnRequest{
 		RemoteProfileID: profileID,
+		RemoteFlavor:    flavor,
 		Prompt:          prompt,
 		Nickname:        nickname,
 		Targets:         map[string]int{target: 1},
