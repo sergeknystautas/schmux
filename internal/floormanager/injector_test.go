@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -120,9 +121,11 @@ func TestFlushClearsPartialInputBeforeInjecting(t *testing.T) {
 	}
 	time.Sleep(300 * time.Millisecond)
 
-	// Type partial input to simulate operator typing
-	if err := tmux.SendLiteral(ctx, sessName, "hello wor"); err != nil {
-		t.Fatal("failed to type partial input:", err)
+	// Type partial input to simulate operator typing.
+	// Use exec.Command directly since the package-level tmux.SendLiteral has been removed.
+	sendCmd := exec.CommandContext(ctx, "tmux", "send-keys", "-l", "-t", sessName, "hello wor")
+	if out, err := sendCmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to type partial input: %v: %s", err, string(out))
 	}
 	time.Sleep(100 * time.Millisecond)
 

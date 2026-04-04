@@ -143,14 +143,6 @@ func getSystemEnvironment(ctx context.Context) (map[string]string, error) {
 	return env, nil
 }
 
-func updateBaseline(system map[string]string) {
-	keys := make(map[string]bool, len(system))
-	for k := range system {
-		keys[k] = true
-	}
-	tmux.SetBaseline(keys)
-}
-
 func (s *Server) handleGetEnvironment(w http.ResponseWriter, r *http.Request) {
 	system, err := getSystemEnvironment(r.Context())
 	if err != nil {
@@ -158,8 +150,6 @@ func (s *Server) handleGetEnvironment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to read system environment", http.StatusInternalServerError)
 		return
 	}
-
-	updateBaseline(system)
 
 	var tmuxEnv map[string]string
 	if s.tmuxServer != nil {

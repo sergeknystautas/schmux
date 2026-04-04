@@ -15,7 +15,17 @@ func TestParseTmuxSession(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "quoted session name",
+			name:     "new format with socket and exact match",
+			cmd:      `tmux -L schmux attach -t "=my-session"`,
+			expected: "my-session",
+		},
+		{
+			name:     "new format with spaces in name",
+			cmd:      `tmux -L schmux attach -t "=cli commands"`,
+			expected: "cli commands",
+		},
+		{
+			name:     "legacy quoted session name",
 			cmd:      `tmux attach -t "cli commands"`,
 			expected: "cli commands",
 		},
@@ -37,6 +47,11 @@ func TestParseTmuxSession(t *testing.T) {
 		{
 			name:     "session name with extra spaces after",
 			cmd:      `tmux attach -t "session"  `,
+			expected: "session",
+		},
+		{
+			name:     "exact match prefix stripped",
+			cmd:      `tmux attach -t "=session"`,
 			expected: "session",
 		},
 		{

@@ -511,19 +511,11 @@ func (s *Server) LogDashboardAssetPath() {
 	}
 }
 
-// initEnvironmentBaseline captures the system environment from a fresh login
-// shell and stores the key set as the baseline for tmux pollution cleanup.
-func (s *Server) initEnvironmentBaseline() {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	system, err := getSystemEnvironment(ctx)
-	if err != nil {
-		s.logger.Warn("failed to capture environment baseline, pollution cleanup disabled", "err", err)
-		return
-	}
-	updateBaseline(system)
-	s.logger.Info("environment baseline captured", "keys", len(system))
-}
+// initEnvironmentBaseline is a no-op now that tmux runs on an isolated socket.
+// Previously it captured system environment keys and stored them as a baseline
+// for CleanTmuxServerEnv, but with socket isolation there is no shared
+// environment to clean.
+func (s *Server) initEnvironmentBaseline() {}
 
 // Start starts the HTTP server.
 func (s *Server) Start() error {

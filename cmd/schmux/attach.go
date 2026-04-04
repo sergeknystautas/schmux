@@ -45,7 +45,7 @@ func (cmd *AttachCommand) Run(args []string) error {
 		for _, sess := range ws.Sessions {
 			if sess.ID == sessionID {
 				// Parse attach command to get tmux session name
-				// Attach command is: tmux attach -t "<session-name>" or tmux attach -t <session-name>
+				// Attach command format: tmux -L schmux attach -t "=<session-name>"
 				tmuxSession = parseTmuxSession(sess.AttachCmd)
 				if tmuxSession == "" {
 					// Fallback: couldn't parse, try session ID
@@ -61,8 +61,8 @@ found:
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
-	// Execute tmux attach
-	tmuxCmd := exec.Command(tmux.Binary(), "attach", "-t", tmuxSession)
+	// Execute tmux attach on the schmux socket
+	tmuxCmd := exec.Command(tmux.Binary(), "-L", "schmux", "attach", "-t", tmuxSession)
 	tmuxCmd.Stdin = os.Stdin
 	tmuxCmd.Stdout = os.Stdout
 	tmuxCmd.Stderr = os.Stderr
@@ -71,11 +71,12 @@ found:
 }
 
 // parseTmuxSession extracts the tmux session name from an attach command.
-// Handles both quoted and unquoted session names.
+// Handles both quoted and unquoted session names, stripping the "=" exact-match prefix.
 // Examples:
 //
-//	tmux attach -t "my session" -> my session
-//	tmux attach -t my-session -> my-session
+//	tmux -L schmux attach -t "=my session" -> my session
+//	tmux -L schmux attach -t "=my-session" -> my-session
+//	tmux attach -t my-session -> my-session (legacy)
 func parseTmuxSession(cmd string) string {
 	// Find the "-t" flag
 	idx := strings.Index(cmd, "-t")
@@ -89,6 +90,8 @@ func parseTmuxSession(cmd string) string {
 		return ""
 	}
 
+	var name string
+
 	// If it starts with a quote, extract the quoted content
 	if rest[0] == '"' || rest[0] == '\'' {
 		quote := rune(rest[0])
@@ -96,15 +99,21 @@ func parseTmuxSession(cmd string) string {
 		endQuote := strings.IndexRune(rest, quote)
 		if endQuote == -1 {
 			// Unclosed quote, return rest
-			return rest
+			name = rest
+		} else {
+			name = rest[:endQuote]
 		}
-		return rest[:endQuote]
+	} else {
+		// Otherwise, take the first word (up to space or end)
+		if idx := strings.IndexAny(rest, " \t\n"); idx != -1 {
+			name = rest[:idx]
+		} else {
+			name = rest
+		}
 	}
 
-	// Otherwise, take the first word (up to space or end)
-	if idx := strings.IndexAny(rest, " \t\n"); idx != -1 {
-		return rest[:idx]
-	}
+	// Strip the "=" exact-match prefix if present
+	name = strings.TrimPrefix(name, "=")
 
-	return rest
+	return name
 }
