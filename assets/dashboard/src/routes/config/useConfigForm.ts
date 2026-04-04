@@ -33,7 +33,7 @@ export type ConfigSnapshot = {
   xtermQueryTimeout: number;
   xtermOperationTimeout: number;
   xtermUseWebGL: boolean;
-  xtermSyncCheckEnabled: boolean;
+
   networkAccess: boolean;
   authEnabled: boolean;
   authProvider: string;
@@ -163,7 +163,7 @@ export type ConfigFormState = {
   xtermQueryTimeout: number;
   xtermOperationTimeout: number;
   xtermUseWebGL: boolean;
-  xtermSyncCheckEnabled: boolean;
+
   networkAccess: boolean;
   authEnabled: boolean;
   authProvider: string;
@@ -345,7 +345,6 @@ export const initialState: ConfigFormState = {
   xtermQueryTimeout: 5000,
   xtermOperationTimeout: 10000,
   xtermUseWebGL: true,
-  xtermSyncCheckEnabled: false,
   networkAccess: false,
   authEnabled: false,
   authProvider: 'github',
@@ -673,7 +672,6 @@ export function useConfigForm(initialStep: number = 1) {
         state.xtermQueryTimeout !== oc.xtermQueryTimeout ||
         state.xtermOperationTimeout !== oc.xtermOperationTimeout ||
         state.xtermUseWebGL !== oc.xtermUseWebGL ||
-        state.xtermSyncCheckEnabled !== oc.xtermSyncCheckEnabled ||
         state.networkAccess !== oc.networkAccess ||
         state.authEnabled !== oc.authEnabled ||
         state.authProvider !== oc.authProvider ||
@@ -773,7 +771,6 @@ export function useConfigForm(initialStep: number = 1) {
       xtermQueryTimeout: state.xtermQueryTimeout,
       xtermOperationTimeout: state.xtermOperationTimeout,
       xtermUseWebGL: state.xtermUseWebGL,
-      xtermSyncCheckEnabled: state.xtermSyncCheckEnabled,
       networkAccess: state.networkAccess,
       authEnabled: state.authEnabled,
       authProvider: state.authProvider,

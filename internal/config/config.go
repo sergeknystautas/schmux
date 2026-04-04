@@ -440,7 +440,6 @@ type XtermConfig struct {
 	QueryTimeoutMs     int   `json:"query_timeout_ms"`
 	OperationTimeoutMs int   `json:"operation_timeout_ms"`
 	UseWebGL           *bool `json:"use_webgl,omitempty"`
-	SyncCheckEnabled   *bool `json:"sync_check_enabled,omitempty"`
 }
 
 // DashboardSXConfig holds dashboard.sx HTTPS provisioning configuration.
@@ -2050,18 +2049,6 @@ func (c *Config) GetXtermUseWebGL() bool {
 		return true
 	}
 	return *c.Xterm.UseWebGL
-}
-
-// GetXtermSyncCheckEnabled returns whether the defense-in-depth sync check is enabled.
-// Defaults to false. When enabled, a background goroutine periodically runs capture-pane
-// comparisons and tmux pause-after flow control is activated.
-func (c *Config) GetXtermSyncCheckEnabled() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if c.Xterm == nil || c.Xterm.SyncCheckEnabled == nil {
-		return false
-	}
-	return *c.Xterm.SyncCheckEnabled
 }
 
 // GitCloneTimeout returns the git clone timeout as a time.Duration.

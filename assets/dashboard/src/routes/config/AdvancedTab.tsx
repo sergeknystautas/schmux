@@ -27,7 +27,6 @@ type AdvancedTabProps = {
   xtermQueryTimeout: number;
   xtermOperationTimeout: number;
   xtermUseWebGL: boolean;
-  xtermSyncCheckEnabled: boolean;
   nudgenikTargetMissing: boolean;
   branchSuggestTargetMissing: boolean;
   conflictResolveTargetMissing: boolean;
@@ -70,7 +69,6 @@ export default function AdvancedTab({
   xtermQueryTimeout,
   xtermOperationTimeout,
   xtermUseWebGL,
-  xtermSyncCheckEnabled,
   nudgenikTargetMissing,
   branchSuggestTargetMissing,
   conflictResolveTargetMissing,
@@ -577,21 +575,6 @@ export default function AdvancedTab({
             <p className="form-group__hint">
               Uses GPU-accelerated WebGL rendering for the terminal. Disable to fall back to the
               canvas renderer if you experience visual glitches.
-            </p>
-          </div>
-
-          <div className="form-group">
-            <label className="flex-row gap-xs cursor-pointer">
-              <input
-                type="checkbox"
-                checked={xtermSyncCheckEnabled}
-                onChange={(e) => setField('xtermSyncCheckEnabled', e.target.checked)}
-              />
-              <span>Sync check (defense-in-depth)</span>
-            </label>
-            <p className="form-group__hint">
-              Periodically compares xterm.js viewport with tmux via capture-pane and fix any visual
-              discrepancies.
             </p>
           </div>
         </div>

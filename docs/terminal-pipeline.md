@@ -297,7 +297,6 @@ handleOutput(data: string | ArrayBuffer) {
   // Text frame: JSON control messages
   const msg = JSON.parse(data);
   switch (msg.type) {
-    case 'sync':      // defense-in-depth sync check
     case 'stats':     // pipeline metrics (dev mode)
     case 'diagnostic': // diagnostic response (dev mode)
     case 'controlMode': // control mode attach/detach notification
@@ -348,41 +347,11 @@ The frontend sends `{"type": "gap", "fromSeq": "N"}` to the server. The server r
 
 If the OutputLog doesn't have the requested entries (they fell off the ring buffer), the server falls back to a capture-pane bootstrap.
 
-### Surgical Viewport Correction (Fallback)
-
-**File:** `assets/dashboard/src/lib/surgicalCorrection.ts`
-
-When the defense-in-depth text comparison finds a mismatch, the correction overwrites only the differing rows using cursor-positioning escape sequences:
-
-```
-For each differing row R:
-  \x1b7              Save cursor (DECSC)
-  \x1b[R+1;1H       Move to row R, column 1
-  \x1b[2K            Clear entire line
-  \x1b[0m            Reset SGR attributes
-  <row content>      Write correct ANSI content
-  \x1b8              Restore cursor (DECRC)
-```
-
-**Scrollback is never destroyed.** `terminal.reset()` is only called during the initial bootstrap (to clear the "Connecting..." message), never from the sync/correction path.
-
-### Defense-in-Depth Text Comparison
-
-A background goroutine runs every 60 seconds (initial delay 5 seconds after bootstrap):
-
-1. Captures visible tmux screen via `capture-pane`.
-2. Frontend compares stripped-text line-by-line against xterm.js viewport.
-3. Activity guard: skips if binary data arrived within 2 seconds (bypass if drops detected).
-4. On mismatch: applies surgical correction.
-5. Sends `syncResult` back to server for observability.
-
-This is a paranoia safety net. The primary consistency mechanism is sequence-based gap detection.
-
 ### Bootstrap Race Condition
 
 TUI applications like Claude Code perform multi-step redraws using relative cursor movements. If the bootstrap capture fires mid-redraw, xterm.js starts with a partial state. Subsequent relative cursor movements compound the error, producing permanent desync.
 
-The OutputLog-based bootstrap mitigates this because it replays the exact byte stream (not a point-in-time screenshot), and the defense-in-depth sync provides a correction mechanism within 60 seconds.
+The OutputLog-based bootstrap mitigates this because it replays the exact byte stream (not a point-in-time screenshot), and gap detection + replay provides a correction mechanism when frames are lost.
 
 ---
 
@@ -544,9 +513,6 @@ Registration uses `map[string][]*wsConn` — append on connect, remove on discon
 | Retry log interval                 | 15s                     | `tracker.go`                |
 | Session-dead poll interval         | 500ms                   | `websocket.go`              |
 | Control mode health poll           | 1s                      | `websocket.go`              |
-| Sync interval (defense-in-depth)   | 60s                     | `websocket.go`              |
-| Sync initial delay                 | 5s                      | `websocket.go`              |
-| Sync activity guard                | 2000ms                  | `terminalStream.ts`         |
 | Stats ticker (dev mode)            | 3s                      | `websocket.go`              |
 | Ring buffer (dev mode)             | 256KB                   | `websocket.go`              |
 | Scroll event ring buffer           | 100 entries             | `streamDiagnostics.ts`      |

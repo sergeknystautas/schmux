@@ -165,7 +165,6 @@ export default function ConfigPage() {
             xtermQueryTimeout: data.xterm?.query_timeout_ms || 5000,
             xtermOperationTimeout: data.xterm?.operation_timeout_ms || 10000,
             xtermUseWebGL: data.xterm?.use_webgl !== false,
-            xtermSyncCheckEnabled: data.xterm?.sync_check_enabled || false,
             networkAccess: netAccess,
             authEnabled: data.access_control?.enabled || false,
             authProvider: data.access_control?.provider || 'github',
@@ -252,7 +251,6 @@ export default function ConfigPage() {
             xtermQueryTimeout: data.xterm?.query_timeout_ms || 5000,
             xtermOperationTimeout: data.xterm?.operation_timeout_ms || 10000,
             xtermUseWebGL: data.xterm?.use_webgl !== false,
-            xtermSyncCheckEnabled: data.xterm?.sync_check_enabled || false,
             networkAccess: netAccess,
             authEnabled: data.access_control?.enabled || false,
             authProvider: data.access_control?.provider || 'github',
@@ -618,7 +616,6 @@ export default function ConfigPage() {
           query_timeout_ms: state.xtermQueryTimeout,
           operation_timeout_ms: state.xtermOperationTimeout,
           use_webgl: state.xtermUseWebGL,
-          sync_check_enabled: state.xtermSyncCheckEnabled,
         },
         network: {
           bind_address: state.networkAccess ? '0.0.0.0' : '127.0.0.1',
@@ -1505,7 +1502,6 @@ export default function ConfigPage() {
               xtermQueryTimeout={state.xtermQueryTimeout}
               xtermOperationTimeout={state.xtermOperationTimeout}
               xtermUseWebGL={state.xtermUseWebGL}
-              xtermSyncCheckEnabled={state.xtermSyncCheckEnabled}
               nudgenikTargetMissing={nudgenikTargetMissing}
               branchSuggestTargetMissing={branchSuggestTargetMissing}
               conflictResolveTargetMissing={conflictResolveTargetMissing}

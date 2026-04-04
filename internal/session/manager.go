@@ -1528,7 +1528,6 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 	}
 	if source == nil {
 		ls := NewLocalSource(sess.ID, sess.TmuxSession, m.logger)
-		ls.SyncCheckEnabled = m.config.GetXtermSyncCheckEnabled()
 		ls.Start()
 		source = ls
 	}

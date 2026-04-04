@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
@@ -373,31 +372,6 @@ func TestDiagnosticCaptureIncludesTerminalSize(t *testing.T) {
 	}
 }
 
-func TestStatsMessage_SyncFields(t *testing.T) {
-	msg := WSStatsMessage{
-		Type:              "stats",
-		EventsDelivered:   100,
-		SyncChecksSent:    5,
-		SyncCorrections:   1,
-		SyncSkippedActive: 2,
-	}
-	data, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var decoded map[string]interface{}
-	json.Unmarshal(data, &decoded)
-	if int(decoded["syncChecksSent"].(float64)) != 5 {
-		t.Errorf("syncChecksSent = %v, want 5", decoded["syncChecksSent"])
-	}
-	if int(decoded["syncCorrections"].(float64)) != 1 {
-		t.Errorf("syncCorrections = %v, want 1", decoded["syncCorrections"])
-	}
-	if int(decoded["syncSkippedActive"].(float64)) != 2 {
-		t.Errorf("syncSkippedActive = %v, want 2", decoded["syncSkippedActive"])
-	}
-}
-
 func TestMapEventStateToNudge(t *testing.T) {
 	tests := []struct {
 		input string
@@ -479,38 +453,6 @@ func TestIsTerminalResponse(t *testing.T) {
 				t.Errorf("isTerminalResponse(%q) = %v, want %v", tt.data, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestBuildSyncMessage(t *testing.T) {
-	screen := "\x1b[1mhello\x1b[0m world\nline two"
-	cursor := controlmode.CursorState{X: 3, Y: 24, Visible: true}
-
-	msg := buildSyncMessage(screen, cursor)
-
-	if msg.Type != "sync" {
-		t.Errorf("type = %q, want sync", msg.Type)
-	}
-	if msg.Screen != screen {
-		t.Errorf("screen content mismatch")
-	}
-	if msg.Cursor.Row != 24 || msg.Cursor.Col != 3 || !msg.Cursor.Visible {
-		t.Errorf("cursor = %+v, want {Row:24 Col:3 Visible:true}", msg.Cursor)
-	}
-
-	// Verify JSON marshaling
-	data, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var decoded map[string]interface{}
-	json.Unmarshal(data, &decoded)
-	if decoded["type"] != "sync" {
-		t.Errorf("JSON type = %v, want sync", decoded["type"])
-	}
-	cursorMap := decoded["cursor"].(map[string]interface{})
-	if int(cursorMap["row"].(float64)) != 24 {
-		t.Errorf("JSON cursor.row = %v, want 24", cursorMap["row"])
 	}
 }
 
@@ -710,18 +652,6 @@ func TestBuildDiagnosticFindings(t *testing.T) {
 			wantFindings: []string{"capacity"},
 		},
 		{
-			name: "sync disabled annotation",
-			counters: map[string]int64{
-				"eventsDropped":         0,
-				"clientFanOutDrops":     0,
-				"fanOutDrops":           0,
-				"controlModeReconnects": 0,
-				"syncDisabled":          1,
-			},
-			wantFindings: []string{"No drops or anomalies detected", "sync is disabled"},
-			wantVerdict:  "No obvious backend cause found",
-		},
-		{
 			name: "multiple issues — drops + reconnects + near capacity",
 			counters: map[string]int64{
 				"eventsDropped":         10,
@@ -768,22 +698,6 @@ func TestBuildDiagnosticFindings(t *testing.T) {
 				t.Errorf("verdict = %q, want substring %q", verdict, tt.wantVerdict)
 			}
 		})
-	}
-}
-
-func TestStatsMessage_SyncDisabled(t *testing.T) {
-	msg := WSStatsMessage{
-		Type:         "stats",
-		SyncDisabled: true,
-	}
-	data, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var decoded map[string]interface{}
-	json.Unmarshal(data, &decoded)
-	if decoded["syncDisabled"] != true {
-		t.Errorf("syncDisabled = %v, want true", decoded["syncDisabled"])
 	}
 }
 

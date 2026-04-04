@@ -107,7 +107,6 @@ type Xterm struct {
 	QueryTimeoutMs     int  `json:"query_timeout_ms"`
 	OperationTimeoutMs int  `json:"operation_timeout_ms"`
 	UseWebGL           bool `json:"use_webgl"`
-	SyncCheckEnabled   bool `json:"sync_check_enabled"`
 }
 
 // Network controls server binding and TLS.
@@ -250,7 +249,6 @@ type XtermUpdate struct {
 	QueryTimeoutMs     *int  `json:"query_timeout_ms,omitempty"`
 	OperationTimeoutMs *int  `json:"operation_timeout_ms,omitempty"`
 	UseWebGL           *bool `json:"use_webgl,omitempty"`
-	SyncCheckEnabled   *bool `json:"sync_check_enabled,omitempty"`
 }
 
 // NetworkUpdate represents partial network updates.

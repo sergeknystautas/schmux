@@ -9,9 +9,6 @@ import { StreamDiagnostics } from './streamDiagnostics';
 import { extractViewportText } from './screenCapture';
 import { computeScreenDiff } from './screenDiff';
 import { csrfHeaders } from './csrf';
-import { stripAnsi } from './ansiStrip';
-import { compareScreens } from './syncCompare';
-import { buildSurgicalCorrection, buildCursorCorrection } from './surgicalCorrection';
 import { WriteRaceDiagnostics } from './writeRaceDiagnostics';
 
 /**
@@ -244,7 +241,6 @@ export default class TerminalStream {
   onDiagnosticComplete:
     | ((result: { diagDir: string; verdict: string; findings: string[] }) => void)
     | null = null;
-  onSyncCorrection: ((diffRows: number[]) => void) | null = null;
 
   // Native typing: client-side input buffering for low-latency typing
   nativeTypingEnabled = false;
@@ -1574,16 +1570,6 @@ export default class TerminalStream {
         this.tsLog('controlMode', { attached: msg.attached });
         this.onControlModeChange?.(msg.attached as boolean);
         break;
-      case 'sync':
-        this.tsLog('sync.received', { forced: (msg as Record<string, unknown>).forced });
-        this.handleSync(
-          msg as {
-            screen: string;
-            cursor: { row: number; col: number; visible: boolean };
-            forced?: boolean;
-          }
-        );
-        break;
       default:
         if (msg.content) {
           // Remote sessions send output as text frames ("append").
@@ -1596,88 +1582,6 @@ export default class TerminalStream {
           });
           inputLatency.recordHandleOutputTime(performance.now() - renderStart);
         }
-    }
-  }
-
-  private handleSync(msg: {
-    screen: string;
-    cursor: { row: number; col: number; visible: boolean };
-    forced?: boolean;
-  }) {
-    if (!this.terminal) return;
-
-    // Native typing guard: don't compare while local echo is active —
-    // the locally-echoed text would be detected as a mismatch.
-    if (this.localBuffer.length > 0) {
-      this.tsLog('sync.skipped', { reason: 'nativeTypingActive' });
-      this.sendSyncResult(false, []);
-      return;
-    }
-
-    // Activity guard: skip if binary data arrived within 2s
-    // Bypass when forced (drops detected — correction is critical)
-    if (!msg.forced && Date.now() - this.lastBinaryTime < 2000) {
-      this.tsLog('sync.skipped', {
-        reason: 'recentBinaryData',
-        ageMs: Date.now() - this.lastBinaryTime,
-      });
-      this.sendSyncResult(false, []);
-      return;
-    }
-
-    // Extract xterm.js visible text
-    const buffer = this.terminal.buffer.active;
-    const xtermLines: string[] = [];
-    const start = buffer.baseY;
-    for (let y = start; y < start + this.terminal.rows && y < buffer.length; y++) {
-      const line = buffer.getLine(y);
-      xtermLines.push(line ? line.translateToString(true).trimEnd() : '');
-    }
-
-    // Extract sync text (strip ANSI, split into lines)
-    const syncScreenLines = msg.screen.split('\n');
-    const syncLines = syncScreenLines.map((line) => stripAnsi(line).trimEnd());
-
-    // Compare
-    const result = compareScreens(xtermLines, syncLines);
-
-    if (result.skip) {
-      // Dimension mismatch (resize race), skip
-      return;
-    }
-
-    if (!result.match) {
-      this.tsLog('sync.correction', {
-        diffRowCount: result.diffRows.length,
-        diffRows: result.diffRows,
-      });
-      const rowContents = result.diffRows.map((i) => syncScreenLines[i] ?? '');
-      const correction = buildSurgicalCorrection(result.diffRows, rowContents, msg.cursor);
-      this.writeTerminal(correction);
-
-      this.onSyncCorrection?.(result.diffRows);
-      this.sendSyncResult(true, result.diffRows);
-    } else {
-      // Content matches — check cursor position
-      const xtermCursor = { row: buffer.cursorY, col: buffer.cursorX };
-      const cursorCorrection = buildCursorCorrection(msg.cursor, xtermCursor);
-      if (cursorCorrection) {
-        this.writeTerminal(cursorCorrection);
-        this.sendSyncResult(true, []);
-      } else {
-        this.sendSyncResult(false, []);
-      }
-    }
-  }
-
-  private sendSyncResult(corrected: boolean, diffRows: number[]) {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(
-        JSON.stringify({
-          type: 'syncResult',
-          data: JSON.stringify({ corrected, diffRows }),
-        })
-      );
     }
   }
 

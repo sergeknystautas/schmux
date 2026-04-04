@@ -39,15 +39,8 @@ type LocalSource struct {
 	lastRetryLog time.Time
 	hasAttached  bool // tracks whether at least one successful attachment occurred
 
-	// SyncCheckEnabled controls whether pause-after flow control is enabled.
-	SyncCheckEnabled bool
-
 	// HealthProbe measures tmux control mode round-trip time.
 	HealthProbe *TmuxHealthProbe
-
-	// SyncTrigger is signaled when tmux pauses output delivery (pause-after).
-	// Exposed so the tracker/WebSocket handler can perform an immediate sync.
-	SyncTrigger chan struct{}
 }
 
 // NewLocalSource creates a LocalSource for the given tmux session.
@@ -63,7 +56,6 @@ func NewLocalSource(sessionID, tmuxSession string, logger *log.Logger) *LocalSou
 		stopCancel:  stopCancel,
 		doneCh:      make(chan struct{}),
 		HealthProbe: NewTmuxHealthProbe(),
-		SyncTrigger: make(chan struct{}, 1),
 	}
 }
 
@@ -268,17 +260,6 @@ func (s *LocalSource) attach() error {
 	}
 	s.hasAttached = true
 
-	// Enable pause-after if sync check is active
-	if s.SyncCheckEnabled {
-		pauseCtx, pauseCancel := context.WithTimeout(ctx, 5*time.Second)
-		if err := client.EnablePauseAfter(pauseCtx, 1); err != nil {
-			if s.logger != nil {
-				s.logger.Warn("failed to enable pause-after", "session", s.sessionID[:8], "err", err)
-			}
-		}
-		pauseCancel()
-	}
-
 	// Health probe goroutine
 	probeStop := make(chan struct{})
 	go func() {
@@ -317,13 +298,8 @@ func (s *LocalSource) attach() error {
 
 		case pausedPane := <-client.Pauses():
 			if s.logger != nil {
-				s.logger.Info("tmux paused output, triggering sync and continue",
+				s.logger.Info("tmux paused output, continuing",
 					"session", s.sessionID[:8], "pane", pausedPane)
-			}
-			// Signal for immediate capture-pane sync
-			select {
-			case s.SyncTrigger <- struct{}{}:
-			default:
 			}
 			// Resume output delivery
 			contCtx, contCancel := context.WithTimeout(ctx, 2*time.Second)

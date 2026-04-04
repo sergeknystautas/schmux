@@ -115,15 +115,6 @@ func (t *SessionTracker) OutputLog() *OutputLog {
 	return t.outputLog
 }
 
-// SyncTrigger returns a channel that fires when the source detects a tmux
-// output pause (via pause-after). Returns nil for non-local sources.
-func (t *SessionTracker) SyncTrigger() <-chan struct{} {
-	if ls, ok := t.source.(*LocalSource); ok {
-		return ls.SyncTrigger
-	}
-	return nil
-}
-
 // NewSessionTracker creates a tracker that drains events from a ControlSource.
 // If eventFilePath is non-empty and eventHandlers is non-nil, an EventWatcher
 // is created for the unified event system.

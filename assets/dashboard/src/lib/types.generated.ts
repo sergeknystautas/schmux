@@ -607,13 +607,11 @@ export interface Xterm {
   query_timeout_ms: number;
   operation_timeout_ms: number;
   use_webgl: boolean;
-  sync_check_enabled: boolean;
 }
 
 export interface XtermUpdate {
   query_timeout_ms?: number;
   operation_timeout_ms?: number;
   use_webgl?: boolean;
-  sync_check_enabled?: boolean;
 }
 

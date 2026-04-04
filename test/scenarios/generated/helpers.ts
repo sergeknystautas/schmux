@@ -26,9 +26,6 @@ interface SetupOptions {
     create_repo_base?: string;
     check_repo_base?: string;
   };
-  xterm?: {
-    sync_check_enabled?: boolean;
-  };
 }
 
 /**

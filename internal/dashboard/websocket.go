@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -18,7 +17,6 @@ import (
 	"github.com/sergeknystautas/schmux/internal/escbuf"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
-	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -116,41 +114,13 @@ type WSStatsMessage struct {
 	BytesDelivered    int64                        `json:"bytesDelivered"`
 	BytesPerSec       int64                        `json:"bytesPerSec"`
 	Reconnects        int64                        `json:"controlModeReconnects"`
-	SyncChecksSent    int64                        `json:"syncChecksSent"`
-	SyncCorrections   int64                        `json:"syncCorrections"`
-	SyncSkippedActive int64                        `json:"syncSkippedActive"`
 	ClientFanOutDrops int64                        `json:"clientFanOutDrops"`
 	FanOutDrops       int64                        `json:"fanOutDrops"`
 	CurrentSeq        uint64                       `json:"currentSeq"`
 	LogOldestSeq      uint64                       `json:"logOldestSeq"`
 	LogTotalBytes     int64                        `json:"logTotalBytes"`
-	SyncDisabled      bool                         `json:"syncDisabled"`
 	InputLatency      *LatencyPercentiles          `json:"inputLatency,omitempty"`
 	TmuxHealth        *session.HealthProbeSnapshot `json:"tmuxHealth,omitempty"`
-}
-
-// WSSyncCursor holds cursor position for sync messages.
-type WSSyncCursor struct {
-	Row     int  `json:"row"`
-	Col     int  `json:"col"`
-	Visible bool `json:"visible"`
-}
-
-// WSSyncMessage is a periodic screen snapshot sent to the frontend for desync detection.
-type WSSyncMessage struct {
-	Type   string       `json:"type"`
-	Screen string       `json:"screen"`
-	Cursor WSSyncCursor `json:"cursor"`
-	Forced bool         `json:"forced,omitempty"`
-}
-
-// buildSyncMessage constructs a sync message from a capture-pane output and cursor state.
-func buildSyncMessage(screen string, cursor controlmode.CursorState) WSSyncMessage {
-	return WSSyncMessage{
-		Type:   "sync",
-		Screen: screen,
-		Cursor: WSSyncCursor{Row: cursor.Y, Col: cursor.X, Visible: cursor.Visible},
-	}
 }
 
 // checkWSOrigin validates WebSocket upgrade origins.
@@ -424,11 +394,6 @@ drainBootstrap:
 		return
 	}
 
-	// Sync check counters (per-connection)
-	var syncChecksSent atomic.Int64
-	var syncCorrections atomic.Int64
-	var syncSkippedActive atomic.Int64
-
 	// Dev mode diagnostics: ring buffer and stats ticker
 	var ringBuf *RingBuffer
 	var statsTickerC <-chan time.Time
@@ -489,83 +454,6 @@ drainBootstrap:
 			}
 		}
 	}()
-
-	// Periodic defense-in-depth sync — sends screen snapshots for paranoia desync detection.
-	// Also triggers immediately when tmux pauses output delivery (pause-after).
-	// Disabled by default: the sync's capture-pane commands contend with ContinuePane
-	// on the control mode stdinMu mutex, which can extend pane pause duration during
-	// TUI redraws and amplify visual stutter. See docs/specs/terminal-stutter-analysis.md.
-	if s.config.GetXtermSyncCheckEnabled() {
-		go func() {
-			timer := time.NewTimer(5 * time.Second)
-			defer timer.Stop()
-
-			interval := 60 * time.Second
-			var lastDropsSeen int64
-
-			doSync := func(reason string) {
-				if conn.IsClosed() {
-					return
-				}
-
-				syncStart := time.Now()
-				capCtx, capCancel := context.WithTimeout(context.Background(), 2*time.Second)
-				screen, err := tracker.CapturePane(capCtx)
-				capCancel()
-				capDur := time.Since(syncStart)
-				if err != nil {
-					return
-				}
-
-				cursorStart := time.Now()
-				cursorCtx, cursorCancel := context.WithTimeout(context.Background(), 2*time.Second)
-				cursor, err := tracker.GetCursorState(cursorCtx)
-				cursorCancel()
-				cursorDur := time.Since(cursorStart)
-				if err != nil {
-					return
-				}
-
-				totalDur := time.Since(syncStart)
-				if s.devMode {
-					logging.Sub(s.logger, "sync").Info("sync commands completed",
-						"session_id", sessionID[:8],
-						"reason", reason,
-						"capture_ms", capDur.Milliseconds(),
-						"cursor_ms", cursorDur.Milliseconds(),
-						"total_ms", totalDur.Milliseconds(),
-						"screen_len", len(screen),
-					)
-				}
-
-				counters := tracker.DiagnosticCounters()
-				currentDrops := counters["eventsDropped"] + counters["clientFanOutDrops"] + counters["fanOutDrops"]
-				forced := currentDrops > lastDropsSeen || reason == "pause"
-				lastDropsSeen = currentDrops
-
-				msg := buildSyncMessage(screen, cursor)
-				msg.Forced = forced
-				data, _ := json.Marshal(msg)
-				syncChecksSent.Add(1)
-				if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-					tracker.Counters.WsWriteErrors.Add(1)
-				}
-			}
-
-			for {
-				select {
-				case <-timer.C:
-					doSync("timer")
-					timer.Reset(interval)
-				case <-tracker.SyncTrigger():
-					doSync("pause")
-					timer.Reset(interval)
-				case <-sessionDead:
-					return
-				}
-			}
-		}()
-	}
 
 	// Latency instrumentation: track per-keystroke timing segments.
 	latencyCollector := NewLatencyCollector()
@@ -719,15 +607,11 @@ drainBootstrap:
 					BytesDelivered:    counters["bytesDelivered"],
 					BytesPerSec:       bytesPerSec,
 					Reconnects:        counters["controlModeReconnects"],
-					SyncChecksSent:    syncChecksSent.Load(),
-					SyncCorrections:   syncCorrections.Load(),
-					SyncSkippedActive: syncSkippedActive.Load(),
 					ClientFanOutDrops: counters["clientFanOutDrops"],
 					FanOutDrops:       counters["fanOutDrops"],
 					CurrentSeq:        tracker.OutputLog().CurrentSeq(),
 					LogOldestSeq:      tracker.OutputLog().OldestSeq(),
 					LogTotalBytes:     tracker.OutputLog().TotalBytes(),
-					SyncDisabled:      true,
 					InputLatency:      latencyCollector.Percentiles(),
 					TmuxHealth:        tracker.HealthProbe.Snapshot(),
 				}
@@ -848,20 +732,6 @@ drainBootstrap:
 				}
 				if err := tracker.Resize(resizeData.Cols, resizeData.Rows); err != nil {
 					logging.Sub(s.logger, "terminal").Error("failed to resize", "err", err)
-				}
-			case "syncResult":
-				var result struct {
-					Corrected bool  `json:"corrected"`
-					DiffRows  []int `json:"diffRows"`
-				}
-				if err := json.Unmarshal([]byte(msg.Data), &result); err != nil {
-					break
-				}
-				if result.Corrected {
-					syncCorrections.Add(1)
-					logging.Sub(s.logger, "sync").Debug("corrected rows", "session_id", sessionID[:8], "rows_count", len(result.DiffRows), "diff_rows", result.DiffRows)
-				} else {
-					syncSkippedActive.Add(1)
 				}
 			case "gap":
 				var gapData struct {
@@ -1462,11 +1332,6 @@ func buildDiagnosticFindings(counters map[string]int64) (findings []string, verd
 	if counters["wsWriteErrors"] > 0 {
 		hasIssue = true
 		findings = append(findings, fmt.Sprintf("%d WS write error(s) caused disconnect(s)", counters["wsWriteErrors"]))
-	}
-
-	// Check if sync is disabled
-	if counters["syncDisabled"] == 1 {
-		findings = append(findings, "Periodic sync is disabled (gap detection is the primary consistency mechanism)")
 	}
 
 	if !hasIssue {
