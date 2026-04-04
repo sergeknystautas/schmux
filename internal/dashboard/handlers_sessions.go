@@ -234,8 +234,17 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			if tab.Kind == "resolve-conflict" {
 				hash := tab.Meta["hash"]
 				if conflict, ok := resolveConflictsByHash[hash]; ok {
-					closable = conflict.Status != "in_progress"
 					label = "Conflict " + shortHash(conflict.Hash)
+				}
+				// Use in-memory state (always current) to determine closability.
+				// If no in-memory state exists, no goroutine is running — allow close.
+				if hash != "" {
+					if crState := s.getLinearSyncResolveConflictState(ws.ID); crState != nil {
+						snapshot := crState.Snapshot()
+						if snapshot.Hash == hash {
+							closable = snapshot.Status != "in_progress"
+						}
+					}
 				}
 			}
 			tabItems = append(tabItems, contracts.Tab{

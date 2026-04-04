@@ -512,6 +512,7 @@ func (s *Server) initEnvironmentBaseline() {
 // Start starts the HTTP server.
 func (s *Server) Start() error {
 	s.initEnvironmentBaseline()
+	s.recoverStaleConflictRecords()
 
 	cleanupDelay := time.Duration(s.config.GetExternalDiffCleanupAfterMs()) * time.Millisecond
 	deleted, scheduled := difftool.SweepAndScheduleTempDirs(cleanupDelay, logging.Sub(s.logger, "difftool"))

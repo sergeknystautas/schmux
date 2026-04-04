@@ -82,11 +82,19 @@ func (s *Server) handleTabDelete(w http.ResponseWriter, r *http.Request) {
 	if found.Kind == "resolve-conflict" {
 		hash := found.Meta["hash"]
 		if hash != "" {
-			if conflict, ok := s.state.GetResolveConflict(workspaceID, hash); ok {
-				closable = conflict.Status != "in_progress"
-			} else {
-				closable = true
+			// Use the in-memory state as source of truth: it's updated by
+			// Finish() before the persisted record, so it always reflects the
+			// current goroutine status.  If no in-memory state exists (daemon
+			// restarted, or goroutine already completed and was cleaned up),
+			// allow closing — there is no running goroutine to protect.
+			if crState := s.getLinearSyncResolveConflictState(workspaceID); crState != nil {
+				snapshot := crState.Snapshot()
+				if snapshot.Hash == hash {
+					closable = snapshot.Status != "in_progress"
+				}
+				// in-memory state exists but for a different hash — allow close
 			}
+			// no in-memory state — allow close (no running goroutine)
 		}
 	}
 	if !closable {

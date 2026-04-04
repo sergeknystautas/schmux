@@ -313,6 +313,84 @@ func TestHandleTabDelete_NonClosable(t *testing.T) {
 	}
 }
 
+func TestHandleTabDelete_StaleInProgressClosable(t *testing.T) {
+	// When no in-memory state exists (e.g. daemon restarted), a resolve-conflict
+	// tab with a persisted "in_progress" record should still be closable.
+	srv, _, st := newTestServer(t)
+	hash := "stale01"
+	if err := st.AddWorkspace(state.Workspace{
+		ID:     "ws-stale",
+		Repo:   "https://example.com/repo.git",
+		Branch: "main",
+		Path:   t.TempDir(),
+		Tabs: []state.Tab{
+			{
+				ID:       "sys-resolve-conflict-" + hash,
+				Kind:     "resolve-conflict",
+				Label:    "Conflict " + hash,
+				Route:    "/resolve-conflict/ws-stale/sys-resolve-conflict-" + hash,
+				Closable: true,
+				Meta:     map[string]string{"hash": hash},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to add workspace: %v", err)
+	}
+	if err := st.UpsertResolveConflict("ws-stale", state.ResolveConflict{
+		Status: "in_progress",
+		Hash:   hash,
+	}); err != nil {
+		t.Fatalf("failed to add resolve conflict: %v", err)
+	}
+	// Deliberately do NOT set in-memory state — simulates daemon restart.
+
+	req := makeTabRequest(t, http.MethodDelete, "/api/workspaces/ws-stale/tabs/sys-resolve-conflict-"+hash, "ws-stale", "sys-resolve-conflict-"+hash, nil)
+	rr := httptest.NewRecorder()
+	srv.handleTabDelete(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("DELETE stale in-progress tab: status = %d, body = %s, want 200", rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleTabDelete_RunningInProgressNotClosable(t *testing.T) {
+	// When in-memory state exists and is "in_progress", the tab should NOT be closable.
+	srv, _, st := newTestServer(t)
+	hash := "running"
+	if err := st.AddWorkspace(state.Workspace{
+		ID:     "ws-running",
+		Repo:   "https://example.com/repo.git",
+		Branch: "main",
+		Path:   t.TempDir(),
+		Tabs: []state.Tab{
+			{
+				ID:       "sys-resolve-conflict-" + hash,
+				Kind:     "resolve-conflict",
+				Label:    "Conflict " + hash,
+				Route:    "/resolve-conflict/ws-running/sys-resolve-conflict-" + hash,
+				Closable: true,
+				Meta:     map[string]string{"hash": hash},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to add workspace: %v", err)
+	}
+	srv.setLinearSyncResolveConflictState("ws-running", &LinearSyncResolveConflictState{
+		ResolveConflict: state.ResolveConflict{
+			Status: "in_progress",
+			Hash:   hash,
+		},
+	})
+
+	req := makeTabRequest(t, http.MethodDelete, "/api/workspaces/ws-running/tabs/sys-resolve-conflict-"+hash, "ws-running", "sys-resolve-conflict-"+hash, nil)
+	rr := httptest.NewRecorder()
+	srv.handleTabDelete(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("DELETE running in-progress tab: status = %d, want 400", rr.Code)
+	}
+}
+
 func TestHandleTabDelete_NotFound(t *testing.T) {
 	srv, _, st := newTestServer(t)
 	if err := st.AddWorkspace(state.Workspace{

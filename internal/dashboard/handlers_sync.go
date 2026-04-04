@@ -599,3 +599,31 @@ func (s *Server) persistResolveConflict(workspaceID string, crState *LinearSyncR
 		logging.Sub(s.logger, "workspace").Warn("linear-sync-resolve-conflict: failed to save state", "err", err)
 	}
 }
+
+// recoverStaleConflictRecords transitions any persisted resolve-conflict records
+// stuck at "in_progress" to "failed". After a daemon restart no goroutine is
+// running for them, so they would otherwise block the tab from being closed.
+func (s *Server) recoverStaleConflictRecords() {
+	changed := false
+	for _, ws := range s.state.GetWorkspaces() {
+		for _, cr := range ws.ResolveConflicts {
+			if cr.Status != "in_progress" {
+				continue
+			}
+			cr.Status = "failed"
+			cr.Message = "Daemon restarted while conflict resolution was in progress"
+			cr.FinishedAt = time.Now().Format(time.RFC3339)
+			if err := s.state.UpsertResolveConflict(ws.ID, cr); err != nil {
+				s.logger.Warn("recover stale conflict record: upsert failed", "workspace", ws.ID, "err", err)
+				continue
+			}
+			changed = true
+			s.logger.Info("recovered stale conflict record", "workspace", ws.ID, "hash", cr.Hash)
+		}
+	}
+	if changed {
+		if err := s.state.Save(); err != nil {
+			s.logger.Warn("recover stale conflict records: save failed", "err", err)
+		}
+	}
+}

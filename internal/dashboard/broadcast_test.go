@@ -293,6 +293,14 @@ func TestBroadcast_ResolveConflictTabUsesPersistedTab(t *testing.T) {
 		},
 	})
 
+	// Set in-memory state to simulate a genuinely running resolution.
+	srv.setLinearSyncResolveConflictState("ws-conflict", &LinearSyncResolveConflictState{
+		ResolveConflict: state.ResolveConflict{
+			Status: "in_progress",
+			Hash:   "abcdef1",
+		},
+	})
+
 	conn, cleanup := dialTestDashboardWS(t, srv)
 	defer cleanup()
 
@@ -372,6 +380,15 @@ func TestBroadcast_ResolveConflictTabsUseMatchingPersistedRecords(t *testing.T) 
 				Meta:      map[string]string{"hash": "1234567"},
 				CreatedAt: time.Now(),
 			},
+			{
+				ID:        "sys-resolve-conflict-running1",
+				Kind:      "resolve-conflict",
+				Label:     "Conflict running1",
+				Route:     "/resolve-conflict/ws-conflicts/sys-resolve-conflict-running1",
+				Closable:  true,
+				Meta:      map[string]string{"hash": "running1"},
+				CreatedAt: time.Now(),
+			},
 		},
 		ResolveConflicts: []state.ResolveConflict{
 			{
@@ -390,6 +407,22 @@ func TestBroadcast_ResolveConflictTabsUseMatchingPersistedRecords(t *testing.T) 
 				StartedAt:   time.Now().Format(time.RFC3339),
 				Steps:       []state.ResolveConflictStep{},
 			},
+			{
+				Type:        "linear_sync_resolve_conflict",
+				WorkspaceID: "ws-conflicts",
+				Status:      "in_progress",
+				Hash:        "running1",
+				StartedAt:   time.Now().Format(time.RFC3339),
+				Steps:       []state.ResolveConflictStep{},
+			},
+		},
+	})
+
+	// Simulate a genuinely running resolution: set in-memory state for "running1".
+	srv.setLinearSyncResolveConflictState("ws-conflicts", &LinearSyncResolveConflictState{
+		ResolveConflict: state.ResolveConflict{
+			Status: "in_progress",
+			Hash:   "running1",
 		},
 	})
 
@@ -412,8 +445,13 @@ func TestBroadcast_ResolveConflictTabsUseMatchingPersistedRecords(t *testing.T) 
 	if found["sys-resolve-conflict-abcdef1"]["closable"] != true {
 		t.Fatalf("done tab should be closable, got %v", found["sys-resolve-conflict-abcdef1"]["closable"])
 	}
-	if found["sys-resolve-conflict-1234567"]["closable"] != false {
-		t.Fatalf("in-progress tab should not be closable, got %v", found["sys-resolve-conflict-1234567"]["closable"])
+	// Stale persisted in_progress with no in-memory state (e.g. daemon restarted) should be closable
+	if found["sys-resolve-conflict-1234567"]["closable"] != true {
+		t.Fatalf("stale in-progress tab (no goroutine) should be closable, got %v", found["sys-resolve-conflict-1234567"]["closable"])
+	}
+	// Genuinely running resolution (in-memory state present) should NOT be closable
+	if found["sys-resolve-conflict-running1"]["closable"] != false {
+		t.Fatalf("running in-progress tab should not be closable, got %v", found["sys-resolve-conflict-running1"]["closable"])
 	}
 }
 
