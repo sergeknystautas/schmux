@@ -169,4 +169,4 @@ Lifecycle: spec → plan → implement (delete plan) → finalize spec into `doc
 - [`docs/react.md`](docs/react.md) - React architecture
 - [`docs/architecture.md`](docs/architecture.md) - Backend architecture
 - [`docs/dev-mode.md`](docs/dev-mode.md) - Dev mode (hot-reload development)
-- [`AGENTS.md`](AGENTS.md) - Architecture guidelines (for non-Claude agents)
+- [`AGENTS.md`](AGENTS.md) - Symlink to CLAUDE.md (for non-Claude agents)
