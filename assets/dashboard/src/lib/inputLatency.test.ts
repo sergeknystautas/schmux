@@ -621,7 +621,7 @@ describe('getBreakdown cohort-median', () => {
     mockNow.mockRestore();
   }
 
-  it('typical breakdown uses IQR cohort', () => {
+  it('typical breakdown uses bottom 75% of valid tuples', () => {
     addSamples(20, 30, 2);
     const breakdown = inputLatency.getBreakdown('typical');
     expect(breakdown).not.toBeNull();
@@ -630,20 +630,20 @@ describe('getBreakdown cohort-median', () => {
     expect(breakdown!.total).toBeLessThanOrEqual(35);
   });
 
-  it('outlier breakdown uses P95+ cohort', () => {
-    // 110 samples at 30ms base, 10 samples at 100ms base
-    addSamples(110, 30, 2);
-    addSamples(10, 100, 2);
+  it('outlier breakdown uses top 25% of valid tuples', () => {
+    // 16 samples at 30ms, 4 at 100ms. Top 25% = last 5 tuples (sorted).
+    // The 4 high-RTT tuples land in the top quarter.
+    addSamples(16, 30, 2);
+    addSamples(4, 100, 2);
     const breakdown = inputLatency.getBreakdown('outlier');
     expect(breakdown).not.toBeNull();
-    // Outlier total should be in the 100ms range, not 30ms
+    // Outlier total should be in the high range, not 30ms
     expect(breakdown!.total).toBeGreaterThan(50);
   });
 
-  it('returns null for outlier cohort when fewer than 3 P95+ tuples', () => {
-    // 40 samples total. P95 index = floor(40*0.95) = 38.
-    // P95+ cohort = indices 39 = only 1 tuple (need 3).
-    addSamples(40, 30, 2);
+  it('returns null for outlier when fewer than 3 valid tuples total', () => {
+    // With 8 valid tuples, top 25% = 2 tuples (below minimum of 3).
+    addSamples(8, 30, 2);
     const breakdown = inputLatency.getBreakdown('outlier');
     expect(breakdown).toBeNull();
   });

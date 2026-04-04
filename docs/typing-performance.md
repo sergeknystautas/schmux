@@ -50,9 +50,9 @@ These are sent to the client as a JSON sideband message (`type: "inputEcho"`) wi
 
 ### Residual
 
-| Segment    | Computation                                                                |
-| ---------- | -------------------------------------------------------------------------- |
-| system | total - (handler + transport + tmux + agent + ws write + js queue + xterm) |
+| Segment | Computation                                                                |
+| ------- | -------------------------------------------------------------------------- |
+| system  | total - (handler + transport + tmux + agent + ws write + js queue + xterm) |
 
 This is the only segment that crosses clock boundaries. It captures WebSocket upstream transit, WebSocket downstream transit, and any system overhead. The residual is computed per-tuple (clamped to 0) then medianed across the cohort. The displayed total is the cohort's median RTT, independent of segment sum.
 
@@ -68,7 +68,7 @@ The segments were renamed for clarity. The wire protocol names (server JSON) are
 | frameSendMs               | frameSend                          | ws write          | schmux code   |
 | (computed)                | (evtLoop probe)                    | js queue          | page ↔ schmux |
 | (computed)                | (render timer)                     | xterm             | schmux code   |
-| (residual)                | (residual)                         | system        | page ↔ schmux |
+| (residual)                | (residual)                         | system            | page ↔ schmux |
 
 Segment display order (causal): handler, transport, tmux + agent, ws write, js queue, xterm, system.
 
@@ -82,7 +82,7 @@ Segment display order (causal): handler, transport, tmux + agent, ws write, js q
 | ws write     | Serialize frame + WS write (~0.1ms)                     | Same (~0.1ms)                                                                         |
 | js queue     | JS event loop delay before processing WS message (~1ms) | Same (~1-3ms)                                                                         |
 | xterm        | xterm.js parse + paint (~0.5ms)                         | Same (~0.5ms)                                                                         |
-| system   | WS loopback both directions (~1ms)                      | WS loopback + system SSH overhead (~varies)                                       |
+| system       | WS loopback both directions (~1ms)                      | WS loopback + system SSH overhead (~varies)                                           |
 
 Key insight: for remote sessions, SSH latency hides in `transport` (2 hops for send-keys ack) and `tmux + agent` (1 hop for %output notification). These two segments are the ones that change dramatically between local and remote.
 

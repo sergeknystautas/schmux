@@ -389,23 +389,20 @@ export class InputLatencyTracker {
     }
     if (tuples.length < 5) return null;
 
-    // Compute percentile boundaries from ALL samples (the histogram data),
-    // not from valid paired tuples. This ensures "typical" and "outlier"
-    // correspond to what the histogram shows — paired tuples are a biased
-    // subset (the serverTotal > clientRTT filter discards mispaired tuples,
-    // which can skew the distribution).
-    const stats = this.getStats();
-    if (!stats) return null;
-    const p25 = stats.p25;
-    const p75 = stats.p75;
-    const p95 = stats.p95;
+    // Rank-based cohort selection: sort valid tuples by RTT and split.
+    // Using ranks instead of absolute thresholds avoids the problem where
+    // the serverTotal > clientRTT filter creates a biased subset that
+    // doesn't cover the histogram's IQR or P95 range.
+    const sorted = [...tuples].sort((a, b) => a.clientRTT - b.clientRTT);
+    const splitIdx = Math.floor(sorted.length * 0.75);
 
-    // Select cohort
+    // Typical = bottom 75% (the normal three-quarters)
+    // Outlier = top 25% (the slow quarter)
     let cohort: FullTuple[];
     if (level === 'typical') {
-      cohort = tuples.filter((t) => t.clientRTT >= p25 && t.clientRTT <= p75);
+      cohort = sorted.slice(0, splitIdx);
     } else {
-      cohort = tuples.filter((t) => t.clientRTT > p95);
+      cohort = sorted.slice(splitIdx);
     }
     if (cohort.length < 3) return null;
 
