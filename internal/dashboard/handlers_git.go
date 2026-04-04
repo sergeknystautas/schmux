@@ -29,7 +29,7 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if !workspace.IsGitVCS(ws.VCS) {
+	if !workspace.HasVCSSupport(ws.VCS) {
 		writeJSONError(w, "commit graph not available for this VCS type", http.StatusBadRequest)
 		return
 	}
@@ -186,7 +186,7 @@ func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws
 	// Get newest timestamp of commits ahead on main
 	var mainAheadNewestTimestamp string
 	if mainAheadCount > 0 {
-		if out, err := conn.RunCommand(ctx, workdir, fmt.Sprintf("git log --format=%%aI -1 HEAD..%s", defaultBranchRef)); err == nil {
+		if out, err := conn.RunCommand(ctx, workdir, cb.NewestTimestamp("HEAD.."+defaultBranchRef)); err == nil {
 			mainAheadNewestTimestamp = strings.TrimSpace(out)
 		}
 	}
@@ -297,7 +297,7 @@ func (s *Server) handleWorkspaceGitCommit(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if !workspace.IsGitVCS(ws.VCS) {
+	if !workspace.HasVCSSupport(ws.VCS) {
 		writeJSONError(w, "commit detail not available for this VCS type", http.StatusBadRequest)
 		return
 	}

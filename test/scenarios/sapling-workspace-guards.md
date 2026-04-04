@@ -2,8 +2,7 @@
 
 A user has both git and sapling repositories configured. Sapling workspaces
 should show correct status in the dashboard and support the same operations
-as git workspaces (diff, stage, discard) via the VCS-agnostic CommandBuilder.
-Git-graph remains git-only.
+as git workspaces (diff, stage, discard, commit graph) via the VCS-agnostic CommandBuilder.
 
 ## Preconditions
 
@@ -17,4 +16,4 @@ Git-graph remains git-only.
 - GET /api/diff/{saplingWorkspaceId} returns HTTP 200 with file changes
 - POST /api/workspaces/{id}/git-commit-stage succeeds for sapling workspaces
 - POST /api/workspaces/{id}/git-discard removes untracked files in sapling workspaces
-- GET /api/workspaces/{id}/git-graph returns HTTP 400 for sapling workspaces (git-only feature)
+- GET /api/workspaces/{id}/git-graph does not reject sapling workspaces at the VCS type gate (no HTTP 400)

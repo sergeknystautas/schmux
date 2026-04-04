@@ -41,6 +41,17 @@ type VCSChangedFile struct {
 	LinesRemoved int
 }
 
+// HasVCSSupport returns true if the VCS type has diff and commit graph support.
+// This is broader than IsGitVCS — it includes Sapling.
+func HasVCSSupport(vcs string) bool {
+	switch vcs {
+	case "", "git", "git-worktree", "git-clone", "sapling":
+		return true
+	default:
+		return false
+	}
+}
+
 // IsGitVCS returns true if the VCS type string represents a git-based VCS.
 // Empty string defaults to git for backward compatibility.
 func IsGitVCS(vcs string) bool {

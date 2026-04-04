@@ -387,7 +387,7 @@ func Load(path string, logger *log.Logger) (*State, error) {
 			w.Tabs = []Tab{}
 		}
 		vcs := w.VCS
-		if vcs == "" || vcs == "git" || vcs == "sapling" {
+		if vcs == "" || vcs == "git" || vcs == "git-worktree" || vcs == "git-clone" || vcs == "sapling" {
 			now := time.Now()
 			// Reverse order: addTabLocked prepends, so git first → diff second → [diff, git]
 			if st.addTabLocked(w.ID, Tab{ID: "sys-git-" + w.ID, Kind: "git", Label: "commit graph", Route: "/git/" + w.ID, Closable: false, CreatedAt: now}) == nil {
@@ -550,7 +550,7 @@ func (s *State) AddWorkspace(w Workspace) error {
 	// Seed baseline tabs for VCS-capable workspaces via addTabLocked (dedup-safe)
 	if needsSeed {
 		vcs := w.VCS
-		if vcs == "" || vcs == "git" || vcs == "sapling" {
+		if vcs == "" || vcs == "git" || vcs == "git-worktree" || vcs == "git-clone" || vcs == "sapling" {
 			now := time.Now()
 			// Reverse order: addTabLocked prepends, so git first → diff second → [diff, git]
 			s.addTabLocked(w.ID, Tab{ID: "sys-git-" + w.ID, Kind: "git", Label: "commit graph", Route: "/git/" + w.ID, Closable: false, CreatedAt: now})

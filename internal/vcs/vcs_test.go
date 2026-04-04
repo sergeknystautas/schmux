@@ -74,8 +74,8 @@ func TestSaplingShowFile(t *testing.T) {
 		revision string
 		want     string
 	}{
-		// HEAD should be translated to .^
-		{"main.go", "HEAD", "sl cat -r '.^' 'main.go'"},
+		// HEAD should be translated to . (working copy parent)
+		{"main.go", "HEAD", "sl cat -r '.' 'main.go'"},
 		// Non-HEAD revisions pass through
 		{"src/app.ts", "abc123", "sl cat -r 'abc123' 'src/app.ts'"},
 		{"file.go", "deadbeef", "sl cat -r 'deadbeef' 'file.go'"},
@@ -405,6 +405,24 @@ func TestGitRevListCount(t *testing.T) {
 	}
 }
 
+func TestParseRangeToRevset(t *testing.T) {
+	tests := []struct {
+		input                    string
+		wantExclude, wantInclude string
+	}{
+		{"HEAD..origin/main", ".", "origin/main"},
+		{"abc123..def456", "abc123", "def456"},
+		{"notarange", "", "notarange"},
+	}
+	for _, tt := range tests {
+		exc, inc := parseRangeToRevset(tt.input)
+		if exc != tt.wantExclude || inc != tt.wantInclude {
+			t.Errorf("parseRangeToRevset(%q) = (%q, %q), want (%q, %q)",
+				tt.input, exc, inc, tt.wantExclude, tt.wantInclude)
+		}
+	}
+}
+
 func TestSaplingRevListCount(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -438,5 +456,46 @@ func TestSaplingRevListCount(t *testing.T) {
 				t.Errorf("RevListCount(%q) should pipe to wc -l: %q", tt.rangeSpec, got)
 			}
 		})
+	}
+}
+
+func TestGitNewestTimestamp(t *testing.T) {
+	cb := &GitCommandBuilder{}
+	got := cb.NewestTimestamp("HEAD..origin/main")
+	want := "git log --format=%aI -1 'HEAD..origin/main'"
+	if got != want {
+		t.Errorf("NewestTimestamp() = %q, want %q", got, want)
+	}
+}
+
+func TestSaplingNewestTimestamp(t *testing.T) {
+	cb := &SaplingCommandBuilder{}
+	got := cb.NewestTimestamp("HEAD..origin/main")
+	if !strings.Contains(got, "last(only(origin/main, .))") {
+		t.Errorf("NewestTimestamp(HEAD..origin/main) = %q, want revset with last(only(origin/main, .))", got)
+	}
+	if !strings.Contains(got, "--limit 1") {
+		t.Errorf("NewestTimestamp() = %q, want --limit 1", got)
+	}
+}
+
+func TestSaplingLogRange_HasLimit(t *testing.T) {
+	cb := &SaplingCommandBuilder{}
+	got := cb.LogRange([]string{"HEAD"}, "abc123")
+	if !strings.Contains(got, "--limit") {
+		t.Errorf("LogRange() = %q, want --limit to prevent unbounded output", got)
+	}
+}
+
+func TestSaplingShowFile_HEADMapping(t *testing.T) {
+	cb := &SaplingCommandBuilder{}
+	got := cb.ShowFile("foo.txt", "HEAD")
+	// In Sapling, "." is the working copy parent (equivalent to git HEAD).
+	// ".^" would be the grandparent — one commit too far back.
+	if !strings.Contains(got, "-r '.'") {
+		t.Errorf("ShowFile(foo.txt, HEAD) = %q, want command with -r '.' (not '.^')", got)
+	}
+	if strings.Contains(got, ".^") {
+		t.Errorf("ShowFile(foo.txt, HEAD) = %q, must NOT contain '.^'", got)
 	}
 }

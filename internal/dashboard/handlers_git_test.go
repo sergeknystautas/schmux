@@ -226,21 +226,21 @@ func TestHandleGitDiscard_Guards(t *testing.T) {
 	})
 }
 
-func TestHandleGitGraph_RejectsNonGitWorkspace(t *testing.T) {
+func TestHandleGitGraph_RejectsUnsupportedVCSWorkspace(t *testing.T) {
 	server, _, st := newTestServer(t)
 
 	ws := state.Workspace{
-		ID:     "ws-sapling",
+		ID:     "ws-unsupported",
 		Repo:   "https://github.com/test/repo",
 		Branch: "main",
 		Path:   t.TempDir(),
-		VCS:    "sapling",
+		VCS:    "mercurial",
 	}
 	if err := st.AddWorkspace(ws); err != nil {
 		t.Fatalf("failed to add workspace: %v", err)
 	}
 
-	req := makeWorkspaceRequest(t, http.MethodGet, "/api/workspaces/ws-sapling/git-graph", "ws-sapling", nil)
+	req := makeWorkspaceRequest(t, http.MethodGet, "/api/workspaces/ws-unsupported/git-graph", "ws-unsupported", nil)
 	rr := httptest.NewRecorder()
 	server.handleWorkspaceGitGraph(rr, req)
 

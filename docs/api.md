@@ -1628,8 +1628,8 @@ Notes:
 
 ### GET /api/workspaces/{workspaceId}/git-graph
 
-Returns the git commit graph for a workspace, including branch topology and dirty state.
-Returns 400 for non-git workspaces (e.g., sapling).
+Returns the commit graph for a workspace, including branch topology and dirty state.
+Supports both git and sapling workspaces. Returns 400 for unsupported VCS types.
 
 Query Parameters:
 

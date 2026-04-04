@@ -270,7 +270,12 @@ func parseSaplingStatus(output string) []VCSChangedFile {
 }
 
 func (s *SaplingBackend) GetDefaultBranch(ctx context.Context, repoBasePath string) (string, error) {
-	return "main", nil
+	output, err := s.manager.runCmd(ctx, "sl", "", RefreshTriggerExplicit, repoBasePath,
+		"config", "remotenames.selectivepulldefault")
+	if err != nil || strings.TrimSpace(string(output)) == "" {
+		return "main", nil // fallback
+	}
+	return strings.TrimSpace(string(output)), nil
 }
 
 func (s *SaplingBackend) GetCurrentBranch(ctx context.Context, workspacePath string) (string, error) {

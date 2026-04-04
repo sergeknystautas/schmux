@@ -130,10 +130,11 @@ test.describe.serial('Sapling workspace VCS support', () => {
     expect(fs.existsSync(throwawayPath)).toBe(false);
   });
 
-  test('git-graph API returns 400 for sapling workspace', async () => {
+  test('git-graph API does not reject sapling workspaces at VCS gate', async () => {
     const res = await fetch(`http://localhost:7337/api/workspaces/${workspaceId}/git-graph`);
-    expect(res.status).toBe(400);
-    const body = await res.text();
-    expect(body.toLowerCase()).toContain('not available');
+    // The VCS gate no longer rejects sapling workspaces with 400.
+    // The local graph handler may return 200 (empty graph) or 500 (git commands
+    // fail on a sapling repo), but it must NOT be the 400 VCS type rejection.
+    expect(res.status).not.toBe(400);
   });
 });

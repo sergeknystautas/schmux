@@ -85,6 +85,10 @@ func (g *GitCommandBuilder) RemoteBranchExists(branch string) string {
 	return fmt.Sprintf("git ls-remote --heads origin %s", branch)
 }
 
+func (g *GitCommandBuilder) NewestTimestamp(rangeSpec string) string {
+	return fmt.Sprintf("git log --format=%%aI -1 %s", shellutil.Quote(rangeSpec))
+}
+
 func (g *GitCommandBuilder) AddFiles(files []string) string {
 	args := []string{"git", "add", "--"}
 	for _, f := range files {

@@ -25,7 +25,7 @@ interface ProfileFormData {
 const emptyForm: ProfileFormData = {
   display_name: '',
   workspace_path: '',
-  vcs: 'sapling',
+  vcs: 'git',
   connect_command: '',
   reconnect_command: '',
   provision_command: '',

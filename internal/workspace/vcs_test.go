@@ -2,6 +2,26 @@ package workspace
 
 import "testing"
 
+func TestHasVCSSupport(t *testing.T) {
+	tests := []struct {
+		vcs  string
+		want bool
+	}{
+		{"", true},
+		{"git", true},
+		{"git-worktree", true},
+		{"git-clone", true},
+		{"sapling", true},
+		{"mercurial", false},
+		{"svn", false},
+	}
+	for _, tt := range tests {
+		if got := HasVCSSupport(tt.vcs); got != tt.want {
+			t.Errorf("HasVCSSupport(%q) = %v, want %v", tt.vcs, got, tt.want)
+		}
+	}
+}
+
 func TestIsGitVCS(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

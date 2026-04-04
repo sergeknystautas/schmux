@@ -7,6 +7,21 @@ import (
 	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
 
+// parseRangeToRevset converts git-style range notation "A..B" to Sapling revset
+// operands (exclude, include). Returns ("", rangeSpec) if not in A..B format.
+// Maps "HEAD" to "." (Sapling's working copy parent, equivalent to git HEAD).
+func parseRangeToRevset(rangeSpec string) (exclude, include string) {
+	parts := strings.Split(rangeSpec, "..")
+	if len(parts) != 2 {
+		return "", rangeSpec
+	}
+	exclude, include = parts[0], parts[1]
+	if exclude == "HEAD" {
+		exclude = "."
+	}
+	return exclude, include
+}
+
 // SaplingCommandBuilder implements CommandBuilder for Sapling (sl).
 type SaplingCommandBuilder struct{}
 
@@ -15,10 +30,10 @@ func (s *SaplingCommandBuilder) DiffNumstat() string {
 }
 
 func (s *SaplingCommandBuilder) ShowFile(path, revision string) string {
-	// In sapling, .^ means "parent of working copy", equivalent to git's HEAD
+	// In Sapling, "." is the working copy parent — equivalent to git's HEAD.
 	slRev := revision
 	if revision == "HEAD" {
-		slRev = ".^"
+		slRev = "."
 	}
 	return fmt.Sprintf("sl cat -r %s %s", shellutil.Quote(slRev), shellutil.Quote(path))
 }
@@ -61,7 +76,7 @@ func (s *SaplingCommandBuilder) LogRange(refs []string, forkPoint string) string
 		}
 	}
 	revset := fmt.Sprintf("(%s)::%s", forkPoint, strings.Join(refExprs, "+"))
-	return fmt.Sprintf("sl log -T '{node}|{short(node)}|{desc|firstline}|{author|user}|{date|isodate}|{p1node} {p2node}\\n' -r %s", shellutil.Quote(revset))
+	return fmt.Sprintf("sl log -T '{node}|{short(node)}|{desc|firstline}|{author|user}|{date|isodate}|{p1node} {p2node}\\n' -r %s --limit 5000", shellutil.Quote(revset))
 }
 
 func (s *SaplingCommandBuilder) ResolveRef(ref string) string {
@@ -91,18 +106,11 @@ func (s *SaplingCommandBuilder) DetectDefaultBranch() string {
 }
 
 func (s *SaplingCommandBuilder) RevListCount(rangeSpec string) string {
-	// Convert git range notation to sapling revset
-	// "HEAD..origin/main" -> "only(origin/main, .)"
-	parts := strings.Split(rangeSpec, "..")
-	if len(parts) == 2 {
-		exclude, include := parts[0], parts[1]
-		if exclude == "HEAD" {
-			exclude = "."
-		}
+	exclude, include := parseRangeToRevset(rangeSpec)
+	if exclude != "" {
 		revset := fmt.Sprintf("only(%s, %s)", include, exclude)
 		return fmt.Sprintf("sl log -T '.' -r %s | wc -l", shellutil.Quote(revset))
 	}
-	// Fallback for other range specs
 	return fmt.Sprintf("sl log -T '.' -r %s | wc -l", shellutil.Quote(rangeSpec))
 }
 
@@ -116,6 +124,15 @@ func (s *SaplingCommandBuilder) StatusPorcelain() string {
 
 func (s *SaplingCommandBuilder) RemoteBranchExists(branch string) string {
 	return fmt.Sprintf("sl log -r 'remote(%s)' --limit 1 -T '{node}' 2>/dev/null", branch)
+}
+
+func (s *SaplingCommandBuilder) NewestTimestamp(rangeSpec string) string {
+	exclude, include := parseRangeToRevset(rangeSpec)
+	if exclude != "" {
+		revset := fmt.Sprintf("last(only(%s, %s))", include, exclude)
+		return fmt.Sprintf("sl log -T '{date|isodate}\\n' -r %s --limit 1", shellutil.Quote(revset))
+	}
+	return fmt.Sprintf("sl log -T '{date|isodate}\\n' -r %s --limit 1", shellutil.Quote(rangeSpec))
 }
 
 func (s *SaplingCommandBuilder) AddFiles(files []string) string {

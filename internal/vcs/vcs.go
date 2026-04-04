@@ -38,6 +38,10 @@ type CommandBuilder interface {
 	// The command should exit 0 / produce output if the branch exists.
 	RemoteBranchExists(branch string) string
 
+	// NewestTimestamp returns a command that outputs the ISO timestamp of the
+	// newest commit in the given range (e.g., "HEAD..origin/main").
+	NewestTimestamp(rangeSpec string) string
+
 	// --- Working-copy mutation commands ---
 
 	// AddFiles returns the command to stage the specified files.
