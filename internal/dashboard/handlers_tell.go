@@ -1,13 +1,11 @@
 package dashboard
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
 type tellRequest struct {
@@ -34,10 +32,7 @@ func (s *Server) handleTellSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Prefix with [from FM] server-side
-	text := fmt.Sprintf("[from FM] %s", req.Message)
-
-	// Branch: local vs remote
+	// Pre-flight: check that the session is actually reachable
 	if sess.RemoteHostID != "" {
 		if s.remoteManager == nil {
 			writeJSONError(w, "remote manager not available", http.StatusServiceUnavailable)
@@ -48,28 +43,31 @@ func (s *Server) handleTellSession(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, "remote host not connected", http.StatusServiceUnavailable)
 			return
 		}
-		if _, err := conn.SendKeys(r.Context(), sess.RemotePaneID, text+"\n"); err != nil {
-			writeJSONError(w, fmt.Sprintf("failed to send message: %v", err), http.StatusInternalServerError)
-			return
-		}
-	} else {
-		tmuxSession := sess.TmuxSession
-		if tmuxSession == "" {
-			writeJSONError(w, "session is not running", http.StatusConflict)
-			return
-		}
-		ctx := context.Background()
-		// Clear any partial input before injecting the message to prevent
-		// collision with operator typing. See injector.go for details.
-		_ = tmux.SendKeys(ctx, tmuxSession, "C-u")
-		if err := tmux.SendLiteral(ctx, tmuxSession, text); err != nil {
-			writeJSONError(w, fmt.Sprintf("failed to send message: %v", err), http.StatusInternalServerError)
-			return
-		}
-		if err := tmux.SendKeys(ctx, tmuxSession, "Enter"); err != nil {
-			writeJSONError(w, fmt.Sprintf("failed to send Enter: %v", err), http.StatusInternalServerError)
-			return
-		}
+	} else if sess.TmuxSession == "" {
+		writeJSONError(w, "session is not running", http.StatusConflict)
+		return
+	}
+
+	// Prefix with [from FM] server-side
+	text := fmt.Sprintf("[from FM] %s", req.Message)
+
+	// Get the runtime (works for both local and remote sessions)
+	runtime, err := s.session.GetTracker(sessionID)
+	if err != nil {
+		writeJSONError(w, fmt.Sprintf("failed to get session runtime: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Clear any partial input before injecting the message to prevent
+	// collision with operator typing. See injector.go for details.
+	_ = runtime.SendTmuxKeyName("C-u")
+	if _, err := runtime.SendInput(text); err != nil {
+		writeJSONError(w, fmt.Sprintf("failed to send message: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if err := runtime.SendTmuxKeyName("Enter"); err != nil {
+		writeJSONError(w, fmt.Sprintf("failed to send Enter: %v", err), http.StatusInternalServerError)
+		return
 	}
 
 	writeJSON(w, map[string]string{"status": "ok"})

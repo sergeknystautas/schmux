@@ -9,7 +9,6 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/events"
-	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
 // Injector is an events.EventHandler that forwards filtered status events
@@ -87,7 +86,7 @@ func (inj *Injector) HandleEvent(ctx context.Context, sessionID string, raw even
 }
 
 // flush sends all pending messages to the floor manager's terminal.
-func (inj *Injector) flush(ctx context.Context) {
+func (inj *Injector) flush(_ context.Context) {
 	inj.mu.Lock()
 	if len(inj.pending) == 0 || inj.stopped {
 		inj.mu.Unlock()
@@ -97,8 +96,8 @@ func (inj *Injector) flush(ctx context.Context) {
 	inj.pending = nil
 	inj.mu.Unlock()
 
-	tmuxSession := inj.manager.TmuxSession()
-	if tmuxSession == "" {
+	runtime := inj.manager.Tracker()
+	if runtime == nil {
 		// Session not available yet (e.g. between restart). Put messages back
 		// so they are retried on the next flush after the session comes back.
 		inj.mu.Lock()
@@ -112,16 +111,16 @@ func (inj *Injector) flush(ctx context.Context) {
 	// gets appended to their partial input, garbling both the operator's
 	// message and the signal. Ctrl+U (unix-line-discard) clears from
 	// cursor to beginning of line in readline-based inputs and many TUIs.
-	if err := tmux.SendKeys(ctx, tmuxSession, "C-u"); err != nil {
+	if err := runtime.SendTmuxKeyName("C-u"); err != nil {
 		inj.logger.Warn("failed to clear input line before signal", "err", err)
 	}
 
 	text := strings.Join(messages, "\n")
-	if err := tmux.SendLiteral(ctx, tmuxSession, text); err != nil {
+	if _, err := runtime.SendInput(text); err != nil {
 		inj.logger.Warn("failed to send signal to floor manager", "err", err)
 		return
 	}
-	if err := tmux.SendKeys(ctx, tmuxSession, "Enter"); err != nil {
+	if err := runtime.SendTmuxKeyName("Enter"); err != nil {
 		inj.logger.Warn("failed to send Enter to floor manager", "err", err)
 		return
 	}
