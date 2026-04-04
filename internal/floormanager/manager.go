@@ -364,7 +364,6 @@ func (m *Manager) handleShiftRotation(ctx context.Context) {
 	}
 	m.rotating = true
 	m.shiftDone = make(chan struct{}, 1)
-	tmuxSess := m.tmuxSession
 	m.mu.Unlock()
 
 	defer func() {
@@ -376,11 +375,16 @@ func (m *Manager) handleShiftRotation(ctx context.Context) {
 
 	// Send [SHIFT] warning — clear partial input first to prevent collision
 	shiftMsg := fmt.Sprintf("[SHIFT] Forced rotation imminent. Save your summary to memory.md, then run `%s end-shift`. Do not acknowledge this message to the operator.", m.schmuxBin)
-	_ = tmux.SendKeys(ctx, tmuxSess, "C-u")
-	if err := tmux.SendLiteral(ctx, tmuxSess, shiftMsg); err != nil {
-		m.logger.Warn("failed to send [SHIFT] to floor manager", "err", err)
+	runtime := m.Tracker()
+	if runtime != nil {
+		_ = runtime.SendTmuxKeyName("C-u")
+		if _, err := runtime.SendInput(shiftMsg); err != nil {
+			m.logger.Warn("failed to send [SHIFT] to floor manager", "err", err)
+		} else {
+			_ = runtime.SendTmuxKeyName("Enter")
+		}
 	} else {
-		_ = tmux.SendKeys(ctx, tmuxSess, "Enter")
+		m.logger.Warn("no runtime available for [SHIFT] message")
 	}
 
 	// Wait for end-shift or timeout

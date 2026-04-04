@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
+	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
@@ -125,9 +126,28 @@ func TestFlushClearsPartialInputBeforeInjecting(t *testing.T) {
 	}
 	time.Sleep(100 * time.Millisecond)
 
+	// Set up a LocalSource + SessionRuntime so the injector can use the runtime
+	source := session.NewLocalSource("fm-test", sessName, nil, nil)
+	source.Start()
+	runtime := session.NewSessionRuntime("fm-test", source, nil, "", nil, nil, nil)
+	runtime.Start()
+	t.Cleanup(func() {
+		runtime.Stop()
+	})
+
+	// Wait for the control mode connection to establish
+	deadline := time.Now().Add(3 * time.Second)
+	for !source.IsAttached() && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !source.IsAttached() {
+		t.Fatal("source did not attach in time")
+	}
+
 	// Set up injector with pending signal
 	m := &Manager{
 		tmuxSession: sessName,
+		tracker:     runtime,
 		logger:      log.Default(),
 	}
 	inj := NewInjector(m, 0, log.Default())

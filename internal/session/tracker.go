@@ -250,6 +250,11 @@ func (t *SessionRuntime) SendInput(data string) (controlmode.SendKeysTimings, er
 	return t.source.SendKeys(data)
 }
 
+// SendTmuxKeyName sends a tmux key name (e.g. "C-u", "Enter") to the session.
+func (t *SessionRuntime) SendTmuxKeyName(name string) error {
+	return t.source.SendTmuxKeyName(name)
+}
+
 // Resize updates the terminal dimensions via the source.
 func (t *SessionRuntime) Resize(cols, rows int) error {
 	if cols <= 0 || rows <= 0 {
