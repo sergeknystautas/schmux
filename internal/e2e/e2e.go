@@ -548,7 +548,7 @@ func (e *Env) SendWebSocketInput(conn *websocket.Conn, data string) {
 func (e *Env) SendKeysToTmux(sessionName, text string) {
 	e.T.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	cmd := exec.CommandContext(ctx, "tmux", "send-keys", "-t", sessionName, "-l", text)
+	cmd := exec.CommandContext(ctx, "tmux", "-L", "schmux", "send-keys", "-t", sessionName, "-l", text)
 	cmd.Env = append(os.Environ(), "TMUX_TMPDIR="+e.HomeDir)
 	out, err := cmd.CombinedOutput()
 	cancel()
@@ -557,7 +557,7 @@ func (e *Env) SendKeysToTmux(sessionName, text string) {
 	}
 
 	ctx, cancel = context.WithTimeout(context.Background(), 3*time.Second)
-	cmd = exec.CommandContext(ctx, "tmux", "send-keys", "-t", sessionName, "C-m")
+	cmd = exec.CommandContext(ctx, "tmux", "-L", "schmux", "send-keys", "-t", sessionName, "C-m")
 	cmd.Env = append(os.Environ(), "TMUX_TMPDIR="+e.HomeDir)
 	out, err = cmd.CombinedOutput()
 	cancel()
@@ -891,7 +891,7 @@ func (e *Env) GetTmuxSessions() []string {
 	e.T.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	cmd := exec.CommandContext(ctx, "tmux", "ls")
+	cmd := exec.CommandContext(ctx, "tmux", "-L", "schmux", "ls")
 	cmd.Env = append(os.Environ(), "TMUX_TMPDIR="+e.HomeDir)
 	out, err := cmd.CombinedOutput()
 	cancel()
@@ -1016,7 +1016,7 @@ func (e *Env) CaptureArtifacts() {
 
 	// Capture tmux ls output
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	cmd := exec.CommandContext(ctx, "tmux", "ls")
+	cmd := exec.CommandContext(ctx, "tmux", "-L", "schmux", "ls")
 	cmd.Env = append(os.Environ(), "TMUX_TMPDIR="+e.HomeDir)
 	out, _ := cmd.CombinedOutput()
 	cancel()

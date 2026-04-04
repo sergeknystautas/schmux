@@ -421,4 +421,3 @@ func TestTmuxServerRenameSessionArgs(t *testing.T) {
 		t.Errorf("RenameSession cmd args = %v, want %v", got, want)
 	}
 }
-
