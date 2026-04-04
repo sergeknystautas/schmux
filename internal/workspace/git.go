@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -250,13 +251,61 @@ func (m *Manager) gitRemoteBranchExistsInstrumented(ctx context.Context, workspa
 	return true, nil
 }
 
-// gitCheckoutDot runs git checkout -- .
+// gitCheckoutDot runs git checkout -- . to discard local changes.
+// It is a no-op when HEAD has an empty tree (e.g. local repos with only
+// an --allow-empty initial commit), where git checkout -- . would fail.
+// If the command fails due to a stale index.lock (common when the daemon
+// kills git processes via SIGKILL), the lock is removed and the command
+// is retried once.
 func (m *Manager) gitCheckoutDot(ctx context.Context, dir string) error {
+	// Check if the tree has any tracked files — git checkout -- . fails
+	// with exit 128 on an empty tree.
+	out, err := m.runGit(ctx, "", RefreshTriggerExplicit, dir, "ls-tree", "HEAD")
+	if err != nil || len(bytes.TrimSpace(out)) == 0 {
+		return nil
+	}
+
 	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, dir, "checkout", "--", "."); err != nil {
+		if m.removeStaleIndexLock(ctx, dir, err) {
+			if _, retryErr := m.runGit(ctx, "", RefreshTriggerExplicit, dir, "checkout", "--", "."); retryErr != nil {
+				return fmt.Errorf("git checkout -- . failed after removing stale index.lock: %w", retryErr)
+			}
+			return nil
+		}
 		return fmt.Errorf("git checkout -- . failed: %w", err)
 	}
 
 	return nil
+}
+
+// removeStaleIndexLock checks if a git error was caused by a stale index.lock
+// and removes it. Returns true if a lock was removed.
+func (m *Manager) removeStaleIndexLock(ctx context.Context, dir string, gitErr error) bool {
+	var exitErr *exec.ExitError
+	if !errors.As(gitErr, &exitErr) || !bytes.Contains(exitErr.Stderr, []byte("index.lock")) {
+		return false
+	}
+
+	gitDirOut, err := m.runGit(ctx, "", RefreshTriggerExplicit, dir, "rev-parse", "--git-dir")
+	if err != nil {
+		return false
+	}
+	gitDir := strings.TrimSpace(string(gitDirOut))
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(dir, gitDir)
+	}
+
+	lockPath := filepath.Join(gitDir, "index.lock")
+	if _, err := os.Stat(lockPath); err != nil {
+		return false
+	}
+
+	m.logger.Warn("removing stale index.lock", "path", lockPath)
+	if err := os.Remove(lockPath); err != nil {
+		m.logger.Error("failed to remove stale index.lock", "path", lockPath, "err", err)
+		return false
+	}
+	return true
 }
 
 // gitCurrentBranch returns the current branch name for a directory.

@@ -921,3 +921,45 @@ func TestCheckWorkspaceClean(t *testing.T) {
 		t.Error("expected not clean with commits ahead")
 	}
 }
+
+func TestGitCheckoutDot_EmptyTree(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-b", "main")
+	runGit(t, dir, "commit", "--allow-empty", "-m", "empty")
+
+	m := &Manager{logger: testLogger()}
+	if err := m.gitCheckoutDot(context.Background(), dir); err != nil {
+		t.Fatalf("gitCheckoutDot on empty tree should be a no-op, got: %v", err)
+	}
+}
+
+func TestGitCheckoutDot_StaleIndexLock(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	dir := gitTestWorkTree(t)
+
+	// Create a stale index.lock
+	gitDir := filepath.Join(dir, ".git")
+	lockPath := filepath.Join(gitDir, "index.lock")
+	if err := os.WriteFile(lockPath, nil, 0644); err != nil {
+		t.Fatalf("failed to create index.lock: %v", err)
+	}
+
+	m := &Manager{logger: testLogger()}
+	if err := m.gitCheckoutDot(context.Background(), dir); err != nil {
+		t.Fatalf("gitCheckoutDot should recover from stale index.lock, got: %v", err)
+	}
+
+	// Lock file should have been removed
+	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
+		t.Error("stale index.lock should have been removed")
+	}
+}
