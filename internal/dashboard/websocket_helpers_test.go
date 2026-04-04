@@ -28,7 +28,7 @@ func withWorkspaceIDParam(r *http.Request, workspaceID string) *http.Request {
 func TestRequireWorkspace_EmptyID(t *testing.T) {
 	s, _, _ := newTestServer(t)
 
-	req, _ := http.NewRequest("GET", "/api/workspaces//git-graph", nil)
+	req, _ := http.NewRequest("GET", "/api/workspaces//commit-graph", nil)
 	req = withWorkspaceIDParam(req, "")
 	rr := httptest.NewRecorder()
 
@@ -56,7 +56,7 @@ func TestRequireWorkspace_EmptyID(t *testing.T) {
 func TestRequireWorkspace_NotFound(t *testing.T) {
 	s, _, _ := newTestServer(t)
 
-	req, _ := http.NewRequest("GET", "/api/workspaces/nonexistent/git-graph", nil)
+	req, _ := http.NewRequest("GET", "/api/workspaces/nonexistent/commit-graph", nil)
 	req = withWorkspaceIDParam(req, "nonexistent")
 	rr := httptest.NewRecorder()
 
@@ -85,7 +85,7 @@ func TestRequireWorkspace_Found(t *testing.T) {
 
 	s.state.AddWorkspace(state.Workspace{ID: "ws-test", Repo: "https://github.com/test/repo"})
 
-	req, _ := http.NewRequest("GET", "/api/workspaces/ws-test/git-graph", nil)
+	req, _ := http.NewRequest("GET", "/api/workspaces/ws-test/commit-graph", nil)
 	req = withWorkspaceIDParam(req, "ws-test")
 	rr := httptest.NewRecorder()
 

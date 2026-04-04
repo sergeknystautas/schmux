@@ -57,9 +57,9 @@ func TestHandleGitUncommit_Guards(t *testing.T) {
 
 	t.Run("rejects when no commits ahead", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{"hash": "abc123"})
-		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-uncommit/git-uncommit", "ws-uncommit", body)
+		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-uncommit/uncommit", "ws-uncommit", body)
 		rr := httptest.NewRecorder()
-		server.handleGitUncommit(rr, req)
+		server.handleUncommit(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
@@ -70,9 +70,9 @@ func TestHandleGitUncommit_Guards(t *testing.T) {
 		setWorkspaceAhead(t, st, "ws-uncommit", 1)
 
 		body, _ := json.Marshal(map[string]string{"hash": ""})
-		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-uncommit/git-uncommit", "ws-uncommit", body)
+		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-uncommit/uncommit", "ws-uncommit", body)
 		rr := httptest.NewRecorder()
-		server.handleGitUncommit(rr, req)
+		server.handleUncommit(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
@@ -83,9 +83,9 @@ func TestHandleGitUncommit_Guards(t *testing.T) {
 		setWorkspaceAhead(t, st, "ws-uncommit", 1)
 
 		body := []byte(`{}`)
-		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-uncommit/git-uncommit", "ws-uncommit", body)
+		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-uncommit/uncommit", "ws-uncommit", body)
 		rr := httptest.NewRecorder()
-		server.handleGitUncommit(rr, req)
+		server.handleUncommit(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
@@ -95,9 +95,9 @@ func TestHandleGitUncommit_Guards(t *testing.T) {
 	t.Run("rejects malformed body", func(t *testing.T) {
 		setWorkspaceAhead(t, st, "ws-uncommit", 1)
 
-		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-uncommit/git-uncommit", "ws-uncommit", []byte(`{not json}`))
+		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-uncommit/uncommit", "ws-uncommit", []byte(`{not json}`))
 		rr := httptest.NewRecorder()
-		server.handleGitUncommit(rr, req)
+		server.handleUncommit(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
@@ -106,9 +106,9 @@ func TestHandleGitUncommit_Guards(t *testing.T) {
 
 	t.Run("rejects workspace not found", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{"hash": "abc123"})
-		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/nonexistent/git-uncommit", "nonexistent", body)
+		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/nonexistent/uncommit", "nonexistent", body)
 		rr := httptest.NewRecorder()
-		server.handleGitUncommit(rr, req)
+		server.handleUncommit(rr, req)
 
 		if rr.Code != http.StatusNotFound {
 			t.Errorf("expected status 404, got %d: %s", rr.Code, rr.Body.String())
@@ -131,9 +131,9 @@ func TestHandleGitAmend_Guards(t *testing.T) {
 
 	t.Run("rejects when no commits ahead", func(t *testing.T) {
 		body, _ := json.Marshal(map[string][]string{"files": {"file.go"}})
-		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-amend/git-amend", "ws-amend", body)
+		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-amend/amend", "ws-amend", body)
 		rr := httptest.NewRecorder()
-		server.handleGitAmend(rr, req)
+		server.handleAmend(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
@@ -144,9 +144,9 @@ func TestHandleGitAmend_Guards(t *testing.T) {
 		setWorkspaceAhead(t, st, "ws-amend", 1)
 
 		body, _ := json.Marshal(map[string][]string{"files": {}})
-		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-amend/git-amend", "ws-amend", body)
+		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-amend/amend", "ws-amend", body)
 		rr := httptest.NewRecorder()
-		server.handleGitAmend(rr, req)
+		server.handleAmend(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
@@ -157,9 +157,9 @@ func TestHandleGitAmend_Guards(t *testing.T) {
 		setWorkspaceAhead(t, st, "ws-amend", 1)
 
 		body, _ := json.Marshal(map[string][]string{"files": {"../../etc/passwd"}})
-		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-amend/git-amend", "ws-amend", body)
+		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-amend/amend", "ws-amend", body)
 		rr := httptest.NewRecorder()
-		server.handleGitAmend(rr, req)
+		server.handleAmend(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
@@ -170,9 +170,9 @@ func TestHandleGitAmend_Guards(t *testing.T) {
 		setWorkspaceAhead(t, st, "ws-amend", 1)
 
 		body, _ := json.Marshal(map[string][]string{"files": {"/etc/passwd"}})
-		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-amend/git-amend", "ws-amend", body)
+		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-amend/amend", "ws-amend", body)
 		rr := httptest.NewRecorder()
-		server.handleGitAmend(rr, req)
+		server.handleAmend(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
@@ -195,9 +195,9 @@ func TestHandleGitDiscard_Guards(t *testing.T) {
 
 	t.Run("rejects malformed body", func(t *testing.T) {
 		// Malformed JSON that's not empty — should be rejected, not treated as discard-all
-		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-discard/git-discard", "ws-discard", []byte(`{invalid`))
+		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-discard/discard", "ws-discard", []byte(`{invalid`))
 		rr := httptest.NewRecorder()
-		server.handleGitDiscard(rr, req)
+		server.handleDiscard(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
@@ -206,9 +206,9 @@ func TestHandleGitDiscard_Guards(t *testing.T) {
 
 	t.Run("rejects path traversal in files", func(t *testing.T) {
 		body, _ := json.Marshal(map[string][]string{"files": {"../../../etc/shadow"}})
-		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-discard/git-discard", "ws-discard", body)
+		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-discard/discard", "ws-discard", body)
 		rr := httptest.NewRecorder()
-		server.handleGitDiscard(rr, req)
+		server.handleDiscard(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
@@ -216,9 +216,9 @@ func TestHandleGitDiscard_Guards(t *testing.T) {
 	})
 
 	t.Run("rejects workspace not found", func(t *testing.T) {
-		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/nonexistent/git-discard", "nonexistent", nil)
+		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/nonexistent/discard", "nonexistent", nil)
 		rr := httptest.NewRecorder()
-		server.handleGitDiscard(rr, req)
+		server.handleDiscard(rr, req)
 
 		if rr.Code != http.StatusNotFound {
 			t.Errorf("expected status 404, got %d: %s", rr.Code, rr.Body.String())
@@ -240,9 +240,9 @@ func TestHandleGitGraph_RejectsUnsupportedVCSWorkspace(t *testing.T) {
 		t.Fatalf("failed to add workspace: %v", err)
 	}
 
-	req := makeWorkspaceRequest(t, http.MethodGet, "/api/workspaces/ws-unsupported/git-graph", "ws-unsupported", nil)
+	req := makeWorkspaceRequest(t, http.MethodGet, "/api/workspaces/ws-unsupported/commit-graph", "ws-unsupported", nil)
 	rr := httptest.NewRecorder()
-	server.handleWorkspaceGitGraph(rr, req)
+	server.handleWorkspaceCommitGraph(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
@@ -270,9 +270,9 @@ func TestHandleGitCommitStage_Guards(t *testing.T) {
 	}
 
 	t.Run("rejects malformed body", func(t *testing.T) {
-		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-stage/git-commit-stage", "ws-stage", []byte(`not json`))
+		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-stage/stage", "ws-stage", []byte(`not json`))
 		rr := httptest.NewRecorder()
-		server.handleGitCommitStage(rr, req)
+		server.handleStage(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
@@ -281,9 +281,9 @@ func TestHandleGitCommitStage_Guards(t *testing.T) {
 
 	t.Run("rejects path traversal", func(t *testing.T) {
 		body, _ := json.Marshal(map[string][]string{"files": {"../../secrets.env"}})
-		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-stage/git-commit-stage", "ws-stage", body)
+		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-stage/stage", "ws-stage", body)
 		rr := httptest.NewRecorder()
-		server.handleGitCommitStage(rr, req)
+		server.handleStage(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())

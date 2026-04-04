@@ -1,6 +1,6 @@
 package contracts
 
-// GitGraphResponse represents the API response for GET /api/workspaces/{workspaceId}/git-graph.
+// GitGraphResponse represents the API response for GET /api/workspaces/{workspaceId}/commit-graph.
 type GitGraphResponse struct {
 	Repo                     string                    `json:"repo"`
 	Nodes                    []GitGraphNode            `json:"nodes"`

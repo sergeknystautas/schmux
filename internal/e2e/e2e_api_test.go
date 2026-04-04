@@ -617,11 +617,11 @@ func TestE2EGitGraphAndDiff(t *testing.T) {
 	t.Run("GitGraph", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
-			fmt.Sprintf("%s/api/workspaces/%s/git-graph", env.DaemonURL, workspaceID), nil)
+			fmt.Sprintf("%s/api/workspaces/%s/commit-graph", env.DaemonURL, workspaceID), nil)
 		resp, err := http.DefaultClient.Do(req)
 		cancel()
 		if err != nil {
-			t.Fatalf("GET git-graph failed: %v", err)
+			t.Fatalf("GET commit-graph failed: %v", err)
 		}
 		defer resp.Body.Close()
 
@@ -700,13 +700,13 @@ func TestE2EGitGraphAndDiff(t *testing.T) {
 		})
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
-			fmt.Sprintf("%s/api/workspaces/%s/git-commit-stage", env.DaemonURL, workspaceID),
+			fmt.Sprintf("%s/api/workspaces/%s/stage", env.DaemonURL, workspaceID),
 			bytes.NewReader(stageBody))
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(req)
 		cancel()
 		if err != nil {
-			t.Fatalf("POST git-commit-stage failed: %v", err)
+			t.Fatalf("POST stage failed: %v", err)
 		}
 		defer resp.Body.Close()
 
@@ -736,13 +736,13 @@ func TestE2EGitGraphAndDiff(t *testing.T) {
 		})
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
-			fmt.Sprintf("%s/api/workspaces/%s/git-discard", env.DaemonURL, workspaceID),
+			fmt.Sprintf("%s/api/workspaces/%s/discard", env.DaemonURL, workspaceID),
 			bytes.NewReader(discardBody))
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(req)
 		cancel()
 		if err != nil {
-			t.Fatalf("POST git-discard failed: %v", err)
+			t.Fatalf("POST discard failed: %v", err)
 		}
 		defer resp.Body.Close()
 
@@ -871,7 +871,7 @@ func TestE2ESaplingDiffAndDiscard(t *testing.T) {
 		})
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
-			fmt.Sprintf("%s/api/workspaces/%s/git-discard", env.DaemonURL, workspaceID),
+			fmt.Sprintf("%s/api/workspaces/%s/discard", env.DaemonURL, workspaceID),
 			bytes.NewReader(discardBody))
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(req)
@@ -902,7 +902,7 @@ func TestE2ESaplingDiffAndDiscard(t *testing.T) {
 		})
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
-			fmt.Sprintf("%s/api/workspaces/%s/git-commit-stage", env.DaemonURL, workspaceID),
+			fmt.Sprintf("%s/api/workspaces/%s/stage", env.DaemonURL, workspaceID),
 			bytes.NewReader(stageBody))
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(req)

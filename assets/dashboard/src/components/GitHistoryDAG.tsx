@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import {
-  getGitGraph,
+  getCommitGraph,
   getDiff,
-  gitCommitStage,
-  gitAmend,
-  gitDiscard,
-  gitUncommit,
+  commitStage,
+  commitAmend,
+  commitDiscard,
+  commitUncommit,
   spawnCommitSession,
   pushToBranch,
   getConfig,
@@ -106,7 +106,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
     if (maxCommits <= 0) return; // wait for container measurement
     try {
       const [graphResp, diffResp] = await Promise.all([
-        getGitGraph(workspaceId, { maxTotal: maxCommits }),
+        getCommitGraph(workspaceId, { maxTotal: maxCommits }),
         getDiff(workspaceId).catch(() => ({ files: [] as FileDiff[] })),
       ]);
       setData(graphResp);
@@ -343,7 +343,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
               if (!confirmed) return;
               setIsDiscarding(true);
               try {
-                await gitDiscard(workspaceId, filesToDiscard);
+                await commitDiscard(workspaceId, filesToDiscard);
                 fetchData();
               } catch (err) {
                 await alert('Discard Failed', err instanceof Error ? err.message : 'Unknown error');
@@ -425,7 +425,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
             if (!confirmed) return;
             setIsCommitting(true);
             try {
-              await gitCommitStage(workspaceId, Array.from(selectedFiles));
+              await commitStage(workspaceId, Array.from(selectedFiles));
               if (ws) {
                 const results = await spawnCommitSession(
                   workspaceId,
@@ -477,7 +477,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
                 if (!confirmed) return;
                 setIsAmending(true);
                 try {
-                  await gitAmend(workspaceId, Array.from(selectedFiles));
+                  await commitAmend(workspaceId, Array.from(selectedFiles));
                   fetchData();
                 } catch (err) {
                   await alert('Amend Failed', err instanceof Error ? err.message : 'Unknown error');
@@ -571,7 +571,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
           disabled={isNavigatingCommit !== null}
           onClick={async () => {
             if (isNavigatingCommit) return;
-            const route = `/git/${workspaceId}/${ln.node.short_hash}`;
+            const route = `/commits/${workspaceId}/${ln.node.short_hash}`;
             setIsNavigatingCommit(ln.node.short_hash);
             try {
               await createTab(workspaceId, {
@@ -613,7 +613,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
                   e.stopPropagation();
                   setIsUncommitting(true);
                   try {
-                    await gitUncommit(workspaceId, ln.node.hash);
+                    await commitUncommit(workspaceId, ln.node.hash);
                     fetchData();
                   } catch (err) {
                     await alert(

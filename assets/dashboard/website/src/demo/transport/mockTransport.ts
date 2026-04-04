@@ -193,9 +193,9 @@ export function createDemoTransport(options: DemoTransportOptions): Transport & 
         );
       }
 
-      // Git graph endpoint — returns GitGraphResponse with commit history
-      if (url.includes('/git-graph')) {
-        const match = url.match(/\/api\/workspaces\/([^/]+)\/git-graph/);
+      // Commit graph endpoint — returns GitGraphResponse with commit history
+      if (url.includes('/commit-graph')) {
+        const match = url.match(/\/api\/workspaces\/([^/]+)\/commit-graph/);
         const workspaceId = match?.[1] || 'demo-ws-1';
         return Promise.resolve(
           new Response(JSON.stringify(createDemoGitGraph(decodeURIComponent(workspaceId))), {

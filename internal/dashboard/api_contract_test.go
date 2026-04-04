@@ -610,12 +610,12 @@ func TestAPIContract_WebSocketErrors(t *testing.T) {
 func TestGitGraphEndpoint_UnknownWorkspace(t *testing.T) {
 	server, _, _ := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/workspaces/nonexistent/git-graph", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/workspaces/nonexistent/commit-graph", nil)
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("workspaceID", "nonexistent")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 	rr := httptest.NewRecorder()
-	server.handleWorkspaceGitGraph(rr, req)
+	server.handleWorkspaceCommitGraph(rr, req)
 
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("expected status 404, got %d", rr.Code)

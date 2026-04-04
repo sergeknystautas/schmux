@@ -1,6 +1,6 @@
 package contracts
 
-// GitCommitDetailResponse represents the API response for GET /api/workspaces/{workspaceId}/git-commit/{hash}.
+// GitCommitDetailResponse represents the API response for GET /api/workspaces/{workspaceId}/commit-detail/{hash}.
 type GitCommitDetailResponse struct {
 	Hash        string     `json:"hash"`
 	ShortHash   string     `json:"short_hash"`

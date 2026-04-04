@@ -390,7 +390,7 @@ func Load(path string, logger *log.Logger) (*State, error) {
 		if vcs == "" || vcs == "git" || vcs == "git-worktree" || vcs == "git-clone" || vcs == "sapling" {
 			now := time.Now()
 			// Reverse order: addTabLocked prepends, so git first → diff second → [diff, git]
-			if st.addTabLocked(w.ID, Tab{ID: "sys-git-" + w.ID, Kind: "git", Label: "commit graph", Route: "/git/" + w.ID, Closable: false, CreatedAt: now}) == nil {
+			if st.addTabLocked(w.ID, Tab{ID: "sys-git-" + w.ID, Kind: "git", Label: "commit graph", Route: "/commits/" + w.ID, Closable: false, CreatedAt: now}) == nil {
 				tabsMigrated = true
 			}
 			if st.addTabLocked(w.ID, Tab{ID: "sys-diff-" + w.ID, Kind: "diff", Label: "Diff", Route: "/diff/" + w.ID, Closable: false, CreatedAt: now}) == nil {
@@ -553,7 +553,7 @@ func (s *State) AddWorkspace(w Workspace) error {
 		if vcs == "" || vcs == "git" || vcs == "git-worktree" || vcs == "git-clone" || vcs == "sapling" {
 			now := time.Now()
 			// Reverse order: addTabLocked prepends, so git first → diff second → [diff, git]
-			s.addTabLocked(w.ID, Tab{ID: "sys-git-" + w.ID, Kind: "git", Label: "commit graph", Route: "/git/" + w.ID, Closable: false, CreatedAt: now})
+			s.addTabLocked(w.ID, Tab{ID: "sys-git-" + w.ID, Kind: "git", Label: "commit graph", Route: "/commits/" + w.ID, Closable: false, CreatedAt: now})
 			s.addTabLocked(w.ID, Tab{ID: "sys-diff-" + w.ID, Kind: "diff", Label: "Diff", Route: "/diff/" + w.ID, Closable: false, CreatedAt: now})
 		}
 	}

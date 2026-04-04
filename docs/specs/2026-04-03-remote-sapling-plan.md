@@ -354,7 +354,7 @@ go test ./internal/workspace/ -count=1
 
 ### 5a. Write failing test
 
-No new test file — verify via existing tests after modification. The key behavioral change: a workspace with `VCS: "sapling"` should NOT get a 400 error from the git-graph endpoint.
+No new test file — verify via existing tests after modification. The key behavioral change: a workspace with `VCS: "sapling"` should NOT get a 400 error from the commit-graph endpoint.
 
 **File**: `internal/dashboard/handlers_git_test.go` — find or add a test for sapling workspace graph access. If no test file exists for this specific handler, add:
 

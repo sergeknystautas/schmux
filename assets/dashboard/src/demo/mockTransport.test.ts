@@ -206,13 +206,13 @@ describe('createDemoTransport', () => {
       expect(modified.new_content).toBeTruthy();
     });
 
-    it('returns git graph for /api/workspaces/{id}/git-graph', async () => {
+    it('returns commit graph for /api/workspaces/{id}/commit-graph', async () => {
       const dt = createDemoTransport({
         workspaces: createDemoWorkspaces(),
         recordings: {},
       });
 
-      const response = await dt.fetch('/api/workspaces/demo-ws-1/git-graph?max_total=50');
+      const response = await dt.fetch('/api/workspaces/demo-ws-1/commit-graph?max_total=50');
       expect(response.ok).toBe(true);
       const data = await response.json();
       expect(data.nodes.length).toBeGreaterThan(0);
@@ -401,7 +401,7 @@ describe('workspacesScenario tour steps', () => {
     const { workspacesScenario } = await import('../../website/src/demo/scenarios/workspaces');
     const gitStep = workspacesScenario.steps.find((s) => s.target === '[data-tour="git-tab"]');
     expect(gitStep).toBeDefined();
-    expect(gitStep!.route).toMatch(/\/git\//);
+    expect(gitStep!.route).toMatch(/\/commits\//);
   });
 
   it('session-detail-sidebar step expands collapsed sidebar via beforeStep', async () => {

@@ -81,7 +81,7 @@ export const workspacesScenario: TourScenario = {
       body: 'Visualize the commit history for each workspace. See how far ahead or behind the branch is.',
       placement: 'bottom',
       advanceOn: 'next',
-      route: '/git/demo-ws-1',
+      route: '/commits/demo-ws-1',
     },
     {
       target: '[data-tour="vscode-btn"]',

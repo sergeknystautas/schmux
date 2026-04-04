@@ -19,7 +19,7 @@ import {
   dismissRemoteHost,
   getErrorMessage,
   linearSyncFromMain,
-  getGitGraph,
+  getCommitGraph,
   getSubreddit,
   getRepofeedList,
 } from '../lib/api';
@@ -496,7 +496,7 @@ export default function HomePage() {
     let failed = 0;
     for (const ws of behindWorkspaces) {
       try {
-        const graph = await getGitGraph(ws.id, { maxTotal: 1, mainContext: 1 });
+        const graph = await getCommitGraph(ws.id, { maxTotal: 1, mainContext: 1 });
         const hash = graph.main_ahead_next_hash;
         if (!hash) {
           failed++;

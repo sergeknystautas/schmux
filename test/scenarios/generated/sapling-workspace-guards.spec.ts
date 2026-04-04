@@ -100,14 +100,11 @@ test.describe.serial('Sapling workspace VCS support', () => {
     const path = await import('path');
     fs.writeFileSync(path.join(workspacePath, 'staged.txt'), 'to be staged\n');
 
-    const res = await fetch(
-      `http://localhost:7337/api/workspaces/${workspaceId}/git-commit-stage`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ files: ['staged.txt'] }),
-      }
-    );
+    const res = await fetch(`http://localhost:7337/api/workspaces/${workspaceId}/stage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: ['staged.txt'] }),
+    });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { success: boolean };
     expect(body.success).toBe(true);
@@ -119,7 +116,7 @@ test.describe.serial('Sapling workspace VCS support', () => {
     const throwawayPath = path.join(workspacePath, 'throwaway.txt');
     fs.writeFileSync(throwawayPath, 'to be discarded\n');
 
-    const res = await fetch(`http://localhost:7337/api/workspaces/${workspaceId}/git-discard`, {
+    const res = await fetch(`http://localhost:7337/api/workspaces/${workspaceId}/discard`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: ['throwaway.txt'] }),
@@ -130,8 +127,8 @@ test.describe.serial('Sapling workspace VCS support', () => {
     expect(fs.existsSync(throwawayPath)).toBe(false);
   });
 
-  test('git-graph API does not reject sapling workspaces at VCS gate', async () => {
-    const res = await fetch(`http://localhost:7337/api/workspaces/${workspaceId}/git-graph`);
+  test('commit-graph API does not reject sapling workspaces at VCS gate', async () => {
+    const res = await fetch(`http://localhost:7337/api/workspaces/${workspaceId}/commit-graph`);
     // The VCS gate no longer rejects sapling workspaces with 400.
     // The local graph handler may return 200 (empty graph) or 500 (git commands
     // fail on a sapling repo), but it must NOT be the 400 VCS type rejection.

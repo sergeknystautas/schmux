@@ -1626,7 +1626,7 @@ Notes:
 - Call again with `confirm: true` to proceed with force-push
 - Updates workspace git status after successful push
 
-### GET /api/workspaces/{workspaceId}/git-graph
+### GET /api/workspaces/{workspaceId}/commit-graph
 
 Returns the commit graph for a workspace, including branch topology and dirty state.
 Supports both git and sapling workspaces. Returns 400 for unsupported VCS types.
@@ -1682,7 +1682,7 @@ Notes:
 - `dirty_state` is only included when there are uncommitted changes
 - Delegates to remote handler for remote workspaces
 
-### GET /api/workspaces/{workspaceId}/git-commit/{commitHash}
+### GET /api/workspaces/{workspaceId}/commit-detail/{commitHash}
 
 Returns detailed information about a specific commit, including file diffs.
 
@@ -1731,7 +1731,7 @@ Notes:
 - File content is truncated at 1MB per file
 - Commit hash is validated for security (hex chars only, 4-40 characters)
 
-### POST /api/workspaces/{workspaceId}/git-commit-stage
+### POST /api/workspaces/{workspaceId}/stage
 
 Stages the specified files (runs `git add` for each file).
 Returns 400 for non-git workspaces.
@@ -1761,7 +1761,7 @@ Notes:
 - File paths must be relative and cannot contain path traversal (`..`)
 - Updates workspace git status and broadcasts after staging
 
-### POST /api/workspaces/{workspaceId}/git-amend
+### POST /api/workspaces/{workspaceId}/amend
 
 Stages the specified files and amends the last commit (`git commit --amend --no-edit`).
 Returns 400 for non-git workspaces.
@@ -1792,7 +1792,7 @@ Notes:
 - At least one file must be specified
 - Updates workspace git status and broadcasts after amend
 
-### POST /api/workspaces/{workspaceId}/git-discard
+### POST /api/workspaces/{workspaceId}/discard
 
 Discards local changes. If `files` are specified, only those files are discarded. If `files` is empty or body is omitted, all changes are discarded.
 Returns 400 for non-git workspaces.
@@ -1823,7 +1823,7 @@ Notes:
 - Discard-all runs `git clean -fd` followed by `git checkout -- .`
 - Updates workspace git status and broadcasts after discard
 
-### POST /api/workspaces/{workspaceId}/git-uncommit
+### POST /api/workspaces/{workspaceId}/uncommit
 
 Resets the HEAD commit, keeping changes as unstaged (`git reset HEAD~1`). Requires a `hash` parameter to verify we are uncommitting the expected commit.
 Returns 400 for non-git workspaces.

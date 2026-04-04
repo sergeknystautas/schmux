@@ -597,7 +597,7 @@ export async function refreshRecentBranches(): Promise<RecentBranchesRefreshResp
   return response.json();
 }
 
-export async function getGitGraph(
+export async function getCommitGraph(
   workspaceId: string,
   opts?: {
     maxTotal?: number;
@@ -615,9 +615,9 @@ export async function getGitGraph(
   if (opts?.maxCommits !== undefined) params.set('max_commits', String(opts.maxCommits));
   if (opts?.context !== undefined) params.set('context', String(opts.context));
   const qs = params.toString();
-  const url = `/api/workspaces/${encodeURIComponent(workspaceId)}/git-graph${qs ? `?${qs}` : ''}`;
+  const url = `/api/workspaces/${encodeURIComponent(workspaceId)}/commit-graph${qs ? `?${qs}` : ''}`;
   const response = await apiFetch(url);
-  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch git graph');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch commit graph');
   return response.json();
 }
 
@@ -625,7 +625,7 @@ export async function getCommitDetail(
   workspaceId: string,
   commitHash: string
 ): Promise<GitCommitDetailResponse> {
-  const url = `/api/workspaces/${encodeURIComponent(workspaceId)}/git-commit/${encodeURIComponent(commitHash)}`;
+  const url = `/api/workspaces/${encodeURIComponent(workspaceId)}/commit-detail/${encodeURIComponent(commitHash)}`;
   const response = await apiFetch(url);
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to fetch commit detail');
@@ -772,29 +772,26 @@ export async function dismissRemoteHost(hostId: string): Promise<void> {
 // Git Commit Workflow API
 // ============================================================================
 
-export async function gitCommitStage(
+export async function commitStage(
   workspaceId: string,
   files: string[]
 ): Promise<{ success: boolean; message: string }> {
-  const response = await apiFetch(
-    `/api/workspaces/${encodeURIComponent(workspaceId)}/git-commit-stage`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-      body: JSON.stringify({ files }),
-    }
-  );
+  const response = await apiFetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/stage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify({ files }),
+  });
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to stage files');
   }
   return response.json();
 }
 
-export async function gitAmend(
+export async function commitAmend(
   workspaceId: string,
   files: string[]
 ): Promise<{ success: boolean; message: string }> {
-  const response = await apiFetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/git-amend`, {
+  const response = await apiFetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/amend`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ files }),
@@ -805,36 +802,30 @@ export async function gitAmend(
   return response.json();
 }
 
-export async function gitDiscard(
+export async function commitDiscard(
   workspaceId: string,
   files?: string[]
 ): Promise<{ success: boolean; message: string }> {
-  const response = await apiFetch(
-    `/api/workspaces/${encodeURIComponent(workspaceId)}/git-discard`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-      body: JSON.stringify(files ? { files } : {}),
-    }
-  );
+  const response = await apiFetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/discard`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify(files ? { files } : {}),
+  });
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to discard changes');
   }
   return response.json();
 }
 
-export async function gitUncommit(
+export async function commitUncommit(
   workspaceId: string,
   hash: string
 ): Promise<{ success: boolean; message: string }> {
-  const response = await apiFetch(
-    `/api/workspaces/${encodeURIComponent(workspaceId)}/git-uncommit`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-      body: JSON.stringify({ hash }),
-    }
-  );
+  const response = await apiFetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/uncommit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify({ hash }),
+  });
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to uncommit');
   }

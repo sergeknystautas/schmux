@@ -6,31 +6,31 @@ Provides real-time git status monitoring, a visual commit history DAG (modeled a
 
 ## Key files
 
-| File                                                | Purpose                                                                                      |
-| --------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `internal/workspace/git.go`                         | Git status polling, `UpdateVCSStatus`, default branch detection                              |
-| `internal/workspace/git_watcher.go`                 | fsnotify-based watcher for `.git` metadata; debounced refresh + broadcast                    |
-| `internal/workspace/git_watcher_test.go`            | Watcher unit tests (resolve gitdir, debounce, worktree shared refs)                          |
-| `internal/workspace/git_graph.go`                   | `GetGitGraph` — fork-point detection, divergence-region scoping, ISL-style topo sort         |
-| `internal/workspace/git_graph_test.go`              | Graph unit tests (ahead/behind, merge commits, trimming, max commits)                        |
-| `internal/workspace/git_commit.go`                  | `GetCommitDetail` — full commit metadata + file diffs for a single commit                    |
-| `internal/workspace/git_commit_test.go`             | Commit detail tests (root commits, renames, binary detection, hash validation)               |
-| `internal/workspace/vcs_poll_round.go`              | Per-sweep caches: deduplicates `git fetch` and `git worktree list` across workspaces         |
-| `internal/workspace/giturl.go`                      | Git URL parsing (SSH/HTTPS normalization)                                                    |
-| `internal/api/contracts/git_graph.go`               | `GitGraphResponse`, `GitGraphNode`, `GitGraphBranch`, `GitGraphDirtyState`                   |
-| `internal/api/contracts/git_commit.go`              | `GitCommitDetailResponse`, `FileDiff`                                                        |
-| `internal/api/contracts/pr.go`                      | `PullRequest`, `PRsResponse`, `PRCheckoutRequest/Response`                                   |
-| `internal/github/discovery.go`                      | `Discovery` — hourly PR polling, `Refresh`, `Seed` from cached state                         |
-| `internal/github/client.go`                         | `CheckVisibility`, `FetchOpenPRs` — unauthenticated GitHub API calls                         |
-| `internal/github/repo.go`                           | `ParseRepoURL`, `IsGitHubURL` — SSH/HTTPS pattern matching                                   |
-| `internal/github/prompt.go`                         | `BuildReviewPrompt` — PR metadata formatted as agent context                                 |
-| `internal/dashboard/handlers_git.go`                | HTTP handlers: `handleWorkspaceGitGraph`, `handleWorkspaceGitCommit`, `handleGitCommitStage` |
-| `internal/dashboard/handlers_pr.go`                 | HTTP handlers: `handlePRs`, `handlePRRefresh`, `handlePRCheckout`                            |
-| `assets/dashboard/src/lib/gitGraphLayout.ts`        | `computeLayout` — column assignment, virtual node insertion, lane lines                      |
-| `assets/dashboard/src/lib/gitGraphLayout.test.ts`   | Layout unit tests                                                                            |
-| `assets/dashboard/src/components/GitHistoryDAG.tsx` | SVG rendering: column lines, edges, node circles, commit rows                                |
-| `assets/dashboard/src/routes/GitGraphPage.tsx`      | Route `/git/:workspaceId` — workspace header + tabs + DAG                                    |
-| `assets/dashboard/src/routes/GitCommitPage.tsx`     | Route `/git/:workspaceId/:shortHash` — commit detail with diff viewer                        |
+| File                                                | Purpose                                                                                   |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `internal/workspace/git.go`                         | Git status polling, `UpdateVCSStatus`, default branch detection                           |
+| `internal/workspace/git_watcher.go`                 | fsnotify-based watcher for `.git` metadata; debounced refresh + broadcast                 |
+| `internal/workspace/git_watcher_test.go`            | Watcher unit tests (resolve gitdir, debounce, worktree shared refs)                       |
+| `internal/workspace/git_graph.go`                   | `GetGitGraph` — fork-point detection, divergence-region scoping, ISL-style topo sort      |
+| `internal/workspace/git_graph_test.go`              | Graph unit tests (ahead/behind, merge commits, trimming, max commits)                     |
+| `internal/workspace/git_commit.go`                  | `GetCommitDetail` — full commit metadata + file diffs for a single commit                 |
+| `internal/workspace/git_commit_test.go`             | Commit detail tests (root commits, renames, binary detection, hash validation)            |
+| `internal/workspace/vcs_poll_round.go`              | Per-sweep caches: deduplicates `git fetch` and `git worktree list` across workspaces      |
+| `internal/workspace/giturl.go`                      | Git URL parsing (SSH/HTTPS normalization)                                                 |
+| `internal/api/contracts/git_graph.go`               | `GitGraphResponse`, `GitGraphNode`, `GitGraphBranch`, `GitGraphDirtyState`                |
+| `internal/api/contracts/git_commit.go`              | `GitCommitDetailResponse`, `FileDiff`                                                     |
+| `internal/api/contracts/pr.go`                      | `PullRequest`, `PRsResponse`, `PRCheckoutRequest/Response`                                |
+| `internal/github/discovery.go`                      | `Discovery` — hourly PR polling, `Refresh`, `Seed` from cached state                      |
+| `internal/github/client.go`                         | `CheckVisibility`, `FetchOpenPRs` — unauthenticated GitHub API calls                      |
+| `internal/github/repo.go`                           | `ParseRepoURL`, `IsGitHubURL` — SSH/HTTPS pattern matching                                |
+| `internal/github/prompt.go`                         | `BuildReviewPrompt` — PR metadata formatted as agent context                              |
+| `internal/dashboard/handlers_git.go`                | HTTP handlers: `handleWorkspaceCommitGraph`, `handleWorkspaceCommitDetail`, `handleStage` |
+| `internal/dashboard/handlers_pr.go`                 | HTTP handlers: `handlePRs`, `handlePRRefresh`, `handlePRCheckout`                         |
+| `assets/dashboard/src/lib/gitGraphLayout.ts`        | `computeLayout` — column assignment, virtual node insertion, lane lines                   |
+| `assets/dashboard/src/lib/gitGraphLayout.test.ts`   | Layout unit tests                                                                         |
+| `assets/dashboard/src/components/GitHistoryDAG.tsx` | SVG rendering: column lines, edges, node circles, commit rows                             |
+| `assets/dashboard/src/routes/GitGraphPage.tsx`      | Route `/commits/:workspaceId` — workspace header + tabs + DAG                             |
+| `assets/dashboard/src/routes/GitCommitPage.tsx`     | Route `/commits/:workspaceId/:shortHash` — commit detail with diff viewer                 |
 
 ## Architecture decisions
 

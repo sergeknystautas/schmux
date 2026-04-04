@@ -158,8 +158,8 @@ All routes are nested under `AppShell` (sidebar + `<Outlet />`).
 | `/diff/:workspaceId`                    | DiffPage                      |
 | `/diff/:workspaceId/md/:filepath`       | MarkdownPreviewPage           |
 | `/diff/:workspaceId/img/:filepath`      | ImagePreviewPage              |
-| `/git/:workspaceId`                     | GitGraphPage                  |
-| `/git/:workspaceId/:commitHash`         | GitCommitPage                 |
+| `/commits/:workspaceId`                 | GitGraphPage                  |
+| `/commits/:workspaceId/:commitHash`     | GitCommitPage                 |
 | `/preview/:workspaceId/:previewId`      | PreviewPage                   |
 | `/resolve-conflict/:workspaceId/:tabId` | LinearSyncResolveConflictPage |
 | `/config`                               | ConfigPage                    |

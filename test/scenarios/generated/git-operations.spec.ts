@@ -63,18 +63,18 @@ test.describe.serial('Git stage and discard operations', () => {
     expect(readmeFile).toBeDefined();
   });
 
-  test('stage files via git-commit-stage API', async () => {
+  test('stage files via stage API', async () => {
     const resp = await apiPost<{ success: boolean; message: string }>(
-      `/api/workspaces/${workspaceId}/git-commit-stage`,
+      `/api/workspaces/${workspaceId}/stage`,
       { files: ['README.md'] }
     );
     expect(resp.success).toBe(true);
     expect(resp.message).toBe('Files staged');
   });
 
-  test('discard specific file via git-discard API', async () => {
+  test('discard specific file via discard API', async () => {
     const resp = await apiPost<{ success: boolean; message: string }>(
-      `/api/workspaces/${workspaceId}/git-discard`,
+      `/api/workspaces/${workspaceId}/discard`,
       { files: ['extra.txt'] }
     );
     expect(resp.success).toBe(true);
@@ -141,10 +141,10 @@ test.describe.serial('Git discard all changes', () => {
     }
   });
 
-  test('discard all changes via git-discard API with empty body', async () => {
+  test('discard all changes via discard API with empty body', async () => {
     // Discard all (empty body = discard everything)
     const resp = await apiPost<{ success: boolean; message: string }>(
-      `/api/workspaces/${workspaceId}/git-discard`,
+      `/api/workspaces/${workspaceId}/discard`,
       {}
     );
     expect(resp.success).toBe(true);
@@ -195,8 +195,8 @@ test.describe.serial('Git operations — path validation', () => {
     workspaceId = results[0].workspace_id;
   });
 
-  test('rejects absolute path in git-commit-stage', async () => {
-    const res = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/git-commit-stage`, {
+  test('rejects absolute path in stage', async () => {
+    const res = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/stage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: ['/etc/passwd'] }),
@@ -206,8 +206,8 @@ test.describe.serial('Git operations — path validation', () => {
     expect(body.error).toContain('invalid file path');
   });
 
-  test('rejects path traversal in git-commit-stage', async () => {
-    const res = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/git-commit-stage`, {
+  test('rejects path traversal in stage', async () => {
+    const res = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/stage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: ['../../../etc/shadow'] }),
@@ -217,8 +217,8 @@ test.describe.serial('Git operations — path validation', () => {
     expect(body.error).toContain('invalid file path');
   });
 
-  test('rejects path traversal in git-discard', async () => {
-    const res = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/git-discard`, {
+  test('rejects path traversal in discard', async () => {
+    const res = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/discard`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: ['../../secret'] }),
@@ -228,8 +228,8 @@ test.describe.serial('Git operations — path validation', () => {
     expect(body.error).toContain('invalid file path');
   });
 
-  test('rejects invalid JSON in git-commit-stage', async () => {
-    const res = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/git-commit-stage`, {
+  test('rejects invalid JSON in stage', async () => {
+    const res = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/stage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: 'not json at all',
@@ -237,9 +237,9 @@ test.describe.serial('Git operations — path validation', () => {
     expect(res.status).toBe(400);
   });
 
-  test('git-uncommit rejects when no commits ahead', async () => {
+  test('uncommit rejects when no commits ahead', async () => {
     // Ahead is 0 for a freshly created workspace — handler checks this first
-    const res = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/git-uncommit`, {
+    const res = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/uncommit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ hash: 'abc123' }),
@@ -249,9 +249,9 @@ test.describe.serial('Git operations — path validation', () => {
     expect(body.error).toContain('No commits to uncommit');
   });
 
-  test('git-amend rejects when no commits ahead', async () => {
+  test('amend rejects when no commits ahead', async () => {
     // Ahead is 0 for a freshly created workspace — handler checks this first
-    const res = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/git-amend`, {
+    const res = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/amend`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: ['README.md'] }),
@@ -267,8 +267,8 @@ test.describe.serial('Git operations — nonexistent workspace', () => {
     await waitForHealthy();
   });
 
-  test('git-commit-stage returns 404 for unknown workspace', async () => {
-    const res = await fetch(`${BASE_URL}/api/workspaces/nonexistent-ws-id/git-commit-stage`, {
+  test('stage returns 404 for unknown workspace', async () => {
+    const res = await fetch(`${BASE_URL}/api/workspaces/nonexistent-ws-id/stage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: ['README.md'] }),
@@ -276,8 +276,8 @@ test.describe.serial('Git operations — nonexistent workspace', () => {
     expect(res.status).toBe(404);
   });
 
-  test('git-discard returns 404 for unknown workspace', async () => {
-    const res = await fetch(`${BASE_URL}/api/workspaces/nonexistent-ws-id/git-discard`, {
+  test('discard returns 404 for unknown workspace', async () => {
+    const res = await fetch(`${BASE_URL}/api/workspaces/nonexistent-ws-id/discard`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: ['README.md'] }),
@@ -285,8 +285,8 @@ test.describe.serial('Git operations — nonexistent workspace', () => {
     expect(res.status).toBe(404);
   });
 
-  test('git-uncommit returns 404 for unknown workspace', async () => {
-    const res = await fetch(`${BASE_URL}/api/workspaces/nonexistent-ws-id/git-uncommit`, {
+  test('uncommit returns 404 for unknown workspace', async () => {
+    const res = await fetch(`${BASE_URL}/api/workspaces/nonexistent-ws-id/uncommit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ hash: 'abc123' }),
@@ -294,8 +294,8 @@ test.describe.serial('Git operations — nonexistent workspace', () => {
     expect(res.status).toBe(404);
   });
 
-  test('git-amend returns 404 for unknown workspace', async () => {
-    const res = await fetch(`${BASE_URL}/api/workspaces/nonexistent-ws-id/git-amend`, {
+  test('amend returns 404 for unknown workspace', async () => {
+    const res = await fetch(`${BASE_URL}/api/workspaces/nonexistent-ws-id/amend`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: ['README.md'] }),

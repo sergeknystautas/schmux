@@ -63,8 +63,11 @@ export default function App() {
                             path="/preview/:workspaceId/:previewId"
                             element={<PreviewPage />}
                           />
-                          <Route path="/git/:workspaceId" element={<GitGraphPage />} />
-                          <Route path="/git/:workspaceId/:commitHash" element={<GitCommitPage />} />
+                          <Route path="/commits/:workspaceId" element={<GitGraphPage />} />
+                          <Route
+                            path="/commits/:workspaceId/:commitHash"
+                            element={<GitCommitPage />}
+                          />
                           <Route
                             path="/resolve-conflict/:workspaceId/:tabId"
                             element={<LinearSyncResolveConflictPage />}

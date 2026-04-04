@@ -699,9 +699,9 @@ func (s *Server) Start() error {
 				r.Post("/previews", s.handlePreviewsCreate)
 				r.Delete("/previews/{previewID}", s.handlePreviewsDelete)
 
-				// Git graph/commit routes
-				r.Get("/git-graph", s.handleWorkspaceGitGraph)
-				r.Get("/git-commit/{hash}", s.handleWorkspaceGitCommit)
+				// Commit graph/detail routes
+				r.Get("/commit-graph", s.handleWorkspaceCommitGraph)
+				r.Get("/commit-detail/{hash}", s.handleWorkspaceCommitDetail)
 
 				// Linear sync routes
 				r.Post("/linear-sync-from-main", s.handleLinearSyncFromMain)
@@ -709,11 +709,11 @@ func (s *Server) Start() error {
 				r.Post("/push-to-branch", s.handlePushToBranch)
 				r.Post("/linear-sync-resolve-conflict", s.handleLinearSyncResolveConflict)
 
-				// Git operation routes
-				r.Post("/git-commit-stage", s.handleGitCommitStage)
-				r.Post("/git-amend", s.handleGitAmend)
-				r.Post("/git-discard", s.handleGitDiscard)
-				r.Post("/git-uncommit", s.handleGitUncommit)
+				// VCS operation routes
+				r.Post("/stage", s.handleStage)
+				r.Post("/amend", s.handleAmend)
+				r.Post("/discard", s.handleDiscard)
+				r.Post("/uncommit", s.handleUncommit)
 				r.Post("/refresh-overlay", s.handleRefreshOverlay)
 
 				// Tab routes

@@ -16,14 +16,13 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
-	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/vcs"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
-// handleWorkspaceGitGraph handles GET /api/workspaces/{id}/git-graph.
-func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request) {
+// handleWorkspaceCommitGraph handles GET /api/workspaces/{id}/commit-graph.
+func (s *Server) handleWorkspaceCommitGraph(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.requireWorkspace(w, r)
 	if !ok {
 		return
@@ -71,7 +70,7 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 
 	// Delegate to remote handler if this is a remote workspace
 	if ws.RemoteHostID != "" {
-		s.handleRemoteGitGraph(w, r, ws, maxTotal, mainContext)
+		s.handleRemoteCommitGraph(w, r, ws, maxTotal, mainContext)
 		return
 	}
 
@@ -95,12 +94,12 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		s.logger.Error("failed to encode response", "handler", "git-graph", "err", err)
+		s.logger.Error("failed to encode response", "handler", "commit-graph", "err", err)
 	}
 }
 
-// handleRemoteGitGraph handles git graph requests for remote workspaces.
-func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws state.Workspace, maxTotal int, mainContext int) {
+// handleRemoteCommitGraph handles git graph requests for remote workspaces.
+func (s *Server) handleRemoteCommitGraph(w http.ResponseWriter, r *http.Request, ws state.Workspace, maxTotal int, mainContext int) {
 	if s.remoteManager == nil {
 		writeJSONError(w, "remote manager not available", http.StatusServiceUnavailable)
 		return
@@ -112,19 +111,7 @@ func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws
 		return
 	}
 
-	// Get VCS type from flavor config
-	host, _ := s.state.GetRemoteHost(ws.RemoteHostID)
-	vcsType := ""
-	if host.ProfileID != "" {
-		if profile, found := s.config.GetRemoteProfile(host.ProfileID); found {
-			if resolved, err := config.ResolveProfileFlavor(profile, host.Flavor); err == nil {
-				vcsType = resolved.VCS
-			} else {
-				vcsType = profile.VCS
-			}
-		}
-	}
-	cb := vcs.NewCommandBuilder(vcsType)
+	cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
@@ -263,7 +250,7 @@ func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		s.logger.Error("failed to encode response", "handler", "remote-git-graph", "err", err)
+		s.logger.Error("failed to encode response", "handler", "remote-commit-graph", "err", err)
 	}
 }
 
@@ -280,13 +267,13 @@ func isValidVCSHash(s string) bool {
 	return true
 }
 
-// handleWorkspaceGitCommit handles GET /api/workspaces/{id}/git-commit/{hash}.
-func (s *Server) handleWorkspaceGitCommit(w http.ResponseWriter, r *http.Request) {
+// handleWorkspaceCommitDetail handles GET /api/workspaces/{id}/commit-detail/{hash}.
+func (s *Server) handleWorkspaceCommitDetail(w http.ResponseWriter, r *http.Request) {
 	// Extract workspace ID and commit hash from chi URL params
 	workspaceID := chi.URLParam(r, "workspaceID")
 	commitHash := chi.URLParam(r, "hash")
 	if workspaceID == "" || commitHash == "" {
-		writeJSONError(w, "invalid path: expected /api/workspaces/{id}/git-commit/{hash}", http.StatusBadRequest)
+		writeJSONError(w, "invalid path: expected /api/workspaces/{id}/commit-detail/{hash}", http.StatusBadRequest)
 		return
 	}
 
@@ -326,13 +313,13 @@ func (s *Server) handleWorkspaceGitCommit(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		s.logger.Error("failed to encode response", "handler", "git-commit", "err", err)
+		s.logger.Error("failed to encode response", "handler", "commit-detail", "err", err)
 	}
 }
 
-// handleGitCommitStage handles POST /api/workspaces/{id}/git-commit-stage.
+// handleStage handles POST /api/workspaces/{id}/stage.
 // Stages the specified files for commit.
-func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleStage(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.requireWorkspace(w, r)
 	if !ok {
 		return
@@ -368,13 +355,13 @@ func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Files staged"}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "git-commit-stage", "err", err)
+		s.logger.Error("failed to encode response", "handler", "stage", "err", err)
 	}
 }
 
-// handleGitAmend handles POST /api/workspaces/{id}/git-amend.
+// handleAmend handles POST /api/workspaces/{id}/amend.
 // Stages the specified files and amends the last commit.
-func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAmend(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.requireWorkspace(w, r)
 	if !ok {
 		return
@@ -425,13 +412,13 @@ func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Commit amended"}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "git-amend", "err", err)
+		s.logger.Error("failed to encode response", "handler", "amend", "err", err)
 	}
 }
 
-// handleGitDiscard handles POST /api/workspaces/{id}/git-discard.
+// handleDiscard handles POST /api/workspaces/{id}/discard.
 // Discards local changes. If files are specified, only those files are discarded.
-func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleDiscard(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.requireWorkspace(w, r)
 	if !ok {
 		return
@@ -517,14 +504,14 @@ func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Changes discarded"}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "git-discard", "err", err)
+		s.logger.Error("failed to encode response", "handler", "discard", "err", err)
 	}
 }
 
-// handleGitUncommit handles POST /api/workspaces/{id}/git-uncommit.
+// handleUncommit handles POST /api/workspaces/{id}/uncommit.
 // Resets the HEAD commit, keeping changes as unstaged.
 // Requires hash parameter to verify we're uncommitting the expected commit.
-func (s *Server) handleGitUncommit(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleUncommit(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.requireWorkspace(w, r)
 	if !ok {
 		return
@@ -579,6 +566,6 @@ func (s *Server) handleGitUncommit(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Commit undone, changes are now unstaged"}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "git-uncommit", "err", err)
+		s.logger.Error("failed to encode response", "handler", "uncommit", "err", err)
 	}
 }

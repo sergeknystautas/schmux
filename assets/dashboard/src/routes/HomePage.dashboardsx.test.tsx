@@ -171,7 +171,7 @@ vi.mock('../lib/api', () => ({
   dismissOverlayNudge: vi.fn().mockResolvedValue({}),
   getErrorMessage: (_err: unknown, fallback: string) => fallback,
   linearSyncFromMain: vi.fn().mockResolvedValue({}),
-  getGitGraph: vi.fn().mockResolvedValue({ commits: [] }),
+  getCommitGraph: vi.fn().mockResolvedValue({ commits: [] }),
   getSubreddit: vi.fn().mockResolvedValue({ repos: [] }),
   getRepofeedList: vi.fn().mockResolvedValue({ repos: [] }),
 }));

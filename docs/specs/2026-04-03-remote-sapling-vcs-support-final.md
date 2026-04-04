@@ -63,7 +63,7 @@ The existing `RemoteProfile` + `SaplingCommands` config system already follows t
 The VCS abstraction layer is largely complete:
 
 - **`CommandBuilder` interface** (`internal/vcs/vcs.go`): 24 methods, fully implemented for both `GitCommandBuilder` and `SaplingCommandBuilder`.
-- **`handleRemoteGitGraph`** (`handlers_git.go:103`): Already VCS-agnostic — uses `vcs.NewCommandBuilder(vcsType)` for all commands except one hardcoded `git log`.
+- **`handleRemoteCommitGraph`** (`handlers_git.go:103`): Already VCS-agnostic — uses `vcs.NewCommandBuilder(vcsType)` for all commands except one hardcoded `git log`.
 - **`handleRemoteDiff`** (`handlers_diff.go:425`): Uses CommandBuilder for VCS commands.
 - **`handleRemoteDiffExternal`** (`handlers_diff.go:1116`): Uses CommandBuilder for VCS commands but has the same BUG-1, BUG-2, and BUG-7 issues as `buildDiffResponse`.
 - **`ParseGitLogOutput`** (`git_graph.go:531`): Filters Sapling's null-hash parent sentinels (`0000...0000`). Tested in `TestParseGitLogOutput_SaplingFormat`.
@@ -462,7 +462,7 @@ The batch script concatenates file paths into shell commands. Paths with special
 BUG-10 (30s shared context across all sequential `RunCommand` calls with no per-command timeout) is **intentionally deferred** from this spec. Rationale:
 
 - The batch approach in Phase 2 reduces `buildDiffResponse` from O(N) to O(1) `RunCommand` calls, making the shared timeout far less likely to be exhausted by the diff handler.
-- The commit graph handler (`handleRemoteGitGraph`) still makes 6-8 sequential `RunCommand` calls sharing a single 30s context, but each individual call is lightweight (resolve ref, count commits, etc.) and completes in under 1 second in practice.
+- The commit graph handler (`handleRemoteCommitGraph`) still makes 6-8 sequential `RunCommand` calls sharing a single 30s context, but each individual call is lightweight (resolve ref, count commits, etc.) and completes in under 1 second in practice.
 - Fixing BUG-10 properly requires adding per-command timeout support to `RunCommand` or restructuring the context hierarchy in all remote handlers. This is a cross-cutting infrastructure change that should not be coupled with Sapling VCS support.
 - If the 30s budget becomes a practical problem for commit graph operations, it can be addressed independently by either increasing the handler timeout or adding per-command timeouts to `RunCommand`.
 

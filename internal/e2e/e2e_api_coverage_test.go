@@ -380,8 +380,8 @@ func TestE2EBranchesEndpoint(t *testing.T) {
 	}
 }
 
-// TestE2EGitAmendAndUncommit tests POST /api/workspaces/{id}/git-amend and
-// POST /api/workspaces/{id}/git-uncommit — amends last commit and soft-resets it.
+// TestE2EGitAmendAndUncommit tests POST /api/workspaces/{id}/amend and
+// POST /api/workspaces/{id}/uncommit — amends last commit and soft-resets it.
 func TestE2EGitAmendAndUncommit(t *testing.T) {
 	t.Parallel()
 	env := New(t)
@@ -441,7 +441,7 @@ func TestE2EGitAmendAndUncommit(t *testing.T) {
 	RunCmd(t, workspacePath, "git", "commit", "-m", "Add feature")
 
 	// Wait for daemon to detect that we're ahead of main via git status watcher.
-	// The git-amend handler checks ws.Ahead > 0 and returns 400 otherwise.
+	// The amend handler checks ws.Ahead > 0 and returns 400 otherwise.
 	env.PollUntil(15*time.Second, "daemon should detect commits ahead of main", func() bool {
 		workspaces := env.GetAPIWorkspaces()
 		for _, ws := range workspaces {
@@ -460,7 +460,7 @@ func TestE2EGitAmendAndUncommit(t *testing.T) {
 			"files": []string{"amended.txt"},
 		})
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, env.DaemonURL+"/api/workspaces/"+workspaceID+"/git-amend", bytes.NewReader(amendBody))
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, env.DaemonURL+"/api/workspaces/"+workspaceID+"/amend", bytes.NewReader(amendBody))
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(req)
 		cancel()
@@ -495,7 +495,7 @@ func TestE2EGitAmendAndUncommit(t *testing.T) {
 		// Missing hash should return 400
 		body, _ := json.Marshal(map[string]string{})
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, env.DaemonURL+"/api/workspaces/"+workspaceID+"/git-uncommit", bytes.NewReader(body))
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, env.DaemonURL+"/api/workspaces/"+workspaceID+"/uncommit", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(req)
 		cancel()
@@ -520,7 +520,7 @@ func TestE2EGitAmendAndUncommit(t *testing.T) {
 
 		body, _ := json.Marshal(map[string]string{"hash": headHash})
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, env.DaemonURL+"/api/workspaces/"+workspaceID+"/git-uncommit", bytes.NewReader(body))
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, env.DaemonURL+"/api/workspaces/"+workspaceID+"/uncommit", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(req)
 		cancel()

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getGitGraph } from '../lib/api';
+import { getCommitGraph } from '../lib/api';
 import { useSessions } from '../contexts/SessionsContext';
 import { useSync } from '../hooks/useSync';
 import type { LinearSyncResolveConflictStep, ResolveConflictRecordPayload } from '../lib/types';
@@ -192,7 +192,7 @@ export default function LinearSyncResolveConflictProgress({
   const handleContinue = async () => {
     setContinuing(true);
     try {
-      const graph = await getGitGraph(workspaceId, { maxTotal: 1 });
+      const graph = await getCommitGraph(workspaceId, { maxTotal: 1 });
       if (!graph.main_ahead_next_hash) {
         return;
       }

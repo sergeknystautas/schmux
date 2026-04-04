@@ -531,7 +531,7 @@ export default function AppShell() {
       key: 'g',
       description: 'Go to git graph',
       handler: () => {
-        navigate(`/git/${workspace.id}`);
+        navigate(`/commits/${workspace.id}`);
       },
       scope,
     });

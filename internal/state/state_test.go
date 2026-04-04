@@ -1614,7 +1614,7 @@ func TestTabIdempotency(t *testing.T) {
 		ID:        "tab-a",
 		Kind:      "diff",
 		Label:     "Diff",
-		Route:     "/git/ws-1",
+		Route:     "/commits/ws-1",
 		Closable:  false,
 		CreatedAt: time.Now(),
 	}
@@ -1685,7 +1685,7 @@ func TestRemoveTabDoesNotAliasStaleWorkspaceCopy(t *testing.T) {
 		Tabs: []Tab{
 			{ID: "tab-markdown", Kind: "markdown", Label: "README", Route: "/readme", Closable: true},
 			{ID: "sys-diff-ws-stale", Kind: "diff", Label: "Diff", Route: "/diff/ws-stale", Closable: false},
-			{ID: "sys-git-ws-stale", Kind: "git", Label: "commit graph", Route: "/git/ws-stale", Closable: false},
+			{ID: "sys-git-ws-stale", Kind: "git", Label: "commit graph", Route: "/commits/ws-stale", Closable: false},
 		},
 	}); err != nil {
 		t.Fatalf("AddWorkspace() failed: %v", err)

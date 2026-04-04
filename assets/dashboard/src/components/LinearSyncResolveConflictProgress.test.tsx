@@ -11,7 +11,7 @@ vi.mock('react-router-dom', () => ({
 }));
 
 vi.mock('../lib/api', () => ({
-  getGitGraph: vi.fn(),
+  getCommitGraph: vi.fn(),
 }));
 
 let mockWorkspaces: WorkspaceResponse[] = [];

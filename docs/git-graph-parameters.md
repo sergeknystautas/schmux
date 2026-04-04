@@ -47,13 +47,13 @@ context commit 2
 ### Before
 
 ```
-GET /api/workspaces/{id}/git-graph?max_commits=200&context=5
+GET /api/workspaces/{id}/commit-graph?max_commits=200&context=5
 ```
 
 ### After
 
 ```
-GET /api/workspaces/{id}/git-graph?max_total=200&main_context=5
+GET /api/workspaces/{id}/commit-graph?max_total=200&main_context=5
 
 Note: max_main_ahead and max_local are server-side defaults, not exposed to UI.
 The UI only controls total commits and context size.

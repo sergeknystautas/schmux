@@ -206,7 +206,7 @@ Configure repos, run targets, models, workspace path, and pastebin entries.
 
 In-app iframe for workspace dev server previews. Proxied through the daemon's preview manager.
 
-### Git Graph (`/git/:workspaceId`)
+### Git Graph (`/commits/:workspaceId`)
 
 Interactive commit graph for a workspace's git history.
 

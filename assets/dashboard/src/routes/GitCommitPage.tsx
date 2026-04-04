@@ -103,7 +103,7 @@ export default function GitCommitPage() {
           <div className="empty-state__icon">!!!</div>
           <h3 className="empty-state__title">Failed to load commit</h3>
           <p className="empty-state__description">{error}</p>
-          <Link to={`/git/${workspaceId}`} className="btn btn--primary">
+          <Link to={`/commits/${workspaceId}`} className="btn btn--primary">
             Back to Graph
           </Link>
         </div>
