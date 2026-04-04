@@ -112,17 +112,23 @@ func (t *SessionTracker) OutputLog() *OutputLog {
 	return t.outputLog
 }
 
+// SyncTrigger returns a channel that fires when the source detects a tmux
+// output pause (via pause-after). Returns nil for sources that don't support it.
+func (t *SessionTracker) SyncTrigger() <-chan struct{} {
+	if st, ok := t.source.(SyncTriggerer); ok {
+		return st.SyncTrigger()
+	}
+	return nil
+}
+
 // NewSessionTracker creates a tracker that drains events from a ControlSource.
 // If eventFilePath is non-empty and eventHandlers is non-nil, an EventWatcher
 // is created for the unified event system.
 func NewSessionTracker(sessionID string, source ControlSource, st state.StateStore, eventFilePath string, eventHandlers map[string][]events.EventHandler, outputCallback func([]byte), logger *log.Logger) *SessionTracker {
 	var healthProbe *TmuxHealthProbe
-	switch s := source.(type) {
-	case *LocalSource:
-		healthProbe = s.HealthProbe
-	case *RemoteSource:
-		healthProbe = s.healthProbe
-	default:
+	if hp, ok := source.(HealthProbeProvider); ok {
+		healthProbe = hp.GetHealthProbe()
+	} else {
 		healthProbe = NewTmuxHealthProbe()
 	}
 
@@ -179,10 +185,10 @@ func (t *SessionTracker) Stop() {
 }
 
 // SetTmuxSession updates the target tmux session name on the underlying source.
-// Only effective for LocalSource; no-op for other source types.
+// No-op for sources that don't support runtime renames.
 func (t *SessionTracker) SetTmuxSession(name string) {
-	if ls, ok := t.source.(*LocalSource); ok {
-		ls.SetTmuxSession(name)
+	if sr, ok := t.source.(SessionRenamer); ok {
+		sr.SetTmuxSession(name)
 	}
 }
 
@@ -289,13 +295,10 @@ func (t *SessionTracker) DiagnosticCounters() map[string]int64 {
 		"wsConnections":         t.Counters.WsConnections.Load(),
 		"wsWriteErrors":         t.Counters.WsWriteErrors.Load(),
 	}
-	// Source-specific diagnostics (LocalSource exposes parser/client counters)
-	if ls, ok := t.source.(*LocalSource); ok {
-		if parser := ls.Parser(); parser != nil {
-			result["eventsDropped"] = parser.DroppedOutputs()
-		}
-		if client := ls.Client(); client != nil {
-			result["clientFanOutDrops"] = client.DroppedFanOut()
+	// Source-specific diagnostics (e.g. parser/client counters)
+	if dp, ok := t.source.(DiagnosticsProvider); ok {
+		for k, v := range dp.SourceDiagnostics() {
+			result[k] = v
 		}
 	}
 	if t.outputLog != nil {

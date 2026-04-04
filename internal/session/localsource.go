@@ -39,23 +39,31 @@ type LocalSource struct {
 	lastRetryLog time.Time
 	hasAttached  bool // tracks whether at least one successful attachment occurred
 
-	// HealthProbe measures tmux control mode round-trip time.
-	HealthProbe *TmuxHealthProbe
+	// SyncCheckEnabled controls whether pause-after flow control is enabled.
+	SyncCheckEnabled bool
+
+	// healthProbe measures tmux control mode round-trip time.
+	healthProbe *TmuxHealthProbe
+
+	// syncTriggerCh is signaled when tmux pauses output delivery (pause-after).
+	// Exposed via SyncTrigger() so the tracker/WebSocket handler can perform an immediate sync.
+	syncTriggerCh chan struct{}
 }
 
 // NewLocalSource creates a LocalSource for the given tmux session.
 func NewLocalSource(sessionID, tmuxSession string, logger *log.Logger) *LocalSource {
 	stopCtx, stopCancel := context.WithCancel(context.Background())
 	return &LocalSource{
-		sessionID:   sessionID,
-		tmuxSession: tmuxSession,
-		logger:      logger,
-		events:      make(chan SourceEvent, 1000),
-		stopCh:      make(chan struct{}),
-		stopCtx:     stopCtx,
-		stopCancel:  stopCancel,
-		doneCh:      make(chan struct{}),
-		HealthProbe: NewTmuxHealthProbe(),
+		sessionID:     sessionID,
+		tmuxSession:   tmuxSession,
+		logger:        logger,
+		events:        make(chan SourceEvent, 1000),
+		stopCh:        make(chan struct{}),
+		stopCtx:       stopCtx,
+		stopCancel:    stopCancel,
+		doneCh:        make(chan struct{}),
+		healthProbe:   NewTmuxHealthProbe(),
+		syncTriggerCh: make(chan struct{}, 1),
 	}
 }
 
@@ -288,7 +296,7 @@ func (s *LocalSource) attach() error {
 				_, _, err := client.Execute(probeCtx, healthProbeCommand)
 				rttUs := float64(time.Since(start).Microseconds())
 				probeCancel()
-				s.HealthProbe.Record(rttUs, err != nil)
+				s.healthProbe.Record(rttUs, err != nil)
 			case <-probeStop:
 				return
 			case <-s.stopCh:
@@ -316,6 +324,11 @@ func (s *LocalSource) attach() error {
 				s.logger.Info("tmux paused output, continuing",
 					"session", s.sessionID[:8], "pane", pausedPane)
 			}
+			// Signal for immediate capture-pane sync
+			select {
+			case s.syncTriggerCh <- struct{}{}:
+			default:
+			}
 			// Resume output delivery
 			contCtx, contCancel := context.WithTimeout(ctx, 2*time.Second)
 			if err := client.ContinuePane(contCtx, pausedPane); err != nil && s.logger != nil {
@@ -334,6 +347,32 @@ func (s *LocalSource) SetTmuxSession(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tmuxSession = name
+}
+
+// SyncTrigger returns a channel that fires when tmux pauses output delivery.
+func (s *LocalSource) SyncTrigger() <-chan struct{} {
+	return s.syncTriggerCh
+}
+
+// GetHealthProbe returns the source's health probe.
+func (s *LocalSource) GetHealthProbe() *TmuxHealthProbe {
+	return s.healthProbe
+}
+
+// SourceDiagnostics returns transport-level diagnostic counters.
+func (s *LocalSource) SourceDiagnostics() map[string]int64 {
+	result := make(map[string]int64)
+	s.mu.RLock()
+	parser := s.cmParser
+	client := s.cmClient
+	s.mu.RUnlock()
+	if parser != nil {
+		result["eventsDropped"] = parser.DroppedOutputs()
+	}
+	if client != nil {
+		result["clientFanOutDrops"] = client.DroppedFanOut()
+	}
+	return result
 }
 
 // PaneID returns the discovered pane ID (empty if not yet attached).
