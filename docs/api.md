@@ -631,7 +631,7 @@ Errors:
 
 ### POST /api/sessions/{sessionId}/tell
 
-Send a message to a session's terminal. The message is prefixed with `[from FM]` server-side and typed into the agent's stdin.
+Send a message to a session's terminal. The message is prefixed with `[from FM]` server-side and typed into the agent's stdin. Internally, the handler clears the current line (via tmux key name `C-u`), types the message as literal text (via `send-keys -l`), and confirms with `Enter` (via tmux key name). Both local and remote sessions use the same `ControlSource` interface methods for these operations.
 
 Request:
 

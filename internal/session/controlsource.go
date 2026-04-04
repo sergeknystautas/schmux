@@ -32,9 +32,11 @@ type SourceEvent struct {
 type ControlSource interface {
 	Events() <-chan SourceEvent
 	SendKeys(keys string) (controlmode.SendKeysTimings, error)
+	SendTmuxKeyName(name string) error  // send tmux key name (e.g. "C-u", "Enter") without -l flag
 	CaptureVisible() (string, error)    // visible screen (no scrollback)
 	CaptureLines(n int) (string, error) // last N lines of scrollback
 	GetCursorState() (controlmode.CursorState, error)
 	Resize(cols, rows int) error // resize terminal window
+	IsAttached() bool            // reports whether the source has an active control mode connection
 	Close() error
 }

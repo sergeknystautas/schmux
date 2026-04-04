@@ -104,10 +104,7 @@ func (t *SessionTracker) Source() ControlSource {
 
 // IsAttached reports whether the source currently has an active attachment.
 func (t *SessionTracker) IsAttached() bool {
-	if ls, ok := t.source.(*LocalSource); ok {
-		return ls.IsAttached()
-	}
-	return true // non-local sources are considered attached while alive
+	return t.source.IsAttached()
 }
 
 // OutputLog returns the sequenced output log for this session.
