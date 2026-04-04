@@ -389,11 +389,16 @@ export class InputLatencyTracker {
     }
     if (tuples.length < 5) return null;
 
-    // Compute percentile boundaries from valid paired tuple RTTs
-    const sortedRTTs = tuples.map((t) => t.clientRTT).sort((a, b) => a - b);
-    const p25 = sortedRTTs[Math.floor(sortedRTTs.length * 0.25)];
-    const p75 = sortedRTTs[Math.floor(sortedRTTs.length * 0.75)];
-    const p95 = sortedRTTs[Math.floor(sortedRTTs.length * 0.95)];
+    // Compute percentile boundaries from ALL samples (the histogram data),
+    // not from valid paired tuples. This ensures "typical" and "outlier"
+    // correspond to what the histogram shows — paired tuples are a biased
+    // subset (the serverTotal > clientRTT filter discards mispaired tuples,
+    // which can skew the distribution).
+    const stats = this.getStats();
+    if (!stats) return null;
+    const p25 = stats.p25;
+    const p75 = stats.p75;
+    const p95 = stats.p95;
 
     // Select cohort
     let cohort: FullTuple[];
