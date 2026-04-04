@@ -40,3 +40,23 @@ type ControlSource interface {
 	IsAttached() bool            // reports whether the source has an active control mode connection
 	Close() error
 }
+
+// SyncTriggerer is implemented by sources that support sync triggers.
+type SyncTriggerer interface {
+	SyncTrigger() <-chan struct{}
+}
+
+// DiagnosticsProvider is implemented by sources that expose transport diagnostics.
+type DiagnosticsProvider interface {
+	SourceDiagnostics() map[string]int64
+}
+
+// SessionRenamer is implemented by sources that support runtime session renames.
+type SessionRenamer interface {
+	SetTmuxSession(name string)
+}
+
+// HealthProbeProvider is implemented by sources that expose a health probe.
+type HealthProbeProvider interface {
+	GetHealthProbe() *TmuxHealthProbe
+}

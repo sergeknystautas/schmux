@@ -90,6 +90,11 @@ func (s *RemoteSource) Resize(cols, rows int) error {
 	return s.conn.Client().ResizeWindow(ctx, s.windowID, cols, rows)
 }
 
+// GetHealthProbe returns the source's health probe.
+func (s *RemoteSource) GetHealthProbe() *TmuxHealthProbe {
+	return s.healthProbe
+}
+
 func (s *RemoteSource) Close() error {
 	close(s.stopCh)
 	<-s.doneCh
