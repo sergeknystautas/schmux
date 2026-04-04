@@ -21,6 +21,7 @@ import (
 type LocalSource struct {
 	sessionID   string
 	tmuxSession string
+	server      *tmux.TmuxServer
 	logger      *log.Logger
 	events      chan SourceEvent
 
@@ -39,9 +40,6 @@ type LocalSource struct {
 	lastRetryLog time.Time
 	hasAttached  bool // tracks whether at least one successful attachment occurred
 
-	// SyncCheckEnabled controls whether pause-after flow control is enabled.
-	SyncCheckEnabled bool
-
 	// healthProbe measures tmux control mode round-trip time.
 	healthProbe *TmuxHealthProbe
 
@@ -51,11 +49,12 @@ type LocalSource struct {
 }
 
 // NewLocalSource creates a LocalSource for the given tmux session.
-func NewLocalSource(sessionID, tmuxSession string, logger *log.Logger) *LocalSource {
+func NewLocalSource(sessionID, tmuxSession string, server *tmux.TmuxServer, logger *log.Logger) *LocalSource {
 	stopCtx, stopCancel := context.WithCancel(context.Background())
 	return &LocalSource{
 		sessionID:     sessionID,
 		tmuxSession:   tmuxSession,
+		server:        server,
 		logger:        logger,
 		events:        make(chan SourceEvent, 1000),
 		stopCh:        make(chan struct{}),
@@ -199,7 +198,13 @@ func (s *LocalSource) attach() error {
 	defer cancel()
 
 	// Start tmux in control mode
-	cmd := exec.CommandContext(ctx, tmux.Binary(), "-C", "attach-session", "-t", "="+target)
+	// Build attach command: use TmuxServer socket if available, else fall back to package-level binary.
+	var cmd *exec.Cmd
+	if s.server != nil {
+		cmd = exec.CommandContext(ctx, s.server.Binary(), "-L", s.server.SocketName(), "-C", "attach-session", "-t", "="+target)
+	} else {
+		cmd = exec.CommandContext(ctx, tmux.Binary(), "-C", "attach-session", "-t", "="+target)
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stdin pipe: %w", err)

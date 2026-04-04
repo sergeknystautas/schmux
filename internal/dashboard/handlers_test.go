@@ -41,8 +41,8 @@ func TestHandleHasNudgenik(t *testing.T) {
 		st := state.New("", nil)
 		statePath := t.TempDir() + "/state.json"
 		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-		sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
-		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, ServerOptions{})
+		sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 
 		req, _ := http.NewRequest("GET", "/api/hasNudgenik", nil)
 		rr := httptest.NewRecorder()
@@ -71,8 +71,8 @@ func TestHandleHasNudgenik(t *testing.T) {
 		st := state.New("", nil)
 		statePath := t.TempDir() + "/state.json"
 		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-		sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
-		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, ServerOptions{})
+		sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 
 		req, _ := http.NewRequest("GET", "/api/hasNudgenik", nil)
 		rr := httptest.NewRecorder()
@@ -99,8 +99,8 @@ func TestHandleAskNudgenik(t *testing.T) {
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, ServerOptions{})
+	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 
 	// Add a test session
 	testSession := state.Session{
@@ -164,8 +164,8 @@ func TestResolveQuickLaunchByName(t *testing.T) {
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 	mm := models.New(cfg, nil, "", log.NewWithOptions(io.Discard, log.Options{}))
 	wm.SetModelManager(mm)
-	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, ServerOptions{})
+	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 	server.SetModelManager(mm)
 
 	ws := state.Workspace{
@@ -237,8 +237,8 @@ func TestHandleSuggestBranch(t *testing.T) {
 		st := state.New("", nil)
 		statePath := t.TempDir() + "/state.json"
 		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-		sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
-		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, ServerOptions{})
+		sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 
 		body := bytes.NewReader([]byte(`{"prompt":"test prompt"}`))
 		req, _ := http.NewRequest(http.MethodPost, "/api/suggest-branch", body)
@@ -257,8 +257,8 @@ func TestHandleBuiltinQuickLaunchCookbook(t *testing.T) {
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, ServerOptions{})
+	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 
 	t.Run("GET request returns presets", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/api/builtin-quick-launch", nil)
@@ -335,8 +335,8 @@ func TestHandleHealthz(t *testing.T) {
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, ServerOptions{})
+	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 
 	// Start version check to populate version info
 	server.StartVersionCheck()
@@ -399,8 +399,8 @@ func TestHandleUpdate(t *testing.T) {
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, ServerOptions{})
+	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 
 	// "POST method accepted, GET rejected" subtest removed: chi handles 405
 	// responses automatically via r.Post route registration.

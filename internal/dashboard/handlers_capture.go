@@ -57,7 +57,11 @@ func (s *Server) handleCaptureSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var err error
-		output, err = tmux.CaptureLastLines(context.Background(), tmuxSession, lines, false)
+		if s.tmuxServer != nil {
+			output, err = s.tmuxServer.CaptureLastLines(context.Background(), tmuxSession, lines, false)
+		} else {
+			output, err = tmux.CaptureLastLines(context.Background(), tmuxSession, lines, false)
+		}
 		if err != nil {
 			writeJSONError(w, fmt.Sprintf("failed to capture output: %v", err), http.StatusInternalServerError)
 			return

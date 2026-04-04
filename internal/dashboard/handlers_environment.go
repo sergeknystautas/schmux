@@ -161,7 +161,12 @@ func (s *Server) handleGetEnvironment(w http.ResponseWriter, r *http.Request) {
 
 	updateBaseline(system)
 
-	tmuxEnv, err := tmux.ShowEnvironment(r.Context())
+	var tmuxEnv map[string]string
+	if s.tmuxServer != nil {
+		tmuxEnv, err = s.tmuxServer.ShowEnvironment(r.Context())
+	} else {
+		tmuxEnv, err = tmux.ShowEnvironment(r.Context())
+	}
 	if err != nil {
 		s.logger.Error("failed to get tmux environment", "err", err)
 		http.Error(w, "Failed to read tmux environment", http.StatusInternalServerError)
@@ -209,7 +214,11 @@ func (s *Server) handleSyncEnvironment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := tmux.SetEnvironment(r.Context(), req.Key, value); err != nil {
+	setEnvFn := tmux.SetEnvironment
+	if s.tmuxServer != nil {
+		setEnvFn = s.tmuxServer.SetEnvironment
+	}
+	if err := setEnvFn(r.Context(), req.Key, value); err != nil {
 		s.logger.Error("failed to set tmux environment", "key", req.Key, "err", err)
 		http.Error(w, "Failed to set tmux environment variable", http.StatusInternalServerError)
 		return

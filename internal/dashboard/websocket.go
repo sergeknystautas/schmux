@@ -298,7 +298,11 @@ resizeWaitLoop:
 	capCtx, capCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
 	bootstrap, err := tracker.CaptureLastLines(capCtx, bootstrapCaptureLines)
 	if err != nil {
-		bootstrap, err = tmux.CaptureLastLines(capCtx, sess.TmuxSession, bootstrapCaptureLines, true)
+		if s.tmuxServer != nil {
+			bootstrap, err = s.tmuxServer.CaptureLastLines(capCtx, sess.TmuxSession, bootstrapCaptureLines, true)
+		} else {
+			bootstrap, err = tmux.CaptureLastLines(capCtx, sess.TmuxSession, bootstrapCaptureLines, true)
+		}
 		if err != nil {
 			logging.Sub(s.logger, "ws").Error("bootstrap capture failed", "session_id", sessionID[:8], "err", err)
 			bootstrap = ""
@@ -334,7 +338,13 @@ resizeWaitLoop:
 	} else {
 		// Fallback to tmux CLI
 		curCtx2, curCancel2 := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		cliState, cliErr := tmux.GetCursorState(curCtx2, sess.TmuxSession)
+		var cliState tmux.CursorState
+		var cliErr error
+		if s.tmuxServer != nil {
+			cliState, cliErr = s.tmuxServer.GetCursorState(curCtx2, sess.TmuxSession)
+		} else {
+			cliState, cliErr = tmux.GetCursorState(curCtx2, sess.TmuxSession)
+		}
 		curCancel2()
 		if cliErr == nil {
 			curX, curY, curVisible = cliState.X, cliState.Y, cliState.Visible
@@ -861,7 +871,11 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 	capCtx, capCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	bootstrap, err := tracker.CaptureLastLines(capCtx, bootstrapCaptureLines)
 	if err != nil {
-		bootstrap, _ = tmux.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
+		if s.tmuxServer != nil {
+			bootstrap, _ = s.tmuxServer.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
+		} else {
+			bootstrap, _ = tmux.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
+		}
 	}
 	capCancel()
 	if bootstrap != "" {
@@ -966,7 +980,11 @@ resizeWait:
 	capCtx, capCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	bootstrap, err := tracker.CaptureLastLines(capCtx, bootstrapCaptureLines)
 	if err != nil {
-		bootstrap, _ = tmux.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
+		if s.tmuxServer != nil {
+			bootstrap, _ = s.tmuxServer.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
+		} else {
+			bootstrap, _ = tmux.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
+		}
 	}
 	capCancel()
 	if bootstrap != "" {

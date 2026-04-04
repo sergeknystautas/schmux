@@ -24,7 +24,7 @@ func newTestManager(t *testing.T) (*Manager, *state.State) {
 	st := state.New("", nil)
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	m := New(cfg, st, statePath, wm, nil)
+	m := New(cfg, st, statePath, wm, nil, nil)
 	return m, st
 }
 
@@ -40,7 +40,7 @@ func TestNew(t *testing.T) {
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 
 	t.Run("initializes all internal state", func(t *testing.T) {
-		m := New(cfg, st, statePath, wm, nil)
+		m := New(cfg, st, statePath, wm, nil, nil)
 		if m == nil {
 			t.Fatal("New() returned nil")
 		}
@@ -65,7 +65,7 @@ func TestNew(t *testing.T) {
 	})
 
 	t.Run("creates default logger when nil is passed", func(t *testing.T) {
-		m := New(cfg, st, statePath, wm, nil)
+		m := New(cfg, st, statePath, wm, nil, nil)
 		if m.logger == nil {
 			t.Fatal("logger should be non-nil even when nil is passed to New()")
 		}
@@ -73,7 +73,7 @@ func TestNew(t *testing.T) {
 
 	t.Run("uses provided logger", func(t *testing.T) {
 		customLogger := log.NewWithOptions(io.Discard, log.Options{})
-		m := New(cfg, st, statePath, wm, customLogger)
+		m := New(cfg, st, statePath, wm, nil, customLogger)
 		if m.logger != customLogger {
 			t.Error("should use the provided logger, not create a new one")
 		}
@@ -258,7 +258,7 @@ func TestDispose(t *testing.T) {
 	st := state.New(statePath, nil)
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 
-	m := New(cfg, st, statePath, wm, nil)
+	m := New(cfg, st, statePath, wm, nil, nil)
 
 	t.Run("returns error for nonexistent session", func(t *testing.T) {
 		err := m.Dispose(context.Background(), "nonexistent")
@@ -989,7 +989,7 @@ func TestMarkSessionDisposing(t *testing.T) {
 	statePath := t.TempDir() + "/state.json"
 	st := state.New(statePath, nil)
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	m := New(cfg, st, statePath, wm, nil)
+	m := New(cfg, st, statePath, wm, nil, nil)
 
 	st.AddWorkspace(state.Workspace{ID: "ws-1", Repo: "https://example.com/r.git", Branch: "main", Path: t.TempDir()})
 	st.AddSession(state.Session{ID: "sess-1", WorkspaceID: "ws-1", Target: "claude", TmuxSession: "test", Status: "stopped"})
@@ -1016,7 +1016,7 @@ func TestMarkSessionDisposingIdempotent(t *testing.T) {
 	statePath := t.TempDir() + "/state.json"
 	st := state.New(statePath, nil)
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	m := New(cfg, st, statePath, wm, nil)
+	m := New(cfg, st, statePath, wm, nil, nil)
 
 	st.AddWorkspace(state.Workspace{ID: "ws-1", Repo: "https://example.com/r.git", Branch: "main", Path: t.TempDir()})
 	st.AddSession(state.Session{ID: "sess-1", WorkspaceID: "ws-1", Target: "claude", TmuxSession: "test", Status: state.SessionStatusDisposing})
@@ -1035,7 +1035,7 @@ func TestMarkSessionDisposingNotFound(t *testing.T) {
 	statePath := t.TempDir() + "/state.json"
 	st := state.New(statePath, nil)
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	m := New(cfg, st, statePath, wm, nil)
+	m := New(cfg, st, statePath, wm, nil, nil)
 
 	_, err := m.MarkSessionDisposing("nonexistent")
 	if err == nil {
@@ -1054,7 +1054,7 @@ func TestResolveTarget(t *testing.T) {
 		st := state.New("", nil)
 		statePath := filepath.Join(t.TempDir(), "state.json")
 		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-		m := New(cfg, st, statePath, wm, nil)
+		m := New(cfg, st, statePath, wm, nil, nil)
 
 		resolved, err := m.ResolveTarget(context.Background(), "lint")
 		if err != nil {
@@ -1079,7 +1079,7 @@ func TestResolveTarget(t *testing.T) {
 		st := state.New("", nil)
 		statePath := filepath.Join(t.TempDir(), "state.json")
 		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-		m := New(cfg, st, statePath, wm, nil)
+		m := New(cfg, st, statePath, wm, nil, nil)
 
 		resolved, err := m.ResolveTarget(context.Background(), "claude")
 		if err != nil {
@@ -1124,7 +1124,7 @@ func TestResolveTarget(t *testing.T) {
 		st := state.New("", nil)
 		statePath := filepath.Join(t.TempDir(), "state.json")
 		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-		m := New(cfg, st, statePath, wm, nil)
+		m := New(cfg, st, statePath, wm, nil, nil)
 
 		resolved, err := m.ResolveTarget(context.Background(), "claude")
 		if err != nil {
@@ -1200,7 +1200,7 @@ func TestDispose_StoppedSession(t *testing.T) {
 	statePath := t.TempDir() + "/state.json"
 	st := state.New(statePath, nil)
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	m := New(cfg, st, statePath, wm, nil)
+	m := New(cfg, st, statePath, wm, nil, nil)
 
 	wsPath := t.TempDir()
 	st.AddWorkspace(state.Workspace{ID: "ws-d1", Repo: "https://example.com/r.git", Branch: "main", Path: wsPath})
@@ -1235,7 +1235,7 @@ func TestDispose_CleansUpTracker(t *testing.T) {
 	statePath := t.TempDir() + "/state.json"
 	st := state.New(statePath, nil)
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	m := New(cfg, st, statePath, wm, nil)
+	m := New(cfg, st, statePath, wm, nil, nil)
 
 	st.AddWorkspace(state.Workspace{ID: "ws-d2", Repo: "https://example.com/r.git", Branch: "main", Path: t.TempDir()})
 	st.AddSession(state.Session{
@@ -1282,7 +1282,7 @@ func TestDispose_LastSessionNotifiesCompound(t *testing.T) {
 	statePath := t.TempDir() + "/state.json"
 	st := state.New(statePath, nil)
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	m := New(cfg, st, statePath, wm, nil)
+	m := New(cfg, st, statePath, wm, nil, nil)
 
 	st.AddWorkspace(state.Workspace{ID: "ws-d3", Repo: "https://example.com/r.git", Branch: "main", Path: t.TempDir()})
 	st.AddSession(state.Session{
@@ -1323,7 +1323,7 @@ func TestDispose_NotLastSessionSkipsCompound(t *testing.T) {
 	statePath := t.TempDir() + "/state.json"
 	st := state.New(statePath, nil)
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	m := New(cfg, st, statePath, wm, nil)
+	m := New(cfg, st, statePath, wm, nil, nil)
 
 	st.AddWorkspace(state.Workspace{ID: "ws-d4", Repo: "https://example.com/r.git", Branch: "main", Path: t.TempDir()})
 	// Two sessions in the same workspace
@@ -1364,7 +1364,7 @@ func TestRevertSessionStatus(t *testing.T) {
 		statePath := t.TempDir() + "/state.json"
 		st := state.New(statePath, nil)
 		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-		m := New(cfg, st, statePath, wm, nil)
+		m := New(cfg, st, statePath, wm, nil, nil)
 
 		st.AddWorkspace(state.Workspace{ID: "ws-r1", Repo: "https://example.com/r.git", Branch: "main", Path: t.TempDir()})
 		st.AddSession(state.Session{ID: "sess-r1", WorkspaceID: "ws-r1", Target: "claude", TmuxSession: "test-r1", Status: "running"})
