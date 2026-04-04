@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"time"
 
@@ -41,6 +42,22 @@ func (s *RemoteSource) SendKeys(keys string) (controlmode.SendKeysTimings, error
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	return s.conn.SendKeys(ctx, s.paneID, keys)
+}
+
+func (s *RemoteSource) SendTmuxKeyName(name string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client := s.conn.Client()
+	if client == nil {
+		return fmt.Errorf("not connected")
+	}
+	cmd := fmt.Sprintf("send-keys -t %s %s", s.windowID, name)
+	_, _, err := client.Execute(ctx, cmd)
+	return err
+}
+
+func (s *RemoteSource) IsAttached() bool {
+	return s.conn != nil && s.conn.IsConnected()
 }
 
 // CaptureVisible returns the visible screen. Connection does not expose

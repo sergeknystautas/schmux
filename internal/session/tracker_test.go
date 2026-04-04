@@ -40,6 +40,11 @@ func TestSessionTrackerInputResizeWithoutControlMode(t *testing.T) {
 	_ = tracker // use the mock tracker elsewhere
 }
 
+func TestControlSourceInterfaceConformance(t *testing.T) {
+	var _ ControlSource = (*LocalSource)(nil)
+	var _ ControlSource = (*RemoteSource)(nil)
+}
+
 func TestTrackerCounters_Increment(t *testing.T) {
 	var c TrackerCounters
 

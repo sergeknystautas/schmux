@@ -74,6 +74,21 @@ func (s *LocalSource) SendKeys(keys string) (controlmode.SendKeysTimings, error)
 	return client.SendKeys(ctx, paneID, keys)
 }
 
+func (s *LocalSource) SendTmuxKeyName(name string) error {
+	s.mu.RLock()
+	client := s.cmClient
+	paneID := s.paneID
+	s.mu.RUnlock()
+	if client == nil {
+		return fmt.Errorf("not attached")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := fmt.Sprintf("send-keys -t %s %s", paneID, name)
+	_, _, err := client.Execute(ctx, cmd)
+	return err
+}
+
 func (s *LocalSource) CaptureVisible() (string, error) {
 	s.mu.RLock()
 	client := s.cmClient
