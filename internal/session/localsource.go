@@ -21,6 +21,7 @@ import (
 type LocalSource struct {
 	sessionID   string
 	tmuxSession string
+	server      *tmux.TmuxServer
 	logger      *log.Logger
 	events      chan SourceEvent
 
@@ -39,23 +40,29 @@ type LocalSource struct {
 	lastRetryLog time.Time
 	hasAttached  bool // tracks whether at least one successful attachment occurred
 
-	// HealthProbe measures tmux control mode round-trip time.
-	HealthProbe *TmuxHealthProbe
+	// healthProbe measures tmux control mode round-trip time.
+	healthProbe *TmuxHealthProbe
+
+	// syncTriggerCh is signaled when tmux pauses output delivery (pause-after).
+	// Exposed via SyncTrigger() so the tracker/WebSocket handler can perform an immediate sync.
+	syncTriggerCh chan struct{}
 }
 
 // NewLocalSource creates a LocalSource for the given tmux session.
-func NewLocalSource(sessionID, tmuxSession string, logger *log.Logger) *LocalSource {
+func NewLocalSource(sessionID, tmuxSession string, server *tmux.TmuxServer, logger *log.Logger) *LocalSource {
 	stopCtx, stopCancel := context.WithCancel(context.Background())
 	return &LocalSource{
-		sessionID:   sessionID,
-		tmuxSession: tmuxSession,
-		logger:      logger,
-		events:      make(chan SourceEvent, 1000),
-		stopCh:      make(chan struct{}),
-		stopCtx:     stopCtx,
-		stopCancel:  stopCancel,
-		doneCh:      make(chan struct{}),
-		HealthProbe: NewTmuxHealthProbe(),
+		sessionID:     sessionID,
+		tmuxSession:   tmuxSession,
+		server:        server,
+		logger:        logger,
+		events:        make(chan SourceEvent, 1000),
+		stopCh:        make(chan struct{}),
+		stopCtx:       stopCtx,
+		stopCancel:    stopCancel,
+		doneCh:        make(chan struct{}),
+		healthProbe:   NewTmuxHealthProbe(),
+		syncTriggerCh: make(chan struct{}, 1),
 	}
 }
 
@@ -72,6 +79,21 @@ func (s *LocalSource) SendKeys(keys string) (controlmode.SendKeysTimings, error)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	return client.SendKeys(ctx, paneID, keys)
+}
+
+func (s *LocalSource) SendTmuxKeyName(name string) error {
+	s.mu.RLock()
+	client := s.cmClient
+	paneID := s.paneID
+	s.mu.RUnlock()
+	if client == nil {
+		return fmt.Errorf("not attached")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := fmt.Sprintf("send-keys -t %s %s", paneID, name)
+	_, _, err := client.Execute(ctx, cmd)
+	return err
 }
 
 func (s *LocalSource) CaptureVisible() (string, error) {
@@ -176,7 +198,13 @@ func (s *LocalSource) attach() error {
 	defer cancel()
 
 	// Start tmux in control mode
-	cmd := exec.CommandContext(ctx, tmux.Binary(), "-C", "attach-session", "-t", "="+target)
+	// Build attach command: use TmuxServer socket if available, else fall back to package-level binary.
+	var cmd *exec.Cmd
+	if s.server != nil {
+		cmd = exec.CommandContext(ctx, s.server.Binary(), "-L", s.server.SocketName(), "-C", "attach-session", "-t", "="+target)
+	} else {
+		cmd = exec.CommandContext(ctx, tmux.Binary(), "-C", "attach-session", "-t", "="+target)
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stdin pipe: %w", err)
@@ -273,7 +301,7 @@ func (s *LocalSource) attach() error {
 				_, _, err := client.Execute(probeCtx, healthProbeCommand)
 				rttUs := float64(time.Since(start).Microseconds())
 				probeCancel()
-				s.HealthProbe.Record(rttUs, err != nil)
+				s.healthProbe.Record(rttUs, err != nil)
 			case <-probeStop:
 				return
 			case <-s.stopCh:
@@ -301,6 +329,11 @@ func (s *LocalSource) attach() error {
 				s.logger.Info("tmux paused output, continuing",
 					"session", s.sessionID[:8], "pane", pausedPane)
 			}
+			// Signal for immediate capture-pane sync
+			select {
+			case s.syncTriggerCh <- struct{}{}:
+			default:
+			}
 			// Resume output delivery
 			contCtx, contCancel := context.WithTimeout(ctx, 2*time.Second)
 			if err := client.ContinuePane(contCtx, pausedPane); err != nil && s.logger != nil {
@@ -319,6 +352,32 @@ func (s *LocalSource) SetTmuxSession(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tmuxSession = name
+}
+
+// SyncTrigger returns a channel that fires when tmux pauses output delivery.
+func (s *LocalSource) SyncTrigger() <-chan struct{} {
+	return s.syncTriggerCh
+}
+
+// GetHealthProbe returns the source's health probe.
+func (s *LocalSource) GetHealthProbe() *TmuxHealthProbe {
+	return s.healthProbe
+}
+
+// SourceDiagnostics returns transport-level diagnostic counters.
+func (s *LocalSource) SourceDiagnostics() map[string]int64 {
+	result := make(map[string]int64)
+	s.mu.RLock()
+	parser := s.cmParser
+	client := s.cmClient
+	s.mu.RUnlock()
+	if parser != nil {
+		result["eventsDropped"] = parser.DroppedOutputs()
+	}
+	if client != nil {
+		result["clientFanOutDrops"] = client.DroppedFanOut()
+	}
+	return result
 }
 
 // PaneID returns the discovered pane ID (empty if not yet attached).

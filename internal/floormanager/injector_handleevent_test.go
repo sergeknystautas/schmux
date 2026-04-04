@@ -17,7 +17,7 @@ import (
 func newTestInjector(t *testing.T, debounceMs int) *Injector {
 	t.Helper()
 	cfg := &config.Config{}
-	mgr := New(cfg, nil, t.TempDir(), log.NewWithOptions(io.Discard, log.Options{}))
+	mgr := New(cfg, nil, nil, t.TempDir(), log.NewWithOptions(io.Discard, log.Options{}))
 	logger := log.NewWithOptions(io.Discard, log.Options{})
 	return NewInjector(mgr, debounceMs, logger)
 }

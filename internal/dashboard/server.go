@@ -39,6 +39,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/repofeed"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
 	"github.com/sergeknystautas/schmux/internal/update"
 	"github.com/sergeknystautas/schmux/internal/version"
@@ -119,6 +120,7 @@ type Server struct {
 	devProxy     bool   // When true, proxy non-API routes to Vite dev server
 	devMode      bool   // When true, dev mode API endpoints are enabled
 	shutdownCtx  context.Context
+	tmuxServer   *tmux.TmuxServer
 
 	// WebSocket connection registry: sessionID -> active connection (for terminal)
 	// Only one connection per session; new connections displace old ones.
@@ -248,7 +250,7 @@ type remoteAuthState struct {
 type linearSyncState struct {
 	linearSyncResolveConflictStates   map[string]*LinearSyncResolveConflictState
 	linearSyncResolveConflictStatesMu sync.RWMutex
-	crTrackers                        map[string]*session.SessionTracker
+	crTrackers                        map[string]*session.SessionRuntime
 	crTrackersMu                      sync.RWMutex
 }
 
@@ -269,7 +271,7 @@ type defaultBranchEntry struct {
 const defaultBranchCacheTTL = 5 * time.Minute
 
 // NewServer creates a new dashboard server.
-func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, prd github.DiscoveryProvider, logger *log.Logger, ghStatus contracts.GitHubStatus, opts ServerOptions) *Server {
+func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, prd github.DiscoveryProvider, logger *log.Logger, ghStatus contracts.GitHubStatus, tmuxServer *tmux.TmuxServer, opts ServerOptions) *Server {
 	// Set package-level logger for standalone helper functions
 	pkgLogger = logger
 
@@ -286,6 +288,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		prDiscovery:        prd,
 		logger:             logger,
 		githubStatus:       ghStatus,
+		tmuxServer:         tmuxServer,
 		shutdown:           opts.Shutdown,
 		devRestart:         opts.DevRestart,
 		devProxy:           opts.DevProxy,
@@ -308,7 +311,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		},
 		linearSyncState: linearSyncState{
 			linearSyncResolveConflictStates: make(map[string]*LinearSyncResolveConflictState),
-			crTrackers:                      make(map[string]*session.SessionTracker),
+			crTrackers:                      make(map[string]*session.SessionRuntime),
 		},
 	}
 	s.dashboardFS = dashboardassets.FS()
@@ -495,19 +498,11 @@ func (s *Server) LogDashboardAssetPath() {
 	}
 }
 
-// initEnvironmentBaseline captures the system environment from a fresh login
-// shell and stores the key set as the baseline for tmux pollution cleanup.
-func (s *Server) initEnvironmentBaseline() {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	system, err := getSystemEnvironment(ctx)
-	if err != nil {
-		s.logger.Warn("failed to capture environment baseline, pollution cleanup disabled", "err", err)
-		return
-	}
-	updateBaseline(system)
-	s.logger.Info("environment baseline captured", "keys", len(system))
-}
+// initEnvironmentBaseline is a no-op now that tmux runs on an isolated socket.
+// Previously it captured system environment keys and stored them as a baseline
+// for CleanTmuxServerEnv, but with socket isolation there is no shared
+// environment to clean.
+func (s *Server) initEnvironmentBaseline() {}
 
 // Start starts the HTTP server.
 func (s *Server) Start() error {
@@ -1780,13 +1775,13 @@ func extractIPFromAddr(remoteAddr string) string {
 	return remoteAddr
 }
 
-func (s *Server) setCRTracker(tmuxName string, tracker *session.SessionTracker) {
+func (s *Server) setCRTracker(tmuxName string, tracker *session.SessionRuntime) {
 	s.crTrackersMu.Lock()
 	defer s.crTrackersMu.Unlock()
 	s.crTrackers[tmuxName] = tracker
 }
 
-func (s *Server) getCRTracker(tmuxName string) *session.SessionTracker {
+func (s *Server) getCRTracker(tmuxName string) *session.SessionRuntime {
 	s.crTrackersMu.RLock()
 	defer s.crTrackersMu.RUnlock()
 	return s.crTrackers[tmuxName]

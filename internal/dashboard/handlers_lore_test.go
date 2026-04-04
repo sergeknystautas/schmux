@@ -69,9 +69,9 @@ func TestHandleLoreApplyMerge_RepoPublic_WorkspaceBased(t *testing.T) {
 	st := state.New(statePath, nil)
 	logger := log.NewWithOptions(io.Discard, log.Options{})
 	wm := workspace.New(cfg, st, statePath, logger)
-	sm := session.New(cfg, st, statePath, wm, logger)
+	sm := session.New(cfg, st, statePath, wm, nil, logger)
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), logger, contracts.GitHubStatus{}, ServerOptions{
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), logger, contracts.GitHubStatus{}, nil, ServerOptions{
 		ShutdownCtx: shutdownCtx,
 	})
 	server.SetModelManager(models.New(cfg, nil, "", log.NewWithOptions(io.Discard, log.Options{})))
@@ -192,9 +192,9 @@ func TestHandleLoreApplyMerge_RepoPublic_ConflictWhenDirty(t *testing.T) {
 	st := state.New(statePath, nil)
 	logger := log.NewWithOptions(io.Discard, log.Options{})
 	wm := workspace.New(cfg, st, statePath, logger)
-	sm := session.New(cfg, st, statePath, wm, logger)
+	sm := session.New(cfg, st, statePath, wm, nil, logger)
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), logger, contracts.GitHubStatus{}, ServerOptions{
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), logger, contracts.GitHubStatus{}, nil, ServerOptions{
 		ShutdownCtx: shutdownCtx,
 	})
 	server.SetModelManager(models.New(cfg, nil, "", log.NewWithOptions(io.Discard, log.Options{})))

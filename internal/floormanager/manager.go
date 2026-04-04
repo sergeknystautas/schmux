@@ -27,6 +27,7 @@ const (
 type Manager struct {
 	cfg    *config.Config
 	sm     *session.Manager // used only for ResolveTarget and session name lookups
+	server *tmux.TmuxServer
 	logger *log.Logger
 
 	workDir     string // ~/.schmux/floor-manager/
@@ -41,14 +42,14 @@ type Manager struct {
 	stopped        bool
 
 	// tracker streams terminal output for the dashboard WebSocket.
-	tracker *session.SessionTracker
+	tracker *session.SessionRuntime
 
 	// shiftDone is signaled when schmux end-shift is called
 	shiftDone chan struct{}
 }
 
 // New creates a new floor manager Manager.
-func New(cfg *config.Config, sm *session.Manager, homeDir string, logger *log.Logger) *Manager {
+func New(cfg *config.Config, sm *session.Manager, server *tmux.TmuxServer, homeDir string, logger *log.Logger) *Manager {
 	// Resolve the path to the currently running schmux binary so the FM
 	// invokes the same build rather than whatever "schmux" is on PATH.
 	schmuxBin := "schmux" // fallback
@@ -59,6 +60,7 @@ func New(cfg *config.Config, sm *session.Manager, homeDir string, logger *log.Lo
 	return &Manager{
 		cfg:         cfg,
 		sm:          sm,
+		server:      server,
 		logger:      logger,
 		workDir:     filepath.Join(homeDir, ".schmux", "floor-manager"),
 		sessionName: tmuxSessionName,
@@ -108,7 +110,11 @@ func (m *Manager) Stop() {
 	if tmuxSess != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		tmux.KillSession(ctx, tmuxSess)
+		if m.server != nil {
+			m.server.KillSession(ctx, tmuxSess)
+		} else {
+			tmux.KillSession(ctx, tmuxSess)
+		}
 	}
 }
 
@@ -120,7 +126,7 @@ func (m *Manager) TmuxSession() string {
 }
 
 // Tracker returns the session tracker for WebSocket terminal streaming.
-func (m *Manager) Tracker() *session.SessionTracker {
+func (m *Manager) Tracker() *session.SessionRuntime {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.tracker
@@ -133,6 +139,9 @@ func (m *Manager) Running() bool {
 	m.mu.Unlock()
 	if sess == "" {
 		return false
+	}
+	if m.server != nil {
+		return m.server.SessionExists(context.Background(), sess)
 	}
 	return tmux.SessionExists(context.Background(), sess)
 }
@@ -194,7 +203,13 @@ func (m *Manager) spawn(ctx context.Context) error {
 	// If a session already exists (e.g. leftover from a previous daemon run),
 	// reconnect to it instead of trying to create a duplicate.
 	reconnected := false
-	if tmux.SessionExists(ctx, m.sessionName) {
+	sessionExists := false
+	if m.server != nil {
+		sessionExists = m.server.SessionExists(ctx, m.sessionName)
+	} else {
+		sessionExists = tmux.SessionExists(ctx, m.sessionName)
+	}
+	if sessionExists {
 		m.logger.Info("reconnecting to existing floor manager session", "tmux_session", m.sessionName)
 		reconnected = true
 	} else {
@@ -205,15 +220,21 @@ func (m *Manager) spawn(ctx context.Context) error {
 		}
 
 		// Create tmux session
-		if err := tmux.CreateSession(ctx, m.sessionName, m.workDir, command); err != nil {
-			return fmt.Errorf("failed to create tmux session: %w", err)
+		var createErr error
+		if m.server != nil {
+			createErr = m.server.CreateSession(ctx, m.sessionName, m.workDir, command)
+		} else {
+			createErr = tmux.CreateSession(ctx, m.sessionName, m.workDir, command)
+		}
+		if createErr != nil {
+			return fmt.Errorf("failed to create tmux session: %w", createErr)
 		}
 	}
 
 	// Create a tracker for terminal streaming via WebSocket
-	source := session.NewLocalSource("floor-manager", m.sessionName, nil)
+	source := session.NewLocalSource("floor-manager", m.sessionName, m.server, nil)
 	source.Start()
-	tracker := session.NewSessionTracker(
+	tracker := session.NewSessionRuntime(
 		"floor-manager",
 		source,
 		nil, // no state store
@@ -241,7 +262,13 @@ func (m *Manager) spawn(ctx context.Context) error {
 func (m *Manager) spawnResume(ctx context.Context) error {
 	// If a session already exists, reconnect to it.
 	reconnected := false
-	if tmux.SessionExists(ctx, m.sessionName) {
+	sessionExistsResume := false
+	if m.server != nil {
+		sessionExistsResume = m.server.SessionExists(ctx, m.sessionName)
+	} else {
+		sessionExistsResume = tmux.SessionExists(ctx, m.sessionName)
+	}
+	if sessionExistsResume {
 		m.logger.Info("reconnecting to existing floor manager session for resume", "tmux_session", m.sessionName)
 		reconnected = true
 	} else {
@@ -250,15 +277,21 @@ func (m *Manager) spawnResume(ctx context.Context) error {
 			return err
 		}
 
-		if err := tmux.CreateSession(ctx, m.sessionName, m.workDir, command); err != nil {
-			return err
+		var createErr error
+		if m.server != nil {
+			createErr = m.server.CreateSession(ctx, m.sessionName, m.workDir, command)
+		} else {
+			createErr = tmux.CreateSession(ctx, m.sessionName, m.workDir, command)
+		}
+		if createErr != nil {
+			return createErr
 		}
 	}
 
 	// Create a tracker for terminal streaming via WebSocket
-	source := session.NewLocalSource("floor-manager", m.sessionName, nil)
+	source := session.NewLocalSource("floor-manager", m.sessionName, m.server, nil)
 	source.Start()
-	tracker := session.NewSessionTracker(
+	tracker := session.NewSessionRuntime(
 		"floor-manager",
 		source,
 		nil, // no state store
@@ -331,7 +364,6 @@ func (m *Manager) handleShiftRotation(ctx context.Context) {
 	}
 	m.rotating = true
 	m.shiftDone = make(chan struct{}, 1)
-	tmuxSess := m.tmuxSession
 	m.mu.Unlock()
 
 	defer func() {
@@ -343,11 +375,16 @@ func (m *Manager) handleShiftRotation(ctx context.Context) {
 
 	// Send [SHIFT] warning — clear partial input first to prevent collision
 	shiftMsg := fmt.Sprintf("[SHIFT] Forced rotation imminent. Save your summary to memory.md, then run `%s end-shift`. Do not acknowledge this message to the operator.", m.schmuxBin)
-	_ = tmux.SendKeys(ctx, tmuxSess, "C-u")
-	if err := tmux.SendLiteral(ctx, tmuxSess, shiftMsg); err != nil {
-		m.logger.Warn("failed to send [SHIFT] to floor manager", "err", err)
+	runtime := m.Tracker()
+	if runtime != nil {
+		_ = runtime.SendTmuxKeyName("C-u")
+		if _, err := runtime.SendInput(shiftMsg); err != nil {
+			m.logger.Warn("failed to send [SHIFT] to floor manager", "err", err)
+		} else {
+			_ = runtime.SendTmuxKeyName("Enter")
+		}
 	} else {
-		_ = tmux.SendKeys(ctx, tmuxSess, "Enter")
+		m.logger.Warn("no runtime available for [SHIFT] message")
 	}
 
 	// Wait for end-shift or timeout
@@ -383,7 +420,11 @@ func (m *Manager) HandleRotation(ctx context.Context) {
 	}
 
 	if tmuxSess != "" {
-		_ = tmux.KillSession(ctx, tmuxSess)
+		if m.server != nil {
+			_ = m.server.KillSession(ctx, tmuxSess)
+		} else {
+			_ = tmux.KillSession(ctx, tmuxSess)
+		}
 	}
 
 	time.Sleep(restartDelay)

@@ -117,8 +117,10 @@ func NewDaemon() *Daemon {
 // that no daemon is already running. Called by both 'start' and 'daemon-run'
 // before they diverge.
 func ValidateReadyToRun() error {
-	// Check tmux dependency before forking
-	if err := tmux.TmuxChecker.Check(); err != nil {
+	// Check tmux dependency before forking.
+	// Use a temporary TmuxServer with the default binary to validate.
+	checker := tmux.NewTmuxServer("tmux", "schmux", nil)
+	if err := checker.Check(); err != nil {
 		return err
 	}
 
@@ -179,19 +181,17 @@ func Start() error {
 	}
 
 	// Apply custom tmux binary from config (if set) before starting the server.
+	tmuxBinary := "tmux"
 	if cfg, err := config.Load(filepath.Join(schmuxDir, "config.json")); err == nil && cfg.TmuxBinary != "" {
-		tmux.SetBinary(cfg.TmuxBinary)
+		tmuxBinary = cfg.TmuxBinary
 	}
 
-	// Ensure tmux log directory exists and start tmux server from there so
-	// verbose server logs land in ~/.schmux/tmux/ on a fresh server start.
-	tmuxLogDir := filepath.Join(schmuxDir, "tmux")
-	if err := os.MkdirAll(tmuxLogDir, 0755); err != nil {
-		return fmt.Errorf("failed to create tmux log directory: %w", err)
-	}
-	tmuxStart := exec.Command(tmux.Binary(), "-v", "start-server")
-	tmuxStart.Dir = tmuxLogDir
-	_ = tmuxStart.Run() // no-op if server already running; ignore error
+	// Construct the TmuxServer that all subsystems will share.
+	startupServer := tmux.NewTmuxServer(tmuxBinary, "schmux", nil)
+
+	// Start the tmux server (no-op if already running).
+	ctx := context.Background()
+	_ = startupServer.StartServer(ctx) // ignore error: best-effort
 
 	// Get the path to the current executable
 	execPath, err := os.Executable()
@@ -344,7 +344,6 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	remoteAccessLog := logging.Sub(logger, "remote-access")
 
 	// Set package-level loggers for packages that use standalone functions
-	tmux.SetLogger(logging.Sub(logger, "tmux"))
 	lore.SetLogger(loreLog)
 	compound.SetLogger(compoundLog)
 	config.SetLogger(configLog)
@@ -407,9 +406,15 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 	if cfg.TmuxBinary != "" {
-		tmux.SetBinary(cfg.TmuxBinary)
 		logger.Info("using custom tmux binary", "path", cfg.TmuxBinary)
 	}
+
+	// Construct the TmuxServer that all subsystems will share.
+	tmuxBin := cfg.TmuxBinary
+	if tmuxBin == "" {
+		tmuxBin = "tmux"
+	}
+	tmuxServer := tmux.NewTmuxServer(tmuxBin, "schmux", logging.Sub(logger, "tmux"))
 
 	if cfg.GetAuthEnabled() {
 		if _, err := config.EnsureSessionSecret(); err != nil {
@@ -506,7 +511,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	loreInstructionsDir := filepath.Join(homeDir, ".schmux", "instructions")
 	ensure.SetInstructionStore(lore.NewInstructionStore(loreInstructionsDir))
 	wm := workspace.New(cfg, st, statePath, workspaceLog)
-	sm := session.New(cfg, st, statePath, wm, sessionLog)
+	sm := session.New(cfg, st, statePath, wm, tmuxServer, sessionLog)
 
 	// Wire timelapse recording if enabled
 	if cfg.GetTimelapseEnabled() {
@@ -591,7 +596,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	}
 
 	// Create dashboard server
-	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, logger, d.githubStatus, dashboard.ServerOptions{
+	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, logger, d.githubStatus, tmuxServer, dashboard.ServerOptions{
 		Shutdown:    d.Shutdown,
 		DevRestart:  d.DevRestart,
 		DevProxy:    devProxy,
@@ -660,7 +665,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		if fm != nil {
 			return // already running
 		}
-		fm = floormanager.New(cfg, sm, homeDir, fmLog)
+		fm = floormanager.New(cfg, sm, tmuxServer, homeDir, fmLog)
 		fmInjector = floormanager.NewInjector(fm, cfg.GetFloorManagerDebounceMs(), fmLog)
 		server.SetFloorManager(fm)
 		eventHandlers["status"] = append(eventHandlers["status"], fmInjector)
@@ -1553,7 +1558,7 @@ func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *
 }
 
 // askNudgeNikForSession captures the session output and asks NudgeNik for consultation.
-// Captures via SessionTracker so both local and remote sessions are handled correctly.
+// Captures via SessionRuntime so both local and remote sessions are handled correctly.
 func askNudgeNikForSession(ctx context.Context, cfg *config.Config, sess state.Session, sm *session.Manager, logger *log.Logger) string {
 	// Capture via tracker (handles local and remote sessions via ControlSource)
 	tracker, err := sm.GetTracker(sess.ID)

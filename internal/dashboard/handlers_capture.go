@@ -1,13 +1,11 @@
 package dashboard
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
 type captureResponse struct {
@@ -32,8 +30,7 @@ func (s *Server) handleCaptureSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var output string
-
+	// Pre-flight: check that the session is actually reachable
 	if sess.RemoteHostID != "" {
 		if s.remoteManager == nil {
 			writeJSONError(w, "remote manager not available", http.StatusServiceUnavailable)
@@ -44,24 +41,22 @@ func (s *Server) handleCaptureSession(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, "remote host not connected", http.StatusServiceUnavailable)
 			return
 		}
-		var err error
-		output, err = conn.CapturePaneLines(r.Context(), sess.RemotePaneID, lines)
-		if err != nil {
-			writeJSONError(w, fmt.Sprintf("failed to capture output: %v", err), http.StatusInternalServerError)
-			return
-		}
-	} else {
-		tmuxSession := sess.TmuxSession
-		if tmuxSession == "" {
-			writeJSONError(w, "session is not running", http.StatusConflict)
-			return
-		}
-		var err error
-		output, err = tmux.CaptureLastLines(context.Background(), tmuxSession, lines, false)
-		if err != nil {
-			writeJSONError(w, fmt.Sprintf("failed to capture output: %v", err), http.StatusInternalServerError)
-			return
-		}
+	} else if sess.TmuxSession == "" {
+		writeJSONError(w, "session is not running", http.StatusConflict)
+		return
+	}
+
+	// Get the runtime (works for both local and remote sessions)
+	runtime, err := s.session.GetTracker(sessionID)
+	if err != nil {
+		writeJSONError(w, fmt.Sprintf("failed to get session runtime: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	output, err := runtime.CaptureLastLines(r.Context(), lines)
+	if err != nil {
+		writeJSONError(w, fmt.Sprintf("failed to capture output: %v", err), http.StatusInternalServerError)
+		return
 	}
 
 	writeJSON(w, captureResponse{

@@ -14,12 +14,12 @@ Diagnose rendering divergence between tmux (ground truth) and xterm.js (web dash
 ## Architecture Quick Reference
 
 ```
-Agent process  →  tmux session  →  control mode  →  SessionTracker
+Agent process  →  tmux session  →  control mode  →  SessionRuntime
   stdout/PTY       history:10K     %output events    fan-out + OutputLog
                                     chan(1000) each    50K entries, ~5MB
                                     drop on full
 
-SessionTracker  →  WebSocket handler  →  browser  →  xterm.js
+SessionRuntime  →  WebSocket handler  →  browser  →  xterm.js
   subscriber ch     8-byte seq header     writeLiveFrame()   scrollback: 5000
   chan(1000)         escbuf.SplitClean     batches per rAF    convertEol: true
   drop on full      binary frames         writeTerminal()
@@ -30,7 +30,7 @@ SessionTracker  →  WebSocket handler  →  browser  →  xterm.js
 | Layer        | File                                               | Purpose                                         |
 | ------------ | -------------------------------------------------- | ----------------------------------------------- |
 | tmux wrapper | `internal/tmux/tmux.go`                            | CreateSession, CapturePane, resize              |
-| Control mode | `internal/session/tracker.go`                      | SessionTracker, fan-out, OutputLog              |
+| Control mode | `internal/session/tracker.go`                      | SessionRuntime, fan-out, OutputLog              |
 | WebSocket    | `internal/dashboard/websocket.go`                  | Bootstrap, sequenced frames, sync, gap handling |
 | Frontend     | `assets/dashboard/src/lib/terminalStream.ts`       | handleOutput, writeLiveFrame, sanitize, scroll  |
 | Sync compare | `assets/dashboard/src/lib/syncCompare.ts`          | Line-by-line text comparison                    |

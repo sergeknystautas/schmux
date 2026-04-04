@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/charmbracelet/log"
+	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
@@ -119,15 +121,36 @@ func TestFlushClearsPartialInputBeforeInjecting(t *testing.T) {
 	}
 	time.Sleep(300 * time.Millisecond)
 
-	// Type partial input to simulate operator typing
-	if err := tmux.SendLiteral(ctx, sessName, "hello wor"); err != nil {
-		t.Fatal("failed to type partial input:", err)
+	// Type partial input to simulate operator typing.
+	// Use exec.Command directly since the package-level tmux.SendLiteral has been removed.
+	sendCmd := exec.CommandContext(ctx, "tmux", "send-keys", "-l", "-t", sessName, "hello wor")
+	if out, err := sendCmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to type partial input: %v: %s", err, string(out))
 	}
 	time.Sleep(100 * time.Millisecond)
+
+	// Set up a LocalSource + SessionRuntime so the injector can use the runtime
+	source := session.NewLocalSource("fm-test", sessName, nil, nil)
+	source.Start()
+	runtime := session.NewSessionRuntime("fm-test", source, nil, "", nil, nil, nil)
+	runtime.Start()
+	t.Cleanup(func() {
+		runtime.Stop()
+	})
+
+	// Wait for the control mode connection to establish
+	deadline := time.Now().Add(3 * time.Second)
+	for !source.IsAttached() && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !source.IsAttached() {
+		t.Fatal("source did not attach in time")
+	}
 
 	// Set up injector with pending signal
 	m := &Manager{
 		tmuxSession: sessName,
+		tracker:     runtime,
 		logger:      log.Default(),
 	}
 	inj := NewInjector(m, 0, log.Default())

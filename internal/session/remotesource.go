@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"time"
 
@@ -43,6 +44,22 @@ func (s *RemoteSource) SendKeys(keys string) (controlmode.SendKeysTimings, error
 	return s.conn.SendKeys(ctx, s.paneID, keys)
 }
 
+func (s *RemoteSource) SendTmuxKeyName(name string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client := s.conn.Client()
+	if client == nil {
+		return fmt.Errorf("not connected")
+	}
+	cmd := fmt.Sprintf("send-keys -t %s %s", s.windowID, name)
+	_, _, err := client.Execute(ctx, cmd)
+	return err
+}
+
+func (s *RemoteSource) IsAttached() bool {
+	return s.conn != nil && s.conn.IsConnected()
+}
+
 // CaptureVisible returns the visible screen. Connection does not expose
 // CapturePaneVisible directly, so we use CapturePaneLines with a
 // standard terminal height as an approximation.
@@ -71,6 +88,11 @@ func (s *RemoteSource) Resize(cols, rows int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	return s.conn.Client().ResizeWindow(ctx, s.windowID, cols, rows)
+}
+
+// GetHealthProbe returns the source's health probe.
+func (s *RemoteSource) GetHealthProbe() *TmuxHealthProbe {
+	return s.healthProbe
 }
 
 func (s *RemoteSource) Close() error {

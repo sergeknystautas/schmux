@@ -13,7 +13,7 @@ Timelapse records all terminal output from agent sessions continuously, then exp
 | `internal/timelapse/castwriter.go`         | Writes asciicast v2 NDJSON (header + `[timestamp, "o", data]` events)                    |
 | `internal/timelapse/types.go`              | Typed record schemas and `.cast` parser                                                  |
 | `internal/timelapse/storage.go`            | `ListRecordings`, `PruneRecordings` -- filesystem listing, age/size-based eviction       |
-| `internal/session/controlsource.go`        | `ControlSource` interface and `SourceEvent` -- unified input boundary for SessionTracker |
+| `internal/session/controlsource.go`        | `ControlSource` interface and `SourceEvent` -- unified input boundary for SessionRuntime |
 | `internal/session/tracker.go`              | Wires `RecorderFactory`, forwards gap/resize events to recorder                          |
 | `internal/dashboard/handlers_timelapse.go` | HTTP handlers: list, export, download, delete recordings                                 |
 
@@ -25,7 +25,7 @@ Timelapse records all terminal output from agent sessions continuously, then exp
 - **Time-compression via scroll detection.** The exporter rewrites timestamps in a single pass: events where the screen scrolled (new content appeared) get a 300ms pause; everything else (spinners, idle, thinking) gets 0.001s. Scroll detection compares consecutive screen grids looking for row-shift patterns (at least 40% of compared rows shifted by k positions).
 - **Text-only cell comparison.** Diffing uses character content only, not attributes. This avoids false positives from cosmetic formatting churn (color changes, style resets).
 - **In-memory VT100, not tmux replay.** The exporter feeds bytes through `vt10x` in-process. No subprocess calls, no tmux server isolation, runs in milliseconds.
-- **RecorderFactory injection.** `SessionTracker` does not import `internal/timelapse`. Instead, `tracker.RecorderFactory` is a `func(outputLog, gapCh) Runnable` set by the session manager. This keeps the dependency one-directional.
+- **RecorderFactory injection.** `SessionRuntime` does not import `internal/timelapse`. Instead, `tracker.RecorderFactory` is a `func(outputLog, gapCh) Runnable` set by the session manager. This keeps the dependency one-directional.
 
 ### Rejected alternatives
 
@@ -36,7 +36,7 @@ Timelapse records all terminal output from agent sessions continuously, then exp
 ## Data flow
 
 ```
-SessionTracker.run()
+SessionRuntime.run()
     |
     +-- SourceOutput events --> outputLog.Append() --> Recorder.Run()
     |                                                    |

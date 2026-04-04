@@ -40,13 +40,14 @@ type Manager struct {
 	config                  *config.Config
 	state                   state.StateStore
 	workspace               workspace.WorkspaceManager
+	server                  *tmux.TmuxServer
 	logger                  *log.Logger
 	ensurer                 *ensure.Ensurer
 	models                  *models.Manager // Model catalog, resolution, enablement
 	remoteManager           *remote.Manager // Optional, for remote sessions
 	eventHandlers           map[string][]events.EventHandler
 	outputCallback          func(sessionID string, chunk []byte)
-	trackers                map[string]*SessionTracker
+	trackers                map[string]*SessionRuntime
 	remoteDetectors         map[string]*remoteSignalMonitor // signal detectors for remote sessions
 	mu                      sync.RWMutex
 	compoundCallback        func(workspaceID string, isSpawn bool)             // notify compounder on session spawn/dispose
@@ -82,7 +83,7 @@ const (
 )
 
 // New creates a new session manager.
-func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace.WorkspaceManager, logger *log.Logger) *Manager {
+func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace.WorkspaceManager, server *tmux.TmuxServer, logger *log.Logger) *Manager {
 	if logger == nil {
 		logger = log.NewWithOptions(io.Discard, log.Options{})
 	}
@@ -90,9 +91,10 @@ func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace
 		config:          cfg,
 		state:           st,
 		workspace:       wm,
+		server:          server,
 		logger:          logger,
 		ensurer:         ensure.New(st),
-		trackers:        make(map[string]*SessionTracker),
+		trackers:        make(map[string]*SessionRuntime),
 		remoteDetectors: make(map[string]*remoteSignalMonitor),
 		remoteManager:   nil,
 	}
@@ -536,7 +538,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, profileID, flavorStr, hostID,
 								handler(sid, chunk)
 							}
 						}
-						qTracker := NewSessionTracker(sessionID, qSource, m.state, "", nil, qOutputCb, m.logger)
+						qTracker := NewSessionRuntime(sessionID, qSource, m.state, "", nil, qOutputCb, m.logger)
 						m.mu.Lock()
 						m.trackers[sessionID] = qTracker
 						m.mu.Unlock()
@@ -602,7 +604,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, profileID, flavorStr, hostID,
 			handler(sid, chunk)
 		}
 	}
-	tracker := NewSessionTracker(sess.ID, source, m.state, "", nil, outputCb, m.logger)
+	tracker := NewSessionRuntime(sess.ID, source, m.state, "", nil, outputCb, m.logger)
 	m.mu.Lock()
 	m.trackers[sess.ID] = tracker
 	m.mu.Unlock()
@@ -824,15 +826,29 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	}
 
 	// Create tmux session
-	if err := tmux.CreateSession(ctx, tmuxSession, w.Path, command); err != nil {
+	if m.server != nil {
+		err = m.server.CreateSession(ctx, tmuxSession, w.Path, command)
+	} else {
+		err = tmux.CreateSession(ctx, tmuxSession, w.Path, command)
+	}
+	if err != nil {
 		return nil, fmt.Errorf("failed to create tmux session: %w", err)
 	}
 
 	// Configure status bar: process on left, time on right, clear center
-	tmux.ConfigureStatusBar(ctx, tmuxSession)
+	if m.server != nil {
+		m.server.ConfigureStatusBar(ctx, tmuxSession)
+	} else {
+		tmux.ConfigureStatusBar(ctx, tmuxSession)
+	}
 
 	// Get the PID of the agent process from tmux pane
-	pid, err := tmux.GetPanePID(ctx, tmuxSession)
+	var pid int
+	if m.server != nil {
+		pid, err = m.server.GetPanePID(ctx, tmuxSession)
+	} else {
+		pid, err = tmux.GetPanePID(ctx, tmuxSession)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pane PID: %w", err)
 	}
@@ -911,15 +927,29 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 	}
 
 	// Create tmux session with the raw command
-	if err := tmux.CreateSession(ctx, tmuxSession, w.Path, commandWithEnv); err != nil {
+	if m.server != nil {
+		err = m.server.CreateSession(ctx, tmuxSession, w.Path, commandWithEnv)
+	} else {
+		err = tmux.CreateSession(ctx, tmuxSession, w.Path, commandWithEnv)
+	}
+	if err != nil {
 		return nil, fmt.Errorf("failed to create tmux session: %w", err)
 	}
 
 	// Configure status bar: process on left, time on right, clear center
-	tmux.ConfigureStatusBar(ctx, tmuxSession)
+	if m.server != nil {
+		m.server.ConfigureStatusBar(ctx, tmuxSession)
+	} else {
+		tmux.ConfigureStatusBar(ctx, tmuxSession)
+	}
 
 	// Get the PID of the process from tmux pane
-	pid, err := tmux.GetPanePID(ctx, tmuxSession)
+	var pid int
+	if m.server != nil {
+		pid, err = m.server.GetPanePID(ctx, tmuxSession)
+	} else {
+		pid, err = tmux.GetPanePID(ctx, tmuxSession)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pane PID: %w", err)
 	}
@@ -1178,6 +1208,9 @@ func (m *Manager) IsRunning(ctx context.Context, sessionID string) bool {
 	// Local session handling
 	// If we don't have a PID, check if tmux session exists as fallback
 	if sess.Pid == 0 {
+		if m.server != nil {
+			return m.server.SessionExists(ctx, sess.TmuxSession)
+		}
 		return tmux.SessionExists(ctx, sess.TmuxSession)
 	}
 
@@ -1243,7 +1276,13 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 	// Capture terminal output BEFORE killing the session
 	if m.terminalCaptureCallback != nil && ctx.Err() == nil {
 		captureCtx, captureCancel := context.WithTimeout(ctx, 5*time.Second)
-		output, err := tmux.CaptureOutput(captureCtx, sess.TmuxSession)
+		var output string
+		var err error
+		if m.server != nil {
+			output, err = m.server.CaptureOutput(captureCtx, sess.TmuxSession)
+		} else {
+			output, err = tmux.CaptureOutput(captureCtx, sess.TmuxSession)
+		}
 		captureCancel()
 		if err != nil {
 			m.logger.Warn("failed to capture terminal output", "session", sessionID, "err", err)
@@ -1254,8 +1293,20 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 
 	// Kill tmux session (tmux sends SIGHUP to all processes - handles cleanup)
 	// If session exists but kill fails, return error to avoid orphaning processes
-	if tmux.SessionExists(ctx, sess.TmuxSession) {
-		if err := tmux.KillSession(ctx, sess.TmuxSession); err != nil {
+	sessionExists := false
+	if m.server != nil {
+		sessionExists = m.server.SessionExists(ctx, sess.TmuxSession)
+	} else {
+		sessionExists = tmux.SessionExists(ctx, sess.TmuxSession)
+	}
+	if sessionExists {
+		var killErr error
+		if m.server != nil {
+			killErr = m.server.KillSession(ctx, sess.TmuxSession)
+		} else {
+			killErr = tmux.KillSession(ctx, sess.TmuxSession)
+		}
+		if err := killErr; err != nil {
 			return fmt.Errorf("failed to kill tmux session %s: %w", sess.TmuxSession, err)
 		}
 	}
@@ -1356,7 +1407,11 @@ func (m *Manager) GetAttachCommand(sessionID string) (string, error) {
 		return "", fmt.Errorf("session not found: %s", sessionID)
 	}
 
-	return tmux.GetAttachCommand(sess.TmuxSession), nil
+	if m.server != nil {
+		return m.server.GetAttachCommand(sess.TmuxSession), nil
+	}
+	// Fallback for when no TmuxServer is available (should not happen in production).
+	return fmt.Sprintf("tmux attach -t \"=%s\"", sess.TmuxSession), nil
 }
 
 // GetOutput returns the current terminal output for a session.
@@ -1366,6 +1421,9 @@ func (m *Manager) GetOutput(ctx context.Context, sessionID string) (string, erro
 		return "", fmt.Errorf("session not found: %s", sessionID)
 	}
 
+	if m.server != nil {
+		return m.server.CaptureOutput(ctx, sess.TmuxSession)
+	}
 	return tmux.CaptureOutput(ctx, sess.TmuxSession)
 }
 
@@ -1404,8 +1462,14 @@ func (m *Manager) RenameSession(ctx context.Context, sessionID, newNickname stri
 	}
 
 	// Rename the tmux session
-	if err := tmux.RenameSession(ctx, oldTmuxName, newTmuxName); err != nil {
-		return fmt.Errorf("failed to rename tmux session: %w", err)
+	var renameErr error
+	if m.server != nil {
+		renameErr = m.server.RenameSession(ctx, oldTmuxName, newTmuxName)
+	} else {
+		renameErr = tmux.RenameSession(ctx, oldTmuxName, newTmuxName)
+	}
+	if renameErr != nil {
+		return fmt.Errorf("failed to rename tmux session: %w", renameErr)
 	}
 
 	// Update session state
@@ -1485,7 +1549,7 @@ func (m *Manager) EnsureTracker(sessionID string) error {
 }
 
 // GetTracker returns the tracker for a session, creating one if needed.
-func (m *Manager) GetTracker(sessionID string) (*SessionTracker, error) {
+func (m *Manager) GetTracker(sessionID string) (*SessionRuntime, error) {
 	sess, found := m.state.GetSession(sessionID)
 	if !found {
 		return nil, fmt.Errorf("session not found: %s", sessionID)
@@ -1493,7 +1557,7 @@ func (m *Manager) GetTracker(sessionID string) (*SessionTracker, error) {
 	return m.ensureTrackerFromSession(sess), nil
 }
 
-func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
+func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionRuntime {
 	m.mu.Lock()
 	if existing := m.trackers[sess.ID]; existing != nil {
 		existing.SetTmuxSession(sess.TmuxSession)
@@ -1527,12 +1591,12 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 		}
 	}
 	if source == nil {
-		ls := NewLocalSource(sess.ID, sess.TmuxSession, m.logger)
+		ls := NewLocalSource(sess.ID, sess.TmuxSession, m.server, m.logger)
 		ls.Start()
 		source = ls
 	}
 
-	tracker := NewSessionTracker(sess.ID, source, m.state, eventFilePath, m.eventHandlers, outputCb, m.logger)
+	tracker := NewSessionRuntime(sess.ID, source, m.state, eventFilePath, m.eventHandlers, outputCb, m.logger)
 
 	// Wire timelapse recorder if factory is set
 	if m.recorderFactory != nil {
@@ -1555,7 +1619,7 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 func (m *Manager) Stop() {
 	m.mu.Lock()
 	trackers := m.trackers
-	m.trackers = make(map[string]*SessionTracker)
+	m.trackers = make(map[string]*SessionRuntime)
 	m.mu.Unlock()
 	for _, tracker := range trackers {
 		tracker.Stop()

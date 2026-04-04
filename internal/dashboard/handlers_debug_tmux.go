@@ -18,7 +18,7 @@ func (s *Server) handleDebugTmuxLeak(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessions, sessionsErr := collectTmuxSessionCount()
+	sessions, sessionsErr := s.collectTmuxSessionCount()
 	attachCount, tmuxCount, psErr := collectTmuxProcessCounts()
 
 	resp := map[string]any{
@@ -40,10 +40,19 @@ func (s *Server) handleDebugTmuxLeak(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
-func collectTmuxSessionCount() (int, error) {
+func (s *Server) collectTmuxSessionCount() (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
+	if s.tmuxServer != nil {
+		names, err := s.tmuxServer.ListSessions(ctx)
+		if err != nil {
+			return 0, err
+		}
+		return len(names), nil
+	}
+
+	// Fallback to package-level binary
 	out, err := exec.CommandContext(ctx, tmux.Binary(), "list-sessions", "-F", "#{session_name}").Output()
 	if err != nil {
 		return 0, err

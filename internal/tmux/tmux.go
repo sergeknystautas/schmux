@@ -9,58 +9,17 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/charmbracelet/log"
 )
 
-// Checker verifies tmux is available and functional.
-type Checker interface {
-	Check() error
-}
-
-// TmuxChecker is the package-level checker instance.
-// NOTE: This global is a known anti-pattern. Tests override it for mocking.
-// TODO: Refactor to use dependency injection once daemon structure allows it.
-var TmuxChecker Checker = &defaultChecker{}
-
-// NewDefaultChecker returns a new default checker instance.
-// Use this in production code that can accept a Checker via dependency injection.
-func NewDefaultChecker() Checker {
-	return &defaultChecker{}
-}
-
-// defaultChecker implements Checker by running tmux -V.
-type defaultChecker struct{}
-
-func (c *defaultChecker) Check() error {
-	cmd := exec.Command(binary, "-V")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("tmux is not installed or not accessible.\n-> %w", err)
-	}
-	// tmux -V outputs version info like "tmux 3.3a", this confirms it's working
-	if len(output) == 0 {
-		return fmt.Errorf("tmux command produced no output")
-	}
-	return nil
-}
-
 // pkgLogger is the package-level logger for tmux operations.
-// Set via SetLogger from the daemon initialization.
 var pkgLogger *log.Logger
 
 // binary is the tmux executable path. Defaults to "tmux" (resolved via PATH).
 // Override via SetBinary to use a custom-built tmux.
 var binary = "tmux"
-
-// SetBinary overrides the tmux executable path.
-func SetBinary(path string) {
-	if path != "" {
-		binary = path
-	}
-}
 
 // Binary returns the current tmux binary path.
 func Binary() string {
@@ -97,68 +56,275 @@ func ValidateBinary(path string) (string, error) {
 	return version, nil
 }
 
-// SetLogger sets the package-level logger for tmux operations.
-func SetLogger(l *log.Logger) {
-	pkgLogger = l
+// TmuxServer manages an isolated tmux server accessed via the -L flag.
+// All methods prepend "-L socketName" to tmux commands automatically,
+// ensuring socket isolation between different server instances.
+type TmuxServer struct {
+	binary     string
+	socketName string
+	logger     *log.Logger
+}
+
+// NewTmuxServer creates a TmuxServer that targets the named socket.
+func NewTmuxServer(binary, socketName string, logger *log.Logger) *TmuxServer {
+	return &TmuxServer{binary: binary, socketName: socketName, logger: logger}
+}
+
+// Binary returns the tmux executable path.
+func (s *TmuxServer) Binary() string { return s.binary }
+
+// SocketName returns the tmux socket name used with -L.
+func (s *TmuxServer) SocketName() string { return s.socketName }
+
+// cmd builds an exec.Cmd that targets this server's socket.
+func (s *TmuxServer) cmd(ctx context.Context, args ...string) *exec.Cmd {
+	fullArgs := append([]string{"-L", s.socketName}, args...)
+	return exec.CommandContext(ctx, s.binary, fullArgs...)
+}
+
+// Check verifies that the tmux binary is installed and accessible.
+func (s *TmuxServer) Check() error {
+	cmd := exec.Command(s.binary, "-V")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("tmux is not installed or not accessible.\n-> %w", err)
+	}
+	if len(output) == 0 {
+		return fmt.Errorf("tmux command produced no output")
+	}
+	return nil
+}
+
+// StartServer starts the tmux server for this socket.
+// This is a no-op if the server is already running.
+func (s *TmuxServer) StartServer(ctx context.Context) error {
+	cmd := s.cmd(ctx, "start-server")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to start tmux server: %w", err)
+	}
+	return nil
+}
+
+// CreateSession creates a new tmux session with the given name, directory, and command.
+func (s *TmuxServer) CreateSession(ctx context.Context, name, dir, command string) error {
+	args := []string{
+		"new-session",
+		"-d",       // detached
+		"-s", name, // session name
+		"-c", dir, // working directory
+		command,
+	}
+
+	cmd := s.cmd(ctx, args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create tmux session: %w: %s", err, string(output))
+	}
+
+	// Set scrollback to 10000 lines (tmux default is 2000)
+	if err := s.SetOption(ctx, name, "history-limit", "10000"); err != nil {
+		if s.logger != nil {
+			s.logger.Warn("failed to set history-limit", "session", name, "err", err)
+		}
+	}
+
+	return nil
+}
+
+// KillSession kills a tmux session.
+func (s *TmuxServer) KillSession(ctx context.Context, name string) error {
+	// tmux kill-session -t <name> (= prefix for exact match)
+	cmd := s.cmd(ctx, "kill-session", "-t", "="+name)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to kill tmux session: %w: %s", err, string(output))
+	}
+	return nil
+}
+
+// SessionExists checks if a tmux session with the given name exists.
+func (s *TmuxServer) SessionExists(ctx context.Context, name string) bool {
+	// tmux has-session -t <name> (= prefix for exact match)
+	cmd := s.cmd(ctx, "has-session", "-t", "="+name)
+	err := cmd.Run()
+	return err == nil
+}
+
+// ListSessions returns a list of all tmux session names.
+func (s *TmuxServer) ListSessions(ctx context.Context) ([]string, error) {
+	// tmux list-sessions -F "#{session_name}"
+	cmd := s.cmd(ctx, "list-sessions", "-F", "#{session_name}")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to list tmux sessions: %w", err)
+	}
+
+	output := strings.TrimSpace(stdout.String())
+	if output == "" {
+		return []string{}, nil
+	}
+
+	sessions := strings.Split(output, "\n")
+	return sessions, nil
+}
+
+// SetOption sets a tmux option on a session.
+func (s *TmuxServer) SetOption(ctx context.Context, sessionName, option, value string) error {
+	cmd := s.cmd(ctx, "set-option", "-t", sessionName, option, value)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to set %s: %w: %s", option, err, string(output))
+	}
+	return nil
+}
+
+// ConfigureStatusBar sets the standard schmux status bar on a tmux session:
+// process name on left, empty center, empty right.
+func (s *TmuxServer) ConfigureStatusBar(ctx context.Context, sessionName string) {
+	_ = s.SetOption(ctx, sessionName, "status-left", "#{pane_current_command} ")
+	_ = s.SetOption(ctx, sessionName, "window-status-format", "")
+	_ = s.SetOption(ctx, sessionName, "window-status-current-format", "")
+	_ = s.SetOption(ctx, sessionName, "status-right", "")
+}
+
+// GetPanePID returns the PID of the first process in the tmux session's pane.
+func (s *TmuxServer) GetPanePID(ctx context.Context, name string) (int, error) {
+	// tmux display-message -p -t <name> "#{pane_pid}"
+	cmd := s.cmd(ctx, "display-message", "-p", "-t", name, "#{pane_pid}")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	if err := cmd.Run(); err != nil {
+		return 0, fmt.Errorf("failed to get pane PID: %w", err)
+	}
+
+	pidStr := strings.TrimSpace(stdout.String())
+	var pid int
+	if _, err := fmt.Sscanf(pidStr, "%d", &pid); err != nil {
+		return 0, fmt.Errorf("failed to parse PID: %w", err)
+	}
+
+	return pid, nil
+}
+
+// GetAttachCommand returns the command to attach to a tmux session on this server's socket.
+func (s *TmuxServer) GetAttachCommand(name string) string {
+	return fmt.Sprintf("%s -L %s attach -t \"=%s\"", s.binary, s.socketName, name)
+}
+
+// CaptureOutput captures the current output of a tmux session, including full scrollback history.
+func (s *TmuxServer) CaptureOutput(ctx context.Context, name string) (string, error) {
+	// -e includes escape sequences for colors/attributes
+	// -p outputs to stdout
+	// -S - captures from the start of the scrollback buffer
+	cmd := s.cmd(ctx, "capture-pane", "-e", "-p", "-S", "-", "-t", name)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to capture tmux output: %w", err)
+	}
+
+	return stdout.String(), nil
+}
+
+// CaptureLastLines captures the last N lines of the pane.
+func (s *TmuxServer) CaptureLastLines(ctx context.Context, name string, lines int, includeEscapes bool) (string, error) {
+	if lines <= 0 {
+		return "", fmt.Errorf("invalid line count: %d", lines)
+	}
+	args := []string{"capture-pane"}
+	if includeEscapes {
+		args = append(args, "-e") // include escape sequences
+	}
+	args = append(args,
+		"-p", // output to stdout
+		"-S", fmt.Sprintf("-%d", lines),
+		"-t", name, // target session/pane
+	)
+
+	cmd := s.cmd(ctx, args...)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to capture tmux output: %w", err)
+	}
+
+	return stdout.String(), nil
+}
+
+// GetCursorState returns the cursor position and visibility for a session.
+// Coordinates are 0-indexed.
+func (s *TmuxServer) GetCursorState(ctx context.Context, sessionName string) (CursorState, error) {
+	cmd := s.cmd(ctx, "display-message", "-p", "-t", sessionName, "#{cursor_x} #{cursor_y} #{cursor_flag}")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return CursorState{}, fmt.Errorf("failed to get cursor state: %w", err)
+	}
+
+	parts := strings.Fields(strings.TrimSpace(stdout.String()))
+	if len(parts) != 3 {
+		return CursorState{}, fmt.Errorf("unexpected cursor state format: %q", stdout.String())
+	}
+
+	var cs CursorState
+	_, err := fmt.Sscanf(parts[0], "%d", &cs.X)
+	if err != nil {
+		return CursorState{}, fmt.Errorf("failed to parse cursor_x: %w", err)
+	}
+	_, err = fmt.Sscanf(parts[1], "%d", &cs.Y)
+	if err != nil {
+		return CursorState{}, fmt.Errorf("failed to parse cursor_y: %w", err)
+	}
+	cs.Visible = parts[2] == "1"
+	return cs, nil
+}
+
+// RenameSession renames an existing tmux session.
+func (s *TmuxServer) RenameSession(ctx context.Context, oldName, newName string) error {
+	cmd := s.cmd(ctx, "rename-session", "-t", "="+oldName, newName)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to rename tmux session: %w: %s", err, string(output))
+	}
+	return nil
+}
+
+// ShowEnvironment returns the tmux server's global environment as a map.
+func (s *TmuxServer) ShowEnvironment(ctx context.Context) (map[string]string, error) {
+	cmd := s.cmd(ctx, "show-environment", "-g")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("show-environment failed: %w", err)
+	}
+
+	env := make(map[string]string)
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "-") {
+			continue
+		}
+		if idx := strings.IndexByte(line, '='); idx >= 0 {
+			env[line[:idx]] = line[idx+1:]
+		}
+	}
+	return env, nil
+}
+
+// SetEnvironment sets a global environment variable on the tmux server.
+func (s *TmuxServer) SetEnvironment(ctx context.Context, key, value string) error {
+	cmd := s.cmd(ctx, "set-environment", "-g", key, value)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("set-environment %s failed: %w: %s", key, err, string(output))
+	}
+	return nil
 }
 
 // ANSI escape sequence regex for stripping terminal codes.
 // Compiled once at package initialization for efficiency.
 var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07\x1b]*\x07|\x1b\][^\x07\x1b]*\x1b\\`)
-
-// nestingEnvVars are environment variables set by AI agents that trigger
-// "nested session" detection errors when inherited by tmux sessions.
-var nestingEnvVars = []string{"CLAUDECODE"}
-
-// tmuxManagedKeys are keys set by tmux itself that should never be stripped,
-// even if they aren't in the system baseline.
-var tmuxManagedKeys = map[string]bool{"TMUX": true, "TMUX_PANE": true}
-
-var (
-	baselineMu   sync.RWMutex
-	baselineKeys map[string]bool
-)
-
-// SetBaseline stores the set of environment variable keys from a fresh login
-// shell. CleanTmuxServerEnv uses this to identify and remove pollution
-// variables that leaked into the tmux server's global environment.
-func SetBaseline(keys map[string]bool) {
-	baselineMu.Lock()
-	defer baselineMu.Unlock()
-	baselineKeys = keys
-}
-
-// CleanTmuxServerEnv removes nesting env vars and pollution from the tmux
-// server's global environment. Pollution is any key present in the tmux server
-// but absent from the system baseline captured at daemon startup.
-func CleanTmuxServerEnv(ctx context.Context) {
-	for _, v := range nestingEnvVars {
-		args := []string{"set-environment", "-g", "-u", v}
-		cmd := exec.CommandContext(ctx, binary, args...)
-		_ = cmd.Run()
-	}
-
-	baselineMu.RLock()
-	baseline := baselineKeys
-	baselineMu.RUnlock()
-
-	if baseline == nil {
-		return
-	}
-
-	env, err := ShowEnvironment(ctx)
-	if err != nil {
-		return
-	}
-	for key := range env {
-		if baseline[key] || tmuxManagedKeys[key] {
-			continue
-		}
-		args := []string{"set-environment", "-g", "-u", key}
-		cmd := exec.CommandContext(ctx, binary, args...)
-		_ = cmd.Run()
-	}
-}
 
 // ShowEnvironment returns the tmux server's global environment as a map.
 func ShowEnvironment(ctx context.Context) (map[string]string, error) {
@@ -196,8 +362,6 @@ func SetEnvironment(ctx context.Context, key, value string) error {
 
 // CreateSession creates a new tmux session with the given name, directory, and command.
 func CreateSession(ctx context.Context, name, dir, command string) error {
-	CleanTmuxServerEnv(ctx)
-
 	args := []string{
 		"new-session",
 		"-d",       // detached
@@ -344,51 +508,9 @@ func ListSessions(ctx context.Context) ([]string, error) {
 	return sessions, nil
 }
 
-// SendKeys sends keys to a tmux session (useful for interactive commands).
-func SendKeys(ctx context.Context, name, keys string) error {
-	// tmux send-keys -t <name> <keys> (send-keys does not support = prefix)
-	args := []string{"send-keys", "-t", name, keys}
-
-	cmd := exec.CommandContext(ctx, binary, args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to send keys to tmux session: %w: %s", err, strings.TrimSpace(string(output)))
-	}
-
-	return nil
-}
-
-// SendLiteral sends literal text to a tmux session (spaces/newlines are treated as text).
-func SendLiteral(ctx context.Context, name, text string) error {
-	// tmux send-keys -l -t <name> <text> (send-keys does not support = prefix)
-	args := []string{"send-keys", "-l", "-t", name, text}
-
-	cmd := exec.CommandContext(ctx, binary, args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to send literal text to tmux session: %w: %s", err, strings.TrimSpace(string(output)))
-	}
-
-	return nil
-}
-
-// GetAttachCommand returns the command to attach to a tmux session.
-func GetAttachCommand(name string) string {
-	return fmt.Sprintf("tmux attach -t \"=%s\"", name)
-}
-
 // StripAnsi removes ANSI escape sequences from text.
 func StripAnsi(text string) string {
 	return ansiRegex.ReplaceAllString(text, "")
-}
-
-// SetWindowSizeManual forces tmux to ignore client resize requests.
-func SetWindowSizeManual(ctx context.Context, sessionName string) error {
-	// set-option does not support = prefix for session target
-	args := []string{"set-option", "-t", sessionName, "window-size", "manual"}
-	cmd := exec.CommandContext(ctx, binary, args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to set window-size manual: %w: %s", err, string(output))
-	}
-	return nil
 }
 
 // SetOption sets a tmux option on a session.
@@ -408,36 +530,6 @@ func ConfigureStatusBar(ctx context.Context, sessionName string) {
 	_ = SetOption(ctx, sessionName, "window-status-format", "")
 	_ = SetOption(ctx, sessionName, "window-status-current-format", "")
 	_ = SetOption(ctx, sessionName, "status-right", "")
-}
-
-// GetWindowSize returns the current tmux window size for the session.
-func GetWindowSize(ctx context.Context, sessionName string) (width, height int, err error) {
-	args := []string{
-		"display-message",
-		"-p",
-		"-t", fmt.Sprintf("=%s:0.0", sessionName),
-		"#{window_width} #{window_height}",
-	}
-	cmd := exec.CommandContext(ctx, binary, args...)
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	if runErr := cmd.Run(); runErr != nil {
-		return 0, 0, fmt.Errorf("failed to get window size: %w", runErr)
-	}
-
-	fields := strings.Fields(strings.TrimSpace(stdout.String()))
-	if len(fields) < 2 {
-		return 0, 0, fmt.Errorf("failed to parse window size output: %q", stdout.String())
-	}
-	w, convErr := strconv.Atoi(fields[0])
-	if convErr != nil {
-		return 0, 0, fmt.Errorf("failed to parse window width %q: %w", fields[0], convErr)
-	}
-	h, convErr := strconv.Atoi(fields[1])
-	if convErr != nil {
-		return 0, 0, fmt.Errorf("failed to parse window height %q: %w", fields[1], convErr)
-	}
-	return w, h, nil
 }
 
 // ResizeWindow resizes the window to fixed dimensions (80x24 for deterministic TUI).
@@ -503,37 +595,6 @@ func GetCursorState(ctx context.Context, sessionName string) (CursorState, error
 	}
 	cs.Visible = parts[2] == "1"
 	return cs, nil
-}
-
-// GetCursorPosition returns the cursor position (x, y) for a session.
-// Coordinates are 0-indexed.
-func GetCursorPosition(ctx context.Context, sessionName string) (x, y int, err error) {
-	args := []string{
-		"display-message", "-p", "-t", sessionName,
-		"#{cursor_x} #{cursor_y}",
-	}
-	cmd := exec.CommandContext(ctx, binary, args...)
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	if err := cmd.Run(); err != nil {
-		return 0, 0, fmt.Errorf("failed to get cursor position: %w", err)
-	}
-
-	parts := strings.Fields(strings.TrimSpace(stdout.String()))
-	if len(parts) != 2 {
-		return 0, 0, fmt.Errorf("unexpected cursor position format: %q", stdout.String())
-	}
-
-	_, err = fmt.Sscanf(parts[0], "%d", &x)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to parse cursor_x: %w", err)
-	}
-	_, err = fmt.Sscanf(parts[1], "%d", &y)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to parse cursor_y: %w", err)
-	}
-
-	return x, y, nil
 }
 
 const (
@@ -687,23 +748,6 @@ func IsChoiceLine(text string) bool {
 	}
 
 	return true
-}
-
-// IsPaneDead checks if the pane's process has exited (pane_dead flag).
-func IsPaneDead(ctx context.Context, name string) (bool, error) {
-	args := []string{
-		"display-message",
-		"-p",
-		"-t", name,
-		"#{pane_dead}",
-	}
-	cmd := exec.CommandContext(ctx, binary, args...)
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	if err := cmd.Run(); err != nil {
-		return false, fmt.Errorf("failed to check pane_dead: %w", err)
-	}
-	return strings.TrimSpace(stdout.String()) == "1", nil
 }
 
 // IsAgentStatusLine returns true if the line looks like agent UI noise.

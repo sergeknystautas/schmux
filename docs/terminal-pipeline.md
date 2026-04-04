@@ -28,7 +28,7 @@ How terminal output flows from AI agents to the browser, including the sync/corr
      │    chan(1000)       chan(1000)                    │
      │    drop on full    per-pane fan-out, drop on full│
      │                                                  │
-     │  SessionTracker.fanOut()                         │
+     │  SessionRuntime.fanOut()                         │
      │    chan(1000), drop on full                      │
      │    + OutputLog (sequenced ring buffer, 50K entries)
      └──────────┬──────────────────────────────────────┘
@@ -100,11 +100,11 @@ Key functions:
 
 ---
 
-## Layer 2: SessionTracker (Control Mode)
+## Layer 2: SessionRuntime (Control Mode)
 
 **File:** `internal/session/tracker.go`
 
-The `SessionTracker` maintains a long-lived control mode attachment to the tmux session via `tmux -C attach-session -t =<name>`. Control mode delivers `%output` events for every byte a pane produces — not screen snapshots like the old PTY attachment model.
+The `SessionRuntime` maintains a long-lived control mode attachment to the tmux session via `tmux -C attach-session -t =<name>`. Control mode delivers `%output` events for every byte a pane produces — not screen snapshots like the old PTY attachment model.
 
 ### Control Mode Protocol
 
@@ -542,7 +542,7 @@ Benchmark tests:
 
 ### Previous Architecture (Superseded)
 
-Before the control mode migration, the `SessionTracker` streamed output by running `tmux attach-session` inside a PTY (using `creack/pty`). tmux treated this attached PTY as a display client, sending rendered screen frames rather than raw content. During rapid output, lines that scrolled past between screen renders were never transmitted — they existed in tmux's scrollback but were structurally absent from the PTY output.
+Before the control mode migration, the `SessionRuntime` (then called `SessionTracker`) streamed output by running `tmux attach-session` inside a PTY (using `creack/pty`). tmux treated this attached PTY as a display client, sending rendered screen frames rather than raw content. During rapid output, lines that scrolled past between screen renders were never transmitted — they existed in tmux's scrollback but were structurally absent from the PTY output.
 
 The WebSocket transport used JSON text frames (`{"type": "full", "content": "..."}` and `{"type": "append", "content": "..."}`). A `filterMouseMode()` function stripped mouse tracking and alternate screen sequences that tmux injected for its attached clients.
 

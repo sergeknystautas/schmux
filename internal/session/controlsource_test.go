@@ -31,7 +31,9 @@ func (m *MockControlSource) CaptureVisible() (string, error) {
 func (m *MockControlSource) CaptureLines(n int) (string, error) {
 	return m.CaptureContent, m.CaptureErr
 }
-func (m *MockControlSource) Resize(cols, rows int) error { return nil }
+func (m *MockControlSource) SendTmuxKeyName(name string) error { return nil }
+func (m *MockControlSource) Resize(cols, rows int) error       { return nil }
+func (m *MockControlSource) IsAttached() bool                  { return !m.closed }
 func (m *MockControlSource) GetCursorState() (controlmode.CursorState, error) {
 	return controlmode.CursorState{}, nil
 }

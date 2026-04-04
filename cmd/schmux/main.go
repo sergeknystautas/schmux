@@ -99,6 +99,7 @@ func main() {
 		if running {
 			fmt.Println("schmux daemon is running")
 			fmt.Printf("Dashboard: %s\n", url)
+			fmt.Println("tmux socket: schmux (inspect with `tmux -L schmux ls`)")
 		} else {
 			fmt.Println("schmux daemon is not running")
 			os.Exit(1)

@@ -54,10 +54,10 @@ type TrackerCounters struct {
 	WsWriteErrors   atomic.Int64 // WS write failures that caused disconnect
 }
 
-// SessionTracker drains events from a ControlSource, maintains a sequenced
+// SessionRuntime drains events from a ControlSource, maintains a sequenced
 // output log, and fans out to subscribers. The source owns reconnection
-// logic; the tracker just processes events.
-type SessionTracker struct {
+// logic; the runtime just processes events.
+type SessionRuntime struct {
 	sessionID      string
 	source         ControlSource
 	state          state.StateStore
@@ -98,38 +98,41 @@ type SessionTracker struct {
 }
 
 // Source returns the underlying ControlSource.
-func (t *SessionTracker) Source() ControlSource {
+func (t *SessionRuntime) Source() ControlSource {
 	return t.source
 }
 
 // IsAttached reports whether the source currently has an active attachment.
-func (t *SessionTracker) IsAttached() bool {
-	if ls, ok := t.source.(*LocalSource); ok {
-		return ls.IsAttached()
-	}
-	return true // non-local sources are considered attached while alive
+func (t *SessionRuntime) IsAttached() bool {
+	return t.source.IsAttached()
 }
 
 // OutputLog returns the sequenced output log for this session.
-func (t *SessionTracker) OutputLog() *OutputLog {
+func (t *SessionRuntime) OutputLog() *OutputLog {
 	return t.outputLog
 }
 
-// NewSessionTracker creates a tracker that drains events from a ControlSource.
+// SyncTrigger returns a channel that fires when the source detects a tmux
+// output pause (via pause-after). Returns nil for sources that don't support it.
+func (t *SessionRuntime) SyncTrigger() <-chan struct{} {
+	if st, ok := t.source.(SyncTriggerer); ok {
+		return st.SyncTrigger()
+	}
+	return nil
+}
+
+// NewSessionRuntime creates a runtime that drains events from a ControlSource.
 // If eventFilePath is non-empty and eventHandlers is non-nil, an EventWatcher
 // is created for the unified event system.
-func NewSessionTracker(sessionID string, source ControlSource, st state.StateStore, eventFilePath string, eventHandlers map[string][]events.EventHandler, outputCallback func([]byte), logger *log.Logger) *SessionTracker {
+func NewSessionRuntime(sessionID string, source ControlSource, st state.StateStore, eventFilePath string, eventHandlers map[string][]events.EventHandler, outputCallback func([]byte), logger *log.Logger) *SessionRuntime {
 	var healthProbe *TmuxHealthProbe
-	switch s := source.(type) {
-	case *LocalSource:
-		healthProbe = s.HealthProbe
-	case *RemoteSource:
-		healthProbe = s.healthProbe
-	default:
+	if hp, ok := source.(HealthProbeProvider); ok {
+		healthProbe = hp.GetHealthProbe()
+	} else {
 		healthProbe = NewTmuxHealthProbe()
 	}
 
-	t := &SessionTracker{
+	t := &SessionRuntime{
 		sessionID:      sessionID,
 		source:         source,
 		state:          st,
@@ -154,12 +157,12 @@ func NewSessionTracker(sessionID string, source ControlSource, st state.StateSto
 }
 
 // Start launches the tracker loop in a background goroutine.
-func (t *SessionTracker) Start() {
+func (t *SessionRuntime) Start() {
 	go t.run()
 }
 
 // Stop terminates the tracker by closing the source and cleaning up.
-func (t *SessionTracker) Stop() {
+func (t *SessionRuntime) Stop() {
 	t.stopOnce.Do(func() {
 		close(t.stopCh)
 		t.source.Close()
@@ -182,16 +185,16 @@ func (t *SessionTracker) Stop() {
 }
 
 // SetTmuxSession updates the target tmux session name on the underlying source.
-// Only effective for LocalSource; no-op for other source types.
-func (t *SessionTracker) SetTmuxSession(name string) {
-	if ls, ok := t.source.(*LocalSource); ok {
-		ls.SetTmuxSession(name)
+// No-op for sources that don't support runtime renames.
+func (t *SessionRuntime) SetTmuxSession(name string) {
+	if sr, ok := t.source.(SessionRenamer); ok {
+		sr.SetTmuxSession(name)
 	}
 }
 
 // SubscribeOutput returns a buffered channel that receives output events for this session.
 // Multiple subscribers are supported. Subscriptions survive control mode reconnections.
-func (t *SessionTracker) SubscribeOutput() <-chan SequencedOutput {
+func (t *SessionRuntime) SubscribeOutput() <-chan SequencedOutput {
 	ch := make(chan SequencedOutput, 1000)
 	t.subsMu.Lock()
 	t.subs = append(t.subs, ch)
@@ -203,7 +206,7 @@ func (t *SessionTracker) SubscribeOutput() <-chan SequencedOutput {
 // The channel is NOT closed here — closing during fanOut iteration would panic
 // (send on closed channel). Subscribers detect session end via sessionDead or
 // context cancellation. Stop() closes all channels safely after run() exits.
-func (t *SessionTracker) UnsubscribeOutput(ch <-chan SequencedOutput) {
+func (t *SessionRuntime) UnsubscribeOutput(ch <-chan SequencedOutput) {
 	t.subsMu.Lock()
 	defer t.subsMu.Unlock()
 	for i, sub := range t.subs {
@@ -216,7 +219,7 @@ func (t *SessionTracker) UnsubscribeOutput(ch <-chan SequencedOutput) {
 
 // fanOut sends an output event to all subscribers. Slow consumers are skipped
 // (non-blocking send) to avoid one client blocking others.
-func (t *SessionTracker) fanOut(event controlmode.OutputEvent) {
+func (t *SessionRuntime) fanOut(event controlmode.OutputEvent) {
 	t.Counters.EventsDelivered.Add(1)
 	t.Counters.BytesDelivered.Add(int64(len(event.Data)))
 
@@ -243,12 +246,17 @@ func (t *SessionTracker) fanOut(event controlmode.OutputEvent) {
 }
 
 // SendInput sends terminal input to the session via the source.
-func (t *SessionTracker) SendInput(data string) (controlmode.SendKeysTimings, error) {
+func (t *SessionRuntime) SendInput(data string) (controlmode.SendKeysTimings, error) {
 	return t.source.SendKeys(data)
 }
 
+// SendTmuxKeyName sends a tmux key name (e.g. "C-u", "Enter") to the session.
+func (t *SessionRuntime) SendTmuxKeyName(name string) error {
+	return t.source.SendTmuxKeyName(name)
+}
+
 // Resize updates the terminal dimensions via the source.
-func (t *SessionTracker) Resize(cols, rows int) error {
+func (t *SessionRuntime) Resize(cols, rows int) error {
 	if cols <= 0 || rows <= 0 {
 		return fmt.Errorf("invalid size %dx%d", cols, rows)
 	}
@@ -258,22 +266,22 @@ func (t *SessionTracker) Resize(cols, rows int) error {
 }
 
 // CaptureLastLines captures scrollback via the source.
-func (t *SessionTracker) CaptureLastLines(ctx context.Context, lines int) (string, error) {
+func (t *SessionRuntime) CaptureLastLines(ctx context.Context, lines int) (string, error) {
 	return t.source.CaptureLines(lines)
 }
 
 // CapturePane captures the visible screen of the pane (no scrollback).
-func (t *SessionTracker) CapturePane(ctx context.Context) (string, error) {
+func (t *SessionRuntime) CapturePane(ctx context.Context) (string, error) {
 	return t.source.CaptureVisible()
 }
 
 // GetCursorState returns the cursor position and visibility for the tracked pane.
-func (t *SessionTracker) GetCursorState(ctx context.Context) (controlmode.CursorState, error) {
+func (t *SessionRuntime) GetCursorState(ctx context.Context) (controlmode.CursorState, error) {
 	return t.source.GetCursorState()
 }
 
 // GetCursorPosition returns the cursor position (x, y) for the tracked pane.
-func (t *SessionTracker) GetCursorPosition(ctx context.Context) (x, y int, err error) {
+func (t *SessionRuntime) GetCursorPosition(ctx context.Context) (x, y int, err error) {
 	cs, err := t.source.GetCursorState()
 	if err != nil {
 		return 0, 0, err
@@ -283,7 +291,7 @@ func (t *SessionTracker) GetCursorPosition(ctx context.Context) (x, y int, err e
 
 // DiagnosticCounters returns a snapshot of pipeline counters including drop counts
 // at all fan-out layers.
-func (t *SessionTracker) DiagnosticCounters() map[string]int64 {
+func (t *SessionRuntime) DiagnosticCounters() map[string]int64 {
 	result := map[string]int64{
 		"eventsDelivered":       t.Counters.EventsDelivered.Load(),
 		"bytesDelivered":        t.Counters.BytesDelivered.Load(),
@@ -292,13 +300,10 @@ func (t *SessionTracker) DiagnosticCounters() map[string]int64 {
 		"wsConnections":         t.Counters.WsConnections.Load(),
 		"wsWriteErrors":         t.Counters.WsWriteErrors.Load(),
 	}
-	// Source-specific diagnostics (LocalSource exposes parser/client counters)
-	if ls, ok := t.source.(*LocalSource); ok {
-		if parser := ls.Parser(); parser != nil {
-			result["eventsDropped"] = parser.DroppedOutputs()
-		}
-		if client := ls.Client(); client != nil {
-			result["clientFanOutDrops"] = client.DroppedFanOut()
+	// Source-specific diagnostics (e.g. parser/client counters)
+	if dp, ok := t.source.(DiagnosticsProvider); ok {
+		for k, v := range dp.SourceDiagnostics() {
+			result[k] = v
 		}
 	}
 	if t.outputLog != nil {
@@ -309,7 +314,7 @@ func (t *SessionTracker) DiagnosticCounters() map[string]int64 {
 	return result
 }
 
-func (t *SessionTracker) run() {
+func (t *SessionRuntime) run() {
 	defer close(t.doneCh)
 
 	// Start timelapse recorder if factory is set

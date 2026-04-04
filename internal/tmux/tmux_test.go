@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -70,44 +71,6 @@ func TestStripAnsi(t *testing.T) {
 			got := StripAnsi(tt.input)
 			if got != tt.want {
 				t.Errorf("StripAnsi() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestGetAttachCommand(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{
-			name:  "simple session name",
-			input: "test-session",
-			want:  `tmux attach -t "=test-session"`,
-		},
-		{
-			name:  "session with spaces",
-			input: "cli commands",
-			want:  `tmux attach -t "=cli commands"`,
-		},
-		{
-			name:  "session with special chars",
-			input: "session-123_abc",
-			want:  `tmux attach -t "=session-123_abc"`,
-		},
-		{
-			name:  "empty string",
-			input: "",
-			want:  `tmux attach -t "="`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := GetAttachCommand(tt.input)
-			if got != tt.want {
-				t.Errorf("GetAttachCommand(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}
@@ -210,29 +173,8 @@ func TestContextCancellation(t *testing.T) {
 		}
 	})
 
-	t.Run("SendKeys rejects cancelled context", func(t *testing.T) {
-		err := SendKeys(expiredCtx, "test", "command")
-		if err == nil {
-			t.Error("expected error from cancelled context, got nil")
-		}
-	})
-
-	t.Run("SetWindowSizeManual rejects cancelled context", func(t *testing.T) {
-		err := SetWindowSizeManual(expiredCtx, "test")
-		if err == nil {
-			t.Error("expected error from cancelled context, got nil")
-		}
-	})
-
 	t.Run("ResizeWindow rejects cancelled context", func(t *testing.T) {
 		err := ResizeWindow(expiredCtx, "test", 80, 24)
-		if err == nil {
-			t.Error("expected error from cancelled context, got nil")
-		}
-	})
-
-	t.Run("GetWindowSize rejects cancelled context", func(t *testing.T) {
-		_, _, err := GetWindowSize(expiredCtx, "test")
 		if err == nil {
 			t.Error("expected error from cancelled context, got nil")
 		}
@@ -375,10 +317,107 @@ func TestExtractLatestResponseCapsContent(t *testing.T) {
 // server and are tested in the E2E test suite (internal/e2e/) which
 // runs inside Docker with tmux installed.
 
-// Benchmarks
+// TmuxServer unit tests
 
-func BenchmarkGetAttachCommand(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		GetAttachCommand("test-session")
+func TestTmuxServerCmdPrependsSocket(t *testing.T) {
+	srv := NewTmuxServer("tmux", "schmux", nil)
+	cmd := srv.cmd(context.Background(), "list-sessions")
+	want := []string{"-L", "schmux", "list-sessions"}
+	got := cmd.Args[1:] // skip binary name
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("cmd args = %v, want %v", got, want)
+	}
+}
+
+func TestTmuxServerBinaryAccessor(t *testing.T) {
+	srv := NewTmuxServer("/usr/local/bin/tmux", "schmux", nil)
+	if got := srv.Binary(); got != "/usr/local/bin/tmux" {
+		t.Errorf("Binary() = %q, want %q", got, "/usr/local/bin/tmux")
+	}
+}
+
+func TestTmuxServerSocketNameAccessor(t *testing.T) {
+	srv := NewTmuxServer("tmux", "test-socket", nil)
+	if got := srv.SocketName(); got != "test-socket" {
+		t.Errorf("SocketName() = %q, want %q", got, "test-socket")
+	}
+}
+
+func TestTmuxServerGetAttachCommand(t *testing.T) {
+	srv := NewTmuxServer("tmux", "schmux", nil)
+	got := srv.GetAttachCommand("my-session")
+	want := `tmux -L schmux attach -t "=my-session"`
+	if got != want {
+		t.Errorf("GetAttachCommand() = %q, want %q", got, want)
+	}
+}
+
+func TestTmuxServerCreateSessionArgs(t *testing.T) {
+	srv := NewTmuxServer("tmux", "test-sock", nil)
+	// Use an expired context so the command never actually runs
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	// We can't check cmd args directly via CreateSession since it runs internally,
+	// but we can verify that cmd() builds the right args for the new-session command.
+	cmd := srv.cmd(ctx, "new-session", "-d", "-s", "sess1", "-c", "/tmp", "echo hi")
+	want := []string{"-L", "test-sock", "new-session", "-d", "-s", "sess1", "-c", "/tmp", "echo hi"}
+	got := cmd.Args[1:]
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("CreateSession cmd args = %v, want %v", got, want)
+	}
+}
+
+func TestTmuxServerKillSessionArgs(t *testing.T) {
+	srv := NewTmuxServer("tmux", "test-sock", nil)
+	cmd := srv.cmd(context.Background(), "kill-session", "-t", "=my-session")
+	want := []string{"-L", "test-sock", "kill-session", "-t", "=my-session"}
+	got := cmd.Args[1:]
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("KillSession cmd args = %v, want %v", got, want)
+	}
+}
+
+func TestTmuxServerShowEnvironmentArgs(t *testing.T) {
+	srv := NewTmuxServer("tmux", "test-sock", nil)
+	cmd := srv.cmd(context.Background(), "show-environment", "-g")
+	want := []string{"-L", "test-sock", "show-environment", "-g"}
+	got := cmd.Args[1:]
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ShowEnvironment cmd args = %v, want %v", got, want)
+	}
+}
+
+func TestTmuxServerSetOptionArgs(t *testing.T) {
+	srv := NewTmuxServer("tmux", "test-sock", nil)
+	cmd := srv.cmd(context.Background(), "set-option", "-t", "sess1", "history-limit", "10000")
+	want := []string{"-L", "test-sock", "set-option", "-t", "sess1", "history-limit", "10000"}
+	got := cmd.Args[1:]
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("SetOption cmd args = %v, want %v", got, want)
+	}
+}
+
+func TestTmuxServerCaptureLastLinesValidation(t *testing.T) {
+	srv := NewTmuxServer("tmux", "test-sock", nil)
+	ctx := context.Background()
+
+	_, err := srv.CaptureLastLines(ctx, "test", 0, true)
+	if err == nil || !strings.Contains(err.Error(), "invalid line count") {
+		t.Errorf("expected 'invalid line count' error for 0 lines, got %v", err)
+	}
+
+	_, err = srv.CaptureLastLines(ctx, "test", -5, false)
+	if err == nil || !strings.Contains(err.Error(), "invalid line count") {
+		t.Errorf("expected 'invalid line count' error for -5 lines, got %v", err)
+	}
+}
+
+func TestTmuxServerRenameSessionArgs(t *testing.T) {
+	srv := NewTmuxServer("tmux", "test-sock", nil)
+	cmd := srv.cmd(context.Background(), "rename-session", "-t", "=old-name", "new-name")
+	want := []string{"-L", "test-sock", "rename-session", "-t", "=old-name", "new-name"}
+	got := cmd.Args[1:]
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("RenameSession cmd args = %v, want %v", got, want)
 	}
 }

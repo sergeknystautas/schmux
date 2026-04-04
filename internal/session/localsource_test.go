@@ -29,12 +29,12 @@ func TestLocalSource_IsPermanentError_ClosesWithError(t *testing.T) {
 }
 
 func TestLocalSource_ImplementsControlSource(t *testing.T) {
-	source := NewLocalSource("s1", "tmux-s1", nil)
+	source := NewLocalSource("s1", "tmux-s1", nil, nil)
 	var _ ControlSource = source
 }
 
 func TestLocalSource_MethodsFailWhenNotAttached(t *testing.T) {
-	source := NewLocalSource("s1", "tmux-s1", nil)
+	source := NewLocalSource("s1", "tmux-s1", nil, nil)
 
 	if _, err := source.SendKeys("abc"); err == nil {
 		t.Error("SendKeys should fail when not attached")
@@ -54,14 +54,14 @@ func TestLocalSource_MethodsFailWhenNotAttached(t *testing.T) {
 }
 
 func TestLocalSource_IsAttached(t *testing.T) {
-	source := NewLocalSource("s1", "tmux-s1", nil)
+	source := NewLocalSource("s1", "tmux-s1", nil, nil)
 	if source.IsAttached() {
 		t.Error("should not be attached before start")
 	}
 }
 
 func TestLocalSource_SetTmuxSession(t *testing.T) {
-	source := NewLocalSource("s1", "tmux-s1", nil)
+	source := NewLocalSource("s1", "tmux-s1", nil, nil)
 	source.SetTmuxSession("tmux-s2")
 
 	source.mu.RLock()

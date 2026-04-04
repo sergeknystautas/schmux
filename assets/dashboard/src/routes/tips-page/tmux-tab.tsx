@@ -98,12 +98,12 @@ export function TmuxTab() {
           <br />
           # Attach to a specific session
           <br />
-          tmux attach -t SESSION_NAME
+          tmux -L schmux attach -t SESSION_NAME
           <br />
           <br />
           # Kill a session
           <br />
-          tmux kill-session -t SESSION_NAME
+          tmux -L schmux kill-session -t SESSION_NAME
         </code>
       </div>
 

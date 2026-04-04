@@ -298,7 +298,11 @@ resizeWaitLoop:
 	capCtx, capCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
 	bootstrap, err := tracker.CaptureLastLines(capCtx, bootstrapCaptureLines)
 	if err != nil {
-		bootstrap, err = tmux.CaptureLastLines(capCtx, sess.TmuxSession, bootstrapCaptureLines, true)
+		if s.tmuxServer != nil {
+			bootstrap, err = s.tmuxServer.CaptureLastLines(capCtx, sess.TmuxSession, bootstrapCaptureLines, true)
+		} else {
+			bootstrap, err = tmux.CaptureLastLines(capCtx, sess.TmuxSession, bootstrapCaptureLines, true)
+		}
 		if err != nil {
 			logging.Sub(s.logger, "ws").Error("bootstrap capture failed", "session_id", sessionID[:8], "err", err)
 			bootstrap = ""
@@ -334,7 +338,13 @@ resizeWaitLoop:
 	} else {
 		// Fallback to tmux CLI
 		curCtx2, curCancel2 := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		cliState, cliErr := tmux.GetCursorState(curCtx2, sess.TmuxSession)
+		var cliState tmux.CursorState
+		var cliErr error
+		if s.tmuxServer != nil {
+			cliState, cliErr = s.tmuxServer.GetCursorState(curCtx2, sess.TmuxSession)
+		} else {
+			cliState, cliErr = tmux.GetCursorState(curCtx2, sess.TmuxSession)
+		}
 		curCancel2()
 		if cliErr == nil {
 			curX, curY, curVisible = cliState.X, cliState.Y, cliState.Visible
@@ -844,7 +854,7 @@ drainBootstrap:
 // handleCRTerminalWebSocket handles WebSocket connections for ephemeral conflict resolution
 // tmux sessions. Read-only (client input is ignored), uses control mode API and binary frames.
 func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Request,
-	tmuxName string, tracker *session.SessionTracker) {
+	tmuxName string, tracker *session.SessionRuntime) {
 
 	rawConn, err := s.upgradeWebSocket(w, r, 4096, 8192)
 	if err != nil {
@@ -861,7 +871,11 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 	capCtx, capCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	bootstrap, err := tracker.CaptureLastLines(capCtx, bootstrapCaptureLines)
 	if err != nil {
-		bootstrap, _ = tmux.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
+		if s.tmuxServer != nil {
+			bootstrap, _ = s.tmuxServer.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
+		} else {
+			bootstrap, _ = tmux.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
+		}
 	}
 	capCancel()
 	if bootstrap != "" {
@@ -923,7 +937,7 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 // tmux session. Supports bidirectional I/O (input + output) since the operator
 // types commands into the FM terminal.
 func (s *Server) handleFMTerminalWebSocket(w http.ResponseWriter, r *http.Request,
-	tmuxName string, tracker *session.SessionTracker) {
+	tmuxName string, tracker *session.SessionRuntime) {
 
 	rawConn, err := s.upgradeWebSocket(w, r, 4096, 8192)
 	if err != nil {
@@ -966,7 +980,11 @@ resizeWait:
 	capCtx, capCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	bootstrap, err := tracker.CaptureLastLines(capCtx, bootstrapCaptureLines)
 	if err != nil {
-		bootstrap, _ = tmux.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
+		if s.tmuxServer != nil {
+			bootstrap, _ = s.tmuxServer.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
+		} else {
+			bootstrap, _ = tmux.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
+		}
 	}
 	capCancel()
 	if bootstrap != "" {

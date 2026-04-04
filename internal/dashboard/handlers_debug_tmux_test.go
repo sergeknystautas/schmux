@@ -72,7 +72,8 @@ func TestCollectTmuxSessionCount(t *testing.T) {
 	}
 
 	t.Run("returns count when tmux is available", func(t *testing.T) {
-		count, err := collectTmuxSessionCount()
+		server, _, _ := newTestServer(t)
+		count, err := server.collectTmuxSessionCount()
 
 		if err != nil {
 			t.Skip("tmux not available or server not running — skipping")
