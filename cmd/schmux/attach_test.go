@@ -101,4 +101,3 @@ func TestAttachCommand_Run(t *testing.T) {
 
 // Variable to mock exec.Command for testing
 var execCommand = exec.Command
-

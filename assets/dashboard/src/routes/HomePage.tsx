@@ -1364,7 +1364,8 @@ export default function HomePage() {
           <div className={styles.tipItem}>
             <span className={styles.tipKey}>Tip:</span>
             <span className={styles.tipText}>
-              Use <code>tmux -L schmux attach -t SESSION_NAME</code> to connect directly from terminal
+              Use <code>tmux -L schmux attach -t SESSION_NAME</code> to connect directly from
+              terminal
             </span>
           </div>
         </div>
