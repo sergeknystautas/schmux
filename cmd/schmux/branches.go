@@ -39,7 +39,7 @@ func (cmd *BranchesCommand) Run(args []string) error {
 		return fmt.Errorf("daemon is not running. Start it with: schmux start")
 	}
 
-	reqURL := cli.GetDefaultURL() + "/api/branches"
+	reqURL := cmd.client.BaseURL() + "/api/branches"
 
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	resp, err := httpClient.Get(reqURL)

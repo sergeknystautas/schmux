@@ -53,7 +53,7 @@ func (cmd *CaptureCommand) Run(args []string) error {
 		return fmt.Errorf("daemon is not running. Start it with: schmux start")
 	}
 
-	reqURL := fmt.Sprintf("%s/api/sessions/%s/capture?lines=%d", cli.GetDefaultURL(), sessionID, linesFlag)
+	reqURL := fmt.Sprintf("%s/api/sessions/%s/capture?lines=%d", cmd.client.BaseURL(), sessionID, linesFlag)
 
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 	resp, err := httpClient.Get(reqURL)

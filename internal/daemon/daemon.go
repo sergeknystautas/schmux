@@ -54,9 +54,7 @@ import (
 )
 
 const (
-	pidFileName   = "daemon.pid"
-	dashboardPort = 7337
-
+	pidFileName = "daemon.pid"
 	// Inactivity threshold before asking NudgeNik
 	nudgeInactivityThreshold = 15 * time.Second
 )
@@ -305,14 +303,20 @@ func Status() (running bool, url string, startedAt string, err error) {
 		return false, "", "", nil
 	}
 
-	url = fmt.Sprintf("http://localhost:%d", dashboardPort)
-	if cfg, err := config.Load(filepath.Join(homeDir, ".schmux", "config.json")); err == nil {
-		// Use configured port if available (may differ from default dashboardPort)
-		if cfgPort := cfg.GetPort(); cfgPort != 0 {
-			url = fmt.Sprintf("http://localhost:%d", cfgPort)
-		}
-		if cfg.GetPublicBaseURL() != "" {
-			url = cfg.GetPublicBaseURL()
+	// Read the daemon URL from the breadcrumb file
+	urlFile := filepath.Join(homeDir, ".schmux", "daemon.url")
+	if data, err := os.ReadFile(urlFile); err == nil {
+		url = strings.TrimSpace(string(data))
+	} else {
+		// Fallback for backward compatibility (daemon started before this change)
+		url = fmt.Sprintf("http://localhost:%d", 7337)
+		if cfg, err := config.Load(filepath.Join(homeDir, ".schmux", "config.json")); err == nil {
+			if cfgPort := cfg.GetPort(); cfgPort != 0 {
+				url = fmt.Sprintf("http://localhost:%d", cfgPort)
+			}
+			if cfg.GetPublicBaseURL() != "" {
+				url = cfg.GetPublicBaseURL()
+			}
 		}
 	}
 	if startedData, err := os.ReadFile(startedFile); err == nil {
@@ -1387,6 +1391,28 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 			serverErrChan <- err
 		}
 	}()
+
+	// Wait for the server to bind before writing daemon.url
+	var urlFile string
+	select {
+	case boundAddr := <-server.BoundAddr:
+		if boundAddr == nil {
+			return fmt.Errorf("dashboard server failed to bind")
+		}
+		scheme := "http"
+		if cfg.GetTLSEnabled() {
+			scheme = "https"
+		}
+		urlFile = filepath.Join(schmuxDir, "daemon.url")
+		daemonURL := fmt.Sprintf("%s://%s", scheme, boundAddr.String())
+		if err := os.WriteFile(urlFile, []byte(daemonURL+"\n"), 0644); err != nil {
+			return fmt.Errorf("failed to write daemon URL file: %w", err)
+		}
+		defer os.Remove(urlFile)
+		logger.Info("daemon URL written", "url", daemonURL, "file", urlFile)
+	case err := <-serverErrChan:
+		return fmt.Errorf("dashboard server error: %w", err)
+	}
 
 	// Wait for shutdown signal or server error
 	var devRestart bool

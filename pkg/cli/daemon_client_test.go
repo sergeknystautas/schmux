@@ -5,26 +5,101 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
 
-func TestGetDefaultURL(t *testing.T) {
-	url := GetDefaultURL()
-	if url != "http://localhost:7337" {
-		t.Errorf("got %q, want %q", url, "http://localhost:7337")
-	}
-	// Verify the URL is parseable and usable for HTTP requests
-	parsed, err := http.NewRequest(http.MethodGet, url+"/api/healthz", nil)
-	if err != nil {
-		t.Errorf("default URL should be valid for HTTP requests: %v", err)
-	}
-	if parsed.URL.Hostname() != "localhost" {
-		t.Errorf("hostname = %q, want localhost", parsed.URL.Hostname())
-	}
-	if parsed.URL.Port() != "7337" {
-		t.Errorf("port = %q, want 7337", parsed.URL.Port())
-	}
+func TestResolveURL(t *testing.T) {
+	t.Run("returns default when no env or file", func(t *testing.T) {
+		t.Setenv("SCHMUX_URL", "")
+		tmpDir := t.TempDir()
+		t.Setenv("HOME", tmpDir)
+
+		got := ResolveURL()
+		if got != "http://localhost:7337" {
+			t.Errorf("got %q, want %q", got, "http://localhost:7337")
+		}
+	})
+
+	t.Run("SCHMUX_URL env var takes highest priority", func(t *testing.T) {
+		t.Setenv("SCHMUX_URL", "http://custom:9999")
+
+		got := ResolveURL()
+		if got != "http://custom:9999" {
+			t.Errorf("got %q, want %q", got, "http://custom:9999")
+		}
+	})
+
+	t.Run("reads daemon.url file when no env var", func(t *testing.T) {
+		t.Setenv("SCHMUX_URL", "")
+		tmpDir := t.TempDir()
+		t.Setenv("HOME", tmpDir)
+
+		schmuxDir := filepath.Join(tmpDir, ".schmux")
+		if err := os.MkdirAll(schmuxDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(schmuxDir, "daemon.url"), []byte("http://from-file:8080\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		got := ResolveURL()
+		if got != "http://from-file:8080" {
+			t.Errorf("got %q, want %q", got, "http://from-file:8080")
+		}
+	})
+
+	t.Run("env var takes priority over file", func(t *testing.T) {
+		t.Setenv("SCHMUX_URL", "http://env-wins:1111")
+		tmpDir := t.TempDir()
+		t.Setenv("HOME", tmpDir)
+
+		schmuxDir := filepath.Join(tmpDir, ".schmux")
+		if err := os.MkdirAll(schmuxDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(schmuxDir, "daemon.url"), []byte("http://from-file:8080\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		got := ResolveURL()
+		if got != "http://env-wins:1111" {
+			t.Errorf("got %q, want %q", got, "http://env-wins:1111")
+		}
+	})
+
+	t.Run("falls back to default on invalid file contents", func(t *testing.T) {
+		t.Setenv("SCHMUX_URL", "")
+		tmpDir := t.TempDir()
+		t.Setenv("HOME", tmpDir)
+
+		schmuxDir := filepath.Join(tmpDir, ".schmux")
+		if err := os.MkdirAll(schmuxDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(schmuxDir, "daemon.url"), []byte("not-a-url\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		got := ResolveURL()
+		if got != "http://localhost:7337" {
+			t.Errorf("got %q, want %q", got, "http://localhost:7337")
+		}
+	})
+
+	t.Run("falls back to default on missing file", func(t *testing.T) {
+		t.Setenv("SCHMUX_URL", "")
+		tmpDir := t.TempDir()
+		t.Setenv("HOME", tmpDir)
+		// .schmux directory does not exist
+
+		got := ResolveURL()
+		if got != "http://localhost:7337" {
+			t.Errorf("got %q, want %q", got, "http://localhost:7337")
+		}
+	})
 }
 
 func TestNewDaemonClient(t *testing.T) {

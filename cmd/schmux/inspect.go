@@ -44,7 +44,7 @@ func (cmd *InspectCommand) Run(args []string) error {
 		return fmt.Errorf("daemon is not running. Start it with: schmux start")
 	}
 
-	reqURL := cli.GetDefaultURL() + "/api/workspaces/" + workspaceID + "/inspect"
+	reqURL := cmd.client.BaseURL() + "/api/workspaces/" + workspaceID + "/inspect"
 
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 	resp, err := httpClient.Get(reqURL)

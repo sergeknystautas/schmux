@@ -117,7 +117,7 @@ func main() {
 		printUsage()
 
 	case "spawn":
-		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		client := cli.NewDaemonClient(cli.ResolveURL())
 		cmd := NewSpawnCommand(client)
 		if err := cmd.Run(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -125,7 +125,7 @@ func main() {
 		}
 
 	case "list":
-		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		client := cli.NewDaemonClient(cli.ResolveURL())
 		cmd := NewListCommand(client)
 		if err := cmd.Run(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -133,7 +133,7 @@ func main() {
 		}
 
 	case "attach":
-		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		client := cli.NewDaemonClient(cli.ResolveURL())
 		cmd := NewAttachCommand(client)
 		if err := cmd.Run(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -141,7 +141,7 @@ func main() {
 		}
 
 	case "dispose":
-		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		client := cli.NewDaemonClient(cli.ResolveURL())
 		cmd := NewDisposeCommand(client)
 		if err := cmd.Run(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -149,7 +149,7 @@ func main() {
 		}
 
 	case "refresh-overlay":
-		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		client := cli.NewDaemonClient(cli.ResolveURL())
 		cmd := NewRefreshOverlayCommand(client)
 		if err := cmd.Run(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -174,7 +174,7 @@ func main() {
 		}
 
 	case "remote":
-		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		client := cli.NewDaemonClient(cli.ResolveURL())
 		cmd := NewRemoteCommand(client)
 		if err := cmd.Run(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -190,7 +190,7 @@ func main() {
 
 	case "end-shift":
 		httpClient := &http.Client{Timeout: 5 * time.Second}
-		resp, err := httpClient.Post(cli.GetDefaultURL()+"/api/floor-manager/end-shift", "application/json", nil)
+		resp, err := httpClient.Post(cli.ResolveURL()+"/api/floor-manager/end-shift", "application/json", nil)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -203,7 +203,7 @@ func main() {
 		fmt.Println("Shift rotation acknowledged.")
 
 	case "tell":
-		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		client := cli.NewDaemonClient(cli.ResolveURL())
 		cmd := NewTellCommand(client)
 		if err := cmd.Run(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -211,7 +211,7 @@ func main() {
 		}
 
 	case "events":
-		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		client := cli.NewDaemonClient(cli.ResolveURL())
 		cmd := NewEventsCommand(client)
 		if err := cmd.Run(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -219,7 +219,7 @@ func main() {
 		}
 
 	case "capture":
-		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		client := cli.NewDaemonClient(cli.ResolveURL())
 		cmd := NewCaptureCommand(client)
 		if err := cmd.Run(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -227,7 +227,7 @@ func main() {
 		}
 
 	case "inspect":
-		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		client := cli.NewDaemonClient(cli.ResolveURL())
 		cmd := NewInspectCommand(client)
 		if err := cmd.Run(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -235,7 +235,7 @@ func main() {
 		}
 
 	case "branches":
-		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		client := cli.NewDaemonClient(cli.ResolveURL())
 		cmd := NewBranchesCommand(client)
 		if err := cmd.Run(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -243,7 +243,7 @@ func main() {
 		}
 
 	case "repofeed":
-		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		client := cli.NewDaemonClient(cli.ResolveURL())
 		cmd := NewRepofeedCommand(client)
 		if err := cmd.Run(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)

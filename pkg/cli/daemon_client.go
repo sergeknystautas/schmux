@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -27,8 +29,31 @@ func NewDaemonClient(baseURL string) *Client {
 	}
 }
 
-// GetDefaultURL returns the default daemon URL.
-func GetDefaultURL() string {
+// BaseURL returns the base URL this client is configured to use.
+func (c *Client) BaseURL() string {
+	return c.baseURL
+}
+
+// ResolveURL resolves the daemon URL using a 3-tier priority:
+// 1. SCHMUX_URL env var (explicit override)
+// 2. ~/.schmux/daemon.url file (runtime breadcrumb)
+// 3. http://localhost:7337 (hardcoded default)
+func ResolveURL() string {
+	if url := os.Getenv("SCHMUX_URL"); url != "" {
+		return url
+	}
+
+	home, err := os.UserHomeDir()
+	if err == nil {
+		data, err := os.ReadFile(filepath.Join(home, ".schmux", "daemon.url"))
+		if err == nil {
+			url := strings.TrimSpace(string(data))
+			if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
+				return url
+			}
+		}
+	}
+
 	return "http://localhost:7337"
 }
 

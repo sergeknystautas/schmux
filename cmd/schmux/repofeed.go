@@ -57,7 +57,7 @@ func (cmd *RepofeedCommand) Run(args []string) error {
 }
 
 func (cmd *RepofeedCommand) showList(httpClient *http.Client, jsonOutput bool) error {
-	reqURL := cli.GetDefaultURL() + "/api/repofeed"
+	reqURL := cmd.client.BaseURL() + "/api/repofeed"
 	resp, err := httpClient.Get(reqURL)
 	if err != nil {
 		return fmt.Errorf("failed to fetch repofeed: %w", err)
@@ -100,7 +100,7 @@ func (cmd *RepofeedCommand) showList(httpClient *http.Client, jsonOutput bool) e
 }
 
 func (cmd *RepofeedCommand) showRepo(httpClient *http.Client, slug string, jsonOutput bool) error {
-	reqURL := cli.GetDefaultURL() + "/api/repofeed/" + slug
+	reqURL := cmd.client.BaseURL() + "/api/repofeed/" + slug
 	resp, err := httpClient.Get(reqURL)
 	if err != nil {
 		return fmt.Errorf("failed to fetch repofeed: %w", err)

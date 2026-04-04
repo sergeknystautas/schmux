@@ -1936,7 +1936,7 @@ func EnsureExists() (bool, error) {
 	}
 
 	fmt.Printf("Created default config at %s\n", configPath)
-	fmt.Println("Open http://localhost:7337 to complete setup in the web dashboard.")
+	fmt.Println("Run 'schmux status' to get the dashboard URL and complete setup.")
 
 	return true, nil
 }

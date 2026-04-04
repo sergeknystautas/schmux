@@ -119,6 +119,7 @@ type Server struct {
 	devProxy     bool   // When true, proxy non-API routes to Vite dev server
 	devMode      bool   // When true, dev mode API endpoints are enabled
 	shutdownCtx  context.Context
+	BoundAddr    chan net.Addr // signals the bound address after listener starts; written exactly once
 
 	// WebSocket connection registry: sessionID -> active connection (for terminal)
 	// Only one connection per session; new connections displace old ones.
@@ -291,6 +292,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		devProxy:           opts.DevProxy,
 		devMode:            opts.DevMode,
 		shutdownCtx:        shutdownCtx,
+		BoundAddr:          make(chan net.Addr, 1),
 		dashboardDistPath:  opts.DashboardDistPath,
 		wsConns:            make(map[string][]*wsConn),
 		sessionsConns:      make(map[*wsConn]bool),
@@ -513,6 +515,14 @@ func (s *Server) initEnvironmentBaseline() {
 func (s *Server) Start() error {
 	s.initEnvironmentBaseline()
 	s.recoverStaleConflictRecords()
+
+	// Guarantee exactly one send on BoundAddr regardless of exit path.
+	// Early returns (auth errors) trigger the defer; successful bind
+	// preempts it via once.Do.
+	var bindOnce sync.Once
+	defer func() {
+		bindOnce.Do(func() { s.BoundAddr <- nil })
+	}()
 
 	cleanupDelay := time.Duration(s.config.GetExternalDiffCleanupAfterMs()) * time.Millisecond
 	deleted, scheduled := difftool.SweepAndScheduleTempDirs(cleanupDelay, logging.Sub(s.logger, "difftool"))
@@ -814,16 +824,25 @@ func (s *Server) Start() error {
 		}
 	}
 
+	// Split listen from serve to signal the actual bound address
+	primaryListener, err := net.Listen("tcp", s.httpServer.Addr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %w", s.httpServer.Addr, err)
+	}
+
+	// Signal the actual bound address (critical for port-0 auto-assign)
+	bindOnce.Do(func() { s.BoundAddr <- primaryListener.Addr() })
+
 	if s.config.GetTLSEnabled() {
 		certPath := s.config.GetTLSCertPath()
 		keyPath := s.config.GetTLSKeyPath()
-		if err := s.httpServer.ListenAndServeTLS(certPath, keyPath); err != nil && err != http.ErrServerClosed {
+		if err := s.httpServer.ServeTLS(primaryListener, certPath, keyPath); err != nil && err != http.ErrServerClosed {
 			return fmt.Errorf("server error: %w", err)
 		}
 		return nil
 	}
 
-	if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	if err := s.httpServer.Serve(primaryListener); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("server error: %w", err)
 	}
 

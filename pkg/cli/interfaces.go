@@ -29,4 +29,7 @@ type DaemonClient interface {
 
 	// RefreshOverlay reapplies overlay files to a workspace.
 	RefreshOverlay(ctx context.Context, workspaceID string) error
+
+	// BaseURL returns the base URL this client is configured to use.
+	BaseURL() string
 }

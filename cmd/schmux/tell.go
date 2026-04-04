@@ -54,7 +54,7 @@ func (cmd *TellCommand) Run(args []string) error {
 
 	// POST to /api/sessions/{id}/tell
 	body, _ := json.Marshal(map[string]string{"message": messageFlag})
-	url := cli.GetDefaultURL() + "/api/sessions/" + sessionID + "/tell"
+	url := cmd.client.BaseURL() + "/api/sessions/" + sessionID + "/tell"
 
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 	resp, err := httpClient.Post(url, "application/json", bytes.NewReader(body))

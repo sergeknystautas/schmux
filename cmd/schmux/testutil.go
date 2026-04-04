@@ -63,6 +63,10 @@ func (m *MockDaemonClient) DisposeSession(ctx context.Context, sessionID string)
 	return m.disposeErr
 }
 
+func (m *MockDaemonClient) BaseURL() string {
+	return "http://localhost:7337"
+}
+
 func (m *MockDaemonClient) RefreshOverlay(ctx context.Context, workspaceID string) error {
 	// Validate workspace ID is not empty
 	if workspaceID == "" {

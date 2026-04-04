@@ -70,7 +70,7 @@ func (cmd *EventsCommand) Run(args []string) error {
 		params.Set("last", fmt.Sprintf("%d", lastN))
 	}
 
-	reqURL := cli.GetDefaultURL() + "/api/sessions/" + sessionID + "/events"
+	reqURL := cmd.client.BaseURL() + "/api/sessions/" + sessionID + "/events"
 	if len(params) > 0 {
 		reqURL += "?" + params.Encode()
 	}
