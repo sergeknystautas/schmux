@@ -117,8 +117,10 @@ func NewDaemon() *Daemon {
 // that no daemon is already running. Called by both 'start' and 'daemon-run'
 // before they diverge.
 func ValidateReadyToRun() error {
-	// Check tmux dependency before forking
-	if err := tmux.TmuxChecker.Check(); err != nil {
+	// Check tmux dependency before forking.
+	// Use a temporary TmuxServer with the default binary to validate.
+	checker := tmux.NewTmuxServer("tmux", "schmux", nil)
+	if err := checker.Check(); err != nil {
 		return err
 	}
 
@@ -182,7 +184,6 @@ func Start() error {
 	tmuxBinary := "tmux"
 	if cfg, err := config.Load(filepath.Join(schmuxDir, "config.json")); err == nil && cfg.TmuxBinary != "" {
 		tmuxBinary = cfg.TmuxBinary
-		tmux.SetBinary(cfg.TmuxBinary)
 	}
 
 	// Construct the TmuxServer that all subsystems will share.
@@ -343,7 +344,6 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	remoteAccessLog := logging.Sub(logger, "remote-access")
 
 	// Set package-level loggers for packages that use standalone functions
-	tmux.SetLogger(logging.Sub(logger, "tmux"))
 	lore.SetLogger(loreLog)
 	compound.SetLogger(compoundLog)
 	config.SetLogger(configLog)
@@ -406,7 +406,6 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 	if cfg.TmuxBinary != "" {
-		tmux.SetBinary(cfg.TmuxBinary)
 		logger.Info("using custom tmux binary", "path", cfg.TmuxBinary)
 	}
 

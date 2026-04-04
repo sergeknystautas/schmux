@@ -1410,7 +1410,8 @@ func (m *Manager) GetAttachCommand(sessionID string) (string, error) {
 	if m.server != nil {
 		return m.server.GetAttachCommand(sess.TmuxSession), nil
 	}
-	return tmux.GetAttachCommand(sess.TmuxSession), nil
+	// Fallback for when no TmuxServer is available (should not happen in production).
+	return fmt.Sprintf("tmux attach -t \"=%s\"", sess.TmuxSession), nil
 }
 
 // GetOutput returns the current terminal output for a session.

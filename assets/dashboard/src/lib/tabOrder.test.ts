@@ -15,7 +15,7 @@ function makeSession(id: string): SessionResponse {
     branch: 'main',
     created_at: '2026-01-01T00:00:00Z',
     running: true,
-    attach_cmd: `tmux attach -t ${id}`,
+    attach_cmd: `tmux -L schmux attach -t "=${id}"`,
   };
 }
 

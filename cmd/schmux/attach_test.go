@@ -39,7 +39,7 @@ func TestAttachCommand_Run(t *testing.T) {
 			args:      []string{"nonexistent-session"},
 			isRunning: true,
 			sessions: []cli.WorkspaceWithSessions{
-				{ID: "ws-001", Sessions: []cli.Session{{ID: "ws-001-abc", AttachCmd: `tmux attach -t "ws-001-abc"`}}},
+				{ID: "ws-001", Sessions: []cli.Session{{ID: "ws-001-abc", AttachCmd: `tmux -L schmux attach -t "=ws-001-abc"`}}},
 			},
 			wantErr:     true,
 			errContains: "session not found",
@@ -49,7 +49,7 @@ func TestAttachCommand_Run(t *testing.T) {
 			args:      []string{"ws-001-abc"},
 			isRunning: true,
 			sessions: []cli.WorkspaceWithSessions{
-				{ID: "ws-001", Sessions: []cli.Session{{ID: "ws-001-abc", AttachCmd: `tmux attach -t "ws-001-abc"`}}},
+				{ID: "ws-001", Sessions: []cli.Session{{ID: "ws-001-abc", AttachCmd: `tmux -L schmux attach -t "=ws-001-abc"`}}},
 			},
 			wantErr: true, // tmux attach will fail in test environment
 		},
@@ -101,3 +101,4 @@ func TestAttachCommand_Run(t *testing.T) {
 
 // Variable to mock exec.Command for testing
 var execCommand = exec.Command
+

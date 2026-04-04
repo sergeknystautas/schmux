@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -72,11 +71,6 @@ func TestPidFileParsing(t *testing.T) {
 	}
 }
 
-// mockChecker is a test implementation of tmux.Checker that returns a predefined error.
-type mockChecker struct{ err error }
-
-func (m *mockChecker) Check() error { return m.err }
-
 func TestValidateSessionAccess_NoSessions(t *testing.T) {
 	// Empty state should pass
 	tmpDir := t.TempDir()
@@ -91,12 +85,8 @@ func TestValidateSessionAccess_NoSessions(t *testing.T) {
 
 // TestValidateReadyToRun_MissingTmux tests that ValidateReadyToRun fails when tmux is missing.
 func TestValidateReadyToRun_MissingTmux(t *testing.T) {
-	// Save original checker and restore after test
-	original := tmux.TmuxChecker
-	defer func() { tmux.TmuxChecker = original }()
-
-	// Mock a checker that returns "tmux not found" error
-	tmux.TmuxChecker = &mockChecker{err: errors.New("tmux is not installed or not accessible")}
+	// Override PATH to exclude tmux
+	t.Setenv("PATH", t.TempDir())
 
 	err := ValidateReadyToRun()
 	if err == nil {
@@ -104,15 +94,22 @@ func TestValidateReadyToRun_MissingTmux(t *testing.T) {
 	}
 	// Error should contain the tmux error message
 	expectedMsg := "tmux is not installed"
-	if err == nil || !strings.Contains(err.Error(), expectedMsg) {
+	if !strings.Contains(err.Error(), expectedMsg) {
 		t.Errorf("Expected error containing %q, got %q", expectedMsg, err)
 	}
 }
 
+// skipIfNoTmux skips a test if tmux is not available on the system.
+func skipIfNoTmux(t *testing.T) {
+	t.Helper()
+	srv := tmux.NewTmuxServer("tmux", "schmux", nil)
+	if err := srv.Check(); err != nil {
+		t.Skipf("tmux not available: %v", err)
+	}
+}
+
 func TestValidateReadyToRun_StalePidFile(t *testing.T) {
-	original := tmux.TmuxChecker
-	defer func() { tmux.TmuxChecker = original }()
-	tmux.TmuxChecker = &mockChecker{err: nil}
+	skipIfNoTmux(t)
 
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
@@ -142,9 +139,7 @@ func TestValidateReadyToRun_StalePidFile(t *testing.T) {
 }
 
 func TestValidateReadyToRun_RunningPid(t *testing.T) {
-	original := tmux.TmuxChecker
-	defer func() { tmux.TmuxChecker = original }()
-	tmux.TmuxChecker = &mockChecker{err: nil}
+	skipIfNoTmux(t)
 
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
@@ -170,9 +165,7 @@ func TestValidateReadyToRun_RunningPid(t *testing.T) {
 }
 
 func TestValidateReadyToRun_MalformedPidFile(t *testing.T) {
-	original := tmux.TmuxChecker
-	defer func() { tmux.TmuxChecker = original }()
-	tmux.TmuxChecker = &mockChecker{err: nil}
+	skipIfNoTmux(t)
 
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
@@ -195,9 +188,7 @@ func TestValidateReadyToRun_MalformedPidFile(t *testing.T) {
 }
 
 func TestValidateReadyToRun_NoPidFile(t *testing.T) {
-	original := tmux.TmuxChecker
-	defer func() { tmux.TmuxChecker = original }()
-	tmux.TmuxChecker = &mockChecker{err: nil}
+	skipIfNoTmux(t)
 
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)

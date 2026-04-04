@@ -76,44 +76,6 @@ func TestStripAnsi(t *testing.T) {
 	}
 }
 
-func TestGetAttachCommand(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{
-			name:  "simple session name",
-			input: "test-session",
-			want:  `tmux attach -t "=test-session"`,
-		},
-		{
-			name:  "session with spaces",
-			input: "cli commands",
-			want:  `tmux attach -t "=cli commands"`,
-		},
-		{
-			name:  "session with special chars",
-			input: "session-123_abc",
-			want:  `tmux attach -t "=session-123_abc"`,
-		},
-		{
-			name:  "empty string",
-			input: "",
-			want:  `tmux attach -t "="`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := GetAttachCommand(tt.input)
-			if got != tt.want {
-				t.Errorf("GetAttachCommand(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestCaptureLastLines_Validation(t *testing.T) {
 	ctx := context.Background()
 
@@ -211,29 +173,8 @@ func TestContextCancellation(t *testing.T) {
 		}
 	})
 
-	t.Run("SendKeys rejects cancelled context", func(t *testing.T) {
-		err := SendKeys(expiredCtx, "test", "command")
-		if err == nil {
-			t.Error("expected error from cancelled context, got nil")
-		}
-	})
-
-	t.Run("SetWindowSizeManual rejects cancelled context", func(t *testing.T) {
-		err := SetWindowSizeManual(expiredCtx, "test")
-		if err == nil {
-			t.Error("expected error from cancelled context, got nil")
-		}
-	})
-
 	t.Run("ResizeWindow rejects cancelled context", func(t *testing.T) {
 		err := ResizeWindow(expiredCtx, "test", 80, 24)
-		if err == nil {
-			t.Error("expected error from cancelled context, got nil")
-		}
-	})
-
-	t.Run("GetWindowSize rejects cancelled context", func(t *testing.T) {
-		_, _, err := GetWindowSize(expiredCtx, "test")
 		if err == nil {
 			t.Error("expected error from cancelled context, got nil")
 		}
@@ -481,10 +422,3 @@ func TestTmuxServerRenameSessionArgs(t *testing.T) {
 	}
 }
 
-// Benchmarks
-
-func BenchmarkGetAttachCommand(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		GetAttachCommand("test-session")
-	}
-}

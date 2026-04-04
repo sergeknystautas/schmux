@@ -9,7 +9,7 @@ import (
 )
 
 func TestShowEnvironment(t *testing.T) {
-	if err := TmuxChecker.Check(); err != nil {
+	if err := NewTmuxServer("tmux", "default", nil).Check(); err != nil {
 		t.Skip("tmux not available")
 	}
 
@@ -36,7 +36,7 @@ func TestShowEnvironment(t *testing.T) {
 }
 
 func TestSetEnvironment(t *testing.T) {
-	if err := TmuxChecker.Check(); err != nil {
+	if err := NewTmuxServer("tmux", "default", nil).Check(); err != nil {
 		t.Skip("tmux not available")
 	}
 
