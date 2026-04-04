@@ -123,7 +123,7 @@ export default function ToolsSection({
     {
       to: '/repofeed',
       label: 'Repofeed',
-      hidden: !features.repofeed || !config?.repos?.length,
+      hidden: !features.repofeed || !config?.repofeed?.enabled || !config?.repos?.length,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M4 11a9 9 0 0 1 9 9"></path>
