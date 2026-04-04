@@ -17,7 +17,7 @@ vi.mock('@xterm/xterm', () => {
     scrollToBottom = vi.fn();
     dispose = vi.fn();
     element = null;
-    buffer = { active: { viewportY: 0, baseY: 0, cursorY: 0, length: 0 } };
+    buffer = { active: { viewportY: 0, baseY: 0, cursorY: 0, cursorX: 0, length: 0 } };
     rows = 24;
     cols = 80;
     markers = [];
@@ -40,7 +40,7 @@ vi.mock('@xterm/addon-webgl', () => ({
   })),
 }));
 
-import TerminalStream from './terminalStream';
+import TerminalStream, { isBufferedInput } from './terminalStream';
 import { inputLatency } from './inputLatency';
 
 /** Build a sequenced binary frame with 8-byte big-endian header. */
@@ -1851,5 +1851,636 @@ describe('TerminalStream scroll without diagnostics', () => {
     // Verify jumpToBottom recovery also works without diagnostics
     stream.jumpToBottom();
     expect((stream as any).followTail).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Native Typing
+// ---------------------------------------------------------------------------
+
+describe('isBufferedInput', () => {
+  it('classifies printable ASCII as buffered', () => {
+    expect(isBufferedInput('a')).toBe(true);
+    expect(isBufferedInput('Z')).toBe(true);
+    expect(isBufferedInput(' ')).toBe(true);
+    expect(isBufferedInput('5')).toBe(true);
+    expect(isBufferedInput('!')).toBe(true);
+    expect(isBufferedInput('~')).toBe(true);
+  });
+
+  it('classifies unicode characters as buffered', () => {
+    expect(isBufferedInput('é')).toBe(true);
+    expect(isBufferedInput('你')).toBe(true);
+    expect(isBufferedInput('🚀')).toBe(true); // surrogate pair, length 2
+  });
+
+  it('classifies backspace as buffered', () => {
+    expect(isBufferedInput('\x7f')).toBe(true);
+    expect(isBufferedInput('\x08')).toBe(true);
+  });
+
+  it('classifies control characters as immediate', () => {
+    expect(isBufferedInput('\r')).toBe(false); // Enter
+    expect(isBufferedInput('\n')).toBe(false); // Newline
+    expect(isBufferedInput('\t')).toBe(false); // Tab
+    expect(isBufferedInput('\x03')).toBe(false); // Ctrl+C
+    expect(isBufferedInput('\x04')).toBe(false); // Ctrl+D
+    expect(isBufferedInput('\x1a')).toBe(false); // Ctrl+Z
+  });
+
+  it('classifies escape sequences as immediate', () => {
+    expect(isBufferedInput('\x1b')).toBe(false); // bare Escape
+    expect(isBufferedInput('\x1b[A')).toBe(false); // Up arrow
+    expect(isBufferedInput('\x1b[B')).toBe(false); // Down arrow
+    expect(isBufferedInput('\x1b[C')).toBe(false); // Right arrow
+    expect(isBufferedInput('\x1b[D')).toBe(false); // Left arrow
+    expect(isBufferedInput('\x1b\r')).toBe(false); // Alt+Enter
+    expect(isBufferedInput('\x1b\x7f')).toBe(false); // Alt+Backspace
+  });
+
+  it('classifies multi-character strings as immediate (not single char)', () => {
+    expect(isBufferedInput('ab')).toBe(false); // two ASCII chars
+    expect(isBufferedInput('hello')).toBe(false); // paste
+  });
+
+  it('returns false for empty string', () => {
+    expect(isBufferedInput('')).toBe(false);
+  });
+});
+
+describe('native typing buffer state', () => {
+  let stream: TerminalStream;
+
+  beforeEach(() => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    stream = new TerminalStream('test-session', container);
+  });
+
+  it('initializes with native typing disabled and empty buffer', async () => {
+    await stream.initialized;
+    expect(stream.nativeTypingEnabled).toBe(false);
+    expect(stream.localBuffer).toBe('');
+    expect(stream.localEchoStart).toBeNull();
+    // cleanup handled by GC
+  });
+
+  it('toggles native typing on and off', async () => {
+    await stream.initialized;
+    stream.setNativeTyping(true);
+    expect(stream.nativeTypingEnabled).toBe(true);
+    stream.setNativeTyping(false);
+    expect(stream.nativeTypingEnabled).toBe(false);
+    // cleanup handled by GC
+  });
+
+  it('flushes buffer when disabling native typing', async () => {
+    await stream.initialized;
+    const wsSendSpy = vi.fn();
+    (stream as any).ws = { readyState: 1, send: wsSendSpy };
+    (stream as any).followTail = true;
+
+    stream.setNativeTyping(true);
+    stream.sendInput('h');
+    stream.sendInput('i');
+    expect(stream.localBuffer).toBe('hi');
+
+    // Disabling should flush
+    stream.setNativeTyping(false);
+    expect(stream.localBuffer).toBe('');
+    // The buffer contents should have been sent to the server
+    expect(wsSendSpy).toHaveBeenCalled();
+    // cleanup handled by GC
+  });
+});
+
+describe('native typing echo and flush', () => {
+  let stream: TerminalStream;
+  let wsSendSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    stream = new TerminalStream('test-session', container);
+    await stream.initialized;
+    wsSendSpy = vi.fn();
+    (stream as any).ws = { readyState: 1, send: wsSendSpy };
+    (stream as any).followTail = true;
+    stream.setNativeTyping(true);
+  });
+
+  afterEach(() => {
+    // cleanup handled by GC
+  });
+
+  it('accumulates printable characters in buffer', () => {
+    stream.sendInput('h');
+    stream.sendInput('e');
+    stream.sendInput('l');
+    stream.sendInput('l');
+    stream.sendInput('o');
+    expect(stream.localBuffer).toBe('hello');
+    // Characters should NOT be sent to server yet
+    expect(wsSendSpy).not.toHaveBeenCalled();
+  });
+
+  it('saves cursor position on first character', () => {
+    expect(stream.localEchoStart).toBeNull();
+    stream.sendInput('a');
+    expect(stream.localEchoStart).not.toBeNull();
+  });
+
+  it('flushes buffer and sends to server on Enter', () => {
+    stream.sendInput('h');
+    stream.sendInput('i');
+    expect(stream.localBuffer).toBe('hi');
+
+    stream.sendInput('\r'); // Enter
+    expect(stream.localBuffer).toBe('');
+    expect(stream.localEchoStart).toBeNull();
+    // Should have sent: the buffer "hi" + Enter "\r"
+    expect(wsSendSpy).toHaveBeenCalledTimes(2);
+    const sentBuffer = new TextDecoder().decode(wsSendSpy.mock.calls[0][0]);
+    const sentEnter = new TextDecoder().decode(wsSendSpy.mock.calls[1][0]);
+    expect(sentBuffer).toBe('hi');
+    expect(sentEnter).toBe('\r');
+  });
+
+  it('flushes buffer before sending immediate keys', () => {
+    stream.sendInput('h');
+    stream.sendInput('e');
+    stream.sendInput('l');
+    stream.sendInput('o');
+
+    stream.sendInput('\x1b[A'); // Up arrow (immediate)
+    expect(stream.localBuffer).toBe('');
+    // Should have sent: buffer "helo" + the arrow key
+    expect(wsSendSpy).toHaveBeenCalledTimes(2);
+    const sentBuffer = new TextDecoder().decode(wsSendSpy.mock.calls[0][0]);
+    const sentArrow = new TextDecoder().decode(wsSendSpy.mock.calls[1][0]);
+    expect(sentBuffer).toBe('helo');
+    expect(sentArrow).toBe('\x1b[A');
+  });
+
+  it('sends immediate keys directly when buffer is empty', () => {
+    stream.sendInput('\x03'); // Ctrl+C
+    expect(wsSendSpy).toHaveBeenCalledTimes(1);
+    const sent = new TextDecoder().decode(wsSendSpy.mock.calls[0][0]);
+    expect(sent).toBe('\x03');
+  });
+
+  it('handles backspace removing last character', () => {
+    stream.sendInput('h');
+    stream.sendInput('e');
+    stream.sendInput('l');
+    expect(stream.localBuffer).toBe('hel');
+
+    stream.sendInput('\x7f'); // Backspace
+    expect(stream.localBuffer).toBe('he');
+  });
+
+  it('clears localEchoStart when backspace empties buffer', () => {
+    stream.sendInput('a');
+    expect(stream.localEchoStart).not.toBeNull();
+
+    stream.sendInput('\x7f'); // Backspace
+    expect(stream.localBuffer).toBe('');
+    expect(stream.localEchoStart).toBeNull();
+  });
+
+  it('does not send to server when native typing is off', () => {
+    stream.setNativeTyping(false);
+    stream.sendInput('a');
+    // Should send immediately (passthrough)
+    expect(wsSendSpy).toHaveBeenCalledTimes(1);
+    expect(stream.localBuffer).toBe('');
+  });
+
+  it('sends backspace to server when buffer is empty', () => {
+    // Buffer is empty — backspace should go straight to server
+    expect(stream.localBuffer).toBe('');
+    stream.sendInput('\x7f');
+    expect(wsSendSpy).toHaveBeenCalledTimes(1);
+    const sent = new TextDecoder().decode(wsSendSpy.mock.calls[0][0]);
+    expect(sent).toBe('\x7f');
+  });
+});
+
+describe('native typing paste handling', () => {
+  let stream: TerminalStream;
+  let wsSendSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    stream = new TerminalStream('test-session', container);
+    await stream.initialized;
+    wsSendSpy = vi.fn();
+    (stream as any).ws = { readyState: 1, send: wsSendSpy };
+    (stream as any).followTail = true;
+    stream.setNativeTyping(true);
+  });
+
+  afterEach(() => {
+    // cleanup handled by GC
+  });
+
+  it('buffers all characters from a pure-text paste', () => {
+    stream.sendInput('hello');
+    expect(stream.localBuffer).toBe('hello');
+    expect(wsSendSpy).not.toHaveBeenCalled();
+  });
+
+  it('flushes on Enter within a paste', () => {
+    stream.sendInput('hello\rworld');
+    // "hello" should have been flushed on \r, then "world" buffered
+    expect(stream.localBuffer).toBe('world');
+  });
+
+  it('handles paste with tab characters', () => {
+    stream.sendInput('hello\tworld');
+    // "hello" flushed on Tab, Tab sent, "world" buffered
+    expect(stream.localBuffer).toBe('world');
+    // Sent: "hello", "\t", then "world" is still in buffer
+    expect(wsSendSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('native typing sync guard', () => {
+  it('skips sync comparison when buffer is non-empty', async () => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    const stream = new TerminalStream('test-session', container);
+    await stream.initialized;
+
+    const wsSendSpy = vi.fn();
+    (stream as any).ws = { readyState: 1, send: wsSendSpy };
+    (stream as any).followTail = true;
+    stream.setNativeTyping(true);
+    stream.sendInput('a'); // put something in buffer
+
+    const terminal = (stream as any).terminal;
+    const writeCalls = terminal.write.mock.calls.length;
+
+    // Call handleSync — it should skip due to non-empty buffer
+    const handleSync = (stream as any).handleSync.bind(stream);
+    handleSync({ screen: 'test', cursor: { row: 0, col: 0, visible: true } });
+
+    // Buffer should still be intact (sync didn't clear it)
+    expect(stream.localBuffer).toBe('a');
+    // No surgical correction writes should have happened
+    // (only the 'a' echo write from echoLocally)
+    expect(terminal.write.mock.calls.length).toBe(writeCalls);
+  });
+});
+
+describe('native typing inputLatency tracking', () => {
+  it('measures local echo latency per keystroke during native typing', async () => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    const stream = new TerminalStream('test-session', container);
+    await stream.initialized;
+
+    const wsSendSpy = vi.fn();
+    (stream as any).ws = { readyState: 1, send: wsSendSpy };
+
+    const markSentSpy = vi.spyOn(inputLatency, 'markSent');
+    const markReceivedSpy = vi.spyOn(inputLatency, 'markReceived');
+
+    // With native typing off, markSent is called once per keystroke in sendRawInput
+    stream.setNativeTyping(false);
+    stream.sendInput('a');
+    expect(markSentSpy).toHaveBeenCalledTimes(1);
+    expect(markReceivedSpy).not.toHaveBeenCalled(); // received comes from server
+
+    markSentSpy.mockClear();
+    markReceivedSpy.mockClear();
+
+    // With native typing on, each keystroke measures local echo latency
+    // (markSent + markReceived called in echoLocally, not in sendRawInput)
+    stream.setNativeTyping(true);
+    (stream as any).followTail = true;
+    stream.sendInput('b');
+    expect(markSentSpy).toHaveBeenCalledTimes(1); // called in echoLocally
+    expect(markReceivedSpy).toHaveBeenCalledTimes(1); // called after terminal.write
+
+    markSentSpy.mockClear();
+    markReceivedSpy.mockClear();
+
+    stream.sendInput('c');
+    expect(markSentSpy).toHaveBeenCalledTimes(1); // each keystroke
+    expect(markReceivedSpy).toHaveBeenCalledTimes(1);
+
+    markSentSpy.mockRestore();
+    markReceivedSpy.mockRestore();
+  });
+});
+
+describe('native typing cursor rewind on flush', () => {
+  it('writes CUP escape with correct 1-indexed coordinates on flush', async () => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    const stream = new TerminalStream('test-session', container);
+    await stream.initialized;
+
+    const wsSendSpy = vi.fn();
+    (stream as any).ws = { readyState: 1, send: wsSendSpy };
+    (stream as any).followTail = true;
+    stream.setNativeTyping(true);
+
+    const terminal = (stream as any).terminal;
+    // Simulate cursor at row 5, col 10 (0-indexed viewport-relative)
+    (terminal.buffer.active as any).cursorY = 5;
+    (terminal.buffer.active as any).cursorX = 10;
+
+    stream.sendInput('a');
+    expect(stream.localEchoStart).toEqual({ row: 5, col: 10 });
+
+    // Clear write calls from echoLocally
+    terminal.write.mockClear();
+
+    // Flush via Enter
+    stream.sendInput('\r');
+
+    // First write is removeFakeCursor (\b \b), second is CUP rewind
+    // CUP is 1-indexed: row 5+1=6, col 10+1=11
+    expect(terminal.write.mock.calls[0][0]).toBe('\b \b'); // remove fake cursor
+    expect(terminal.write.mock.calls[1][0]).toBe('\x1b[6;11H'); // CUP rewind
+  });
+
+  it('does not write CUP when buffer is empty on flush', async () => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    const stream = new TerminalStream('test-session', container);
+    await stream.initialized;
+
+    const wsSendSpy = vi.fn();
+    (stream as any).ws = { readyState: 1, send: wsSendSpy };
+    (stream as any).followTail = true;
+    stream.setNativeTyping(true);
+
+    const terminal = (stream as any).terminal;
+    terminal.write.mockClear();
+
+    // Send Enter with nothing in the buffer — should go straight through
+    stream.sendInput('\r');
+
+    // No CUP escape should be written (no rewind needed)
+    const cupCalls = terminal.write.mock.calls.filter(
+      (call: any[]) => typeof call[0] === 'string' && call[0].includes('\x1b[')
+    );
+    expect(cupCalls).toHaveLength(0);
+  });
+});
+
+describe('native typing followTail guard', () => {
+  it('does not buffer when followTail is false (scrolled up)', async () => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    const stream = new TerminalStream('test-session', container);
+    await stream.initialized;
+
+    const wsSendSpy = vi.fn();
+    (stream as any).ws = { readyState: 1, send: wsSendSpy };
+    stream.setNativeTyping(true);
+
+    // Simulate scrolled up
+    (stream as any).followTail = false;
+
+    stream.sendInput('a');
+
+    // Should NOT buffer — sent directly to server
+    expect(stream.localBuffer).toBe('');
+    expect(wsSendSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('buffers when followTail is true', async () => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    const stream = new TerminalStream('test-session', container);
+    await stream.initialized;
+
+    const wsSendSpy = vi.fn();
+    (stream as any).ws = { readyState: 1, send: wsSendSpy };
+    stream.setNativeTyping(true);
+    (stream as any).followTail = true;
+
+    stream.sendInput('a');
+
+    // Should buffer — NOT sent to server
+    expect(stream.localBuffer).toBe('a');
+    expect(wsSendSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('native typing flush on server output', () => {
+  it('flushes buffer when binary server output arrives after bootstrap', async () => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    const stream = new TerminalStream('test-session', container);
+    await stream.initialized;
+
+    const wsSendSpy = vi.fn();
+    (stream as any).ws = { readyState: 1, send: wsSendSpy };
+    (stream as any).followTail = true;
+    (stream as any).bootstrapComplete = true;
+    stream.setNativeTyping(true);
+
+    stream.sendInput('h');
+    stream.sendInput('i');
+    expect(stream.localBuffer).toBe('hi');
+
+    // Simulate server output arriving (binary frame)
+    const frame = buildSeqFrame(1n, 'server output');
+    stream.handleOutput(frame);
+
+    // Buffer should have been flushed
+    expect(stream.localBuffer).toBe('');
+    // The flushed text should have been sent
+    const binarySends = wsSendSpy.mock.calls.filter((call: any[]) => ArrayBuffer.isView(call[0]));
+    expect(binarySends.length).toBeGreaterThanOrEqual(1);
+    const flushedText = new TextDecoder().decode(binarySends[0][0]);
+    expect(flushedText).toBe('hi');
+  });
+
+  it('does not flush during bootstrap (bootstrapComplete=false)', async () => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    const stream = new TerminalStream('test-session', container);
+    await stream.initialized;
+
+    const wsSendSpy = vi.fn();
+    (stream as any).ws = { readyState: 1, send: wsSendSpy };
+    (stream as any).followTail = true;
+    (stream as any).bootstrapComplete = false;
+    stream.setNativeTyping(true);
+
+    stream.sendInput('a');
+    expect(stream.localBuffer).toBe('a');
+
+    // Simulate bootstrap frame arriving
+    const frame = buildSeqFrame(0n, 'bootstrap data');
+    stream.handleOutput(frame);
+
+    // Buffer should NOT have been flushed (bootstrap not complete)
+    expect(stream.localBuffer).toBe('a');
+  });
+});
+
+describe('native typing backspace at wrap boundary', () => {
+  it('uses absolute CUP when cursor is at column 0 after wrap', async () => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    const stream = new TerminalStream('test-session', container);
+    await stream.initialized;
+
+    const wsSendSpy = vi.fn();
+    (stream as any).ws = { readyState: 1, send: wsSendSpy };
+    (stream as any).followTail = true;
+    stream.setNativeTyping(true);
+
+    // Type a character to start the buffer
+    stream.sendInput('x');
+    expect(stream.localBuffer).toBe('x');
+
+    const terminal = (stream as any).terminal;
+    // Simulate cursor at column 0, row 3 (wrapped to new line)
+    (terminal.buffer.active as any).cursorX = 0;
+    (terminal.buffer.active as any).cursorY = 3;
+    terminal.cols = 80;
+    terminal.write.mockClear();
+
+    // Backspace should use CUP to go up one row to the last column
+    stream.sendInput('\x7f');
+
+    expect(stream.localBuffer).toBe('');
+    // First write is removeFakeCursor, second is the CUP for backspace
+    // CUP row = cursorY = 3 (0-indexed, used directly as 1-indexed = one row up)
+    // CUP col = 80 - 1 + 1 = 80
+    expect(terminal.write.mock.calls[0][0]).toBe('\b \b'); // remove fake cursor
+    expect(terminal.write.mock.calls[1][0]).toContain('\x1b[3;80H'); // backspace CUP
+  });
+
+  it('uses simple backspace when cursor is not at wrap boundary', async () => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    const stream = new TerminalStream('test-session', container);
+    await stream.initialized;
+
+    const wsSendSpy = vi.fn();
+    (stream as any).ws = { readyState: 1, send: wsSendSpy };
+    (stream as any).followTail = true;
+    stream.setNativeTyping(true);
+
+    stream.sendInput('x');
+
+    const terminal = (stream as any).terminal;
+    // Cursor at column 5 (not at boundary)
+    (terminal.buffer.active as any).cursorX = 5;
+    terminal.write.mockClear();
+
+    stream.sendInput('\x7f');
+
+    expect(stream.localBuffer).toBe('');
+    // First write is removeFakeCursor, second is the actual backspace erase
+    expect(terminal.write.mock.calls[0][0]).toBe('\b \b'); // remove fake cursor
+    const backspaceArg = terminal.write.mock.calls[1][0];
+    expect(backspaceArg).toBe('\b \b'); // simple backspace (no CUP)
+    expect(backspaceArg).not.toContain('\x1b[');
+  });
+});
+
+describe('native typing escape sequence regression', () => {
+  it('does not split escape sequences through the paste handler', async () => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    const stream = new TerminalStream('test-session', container);
+    await stream.initialized;
+
+    const wsSendSpy = vi.fn();
+    (stream as any).ws = { readyState: 1, send: wsSendSpy };
+    (stream as any).followTail = true;
+    stream.setNativeTyping(true);
+
+    // Arrow keys are multi-byte but should be sent as-is, not split
+    stream.sendInput('\x1b[A'); // Up arrow
+    expect(stream.localBuffer).toBe('');
+    expect(wsSendSpy).toHaveBeenCalledTimes(1);
+    const sent = new TextDecoder().decode(wsSendSpy.mock.calls[0][0]);
+    expect(sent).toBe('\x1b[A');
+  });
+
+  it('does not split Alt+Enter through the paste handler', async () => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    const stream = new TerminalStream('test-session', container);
+    await stream.initialized;
+
+    const wsSendSpy = vi.fn();
+    (stream as any).ws = { readyState: 1, send: wsSendSpy };
+    (stream as any).followTail = true;
+    stream.setNativeTyping(true);
+
+    stream.sendInput('\x1b\r'); // Alt+Enter
+    expect(stream.localBuffer).toBe('');
+    expect(wsSendSpy).toHaveBeenCalledTimes(1);
+    const sent = new TextDecoder().decode(wsSendSpy.mock.calls[0][0]);
+    expect(sent).toBe('\x1b\r');
+  });
+
+  it('flushes buffer before sending escape sequence', async () => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    const stream = new TerminalStream('test-session', container);
+    await stream.initialized;
+
+    const wsSendSpy = vi.fn();
+    (stream as any).ws = { readyState: 1, send: wsSendSpy };
+    (stream as any).followTail = true;
+    stream.setNativeTyping(true);
+
+    stream.sendInput('h');
+    stream.sendInput('i');
+    stream.sendInput('\x1b[A'); // Up arrow with buffer
+
+    // Should have flushed "hi" then sent the arrow
+    expect(stream.localBuffer).toBe('');
+    expect(wsSendSpy).toHaveBeenCalledTimes(2);
+    const flushed = new TextDecoder().decode(wsSendSpy.mock.calls[0][0]);
+    const arrow = new TextDecoder().decode(wsSendSpy.mock.calls[1][0]);
+    expect(flushed).toBe('hi');
+    expect(arrow).toBe('\x1b[A');
   });
 });

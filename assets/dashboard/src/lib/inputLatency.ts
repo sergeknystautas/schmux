@@ -307,11 +307,27 @@ export class InputLatencyTracker {
     // Determine range: cap at p99 to avoid a single outlier stretching the chart
     const sorted = [...this.samples].sort((a, b) => a - b);
     const p99 = sorted[Math.floor(sorted.length * 0.99)];
-    const maxMs = Math.max(Math.ceil(p99), 10); // at least 10ms range
-    const numBuckets = maxMs; // one bucket per ms
+    // Adaptive bucketing: use sub-millisecond granularity for local echo data
+    // (where values are typically < 1ms), standard 1ms buckets otherwise
+    let maxMs: number;
+    let bucketWidth: number;
+    if (p99 < 1) {
+      // Sub-millisecond data (local echo): 0.05ms buckets, at least 1ms range
+      maxMs = Math.max(Math.ceil(p99 * 20) / 20, 1);
+      bucketWidth = 0.05;
+    } else if (p99 < 10) {
+      // Low-latency data: 0.5ms buckets
+      maxMs = Math.max(Math.ceil(p99), 10);
+      bucketWidth = 0.5;
+    } else {
+      // Standard latency: 1ms buckets
+      maxMs = Math.max(Math.ceil(p99), 10);
+      bucketWidth = 1;
+    }
+    const numBuckets = Math.max(Math.ceil(maxMs / bucketWidth), 10);
     const buckets = new Array(numBuckets).fill(0);
     for (const v of this.samples) {
-      const idx = Math.min(Math.floor(v), numBuckets - 1);
+      const idx = Math.min(Math.floor(v / bucketWidth), numBuckets - 1);
       buckets[idx]++;
     }
     let maxCount = 0;

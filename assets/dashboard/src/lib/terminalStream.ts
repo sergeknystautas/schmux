@@ -100,6 +100,31 @@ type SelectedLine = {
   text: string;
 };
 
+/**
+ * Determine if a keystroke should be buffered for native typing.
+ * Buffered: printable characters (including unicode/emoji) and backspace.
+ * Immediate: everything else (Enter, Tab, Ctrl+*, arrows, Escape, etc.)
+ */
+function isBufferedInput(data: string): boolean {
+  if (data.length === 0) return false;
+
+  // Backspace
+  if (data === '\x7f' || data === '\x08') return true;
+
+  // Multi-character sequences are control (arrows, function keys, Alt+*)
+  // Exception: multi-code-unit unicode chars (emoji) are a single character
+  // but may be multiple UTF-16 code units. Check first code point.
+  const codePoint = data.codePointAt(0);
+  if (codePoint === undefined) return false;
+
+  // Single printable character (or multi-code-unit unicode like emoji)
+  // A single printable character has length 1 or 2 (surrogate pair).
+  const charLen = codePoint > 0xffff ? 2 : 1;
+  if (data.length === charLen && codePoint >= 32) return true;
+
+  return false;
+}
+
 export default class TerminalStream {
   sessionId: string;
   containerElement: HTMLElement;
@@ -220,6 +245,12 @@ export default class TerminalStream {
     | ((result: { diagDir: string; verdict: string; findings: string[] }) => void)
     | null = null;
   onSyncCorrection: ((diffRows: number[]) => void) | null = null;
+
+  // Native typing: client-side input buffering for low-latency typing
+  nativeTypingEnabled = false;
+  localBuffer = '';
+  localEchoStart: { row: number; col: number } | null = null;
+  private fakeCursorRendered = false;
 
   lifecycleLogging = false;
 
@@ -577,6 +608,10 @@ export default class TerminalStream {
         // scroll event from immediately re-enabling followTail.
         this.wheelHandler = (e: WheelEvent) => {
           if (e.deltaY < 0 && this.followTail) {
+            // Native typing: flush before disabling follow mode
+            if (this.localBuffer.length > 0) {
+              this.flushLocalBuffer();
+            }
             this.setFollow(false, 'userScroll');
             this.wheelCooldown = true;
             if (this.wheelCooldownTimer) clearTimeout(this.wheelCooldownTimer);
@@ -716,6 +751,11 @@ export default class TerminalStream {
   }
 
   fitTerminal() {
+    // Native typing: flush buffer before resize invalidates cursor position
+    if (this.localBuffer.length > 0) {
+      this.flushLocalBuffer();
+    }
+
     const measured = this.measureTerminal();
     if (!measured) return;
 
@@ -1030,9 +1070,6 @@ export default class TerminalStream {
 
   sendInput(data: string) {
     // Intercept Ctrl+V (\x16): check if the browser clipboard has an image
-    // and trigger the clipboard paste flow instead of forwarding the raw keystroke.
-    // This handles the case where Claude Code expects Ctrl+V but the browser
-    // only fires paste events on Cmd+V (macOS).
     if (data === '\x16') {
       navigator.clipboard
         .read()
@@ -1048,22 +1085,212 @@ export default class TerminalStream {
               return;
             }
           }
-          // No image in clipboard — forward the raw Ctrl+V keystroke
           this.sendRawInput(data);
         })
         .catch(() => {
-          // Clipboard API not available or permission denied — forward raw keystroke
           this.sendRawInput(data);
         });
       return;
     }
+
+    // Native typing: classify and route
+    if (this.nativeTypingEnabled && this.followTail) {
+      // Paste or multi-character input: process character by character.
+      // This MUST come before the single-char isBufferedInput check,
+      // because a paste string like "hello" (length 5) would fail
+      // isBufferedInput (which expects single chars) and fall through
+      // to the immediate path, sending the whole paste as raw input
+      // without local echo.
+      if (data.length > 1) {
+        const codePoint = data.codePointAt(0);
+        const singleCharLen = codePoint && codePoint > 0xffff ? 2 : 1;
+        // Only enter paste mode for true multi-character input,
+        // not single emoji (which have length 2 due to surrogate pairs).
+        // Also skip if the first character is non-printable (e.g., escape
+        // sequences like \x1b[A should NOT be split character-by-character).
+        if (data.length > singleCharLen && codePoint !== undefined && codePoint >= 32) {
+          const chars = Array.from(data); // Handle surrogate pairs
+          for (const char of chars) {
+            if (isBufferedInput(char)) {
+              if (char === '\x7f' || char === '\x08') {
+                if (this.localBuffer.length > 0) {
+                  this.localBackspace();
+                } else {
+                  this.sendRawInput(char);
+                }
+              } else {
+                this.echoLocally(char);
+              }
+            } else {
+              // Non-printable in paste: flush buffer, send this char immediately
+              if (this.localBuffer.length > 0) {
+                this.flushLocalBuffer(char);
+              } else {
+                this.sendRawInput(char);
+              }
+            }
+          }
+          return;
+        }
+      }
+
+      // Single character (or single emoji): classify normally
+      if (isBufferedInput(data)) {
+        if (data === '\x7f' || data === '\x08') {
+          if (this.localBuffer.length > 0) {
+            this.localBackspace();
+          } else {
+            // Buffer empty — send backspace to server so agent handles it
+            this.sendRawInput(data);
+          }
+        } else {
+          this.echoLocally(data);
+        }
+        return;
+      }
+      // Immediate key: flush buffer first, then send
+      if (this.localBuffer.length > 0) {
+        this.flushLocalBuffer(data);
+        return;
+      }
+    }
+
     this.sendRawInput(data);
   }
 
   private sendRawInput(data: string) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      inputLatency.markSent();
+      if (!this.nativeTypingEnabled) {
+        inputLatency.markSent();
+      }
       this.ws.send(new TextEncoder().encode(data));
+    }
+  }
+
+  setNativeTyping(enabled: boolean) {
+    this.nativeTypingEnabled = enabled;
+    if (!enabled && this.localBuffer.length > 0) {
+      this.flushLocalBuffer();
+    }
+  }
+
+  private renderFakeCursor() {
+    if (!this.terminal) return;
+    // Render a block cursor using inverse video space — adapts to terminal colors
+    this.terminal.write('\x1b[7m \x1b[27m');
+    this.fakeCursorRendered = true;
+  }
+
+  private removeFakeCursor() {
+    if (!this.fakeCursorRendered || !this.terminal) return;
+    // The fake cursor is an inverse space written at the position after the last
+    // typed character. Move back over it and clear with a regular space.
+    this.terminal.write('\b \b');
+    this.fakeCursorRendered = false;
+  }
+
+  private flushLocalBuffer(trailingKey?: string) {
+    if (!this.terminal) return;
+
+    // Remove fake cursor before rewinding
+    this.removeFakeCursor();
+
+    // Step 1: Cursor rewind — move xterm.js cursor back to where typing started.
+    // CUP escape uses 1-indexed, viewport-relative coordinates.
+    if (this.localEchoStart !== null) {
+      const row = this.localEchoStart.row + 1; // 0-indexed -> 1-indexed
+      const col = this.localEchoStart.col + 1;
+      this.terminal.write(`\x1b[${row};${col}H`);
+    }
+
+    // Step 2: Send buffered text + optional trailing key to server.
+    if (this.localBuffer.length > 0) {
+      this.sendRawInput(this.localBuffer);
+    }
+    if (trailingKey) {
+      this.sendRawInput(trailingKey);
+    }
+
+    // Step 3: Clear local state.
+    this.localBuffer = '';
+    this.localEchoStart = null;
+  }
+
+  private echoLocally(char: string) {
+    if (!this.terminal) return;
+
+    // Remove previous fake cursor before writing new character
+    this.removeFakeCursor();
+
+    // Save cursor position on first buffered character
+    if (this.localEchoStart === null) {
+      const buf = this.terminal.buffer.active;
+      this.localEchoStart = {
+        row: buf.cursorY,
+        col: buf.cursorX,
+      };
+    }
+
+    this.localBuffer += char;
+
+    // Measure local echo latency: keystroke → character rendered on screen.
+    // This feeds the same typing performance widget as the server round-trip path,
+    // showing the user how fast native typing is vs. the remote path.
+    inputLatency.markSent();
+    this.terminal.write(char);
+    inputLatency.markReceived();
+
+    // Render block cursor at the new typing position
+    this.renderFakeCursor();
+  }
+
+  private localBackspace() {
+    if (!this.terminal || this.localBuffer.length === 0) return;
+
+    // Remove fake cursor before erasing character
+    this.removeFakeCursor();
+
+    // Determine the character being removed and its display width.
+    // Use Array.from to handle surrogate pairs (emoji) correctly.
+    const chars = Array.from(this.localBuffer);
+    const removedChar = chars[chars.length - 1];
+    chars.pop();
+    this.localBuffer = chars.join('');
+
+    // Get display width via xterm.js unicode service (private API, same pattern
+    // as _core._renderService access elsewhere in this file).
+    // wcwidth: 0 for combining, 1 for standard, 2 for wide (CJK, some emoji).
+    const cp = removedChar.codePointAt(0) ?? 0;
+    const unicodeService = (this.terminal as any)?._core?._unicodeService;
+    const width = unicodeService ? unicodeService.wcwidth(cp) || 1 : 1;
+
+    const cursorX = this.terminal.buffer.active.cursorX;
+
+    if (cursorX >= width) {
+      // Simple case: cursor is not at wrap boundary.
+      // Move back, overwrite with spaces, move back.
+      const back = '\b'.repeat(width);
+      const spaces = ' '.repeat(width);
+      this.terminal.write(back + spaces + back);
+    } else {
+      // Wrap boundary: cursor is at column 0 (or column 1 for wide char).
+      // Use absolute CUP positioning to avoid xterm.js deferred-wrap issues.
+      const buf = this.terminal.buffer.active;
+      const cursorY = buf.cursorY; // viewport-relative, 0-indexed
+      const cols = this.terminal.cols;
+      const targetRow = cursorY; // cursorY is 0-indexed; as 1-indexed this is one row up
+      const targetCol = cols - width + 1; // 1-indexed for CUP
+      this.terminal.write(
+        `\x1b[${targetRow};${targetCol}H` + ' '.repeat(width) + `\x1b[${targetRow};${targetCol}H`
+      );
+    }
+
+    // If buffer is now empty, clear the start position.
+    if (this.localBuffer.length === 0) {
+      this.localEchoStart = null;
+    } else {
+      // Re-render cursor at the new end position
+      this.renderFakeCursor();
     }
   }
 
@@ -1170,6 +1397,13 @@ export default class TerminalStream {
   }
 
   handleOutput(data: string | ArrayBuffer) {
+    // Native typing: flush local buffer when server output arrives
+    // to prevent cursor position invalidation.
+    // Guard with bootstrapComplete to avoid flushing during initial bootstrap.
+    if (this.localBuffer.length > 0 && data instanceof ArrayBuffer && this.bootstrapComplete) {
+      this.flushLocalBuffer();
+    }
+
     const renderStart = performance.now();
 
     // Binary frame: raw terminal bytes (first = bootstrap, subsequent = append)
@@ -1371,6 +1605,14 @@ export default class TerminalStream {
     forced?: boolean;
   }) {
     if (!this.terminal) return;
+
+    // Native typing guard: don't compare while local echo is active —
+    // the locally-echoed text would be detected as a mismatch.
+    if (this.localBuffer.length > 0) {
+      this.tsLog('sync.skipped', { reason: 'nativeTypingActive' });
+      this.sendSyncResult(false, []);
+      return;
+    }
 
     // Activity guard: skip if binary data arrived within 2s
     // Bypass when forced (drops detected — correction is critical)
@@ -1825,3 +2067,5 @@ export default class TerminalStream {
     this.onSelectedLinesChange(lines);
   }
 }
+
+export { isBufferedInput };

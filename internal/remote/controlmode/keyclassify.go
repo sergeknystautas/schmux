@@ -39,8 +39,34 @@ func ClassifyKeyRuns(dst []KeyRun, keys string) []KeyRun {
 	for i < len(keys) {
 		// Find run of printable characters (ASCII 32-126)
 		j := i
-		for j < len(keys) && keys[j] >= 32 && keys[j] < 127 {
-			j++
+		for j < len(keys) {
+			b := keys[j]
+			if b >= 32 && b < 127 {
+				j++
+			} else if b >= 0xC0 && b <= 0xF7 {
+				size := 2
+				if b >= 0xE0 && b <= 0xEF {
+					size = 3
+				} else if b >= 0xF0 {
+					size = 4
+				}
+				if j+size <= len(keys) {
+					valid := true
+					for k := 1; k < size; k++ {
+						if keys[j+k] < 0x80 || keys[j+k] > 0xBF {
+							valid = false
+							break
+						}
+					}
+					if valid {
+						j += size
+						continue
+					}
+				}
+				break
+			} else {
+				break
+			}
 		}
 		if j > i {
 			runs = append(runs, KeyRun{Text: keys[i:j], Literal: true})

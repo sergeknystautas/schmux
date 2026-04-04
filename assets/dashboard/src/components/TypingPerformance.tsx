@@ -179,7 +179,7 @@ function Histogram({
           fontSize={7}
           fontFamily="Menlo, Monaco, 'Courier New', monospace"
         >
-          {Math.round(median)}ms
+          {median < 1 ? median.toFixed(1) : Math.round(median)}ms
         </text>
 
         {/* P99 vertical line (dashed) */}
@@ -211,7 +211,7 @@ function Histogram({
           fontSize={7}
           fontFamily="Menlo, Monaco, 'Courier New', monospace"
         >
-          {Math.round(p99)}ms
+          {p99 < 1 ? p99.toFixed(1) : Math.round(p99)}ms
         </text>
 
         {/* P75 label on x-axis */}
@@ -223,7 +223,7 @@ function Histogram({
           fontSize={7}
           fontFamily="Menlo, Monaco, 'Courier New', monospace"
         >
-          {Math.round(p75)}ms
+          {p75 < 1 ? p75.toFixed(1) : Math.round(p75)}ms
         </text>
 
         {/* X-axis baseline */}
@@ -297,7 +297,9 @@ function BreakdownRow({
       onMouseLeave={() => setShowTooltip(false)}
     >
       <span className="typing-perf__bar-label">{label}</span>
-      <span className="typing-perf__bar-total">{Math.round(total)}ms</span>
+      <span className="typing-perf__bar-total">
+        {total < 1 ? total.toFixed(1) : Math.round(total)}ms
+      </span>
       <div className="typing-perf__bar-track">
         <div className="typing-perf__bar-fill" style={{ width: `${scale * 100}%` }}>
           {SEGMENTS.map((seg) => {

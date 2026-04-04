@@ -58,6 +58,7 @@ export default function SessionDetailPage() {
   );
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
+  const [localEcho, setLocalEcho] = useLocalStorage<boolean>(`localEcho:${sessionId}`, false);
   const [selectedLines, setSelectedLines] = useState<string[]>([]);
   const [timelapseExporting, setTimelapseExporting] = useState(false);
   const [timelapseAvailable, setTimelapseAvailable] = useState(false);
@@ -266,6 +267,11 @@ export default function SessionDetailPage() {
       setFrontendStats(null);
     };
   }, [sessionData?.id, remoteDisconnected]);
+
+  // Sync native typing state to terminal stream
+  useEffect(() => {
+    terminalStreamRef.current?.setNativeTyping(localEcho);
+  }, [localEcho]);
 
   diagnosticCompleteRef.current = async (result: {
     diagDir: string;
@@ -774,6 +780,32 @@ export default function SessionDetailPage() {
                         <span>{statusText}</span>
                       </div>
                     </Tooltip>
+                    <Tooltip
+                      content={
+                        localEcho
+                          ? 'Disable local echo (buffered input)'
+                          : 'Enable local echo (reduces input latency)'
+                      }
+                    >
+                      <button
+                        className={`btn btn--sm ${localEcho ? 'btn--primary' : 'btn--secondary'}`}
+                        onClick={() => setLocalEcho(!localEcho)}
+                      >
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                        </svg>
+                        <span>Local echo</span>
+                      </button>
+                    </Tooltip>
                     {config.desync?.enabled && (
                       <StreamMetricsPanel
                         backendStats={backendStats}
@@ -829,7 +861,22 @@ export default function SessionDetailPage() {
                             className="btn btn--sm btn--secondary"
                             onClick={handleToggleSelectionMode}
                           >
-                            Select lines
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <line x1="17" y1="10" x2="3" y2="10"></line>
+                              <line x1="21" y1="6" x2="3" y2="6"></line>
+                              <line x1="21" y1="14" x2="3" y2="14"></line>
+                              <line x1="17" y1="18" x2="3" y2="18"></line>
+                            </svg>
+                            <span>Select lines</span>
                           </button>
                         </Tooltip>
                         {config.timelapse?.enabled !== false && (
@@ -845,7 +892,20 @@ export default function SessionDetailPage() {
                               onClick={handleMakeTimelapse}
                               disabled={!timelapseAvailable || timelapseExporting}
                             >
-                              {timelapseExporting ? 'Exporting...' : 'Make timelapse'}
+                              <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <polygon points="10 8 16 12 10 16 10 8"></polygon>
+                              </svg>
+                              <span>{timelapseExporting ? 'Exporting...' : 'Make timelapse'}</span>
                             </button>
                           </Tooltip>
                         )}

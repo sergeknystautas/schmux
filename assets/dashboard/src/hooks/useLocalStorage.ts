@@ -73,6 +73,18 @@ export default function useLocalStorage<T>(
     }
   }, [storageKey, initialValue]);
 
+  // Re-read from localStorage when the key changes (e.g., sessionId in key)
+  useEffect(() => {
+    try {
+      const item = window.localStorage.getItem(storageKey);
+      setStoredValue(item ? (JSON.parse(item) as T) : initialValue);
+    } catch (error) {
+      console.error(`Error reading localStorage key "${storageKey}":`, error);
+      setStoredValue(initialValue);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageKey]);
+
   // Listen for changes in other tabs/windows
   useEffect(() => {
     const handleStorageChange = (event: StorageEvent) => {
