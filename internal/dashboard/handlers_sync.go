@@ -414,7 +414,7 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 					crState.SetTmuxSession(step.TmuxSession)
 					source := session.NewLocalSource(step.TmuxSession, step.TmuxSession, nil)
 					source.Start()
-					tracker := session.NewSessionTracker(
+					tracker := session.NewSessionRuntime(
 						step.TmuxSession,
 						source,
 						nil, // no state store

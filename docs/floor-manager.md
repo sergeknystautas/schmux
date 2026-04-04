@@ -41,7 +41,7 @@ The floor manager is a singleton agent session that acts as the conversational c
 - `memory.md` is never overwritten by the daemon. It is the agent's long-term memory across rotations and restarts. `CLAUDE.md` and `AGENTS.md` are regenerated on every spawn.
 - The `[SHIFT]` message instructs the FM to save memory and run `schmux end-shift`. If `end-shift` is not received within 30 seconds, the daemon force-rotates anyway.
 - `schmux tell` adds the `[from FM]` prefix server-side, not in the CLI. This prevents spoofing.
-- The `SessionTracker` created for the FM passes `nil` for state store, event file, event handlers, output callback, and logger -- it exists only for terminal streaming via WebSocket.
+- The `SessionRuntime` created for the FM passes `nil` for state store, event file, event handlers, output callback, and logger -- it exists only for terminal streaming via WebSocket.
 - Rotation resets the injection count and spawns a fresh session with the prompt `"Begin."`. The new session reads `memory.md` on startup per its `CLAUDE.md` instructions.
 - On daemon startup, if a leftover FM tmux session already exists, the manager reconnects to it instead of creating a duplicate.
 - Remote sessions are supported for all five CLI tools. Each handler checks `ws.RemoteHostID` and branches between local tmux calls and `conn.RunCommand()`/`conn.SendKeys()`.

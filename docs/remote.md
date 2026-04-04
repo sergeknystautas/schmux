@@ -125,7 +125,7 @@ Orchestrates AI agents running on remote hosts while keeping the schmux daemon a
 | `internal/remote/controlmode/parser.go`      | Parses tmux control mode protocol (`%begin`/`%end`/`%output`/`%exit`) from stdout stream                                 |
 | `internal/remote/controlmode/client.go`      | High-level tmux command interface: create/kill windows, send keys with timing instrumentation, FIFO response correlation |
 | `internal/remote/controlmode/keyclassify.go` | Key input classification and `SendKeysTimings` type definition                                                           |
-| `internal/session/controlsource.go`          | `ControlSource` interface -- input boundary between SessionTracker and local/remote implementations                      |
+| `internal/session/controlsource.go`          | `ControlSource` interface -- input boundary between SessionRuntime and local/remote implementations                      |
 | `internal/session/remotesource.go`           | `RemoteSource`: ControlSource for remote sessions, with health probe goroutine                                           |
 | `internal/session/tmux_health.go`            | `TmuxHealthProbe`: ring-buffer RTT measurement for control mode connections                                              |
 | `internal/dashboard/latency_collector.go`    | `LatencyCollector`: per-keystroke timing ring buffer with sub-SendKeys breakdown percentiles                             |
@@ -173,7 +173,7 @@ sendKeys:  |---mutexWait---|---executeNet (stdin + FIFO)---|---classify overhead
 
 - **Why instrument at the `Execute()` level:** The three latency sources (mutex contention on `stdinMu`, SSH round-trip, FIFO head-of-line blocking) are only distinguishable inside `Client.Execute()`.
 - **Why `Execute()` returns `(string, time.Duration, error)`:** Returning mutex wait as a stack-local value eliminates shared-mutable-state problems. The ~20 call sites that do not need timings use `_, _, err`.
-- **Why `SendKeysTimings` lives in `controlmode`:** Follows the existing precedent where `ControlSource.GetCursorState()` returns `controlmode.CursorState`. The type flows through: `controlmode.Client.SendKeys` -> `remote.Connection.SendKeys` -> `ControlSource.SendKeys` -> `SessionTracker.SendInput` -> WebSocket handler.
+- **Why `SendKeysTimings` lives in `controlmode`:** Follows the existing precedent where `ControlSource.GetCursorState()` returns `controlmode.CursorState`. The type flows through: `controlmode.Client.SendKeys` -> `remote.Connection.SendKeys` -> `ControlSource.SendKeys` -> `SessionRuntime.SendInput` -> WebSocket handler.
 - **Why health probes for remote sessions:** `RemoteSource` runs a health probe goroutine (`Connection.ExecuteHealthProbe()`, a lightweight `display-message -p ok`). The probe result lets the dashboard distinguish network latency from FIFO head-of-line blocking.
 
 **Decision framework** (for interpreting collected data):
@@ -203,7 +203,7 @@ sendKeys:  |---mutexWait---|---executeNet (stdin + FIFO)---|---classify overhead
 - **Change provisioning behavior:** Edit `Connection.Provision()` in `internal/remote/connection.go`.
 - **Add a new tmux command:** Add a method to `controlmode.Client`. Use `c.Execute(ctx, cmd)` which handles FIFO queuing and response correlation.
 - **Customize hostname extraction:** Set `hostname_regex` in the remote flavor config.
-- **Add a new timing sub-segment:** Add a field to `controlmode.SendKeysTimings`, propagate through `Connection.SendKeys` -> `ControlSource.SendKeys` -> `SessionTracker.SendInput`. Add to `LatencySample` and `LatencyPercentiles` in `latency_collector.go`.
+- **Add a new timing sub-segment:** Add a field to `controlmode.SendKeysTimings`, propagate through `Connection.SendKeys` -> `ControlSource.SendKeys` -> `SessionRuntime.SendInput`. Add to `LatencySample` and `LatencyPercentiles` in `latency_collector.go`.
 - **Change health probe interval:** Constants at the top of `internal/session/tmux_health.go`.
 - **Add host deprovisioning:** Add a `TeardownCommand` field to `config.RemoteFlavor`, execute in `Manager.Disconnect()`.
 

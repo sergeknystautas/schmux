@@ -27,7 +27,7 @@ type SourceEvent struct {
 	Err      error  // SourceClosed: nil = clean, non-nil = permanent
 }
 
-// ControlSource is the input boundary for SessionTracker.
+// ControlSource is the input boundary for SessionRuntime.
 // Implementations own reconnection logic; the tracker just drains Events().
 type ControlSource interface {
 	Events() <-chan SourceEvent

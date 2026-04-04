@@ -41,7 +41,7 @@ type Manager struct {
 	stopped        bool
 
 	// tracker streams terminal output for the dashboard WebSocket.
-	tracker *session.SessionTracker
+	tracker *session.SessionRuntime
 
 	// shiftDone is signaled when schmux end-shift is called
 	shiftDone chan struct{}
@@ -120,7 +120,7 @@ func (m *Manager) TmuxSession() string {
 }
 
 // Tracker returns the session tracker for WebSocket terminal streaming.
-func (m *Manager) Tracker() *session.SessionTracker {
+func (m *Manager) Tracker() *session.SessionRuntime {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.tracker
@@ -213,7 +213,7 @@ func (m *Manager) spawn(ctx context.Context) error {
 	// Create a tracker for terminal streaming via WebSocket
 	source := session.NewLocalSource("floor-manager", m.sessionName, nil)
 	source.Start()
-	tracker := session.NewSessionTracker(
+	tracker := session.NewSessionRuntime(
 		"floor-manager",
 		source,
 		nil, // no state store
@@ -258,7 +258,7 @@ func (m *Manager) spawnResume(ctx context.Context) error {
 	// Create a tracker for terminal streaming via WebSocket
 	source := session.NewLocalSource("floor-manager", m.sessionName, nil)
 	source.Start()
-	tracker := session.NewSessionTracker(
+	tracker := session.NewSessionRuntime(
 		"floor-manager",
 		source,
 		nil, // no state store

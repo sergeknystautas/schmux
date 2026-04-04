@@ -844,7 +844,7 @@ drainBootstrap:
 // handleCRTerminalWebSocket handles WebSocket connections for ephemeral conflict resolution
 // tmux sessions. Read-only (client input is ignored), uses control mode API and binary frames.
 func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Request,
-	tmuxName string, tracker *session.SessionTracker) {
+	tmuxName string, tracker *session.SessionRuntime) {
 
 	rawConn, err := s.upgradeWebSocket(w, r, 4096, 8192)
 	if err != nil {
@@ -923,7 +923,7 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 // tmux session. Supports bidirectional I/O (input + output) since the operator
 // types commands into the FM terminal.
 func (s *Server) handleFMTerminalWebSocket(w http.ResponseWriter, r *http.Request,
-	tmuxName string, tracker *session.SessionTracker) {
+	tmuxName string, tracker *session.SessionRuntime) {
 
 	rawConn, err := s.upgradeWebSocket(w, r, 4096, 8192)
 	if err != nil {

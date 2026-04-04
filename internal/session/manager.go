@@ -46,7 +46,7 @@ type Manager struct {
 	remoteManager           *remote.Manager // Optional, for remote sessions
 	eventHandlers           map[string][]events.EventHandler
 	outputCallback          func(sessionID string, chunk []byte)
-	trackers                map[string]*SessionTracker
+	trackers                map[string]*SessionRuntime
 	remoteDetectors         map[string]*remoteSignalMonitor // signal detectors for remote sessions
 	mu                      sync.RWMutex
 	compoundCallback        func(workspaceID string, isSpawn bool)             // notify compounder on session spawn/dispose
@@ -92,7 +92,7 @@ func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace
 		workspace:       wm,
 		logger:          logger,
 		ensurer:         ensure.New(st),
-		trackers:        make(map[string]*SessionTracker),
+		trackers:        make(map[string]*SessionRuntime),
 		remoteDetectors: make(map[string]*remoteSignalMonitor),
 		remoteManager:   nil,
 	}
@@ -536,7 +536,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, profileID, flavorStr, hostID,
 								handler(sid, chunk)
 							}
 						}
-						qTracker := NewSessionTracker(sessionID, qSource, m.state, "", nil, qOutputCb, m.logger)
+						qTracker := NewSessionRuntime(sessionID, qSource, m.state, "", nil, qOutputCb, m.logger)
 						m.mu.Lock()
 						m.trackers[sessionID] = qTracker
 						m.mu.Unlock()
@@ -602,7 +602,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, profileID, flavorStr, hostID,
 			handler(sid, chunk)
 		}
 	}
-	tracker := NewSessionTracker(sess.ID, source, m.state, "", nil, outputCb, m.logger)
+	tracker := NewSessionRuntime(sess.ID, source, m.state, "", nil, outputCb, m.logger)
 	m.mu.Lock()
 	m.trackers[sess.ID] = tracker
 	m.mu.Unlock()
@@ -1485,7 +1485,7 @@ func (m *Manager) EnsureTracker(sessionID string) error {
 }
 
 // GetTracker returns the tracker for a session, creating one if needed.
-func (m *Manager) GetTracker(sessionID string) (*SessionTracker, error) {
+func (m *Manager) GetTracker(sessionID string) (*SessionRuntime, error) {
 	sess, found := m.state.GetSession(sessionID)
 	if !found {
 		return nil, fmt.Errorf("session not found: %s", sessionID)
@@ -1493,7 +1493,7 @@ func (m *Manager) GetTracker(sessionID string) (*SessionTracker, error) {
 	return m.ensureTrackerFromSession(sess), nil
 }
 
-func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
+func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionRuntime {
 	m.mu.Lock()
 	if existing := m.trackers[sess.ID]; existing != nil {
 		existing.SetTmuxSession(sess.TmuxSession)
@@ -1532,7 +1532,7 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 		source = ls
 	}
 
-	tracker := NewSessionTracker(sess.ID, source, m.state, eventFilePath, m.eventHandlers, outputCb, m.logger)
+	tracker := NewSessionRuntime(sess.ID, source, m.state, eventFilePath, m.eventHandlers, outputCb, m.logger)
 
 	// Wire timelapse recorder if factory is set
 	if m.recorderFactory != nil {
@@ -1555,7 +1555,7 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 func (m *Manager) Stop() {
 	m.mu.Lock()
 	trackers := m.trackers
-	m.trackers = make(map[string]*SessionTracker)
+	m.trackers = make(map[string]*SessionRuntime)
 	m.mu.Unlock()
 	for _, tracker := range trackers {
 		tracker.Stop()

@@ -13,22 +13,22 @@ import (
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
-// newTestTracker creates a SessionTracker backed by a MockControlSource for testing.
-func newTestTracker(sessionID string) (*SessionTracker, *MockControlSource) {
+// newTestTracker creates a SessionRuntime backed by a MockControlSource for testing.
+func newTestTracker(sessionID string) (*SessionRuntime, *MockControlSource) {
 	st := state.New("", nil)
 	mock := NewMockControlSource(100)
-	tracker := NewSessionTracker(sessionID, mock, st, "", nil, nil, nil)
+	tracker := NewSessionRuntime(sessionID, mock, st, "", nil, nil, nil)
 	return tracker, mock
 }
 
-func TestSessionTrackerInputResizeWithoutControlMode(t *testing.T) {
+func TestSessionRuntimeInputResizeWithoutControlMode(t *testing.T) {
 	tracker, _ := newTestTracker("s1")
 
 	// MockControlSource returns nil for SendKeys/Resize (always "attached"),
 	// so these won't error with the mock. Test the real LocalSource path instead.
 	source := NewLocalSource("s1", "tmux-s1", nil)
 	st := state.New("", nil)
-	localTracker := NewSessionTracker("s1", source, st, "", nil, nil, nil)
+	localTracker := NewSessionRuntime("s1", source, st, "", nil, nil, nil)
 
 	if _, err := localTracker.SendInput("abc"); err == nil {
 		t.Fatal("expected error when control mode is not attached")
@@ -166,7 +166,7 @@ func TestSubscribeUnsubscribeOutput(t *testing.T) {
 func TestCapturePane_NoControlMode(t *testing.T) {
 	source := NewLocalSource("test-id", "test-tmux", nil)
 	st := state.New("", nil)
-	tracker := NewSessionTracker("test-id", source, st, "", nil, nil, nil)
+	tracker := NewSessionRuntime("test-id", source, st, "", nil, nil, nil)
 
 	_, err := tracker.CapturePane(context.Background())
 	if err == nil {
@@ -405,7 +405,7 @@ func TestFanOut_ConcurrentUnsubscribe(t *testing.T) {
 func TestTrackerRecorderFactory(t *testing.T) {
 	mock := NewMockControlSource(100)
 	st := state.New("", nil)
-	tracker := NewSessionTracker("s1", mock, st, "", nil, nil, nil)
+	tracker := NewSessionRuntime("s1", mock, st, "", nil, nil, nil)
 
 	started := make(chan struct{})
 	stopped := make(chan struct{})

@@ -15,9 +15,9 @@ import (
 )
 
 // benchSetup creates a tmux session running `cat` (pure echo), a
-// SessionTracker wired to it, and a subscribed output channel. The
+// SessionRuntime wired to it, and a subscribed output channel. The
 // returned cleanup function kills the tmux session and stops the tracker.
-func benchSetup(tb testing.TB) (tracker *SessionTracker, outputCh <-chan SequencedOutput, tmuxName string, cleanup func()) {
+func benchSetup(tb testing.TB) (tracker *SessionRuntime, outputCh <-chan SequencedOutput, tmuxName string, cleanup func()) {
 	tb.Helper()
 
 	tmuxName = fmt.Sprintf("bench-%d", time.Now().UnixNano())
@@ -30,7 +30,7 @@ func benchSetup(tb testing.TB) (tracker *SessionTracker, outputCh <-chan Sequenc
 	st := state.New("", nil)
 	source := NewLocalSource("bench-session", tmuxName, nil)
 	source.Start()
-	tracker = NewSessionTracker("bench-session", source, st, "", nil, nil, nil)
+	tracker = NewSessionRuntime("bench-session", source, st, "", nil, nil, nil)
 	tracker.Start()
 
 	// Wait for tracker to attach to control mode.
@@ -67,7 +67,7 @@ drain:
 
 // benchSetupStressed is like benchSetup but runs a background output flood
 // in the same tmux session to create realistic contention.
-func benchSetupStressed(tb testing.TB) (tracker *SessionTracker, outputCh <-chan SequencedOutput, tmuxName string, cleanup func()) {
+func benchSetupStressed(tb testing.TB) (tracker *SessionRuntime, outputCh <-chan SequencedOutput, tmuxName string, cleanup func()) {
 	tb.Helper()
 
 	tmuxName = fmt.Sprintf("bench-%d", time.Now().UnixNano())
@@ -81,7 +81,7 @@ func benchSetupStressed(tb testing.TB) (tracker *SessionTracker, outputCh <-chan
 	st := state.New("", nil)
 	source2 := NewLocalSource("bench-session-stressed", tmuxName, nil)
 	source2.Start()
-	tracker = NewSessionTracker("bench-session-stressed", source2, st, "", nil, nil, nil)
+	tracker = NewSessionRuntime("bench-session-stressed", source2, st, "", nil, nil, nil)
 	tracker.Start()
 
 	deadline := time.Now().Add(5 * time.Second)
