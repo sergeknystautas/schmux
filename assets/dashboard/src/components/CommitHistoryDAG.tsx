@@ -12,8 +12,8 @@ import {
   getConfig,
   createTab,
 } from '../lib/api';
-import { computeLayout, GRAPH_COLOR, HIGHLIGHT_COLOR, ROW_HEIGHT } from '../lib/gitGraphLayout';
-import type { GitGraphLayout, LayoutNode, LayoutEdge, LaneLine } from '../lib/gitGraphLayout';
+import { computeLayout, GRAPH_COLOR, HIGHLIGHT_COLOR, ROW_HEIGHT } from '../lib/commitGraphLayout';
+import type { CommitGraphLayout, LayoutNode, LayoutEdge, LaneLine } from '../lib/commitGraphLayout';
 import type { CommitGraphResponse, FileDiff } from '../lib/types';
 import { useSessions } from '../contexts/SessionsContext';
 import { useSyncState } from '../contexts/SyncContext';
@@ -23,7 +23,7 @@ import { usePendingNavigation } from '../lib/navigation';
 import { formatRelativeTime } from '../lib/utils';
 import Tooltip from './Tooltip';
 
-interface GitHistoryDAGProps {
+interface CommitHistoryDAGProps {
   workspaceId: string;
 }
 
@@ -31,13 +31,13 @@ const NODE_RADIUS = 5;
 const COLUMN_WIDTH = 20;
 const GRAPH_PADDING = 12;
 
-export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
+export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps) {
   const navigate = useNavigate();
   const { confirm, alert } = useModal();
   const { setPendingNavigation } = usePendingNavigation();
   const [data, setData] = useState<CommitGraphResponse | null>(null);
   const [diffFiles, setDiffFiles] = useState<FileDiff[]>([]);
-  const [layout, setLayout] = useState<GitGraphLayout | null>(null);
+  const [layout, setLayout] = useState<CommitGraphLayout | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -158,7 +158,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
 
   if (!ws) {
     return (
-      <div className="git-dag" ref={containerRef}>
+      <div className="commit-dag" ref={containerRef}>
         <div className="loading-state">
           <div className="spinner" /> Loading workspace...
         </div>
@@ -168,7 +168,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
 
   if (loading || maxCommits <= 0) {
     return (
-      <div className="git-dag" ref={containerRef}>
+      <div className="commit-dag" ref={containerRef}>
         <div className="loading-state">
           <div className="spinner" /> Loading commit graph...
         </div>
@@ -178,7 +178,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
 
   if (error) {
     return (
-      <div className="git-dag" ref={containerRef}>
+      <div className="commit-dag" ref={containerRef}>
         <div className="banner banner--error">{error}</div>
       </div>
     );
@@ -186,7 +186,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
 
   if (!data || !layout || layout.nodes.length === 0) {
     return (
-      <div className="git-dag" ref={containerRef}>
+      <div className="commit-dag" ref={containerRef}>
         <div className="empty-state">
           <div className="empty-state__title">No commits</div>
           <div className="empty-state__description">
@@ -201,7 +201,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   const totalHeight = layout.nodes.length * layout.rowHeight;
   const yahCol = layout.youAreHereColumn;
 
-  const renderNode = (ln: LayoutNode, lay: GitGraphLayout) => {
+  const renderNode = (ln: LayoutNode, lay: CommitGraphLayout) => {
     if (ln.nodeType === 'you-are-here') {
       const defaultBranch = ws?.default_branch || 'main';
       const branchName = ws?.branch || 'current branch';
@@ -263,7 +263,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
 
       const pushToDefaultButton = (
         <button
-          className="git-dag__ff-to-main-button"
+          className="commit-dag__ff-to-main-button"
           onClick={onPushToDefaultClick}
           disabled={pushToDefaultDisabled || ffToMainSyncing || isSyncing}
         >
@@ -279,7 +279,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
 
       const pushToBranchButton = (
         <button
-          className="git-dag__push-to-branch-button"
+          className="commit-dag__push-to-branch-button"
           onClick={onPushToBranchClick}
           disabled={pushToBranchDisabled || pushToBranchSyncing || isSyncing}
         >
@@ -294,8 +294,8 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
       );
 
       return (
-        <div key={ln.hash} className="git-dag__row" style={{ height: lay.rowHeight }}>
-          <span className="git-dag__you-are-here">You are here</span>
+        <div key={ln.hash} className="commit-dag__row" style={{ height: lay.rowHeight }}>
+          <span className="commit-dag__you-are-here">You are here</span>
           {!isSapling &&
             showPushToDefault &&
             (pushToDefaultDisabled ? (
@@ -321,22 +321,22 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
       return (
         <div
           key={ln.hash}
-          className="git-dag__row git-dag__commit-row"
+          className="commit-dag__row commit-dag__commit-row"
           style={{ height: lay.rowHeight }}
         >
           <button
-            className="git-dag__btn"
+            className="commit-dag__btn"
             onClick={() =>
               setSelectedFiles(new Set(diffFiles.map((f) => f.new_path || f.old_path || '')))
             }
           >
             Select All
           </button>
-          <button className="git-dag__btn" onClick={() => setSelectedFiles(new Set())}>
+          <button className="commit-dag__btn" onClick={() => setSelectedFiles(new Set())}>
             Deselect All
           </button>
           <button
-            className="git-dag__btn"
+            className="commit-dag__btn"
             onClick={async () => {
               const filesToDiscard = Array.from(selectedFiles);
               if (filesToDiscard.length === 0) return;
@@ -387,7 +387,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
       return (
         <div
           key={ln.hash}
-          className="git-dag__file-row cursor-pointer"
+          className="commit-dag__file-row cursor-pointer"
           onClick={toggleFile}
           role="button"
           tabIndex={0}
@@ -418,7 +418,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
 
       const commitButton = (
         <button
-          className="git-dag__btn"
+          className="commit-dag__btn"
           disabled={commitDisabled}
           onClick={async () => {
             const fileList = Array.from(selectedFiles)
@@ -458,7 +458,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
       return (
         <div
           key={ln.hash}
-          className="git-dag__row git-dag__commit-row"
+          className="commit-dag__row commit-dag__commit-row"
           style={{ height: lay.rowHeight }}
         >
           {!commitMessageConfigured ? (
@@ -470,7 +470,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
           )}
           {canAmend && (
             <button
-              className="git-dag__btn"
+              className="commit-dag__btn"
               disabled={selectedFiles.size === 0 || isAmending}
               onClick={async () => {
                 const fileList = Array.from(selectedFiles)
@@ -519,10 +519,10 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
       };
 
       return (
-        <div key={ln.hash} className="git-dag__row" style={{ height: lay.rowHeight }}>
+        <div key={ln.hash} className="commit-dag__row" style={{ height: lay.rowHeight }}>
           <Tooltip content={`Iteratively rebases this branch to origin/${defaultBranch}`}>
             <button
-              className="git-dag__sync-button"
+              className="commit-dag__sync-button"
               onClick={onSyncClick}
               disabled={isSyncing || !ws}
             >
@@ -537,14 +537,14 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
               )}
             </button>
           </Tooltip>
-          <span className="git-dag__sync-summary">
+          <span className="commit-dag__sync-summary">
             &middot;{' '}
             {lockState?.syncProgress
               ? `Rebasing ${lockState.syncProgress.current}/${lockState.syncProgress.total} commits`
               : `${ln.syncSummary.count} commit${ln.syncSummary.count !== 1 ? 's' : ''}`}
           </span>
           <span className="flex-1" />
-          <span className="git-dag__time">
+          <span className="commit-dag__time">
             {formatRelativeTime(ln.syncSummary.newestTimestamp)}
           </span>
         </div>
@@ -554,10 +554,10 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
       return (
         <div
           key={ln.hash}
-          className="git-dag__row git-dag__truncation-row"
+          className="commit-dag__row commit-dag__truncation-row"
           style={{ height: lay.rowHeight }}
         >
-          <span className="git-dag__truncation-text">⋯ older commits not shown</span>
+          <span className="commit-dag__truncation-text">⋯ older commits not shown</span>
         </div>
       );
     }
@@ -567,12 +567,12 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
     return (
       <div
         key={ln.hash}
-        className="git-dag__row"
+        className="commit-dag__row"
         style={{ height: lay.rowHeight }}
         title={ln.node.hash}
       >
         <button
-          className="git-dag__hash"
+          className="commit-dag__hash"
           title="View commit details"
           disabled={isNavigatingCommit !== null}
           onClick={async () => {
@@ -599,21 +599,21 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
             ln.node.short_hash
           )}
         </button>
-        <span className="git-dag__message">
+        <span className="commit-dag__message">
           {ln.node.is_head.length > 0 && (
-            <span className="git-dag__head-labels">
+            <span className="commit-dag__head-labels">
               {ln.node.is_head.map((b) => (
-                <span key={b} className="git-dag__head-label">
+                <span key={b} className="commit-dag__head-label">
                   {b}
                 </span>
               ))}
             </span>
           )}
-          <span className="git-dag__message-text">{ln.node.message}</span>
+          <span className="commit-dag__message-text">{ln.node.message}</span>
           {canUncommit && (
             <Tooltip content="Keep these changes and make them unstaged locally">
               <button
-                className="git-dag__uncommit-btn"
+                className="commit-dag__uncommit-btn"
                 disabled={isUncommitting}
                 onClick={async (e) => {
                   e.stopPropagation();
@@ -636,21 +636,21 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
             </Tooltip>
           )}
         </span>
-        <span className="git-dag__author">{ln.node.author}</span>
-        <span className="git-dag__time">{formatRelativeTime(ln.node.timestamp)}</span>
+        <span className="commit-dag__author">{ln.node.author}</span>
+        <span className="commit-dag__time">{formatRelativeTime(ln.node.timestamp)}</span>
       </div>
     );
   };
 
   return (
-    <div className="git-dag" ref={containerRef}>
-      <div className="git-dag__scroll" style={{ overflow: 'auto', flex: 1 }}>
+    <div className="commit-dag" ref={containerRef}>
+      <div className="commit-dag__scroll" style={{ overflow: 'auto', flex: 1 }}>
         <div
-          className="git-dag__container"
+          className="commit-dag__container"
           style={{ position: 'relative', minHeight: totalHeight }}
         >
           <svg
-            className="git-dag__svg"
+            className="commit-dag__svg"
             width={graphWidth}
             height={totalHeight}
             style={{ position: 'absolute', left: 0, top: 0 }}
@@ -685,7 +685,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
               coordinates as the SVG, so the two sides stay perfectly aligned
               regardless of wrapper margins/padding. */}
           <div
-            className="git-dag__rows"
+            className="commit-dag__rows"
             style={{ marginLeft: graphWidth, position: 'relative', minHeight: totalHeight }}
           >
             {/* Commit section background (absolutely positioned behind the rows) */}
@@ -697,7 +697,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
               const bottomY = commitNodes[commitNodes.length - 1].y + layout.rowHeight;
               return (
                 <div
-                  className="git-dag__commit-section-bg"
+                  className="commit-dag__commit-section-bg"
                   style={{
                     position: 'absolute',
                     top: topY,

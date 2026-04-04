@@ -3,9 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useSessions } from '../contexts/SessionsContext';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
-import GitHistoryDAG from '../components/GitHistoryDAG';
+import CommitHistoryDAG from '../components/CommitHistoryDAG';
 
-export default function GitGraphPage() {
+export default function CommitGraphPage() {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   const { workspaces, loading } = useSessions();
@@ -29,7 +29,7 @@ export default function GitGraphPage() {
     <>
       <WorkspaceHeader workspace={workspace} />
       <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
-      <GitHistoryDAG workspaceId={workspaceId} />
+      <CommitHistoryDAG workspaceId={workspaceId} />
     </>
   );
 }

@@ -40,7 +40,7 @@ export interface LaneLine {
   toY: number;
 }
 
-export interface GitGraphLayout {
+export interface CommitGraphLayout {
   nodes: LayoutNode[];
   edges: LayoutEdge[];
   columnCount: number;
@@ -69,7 +69,7 @@ export const ROW_HEIGHT = 28;
 export function computeLayout(
   response: CommitGraphResponse,
   files: FileDiff[] = []
-): GitGraphLayout {
+): CommitGraphLayout {
   const { nodes, branches } = response;
 
   if (nodes.length === 0) {

@@ -5032,18 +5032,18 @@ a:hover {
 }
 
 /* ============================================================================
- * GIT HISTORY DAG
+ * COMMIT HISTORY DAG
  * Vertical commit graph with lane-based layout
  * ============================================================================ */
 
-.git-dag {
+.commit-dag {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
 }
 
-.git-dag__scroll {
+.commit-dag__scroll {
   border: 1px solid var(--color-accent);
   border-radius: 0 0 var(--radius-md) var(--radius-md);
   background-color: var(--color-surface);
@@ -5051,7 +5051,7 @@ a:hover {
   min-height: 0;
 }
 
-.git-dag .loading-state {
+.commit-dag .loading-state {
   flex: 1;
   min-height: 0;
   align-items: flex-start;
@@ -5060,16 +5060,16 @@ a:hover {
   background-color: var(--color-surface);
 }
 
-.git-dag__container {
+.commit-dag__container {
   display: flex;
 }
 
-.git-dag__rows {
+.commit-dag__rows {
   flex: 1;
   min-width: 0;
 }
 
-.git-dag__row {
+.commit-dag__row {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
@@ -5078,11 +5078,11 @@ a:hover {
   transition: background-color var(--duration-fast) var(--easing);
 }
 
-.git-dag__row:hover {
+.commit-dag__row:hover {
   background-color: var(--color-surface-alt);
 }
 
-.git-dag__uncommit-btn {
+.commit-dag__uncommit-btn {
   display: none;
   margin-left: auto;
   padding: 0 6px;
@@ -5100,39 +5100,39 @@ a:hover {
     border-color var(--duration-fast) var(--easing);
 }
 
-.git-dag__row:hover .git-dag__uncommit-btn {
+.commit-dag__row:hover .commit-dag__uncommit-btn {
   display: inline-block;
 }
 
-.git-dag__uncommit-btn:hover {
+.commit-dag__uncommit-btn:hover {
   color: var(--color-warning);
   border-color: var(--color-warning);
 }
 
-.git-dag__uncommit-btn:disabled {
+.commit-dag__uncommit-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.git-dag__commit-row {
+.commit-dag__commit-row {
   padding-left: var(--spacing-xs);
 }
 
-.git-dag__file-row {
+.commit-dag__file-row {
   display: flex;
   align-items: center;
   padding-left: calc(var(--spacing-lg) + var(--spacing-xs));
   height: 100%;
 }
 
-.git-dag__commit-section-bg {
+.commit-dag__commit-section-bg {
   background: var(--color-surface-alt);
   outline: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   pointer-events: none;
 }
 
-.git-dag__you-are-here {
+.commit-dag__you-are-here {
   font-size: 0.65rem;
   font-weight: 600;
   color: var(--color-graph-lane-1);
@@ -5143,7 +5143,7 @@ a:hover {
   white-space: nowrap;
 }
 
-.git-dag__btn {
+.commit-dag__btn {
   font-size: 0.65rem;
   font-weight: 500;
   color: var(--color-text);
@@ -5161,23 +5161,23 @@ a:hover {
   transition: all var(--duration-fast) var(--easing);
 }
 
-.git-dag__btn:hover:not(:disabled) {
+.commit-dag__btn:hover:not(:disabled) {
   background-color: var(--color-border);
   border-color: var(--color-text-muted);
 }
 
-.git-dag__btn:disabled {
+.commit-dag__btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.git-dag__btn .spinner {
+.commit-dag__btn .spinner {
   width: 10px;
   height: 10px;
   border-width: 1.5px;
 }
 
-.git-dag__ff-to-main-button {
+.commit-dag__ff-to-main-button {
   font-size: 0.7rem;
   font-weight: 500;
   color: var(--color-text);
@@ -5196,27 +5196,27 @@ a:hover {
   transition: all var(--duration-fast) var(--easing);
 }
 
-.git-dag__ff-to-main-button:hover:not(:disabled) {
+.commit-dag__ff-to-main-button:hover:not(:disabled) {
   background-color: var(--color-border);
   border-color: var(--color-text-muted);
 }
 
-.git-dag__ff-to-main-button:disabled {
+.commit-dag__ff-to-main-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.git-dag__ff-to-main-button .spinner {
+.commit-dag__ff-to-main-button .spinner {
   width: 10px;
   height: 10px;
   border-width: 1.5px;
 }
 
-.git-dag__ff-to-main-button {
+.commit-dag__ff-to-main-button {
   margin-left: 6px;
 }
 
-.git-dag__push-to-branch-button {
+.commit-dag__push-to-branch-button {
   font-size: 0.7rem;
   font-weight: 500;
   color: var(--color-text);
@@ -5235,23 +5235,23 @@ a:hover {
   transition: all var(--duration-fast) var(--easing);
 }
 
-.git-dag__push-to-branch-button:hover:not(:disabled) {
+.commit-dag__push-to-branch-button:hover:not(:disabled) {
   background-color: var(--color-border);
   border-color: var(--color-text-muted);
 }
 
-.git-dag__push-to-branch-button:disabled {
+.commit-dag__push-to-branch-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.git-dag__push-to-branch-button .spinner {
+.commit-dag__push-to-branch-button .spinner {
   width: 10px;
   height: 10px;
   border-width: 1.5px;
 }
 
-.git-dag__view-changes {
+.commit-dag__view-changes {
   font-size: 0.65rem;
   font-weight: 600;
   color: var(--color-graph-lane-1);
@@ -5265,11 +5265,11 @@ a:hover {
   font-family: inherit;
 }
 
-.git-dag__view-changes:hover {
+.commit-dag__view-changes:hover {
   background: color-mix(in srgb, var(--color-graph-lane-1) 24%, transparent);
 }
 
-.git-dag__sync-button {
+.commit-dag__sync-button {
   font-size: 0.7rem;
   font-weight: 500;
   color: var(--color-text);
@@ -5287,22 +5287,22 @@ a:hover {
   transition: all var(--duration-fast) var(--easing);
 }
 
-.git-dag__sync-button:hover:not(:disabled) {
+.commit-dag__sync-button:hover:not(:disabled) {
   background-color: var(--color-border);
   border-color: var(--color-text-muted);
 }
 
-.git-dag__sync-button:disabled {
+.commit-dag__sync-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.git-dag__sync-button .spinner {
+.commit-dag__sync-button .spinner {
   width: 10px;
   height: 10px;
   border-width: 1.5px;
 }
-.git-dag__sync-summary {
+.commit-dag__sync-summary {
   font-size: 0.65rem;
   font-weight: 600;
   color: var(--color-text-muted);
@@ -5310,18 +5310,18 @@ a:hover {
   flex-shrink: 0;
 }
 
-.git-dag__truncation-row {
+.commit-dag__truncation-row {
   display: flex;
   align-items: center;
 }
 
-.git-dag__truncation-text {
+.commit-dag__truncation-text {
   font-size: 12px;
   color: var(--color-text-muted);
   font-style: italic;
 }
 
-.git-dag__hash {
+.commit-dag__hash {
   font-family: var(--font-mono);
   font-size: 0.7rem;
   color: var(--color-accent);
@@ -5332,11 +5332,11 @@ a:hover {
   flex-shrink: 0;
 }
 
-.git-dag__hash:hover {
+.commit-dag__hash:hover {
   text-decoration: underline;
 }
 
-.git-dag__message {
+.commit-dag__message {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -5346,18 +5346,18 @@ a:hover {
   color: var(--color-text);
 }
 
-.git-dag__message-text {
+.commit-dag__message-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.git-dag__head-labels {
+.commit-dag__head-labels {
   display: inline;
   margin-right: var(--spacing-xs);
 }
 
-.git-dag__head-label {
+.commit-dag__head-label {
   display: inline-block;
   font-size: 0.65rem;
   font-family: var(--font-mono);
@@ -5370,7 +5370,7 @@ a:hover {
   color: var(--color-text-muted);
 }
 
-.git-dag__author {
+.commit-dag__author {
   flex-shrink: 0;
   color: var(--color-text-muted);
   width: 120px;
@@ -5379,7 +5379,7 @@ a:hover {
   white-space: nowrap;
 }
 
-.git-dag__time {
+.commit-dag__time {
   flex-shrink: 0;
   color: var(--color-text-faint);
   width: 60px;
@@ -5387,7 +5387,7 @@ a:hover {
 }
 
 /* ============================================================================
- * Commit Workflow (embedded in git-dag view-changes row)
+ * Commit Workflow (embedded in commit-dag view-changes row)
  * ============================================================================ */
 
 .commit-workflow {
@@ -5886,7 +5886,7 @@ body.keyboard-mode-active::after {
   }
 
   /* Git graph: constrain to available space instead of growing unbounded */
-  .git-dag {
+  .commit-dag {
     min-height: 0;
     overflow: hidden;
   }
@@ -5979,7 +5979,7 @@ body.keyboard-mode-active::after {
   /* Content pane overlaps accessory tabs' negative margin */
   .session-detail,
   .diff-page,
-  .git-dag {
+  .commit-dag {
     z-index: 1;
     position: relative;
   }

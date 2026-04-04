@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeLayout, ROW_HEIGHT } from './gitGraphLayout';
+import { computeLayout, ROW_HEIGHT } from './commitGraphLayout';
 import type { CommitGraphResponse, FileDiff } from './types';
 
 function makeNode(

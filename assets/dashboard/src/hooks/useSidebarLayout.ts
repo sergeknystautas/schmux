@@ -22,7 +22,7 @@ interface UseSidebarLayoutOptions {
 
 /**
  * Hook that manages sidebar resize, keyboard navigation, and focus state
- * for file-list + diff-viewer layouts (DiffPage, GitCommitPage).
+ * for file-list + diff-viewer layouts (DiffPage, CommitDetailPage).
  */
 export default function useSidebarLayout(opts: UseSidebarLayoutOptions) {
   const { widthKey, focusKey, fileCount, selectedFileIndex, onSelectFile, vimKeys } = opts;

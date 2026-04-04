@@ -14,7 +14,7 @@ const COMMIT_SIDEBAR_WIDTH_KEY = 'schmux-commit-sidebar-width';
 const COMMIT_KEYBOARD_FOCUS_KEY = 'schmux-commit-keyboard-focus';
 const MAX_MESSAGE_LINES = 3;
 
-export default function GitCommitPage() {
+export default function CommitDetailPage() {
   const { workspaceId, commitHash } = useParams();
   const navigate = useNavigate();
   const { theme } = useTheme();
