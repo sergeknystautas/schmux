@@ -30,29 +30,7 @@ Frontend tests are already included in `./test.sh --quick`. Running vitest from 
 
 ## Hot-Reload Development Mode
 
-For active development with automatic rebuilding:
-
-```bash
-./dev.sh
-```
-
-This runs the Go backend and React frontend (via Vite) with workspace switching support:
-
-- **Go changes**: Trigger rebuild from the dashboard Dev Mode panel
-- **React changes**: Instant browser update via HMR (<100ms)
-- **Workspace switching**: Switch which worktree's code is running from the dashboard UI
-- **Access**: http://localhost:7337 (same URL as production)
-- **Stop**: Ctrl+C
-
-The dev mode panel in the sidebar lets you switch between workspaces:
-
-- **FE**: Restart Vite pointed at a different worktree's `assets/dashboard/`
-- **BE**: Rebuild Go binary from a different worktree, restart daemon
-- **Both**: Both frontend and backend switch
-
-Build failures are safe — the old binary keeps running if the new build fails.
-
-First run installs npm dependencies if missing.
+Run `./dev.sh` for active development with Go backend + Vite HMR. See [`docs/dev-mode.md`](docs/dev-mode.md) for details.
 
 ## Build, Test, and Run Commands
 
@@ -107,6 +85,8 @@ The `/commit` command enforces the definition of done before every commit:
 - Checks that `docs/api.md` is updated when API-related packages change
 - Requires a structured self-assessment (tests written, no architecture drift, docs current)
 
+**When to skip tests**: If the commit contains no code changes (only `.md`, `.claude/skills/`, or other non-code files), or if `./test.sh` was already run in this conversation after the last code change, tests do not need to be re-run.
+
 Before the `/commit` command runs, ensure:
 
 1. **Format code**: `./format.sh` (or let the pre-commit hook handle it automatically)
@@ -128,42 +108,7 @@ The pre-commit requirement says `./test.sh`. That means `./test.sh` — not `./t
 
 ## Code Architecture
 
-```
-┌─────────────────────────────────────────────────────────┐
-│ Daemon (internal/daemon/daemon.go)                      │
-├─────────────────────────────────────────────────────────┤
-│  Dashboard Server (:7337)                               │
-│  - HTTP API (internal/dashboard/handlers.go)            │
-│  - WebSocket terminal streaming                         │
-│  - Serves static assets from assets/dashboard/          │
-│                                                         │
-│  Session Manager (internal/session/manager.go)          │
-│  - Spawn/dispose tmux sessions                          │
-│  - Track PIDs, status, terminal output                  │
-│                                                         │
-│  Workspace Manager (internal/workspace/manager.go)      │
-│  - Clone/checkout git repos                             │
-│  - Track workspace directories                          │
-│                                                         │
-│  tmux Package (internal/tmux/tmux.go)                   │
-│  - tmux CLI wrapper (create, capture, list, kill)       │
-│                                                         │
-│  Config/State (internal/config/, internal/state/)       │
-│  - ~/.schmux/config.json  (repos, agents, workspace)    │
-│  - ~/.schmux/state.json    (workspaces, sessions)       │
-│                                                         │
-│  Preview Manager (internal/preview/manager.go)          │
-│  - Reverse proxy for workspace dev servers              │
-│                                                         │
-│  Remote Manager (internal/remote/manager.go)            │
-│  - SSH connections to remote hosts via tmux control mode │
-│                                                         │
-│  GitHub Integration (internal/github/)                  │
-│  - PR discovery, OAuth, repository info                 │
-└─────────────────────────────────────────────────────────┘
-```
-
-**Key entry point**: `cmd/schmux/main.go` parses CLI commands and delegates to `internal/daemon/`.
+See [`docs/architecture.md`](docs/architecture.md) for the full backend architecture. Key entry point: `cmd/schmux/main.go` → `internal/daemon/`.
 
 **Known large files**: `internal/config/config.go`, `internal/config/config_test.go`, and `assets/dashboard/src/styles/global.css` all exceed the 25,000-token read limit. Do not attempt to read any of them in full — use `Grep` to search for specific symbols, or read targeted sections with `offset`/`limit` parameters.
 
@@ -197,42 +142,23 @@ Changes to API-related packages (`internal/dashboard/`, `internal/nudgenik/`, `i
 
 ## Web Dashboard Guidelines
 
-See `docs/react.md` for React architecture and `docs/web.md` for UX patterns. For API contracts, see `docs/api.md`. Key principles:
+See [`docs/web.md`](docs/web.md) for UX patterns, [`docs/react.md`](docs/react.md) for React architecture, and [`docs/api.md`](docs/api.md) for API contracts. Routes are defined in `assets/dashboard/src/App.tsx`.
 
-- **CLI-first**: web dashboard is for observability/orchestration
-- **Status-first**: running/stopped/error visually consistent everywhere
-- **Destructive actions slow**: "Dispose" always requires confirmation
-- **URLs idempotent**: routes bookmarkable, survive reload
-- **Real-time updates**: connection indicator, preserve scroll position
-
-Key technical patterns:
+Key guardrails:
 
 - **State via WebSocket, not polling**: `SessionsContext` receives real-time updates from `/ws/dashboard`. Do not add polling for session/workspace state.
 - **Pending navigation**: After spawning a session, use the pending navigation system (not polling) to navigate once the session appears via WebSocket.
-- **Two WebSocket endpoints**: `/ws/dashboard` (server→client session/workspace broadcasts) and `/ws/terminal/{id}` (bidirectional terminal I/O).
 - **WebSocket write safety**: Always use the `wsConn` wrapper (which has a mutex) — gorilla WebSocket is not concurrent-safe for writes.
-- **Tests**: Vitest + React Testing Library. 130+ tests in `assets/dashboard/src/`. Run via `./test.sh` (included in unit test suite).
-
-Routes:
-
-- `/` - Home (workspace list, session overview)
-- `/tips` - Tips (tmux shortcuts, quick reference)
-- `/spawn` - Spawn wizard (multi-step form)
-- `/sessions/{id}` - Session detail with terminal
-- `/preview/{workspaceId}/{previewId}` - Web preview iframe
-- `/git/{workspaceId}` - Git commit graph
-- `/resolve-conflict/{workspaceId}` - Linear sync conflict resolution
-- `/config` - Settings editor
-- `/repofeed` - Cross-developer activity feed
-- `/settings/remote` - Remote flavor configuration
-- `/environment` - Environment comparison (system vs tmux server)
-- `/events` - Event monitor (dev mode only)
-- `/ws/terminal/{id}` - WebSocket for live terminal output
-- `/ws/dashboard` - WebSocket for real-time session/workspace updates
 
 ## Documentation Conventions
 
-All specs, designs, and implementation plans live in `docs/specs/`. Skills that default to `docs/plans/` should use `docs/specs/` instead for this project.
+Design artifacts live in three directories with a defined lifecycle:
+
+- **`docs/specs/`** — Design specs for features not yet fully implemented
+- **`docs/plans/`** — Step-by-step implementation plans (temporary, deleted when done)
+- **`docs/reviews/`** — Review artifacts (design reviews, architecture audits)
+
+Lifecycle: spec → plan → implement (delete plan) → finalize spec into `docs/*.md` guide (delete spec). See the README in each directory for details.
 
 ## Important Files
 
