@@ -102,6 +102,45 @@ func SetLogger(l *log.Logger) {
 	pkgLogger = l
 }
 
+// TmuxServer manages an isolated tmux server accessed via the -L flag.
+// All methods prepend "-L socketName" to tmux commands automatically,
+// ensuring socket isolation between different server instances.
+type TmuxServer struct {
+	binary     string
+	socketName string
+	logger     *log.Logger
+}
+
+// NewTmuxServer creates a TmuxServer that targets the named socket.
+func NewTmuxServer(binary, socketName string, logger *log.Logger) *TmuxServer {
+	return &TmuxServer{binary: binary, socketName: socketName, logger: logger}
+}
+
+// Binary returns the tmux executable path.
+func (s *TmuxServer) Binary() string { return s.binary }
+
+// SocketName returns the tmux socket name used with -L.
+func (s *TmuxServer) SocketName() string { return s.socketName }
+
+// cmd builds an exec.Cmd that targets this server's socket.
+func (s *TmuxServer) cmd(ctx context.Context, args ...string) *exec.Cmd {
+	fullArgs := append([]string{"-L", s.socketName}, args...)
+	return exec.CommandContext(ctx, s.binary, fullArgs...)
+}
+
+// Check verifies that the tmux binary is installed and accessible.
+func (s *TmuxServer) Check() error {
+	cmd := exec.Command(s.binary, "-V")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("tmux is not installed or not accessible.\n-> %w", err)
+	}
+	if len(output) == 0 {
+		return fmt.Errorf("tmux command produced no output")
+	}
+	return nil
+}
+
 // ANSI escape sequence regex for stripping terminal codes.
 // Compiled once at package initialization for efficiency.
 var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07\x1b]*\x07|\x1b\][^\x07\x1b]*\x1b\\`)

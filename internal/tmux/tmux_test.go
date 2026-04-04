@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -374,6 +375,32 @@ func TestExtractLatestResponseCapsContent(t *testing.T) {
 // CaptureOutput, ListSessions, SessionExists) require a running tmux
 // server and are tested in the E2E test suite (internal/e2e/) which
 // runs inside Docker with tmux installed.
+
+// TmuxServer unit tests
+
+func TestTmuxServerCmdPrependsSocket(t *testing.T) {
+	srv := NewTmuxServer("tmux", "schmux", nil)
+	cmd := srv.cmd(context.Background(), "list-sessions")
+	want := []string{"-L", "schmux", "list-sessions"}
+	got := cmd.Args[1:] // skip binary name
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("cmd args = %v, want %v", got, want)
+	}
+}
+
+func TestTmuxServerBinaryAccessor(t *testing.T) {
+	srv := NewTmuxServer("/usr/local/bin/tmux", "schmux", nil)
+	if got := srv.Binary(); got != "/usr/local/bin/tmux" {
+		t.Errorf("Binary() = %q, want %q", got, "/usr/local/bin/tmux")
+	}
+}
+
+func TestTmuxServerSocketNameAccessor(t *testing.T) {
+	srv := NewTmuxServer("tmux", "test-socket", nil)
+	if got := srv.SocketName(); got != "test-socket" {
+		t.Errorf("SocketName() = %q, want %q", got, "test-socket")
+	}
+}
 
 // Benchmarks
 
