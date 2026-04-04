@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **schmux** is a multi-agent AI orchestration system that runs multiple AI coding agents (Claude Code, Codex, etc.) simultaneously across tmux sessions, each in isolated workspace directories. A web dashboard provides real-time monitoring and management.
 
+## ⚠️ Worktree Isolation — Do Not Cross Workspace Boundaries
+
+Each schmux agent is sandboxed to its own worktree. Do not edit, write, or modify files in another worktree's directory (e.g., `/Users/stefanomaz/code/workspaces/schmux-NNN/` where NNN is a different agent's worktree) — these operations fail with `EPERM`. Do not `git checkout` a branch already checked out in another worktree — Git rejects this with "already used by worktree". If you need changes from another branch, create a new branch from it instead.
+
 ## ⚠️ React Dashboard Builds — Use Go Wrapper, NOT npm
 
 **NEVER run `npm install`, `npm run build`, or `vite build` directly.**
@@ -28,9 +32,38 @@ Frontend tests are already included in `./test.sh --quick`. Running vitest from 
 ❌ **WRONG**: `cd assets/dashboard && npx vitest run`
 ✅ **RIGHT**: `./test.sh --quick` (from repository root)
 
+## ⚠️ E2E Tests — Use `./test.sh --e2e`, NOT `go test` directly
+
+**NEVER run E2E tests with `go test -tags e2e` directly** — they immediately fail with "E2E tests must run in Docker". Always use `./test.sh --e2e` which handles Docker image building and container execution automatically.
+
+❌ **WRONG**: `go test -tags e2e ./...`
+✅ **RIGHT**: `./test.sh --e2e`
+
 ## Hot-Reload Development Mode
 
-Run `./dev.sh` for active development with Go backend + Vite HMR. See [`docs/dev-mode.md`](docs/dev-mode.md) for details.
+For active development with automatic rebuilding:
+
+```bash
+./dev.sh
+```
+
+This runs the Go backend and React frontend (via Vite) with workspace switching support:
+
+- **Go changes**: Trigger rebuild from the dashboard Dev Mode panel
+- **React changes**: Instant browser update via HMR (<100ms)
+- **Workspace switching**: Switch which worktree's code is running from the dashboard UI
+- **Access**: http://localhost:7337 (same URL as production)
+- **Stop**: Ctrl+C
+
+The dev mode panel in the sidebar lets you switch between workspaces:
+
+- **FE**: Restart Vite pointed at a different worktree's `assets/dashboard/`
+- **BE**: Rebuild Go binary from a different worktree, restart daemon
+- **Both**: Both frontend and backend switch
+
+Build failures are safe — the old binary keeps running if the new build fails.
+
+First run installs npm dependencies if missing.
 
 ## Build, Test, and Run Commands
 
@@ -85,8 +118,6 @@ The `/commit` command enforces the definition of done before every commit:
 - Checks that `docs/api.md` is updated when API-related packages change
 - Requires a structured self-assessment (tests written, no architecture drift, docs current)
 
-**When to skip tests**: If the commit contains no code changes (only `.md`, `.claude/skills/`, or other non-code files), or if `./test.sh` was already run in this conversation after the last code change, tests do not need to be re-run.
-
 Before the `/commit` command runs, ensure:
 
 1. **Format code**: `./format.sh` (or let the pre-commit hook handle it automatically)
@@ -108,7 +139,42 @@ The pre-commit requirement says `./test.sh`. That means `./test.sh` — not `./t
 
 ## Code Architecture
 
-See [`docs/architecture.md`](docs/architecture.md) for the full backend architecture. Key entry point: `cmd/schmux/main.go` → `internal/daemon/`.
+```
+┌─────────────────────────────────────────────────────────┐
+│ Daemon (internal/daemon/daemon.go)                      │
+├─────────────────────────────────────────────────────────┤
+│  Dashboard Server (:7337)                               │
+│  - HTTP API (internal/dashboard/handlers.go)            │
+│  - WebSocket terminal streaming                         │
+│  - Serves static assets from assets/dashboard/          │
+│                                                         │
+│  Session Manager (internal/session/manager.go)          │
+│  - Spawn/dispose tmux sessions                          │
+│  - Track PIDs, status, terminal output                  │
+│                                                         │
+│  Workspace Manager (internal/workspace/manager.go)      │
+│  - Clone/checkout git repos                             │
+│  - Track workspace directories                          │
+│                                                         │
+│  tmux Package (internal/tmux/tmux.go)                   │
+│  - tmux CLI wrapper (create, capture, list, kill)       │
+│                                                         │
+│  Config/State (internal/config/, internal/state/)       │
+│  - ~/.schmux/config.json  (repos, agents, workspace)    │
+│  - ~/.schmux/state.json    (workspaces, sessions)       │
+│                                                         │
+│  Preview Manager (internal/preview/manager.go)          │
+│  - Reverse proxy for workspace dev servers              │
+│                                                         │
+│  Remote Manager (internal/remote/manager.go)            │
+│  - SSH connections to remote hosts via tmux control mode │
+│                                                         │
+│  GitHub Integration (internal/github/)                  │
+│  - PR discovery, OAuth, repository info                 │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Key entry point**: `cmd/schmux/main.go` parses CLI commands and delegates to `internal/daemon/`.
 
 **Known large files**: `internal/config/config.go`, `internal/config/config_test.go`, and `assets/dashboard/src/styles/global.css` all exceed the 25,000-token read limit. Do not attempt to read any of them in full — use `Grep` to search for specific symbols, or read targeted sections with `offset`/`limit` parameters.
 
@@ -142,23 +208,40 @@ Changes to API-related packages (`internal/dashboard/`, `internal/nudgenik/`, `i
 
 ## Web Dashboard Guidelines
 
-See [`docs/web.md`](docs/web.md) for UX patterns, [`docs/react.md`](docs/react.md) for React architecture, and [`docs/api.md`](docs/api.md) for API contracts. Routes are defined in `assets/dashboard/src/App.tsx`.
+See `docs/dev/react.md` for React architecture and `docs/web.md` for UX patterns. For API contracts, see `docs/api.md`. Key principles:
 
-Key guardrails:
+- **CLI-first**: web dashboard is for observability/orchestration
+- **Status-first**: running/stopped/error visually consistent everywhere
+- **Destructive actions slow**: "Dispose" always requires confirmation
+- **URLs idempotent**: routes bookmarkable, survive reload
+- **Real-time updates**: connection indicator, preserve scroll position
+
+Key technical patterns:
 
 - **State via WebSocket, not polling**: `SessionsContext` receives real-time updates from `/ws/dashboard`. Do not add polling for session/workspace state.
 - **Pending navigation**: After spawning a session, use the pending navigation system (not polling) to navigate once the session appears via WebSocket.
+- **Two WebSocket endpoints**: `/ws/dashboard` (server→client session/workspace broadcasts) and `/ws/terminal/{id}` (bidirectional terminal I/O).
 - **WebSocket write safety**: Always use the `wsConn` wrapper (which has a mutex) — gorilla WebSocket is not concurrent-safe for writes.
+- **Tests**: Vitest + React Testing Library. 130+ tests in `assets/dashboard/src/`. Run via `./test.sh` (included in unit test suite).
+
+Routes:
+
+- `/` - Home (workspace list, session overview)
+- `/tips` - Tips (tmux shortcuts, quick reference)
+- `/spawn` - Spawn wizard (multi-step form)
+- `/sessions/{id}` - Session detail with terminal
+- `/preview/{workspaceId}/{previewId}` - Web preview iframe
+- `/git/{workspaceId}` - Git commit graph
+- `/resolve-conflict/{workspaceId}` - Linear sync conflict resolution
+- `/config` - Settings editor
+- `/settings/remote` - Remote flavor configuration
+- `/events` - Event monitor (dev mode only)
+- `/ws/terminal/{id}` - WebSocket for live terminal output
+- `/ws/dashboard` - WebSocket for real-time session/workspace updates
 
 ## Documentation Conventions
 
-Design artifacts live in three directories with a defined lifecycle:
-
-- **`docs/specs/`** — Design specs for features not yet fully implemented
-- **`docs/plans/`** — Step-by-step implementation plans (temporary, deleted when done)
-- **`docs/reviews/`** — Review artifacts (design reviews, architecture audits)
-
-Lifecycle: spec → plan → implement (delete plan) → finalize spec into `docs/*.md` guide (delete spec). See the README in each directory for details.
+All specs, designs, and implementation plans live in `docs/specs/`. Skills that default to `docs/plans/` should use `docs/specs/` instead for this project.
 
 ## Important Files
 
@@ -166,7 +249,6 @@ Lifecycle: spec → plan → implement (delete plan) → finalize spec into `doc
 - [`docs/cli.md`](docs/cli.md) - CLI command reference
 - [`docs/web.md`](docs/web.md) - Web dashboard UX
 - [`docs/api.md`](docs/api.md) - Daemon HTTP API contract (client-agnostic)
-- [`docs/react.md`](docs/react.md) - React architecture
-- [`docs/architecture.md`](docs/architecture.md) - Backend architecture
-- [`docs/dev-mode.md`](docs/dev-mode.md) - Dev mode (hot-reload development)
-- [`AGENTS.md`](AGENTS.md) - Symlink to CLAUDE.md (for non-Claude agents)
+- [`docs/dev/react.md`](docs/dev/react.md) - React architecture
+- [`docs/dev/architecture.md`](docs/dev/architecture.md) - Backend architecture
+- [`AGENTS.md`](AGENTS.md) - Architecture guidelines (for non-Claude agents)
