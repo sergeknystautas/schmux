@@ -7,18 +7,15 @@ import {
   apiGet,
 } from './helpers';
 
-test.describe.serial('Lore page with repo tabs', () => {
+test.describe.serial('Lore page as flat card wall', () => {
   let repoPathA: string;
-  let repoPathB: string;
   const repoNameA = 'test-lore-repo-a';
-  const repoNameB = 'test-lore-repo-b';
 
   test.beforeAll(async () => {
     await waitForHealthy();
     repoPathA = await createTestRepo(repoNameA);
-    repoPathB = await createTestRepo(repoNameB);
     await seedConfig({
-      repos: [repoPathA, repoPathB],
+      repos: [repoPathA],
       agents: [
         {
           name: 'echo-agent',
@@ -32,7 +29,6 @@ test.describe.serial('Lore page with repo tabs', () => {
     await page.goto('/');
     await waitForDashboardLive(page);
 
-    // Lore link is visible in the Tools section (expanded by default)
     const loreLinks = page.locator('.tools-section__list a', { hasText: /^Lore/ });
     await expect(loreLinks).toHaveCount(1);
   });
@@ -41,83 +37,45 @@ test.describe.serial('Lore page with repo tabs', () => {
     await page.goto('/');
     await waitForDashboardLive(page);
 
-    // Lore link is visible in the Tools section (expanded by default)
     const loreLink = page.locator('.tools-section__list a', { hasText: /^Lore/ });
     await loreLink.click();
 
-    // URL should be /lore with no repo name parameter
     await page.waitForURL('/lore');
     expect(page.url()).toMatch(/\/lore$/);
   });
 
-  test('page shows repo tab bar with both repos', async ({ page }) => {
+  test('page shows heading, subtitle, and no repo tabs', async ({ page }) => {
     await page.goto('/lore');
     await waitForDashboardLive(page);
 
     // Page heading
     await expect(page.locator('h2', { hasText: 'Lore' })).toBeVisible();
 
-    // Tab bar with both repos (uses session-tabs classes)
-    const tabs = page.locator('[data-testid="repo-tab"]');
-    await expect(tabs).toHaveCount(2);
-    await expect(tabs.nth(0)).toContainText(repoNameA);
-    await expect(tabs.nth(1)).toContainText(repoNameB);
+    // Subtitle
+    await expect(page.locator('p', { hasText: 'Schmux continual learning system' })).toBeVisible();
 
-    // First tab is active by default
-    await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true');
-    await expect(tabs.nth(1)).not.toHaveAttribute('aria-selected', 'true');
+    // No repo tab bar
+    const tabs = page.locator('[data-testid="repo-tab"]');
+    await expect(tabs).toHaveCount(0);
   });
 
-  test('page shows proposals and raw signals sections', async ({ page }) => {
+  test('shows empty state when no pending proposals', async ({ page }) => {
     await page.goto('/lore');
     await waitForDashboardLive(page);
 
-    // Empty state for proposals
     await expect(
-      page.locator('.empty-state__description', { hasText: /No pending proposals/ })
+      page.locator('.empty-state__description', { hasText: /Nothing to review/ })
     ).toBeVisible();
-
-    // Raw Signals toggle
-    await expect(page.locator('button', { hasText: /Raw Signals/ })).toBeVisible();
   });
 
-  test('switching tabs changes active state and reloads data', async ({ page }) => {
-    await page.goto('/lore');
-    await waitForDashboardLive(page);
-
-    const tabs = page.locator('[data-testid="repo-tab"]');
-
-    // Click second tab
-    await tabs.nth(1).click();
-
-    // Second tab should now be active
-    await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
-    await expect(tabs.nth(0)).not.toHaveAttribute('aria-selected', 'true');
-
-    // Empty state should still be visible (data reloaded for new repo)
-    await expect(
-      page.locator('.empty-state__description', { hasText: /No pending proposals/ })
-    ).toBeVisible();
-
-    // Click first tab again
-    await tabs.nth(0).click();
-    await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true');
-  });
-
-  test('API returns proposals for each repo', async () => {
+  test('API returns proposals for configured repo', async () => {
     interface ProposalsResponse {
       proposals: Array<{ id: string }>;
     }
 
-    // Both endpoints should respond without error (even if empty)
-    const dataA = await apiGet<ProposalsResponse>(
+    const data = await apiGet<ProposalsResponse>(
       `/api/lore/${encodeURIComponent(repoNameA)}/proposals`
     );
-    expect(dataA).toHaveProperty('proposals');
-
-    const dataB = await apiGet<ProposalsResponse>(
-      `/api/lore/${encodeURIComponent(repoNameB)}/proposals`
-    );
-    expect(dataB).toHaveProperty('proposals');
+    expect(data).toHaveProperty('proposals');
   });
 });

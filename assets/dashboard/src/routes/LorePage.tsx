@@ -21,6 +21,7 @@ import useTheme from '../hooks/useTheme';
 import useDevStatus from '../hooks/useDevStatus';
 import type {
   LoreEntry,
+  LoreProposal,
   LoreRule,
   LoreLayer,
   LoreMergePreview,
@@ -32,19 +33,18 @@ type CardItem =
   | { kind: 'instruction'; rule: LoreRule; repoName: string; proposalId: string; createdAt: string }
   | { kind: 'action'; action: SpawnEntry; repoName: string; createdAt: string };
 
-type Phase = 'triage' | 'summary' | 'applying' | 'mergeReview' | 'done';
+/** A proposal that has merge_previews ready for user review. */
+interface MergeReviewItem {
+  repoName: string;
+  proposal: LoreProposal;
+  previews: LoreMergePreview[];
+}
 
 const LAYER_LABELS: Record<string, string> = {
   repo_public: 'Public',
   repo_private: 'Private',
   cross_repo_private: 'Cross-Repo Private',
 };
-
-interface ProposalGroup {
-  repoName: string;
-  proposalId: string;
-  rules: LoreRule[];
-}
 
 export default function LorePage() {
   const { config } = useConfig();
@@ -60,10 +60,17 @@ export default function LorePage() {
   const [error, setError] = useState('');
   const [cards, setCards] = useState<CardItem[]>([]);
   const [loreStatus, setLoreStatus] = useState<LoreStatusResponse | null>(null);
-  const [phase, setPhase] = useState<Phase>('triage');
-  const [mergePreviews, setMergePreviews] = useState<LoreMergePreview[]>([]);
+
+  // Server-derived state: proposals with merge previews ready for review
+  const [mergeReviews, setMergeReviews] = useState<MergeReviewItem[]>([]);
+  // Server-derived state: proposals currently being merged in the background
+  const [mergingCount, setMergingCount] = useState(0);
+
+  // Local UI state for the diff review
   const [editedPreviews, setEditedPreviews] = useState<Record<string, string>>({});
   const [applying, setApplying] = useState(false);
+
+  // Dev mode debug
   const [showDebug, setShowDebug] = useState(false);
   const [debugRepo, setDebugRepo] = useState(repos[0]?.name || '');
   const [debugEntries, setDebugEntries] = useState<LoreEntry[]>([]);
@@ -76,8 +83,10 @@ export default function LorePage() {
       .then(setLoreStatus)
       .catch(() => {});
 
-    // Fan out across all repos
     const allCards: CardItem[] = [];
+    const allMergeReviews: MergeReviewItem[] = [];
+    let merging = 0;
+
     await Promise.allSettled(
       repos.map(async (repo) => {
         const [proposalRes, actionRes] = await Promise.all([
@@ -85,12 +94,31 @@ export default function LorePage() {
           getAllSpawnEntries(repo.name),
         ]);
 
-        // Flatten pending rules from pending/merging proposals
         for (const proposal of proposalRes.proposals || []) {
-          if (proposal.status !== 'pending' && proposal.status !== 'merging') continue;
+          // Proposals with merge previews ready for review
+          if (
+            proposal.merge_previews &&
+            proposal.merge_previews.length > 0 &&
+            proposal.status !== 'applied'
+          ) {
+            allMergeReviews.push({
+              repoName: repo.name,
+              proposal,
+              previews: proposal.merge_previews,
+            });
+            continue;
+          }
+
+          // Proposals currently being merged
+          if (proposal.status === 'merging') {
+            merging++;
+            continue;
+          }
+
+          // Pending proposals — show their pending rules as cards
+          if (proposal.status !== 'pending') continue;
           for (const rule of proposal.rules || []) {
             if (rule.status !== 'pending') continue;
-            // Deduplicate by normalized text — later proposals win
             const normalizedText = rule.text.trim().toLowerCase();
             const existingIdx = allCards.findIndex(
               (c) => c.kind === 'instruction' && c.rule.text.trim().toLowerCase() === normalizedText
@@ -106,7 +134,6 @@ export default function LorePage() {
           }
         }
 
-        // Add proposed actions
         for (const entry of actionRes || []) {
           if (entry.state !== 'proposed') continue;
           allCards.push({
@@ -119,11 +146,12 @@ export default function LorePage() {
       })
     );
 
-    // Sort newest first
     allCards.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
     await statusPromise;
     setCards(allCards);
+    setMergeReviews(allMergeReviews);
+    setMergingCount(merging);
     setLoading(false);
   }, [repos]);
 
@@ -139,23 +167,14 @@ export default function LorePage() {
     });
   }, [onComplete, loadData]);
 
-  const checkTriageComplete = useCallback((updatedCards: CardItem[]) => {
-    const pendingInstructions = updatedCards.filter(
-      (c) => c.kind === 'instruction' && c.rule.status === 'pending'
-    );
-    const pendingActions = updatedCards.filter((c) => c.kind === 'action');
-    const approvedInstructions = updatedCards.filter(
-      (c) => c.kind === 'instruction' && c.rule.status === 'approved'
-    );
+  // Poll while merges are in progress (every 5s)
+  useEffect(() => {
+    if (mergingCount === 0) return;
+    const interval = setInterval(() => loadData(), 5000);
+    return () => clearInterval(interval);
+  }, [mergingCount, loadData]);
 
-    if (
-      pendingInstructions.length === 0 &&
-      pendingActions.length === 0 &&
-      approvedInstructions.length > 0
-    ) {
-      setPhase('summary');
-    }
-  }, []);
+  // --- Card callbacks ---
 
   const handleApprove = async (card: CardItem) => {
     if (card.kind === 'instruction') {
@@ -163,17 +182,15 @@ export default function LorePage() {
         const updated = await updateLoreRule(card.repoName, card.proposalId, card.rule.id, {
           status: 'approved',
         });
-        setCards((prev) => {
-          const next = prev.map((c) => {
+        setCards((prev) =>
+          prev.map((c) => {
             if (c.kind === 'instruction' && c.rule.id === card.rule.id) {
               const updatedRule = updated.rules.find((r: LoreRule) => r.id === card.rule.id);
               return updatedRule ? { ...c, rule: updatedRule } : c;
             }
             return c;
-          });
-          checkTriageComplete(next);
-          return next;
-        });
+          })
+        );
         invalidateProposals();
       } catch (err) {
         alert('Update Failed', getErrorMessage(err, 'Failed to approve rule'));
@@ -181,11 +198,9 @@ export default function LorePage() {
     } else {
       try {
         await pinSpawnEntry(card.repoName, card.action.id);
-        setCards((prev) => {
-          const next = prev.filter((c) => !(c.kind === 'action' && c.action.id === card.action.id));
-          checkTriageComplete(next);
-          return next;
-        });
+        setCards((prev) =>
+          prev.filter((c) => !(c.kind === 'action' && c.action.id === card.action.id))
+        );
         toastSuccess(`Pinned "${card.action.name}"`);
         invalidateProposals();
       } catch (err) {
@@ -209,7 +224,6 @@ export default function LorePage() {
           return c;
         })
       );
-      setPhase('triage');
       invalidateProposals();
     } catch (err) {
       alert('Update Failed', getErrorMessage(err, 'Failed to undo approval'));
@@ -219,16 +233,10 @@ export default function LorePage() {
   const handleDismiss = async (card: CardItem) => {
     if (card.kind === 'instruction') {
       try {
-        await updateLoreRule(card.repoName, card.proposalId, card.rule.id, {
-          status: 'dismissed',
-        });
-        setCards((prev) => {
-          const next = prev.filter(
-            (c) => !(c.kind === 'instruction' && c.rule.id === card.rule.id)
-          );
-          checkTriageComplete(next);
-          return next;
-        });
+        await updateLoreRule(card.repoName, card.proposalId, card.rule.id, { status: 'dismissed' });
+        setCards((prev) =>
+          prev.filter((c) => !(c.kind === 'instruction' && c.rule.id === card.rule.id))
+        );
         invalidateProposals();
       } catch (err) {
         alert('Dismiss Failed', getErrorMessage(err, 'Failed to dismiss rule'));
@@ -236,11 +244,9 @@ export default function LorePage() {
     } else {
       try {
         await dismissSpawnEntry(card.repoName, card.action.id);
-        setCards((prev) => {
-          const next = prev.filter((c) => !(c.kind === 'action' && c.action.id === card.action.id));
-          checkTriageComplete(next);
-          return next;
-        });
+        setCards((prev) =>
+          prev.filter((c) => !(c.kind === 'action' && c.action.id === card.action.id))
+        );
         toastSuccess(`Dismissed "${card.action.name}"`);
         invalidateProposals();
       } catch (err) {
@@ -290,160 +296,148 @@ export default function LorePage() {
   };
 
   const handleApproveAll = async () => {
-    const pendingCards = cards.filter((c) =>
+    const pending = cards.filter((c) =>
       c.kind === 'instruction' ? c.rule.status === 'pending' : true
     );
-    for (const card of pendingCards) {
+    for (const card of pending) {
       await handleApprove(card);
     }
   };
 
-  // Group approved instruction cards by (repoName, proposalId)
-  const buildProposalGroups = (approvedCards: CardItem[]): Map<string, ProposalGroup> => {
-    const groups = new Map<string, ProposalGroup>();
+  // --- Apply flow ---
+
+  const effectiveLayer = (rule: LoreRule): LoreLayer => {
+    return rule.chosen_layer || rule.suggested_layer;
+  };
+
+  const handleApply = async () => {
+    const approvedCards = cards.filter(
+      (c) => c.kind === 'instruction' && c.rule.status === 'approved'
+    ) as (CardItem & { kind: 'instruction' })[];
+
+    if (approvedCards.length === 0) {
+      toastError('No approved rules to apply');
+      return;
+    }
+
+    // Group by proposal
+    const groups = new Map<string, { repoName: string; proposalId: string; rules: LoreRule[] }>();
     for (const card of approvedCards) {
-      if (card.kind !== 'instruction') continue;
       const key = `${card.repoName}::${card.proposalId}`;
       if (!groups.has(key)) {
         groups.set(key, { repoName: card.repoName, proposalId: card.proposalId, rules: [] });
       }
       groups.get(key)!.rules.push(card.rule);
     }
-    return groups;
-  };
 
-  const effectiveLayer = (rule: LoreRule): LoreLayer => {
-    return rule.chosen_layer || rule.suggested_layer;
-  };
+    // Check if any rules are public (need merge + diff review)
+    const hasPublic = approvedCards.some((c) => effectiveLayer(c.rule) === 'repo_public');
 
-  const pollForMergeCompletion = async (
-    groups: Map<string, ProposalGroup>
-  ): Promise<LoreMergePreview[]> => {
-    const groupArr = Array.from(groups.values());
-    const allPreviews: LoreMergePreview[] = [];
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-      let allDone = true;
-      for (const group of groupArr) {
-        const proposalRes = await getLoreProposals(group.repoName);
-        const proposal = (proposalRes.proposals || []).find((p) => p.id === group.proposalId);
-        if (proposal && proposal.status === 'merging') {
-          allDone = false;
-        } else if (proposal?.merge_error) {
-          throw new Error(proposal.merge_error);
-        } else if (proposal?.merge_previews) {
-          // Collect previews not yet added
-          for (const preview of proposal.merge_previews) {
-            if (!allPreviews.some((p) => p.layer === preview.layer)) {
-              allPreviews.push(preview);
-            }
-          }
+    if (hasPublic) {
+      // Fire off merges in background — user can leave and come back
+      try {
+        for (const [, group] of groups) {
+          await startLoreMerge(group.repoName, group.proposalId);
         }
+        setMergingCount(groups.size);
+        // Clear cards since they're now being merged
+        setCards([]);
+        toastSuccess(
+          'Merge started. You can leave this page — the diff will be here when you return.'
+        );
+      } catch (err) {
+        alert('Merge Failed', getErrorMessage(err, 'Failed to start merge'));
       }
-      if (allDone) break;
-    }
-    return allPreviews;
-  };
-
-  const handleApply = async () => {
-    setPhase('applying');
-    setMergePreviews([]);
-    setEditedPreviews({});
-
-    const approvedCards = cards.filter(
-      (c) => c.kind === 'instruction' && c.rule.status === 'approved'
-    );
-    const groups = buildProposalGroups(approvedCards);
-
-    try {
-      // Always start merge for each proposal group (handles both public and private layers)
-      for (const [, group] of groups) {
-        await startLoreMerge(group.repoName, group.proposalId);
-      }
-
-      // Poll until merge completes and previews are available
-      const previews = await pollForMergeCompletion(groups);
-      setMergePreviews(previews);
-
-      // Check if any previews target a public layer
-      const hasPublicPreviews = previews.some((p) => p.layer === 'repo_public');
-
-      if (hasPublicPreviews) {
-        // Apply private layers immediately, show diff for public
-        const privatePreviews = previews.filter((p) => p.layer !== 'repo_public');
-        if (privatePreviews.length > 0) {
+    } else {
+      // Private-only: start merge, poll briefly, apply
+      setApplying(true);
+      try {
+        for (const [, group] of groups) {
+          await startLoreMerge(group.repoName, group.proposalId);
+        }
+        // Poll for completion (private merges are typically fast)
+        const maxAttempts = 60;
+        for (let i = 0; i < maxAttempts; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          let allDone = true;
           for (const [, group] of groups) {
-            const merges = privatePreviews
-              .filter((p) => group.rules.some((r) => effectiveLayer(r) === p.layer))
-              .map((p) => ({ layer: p.layer, content: p.merged_content }));
-            if (merges.length > 0) {
+            const res = await getLoreProposals(group.repoName);
+            const p = (res.proposals || []).find((pr) => pr.id === group.proposalId);
+            if (p?.merge_error) throw new Error(p.merge_error);
+            if (p?.status === 'merging') {
+              allDone = false;
+              break;
+            }
+            if (p?.merge_previews) {
+              // Apply immediately
+              const merges = p.merge_previews.map((mp) => ({
+                layer: mp.layer,
+                content: mp.merged_content,
+              }));
               await applyLoreMerge(group.repoName, group.proposalId, merges);
             }
           }
-        }
-        setPhase('mergeReview');
-      } else {
-        // No public layers — apply everything directly
-        for (const [, group] of groups) {
-          const merges = previews
-            .filter((p) => group.rules.some((r) => effectiveLayer(r) === p.layer))
-            .map((p) => ({ layer: p.layer, content: p.merged_content }));
-          if (merges.length > 0) {
-            await applyLoreMerge(group.repoName, group.proposalId, merges);
-          }
+          if (allDone) break;
         }
         toastSuccess(`${approvedCards.length} rules saved`);
-        setPhase('done');
         invalidateProposals();
-        setTimeout(() => {
-          setPhase('triage');
-          loadData();
-        }, 3000);
+        loadData();
+      } catch (err) {
+        alert('Apply Failed', getErrorMessage(err, 'Failed to apply rules'));
+      } finally {
+        setApplying(false);
       }
-    } catch (err) {
-      await alert('Merge Failed', getErrorMessage(err, 'Failed to merge rules'));
-      setPhase('summary');
     }
   };
 
-  const handleCommitAndPush = async () => {
+  const handleCommitAndPush = async (review: MergeReviewItem) => {
     setApplying(true);
     try {
-      const approvedCards = cards.filter(
-        (c) => c.kind === 'instruction' && c.rule.status === 'approved'
-      );
-      const groups = buildProposalGroups(approvedCards);
+      const publicPreviews = review.previews
+        .filter((p) => p.layer === 'repo_public')
+        .map((p) => ({
+          layer: p.layer,
+          content: editedPreviews[p.layer] ?? p.merged_content,
+        }));
+      // Apply private layers without auto-commit
+      const privatePreviews = review.previews
+        .filter((p) => p.layer !== 'repo_public')
+        .map((p) => ({ layer: p.layer, content: p.merged_content }));
 
-      for (const [, group] of groups) {
-        const publicPreviews = mergePreviews
-          .filter(
-            (p) =>
-              p.layer === 'repo_public' && group.rules.some((r) => effectiveLayer(r) === p.layer)
-          )
-          .map((p) => ({
-            layer: p.layer,
-            content: editedPreviews[p.layer] ?? p.merged_content,
-          }));
-        if (publicPreviews.length > 0) {
-          await applyLoreMerge(group.repoName, group.proposalId, publicPreviews, true);
-        }
+      if (privatePreviews.length > 0) {
+        await applyLoreMerge(review.repoName, review.proposal.id, privatePreviews);
+      }
+      if (publicPreviews.length > 0) {
+        await applyLoreMerge(review.repoName, review.proposal.id, publicPreviews, true);
       }
 
       const mode = config?.lore?.public_rule_mode || 'direct_push';
       toastSuccess(mode === 'create_pr' ? 'PR created' : 'Committed and pushed');
-      setPhase('done');
       invalidateProposals();
-      setTimeout(() => {
-        setPhase('triage');
-        loadData();
-      }, 3000);
+      loadData();
     } catch (err) {
       await alert('Push Failed', getErrorMessage(err, 'Failed to push'));
     } finally {
       setApplying(false);
     }
   };
+
+  const handleDismissMergeReview = async (review: MergeReviewItem) => {
+    // TODO: could clear merge_previews on the server. For now just reload.
+    setMergeReviews((prev) => prev.filter((r) => r.proposal.id !== review.proposal.id));
+  };
+
+  // --- Derived state ---
+
+  const pendingCards = cards.filter((c) =>
+    c.kind === 'instruction' ? c.rule.status === 'pending' : true
+  );
+  const approvedCards = cards.filter(
+    (c) => c.kind === 'instruction' && c.rule.status === 'approved'
+  );
+  const allTriaged = pendingCards.length === 0 && approvedCards.length > 0;
+
+  // --- Render ---
 
   if (loading) {
     return <div className="page-loading">Loading lore...</div>;
@@ -457,10 +451,6 @@ export default function LorePage() {
       </div>
     );
   }
-
-  const pendingCards = cards.filter((c) =>
-    c.kind === 'instruction' ? c.rule.status === 'pending' : true
-  );
 
   return (
     <div className={styles.container} data-testid="lore-page">
@@ -489,114 +479,118 @@ export default function LorePage() {
             start capturing agent learnings.
           </p>
         </div>
-      ) : phase === 'done' ? (
-        <div className="empty-state">
-          <p className="empty-state__description">Done. All learnings have been saved.</p>
-        </div>
-      ) : phase === 'applying' ? (
-        <div className={styles.mergingStatus}>
-          <span className="spinner spinner--small" />
-          Merging rules...
-        </div>
-      ) : phase === 'summary' ? (
-        (() => {
-          const approvedCards = cards.filter(
-            (c) => c.kind === 'instruction' && c.rule.status === 'approved'
-          );
-          const privateThisRepo = approvedCards.filter(
-            (c) => c.kind === 'instruction' && effectiveLayer(c.rule) === 'repo_private'
-          );
-          const privateAllRepos = approvedCards.filter(
-            (c) => c.kind === 'instruction' && effectiveLayer(c.rule) === 'cross_repo_private'
-          );
-          const publicRules = approvedCards.filter(
-            (c) => c.kind === 'instruction' && effectiveLayer(c.rule) === 'repo_public'
-          );
+      ) : (
+        <>
+          {/* Merge reviews ready (server-persisted — survives navigation) */}
+          {mergeReviews.map((review) => (
+            <div
+              key={review.proposal.id}
+              className={styles.proposalCard}
+              style={{ marginBottom: '1rem' }}
+            >
+              <h3>Review Changes</h3>
+              {review.previews
+                .filter((p) => p.layer === 'repo_public')
+                .map((preview) => (
+                  <div key={preview.layer} style={{ marginBottom: '1rem' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        marginBottom: '0.5rem',
+                      }}
+                    >
+                      <span className={styles.ruleLayer}>
+                        {LAYER_LABELS[preview.layer] || preview.layer}
+                      </span>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                        {preview.summary}
+                      </span>
+                    </div>
+                    <div className={styles.diffWrapper}>
+                      <ReactDiffViewer
+                        oldValue={preview.current_content}
+                        newValue={editedPreviews[preview.layer] ?? preview.merged_content}
+                        splitView={false}
+                        useDarkTheme={theme === 'dark'}
+                        hideLineNumbers={false}
+                        showDiffOnly={true}
+                        compareMethod={DiffMethod.TRIMMED_LINES}
+                        disableWordDiff={true}
+                        extraLinesSurroundingDiff={3}
+                      />
+                    </div>
+                  </div>
+                ))}
+              <div className={styles.actions}>
+                <button
+                  className={styles.dismissButton}
+                  onClick={() => handleDismissMergeReview(review)}
+                  disabled={applying}
+                >
+                  Dismiss
+                </button>
+                <button
+                  className={styles.applyButton}
+                  onClick={() => handleCommitAndPush(review)}
+                  disabled={applying}
+                >
+                  {applying && <span className="spinner spinner--small" />}
+                  {(config?.lore?.public_rule_mode || 'direct_push') === 'create_pr'
+                    ? 'Create PR'
+                    : 'Commit & Push'}
+                </button>
+              </div>
+            </div>
+          ))}
 
-          return (
-            <div className={styles.proposalCard}>
-              <h3>{approvedCards.length} learnings approved</h3>
+          {/* Merging in progress indicator */}
+          {mergingCount > 0 && mergeReviews.length === 0 && (
+            <div className={styles.mergingStatus} style={{ marginBottom: '1rem' }}>
+              <span className="spinner spinner--small" />
+              Merging rules in the background...
+            </div>
+          )}
+
+          {/* Summary banner when all cards are triaged */}
+          {allTriaged && (
+            <div className={styles.proposalCard} style={{ marginBottom: '1rem' }}>
+              <h3>{approvedCards.length} insights approved</h3>
               <div style={{ margin: '1rem 0', fontSize: '0.875rem' }}>
-                {privateThisRepo.length > 0 && (
-                  <p>{privateThisRepo.length} private (this repo) — saved immediately</p>
-                )}
-                {privateAllRepos.length > 0 && (
-                  <p>{privateAllRepos.length} private (all repos) — saved immediately</p>
-                )}
-                {publicRules.length > 0 && (
-                  <p>{publicRules.length} public — will be merged into CLAUDE.md</p>
-                )}
+                {(() => {
+                  const priv = approvedCards.filter(
+                    (c) => c.kind === 'instruction' && effectiveLayer(c.rule) === 'repo_private'
+                  );
+                  const privAll = approvedCards.filter(
+                    (c) =>
+                      c.kind === 'instruction' && effectiveLayer(c.rule) === 'cross_repo_private'
+                  );
+                  const pub = approvedCards.filter(
+                    (c) => c.kind === 'instruction' && effectiveLayer(c.rule) === 'repo_public'
+                  );
+                  return (
+                    <>
+                      {priv.length > 0 && (
+                        <p>{priv.length} private (this repo) — saved immediately</p>
+                      )}
+                      {privAll.length > 0 && (
+                        <p>{privAll.length} private (all repos) — saved immediately</p>
+                      )}
+                      {pub.length > 0 && <p>{pub.length} public — will be merged into CLAUDE.md</p>}
+                    </>
+                  );
+                })()}
               </div>
               <div className={styles.actions}>
-                <button className={styles.dismissButton} onClick={() => setPhase('triage')}>
-                  Back
-                </button>
-                <button className={styles.applyButton} onClick={handleApply}>
+                <button className={styles.applyButton} onClick={handleApply} disabled={applying}>
+                  {applying && <span className="spinner spinner--small" />}
                   Apply
                 </button>
               </div>
             </div>
-          );
-        })()
-      ) : phase === 'mergeReview' ? (
-        <div className={styles.proposalCard}>
-          <h3>Review Changes</h3>
-          {mergePreviews
-            .filter((p) => p.layer === 'repo_public')
-            .map((preview) => (
-              <div key={preview.layer} style={{ marginBottom: '1rem' }}>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.5rem',
-                    marginBottom: '0.5rem',
-                  }}
-                >
-                  <span className={styles.ruleLayer}>
-                    {LAYER_LABELS[preview.layer] || preview.layer}
-                  </span>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                    {preview.summary}
-                  </span>
-                </div>
-                <div className={styles.diffWrapper}>
-                  <ReactDiffViewer
-                    oldValue={preview.current_content}
-                    newValue={editedPreviews[preview.layer] ?? preview.merged_content}
-                    splitView={false}
-                    useDarkTheme={theme === 'dark'}
-                    hideLineNumbers={false}
-                    showDiffOnly={true}
-                    compareMethod={DiffMethod.DIFF_TRIMMED_LINES}
-                    disableWordDiff={true}
-                    extraLinesSurroundingDiff={3}
-                  />
-                </div>
-              </div>
-            ))}
-          <div className={styles.actions}>
-            <button
-              className={styles.dismissButton}
-              onClick={() => setPhase('summary')}
-              disabled={applying}
-            >
-              Back
-            </button>
-            <button
-              className={styles.applyButton}
-              onClick={handleCommitAndPush}
-              disabled={applying}
-            >
-              {applying && <span className="spinner spinner--small" />}
-              {(config?.lore?.public_rule_mode || 'direct_push') === 'create_pr'
-                ? 'Create PR'
-                : 'Commit & Push'}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <>
+          )}
+
           {/* Approve All button */}
           {pendingCards.length >= 2 && (
             <div className={styles.actions} style={{ marginBottom: '1rem' }}>
@@ -638,13 +632,13 @@ export default function LorePage() {
                 );
               })}
             </div>
-          ) : (
+          ) : mergeReviews.length === 0 && mergingCount === 0 ? (
             <div className="empty-state">
               <p className="empty-state__description">
                 Nothing to review. New insights will appear here as agents work.
               </p>
             </div>
-          )}
+          ) : null}
         </>
       )}
 

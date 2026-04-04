@@ -1,30 +1,25 @@
-# View lore proposals and entries across repos
+# View lore page as a flat card wall
 
-A user with multiple repositories configured wants to review lore
-proposals and raw entries for each repo from a single page.
+A user navigates to the lore page to review agent learnings. The page
+shows a flat list of cards aggregated across all configured repos —
+there are no repo tabs or sub-tabs.
 
-They click the "Lore" link in the sidebar and land on a consolidated
-lore page. A tab bar at the top shows one tab per configured repo.
-The first repo's proposals and entry counts are shown by default.
+Each card shows the learning text. The page heading reads "Lore" with
+the subtitle "Schmux continual learning system".
 
-Clicking a different repo tab reloads the lore data for that repo.
-The proposals section and raw entry counts update accordingly.
-
-When only one repo is configured, the tab bar is hidden.
+When no pending proposals exist, an empty state message is shown.
 
 ## Preconditions
 
 - The daemon is running
-- At least two repositories are configured
+- At least one repository is configured
 
 ## Verifications
 
-- The sidebar shows a single "Lore" link (not one per repo)
-- Clicking "Lore" navigates to /lore (no repo name in URL)
+- The sidebar shows a "Lore" link
+- Clicking "Lore" navigates to /lore
 - The page shows a "Lore" heading
-- A repo tab bar is visible with one tab per configured repo
-- The first repo tab is active by default
-- The page shows a "Proposals" section
-- The page shows a "Raw Entries" toggle
-- Clicking a different repo tab changes the active tab styling
+- The page shows the subtitle "Schmux continual learning system"
+- There is no repo tab bar (no elements with data-testid="repo-tab")
 - GET /api/lore/{repoName}/proposals responds for each configured repo
+- When no pending proposals exist, the page shows "Nothing to review"

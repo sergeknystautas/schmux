@@ -576,6 +576,15 @@ func (s *Server) handleLoreApplyMerge(w http.ResponseWriter, r *http.Request) {
 				}
 
 				resultMap["commit_sha"] = commitSHA
+
+				// Clean up the workspace — its job is done after push
+				go func() {
+					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					defer cancel()
+					if err := s.workspace.DisposeForce(ctx, ws.ID); err != nil {
+						s.logger.Warn("failed to dispose lore workspace after push", "workspace", ws.ID, "err", err)
+					}
+				}()
 			} else {
 				// Spawn a shell session if the workspace doesn't already have one
 				hasSession := false
