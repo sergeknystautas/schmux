@@ -216,7 +216,9 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 	// Determine workspace path for the event file before inserting into the map,
 	// so we never create a dangling entry with an unclosed stopCh.
 	workspacePath := ""
+	wsVCS := ""
 	if ws, ok := m.state.GetWorkspace(sess.WorkspaceID); ok {
+		wsVCS = ws.VCS
 		if ws.RemotePath != "" {
 			workspacePath = ws.RemotePath
 		} else {
@@ -229,7 +231,7 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 		eventsLog.Warn("cannot start remote watcher: no workspace path", "session", sessionID)
 		return
 	}
-	eventsFilePath := filepath.Join(workspacePath, ".schmux", "events", sessionID+".jsonl")
+	eventsFilePath := filepath.Join(state.SchmuxDataDirForVCS(workspacePath, wsVCS), "events", sessionID+".jsonl")
 
 	stopCh := make(chan struct{})
 	m.remoteDetectors[sess.ID] = &remoteSignalMonitor{
@@ -432,6 +434,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, profileID, flavorStr, hostID,
 			Repo:         flavor.DisplayName,
 			Branch:       branch,
 			Path:         flavor.WorkspacePath,
+			VCS:          flavor.VCS,
 			RemoteHostID: host.ID,
 			RemotePath:   flavor.WorkspacePath,
 		}
@@ -449,7 +452,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, profileID, flavorStr, hostID,
 		"SCHMUX_ENABLED":      "1",
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": workspaceID,
-		"SCHMUX_EVENTS_FILE":  filepath.Join(flavor.WorkspacePath, ".schmux", "events", sessionID+".jsonl"),
+		"SCHMUX_EVENTS_FILE":  filepath.Join(state.SchmuxDataDirForVCS(flavor.WorkspacePath, flavor.VCS), "events", sessionID+".jsonl"),
 	})
 
 	// Build command with remote mode (uses inline content instead of local file paths)
@@ -535,12 +538,13 @@ func (m *Manager) SpawnRemote(ctx context.Context, profileID, flavorStr, hostID,
 					m.logger.Error("queued session: failed to save state", "session", sessionID, "err", err)
 				}
 				if updatedStatus == "running" {
-					// Ensure .schmux/events directory exists on remote host
+					// Ensure schmux events directory exists on remote host
 					qConn := m.remoteManager.GetConnection(host.ID)
 					if qConn != nil && qConn.IsConnected() {
 						mkCtx, mkCancel := context.WithTimeout(context.Background(), 5*time.Second)
-						if _, mkErr := qConn.RunCommand(mkCtx, flavor.WorkspacePath, "mkdir -p .schmux/events"); mkErr != nil {
-							m.logger.Warn("failed to create .schmux/events directory", "session", sessionID, "err", mkErr)
+						mkdirTarget := filepath.Join(state.SchmuxDataDirRelative(flavor.VCS), "events")
+						if _, mkErr := qConn.RunCommand(mkCtx, flavor.WorkspacePath, "mkdir -p "+mkdirTarget); mkErr != nil {
+							m.logger.Warn("failed to create schmux events directory", "session", sessionID, "err", mkErr)
 						}
 						mkCancel()
 
@@ -574,10 +578,11 @@ func (m *Manager) SpawnRemote(ctx context.Context, profileID, flavorStr, hostID,
 
 	// Connected - create immediately (existing code path)
 
-	// Ensure .schmux/events directory exists on remote host
+	// Ensure schmux events directory exists on remote host
 	mkdirCtx, mkdirCancel := context.WithTimeout(ctx, 5*time.Second)
-	if _, err := conn.RunCommand(mkdirCtx, flavor.WorkspacePath, "mkdir -p .schmux/events"); err != nil {
-		m.logger.Warn("failed to create .schmux/events directory on remote host", "err", err)
+	mkdirTarget := filepath.Join(state.SchmuxDataDirRelative(flavor.VCS), "events")
+	if _, err := conn.RunCommand(mkdirCtx, flavor.WorkspacePath, "mkdir -p "+mkdirTarget); err != nil {
+		m.logger.Warn("failed to create schmux events directory on remote host", "err", err)
 	}
 	mkdirCancel()
 
@@ -679,7 +684,7 @@ func (m *Manager) resolveWorkspace(ctx context.Context, opts SpawnOptions) (*sta
 // workspace's .schmux/attachments/ directory. Returns absolute file paths.
 // Individual decode/write failures are skipped (partial success is possible).
 func writeImageAttachments(workspacePath string, images []string) ([]string, error) {
-	dir := filepath.Join(workspacePath, ".schmux", "attachments")
+	dir := filepath.Join(state.SchmuxDataDir(workspacePath), "attachments")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create attachments directory: %w", err)
 	}
@@ -756,10 +761,10 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		}
 	}
 
-	// Ensure .schmux/events directory exists for event-based signaling
-	eventsDir := filepath.Join(w.Path, ".schmux", "events")
+	// Ensure schmux events directory exists for event-based signaling
+	eventsDir := filepath.Join(state.SchmuxDataDir(w.Path), "events")
 	if err := os.MkdirAll(eventsDir, 0755); err != nil {
-		m.logger.Warn("failed to create .schmux/events directory", "err", err)
+		m.logger.Warn("failed to create schmux events directory", "err", err)
 	}
 
 	// Write image attachments to workspace and append paths to prompt.
@@ -786,12 +791,12 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		"SCHMUX_ENABLED":      "1",
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": w.ID,
-		"SCHMUX_EVENTS_FILE":  filepath.Join(w.Path, ".schmux", "events", sessionID+".jsonl"),
+		"SCHMUX_EVENTS_FILE":  filepath.Join(state.SchmuxDataDir(w.Path), "events", sessionID+".jsonl"),
 	})
 
 	// Write initial spawn event with full prompt
 	if opts.Prompt != "" {
-		eventsFile := filepath.Join(w.Path, ".schmux", "events", sessionID+".jsonl")
+		eventsFile := filepath.Join(state.SchmuxDataDir(w.Path), "events", sessionID+".jsonl")
 		spawnEvt := events.StatusEvent{
 			Type:    "status",
 			State:   "working",
@@ -810,7 +815,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 
 	// Inject persona prompt if provided
 	if opts.PersonaPrompt != "" {
-		personaFilePath := filepath.Join(w.Path, ".schmux", fmt.Sprintf("persona-%s.md", sessionID))
+		personaFilePath := filepath.Join(state.SchmuxDataDir(w.Path), fmt.Sprintf("persona-%s.md", sessionID))
 		if err := os.WriteFile(personaFilePath, []byte(opts.PersonaPrompt), 0644); err != nil {
 			m.logger.Warn("failed to write persona file", "err", err)
 		} else {
@@ -902,10 +907,10 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 	// Create session ID
 	sessionID := fmt.Sprintf("%s-%s", w.ID, uuid.New().String()[:8])
 
-	// Ensure .schmux/events directory exists for event-based signaling
-	eventsDirCmd := filepath.Join(w.Path, ".schmux", "events")
+	// Ensure schmux events directory exists for event-based signaling
+	eventsDirCmd := filepath.Join(state.SchmuxDataDir(w.Path), "events")
 	if err := os.MkdirAll(eventsDirCmd, 0755); err != nil {
-		m.logger.Warn("failed to create .schmux/events directory", "err", err)
+		m.logger.Warn("failed to create schmux events directory", "err", err)
 	}
 
 	// Inject schmux signaling environment variables into the command
@@ -913,7 +918,7 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 		"SCHMUX_ENABLED":      "1",
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": w.ID,
-		"SCHMUX_EVENTS_FILE":  filepath.Join(w.Path, ".schmux", "events", sessionID+".jsonl"),
+		"SCHMUX_EVENTS_FILE":  filepath.Join(state.SchmuxDataDir(w.Path), "events", sessionID+".jsonl"),
 	}
 	commandWithEnv := fmt.Sprintf("%s %s", buildEnvPrefix(schmuxEnv), opts.Command)
 
@@ -1523,7 +1528,7 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 	// Build event file path from workspace path
 	var eventFilePath string
 	if ws, found := m.workspace.GetByID(sess.WorkspaceID); found && ws.Path != "" {
-		eventFilePath = filepath.Join(ws.Path, ".schmux", "events", sess.ID+".jsonl")
+		eventFilePath = filepath.Join(state.SchmuxDataDir(ws.Path), "events", sess.ID+".jsonl")
 	}
 
 	var outputCb func([]byte)

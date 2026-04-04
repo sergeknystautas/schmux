@@ -408,7 +408,7 @@ Contract (pre-2093ccf):
 - If multiple sessions are spawned and `nickname` is provided, nicknames are auto-suffixed globally:
   - `"<nickname> (1)"`, `"<nickname> (2)"`, ...
 - `persona_id` is optional. When set, the persona's system prompt is injected into the agent at spawn time (e.g., via `--append-system-prompt-file` for Claude). The persona ID is stored on the session and used to display persona badges in the dashboard.
-- `image_attachments` is optional. Array of base64-encoded PNG strings (max 5). Images are decoded and written to `{workspace}/.schmux/attachments/img-{uuid}.png`. Absolute file paths are appended to the prompt so the agent can reference them. Cannot be used with `resume`, `command`, or `remote_profile_id`.
+- `image_attachments` is optional. Array of base64-encoded PNG strings (max 5). Images are decoded and written to the workspace's schmux data directory (`{workspace}/.schmux/attachments/` for git, `{workspace}/.sl/schmux/attachments/` for sapling). Absolute file paths are appended to the prompt so the agent can reference them. Cannot be used with `resume`, `command`, or `remote_profile_id`.
 - `action_id` is optional. When set, usage is recorded against the matching spawn entry in the emergence store. When absent and a prompt exactly matches a pinned spawn entry's prompt, usage is recorded automatically.
 
 Resume mode (`resume: true`):

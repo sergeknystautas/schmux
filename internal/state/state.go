@@ -89,6 +89,35 @@ const (
 	WorkspaceStatusRecyclable   = "recyclable"
 )
 
+// SchmuxDataDir returns the schmux data directory within a workspace.
+// For sapling repos (.sl/ present), uses .sl/schmux/ to avoid working tree pollution.
+// For git repos, uses .schmux/ (hidden via .git/info/exclude).
+// Use this when VCS type is unknown and the path is local (can be stat'd).
+func SchmuxDataDir(workspacePath string) string {
+	if info, err := os.Stat(filepath.Join(workspacePath, ".sl")); err == nil && info.IsDir() {
+		return filepath.Join(workspacePath, ".sl", "schmux")
+	}
+	return filepath.Join(workspacePath, ".schmux")
+}
+
+// SchmuxDataDirForVCS returns the schmux data directory for a known VCS type.
+// Use for remote paths where filesystem probing isn't possible.
+func SchmuxDataDirForVCS(workspacePath, vcs string) string {
+	if vcs == "sapling" {
+		return filepath.Join(workspacePath, ".sl", "schmux")
+	}
+	return filepath.Join(workspacePath, ".schmux")
+}
+
+// SchmuxDataDirRelative returns the VCS-appropriate relative directory name
+// for schmux workspace data. Use for remote shell commands (e.g., mkdir -p).
+func SchmuxDataDirRelative(vcs string) string {
+	if vcs == "sapling" {
+		return filepath.Join(".sl", "schmux")
+	}
+	return ".schmux"
+}
+
 // Workspace represents a workspace directory state.
 // Multiple sessions can share the same workspace (multi-agent per directory).
 type Workspace struct {

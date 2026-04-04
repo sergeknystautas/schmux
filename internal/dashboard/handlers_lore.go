@@ -18,6 +18,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/schema"
 	"github.com/sergeknystautas/schmux/internal/session"
+	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
@@ -714,7 +715,7 @@ func (s *Server) handleLoreEntriesClear(w http.ResponseWriter, r *http.Request) 
 
 	cleared := 0
 	for _, ws := range s.getLoreWorkspaces(repoName) {
-		pattern := filepath.Join(ws.Path, ".schmux", "events", "*.jsonl")
+		pattern := filepath.Join(state.SchmuxDataDir(ws.Path), "events", "*.jsonl")
 		files, err := filepath.Glob(pattern)
 		if err != nil {
 			continue

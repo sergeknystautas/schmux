@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 type monitorEvent struct {
@@ -27,7 +28,7 @@ func (s *Server) handleEventsHistory(w http.ResponseWriter, r *http.Request) {
 
 	workspaces := s.state.GetWorkspaces()
 	for _, ws := range workspaces {
-		eventsDir := filepath.Join(ws.Path, ".schmux", "events")
+		eventsDir := filepath.Join(state.SchmuxDataDir(ws.Path), "events")
 		entries, err := os.ReadDir(eventsDir)
 		if err != nil {
 			continue
@@ -118,7 +119,7 @@ func (s *Server) handleGetSessionEvents(w http.ResponseWriter, r *http.Request) 
 			writeJSONError(w, "workspace not found", http.StatusNotFound)
 			return
 		}
-		eventsPath := fmt.Sprintf("%s/.schmux/events/%s.jsonl", ws.RemotePath, sessionID)
+		eventsPath := filepath.Join(state.SchmuxDataDirForVCS(ws.RemotePath, ws.VCS), "events", sessionID+".jsonl")
 		output, err := conn.RunCommand(r.Context(), ws.RemotePath, fmt.Sprintf("cat %s 2>/dev/null || true", eventsPath))
 		if err != nil {
 			writeJSONError(w, fmt.Sprintf("failed to read events: %v", err), http.StatusInternalServerError)
@@ -136,7 +137,7 @@ func (s *Server) handleGetSessionEvents(w http.ResponseWriter, r *http.Request) 
 			writeJSONError(w, "workspace not found", http.StatusNotFound)
 			return
 		}
-		eventsPath := filepath.Join(ws.Path, ".schmux", "events", sessionID+".jsonl")
+		eventsPath := filepath.Join(state.SchmuxDataDir(ws.Path), "events", sessionID+".jsonl")
 		data, err := os.ReadFile(eventsPath)
 		if err != nil {
 			if os.IsNotExist(err) {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/events"
+	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 // scratchpadMu serializes JSONL mutations to prevent read-then-append race conditions.
@@ -592,7 +593,7 @@ var loreEventTypes = map[string]bool{"failure": true, "reflection": true, "frict
 // It scans <workspacePath>/.schmux/events/*.jsonl for failure, reflection, friction events
 // and converts them to lore Entry values.
 func ReadEntriesFromEvents(workspacePath, workspaceID string, filter EntryFilter) ([]Entry, error) {
-	pattern := filepath.Join(workspacePath, ".schmux", "events", "*.jsonl")
+	pattern := filepath.Join(state.SchmuxDataDir(workspacePath), "events", "*.jsonl")
 	files, err := filepath.Glob(pattern)
 	if err != nil {
 		return nil, err

@@ -9,6 +9,7 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/events"
+	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 // promptInfo tracks deduplicated prompt occurrences.
@@ -24,7 +25,7 @@ func CollectPromptHistory(workspacePaths []string, maxResults int) []contracts.P
 	seen := make(map[string]*promptInfo)
 
 	for _, wsPath := range workspacePaths {
-		eventsDir := filepath.Join(wsPath, ".schmux", "events")
+		eventsDir := filepath.Join(state.SchmuxDataDir(wsPath), "events")
 		entries, err := os.ReadDir(eventsDir)
 		if err != nil {
 			continue // workspace may not have events yet
@@ -104,7 +105,7 @@ func CollectIntentSignals(workspacePaths []string) ([]IntentSignal, error) {
 
 	for _, wsPath := range workspacePaths {
 		wsName := filepath.Base(wsPath)
-		eventsDir := filepath.Join(wsPath, ".schmux", "events")
+		eventsDir := filepath.Join(state.SchmuxDataDir(wsPath), "events")
 		entries, err := os.ReadDir(eventsDir)
 		if err != nil {
 			continue

@@ -2057,3 +2057,53 @@ func TestWorkspaceStatusPersisted(t *testing.T) {
 		t.Errorf("expected running after roundtrip, got %s", w2.Status)
 	}
 }
+
+func TestSchmuxDataDir(t *testing.T) {
+	t.Run("git repo uses .schmux", func(t *testing.T) {
+		dir := t.TempDir()
+		// No .sl directory — treated as git
+		got := SchmuxDataDir(dir)
+		want := filepath.Join(dir, ".schmux")
+		if got != want {
+			t.Errorf("got %s, want %s", got, want)
+		}
+	})
+
+	t.Run("sapling repo uses .sl/schmux", func(t *testing.T) {
+		dir := t.TempDir()
+		os.MkdirAll(filepath.Join(dir, ".sl"), 0755)
+		got := SchmuxDataDir(dir)
+		want := filepath.Join(dir, ".sl", "schmux")
+		if got != want {
+			t.Errorf("got %s, want %s", got, want)
+		}
+	})
+}
+
+func TestSchmuxDataDirForVCS(t *testing.T) {
+	tests := []struct {
+		vcs  string
+		want string
+	}{
+		{"", ".schmux"},
+		{"git", ".schmux"},
+		{"git-worktree", ".schmux"},
+		{"sapling", filepath.Join(".sl", "schmux")},
+	}
+	for _, tt := range tests {
+		got := SchmuxDataDirForVCS("/ws", tt.vcs)
+		want := filepath.Join("/ws", tt.want)
+		if got != want {
+			t.Errorf("vcs=%q: got %s, want %s", tt.vcs, got, want)
+		}
+	}
+}
+
+func TestSchmuxDataDirRelative(t *testing.T) {
+	if got := SchmuxDataDirRelative("sapling"); got != filepath.Join(".sl", "schmux") {
+		t.Errorf("sapling: got %s", got)
+	}
+	if got := SchmuxDataDirRelative("git"); got != ".schmux" {
+		t.Errorf("git: got %s", got)
+	}
+}
