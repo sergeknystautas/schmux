@@ -21,6 +21,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/remote"
+	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
 	"github.com/sergeknystautas/schmux/internal/tmux"
@@ -62,6 +63,24 @@ type remoteSignalMonitor struct {
 	watcherWindowID    string
 	watcherPaneID      string
 	stopCh             chan struct{}
+}
+
+// eventsWindowConn is the subset of remote.Connection methods used for
+// creating and cleaning up events watcher windows on reconnection.
+type eventsWindowConn interface {
+	CreateSession(ctx context.Context, name, workdir, command string) (windowID, paneID string, err error)
+	FindSessionByName(ctx context.Context, name string) (*controlmode.WindowInfo, error)
+	KillSession(ctx context.Context, windowID string) error
+}
+
+// ensureEventsWindow creates an events watcher window on the remote host.
+// Before creating, it kills any stale window with the same name left over
+// from a previous connection cycle to prevent tmux window leaks.
+func ensureEventsWindow(ctx context.Context, conn eventsWindowConn, windowName, workdir string) (windowID, paneID string, err error) {
+	if existing, findErr := conn.FindSessionByName(ctx, windowName); findErr == nil && existing != nil {
+		conn.KillSession(ctx, existing.WindowID)
+	}
+	return conn.CreateSession(ctx, windowName, workdir, "")
 }
 
 // ResolvedTarget is a resolved run target with command and env info.
@@ -252,7 +271,7 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 			windowName := "schmux-events-" + shortID
 
 			ctx := context.Background()
-			windowID, paneID, err := conn.CreateSession(ctx, windowName, workspacePath, "")
+			windowID, paneID, err := ensureEventsWindow(ctx, conn, windowName, workspacePath)
 			if err != nil {
 				eventsLog := logging.Sub(m.logger, "events")
 				eventsLog.Error("failed to create watcher window", "session", sessionID, "err", err)

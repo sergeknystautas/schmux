@@ -944,6 +944,15 @@ func (c *Connection) KillSession(ctx context.Context, windowID string) error {
 	return c.client.KillWindow(ctx, windowID)
 }
 
+// FindSessionByName finds a session (tmux window) by name on the remote host.
+// Returns nil if no window with that name exists.
+func (c *Connection) FindSessionByName(ctx context.Context, name string) (*controlmode.WindowInfo, error) {
+	if !c.IsConnected() {
+		return nil, fmt.Errorf("not connected")
+	}
+	return c.client.FindWindowByName(ctx, name)
+}
+
 // SendKeys sends keys to a pane on the remote host.
 func (c *Connection) SendKeys(ctx context.Context, paneID, keys string) (controlmode.SendKeysTimings, error) {
 	if !c.IsConnected() {

@@ -3390,7 +3390,7 @@ Errors:
 
 ### POST /api/remote/hosts/{id}/reconnect
 
-Starts reconnection to an existing remote host asynchronously. Returns a provisioning session ID for interactive auth via WebSocket.
+Starts reconnection to an existing remote host asynchronously. Returns a provisioning session ID for interactive auth via WebSocket. After reconnection, stale events watcher windows are automatically cleaned up before new ones are created.
 
 Response (202):
 

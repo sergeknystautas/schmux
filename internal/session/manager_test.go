@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 	"github.com/sergeknystautas/schmux/pkg/shellutil"
@@ -1435,5 +1436,92 @@ func TestStop_CleansUpAllTrackers(t *testing.T) {
 
 	if remaining != 0 {
 		t.Errorf("expected 0 trackers after Stop, got %d", remaining)
+	}
+}
+
+// --- ensureEventsWindow tests ---
+
+// mockEventsConn records calls to CreateSession, FindSessionByName, and KillSession.
+type mockEventsConn struct {
+	existingWindow *controlmode.WindowInfo // returned by FindSessionByName
+	createWindowID string
+	createPaneID   string
+	calls          []string // records call order: "find", "kill", "create"
+	killedWindowID string
+}
+
+func (m *mockEventsConn) FindSessionByName(_ context.Context, _ string) (*controlmode.WindowInfo, error) {
+	m.calls = append(m.calls, "find")
+	return m.existingWindow, nil
+}
+
+func (m *mockEventsConn) KillSession(_ context.Context, windowID string) error {
+	m.calls = append(m.calls, "kill")
+	m.killedWindowID = windowID
+	return nil
+}
+
+func (m *mockEventsConn) CreateSession(_ context.Context, _, _, _ string) (string, string, error) {
+	m.calls = append(m.calls, "create")
+	return m.createWindowID, m.createPaneID, nil
+}
+
+func TestEnsureEventsWindow_KillsStaleWindow(t *testing.T) {
+	mock := &mockEventsConn{
+		existingWindow: &controlmode.WindowInfo{
+			WindowID:   "@5",
+			WindowName: "schmux-events-abc12345",
+			PaneID:     "%10",
+		},
+		createWindowID: "@9",
+		createPaneID:   "%15",
+	}
+
+	windowID, paneID, err := ensureEventsWindow(context.Background(), mock, "schmux-events-abc12345", "/tmp/ws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if windowID != "@9" || paneID != "%15" {
+		t.Errorf("got window=%s pane=%s, want @9 %%15", windowID, paneID)
+	}
+
+	// Must kill stale window before creating the new one
+	if len(mock.calls) < 3 {
+		t.Fatalf("expected at least 3 calls (find, kill, create), got %v", mock.calls)
+	}
+	if mock.calls[0] != "find" {
+		t.Errorf("first call should be find, got %s", mock.calls[0])
+	}
+	if mock.calls[1] != "kill" {
+		t.Errorf("second call should be kill, got %s", mock.calls[1])
+	}
+	if mock.killedWindowID != "@5" {
+		t.Errorf("killed window %s, want @5", mock.killedWindowID)
+	}
+	if mock.calls[2] != "create" {
+		t.Errorf("third call should be create, got %s", mock.calls[2])
+	}
+}
+
+func TestEnsureEventsWindow_NoStaleWindow(t *testing.T) {
+	mock := &mockEventsConn{
+		existingWindow: nil, // no stale window
+		createWindowID: "@3",
+		createPaneID:   "%7",
+	}
+
+	windowID, paneID, err := ensureEventsWindow(context.Background(), mock, "schmux-events-abc12345", "/tmp/ws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if windowID != "@3" || paneID != "%7" {
+		t.Errorf("got window=%s pane=%s, want @3 %%7", windowID, paneID)
+	}
+
+	// Should NOT call kill when no stale window exists
+	for _, call := range mock.calls {
+		if call == "kill" {
+			t.Fatal("KillSession should not be called when no stale window exists")
+		}
 	}
 }
