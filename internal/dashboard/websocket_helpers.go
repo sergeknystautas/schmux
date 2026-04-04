@@ -81,7 +81,7 @@ type wsReader interface {
 
 // waitForTrackerAttach busy-waits up to the given timeout for the session
 // tracker to attach to control mode.
-func waitForTrackerAttach(tracker *session.SessionTracker, timeout time.Duration) {
+func waitForTrackerAttach(tracker *session.SessionRuntime, timeout time.Duration) {
 	deadline := time.Now().Add(timeout)
 	for !tracker.IsAttached() && time.Now().Before(deadline) {
 		time.Sleep(25 * time.Millisecond)

@@ -102,11 +102,11 @@ If an item already has `disposing` status when a dispose request arrives, the ha
 
 ## ControlSource Interface
 
-`ControlSource` (`internal/session/controlsource.go`) is the input boundary for `SessionTracker`. It decouples the tracker from transport details so local and remote sessions share the exact same downstream pipeline: OutputLog, sequencing, fan-out, gap detection, WebSocket delivery, and recording.
+`ControlSource` (`internal/session/controlsource.go`) is the input boundary for `SessionRuntime`. It decouples the runtime from transport details so local and remote sessions share the exact same downstream pipeline: OutputLog, sequencing, fan-out, gap detection, WebSocket delivery, and recording.
 
 ### Why it exists
 
-Before ControlSource, local and remote sessions had completely separate streaming paths. Local sessions went through SessionTracker (with OutputLog, sequencing, gap detection, diagnostics) while remote sessions bypassed it entirely. Any feature built on the tracker silently did not work for remote sessions.
+Before ControlSource, local and remote sessions had completely separate streaming paths. Local sessions went through SessionRuntime (with OutputLog, sequencing, gap detection, diagnostics) while remote sessions bypassed it entirely. Any feature built on the runtime silently did not work for remote sessions.
 
 ### Interface
 
@@ -131,7 +131,7 @@ The source emits `SourceEvent` values with a `Type` discriminator: `SourceOutput
 | `LocalSource`  | `internal/session/localsource.go`  | tmux control mode (with reconnection, health probes) |
 | `RemoteSource` | `internal/session/remotesource.go` | `remote.Connection` (SSH tunnel)                     |
 
-`SessionTracker` takes a `ControlSource` at construction via `NewSessionTracker()`. Everything downstream is identical regardless of source type.
+`SessionRuntime` takes a `ControlSource` at construction via `NewSessionRuntime()`. Everything downstream is identical regardless of source type.
 
 ---
 
@@ -520,7 +520,7 @@ Session state is stored at `~/.schmux/state.json` and managed automatically:
 - **Conversation state is not persisted by schmux.** The `Session` struct stores ID, workspace, target, tmux session name, etc., but nothing about the agent's conversation state. Each agent stores its own conversation data (e.g., Claude Code in its data directory). Resume (`/resume`) simply invokes the agent's native resume command.
 - **Agent-specific signaling is a session-level concern.** `SignalingInstructions` and `AgentInstructions` are written per-session in `session/manager.go`, not as workspace-level setup. They configure prompt injection for the specific agent being spawned.
 - **No specific conversation resume.** `/resume` resumes the most recent conversation in the workspace directory, not a specific past conversation. No conversation IDs are tracked.
-- **ControlSource unifies local and remote streaming.** SessionTracker consumes a pluggable `ControlSource` interface rather than hardcoding transport logic. Any feature built on the tracker (OutputLog, sequencing, gap detection, recording, diagnostics) works identically for local and remote sessions.
+- **ControlSource unifies local and remote streaming.** SessionRuntime consumes a pluggable `ControlSource` interface rather than hardcoding transport logic. Any feature built on the runtime (OutputLog, sequencing, gap detection, recording, diagnostics) works identically for local and remote sessions.
 - **Disposing status is set in the manager, not the handler.** This ensures all disposal callers (HTTP, CLI, automation) get consistent status transitions. Handlers only handle broadcasting.
 
 ---
@@ -530,7 +530,7 @@ Session state is stored at `~/.schmux/state.json` and managed automatically:
 - **To add a new spawn mode**: add a `ToolMode` constant in `internal/detect/commands.go`, handle it in each tool adapter's `BuildCommandParts()`, and add the UI mode in `SpawnPage.tsx`.
 - **To add a new agent**: create an adapter file `internal/detect/adapter_<name>.go` implementing the `ToolAdapter` interface, register it via `init()`.
 - **To change session lifecycle states**: update the status constants in `internal/state/state.go`, handle the new status in the session manager's `Dispose()` method, and update the sidebar CSS/logic.
-- **To add a new ControlSource**: implement the `ControlSource` interface in `internal/session/`, pass the new source to `NewSessionTracker()`. No changes to the tracker, OutputLog, fan-out, or WebSocket handlers are needed.
+- **To add a new ControlSource**: implement the `ControlSource` interface in `internal/session/`, pass the new source to `NewSessionRuntime()`. No changes to the runtime, OutputLog, fan-out, or WebSocket handlers are needed.
 
 ## Gotchas
 

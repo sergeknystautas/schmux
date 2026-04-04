@@ -1586,7 +1586,7 @@ func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *
 }
 
 // askNudgeNikForSession captures the session output and asks NudgeNik for consultation.
-// Captures via SessionTracker so both local and remote sessions are handled correctly.
+// Captures via SessionRuntime so both local and remote sessions are handled correctly.
 func askNudgeNikForSession(ctx context.Context, cfg *config.Config, sess state.Session, sm *session.Manager, logger *log.Logger) string {
 	// Capture via tracker (handles local and remote sessions via ControlSource)
 	tracker, err := sm.GetTracker(sess.ID)

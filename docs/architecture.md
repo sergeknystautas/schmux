@@ -18,7 +18,7 @@ schmux is a multi-agent AI orchestration system that runs multiple AI coding age
 │  Session Manager (internal/session/manager.go)           │
 │  - Spawn/dispose tmux sessions                           │
 │  - ControlSource abstraction (local + remote streaming)  │
-│  - SessionTracker: output log, fan-out, event routing    │
+│  - SessionRuntime: output log, fan-out, event routing    │
 │                                                          │
 │  Workspace Manager (internal/workspace/manager.go)       │
 │  - Clone/checkout git repos (worktrees or full clones)   │
@@ -139,7 +139,7 @@ type ControlSource interface {
 - `LocalSource` -- attaches to local tmux via control mode
 - `RemoteSource` -- wraps a `remote.Connection` for SSH sessions
 
-`SessionTracker` is source-agnostic: it drains `Events()`, appends to `OutputLog`, and fans out to WebSocket subscribers. Adding a new session type requires only a new `ControlSource` implementation.
+`SessionRuntime` is source-agnostic: it drains `Events()`, appends to `OutputLog`, and fans out to WebSocket subscribers. Adding a new session type requires only a new `ControlSource` implementation.
 
 ## tmux package
 
@@ -176,7 +176,7 @@ POST /api/spawn
   → Workspace manager: create workspace (worktree add, overlay copy)
   → Ensurer: install hooks, git exclude, lore instructions
   → tmux.CreateSession(ctx, name, dir, command)
-  → Session manager: start SessionTracker with ControlSource
+  → Session manager: start SessionRuntime with ControlSource
   → Events watcher: monitor agent event files
   → WebSocket: stream output to dashboard
 ```
@@ -190,7 +190,7 @@ POST /api/spawn
 ## Design patterns
 
 - **Free functions for tmux** -- no interface, package-level functions with `context.Context`
-- **ControlSource for pluggable streaming** -- SessionTracker is source-agnostic
+- **ControlSource for pluggable streaming** -- SessionRuntime is source-agnostic
 - **Manager pattern** -- subsystems created in `Daemon.Run()`, wired via setters, started with shutdown context
 - **Errors returned, not panicked** -- graceful degradation when optional features are unavailable
 - **Per-workspace locking** -- coordinates sync operations vs. git status refreshes

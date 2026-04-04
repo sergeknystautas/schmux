@@ -255,7 +255,7 @@ type remoteAuthState struct {
 type linearSyncState struct {
 	linearSyncResolveConflictStates   map[string]*LinearSyncResolveConflictState
 	linearSyncResolveConflictStatesMu sync.RWMutex
-	crTrackers                        map[string]*session.SessionTracker
+	crTrackers                        map[string]*session.SessionRuntime
 	crTrackersMu                      sync.RWMutex
 }
 
@@ -316,7 +316,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		},
 		linearSyncState: linearSyncState{
 			linearSyncResolveConflictStates: make(map[string]*LinearSyncResolveConflictState),
-			crTrackers:                      make(map[string]*session.SessionTracker),
+			crTrackers:                      make(map[string]*session.SessionRuntime),
 		},
 	}
 	s.dashboardFS = dashboardassets.FS()
@@ -1816,13 +1816,13 @@ func extractIPFromAddr(remoteAddr string) string {
 	return remoteAddr
 }
 
-func (s *Server) setCRTracker(tmuxName string, tracker *session.SessionTracker) {
+func (s *Server) setCRTracker(tmuxName string, tracker *session.SessionRuntime) {
 	s.crTrackersMu.Lock()
 	defer s.crTrackersMu.Unlock()
 	s.crTrackers[tmuxName] = tracker
 }
 
-func (s *Server) getCRTracker(tmuxName string) *session.SessionTracker {
+func (s *Server) getCRTracker(tmuxName string) *session.SessionRuntime {
 	s.crTrackersMu.RLock()
 	defer s.crTrackersMu.RUnlock()
 	return s.crTrackers[tmuxName]
