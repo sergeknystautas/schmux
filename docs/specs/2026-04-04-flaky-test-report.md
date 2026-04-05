@@ -63,19 +63,22 @@ Results from `./test.sh --scenarios --repeat 5`:
 
 ## Root Cause Clusters
 
-### 1. Terminal fidelity timing races (10 tests, genuinely flaky)
+### 1. Terminal fidelity — INVESTIGATED, partially fixed
 
-**Tests:** `terminal-fidelity.spec.ts` subtests — scrollback reconnect (67%), build log then TUI (40%), erase in line (40%), scroll region (33%), reconnect mid-stream (33%), scrollback bulk output (20-33%), alternate screen roundtrip (25%), ansi colors (25%), utf8 box drawing (20%).
+**Fixes applied (commit 192636f0d):** drain writeBuffer before terminal.reset(), poll xterm.js buffer for sentinel instead of separate WebSocket, add afterAll session disposal. These fixed erase-in-line (40%→5%), reconnect-mid-stream (33%→stable), ansi-colors (25%→stable).
 
-**Symptom:** Terminal content assertions fire before tmux output has fully rendered in xterm.js.
+**Diagnostic instrumentation added (commit 3d0ff3ee7):** On assertion failure, writes detailed diagnostic files to `/tmp/terminal-diagnostics/` including convergence log (STUCK vs CONVERGING), stream state, and full tmux/xterm captures at first and last retry.
 
-**Root cause (hypothesis — needs code investigation):** Tests send terminal commands and immediately assert on content. The pipeline is: tmux capture -> WebSocket -> xterm.js render. Any delay in this chain causes a snapshot mismatch.
+**Root cause for scrollback-reconnect (67-90% failure): tmux pane size mismatch.**
+Diagnostic data shows STUCK pattern (25 rows differ from retry 0 through 150, never converges). Content is byte-for-byte identical but shifted by 1 row. After `page.reload()`, xterm.js fits to 56 rows and sends resize, but the tmux pane remains at 57 rows. `resize-window -y 56` sets the window height but the pane height stays 57 (likely due to tmux status bar: window=57 → status_bar=1 → pane=56, but the initial pane was created at 57 before status bar existed). The bootstrap `CaptureLastLines(5000)` captures 57 lines → xterm.js (56 rows) puts 1 line into scrollback → `baseY: 1` → viewport offset.
 
-**Proposed fix:**
+**Attempted fixes that didn't work:**
+- Visible-pane capture (`CapturePane`) instead of `CaptureLastLines`: tmux pane is still 57 rows, so visible capture returns 57 lines too
+- Client-side `terminal.clear()` after bootstrap write: async timing — clear runs but baseY doesn't update in time
+- Client-side CSI 3J after bootstrap: clears the overflow line but also removes the first visible content line
+- Trimming bootstrap to N rows: breaks ANSI escape sequences that span across lines
 
-- Replace fixed `waitForTimeout()` with polling assertions that retry until content matches (Playwright's `expect(locator).toContainText()` with auto-retry, or a custom `waitForTerminalContent()` helper).
-- Add a "content settled" helper that waits for terminal content to stop changing for N ms before snapshotting.
-- For scrollback tests, wait for the xterm.js buffer to reach the expected line count.
+**Next steps to fix:** The underlying issue is that `resize-window` doesn't resize the pane to the requested height. Need to investigate whether tmux's `resize-pane` command or disabling the status bar (`set -g status off`) in session creation resolves the 1-row offset.
 
 ### 2. UI interaction / page readiness races (genuinely flaky)
 
