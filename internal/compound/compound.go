@@ -33,18 +33,20 @@ type Compounder struct {
 	manifestUpdate ManifestUpdateFunc
 	logger         *log.Logger
 
-	workspaces map[string]*workspaceInfo // workspaceID → info
-	mu         sync.RWMutex
+	workspaces       map[string]*workspaceInfo     // workspaceID → info
+	reconcileCancels map[string]context.CancelFunc // workspaceID → cancel func for background reconcile
+	mu               sync.RWMutex
 }
 
 // NewCompounder creates a new Compounder.
 func NewCompounder(debounceMs int, suppressionTTL time.Duration, executor LLMExecutor, propagate PropagateFunc, manifestUpdate ManifestUpdateFunc, logger *log.Logger) (*Compounder, error) {
 	c := &Compounder{
-		executor:       executor,
-		propagate:      propagate,
-		manifestUpdate: manifestUpdate,
-		logger:         logger,
-		workspaces:     make(map[string]*workspaceInfo),
+		executor:         executor,
+		propagate:        propagate,
+		manifestUpdate:   manifestUpdate,
+		logger:           logger,
+		workspaces:       make(map[string]*workspaceInfo),
+		reconcileCancels: make(map[string]context.CancelFunc),
 	}
 
 	watcher, err := NewWatcher(debounceMs, suppressionTTL, c.onFileChange, logger)
@@ -80,12 +82,41 @@ func (c *Compounder) AddWorkspace(workspaceID, workspacePath, overlayDir, repoUR
 	}
 }
 
-// RemoveWorkspace stops watching a workspace.
+// RemoveWorkspace stops watching a workspace. This is the hard safety gate:
+// after it returns, no watches, debounce timers, or reconcile cancels exist
+// for this workspace. Idempotent — safe to call on an already-removed workspace.
 func (c *Compounder) RemoveWorkspace(workspaceID string) {
 	c.watcher.RemoveWorkspace(workspaceID)
 	c.mu.Lock()
 	delete(c.workspaces, workspaceID)
+	if cancel, ok := c.reconcileCancels[workspaceID]; ok {
+		cancel()
+		delete(c.reconcileCancels, workspaceID)
+	}
 	c.mu.Unlock()
+}
+
+// SetReconcileCancel stores a cancel function for a workspace's background reconcile goroutine.
+// Calling cancel() is idempotent per the Go spec — safe to call from both CancelReconcile
+// and the goroutine's defer.
+func (c *Compounder) SetReconcileCancel(workspaceID string, cancel context.CancelFunc) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.reconcileCancels[workspaceID] = cancel
+}
+
+// CancelReconcile cancels any in-flight background reconcile for the workspace and removes
+// the cancel func. This is best-effort — with few overlay files, the reconcile may complete
+// before the cancellation is observed. The real safety guarantee is RemoveWorkspace, which
+// unconditionally stops all watches and removes the workspace from the map.
+func (c *Compounder) CancelReconcile(workspaceID string) {
+	c.mu.Lock()
+	cancel := c.reconcileCancels[workspaceID]
+	delete(c.reconcileCancels, workspaceID)
+	c.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // Start begins the file watching event loop.
@@ -137,6 +168,12 @@ func (c *Compounder) onFileChange(workspaceID, relPath string) {
 
 // processFileChange handles a file change with a context for cancellation/timeout support.
 func (c *Compounder) processFileChange(ctx context.Context, workspaceID, relPath string) {
+	// Early exit if context is cancelled (e.g., workspace being disposed).
+	// This provides finer-grained cancellation than the between-files check in Reconcile.
+	if ctx.Err() != nil {
+		return
+	}
+
 	// Validate relPath to prevent path traversal
 	if err := ValidateRelPath(relPath); err != nil {
 		if c.logger != nil {

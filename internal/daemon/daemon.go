@@ -906,6 +906,11 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 				if w.ID == sourceWorkspaceID {
 					continue
 				}
+				// Skip workspaces that are being disposed or are recyclable —
+				// writing files into a workspace that is being torn down is pointless.
+				if w.Status == state.WorkspaceStatusDisposing || w.Status == state.WorkspaceStatusRecyclable {
+					continue
+				}
 				if !activeWorkspaces[w.ID] {
 					continue
 				}
@@ -1006,10 +1011,17 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 				compoundGenMu.Lock()
 				gen := compoundGen[workspaceID]
 				compoundGenMu.Unlock()
+
+				ctx, cancel := context.WithCancel(context.Background())
+				compounder.SetReconcileCancel(workspaceID, cancel)
+
 				go func() {
-					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-					defer cancel()
-					compounder.Reconcile(ctx, workspaceID)
+					defer cancel() // clean up context resources when goroutine exits naturally
+
+					reconcileCtx, reconcileCancel := context.WithTimeout(ctx, 2*time.Minute)
+					defer reconcileCancel()
+
+					compounder.Reconcile(reconcileCtx, workspaceID)
 					compoundGenMu.Lock()
 					stale := compoundGen[workspaceID] != gen
 					compoundGenMu.Unlock()
@@ -1023,15 +1035,20 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		})
 
 		wm.SetCompoundReconcile(func(workspaceID string) {
+			// Cancel any in-flight background reconcile from session dispose.
+			// Best-effort: with few overlay files the goroutine may have already finished.
+			// The real safety guarantee is RemoveWorkspace below.
+			compounder.CancelReconcile(workspaceID)
+
+			// Run the authoritative reconcile synchronously.
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
 			compounder.Reconcile(ctx, workspaceID)
-			compoundGenMu.Lock()
-			stale := compoundGen[workspaceID] != 0
-			compoundGenMu.Unlock()
-			if !stale {
-				compounder.RemoveWorkspace(workspaceID)
-			}
+
+			// Unconditionally remove workspace from the compounder.
+			// This stops all watches and cancels debounce timers BEFORE
+			// dispose() proceeds to delete files. This is the hard safety gate.
+			compounder.RemoveWorkspace(workspaceID)
 		})
 
 		// Start watches for existing active workspaces
