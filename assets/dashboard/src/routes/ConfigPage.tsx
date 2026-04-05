@@ -704,8 +704,12 @@ export default function ConfigPage() {
                 create_repo_base: state.saplingCmdCreateRepoBase || undefined,
               }
             : undefined,
-        tmux_binary: state.tmuxBinary || undefined,
-        tmux_socket_name: state.tmuxSocketName || undefined,
+        tmux_binary:
+          state.tmuxBinary !== state.originalConfig?.tmuxBinary ? state.tmuxBinary : undefined,
+        tmux_socket_name:
+          state.tmuxSocketName !== state.originalConfig?.tmuxSocketName
+            ? state.tmuxSocketName
+            : undefined,
         local_echo_remote: state.localEchoRemote,
       };
 
