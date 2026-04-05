@@ -101,6 +101,7 @@ type Config struct {
 	BuiltInSkills              map[string]bool             `json:"built_in_skills,omitempty"`
 	TmuxBinary                 string                      `json:"tmux_binary,omitempty"`
 	RecycleWorkspaces          bool                        `json:"recycle_workspaces,omitempty"`
+	LocalEchoRemote            bool                        `json:"local_echo_remote,omitempty"`
 	Timelapse                  *TimelapseConfig            `json:"timelapse,omitempty"`
 
 	// Telemetry settings
@@ -1694,6 +1695,7 @@ func (c *Config) Reload() error {
 	c.WorktreeBasePath = newCfg.WorktreeBasePath
 	c.SourceCodeManagement = newCfg.SourceCodeManagement
 	c.RecycleWorkspaces = newCfg.RecycleWorkspaces
+	c.LocalEchoRemote = newCfg.LocalEchoRemote
 	c.Repos = newCfg.Repos
 	c.RunTargets = newCfg.RunTargets
 	c.QuickLaunch = newCfg.QuickLaunch

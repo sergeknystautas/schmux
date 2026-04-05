@@ -151,6 +151,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		},
 		TmuxBinary:        s.config.TmuxBinary,
 		RecycleWorkspaces: s.config.RecycleWorkspaces,
+		LocalEchoRemote:   s.config.LocalEchoRemote,
 		SaplingCommands: func() *contracts.SaplingCommandsUpdate {
 			sc := s.config.SaplingCommands
 			if sc.CreateWorkspace == "" && sc.RemoveWorkspace == "" && sc.CheckRepoBase == "" && sc.CreateRepoBase == "" {
@@ -739,6 +740,10 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 
 	if req.RecycleWorkspaces != nil {
 		cfg.RecycleWorkspaces = *req.RecycleWorkspaces
+	}
+
+	if req.LocalEchoRemote != nil {
+		cfg.LocalEchoRemote = *req.LocalEchoRemote
 	}
 
 	warnings, err := cfg.ValidateForSave()

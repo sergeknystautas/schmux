@@ -127,6 +127,16 @@ export default function SessionDetailPage() {
   const remoteDisconnected =
     isRemoteSession && remoteHostStatus !== 'connected' && remoteHostStatus !== undefined;
 
+  // Auto-enable local echo for remote sessions when configured
+  useEffect(() => {
+    if (isRemoteSession && config.local_echo_remote) {
+      const key = `schmux:localEcho:${sessionId}`;
+      if (window.localStorage.getItem(key) === null) {
+        setLocalEcho(true);
+      }
+    }
+  }, [isRemoteSession, config.local_echo_remote, sessionId, setLocalEcho]);
+
   // Remember the workspace_id so we can filter after dispose
   useEffect(() => {
     if (sessionData?.workspace_id) {

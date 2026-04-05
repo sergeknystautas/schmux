@@ -901,6 +901,7 @@ Response:
   "workspace_path": "/path",
   "source_code_management": "git-worktree",
   "recycle_workspaces": false,
+  "local_echo_remote": false,
   "repos": [{ "name": "repo", "url": "https://...", "vcs": "sapling" }],
   "run_targets": [{ "name": "target", "type": "promptable", "command": "...", "source": "user" }],
   "quick_launch": [
@@ -1030,6 +1031,7 @@ Request:
   "workspace_path": "/path",
   "source_code_management": "git-worktree",
   "recycle_workspaces": false,
+  "local_echo_remote": false,
   "repos": [{ "name": "repo", "url": "https://...", "vcs": "sapling" }],
   "run_targets": [{ "name": "target", "type": "promptable", "command": "...", "source": "user" }],
   "quick_launch": [

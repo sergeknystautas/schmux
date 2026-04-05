@@ -178,6 +178,7 @@ type ConfigResponse struct {
 	SaplingCommands            *SaplingCommandsUpdate `json:"sapling_commands,omitempty"`
 	TmuxBinary                 string                 `json:"tmux_binary,omitempty"`
 	RecycleWorkspaces          bool                   `json:"recycle_workspaces,omitempty"`
+	LocalEchoRemote            bool                   `json:"local_echo_remote,omitempty"`
 	SystemCapabilities         SystemCapabilities     `json:"system_capabilities"`
 	NeedsRestart               bool                   `json:"needs_restart"`
 	DashboardSXStatus          *DashboardSXStatus     `json:"dashboard_sx_status,omitempty"`
@@ -318,6 +319,7 @@ type ConfigUpdateRequest struct {
 	SaplingCommands            *SaplingCommandsUpdate      `json:"sapling_commands,omitempty"`
 	TmuxBinary                 *string                     `json:"tmux_binary,omitempty"`
 	RecycleWorkspaces          *bool                       `json:"recycle_workspaces,omitempty"`
+	LocalEchoRemote            *bool                       `json:"local_echo_remote,omitempty"`
 }
 
 // DesyncUpdate represents partial desync diagnostic config updates.

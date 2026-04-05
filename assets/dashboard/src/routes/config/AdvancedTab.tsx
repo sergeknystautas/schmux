@@ -28,6 +28,7 @@ type AdvancedTabProps = {
   xtermQueryTimeout: number;
   xtermOperationTimeout: number;
   xtermUseWebGL: boolean;
+  localEchoRemote: boolean;
   nudgenikTargetMissing: boolean;
   branchSuggestTargetMissing: boolean;
   conflictResolveTargetMissing: boolean;
@@ -71,6 +72,7 @@ export default function AdvancedTab({
   xtermQueryTimeout,
   xtermOperationTimeout,
   xtermUseWebGL,
+  localEchoRemote,
   nudgenikTargetMissing,
   branchSuggestTargetMissing,
   conflictResolveTargetMissing,
@@ -596,6 +598,21 @@ export default function AdvancedTab({
             <p className="form-group__hint">
               Uses GPU-accelerated WebGL rendering for the terminal. Disable to fall back to the
               canvas renderer if you experience visual glitches.
+            </p>
+          </div>
+
+          <div className="form-group">
+            <label className="flex-row gap-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={localEchoRemote}
+                onChange={(e) => setField('localEchoRemote', e.target.checked)}
+              />
+              <span>Enable local echo for remote sessions</span>
+            </label>
+            <p className="form-group__hint">
+              Automatically enables local echo (native typing) when opening a remote session,
+              reducing perceived input latency. You can still toggle it per-session.
             </p>
           </div>
         </div>

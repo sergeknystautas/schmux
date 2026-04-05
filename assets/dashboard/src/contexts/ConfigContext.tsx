@@ -114,6 +114,7 @@ const DEFAULT_CONFIG: ConfigResponse = {
       command: '',
     },
   },
+  local_echo_remote: false,
   system_capabilities: {
     iterm2_available: false,
   },

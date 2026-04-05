@@ -215,6 +215,7 @@ export default function ConfigPage() {
             saplingCmdRemoveWorkspace: data.sapling_commands?.remove_workspace || '',
             saplingCmdCheckRepoBase: data.sapling_commands?.check_repo_base || '',
             saplingCmdCreateRepoBase: data.sapling_commands?.create_repo_base || '',
+            localEchoRemote: data.local_echo_remote || false,
             tmuxBinary: data.tmux_binary || '',
             modelCatalog: data.models || [],
             runners: data.runners || {},
@@ -299,6 +300,7 @@ export default function ConfigPage() {
             saplingCmdRemoveWorkspace: data.sapling_commands?.remove_workspace || '',
             saplingCmdCheckRepoBase: data.sapling_commands?.check_repo_base || '',
             saplingCmdCreateRepoBase: data.sapling_commands?.create_repo_base || '',
+            localEchoRemote: data.local_echo_remote || false,
             tmuxBinary: data.tmux_binary || '',
           };
           dispatch({ type: 'SET_ORIGINAL', config: originalConfig });
@@ -701,6 +703,7 @@ export default function ConfigPage() {
               }
             : undefined,
         tmux_binary: state.tmuxBinary || undefined,
+        local_echo_remote: state.localEchoRemote,
       };
 
       const result = await updateConfig(updateRequest);
@@ -1506,6 +1509,7 @@ export default function ConfigPage() {
               xtermQueryTimeout={state.xtermQueryTimeout}
               xtermOperationTimeout={state.xtermOperationTimeout}
               xtermUseWebGL={state.xtermUseWebGL}
+              localEchoRemote={state.localEchoRemote}
               nudgenikTargetMissing={nudgenikTargetMissing}
               branchSuggestTargetMissing={branchSuggestTargetMissing}
               conflictResolveTargetMissing={conflictResolveTargetMissing}

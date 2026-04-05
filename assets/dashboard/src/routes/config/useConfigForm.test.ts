@@ -80,6 +80,7 @@ function makeSnapshot(overrides: Partial<ConfigSnapshot> = {}): ConfigSnapshot {
     timelapseRetentionDays: 7,
     timelapseMaxFileSizeMB: 50,
     timelapseMaxTotalStorageMB: 500,
+    localEchoRemote: false,
     pastebin: [],
     ...overrides,
   };
@@ -799,6 +800,7 @@ describe('useConfigForm', () => {
             saplingCmdRemoveWorkspace: snapshot.saplingCmdRemoveWorkspace,
             saplingCmdCheckRepoBase: snapshot.saplingCmdCheckRepoBase,
             saplingCmdCreateRepoBase: snapshot.saplingCmdCreateRepoBase,
+            localEchoRemote: snapshot.localEchoRemote,
             tmuxBinary: snapshot.tmuxBinary,
             pastebin: snapshot.pastebin,
           },

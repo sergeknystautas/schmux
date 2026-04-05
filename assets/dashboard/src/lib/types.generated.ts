@@ -108,6 +108,7 @@ export interface ConfigResponse {
   sapling_commands?: SaplingCommandsUpdate;
   tmux_binary?: string;
   recycle_workspaces?: boolean;
+  local_echo_remote?: boolean;
   system_capabilities: SystemCapabilities;
   needs_restart: boolean;
   dashboard_sx_status?: DashboardSXStatus;
@@ -144,6 +145,7 @@ export interface ConfigUpdateRequest {
   sapling_commands?: SaplingCommandsUpdate;
   tmux_binary?: string;
   recycle_workspaces?: boolean;
+  local_echo_remote?: boolean;
 }
 
 export interface ConflictResolve {
