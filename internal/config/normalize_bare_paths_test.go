@@ -9,7 +9,7 @@ import (
 )
 
 func TestNormalizeBarePaths_RenamesNonConforming(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := gitTestTempDir(t)
 	reposDir := filepath.Join(tmpDir, "repos")
 	configPath := filepath.Join(tmpDir, "config.json")
 
@@ -64,7 +64,7 @@ func TestNormalizeBarePaths_RenamesNonConforming(t *testing.T) {
 }
 
 func TestNormalizeBarePaths_SkipsAlreadyConforming(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := gitTestTempDir(t)
 	reposDir := filepath.Join(tmpDir, "repos")
 	configPath := filepath.Join(tmpDir, "config.json")
 
@@ -128,7 +128,7 @@ func TestNormalizeBarePaths_SkipsWhenNotOnDisk(t *testing.T) {
 }
 
 func TestNormalizeBarePaths_SkipsOnCollision(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := gitTestTempDir(t)
 	reposDir := filepath.Join(tmpDir, "repos")
 	configPath := filepath.Join(tmpDir, "config.json")
 
@@ -160,7 +160,7 @@ func TestNormalizeBarePaths_SkipsOnCollision(t *testing.T) {
 }
 
 func TestNormalizeBarePaths_NormalizesQueryDir(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := gitTestTempDir(t)
 	// Simulate ~/.schmux layout by setting HOME to tmpDir
 	t.Setenv("HOME", tmpDir)
 

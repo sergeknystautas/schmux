@@ -8,6 +8,20 @@ import (
 	"testing"
 )
 
+// gitTestTempDir creates a temp directory for tests that spawn git repos.
+// Unlike t.TempDir(), cleanup tolerates files created asynchronously by OS
+// processes (e.g., macOS SCM agent writing .scm.sqlite into directories
+// containing git repos).
+func gitTestTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "git-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return dir
+}
+
 // runGitCmd runs a git command in the given directory, fataling on error.
 func runGitCmd(t *testing.T, dir string, args ...string) string {
 	t.Helper()
@@ -80,7 +94,7 @@ func worktreeBranchName(i int) string {
 }
 
 func TestRelocateBareRepo_RenamesAndFixesWorktrees(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := gitTestTempDir(t)
 	reposDir := filepath.Join(tmpDir, "repos")
 	if err := os.MkdirAll(reposDir, 0755); err != nil {
 		t.Fatalf("failed to create repos dir: %v", err)
@@ -158,7 +172,7 @@ func TestRelocateBareRepo_RenamesAndFixesWorktrees(t *testing.T) {
 }
 
 func TestRelocateBareRepo_NoBareWorktreesDir(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := gitTestTempDir(t)
 	reposDir := filepath.Join(tmpDir, "repos")
 
 	// Create bare repo with 0 worktrees
@@ -195,7 +209,7 @@ func TestRelocateBareRepo_NoBareWorktreesDir(t *testing.T) {
 }
 
 func TestRelocateBareRepo_TargetExists(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := gitTestTempDir(t)
 	reposDir := filepath.Join(tmpDir, "repos")
 
 	oldBarePath := filepath.Join(reposDir, "facebook", "react.git")
