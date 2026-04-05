@@ -320,12 +320,13 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 						if reconnectCmd == "" {
 							reconnectCmd = "ssh -tt {{.Hostname}} --"
 						}
-						// Target the agent's window, not the signal monitor pane
-						tmuxTarget := "schmux"
+						// Target the agent's window on the isolated socket
+						socketName := s.config.GetTmuxSocketName()
+						tmuxTarget := socketName
 						if sess.RemoteWindow != "" {
-							tmuxTarget = "schmux:" + sess.RemoteWindow
+							tmuxTarget = socketName + ":" + sess.RemoteWindow
 						}
-						templateStr := reconnectCmd + " tmux attach -t " + tmuxTarget
+						templateStr := reconnectCmd + " tmux -L " + socketName + " attach -t " + tmuxTarget
 						if tmpl, err := template.New("attach").Parse(templateStr); err == nil {
 							var cmdStr strings.Builder
 							tmplData := struct {
