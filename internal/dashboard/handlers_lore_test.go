@@ -253,6 +253,8 @@ func TestHandleLoreApplyMergeAutoCommit(t *testing.T) {
 	runGitHelper(t, remoteDir, "config", "user.email", "test@test.com")
 	runGitHelper(t, remoteDir, "config", "user.name", "test")
 	runGitHelper(t, remoteDir, "config", "receive.denyCurrentBranch", "ignore")
+	runGitHelper(t, remoteDir, "config", "gc.auto", "0")
+	runGitHelper(t, remoteDir, "config", "gc.autoDetach", "false")
 	os.WriteFile(filepath.Join(remoteDir, "CLAUDE.md"), []byte("# Project\n"), 0644)
 	runGitHelper(t, remoteDir, "add", ".")
 	runGitHelper(t, remoteDir, "commit", "-m", "initial")
@@ -338,35 +340,10 @@ func TestHandleLoreApplyMergeAutoCommit(t *testing.T) {
 		t.Error("expected commit_sha in result when auto_commit=true")
 	}
 
-	// Verify the workspace has a clean working tree (changes were committed)
+	// Verify the commit was pushed to the remote.
+	// NOTE: We verify against the remote repo, not the workspace, because the
+	// handler disposes the workspace asynchronously after a successful push.
 	wsID := resp.Results[0]["workspace_id"]
-	ws, found := st.GetWorkspace(wsID)
-	if !found {
-		t.Fatalf("workspace %s not found in state", wsID)
-	}
-	cmd := exec.Command("git", "status", "--porcelain")
-	cmd.Dir = ws.Path
-	statusOut, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("git status failed: %v", err)
-	}
-	if len(statusOut) != 0 {
-		t.Errorf("expected clean workspace after auto_commit, got: %q", string(statusOut))
-	}
-
-	// Verify the commit message mentions the rule count
-	logCmd := exec.Command("git", "log", "-1", "--format=%s")
-	logCmd.Dir = ws.Path
-	logOut, err := logCmd.Output()
-	if err != nil {
-		t.Fatalf("git log failed: %v", err)
-	}
-	commitMsg := strings.TrimSpace(string(logOut))
-	if commitMsg != "lore: add 2 rules from agent learnings" {
-		t.Errorf("unexpected commit message: %q", commitMsg)
-	}
-
-	// Verify the commit was pushed to the remote
 	remoteLogCmd := exec.Command("git", "log", "-1", "--format=%H", "main")
 	remoteLogCmd.Dir = remoteDir
 	remoteLogOut, err := remoteLogCmd.Output()
@@ -376,6 +353,18 @@ func TestHandleLoreApplyMergeAutoCommit(t *testing.T) {
 	remoteSHA := strings.TrimSpace(string(remoteLogOut))
 	if remoteSHA != resp.Results[0]["commit_sha"] {
 		t.Errorf("remote HEAD %s does not match commit_sha %s", remoteSHA, resp.Results[0]["commit_sha"])
+	}
+
+	// Verify the commit message mentions the rule count (check on remote)
+	msgCmd := exec.Command("git", "log", "-1", "--format=%s", "main")
+	msgCmd.Dir = remoteDir
+	msgOut, err := msgCmd.Output()
+	if err != nil {
+		t.Fatalf("git log message on remote failed: %v", err)
+	}
+	commitMsg := strings.TrimSpace(string(msgOut))
+	if commitMsg != "lore: add 2 rules from agent learnings" {
+		t.Errorf("unexpected commit message: %q", commitMsg)
 	}
 
 	// Verify no shell session was spawned (auto_commit skips shell)

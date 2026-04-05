@@ -580,7 +580,9 @@ func (s *Server) handleLoreApplyMerge(w http.ResponseWriter, r *http.Request) {
 				resultMap["commit_sha"] = commitSHA
 
 				// Clean up the workspace — its job is done after push
+				s.backgroundWG.Add(1)
 				go func() {
+					defer s.backgroundWG.Done()
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer cancel()
 					if err := s.workspace.DisposeForce(ctx, ws.ID); err != nil {

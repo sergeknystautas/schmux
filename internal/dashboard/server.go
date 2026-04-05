@@ -224,6 +224,9 @@ type Server struct {
 	// Repofeed publisher and consumer
 	repofeedPublisher *repofeed.Publisher
 	repofeedConsumer  *repofeed.Consumer
+
+	// Tracks fire-and-forget background goroutines so tests can wait for them.
+	backgroundWG sync.WaitGroup
 }
 
 // dsxProvisionStatus tracks the progress of dashboard.sx cert provisioning.
@@ -914,6 +917,7 @@ func (s *Server) CloseForTest() {
 	}
 	s.connectLimiter.Stop()
 	s.remoteAuthLimiter.Stop()
+	s.backgroundWG.Wait()
 }
 
 func (s *Server) isTrustedRequest(r *http.Request) bool {

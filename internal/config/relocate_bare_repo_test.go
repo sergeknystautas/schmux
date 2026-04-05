@@ -31,6 +31,8 @@ func createBareRepoWithWorktrees(t *testing.T, basePath, bareName string, numWor
 		t.Fatalf("failed to create remote dir: %v", err)
 	}
 	runGitCmd(t, remoteDir, "init", "--bare", "-b", "main")
+	runGitCmd(t, remoteDir, "config", "gc.auto", "0")
+	runGitCmd(t, remoteDir, "config", "gc.autoDetach", "false")
 
 	// Create a temporary working copy to make an initial commit
 	workDir := filepath.Join(basePath, "work-tmp")
@@ -40,6 +42,8 @@ func createBareRepoWithWorktrees(t *testing.T, basePath, bareName string, numWor
 	runGitCmd(t, workDir, "init", "-b", "main")
 	runGitCmd(t, workDir, "config", "user.email", "test@test.com")
 	runGitCmd(t, workDir, "config", "user.name", "Test")
+	runGitCmd(t, workDir, "config", "gc.auto", "0")
+	runGitCmd(t, workDir, "config", "gc.autoDetach", "false")
 
 	readme := filepath.Join(workDir, "README.md")
 	if err := os.WriteFile(readme, []byte("# test repo\n"), 0644); err != nil {
@@ -56,6 +60,8 @@ func createBareRepoWithWorktrees(t *testing.T, basePath, bareName string, numWor
 		t.Fatalf("failed to create parent for bare: %v", err)
 	}
 	runGitCmd(t, basePath, "clone", "--bare", remoteDir, bareName)
+	runGitCmd(t, bareDir, "config", "gc.auto", "0")
+	runGitCmd(t, bareDir, "config", "gc.autoDetach", "false")
 
 	// Add worktrees
 	var worktrees []string
