@@ -7,6 +7,14 @@ import { run as runE2E } from './suites/e2e.js';
 import { run as runScenarios } from './suites/scenarios.js';
 import { run as runBench } from './suites/bench.js';
 import { run as runBenchMicro } from './suites/microbench.js';
+import {
+  isCacheable,
+  isCacheDisabled,
+  computeCacheKey,
+  checkCache,
+  saveCache,
+  deleteCache,
+} from './cache.js';
 
 type SuiteRunner = (opts: Options, onEvent: EventCallback) => Promise<SuiteResult>;
 
@@ -18,6 +26,51 @@ const runners: Record<SuiteName, SuiteRunner> = {
   bench: runBench,
   microbench: runBenchMicro,
 };
+
+async function runWithCache(
+  suite: SuiteName,
+  opts: Options,
+  runner: SuiteRunner,
+  onEvent: EventCallback
+): Promise<SuiteResult> {
+  if (isCacheable(suite) && !isCacheDisabled(opts)) {
+    const key = await computeCacheKey(suite, opts);
+    const { hit, entry, missReason } = checkCache(suite, key);
+
+    if (hit && entry) {
+      onEvent(suite, {
+        type: 'suite_status',
+        status: 'passed',
+        message: `${suite} tests cached (${entry.testCount} passed)`,
+      });
+      return {
+        suite,
+        status: 'passed',
+        durationMs: entry.durationMs,
+        passedTests: entry.passedTests,
+        failedTests: [],
+        skippedTests: entry.skippedTests,
+        testDurations: {},
+        output: '',
+        cached: true,
+        cachedTimestamp: entry.timestamp,
+      };
+    }
+
+    onEvent(suite, { type: 'build_step', message: `cache miss (${missReason})` });
+
+    const result = await runner(opts, onEvent);
+
+    if (result.status === 'passed') {
+      saveCache(suite, key, result);
+    } else {
+      deleteCache(suite);
+    }
+    return result;
+  }
+
+  return runner(opts, onEvent);
+}
 
 export interface RunResult {
   results: SuiteResult[];
@@ -50,7 +103,7 @@ async function runSerial(opts: Options): Promise<SuiteResult[]> {
     const display = createProgressDisplay([suite], false);
     const runner = runners[suite];
 
-    const result = await runner(opts, (s, event) => {
+    const result = await runWithCache(suite, opts, runner, (s, event) => {
       display.onEvent(s, event);
     });
 
@@ -95,7 +148,7 @@ async function runParallel(opts: Options): Promise<SuiteResult[]> {
   // Run all suites concurrently
   const promises = opts.suites.map(async (suite) => {
     const runner = runners[suite];
-    const result = await runner(opts, (s, event) => {
+    const result = await runWithCache(suite, opts, runner, (s, event) => {
       display.onEvent(s, event);
     });
     display.finish(result);

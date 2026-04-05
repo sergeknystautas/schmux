@@ -1,4 +1,5 @@
 import type { Options, SuiteName } from './types.js';
+import { wipeCacheDir } from './cache.js';
 import { checkDependencies } from './deps.js';
 import { runSuites, setupSignalHandlers } from './runner.js';
 import {
@@ -151,7 +152,7 @@ function printHelp(): void {
   console.log('  --coverage      Run with coverage report');
   console.log('  --quick         Run only fast tests (backend + frontend, no Docker)');
   console.log('  --force         Force rebuild Docker base images (skip cache)');
-  console.log('  --no-cache      Invalidate Go test cache (force re-run)');
+  console.log('  --no-cache      Invalidate test cache (Go per-package + suite-level)');
   console.log(
     '  --run PATTERN   Run only tests matching PATTERN (go test -run / playwright --grep)'
   );
@@ -193,6 +194,10 @@ async function main(): Promise<void> {
 
   setupSignalHandlers();
   await checkDependencies(opts.suites);
+
+  if (opts.noCache) {
+    wipeCacheDir();
+  }
 
   printHeader();
 
@@ -253,7 +258,8 @@ async function main(): Promise<void> {
 
   const allPassed = results.every((r) => r.status === 'passed');
   const hasBroken = results.some((r) => r.status === 'broken');
-  printFinalBanner(allPassed, hasBroken);
+  const cachedCount = results.filter((r) => r.cached).length;
+  printFinalBanner(allPassed, hasBroken, cachedCount);
 
   process.exit(allPassed ? 0 : 1);
 }

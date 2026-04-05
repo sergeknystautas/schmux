@@ -21,6 +21,18 @@ function formatDuration(ms: number): string {
   return `${mins}m ${secs.toString().padStart(2, '0')}s`;
 }
 
+function formatTimeAgo(date: Date): string {
+  const ms = Date.now() - date.getTime();
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 function statusIcon(status: SuiteStatus): string {
   switch (status) {
     case 'pending':
@@ -328,15 +340,20 @@ class ParallelDisplay implements ProgressDisplay {
     state.passed = result.passedTests.length;
     state.failed = result.failedTests.length;
 
-    const counts = `${state.passed} passed${state.failed > 0 ? `, ${state.failed} failed` : ''}`;
-    state.lastActivity = counts;
+    if (result.cached) {
+      const ago = result.cachedTimestamp ? formatTimeAgo(new Date(result.cachedTimestamp)) : '';
+      state.lastActivity = `cached (${state.passed} passed${ago ? `, ${ago}` : ''})`;
+    } else {
+      const counts = `${state.passed} passed${state.failed > 0 ? `, ${state.failed} failed` : ''}`;
+      state.lastActivity = counts;
+    }
 
     if (isTTY) {
       this.render();
     } else {
       const icon = result.status === 'passed' ? '✓' : result.status === 'broken' ? '⚠' : '✗';
       console.log(
-        `  ${icon} [${result.suite}] ${result.status} — ${counts} (${formatDuration(result.durationMs)})`
+        `  ${icon} [${result.suite}] ${result.status} — ${state.lastActivity} (${formatDuration(result.durationMs)})`
       );
     }
   }
@@ -437,8 +454,9 @@ export function printSummary(results: SuiteResult[], parallel = false, repeat = 
 
   const rows: string[][] = [];
   for (const r of sorted) {
-    const icon =
-      r.status === 'passed'
+    const icon = r.cached
+      ? chalk.cyan('↺')
+      : r.status === 'passed'
         ? chalk.green('✓')
         : r.status === 'broken'
           ? chalk.red('⚠')
@@ -450,7 +468,11 @@ export function printSummary(results: SuiteResult[], parallel = false, repeat = 
     totalDurationMax = Math.max(totalDurationMax, r.durationMs);
 
     let tests: string;
-    if (r.status === 'broken') {
+    if (r.cached) {
+      const ago = r.cachedTimestamp ? `, ${formatTimeAgo(new Date(r.cachedTimestamp))}` : '';
+      tests = chalk.cyan(`cached (${r.passedTests.length} passed${ago})`);
+      totalPassed += r.passedTests.length;
+    } else if (r.status === 'broken') {
       tests = chalk.red('broken');
     } else if (isRepeat) {
       const counts = deduplicateTestCounts(r);
@@ -638,9 +660,13 @@ export function printHeader(): void {
 
 // ─── Final Banner ──────────────────────────────────────────────────────────
 
-export function printFinalBanner(allPassed: boolean, hasBroken = false): void {
+export function printFinalBanner(allPassed: boolean, hasBroken = false, cachedCount = 0): void {
   if (allPassed) {
-    console.log(chalk.green(' All tests passed!'));
+    if (cachedCount > 0) {
+      console.log(chalk.green(` All tests passed!`) + chalk.dim(` (${cachedCount} cached)`));
+    } else {
+      console.log(chalk.green(' All tests passed!'));
+    }
   } else if (hasBroken) {
     console.log(chalk.red(' Build broken — tests could not run!'));
   } else {

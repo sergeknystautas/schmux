@@ -28,6 +28,8 @@ export interface SuiteResult {
   skippedTests: string[];
   testDurations: Record<string, number>; // all individual test durations
   output: string;
+  cached?: boolean;
+  cachedTimestamp?: string; // ISO timestamp of the cached run
   coverageReport?: CoverageReport;
   frontendCoverageReport?: FrontendCoverageReport;
 }
