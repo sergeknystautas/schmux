@@ -1,5 +1,6 @@
 import { type Page } from '@playwright/test';
 import { execSync } from 'child_process';
+import { mkdirSync, writeFileSync } from 'fs';
 import { waitForDashboardLive } from './helpers';
 
 const BASE_URL = 'http://localhost:7337';
@@ -142,7 +143,8 @@ function compareTerminalContent(tmuxLines: string[], xtermLines: string[]): stri
  * Assert that the xterm.js terminal content matches tmux's capture-pane output.
  * Compares line-by-line with trimmed trailing whitespace.
  * Retries up to maxRetries times to handle xterm.js rendering lag.
- * Throws with a detailed diff on mismatch after all retries are exhausted.
+ * On failure, writes a detailed diagnostic file to /tmp/terminal-diagnostics/
+ * with convergence data, full captures, and stream state.
  */
 export async function assertTerminalMatchesTmux(
   page: Page,
@@ -154,6 +156,13 @@ export async function assertTerminalMatchesTmux(
   const retryDelayMs = 200;
 
   let lastMismatches: string[] = [];
+  let firstMismatches: string[] | null = null;
+  let firstTmuxLines: string[] = [];
+  let firstXtermLines: string[] = [];
+  let lastTmuxLines: string[] = [];
+  let lastXtermLines: string[] = [];
+  const convergenceLog: number[] = [];
+  const startTime = Date.now();
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (attempt > 0) {
@@ -163,8 +172,129 @@ export async function assertTerminalMatchesTmux(
     const tmuxLines = capturePane(tmuxSession, options);
     const xtermLines = await readXtermBuffer(page, options);
     lastMismatches = compareTerminalContent(tmuxLines, xtermLines);
+    lastTmuxLines = tmuxLines;
+    lastXtermLines = xtermLines;
+    convergenceLog.push(lastMismatches.length);
+
+    if (firstMismatches === null && lastMismatches.length > 0) {
+      firstMismatches = [...lastMismatches];
+      firstTmuxLines = [...tmuxLines];
+      firstXtermLines = [...xtermLines];
+    }
 
     if (lastMismatches.length === 0) return;
+  }
+
+  // Collect diagnostic data before throwing
+  const elapsedMs = Date.now() - startTime;
+  const streamState = await page
+    .evaluate(() => {
+      const stream = (window as any).__schmuxStream;
+      const terminal = (window as any).__schmuxTerminal;
+      const diag: Record<string, unknown> = {};
+      if (stream) {
+        diag.writeBuffer = (stream.writeBuffer || '').length;
+        diag.writeRAFPending = stream.writeRAFPending ?? null;
+        diag.writingToTerminal = stream.writingToTerminal ?? null;
+        diag.scrollRAFPending = stream.scrollRAFPending ?? null;
+        diag.followTail = stream.followTail ?? null;
+        diag.bootstrapState = stream.bootstrapState ?? null;
+      }
+      if (terminal) {
+        const buf = terminal.buffer.active;
+        diag.baseY = buf.baseY;
+        diag.cursorX = buf.cursorX;
+        diag.cursorY = buf.cursorY;
+        diag.rows = terminal.rows;
+        diag.cols = terminal.cols;
+        diag.bufferLength = buf.length;
+      }
+      return diag;
+    })
+    .catch(() => ({ error: 'failed to read stream state' }));
+
+  // Determine convergence pattern
+  const wasConverging =
+    convergenceLog.length > 3 && convergenceLog[convergenceLog.length - 1] < convergenceLog[0];
+  const wasStuck = convergenceLog.length > 3 && new Set(convergenceLog.slice(-5)).size === 1;
+
+  // Build diagnostic report
+  const lines: string[] = [
+    `# Terminal Fidelity Diagnostic`,
+    ``,
+    `**Session:** ${sessionId}`,
+    `**Scrollback lines:** ${options?.scrollbackLines ?? 'viewport only'}`,
+    `**Retries:** ${maxRetries} (${retryDelayMs}ms delay)`,
+    `**Elapsed:** ${elapsedMs}ms`,
+    `**Mismatched rows:** first=${firstMismatches?.length ?? 0}, last=${lastMismatches.length}`,
+    `**Pattern:** ${wasStuck ? 'STUCK (same mismatch count for last 5 retries)' : wasConverging ? 'CONVERGING (mismatch count decreased)' : 'FLUCTUATING'}`,
+    ``,
+    `## Convergence Log (mismatch count per retry)`,
+    ``,
+    '```',
+    convergenceLog
+      .map((n, i) => `  retry ${String(i).padStart(3)}: ${n} mismatched rows`)
+      .join('\n'),
+    '```',
+    ``,
+    `## Stream State at Failure`,
+    ``,
+    '```json',
+    JSON.stringify(streamState, null, 2),
+    '```',
+    ``,
+    `## First Mismatch (retry 0)`,
+    ``,
+    '```',
+    (firstMismatches ?? []).join('\n') || '(no mismatch on first attempt)',
+    '```',
+    ``,
+    `## Last Mismatch (retry ${maxRetries})`,
+    ``,
+    '```',
+    lastMismatches.join('\n'),
+    '```',
+    ``,
+    `## Full Captures at Last Retry`,
+    ``,
+    `### tmux (${lastTmuxLines.length} lines)`,
+    '```',
+    lastTmuxLines.map((l, i) => `${String(i).padStart(3)}| ${JSON.stringify(l)}`).join('\n'),
+    '```',
+    ``,
+    `### xterm.js (${lastXtermLines.length} lines)`,
+    '```',
+    lastXtermLines.map((l, i) => `${String(i).padStart(3)}| ${JSON.stringify(l)}`).join('\n'),
+    '```',
+  ];
+
+  // Also include first captures if different from last
+  if (firstTmuxLines.length > 0) {
+    lines.push(
+      ``,
+      `## Full Captures at First Retry`,
+      ``,
+      `### tmux (${firstTmuxLines.length} lines)`,
+      '```',
+      firstTmuxLines.map((l, i) => `${String(i).padStart(3)}| ${JSON.stringify(l)}`).join('\n'),
+      '```',
+      ``,
+      `### xterm.js (${firstXtermLines.length} lines)`,
+      '```',
+      firstXtermLines.map((l, i) => `${String(i).padStart(3)}| ${JSON.stringify(l)}`).join('\n'),
+      '```'
+    );
+  }
+
+  // Write diagnostic file
+  const diagDir = '/tmp/terminal-diagnostics';
+  try {
+    mkdirSync(diagDir, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const safeName = sessionId.replace(/[^a-zA-Z0-9-]/g, '_');
+    writeFileSync(`${diagDir}/${timestamp}_${safeName}.md`, lines.join('\n'));
+  } catch {
+    // Best-effort — don't let diagnostic writing break the test
   }
 
   throw new Error(
@@ -226,6 +356,51 @@ export async function waitForSentinel(
     if (found) return;
     await new Promise((r) => setTimeout(r, 100));
   }
+  // Capture buffer state for diagnostics on timeout
+  const bufferDump = await page
+    .evaluate(() => {
+      const terminal = (window as any).__schmuxTerminal;
+      if (!terminal) return { error: 'no terminal' };
+      const buffer = terminal.buffer.active;
+      const lines: string[] = [];
+      const start = Math.max(0, buffer.baseY - 20);
+      for (let i = start; i < buffer.baseY + terminal.rows; i++) {
+        const line = buffer.getLine(i);
+        lines.push(line ? line.translateToString(true) : '');
+      }
+      const stream = (window as any).__schmuxStream;
+      return {
+        lines,
+        baseY: buffer.baseY,
+        rows: terminal.rows,
+        writeBuffer: stream?.writeBuffer?.length ?? -1,
+        writeRAFPending: stream?.writeRAFPending ?? null,
+      };
+    })
+    .catch(() => ({ error: 'evaluate failed' }));
+
+  const diagDir = '/tmp/terminal-diagnostics';
+  try {
+    mkdirSync(diagDir, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    writeFileSync(
+      `${diagDir}/${timestamp}_sentinel_timeout.md`,
+      [
+        `# Sentinel Timeout Diagnostic`,
+        ``,
+        `**Sentinel:** \`${sentinel}\``,
+        `**Timeout:** ${timeoutMs}ms`,
+        ``,
+        `## Buffer state at timeout`,
+        '```json',
+        JSON.stringify(bufferDump, null, 2),
+        '```',
+      ].join('\n')
+    );
+  } catch {
+    /* best-effort */
+  }
+
   throw new Error(`Sentinel "${sentinel}" not found in xterm.js buffer after ${timeoutMs}ms`);
 }
 
@@ -377,6 +552,7 @@ export async function getXtermCursorPosition(page: Page): Promise<{ x: number; y
  * Assert that the xterm.js cursor position matches tmux's cursor position.
  * Both use 0-indexed coordinates.
  * Retries to handle rendering lag.
+ * On failure, writes diagnostics to /tmp/terminal-diagnostics/.
  */
 export async function assertCursorMatchesTmux(page: Page, tmuxSession: string): Promise<void> {
   const maxRetries = 50;
@@ -384,6 +560,9 @@ export async function assertCursorMatchesTmux(page: Page, tmuxSession: string): 
 
   let lastTmux = { x: 0, y: 0 };
   let lastXterm = { x: 0, y: 0 };
+  let firstTmux = { x: 0, y: 0 };
+  let firstXterm = { x: 0, y: 0 };
+  let firstRecorded = false;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (attempt > 0) {
@@ -393,7 +572,38 @@ export async function assertCursorMatchesTmux(page: Page, tmuxSession: string): 
     lastTmux = getTmuxCursorPosition(tmuxSession);
     lastXterm = await getXtermCursorPosition(page);
 
+    if (!firstRecorded) {
+      firstTmux = { ...lastTmux };
+      firstXterm = { ...lastXterm };
+      firstRecorded = true;
+    }
+
     if (lastTmux.x === lastXterm.x && lastTmux.y === lastXterm.y) return;
+  }
+
+  const diagDir = '/tmp/terminal-diagnostics';
+  try {
+    mkdirSync(diagDir, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    writeFileSync(
+      `${diagDir}/${timestamp}_cursor_${tmuxSession.replace(/[^a-zA-Z0-9-]/g, '_')}.md`,
+      [
+        `# Cursor Position Diagnostic`,
+        ``,
+        `**Session:** ${tmuxSession}`,
+        `**Retries:** ${maxRetries}`,
+        ``,
+        `## First attempt`,
+        `- tmux:  (${firstTmux.x}, ${firstTmux.y})`,
+        `- xterm: (${firstXterm.x}, ${firstXterm.y})`,
+        ``,
+        `## Last attempt`,
+        `- tmux:  (${lastTmux.x}, ${lastTmux.y})`,
+        `- xterm: (${lastXterm.x}, ${lastXterm.y})`,
+      ].join('\n')
+    );
+  } catch {
+    /* best-effort */
   }
 
   throw new Error(

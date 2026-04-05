@@ -77,6 +77,11 @@ if [ -d /artifacts ]; then
     if [ -d playwright-report ]; then
         cp -r playwright-report /artifacts/playwright-report
     fi
+    # Copy terminal fidelity diagnostics if any failures wrote them
+    if [ -d /tmp/terminal-diagnostics ] && [ "$(ls -A /tmp/terminal-diagnostics 2>/dev/null)" ]; then
+        echo "Copying terminal diagnostics to /artifacts/terminal-diagnostics..."
+        cp -r /tmp/terminal-diagnostics /artifacts/terminal-diagnostics
+    fi
     # Copy frontend coverage data if collected
     if [ -d "$COVERAGE_DIR" ] && [ "$(ls -A "$COVERAGE_DIR" 2>/dev/null)" ]; then
         echo "Copying frontend coverage data to /artifacts/fe-coverage..."
