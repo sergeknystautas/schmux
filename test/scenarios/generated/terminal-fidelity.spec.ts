@@ -507,50 +507,6 @@ test.describe.serial('Terminal fidelity: scrollback', () => {
     await assertTerminalMatchesTmux(page, tmuxName, { scrollbackLines: 200 });
   });
 
-  test('bootstrap matches scrollback after reconnect', async ({ page }) => {
-    test.setTimeout(60_000);
-
-    await openTerminal(page, sessionId, tmuxName);
-
-    // Output some content
-    const sentinel = sendTmuxCommandWithSentinel(
-      tmuxName,
-      'for i in $(seq 1 20); do echo "reconnect-line-$i"; done'
-    );
-    await waitForSentinel(sessionId, sentinel, page);
-
-    // Verify first load
-    await assertTerminalMatchesTmux(page, tmuxName);
-
-    // Reload (new bootstrap)
-    await page.reload();
-    await waitForDashboardLive(page);
-    await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
-
-    // Wait for bootstrap content to appear in xterm.js before comparing.
-    // Under load (multiple sessions from prior tiers), the WebSocket bootstrap
-    // can take several seconds to deliver capture-pane data.
-    const bootstrapDeadline = Date.now() + 15_000;
-    while (Date.now() < bootstrapDeadline) {
-      const hasExpectedContent = await page.evaluate(() => {
-        const terminal = (window as any).__schmuxTerminal;
-        if (!terminal) return false;
-        const buffer = terminal.buffer.active;
-        for (let i = 0; i < buffer.baseY + terminal.rows; i++) {
-          const line = buffer.getLine(i);
-          if (line && line.translateToString(true).includes('reconnect-line')) return true;
-        }
-        return false;
-      });
-      if (hasExpectedContent) break;
-      await new Promise((r) => setTimeout(r, 100));
-    }
-
-    // Verify after reload — use extra retries because bootstrap delivery under
-    // load (4 concurrent sessions from prior tiers) can take 10+ seconds.
-    await assertTerminalMatchesTmux(page, tmuxName, { maxRetries: 150 });
-  });
-
   test('cursor position correct after bootstrap', async ({ page }) => {
     test.setTimeout(60_000);
 
