@@ -57,6 +57,7 @@ const defaultProps = {
   saplingCmdCheckRepoBase: '',
   saplingCmdCreateRepoBase: '',
   tmuxBinary: '',
+  tmuxSocketName: '',
   timelapseEnabled: true,
   timelapseRetentionDays: 7,
   timelapseMaxFileSizeMB: 50,

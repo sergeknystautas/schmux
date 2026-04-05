@@ -18,6 +18,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/session"
+	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
@@ -133,6 +134,11 @@ func (s *Server) checkWSOrigin(r *http.Request) bool {
 		return true
 	}
 	return s.isAllowedOrigin(origin)
+}
+
+// serverForSession returns the TmuxServer for a session's socket.
+func (s *Server) serverForSession(sess *state.Session) *tmux.TmuxServer {
+	return s.session.ServerForSocket(sess.TmuxSocket)
 }
 
 // handleTerminalWebSocket streams tmux output to websocket clients via binary frames.
@@ -298,10 +304,8 @@ resizeWaitLoop:
 	capCtx, capCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
 	bootstrap, err := tracker.CaptureLastLines(capCtx, bootstrapCaptureLines)
 	if err != nil {
-		if s.tmuxServer != nil {
-			bootstrap, err = s.tmuxServer.CaptureLastLines(capCtx, sess.TmuxSession, bootstrapCaptureLines, true)
-		} else {
-			bootstrap, err = tmux.CaptureLastLines(capCtx, sess.TmuxSession, bootstrapCaptureLines, true)
+		if server := s.serverForSession(sess); server != nil {
+			bootstrap, err = server.CaptureLastLines(capCtx, sess.TmuxSession, bootstrapCaptureLines, true)
 		}
 		if err != nil {
 			logging.Sub(s.logger, "ws").Error("bootstrap capture failed", "session_id", sessionID[:8], "err", err)
@@ -337,18 +341,14 @@ resizeWaitLoop:
 		curX, curY, curVisible = curState.X, curState.Y, curState.Visible
 	} else {
 		// Fallback to tmux CLI
-		curCtx2, curCancel2 := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		var cliState tmux.CursorState
-		var cliErr error
-		if s.tmuxServer != nil {
-			cliState, cliErr = s.tmuxServer.GetCursorState(curCtx2, sess.TmuxSession)
-		} else {
-			cliState, cliErr = tmux.GetCursorState(curCtx2, sess.TmuxSession)
-		}
-		curCancel2()
-		if cliErr == nil {
-			curX, curY, curVisible = cliState.X, cliState.Y, cliState.Visible
-			curErr = nil
+		if server := s.serverForSession(sess); server != nil {
+			curCtx2, curCancel2 := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			cliState, cliErr := server.GetCursorState(curCtx2, sess.TmuxSession)
+			curCancel2()
+			if cliErr == nil {
+				curX, curY, curVisible = cliState.X, cliState.Y, cliState.Visible
+				curErr = nil
+			}
 		}
 	}
 	if curErr == nil {
@@ -870,12 +870,8 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 	// Fall back to tmux CLI capture if control mode not attached
 	capCtx, capCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	bootstrap, err := tracker.CaptureLastLines(capCtx, bootstrapCaptureLines)
-	if err != nil {
-		if s.tmuxServer != nil {
-			bootstrap, _ = s.tmuxServer.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
-		} else {
-			bootstrap, _ = tmux.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
-		}
+	if err != nil && s.tmuxServer != nil {
+		bootstrap, _ = s.tmuxServer.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
 	}
 	capCancel()
 	if bootstrap != "" {
@@ -979,12 +975,8 @@ resizeWait:
 	// Bootstrap with scrollback
 	capCtx, capCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	bootstrap, err := tracker.CaptureLastLines(capCtx, bootstrapCaptureLines)
-	if err != nil {
-		if s.tmuxServer != nil {
-			bootstrap, _ = s.tmuxServer.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
-		} else {
-			bootstrap, _ = tmux.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
-		}
+	if err != nil && s.tmuxServer != nil {
+		bootstrap, _ = s.tmuxServer.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
 	}
 	capCancel()
 	if bootstrap != "" {

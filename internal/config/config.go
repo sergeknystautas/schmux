@@ -100,6 +100,7 @@ type Config struct {
 	SaplingCommands            SaplingCommands             `json:"sapling_commands,omitempty"`
 	BuiltInSkills              map[string]bool             `json:"built_in_skills,omitempty"`
 	TmuxBinary                 string                      `json:"tmux_binary,omitempty"`
+	TmuxSocketName             string                      `json:"tmux_socket_name,omitempty"`
 	RecycleWorkspaces          bool                        `json:"recycle_workspaces,omitempty"`
 	LocalEchoRemote            bool                        `json:"local_echo_remote,omitempty"`
 	Timelapse                  *TimelapseConfig            `json:"timelapse,omitempty"`
@@ -2125,6 +2126,16 @@ func (c *Config) GetPort() int {
 		return 7337
 	}
 	return c.Network.Port
+}
+
+// GetTmuxSocketName returns the tmux socket name, defaulting to "schmux".
+func (c *Config) GetTmuxSocketName() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.TmuxSocketName == "" {
+		return "schmux"
+	}
+	return c.TmuxSocketName
 }
 
 // GetPreviewMaxPerWorkspace returns the per-workspace preview limit.

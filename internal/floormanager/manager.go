@@ -110,11 +110,7 @@ func (m *Manager) Stop() {
 	if tmuxSess != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if m.server != nil {
-			m.server.KillSession(ctx, tmuxSess)
-		} else {
-			tmux.KillSession(ctx, tmuxSess)
-		}
+		m.server.KillSession(ctx, tmuxSess)
 	}
 }
 
@@ -140,10 +136,10 @@ func (m *Manager) Running() bool {
 	if sess == "" {
 		return false
 	}
-	if m.server != nil {
-		return m.server.SessionExists(context.Background(), sess)
+	if m.server == nil {
+		return false
 	}
-	return tmux.SessionExists(context.Background(), sess)
+	return m.server.SessionExists(context.Background(), sess)
 }
 
 // InjectionCount returns the current injection count.
@@ -203,13 +199,7 @@ func (m *Manager) spawn(ctx context.Context) error {
 	// If a session already exists (e.g. leftover from a previous daemon run),
 	// reconnect to it instead of trying to create a duplicate.
 	reconnected := false
-	sessionExists := false
-	if m.server != nil {
-		sessionExists = m.server.SessionExists(ctx, m.sessionName)
-	} else {
-		sessionExists = tmux.SessionExists(ctx, m.sessionName)
-	}
-	if sessionExists {
+	if m.server.SessionExists(ctx, m.sessionName) {
 		m.logger.Info("reconnecting to existing floor manager session", "tmux_session", m.sessionName)
 		reconnected = true
 	} else {
@@ -220,13 +210,7 @@ func (m *Manager) spawn(ctx context.Context) error {
 		}
 
 		// Create tmux session
-		var createErr error
-		if m.server != nil {
-			createErr = m.server.CreateSession(ctx, m.sessionName, m.workDir, command)
-		} else {
-			createErr = tmux.CreateSession(ctx, m.sessionName, m.workDir, command)
-		}
-		if createErr != nil {
+		if createErr := m.server.CreateSession(ctx, m.sessionName, m.workDir, command); createErr != nil {
 			return fmt.Errorf("failed to create tmux session: %w", createErr)
 		}
 	}
@@ -262,13 +246,7 @@ func (m *Manager) spawn(ctx context.Context) error {
 func (m *Manager) spawnResume(ctx context.Context) error {
 	// If a session already exists, reconnect to it.
 	reconnected := false
-	sessionExistsResume := false
-	if m.server != nil {
-		sessionExistsResume = m.server.SessionExists(ctx, m.sessionName)
-	} else {
-		sessionExistsResume = tmux.SessionExists(ctx, m.sessionName)
-	}
-	if sessionExistsResume {
+	if m.server.SessionExists(ctx, m.sessionName) {
 		m.logger.Info("reconnecting to existing floor manager session for resume", "tmux_session", m.sessionName)
 		reconnected = true
 	} else {
@@ -277,13 +255,7 @@ func (m *Manager) spawnResume(ctx context.Context) error {
 			return err
 		}
 
-		var createErr error
-		if m.server != nil {
-			createErr = m.server.CreateSession(ctx, m.sessionName, m.workDir, command)
-		} else {
-			createErr = tmux.CreateSession(ctx, m.sessionName, m.workDir, command)
-		}
-		if createErr != nil {
+		if createErr := m.server.CreateSession(ctx, m.sessionName, m.workDir, command); createErr != nil {
 			return createErr
 		}
 	}
@@ -420,11 +392,7 @@ func (m *Manager) HandleRotation(ctx context.Context) {
 	}
 
 	if tmuxSess != "" {
-		if m.server != nil {
-			_ = m.server.KillSession(ctx, tmuxSess)
-		} else {
-			_ = tmux.KillSession(ctx, tmuxSess)
-		}
+		_ = m.server.KillSession(ctx, tmuxSess)
 	}
 
 	time.Sleep(restartDelay)

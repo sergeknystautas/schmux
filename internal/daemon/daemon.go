@@ -178,14 +178,20 @@ func Start() error {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
 
-	// Apply custom tmux binary from config (if set) before starting the server.
+	// Apply custom tmux settings from config (if set) before starting the server.
 	tmuxBinary := "tmux"
-	if cfg, err := config.Load(filepath.Join(schmuxDir, "config.json")); err == nil && cfg.TmuxBinary != "" {
-		tmuxBinary = cfg.TmuxBinary
+	socketName := "schmux"
+	if cfg, err := config.Load(filepath.Join(schmuxDir, "config.json")); err == nil {
+		if cfg.TmuxBinary != "" {
+			tmuxBinary = cfg.TmuxBinary
+		}
+		if cfg.TmuxSocketName != "" {
+			socketName = cfg.TmuxSocketName
+		}
 	}
 
 	// Construct the TmuxServer that all subsystems will share.
-	startupServer := tmux.NewTmuxServer(tmuxBinary, "schmux", nil)
+	startupServer := tmux.NewTmuxServer(tmuxBinary, socketName, nil)
 
 	// Start the tmux server (no-op if already running).
 	ctx := context.Background()
@@ -420,7 +426,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	if tmuxBin == "" {
 		tmuxBin = "tmux"
 	}
-	tmuxServer := tmux.NewTmuxServer(tmuxBin, "schmux", logging.Sub(logger, "tmux"))
+	tmuxServer := tmux.NewTmuxServer(tmuxBin, cfg.GetTmuxSocketName(), logging.Sub(logger, "tmux"))
 
 	if cfg.GetAuthEnabled() {
 		if _, err := config.EnsureSessionSecret(); err != nil {
@@ -743,10 +749,33 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		}
 	}
 
+	// Start tmux servers for all sockets that restored sessions live on.
+	activeSocketSet := map[string]bool{cfg.GetTmuxSocketName(): true}
+	for _, sess := range st.GetSessions() {
+		socket := sess.TmuxSocket
+		if socket == "" {
+			socket = "default"
+		}
+		activeSocketSet[socket] = true
+	}
+	for socket := range activeSocketSet {
+		if socket == cfg.GetTmuxSocketName() {
+			continue // already started above
+		}
+		srv := tmux.NewTmuxServer(tmuxBin, socket, nil)
+		if err := srv.StartServer(d.shutdownCtx); err != nil {
+			logger.Warn("failed to start tmux server for socket", "socket", socket, "err", err)
+		}
+	}
+
 	// Start output trackers for running sessions restored from state.
 	for _, sess := range st.GetSessions() {
 		timeoutCtx, cancel := context.WithTimeout(d.shutdownCtx, cfg.XtermQueryTimeout())
-		exists := tmux.SessionExists(timeoutCtx, sess.TmuxSession)
+		server := sm.ServerForSocket(sess.TmuxSocket)
+		exists := false
+		if server != nil {
+			exists = server.SessionExists(timeoutCtx, sess.TmuxSession)
+		}
 		cancel()
 		if !exists {
 			continue

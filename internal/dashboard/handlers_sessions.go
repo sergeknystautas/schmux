@@ -30,6 +30,8 @@ type SessionResponseItem struct {
 	Running      bool   `json:"running"`
 	Status       string `json:"status,omitempty"` // "provisioning", "running", "failed" for remote sessions
 	AttachCmd    string `json:"attach_cmd"`
+	TmuxSocket   string `json:"tmux_socket,omitempty"`
+	TmuxSession  string `json:"tmux_session,omitempty"`
 	NudgeState   string `json:"nudge_state,omitempty"`
 	NudgeSummary string `json:"nudge_summary,omitempty"`
 	NudgeSeq     uint64 `json:"nudge_seq,omitempty"`
@@ -377,6 +379,8 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			Running:          running,
 			Status:           sess.Status, // Expose session status for remote sessions
 			AttachCmd:        attachCmd,
+			TmuxSocket:       sess.TmuxSocket,
+			TmuxSession:      sess.TmuxSession,
 			NudgeState:       nudgeState,
 			NudgeSummary:     nudgeSummary,
 			NudgeSeq:         sess.NudgeSeq,

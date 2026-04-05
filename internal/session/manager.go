@@ -119,6 +119,24 @@ func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace
 	}
 }
 
+// serverForSocket returns a TmuxServer targeting the given socket.
+// TmuxServer is stateless (~56 bytes), so construction is free.
+func (m *Manager) serverForSocket(socketName string) *tmux.TmuxServer {
+	if m.server == nil {
+		return nil
+	}
+	if socketName == "" {
+		socketName = "default"
+	}
+	return tmux.NewTmuxServer(m.server.Binary(), socketName, m.logger)
+}
+
+// ServerForSocket is the public accessor for per-session socket resolution.
+// Used by daemon.go for the session restore loop and dashboard for fallback captures.
+func (m *Manager) ServerForSocket(socketName string) *tmux.TmuxServer {
+	return m.serverForSocket(socketName)
+}
+
 // SetRemoteManager sets the remote manager for remote session support.
 // Must be called before Start() — not safe for concurrent use.
 func (m *Manager) SetRemoteManager(rm *remote.Manager) {
@@ -861,29 +879,17 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	}
 
 	// Create tmux session
-	if m.server != nil {
-		err = m.server.CreateSession(ctx, tmuxSession, w.Path, command)
-	} else {
-		err = tmux.CreateSession(ctx, tmuxSession, w.Path, command)
-	}
+	err = m.server.CreateSession(ctx, tmuxSession, w.Path, command)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tmux session: %w", err)
 	}
 
 	// Configure status bar: process on left, time on right, clear center
-	if m.server != nil {
-		m.server.ConfigureStatusBar(ctx, tmuxSession)
-	} else {
-		tmux.ConfigureStatusBar(ctx, tmuxSession)
-	}
+	m.server.ConfigureStatusBar(ctx, tmuxSession)
 
 	// Get the PID of the agent process from tmux pane
 	var pid int
-	if m.server != nil {
-		pid, err = m.server.GetPanePID(ctx, tmuxSession)
-	} else {
-		pid, err = tmux.GetPanePID(ctx, tmuxSession)
-	}
+	pid, err = m.server.GetPanePID(ctx, tmuxSession)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pane PID: %w", err)
 	}
@@ -896,6 +902,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		Nickname:    uniqueNickname,
 		PersonaID:   opts.PersonaID,
 		TmuxSession: tmuxSession,
+		TmuxSocket:  m.server.SocketName(),
 		CreatedAt:   time.Now(),
 		Pid:         pid,
 	}
@@ -962,29 +969,17 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 	}
 
 	// Create tmux session with the raw command
-	if m.server != nil {
-		err = m.server.CreateSession(ctx, tmuxSession, w.Path, commandWithEnv)
-	} else {
-		err = tmux.CreateSession(ctx, tmuxSession, w.Path, commandWithEnv)
-	}
+	err = m.server.CreateSession(ctx, tmuxSession, w.Path, commandWithEnv)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tmux session: %w", err)
 	}
 
 	// Configure status bar: process on left, time on right, clear center
-	if m.server != nil {
-		m.server.ConfigureStatusBar(ctx, tmuxSession)
-	} else {
-		tmux.ConfigureStatusBar(ctx, tmuxSession)
-	}
+	m.server.ConfigureStatusBar(ctx, tmuxSession)
 
 	// Get the PID of the process from tmux pane
 	var pid int
-	if m.server != nil {
-		pid, err = m.server.GetPanePID(ctx, tmuxSession)
-	} else {
-		pid, err = tmux.GetPanePID(ctx, tmuxSession)
-	}
+	pid, err = m.server.GetPanePID(ctx, tmuxSession)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pane PID: %w", err)
 	}
@@ -996,6 +991,7 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 		Target:      "command",
 		Nickname:    uniqueNickname,
 		TmuxSession: tmuxSession,
+		TmuxSocket:  m.server.SocketName(),
 		CreatedAt:   time.Now(),
 		Pid:         pid,
 	}
@@ -1243,10 +1239,11 @@ func (m *Manager) IsRunning(ctx context.Context, sessionID string) bool {
 	// Local session handling
 	// If we don't have a PID, check if tmux session exists as fallback
 	if sess.Pid == 0 {
-		if m.server != nil {
-			return m.server.SessionExists(ctx, sess.TmuxSession)
+		server := m.serverForSocket(sess.TmuxSocket)
+		if server != nil {
+			return server.SessionExists(ctx, sess.TmuxSession)
 		}
-		return tmux.SessionExists(ctx, sess.TmuxSession)
+		return false
 	}
 
 	// Check if the process is still running
@@ -1313,10 +1310,9 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 		captureCtx, captureCancel := context.WithTimeout(ctx, 5*time.Second)
 		var output string
 		var err error
-		if m.server != nil {
-			output, err = m.server.CaptureOutput(captureCtx, sess.TmuxSession)
-		} else {
-			output, err = tmux.CaptureOutput(captureCtx, sess.TmuxSession)
+		server := m.serverForSocket(sess.TmuxSocket)
+		if server != nil {
+			output, err = server.CaptureOutput(captureCtx, sess.TmuxSession)
 		}
 		captureCancel()
 		if err != nil {
@@ -1328,18 +1324,15 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 
 	// Kill tmux session (tmux sends SIGHUP to all processes - handles cleanup)
 	// If session exists but kill fails, return error to avoid orphaning processes
+	disposeServer := m.serverForSocket(sess.TmuxSocket)
 	sessionExists := false
-	if m.server != nil {
-		sessionExists = m.server.SessionExists(ctx, sess.TmuxSession)
-	} else {
-		sessionExists = tmux.SessionExists(ctx, sess.TmuxSession)
+	if disposeServer != nil {
+		sessionExists = disposeServer.SessionExists(ctx, sess.TmuxSession)
 	}
 	if sessionExists {
 		var killErr error
-		if m.server != nil {
-			killErr = m.server.KillSession(ctx, sess.TmuxSession)
-		} else {
-			killErr = tmux.KillSession(ctx, sess.TmuxSession)
+		if disposeServer != nil {
+			killErr = disposeServer.KillSession(ctx, sess.TmuxSession)
 		}
 		if err := killErr; err != nil {
 			return fmt.Errorf("failed to kill tmux session %s: %w", sess.TmuxSession, err)
@@ -1442,11 +1435,25 @@ func (m *Manager) GetAttachCommand(sessionID string) (string, error) {
 		return "", fmt.Errorf("session not found: %s", sessionID)
 	}
 
-	if m.server != nil {
-		return m.server.GetAttachCommand(sess.TmuxSession), nil
+	server := m.serverForSocket(sess.TmuxSocket)
+	if server != nil {
+		return server.GetAttachCommand(sess.TmuxSession), nil
 	}
-	// Fallback for when no TmuxServer is available (should not happen in production).
 	return fmt.Sprintf("tmux attach -t \"=%s\"", sess.TmuxSession), nil
+}
+
+// GetAttachArgs returns structured attach command components for safe exec.Command construction.
+// Unlike GetAttachCommand (which returns a formatted string), this avoids shell injection.
+func (m *Manager) GetAttachArgs(sessionID string) (binary, socketName, sessionName string, err error) {
+	sess, found := m.state.GetSession(sessionID)
+	if !found {
+		return "", "", "", fmt.Errorf("session not found: %s", sessionID)
+	}
+	server := m.serverForSocket(sess.TmuxSocket)
+	if server == nil {
+		return "", "", "", fmt.Errorf("no tmux server available")
+	}
+	return server.Binary(), server.SocketName(), sess.TmuxSession, nil
 }
 
 // GetOutput returns the current terminal output for a session.
@@ -1456,10 +1463,11 @@ func (m *Manager) GetOutput(ctx context.Context, sessionID string) (string, erro
 		return "", fmt.Errorf("session not found: %s", sessionID)
 	}
 
-	if m.server != nil {
-		return m.server.CaptureOutput(ctx, sess.TmuxSession)
+	server := m.serverForSocket(sess.TmuxSocket)
+	if server != nil {
+		return server.CaptureOutput(ctx, sess.TmuxSession)
 	}
-	return tmux.CaptureOutput(ctx, sess.TmuxSession)
+	return "", fmt.Errorf("no tmux server available")
 }
 
 // GetAllSessions returns all sessions.
@@ -1498,10 +1506,9 @@ func (m *Manager) RenameSession(ctx context.Context, sessionID, newNickname stri
 
 	// Rename the tmux session
 	var renameErr error
-	if m.server != nil {
-		renameErr = m.server.RenameSession(ctx, oldTmuxName, newTmuxName)
-	} else {
-		renameErr = tmux.RenameSession(ctx, oldTmuxName, newTmuxName)
+	server := m.serverForSocket(sess.TmuxSocket)
+	if server != nil {
+		renameErr = server.RenameSession(ctx, oldTmuxName, newTmuxName)
 	}
 	if renameErr != nil {
 		return fmt.Errorf("failed to rename tmux session: %w", renameErr)
@@ -1626,7 +1633,7 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionRuntime {
 		}
 	}
 	if source == nil {
-		ls := NewLocalSource(sess.ID, sess.TmuxSession, m.server, m.logger)
+		ls := NewLocalSource(sess.ID, sess.TmuxSession, m.serverForSocket(sess.TmuxSocket), m.logger)
 		ls.Start()
 		source = ls
 	}

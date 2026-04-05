@@ -545,6 +545,8 @@ func (e *Env) SendWebSocketInput(conn *websocket.Conn, data string) {
 }
 
 // SendKeysToTmux sends literal keys plus Enter to a tmux session.
+// Note: hardcoded to match the default tmux_socket_name config value ("schmux").
+// If E2E tests need to test custom socket names, parameterize this.
 func (e *Env) SendKeysToTmux(sessionName, text string) {
 	e.T.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -887,6 +889,8 @@ func (e *Env) DisposeSession(sessionID string) {
 }
 
 // GetTmuxSessions returns the list of tmux session names.
+// Note: hardcoded to match the default tmux_socket_name config value ("schmux").
+// If E2E tests need to test custom socket names, parameterize this.
 func (e *Env) GetTmuxSessions() []string {
 	e.T.Helper()
 
@@ -1015,6 +1019,8 @@ func (e *Env) CaptureArtifacts() {
 	}
 
 	// Capture tmux ls output
+	// Note: hardcoded to match the default tmux_socket_name config value ("schmux").
+	// If E2E tests need to test custom socket names, parameterize this.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	cmd := exec.CommandContext(ctx, "tmux", "-L", "schmux", "ls")
 	cmd.Env = append(os.Environ(), "TMUX_TMPDIR="+e.HomeDir)

@@ -217,6 +217,7 @@ export default function ConfigPage() {
             saplingCmdCreateRepoBase: data.sapling_commands?.create_repo_base || '',
             localEchoRemote: data.local_echo_remote || false,
             tmuxBinary: data.tmux_binary || '',
+            tmuxSocketName: data.tmux_socket_name || '',
             modelCatalog: data.models || [],
             runners: data.runners || {},
           },
@@ -302,6 +303,7 @@ export default function ConfigPage() {
             saplingCmdCreateRepoBase: data.sapling_commands?.create_repo_base || '',
             localEchoRemote: data.local_echo_remote || false,
             tmuxBinary: data.tmux_binary || '',
+            tmuxSocketName: data.tmux_socket_name || '',
           };
           dispatch({ type: 'SET_ORIGINAL', config: originalConfig });
         }
@@ -703,6 +705,7 @@ export default function ConfigPage() {
               }
             : undefined,
         tmux_binary: state.tmuxBinary || undefined,
+        tmux_socket_name: state.tmuxSocketName || undefined,
         local_echo_remote: state.localEchoRemote,
       };
 
@@ -1519,6 +1522,7 @@ export default function ConfigPage() {
               saplingCmdCheckRepoBase={state.saplingCmdCheckRepoBase}
               saplingCmdCreateRepoBase={state.saplingCmdCreateRepoBase}
               tmuxBinary={state.tmuxBinary}
+              tmuxSocketName={state.tmuxSocketName}
               timelapseEnabled={state.timelapseEnabled}
               timelapseRetentionDays={state.timelapseRetentionDays}
               timelapseMaxFileSizeMB={state.timelapseMaxFileSizeMB}

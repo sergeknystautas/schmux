@@ -200,6 +200,8 @@ Response:
         "last_output_at": "YYYY-MM-DDTHH:MM:SS",
         "running": true,
         "attach_cmd": "tmux attach ...",
+        "tmux_socket": "schmux",
+        "tmux_session": "session-name",
         "nudge_state": "optional",
         "nudge_summary": "optional",
         "persona_id": "optional",
@@ -254,6 +256,8 @@ Notes:
 - `repo_name` is the configured repo name from `config.json`, populated when the workspace repo URL matches a configured repo. May be empty for workspaces from unconfigured repos.
 - `nudge_state` values: `Working`, `Idle`, `Needs Input`, `Needs Attention`, `Needs Feature Clarification`, `Completed`, `Error`. State priority prevents lower-tier states from overwriting higher-tier ones: tier 0 (Working, Idle) < tier 1 (Needs Input, Needs Attention) < tier 2 (Completed, Error). Only `Working` can reset a terminal state (new turn started).
 - Workspace `status` field: `provisioning` (being created), `running` (ready), `failed` (creation failed), `disposing` (being torn down), `recyclable` (disposed but directory kept on disk for reuse). Omitted for pre-existing workspaces (treat as `running`). Recyclable workspaces are hidden from `buildSessionsResponse` and not included in WebSocket broadcasts.
+- `tmux_socket` (string, optional): the tmux socket name this session was created on. Omitted when empty (pre-isolation sessions).
+- `tmux_session` (string, optional): the tmux session name used by this session.
 - Session `status` field includes `disposing` during teardown. Dispose endpoints return 200 OK if the item is already in `disposing` status (idempotent).
 - Workspace `tabs` array contains Tab objects with fields: `id`, `kind` (tab type), `label`, `route`, `closable`, `meta` (type-specific metadata), and `created_at`.
 - Workspace `resolve_conflicts` contains persisted conflict-process records keyed by the 7-character short hash; resolve-conflict tabs point at these records via `tabs[].meta.hash`.
@@ -993,6 +997,7 @@ Response:
     "check_repo_base": ""
   },
   "tmux_binary": "/opt/homebrew/bin/tmux",
+  "tmux_socket_name": "schmux",
   "system_capabilities": {
     "iterm2_available": true
   },
@@ -1009,6 +1014,8 @@ Response:
 Repos with `"vcs": "sapling"` use the sapling backend instead of git. The `vcs` field can be `""` (default, git worktree), `"git-clone"`, or `"sapling"`. The `sapling_commands` section configures command templates for sapling workspace lifecycle using Go `text/template` syntax.
 
 **`tmux_binary`**: Path to a custom tmux binary. When empty or omitted, the system default from `$PATH` is used. The path is validated on save (must exist, be executable, and output a recognized tmux version string). Changing this field flags `needs_restart`.
+
+**`tmux_socket_name`** (string, optional, default `"schmux"`): The tmux socket name used by the daemon. All sessions are created on this socket. Changing this field flags `needs_restart`.
 
 **TLS behavior**: The server serves HTTPS whenever `network.tls.cert_path` and `network.tls.key_path` are both set, regardless of whether `access_control.enabled` is true. This allows dashboard.sx HTTPS without requiring GitHub auth.
 

@@ -198,13 +198,10 @@ func (s *LocalSource) attach() error {
 	defer cancel()
 
 	// Start tmux in control mode
-	// Build attach command: use TmuxServer socket if available, else fall back to package-level binary.
-	var cmd *exec.Cmd
-	if s.server != nil {
-		cmd = exec.CommandContext(ctx, s.server.Binary(), "-L", s.server.SocketName(), "-C", "attach-session", "-t", "="+target)
-	} else {
-		cmd = exec.CommandContext(ctx, tmux.Binary(), "-C", "attach-session", "-t", "="+target)
+	if s.server == nil {
+		return fmt.Errorf("no tmux server configured")
 	}
+	cmd := exec.CommandContext(ctx, s.server.Binary(), "-L", s.server.SocketName(), "-C", "attach-session", "-t", "="+target)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stdin pipe: %w", err)

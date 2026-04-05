@@ -150,6 +150,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			Target:  s.config.GetIOWorkspaceTelemetryTarget(),
 		},
 		TmuxBinary:        s.config.TmuxBinary,
+		TmuxSocketName:    s.config.GetTmuxSocketName(),
 		RecycleWorkspaces: s.config.RecycleWorkspaces,
 		LocalEchoRemote:   s.config.LocalEchoRemote,
 		SaplingCommands: func() *contracts.SaplingCommandsUpdate {
@@ -264,6 +265,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	oldNetwork := cloneNetwork(cfg.Network)
 	oldAccessControl := cloneAccessControl(cfg.AccessControl)
 	oldTmuxBinary := cfg.TmuxBinary
+	oldTmuxSocketName := cfg.TmuxSocketName
 	oldRepos := cfg.GetRepos()
 
 	// Check for workspace path change (for warning after save)
@@ -738,6 +740,15 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if req.TmuxSocketName != nil {
+		name := strings.TrimSpace(*req.TmuxSocketName)
+		if name != "" && !isValidSocketName(name) {
+			http.Error(w, "Invalid socket name: must contain only alphanumeric characters, hyphens, and underscores", http.StatusBadRequest)
+			return
+		}
+		cfg.TmuxSocketName = name
+	}
+
 	if req.RecycleWorkspaces != nil {
 		cfg.RecycleWorkspaces = *req.RecycleWorkspaces
 	}
@@ -753,7 +764,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !reflect.DeepEqual(oldNetwork, cfg.Network) || !reflect.DeepEqual(oldAccessControl, cfg.AccessControl) || cfg.TmuxBinary != oldTmuxBinary {
+	if !reflect.DeepEqual(oldNetwork, cfg.Network) || !reflect.DeepEqual(oldAccessControl, cfg.AccessControl) || cfg.TmuxBinary != oldTmuxBinary || cfg.TmuxSocketName != oldTmuxSocketName {
 		s.state.SetNeedsRestart(true)
 		if err := s.state.Save(); err != nil {
 			s.logger.Error("failed to save restart-needed state", "err", err)
@@ -838,6 +849,17 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		s.logger.Error("failed to encode response", "handler", "config-update", "err", err)
 	}
+}
+
+// isValidSocketName checks that a socket name contains only safe characters
+// (alphanumeric, hyphens, underscores).
+func isValidSocketName(name string) bool {
+	for _, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return len(name) > 0
 }
 
 func cloneNetwork(src *config.NetworkConfig) *config.NetworkConfig {

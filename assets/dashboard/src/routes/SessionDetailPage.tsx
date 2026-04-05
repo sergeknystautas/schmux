@@ -1124,6 +1124,19 @@ export default function SessionDetailPage() {
               </Tooltip>
             </div>
 
+            {sessionData.tmux_socket &&
+              sessionData.tmux_socket !== (config.tmux_socket_name || 'schmux') && (
+                <div className="metadata-field">
+                  <span className="metadata-field__label">Socket</span>
+                  <span
+                    className="metadata-field__value metadata-field__value--mono"
+                    style={{ fontSize: '0.75rem' }}
+                  >
+                    {sessionData.tmux_socket}
+                  </span>
+                </div>
+              )}
+
             {sessionData.remote_host_id && (
               <>
                 <hr

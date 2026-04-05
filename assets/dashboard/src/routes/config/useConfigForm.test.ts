@@ -76,6 +76,7 @@ function makeSnapshot(overrides: Partial<ConfigSnapshot> = {}): ConfigSnapshot {
     saplingCmdCheckRepoBase: '',
     saplingCmdCreateRepoBase: '',
     tmuxBinary: '',
+    tmuxSocketName: '',
     timelapseEnabled: true,
     timelapseRetentionDays: 7,
     timelapseMaxFileSizeMB: 50,
@@ -802,6 +803,7 @@ describe('useConfigForm', () => {
             saplingCmdCreateRepoBase: snapshot.saplingCmdCreateRepoBase,
             localEchoRemote: snapshot.localEchoRemote,
             tmuxBinary: snapshot.tmuxBinary,
+            tmuxSocketName: snapshot.tmuxSocketName,
             pastebin: snapshot.pastebin,
           },
         });

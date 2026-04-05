@@ -76,6 +76,9 @@ func TestStripAnsi(t *testing.T) {
 	}
 }
 
+// testServer is a TmuxServer used by tests that exercise tmux CLI methods.
+var testServer = NewTmuxServer("tmux", "default", nil)
+
 func TestCaptureLastLines_Validation(t *testing.T) {
 	ctx := context.Background()
 
@@ -107,7 +110,7 @@ func TestCaptureLastLines_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := CaptureLastLines(ctx, "test-session", tt.lines, true)
+			_, err := testServer.CaptureLastLines(ctx, "test-session", tt.lines, true)
 
 			if tt.wantErr {
 				if err == nil {
@@ -121,7 +124,7 @@ func TestCaptureLastLines_Validation(t *testing.T) {
 
 	// Positive line counts should pass validation (tmux may not be installed, so exec may fail)
 	t.Run("positive line count passes validation", func(t *testing.T) {
-		_, err := CaptureLastLines(ctx, "test-session", 10, true)
+		_, err := testServer.CaptureLastLines(ctx, "test-session", 10, true)
 		if err != nil && strings.Contains(err.Error(), "invalid line count") {
 			t.Errorf("unexpected validation error: %v", err)
 		}
@@ -139,49 +142,42 @@ func TestContextCancellation(t *testing.T) {
 	defer cancel()
 
 	t.Run("CreateSession rejects cancelled context", func(t *testing.T) {
-		err := CreateSession(expiredCtx, "test", "/tmp", "echo test")
+		err := testServer.CreateSession(expiredCtx, "test", "/tmp", "echo test")
 		if err == nil {
 			t.Error("expected error from cancelled context, got nil")
 		}
 	})
 
 	t.Run("ListSessions rejects cancelled context", func(t *testing.T) {
-		_, err := ListSessions(expiredCtx)
+		_, err := testServer.ListSessions(expiredCtx)
 		if err == nil {
 			t.Error("expected error from cancelled context, got nil")
 		}
 	})
 
 	t.Run("GetPanePID rejects cancelled context", func(t *testing.T) {
-		_, err := GetPanePID(expiredCtx, "test")
+		_, err := testServer.GetPanePID(expiredCtx, "test")
 		if err == nil {
 			t.Error("expected error from cancelled context, got nil")
 		}
 	})
 
 	t.Run("CaptureOutput rejects cancelled context", func(t *testing.T) {
-		_, err := CaptureOutput(expiredCtx, "test")
+		_, err := testServer.CaptureOutput(expiredCtx, "test")
 		if err == nil {
 			t.Error("expected error from cancelled context, got nil")
 		}
 	})
 
 	t.Run("KillSession rejects cancelled context", func(t *testing.T) {
-		err := KillSession(expiredCtx, "test")
-		if err == nil {
-			t.Error("expected error from cancelled context, got nil")
-		}
-	})
-
-	t.Run("ResizeWindow rejects cancelled context", func(t *testing.T) {
-		err := ResizeWindow(expiredCtx, "test", 80, 24)
+		err := testServer.KillSession(expiredCtx, "test")
 		if err == nil {
 			t.Error("expected error from cancelled context, got nil")
 		}
 	})
 
 	t.Run("RenameSession rejects cancelled context", func(t *testing.T) {
-		err := RenameSession(expiredCtx, "old", "new")
+		err := testServer.RenameSession(expiredCtx, "old", "new")
 		if err == nil {
 			t.Error("expected error from cancelled context, got nil")
 		}

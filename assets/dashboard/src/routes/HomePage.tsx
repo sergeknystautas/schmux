@@ -553,6 +553,22 @@ export default function HomePage() {
 
   const loading = sessionsLoading || configLoading;
 
+  // Derive socket distribution across running sessions
+  const socketInfo = useMemo(() => {
+    const runningSessions = workspaces.flatMap((ws) => ws.sessions.filter((s) => s.running));
+    const socketCounts = new Map<string, number>();
+    for (const s of runningSessions) {
+      const sock = s.tmux_socket || 'default';
+      socketCounts.set(sock, (socketCounts.get(sock) || 0) + 1);
+    }
+    const configuredSocket = config.tmux_socket_name || 'schmux';
+    return {
+      sockets: socketCounts,
+      isMulti: socketCounts.size > 1,
+      configuredSocket,
+    };
+  }, [workspaces, config.tmux_socket_name]);
+
   // Shared sidebar content: workspaces, connection, tips
   const sidebarContent = (
     <>
@@ -738,6 +754,24 @@ export default function HomePage() {
               ))}
             </div>
           )}
+          {socketInfo.isMulti && (
+            <div
+              className="banner banner--info mb-md"
+              data-testid="socket-transition-banner"
+              style={{ flexDirection: 'column', alignItems: 'flex-start' }}
+            >
+              <strong>Socket transition in progress</strong>
+              <div>
+                {Array.from(socketInfo.sockets.entries()).map(([sock, count], i) => (
+                  <span key={sock}>
+                    {i > 0 && ' \u00B7 '}
+                    {count} session{count !== 1 ? 's' : ''} on &quot;{sock}&quot;
+                  </span>
+                ))}
+              </div>
+              <div>New sessions use &quot;{socketInfo.configuredSocket}&quot;</div>
+            </div>
+          )}
           {!heroDismissed && (
             <div className={styles.heroSection}>
               <button
@@ -880,6 +914,24 @@ export default function HomePage() {
             {dxAlerts.map((a) => (
               <div key={a.key}>{a.text}</div>
             ))}
+          </div>
+        )}
+        {socketInfo.isMulti && (
+          <div
+            className="banner banner--info mb-md"
+            data-testid="socket-transition-banner"
+            style={{ flexDirection: 'column', alignItems: 'flex-start' }}
+          >
+            <strong>Socket transition in progress</strong>
+            <div>
+              {Array.from(socketInfo.sockets.entries()).map(([sock, count], i) => (
+                <span key={sock}>
+                  {i > 0 && ' \u00B7 '}
+                  {count} session{count !== 1 ? 's' : ''} on &quot;{sock}&quot;
+                </span>
+              ))}
+            </div>
+            <div>New sessions use &quot;{socketInfo.configuredSocket}&quot;</div>
           </div>
         )}
         {/* Hero Section - dismissable */}

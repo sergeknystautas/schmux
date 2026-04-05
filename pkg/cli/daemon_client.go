@@ -377,6 +377,8 @@ type Session struct {
 	LastOutputAt string `json:"last_output_at,omitempty"`
 	Running      bool   `json:"running"`
 	AttachCmd    string `json:"attach_cmd"`
+	TmuxSocket   string `json:"tmux_socket,omitempty"`
+	TmuxSession  string `json:"tmux_session,omitempty"`
 }
 
 // WorkspaceWithSessions represents a workspace with its sessions.

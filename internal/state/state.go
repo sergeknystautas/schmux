@@ -325,6 +325,7 @@ type Session struct {
 	Nickname     string    `json:"nickname,omitempty"` // Optional human-friendly name
 	PersonaID    string    `json:"persona_id,omitempty"`
 	TmuxSession  string    `json:"tmux_session"`
+	TmuxSocket   string    `json:"tmux_socket,omitempty"` // Socket name at creation time (empty = "default" for pre-isolation sessions)
 	CreatedAt    time.Time `json:"created_at"`
 	Pid          int       `json:"pid"` // PID of the target process from tmux pane
 	LastOutputAt time.Time `json:"-"`   // Last time terminal had new output (in-memory only, not persisted)

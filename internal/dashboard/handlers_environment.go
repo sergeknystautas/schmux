@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
-	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
 type envSyncRequest struct {
@@ -151,12 +150,13 @@ func (s *Server) handleGetEnvironment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var tmuxEnv map[string]string
-	if s.tmuxServer != nil {
-		tmuxEnv, err = s.tmuxServer.ShowEnvironment(r.Context())
-	} else {
-		tmuxEnv, err = tmux.ShowEnvironment(r.Context())
+	if s.tmuxServer == nil {
+		s.logger.Error("tmux server not initialized")
+		http.Error(w, "tmux server not initialized", http.StatusInternalServerError)
+		return
 	}
+
+	tmuxEnv, err := s.tmuxServer.ShowEnvironment(r.Context())
 	if err != nil {
 		s.logger.Error("failed to get tmux environment", "err", err)
 		http.Error(w, "Failed to read tmux environment", http.StatusInternalServerError)
@@ -204,11 +204,12 @@ func (s *Server) handleSyncEnvironment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setEnvFn := tmux.SetEnvironment
-	if s.tmuxServer != nil {
-		setEnvFn = s.tmuxServer.SetEnvironment
+	if s.tmuxServer == nil {
+		s.logger.Error("tmux server not initialized")
+		http.Error(w, "tmux server not initialized", http.StatusInternalServerError)
+		return
 	}
-	if err := setEnvFn(r.Context(), req.Key, value); err != nil {
+	if err := s.tmuxServer.SetEnvironment(r.Context(), req.Key, value); err != nil {
 		s.logger.Error("failed to set tmux environment", "key", req.Key, "err", err)
 		http.Error(w, "Failed to set tmux environment variable", http.StatusInternalServerError)
 		return

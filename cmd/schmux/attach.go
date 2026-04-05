@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/pkg/cli"
 )
 
@@ -39,30 +38,39 @@ func (cmd *AttachCommand) Run(args []string) error {
 		return fmt.Errorf("failed to get sessions: %w", err)
 	}
 
-	// Find the session and get its tmux session name
-	var tmuxSession string
+	// Find the session
+	var found *cli.Session
 	for _, ws := range sessions {
-		for _, sess := range ws.Sessions {
-			if sess.ID == sessionID {
-				// Parse attach command to get tmux session name
-				// Attach command format: tmux -L schmux attach -t "=<session-name>"
-				tmuxSession = parseTmuxSession(sess.AttachCmd)
-				if tmuxSession == "" {
-					// Fallback: couldn't parse, try session ID
-					tmuxSession = sessionID
-				}
-				goto found
+		for i := range ws.Sessions {
+			if ws.Sessions[i].ID == sessionID {
+				found = &ws.Sessions[i]
+				break
 			}
+		}
+		if found != nil {
+			break
 		}
 	}
 
-found:
-	if tmuxSession == "" {
+	if found == nil {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
-	// Execute tmux attach on the schmux socket
-	tmuxCmd := exec.Command(tmux.Binary(), "-L", "schmux", "attach", "-t", tmuxSession)
+	// Use structured fields for safe exec.Command construction (no shell injection).
+	tmuxSocket := found.TmuxSocket
+	if tmuxSocket == "" {
+		tmuxSocket = "schmux" // default for sessions that predate socket configurability
+	}
+	tmuxSession := found.TmuxSession
+	if tmuxSession == "" {
+		// Fallback: parse from attach command for backward compat with old daemons
+		tmuxSession = parseTmuxSession(found.AttachCmd)
+		if tmuxSession == "" {
+			tmuxSession = sessionID
+		}
+	}
+
+	tmuxCmd := exec.Command("tmux", "-L", tmuxSocket, "attach", "-t", "="+tmuxSession)
 	tmuxCmd.Stdin = os.Stdin
 	tmuxCmd.Stdout = os.Stdout
 	tmuxCmd.Stderr = os.Stderr

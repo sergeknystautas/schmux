@@ -2,12 +2,11 @@ package dashboard
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os/exec"
 	"strings"
 	"time"
-
-	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
 // handleDebugTmuxLeak returns simple tmux counts for dev-mode sidebar diagnostics.
@@ -41,27 +40,18 @@ func (s *Server) handleDebugTmuxLeak(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) collectTmuxSessionCount() (int, error) {
+	if s.tmuxServer == nil {
+		return 0, fmt.Errorf("tmux server not initialized")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	if s.tmuxServer != nil {
-		names, err := s.tmuxServer.ListSessions(ctx)
-		if err != nil {
-			return 0, err
-		}
-		return len(names), nil
-	}
-
-	// Fallback to package-level binary
-	out, err := exec.CommandContext(ctx, tmux.Binary(), "list-sessions", "-F", "#{session_name}").Output()
+	names, err := s.tmuxServer.ListSessions(ctx)
 	if err != nil {
 		return 0, err
 	}
-	trimmed := strings.TrimSpace(string(out))
-	if trimmed == "" {
-		return 0, nil
-	}
-	return len(strings.Split(trimmed, "\n")), nil
+	return len(names), nil
 }
 
 func collectTmuxProcessCounts() (attachCount int, tmuxCount int, err error) {

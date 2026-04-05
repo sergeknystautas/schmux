@@ -38,6 +38,7 @@ type AdvancedTabProps = {
   saplingCmdCheckRepoBase: string;
   saplingCmdCreateRepoBase: string;
   tmuxBinary: string;
+  tmuxSocketName: string;
   timelapseEnabled: boolean;
   timelapseRetentionDays: number;
   timelapseMaxFileSizeMB: number;
@@ -82,6 +83,7 @@ export default function AdvancedTab({
   saplingCmdCheckRepoBase,
   saplingCmdCreateRepoBase,
   tmuxBinary,
+  tmuxSocketName,
   timelapseEnabled,
   timelapseRetentionDays,
   timelapseMaxFileSizeMB,
@@ -450,6 +452,27 @@ export default function AdvancedTab({
             <p className="form-group__hint">
               Path to a custom tmux binary. Leave empty to use the system default from $PATH. The
               path is validated on save. Changes require a daemon restart.
+            </p>
+          </div>
+
+          <div className="form-group">
+            <label className="form-group__label" htmlFor="tmux-socket-name">
+              Socket Name
+            </label>
+            <input
+              id="tmux-socket-name"
+              type="text"
+              className="input"
+              placeholder="schmux (default)"
+              value={tmuxSocketName}
+              onChange={(e) => setField('tmuxSocketName', e.target.value)}
+            />
+            <p className="form-group__hint">
+              &quot;schmux&quot; = isolated server (recommended), &quot;default&quot; = shared with
+              your tmux sessions
+            </p>
+            <p className="form-group__hint">
+              Takes effect for new sessions. Existing sessions continue on their current socket.
             </p>
           </div>
         </div>

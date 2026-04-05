@@ -17,18 +17,20 @@ import (
 // benchSetup creates a tmux session running `cat` (pure echo), a
 // SessionRuntime wired to it, and a subscribed output channel. The
 // returned cleanup function kills the tmux session and stops the tracker.
+var benchServer = tmux.NewTmuxServer("tmux", "default", nil)
+
 func benchSetup(tb testing.TB) (tracker *SessionRuntime, outputCh <-chan SequencedOutput, tmuxName string, cleanup func()) {
 	tb.Helper()
 
 	tmuxName = fmt.Sprintf("bench-%d", time.Now().UnixNano())
 	ctx := context.Background()
 
-	if err := tmux.CreateSession(ctx, tmuxName, "/tmp", "cat"); err != nil {
+	if err := benchServer.CreateSession(ctx, tmuxName, "/tmp", "cat"); err != nil {
 		tb.Fatalf("failed to create tmux session: %v", err)
 	}
 
 	st := state.New("", nil)
-	source := NewLocalSource("bench-session", tmuxName, nil, nil)
+	source := NewLocalSource("bench-session", tmuxName, benchServer, nil)
 	source.Start()
 	tracker = NewSessionRuntime("bench-session", source, st, "", nil, nil, nil)
 	tracker.Start()
@@ -37,7 +39,7 @@ func benchSetup(tb testing.TB) (tracker *SessionRuntime, outputCh <-chan Sequenc
 	deadline := time.Now().Add(5 * time.Second)
 	for !tracker.IsAttached() {
 		if time.Now().After(deadline) {
-			tmux.KillSession(ctx, tmuxName)
+			benchServer.KillSession(ctx, tmuxName)
 			tracker.Stop()
 			tb.Fatal("tracker did not attach within 5s")
 		}
@@ -60,7 +62,7 @@ drain:
 	cleanup = func() {
 		tracker.UnsubscribeOutput(outputCh)
 		tracker.Stop()
-		_ = tmux.KillSession(ctx, tmuxName)
+		_ = benchServer.KillSession(ctx, tmuxName)
 	}
 	return
 }
@@ -74,7 +76,7 @@ func benchSetupStressed(tb testing.TB) (tracker *SessionRuntime, outputCh <-chan
 	ctx := context.Background()
 
 	cmd := `sh -c 'while true; do seq 1 50; sleep 0.05; done & exec cat'`
-	if err := tmux.CreateSession(ctx, tmuxName, "/tmp", cmd); err != nil {
+	if err := benchServer.CreateSession(ctx, tmuxName, "/tmp", cmd); err != nil {
 		tb.Fatalf("failed to create stressed tmux session: %v", err)
 	}
 
@@ -87,7 +89,7 @@ func benchSetupStressed(tb testing.TB) (tracker *SessionRuntime, outputCh <-chan
 	deadline := time.Now().Add(5 * time.Second)
 	for !tracker.IsAttached() {
 		if time.Now().After(deadline) {
-			tmux.KillSession(ctx, tmuxName)
+			benchServer.KillSession(ctx, tmuxName)
 			tracker.Stop()
 			tb.Fatal("stressed tracker did not attach within 5s")
 		}
@@ -110,7 +112,7 @@ drain:
 	cleanup = func() {
 		tracker.UnsubscribeOutput(outputCh)
 		tracker.Stop()
-		_ = tmux.KillSession(ctx, tmuxName)
+		_ = benchServer.KillSession(ctx, tmuxName)
 	}
 	return
 }

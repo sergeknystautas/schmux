@@ -177,6 +177,7 @@ type ConfigResponse struct {
 	RemoteAccess               RemoteAccess           `json:"remote_access"`
 	SaplingCommands            *SaplingCommandsUpdate `json:"sapling_commands,omitempty"`
 	TmuxBinary                 string                 `json:"tmux_binary,omitempty"`
+	TmuxSocketName             string                 `json:"tmux_socket_name,omitempty"`
 	RecycleWorkspaces          bool                   `json:"recycle_workspaces,omitempty"`
 	LocalEchoRemote            bool                   `json:"local_echo_remote,omitempty"`
 	SystemCapabilities         SystemCapabilities     `json:"system_capabilities"`
@@ -318,6 +319,7 @@ type ConfigUpdateRequest struct {
 	EnabledModels              *map[string]string          `json:"enabled_models,omitempty"`
 	SaplingCommands            *SaplingCommandsUpdate      `json:"sapling_commands,omitempty"`
 	TmuxBinary                 *string                     `json:"tmux_binary,omitempty"`
+	TmuxSocketName             *string                     `json:"tmux_socket_name,omitempty"`
 	RecycleWorkspaces          *bool                       `json:"recycle_workspaces,omitempty"`
 	LocalEchoRemote            *bool                       `json:"local_echo_remote,omitempty"`
 }

@@ -107,30 +107,30 @@ func TestFlushClearsPartialInputBeforeInjecting(t *testing.T) {
 
 	ctx := context.Background()
 	sessName := fmt.Sprintf("schmux-fm-inject-test-%d", os.Getpid())
+	testServer := tmux.NewTmuxServer("tmux", "default", nil)
 
-	_ = tmux.KillSession(ctx, sessName)
+	_ = testServer.KillSession(ctx, sessName)
 	t.Cleanup(func() {
-		_ = tmux.KillSession(ctx, sessName)
+		_ = testServer.KillSession(ctx, sessName)
 	})
 
 	tmpDir := t.TempDir()
 
 	// Create a session running bash (readline supports Ctrl+U)
-	if err := tmux.CreateSession(ctx, sessName, tmpDir, "bash --norc --noprofile"); err != nil {
+	if err := testServer.CreateSession(ctx, sessName, tmpDir, "bash --norc --noprofile"); err != nil {
 		t.Fatal("failed to create session:", err)
 	}
 	time.Sleep(300 * time.Millisecond)
 
 	// Type partial input to simulate operator typing.
-	// Use exec.Command directly since the package-level tmux.SendLiteral has been removed.
-	sendCmd := exec.CommandContext(ctx, "tmux", "send-keys", "-l", "-t", sessName, "hello wor")
+	sendCmd := exec.CommandContext(ctx, testServer.Binary(), "-L", testServer.SocketName(), "send-keys", "-l", "-t", sessName, "hello wor")
 	if out, err := sendCmd.CombinedOutput(); err != nil {
 		t.Fatalf("failed to type partial input: %v: %s", err, string(out))
 	}
 	time.Sleep(100 * time.Millisecond)
 
 	// Set up a LocalSource + SessionRuntime so the injector can use the runtime
-	source := session.NewLocalSource("fm-test", sessName, nil, nil)
+	source := session.NewLocalSource("fm-test", sessName, testServer, nil)
 	source.Start()
 	runtime := session.NewSessionRuntime("fm-test", source, nil, "", nil, nil, nil)
 	runtime.Start()
@@ -161,7 +161,7 @@ func TestFlushClearsPartialInputBeforeInjecting(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 
 	// Capture pane output
-	output, err := tmux.CaptureOutput(ctx, sessName)
+	output, err := testServer.CaptureOutput(ctx, sessName)
 	if err != nil {
 		t.Fatal("failed to capture output:", err)
 	}

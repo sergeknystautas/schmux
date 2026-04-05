@@ -9,6 +9,8 @@ export interface SessionResponse {
   last_output_at?: string;
   running: boolean;
   attach_cmd: string;
+  tmux_socket?: string;
+  tmux_session?: string;
   nudge_state?: string;
   nudge_summary?: string;
   nudge_seq?: number;
