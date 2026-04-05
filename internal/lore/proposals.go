@@ -123,10 +123,6 @@ type Proposal struct {
 	Rules     []Rule         `json:"rules"`
 	Discarded []string       `json:"discarded,omitempty"`
 
-	// Merge preview state — populated by the background merge job.
-	MergePreviews []MergePreview `json:"merge_previews,omitempty"`
-	MergeError    string         `json:"merge_error,omitempty"`
-
 	// Deprecated: v1 fields kept for backward compatibility during migration.
 	// These will be removed in the cleanup task once all consumers are updated.
 	SourceCount      int               `json:"source_count,omitempty"`
@@ -137,14 +133,6 @@ type Proposal struct {
 	DiffSummary      string            `json:"diff_summary,omitempty"`
 	EntriesUsed      []string          `json:"entries_used,omitempty"`
 	EntriesDiscarded map[string]string `json:"entries_discarded,omitempty"`
-}
-
-// MergePreview holds a per-layer merge result for the frontend.
-type MergePreview struct {
-	Layer          Layer  `json:"layer"`
-	CurrentContent string `json:"current_content"`
-	MergedContent  string `json:"merged_content"`
-	Summary        string `json:"summary"`
 }
 
 // AllRulesResolved returns true if every rule is approved or dismissed.

@@ -521,8 +521,6 @@ export interface LoreProposal {
   status: 'pending' | 'merging' | 'applied' | 'dismissed';
   rules: LoreRule[];
   discarded?: string[];
-  merge_previews?: LoreMergePreview[];
-  merge_error?: string;
   // Deprecated v1 fields (kept for backward compat with old proposals on disk)
   source_count?: number;
   sources?: string[];
@@ -532,13 +530,6 @@ export interface LoreProposal {
   diff_summary?: string;
   entries_used?: string[];
   entries_discarded?: Record<string, string>;
-}
-
-export interface LoreMergePreview {
-  layer: LoreLayer;
-  current_content: string;
-  merged_content: string;
-  summary: string;
 }
 
 export interface LoreMergeApplyResult {
@@ -669,4 +660,18 @@ export interface RepofeedRepoResponse {
   intents: RepofeedIntentEntry[];
   landed: SubredditPost[];
   last_fetch?: string;
+}
+
+export interface PendingMerge {
+  repo: string;
+  status: 'merging' | 'ready' | 'error';
+  base_sha: string;
+  rule_ids: string[];
+  proposal_ids: string[];
+  merged_content: string;
+  current_content: string;
+  summary: string;
+  edited_content?: string;
+  error?: string;
+  created_at: string;
 }

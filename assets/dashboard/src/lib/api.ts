@@ -988,17 +988,6 @@ export async function updateLoreRule(
   return res.json();
 }
 
-export async function startLoreMerge(repoName: string, proposalID: string): Promise<void> {
-  const res = await apiFetch(
-    `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(proposalID)}/merge`,
-    {
-      method: 'POST',
-      headers: { ...csrfHeaders() },
-    }
-  );
-  if (!res.ok) await parseErrorResponse(res, 'Failed to start merge');
-}
-
 export async function applyLoreMerge(
   repoName: string,
   proposalID: string,
@@ -1082,6 +1071,54 @@ export async function getLoreCurationLog(
     `/api/lore/${encodeURIComponent(repoName)}/curations/${encodeURIComponent(id)}/log`
   );
   if (!res.ok) await parseErrorResponse(res, 'Failed to fetch curation log');
+  return res.json();
+}
+
+export async function getLorePendingMerge(repoName: string) {
+  const res = await apiFetch(`/api/lore/${encodeURIComponent(repoName)}/pending-merge`);
+  if (res.status === 404) return null;
+  if (!res.ok) await parseErrorResponse(res, 'Failed to fetch pending merge');
+  return res.json();
+}
+
+export async function startLoreUnifiedMerge(
+  repoName: string,
+  proposals: { proposal_id: string; rule_ids: string[] }[]
+) {
+  const res = await apiFetch(`/api/lore/${encodeURIComponent(repoName)}/merge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify({ proposals }),
+  });
+  if (!res.ok) await parseErrorResponse(res, 'Failed to start merge');
+  return res.json();
+}
+
+export async function pushLoreMerge(repoName: string) {
+  const res = await apiFetch(`/api/lore/${encodeURIComponent(repoName)}/push`, {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
+  if (!res.ok) await parseErrorResponse(res, 'Failed to push');
+  return res.json();
+}
+
+export async function updateLorePendingMerge(repoName: string, editedContent: string) {
+  const res = await apiFetch(`/api/lore/${encodeURIComponent(repoName)}/pending-merge`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify({ edited_content: editedContent }),
+  });
+  if (!res.ok) await parseErrorResponse(res, 'Failed to save edits');
+  return res.json();
+}
+
+export async function deleteLorePendingMerge(repoName: string) {
+  const res = await apiFetch(`/api/lore/${encodeURIComponent(repoName)}/pending-merge`, {
+    method: 'DELETE',
+    headers: { ...csrfHeaders() },
+  });
+  if (!res.ok) await parseErrorResponse(res, 'Failed to delete pending merge');
   return res.json();
 }
 

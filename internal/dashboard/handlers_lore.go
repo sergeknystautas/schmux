@@ -17,9 +17,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/lore"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/schema"
-	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
-	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
 // validateLoreRepo is a chi middleware that validates the {repo} URL parameter.
@@ -196,6 +194,13 @@ func (s *Server) handleLoreDismiss(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Invalidate any pending merge that includes rules from this proposal
+	if s.lorePendingMergeStore != nil {
+		for _, rule := range proposal.Rules {
+			s.lorePendingMergeStore.InvalidateIfContainsRule(repoName, rule.ID)
+		}
+	}
+
 	// Mark source entries as "dismissed" in the central state JSONL
 	statePath, err := lore.LoreStatePath(repoName)
 	if err == nil {
@@ -278,6 +283,11 @@ func (s *Server) handleLoreRuleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Invalidate any pending merge that includes this rule
+	if s.lorePendingMergeStore != nil {
+		s.lorePendingMergeStore.InvalidateIfContainsRule(repoName, ruleID)
+	}
+
 	// Return the updated proposal
 	proposal, err := s.loreStore.Get(repoName, proposalID)
 	if err != nil {
@@ -288,137 +298,6 @@ func (s *Server) handleLoreRuleUpdate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(proposal); err != nil {
 		s.logger.Error("failed to encode response", "handler", "lore-rule-update", "err", err)
-	}
-}
-
-// handleLoreMerge triggers phase 3 merge: calls the merge LLM for each layer's approved rules.
-// The merge runs as a background job. The endpoint sets the proposal status to "merging"
-// and returns 202 immediately. The frontend polls the proposal to pick up the result.
-func (s *Server) handleLoreMerge(w http.ResponseWriter, r *http.Request) {
-	repoName := chi.URLParam(r, "repo")
-	proposalID := chi.URLParam(r, "proposalID")
-	if repoName == "" || proposalID == "" {
-		http.Error(w, "missing path parameters", http.StatusBadRequest)
-		return
-	}
-
-	if s.loreStore == nil {
-		http.Error(w, "lore system not enabled", http.StatusServiceUnavailable)
-		return
-	}
-	if s.loreExecutor == nil {
-		http.Error(w, "lore curator not configured (no LLM target)", http.StatusServiceUnavailable)
-		return
-	}
-
-	proposal, err := s.loreStore.Get(repoName, proposalID)
-	if err != nil {
-		http.Error(w, "proposal not found", http.StatusNotFound)
-		return
-	}
-
-	if proposal.Status == lore.ProposalMerging {
-		http.Error(w, "merge already in progress", http.StatusConflict)
-		return
-	}
-
-	byLayer := proposal.ApprovedRulesByLayer()
-	if len(byLayer) == 0 {
-		http.Error(w, "no approved rules to merge", http.StatusBadRequest)
-		return
-	}
-
-	// Set status to merging and clear any stale previews/error
-	proposal.Status = lore.ProposalMerging
-	proposal.MergePreviews = nil
-	proposal.MergeError = ""
-	if err := s.loreStore.Save(proposal); err != nil {
-		http.Error(w, "failed to update proposal status", http.StatusInternalServerError)
-		return
-	}
-
-	// Find bare repo for reading public layer content
-	var bareDir string
-	for _, repoConfig := range s.config.Repos {
-		if repoConfig.Name == repoName {
-			bareDir = s.config.ResolveBareRepoDir(repoConfig.BarePath)
-			break
-		}
-	}
-
-	// Capture what we need for the goroutine
-	executor := s.loreExecutor
-	store := s.loreStore
-	instrStore := s.loreInstructionStore
-	instrFiles := s.config.GetLoreInstructionFiles()
-	logger := s.logger
-
-	go func() {
-		var previews []lore.MergePreview
-
-		for layer, rules := range byLayer {
-			var currentContent string
-
-			switch layer {
-			case lore.LayerRepoPublic:
-				if len(instrFiles) > 0 && bareDir != "" {
-					content, err := lore.ReadFileFromRepo(context.Background(), bareDir, instrFiles[0])
-					if err == nil {
-						currentContent = content
-					}
-				}
-			case lore.LayerRepoPrivate:
-				if instrStore != nil {
-					currentContent, _ = instrStore.Read(lore.LayerRepoPrivate, repoName)
-				}
-			case lore.LayerCrossRepoPrivate:
-				if instrStore != nil {
-					currentContent, _ = instrStore.Read(lore.LayerCrossRepoPrivate, "")
-				}
-			}
-
-			prompt := lore.BuildMergePrompt(currentContent, rules)
-			response, err := executor(context.Background(), prompt, 5*time.Minute)
-			if err != nil {
-				logger.Error("merge LLM call failed", "repo", repoName, "layer", layer, "err", err)
-				s.finishMerge(store, repoName, proposalID, nil, fmt.Sprintf("merge failed for layer %s: %v", layer, err))
-				return
-			}
-
-			result, err := lore.ParseMergeResponse(response)
-			if err != nil {
-				logger.Error("merge response parse failed", "repo", repoName, "layer", layer, "err", err)
-				s.finishMerge(store, repoName, proposalID, nil, fmt.Sprintf("failed to parse merge response for layer %s: %v", layer, err))
-				return
-			}
-
-			previews = append(previews, lore.MergePreview{
-				Layer:          layer,
-				CurrentContent: currentContent,
-				MergedContent:  result.MergedContent,
-				Summary:        result.Summary,
-			})
-		}
-
-		s.finishMerge(store, repoName, proposalID, previews, "")
-	}()
-
-	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]string{"status": "merging"})
-}
-
-// finishMerge stores merge results on the proposal and resets status to pending.
-func (s *Server) finishMerge(store *lore.ProposalStore, repo, proposalID string, previews []lore.MergePreview, mergeErr string) {
-	p, err := store.Get(repo, proposalID)
-	if err != nil {
-		s.logger.Error("finishMerge: failed to load proposal", "repo", repo, "id", proposalID, "err", err)
-		return
-	}
-	p.Status = lore.ProposalPending
-	p.MergePreviews = previews
-	p.MergeError = mergeErr
-	if err := store.Save(p); err != nil {
-		s.logger.Error("finishMerge: failed to save proposal", "repo", repo, "id", proposalID, "err", err)
 	}
 }
 
@@ -462,157 +341,8 @@ func (s *Server) handleLoreApplyMerge(w http.ResponseWriter, r *http.Request) {
 		layer := lore.Layer(m.Layer)
 		switch layer {
 		case lore.LayerRepoPublic:
-			// Find repo URL from config
-			var repoURL string
-			for _, repoConfig := range s.config.Repos {
-				if repoConfig.Name == repoName {
-					repoURL = repoConfig.URL
-					break
-				}
-			}
-			if repoURL == "" {
-				http.Error(w, "repo not found for public layer apply", http.StatusNotFound)
-				return
-			}
-
-			// Check if a schmux/lore workspace already exists for this repo
-			if ws, found := s.state.FindWorkspaceByRepoBranch(repoURL, "schmux/lore"); found {
-				clean, reason := workspace.CheckWorkspaceClean(ws.Path)
-				if !clean {
-					http.Error(w, fmt.Sprintf("Lore workspace has pending changes. Review or discard them before applying a new merge. (%s)", reason), http.StatusConflict)
-					return
-				}
-			}
-
-			// Get or create the workspace
-			ws, err := s.workspace.GetOrCreate(r.Context(), repoURL, "schmux/lore")
-			if err != nil {
-				s.logger.Error("get or create lore workspace failed", "repo", repoName, "err", err)
-				http.Error(w, fmt.Sprintf("failed to create lore workspace: %v", err), http.StatusInternalServerError)
-				return
-			}
-
-			// Determine target file
-			instrFiles := s.config.GetLoreInstructionFiles()
-			targetFile := "CLAUDE.md"
-			if len(instrFiles) > 0 {
-				targetFile = instrFiles[0]
-			}
-
-			// Write merged content as unstaged change
-			fullPath := filepath.Join(ws.Path, filepath.Clean(targetFile))
-			if !strings.HasPrefix(fullPath, filepath.Clean(ws.Path)+string(os.PathSeparator)) {
-				http.Error(w, fmt.Sprintf("path traversal in filename: %s", targetFile), http.StatusBadRequest)
-				return
-			}
-			if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-				http.Error(w, fmt.Sprintf("failed to create directory: %v", err), http.StatusInternalServerError)
-				return
-			}
-			if err := os.WriteFile(fullPath, []byte(m.Content), 0644); err != nil {
-				http.Error(w, fmt.Sprintf("failed to write file: %v", err), http.StatusInternalServerError)
-				return
-			}
-
-			resultMap := map[string]string{
-				"layer":        m.Layer,
-				"status":       "applied",
-				"workspace_id": ws.ID,
-			}
-
-			if body.AutoCommit {
-				// Stage the file
-				stageCmd := exec.CommandContext(r.Context(), "git", "-C", ws.Path, "add", targetFile)
-				if out, err := stageCmd.CombinedOutput(); err != nil {
-					http.Error(w, fmt.Sprintf("failed to stage: %s: %s", err, out), 500)
-					return
-				}
-
-				// Count approved rules for commit message
-				approvedCount := 0
-				if p, pErr := s.loreStore.Get(repoName, proposalID); pErr == nil {
-					for _, rule := range p.Rules {
-						if rule.Status == lore.RuleApproved {
-							approvedCount++
-						}
-					}
-				}
-				if approvedCount == 0 {
-					approvedCount = 1 // fallback
-				}
-
-				// Commit with descriptive message
-				commitMsg := fmt.Sprintf("lore: add %d rules from agent learnings", approvedCount)
-				commitCmd := exec.CommandContext(r.Context(), "git", "-C", ws.Path,
-					"-c", "user.name=schmux", "-c", "user.email=schmux@noreply",
-					"commit", "-m", commitMsg)
-				if out, err := commitCmd.CombinedOutput(); err != nil {
-					http.Error(w, fmt.Sprintf("failed to commit: %s: %s", err, out), 500)
-					return
-				}
-
-				// Get commit SHA
-				shaCmd := exec.CommandContext(r.Context(), "git", "-C", ws.Path, "rev-parse", "HEAD")
-				shaOut, _ := shaCmd.Output()
-				commitSHA := strings.TrimSpace(string(shaOut))
-
-				// Push based on config mode
-				mode := "direct_push"
-				if s.config != nil && s.config.Lore != nil {
-					mode = s.config.Lore.GetPublicRuleMode()
-				}
-				if mode == "create_pr" {
-					branch := fmt.Sprintf("lore/rules-%s", time.Now().Format("2006-01-02"))
-					exec.CommandContext(r.Context(), "git", "-C", ws.Path, "checkout", "-b", branch).Run()
-					pushCmd := exec.CommandContext(r.Context(), "git", "-C", ws.Path, "push", "-u", "origin", branch)
-					if out, err := pushCmd.CombinedOutput(); err != nil {
-						http.Error(w, fmt.Sprintf("push to branch failed: %s: %s", err, out), 500)
-						return
-					}
-				} else {
-					pushCmd := exec.CommandContext(r.Context(), "git", "-C", ws.Path, "push", "origin", "HEAD:main")
-					if out, err := pushCmd.CombinedOutput(); err != nil {
-						http.Error(w, fmt.Sprintf("push failed: %s: %s", err, out), 500)
-						return
-					}
-				}
-
-				resultMap["commit_sha"] = commitSHA
-
-				// Clean up the workspace — its job is done after push
-				s.backgroundWG.Add(1)
-				go func() {
-					defer s.backgroundWG.Done()
-					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-					defer cancel()
-					if err := s.workspace.DisposeForce(ctx, ws.ID); err != nil {
-						s.logger.Warn("failed to dispose lore workspace after push", "workspace", ws.ID, "err", err)
-					}
-				}()
-			} else {
-				// Spawn a shell session if the workspace doesn't already have one
-				hasSession := false
-				for _, sess := range s.state.GetSessions() {
-					if sess.WorkspaceID == ws.ID {
-						hasSession = true
-						break
-					}
-				}
-				if !hasSession {
-					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-					_, spawnErr := s.session.SpawnCommand(ctx, session.SpawnOptions{
-						WorkspaceID: ws.ID,
-						Command:     "bash",
-						Nickname:    "lore",
-					})
-					cancel()
-					if spawnErr != nil {
-						s.logger.Warn("failed to spawn lore shell session", "workspace", ws.ID, "err", spawnErr)
-					}
-				}
-			}
-
-			results = append(results, resultMap)
+			http.Error(w, "public layer is now handled via /merge and /push endpoints", http.StatusGone)
+			return
 
 		case lore.LayerRepoPrivate, lore.LayerCrossRepoPrivate:
 			if s.loreInstructionStore == nil {
@@ -642,8 +372,6 @@ func (s *Server) handleLoreApplyMerge(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		proposal.Status = lore.ProposalApplied
-		proposal.MergePreviews = nil
-		proposal.MergeError = ""
 		s.loreStore.Save(proposal)
 	}
 
@@ -1161,6 +889,442 @@ func (s *Server) handleLoreCurationLog(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"events": events})
+}
+
+// handleLoreUnifiedMerge triggers a unified merge of approved public rules across
+// multiple proposals into the repo's instruction file. It creates a PendingMerge
+// in "merging" status, returns 202 immediately, and runs the LLM merge in the
+// background.
+func (s *Server) handleLoreUnifiedMerge(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	repoName := chi.URLParam(r, "repo")
+
+	if s.loreStore == nil || s.lorePendingMergeStore == nil {
+		http.Error(w, "lore system not enabled", http.StatusServiceUnavailable)
+		return
+	}
+	if s.loreExecutor == nil {
+		http.Error(w, "lore curator not configured (no LLM target)", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Check for existing merging state
+	if existing, err := s.lorePendingMergeStore.Get(repoName); err == nil && existing.Status == lore.PendingMergeStatusMerging {
+		http.Error(w, "merge already in progress", http.StatusConflict)
+		return
+	}
+
+	var body struct {
+		Proposals []struct {
+			ProposalID string   `json:"proposal_id"`
+			RuleIDs    []string `json:"rule_ids"`
+		} `json:"proposals"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if len(body.Proposals) == 0 {
+		http.Error(w, "no proposals provided", http.StatusBadRequest)
+		return
+	}
+
+	// Gather approved public rules from all specified proposals
+	var allRules []lore.Rule
+	var allRuleIDs, allProposalIDs []string
+	for _, pg := range body.Proposals {
+		proposal, err := s.loreStore.Get(repoName, pg.ProposalID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("proposal %s not found", pg.ProposalID), http.StatusNotFound)
+			return
+		}
+		allProposalIDs = append(allProposalIDs, pg.ProposalID)
+		for _, rule := range proposal.Rules {
+			if rule.Status == lore.RuleApproved && rule.EffectiveLayer() == lore.LayerRepoPublic {
+				allRules = append(allRules, rule)
+				allRuleIDs = append(allRuleIDs, rule.ID)
+			}
+		}
+	}
+	if len(allRules) == 0 {
+		http.Error(w, "no approved public rules to merge", http.StatusBadRequest)
+		return
+	}
+
+	// Find bare repo dir
+	var bareDir string
+	for _, repoConfig := range s.config.Repos {
+		if repoConfig.Name == repoName {
+			bareDir = s.config.ResolveBareRepoDir(repoConfig.BarePath)
+			break
+		}
+	}
+	if bareDir == "" {
+		http.Error(w, "repo bare directory not found", http.StatusNotFound)
+		return
+	}
+
+	// Create PendingMerge in "merging" state
+	pm := &lore.PendingMerge{
+		Repo:        repoName,
+		Status:      lore.PendingMergeStatusMerging,
+		RuleIDs:     allRuleIDs,
+		ProposalIDs: allProposalIDs,
+		CreatedAt:   time.Now().UTC(),
+	}
+	if err := s.lorePendingMergeStore.Save(pm); err != nil {
+		http.Error(w, "failed to create pending merge", http.StatusInternalServerError)
+		return
+	}
+
+	// Return 202 immediately
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{"status": "merging"})
+
+	// Run merge in background
+	executor := s.loreExecutor
+	pendingStore := s.lorePendingMergeStore
+	instrFiles := s.config.GetLoreInstructionFiles()
+	logger := s.logger
+
+	go func() {
+		ctx, cancel := context.WithTimeout(s.shutdownCtx, 5*time.Minute)
+		defer cancel()
+
+		// Fetch latest from remote
+		fetchCmd := exec.CommandContext(ctx, "git", "-C", bareDir, "fetch", "--quiet")
+		fetchCmd.Run() // best effort
+
+		// Read current instruction file
+		targetFile := "CLAUDE.md"
+		if len(instrFiles) > 0 {
+			targetFile = instrFiles[0]
+		}
+		currentContent, err := lore.ReadFileFromRepo(ctx, bareDir, targetFile)
+		if err != nil {
+			logger.Error("failed to read instruction file from repo", "err", err)
+			currentContent = "" // empty file is valid — first-time setup
+		}
+
+		// Get base SHA
+		shaCmd := exec.CommandContext(ctx, "git", "-C", bareDir, "rev-parse", "HEAD")
+		shaOut, _ := shaCmd.Output()
+		baseSHA := strings.TrimSpace(string(shaOut))
+
+		// Run LLM merge
+		prompt := lore.BuildMergePrompt(currentContent, allRules)
+		response, err := executor(ctx, prompt, 5*time.Minute)
+		if err != nil {
+			pm.Status = lore.PendingMergeStatusError
+			pm.Error = fmt.Sprintf("Merge failed: %v", err)
+			pendingStore.Save(pm)
+			s.BroadcastCuratorEvent(CuratorEvent{
+				Repo: repoName, Timestamp: time.Now().UTC(),
+				EventType: "lore_merge_complete",
+				Raw:       json.RawMessage(fmt.Sprintf(`{"status":"error","error":%q}`, pm.Error)),
+			})
+			return
+		}
+
+		result, err := lore.ParseMergeResponse(response)
+		if err != nil {
+			pm.Status = lore.PendingMergeStatusError
+			pm.Error = fmt.Sprintf("Failed to parse merge result: %v", err)
+			pendingStore.Save(pm)
+			s.BroadcastCuratorEvent(CuratorEvent{
+				Repo: repoName, Timestamp: time.Now().UTC(),
+				EventType: "lore_merge_complete",
+				Raw:       json.RawMessage(fmt.Sprintf(`{"status":"error","error":%q}`, pm.Error)),
+			})
+			return
+		}
+
+		// Update PendingMerge to ready
+		pm.Status = lore.PendingMergeStatusReady
+		pm.BaseSHA = baseSHA
+		pm.CurrentContent = currentContent
+		pm.MergedContent = result.MergedContent
+		pm.Summary = result.Summary
+		pm.Error = ""
+		pendingStore.Save(pm)
+
+		s.BroadcastCuratorEvent(CuratorEvent{
+			Repo: repoName, Timestamp: time.Now().UTC(),
+			EventType: "lore_merge_complete",
+			Raw:       json.RawMessage(fmt.Sprintf(`{"status":"ready","repo":%q}`, repoName)),
+		})
+		logger.Info("unified merge complete", "repo", repoName, "rules", len(allRules))
+	}()
+}
+
+// handleLorePendingMergeGet returns the pending merge for the given repo.
+func (s *Server) handleLorePendingMergeGet(w http.ResponseWriter, r *http.Request) {
+	repoName := chi.URLParam(r, "repo")
+	if s.lorePendingMergeStore == nil {
+		http.Error(w, "pending merge store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	pm, err := s.lorePendingMergeStore.Get(repoName)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(pm)
+}
+
+// handleLorePendingMergeDelete removes a pending merge for the given repo.
+func (s *Server) handleLorePendingMergeDelete(w http.ResponseWriter, r *http.Request) {
+	repoName := chi.URLParam(r, "repo")
+	if s.lorePendingMergeStore == nil {
+		http.Error(w, "pending merge store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if err := s.lorePendingMergeStore.Delete(repoName); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+}
+
+// handleLorePendingMergePatch updates the edited content of a pending merge.
+func (s *Server) handleLorePendingMergePatch(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+	repoName := chi.URLParam(r, "repo")
+	if s.lorePendingMergeStore == nil {
+		http.Error(w, "pending merge store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		EditedContent *string `json:"edited_content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if body.EditedContent == nil {
+		http.Error(w, "edited_content is required", http.StatusBadRequest)
+		return
+	}
+	if err := s.lorePendingMergeStore.UpdateEditedContent(repoName, *body.EditedContent); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+}
+
+// handleLorePush pushes the pending merge content to the repo's instruction file.
+// It validates the PendingMerge, checks for staleness, commits and pushes.
+func (s *Server) handleLorePush(w http.ResponseWriter, r *http.Request) {
+	repoName := chi.URLParam(r, "repo")
+
+	if s.loreStore == nil || s.lorePendingMergeStore == nil {
+		http.Error(w, "lore system not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	// 1. Get and validate PendingMerge
+	pm, err := s.lorePendingMergeStore.Get(repoName)
+	if err != nil {
+		http.Error(w, "no pending merge found", http.StatusNotFound)
+		return
+	}
+	if pm.Status != lore.PendingMergeStatusReady {
+		http.Error(w, fmt.Sprintf("pending merge is not ready (status: %s)", pm.Status), http.StatusConflict)
+		return
+	}
+	if pm.IsExpired() {
+		http.Error(w, "pending merge has expired", http.StatusGone)
+		return
+	}
+
+	// 2. Server-side rule validation: verify all rules are still approved
+	for _, proposalID := range pm.ProposalIDs {
+		proposal, err := s.loreStore.Get(repoName, proposalID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("proposal %s not found", proposalID), http.StatusNotFound)
+			return
+		}
+		for _, ruleID := range pm.RuleIDs {
+			for _, rule := range proposal.Rules {
+				if rule.ID == ruleID && rule.Status != lore.RuleApproved {
+					http.Error(w, fmt.Sprintf("rule %s is no longer approved", ruleID), http.StatusConflict)
+					return
+				}
+			}
+		}
+	}
+
+	// 3. Compute instrFiles and targetFile
+	instrFiles := s.config.GetLoreInstructionFiles()
+	targetFile := "CLAUDE.md"
+	if len(instrFiles) > 0 {
+		targetFile = instrFiles[0]
+	}
+
+	// 4. Find bare repo
+	var bareDir string
+	for _, repoConfig := range s.config.Repos {
+		if repoConfig.Name == repoName {
+			bareDir = s.config.ResolveBareRepoDir(repoConfig.BarePath)
+			break
+		}
+	}
+	if bareDir == "" {
+		http.Error(w, "repo bare directory not found", http.StatusNotFound)
+		return
+	}
+
+	// 5. Freshness check: compare BaseSHA vs current HEAD
+	fetchCmd := exec.CommandContext(r.Context(), "git", "-C", bareDir, "fetch", "--quiet")
+	fetchCmd.Run() // best effort
+
+	shaCmd := exec.CommandContext(r.Context(), "git", "-C", bareDir, "rev-parse", "HEAD")
+	shaOut, err := shaCmd.Output()
+	if err != nil {
+		http.Error(w, "failed to read current HEAD from bare repo", http.StatusInternalServerError)
+		return
+	}
+	currentSHA := strings.TrimSpace(string(shaOut))
+
+	if currentSHA != pm.BaseSHA {
+		// SHA changed — check if file content is still the same
+		currentContent, err := lore.ReadFileFromRepo(r.Context(), bareDir, targetFile)
+		if err != nil {
+			currentContent = ""
+		}
+		if currentContent != pm.CurrentContent {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]string{
+				"reason":  "stale",
+				"message": "The instruction file has been modified since the merge was created. Please re-merge.",
+			})
+			return
+		}
+		// Same content, different SHA — update BaseSHA and proceed
+		pm.BaseSHA = currentSHA
+	}
+
+	// 6. Determine default branch from bare repo
+	refCmd := exec.CommandContext(r.Context(), "git", "-C", bareDir, "symbolic-ref", "HEAD")
+	refOut, err := refCmd.Output()
+	if err != nil {
+		http.Error(w, "failed to determine default branch", http.StatusInternalServerError)
+		return
+	}
+	defaultBranch := strings.TrimSpace(string(refOut))
+	defaultBranch = strings.TrimPrefix(defaultBranch, "refs/heads/")
+
+	// 7. Clone to a temporary directory
+	worktreeDir := filepath.Join(os.TempDir(), fmt.Sprintf("lore-push-%s-%d", repoName, time.Now().UnixMilli()))
+	defer os.RemoveAll(worktreeDir)
+
+	cloneCmd := exec.CommandContext(r.Context(), "git", "clone", bareDir, worktreeDir)
+	if out, err := cloneCmd.CombinedOutput(); err != nil {
+		http.Error(w, fmt.Sprintf("failed to clone: %s: %s", err, out), http.StatusInternalServerError)
+		return
+	}
+
+	// 8. Write merged content
+	fullPath := filepath.Join(worktreeDir, filepath.Clean(targetFile))
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+		http.Error(w, fmt.Sprintf("failed to create directory: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if err := os.WriteFile(fullPath, []byte(pm.EffectiveContent()), 0644); err != nil {
+		http.Error(w, fmt.Sprintf("failed to write file: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Stage
+	stageCmd := exec.CommandContext(r.Context(), "git", "-C", worktreeDir, "add", targetFile)
+	if out, err := stageCmd.CombinedOutput(); err != nil {
+		http.Error(w, fmt.Sprintf("failed to stage: %s: %s", err, out), http.StatusInternalServerError)
+		return
+	}
+
+	// Count approved rules for commit message
+	approvedCount := len(pm.RuleIDs)
+	if approvedCount == 0 {
+		approvedCount = 1
+	}
+	commitMsg := fmt.Sprintf("lore: add %d rules from agent learnings", approvedCount)
+
+	// 9. Commit with env vars for author/committer
+	commitCmd := exec.CommandContext(r.Context(), "git", "-C", worktreeDir, "commit", "-m", commitMsg)
+	commitCmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=schmux",
+		"GIT_AUTHOR_EMAIL=schmux@localhost",
+		"GIT_COMMITTER_NAME=schmux",
+		"GIT_COMMITTER_EMAIL=schmux@localhost",
+	)
+	if out, err := commitCmd.CombinedOutput(); err != nil {
+		http.Error(w, fmt.Sprintf("failed to commit: %s: %s", err, out), http.StatusInternalServerError)
+		return
+	}
+
+	// Get commit SHA
+	commitSHACmd := exec.CommandContext(r.Context(), "git", "-C", worktreeDir, "rev-parse", "HEAD")
+	commitSHAOut, err := commitSHACmd.Output()
+	if err != nil {
+		http.Error(w, "failed to read commit SHA", http.StatusInternalServerError)
+		return
+	}
+	commitSHA := strings.TrimSpace(string(commitSHAOut))
+
+	// 10. Push based on config mode
+	mode := "direct_push"
+	if s.config != nil && s.config.Lore != nil {
+		mode = s.config.Lore.GetPublicRuleMode()
+	}
+	if mode == "create_pr" {
+		branch := fmt.Sprintf("lore/rules-%s", time.Now().Format("2006-01-02"))
+		exec.CommandContext(r.Context(), "git", "-C", worktreeDir, "checkout", "-b", branch).Run()
+		pushCmd := exec.CommandContext(r.Context(), "git", "-C", worktreeDir, "push", "-u", "origin", branch)
+		if out, err := pushCmd.CombinedOutput(); err != nil {
+			http.Error(w, fmt.Sprintf("push to branch failed: %s: %s", err, out), http.StatusInternalServerError)
+			return
+		}
+	} else {
+		pushCmd := exec.CommandContext(r.Context(), "git", "-C", worktreeDir, "push", "origin", "HEAD:"+defaultBranch)
+		if out, err := pushCmd.CombinedOutput(); err != nil {
+			http.Error(w, fmt.Sprintf("push failed: %s: %s", err, out), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// 11. Delete PendingMerge
+	s.lorePendingMergeStore.Delete(repoName)
+
+	// 12. Mark rules as applied in proposals
+	now := time.Now().UTC()
+	for _, proposalID := range pm.ProposalIDs {
+		proposal, err := s.loreStore.Get(repoName, proposalID)
+		if err != nil {
+			continue
+		}
+		for i := range proposal.Rules {
+			for _, ruleID := range pm.RuleIDs {
+				if proposal.Rules[i].ID == ruleID && proposal.Rules[i].Status == lore.RuleApproved {
+					proposal.Rules[i].MergedAt = &now
+				}
+			}
+		}
+		if proposal.AllRulesResolved() {
+			proposal.Status = lore.ProposalApplied
+		}
+		s.loreStore.Save(proposal)
+	}
+
+	// 13. Return response
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":     "pushed",
+		"commit_sha": commitSHA,
+	})
 }
 
 // refreshLoreExecutor updates the lore LLM executor based on the current

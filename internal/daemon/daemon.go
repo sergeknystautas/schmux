@@ -367,6 +367,8 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		return fmt.Errorf("failed to create schmux directory: %w", err)
 	}
 
+	cleanupOrphanedLoreWorktrees()
+
 	// Ensure centralized hook scripts are written to ~/.schmux/hooks/
 	hooksDir, err := ensure.EnsureGlobalHookScripts(homeDir)
 	if err != nil {
@@ -1073,6 +1075,11 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		// Wire lore instruction store for private layer management
 		loreInstructionsDir := filepath.Join(homeDir, ".schmux", "instructions")
 		server.SetLoreInstructionStore(lore.NewInstructionStore(loreInstructionsDir))
+
+		// Wire lore pending merge store for unified merge & push flow
+		lorePendingMergeDir := filepath.Join(homeDir, ".schmux", "lore-pending-merges")
+		pendingMergeStore := lore.NewPendingMergeStore(lorePendingMergeDir, loreLog)
+		server.SetLorePendingMergeStore(pendingMergeStore)
 
 		var loreExecutor func(ctx context.Context, prompt string, timeout time.Duration) (string, error)
 		if target := cfg.GetLoreTarget(); target != "" {
@@ -1918,5 +1925,18 @@ func cleanupOldBackups(backupDir string, maxAge time.Duration) {
 				// For now, silently delete
 			}
 		}
+	}
+}
+
+// cleanupOrphanedLoreWorktrees removes temporary directories from previous
+// lore push operations that may have been left behind by a daemon crash.
+func cleanupOrphanedLoreWorktrees() {
+	pattern := filepath.Join(os.TempDir(), "lore-push-*")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return
+	}
+	for _, dir := range matches {
+		os.RemoveAll(dir)
 	}
 }

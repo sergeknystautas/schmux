@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
 import {
   getLoreProposals,
@@ -6,14 +6,19 @@ import {
   getLoreEntries,
   clearLoreEntries,
   updateLoreRule,
-  startLoreMerge,
   applyLoreMerge,
+  getLorePendingMerge,
+  startLoreUnifiedMerge,
+  pushLoreMerge,
+  updateLorePendingMerge,
+  deleteLorePendingMerge,
   getErrorMessage,
 } from '../lib/api';
 import { getAllSpawnEntries, pinSpawnEntry, dismissSpawnEntry } from '../lib/emergence-api';
 import type { SpawnEntry } from '../lib/types.generated';
 import { useConfig } from '../contexts/ConfigContext';
 import { useCuration } from '../contexts/CurationContext';
+import { useSessions } from '../contexts/SessionsContext';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import { LoreCard } from '../components/LoreCard';
@@ -21,24 +26,16 @@ import useTheme from '../hooks/useTheme';
 import useDevStatus from '../hooks/useDevStatus';
 import type {
   LoreEntry,
-  LoreProposal,
   LoreRule,
   LoreLayer,
-  LoreMergePreview,
   LoreStatusResponse,
+  PendingMerge,
 } from '../lib/types';
 import styles from '../styles/lore.module.css';
 
 type CardItem =
   | { kind: 'instruction'; rule: LoreRule; repoName: string; proposalId: string; createdAt: string }
   | { kind: 'action'; action: SpawnEntry; repoName: string; createdAt: string };
-
-/** A proposal that has merge_previews ready for user review. */
-interface MergeReviewItem {
-  repoName: string;
-  proposal: LoreProposal;
-  previews: LoreMergePreview[];
-}
 
 const LAYER_LABELS: Record<string, string> = {
   repo_public: 'Public',
@@ -53,6 +50,7 @@ export default function LorePage() {
   const { alert } = useModal();
   const { startCuration, activeCurations, pendingCurations, onComplete, invalidateProposals } =
     useCuration();
+  const { curatorEvents } = useSessions();
   const { theme } = useTheme();
   const { isDevMode } = useDevStatus();
 
@@ -61,14 +59,16 @@ export default function LorePage() {
   const [cards, setCards] = useState<CardItem[]>([]);
   const [loreStatus, setLoreStatus] = useState<LoreStatusResponse | null>(null);
 
-  // Server-derived state: proposals with merge previews ready for review
-  const [mergeReviews, setMergeReviews] = useState<MergeReviewItem[]>([]);
-  // Server-derived state: proposals currently being merged in the background
-  const [mergingCount, setMergingCount] = useState(0);
+  // Server-driven pending merges keyed by repo name
+  const [pendingMerges, setPendingMerges] = useState<Record<string, PendingMerge>>({});
 
-  // Local UI state for the diff review
-  const [editedPreviews, setEditedPreviews] = useState<Record<string, string>>({});
   const [applying, setApplying] = useState(false);
+
+  // Diff/Edit toggle for merge review
+  const [activeTab, setActiveTab] = useState<'diff' | 'edit'>('diff');
+
+  // Debounced edit save
+  const editTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Dev mode debug
   const [showDebug, setShowDebug] = useState(false);
@@ -84,8 +84,6 @@ export default function LorePage() {
       .catch(() => {});
 
     const allCards: CardItem[] = [];
-    const allMergeReviews: MergeReviewItem[] = [];
-    let merging = 0;
 
     await Promise.allSettled(
       repos.map(async (repo) => {
@@ -95,25 +93,9 @@ export default function LorePage() {
         ]);
 
         for (const proposal of proposalRes.proposals || []) {
-          // Proposals with merge previews ready for review
-          if (
-            proposal.merge_previews &&
-            proposal.merge_previews.length > 0 &&
-            proposal.status !== 'applied'
-          ) {
-            allMergeReviews.push({
-              repoName: repo.name,
-              proposal,
-              previews: proposal.merge_previews,
-            });
-            continue;
-          }
-
-          // Proposals currently being merged
-          if (proposal.status === 'merging') {
-            merging++;
-            continue;
-          }
+          // Proposals currently being merged are handled
+          // via the pending merge system now — skip them in the card wall
+          if (proposal.status === 'merging') continue;
 
           // Pending proposals — show their pending rules as cards
           if (proposal.status !== 'pending') continue;
@@ -146,12 +128,20 @@ export default function LorePage() {
       })
     );
 
+    // Fetch pending merges per repo
+    const mergeResults: Record<string, PendingMerge> = {};
+    await Promise.allSettled(
+      repos.map(async (repo) => {
+        const pm = await getLorePendingMerge(repo.name);
+        if (pm) mergeResults[repo.name] = pm;
+      })
+    );
+
     allCards.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
     await statusPromise;
     setCards(allCards);
-    setMergeReviews(allMergeReviews);
-    setMergingCount(merging);
+    setPendingMerges(mergeResults);
     setLoading(false);
   }, [repos]);
 
@@ -167,12 +157,22 @@ export default function LorePage() {
     });
   }, [onComplete, loadData]);
 
-  // Poll while merges are in progress (every 5s)
+  // Listen for lore_merge_complete WebSocket events and re-fetch pending merges
+  const mergeCompleteSeenRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (mergingCount === 0) return;
-    const interval = setInterval(() => loadData(), 5000);
-    return () => clearInterval(interval);
-  }, [mergingCount, loadData]);
+    for (const [repo, events] of Object.entries(curatorEvents)) {
+      if (events.length === 0) continue;
+      const last = events[events.length - 1];
+      if (last.event_type === 'lore_merge_complete') {
+        // Deduplicate by timestamp to avoid re-fetching for the same event
+        const key = `${repo}:${last.timestamp}`;
+        if (!mergeCompleteSeenRef.current.has(key)) {
+          mergeCompleteSeenRef.current.add(key);
+          loadData();
+        }
+      }
+    }
+  }, [curatorEvents, loadData]);
 
   // --- Card callbacks ---
 
@@ -330,101 +330,107 @@ export default function LorePage() {
       groups.get(key)!.rules.push(card.rule);
     }
 
-    // Check if any rules are public (need merge + diff review)
-    const hasPublic = approvedCards.some((c) => effectiveLayer(c.rule) === 'repo_public');
+    // Separate private-layer rules (applied via applyLoreMerge per-proposal)
+    // from public-layer rules (applied via unified merge per-repo)
+    const privateGroups: typeof groups = new Map();
+    // Group public rules by repo: Map<repoName, { proposal_id, rule_ids }[]>
+    const publicByRepo = new Map<string, { proposal_id: string; rule_ids: string[] }[]>();
 
-    if (hasPublic) {
-      // Fire off merges in background — user can leave and come back
-      try {
-        for (const [, group] of groups) {
-          await startLoreMerge(group.repoName, group.proposalId);
+    for (const [key, group] of groups) {
+      const privateRules = group.rules.filter((r) => effectiveLayer(r) !== 'repo_public');
+      const publicRules = group.rules.filter((r) => effectiveLayer(r) === 'repo_public');
+      if (privateRules.length > 0) {
+        privateGroups.set(key, { ...group, rules: privateRules });
+      }
+      if (publicRules.length > 0) {
+        if (!publicByRepo.has(group.repoName)) {
+          publicByRepo.set(group.repoName, []);
         }
-        setMergingCount(groups.size);
-        // Clear cards since they're now being merged
-        setCards([]);
+        publicByRepo.get(group.repoName)!.push({
+          proposal_id: group.proposalId,
+          rule_ids: publicRules.map((r) => r.id),
+        });
+      }
+    }
+
+    setApplying(true);
+    try {
+      // Apply private layers directly via apply-merge (no LLM merge needed)
+      if (privateGroups.size > 0) {
+        for (const [, group] of privateGroups) {
+          const merges = group.rules.map((r) => ({
+            layer: effectiveLayer(r),
+            content: r.text,
+          }));
+          await applyLoreMerge(group.repoName, group.proposalId, merges);
+        }
+        if (publicByRepo.size === 0) {
+          toastSuccess(`${approvedCards.length} rules saved`);
+        }
+      }
+
+      // Start unified merge for public layers (per-repo)
+      if (publicByRepo.size > 0) {
+        for (const [repoName, proposals] of publicByRepo) {
+          await startLoreUnifiedMerge(repoName, proposals);
+        }
         toastSuccess(
           'Merge started. You can leave this page — the diff will be here when you return.'
         );
-      } catch (err) {
-        alert('Merge Failed', getErrorMessage(err, 'Failed to start merge'));
-      }
-    } else {
-      // Private-only: start merge, poll briefly, apply
-      setApplying(true);
-      try {
-        for (const [, group] of groups) {
-          await startLoreMerge(group.repoName, group.proposalId);
-        }
-        // Poll for completion (private merges are typically fast)
-        const maxAttempts = 60;
-        for (let i = 0; i < maxAttempts; i++) {
-          await new Promise((resolve) => setTimeout(resolve, 3000));
-          let allDone = true;
-          for (const [, group] of groups) {
-            const res = await getLoreProposals(group.repoName);
-            const p = (res.proposals || []).find((pr) => pr.id === group.proposalId);
-            if (p?.merge_error) throw new Error(p.merge_error);
-            if (p?.status === 'merging') {
-              allDone = false;
-              break;
-            }
-            if (p?.merge_previews) {
-              // Apply immediately
-              const merges = p.merge_previews.map((mp) => ({
-                layer: mp.layer,
-                content: mp.merged_content,
-              }));
-              await applyLoreMerge(group.repoName, group.proposalId, merges);
-            }
-          }
-          if (allDone) break;
-        }
-        toastSuccess(`${approvedCards.length} rules saved`);
-        invalidateProposals();
-        loadData();
-      } catch (err) {
-        alert('Apply Failed', getErrorMessage(err, 'Failed to apply rules'));
-      } finally {
-        setApplying(false);
-      }
-    }
-  };
-
-  const handleCommitAndPush = async (review: MergeReviewItem) => {
-    setApplying(true);
-    try {
-      const publicPreviews = review.previews
-        .filter((p) => p.layer === 'repo_public')
-        .map((p) => ({
-          layer: p.layer,
-          content: editedPreviews[p.layer] ?? p.merged_content,
-        }));
-      // Apply private layers without auto-commit
-      const privatePreviews = review.previews
-        .filter((p) => p.layer !== 'repo_public')
-        .map((p) => ({ layer: p.layer, content: p.merged_content }));
-
-      if (privatePreviews.length > 0) {
-        await applyLoreMerge(review.repoName, review.proposal.id, privatePreviews);
-      }
-      if (publicPreviews.length > 0) {
-        await applyLoreMerge(review.repoName, review.proposal.id, publicPreviews, true);
       }
 
-      const mode = config?.lore?.public_rule_mode || 'direct_push';
-      toastSuccess(mode === 'create_pr' ? 'PR created' : 'Committed and pushed');
       invalidateProposals();
-      loadData();
+      await loadData();
     } catch (err) {
-      await alert('Push Failed', getErrorMessage(err, 'Failed to push'));
+      await alert('Apply Failed', getErrorMessage(err, 'Failed to apply rules'));
     } finally {
       setApplying(false);
     }
   };
 
-  const handleDismissMergeReview = async (review: MergeReviewItem) => {
-    // TODO: could clear merge_previews on the server. For now just reload.
-    setMergeReviews((prev) => prev.filter((r) => r.proposal.id !== review.proposal.id));
+  const handleCommitAndPush = async (repoName: string) => {
+    setApplying(true);
+    try {
+      await pushLoreMerge(repoName);
+      const mode = config?.lore?.public_rule_mode || 'direct_push';
+      toastSuccess(mode === 'create_pr' ? 'PR created' : `Pushed to ${repoName}`);
+      setPendingMerges((prev) => {
+        const next = { ...prev };
+        delete next[repoName];
+        return next;
+      });
+      invalidateProposals();
+    } catch (err) {
+      const msg = getErrorMessage(err, 'Push failed');
+      await alert('Push Failed', msg);
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const handleDismissMergeReview = async (repoName: string) => {
+    try {
+      await deleteLorePendingMerge(repoName);
+      setPendingMerges((prev) => {
+        const next = { ...prev };
+        delete next[repoName];
+        return next;
+      });
+    } catch {
+      // Best-effort dismiss — reload to sync
+      await loadData();
+    }
+  };
+
+  const handleEditChange = (repoName: string, value: string) => {
+    setPendingMerges((prev) => ({
+      ...prev,
+      [repoName]: { ...prev[repoName], edited_content: value },
+    }));
+    clearTimeout(editTimerRef.current);
+    editTimerRef.current = setTimeout(() => {
+      updateLorePendingMerge(repoName, value).catch(() => {});
+    }, 1000);
   };
 
   // --- Derived state ---
@@ -436,6 +442,12 @@ export default function LorePage() {
     (c) => c.kind === 'instruction' && c.rule.status === 'approved'
   );
   const allTriaged = pendingCards.length === 0 && approvedCards.length > 0;
+
+  // Pending merge repos by status
+  const readyMerges = Object.entries(pendingMerges).filter(([, pm]) => pm.status === 'ready');
+  const mergingMerges = Object.entries(pendingMerges).filter(([, pm]) => pm.status === 'merging');
+  const errorMerges = Object.entries(pendingMerges).filter(([, pm]) => pm.status === 'error');
+  const hasPendingMerges = Object.keys(pendingMerges).length > 0;
 
   // --- Render ---
 
@@ -481,80 +493,141 @@ export default function LorePage() {
         </div>
       ) : (
         <>
-          {/* Merge reviews ready (server-persisted — survives navigation) */}
-          {mergeReviews.map((review) => (
+          {/* Pending merges with errors */}
+          {errorMerges.map(([repoName, pm]) => (
             <div
-              key={review.proposal.id}
-              className={styles.proposalCard}
+              key={`merge-error-${repoName}`}
+              className={styles.mergeError}
               style={{ marginBottom: '1rem' }}
             >
-              <h3>Review Changes</h3>
-              {review.previews
-                .filter((p) => p.layer === 'repo_public')
-                .map((preview) => (
-                  <div key={preview.layer} style={{ marginBottom: '1rem' }}>
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.5rem',
-                        marginBottom: '0.5rem',
-                      }}
-                    >
-                      <span className={styles.ruleLayer}>
-                        {LAYER_LABELS[preview.layer] || preview.layer}
-                      </span>
-                      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                        {preview.summary}
-                      </span>
-                    </div>
-                    <div className={styles.diffWrapper}>
-                      <ReactDiffViewer
-                        oldValue={preview.current_content}
-                        newValue={editedPreviews[preview.layer] ?? preview.merged_content}
-                        splitView={false}
-                        useDarkTheme={theme === 'dark'}
-                        hideLineNumbers={false}
-                        showDiffOnly={true}
-                        compareMethod={DiffMethod.TRIMMED_LINES}
-                        disableWordDiff={true}
-                        extraLinesSurroundingDiff={3}
-                      />
-                    </div>
-                  </div>
-                ))}
-              <div className={styles.actions}>
-                <button
-                  className={styles.dismissButton}
-                  onClick={() => handleDismissMergeReview(review)}
-                  disabled={applying}
-                >
-                  Dismiss
-                </button>
-                <button
-                  className={styles.applyButton}
-                  onClick={() => handleCommitAndPush(review)}
-                  disabled={applying}
-                >
-                  {applying && <span className="spinner spinner--small" />}
-                  {(config?.lore?.public_rule_mode || 'direct_push') === 'create_pr'
-                    ? 'Create PR'
-                    : 'Commit & Push'}
-                </button>
-              </div>
+              <span>
+                Merge failed for {repoName}: {pm.error || 'Unknown error'}
+              </span>
+              <button
+                className={styles.applyButton}
+                onClick={() => {
+                  // Retry: dismiss and let user re-apply
+                  handleDismissMergeReview(repoName);
+                }}
+                style={{ marginLeft: 'auto' }}
+              >
+                Dismiss
+              </button>
             </div>
           ))}
 
           {/* Merging in progress indicator */}
-          {mergingCount > 0 && mergeReviews.length === 0 && (
+          {mergingMerges.length > 0 && (
             <div className={styles.mergingStatus} style={{ marginBottom: '1rem' }}>
               <span className="spinner spinner--small" />
               Merging rules in the background...
             </div>
           )}
 
+          {/* Merge reviews ready (server-persisted — survives navigation) */}
+          {readyMerges.map(([repoName, pm]) => (
+            <div
+              key={`merge-review-${repoName}`}
+              className={styles.proposalCard}
+              style={{ marginBottom: '1rem' }}
+            >
+              <h3>Review Changes</h3>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.5rem 0' }}>
+                {pm.summary}
+              </p>
+
+              {/* Diff/Edit tab toggle */}
+              <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '0.75rem' }}>
+                <button
+                  className={activeTab === 'diff' ? styles.applyButton : styles.dismissButton}
+                  style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}
+                  onClick={() => setActiveTab('diff')}
+                >
+                  Diff
+                </button>
+                <button
+                  className={activeTab === 'edit' ? styles.applyButton : styles.dismissButton}
+                  style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}
+                  onClick={() => setActiveTab('edit')}
+                >
+                  Edit
+                </button>
+              </div>
+
+              {activeTab === 'diff' ? (
+                <>
+                  <div className={styles.diffWrapper}>
+                    <ReactDiffViewer
+                      oldValue={pm.current_content}
+                      newValue={pm.edited_content ?? pm.merged_content}
+                      splitView={false}
+                      useDarkTheme={theme === 'dark'}
+                      hideLineNumbers={false}
+                      showDiffOnly={true}
+                      compareMethod={DiffMethod.TRIMMED_LINES}
+                      disableWordDiff={true}
+                      extraLinesSurroundingDiff={3}
+                    />
+                  </div>
+                  <div className={styles.actions}>
+                    <button
+                      className={styles.dismissButton}
+                      onClick={() => handleDismissMergeReview(repoName)}
+                      disabled={applying}
+                    >
+                      Back
+                    </button>
+                    <button
+                      className={styles.applyButton}
+                      onClick={() => handleCommitAndPush(repoName)}
+                      disabled={applying}
+                    >
+                      {applying && <span className="spinner spinner--small" />}
+                      {(config?.lore?.public_rule_mode || 'direct_push') === 'create_pr'
+                        ? 'Create PR'
+                        : 'Commit & Push'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <textarea
+                    value={pm.edited_content ?? pm.merged_content}
+                    onChange={(e) => handleEditChange(repoName, e.target.value)}
+                    style={{
+                      width: '100%',
+                      minHeight: '300px',
+                      fontFamily: 'var(--font-mono, monospace)',
+                      fontSize: '0.8rem',
+                      lineHeight: '1.5',
+                      padding: '0.75rem',
+                      background: 'var(--color-surface, #1a1a2e)',
+                      color: 'var(--text-primary, #ddd)',
+                      border: '1px solid var(--color-border, #333)',
+                      borderRadius: '4px',
+                      resize: 'vertical',
+                      marginBottom: '0.75rem',
+                    }}
+                  />
+                  <div className={styles.actions}>
+                    <button
+                      className={styles.dismissButton}
+                      onClick={() => handleDismissMergeReview(repoName)}
+                      disabled={applying}
+                    >
+                      Back
+                    </button>
+                    <button className={styles.applyButton} onClick={() => setActiveTab('diff')}>
+                      Review Diff
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+
           {/* Summary banner when all cards are triaged */}
-          {allTriaged && (
+          {allTriaged && !hasPendingMerges && (
             <div className={styles.proposalCard} style={{ marginBottom: '1rem' }}>
               <h3>{approvedCards.length} insights approved</h3>
               <div style={{ margin: '1rem 0', fontSize: '0.875rem' }}>
@@ -572,12 +645,14 @@ export default function LorePage() {
                   return (
                     <>
                       {priv.length > 0 && (
-                        <p>{priv.length} private (this repo) — saved immediately</p>
+                        <p>{priv.length} private (this repo) -- saved immediately</p>
                       )}
                       {privAll.length > 0 && (
-                        <p>{privAll.length} private (all repos) — saved immediately</p>
+                        <p>{privAll.length} private (all repos) -- saved immediately</p>
                       )}
-                      {pub.length > 0 && <p>{pub.length} public — will be merged into CLAUDE.md</p>}
+                      {pub.length > 0 && (
+                        <p>{pub.length} public -- will be merged into CLAUDE.md</p>
+                      )}
                     </>
                   );
                 })()}
@@ -632,7 +707,7 @@ export default function LorePage() {
                 );
               })}
             </div>
-          ) : mergeReviews.length === 0 && mergingCount === 0 ? (
+          ) : !hasPendingMerges ? (
             <div className="empty-state">
               <p className="empty-state__description">
                 Nothing to review. New insights will appear here as agents work.

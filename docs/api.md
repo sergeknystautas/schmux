@@ -2164,78 +2164,157 @@ Errors:
 - 400: invalid status or chosen_layer
 - 404: proposal or rule not found
 
-### POST /api/lore/{repo}/proposals/{proposalID}/merge
+### GET /api/lore/{repo}/pending-merge
 
-Triggers phase 3 merge: groups approved rules by their effective layer, reads current content for each layer, calls the merge LLM per layer, and returns previews for user review before applying.
+Returns the current pending merge for a repo, if one exists.
 
 Response:
 
 ```json
 {
-  "previews": [
-    {
-      "layer": "repo_public",
-      "current_content": "existing instruction file content",
-      "merged_content": "new merged content from LLM",
-      "summary": "description of changes made"
-    }
-  ]
+  "repo": "myrepo",
+  "status": "ready",
+  "base_sha": "abc1234",
+  "rule_ids": ["r1", "r2"],
+  "proposal_ids": ["prop-20260304-153045-ab12"],
+  "merged_content": "new merged instruction file content",
+  "current_content": "existing instruction file content",
+  "summary": "description of changes made",
+  "edited_content": "user-edited content (if modified)",
+  "error": "",
+  "created_at": "2026-03-04T16:00:00Z"
+}
+```
+
+Fields:
+
+- `repo` (string): Repository name
+- `status` (string): `"merging"`, `"ready"`, or `"error"`
+- `base_sha` (string): Commit SHA of the default branch when the merge was computed
+- `rule_ids` (string[]): Rule IDs included in this merge
+- `proposal_ids` (string[]): Proposal IDs that contributed rules
+- `merged_content` (string): LLM-generated merged instruction file content
+- `current_content` (string): Instruction file content at time of merge
+- `summary` (string): Human-readable description of changes
+- `edited_content` (string, optional): User-edited content, if modified via PATCH
+- `error` (string, optional): Error message when status is `"error"`
+- `created_at` (string): ISO 8601 creation timestamp
+
+Errors:
+
+- 404: no pending merge exists
+
+### POST /api/lore/{repo}/merge
+
+Starts a unified cross-proposal merge for public rules. Accepts approved rules from one or more proposals, reads the current instruction file, and calls the merge LLM. The merge runs as a background job — poll `GET /api/lore/{repo}/pending-merge` or listen for the `lore_merge_complete` WebSocket event.
+
+Request:
+
+```json
+{
+  "proposals": [{ "proposal_id": "prop-20260304-153045-ab12", "rule_ids": ["r1", "r2"] }]
+}
+```
+
+Response (202):
+
+```json
+{
+  "status": "merging"
 }
 ```
 
 Errors:
 
-- 400: no approved rules to merge
-- 404: proposal not found
-- 503: lore curator not configured
+- 409: merge already in progress
+
+### POST /api/lore/{repo}/push
+
+Commits and pushes the current pending merge to the repo. Performs server-side rule validation before committing.
+
+Response (200):
+
+```json
+{
+  "status": "pushed",
+  "commit_sha": "abc1234"
+}
+```
+
+Errors:
+
+- 404: no pending merge exists
+- 409: instruction file changed on the default branch since the merge was computed (stale). Response includes `{ "reason": "stale", "message": "..." }`
+- 410: pending merge expired (older than 24 hours)
+
+### PATCH /api/lore/{repo}/pending-merge
+
+Saves user edits to the pending merge content.
+
+Request:
+
+```json
+{
+  "edited_content": "user-edited instruction file content"
+}
+```
+
+Response:
+
+```json
+{
+  "status": "updated"
+}
+```
+
+### DELETE /api/lore/{repo}/pending-merge
+
+Dismisses and clears the current pending merge.
+
+Response:
+
+```json
+{
+  "status": "deleted"
+}
+```
 
 ### POST /api/lore/{repo}/proposals/{proposalID}/apply-merge
 
-Applies reviewed merge results to their target layers. For `repo_public`, creates a dedicated `schmux/lore` workspace and writes the merged instruction file as an unstaged change (no commit, no push) by default. When `auto_commit` is true, the daemon commits and pushes (or creates a PR, depending on `public_rule_mode` config) instead of leaving unstaged changes. For `repo_private` and `cross_repo_private`, writes directly to the instruction store.
+Applies reviewed merge results to private layers (`repo_private` and `cross_repo_private`). Writes directly to the instruction store.
+
+The `repo_public` layer is no longer supported by this endpoint — public rules are merged and pushed via `POST /api/lore/{repo}/merge` and `POST /api/lore/{repo}/push`. Requests that include the `repo_public` layer return 410 Gone.
 
 Request:
 
 ```json
 {
   "merges": [
-    { "layer": "repo_public", "content": "final merged content" },
-    { "layer": "repo_private", "content": "private instructions" }
-  ],
-  "auto_commit": false
+    { "layer": "repo_private", "content": "private instructions" },
+    { "layer": "cross_repo_private", "content": "global instructions" }
+  ]
 }
 ```
-
-- `merges` — array of layer/content pairs to apply.
-- `auto_commit` (boolean, default `false`) — when `true`, the daemon auto-commits (as `schmux <schmux@noreply>`) and pushes (or creates a PR per `public_rule_mode`) instead of leaving unstaged changes.
 
 Response:
 
 ```json
 {
   "results": [
-    {
-      "layer": "repo_public",
-      "status": "applied",
-      "workspace_id": "ws-abc123",
-      "commit_sha": "abc1234"
-    },
-    { "layer": "repo_private", "status": "applied" }
+    { "layer": "repo_private", "status": "applied" },
+    { "layer": "cross_repo_private", "status": "applied" }
   ]
 }
 ```
 
-- `commit_sha` (string, optional) — the commit SHA when `auto_commit` was used and the commit succeeded.
-
 After applying, approved rules are marked with `merged_at` timestamps and the proposal status is set to `applied`.
-
-For `repo_public`, if a `schmux/lore` workspace already exists but has uncommitted changes or commits ahead of `origin/main`, the request is rejected with 409 Conflict.
 
 Errors:
 
 - 400: no merges provided, invalid layer
 - 404: proposal or repo not found
-- 409: lore workspace has pending changes (public layer only)
-- 503: instruction store not configured (for private/global layers)
+- 410: `repo_public` layer is no longer supported (use `/merge` and `/push` instead)
+- 503: instruction store not configured
 
 ### GET /api/lore/{repo}/entries
 

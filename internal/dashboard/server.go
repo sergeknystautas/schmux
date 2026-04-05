@@ -198,6 +198,9 @@ type Server struct {
 	// Lore instruction store for private layer management
 	loreInstructionStore *lore.InstructionStore
 
+	// Lore pending merge store
+	lorePendingMergeStore *lore.PendingMergeStore
+
 	// Dashboard.sx provision status (in-memory, resets on restart)
 	dsxProvision   dsxProvisionStatus
 	dsxProvisionMu sync.Mutex
@@ -387,6 +390,11 @@ func (s *Server) SetLoreStore(store *lore.ProposalStore) {
 // SetLoreInstructionStore sets the lore instruction store for private layer management.
 func (s *Server) SetLoreInstructionStore(store *lore.InstructionStore) {
 	s.loreInstructionStore = store
+}
+
+// SetLorePendingMergeStore sets the pending merge store for the dashboard API.
+func (s *Server) SetLorePendingMergeStore(store *lore.PendingMergeStore) {
+	s.lorePendingMergeStore = store
 }
 
 // SetEmergenceStore sets the emergence store for spawn entry management.
@@ -749,13 +757,17 @@ func (s *Server) Start() error {
 				r.Get("/proposals/{proposalID}", s.handleLoreProposalGet)
 				r.Post("/proposals/{proposalID}/dismiss", s.handleLoreDismiss)
 				r.Post("/proposals/{proposalID}/rules/{ruleID}", s.handleLoreRuleUpdate)
-				r.Post("/proposals/{proposalID}/merge", s.handleLoreMerge)
 				r.Post("/proposals/{proposalID}/apply-merge", s.handleLoreApplyMerge)
 				r.Get("/entries", s.handleLoreEntries)
 				r.Delete("/entries", s.handleLoreEntriesClear)
 				r.Post("/curate", s.handleLoreCurate)
 				r.Get("/curations", s.handleLoreCurationsList)
 				r.Get("/curations/{curationID}/log", s.handleLoreCurationLog)
+				r.Post("/merge", s.handleLoreUnifiedMerge)
+				r.Get("/pending-merge", s.handleLorePendingMergeGet)
+				r.Delete("/pending-merge", s.handleLorePendingMergeDelete)
+				r.Patch("/pending-merge", s.handleLorePendingMergePatch)
+				r.Post("/push", s.handleLorePush)
 			})
 
 			// Emergence routes
