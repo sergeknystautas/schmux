@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { getFileContent, getErrorMessage } from '../lib/api';
@@ -10,14 +10,30 @@ import SessionTabs from '../components/SessionTabs';
 export default function MarkdownPreviewPage() {
   const { workspaceId, filepath } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { workspaces } = useSessions();
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const prevGitStatsRef = useRef<{ files: number; added: number; removed: number } | null>(null);
 
   const workspace = workspaces?.find((ws) => ws.id === workspaceId);
   const workspaceExists = workspaceId && workspaces?.some((ws) => ws.id === workspaceId);
   const decodedFilepath = filepath || '';
+
+  const loadFile = async () => {
+    if (!workspaceId || !decodedFilepath) return;
+    setLoading(true);
+    setError('');
+    try {
+      const text = await getFileContent(workspaceId, decodedFilepath);
+      setContent(text);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to load file'));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Redirect home if workspace no longer exists
   useEffect(() => {
@@ -26,23 +42,30 @@ export default function MarkdownPreviewPage() {
     }
   }, [loading, workspaceId, workspaceExists, navigate]);
 
-  // Fetch file content directly
+  // Fetch file content on mount / route change / tab re-focus
   useEffect(() => {
-    const loadFile = async () => {
-      if (!workspaceId || !decodedFilepath) return;
-      setLoading(true);
-      setError('');
-      try {
-        const text = await getFileContent(workspaceId, decodedFilepath);
-        setContent(text);
-      } catch (err) {
-        setError(getErrorMessage(err, 'Failed to load file'));
-      } finally {
-        setLoading(false);
-      }
-    };
     loadFile();
-  }, [workspaceId, decodedFilepath]);
+  }, [workspaceId, decodedFilepath, location.key]);
+
+  // Re-fetch when workspace git stats change (file edited on disk)
+  useEffect(() => {
+    if (!workspace) return;
+    const currentStats = {
+      files: workspace.files_changed,
+      added: workspace.lines_added,
+      removed: workspace.lines_removed,
+    };
+    const prevStats = prevGitStatsRef.current;
+    if (
+      prevStats !== null &&
+      (prevStats.files !== currentStats.files ||
+        prevStats.added !== currentStats.added ||
+        prevStats.removed !== currentStats.removed)
+    ) {
+      loadFile();
+    }
+    prevGitStatsRef.current = currentStats;
+  }, [workspace, workspaceId]);
 
   if (loading) {
     return (
