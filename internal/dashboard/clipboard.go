@@ -211,7 +211,7 @@ func remoteClipboardPaste(ctx context.Context, conn *remote.Connection, paneID s
 	// have to manually copy-paste it. The agent (Claude Code) can read image
 	// files when given a path.
 	logger.Info("xclip not available, typing file path into pane", "path", tmpPath)
-	if _, err := conn.SendKeys(cmdCtx, paneID, tmpPath); err != nil {
+	if _, err := conn.SendKeys(cmdCtx, paneID, " "+tmpPath); err != nil {
 		return &remoteClipboardPasteResult{Method: "file", FilePath: tmpPath}, nil
 	}
 	return &remoteClipboardPasteResult{Method: "file", FilePath: tmpPath}, nil

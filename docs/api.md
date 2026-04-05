@@ -762,7 +762,7 @@ Paste an image from the browser clipboard into a tmux session.
 
 **Local sessions:** Writes the image to the system clipboard (macOS only via osascript) and sends Ctrl+V (0x16) to the tmux session so the terminal application picks up the image.
 
-**Remote sessions:** Transfers the image to the remote host via base64 (through `RunCommand`), then tries two approaches in order: (1) sets the remote X11 clipboard via `xclip` and sends Ctrl+V, or (2) if xclip is unavailable, leaves the file on disk and types the file path into the agent's input. Max 2MB for remote transfers. The response includes `method` ("clipboard" or "file") and `file_path` (set when file fallback is used).
+**Remote sessions:** Transfers the image to the remote host via base64 (through `RunCommand`), then tries two approaches in order: (1) sets the remote X11 clipboard via `xclip` and sends Ctrl+V, or (2) if xclip is unavailable, leaves the file on disk and types a space-prefixed file path into the agent's input (the leading space prevents shell history pollution). Max 2MB for remote transfers. The response includes `method` ("clipboard" or "file") and `file_path` (set when file fallback is used).
 
 The frontend also intercepts Ctrl+V (`\x16`) keystrokes: when the browser clipboard contains an image, it calls this API instead of forwarding the raw keystroke. Drag-and-drop of image files onto the terminal is also supported.
 

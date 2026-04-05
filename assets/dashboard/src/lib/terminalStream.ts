@@ -448,6 +448,10 @@ export default class TerminalStream {
         if (item.type.startsWith('image/')) {
           e.preventDefault();
           e.stopPropagation();
+          // Flush locally-echoed text before image paste
+          if (this.localBuffer.length > 0) {
+            this.flushLocalBuffer();
+          }
           const blob = item.getAsFile();
           if (blob) {
             console.log('[clipboard-paste] image detected in paste event', {
@@ -478,6 +482,10 @@ export default class TerminalStream {
       if (!files) return;
       for (const file of Array.from(files)) {
         if (file.type.startsWith('image/')) {
+          // Flush locally-echoed text before image paste
+          if (this.localBuffer.length > 0) {
+            this.flushLocalBuffer();
+          }
           console.log('[clipboard-paste] image dropped', { name: file.name, size: file.size });
           pasteImageToSession(this.sessionId, file, (msg) => {
             this.terminal?.writeln(`\r\n\x1b[33m[schmux] ${msg}\x1b[0m`);
@@ -1067,6 +1075,11 @@ export default class TerminalStream {
   sendInput(data: string) {
     // Intercept Ctrl+V (\x16): check if the browser clipboard has an image
     if (data === '\x16') {
+      // Flush any locally-echoed text before the image paste so the typed
+      // text arrives at the agent first (e.g. "what do you see?" + image).
+      if (this.localBuffer.length > 0) {
+        this.flushLocalBuffer();
+      }
       navigator.clipboard
         .read()
         .then((items) => {
