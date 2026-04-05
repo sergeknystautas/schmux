@@ -108,7 +108,20 @@ export default function SessionDetailPage() {
   }, [sessionId]);
 
   const sessionData = sessionId ? sessionsById[sessionId] : null;
-  const sessionMissing = !sessionsLoading && !sessionsError && sessionId && !sessionData;
+  // Don't consider the session missing until we've received at least 2 WebSocket
+  // broadcasts. The first broadcast can be stale (generated before the session
+  // was registered in the daemon state), which would cause a spurious redirect
+  // to "/" on freshly-spawned sessions.
+  const broadcastCountRef = useRef(0);
+  useEffect(() => {
+    if (!sessionsLoading) broadcastCountRef.current++;
+  }, [sessionsLoading, workspaces]);
+  const sessionMissing =
+    !sessionsLoading &&
+    !sessionsError &&
+    sessionId &&
+    !sessionData &&
+    broadcastCountRef.current >= 2;
   const workspaceExists = workspaceId && workspaces?.some((ws) => ws.id === workspaceId);
 
   // Remote host disconnection state

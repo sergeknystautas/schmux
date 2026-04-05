@@ -1,6 +1,6 @@
 import { type Page } from '@playwright/test';
 import { execSync } from 'child_process';
-import { waitForDashboardLive, waitForTerminalOutput } from './helpers';
+import { waitForDashboardLive } from './helpers';
 
 const BASE_URL = 'http://localhost:7337';
 let sentinelCounter = 0;
@@ -174,15 +174,59 @@ export async function assertTerminalMatchesTmux(
 }
 
 /**
- * Wait for a sentinel string to appear in the terminal via WebSocket,
- * then wait a short time for xterm.js to finish rendering.
+ * Wait for a sentinel string to appear in the page's xterm.js buffer.
+ * This polls the actual rendered terminal content, guaranteeing end-to-end
+ * delivery through the full pipeline (WebSocket → writeLiveFrame → rAF →
+ * writeTerminal → xterm.js parse). Using a separate WebSocket (the old
+ * approach) only confirmed backend delivery to a different subscriber,
+ * leaving a race with the browser-side rendering pipeline.
+ *
+ * Accepts either:
+ *   waitForSentinel(sessionId, sentinel, page)
+ *   waitForSentinel(sessionId, sentinel, page, timeoutMs)
+ *   waitForSentinel(sessionId, sentinel, timeoutMs)  — legacy fallback
  */
 export async function waitForSentinel(
-  sessionId: string,
+  _sessionId: string,
   sentinel: string,
-  timeoutMs = 15_000
+  pageOrTimeout?: Page | number,
+  timeoutOrNothing?: number
 ): Promise<void> {
-  await waitForTerminalOutput(sessionId, sentinel, timeoutMs);
+  let timeoutMs = 15_000;
+  let page: Page | undefined;
+  if (typeof pageOrTimeout === 'number') {
+    timeoutMs = pageOrTimeout;
+  } else {
+    page = pageOrTimeout;
+    if (timeoutOrNothing !== undefined) timeoutMs = timeoutOrNothing;
+  }
+
+  if (!page) {
+    // Fallback to WebSocket-based wait if no page is available.
+    const { waitForTerminalOutput } = await import('./helpers');
+    await waitForTerminalOutput(_sessionId, sentinel, timeoutMs);
+    return;
+  }
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const found = await page.evaluate((s: string) => {
+      const terminal = (window as any).__schmuxTerminal;
+      if (!terminal) return false;
+      const buffer = terminal.buffer.active;
+      const baseY = buffer.baseY;
+      const rows = terminal.rows;
+      // Check visible rows + recent scrollback for the sentinel
+      const start = Math.max(0, baseY - 50);
+      for (let i = start; i < baseY + rows; i++) {
+        const line = buffer.getLine(i);
+        if (line && line.translateToString(true).includes(s)) return true;
+      }
+      return false;
+    }, sentinel);
+    if (found) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`Sentinel "${sentinel}" not found in xterm.js buffer after ${timeoutMs}ms`);
 }
 
 /**
@@ -232,7 +276,17 @@ export async function openTerminal(page: Page, sessionId: string, tmuxName: stri
   // Clear xterm.js state directly — the sanitize filter strips \033[2J and
   // \033[3J from the WebSocket stream, so escape-sequence-based clearing no
   // longer reaches xterm.js. Reset it programmatically instead.
+  //
+  // Drain the TerminalStream writeBuffer and cancel any pending rAF BEFORE
+  // resetting. Without this, a pending requestAnimationFrame callback can
+  // fire after reset() and write stale data into the freshly-cleared terminal.
   await page.evaluate(() => {
+    const stream = (window as any).__schmuxStream;
+    if (stream) {
+      stream.writeBuffer = '';
+      stream.writeRAFPending = false;
+      stream.pendingWriteCb = null;
+    }
     const terminal = (window as any).__schmuxTerminal;
     if (terminal) terminal.reset();
   });
