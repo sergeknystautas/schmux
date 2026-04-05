@@ -34,6 +34,7 @@ async function runWithCache(
   onEvent: EventCallback
 ): Promise<SuiteResult> {
   if (isCacheable(suite) && !isCacheDisabled(opts)) {
+    const cacheStart = Date.now();
     const key = await computeCacheKey(suite, opts);
     const { hit, entry, missReason } = checkCache(suite, key);
 
@@ -46,7 +47,7 @@ async function runWithCache(
       return {
         suite,
         status: 'passed',
-        durationMs: entry.durationMs,
+        durationMs: Date.now() - cacheStart,
         passedTests: entry.passedTests,
         failedTests: [],
         skippedTests: entry.skippedTests,
