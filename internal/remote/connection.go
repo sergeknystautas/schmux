@@ -105,6 +105,9 @@ type Connection struct {
 	// parseProvisioningOutput is the sole PTY reader and tees data here.
 	controlPipeWriter *io.PipeWriter
 
+	// tmux socket name for isolation on the remote host
+	tmuxSocketName string
+
 	// PTY output subscribers for WebSocket terminal streaming
 	ptySubscribers   []chan []byte
 	ptySubscribersMu sync.Mutex
@@ -121,6 +124,7 @@ type ConnectionConfig struct {
 	ReconnectCommand string
 	ProvisionCommand string
 	HostnameRegex    string // Custom regex for hostname extraction (first capture group)
+	TmuxSocketName   string // Socket name for tmux isolation on remote host (default: "schmux")
 	OnStatusChange   func(hostID, status string)
 	OnProgress       func(message string)
 	Logger           *log.Logger
@@ -185,6 +189,7 @@ func NewConnection(cfg ConnectionConfig) *Connection {
 			ProvisionCommand: cfg.ProvisionCommand,
 		},
 		flavorStr:             cfg.Flavor,
+		tmuxSocketName:        cfg.TmuxSocketName,
 		logger:                cfg.Logger,
 		onStatusChange:        cfg.OnStatusChange,
 		onProgress:            cfg.OnProgress,
@@ -247,7 +252,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 	}
 
 	// Get connection command template and execute it
-	templateStr := c.flavor.GetConnectCommandTemplate()
+	templateStr := c.flavor.GetConnectCommandTemplate(c.tmuxSocketName)
 
 	// Parse template
 	tmpl, err := template.New("connect").Parse(templateStr)
@@ -367,7 +372,7 @@ func (c *Connection) Reconnect(ctx context.Context, hostname string) error {
 	c.host.Status = state.RemoteHostStatusConnecting
 
 	// Get reconnection command template and execute it
-	templateStr := c.flavor.GetReconnectCommandTemplate()
+	templateStr := c.flavor.GetReconnectCommandTemplate(c.tmuxSocketName)
 
 	// Parse template
 	tmpl, err := template.New("reconnect").Parse(templateStr)

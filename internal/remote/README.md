@@ -11,7 +11,7 @@ Schmux connects to remote development hosts using `tmux -CC` (control mode) over
 The implementation uses a remote connection command with tmux control mode:
 
 ```bash
-<remote-connect-cmd> <flavor> tmux -CC new-session -A -s schmux
+<remote-connect-cmd> <flavor> tmux -L schmux -CC new-session -A -s schmux
 ```
 
 - **Flavor**: The remote environment type (e.g., `gpu:ml-large`, `docker:devenv`).

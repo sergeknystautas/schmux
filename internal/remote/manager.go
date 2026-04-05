@@ -63,6 +63,7 @@ func (m *Manager) StartConnect(profileID, flavorStr string) (provisioningSession
 	// Create new connection (session ID is generated immediately in NewConnection)
 	cfg := ConnectionConfigFromResolved(resolved)
 	cfg.OnStatusChange = m.handleStatusChange
+	cfg.TmuxSocketName = m.config.GetTmuxSocketName()
 	cfg.Logger = m.logger
 	conn := NewConnection(cfg)
 
@@ -216,6 +217,7 @@ func (m *Manager) connectInternal(ctx context.Context, profileID, flavorStr stri
 	cfg := ConnectionConfigFromResolved(resolved)
 	cfg.OnStatusChange = m.handleStatusChange
 	cfg.OnProgress = onProgress
+	cfg.TmuxSocketName = m.config.GetTmuxSocketName()
 	cfg.Logger = m.logger
 	conn := NewConnection(cfg)
 
@@ -331,6 +333,7 @@ func (m *Manager) Reconnect(ctx context.Context, hostID string) (*Connection, er
 	// Create new connection for reconnection
 	cfg := ConnectionConfigFromResolved(resolved)
 	cfg.OnStatusChange = m.handleStatusChange
+	cfg.TmuxSocketName = m.config.GetTmuxSocketName()
 	cfg.Logger = m.logger
 	conn := NewConnection(cfg)
 
@@ -653,6 +656,7 @@ func (m *Manager) StartReconnect(hostID string, onFail func(hostID string)) (pro
 	// Create new connection for reconnection
 	cfg := ConnectionConfigFromResolved(resolved)
 	cfg.OnStatusChange = m.handleStatusChange
+	cfg.TmuxSocketName = m.config.GetTmuxSocketName()
 	cfg.Logger = m.logger
 	conn := NewConnection(cfg)
 

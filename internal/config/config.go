@@ -2592,47 +2592,49 @@ func (c *Config) GetRemoteVSCodeCommandTemplate() string {
 	return `{{.VSCodePath}} --remote ssh-remote+{{.Hostname}} {{.Path}}`
 }
 
+// remoteTmuxControlSuffix returns the tmux control mode suffix for remote commands.
+// Uses -L for socket isolation on the remote host and -s for session naming.
+func remoteTmuxControlSuffix(socketName string) string {
+	return fmt.Sprintf(` tmux -L %s -CC new-session -A -s %s`, socketName, socketName)
+}
+
+// remoteTmuxAttachSuffix returns the tmux attach suffix for human-friendly remote attach commands.
+func remoteTmuxAttachSuffix(socketName string) string {
+	return fmt.Sprintf(` tmux -L %s attach-session -t %s`, socketName, socketName)
+}
+
 // GetConnectCommandTemplate returns the full connection command template for this flavor.
 // This includes both the user's connection command and the tmux control mode suffix.
 // Users configure the connection part (including any separators like "--" for SSH);
-// schmux appends `tmux -CC new-session -A -s schmux` automatically.
-func (rf *RemoteFlavor) GetConnectCommandTemplate() string {
+// schmux appends tmux with socket isolation (-L) automatically.
+// socketName controls the tmux socket on the remote host (typically from config.GetTmuxSocketName()).
+func (rf *RemoteFlavor) GetConnectCommandTemplate(socketName string) string {
 	var baseCmd string
 	if rf.ConnectCommand != "" {
 		baseCmd = rf.ConnectCommand
 	} else {
-		// Default to standard SSH connection (-tt forces remote PTY allocation,
-		// which tmux needs even in control mode; -- separates ssh options from remote command)
 		baseCmd = `ssh -tt {{.Flavor}} --`
 	}
-	// Append tmux control mode invocation
-	return baseCmd + ` tmux -CC new-session -A -s schmux`
+	return baseCmd + remoteTmuxControlSuffix(socketName)
 }
 
 // GetReconnectCommandTemplate returns the full reconnection command template for this flavor.
-// This includes both the user's reconnection command and the tmux control mode suffix.
-// Users configure the connection part (including any separators like "--" for SSH);
-// schmux appends `tmux -CC new-session -A -s schmux` automatically.
-func (rf *RemoteFlavor) GetReconnectCommandTemplate() string {
+func (rf *RemoteFlavor) GetReconnectCommandTemplate(socketName string) string {
 	var baseCmd string
 	if rf.ReconnectCommand != "" {
 		baseCmd = rf.ReconnectCommand
 	} else if rf.ConnectCommand != "" {
-		// Use ConnectCommand as base (user should use {{.Hostname}} in it for reconnect)
 		baseCmd = rf.ConnectCommand
 	} else {
-		// Default to standard SSH reconnection (-tt forces remote PTY allocation,
-		// which tmux needs even in control mode; -- separates ssh options from remote command)
 		baseCmd = `ssh -tt {{.Hostname}} --`
 	}
-	// Append tmux control mode invocation
-	return baseCmd + ` tmux -CC new-session -A -s schmux`
+	return baseCmd + remoteTmuxControlSuffix(socketName)
 }
 
 // GetAttachCommandTemplate returns a human-friendly attach command for this flavor.
 // Unlike GetReconnectCommandTemplate, this uses `attach-session` without -CC
 // (control mode), so users get a normal interactive tmux session.
-func (rf *RemoteFlavor) GetAttachCommandTemplate() string {
+func (rf *RemoteFlavor) GetAttachCommandTemplate(socketName string) string {
 	var baseCmd string
 	if rf.ReconnectCommand != "" {
 		baseCmd = rf.ReconnectCommand
@@ -2641,7 +2643,7 @@ func (rf *RemoteFlavor) GetAttachCommandTemplate() string {
 	} else {
 		baseCmd = `ssh -tt {{.Hostname}} --`
 	}
-	return baseCmd + ` tmux attach-session -t schmux`
+	return baseCmd + remoteTmuxAttachSuffix(socketName)
 }
 
 // AddRemoteFlavor adds a new remote flavor to the config.
@@ -2864,20 +2866,18 @@ func ResolveProfileFlavor(profile RemoteProfile, flavorStr string) (ResolvedFlav
 }
 
 // GetConnectCommandTemplate returns the full connection command template for this profile.
-// This includes both the user's connection command and the tmux control mode suffix.
-func (p *RemoteProfile) GetConnectCommandTemplate() string {
+func (p *RemoteProfile) GetConnectCommandTemplate(socketName string) string {
 	var baseCmd string
 	if p.ConnectCommand != "" {
 		baseCmd = p.ConnectCommand
 	} else {
 		baseCmd = `ssh -tt {{.Flavor}} --`
 	}
-	return baseCmd + ` tmux -CC new-session -A -s schmux`
+	return baseCmd + remoteTmuxControlSuffix(socketName)
 }
 
 // GetReconnectCommandTemplate returns the full reconnection command template for this profile.
-// This includes both the user's reconnection command and the tmux control mode suffix.
-func (p *RemoteProfile) GetReconnectCommandTemplate() string {
+func (p *RemoteProfile) GetReconnectCommandTemplate(socketName string) string {
 	var baseCmd string
 	if p.ReconnectCommand != "" {
 		baseCmd = p.ReconnectCommand
@@ -2886,24 +2886,22 @@ func (p *RemoteProfile) GetReconnectCommandTemplate() string {
 	} else {
 		baseCmd = `ssh -tt {{.Hostname}} --`
 	}
-	return baseCmd + ` tmux -CC new-session -A -s schmux`
+	return baseCmd + remoteTmuxControlSuffix(socketName)
 }
 
 // GetConnectCommandTemplate returns the full connection command template for this resolved flavor.
-// This includes both the user's connection command and the tmux control mode suffix.
-func (rf *ResolvedFlavor) GetConnectCommandTemplate() string {
+func (rf *ResolvedFlavor) GetConnectCommandTemplate(socketName string) string {
 	var baseCmd string
 	if rf.ConnectCommand != "" {
 		baseCmd = rf.ConnectCommand
 	} else {
 		baseCmd = `ssh -tt {{.Flavor}} --`
 	}
-	return baseCmd + ` tmux -CC new-session -A -s schmux`
+	return baseCmd + remoteTmuxControlSuffix(socketName)
 }
 
 // GetReconnectCommandTemplate returns the full reconnection command template for this resolved flavor.
-// This includes both the user's reconnection command and the tmux control mode suffix.
-func (rf *ResolvedFlavor) GetReconnectCommandTemplate() string {
+func (rf *ResolvedFlavor) GetReconnectCommandTemplate(socketName string) string {
 	var baseCmd string
 	if rf.ReconnectCommand != "" {
 		baseCmd = rf.ReconnectCommand
@@ -2912,7 +2910,7 @@ func (rf *ResolvedFlavor) GetReconnectCommandTemplate() string {
 	} else {
 		baseCmd = `ssh -tt {{.Hostname}} --`
 	}
-	return baseCmd + ` tmux -CC new-session -A -s schmux`
+	return baseCmd + remoteTmuxControlSuffix(socketName)
 }
 
 // GetRemoteProfiles returns the list of remote profiles.

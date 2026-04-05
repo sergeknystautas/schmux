@@ -326,8 +326,8 @@ func TestMigrateRemoteFlavorsToProfiles_Idempotent(t *testing.T) {
 func TestRemoteProfile_GetConnectCommandTemplate(t *testing.T) {
 	t.Run("default", func(t *testing.T) {
 		p := &RemoteProfile{}
-		expected := `ssh -tt {{.Flavor}} -- tmux -CC new-session -A -s schmux`
-		if got := p.GetConnectCommandTemplate(); got != expected {
+		expected := `ssh -tt {{.Flavor}} -- tmux -L schmux -CC new-session -A -s schmux`
+		if got := p.GetConnectCommandTemplate("schmux"); got != expected {
 			t.Errorf("got %q, want %q", got, expected)
 		}
 	})
@@ -336,8 +336,8 @@ func TestRemoteProfile_GetConnectCommandTemplate(t *testing.T) {
 		p := &RemoteProfile{
 			ConnectCommand: `cloud-ssh connect {{.Flavor}}`,
 		}
-		expected := `cloud-ssh connect {{.Flavor}} tmux -CC new-session -A -s schmux`
-		if got := p.GetConnectCommandTemplate(); got != expected {
+		expected := `cloud-ssh connect {{.Flavor}} tmux -L schmux -CC new-session -A -s schmux`
+		if got := p.GetConnectCommandTemplate("schmux"); got != expected {
 			t.Errorf("got %q, want %q", got, expected)
 		}
 	})
@@ -346,8 +346,8 @@ func TestRemoteProfile_GetConnectCommandTemplate(t *testing.T) {
 func TestRemoteProfile_GetReconnectCommandTemplate(t *testing.T) {
 	t.Run("default", func(t *testing.T) {
 		p := &RemoteProfile{}
-		expected := `ssh -tt {{.Hostname}} -- tmux -CC new-session -A -s schmux`
-		if got := p.GetReconnectCommandTemplate(); got != expected {
+		expected := `ssh -tt {{.Hostname}} -- tmux -L schmux -CC new-session -A -s schmux`
+		if got := p.GetReconnectCommandTemplate("schmux"); got != expected {
 			t.Errorf("got %q, want %q", got, expected)
 		}
 	})
@@ -356,8 +356,8 @@ func TestRemoteProfile_GetReconnectCommandTemplate(t *testing.T) {
 		p := &RemoteProfile{
 			ReconnectCommand: `cloud-ssh reconnect {{.Hostname}}`,
 		}
-		expected := `cloud-ssh reconnect {{.Hostname}} tmux -CC new-session -A -s schmux`
-		if got := p.GetReconnectCommandTemplate(); got != expected {
+		expected := `cloud-ssh reconnect {{.Hostname}} tmux -L schmux -CC new-session -A -s schmux`
+		if got := p.GetReconnectCommandTemplate("schmux"); got != expected {
 			t.Errorf("got %q, want %q", got, expected)
 		}
 	})
@@ -366,8 +366,8 @@ func TestRemoteProfile_GetReconnectCommandTemplate(t *testing.T) {
 		p := &RemoteProfile{
 			ConnectCommand: `cloud-ssh connect {{.Flavor}}`,
 		}
-		expected := `cloud-ssh connect {{.Flavor}} tmux -CC new-session -A -s schmux`
-		if got := p.GetReconnectCommandTemplate(); got != expected {
+		expected := `cloud-ssh connect {{.Flavor}} tmux -L schmux -CC new-session -A -s schmux`
+		if got := p.GetReconnectCommandTemplate("schmux"); got != expected {
 			t.Errorf("got %q, want %q", got, expected)
 		}
 	})
@@ -376,8 +376,8 @@ func TestRemoteProfile_GetReconnectCommandTemplate(t *testing.T) {
 func TestResolvedFlavor_GetConnectCommandTemplate(t *testing.T) {
 	t.Run("default", func(t *testing.T) {
 		rf := &ResolvedFlavor{}
-		expected := `ssh -tt {{.Flavor}} -- tmux -CC new-session -A -s schmux`
-		if got := rf.GetConnectCommandTemplate(); got != expected {
+		expected := `ssh -tt {{.Flavor}} -- tmux -L schmux -CC new-session -A -s schmux`
+		if got := rf.GetConnectCommandTemplate("schmux"); got != expected {
 			t.Errorf("got %q, want %q", got, expected)
 		}
 	})
@@ -386,8 +386,8 @@ func TestResolvedFlavor_GetConnectCommandTemplate(t *testing.T) {
 		rf := &ResolvedFlavor{
 			ConnectCommand: `cloud-ssh connect {{.Flavor}}`,
 		}
-		expected := `cloud-ssh connect {{.Flavor}} tmux -CC new-session -A -s schmux`
-		if got := rf.GetConnectCommandTemplate(); got != expected {
+		expected := `cloud-ssh connect {{.Flavor}} tmux -L schmux -CC new-session -A -s schmux`
+		if got := rf.GetConnectCommandTemplate("schmux"); got != expected {
 			t.Errorf("got %q, want %q", got, expected)
 		}
 	})
@@ -396,8 +396,8 @@ func TestResolvedFlavor_GetConnectCommandTemplate(t *testing.T) {
 func TestResolvedFlavor_GetReconnectCommandTemplate(t *testing.T) {
 	t.Run("default", func(t *testing.T) {
 		rf := &ResolvedFlavor{}
-		expected := `ssh -tt {{.Hostname}} -- tmux -CC new-session -A -s schmux`
-		if got := rf.GetReconnectCommandTemplate(); got != expected {
+		expected := `ssh -tt {{.Hostname}} -- tmux -L schmux -CC new-session -A -s schmux`
+		if got := rf.GetReconnectCommandTemplate("schmux"); got != expected {
 			t.Errorf("got %q, want %q", got, expected)
 		}
 	})
@@ -406,8 +406,8 @@ func TestResolvedFlavor_GetReconnectCommandTemplate(t *testing.T) {
 		rf := &ResolvedFlavor{
 			ReconnectCommand: `cloud-ssh reconnect {{.Hostname}}`,
 		}
-		expected := `cloud-ssh reconnect {{.Hostname}} tmux -CC new-session -A -s schmux`
-		if got := rf.GetReconnectCommandTemplate(); got != expected {
+		expected := `cloud-ssh reconnect {{.Hostname}} tmux -L schmux -CC new-session -A -s schmux`
+		if got := rf.GetReconnectCommandTemplate("schmux"); got != expected {
 			t.Errorf("got %q, want %q", got, expected)
 		}
 	})
@@ -416,8 +416,8 @@ func TestResolvedFlavor_GetReconnectCommandTemplate(t *testing.T) {
 		rf := &ResolvedFlavor{
 			ConnectCommand: `cloud-ssh connect {{.Flavor}}`,
 		}
-		expected := `cloud-ssh connect {{.Flavor}} tmux -CC new-session -A -s schmux`
-		if got := rf.GetReconnectCommandTemplate(); got != expected {
+		expected := `cloud-ssh connect {{.Flavor}} tmux -L schmux -CC new-session -A -s schmux`
+		if got := rf.GetReconnectCommandTemplate("schmux"); got != expected {
 			t.Errorf("got %q, want %q", got, expected)
 		}
 	})

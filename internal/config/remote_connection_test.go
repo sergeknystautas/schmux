@@ -11,10 +11,10 @@ func TestRemoteFlavor_GetConnectCommandTemplate_Default(t *testing.T) {
 		Flavor: "dev.example.com",
 	}
 
-	tmpl := rf.GetConnectCommandTemplate()
+	tmpl := rf.GetConnectCommandTemplate("schmux")
 
 	// Should return default SSH template with -tt and tmux appended
-	expected := `ssh -tt {{.Flavor}} -- tmux -CC new-session -A -s schmux`
+	expected := `ssh -tt {{.Flavor}} -- tmux -L schmux -CC new-session -A -s schmux`
 	if tmpl != expected {
 		t.Errorf("expected default template %q, got %q", expected, tmpl)
 	}
@@ -26,10 +26,10 @@ func TestRemoteFlavor_GetConnectCommandTemplate_Custom(t *testing.T) {
 		ConnectCommand: `cloud-ssh connect {{.Flavor}}`,
 	}
 
-	tmpl := rf.GetConnectCommandTemplate()
+	tmpl := rf.GetConnectCommandTemplate("schmux")
 
 	// Should append tmux to custom command
-	expected := `cloud-ssh connect {{.Flavor}} tmux -CC new-session -A -s schmux`
+	expected := `cloud-ssh connect {{.Flavor}} tmux -L schmux -CC new-session -A -s schmux`
 	if tmpl != expected {
 		t.Errorf("expected custom template %q, got %q", expected, tmpl)
 	}
@@ -40,10 +40,10 @@ func TestRemoteFlavor_GetReconnectCommandTemplate_Default(t *testing.T) {
 		Flavor: "dev.example.com",
 	}
 
-	tmpl := rf.GetReconnectCommandTemplate()
+	tmpl := rf.GetReconnectCommandTemplate("schmux")
 
 	// Should return default SSH reconnect template with -tt and tmux appended
-	expected := `ssh -tt {{.Hostname}} -- tmux -CC new-session -A -s schmux`
+	expected := `ssh -tt {{.Hostname}} -- tmux -L schmux -CC new-session -A -s schmux`
 	if tmpl != expected {
 		t.Errorf("expected default reconnect template %q, got %q", expected, tmpl)
 	}
@@ -55,10 +55,10 @@ func TestRemoteFlavor_GetReconnectCommandTemplate_Custom(t *testing.T) {
 		ReconnectCommand: `cloud-ssh reconnect {{.Hostname}}`,
 	}
 
-	tmpl := rf.GetReconnectCommandTemplate()
+	tmpl := rf.GetReconnectCommandTemplate("schmux")
 
 	// Should append tmux to custom reconnect command
-	expected := `cloud-ssh reconnect {{.Hostname}} tmux -CC new-session -A -s schmux`
+	expected := `cloud-ssh reconnect {{.Hostname}} tmux -L schmux -CC new-session -A -s schmux`
 	if tmpl != expected {
 		t.Errorf("expected custom reconnect template %q, got %q", expected, tmpl)
 	}
@@ -71,10 +71,10 @@ func TestRemoteFlavor_GetReconnectCommandTemplate_FallbackToConnect(t *testing.T
 		// No ReconnectCommand - should fall back to ConnectCommand
 	}
 
-	tmpl := rf.GetReconnectCommandTemplate()
+	tmpl := rf.GetReconnectCommandTemplate("schmux")
 
 	// Should use ConnectCommand as base and append tmux
-	expected := `cloud-ssh connect {{.Flavor}} tmux -CC new-session -A -s schmux`
+	expected := `cloud-ssh connect {{.Flavor}} tmux -L schmux -CC new-session -A -s schmux`
 	if tmpl != expected {
 		t.Errorf("expected fallback to connect template %q, got %q", expected, tmpl)
 	}
@@ -85,7 +85,7 @@ func TestConnectCommandTemplate_Execution_SSH(t *testing.T) {
 		Flavor: "dev12345.example.com",
 	}
 
-	templateStr := rf.GetConnectCommandTemplate()
+	templateStr := rf.GetConnectCommandTemplate("schmux")
 
 	// Parse template
 	tmpl, err := template.New("connect").Parse(templateStr)
@@ -107,7 +107,7 @@ func TestConnectCommandTemplate_Execution_SSH(t *testing.T) {
 		t.Fatalf("failed to execute template: %v", err)
 	}
 
-	expected := `ssh -tt dev12345.example.com -- tmux -CC new-session -A -s schmux`
+	expected := `ssh -tt dev12345.example.com -- tmux -L schmux -CC new-session -A -s schmux`
 	if result.String() != expected {
 		t.Errorf("expected %q, got %q", expected, result.String())
 	}
@@ -119,7 +119,7 @@ func TestConnectCommandTemplate_Execution_Custom(t *testing.T) {
 		ConnectCommand: `cloud-ssh connect {{.Flavor}}`,
 	}
 
-	templateStr := rf.GetConnectCommandTemplate()
+	templateStr := rf.GetConnectCommandTemplate("schmux")
 
 	// Parse template
 	tmpl, err := template.New("connect").Parse(templateStr)
@@ -142,7 +142,7 @@ func TestConnectCommandTemplate_Execution_Custom(t *testing.T) {
 	}
 
 	// Tmux parts should be appended automatically
-	expected := `cloud-ssh connect gpu-large tmux -CC new-session -A -s schmux`
+	expected := `cloud-ssh connect gpu-large tmux -L schmux -CC new-session -A -s schmux`
 	if result.String() != expected {
 		t.Errorf("expected %q, got %q", expected, result.String())
 	}
@@ -153,7 +153,7 @@ func TestReconnectCommandTemplate_Execution_SSH(t *testing.T) {
 		Flavor: "dev.example.com",
 	}
 
-	templateStr := rf.GetReconnectCommandTemplate()
+	templateStr := rf.GetReconnectCommandTemplate("schmux")
 
 	// Parse template
 	tmpl, err := template.New("reconnect").Parse(templateStr)
@@ -177,7 +177,7 @@ func TestReconnectCommandTemplate_Execution_SSH(t *testing.T) {
 		t.Fatalf("failed to execute template: %v", err)
 	}
 
-	expected := `ssh -tt dev12345.example.com -- tmux -CC new-session -A -s schmux`
+	expected := `ssh -tt dev12345.example.com -- tmux -L schmux -CC new-session -A -s schmux`
 	if result.String() != expected {
 		t.Errorf("expected %q, got %q", expected, result.String())
 	}
@@ -189,7 +189,7 @@ func TestReconnectCommandTemplate_Execution_Custom(t *testing.T) {
 		ReconnectCommand: `cloud-ssh reconnect {{.Hostname}}`,
 	}
 
-	templateStr := rf.GetReconnectCommandTemplate()
+	templateStr := rf.GetReconnectCommandTemplate("schmux")
 
 	// Parse template
 	tmpl, err := template.New("reconnect").Parse(templateStr)
@@ -214,7 +214,7 @@ func TestReconnectCommandTemplate_Execution_Custom(t *testing.T) {
 	}
 
 	// Tmux parts should be appended automatically
-	expected := `cloud-ssh reconnect host123.example.com tmux -CC new-session -A -s schmux`
+	expected := `cloud-ssh reconnect host123.example.com tmux -L schmux -CC new-session -A -s schmux`
 	if result.String() != expected {
 		t.Errorf("expected %q, got %q", expected, result.String())
 	}
@@ -226,7 +226,7 @@ func TestConnectCommandTemplate_InvalidTemplate(t *testing.T) {
 		ConnectCommand: `ssh {{.InvalidField}}`, // Invalid field
 	}
 
-	templateStr := rf.GetConnectCommandTemplate()
+	templateStr := rf.GetConnectCommandTemplate("schmux")
 
 	// Parse should succeed
 	tmpl, err := template.New("connect").Parse(templateStr)
