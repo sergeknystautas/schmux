@@ -85,6 +85,10 @@ test.describe.serial('Remote access onboarding', () => {
     await page.goto('/config?tab=access');
     await waitForDashboardLive(page);
 
+    // Enable remote access — the ntfy UI is behind this toggle
+    const enableCheckbox = page.getByText('Enable remote access');
+    await enableCheckbox.click();
+
     // ntfy topic input is visible
     const ntfyInput = page.locator('input[placeholder="my-schmux-notifications"]');
     await expect(ntfyInput).toBeVisible({ timeout: 10_000 });
@@ -97,6 +101,10 @@ test.describe.serial('Remote access onboarding', () => {
   test('generate secure topic populates input and shows QR code', async ({ page }) => {
     await page.goto('/config?tab=access');
     await waitForDashboardLive(page);
+
+    // Enable remote access — the ntfy UI is behind this toggle
+    const enableCheckbox = page.getByText('Enable remote access');
+    await enableCheckbox.click();
 
     const ntfyInput = page.locator('input[placeholder="my-schmux-notifications"]');
     await expect(ntfyInput).toBeVisible({ timeout: 10_000 });
@@ -121,6 +129,9 @@ test.describe.serial('Remote access onboarding', () => {
     await page.goto('/config?tab=access');
     await waitForDashboardLive(page);
 
+    // Enable remote access — the ntfy UI is behind this toggle
+    await page.getByText('Enable remote access').click();
+
     const ntfyInput = page.locator('input[placeholder="my-schmux-notifications"]');
     await expect(ntfyInput).toBeVisible({ timeout: 10_000 });
 
@@ -142,9 +153,9 @@ test.describe.serial('Remote access onboarding', () => {
   });
 
   test('test notification button enabled after saving ntfy topic', async ({ page }) => {
-    // Save a topic via API first
+    // Save a topic via API first (also enable remote access so the UI is visible)
     await apiPost('/api/config', {
-      remote_access: { notify: { ntfy_topic: 'schmux-test-onboarding-topic' } },
+      remote_access: { enabled: true, notify: { ntfy_topic: 'schmux-test-onboarding-topic' } },
     });
 
     await page.goto('/config?tab=access');
