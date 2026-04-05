@@ -18,6 +18,7 @@ Testing infrastructure for schmux: Go backend unit tests, React frontend Vitest 
 | `test/scenarios/generated/helpers.ts`           | Shared test harness (setup, teardown, API client)                                                 |
 | `test/scenarios/generated/playwright.config.ts` | Playwright configuration                                                                          |
 | `test/scenarios/check-coverage.sh`              | Checks whether UI/API changes have corresponding scenarios                                        |
+| `tools/test-runner/src/cache.ts`                | Cache key computation, load/save/expire, miss logging for Docker suites                           |
 
 ---
 
@@ -112,6 +113,40 @@ Tests use a mock server. No external dependencies required.
 ### `internal/workspace`
 
 Tests use temporary directories for workspace operations. Cleaned up automatically.
+
+---
+
+## Test Cache (Docker Suites)
+
+E2E and scenario test suites are cached to skip re-running when inputs haven't changed. Cache files are stored in `.test-cache/` (gitignored), one JSON file per suite.
+
+### Why only e2e and scenarios are cached
+
+Go's built-in test cache handles per-package invalidation natively. Vitest's built-in caching handles per-file invalidation. Adding suite-level caching on top of those would add correctness surface area for marginal speedup.
+
+### Cache key composition
+
+The cache key includes: `git rev-parse HEAD`, dirty file hashes (`git status --porcelain` + `git hash-object`), the suite name, and flags (`--race`, `--coverage`). Switching branches auto-invalidates; switching back to a clean branch re-validates.
+
+### Flags that disable caching
+
+| Flag             | Reason                                                          |
+| ---------------- | --------------------------------------------------------------- |
+| `--run PATTERN`  | Partial test run must never satisfy a full-suite cache check    |
+| `--repeat > 1`   | Repeat mode is for flaky detection; caching defeats the purpose |
+| `--verbose`      | User expects output that a cached result cannot provide         |
+| `--record-video` | User expects artifacts that a cached result cannot provide      |
+| `--force`        | Rebuilding base images implies intent to re-test                |
+| `--coverage`     | Coverage data dirs must be populated for dual coverage reports  |
+
+### Cache behavior
+
+- Only passing results are cached (a failed suite must always re-run)
+- 7-day TTL guards against stale Docker base images
+- Atomic writes (write-to-temp + rename) so Ctrl+C never leaves corrupt cache files
+- `--no-cache` deletes `.test-cache/` entirely AND passes `-count=1` to Go (bypasses Go's own cache)
+- Corrupt cache JSON is treated as a cache miss — parse error deletes the file and runs normally
+- Cache miss logging shows exactly which input changed (e.g., "HEAD changed: abc → def", "dirty files: ...")
 
 ---
 

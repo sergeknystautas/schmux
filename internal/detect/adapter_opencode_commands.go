@@ -84,7 +84,7 @@ Answer each item with YES or NO based on the actual state of your changes. A rat
    - Called ` + "`npm install`" + `, ` + "`npm run build`" + `, or ` + "`vite build`" + ` directly instead of ` + "`go run ./cmd/build-dashboard`" + `
    - Edited ` + "`assets/dashboard/src/lib/types.generated.ts`" + ` directly instead of editing Go structs and running ` + "`go run ./cmd/gen-types`" + `
 
-3. **Docs current**: Are all relevant docs updated? ` + "`docs/api.md`" + ` is covered by Step 3. Consider: does this change affect ` + "`docs/web.md`" + `, ` + "`docs/cli.md`" + `, ` + "`CLAUDE.md`" + `, ` + "`AGENTS.md`" + `, or any spec in ` + "`docs/specs/`" + `?
+3. **Docs current**: Are all relevant docs updated? ` + "`docs/api.md`" + ` is covered by Step 3. Consider: does this change affect ` + "`docs/web.md`" + `, ` + "`docs/cli.md`" + `, ` + "`CLAUDE.md`" + `, ` + "`AGENTS.md`" + `, or any spec in ` + "`docs/specs/`" + ` or plan in ` + "`docs/plans/`" + `?
 
 **If any item is NO:** STOP. Fix the gap, then re-invoke /commit from the beginning.
 

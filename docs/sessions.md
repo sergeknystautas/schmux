@@ -20,6 +20,9 @@ Sessions are tmux-backed agent execution environments. Each coding agent (Claude
 | `internal/workspace/ensure/manager.go`              | Pre-spawn workspace setup (hooks, git exclude)                |
 | `assets/dashboard/src/routes/SpawnPage.tsx`         | Spawn wizard UI                                               |
 | `assets/dashboard/src/routes/SessionDetailPage.tsx` | Session detail with terminal                                  |
+| `internal/tmux/tmux.go`                             | TmuxServer struct, socket isolation, admin/spawn CLI wrappers |
+| `internal/state/state.go`                           | Session state including TmuxSocket field                      |
+| `cmd/schmux/attach.go`                              | CLI attach command (socket-aware, injection-safe)             |
 
 ---
 
@@ -517,6 +520,12 @@ Session state is stored at `~/.schmux/state.json` and managed automatically:
 
 ## Architecture Decisions
 
+- **Socket isolation**: schmux uses a dedicated tmux socket (`-L schmux`) so it does not share namespace with the user's own tmux sessions. A user killing their tmux server no longer kills schmux sessions, and `tmux ls` no longer shows schmux sessions.
+- **TmuxServer struct replaces package-level globals**: The `internal/tmux` package uses a `TmuxServer` struct instead of package-level functions with global state. TmuxServer is stateless and cheap to construct (56 bytes, no connections, no lifecycle) — a pool/cache was explicitly rejected.
+- **Per-session socket affinity**: Each session records its `TmuxSocket` at spawn time. Changing the config socket only affects new sessions; existing sessions stay on their birth socket and drain naturally.
+- **Hard-cut migration on upgrade**: Sessions on the old tmux server are orphaned on upgrade. Sessions are ephemeral and cheap to re-create, so migration logic was not warranted.
+- **Config socket change requires daemon restart**: Atomic hot-swap was rejected because Spawn does 3 sequential tmux calls that would target different sockets if the server swapped mid-operation.
+- **SendKeys vs SendTmuxKeyName**: `SendKeys(rawBytes)` classifies by byte value (for WebSocket terminal I/O). `SendTmuxKeyName(name)` sends tmux key names like `"C-u"` without `-l` (for programmatic callers). Passing `"C-u"` to `SendKeys` would type literal characters `C`, `-`, `u`.
 - **Conversation state is not persisted by schmux.** The `Session` struct stores ID, workspace, target, tmux session name, etc., but nothing about the agent's conversation state. Each agent stores its own conversation data (e.g., Claude Code in its data directory). Resume (`/resume`) simply invokes the agent's native resume command.
 - **Agent-specific signaling is a session-level concern.** `SignalingInstructions` and `AgentInstructions` are written per-session in `session/manager.go`, not as workspace-level setup. They configure prompt injection for the specific agent being spawned.
 - **No specific conversation resume.** `/resume` resumes the most recent conversation in the workspace directory, not a specific past conversation. No conversation IDs are tracked.
@@ -534,6 +543,11 @@ Session state is stored at `~/.schmux/state.json` and managed automatically:
 
 ## Gotchas
 
+- **Attach command must not use shell interpolation**: The attach command interpolates user-provided nicknames and socket names. Use structured `exec.Command(binary, "-L", socket, "attach", ...)` — never `exec.Command("sh", "-c", attachCmd)` which enables command injection.
+- **CaptureLines always includes ANSI escapes**: Control mode `CapturePaneLines` uses the `-e` flag. Callers needing plain text must post-process with `tmux.StripAnsi()`.
+- **ListSessions on a stopped tmux server returns error, not empty list**: Fan-out across active sockets must treat exit code 1 ("no server running") as zero sessions, not propagate the error.
+- **Empty TmuxSocket maps to `"default"`**: Backward compatibility for pre-isolation sessions that had no socket field in state.
+- **Multi-daemon is unsupported**: Socket name is shared. If two daemons run simultaneously, they see each other's sessions. A startup guard logs a warning if unmanaged sessions are found.
 - **Resume without prior conversation**: when Claude Code's `--continue` finds no prior conversation in the directory, it starts fresh. There is no warning to the user.
 - **Agent instructions are git-excluded**: the ensure system writes `.schmux/hooks/` and `.schmux/events/` paths to `.git/info/exclude` so they do not pollute git status.
 - **Disposing is persisted**: because `disposing` is saved to `state.json`, a daemon crash during teardown leaves items stuck. The daemon retries on startup, but if retry fails the item reverts to `stopped`/`running` and logs a warning.

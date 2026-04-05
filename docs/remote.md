@@ -130,6 +130,33 @@ Orchestrates AI agents running on remote hosts while keeping the schmux daemon a
 | `internal/session/tmux_health.go`            | `TmuxHealthProbe`: ring-buffer RTT measurement for control mode connections                                              |
 | `internal/dashboard/latency_collector.go`    | `LatencyCollector`: per-keystroke timing ring buffer with sub-SendKeys breakdown percentiles                             |
 
+### VCS abstraction
+
+Remote sessions support multiple version control systems (Git and Sapling) via the `CommandBuilder` interface in `internal/vcs/`.
+
+| File                                  | Purpose                                      |
+| ------------------------------------- | -------------------------------------------- |
+| `internal/vcs/vcs.go`                 | CommandBuilder interface (shared by all VCS) |
+| `internal/vcs/git.go`                 | Git CommandBuilder implementation            |
+| `internal/vcs/sapling.go`             | Sapling CommandBuilder implementation        |
+| `internal/workspace/vcs.go`           | `HasVCSSupport` predicate                    |
+| `internal/dashboard/handlers_diff.go` | Diff handlers (batch remote file content)    |
+
+**Architecture decisions:**
+
+- **Why batch remote file content**: O(1) RunCommand calls regardless of file count. Individual file fetches would be O(N) SSH round-trips.
+- **Why base64 encoding for batch scripts**: `RunCommand` sends the entire command as a single `send-keys -l` call. Literal newlines terminate tmux control mode commands prematurely. Base64 produces a single line safe for transmission.
+- **Why `HasVCSSupport` instead of widening `IsGitVCS`**: `IsGitVCS` is retained for call sites that genuinely need git-only behavior (worktree ops, git-specific filesystem watches). `HasVCSSupport` is the broader gate for commit graph/diff features.
+- **Why per-file line cap (500) and byte cap (1MB)**: Line cap prevents one file from consuming capture-pane scrollback budget. Byte cap prevents minified JS single-line files from overwhelming the channel.
+- **Why file count cap (50)**: Hard ceiling for monorepo edge cases. Numstat summary is always complete; files beyond the cap are listed with stats but content is omitted.
+
+**Gotchas:**
+
+- Sapling `.` is the working copy parent (equivalent to git HEAD); `.^` is the grandparent.
+- `parseRangeToRevset` must map `HEAD` to `.` when converting git-style `A..B` range notation to Sapling revsets.
+- Shell injection risk in batch scripts: all file paths must be quoted via `shellutil.Quote()` before interpolation.
+- `RunCommand` sends the entire command as a single `send-keys -l` — the command MUST be a single line. This is the fundamental constraint driving the base64 approach.
+
 ### Architecture decisions
 
 - **Why tmux control mode instead of SSH exec:** Control mode provides a persistent, multiplexed connection. A single SSH session can manage many tmux windows without opening separate SSH channels per agent session.

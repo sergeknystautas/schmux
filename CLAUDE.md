@@ -241,7 +241,7 @@ Routes:
 
 ## Documentation Conventions
 
-All specs, designs, and implementation plans live in `docs/specs/`. Skills that default to `docs/plans/` should use `docs/specs/` instead for this project.
+Design specs live in `docs/specs/`. Implementation plans live in `docs/plans/`. Plans are temporary (deleted after implementation); specs are consolidated into subsystem guides via `/finalize`.
 
 ## Important Files
 

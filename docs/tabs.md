@@ -23,8 +23,6 @@ Uses `@dnd-kit/sortable` with a `PointerSensor` (5px activation distance to dist
 
 Disabled during workspace locks and on mobile (viewport ≤ 768px).
 
-See `docs/specs/2026-03-23-draggable-session-tabs-design.md` for the full design.
-
 ## Accessory Tabs
 
 ### Tab Entity
