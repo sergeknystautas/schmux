@@ -441,10 +441,21 @@ func (m *Manager) SpawnRemote(ctx context.Context, profileID, flavorStr, hostID,
 		if err := m.state.AddWorkspace(ws); err != nil {
 			return nil, fmt.Errorf("failed to add workspace to state: %w", err)
 		}
-	} else if ws.Branch == "remote" && host.Hostname != "" {
-		// Update existing workspace that still has the old "remote" branch name
-		ws.Branch = host.Hostname
-		m.state.UpdateWorkspace(ws)
+	} else {
+		needsUpdate := false
+		if ws.Branch == "remote" && host.Hostname != "" {
+			// Update existing workspace that still has the old "remote" branch name
+			ws.Branch = host.Hostname
+			needsUpdate = true
+		}
+		if ws.VCS != flavor.VCS && flavor.VCS != "" {
+			// Backfill VCS for workspaces pre-dating VCS-aware data directories
+			ws.VCS = flavor.VCS
+			needsUpdate = true
+		}
+		if needsUpdate {
+			m.state.UpdateWorkspace(ws)
+		}
 	}
 
 	// Inject schmux signaling environment variables
