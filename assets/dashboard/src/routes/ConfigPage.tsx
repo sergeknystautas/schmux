@@ -9,6 +9,7 @@ import {
   getOverlays,
   getBuiltinQuickLaunch,
   getPersonas,
+  getStyles,
   getAuthSecretsStatus,
   saveAuthSecrets,
   setRemoteAccessPassword,
@@ -32,7 +33,7 @@ import AdvancedTab from './config/AdvancedTab';
 import PastebinTab from './config/PastebinTab';
 import ConfigModals from './config/ConfigModals';
 import type { ConfigResponse, ConfigUpdateRequest, Model, RunTargetResponse } from '../lib/types';
-import type { Persona } from '../lib/types.generated';
+import type { Persona, Style } from '../lib/types.generated';
 
 const TOTAL_STEPS = 10;
 const TABS = [
@@ -178,6 +179,7 @@ export default function ConfigPage() {
             confirmBeforeClose: data.notifications?.confirm_before_close || false,
             suggestDisposeAfterPush: data.notifications?.suggest_dispose_after_push ?? true,
             enabledModels: data.enabled_models || {},
+            commStyles: data.comm_styles || {},
             loreEnabled: data.lore?.enabled ?? true,
             loreLLMTarget: data.lore?.llm_target || '',
             loreCurateOnDispose: data.lore?.curate_on_dispose || 'session',
@@ -265,6 +267,7 @@ export default function ConfigPage() {
             confirmBeforeClose: data.notifications?.confirm_before_close || false,
             suggestDisposeAfterPush: data.notifications?.suggest_dispose_after_push ?? true,
             enabledModels: data.enabled_models || {},
+            commStyles: data.comm_styles || {},
             loreEnabled: data.lore?.enabled ?? true,
             loreLLMTarget: data.lore?.llm_target || '',
             loreCurateOnDispose: data.lore?.curate_on_dispose || 'session',
@@ -401,6 +404,24 @@ export default function ConfigPage() {
       }
     };
     loadPersonas();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Load styles for comm styles section
+  const [configStyles, setConfigStyles] = useState<Style[]>([]);
+  useEffect(() => {
+    let active = true;
+    const loadStyles = async () => {
+      try {
+        const data = await getStyles();
+        if (active) setConfigStyles(data.styles || []);
+      } catch {
+        // Non-fatal: styles are optional
+      }
+    };
+    loadStyles();
     return () => {
       active = false;
     };
@@ -664,6 +685,7 @@ export default function ConfigPage() {
           repos: state.repofeedRepos,
         },
         enabled_models: state.enabledModels,
+        comm_styles: Object.keys(state.commStyles).length > 0 ? state.commStyles : undefined,
         remote_access: {
           enabled: state.remoteAccessEnabled,
           timeout_minutes: state.remoteAccessTimeoutMinutes,
@@ -1348,6 +1370,8 @@ export default function ConfigPage() {
               models={state.modelCatalog}
               runners={state.runners}
               enabledModels={state.enabledModels}
+              commStyles={state.commStyles}
+              styles={configStyles}
               commandTargets={state.commandTargets}
               newCommandName={state.newCommandName}
               newCommandCommand={state.newCommandCommand}

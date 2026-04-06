@@ -43,6 +43,7 @@ function makeSnapshot(overrides: Partial<ConfigSnapshot> = {}): ConfigSnapshot {
     confirmBeforeClose: false,
     suggestDisposeAfterPush: true,
     enabledModels: {},
+    commStyles: {},
     loreEnabled: true,
     loreLLMTarget: '',
     loreCurateOnDispose: 'session',

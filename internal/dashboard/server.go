@@ -39,6 +39,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/repofeed"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/style"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
 	"github.com/sergeknystautas/schmux/internal/update"
@@ -216,6 +217,9 @@ type Server struct {
 	// Persona manager
 	personaManager *persona.Manager
 
+	// Style manager
+	styleManager *style.Manager
+
 	// Floor manager
 	floorManager *floormanager.Manager
 
@@ -344,6 +348,13 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 	s.personaManager = persona.NewManager(personasDir)
 	if err := s.personaManager.EnsureBuiltins(); err != nil {
 		logger.Warn("failed to ensure built-in personas", "err", err)
+	}
+
+	// Initialize style manager
+	stylesDir := filepath.Join(filepath.Dir(statePath), "styles")
+	s.styleManager = style.NewManager(stylesDir)
+	if err := s.styleManager.EnsureBuiltins(); err != nil {
+		logger.Warn("failed to ensure built-in styles", "err", err)
 	}
 
 	if mgr, ok := wm.(*workspace.Manager); ok {
@@ -701,6 +712,13 @@ func (s *Server) Start() error {
 			r.Get("/personas/{id}", s.handleGetPersona)
 			r.Put("/personas/{id}", s.handleUpdatePersona)
 			r.Delete("/personas/{id}", s.handleDeletePersona)
+
+			// Style routes
+			r.Get("/styles", s.handleListStyles)
+			r.Post("/styles", s.handleCreateStyle)
+			r.Get("/styles/{id}", s.handleGetStyle)
+			r.Put("/styles/{id}", s.handleUpdateStyle)
+			r.Delete("/styles/{id}", s.handleDeleteStyle)
 
 			// Remote host routes
 			r.Post("/remote/hosts/{hostID}/reconnect", s.handleRemoteHostReconnect)

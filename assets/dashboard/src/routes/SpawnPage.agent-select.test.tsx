@@ -93,9 +93,11 @@ const configFixture: ConfigResponse = {
 
 const mockGetConfig = vi.fn<() => Promise<ConfigResponse>>();
 const mockGetPersonas = vi.fn<() => Promise<{ personas: unknown[] }>>();
+const mockGetStyles = vi.fn<() => Promise<{ styles: unknown[] }>>();
 vi.mock('../lib/api', () => ({
   getConfig: (...args: unknown[]) => mockGetConfig(...(args as [])),
   getPersonas: (...args: unknown[]) => mockGetPersonas(...(args as [])),
+  getStyles: (...args: unknown[]) => mockGetStyles(...(args as [])),
   spawnSessions: vi.fn(),
   getErrorMessage: (_err: unknown, fallback: string) => fallback,
   suggestBranch: vi.fn(),
@@ -188,6 +190,7 @@ describe('SpawnPage unified agent dropdown', () => {
     sessionStorage.clear();
     mockGetConfig.mockResolvedValue(configFixture);
     mockGetPersonas.mockResolvedValue({ personas: [] });
+    mockGetStyles.mockResolvedValue({ styles: [] });
   });
 
   it('renders the unified agent dropdown with agents and special options', async () => {
@@ -292,7 +295,7 @@ describe('SpawnPage unified agent dropdown', () => {
     });
   });
 
-  it('shows persona dropdown in same row as agent and repo when personas exist', async () => {
+  it('shows persona dropdown in persona-style-row when personas exist', async () => {
     // Mock personas to be returned
     mockGetPersonas.mockResolvedValue({
       personas: [
@@ -317,10 +320,12 @@ describe('SpawnPage unified agent dropdown', () => {
     // Persona should be visible when personas exist
     expect(screen.getByTestId('persona-select')).toBeInTheDocument();
 
-    // All three (agent, persona, repo) should be in the agent-repo-row container
-    const row = screen.getByTestId('agent-repo-row');
-    expect(within(row).getByTestId('agent-select')).toBeInTheDocument();
-    expect(within(row).getByTestId('persona-select')).toBeInTheDocument();
-    expect(within(row).getByTestId('spawn-repo-select')).toBeInTheDocument();
+    // Agent and repo should be in agent-repo-row, persona in persona-style-row
+    const agentRow = screen.getByTestId('agent-repo-row');
+    expect(within(agentRow).getByTestId('agent-select')).toBeInTheDocument();
+    expect(within(agentRow).getByTestId('spawn-repo-select')).toBeInTheDocument();
+
+    const personaRow = screen.getByTestId('persona-style-row');
+    expect(within(personaRow).getByTestId('persona-select')).toBeInTheDocument();
   });
 });

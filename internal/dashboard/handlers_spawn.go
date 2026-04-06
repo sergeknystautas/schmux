@@ -20,6 +20,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/persona"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/style"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
@@ -42,6 +43,7 @@ type SpawnRequest struct {
 	RemoteHostID     string         `json:"remote_host_id,omitempty"`    // optional: spawn on specific existing remote host
 	NewBranch        string         `json:"new_branch,omitempty"`        // create new workspace with this branch from source workspace
 	PersonaID        string         `json:"persona_id,omitempty"`        // optional: behavioral persona for the agent
+	StyleID          string         `json:"style_id,omitempty"`          // optional: communication style override ("none" to suppress global default)
 	ImageAttachments []string       `json:"image_attachments,omitempty"` // base64-encoded PNGs, max 5
 }
 
@@ -292,15 +294,29 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	// Global counter for nickname numbering across all targets
 	globalIndex := 0
 
-	// Resolve persona prompt if persona_id is provided
-	var personaPrompt string
+	// Resolve persona
+	var personaObj *persona.Persona
 	if req.PersonaID != "" {
 		p, err := s.personaManager.Get(req.PersonaID)
 		if err != nil {
 			writeJSONError(w, fmt.Sprintf("persona not found: %s", req.PersonaID), http.StatusBadRequest)
 			return
 		}
-		personaPrompt = formatPersonaPrompt(p)
+		personaObj = p
+	}
+
+	// Resolve explicit style override
+	var explicitStyleObj *style.Style
+	explicitNone := false
+	if req.StyleID == "none" {
+		explicitNone = true
+	} else if req.StyleID != "" {
+		st, err := s.styleManager.Get(req.StyleID)
+		if err != nil {
+			writeJSONError(w, fmt.Sprintf("style not found: %s", req.StyleID), http.StatusBadRequest)
+			return
+		}
+		explicitStyleObj = st
 	}
 
 	for targetName, count := range req.Targets {
@@ -341,6 +357,24 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 				nickname = req.Nickname
 			}
 
+			// Resolve style for this target
+			var styleObj *style.Style
+			if explicitStyleObj != nil {
+				styleObj = explicitStyleObj
+			} else if !explicitNone {
+				baseTool := s.models.ResolveTargetToTool(targetName)
+				if defaultID := s.config.GetCommStyles()[baseTool]; defaultID != "" {
+					styleObj, _ = s.styleManager.Get(defaultID)
+				}
+			}
+
+			resolvedStyleID := ""
+			if styleObj != nil {
+				resolvedStyleID = styleObj.ID
+			}
+
+			agentPrompt := formatAgentSystemPrompt(personaObj, styleObj)
+
 			// Session spawn needs a longer timeout for git operations
 			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
 
@@ -350,7 +384,17 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			// Route to remote or local spawn based on request
 			if req.RemoteProfileID != "" {
 				// Remote spawn - use SpawnRemote()
-				sess, err = s.session.SpawnRemote(ctx, req.RemoteProfileID, req.RemoteFlavor, remoteHostID, targetName, req.Prompt, nickname)
+				sess, err = s.session.SpawnRemote(ctx, session.RemoteSpawnOptions{
+					ProfileID:     req.RemoteProfileID,
+					FlavorStr:     req.RemoteFlavor,
+					HostID:        remoteHostID,
+					TargetName:    targetName,
+					Prompt:        req.Prompt,
+					Nickname:      nickname,
+					PersonaID:     req.PersonaID,
+					PersonaPrompt: agentPrompt,
+					StyleID:       resolvedStyleID,
+				})
 			} else {
 				// Local spawn - use existing Spawn()
 				sess, err = s.session.Spawn(ctx, session.SpawnOptions{
@@ -363,7 +407,8 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 					Resume:           req.Resume,
 					NewBranch:        req.NewBranch,
 					PersonaID:        req.PersonaID,
-					PersonaPrompt:    personaPrompt,
+					PersonaPrompt:    agentPrompt,
+					StyleID:          resolvedStyleID,
 					ImageAttachments: req.ImageAttachments,
 				})
 			}
@@ -815,13 +860,21 @@ func (s *Server) handleRecentBranchesRefresh(w http.ResponseWriter, r *http.Requ
 	}
 }
 
-// formatPersonaPrompt formats a persona's content for injection as a system prompt file.
-func formatPersonaPrompt(p *persona.Persona) string {
+// formatAgentSystemPrompt composes a system prompt from persona and/or style.
+func formatAgentSystemPrompt(p *persona.Persona, st *style.Style) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "## Persona: %s\n\n", p.Name)
-	if p.Expectations != "" {
-		fmt.Fprintf(&b, "### Behavioral Expectations\n%s\n\n", strings.TrimSpace(p.Expectations))
+	if p != nil {
+		fmt.Fprintf(&b, "## Persona: %s\n\n", p.Name)
+		if p.Expectations != "" {
+			fmt.Fprintf(&b, "### Behavioral Expectations\n%s\n\n", strings.TrimSpace(p.Expectations))
+		}
+		fmt.Fprintf(&b, "### Instructions\n%s\n", strings.TrimSpace(p.Prompt))
 	}
-	fmt.Fprintf(&b, "### Instructions\n%s\n", strings.TrimSpace(p.Prompt))
+	if st != nil {
+		if p != nil {
+			b.WriteString("\n---\n\n")
+		}
+		fmt.Fprintf(&b, "## Communication Style: %s\n\n%s\n", st.Name, strings.TrimSpace(st.Prompt))
+	}
 	return b.String()
 }

@@ -157,6 +157,7 @@ type ConfigResponse struct {
 	Runners                    map[string]RunnerInfo  `json:"runners"` // tool name -> runner info
 	Models                     []Model                `json:"models"`
 	EnabledModels              map[string]string      `json:"enabled_models,omitempty"` // modelID -> preferred tool
+	CommStyles                 map[string]string      `json:"comm_styles,omitempty"`
 	Nudgenik                   Nudgenik               `json:"nudgenik"`
 	BranchSuggest              BranchSuggest          `json:"branch_suggest"`
 	ConflictResolve            ConflictResolve        `json:"conflict_resolve"`
@@ -317,6 +318,7 @@ type ConfigUpdateRequest struct {
 	Timelapse                  *TimelapseUpdate            `json:"timelapse,omitempty"`
 	RemoteAccess               *RemoteAccessUpdate         `json:"remote_access,omitempty"`
 	EnabledModels              *map[string]string          `json:"enabled_models,omitempty"`
+	CommStyles                 *map[string]string          `json:"comm_styles,omitempty"`
 	SaplingCommands            *SaplingCommandsUpdate      `json:"sapling_commands,omitempty"`
 	TmuxBinary                 *string                     `json:"tmux_binary,omitempty"`
 	TmuxSocketName             *string                     `json:"tmux_socket_name,omitempty"`

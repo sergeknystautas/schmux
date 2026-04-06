@@ -87,6 +87,7 @@ export interface ConfigResponse {
   runners: Record<string, RunnerInfo>;
   models: Model[];
   enabled_models?: Record<string, string>;
+  comm_styles?: Record<string, string>;
   nudgenik: Nudgenik;
   branch_suggest: BranchSuggest;
   conflict_resolve: ConflictResolve;
@@ -143,6 +144,7 @@ export interface ConfigUpdateRequest {
   timelapse?: TimelapseUpdate;
   remote_access?: RemoteAccessUpdate;
   enabled_models?: Record<string, string>;
+  comm_styles?: Record<string, string>;
   sapling_commands?: SaplingCommandsUpdate;
   tmux_binary?: string;
   tmux_socket_name?: string;
@@ -532,6 +534,34 @@ export interface SpawnEntry {
   use_count: number;
   last_used?: string;
   metadata?: EmergenceMetadata;
+}
+
+export interface Style {
+  id: string;
+  name: string;
+  icon: string;
+  tagline: string;
+  prompt: string;
+  built_in: boolean;
+}
+
+export interface StyleCreateRequest {
+  id: string;
+  name: string;
+  icon: string;
+  tagline: string;
+  prompt: string;
+}
+
+export interface StyleListResponse {
+  styles: Style[];
+}
+
+export interface StyleUpdateRequest {
+  name?: string;
+  icon?: string;
+  tagline?: string;
+  prompt?: string;
 }
 
 export interface Subreddit {

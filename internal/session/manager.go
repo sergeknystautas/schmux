@@ -402,31 +402,26 @@ func (m *Manager) GetRemoteManager() *remote.Manager {
 }
 
 // SpawnRemote creates a new session on a remote host.
-// profileID identifies the remote profile and flavorStr identifies the flavor within it.
-// hostID, when non-empty, reuses an existing host connection instead of creating a new one.
-// targetName is the agent to run (e.g., "claude").
-// prompt is only used if the target is promptable.
-// nickname is an optional human-friendly name for the session.
-func (m *Manager) SpawnRemote(ctx context.Context, profileID, flavorStr, hostID, targetName, prompt, nickname string) (*state.Session, error) {
+func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*state.Session, error) {
 	if m.remoteManager == nil {
 		return nil, fmt.Errorf("remote manager not configured")
 	}
 
-	resolved, err := m.ResolveTarget(ctx, targetName)
+	resolved, err := m.ResolveTarget(ctx, opts.TargetName)
 	if err != nil {
 		return nil, err
 	}
 
 	var conn *remote.Connection
-	if hostID != "" {
+	if opts.HostID != "" {
 		// Spawn on existing host (add session to existing workspace)
-		conn = m.remoteManager.GetConnection(hostID)
+		conn = m.remoteManager.GetConnection(opts.HostID)
 		if conn == nil {
-			return nil, fmt.Errorf("remote host %s not found or not connected", hostID)
+			return nil, fmt.Errorf("remote host %s not found or not connected", opts.HostID)
 		}
 	} else {
 		// Create new host (new workspace)
-		conn, err = m.remoteManager.Connect(ctx, profileID, flavorStr)
+		conn, err = m.remoteManager.Connect(ctx, opts.ProfileID, opts.FlavorStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to remote host: %w", err)
 		}
@@ -436,7 +431,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, profileID, flavorStr, hostID,
 	flavor := conn.Flavor()
 
 	// Create session ID
-	sessionID := fmt.Sprintf("remote-%s-%s", flavorStr, uuid.New().String()[:8])
+	sessionID := fmt.Sprintf("remote-%s-%s", opts.FlavorStr, uuid.New().String()[:8])
 
 	// Get or create a workspace for this remote host+flavor
 	// Use deterministic ID so all sessions on same host+flavor share a workspace
@@ -487,14 +482,14 @@ func (m *Manager) SpawnRemote(ctx context.Context, profileID, flavorStr, hostID,
 	})
 
 	// Build command with remote mode (uses inline content instead of local file paths)
-	command, err := buildCommand(resolved, prompt, nil, false, true)
+	command, err := buildCommand(resolved, opts.Prompt, nil, false, true)
 	if err != nil {
 		return nil, err
 	}
 
 	// For tools with hook support, prepend hooks provisioning to the command
 	// so hooks are in place before the agent starts (it captures hooks at startup).
-	baseTool := m.models.ResolveTargetToTool(targetName)
+	baseTool := m.models.ResolveTargetToTool(opts.TargetName)
 	if adapter := detect.GetAdapter(baseTool); adapter != nil && adapter.SupportsHooks() {
 		command, err = adapter.WrapRemoteCommand(command)
 		if err != nil {
@@ -502,10 +497,22 @@ func (m *Manager) SpawnRemote(ctx context.Context, profileID, flavorStr, hostID,
 		}
 	}
 
+	// Inject persona+style prompt inline via CLI flag for remote sessions.
+	// Remote sessions can't use --append-system-prompt-file because the file
+	// doesn't exist on the remote host; use --append-system-prompt instead.
+	if opts.PersonaPrompt != "" {
+		if adapter := detect.GetAdapter(baseTool); adapter != nil {
+			if adapter.PersonaInjection() == detect.PersonaCLIFlag {
+				command = fmt.Sprintf("%s --append-system-prompt %s",
+					command, shellutil.Quote(opts.PersonaPrompt))
+			}
+		}
+	}
+
 	// Generate unique nickname if provided
-	uniqueNickname := nickname
-	if nickname != "" {
-		uniqueNickname = m.generateUniqueNickname(nickname)
+	uniqueNickname := opts.Nickname
+	if opts.Nickname != "" {
+		uniqueNickname = m.generateUniqueNickname(opts.Nickname)
 	}
 
 	// Use nickname as window name if provided, otherwise use sessionID
@@ -523,7 +530,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, profileID, flavorStr, hostID,
 		sess := state.Session{
 			ID:           sessionID,
 			WorkspaceID:  ws.ID,
-			Target:       targetName,
+			Target:       opts.TargetName,
 			Nickname:     uniqueNickname,
 			TmuxSession:  windowName,
 			CreatedAt:    time.Now(),
@@ -532,6 +539,8 @@ func (m *Manager) SpawnRemote(ctx context.Context, profileID, flavorStr, hostID,
 			RemotePaneID: "", // Will be set when queue is drained
 			RemoteWindow: "", // Will be set when queue is drained
 			Status:       "provisioning",
+			PersonaID:    opts.PersonaID,
+			StyleID:      opts.StyleID,
 		}
 
 		// Save immediately with provisioning status
@@ -626,7 +635,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, profileID, flavorStr, hostID,
 	sess := state.Session{
 		ID:           sessionID,
 		WorkspaceID:  ws.ID,
-		Target:       targetName,
+		Target:       opts.TargetName,
 		Nickname:     uniqueNickname,
 		TmuxSession:  windowName,
 		CreatedAt:    time.Now(),
@@ -635,6 +644,8 @@ func (m *Manager) SpawnRemote(ctx context.Context, profileID, flavorStr, hostID,
 		RemotePaneID: paneID,
 		RemoteWindow: windowID,
 		Status:       "running",
+		PersonaID:    opts.PersonaID,
+		StyleID:      opts.StyleID,
 	}
 
 	if err := m.state.AddSession(sess); err != nil {
@@ -669,6 +680,19 @@ func (m *Manager) SpawnRemote(ctx context.Context, profileID, flavorStr, hostID,
 	return &sess, nil
 }
 
+// RemoteSpawnOptions holds parameters for SpawnRemote.
+type RemoteSpawnOptions struct {
+	ProfileID     string
+	FlavorStr     string
+	HostID        string
+	TargetName    string
+	Prompt        string
+	Nickname      string
+	PersonaID     string
+	PersonaPrompt string // Pre-composed persona+style content
+	StyleID       string
+}
+
 // SpawnOptions holds parameters for Spawn and SpawnCommand.
 type SpawnOptions struct {
 	RepoURL          string
@@ -681,7 +705,8 @@ type SpawnOptions struct {
 	Resume           bool
 	NewBranch        string
 	PersonaID        string
-	PersonaPrompt    string   // Pre-resolved persona prompt content (set by handler)
+	PersonaPrompt    string // Pre-resolved persona prompt content (set by handler)
+	StyleID          string
 	ImageAttachments []string // base64-encoded PNGs (decoded and written during spawn)
 }
 
@@ -846,7 +871,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 
 	// Inject persona prompt if provided
 	if opts.PersonaPrompt != "" {
-		personaFilePath := filepath.Join(state.SchmuxDataDir(w.Path), fmt.Sprintf("persona-%s.md", sessionID))
+		personaFilePath := filepath.Join(state.SchmuxDataDir(w.Path), fmt.Sprintf("system-prompt-%s.md", sessionID))
 		if err := os.WriteFile(personaFilePath, []byte(opts.PersonaPrompt), 0644); err != nil {
 			m.logger.Warn("failed to write persona file", "err", err)
 		} else {
@@ -901,6 +926,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		Target:      opts.TargetName,
 		Nickname:    uniqueNickname,
 		PersonaID:   opts.PersonaID,
+		StyleID:     opts.StyleID,
 		TmuxSession: tmuxSession,
 		TmuxSocket:  m.server.SocketName(),
 		CreatedAt:   time.Now(),

@@ -45,6 +45,7 @@ export type ConfigSnapshot = {
   confirmBeforeClose: boolean;
   suggestDisposeAfterPush: boolean;
   enabledModels: Record<string, string>;
+  commStyles: Record<string, string>;
   loreEnabled: boolean;
   loreLLMTarget: string;
   loreCurateOnDispose: string;
@@ -187,6 +188,7 @@ export type ConfigFormState = {
   confirmBeforeClose: boolean;
   suggestDisposeAfterPush: boolean;
   enabledModels: Record<string, string>;
+  commStyles: Record<string, string>;
 
   // Lore
   loreEnabled: boolean;
@@ -371,6 +373,7 @@ export const initialState: ConfigFormState = {
   confirmBeforeClose: false,
   suggestDisposeAfterPush: true,
   enabledModels: {},
+  commStyles: {},
 
   loreEnabled: true,
   loreLLMTarget: '',
@@ -693,6 +696,7 @@ export function useConfigForm(initialStep: number = 1) {
         state.confirmBeforeClose !== oc.confirmBeforeClose ||
         state.suggestDisposeAfterPush !== oc.suggestDisposeAfterPush ||
         JSON.stringify(state.enabledModels) !== JSON.stringify(oc.enabledModels) ||
+        JSON.stringify(state.commStyles) !== JSON.stringify(oc.commStyles) ||
         state.loreEnabled !== oc.loreEnabled ||
         state.loreLLMTarget !== oc.loreLLMTarget ||
         state.loreCurateOnDispose !== oc.loreCurateOnDispose ||
@@ -794,6 +798,7 @@ export function useConfigForm(initialStep: number = 1) {
       confirmBeforeClose: state.confirmBeforeClose,
       suggestDisposeAfterPush: state.suggestDisposeAfterPush,
       enabledModels: state.enabledModels,
+      commStyles: state.commStyles,
       loreEnabled: state.loreEnabled,
       loreLLMTarget: state.loreLLMTarget,
       loreCurateOnDispose: state.loreCurateOnDispose,

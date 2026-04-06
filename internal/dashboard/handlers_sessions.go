@@ -47,6 +47,8 @@ type SessionResponseItem struct {
 	PersonaIcon  string `json:"persona_icon,omitempty"`
 	PersonaColor string `json:"persona_color,omitempty"`
 	PersonaName  string `json:"persona_name,omitempty"`
+	// Style ID (from session state)
+	StyleID string `json:"style_id,omitempty"`
 }
 
 // SessionModelInfo contains model metadata for a session.
@@ -394,6 +396,7 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			PersonaIcon:      personaIcon,
 			PersonaColor:     personaColor,
 			PersonaName:      personaName,
+			StyleID:          sess.StyleID,
 		})
 		wsResp.SessionCount = len(wsResp.Sessions)
 	}

@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
-import { getConfig, spawnSessions, getErrorMessage, suggestBranch, getPersonas } from '../lib/api';
+import {
+  getConfig,
+  spawnSessions,
+  getErrorMessage,
+  suggestBranch,
+  getPersonas,
+  getStyles,
+} from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import { useRequireConfig, useConfig } from '../contexts/ConfigContext';
@@ -15,7 +22,7 @@ import RemoteHostSelector, { type EnvironmentSelection } from '../components/Rem
 import { getSpawnEntries, getPromptHistory } from '../lib/emergence-api';
 import type { AutocompleteItem } from '../components/PromptAutocomplete';
 import type { Model, RepoResponse, SpawnResult, SuggestBranchResponse } from '../lib/types';
-import type { Persona, SpawnEntry, PromptHistoryEntry } from '../lib/types.generated';
+import type { Persona, SpawnEntry, PromptHistoryEntry, Style } from '../lib/types.generated';
 import { WORKSPACE_EXPANDED_KEY } from '../lib/constants';
 
 // ============================================================================
@@ -168,6 +175,8 @@ export default function SpawnPage() {
   const [configError, setConfigError] = useState('');
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [selectedPersonaId, setSelectedPersonaId] = useState('');
+  const [styles, setStyles] = useState<Style[]>([]);
+  const [selectedStyleId, setSelectedStyleId] = useState('');
   const [imageAttachments, setImageAttachments] = useState<string[]>([]);
 
   const [searchParams] = useSearchParams();
@@ -278,6 +287,13 @@ export default function SpawnPage() {
         } catch {
           // Non-fatal: personas are optional
         }
+
+        // Fetch styles
+        getStyles()
+          .then((data) => {
+            if (active) setStyles(data.styles || []);
+          })
+          .catch(() => {});
       } catch (err) {
         if (!active) return;
         setConfigError(getErrorMessage(err, 'Failed to load config'));
@@ -690,6 +706,7 @@ export default function SpawnPage() {
             remote_flavor: environment.type === 'remote' ? environment.flavor : undefined,
             remote_host_id: environment.type === 'remote' ? environment.hostId : undefined,
             persona_id: selectedPersonaId || undefined,
+            style_id: selectedStyleId || undefined,
           });
           if (handleSpawnResult(response)) {
             saveLastRepo(actualRepo);
@@ -748,6 +765,7 @@ export default function SpawnPage() {
           remote_flavor: environment.type === 'remote' ? environment.flavor : undefined,
           remote_host_id: environment.type === 'remote' ? environment.hostId : undefined,
           persona_id: selectedPersonaId || undefined,
+          style_id: selectedStyleId || undefined,
         });
         if (handleSpawnResult(response)) {
           saveLastRepo(actualRepo);
@@ -771,6 +789,7 @@ export default function SpawnPage() {
       handleSpawnResult,
       toastError,
       selectedPersonaId,
+      selectedStyleId,
     ]
   );
 
@@ -856,6 +875,7 @@ export default function SpawnPage() {
         remote_host_id: environment.type === 'remote' ? environment.hostId : undefined,
         new_branch: newBranch,
         persona_id: selectedPersonaId || undefined,
+        style_id: selectedStyleId || undefined,
         image_attachments: imageAttachments.length > 0 ? imageAttachments : undefined,
       });
       if (handleSpawnResult(response)) {
@@ -887,6 +907,7 @@ export default function SpawnPage() {
     toastError,
     handleSpawnResult,
     selectedPersonaId,
+    selectedStyleId,
     imageAttachments,
   ]);
 
@@ -1083,7 +1104,7 @@ export default function SpawnPage() {
               {modelSelectionMode === 'single' ? (
                 <>
                   {mode === 'fresh' && !isRemoteSpawn ? (
-                    /* Single agent + fresh mode: agent, persona (if available), and repo in flex row */
+                    /* Single agent + fresh mode: agent and repo in flex row */
                     <div className="grid-full">
                       <div
                         data-testid="agent-repo-row"
@@ -1126,23 +1147,6 @@ export default function SpawnPage() {
                           <option value="__multiple__">Multiple agents</option>
                           <option value="__advanced__">Advanced</option>
                         </select>
-                        {personas.length > 0 && (
-                          <select
-                            id="persona-select"
-                            className="select flex-1"
-                            data-tour="spawn-persona-select"
-                            data-testid="persona-select"
-                            value={selectedPersonaId}
-                            onChange={(e) => setSelectedPersonaId(e.target.value)}
-                          >
-                            <option value="">No persona</option>
-                            {personas.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.icon} {p.name}
-                              </option>
-                            ))}
-                          </select>
-                        )}
                         <select
                           id="repo"
                           className="select flex-1"
@@ -1166,6 +1170,50 @@ export default function SpawnPage() {
                           <option value="__new__">+ Add Repository</option>
                         </select>
                       </div>
+                      {(personas.length > 0 || styles.length > 0) && (
+                        <div
+                          className="form-row"
+                          data-testid="persona-style-row"
+                          style={{
+                            display: 'flex',
+                            gap: 'var(--spacing-md)',
+                            marginTop: 'var(--spacing-sm)',
+                          }}
+                        >
+                          {personas.length > 0 && (
+                            <select
+                              data-testid="persona-select"
+                              className="select flex-1"
+                              data-tour="spawn-persona-select"
+                              value={selectedPersonaId}
+                              onChange={(e) => setSelectedPersonaId(e.target.value)}
+                            >
+                              <option value="">No Persona</option>
+                              {personas.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.icon} {p.name}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                          {styles.length > 0 && (
+                            <select
+                              data-testid="style-select"
+                              className="select flex-1"
+                              value={selectedStyleId}
+                              onChange={(e) => setSelectedStyleId(e.target.value)}
+                            >
+                              <option value="">Global Default</option>
+                              <option value="none">None</option>
+                              {styles.map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  {s.icon} {s.name}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                      )}
                       {repo === '__new__' && (
                         <input
                           type="text"
@@ -1184,10 +1232,10 @@ export default function SpawnPage() {
                       )}
                     </div>
                   ) : (
-                    /* Single agent + workspace mode: agent and persona (if available) in flex row */
+                    /* Single agent + workspace/remote mode: agent select, then persona+style row */
                     <div className="grid-full">
                       <div
-                        data-testid="agent-persona-row"
+                        data-testid="agent-repo-row"
                         style={{
                           display: 'flex',
                           gap: 'var(--spacing-md)',
@@ -1227,23 +1275,50 @@ export default function SpawnPage() {
                           <option value="__multiple__">Multiple agents</option>
                           <option value="__advanced__">Advanced</option>
                         </select>
-                        {personas.length > 0 && (
-                          <select
-                            id="persona-select-workspace"
-                            className="select flex-1"
-                            data-testid="persona-select"
-                            value={selectedPersonaId}
-                            onChange={(e) => setSelectedPersonaId(e.target.value)}
-                          >
-                            <option value="">No persona</option>
-                            {personas.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.icon} {p.name}
-                              </option>
-                            ))}
-                          </select>
-                        )}
                       </div>
+                      {(personas.length > 0 || styles.length > 0) && (
+                        <div
+                          className="form-row"
+                          data-testid="persona-style-row"
+                          style={{
+                            display: 'flex',
+                            gap: 'var(--spacing-md)',
+                            marginTop: 'var(--spacing-sm)',
+                          }}
+                        >
+                          {personas.length > 0 && (
+                            <select
+                              data-testid="persona-select"
+                              className="select flex-1"
+                              value={selectedPersonaId}
+                              onChange={(e) => setSelectedPersonaId(e.target.value)}
+                            >
+                              <option value="">No Persona</option>
+                              {personas.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.icon} {p.name}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                          {styles.length > 0 && (
+                            <select
+                              data-testid="style-select"
+                              className="select flex-1"
+                              value={selectedStyleId}
+                              onChange={(e) => setSelectedStyleId(e.target.value)}
+                            >
+                              <option value="">Global Default</option>
+                              <option value="none">None</option>
+                              {styles.map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  {s.icon} {s.name}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </>
@@ -1443,22 +1518,49 @@ export default function SpawnPage() {
                       </div>
                     )}
 
-                    {/* Persona selector for multiple/advanced modes */}
-                    {personas.length > 0 && (
-                      <select
-                        className="select"
-                        data-testid="persona-select"
-                        value={selectedPersonaId}
-                        onChange={(e) => setSelectedPersonaId(e.target.value)}
-                        style={{ marginTop: 'var(--spacing-md)', width: '100%', maxWidth: '300px' }}
+                    {/* Persona + style selector for multiple/advanced modes */}
+                    {(personas.length > 0 || styles.length > 0) && (
+                      <div
+                        className="form-row"
+                        data-testid="persona-style-row"
+                        style={{
+                          display: 'flex',
+                          gap: 'var(--spacing-md)',
+                          marginTop: 'var(--spacing-md)',
+                        }}
                       >
-                        <option value="">No persona</option>
-                        {personas.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.icon} {p.name}
-                          </option>
-                        ))}
-                      </select>
+                        {personas.length > 0 && (
+                          <select
+                            data-testid="persona-select"
+                            className="select flex-1"
+                            value={selectedPersonaId}
+                            onChange={(e) => setSelectedPersonaId(e.target.value)}
+                          >
+                            <option value="">No Persona</option>
+                            {personas.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.icon} {p.name}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        {styles.length > 0 && (
+                          <select
+                            data-testid="style-select"
+                            className="select flex-1"
+                            value={selectedStyleId}
+                            onChange={(e) => setSelectedStyleId(e.target.value)}
+                          >
+                            <option value="">Global Default</option>
+                            <option value="none">None</option>
+                            {styles.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.icon} {s.name}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
                     )}
                   </div>
                 </>

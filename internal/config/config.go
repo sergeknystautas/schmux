@@ -94,6 +94,7 @@ type Config struct {
 	RemoteWorkspace            *RemoteWorkspaceConfig      `json:"remote_workspace,omitempty"`
 	RemoteAccess               *RemoteAccessConfig         `json:"remote_access,omitempty"`
 	Models                     *ModelsConfig               `json:"models,omitempty"`
+	CommStyles                 map[string]string           `json:"comm_styles,omitempty"`
 	Subreddit                  *SubredditConfig            `json:"subreddit,omitempty"`
 	Repofeed                   *RepofeedConfig             `json:"repofeed,omitempty"`
 	FloorManager               *FloorManagerConfig         `json:"floor_manager,omitempty"`
@@ -3254,6 +3255,20 @@ func bareRepoMatchesURL(repoPath, expectedURL string) bool {
 	}
 
 	return strings.TrimSpace(string(output)) == expectedURL
+}
+
+// GetCommStyles returns the comm styles map (base tool name -> style name).
+func (c *Config) GetCommStyles() map[string]string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.CommStyles == nil {
+		return map[string]string{}
+	}
+	result := make(map[string]string, len(c.CommStyles))
+	for k, v := range c.CommStyles {
+		result[k] = v
+	}
+	return result
 }
 
 // GetEnabledModels returns the enabled models map (modelID -> preferred tool).

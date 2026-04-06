@@ -34,6 +34,8 @@ const defaultProps = {
   models,
   runners: topRunners,
   enabledModels: {} as Record<string, string>,
+  commStyles: {} as Record<string, string>,
+  styles: [],
   commandTargets,
   newCommandName: '',
   newCommandCommand: '',

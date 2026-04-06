@@ -207,7 +207,9 @@ Response:
         "persona_id": "optional",
         "persona_icon": "optional",
         "persona_color": "optional",
-        "persona_name": "optional"
+        "persona_name": "optional",
+        "style_id": "optional",
+        "style_name": "optional"
       }
     ],
     "previews": [
@@ -393,6 +395,7 @@ Request:
   "workspace_id": "optional",
   "resume": false,
   "persona_id": "optional",
+  "style_id": "optional",
   "action_id": "optional",
   "image_attachments": ["base64-encoded-png", "..."],
   "remote_profile_id": "optional",
@@ -412,6 +415,7 @@ Contract (pre-2093ccf):
 - If multiple sessions are spawned and `nickname` is provided, nicknames are auto-suffixed globally:
   - `"<nickname> (1)"`, `"<nickname> (2)"`, ...
 - `persona_id` is optional. When set, the persona's system prompt is injected into the agent at spawn time (e.g., via `--append-system-prompt-file` for Claude). The persona ID is stored on the session and used to display persona badges in the dashboard.
+- `style_id` is optional. Communication style override. When set, composed with persona and injected into the agent. The special value `"none"` suppresses the global default style. When absent, the per-agent-type default from `comm_styles` config is used.
 - `image_attachments` is optional. Array of base64-encoded PNG strings (max 5). Images are decoded and written to the workspace's schmux data directory (`{workspace}/.schmux/attachments/` for git, `{workspace}/.sl/schmux/attachments/` for sapling). Absolute file paths are appended to the prompt so the agent can reference them. Cannot be used with `resume`, `command`, or `remote_profile_id`.
 - `action_id` is optional. When set, usage is recorded against the matching spawn entry in the emergence store. When absent and a prompt exactly matches a pinned spawn entry's prompt, usage is recorded automatically.
 - Remote workspace VCS backfill: when spawning into an existing remote workspace, the workspace's `vcs` field is updated to match the flavor's VCS type. This ensures the events file watcher uses the correct data directory (`.schmux/` for git, `.sl/schmux/` for sapling).
@@ -932,6 +936,7 @@ Response:
     }
   ],
   "enabled_models": { "claude-sonnet-4-6": "claude" },
+  "comm_styles": { "claude": "pirate", "codex": "caveman" },
   "nudgenik": { "target": "optional", "viewed_buffer_ms": 0, "seen_interval_ms": 0 },
   "compound": { "target": "", "debounce_ms": 2000, "enabled": true, "suppression_ttl_ms": 5000 },
   "sessions": {
@@ -1017,6 +1022,8 @@ Repos with `"vcs": "sapling"` use the sapling backend instead of git. The `vcs` 
 
 **`tmux_socket_name`** (string, optional, default `"schmux"`): The tmux socket name used by the daemon. All sessions are created on this socket. Changing this field flags `needs_restart`.
 
+**`comm_styles`** (object, optional): Per-agent-type default communication style IDs. Keys are base tool names (e.g., `"claude"`, `"codex"`). Example: `{"claude": "pirate", "codex": "caveman"}`. When a session is spawned without an explicit `style_id`, the default for that agent type is used. An empty map means no default styles.
+
 **TLS behavior**: The server serves HTTPS whenever `network.tls.cert_path` and `network.tls.key_path` are both set, regardless of whether `access_control.enabled` is true. This allows dashboard.sx HTTPS without requiring GitHub auth.
 
 **`dashboard_sx_status`** (object, optional): Dashboard.sx heartbeat and certificate status. Only present when `network.dashboardsx.enabled` is true and at least one heartbeat has been attempted. All fields are omitted when empty/zero:
@@ -1052,6 +1059,7 @@ Request:
   ],
   "pastebin": ["text to paste 1", "text to paste 2"],
   "enabled_models": { "claude-sonnet-4-6": "claude" },
+  "comm_styles": { "claude": "pirate", "codex": "caveman" },
   "nudgenik": { "target": "optional", "viewed_buffer_ms": 0, "seen_interval_ms": 0 },
   "compound": { "target": "", "debounce_ms": 2000, "enabled": true, "suppression_ttl_ms": 5000 },
   "sessions": {
@@ -2728,6 +2736,101 @@ Notes:
 - Built-in personas are restored from embedded defaults rather than permanently deleted
 - The `persona_id` field in `SpawnRequest` references these IDs
 - Session responses include denormalized `persona_icon`, `persona_color`, and `persona_name` fields (computed at broadcast time from the persona manager, not persisted)
+
+## Styles API
+
+Communication styles define how agents talk (voice, tone, personality) and are orthogonal to personas. Each style is a YAML file with frontmatter metadata and a body containing the style prompt. 25 built-in styles are provided on first run.
+
+### GET /api/styles
+
+Returns all styles sorted by name.
+
+Response:
+
+```json
+{
+  "styles": [
+    {
+      "id": "pirate",
+      "name": "Pirate",
+      "icon": "🏴‍☠️",
+      "tagline": "Speaks like a swashbuckling sea captain",
+      "prompt": "Adopt the communication style of a pirate...",
+      "built_in": true
+    }
+  ]
+}
+```
+
+### GET /api/styles/{id}
+
+Returns a single style by ID.
+
+Response: a `Style` object (same shape as items in the list response).
+
+Errors:
+
+- 404: style not found
+
+### POST /api/styles
+
+Creates a new custom style. Required fields: `id`, `name`, `icon`, `prompt`. Optional: `tagline`.
+
+Request:
+
+```json
+{
+  "id": "my-style",
+  "name": "My Style",
+  "icon": "🎭",
+  "prompt": "Communicate in a distinctive way...",
+  "tagline": "optional"
+}
+```
+
+Response: the created `Style` object.
+
+Errors:
+
+- 400: missing required fields, invalid slug format, reserved IDs (`"create"`, `"none"`)
+- 409: style already exists
+
+### PUT /api/styles/{id}
+
+Updates an existing style. All fields are optional; only provided fields are changed.
+
+Request:
+
+```json
+{
+  "name": "Updated Name",
+  "icon": "🎪",
+  "tagline": "Updated tagline",
+  "prompt": "Updated prompt..."
+}
+```
+
+Response: the updated `Style` object.
+
+Errors:
+
+- 404: style not found
+
+### DELETE /api/styles/{id}
+
+Deletes a custom style, or resets a built-in style to its default.
+
+Response: 204 No Content
+
+Errors:
+
+- 404: style not found
+
+Notes:
+
+- Built-in styles are restored from embedded defaults rather than permanently deleted
+- The `style_id` field in `SpawnRequest` references these IDs
+- Session responses include a denormalized `style_name` field (computed at broadcast time from the style manager, not persisted)
 
 ## Remote Access
 

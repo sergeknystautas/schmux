@@ -101,6 +101,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		Runners:                    catalog.Runners,
 		Models:                     catalog.Models,
 		EnabledModels:              s.models.GetEnabledModels(),
+		CommStyles:                 s.config.GetCommStyles(),
 		Nudgenik: contracts.Nudgenik{
 			Target:         s.config.GetNudgenikTarget(),
 			ViewedBufferMs: s.config.GetNudgenikViewedBufferMs(),
@@ -698,6 +699,10 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 
 	if req.EnabledModels != nil {
 		cfg.SetEnabledModels(*req.EnabledModels)
+	}
+
+	if req.CommStyles != nil {
+		cfg.CommStyles = *req.CommStyles
 	}
 
 	if req.RemoteAccess != nil {

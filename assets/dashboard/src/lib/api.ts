@@ -54,6 +54,10 @@ import type {
   UpdateSpawnEntryRequest,
   Features,
   EnvironmentResponse,
+  Style,
+  StyleCreateRequest,
+  StyleUpdateRequest,
+  StyleListResponse,
 } from './types.generated';
 import { csrfHeaders } from './csrf';
 import { transport } from './transport';
@@ -1203,6 +1207,44 @@ export async function deletePersona(id: string): Promise<void> {
     headers: { ...csrfHeaders() },
   });
   if (!response.ok) await parseErrorResponse(response, 'Failed to delete persona');
+}
+
+// ============================================================================
+// Comm Styles API
+// ============================================================================
+
+export async function getStyles(): Promise<StyleListResponse> {
+  const response = await apiFetch('/api/styles');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch styles');
+  return response.json();
+}
+
+export async function createStyle(req: StyleCreateRequest): Promise<Style> {
+  const response = await apiFetch('/api/styles', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify(req),
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to create style');
+  return response.json();
+}
+
+export async function updateStyle(id: string, req: StyleUpdateRequest): Promise<Style> {
+  const response = await apiFetch(`/api/styles/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify(req),
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to update style');
+  return response.json();
+}
+
+export async function deleteStyle(id: string): Promise<void> {
+  const response = await apiFetch(`/api/styles/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { ...csrfHeaders() },
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to delete style');
 }
 
 // ============================================================================

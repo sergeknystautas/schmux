@@ -29,6 +29,9 @@ import LorePage from './routes/LorePage';
 import PersonasListPage from './routes/PersonasListPage';
 import PersonaCreatePage from './routes/PersonaCreatePage';
 import PersonaEditPage from './routes/PersonaEditPage';
+import StylesListPage from './routes/StylesListPage';
+import StyleCreatePage from './routes/StyleCreatePage';
+import StyleEditPage from './routes/StyleEditPage';
 import EventsPage from './routes/EventsPage';
 import RepofeedPage from './routes/RepofeedPage';
 import TimelapsePage from './routes/TimelapsePage';
@@ -81,6 +84,9 @@ export default function App() {
                           <Route path="/personas" element={<PersonasListPage />} />
                           <Route path="/personas/create" element={<PersonaCreatePage />} />
                           <Route path="/personas/:personaId" element={<PersonaEditPage />} />
+                          <Route path="/styles" element={<StylesListPage />} />
+                          <Route path="/styles/create" element={<StyleCreatePage />} />
+                          <Route path="/styles/:styleId" element={<StyleEditPage />} />
                           <Route path="/lore" element={<LorePage />} />
                           <Route path="/events" element={<EventsPage />} />
                           <Route path="/timelapse" element={<TimelapsePage />} />

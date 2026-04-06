@@ -153,6 +153,7 @@ export interface SpawnRequest {
   remote_host_id?: string; // optional: spawn on specific remote host instance
   new_branch?: string; // create new workspace with this branch from source workspace
   persona_id?: string; // optional: behavioral persona for the agent
+  style_id?: string; // optional: communication style for the agent
   image_attachments?: string[]; // base64-encoded PNGs, max 5
 }
 

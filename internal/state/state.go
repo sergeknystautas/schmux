@@ -324,6 +324,7 @@ type Session struct {
 	Target       string    `json:"target"`
 	Nickname     string    `json:"nickname,omitempty"` // Optional human-friendly name
 	PersonaID    string    `json:"persona_id,omitempty"`
+	StyleID      string    `json:"style_id,omitempty"`
 	TmuxSession  string    `json:"tmux_session"`
 	TmuxSocket   string    `json:"tmux_socket,omitempty"` // Socket name at creation time (empty = "default" for pre-isolation sessions)
 	CreatedAt    time.Time `json:"created_at"`

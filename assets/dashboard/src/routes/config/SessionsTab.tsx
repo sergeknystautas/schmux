@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import type { ConfigFormAction } from './useConfigForm';
 import type { Model, RunnerInfo, RunTargetResponse } from '../../lib/types';
+import type { Style } from '../../lib/types.generated';
 import ModelCatalog from './ModelCatalog';
 import UserModelsEditor from './UserModelsEditor';
 
@@ -8,6 +9,8 @@ type SessionsTabProps = {
   models: Model[];
   runners: Record<string, RunnerInfo>;
   enabledModels: Record<string, string>;
+  commStyles: Record<string, string>;
+  styles: Style[];
   commandTargets: RunTargetResponse[];
   newCommandName: string;
   newCommandCommand: string;
@@ -22,6 +25,8 @@ export default function SessionsTab({
   models,
   runners,
   enabledModels,
+  commStyles,
+  styles,
   commandTargets,
   newCommandName,
   newCommandCommand,
@@ -36,6 +41,10 @@ export default function SessionsTab({
       .filter(([, info]) => info.available)
       .map(([name]) => name);
   }, [runners]);
+
+  const enabledModelIds = useMemo(() => {
+    return Object.keys(enabledModels).sort();
+  }, [enabledModels]);
 
   const handleToggleModel = (modelId: string, enabled: boolean, defaultRunner: string) => {
     dispatch({ type: 'TOGGLE_MODEL', modelId, enabled, defaultRunner });
@@ -128,6 +137,56 @@ export default function SessionsTab({
           Add
         </button>
       </div>
+
+      {/* Communication Styles defaults */}
+      {styles.length > 0 && enabledModelIds.length > 0 && (
+        <>
+          <h3>Communication Styles</h3>
+          <p className="section-hint">
+            Set a default communication style for each model. When spawning, agents will use the
+            style assigned here unless overridden.
+          </p>
+          <div className="item-list">
+            {enabledModelIds.map((modelId) => {
+              const model = models.find((m) => m.id === modelId);
+              const label = model?.display_name || modelId;
+              return (
+                <div
+                  className="item-list__item"
+                  key={modelId}
+                  data-testid={`comm-style-${modelId}`}
+                >
+                  <span className="item-list__item-name" style={{ minWidth: '120px' }}>
+                    {label}
+                  </span>
+                  <select
+                    className="select"
+                    value={commStyles[modelId] || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const next = { ...commStyles };
+                      if (val) {
+                        next[modelId] = val;
+                      } else {
+                        delete next[modelId];
+                      }
+                      dispatch({ type: 'SET_FIELD', field: 'commStyles', value: next });
+                    }}
+                    style={{ flex: 1, maxWidth: '300px' }}
+                  >
+                    <option value="">None</option>
+                    {styles.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.icon} {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
   );
 }
