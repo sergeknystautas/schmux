@@ -358,7 +358,8 @@ export async function resetConfig(saved: Record<string, unknown>): Promise<void>
  */
 export async function waitForDashboardLive(page: Page): Promise<void> {
   // Wait for the connection indicator dot to reflect a live WebSocket.
+  // 15s matches waitForHealthy and waitForSelector timeouts used elsewhere.
   await page.waitForSelector('[data-testid="connection-status"][data-connected="true"]', {
-    timeout: 10_000,
+    timeout: 15_000,
   });
 }
