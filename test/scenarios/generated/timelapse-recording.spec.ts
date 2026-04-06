@@ -70,7 +70,6 @@ test.describe('Session recording and timelapse generation', () => {
     sessionId = results[0].session_id;
     await waitForSessionRunning(sessionId);
     await waitForTerminalOutput(sessionId, 'TIMELAPSE_DONE', 20_000);
-    await sleep(3000); // give recorder time to flush
   });
 
   test('recording exists and has correct metadata', async () => {
@@ -235,7 +234,12 @@ test.describe('Delete all recordings', () => {
       targets: { 'delete-all-agent': 1 },
     });
     await waitForSessionRunning();
-    await sleep(3000); // let recorders create files
+    // Poll until at least one recording appears (replaces fixed sleep)
+    for (let i = 0; i < 30; i++) {
+      const recordings = await apiGet<TimelapseRecording[]>('/api/timelapse');
+      if (recordings.length >= 1) break;
+      await sleep(1000);
+    }
   });
 
   test('delete all button removes all recordings after confirmation', async ({ page }) => {

@@ -35,8 +35,11 @@ interface SetupOptions {
  * Mirrors internal/e2e/e2e.go CreateConfig (line 218).
  */
 export async function seedConfig(opts: SetupOptions = {}): Promise<void> {
+  // Dispose stale sessions from previous specs — they reference the old config
+  await disposeAllSessions();
+
   const config: Record<string, unknown> = {
-    workspace_path: opts.workspacePath || '/tmp/schmux-test-workspaces',
+    ...(opts.workspacePath ? { workspace_path: opts.workspacePath } : {}),
     source_code_management: opts.scm || 'git',
     repos: [
       ...(opts.repos || []).map((r) => ({
@@ -180,7 +183,7 @@ export async function waitForTerminalOutput(
   timeoutMs: number = 10_000
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const ws = new WS(`${BASE_URL.replace(/^http/, 'ws')}/ws/terminal/${sessionId}`);
+    const ws = new WS(`${getBaseURL().replace(/^http/, 'ws')}/ws/terminal/${sessionId}`);
     let buffer = '';
     const timer = setTimeout(() => {
       ws.close();

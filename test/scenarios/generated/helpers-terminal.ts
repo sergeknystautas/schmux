@@ -534,10 +534,11 @@ export async function openTerminal(page: Page, sessionId: string, tmuxName: stri
   // by 300ms, so a delayed fitTerminal() call can resize the tmux pane AFTER
   // openTerminal returns. This causes content reflow in tmux that diverges from
   // xterm.js, especially for tests involving scroll regions or cursor positioning.
-  // Poll until the tmux pane dimensions match xterm.js for 2 consecutive checks.
-  const sizeDeadline = Date.now() + 5_000;
+  // Poll until the tmux pane dimensions match xterm.js for 2 consecutive checks,
+  // then wait past the debounce window and re-verify.
+  const sizeDeadline = Date.now() + 10_000;
   let consecutiveMatches = 0;
-  while (Date.now() < sizeDeadline && consecutiveMatches < 2) {
+  while (Date.now() < sizeDeadline) {
     const dims = await page.evaluate(() => {
       const terminal = (window as any).__schmuxTerminal;
       if (!terminal) return null;
@@ -559,7 +560,32 @@ export async function openTerminal(page: Page, sessionId: string, tmuxName: stri
         consecutiveMatches = 0;
       }
     }
-    if (consecutiveMatches < 2) {
+    if (consecutiveMatches >= 2) {
+      // Post-sync guard: wait past the 300ms resize debounce window,
+      // then verify dimensions haven't changed. If they diverged,
+      // a late fitTerminal() fired — restart the sync loop.
+      await new Promise((r) => setTimeout(r, 400));
+      const postDims = await page.evaluate(() => {
+        const terminal = (window as any).__schmuxTerminal;
+        if (!terminal) return null;
+        return { rows: terminal.rows, cols: terminal.cols };
+      });
+      if (postDims) {
+        try {
+          const postTmuxDims = execSync(
+            `tmux -L ${getTmuxSocket()} display-message -p -t '${tmuxName}' '#{pane_height} #{pane_width}'`,
+            { encoding: 'utf-8' }
+          ).trim();
+          const [h, w] = postTmuxDims.split(' ').map(Number);
+          if (h === postDims.rows && w === postDims.cols) {
+            break; // Sizes stable after debounce window — safe to proceed
+          }
+        } catch {
+          // tmux query failed — retry
+        }
+      }
+      consecutiveMatches = 0; // Sizes diverged — restart sync loop
+    } else {
       await new Promise((r) => setTimeout(r, 200));
     }
   }

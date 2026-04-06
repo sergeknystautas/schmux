@@ -24,7 +24,7 @@ test.describe.serial('Dismiss conflict resolution tab after completion', () => {
     // This ensures conflict resolution will fail (no LLM configured),
     // giving us a stable "failed" state to test the dismiss behavior.
     const { execSync } = await import('child_process');
-    const repoDir = '/tmp/schmux-test-repos/test-repo-cr-dismiss';
+    const repoDir = `${process.env.SCHMUX_REPO_DIR || '/tmp/schmux-test-repos'}/test-repo-cr-dismiss`;
     execSync(`rm -rf ${repoDir} && mkdir -p ${repoDir}`);
     execSync(`git init -b main ${repoDir}`);
     execSync(`git -C ${repoDir} config user.email "test@schmux.dev"`);

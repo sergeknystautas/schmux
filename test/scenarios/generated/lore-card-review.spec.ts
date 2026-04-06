@@ -106,11 +106,10 @@ test.describe.serial('Lore card review flow', () => {
     const dismissButton = secondCard.locator('button', { hasText: 'Dismiss' });
     await dismissButton.click();
 
-    // Wait for the dismiss animation (200ms transition + buffer)
-    await page.waitForTimeout(400);
-
-    // The card should no longer display the rule text
-    await expect(page.locator('text=Use go build ./cmd/schmux for building')).toBeHidden();
+    // The card should no longer display the rule text (assertion retries handle animation delay)
+    await expect(page.locator('text=Use go build ./cmd/schmux for building')).toBeHidden({
+      timeout: 5000,
+    });
   });
 
   test('API confirms rule statuses persisted', async () => {

@@ -29,7 +29,6 @@ test.describe.serial('Command spawn triggers immediate WebSocket broadcast', () 
         {
           name: 'echo-agent',
           command: "sh -c 'echo hello; sleep 600'",
-          promptable: true,
         },
       ],
     });
@@ -38,7 +37,6 @@ test.describe.serial('Command spawn triggers immediate WebSocket broadcast', () 
     const results = await spawnSession({
       repo: repoPath,
       branch: 'main',
-      prompt: 'setup',
       targets: { 'echo-agent': 1 },
     });
     workspaceId = results[0].workspace_id;

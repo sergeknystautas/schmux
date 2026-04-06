@@ -60,7 +60,7 @@ test.describe.serial('Conflict resolution progress with terminal panel', () => {
     await waitForHealthy();
 
     // Create a repo with divergent branches that conflict on file.txt
-    repoDir = '/tmp/schmux-test-repos/test-repo-cr-terminal';
+    repoDir = `${process.env.SCHMUX_REPO_DIR || '/tmp/schmux-test-repos'}/test-repo-cr-terminal`;
     execSync(`rm -rf ${repoDir} && mkdir -p ${repoDir}`);
     execSync(`git init -b main ${repoDir}`);
     execSync(`git -C ${repoDir} config user.email "test@schmux.dev"`);
@@ -121,7 +121,6 @@ RESPONSE
 
     // Seed config with a conflict_resolve target pointing to our fake resolver
     const config: Record<string, unknown> = {
-      workspace_path: '/tmp/schmux-test-workspaces',
       source_code_management: 'git',
       repos: [
         {

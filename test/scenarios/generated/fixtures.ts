@@ -13,7 +13,7 @@
  */
 import { test as base } from '@playwright/test';
 import { createServer } from 'net';
-import { spawn, type ChildProcess } from 'child_process';
+import { execSync, spawn, type ChildProcess } from 'child_process';
 import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
@@ -148,6 +148,13 @@ export const test = base.extend<{}, { daemonURL: string }>({
           resolve();
         });
       });
+
+      // Kill tmux server to clean up any zombie sessions
+      try {
+        execSync(`tmux -L ${tmuxSocket} kill-server`, { stdio: 'ignore' });
+      } catch {
+        // Best-effort: tmux server may already be gone
+      }
 
       // Clean up temp directory
       rmSync(homeDir, { recursive: true, force: true });

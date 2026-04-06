@@ -274,6 +274,8 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
     // This mimics how Claude Code repaints status bars, input fields, and
     // output regions using dense sequences of CSI H + content.
     const escapeSequence = [
+      '\\033[2J', // Clear screen first — the printf command echo wraps across
+      // gap rows and can differ between tmux/xterm.js at UTF-8 boundaries
       '\\033[1;1H\\033[2KStatus: running',
       '\\033[3;1H\\033[2K> Input line here',
       '\\033[5;1H\\033[2KOutput line 1: hello world',
