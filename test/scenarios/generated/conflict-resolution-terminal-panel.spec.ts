@@ -12,7 +12,9 @@ import { writeFileSync } from 'fs';
 import path from 'path';
 import os from 'os';
 
-const BASE_URL = 'http://localhost:7337';
+function getBaseURL(): string {
+  return process.env.SCHMUX_BASE_URL || 'http://localhost:7337';
+}
 
 /**
  * Helper: listen to the /ws/dashboard WebSocket and collect
@@ -23,7 +25,7 @@ function waitForCRState(
   timeoutMs: number = 30_000
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
-    const ws = new WS('ws://localhost:7337/ws/dashboard');
+    const ws = new WS(`${getBaseURL().replace(/^http/, 'ws')}/ws/dashboard`);
     const timer = setTimeout(() => {
       ws.close();
       reject(new Error(`CR state condition not met after ${timeoutMs}ms`));
@@ -145,7 +147,7 @@ RESPONSE
       command: resolverScript,
     });
 
-    const res = await fetch(`${BASE_URL}/api/config`, {
+    const res = await fetch(`${getBaseURL()}/api/config`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(config),
@@ -168,7 +170,7 @@ RESPONSE
 
   test('01 trigger conflict resolution returns 202', async () => {
     const res = await fetch(
-      `${BASE_URL}/api/workspaces/${workspaceId}/linear-sync-resolve-conflict`,
+      `${getBaseURL()}/api/workspaces/${workspaceId}/linear-sync-resolve-conflict`,
       { method: 'POST', headers: { 'Content-Type': 'application/json' } }
     );
     // Accept 202 (started) or 409 (auto-triggered during spawn)
@@ -221,7 +223,7 @@ RESPONSE
       id: string;
       tabs?: Array<{ id: string; kind: string; route: string }>;
     }
-    const workspaces = await fetch(`${BASE_URL}/api/sessions`).then(
+    const workspaces = await fetch(`${getBaseURL()}/api/sessions`).then(
       (r) => r.json() as Promise<WorkspaceWithTabs[]>
     );
     const ws = workspaces.find((w) => w.id === workspaceId);
@@ -258,7 +260,7 @@ RESPONSE
       id: string;
       tabs?: Array<{ id: string; kind: string; route: string }>;
     }
-    const workspaces = await fetch(`${BASE_URL}/api/sessions`).then(
+    const workspaces = await fetch(`${getBaseURL()}/api/sessions`).then(
       (r) => r.json() as Promise<WorkspaceWithTabs[]>
     );
     const ws = workspaces.find((w) => w.id === workspaceId);
@@ -291,7 +293,7 @@ RESPONSE
 
   test('07 re-trigger endpoint responds', async () => {
     const res = await fetch(
-      `${BASE_URL}/api/workspaces/${workspaceId}/linear-sync-resolve-conflict`,
+      `${getBaseURL()}/api/workspaces/${workspaceId}/linear-sync-resolve-conflict`,
       { method: 'POST', headers: { 'Content-Type': 'application/json' } }
     );
     expect([202, 409]).toContain(res.status);

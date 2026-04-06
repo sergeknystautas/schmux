@@ -5,46 +5,9 @@ set -e
 git config --global user.email "test@schmux.dev"
 git config --global user.name "Schmux Test"
 
-# Create minimal config so the daemon can start
-mkdir -p ~/.schmux
-cat > ~/.schmux/config.json <<'CONFIG'
-{
-  "workspace_path": "/tmp/schmux-test-workspaces",
-  "source_code_management": "git",
-  "repos": [],
-  "run_targets": [],
-  "terminal": {
-    "width": 120,
-    "height": 40,
-    "seed_lines": 100
-  }
-}
-CONFIG
-mkdir -p /tmp/schmux-test-workspaces
-
 # Start Xvfb for remote clipboard paste tests (provides X11 clipboard via xclip)
 Xvfb :99 -screen 0 1x1x8 &>/dev/null &
 export DISPLAY=:99
-
-# Start the schmux daemon in the background
-cd /app
-schmux daemon-run --dev-mode &
-DAEMON_PID=$!
-
-# Wait for the daemon to become healthy
-echo "Waiting for schmux daemon to become healthy..."
-for i in $(seq 1 30); do
-    if curl -sf http://localhost:7337/api/healthz > /dev/null 2>&1; then
-        echo "Daemon is healthy (attempt $i)"
-        break
-    fi
-    if [ "$i" -eq 30 ]; then
-        echo "ERROR: Daemon failed to become healthy after 30 attempts"
-        kill $DAEMON_PID 2>/dev/null || true
-        exit 1
-    fi
-    sleep 1
-done
 
 # Set up frontend coverage collection directory if coverage is enabled
 if [ -n "${GOCOVERDIR:-}" ]; then
@@ -52,7 +15,11 @@ if [ -n "${GOCOVERDIR:-}" ]; then
     mkdir -p "$COVERAGE_DIR"
 fi
 
+# Pass through worker count (defaults to nproc)
+export TEST_WORKERS="${TEST_WORKERS:-$(nproc)}"
+
 # Run Playwright scenario tests
+# Each worker starts its own isolated daemon via the worker-scoped fixture.
 cd /app/test/scenarios/generated
 set +e
 PLAYWRIGHT_ARGS=()
@@ -90,7 +57,4 @@ if [ -d /artifacts ]; then
     fi
 fi
 
-# Clean up — wait for daemon to fully exit so coverage data flushes
-kill $DAEMON_PID 2>/dev/null || true
-wait $DAEMON_PID 2>/dev/null || true
 exit $TEST_EXIT

@@ -279,6 +279,9 @@ async function runSingleContainer(
   if (opts.recordVideo) {
     env['RECORD_VIDEO'] = '1';
   }
+  if (process.env.TEST_WORKERS) {
+    env['TEST_WORKERS'] = process.env.TEST_WORKERS;
+  }
   if (covDataDir) {
     env['GOCOVERDIR'] = '/covdata';
     volumes.push(`${covDataDir}:/covdata`);
@@ -473,6 +476,9 @@ async function runRepeatContainer(
   }
   if (opts.recordVideo) {
     env['RECORD_VIDEO'] = '1';
+  }
+  if (process.env.TEST_WORKERS) {
+    env['TEST_WORKERS'] = process.env.TEST_WORKERS;
   }
   if (dirs.covData) {
     env['GOCOVERDIR'] = '/covdata';

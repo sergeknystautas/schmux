@@ -29,6 +29,7 @@ You are generating Playwright test files from plain English scenario description
 ## Rules
 
 - Use helpers from `helpers.ts` — do NOT duplicate helper logic in tests
+- **Never hardcode `localhost:7337`** — all API/WebSocket URLs must use helpers or `process.env.SCHMUX_BASE_URL || 'http://localhost:7337'`. Tests run in parallel with per-worker daemons on ephemeral ports.
 - Use `data-testid` selectors as the primary selector strategy
 - When selecting dropdown options in Playwright, use the real option `value` (e.g. `__multiple__`), not a guessed label-derived value
 - Each scenario file produces exactly one `.spec.ts` file

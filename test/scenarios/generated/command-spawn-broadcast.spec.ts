@@ -12,6 +12,10 @@ import {
 } from './helpers';
 import WS from 'ws';
 
+function getBaseURL(): string {
+  return process.env.SCHMUX_BASE_URL || 'http://localhost:7337';
+}
+
 test.describe.serial('Command spawn triggers immediate WebSocket broadcast', () => {
   let repoPath: string;
   let workspaceId: string;
@@ -43,7 +47,7 @@ test.describe.serial('Command spawn triggers immediate WebSocket broadcast', () 
 
   test('command spawn appears in WebSocket within 3 seconds', async () => {
     // Open a WebSocket to listen for dashboard broadcasts
-    const ws = new WS('ws://localhost:7337/ws/dashboard');
+    const ws = new WS(`${getBaseURL().replace(/^http/, 'ws')}/ws/dashboard`);
     const receivedSessionIds: string[] = [];
 
     const broadcastPromise = new Promise<string>((resolve, reject) => {

@@ -9,7 +9,9 @@ import {
 } from './helpers';
 import WS from 'ws';
 
-const BASE_URL = 'http://localhost:7337';
+function getBaseURL(): string {
+  return process.env.SCHMUX_BASE_URL || 'http://localhost:7337';
+}
 
 test.describe.serial('Xterm title updates propagate to dashboard tabs', () => {
   let sessionId: string;
@@ -37,7 +39,7 @@ test.describe.serial('Xterm title updates propagate to dashboard tabs', () => {
   });
 
   test('PUT sets xterm_title and it appears in GET /api/sessions', async () => {
-    const res = await fetch(`${BASE_URL}/api/sessions-xterm-title/${sessionId}`, {
+    const res = await fetch(`${getBaseURL()}/api/sessions-xterm-title/${sessionId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: 'Working on feature X' }),
@@ -51,7 +53,7 @@ test.describe.serial('Xterm title updates propagate to dashboard tabs', () => {
   });
 
   test('same title is idempotent (200)', async () => {
-    const res = await fetch(`${BASE_URL}/api/sessions-xterm-title/${sessionId}`, {
+    const res = await fetch(`${getBaseURL()}/api/sessions-xterm-title/${sessionId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: 'Working on feature X' }),
@@ -60,7 +62,7 @@ test.describe.serial('Xterm title updates propagate to dashboard tabs', () => {
   });
 
   test('title change triggers WebSocket broadcast', async () => {
-    const ws = new WS('ws://localhost:7337/ws/dashboard');
+    const ws = new WS(`${getBaseURL().replace(/^http/, 'ws')}/ws/dashboard`);
 
     const titlePromise = new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -90,7 +92,7 @@ test.describe.serial('Xterm title updates propagate to dashboard tabs', () => {
 
     await new Promise<void>((resolve) => ws.on('open', resolve));
 
-    await fetch(`${BASE_URL}/api/sessions-xterm-title/${sessionId}`, {
+    await fetch(`${getBaseURL()}/api/sessions-xterm-title/${sessionId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: 'Broadcast test' }),
@@ -101,7 +103,7 @@ test.describe.serial('Xterm title updates propagate to dashboard tabs', () => {
   });
 
   test('empty title clears xterm_title', async () => {
-    const res = await fetch(`${BASE_URL}/api/sessions-xterm-title/${sessionId}`, {
+    const res = await fetch(`${getBaseURL()}/api/sessions-xterm-title/${sessionId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: '' }),

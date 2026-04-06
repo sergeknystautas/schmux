@@ -11,7 +11,9 @@ import {
   apiGet,
 } from './helpers';
 
-const BASE_URL = 'http://localhost:7337';
+function getBaseURL(): string {
+  return process.env.SCHMUX_BASE_URL || 'http://localhost:7337';
+}
 
 interface TimelapseRecording {
   RecordingID: string;
@@ -82,7 +84,7 @@ test.describe('Session recording and timelapse generation', () => {
 
   test('original recording is downloadable as valid asciicast', async () => {
     const rec = await pollForRecording(sessionId);
-    const res = await fetch(`${BASE_URL}/api/timelapse/${rec.RecordingID}/download`);
+    const res = await fetch(`${getBaseURL()}/api/timelapse/${rec.RecordingID}/download`);
     expect(res.status).toBe(200);
 
     const body = await res.text();
@@ -94,13 +96,13 @@ test.describe('Session recording and timelapse generation', () => {
   test('compression produces a timelapse file', async () => {
     const rec = await pollForRecording(sessionId);
 
-    const exportRes = await fetch(`${BASE_URL}/api/timelapse/${rec.RecordingID}/export`, {
+    const exportRes = await fetch(`${getBaseURL()}/api/timelapse/${rec.RecordingID}/export`, {
       method: 'POST',
     });
     expect(exportRes.status).toBe(200);
 
     const compRes = await fetch(
-      `${BASE_URL}/api/timelapse/${rec.RecordingID}/download?type=timelapse`
+      `${getBaseURL()}/api/timelapse/${rec.RecordingID}/download?type=timelapse`
     );
     expect(compRes.status).toBe(200);
 
@@ -129,7 +131,7 @@ test.describe('Session recording and timelapse generation', () => {
   test('delete removes the recording', async () => {
     const rec = await pollForRecording(sessionId);
 
-    const deleteRes = await fetch(`${BASE_URL}/api/timelapse/${rec.RecordingID}`, {
+    const deleteRes = await fetch(`${getBaseURL()}/api/timelapse/${rec.RecordingID}`, {
       method: 'DELETE',
     });
     expect(deleteRes.status).toBe(204);
@@ -162,7 +164,7 @@ test.describe('Timelapse disabled hides UI elements', () => {
     });
 
     // Disable timelapse
-    await fetch(`${BASE_URL}/api/config`, {
+    await fetch(`${getBaseURL()}/api/config`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ timelapse: { enabled: false } }),
@@ -179,7 +181,7 @@ test.describe('Timelapse disabled hides UI elements', () => {
 
   test.afterAll(async () => {
     if (savedConfig) {
-      await fetch(`${BASE_URL}/api/config`, {
+      await fetch(`${getBaseURL()}/api/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(savedConfig),

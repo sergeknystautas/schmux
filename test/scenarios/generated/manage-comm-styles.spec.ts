@@ -1,5 +1,8 @@
 import { test, expect } from './coverage-fixture';
 import { apiGet, apiPost, waitForDashboardLive, waitForHealthy } from './helpers';
+function getBaseURL(): string {
+  return process.env.SCHMUX_BASE_URL || 'http://localhost:7337';
+}
 
 interface StyleItem {
   id: string;
@@ -22,7 +25,7 @@ test.describe('Manage communication styles', () => {
 
     // Clean up any leftover custom style from prior runs
     try {
-      await fetch('http://localhost:7337/api/styles/test-custom', {
+      await fetch(`${getBaseURL()}/api/styles/test-custom`, {
         method: 'DELETE',
       });
     } catch {

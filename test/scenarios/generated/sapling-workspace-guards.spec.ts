@@ -1,5 +1,8 @@
 import { test, expect } from './coverage-fixture';
 import { seedConfig, createSaplingTestRepo, waitForHealthy, sleep } from './helpers';
+function getBaseURL(): string {
+  return process.env.SCHMUX_BASE_URL || 'http://localhost:7337';
+}
 
 test.describe.serial('Sapling workspace VCS support', () => {
   let workspaceId: string;
@@ -27,7 +30,7 @@ test.describe.serial('Sapling workspace VCS support', () => {
     });
 
     // Spawn a session — this creates the sapling workspace
-    const spawnRes = await fetch('http://localhost:7337/api/spawn', {
+    const spawnRes = await fetch(`${getBaseURL()}/api/spawn`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -57,7 +60,7 @@ test.describe.serial('Sapling workspace VCS support', () => {
     const pathDeadline = Date.now() + 30_000;
     let foundPath = '';
     while (Date.now() < pathDeadline) {
-      const sessRes = await fetch('http://localhost:7337/api/sessions');
+      const sessRes = await fetch(`${getBaseURL()}/api/sessions`);
       const workspaces = (await sessRes.json()) as Array<{ id: string; path: string }>;
       const ws = workspaces.find((w) => w.id === workspaceId);
       if (ws?.path) {
@@ -73,7 +76,7 @@ test.describe.serial('Sapling workspace VCS support', () => {
   });
 
   test('sessions API includes sapling workspace', async () => {
-    const res = await fetch('http://localhost:7337/api/sessions');
+    const res = await fetch(`${getBaseURL()}/api/sessions`);
     expect(res.ok).toBe(true);
     const workspaces = (await res.json()) as Array<{ id: string; vcs?: string }>;
     const ws = workspaces.find((w) => w.id === workspaceId);
@@ -87,7 +90,7 @@ test.describe.serial('Sapling workspace VCS support', () => {
     const path = await import('path');
     fs.writeFileSync(path.join(workspacePath, 'newfile.txt'), 'hello from scenario\n');
 
-    const res = await fetch(`http://localhost:7337/api/diff/${workspaceId}`);
+    const res = await fetch(`${getBaseURL()}/api/diff/${workspaceId}`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { files: Array<{ new_path?: string; status?: string }> };
     const found = body.files.some((f) => f.new_path === 'newfile.txt');
@@ -100,7 +103,7 @@ test.describe.serial('Sapling workspace VCS support', () => {
     const path = await import('path');
     fs.writeFileSync(path.join(workspacePath, 'staged.txt'), 'to be staged\n');
 
-    const res = await fetch(`http://localhost:7337/api/workspaces/${workspaceId}/stage`, {
+    const res = await fetch(`${getBaseURL()}/api/workspaces/${workspaceId}/stage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: ['staged.txt'] }),
@@ -116,7 +119,7 @@ test.describe.serial('Sapling workspace VCS support', () => {
     const throwawayPath = path.join(workspacePath, 'throwaway.txt');
     fs.writeFileSync(throwawayPath, 'to be discarded\n');
 
-    const res = await fetch(`http://localhost:7337/api/workspaces/${workspaceId}/discard`, {
+    const res = await fetch(`${getBaseURL()}/api/workspaces/${workspaceId}/discard`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: ['throwaway.txt'] }),
@@ -128,7 +131,7 @@ test.describe.serial('Sapling workspace VCS support', () => {
   });
 
   test('commit-graph API does not reject sapling workspaces at VCS gate', async () => {
-    const res = await fetch(`http://localhost:7337/api/workspaces/${workspaceId}/commit-graph`);
+    const res = await fetch(`${getBaseURL()}/api/workspaces/${workspaceId}/commit-graph`);
     // The VCS gate no longer rejects sapling workspaces with 400.
     // The local graph handler may return 200 (empty graph) or 500 (git commands
     // fail on a sapling repo), but it must NOT be the 400 VCS type rejection.

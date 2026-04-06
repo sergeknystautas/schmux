@@ -1,14 +1,13 @@
 import { defineConfig } from '@playwright/test';
+import { cpus } from 'os';
 
 export default defineConfig({
   testDir: '.',
   testMatch: '*.spec.ts',
   timeout: 60_000,
   retries: 1,
-  workers: 1,
-  globalSetup: './global-setup.ts',
+  workers: parseInt(process.env.TEST_WORKERS || '') || Math.max(1, Math.floor(cpus().length / 2)),
   use: {
-    baseURL: 'http://localhost:7337',
     viewport: { width: 1280, height: 1080 },
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',

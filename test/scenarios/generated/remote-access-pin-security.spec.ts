@@ -1,7 +1,9 @@
 import { test, expect } from './coverage-fixture';
 import { apiGet, apiPost, waitForHealthy } from './helpers';
 
-const BASE_URL = 'http://localhost:7337';
+function getBaseURL(): string {
+  return process.env.SCHMUX_BASE_URL || 'http://localhost:7337';
+}
 
 test.describe.serial('Remote access password security enforcement', () => {
   test.beforeAll(async () => {
@@ -13,7 +15,7 @@ test.describe.serial('Remote access password security enforcement', () => {
   });
 
   test('rejects empty password', async () => {
-    const res = await fetch(`${BASE_URL}/api/remote-access/set-password`, {
+    const res = await fetch(`${getBaseURL()}/api/remote-access/set-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password: '' }),
@@ -22,7 +24,7 @@ test.describe.serial('Remote access password security enforcement', () => {
   });
 
   test('rejects 3-char password with descriptive error', async () => {
-    const res = await fetch(`${BASE_URL}/api/remote-access/set-password`, {
+    const res = await fetch(`${getBaseURL()}/api/remote-access/set-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password: 'abc' }),
@@ -33,7 +35,7 @@ test.describe.serial('Remote access password security enforcement', () => {
   });
 
   test('rejects 5-char password', async () => {
-    const res = await fetch(`${BASE_URL}/api/remote-access/set-password`, {
+    const res = await fetch(`${getBaseURL()}/api/remote-access/set-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password: '12345' }),

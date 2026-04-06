@@ -9,7 +9,9 @@ import {
 } from './helpers';
 import WS from 'ws';
 
-const BASE_URL = 'http://localhost:7337';
+function getBaseURL(): string {
+  return process.env.SCHMUX_BASE_URL || 'http://localhost:7337';
+}
 
 test.describe.serial('Dismiss conflict resolution tab after completion', () => {
   let sessionId: string;
@@ -66,7 +68,7 @@ test.describe.serial('Dismiss conflict resolution tab after completion', () => {
     // Trigger conflict resolution via API. Accept 202 (started) or
     // 409 (already in progress from auto-trigger during spawn).
     const resolveRes = await fetch(
-      `${BASE_URL}/api/workspaces/${workspaceId}/linear-sync-resolve-conflict`,
+      `${getBaseURL()}/api/workspaces/${workspaceId}/linear-sync-resolve-conflict`,
       { method: 'POST', headers: { 'Content-Type': 'application/json' } }
     );
     if (resolveRes.status !== 202 && resolveRes.status !== 409) {
@@ -76,7 +78,7 @@ test.describe.serial('Dismiss conflict resolution tab after completion', () => {
     // Wait for the resolution to reach terminal state (done or failed)
     // by listening on the dashboard WebSocket instead of using a fixed sleep
     await new Promise<void>((resolve, reject) => {
-      const ws = new WS('ws://localhost:7337/ws/dashboard');
+      const ws = new WS(`${getBaseURL().replace(/^http/, 'ws')}/ws/dashboard`);
       const timer = setTimeout(() => {
         ws.close();
         reject(new Error('CR state not terminal after 30s'));
@@ -118,7 +120,7 @@ test.describe.serial('Dismiss conflict resolution tab after completion', () => {
       id: string;
       tabs?: Array<{ id: string; kind: string; label: string; route: string }>;
     }
-    const workspaces = await fetch(`${BASE_URL}/api/sessions`).then(
+    const workspaces = await fetch(`${getBaseURL()}/api/sessions`).then(
       (r) => r.json() as Promise<WorkspaceWithTabs[]>
     );
     const ws = workspaces.find((w) => w.id === workspaceId);

@@ -8,7 +8,9 @@ import {
   waitForHealthy,
 } from './helpers';
 
-const BASE_URL = 'http://localhost:7337';
+function getBaseURL(): string {
+  return process.env.SCHMUX_BASE_URL || 'http://localhost:7337';
+}
 
 test.describe.serial('Remote access onboarding', () => {
   test.beforeAll(async () => {
@@ -46,7 +48,7 @@ test.describe.serial('Remote access onboarding', () => {
   });
 
   test('short password is rejected', async () => {
-    const res = await fetch(`${BASE_URL}/api/remote-access/set-password`, {
+    const res = await fetch(`${getBaseURL()}/api/remote-access/set-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password: 'short' }),
@@ -67,7 +69,7 @@ test.describe.serial('Remote access onboarding', () => {
   });
 
   test('local API requests still work after setting password', async () => {
-    const res = await fetch(`${BASE_URL}/api/config`);
+    const res = await fetch(`${getBaseURL()}/api/config`);
     expect(res.status).toBe(200);
   });
 
@@ -149,7 +151,7 @@ test.describe.serial('Remote access onboarding', () => {
     // Ensure ntfy topic is cleared in config
     await apiPost('/api/config', { remote_access: { notify: { ntfy_topic: '' } } });
 
-    const res = await fetch(`${BASE_URL}/api/remote-access/test-notification`, {
+    const res = await fetch(`${getBaseURL()}/api/remote-access/test-notification`, {
       method: 'POST',
     });
     expect(res.status).toBe(400);

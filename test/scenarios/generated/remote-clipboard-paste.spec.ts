@@ -9,7 +9,9 @@ import {
 } from './helpers';
 import { execSync } from 'child_process';
 
-const BASE_URL = 'http://localhost:7337';
+function getBaseURL(): string {
+  return process.env.SCHMUX_BASE_URL || 'http://localhost:7337';
+}
 const SCHMUX_HOME = process.env.SCHMUX_HOME || `${process.env.HOME}/.schmux`;
 
 test.describe('Remote clipboard image paste', () => {
@@ -58,7 +60,7 @@ test.describe('Remote clipboard image paste', () => {
 
   test('image paste round-trip: browser to remote clipboard to agent', async () => {
     // Connect to the remote host
-    const connectResp = await fetch(`${BASE_URL}/api/remote/hosts/connect`, {
+    const connectResp = await fetch(`${getBaseURL()}/api/remote/hosts/connect`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ profile_id: 'clipboard-test', flavor: 'mock:clipboard' }),
@@ -134,7 +136,7 @@ test.describe('Remote clipboard image paste', () => {
     const imageBase64 = btoa(binary);
 
     // POST the image to the clipboard-paste endpoint
-    const pasteResp = await fetch(`${BASE_URL}/api/clipboard-paste`, {
+    const pasteResp = await fetch(`${getBaseURL()}/api/clipboard-paste`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

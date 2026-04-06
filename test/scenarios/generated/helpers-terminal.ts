@@ -3,7 +3,13 @@ import { execSync } from 'child_process';
 import { mkdirSync, writeFileSync } from 'fs';
 import { waitForDashboardLive } from './helpers';
 
-const BASE_URL = 'http://localhost:7337';
+// Read at call time (not module load) so fixture-set env vars are picked up.
+function getBaseURL(): string {
+  return process.env.SCHMUX_BASE_URL || 'http://localhost:7337';
+}
+function getTmuxSocket(): string {
+  return process.env.SCHMUX_TMUX_SOCKET || 'schmux';
+}
 let sentinelCounter = 0;
 
 /**
@@ -12,7 +18,7 @@ let sentinelCounter = 0;
  * Parses the `attach_cmd` field from GET /api/sessions.
  */
 export async function getTmuxSessionName(sessionId: string): Promise<string> {
-  const res = await fetch(`${BASE_URL}/api/sessions`);
+  const res = await fetch(`${getBaseURL()}/api/sessions`);
   if (!res.ok) {
     throw new Error(`Failed to get sessions: ${res.status}`);
   }
@@ -22,7 +28,7 @@ export async function getTmuxSessionName(sessionId: string): Promise<string> {
   for (const ws of workspaces) {
     for (const sess of ws.sessions) {
       if (sess.id === sessionId) {
-        const match = sess.attach_cmd.match(/tmux(?: -L schmux)? attach -t "=(.+)"/);
+        const match = sess.attach_cmd.match(/tmux(?: -L [\w-]+)? attach -t "=(.+)"/);
         if (!match) {
           throw new Error(`Could not parse tmux session name from attach_cmd: ${sess.attach_cmd}`);
         }
@@ -39,8 +45,8 @@ export async function getTmuxSessionName(sessionId: string): Promise<string> {
  * This bypasses the WebSocket input pipeline to isolate rendering tests.
  */
 export function sendTmuxCommand(tmuxSession: string, command: string): void {
-  execSync(`tmux -L schmux send-keys -t '${tmuxSession}' -l ${shellQuote(command)}`);
-  execSync(`tmux -L schmux send-keys -t '${tmuxSession}' Enter`);
+  execSync(`tmux -L ${getTmuxSocket()} send-keys -t '${tmuxSession}' -l ${shellQuote(command)}`);
+  execSync(`tmux -L ${getTmuxSocket()} send-keys -t '${tmuxSession}' Enter`);
 }
 
 /**
@@ -59,9 +65,9 @@ export function sendTmuxCommandWithSentinel(tmuxSession: string, command: string
  * This is the "ground truth" — what any terminal attached to the session would show.
  */
 export function capturePane(tmuxSession: string, options?: { scrollbackLines?: number }): string[] {
-  let cmd = `tmux -L schmux capture-pane -p -t '${tmuxSession}'`;
+  let cmd = `tmux -L ${getTmuxSocket()} capture-pane -p -t '${tmuxSession}'`;
   if (options?.scrollbackLines) {
-    cmd = `tmux -L schmux capture-pane -p -t '${tmuxSession}' -S -${options.scrollbackLines}`;
+    cmd = `tmux -L ${getTmuxSocket()} capture-pane -p -t '${tmuxSession}' -S -${options.scrollbackLines}`;
   }
   const output = execSync(cmd, { encoding: 'utf-8' });
   return output.split('\n');
@@ -192,7 +198,7 @@ export async function assertTerminalMatchesTmux(
   let tmuxPaneDims = { height: -1, width: -1 };
   try {
     const dimsOutput = execSync(
-      `tmux -L schmux display-message -p -t '${tmuxSession}' '#{pane_height} #{pane_width}'`,
+      `tmux -L ${getTmuxSocket()} display-message -p -t '${tmuxSession}' '#{pane_height} #{pane_width}'`,
       { encoding: 'utf-8' }
     ).trim();
     const [h, w] = dimsOutput.split(' ').map(Number);
@@ -426,7 +432,7 @@ export async function waitForSentinel(
  * while xterm.js honors it and clears scrollback.
  */
 export function clearTmuxHistory(tmuxSession: string): void {
-  execSync(`tmux -L schmux clear-history -t '${tmuxSession}'`);
+  execSync(`tmux -L ${getTmuxSocket()} clear-history -t '${tmuxSession}'`);
 }
 
 /**
@@ -540,7 +546,7 @@ export async function openTerminal(page: Page, sessionId: string, tmuxName: stri
     if (dims) {
       try {
         const tmuxDims = execSync(
-          `tmux -L schmux display-message -p -t '${tmuxName}' '#{pane_height} #{pane_width}'`,
+          `tmux -L ${getTmuxSocket()} display-message -p -t '${tmuxName}' '#{pane_height} #{pane_width}'`,
           { encoding: 'utf-8' }
         ).trim();
         const [h, w] = tmuxDims.split(' ').map(Number);
@@ -573,7 +579,7 @@ function shellQuote(s: string): string {
  */
 export function getTmuxCursorPosition(tmuxSession: string): { x: number; y: number } {
   const output = execSync(
-    `tmux -L schmux display-message -p -t '${tmuxSession}' '#{cursor_x} #{cursor_y}'`,
+    `tmux -L ${getTmuxSocket()} display-message -p -t '${tmuxSession}' '#{cursor_x} #{cursor_y}'`,
     {
       encoding: 'utf-8',
     }
@@ -634,7 +640,7 @@ export async function assertCursorMatchesTmux(page: Page, tmuxSession: string): 
   let tmuxPaneDims = { height: -1, width: -1 };
   try {
     const dimsOutput = execSync(
-      `tmux -L schmux display-message -p -t '${tmuxSession}' '#{pane_height} #{pane_width}'`,
+      `tmux -L ${getTmuxSocket()} display-message -p -t '${tmuxSession}' '#{pane_height} #{pane_width}'`,
       { encoding: 'utf-8' }
     ).trim();
     const [h, w] = dimsOutput.split(' ').map(Number);
@@ -691,7 +697,7 @@ export async function assertCursorMatchesTmux(page: Page, tmuxSession: string): 
  */
 export function getTmuxCursorVisible(tmuxSession: string): boolean {
   const output = execSync(
-    `tmux -L schmux display-message -p -t '${tmuxSession}' '#{cursor_flag}'`,
+    `tmux -L ${getTmuxSocket()} display-message -p -t '${tmuxSession}' '#{cursor_flag}'`,
     {
       encoding: 'utf-8',
     }

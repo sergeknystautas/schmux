@@ -1,7 +1,9 @@
 import { test, expect } from './coverage-fixture';
 import { apiPost, simulateTunnel, stopSimulatedTunnel, waitForHealthy } from './helpers';
 
-const BASE_URL = 'http://localhost:7337';
+function getBaseURL(): string {
+  return process.env.SCHMUX_BASE_URL || 'http://localhost:7337';
+}
 
 test.describe.serial('Remote auth browser flow', () => {
   test.beforeAll(async () => {
@@ -95,7 +97,7 @@ test.describe.serial('Remote auth browser flow', () => {
     // With no tunnel active, auth is not required — any request should work
     const freshContext = await browser.newContext();
     const freshPage = await freshContext.newPage();
-    const res = await freshPage.goto(`${BASE_URL}/api/healthz`);
+    const res = await freshPage.goto(`${getBaseURL()}/api/healthz`);
     expect(res?.status()).toBe(200);
     await freshContext.close();
   });

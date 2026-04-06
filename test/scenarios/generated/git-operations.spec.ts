@@ -9,7 +9,9 @@ import {
   sleep,
 } from './helpers';
 
-const BASE_URL = 'http://localhost:7337';
+function getBaseURL(): string {
+  return process.env.SCHMUX_BASE_URL || 'http://localhost:7337';
+}
 
 test.describe.serial('Git stage and discard operations', () => {
   let repoPath: string;
@@ -196,7 +198,7 @@ test.describe.serial('Git operations — path validation', () => {
   });
 
   test('rejects absolute path in stage', async () => {
-    const res = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/stage`, {
+    const res = await fetch(`${getBaseURL()}/api/workspaces/${workspaceId}/stage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: ['/etc/passwd'] }),
@@ -207,7 +209,7 @@ test.describe.serial('Git operations — path validation', () => {
   });
 
   test('rejects path traversal in stage', async () => {
-    const res = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/stage`, {
+    const res = await fetch(`${getBaseURL()}/api/workspaces/${workspaceId}/stage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: ['../../../etc/shadow'] }),
@@ -218,7 +220,7 @@ test.describe.serial('Git operations — path validation', () => {
   });
 
   test('rejects path traversal in discard', async () => {
-    const res = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/discard`, {
+    const res = await fetch(`${getBaseURL()}/api/workspaces/${workspaceId}/discard`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: ['../../secret'] }),
@@ -229,7 +231,7 @@ test.describe.serial('Git operations — path validation', () => {
   });
 
   test('rejects invalid JSON in stage', async () => {
-    const res = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/stage`, {
+    const res = await fetch(`${getBaseURL()}/api/workspaces/${workspaceId}/stage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: 'not json at all',
@@ -239,7 +241,7 @@ test.describe.serial('Git operations — path validation', () => {
 
   test('uncommit rejects when no commits ahead', async () => {
     // Ahead is 0 for a freshly created workspace — handler checks this first
-    const res = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/uncommit`, {
+    const res = await fetch(`${getBaseURL()}/api/workspaces/${workspaceId}/uncommit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ hash: 'abc123' }),
@@ -251,7 +253,7 @@ test.describe.serial('Git operations — path validation', () => {
 
   test('amend rejects when no commits ahead', async () => {
     // Ahead is 0 for a freshly created workspace — handler checks this first
-    const res = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/amend`, {
+    const res = await fetch(`${getBaseURL()}/api/workspaces/${workspaceId}/amend`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: ['README.md'] }),
@@ -268,7 +270,7 @@ test.describe.serial('Git operations — nonexistent workspace', () => {
   });
 
   test('stage returns 404 for unknown workspace', async () => {
-    const res = await fetch(`${BASE_URL}/api/workspaces/nonexistent-ws-id/stage`, {
+    const res = await fetch(`${getBaseURL()}/api/workspaces/nonexistent-ws-id/stage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: ['README.md'] }),
@@ -277,7 +279,7 @@ test.describe.serial('Git operations — nonexistent workspace', () => {
   });
 
   test('discard returns 404 for unknown workspace', async () => {
-    const res = await fetch(`${BASE_URL}/api/workspaces/nonexistent-ws-id/discard`, {
+    const res = await fetch(`${getBaseURL()}/api/workspaces/nonexistent-ws-id/discard`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: ['README.md'] }),
@@ -286,7 +288,7 @@ test.describe.serial('Git operations — nonexistent workspace', () => {
   });
 
   test('uncommit returns 404 for unknown workspace', async () => {
-    const res = await fetch(`${BASE_URL}/api/workspaces/nonexistent-ws-id/uncommit`, {
+    const res = await fetch(`${getBaseURL()}/api/workspaces/nonexistent-ws-id/uncommit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ hash: 'abc123' }),
@@ -295,7 +297,7 @@ test.describe.serial('Git operations — nonexistent workspace', () => {
   });
 
   test('amend returns 404 for unknown workspace', async () => {
-    const res = await fetch(`${BASE_URL}/api/workspaces/nonexistent-ws-id/amend`, {
+    const res = await fetch(`${getBaseURL()}/api/workspaces/nonexistent-ws-id/amend`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: ['README.md'] }),

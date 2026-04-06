@@ -1,9 +1,11 @@
 import { type Page, expect } from '@playwright/test';
 import WS from 'ws';
 
-const BASE_URL = 'http://localhost:7337';
+// Read at call time (not module load) so fixture-set env vars are picked up.
+function getBaseURL(): string {
+  return process.env.SCHMUX_BASE_URL || 'http://localhost:7337';
+}
 const SCHMUX_BIN = process.env.SCHMUX_BIN || 'schmux';
-const SCHMUX_HOME = process.env.SCHMUX_HOME || `${process.env.HOME}/.schmux`;
 
 // --- Config helpers ---
 
@@ -56,7 +58,7 @@ export async function seedConfig(opts: SetupOptions = {}): Promise<void> {
     })),
   };
 
-  const res = await fetch(`${BASE_URL}/api/config`, {
+  const res = await fetch(`${getBaseURL()}/api/config`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config),
@@ -70,7 +72,7 @@ export async function seedConfig(opts: SetupOptions = {}): Promise<void> {
 // --- API client helpers ---
 
 export async function apiGet<T = unknown>(path: string): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`);
+  const res = await fetch(`${getBaseURL()}${path}`);
   if (!res.ok) {
     throw new Error(`GET ${path} failed: ${res.status} ${await res.text()}`);
   }
@@ -78,7 +80,7 @@ export async function apiGet<T = unknown>(path: string): Promise<T> {
 }
 
 export async function apiPost<T = unknown>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await fetch(`${getBaseURL()}${path}`, {
     method: 'POST',
     headers: body ? { 'Content-Type': 'application/json' } : {},
     body: body ? JSON.stringify(body) : undefined,
@@ -95,7 +97,7 @@ export async function waitForHealthy(timeoutMs: number = 15_000): Promise<void> 
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(`${BASE_URL}/api/healthz`);
+      const res = await fetch(`${getBaseURL()}/api/healthz`);
       if (res.ok) return;
     } catch {
       // not ready yet
@@ -178,7 +180,7 @@ export async function waitForTerminalOutput(
   timeoutMs: number = 10_000
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const ws = new WS(`ws://localhost:7337/ws/terminal/${sessionId}`);
+    const ws = new WS(`${BASE_URL.replace(/^http/, 'ws')}/ws/terminal/${sessionId}`);
     let buffer = '';
     const timer = setTimeout(() => {
       ws.close();
@@ -229,7 +231,7 @@ export async function createTestRepo(name: string): Promise<string> {
     throw new Error(`Invalid repo name: ${name}`);
   }
   const { execSync } = await import('child_process');
-  const repoDir = `/tmp/schmux-test-repos/${name}`;
+  const repoDir = `${process.env.SCHMUX_REPO_DIR || '/tmp/schmux-test-repos'}/${name}`;
   execSync(`rm -rf ${repoDir} && mkdir -p ${repoDir}`);
   execSync(`git init -b main ${repoDir}`);
   execSync(`git -C ${repoDir} config user.email "test@schmux.dev"`);
@@ -258,7 +260,7 @@ export async function createSaplingTestRepo(name: string): Promise<string> {
     throw new Error('Sapling (sl) is not installed — cannot create sapling test repo');
   }
 
-  const repoDir = `/tmp/schmux-test-repos/${name}`;
+  const repoDir = `${process.env.SCHMUX_REPO_DIR || '/tmp/schmux-test-repos'}/${name}`;
   execSync(`rm -rf ${repoDir} && mkdir -p ${repoDir}`);
   execSync(`sl init ${repoDir}`);
   execSync(`sl --cwd ${repoDir} config --local ui.username "Schmux Test <test@schmux.dev>"`);

@@ -5,7 +5,7 @@
  * (window.__coverage__) after each test when COVERAGE_DIR is set.
  * The collected per-test JSON files are merged by nyc in the entrypoint.
  */
-import { test as base, expect } from '@playwright/test';
+import { test as base, expect } from './fixtures';
 import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 
@@ -15,7 +15,7 @@ export { expect };
 let coverageIndex = 0;
 
 export const test = base.extend({
-  page: async ({ page }, use) => {
+  page: async ({ page }, use, workerInfo) => {
     await use(page);
 
     const coverageDir = process.env.COVERAGE_DIR;
@@ -28,7 +28,7 @@ export const test = base.extend({
       if (coverage) {
         mkdirSync(coverageDir, { recursive: true });
         writeFileSync(
-          join(coverageDir, `coverage-${coverageIndex++}.json`),
+          join(coverageDir, `coverage-w${workerInfo.workerIndex}-${coverageIndex++}.json`),
           JSON.stringify(coverage)
         );
       }
