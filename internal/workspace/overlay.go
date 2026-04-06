@@ -251,6 +251,38 @@ func (m *Manager) RefreshOverlay(ctx context.Context, workspaceID string) error 
 	return nil
 }
 
+// cleanStaleOverlayFiles removes overlay files from a workspace that existed in the
+// previous lifecycle but are absent from the fresh overlay manifest. During workspace
+// recycling, git clean -fd does not remove gitignored files, so overlay files from
+// the previous lifecycle can persist on disk. This function removes those stale files
+// to prevent them from influencing a new agent or being propagated through the compound
+// system via declared paths.
+func cleanStaleOverlayFiles(oldManifest, freshManifest map[string]string, workspacePath string, declaredPaths []string, logger *log.Logger) {
+	// Collect all paths that might have stale files: old manifest entries
+	// plus declared paths (config-driven, may have been created by the previous agent).
+	candidates := make(map[string]bool)
+	for relPath := range oldManifest {
+		candidates[relPath] = true
+	}
+	for _, relPath := range declaredPaths {
+		candidates[relPath] = true
+	}
+
+	for relPath := range candidates {
+		if _, current := freshManifest[relPath]; current {
+			continue // File was freshly copied from overlay dir
+		}
+		absPath := filepath.Join(workspacePath, relPath)
+		if err := os.Remove(absPath); err != nil {
+			if !os.IsNotExist(err) {
+				logger.Warn("failed to remove stale overlay file", "path", relPath, "err", err)
+			}
+			continue
+		}
+		logger.Info("removed stale overlay file", "path", relPath)
+	}
+}
+
 // EnsureOverlayDirs ensures overlay directories exist for all configured repos.
 func (m *Manager) EnsureOverlayDirs(repos []config.Repo) error {
 	for _, repo := range repos {

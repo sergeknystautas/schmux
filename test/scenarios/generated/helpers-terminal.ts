@@ -197,7 +197,9 @@ export async function assertTerminalMatchesTmux(
     ).trim();
     const [h, w] = dimsOutput.split(' ').map(Number);
     tmuxPaneDims = { height: h, width: w };
-  } catch { /* best-effort */ }
+  } catch {
+    /* best-effort */
+  }
 
   const streamState = await page
     .evaluate(() => {
@@ -637,13 +639,17 @@ export async function assertCursorMatchesTmux(page: Page, tmuxSession: string): 
     ).trim();
     const [h, w] = dimsOutput.split(' ').map(Number);
     tmuxPaneDims = { height: h, width: w };
-  } catch { /* best-effort */ }
+  } catch {
+    /* best-effort */
+  }
 
-  const xtermDims = await page.evaluate(() => {
-    const terminal = (window as any).__schmuxTerminal;
-    if (!terminal) return { rows: -1, cols: -1, baseY: -1 };
-    return { rows: terminal.rows, cols: terminal.cols, baseY: terminal.buffer.active.baseY };
-  }).catch(() => ({ rows: -1, cols: -1, baseY: -1 }));
+  const xtermDims = await page
+    .evaluate(() => {
+      const terminal = (window as any).__schmuxTerminal;
+      if (!terminal) return { rows: -1, cols: -1, baseY: -1 };
+      return { rows: terminal.rows, cols: terminal.cols, baseY: terminal.buffer.active.baseY };
+    })
+    .catch(() => ({ rows: -1, cols: -1, baseY: -1 }));
 
   const diagDir = '/tmp/terminal-diagnostics';
   try {

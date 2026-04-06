@@ -302,6 +302,146 @@ func TestCopyOverlayReturnsManifest(t *testing.T) {
 	}
 }
 
+func TestCleanStaleOverlayFiles(t *testing.T) {
+	t.Parallel()
+
+	t.Run("removes files in old manifest but not in fresh", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		staleFile := filepath.Join(dir, ".env")
+		if err := os.WriteFile(staleFile, []byte("old"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		oldManifest := map[string]string{".env": "oldhash"}
+		freshManifest := map[string]string{}
+
+		cleanStaleOverlayFiles(oldManifest, freshManifest, dir, nil, log.Default())
+
+		if _, err := os.Stat(staleFile); !os.IsNotExist(err) {
+			t.Error("stale file should have been removed")
+		}
+	})
+
+	t.Run("preserves files present in fresh manifest", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		currentFile := filepath.Join(dir, ".env")
+		if err := os.WriteFile(currentFile, []byte("current"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		oldManifest := map[string]string{".env": "oldhash"}
+		freshManifest := map[string]string{".env": "newhash"}
+
+		cleanStaleOverlayFiles(oldManifest, freshManifest, dir, nil, log.Default())
+
+		if _, err := os.Stat(currentFile); err != nil {
+			t.Error("current file should have been preserved")
+		}
+	})
+
+	t.Run("handles files already gone from disk", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+
+		oldManifest := map[string]string{".env": "hash"}
+		freshManifest := map[string]string{}
+
+		// File doesn't exist on disk — should not panic or error
+		cleanStaleOverlayFiles(oldManifest, freshManifest, dir, nil, log.Default())
+	})
+
+	t.Run("removes declared path files not in fresh manifest", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		staleDir := filepath.Join(dir, ".claude")
+		if err := os.MkdirAll(staleDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		staleFile := filepath.Join(staleDir, "settings.local.json")
+		if err := os.WriteFile(staleFile, []byte("stale"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Not in old manifest (agent-created), not in overlay dir either
+		oldManifest := map[string]string{}
+		freshManifest := map[string]string{}
+		declaredPaths := []string{".claude/settings.local.json"}
+
+		cleanStaleOverlayFiles(oldManifest, freshManifest, dir, declaredPaths, log.Default())
+
+		if _, err := os.Stat(staleFile); !os.IsNotExist(err) {
+			t.Error("stale declared path file should have been removed")
+		}
+	})
+
+	t.Run("preserves declared path files present in fresh manifest", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		staleDir := filepath.Join(dir, ".claude")
+		if err := os.MkdirAll(staleDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		file := filepath.Join(staleDir, "settings.local.json")
+		if err := os.WriteFile(file, []byte("current"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		oldManifest := map[string]string{}
+		freshManifest := map[string]string{".claude/settings.local.json": "hash"}
+		declaredPaths := []string{".claude/settings.local.json"}
+
+		cleanStaleOverlayFiles(oldManifest, freshManifest, dir, declaredPaths, log.Default())
+
+		if _, err := os.Stat(file); err != nil {
+			t.Error("declared path file in fresh manifest should have been preserved")
+		}
+	})
+
+	t.Run("nil old manifest is safe", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		cleanStaleOverlayFiles(nil, map[string]string{}, dir, nil, log.Default())
+	})
+
+	t.Run("removes multiple stale files across subdirectories", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+
+		// Create stale files in nested dirs
+		for _, rel := range []string{"config/local.json", "secrets/.env", ".tool-versions"} {
+			abs := filepath.Join(dir, rel)
+			if err := os.MkdirAll(filepath.Dir(abs), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(abs, []byte("stale"), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		oldManifest := map[string]string{
+			"config/local.json": "h1",
+			"secrets/.env":      "h2",
+			".tool-versions":    "h3",
+		}
+		// Only .tool-versions remains in overlay dir
+		freshManifest := map[string]string{".tool-versions": "h4"}
+
+		cleanStaleOverlayFiles(oldManifest, freshManifest, dir, nil, log.Default())
+
+		if _, err := os.Stat(filepath.Join(dir, "config/local.json")); !os.IsNotExist(err) {
+			t.Error("config/local.json should have been removed")
+		}
+		if _, err := os.Stat(filepath.Join(dir, "secrets/.env")); !os.IsNotExist(err) {
+			t.Error("secrets/.env should have been removed")
+		}
+		if _, err := os.Stat(filepath.Join(dir, ".tool-versions")); err != nil {
+			t.Error(".tool-versions should have been preserved")
+		}
+	})
+}
+
 func TestIsIgnoredByGit_NonGitDir(t *testing.T) {
 	t.Parallel()
 	// Create a temp directory with no .git

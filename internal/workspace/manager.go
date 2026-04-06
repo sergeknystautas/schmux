@@ -413,12 +413,22 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 				m.logger.Warn("failed to prepare recyclable workspace, skipping", "id", w.ID, "err", err)
 				continue
 			}
-			// Re-copy overlay files
+			// Re-copy overlay files and clean up stale ones from previous lifecycle.
+			// Overlay files are gitignored, so git clean -fd does not remove them.
+			// Without this cleanup, stale files could influence the new agent or
+			// propagate outdated content through the compound system.
 			if repoConfig, found := m.findRepoByURL(repoURL); found {
-				if manifest, err := m.copyOverlayFiles(ctx, repoConfig.Name, w.Path); err != nil {
+				oldManifest := w.OverlayManifest
+				freshManifest, err := m.copyOverlayFiles(ctx, repoConfig.Name, w.Path)
+				if err != nil {
 					m.logger.Warn("failed to re-copy overlay files", "err", err)
-				} else if manifest != nil {
-					m.state.UpdateOverlayManifest(w.ID, manifest)
+				} else {
+					if freshManifest == nil {
+						freshManifest = make(map[string]string)
+					}
+					declaredPaths := m.config.GetOverlayPaths(repoConfig.Name)
+					cleanStaleOverlayFiles(oldManifest, freshManifest, w.Path, declaredPaths, m.logger)
+					m.state.UpdateOverlayManifest(w.ID, freshManifest)
 				}
 			}
 			// Promote to running
