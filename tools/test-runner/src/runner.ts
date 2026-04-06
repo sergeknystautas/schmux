@@ -1,6 +1,5 @@
 import type { Options, SuiteResult, SuiteName, FlakyResult, EventCallback } from './types.js';
 import { createProgressDisplay } from './ui.js';
-import { buildLocalArtifacts, buildDashboard } from './suites/shared.js';
 import { run as runBackend } from './suites/backend.js';
 import { run as runFrontend } from './suites/frontend.js';
 import { run as runE2E } from './suites/e2e.js';
@@ -81,11 +80,7 @@ export interface RunResult {
 export async function runSuites(opts: Options): Promise<RunResult> {
   let results: SuiteResult[];
 
-  if (opts.suites.length > 1) {
-    results = await runParallel(opts);
-  } else {
-    results = await runSerial(opts);
-  }
+  results = await runSerial(opts);
 
   // Compute flaky results when repeat > 1 — each suite handles its own
   // repetition natively (go test -count=N, playwright --repeat-each, etc.),
@@ -111,77 +106,6 @@ async function runSerial(opts: Options): Promise<SuiteResult[]> {
     display.finish(result);
     display.stop();
     results.push(result);
-  }
-
-  return results;
-}
-
-// ─── Parallel Mode ─────────────────────────────────────────────────────────
-
-async function runParallel(opts: Options): Promise<SuiteResult[]> {
-  const display = createProgressDisplay(opts.suites, true);
-
-  // Build prerequisites in parallel first
-  const needsDocker = opts.suites.some((s) => s === 'e2e' || s === 'scenarios');
-  const needsDashboard = opts.suites.includes('scenarios');
-
-  const buildEvent: EventCallback = (suite, event) => {
-    display.onEvent(suite, event);
-  };
-
-  const buildPromises: Promise<{ ok: boolean }>[] = [];
-
-  if (needsDocker) {
-    buildPromises.push(buildLocalArtifacts(buildEvent, opts.coverage));
-  }
-  if (needsDashboard) {
-    buildPromises.push(buildDashboard(buildEvent, opts.coverage));
-  }
-
-  if (buildPromises.length > 0) {
-    const buildResults = await Promise.all(buildPromises);
-    if (buildResults.some((r) => !r.ok)) {
-      display.stop();
-      // Still return partial results — the suites that needed builds will fail
-    }
-  }
-
-  // Run all suites concurrently
-  const promises = opts.suites.map(async (suite) => {
-    const runner = runners[suite];
-    const result = await runWithCache(suite, opts, runner, (s, event) => {
-      display.onEvent(s, event);
-    });
-    display.finish(result);
-    return result;
-  });
-
-  const settled = await Promise.allSettled(promises);
-  display.stop();
-
-  const results: SuiteResult[] = [];
-  for (let i = 0; i < settled.length; i++) {
-    const s = settled[i];
-    if (s.status === 'fulfilled') {
-      results.push(s.value);
-    } else {
-      results.push({
-        suite: opts.suites[i],
-        status: 'failed',
-        durationMs: 0,
-        passedTests: [],
-        failedTests: [
-          {
-            name: 'runner_error',
-            output: String(s.reason),
-            rerunCommand: `./test.sh --${opts.suites[i]}`,
-          },
-        ],
-        skippedTests: [],
-        testDurations: {},
-        output: String(s.reason),
-      });
-    }
   }
 
   return results;

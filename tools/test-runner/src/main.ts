@@ -61,7 +61,7 @@ function parseArgs(argv: string[]): Options {
         break;
       case '--all':
         opts.all = true;
-        opts.suites = ['backend', 'frontend', 'e2e', 'scenarios'];
+        opts.suites = ['frontend', 'backend', 'e2e', 'scenarios'];
         explicitSuite = true;
         break;
       case '--race':
@@ -122,12 +122,12 @@ function parseArgs(argv: string[]): Options {
   // Default: all suites (unless --quick or --run narrows it)
   if (!explicitSuite) {
     if (opts.quick) {
-      opts.suites = ['backend', 'frontend'];
+      opts.suites = ['frontend', 'backend'];
     } else if (opts.runPattern) {
       opts.suites = ['backend'];
     } else {
       opts.all = true;
-      opts.suites = ['backend', 'frontend', 'e2e', 'scenarios'];
+      opts.suites = ['frontend', 'backend', 'e2e', 'scenarios'];
     }
   }
 
@@ -146,7 +146,7 @@ function printHelp(): void {
     '  --bench         Run integration benchmarks only (PTY + WS, requires tmux + daemon)'
   );
   console.log('  --microbench    Run micro-benchmarks only (no tmux/daemon needed)');
-  console.log('  --all           Run all test suites in parallel (same as default, explicit)');
+  console.log('  --all           Run all test suites sequentially (same as default, explicit)');
   console.log('  --race          Run with race detector');
   console.log('  --verbose       Run with verbose output');
   console.log('  --coverage      Run with coverage report');
@@ -165,12 +165,14 @@ function printHelp(): void {
   console.log('');
   console.log('Examples:');
   console.log(
-    '  ./test.sh                                    # Run all tests (backend, frontend, e2e, scenarios)'
+    '  ./test.sh                                    # Run all tests (frontend, backend, e2e, scenarios)'
   );
   console.log(
     '  ./test.sh --quick                            # Run fast tests only (backend + frontend)'
   );
-  console.log('  ./test.sh --all                              # Same as default — run all tests');
+  console.log(
+    '  ./test.sh --all                              # Same as default — run all tests sequentially'
+  );
   console.log(
     '  ./test.sh --race --verbose                   # All tests with race detector and verbose'
   );
