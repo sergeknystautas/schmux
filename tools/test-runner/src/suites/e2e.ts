@@ -249,6 +249,9 @@ async function runSingleContainer(
   if (opts.serial && opts.repeat > 1) {
     env['TEST_COUNT'] = String(opts.repeat);
   }
+  if (process.env.TEST_PARALLEL) {
+    env['TEST_PARALLEL'] = process.env.TEST_PARALLEL;
+  }
   if (covDataDir) {
     env['GOCOVERDIR'] = '/covdata';
     volumes.push(`${covDataDir}:/covdata`);
