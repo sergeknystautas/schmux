@@ -33,9 +33,22 @@ import type {
 } from '../lib/types';
 import styles from '../styles/lore.module.css';
 
+type DuplicateRef = { proposalId: string; ruleId: string; repoName: string };
+
 type CardItem =
-  | { kind: 'instruction'; rule: LoreRule; repoName: string; proposalId: string; createdAt: string }
+  | {
+      kind: 'instruction';
+      rule: LoreRule;
+      repoName: string;
+      proposalId: string;
+      createdAt: string;
+      duplicates: DuplicateRef[];
+    }
   | { kind: 'action'; action: SpawnEntry; repoName: string; createdAt: string };
+
+function normalizeRuleText(text: string): string {
+  return text.trim().toLowerCase().replace(/\s+/g, ' ');
+}
 
 const LAYER_LABELS: Record<string, string> = {
   repo_public: 'Public',
@@ -101,17 +114,27 @@ export default function LorePage() {
           if (proposal.status !== 'pending') continue;
           for (const rule of proposal.rules || []) {
             if (rule.status !== 'pending') continue;
-            const normalizedText = rule.text.trim().toLowerCase();
+            const normalizedText = normalizeRuleText(rule.text);
             const existingIdx = allCards.findIndex(
-              (c) => c.kind === 'instruction' && c.rule.text.trim().toLowerCase() === normalizedText
+              (c) => c.kind === 'instruction' && normalizeRuleText(c.rule.text) === normalizedText
             );
-            if (existingIdx !== -1) continue;
+            if (existingIdx !== -1) {
+              // Track duplicate on the primary card instead of showing it
+              const existing = allCards[existingIdx] as CardItem & { kind: 'instruction' };
+              existing.duplicates.push({
+                proposalId: proposal.id,
+                ruleId: rule.id,
+                repoName: repo.name,
+              });
+              continue;
+            }
             allCards.push({
               kind: 'instruction',
               rule,
               repoName: repo.name,
               proposalId: proposal.id,
               createdAt: proposal.created_at,
+              duplicates: [],
             });
           }
         }
@@ -182,9 +205,19 @@ export default function LorePage() {
         const updated = await updateLoreRule(card.repoName, card.proposalId, card.rule.id, {
           status: 'approved',
         });
+        // Also approve any tracked duplicates in other proposals
+        for (const dup of card.duplicates) {
+          await updateLoreRule(dup.repoName, dup.proposalId, dup.ruleId, {
+            status: 'approved',
+          }).catch(() => {});
+        }
         setCards((prev) =>
           prev.map((c) => {
-            if (c.kind === 'instruction' && c.rule.id === card.rule.id) {
+            if (
+              c.kind === 'instruction' &&
+              c.proposalId === card.proposalId &&
+              c.rule.id === card.rule.id
+            ) {
               const updatedRule = updated.rules.find((r: LoreRule) => r.id === card.rule.id);
               return updatedRule ? { ...c, rule: updatedRule } : c;
             }
@@ -215,9 +248,19 @@ export default function LorePage() {
       const updated = await updateLoreRule(card.repoName, card.proposalId, card.rule.id, {
         status: 'pending',
       });
+      // Also unapprove duplicates
+      for (const dup of card.duplicates) {
+        await updateLoreRule(dup.repoName, dup.proposalId, dup.ruleId, { status: 'pending' }).catch(
+          () => {}
+        );
+      }
       setCards((prev) =>
         prev.map((c) => {
-          if (c.kind === 'instruction' && c.rule.id === card.rule.id) {
+          if (
+            c.kind === 'instruction' &&
+            c.proposalId === card.proposalId &&
+            c.rule.id === card.rule.id
+          ) {
             const updatedRule = updated.rules.find((r: LoreRule) => r.id === card.rule.id);
             return updatedRule ? { ...c, rule: updatedRule } : c;
           }
@@ -234,8 +277,21 @@ export default function LorePage() {
     if (card.kind === 'instruction') {
       try {
         await updateLoreRule(card.repoName, card.proposalId, card.rule.id, { status: 'dismissed' });
+        // Also dismiss duplicates
+        for (const dup of card.duplicates) {
+          await updateLoreRule(dup.repoName, dup.proposalId, dup.ruleId, {
+            status: 'dismissed',
+          }).catch(() => {});
+        }
         setCards((prev) =>
-          prev.filter((c) => !(c.kind === 'instruction' && c.rule.id === card.rule.id))
+          prev.filter(
+            (c) =>
+              !(
+                c.kind === 'instruction' &&
+                c.proposalId === card.proposalId &&
+                c.rule.id === card.rule.id
+              )
+          )
         );
         invalidateProposals();
       } catch (err) {
@@ -263,7 +319,11 @@ export default function LorePage() {
       });
       setCards((prev) =>
         prev.map((c) => {
-          if (c.kind === 'instruction' && c.rule.id === card.rule.id) {
+          if (
+            c.kind === 'instruction' &&
+            c.proposalId === card.proposalId &&
+            c.rule.id === card.rule.id
+          ) {
             const updatedRule = updated.rules.find((r: LoreRule) => r.id === card.rule.id);
             return updatedRule ? { ...c, rule: updatedRule } : c;
           }
@@ -283,7 +343,11 @@ export default function LorePage() {
       });
       setCards((prev) =>
         prev.map((c) => {
-          if (c.kind === 'instruction' && c.rule.id === card.rule.id) {
+          if (
+            c.kind === 'instruction' &&
+            c.proposalId === card.proposalId &&
+            c.rule.id === card.rule.id
+          ) {
             const updatedRule = updated.rules.find((r: LoreRule) => r.id === card.rule.id);
             return updatedRule ? { ...c, rule: updatedRule } : c;
           }
@@ -680,7 +744,9 @@ export default function LorePage() {
             <div className={styles.proposalList}>
               {cards.map((card) => {
                 const key =
-                  card.kind === 'instruction' ? `rule-${card.rule.id}` : `action-${card.action.id}`;
+                  card.kind === 'instruction'
+                    ? `rule-${card.proposalId}-${card.rule.id}`
+                    : `action-${card.action.id}`;
                 return card.kind === 'instruction' ? (
                   <LoreCard
                     key={key}
