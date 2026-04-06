@@ -494,8 +494,27 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 					continue
 				}
 				m.logger.Info("reusing for different branch", "id", w.ID, "old", w.Branch, "new", branch)
-				// Prepare the workspace (fetch/pull/clean) BEFORE updating state
+				// Before switching branches, resolve any worktree conflicts:
+				// 1. Prune stale worktree entries (directories deleted externally)
+				// 2. Purge recyclable workspaces holding the target branch
+				if IsGitVCS(w.VCS) {
+					if worktreeBasePath, err := m.findWorktreeBaseForWorkspace(w); err == nil {
+						if pruneErr := m.gitBackend.PruneStale(ctx, worktreeBasePath); pruneErr != nil {
+							m.logger.Warn("failed to prune stale worktrees", "err", pruneErr)
+						}
+					}
+					if m.config.RecycleWorkspaces {
+						m.purgeRecyclableWithBranch(ctx, repoURL, branch)
+					}
+				}
+				// Prepare the workspace (fetch/pull/clean) BEFORE updating state.
+				// If checkout fails (e.g. branch held by an active workspace), skip
+				// this candidate and let the loop continue or fall through to create.
 				if err := m.prepare(ctx, w.ID, branch); err != nil {
+					if strings.Contains(err.Error(), "already checked out") || strings.Contains(err.Error(), "already used by worktree") {
+						m.logger.Warn("branch conflict during reuse, skipping", "id", w.ID, "branch", branch, "err", err)
+						continue
+					}
 					return nil, fmt.Errorf("failed to prepare workspace: %w", err)
 				}
 				// Re-copy overlay files (git clean deletes untracked overlay files)
@@ -575,6 +594,13 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 	worktreeBasePath, err := backend.EnsureRepoBase(ctx, repoURL, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure worktree base: %w", err)
+	}
+
+	// Prune stale worktree entries (directories deleted externally) before
+	// creating new worktrees. Without this, git worktree add fails with
+	// "is a missing but already registered worktree".
+	if pruneErr := backend.PruneStale(ctx, worktreeBasePath); pruneErr != nil {
+		m.logger.Warn("failed to prune stale worktrees before create", "err", pruneErr)
 	}
 
 	// Fetch latest before creating worktree (git-specific)

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -51,8 +53,15 @@ func (m *Manager) runCmd(ctx context.Context, binary string, workspaceID string,
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			exitCode = exitErr.ExitCode()
-			exitErr.Stderr = append([]byte(nil), stderrBuf.Bytes()...)
-			stderrBytes = int64(len(exitErr.Stderr))
+			stderrContent := stderrBuf.Bytes()
+			exitErr.Stderr = append([]byte(nil), stderrContent...)
+			stderrBytes = int64(len(stderrContent))
+			// Include stderr in the error message so callers see the actual
+			// git/command error (e.g. "already checked out at ...") instead of
+			// just "exit status 128".
+			if trimmed := strings.TrimSpace(string(stderrContent)); trimmed != "" {
+				err = fmt.Errorf("%w: %s", err, trimmed)
+			}
 		}
 	}
 

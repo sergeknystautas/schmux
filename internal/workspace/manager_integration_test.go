@@ -570,3 +570,105 @@ func TestGetOrCreate_BranchReuse_PromotesRecyclableStatus(t *testing.T) {
 		t.Errorf("status = %q, want running (should be promoted from recyclable)", w2.Status)
 	}
 }
+
+// TestGetOrCreate_BranchReuse_PurgesConflictingRecyclable verifies that when
+// reusing a workspace for a different branch, a conflicting recyclable workspace
+// holding the target branch is purged first so git checkout -B succeeds.
+func TestGetOrCreate_BranchReuse_PurgesConflictingRecyclable(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath, nil)
+
+	repoDir := gitTestWorkTree(t)
+	gitTestBranch(t, repoDir, "feature-1")
+
+	cfg := &config.Config{
+		WorkspacePath:     t.TempDir(),
+		WorktreeBasePath:  t.TempDir(),
+		RecycleWorkspaces: true,
+		Repos:             []config.Repo{testRepoWithBarePath(t, "test", repoDir)},
+	}
+	manager := New(cfg, st, statePath, testLogger())
+
+	// Create two workspaces on different branches
+	ws1, err := manager.GetOrCreate(context.Background(), repoDir, "main")
+	if err != nil {
+		t.Fatalf("GetOrCreate main failed: %v", err)
+	}
+	ws2, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
+	if err != nil {
+		t.Fatalf("GetOrCreate feature-1 failed: %v", err)
+	}
+
+	// Dispose both (both become recyclable)
+	if err := manager.Dispose(context.Background(), ws1.ID); err != nil {
+		t.Fatalf("Dispose ws1 failed: %v", err)
+	}
+	if err := manager.Dispose(context.Background(), ws2.ID); err != nil {
+		t.Fatalf("Dispose ws2 failed: %v", err)
+	}
+
+	// Verify both are recyclable
+	w1, _ := st.GetWorkspace(ws1.ID)
+	w2, _ := st.GetWorkspace(ws2.ID)
+	if w1.Status != state.WorkspaceStatusRecyclable || w2.Status != state.WorkspaceStatusRecyclable {
+		t.Fatalf("expected both recyclable, got %q and %q", w1.Status, w2.Status)
+	}
+
+	// Now request feature-1. Tier 0 finds ws2 (same repo+branch), reuses it.
+	// This should succeed even though ws1 also exists.
+	ws3, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
+	if err != nil {
+		t.Fatalf("GetOrCreate feature-1 (re-request) failed: %v", err)
+	}
+	if ws3.ID != ws2.ID {
+		t.Errorf("expected reuse of ws2 (%s), got %s", ws2.ID, ws3.ID)
+	}
+
+	// Dispose again
+	if err := manager.Dispose(context.Background(), ws3.ID); err != nil {
+		t.Fatalf("Dispose ws3 failed: %v", err)
+	}
+
+	// Now request "main" again. This should trigger:
+	// - Tier 0: ws1 has "main" -> reuse it directly
+	// But let's test the harder case: request feature-1 through ws1 (different branch reuse).
+	// First, dispose ws2 so it becomes recyclable holding feature-1.
+	// Then request feature-1 via ws1 (Tier 1 reuse with branch switch).
+	// ws2 holds feature-1 in its worktree, which would block git checkout -B feature-1 in ws1.
+
+	// Re-create ws2 on feature-1 and dispose it to make it recyclable
+	ws4, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
+	if err != nil {
+		t.Fatalf("GetOrCreate feature-1 (third) failed: %v", err)
+	}
+	if err := manager.Dispose(context.Background(), ws4.ID); err != nil {
+		t.Fatalf("Dispose ws4 failed: %v", err)
+	}
+
+	// Delete ws1's directory externally to simulate it being unavailable for Tier 0 match.
+	// This forces Tier 1 to pick a different workspace (ws4, which has feature-1)
+	// and try to switch it to "main" — but ws1's stale worktree entry still claims "main".
+	// The fix should prune stale entries before checkout.
+	w1Path := w1.Path
+	if err := exec.Command("rm", "-rf", w1Path).Run(); err != nil {
+		t.Fatalf("failed to delete ws1 dir: %v", err)
+	}
+
+	// Request "main" — ws1 dir is gone, so Tier 0 skips it.
+	// Tier 1 finds ws4 (feature-1, no active sessions) and tries to switch to "main".
+	// Without the fix, this fails because the stale worktree entry for ws1 still claims "main".
+	ws5, err := manager.GetOrCreate(context.Background(), repoDir, "main")
+	if err != nil {
+		t.Fatalf("GetOrCreate main (after stale worktree) failed: %v", err)
+	}
+
+	// Should have reused ws4 (switched from feature-1 to main)
+	if ws5.Branch != "main" {
+		t.Errorf("expected branch main, got %s", ws5.Branch)
+	}
+}
