@@ -187,6 +187,18 @@ export async function assertTerminalMatchesTmux(
 
   // Collect diagnostic data before throwing
   const elapsedMs = Date.now() - startTime;
+
+  // Get tmux pane dimensions for comparison with xterm.js
+  let tmuxPaneDims = { height: -1, width: -1 };
+  try {
+    const dimsOutput = execSync(
+      `tmux -L schmux display-message -p -t '${tmuxSession}' '#{pane_height} #{pane_width}'`,
+      { encoding: 'utf-8' }
+    ).trim();
+    const [h, w] = dimsOutput.split(' ').map(Number);
+    tmuxPaneDims = { height: h, width: w };
+  } catch { /* best-effort */ }
+
   const streamState = await page
     .evaluate(() => {
       const stream = (window as any).__schmuxStream;
@@ -228,6 +240,7 @@ export async function assertTerminalMatchesTmux(
     `**Elapsed:** ${elapsedMs}ms`,
     `**Mismatched rows:** first=${firstMismatches?.length ?? 0}, last=${lastMismatches.length}`,
     `**Pattern:** ${wasStuck ? 'STUCK (same mismatch count for last 5 retries)' : wasConverging ? 'CONVERGING (mismatch count decreased)' : 'FLUCTUATING'}`,
+    `**Tmux pane:** ${tmuxPaneDims.height}x${tmuxPaneDims.width}`,
     ``,
     `## Convergence Log (mismatch count per retry)`,
     ``,
@@ -508,6 +521,40 @@ export async function openTerminal(page: Page, sessionId: string, tmuxName: stri
   // Clear tmux's scrollback history (xterm.js scrollback was cleared by reset).
   // This is a synchronous local tmux command — no wait needed.
   clearTmuxHistory(tmuxName);
+
+  // Wait for terminal size to stabilize. The frontend debounces resize events
+  // by 300ms, so a delayed fitTerminal() call can resize the tmux pane AFTER
+  // openTerminal returns. This causes content reflow in tmux that diverges from
+  // xterm.js, especially for tests involving scroll regions or cursor positioning.
+  // Poll until the tmux pane dimensions match xterm.js for 2 consecutive checks.
+  const sizeDeadline = Date.now() + 5_000;
+  let consecutiveMatches = 0;
+  while (Date.now() < sizeDeadline && consecutiveMatches < 2) {
+    const dims = await page.evaluate(() => {
+      const terminal = (window as any).__schmuxTerminal;
+      if (!terminal) return null;
+      return { rows: terminal.rows, cols: terminal.cols };
+    });
+    if (dims) {
+      try {
+        const tmuxDims = execSync(
+          `tmux -L schmux display-message -p -t '${tmuxName}' '#{pane_height} #{pane_width}'`,
+          { encoding: 'utf-8' }
+        ).trim();
+        const [h, w] = tmuxDims.split(' ').map(Number);
+        if (h === dims.rows && w === dims.cols) {
+          consecutiveMatches++;
+        } else {
+          consecutiveMatches = 0;
+        }
+      } catch {
+        consecutiveMatches = 0;
+      }
+    }
+    if (consecutiveMatches < 2) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  }
 }
 
 function shellQuote(s: string): string {
@@ -581,6 +628,23 @@ export async function assertCursorMatchesTmux(page: Page, tmuxSession: string): 
     if (lastTmux.x === lastXterm.x && lastTmux.y === lastXterm.y) return;
   }
 
+  // Get tmux pane dimensions and xterm dimensions for comparison
+  let tmuxPaneDims = { height: -1, width: -1 };
+  try {
+    const dimsOutput = execSync(
+      `tmux -L schmux display-message -p -t '${tmuxSession}' '#{pane_height} #{pane_width}'`,
+      { encoding: 'utf-8' }
+    ).trim();
+    const [h, w] = dimsOutput.split(' ').map(Number);
+    tmuxPaneDims = { height: h, width: w };
+  } catch { /* best-effort */ }
+
+  const xtermDims = await page.evaluate(() => {
+    const terminal = (window as any).__schmuxTerminal;
+    if (!terminal) return { rows: -1, cols: -1, baseY: -1 };
+    return { rows: terminal.rows, cols: terminal.cols, baseY: terminal.buffer.active.baseY };
+  }).catch(() => ({ rows: -1, cols: -1, baseY: -1 }));
+
   const diagDir = '/tmp/terminal-diagnostics';
   try {
     mkdirSync(diagDir, { recursive: true });
@@ -592,6 +656,8 @@ export async function assertCursorMatchesTmux(page: Page, tmuxSession: string): 
         ``,
         `**Session:** ${tmuxSession}`,
         `**Retries:** ${maxRetries}`,
+        `**Tmux pane:** ${tmuxPaneDims.height}x${tmuxPaneDims.width}`,
+        `**Xterm.js:** ${xtermDims.rows}x${xtermDims.cols} (baseY: ${xtermDims.baseY})`,
         ``,
         `## First attempt`,
         `- tmux:  (${firstTmux.x}, ${firstTmux.y})`,
