@@ -34,7 +34,7 @@ jobs:
       - name: Run scenario tests
         run: ./test.sh --scenarios --verbose
         env:
-          TEST_WORKERS: "1"
+          TEST_WORKERS: '1'
 
       - name: Upload test artifacts
         if: failure()

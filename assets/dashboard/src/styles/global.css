@@ -2600,6 +2600,28 @@ body {
   overflow: auto;
 }
 
+/* Spawn page selectors row */
+.spawn-selectors {
+  display: flex;
+  gap: var(--spacing-md);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.spawn-selector {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+.spawn-selector__label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
 /* Diff page */
 .diff-page {
   display: flex;

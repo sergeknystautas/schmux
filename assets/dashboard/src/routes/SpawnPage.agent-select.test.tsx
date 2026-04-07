@@ -295,7 +295,7 @@ describe('SpawnPage unified agent dropdown', () => {
     });
   });
 
-  it('shows persona dropdown in persona-style-row when personas exist', async () => {
+  it('shows persona dropdown in selectors row when personas exist', async () => {
     // Mock personas to be returned
     mockGetPersonas.mockResolvedValue({
       personas: [
@@ -320,12 +320,11 @@ describe('SpawnPage unified agent dropdown', () => {
     // Persona should be visible when personas exist
     expect(screen.getByTestId('persona-select')).toBeInTheDocument();
 
-    // Agent and repo should be in agent-repo-row, persona in persona-style-row
+    // Agent and persona should be in the agent config row
     const agentRow = screen.getByTestId('agent-repo-row');
     expect(within(agentRow).getByTestId('agent-select')).toBeInTheDocument();
-    expect(within(agentRow).getByTestId('spawn-repo-select')).toBeInTheDocument();
-
-    const personaRow = screen.getByTestId('persona-style-row');
-    expect(within(personaRow).getByTestId('persona-select')).toBeInTheDocument();
+    expect(within(agentRow).getByTestId('persona-select')).toBeInTheDocument();
+    // Repo should be in a separate row
+    expect(screen.getByTestId('spawn-repo-select')).toBeInTheDocument();
   });
 });

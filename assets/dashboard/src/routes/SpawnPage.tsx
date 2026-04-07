@@ -1104,106 +1104,74 @@ export default function SpawnPage() {
               {modelSelectionMode === 'single' ? (
                 <>
                   {mode === 'fresh' && !isRemoteSpawn ? (
-                    /* Single agent + fresh mode: agent and repo in flex row */
+                    /* Single agent + fresh mode: compact labeled selectors */
                     <div className="grid-full">
-                      <div
-                        data-testid="agent-repo-row"
-                        style={{
-                          display: 'flex',
-                          gap: 'var(--spacing-md)',
-                          alignItems: 'flex-start',
-                        }}
-                      >
-                        <select
-                          className="select flex-1"
-                          data-testid="agent-select"
-                          value={
-                            availableModels.find((item) => (targetCounts[item.name] || 0) > 0)
-                              ?.name || ''
-                          }
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (val === '__multiple__') {
-                              setModelSelectionMode('multiple');
-                            } else if (val === '__advanced__') {
-                              setModelSelectionMode('advanced');
-                            } else if (val) {
-                              toggleAgent(val);
-                            } else {
-                              const selected = availableModels.find(
-                                (item) => (targetCounts[item.name] || 0) > 0
-                              );
-                              if (selected) toggleAgent(selected.name);
+                      <div data-testid="agent-repo-row" className="spawn-selectors">
+                        <div className="spawn-selector">
+                          <span className="spawn-selector__label">Agent</span>
+                          <select
+                            className="select"
+                            data-testid="agent-select"
+                            value={
+                              availableModels.find((item) => (targetCounts[item.name] || 0) > 0)
+                                ?.name || ''
                             }
-                          }}
-                        >
-                          <option value="">Select agent...</option>
-                          {availableModels.map((item) => (
-                            <option key={item.name} value={item.name}>
-                              {item.label}
-                            </option>
-                          ))}
-                          <option disabled>──────────</option>
-                          <option value="__multiple__">Multiple agents</option>
-                          <option value="__advanced__">Advanced</option>
-                        </select>
-                        <select
-                          id="repo"
-                          className="select flex-1"
-                          data-tour="spawn-repo-select"
-                          required
-                          value={repo}
-                          data-testid="spawn-repo-select"
-                          onChange={(event) => {
-                            setRepo(event.target.value);
-                            if (event.target.value !== '__new__') {
-                              setNewRepoName('');
-                            }
-                          }}
-                        >
-                          <option value="">Select repository...</option>
-                          {repos.map((item) => (
-                            <option key={item.url} value={item.url}>
-                              {item.name}
-                            </option>
-                          ))}
-                          <option value="__new__">+ Add Repository</option>
-                        </select>
-                      </div>
-                      {(personas.length > 0 || styles.length > 0) && (
-                        <div
-                          className="form-row"
-                          data-testid="persona-style-row"
-                          style={{
-                            display: 'flex',
-                            gap: 'var(--spacing-md)',
-                            marginTop: 'var(--spacing-sm)',
-                          }}
-                        >
-                          {personas.length > 0 && (
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === '__multiple__') {
+                                setModelSelectionMode('multiple');
+                              } else if (val === '__advanced__') {
+                                setModelSelectionMode('advanced');
+                              } else if (val) {
+                                toggleAgent(val);
+                              } else {
+                                const selected = availableModels.find(
+                                  (item) => (targetCounts[item.name] || 0) > 0
+                                );
+                                if (selected) toggleAgent(selected.name);
+                              }
+                            }}
+                          >
+                            <option value="">Select...</option>
+                            {availableModels.map((item) => (
+                              <option key={item.name} value={item.name}>
+                                {item.label}
+                              </option>
+                            ))}
+                            <option disabled>──────────</option>
+                            <option value="__multiple__">Multiple agents</option>
+                            <option value="__advanced__">Advanced</option>
+                          </select>
+                        </div>
+                        {personas.length > 0 && (
+                          <div className="spawn-selector">
+                            <span className="spawn-selector__label">Persona</span>
                             <select
                               data-testid="persona-select"
-                              className="select flex-1"
+                              className="select"
                               data-tour="spawn-persona-select"
                               value={selectedPersonaId}
                               onChange={(e) => setSelectedPersonaId(e.target.value)}
                             >
-                              <option value="">No Persona</option>
+                              <option value="">None</option>
                               {personas.map((p) => (
                                 <option key={p.id} value={p.id}>
                                   {p.icon} {p.name}
                                 </option>
                               ))}
                             </select>
-                          )}
-                          {styles.length > 0 && (
+                          </div>
+                        )}
+                        {styles.length > 0 && (
+                          <div className="spawn-selector">
+                            <span className="spawn-selector__label">Style</span>
                             <select
                               data-testid="style-select"
-                              className="select flex-1"
+                              className="select"
                               value={selectedStyleId}
                               onChange={(e) => setSelectedStyleId(e.target.value)}
                             >
-                              <option value="">Global Default</option>
+                              <option value="">Default</option>
                               <option value="none">None</option>
                               {styles.map((s) => (
                                 <option key={s.id} value={s.id}>
@@ -1211,9 +1179,47 @@ export default function SpawnPage() {
                                 </option>
                               ))}
                             </select>
-                          )}
+                          </div>
+                        )}
+                        <div className="spawn-selector">
+                          <span className="spawn-selector__label">Repo</span>
+                          <select
+                            id="repo"
+                            className="select"
+                            data-tour="spawn-repo-select"
+                            required
+                            value={repo}
+                            data-testid="spawn-repo-select"
+                            onChange={(event) => {
+                              setRepo(event.target.value);
+                              if (event.target.value !== '__new__') {
+                                setNewRepoName('');
+                              }
+                            }}
+                          >
+                            <option value="">Select...</option>
+                            {repos.map((item) => (
+                              <option key={item.url} value={item.url}>
+                                {item.name}
+                              </option>
+                            ))}
+                            <option value="__new__">+ Add Repository</option>
+                          </select>
                         </div>
-                      )}
+                        {showBranchInput && (
+                          <div className="spawn-selector">
+                            <span className="spawn-selector__label">Branch</span>
+                            <input
+                              type="text"
+                              id="branch"
+                              className="input"
+                              value={branch}
+                              onChange={(event) => setBranch(event.target.value)}
+                              placeholder="e.g. feature/my-branch"
+                            />
+                          </div>
+                        )}
+                      </div>
                       {repo === '__new__' && (
                         <input
                           type="text"
@@ -1232,83 +1238,73 @@ export default function SpawnPage() {
                       )}
                     </div>
                   ) : (
-                    /* Single agent + workspace/remote mode: agent select, then persona+style row */
+                    /* Single agent + workspace/remote mode: compact labeled selectors */
                     <div className="grid-full">
-                      <div
-                        data-testid="agent-repo-row"
-                        style={{
-                          display: 'flex',
-                          gap: 'var(--spacing-md)',
-                          alignItems: 'flex-start',
-                        }}
-                      >
-                        <select
-                          className="select flex-1"
-                          data-testid="agent-select"
-                          value={
-                            availableModels.find((item) => (targetCounts[item.name] || 0) > 0)
-                              ?.name || ''
-                          }
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (val === '__multiple__') {
-                              setModelSelectionMode('multiple');
-                            } else if (val === '__advanced__') {
-                              setModelSelectionMode('advanced');
-                            } else if (val) {
-                              toggleAgent(val);
-                            } else {
-                              const selected = availableModels.find(
-                                (item) => (targetCounts[item.name] || 0) > 0
-                              );
-                              if (selected) toggleAgent(selected.name);
+                      <div data-testid="agent-repo-row" className="spawn-selectors">
+                        <div className="spawn-selector">
+                          <span className="spawn-selector__label">Agent</span>
+                          <select
+                            className="select"
+                            data-testid="agent-select"
+                            value={
+                              availableModels.find((item) => (targetCounts[item.name] || 0) > 0)
+                                ?.name || ''
                             }
-                          }}
-                        >
-                          <option value="">Select agent...</option>
-                          {availableModels.map((item) => (
-                            <option key={item.name} value={item.name}>
-                              {item.label}
-                            </option>
-                          ))}
-                          <option disabled>──────────</option>
-                          <option value="__multiple__">Multiple agents</option>
-                          <option value="__advanced__">Advanced</option>
-                        </select>
-                      </div>
-                      {(personas.length > 0 || styles.length > 0) && (
-                        <div
-                          className="form-row"
-                          data-testid="persona-style-row"
-                          style={{
-                            display: 'flex',
-                            gap: 'var(--spacing-md)',
-                            marginTop: 'var(--spacing-sm)',
-                          }}
-                        >
-                          {personas.length > 0 && (
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === '__multiple__') {
+                                setModelSelectionMode('multiple');
+                              } else if (val === '__advanced__') {
+                                setModelSelectionMode('advanced');
+                              } else if (val) {
+                                toggleAgent(val);
+                              } else {
+                                const selected = availableModels.find(
+                                  (item) => (targetCounts[item.name] || 0) > 0
+                                );
+                                if (selected) toggleAgent(selected.name);
+                              }
+                            }}
+                          >
+                            <option value="">Select...</option>
+                            {availableModels.map((item) => (
+                              <option key={item.name} value={item.name}>
+                                {item.label}
+                              </option>
+                            ))}
+                            <option disabled>──────────</option>
+                            <option value="__multiple__">Multiple agents</option>
+                            <option value="__advanced__">Advanced</option>
+                          </select>
+                        </div>
+                        {personas.length > 0 && (
+                          <div className="spawn-selector">
+                            <span className="spawn-selector__label">Persona</span>
                             <select
                               data-testid="persona-select"
-                              className="select flex-1"
+                              className="select"
                               value={selectedPersonaId}
                               onChange={(e) => setSelectedPersonaId(e.target.value)}
                             >
-                              <option value="">No Persona</option>
+                              <option value="">None</option>
                               {personas.map((p) => (
                                 <option key={p.id} value={p.id}>
                                   {p.icon} {p.name}
                                 </option>
                               ))}
                             </select>
-                          )}
-                          {styles.length > 0 && (
+                          </div>
+                        )}
+                        {styles.length > 0 && (
+                          <div className="spawn-selector">
+                            <span className="spawn-selector__label">Style</span>
                             <select
                               data-testid="style-select"
-                              className="select flex-1"
+                              className="select"
                               value={selectedStyleId}
                               onChange={(e) => setSelectedStyleId(e.target.value)}
                             >
-                              <option value="">Global Default</option>
+                              <option value="">Default</option>
                               <option value="none">None</option>
                               {styles.map((s) => (
                                 <option key={s.id} value={s.id}>
@@ -1316,9 +1312,9 @@ export default function SpawnPage() {
                                 </option>
                               ))}
                             </select>
-                          )}
-                        </div>
-                      )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </>
@@ -1568,19 +1564,22 @@ export default function SpawnPage() {
             </>
           )}
 
-          {/* Branch (shown on suggestion failure or when suggestion is disabled) */}
-          {mode === 'fresh' && !isRemoteSpawn && showBranchInput && (
-            <div className="grid-full">
-              <input
-                type="text"
-                id="branch"
-                className="input w-full"
-                value={branch}
-                onChange={(event) => setBranch(event.target.value)}
-                placeholder="Branch (e.g. feature/my-branch)"
-              />
-            </div>
-          )}
+          {/* Branch (shown on suggestion failure or when suggestion is disabled, multi/advanced only) */}
+          {mode === 'fresh' &&
+            !isRemoteSpawn &&
+            showBranchInput &&
+            modelSelectionMode !== 'single' && (
+              <div className="grid-full">
+                <input
+                  type="text"
+                  id="branch"
+                  className="input w-full"
+                  value={branch}
+                  onChange={(event) => setBranch(event.target.value)}
+                  placeholder="Branch (e.g. feature/my-branch)"
+                />
+              </div>
+            )}
         </div>
 
         <div className="flex-row mt-lg gap-sm" style={{ justifyContent: 'flex-end' }}>
