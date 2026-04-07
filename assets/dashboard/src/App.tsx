@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
 import AppShell from './components/AppShell';
 import ToastProvider from './components/ToastProvider';
@@ -9,33 +10,37 @@ import { FeaturesProvider } from './contexts/FeaturesContext';
 import { SessionsProvider } from './contexts/SessionsContext';
 import { ViewedSessionsProvider } from './contexts/ViewedSessionsContext';
 import { CurationProvider } from './contexts/CurationContext';
+
+// Eager: primary views that users hit immediately
 import HomePage from './routes/HomePage';
-import SpawnPage from './routes/SpawnPage';
-import TipsPage from './routes/TipsPage';
-import ConfigPage from './routes/ConfigPage';
-import RemoteSettingsPage from './routes/RemoteSettingsPage';
 import SessionDetailPage from './routes/SessionDetailPage';
-import DiffPage from './routes/DiffPage';
-import MarkdownPreviewPage from './routes/MarkdownPreviewPage';
-import ImagePreviewPage from './routes/ImagePreviewPage';
-import PreviewPage from './routes/PreviewPage';
-import CommitGraphPage from './routes/CommitGraphPage';
-import CommitDetailPage from './routes/CommitDetailPage';
-import LinearSyncResolveConflictPage from './routes/LinearSyncResolveConflictPage';
-import LegacyTerminalPage from './routes/LegacyTerminalPage';
-import NotFoundPage from './routes/NotFoundPage';
-import OverlayPage from './routes/OverlayPage';
-import LorePage from './routes/LorePage';
-import PersonasListPage from './routes/PersonasListPage';
-import PersonaCreatePage from './routes/PersonaCreatePage';
-import PersonaEditPage from './routes/PersonaEditPage';
-import StylesListPage from './routes/StylesListPage';
-import StyleCreatePage from './routes/StyleCreatePage';
-import StyleEditPage from './routes/StyleEditPage';
-import EventsPage from './routes/EventsPage';
-import RepofeedPage from './routes/RepofeedPage';
-import TimelapsePage from './routes/TimelapsePage';
-import EnvironmentPage from './routes/EnvironmentPage';
+
+// Lazy: secondary pages loaded on demand
+const SpawnPage = lazy(() => import('./routes/SpawnPage'));
+const TipsPage = lazy(() => import('./routes/TipsPage'));
+const ConfigPage = lazy(() => import('./routes/ConfigPage'));
+const RemoteSettingsPage = lazy(() => import('./routes/RemoteSettingsPage'));
+const DiffPage = lazy(() => import('./routes/DiffPage'));
+const MarkdownPreviewPage = lazy(() => import('./routes/MarkdownPreviewPage'));
+const ImagePreviewPage = lazy(() => import('./routes/ImagePreviewPage'));
+const PreviewPage = lazy(() => import('./routes/PreviewPage'));
+const CommitGraphPage = lazy(() => import('./routes/CommitGraphPage'));
+const CommitDetailPage = lazy(() => import('./routes/CommitDetailPage'));
+const LinearSyncResolveConflictPage = lazy(() => import('./routes/LinearSyncResolveConflictPage'));
+const LegacyTerminalPage = lazy(() => import('./routes/LegacyTerminalPage'));
+const NotFoundPage = lazy(() => import('./routes/NotFoundPage'));
+const OverlayPage = lazy(() => import('./routes/OverlayPage'));
+const LorePage = lazy(() => import('./routes/LorePage'));
+const PersonasListPage = lazy(() => import('./routes/PersonasListPage'));
+const PersonaCreatePage = lazy(() => import('./routes/PersonaCreatePage'));
+const PersonaEditPage = lazy(() => import('./routes/PersonaEditPage'));
+const StylesListPage = lazy(() => import('./routes/StylesListPage'));
+const StyleCreatePage = lazy(() => import('./routes/StyleCreatePage'));
+const StyleEditPage = lazy(() => import('./routes/StyleEditPage'));
+const EventsPage = lazy(() => import('./routes/EventsPage'));
+const RepofeedPage = lazy(() => import('./routes/RepofeedPage'));
+const TimelapsePage = lazy(() => import('./routes/TimelapsePage'));
+const EnvironmentPage = lazy(() => import('./routes/EnvironmentPage'));
 
 export default function App() {
   const location = useLocation();
@@ -49,52 +54,54 @@ export default function App() {
                 <ViewedSessionsProvider>
                   <KeyboardProvider>
                     <CurationProvider>
-                      <Routes>
-                        <Route element={<AppShell />}>
-                          <Route path="/" element={<HomePage />} />
-                          <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
-                          <Route
-                            path="/diff/:workspaceId/img/:filepath"
-                            element={<ImagePreviewPage />}
-                          />
-                          <Route
-                            path="/diff/:workspaceId/md/:filepath"
-                            element={<MarkdownPreviewPage />}
-                          />
-                          <Route path="/diff/:workspaceId" element={<DiffPage />} />
-                          <Route
-                            path="/preview/:workspaceId/:previewId"
-                            element={<PreviewPage />}
-                          />
-                          <Route path="/commits/:workspaceId" element={<CommitGraphPage />} />
-                          <Route
-                            path="/commits/:workspaceId/:commitHash"
-                            element={<CommitDetailPage />}
-                          />
-                          <Route
-                            path="/resolve-conflict/:workspaceId/:tabId"
-                            element={<LinearSyncResolveConflictPage />}
-                          />
-                          <Route path="/spawn" element={<SpawnPage key={location.key} />} />
-                          <Route path="/tips" element={<TipsPage />} />
-                          <Route path="/config" element={<ConfigPage />} />
-                          <Route path="/settings/remote" element={<RemoteSettingsPage />} />
-                          <Route path="/environment" element={<EnvironmentPage />} />
-                          <Route path="/overlays" element={<OverlayPage />} />
-                          <Route path="/personas" element={<PersonasListPage />} />
-                          <Route path="/personas/create" element={<PersonaCreatePage />} />
-                          <Route path="/personas/:personaId" element={<PersonaEditPage />} />
-                          <Route path="/styles" element={<StylesListPage />} />
-                          <Route path="/styles/create" element={<StyleCreatePage />} />
-                          <Route path="/styles/:styleId" element={<StyleEditPage />} />
-                          <Route path="/lore" element={<LorePage />} />
-                          <Route path="/events" element={<EventsPage />} />
-                          <Route path="/timelapse" element={<TimelapsePage />} />
-                          <Route path="/repofeed" element={<RepofeedPage />} />
-                          <Route path="/terminal.html" element={<LegacyTerminalPage />} />
-                          <Route path="*" element={<NotFoundPage />} />
-                        </Route>
-                      </Routes>
+                      <Suspense fallback={null}>
+                        <Routes>
+                          <Route element={<AppShell />}>
+                            <Route path="/" element={<HomePage />} />
+                            <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
+                            <Route
+                              path="/diff/:workspaceId/img/:filepath"
+                              element={<ImagePreviewPage />}
+                            />
+                            <Route
+                              path="/diff/:workspaceId/md/:filepath"
+                              element={<MarkdownPreviewPage />}
+                            />
+                            <Route path="/diff/:workspaceId" element={<DiffPage />} />
+                            <Route
+                              path="/preview/:workspaceId/:previewId"
+                              element={<PreviewPage />}
+                            />
+                            <Route path="/commits/:workspaceId" element={<CommitGraphPage />} />
+                            <Route
+                              path="/commits/:workspaceId/:commitHash"
+                              element={<CommitDetailPage />}
+                            />
+                            <Route
+                              path="/resolve-conflict/:workspaceId/:tabId"
+                              element={<LinearSyncResolveConflictPage />}
+                            />
+                            <Route path="/spawn" element={<SpawnPage key={location.key} />} />
+                            <Route path="/tips" element={<TipsPage />} />
+                            <Route path="/config" element={<ConfigPage />} />
+                            <Route path="/settings/remote" element={<RemoteSettingsPage />} />
+                            <Route path="/environment" element={<EnvironmentPage />} />
+                            <Route path="/overlays" element={<OverlayPage />} />
+                            <Route path="/personas" element={<PersonasListPage />} />
+                            <Route path="/personas/create" element={<PersonaCreatePage />} />
+                            <Route path="/personas/:personaId" element={<PersonaEditPage />} />
+                            <Route path="/styles" element={<StylesListPage />} />
+                            <Route path="/styles/create" element={<StyleCreatePage />} />
+                            <Route path="/styles/:styleId" element={<StyleEditPage />} />
+                            <Route path="/lore" element={<LorePage />} />
+                            <Route path="/events" element={<EventsPage />} />
+                            <Route path="/timelapse" element={<TimelapsePage />} />
+                            <Route path="/repofeed" element={<RepofeedPage />} />
+                            <Route path="/terminal.html" element={<LegacyTerminalPage />} />
+                            <Route path="*" element={<NotFoundPage />} />
+                          </Route>
+                        </Routes>
+                      </Suspense>
                     </CurationProvider>
                   </KeyboardProvider>
                 </ViewedSessionsProvider>
