@@ -76,7 +76,9 @@ export function LoreCard(props: LoreCardProps) {
 
   const id = type === 'instruction' ? props.rule.id : props.action.id;
   const currentText =
-    type === 'instruction' ? props.rule.text : props.action.prompt || props.action.command || '';
+    type === 'instruction'
+      ? props.rule.text
+      : props.action.prompt || props.action.command || props.action.description || '';
   const category = type === 'instruction' ? props.rule.category : undefined;
   const status = type === 'instruction' ? props.rule.status : props.action.state;
   const chosenLayer =
@@ -182,7 +184,7 @@ export function LoreCard(props: LoreCardProps) {
       ) : (
         <>
           <div className={styles.ruleText}>{props.action.name}</div>
-          <div className={styles.actionPrompt}>{currentText}</div>
+          {currentText && <div className={styles.actionPrompt}>{currentText}</div>}
         </>
       )}
 

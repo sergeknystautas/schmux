@@ -203,6 +203,14 @@ describe('LoreCard action variant', () => {
     expect(screen.getByText('ran format 4 times')).toBeInTheDocument();
   });
 
+  it('falls back to description when prompt and command are empty', () => {
+    const action = makeAction({ prompt: undefined, command: undefined });
+    render(<LoreCard {...actionDefaults} action={action} />);
+
+    expect(screen.getByText('Fix lint errors')).toBeInTheDocument();
+    expect(screen.getByText('Auto-format and run quick tests')).toBeInTheDocument();
+  });
+
   it('calls onApprove with action ID when Approve clicked', () => {
     const onApprove = vi.fn();
     render(<LoreCard {...actionDefaults} action={makeAction()} onApprove={onApprove} />);
