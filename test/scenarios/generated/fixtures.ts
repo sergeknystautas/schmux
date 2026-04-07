@@ -15,7 +15,7 @@ import { test as base } from '@playwright/test';
 import { createServer } from 'net';
 import { execSync, spawn, type ChildProcess } from 'child_process';
 import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'fs';
-import { join, resolve } from 'path';
+import { join } from 'path';
 
 export { expect } from '@playwright/test';
 
@@ -101,11 +101,8 @@ export const test = base.extend<{}, { daemonURL: string }>({
       process.env.HOME = homeDir;
       process.env.TMUX_TMPDIR = homeDir;
 
-      // Start daemon from the project root so it can find ./assets/dashboard/dist
-      // (the binary doesn't embed assets — they're copied alongside it in Docker).
-      const projectRoot = resolve(__dirname, '../../..');
+      // Start daemon
       const daemon = spawn('schmux', ['daemon-run', '--dev-mode'], {
-        cwd: projectRoot,
         env: {
           ...process.env,
           HOME: homeDir,

@@ -8,6 +8,11 @@ let localBuildCoverage = false;
 let dashboardBuildDone = false;
 let dashboardBuildCoverage = false;
 
+/** Force the next buildLocalArtifacts call to recompile the binary. */
+export function invalidateLocalBuild(): void {
+  localBuildDone = false;
+}
+
 /** Map Node.js os.arch() to Go's GOARCH values */
 function goArch(): string {
   const a = arch();

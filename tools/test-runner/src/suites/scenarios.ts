@@ -9,7 +9,7 @@ import {
   removeImage,
   cleanupOrphans,
 } from '../docker.js';
-import { buildLocalArtifacts, buildDashboard } from './shared.js';
+import { buildLocalArtifacts, buildDashboard, invalidateLocalBuild } from './shared.js';
 import type { Options, EventCallback, SuiteResult, FailedTest } from '../types.js';
 import { resolve } from 'node:path';
 import { rmSync, mkdirSync } from 'node:fs';
@@ -60,7 +60,27 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
   rmSync(artifactsDir, { recursive: true, force: true });
   mkdirSync(artifactsDir, { recursive: true });
 
-  // Build local artifacts
+  // Build dashboard BEFORE the binary so go:embed picks up the assets.
+  // The binary embeds assets/dashboard/dist/ at compile time — if we compile
+  // first, the embed is empty and the daemon shows "Dashboard assets not built".
+  const dashboardBuild = await buildDashboard(onEvent, opts.coverage);
+  if (!dashboardBuild.ok) {
+    return makeResult(
+      'broken',
+      performance.now() - startTime,
+      [],
+      [],
+      [],
+      {},
+      dashboardBuild.errorOutput || 'Failed to build dashboard'
+    );
+  }
+
+  // Force recompile so the binary embeds the freshly-built dashboard.
+  // Without this, a cached binary from E2E (built without dashboard) would be reused.
+  invalidateLocalBuild();
+
+  // Build local artifacts (binary now includes embedded dashboard)
   onEvent('scenarios', {
     type: 'suite_status',
     status: 'building',
@@ -76,20 +96,6 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
       [],
       {},
       artifactsBuild.errorOutput || 'Failed to build local artifacts'
-    );
-  }
-
-  // Build dashboard (needed for scenarios, not for E2E)
-  const dashboardBuild = await buildDashboard(onEvent, opts.coverage);
-  if (!dashboardBuild.ok) {
-    return makeResult(
-      'broken',
-      performance.now() - startTime,
-      [],
-      [],
-      [],
-      {},
-      dashboardBuild.errorOutput || 'Failed to build dashboard'
     );
   }
 
