@@ -15,8 +15,12 @@ if [ -n "${GOCOVERDIR:-}" ]; then
     mkdir -p "$COVERAGE_DIR"
 fi
 
-# Pass through worker count (defaults to nproc)
-export TEST_WORKERS="${TEST_WORKERS:-$(nproc)}"
+# Pass through worker count if explicitly set; otherwise let playwright.config.ts
+# use its default of cpus/2. Using all CPUs (nproc) starves daemons and Chromium
+# on resource-constrained CI runners, causing WebSocket connection timeouts.
+if [ -n "${TEST_WORKERS:-}" ]; then
+    export TEST_WORKERS
+fi
 
 # Run Playwright scenario tests
 # Each worker starts its own isolated daemon via the worker-scoped fixture.
