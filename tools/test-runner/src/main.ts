@@ -205,7 +205,7 @@ async function main(): Promise<void> {
 
   const { results, flakyResults } = await runSuites(opts);
 
-  printSummary(results, opts.suites.length > 1, opts.repeat);
+  printSummary(results, false, opts.repeat);
 
   // Print coverage reports if available
   for (const r of results) {
