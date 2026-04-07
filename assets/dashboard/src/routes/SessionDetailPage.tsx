@@ -62,6 +62,8 @@ export default function SessionDetailPage() {
   const [selectedLines, setSelectedLines] = useState<string[]>([]);
   const [timelapseExporting, setTimelapseExporting] = useState(false);
   const [timelapseAvailable, setTimelapseAvailable] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dragCounterRef = useRef(0);
   const terminalRef = useRef<HTMLDivElement | null>(null);
   const terminalStreamRef = useRef<TerminalStream | null>(null);
   const { success, error: toastError } = useToast();
@@ -765,7 +767,24 @@ export default function SessionDetailPage() {
                 </button>
               </div>
             ) : (
-              <div className="log-viewer" data-tour="terminal-log-viewer">
+              <div
+                className="log-viewer"
+                data-tour="terminal-log-viewer"
+                onDragEnter={(e) => {
+                  if (!e.dataTransfer.types.includes('Files')) return;
+                  e.preventDefault();
+                  dragCounterRef.current++;
+                  if (dragCounterRef.current === 1) setIsDragOver(true);
+                }}
+                onDragLeave={() => {
+                  dragCounterRef.current--;
+                  if (dragCounterRef.current === 0) setIsDragOver(false);
+                }}
+                onDrop={() => {
+                  dragCounterRef.current = 0;
+                  setIsDragOver(false);
+                }}
+              >
                 <div
                   className="log-viewer__header"
                   style={
@@ -982,6 +1001,26 @@ export default function SessionDetailPage() {
                   data-testid="terminal-viewport"
                   style={{ cursor: selectionMode ? 'pointer' : undefined }}
                 ></div>
+
+                {isDragOver && (
+                  <div className="log-viewer__drop-overlay">
+                    <svg
+                      width="48"
+                      height="48"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                      <circle cx="8.5" cy="8.5" r="1.5" />
+                      <polyline points="21 15 16 10 5 21" />
+                    </svg>
+                    <span>Drop image</span>
+                  </div>
+                )}
 
                 {showResume ? (
                   <button

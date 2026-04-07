@@ -3107,6 +3107,45 @@ body {
   transform: translateY(0);
 }
 
+/* Drop overlay — shown when dragging an image file over the terminal */
+
+.log-viewer__drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  background: rgba(0, 0, 0, 0.7);
+  border: 2px dashed var(--color-accent);
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+  animation: dropOverlayFadeIn var(--duration-fast) var(--easing);
+}
+
+.log-viewer__drop-overlay svg {
+  color: var(--color-accent);
+  opacity: 0.9;
+}
+
+.log-viewer__drop-overlay span {
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+@keyframes dropOverlayFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* xterm.js terminal container - different styling since xterm handles its own layout */
 
 #terminal.log-viewer__output,
