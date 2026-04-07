@@ -85,8 +85,7 @@ export default function LorePage() {
 
   // Dev mode debug
   const [showDebug, setShowDebug] = useState(false);
-  const [debugRepo, setDebugRepo] = useState(repos[0]?.name || '');
-  const [debugEntries, setDebugEntries] = useState<LoreEntry[]>([]);
+  const [debugEntries, setDebugEntries] = useState<(LoreEntry & { _repo: string })[]>([]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -790,10 +789,17 @@ export default function LorePage() {
             onClick={() => {
               const next = !showDebug;
               setShowDebug(next);
-              if (next && debugRepo) {
-                getLoreEntries(debugRepo)
-                  .then((res) => setDebugEntries(res.entries || []))
-                  .catch(() => {});
+              if (next) {
+                Promise.all(
+                  repos.map((r) =>
+                    getLoreEntries(r.name)
+                      .then((res) => (res.entries || []).map((e) => ({ ...e, _repo: r.name })))
+                      .catch(() => [] as (LoreEntry & { _repo: string })[])
+                  )
+                ).then((results) => {
+                  const all = results.flat().sort((a, b) => b.ts.localeCompare(a.ts));
+                  setDebugEntries(all);
+                });
               }
             }}
           >
@@ -801,41 +807,28 @@ export default function LorePage() {
           </button>
           {showDebug && (
             <div style={{ marginTop: '0.75rem' }}>
-              {repos.length > 1 && (
-                <select
-                  className={styles.filterSelect}
-                  value={debugRepo}
-                  onChange={(e) => {
-                    setDebugRepo(e.target.value);
-                    getLoreEntries(e.target.value)
-                      .then((res) => setDebugEntries(res.entries || []))
-                      .catch(() => {});
-                  }}
-                >
-                  {repos.map((r) => (
-                    <option key={r.name} value={r.name}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-              <div style={{ display: 'flex', gap: '0.5rem', margin: '0.5rem 0' }}>
-                <button
-                  className={styles.curateButton}
-                  onClick={() => debugRepo && startCuration(debugRepo)}
-                  disabled={!!activeCurations[debugRepo] || pendingCurations.has(debugRepo)}
-                >
-                  {activeCurations[debugRepo] || pendingCurations.has(debugRepo)
-                    ? 'Curating...'
-                    : 'Trigger Curation'}
-                </button>
+              <div style={{ display: 'flex', gap: '0.5rem', margin: '0.5rem 0', flexWrap: 'wrap' }}>
+                {repos.map((r) => (
+                  <button
+                    key={r.name}
+                    className={styles.curateButton}
+                    style={{ marginLeft: 0 }}
+                    onClick={() => startCuration(r.name)}
+                    disabled={!!activeCurations[r.name] || pendingCurations.has(r.name)}
+                  >
+                    {activeCurations[r.name] || pendingCurations.has(r.name)
+                      ? `Curating ${r.name}...`
+                      : `Curate ${r.name}`}
+                  </button>
+                ))}
                 <button
                   className={styles.deleteButton}
+                  style={{ marginLeft: 'auto' }}
                   onClick={async () => {
-                    if (!debugRepo) return;
                     try {
-                      const result = await clearLoreEntries(debugRepo);
-                      toastSuccess(`Deleted ${result.cleared} signal file(s)`);
+                      const results = await Promise.all(repos.map((r) => clearLoreEntries(r.name)));
+                      const total = results.reduce((sum, r) => sum + r.cleared, 0);
+                      toastSuccess(`Deleted ${total} signal file(s)`);
                       setDebugEntries([]);
                     } catch (err) {
                       alert('Clear Failed', getErrorMessage(err, 'Failed to clear signals'));
@@ -843,7 +836,7 @@ export default function LorePage() {
                   }}
                   disabled={debugEntries.length === 0}
                 >
-                  Delete Signals
+                  Delete All Signals
                 </button>
               </div>
               <div className={styles.entriesList}>
@@ -860,6 +853,7 @@ export default function LorePage() {
                         <span className={styles.entryAgent}>{e.agent}</span>
                         {e.tool && <span className={styles.entryTool}>{e.tool}</span>}
                         <span className={styles.entryTs}>{new Date(e.ts).toLocaleString()}</span>
+                        <span className={styles.entryRepo}>{e._repo}</span>
                       </div>
                       <div className={styles.entryText}>
                         {e.type === 'failure'

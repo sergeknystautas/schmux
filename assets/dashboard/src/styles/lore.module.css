@@ -273,6 +273,10 @@
 
 .entryTs {
   color: var(--text-secondary, #888);
+}
+
+.entryRepo {
+  color: var(--text-secondary, #888);
   margin-left: auto;
 }
 
