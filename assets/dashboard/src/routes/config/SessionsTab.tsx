@@ -46,6 +46,16 @@ export default function SessionsTab({
     return Object.keys(enabledModels).sort();
   }, [enabledModels]);
 
+  // Unique base tool names (runners) from enabled models — used for comm style defaults.
+  // The config stores comm_styles keyed by tool name ("claude"), not model ID ("claude-opus-4-6").
+  const uniqueTools = useMemo(() => {
+    const seen = new Set<string>();
+    for (const runner of Object.values(enabledModels)) {
+      if (runner) seen.add(runner);
+    }
+    return Array.from(seen).sort();
+  }, [enabledModels]);
+
   const handleToggleModel = (modelId: string, enabled: boolean, defaultRunner: string) => {
     dispatch({ type: 'TOGGLE_MODEL', modelId, enabled, defaultRunner });
   };
@@ -139,51 +149,47 @@ export default function SessionsTab({
       </div>
 
       {/* Communication Styles defaults */}
-      {styles.length > 0 && enabledModelIds.length > 0 && (
+      {styles.length > 0 && uniqueTools.length > 0 && (
         <>
           <h3>Communication Styles</h3>
           <p className="section-hint">
-            Set a default communication style for each model. When spawning, agents will use the
-            style assigned here unless overridden.
+            Set a default communication style for each agent tool. When spawning, agents will use
+            the style assigned here unless overridden.
           </p>
           <div className="item-list">
-            {enabledModelIds.map((modelId) => {
-              const model = models.find((m) => m.id === modelId);
-              const label = model?.display_name || modelId;
-              return (
-                <div
-                  className="item-list__item"
-                  key={modelId}
-                  data-testid={`comm-style-${modelId}`}
+            {uniqueTools.map((toolName) => (
+              <div
+                className="item-list__item"
+                key={toolName}
+                data-testid={`comm-style-${toolName}`}
+              >
+                <span className="item-list__item-name" style={{ minWidth: '120px' }}>
+                  {toolName}
+                </span>
+                <select
+                  className="select"
+                  value={commStyles[toolName] || ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const next = { ...commStyles };
+                    if (val) {
+                      next[toolName] = val;
+                    } else {
+                      delete next[toolName];
+                    }
+                    dispatch({ type: 'SET_FIELD', field: 'commStyles', value: next });
+                  }}
+                  style={{ flex: 1, maxWidth: '300px' }}
                 >
-                  <span className="item-list__item-name" style={{ minWidth: '120px' }}>
-                    {label}
-                  </span>
-                  <select
-                    className="select"
-                    value={commStyles[modelId] || ''}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      const next = { ...commStyles };
-                      if (val) {
-                        next[modelId] = val;
-                      } else {
-                        delete next[modelId];
-                      }
-                      dispatch({ type: 'SET_FIELD', field: 'commStyles', value: next });
-                    }}
-                    style={{ flex: 1, maxWidth: '300px' }}
-                  >
-                    <option value="">None</option>
-                    {styles.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.icon} {s.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              );
-            })}
+                  <option value="">None</option>
+                  {styles.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.icon} {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
           </div>
         </>
       )}
