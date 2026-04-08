@@ -23,7 +23,6 @@ import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import { LoreCard } from '../components/LoreCard';
 import useTheme from '../hooks/useTheme';
-import useDevStatus from '../hooks/useDevStatus';
 import type {
   LoreEntry,
   LoreRule,
@@ -65,7 +64,7 @@ export default function LorePage() {
     useCuration();
   const { curatorEvents } = useSessions();
   const { theme } = useTheme();
-  const { isDevMode } = useDevStatus();
+  const isDebugMode = !!config?.debug_ui;
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -782,7 +781,7 @@ export default function LorePage() {
         </>
       )}
 
-      {isDevMode && (
+      {isDebugMode && (
         <section style={{ marginTop: '2rem' }}>
           <button
             className={styles.toggleButton}

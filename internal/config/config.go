@@ -104,6 +104,7 @@ type Config struct {
 	TmuxSocketName             string                      `json:"tmux_socket_name,omitempty"`
 	RecycleWorkspaces          bool                        `json:"recycle_workspaces,omitempty"`
 	LocalEchoRemote            bool                        `json:"local_echo_remote,omitempty"`
+	DebugUI                    bool                        `json:"debug_ui,omitempty"`
 	Timelapse                  *TimelapseConfig            `json:"timelapse,omitempty"`
 
 	// Telemetry settings
@@ -1106,6 +1107,13 @@ func (c *Config) GetSubredditRepos() map[string]bool {
 	return result
 }
 
+// GetDebugUI returns whether the debug UI is enabled via config.
+func (c *Config) GetDebugUI() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.DebugUI
+}
+
 // GetRepofeedEnabled returns whether the repofeed system is enabled.
 func (c *Config) GetRepofeedEnabled() bool {
 	c.mu.RLock()
@@ -1698,6 +1706,7 @@ func (c *Config) Reload() error {
 	c.SourceCodeManagement = newCfg.SourceCodeManagement
 	c.RecycleWorkspaces = newCfg.RecycleWorkspaces
 	c.LocalEchoRemote = newCfg.LocalEchoRemote
+	c.DebugUI = newCfg.DebugUI
 	c.Repos = newCfg.Repos
 	c.RunTargets = newCfg.RunTargets
 	c.QuickLaunch = newCfg.QuickLaunch

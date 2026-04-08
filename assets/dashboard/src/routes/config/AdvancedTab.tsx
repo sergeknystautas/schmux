@@ -29,6 +29,7 @@ type AdvancedTabProps = {
   xtermOperationTimeout: number;
   xtermUseWebGL: boolean;
   localEchoRemote: boolean;
+  debugUI: boolean;
   nudgenikTargetMissing: boolean;
   branchSuggestTargetMissing: boolean;
   conflictResolveTargetMissing: boolean;
@@ -74,6 +75,7 @@ export default function AdvancedTab({
   xtermOperationTimeout,
   xtermUseWebGL,
   localEchoRemote,
+  debugUI,
   nudgenikTargetMissing,
   branchSuggestTargetMissing,
   conflictResolveTargetMissing,
@@ -106,6 +108,29 @@ export default function AdvancedTab({
         Terminal dimensions and advanced timing controls. You can leave these as defaults unless you
         have specific needs.
       </p>
+
+      <div className="settings-section">
+        <div className="settings-section__header">
+          <h3 className="settings-section__title">Debug</h3>
+        </div>
+        <div className="settings-section__body">
+          <div className="form-group">
+            <label className="flex-row gap-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={debugUI}
+                onChange={(e) => setField('debugUI', e.target.checked)}
+              />
+              <span>Enable debug UI</span>
+            </label>
+            <p className="form-group__hint">
+              Show diagnostic panels and tools in the sidebar without running in dev mode. Enables
+              Event Monitor, Tmux diagnostics, Typing Performance, Lore Curation status, remote
+              access simulation, and debug API endpoints. Takes effect immediately.
+            </p>
+          </div>
+        </div>
+      </div>
 
       <div className="settings-section">
         <div className="settings-section__header">

@@ -83,6 +83,7 @@ export type ConfigSnapshot = {
   saplingCmdCheckRepoBase: string;
   saplingCmdCreateRepoBase: string;
   localEchoRemote: boolean;
+  debugUI: boolean;
   tmuxBinary: string;
   tmuxSocketName: string;
 };
@@ -249,6 +250,7 @@ export type ConfigFormState = {
   saplingCmdCreateRepoBase: string;
 
   localEchoRemote: boolean;
+  debugUI: boolean;
   tmuxBinary: string;
   tmuxSocketName: string;
 
@@ -425,6 +427,7 @@ export const initialState: ConfigFormState = {
   saplingCmdCreateRepoBase: '',
 
   localEchoRemote: false,
+  debugUI: false,
   tmuxBinary: '',
   tmuxSocketName: '',
 
@@ -734,6 +737,7 @@ export function useConfigForm(initialStep: number = 1) {
         state.saplingCmdCheckRepoBase !== oc.saplingCmdCheckRepoBase ||
         state.saplingCmdCreateRepoBase !== oc.saplingCmdCreateRepoBase ||
         state.localEchoRemote !== oc.localEchoRemote ||
+        state.debugUI !== oc.debugUI ||
         state.tmuxBinary !== oc.tmuxBinary ||
         state.tmuxSocketName !== oc.tmuxSocketName ||
         state.authSecretsChanged
@@ -836,6 +840,7 @@ export function useConfigForm(initialStep: number = 1) {
       saplingCmdCheckRepoBase: state.saplingCmdCheckRepoBase,
       saplingCmdCreateRepoBase: state.saplingCmdCreateRepoBase,
       localEchoRemote: state.localEchoRemote,
+      debugUI: state.debugUI,
       tmuxBinary: state.tmuxBinary,
       tmuxSocketName: state.tmuxSocketName,
     };

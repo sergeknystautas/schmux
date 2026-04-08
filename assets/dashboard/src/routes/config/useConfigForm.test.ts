@@ -83,6 +83,7 @@ function makeSnapshot(overrides: Partial<ConfigSnapshot> = {}): ConfigSnapshot {
     timelapseMaxFileSizeMB: 50,
     timelapseMaxTotalStorageMB: 500,
     localEchoRemote: false,
+    debugUI: false,
     pastebin: [],
     ...overrides,
   };

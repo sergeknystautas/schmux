@@ -105,6 +105,7 @@ export default function AppShell() {
 
   // Dev mode state
   const isDevMode = !!versionInfo?.dev_mode;
+  const isDebugMode = !!config?.debug_ui;
   const isRemoteAccess = isRemoteClient() || simulateRemote;
   const [devStatus, setDevStatus] = useState<DevStatus | null>(null);
   const [devRebuilding, setDevRebuilding] = useState(false);
@@ -1034,10 +1035,10 @@ export default function AppShell() {
             })}
           </div>
 
-          {isDevMode && <CurationStatus />}
-          {isDevMode && <EventMonitor />}
-          {isDevMode && <TmuxDiagnostic />}
-          {isDevMode && <TypingPerformance />}
+          {isDebugMode && <CurationStatus />}
+          {isDebugMode && <EventMonitor />}
+          {isDebugMode && <TmuxDiagnostic />}
+          {isDebugMode && <TypingPerformance />}
           {features.tunnel && <RemoteAccessPanel />}
           <ToolsSection navCollapsed={navCollapsed} />
         </div>

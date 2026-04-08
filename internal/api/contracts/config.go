@@ -181,6 +181,7 @@ type ConfigResponse struct {
 	TmuxSocketName             string                 `json:"tmux_socket_name,omitempty"`
 	RecycleWorkspaces          bool                   `json:"recycle_workspaces,omitempty"`
 	LocalEchoRemote            bool                   `json:"local_echo_remote,omitempty"`
+	DebugUI                    bool                   `json:"debug_ui,omitempty"`
 	SystemCapabilities         SystemCapabilities     `json:"system_capabilities"`
 	NeedsRestart               bool                   `json:"needs_restart"`
 	DashboardSXStatus          *DashboardSXStatus     `json:"dashboard_sx_status,omitempty"`
@@ -324,6 +325,7 @@ type ConfigUpdateRequest struct {
 	TmuxSocketName             *string                     `json:"tmux_socket_name,omitempty"`
 	RecycleWorkspaces          *bool                       `json:"recycle_workspaces,omitempty"`
 	LocalEchoRemote            *bool                       `json:"local_echo_remote,omitempty"`
+	DebugUI                    *bool                       `json:"debug_ui,omitempty"`
 }
 
 // DesyncUpdate represents partial desync diagnostic config updates.

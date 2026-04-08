@@ -153,6 +153,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		TmuxBinary:        s.config.TmuxBinary,
 		TmuxSocketName:    s.config.GetTmuxSocketName(),
 		RecycleWorkspaces: s.config.RecycleWorkspaces,
+		DebugUI:           s.config.GetDebugUI(),
 		LocalEchoRemote:   s.config.LocalEchoRemote,
 		SaplingCommands: func() *contracts.SaplingCommandsUpdate {
 			sc := s.config.SaplingCommands
@@ -756,6 +757,10 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 
 	if req.RecycleWorkspaces != nil {
 		cfg.RecycleWorkspaces = *req.RecycleWorkspaces
+	}
+
+	if req.DebugUI != nil {
+		cfg.DebugUI = *req.DebugUI
 	}
 
 	if req.LocalEchoRemote != nil {

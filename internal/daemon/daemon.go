@@ -654,14 +654,15 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		"status": {dashHandler},
 	}
 
-	// Dev mode: add monitor handler that forwards all events to WebSocket
-	if devMode {
-		monitorHandler := events.NewMonitorHandler(func(sessionID string, raw events.RawEvent, data []byte) {
+	// Monitor handler: always registered, checks debug_ui config per event.
+	// Orthogonal to devMode — debug_ui controls diagnostics independently.
+	monitorHandler := events.NewMonitorHandler(func(sessionID string, raw events.RawEvent, data []byte) {
+		if cfg.GetDebugUI() {
 			server.BroadcastEvent(sessionID, data)
-		})
-		for _, eventType := range []string{"status", "failure", "reflection", "friction"} {
-			eventHandlers[eventType] = append(eventHandlers[eventType], monitorHandler)
 		}
+	})
+	for _, eventType := range []string{"status", "failure", "reflection", "friction"} {
+		eventHandlers[eventType] = append(eventHandlers[eventType], monitorHandler)
 	}
 	sm.SetEventHandlers(eventHandlers)
 
@@ -701,13 +702,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		fm.Stop() // kills the tmux session
 		server.SetFloorManager(nil)
 		// Rebuild event handlers without the injector
-		eventHandlers["status"] = []events.EventHandler{dashHandler}
-		if devMode {
-			monitorHandler := events.NewMonitorHandler(func(sessionID string, raw events.RawEvent, data []byte) {
-				server.BroadcastEvent(sessionID, data)
-			})
-			eventHandlers["status"] = append(eventHandlers["status"], monitorHandler)
-		}
+		eventHandlers["status"] = []events.EventHandler{dashHandler, monitorHandler}
 		sm.SetEventHandlers(eventHandlers)
 		fm = nil
 		fmInjector = nil
@@ -724,13 +719,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		fmInjector.Stop()
 		fm.Detach() // keeps the tmux session alive
 		server.SetFloorManager(nil)
-		eventHandlers["status"] = []events.EventHandler{dashHandler}
-		if devMode {
-			monitorHandler := events.NewMonitorHandler(func(sessionID string, raw events.RawEvent, data []byte) {
-				server.BroadcastEvent(sessionID, data)
-			})
-			eventHandlers["status"] = append(eventHandlers["status"], monitorHandler)
-		}
+		eventHandlers["status"] = []events.EventHandler{dashHandler, monitorHandler}
 		sm.SetEventHandlers(eventHandlers)
 		fm = nil
 		fmInjector = nil

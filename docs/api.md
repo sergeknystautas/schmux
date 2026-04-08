@@ -910,6 +910,7 @@ Response:
   "source_code_management": "git-worktree",
   "recycle_workspaces": false,
   "local_echo_remote": false,
+  "debug_ui": false,
   "repos": [{ "name": "repo", "url": "https://...", "vcs": "sapling" }],
   "run_targets": [{ "name": "target", "type": "promptable", "command": "...", "source": "user" }],
   "quick_launch": [
@@ -1018,6 +1019,8 @@ Response:
 
 Repos with `"vcs": "sapling"` use the sapling backend instead of git. The `vcs` field can be `""` (default, git worktree), `"git-clone"`, or `"sapling"`. The `sapling_commands` section configures command templates for sapling workspace lifecycle using Go `text/template` syntax.
 
+**`debug_ui`** (boolean, optional, default `false`): Enables debug diagnostic panels and debug API endpoints without running `./dev.sh`. When `true`, the daemon sets `debug_mode` in the healthz response and registers debug routes. Can be toggled from the Settings page in the web dashboard — takes effect immediately without restart.
+
 **`tmux_binary`**: Path to a custom tmux binary. When empty or omitted, the system default from `$PATH` is used. The path is validated on save (must exist, be executable, and output a recognized tmux version string). Changing this field flags `needs_restart`.
 
 **`tmux_socket_name`** (string, optional, default `"schmux"`): The tmux socket name used by the daemon. All sessions are created on this socket. Changing this field flags `needs_restart`.
@@ -1046,6 +1049,7 @@ Request:
   "source_code_management": "git-worktree",
   "recycle_workspaces": false,
   "local_echo_remote": false,
+  "debug_ui": false,
   "repos": [{ "name": "repo", "url": "https://...", "vcs": "sapling" }],
   "run_targets": [{ "name": "target", "type": "promptable", "command": "...", "source": "user" }],
   "quick_launch": [
@@ -3731,7 +3735,9 @@ Errors:
 
 ## Dev Mode Endpoints
 
-These endpoints are only registered when the daemon is started with `--dev-mode` (via `./dev.sh`).
+### Self-Build Routes
+
+These endpoints require the daemon to be started with `--dev-mode` (via `./dev.sh`). They control the dev runner infrastructure.
 
 ### GET /api/dev/status
 
@@ -3776,9 +3782,13 @@ Errors:
 - 400: missing workspace_id, invalid type
 - 404: workspace not found
 
+### Debug Diagnostic Routes
+
+These endpoints are available when the daemon is started with `--dev-mode` (via `./dev.sh`) OR when `debug_ui` is set to `true` in the config. They provide diagnostic and testing tools.
+
 ### POST /api/dev/diagnostic-append
 
-Receives frontend diagnostic artifacts and writes them to an existing diagnostic directory created by the WebSocket diagnostic handler. Dev mode only.
+Receives frontend diagnostic artifacts and writes them to an existing diagnostic directory created by the WebSocket diagnostic handler.
 
 **Request body:**
 
@@ -3817,17 +3827,21 @@ All fields are optional strings except `diagDir` (required). Files are written b
 
 **Response:** `200 OK` (empty body)
 
-### GET /api/healthz (dev mode extension)
+### GET /api/healthz (dev/debug mode extension)
 
-When dev mode is active, the healthz response includes an additional field:
+When dev mode or debug mode is active, the healthz response includes additional fields:
 
 ```json
 {
   "status": "ok",
   "version": "dev",
-  "dev_mode": true
+  "dev_mode": true,
+  "debug_mode": true
 }
 ```
+
+- **`dev_mode`** (boolean, omitted when false) — present when the daemon was started with `--dev-mode` (via `./dev.sh`). Enables self-build features (workspace switching, rebuild).
+- **`debug_mode`** (boolean, omitted when false) — present when dev mode is active OR `debug_ui` is set to `true` in the config. Enables diagnostic panels and debug API endpoints.
 
 ### GET /api/dev/events/history
 
@@ -3848,6 +3862,18 @@ Response:
 - Scans `<workspace>/.schmux/events/*.jsonl` across all active workspaces
 - Session ID is derived from the filename (without `.jsonl` extension)
 - Returns at most 200 events, sorted oldest-first
+
+### POST /api/dev/simulate-tunnel
+
+Testing helper: simulates a remote tunnel connection. Used for testing remote access features locally without an actual SSH tunnel.
+
+### POST /api/dev/simulate-tunnel-stop
+
+Testing helper: clears the simulated tunnel connection.
+
+### POST /api/dev/clear-password
+
+Testing helper: clears the remote access password hash from config.
 
 ---
 

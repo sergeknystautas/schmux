@@ -44,6 +44,7 @@ const defaultProps = {
   xtermOperationTimeout: 10000,
   xtermUseWebGL: true,
   localEchoRemote: false,
+  debugUI: false,
   nudgenikTargetMissing: false,
   branchSuggestTargetMissing: false,
   conflictResolveTargetMissing: false,

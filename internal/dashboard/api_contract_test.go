@@ -779,3 +779,282 @@ func TestAPIContract_ConfigUpdateRejectsDuplicateRepoNames(t *testing.T) {
 		t.Errorf("error message should mention duplicate repo name, got: %s", rr.Body.String())
 	}
 }
+
+func TestAPIContract_DebugMode_MiddlewareBlocks(t *testing.T) {
+	server, _, _ := newTestServer(t)
+
+	handler := server.debugModeMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 when both devMode and debug_ui are off, got %d", rr.Code)
+	}
+}
+
+func TestAPIContract_DebugMode_MiddlewareAllowsDebugUI(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = t.TempDir()
+	cfg.DebugUI = true
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath, nil)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
+	t.Cleanup(server.CloseForTest)
+
+	handler := server.debugModeMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 when debug_ui is on (no devMode), got %d", rr.Code)
+	}
+}
+
+func TestAPIContract_DebugMode_MiddlewareBlocksEvenWithDevMode(t *testing.T) {
+	// devMode and debug_ui are orthogonal — devMode alone does NOT enable debug routes
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = t.TempDir()
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath, nil)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{
+		DevMode: true,
+	})
+	t.Cleanup(server.CloseForTest)
+
+	handler := server.debugModeMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 when devMode is on but debug_ui is off, got %d", rr.Code)
+	}
+}
+
+func TestAPIContract_DebugMode_MiddlewareLiveConfigToggle(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+
+	handler := server.debugModeMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// Initially blocked (both off)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 before enabling debug_ui, got %d", rr.Code)
+	}
+
+	// Enable debug_ui at runtime
+	cfg.DebugUI = true
+
+	// Now allowed (middleware checks live config)
+	req = httptest.NewRequest(http.MethodGet, "/test", nil)
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 after enabling debug_ui at runtime, got %d", rr.Code)
+	}
+}
+
+func TestAPIContract_DebugMode_HealthzWithDebugUI(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = t.TempDir()
+	cfg.DebugUI = true
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath, nil)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
+	server.SetModelManager(models.New(cfg, nil, "", log.NewWithOptions(io.Discard, log.Options{})))
+	t.Cleanup(server.CloseForTest)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/healthz", nil)
+	rr := httptest.NewRecorder()
+	server.handleHealthz(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp["debug_mode"] != true {
+		t.Fatalf("expected debug_mode=true when debug_ui is enabled, got %v", resp["debug_mode"])
+	}
+}
+
+func TestAPIContract_DebugMode_HealthzOmittedWithDevModeAlone(t *testing.T) {
+	// devMode and debug_ui are orthogonal — devMode alone does NOT set debug_mode
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = t.TempDir()
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath, nil)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{
+		DevMode: true,
+	})
+	server.SetModelManager(models.New(cfg, nil, "", log.NewWithOptions(io.Discard, log.Options{})))
+	t.Cleanup(server.CloseForTest)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/healthz", nil)
+	rr := httptest.NewRecorder()
+	server.handleHealthz(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if _, exists := resp["debug_mode"]; exists {
+		t.Fatalf("expected debug_mode absent when devMode is on but debug_ui is off, got %v", resp["debug_mode"])
+	}
+}
+
+func TestAPIContract_DebugMode_HealthzOmittedWhenOff(t *testing.T) {
+	server, _, _ := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/healthz", nil)
+	rr := httptest.NewRecorder()
+	server.handleHealthz(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if _, exists := resp["debug_mode"]; exists {
+		t.Fatalf("expected debug_mode to be absent when both devMode and debug_ui are off, got %v", resp["debug_mode"])
+	}
+}
+
+func TestAPIContract_DebugMode_ConfigUpdatePersistsDebugUI(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+
+	// Verify default is false
+	if cfg.GetDebugUI() {
+		t.Fatal("DebugUI should default to false")
+	}
+
+	// Enable via config update API
+	body := []byte(`{"debug_ui": true}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	server.handleConfigUpdate(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify persisted in live config
+	if !cfg.GetDebugUI() {
+		t.Error("DebugUI should be true after config update")
+	}
+
+	// Verify it appears in the GET response
+	getReq := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	getRR := httptest.NewRecorder()
+	server.handleConfigGet(getRR, getReq)
+
+	var resp contracts.ConfigResponse
+	if err := json.NewDecoder(getRR.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode config response: %v", err)
+	}
+	if !resp.DebugUI {
+		t.Error("debug_ui should be true in GET /api/config response")
+	}
+
+	// Disable via config update API
+	body = []byte(`{"debug_ui": false}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
+	rr = httptest.NewRecorder()
+	server.handleConfigUpdate(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200 on disable, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if cfg.GetDebugUI() {
+		t.Error("DebugUI should be false after disabling")
+	}
+}
+
+func TestAPIContract_DebugMode_ConfigGetReturnsDebugUI(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+
+	// Default: debug_ui is off
+	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	rr := httptest.NewRecorder()
+	server.handleConfigGet(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var resp contracts.ConfigResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode config response: %v", err)
+	}
+	if resp.DebugUI {
+		t.Error("debug_ui should be false by default in GET /api/config")
+	}
+
+	// Enable debug_ui directly on config
+	cfg.DebugUI = true
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+
+	// Verify GET now returns true
+	req = httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	rr = httptest.NewRecorder()
+	server.handleConfigGet(rr, req)
+
+	resp = contracts.ConfigResponse{}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode config response: %v", err)
+	}
+	if !resp.DebugUI {
+		t.Error("debug_ui should be true in GET /api/config after enabling")
+	}
+}

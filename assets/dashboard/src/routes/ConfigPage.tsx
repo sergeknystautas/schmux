@@ -218,6 +218,7 @@ export default function ConfigPage() {
             saplingCmdCheckRepoBase: data.sapling_commands?.check_repo_base || '',
             saplingCmdCreateRepoBase: data.sapling_commands?.create_repo_base || '',
             localEchoRemote: data.local_echo_remote || false,
+            debugUI: data.debug_ui ?? false,
             tmuxBinary: data.tmux_binary || '',
             tmuxSocketName: data.tmux_socket_name || '',
             modelCatalog: data.models || [],
@@ -305,6 +306,7 @@ export default function ConfigPage() {
             saplingCmdCheckRepoBase: data.sapling_commands?.check_repo_base || '',
             saplingCmdCreateRepoBase: data.sapling_commands?.create_repo_base || '',
             localEchoRemote: data.local_echo_remote || false,
+            debugUI: data.debug_ui ?? false,
             tmuxBinary: data.tmux_binary || '',
             tmuxSocketName: data.tmux_socket_name || '',
           };
@@ -733,6 +735,7 @@ export default function ConfigPage() {
             ? state.tmuxSocketName
             : undefined,
         local_echo_remote: state.localEchoRemote,
+        debug_ui: state.debugUI,
       };
 
       const result = await updateConfig(updateRequest);
@@ -1541,6 +1544,7 @@ export default function ConfigPage() {
               xtermOperationTimeout={state.xtermOperationTimeout}
               xtermUseWebGL={state.xtermUseWebGL}
               localEchoRemote={state.localEchoRemote}
+              debugUI={state.debugUI}
               nudgenikTargetMissing={nudgenikTargetMissing}
               branchSuggestTargetMissing={branchSuggestTargetMissing}
               conflictResolveTargetMissing={conflictResolveTargetMissing}

@@ -111,6 +111,7 @@ export interface ConfigResponse {
   tmux_socket_name?: string;
   recycle_workspaces?: boolean;
   local_echo_remote?: boolean;
+  debug_ui?: boolean;
   system_capabilities: SystemCapabilities;
   needs_restart: boolean;
   dashboard_sx_status?: DashboardSXStatus;
@@ -150,6 +151,7 @@ export interface ConfigUpdateRequest {
   tmux_socket_name?: string;
   recycle_workspaces?: boolean;
   local_echo_remote?: boolean;
+  debug_ui?: boolean;
 }
 
 export interface ConflictResolve {

@@ -799,19 +799,27 @@ func (s *Server) Start() error {
 			})
 		})
 
-		// Dev-mode routes
+		// Self-build routes (require ./dev.sh runner)
 		if s.devMode {
 			r.Get("/dev/status", s.handleDevStatus)
-			r.Get("/dev/events/history", s.handleEventsHistory)
 			r.Group(func(r chi.Router) {
 				r.Use(s.csrfMiddleware)
 				r.Post("/dev/rebuild", s.handleDevRebuild)
+			})
+		}
+
+		// Debug diagnostic routes (require config debug_ui)
+		r.Group(func(r chi.Router) {
+			r.Use(s.debugModeMiddleware)
+			r.Get("/dev/events/history", s.handleEventsHistory)
+			r.Group(func(r chi.Router) {
+				r.Use(s.csrfMiddleware)
 				r.Post("/dev/simulate-tunnel", s.handleDevSimulateTunnel)
 				r.Post("/dev/simulate-tunnel-stop", s.handleDevSimulateTunnelStop)
 				r.Post("/dev/clear-password", s.handleDevClearPassword)
 				r.Post("/dev/diagnostic-append", s.handleDiagnosticAppend)
 			})
-		}
+		})
 	})
 
 	// Bind address from config
@@ -973,6 +981,19 @@ func (s *Server) isTrustedRequest(r *http.Request) bool {
 	}
 
 	return true
+}
+
+// debugModeMiddleware gates routes behind the debug_ui config toggle.
+// Orthogonal to devMode — dev mode controls self-build features, debug_ui
+// controls diagnostic panels and endpoints independently.
+func (s *Server) debugModeMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !s.config.GetDebugUI() {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // corsMiddleware is a chi-compatible middleware for CORS headers and origin validation.

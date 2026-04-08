@@ -68,10 +68,6 @@ vi.mock('../hooks/useTheme', () => ({
   default: () => ({ theme: 'dark' }),
 }));
 
-vi.mock('../hooks/useDevStatus', () => ({
-  default: () => ({ isDevMode: false }),
-}));
-
 vi.mock('react-diff-viewer-continued', () => ({
   default: () => <div data-testid="mock-diff-viewer" />,
   DiffMethod: { CHARS: 'chars' },
