@@ -469,7 +469,7 @@ func TestBuildCommand(t *testing.T) {
 			},
 		},
 		{
-			name: "promptable target without prompt returns error",
+			name: "promptable target without prompt succeeds",
 			target: ResolvedTarget{
 				Name:       "claude",
 				Kind:       TargetKindDetected,
@@ -477,11 +477,13 @@ func TestBuildCommand(t *testing.T) {
 				Promptable: true,
 				Env:        map[string]string{},
 			},
-			prompt:      "",
-			model:       nil,
-			resume:      false,
-			wantErr:     true,
-			errContains: "prompt is required",
+			prompt:  "",
+			model:   nil,
+			resume:  false,
+			wantErr: false,
+			shouldContain: []string{
+				"claude",
+			},
 		},
 		{
 			name: "non-promptable target with prompt returns error",

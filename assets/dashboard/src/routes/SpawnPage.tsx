@@ -593,10 +593,7 @@ export default function SpawnPage() {
       toastError('Please select at least one target');
       return false;
     }
-    if (!prompt.trim()) {
-      toastError('Please enter a prompt');
-      return false;
-    }
+    // Prompt is optional — agents can be spawned without one for interactive use
     return true;
   }, [
     totalPromptableCount,

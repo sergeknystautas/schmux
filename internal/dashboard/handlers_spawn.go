@@ -328,13 +328,8 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
-		if promptable && strings.TrimSpace(req.Prompt) == "" && !req.Resume {
-			results = append(results, SessionResult{
-				Target: targetName,
-				Error:  "prompt is required for promptable targets",
-			})
-			continue
-		}
+		// Prompt is optional for promptable targets — agents can be spawned
+		// without one for interactive use
 		if !promptable && strings.TrimSpace(req.Prompt) != "" {
 			results = append(results, SessionResult{
 				Target: targetName,

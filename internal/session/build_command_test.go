@@ -30,24 +30,24 @@ func TestBuildCommand_PromptableTarget(t *testing.T) {
 			wantSub: []string{"codex", "'fix the bug'"},
 		},
 		{
-			name: "promptable with empty prompt fails",
+			name: "promptable with empty prompt runs without prompt arg",
 			target: ResolvedTarget{
 				Name:       "codex",
 				Command:    "codex",
 				Promptable: true,
 			},
 			prompt:  "",
-			wantErr: "prompt is required",
+			wantSub: []string{"codex"},
 		},
 		{
-			name: "promptable with whitespace-only prompt fails",
+			name: "promptable with whitespace-only prompt runs without prompt arg",
 			target: ResolvedTarget{
 				Name:       "codex",
 				Command:    "codex",
 				Promptable: true,
 			},
 			prompt:  "   ",
-			wantErr: "prompt is required",
+			wantSub: []string{"codex"},
 		},
 		{
 			name: "command target with prompt fails",
