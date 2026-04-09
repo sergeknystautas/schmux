@@ -41,6 +41,7 @@ When modifying a subsystem, read its guide first. The guide tells you which file
 | [overlays.md](overlays.md)           | Overlay compounding, file propagation, manifests                 |
 | [lore.md](lore.md)                   | Continual learning: proposals, curator, instructions             |
 | [personas.md](personas.md)           | Persona YAML files, built-ins, prompt delivery                   |
+| [comm-styles.md](comm-styles.md)     | Communication styles, per-agent defaults, prompt composition     |
 | [nudgenik.md](nudgenik.md)           | NudgeNik session status classification                           |
 | [repofeed.md](repofeed.md)           | Cross-developer activity feed                                    |
 | [telemetry.md](telemetry.md)         | PostHog telemetry, IO workspace telemetry                        |

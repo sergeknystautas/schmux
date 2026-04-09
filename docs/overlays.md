@@ -31,7 +31,26 @@ The overlay compounding loop provides continuous bidirectional sync for overlay-
 - The `ValidateRelPath()` check rejects empty paths, absolute paths, and `..` traversal before any file I/O occurs.
 - Debounce timers are per-file (keyed `workspaceID:relPath`), not global. A burst of changes to the same file resets the timer; changes to different files debounce independently.
 - Suppression entries are swept every 30 seconds by a background ticker in the watcher event loop.
-- When the last session on a workspace is disposed, watches are removed. On workspace dispose, a final reconciliation runs before teardown.
+- When the last session on a workspace is disposed, a background reconcile goroutine runs. On workspace dispose, the background goroutine is cancelled before an authoritative synchronous reconcile and unconditional `RemoveWorkspace` call.
+
+## Disposal safety
+
+The overlay system must quiesce completely before workspace files are deleted. Two independent paths can trigger cleanup — session dispose (last session removed) and workspace dispose (workspace deleted) — and they can race.
+
+### Cancel-then-reconcile protocol
+
+1. **Session dispose** (last session): starts a background goroutine that reconciles overlays, then removes the workspace from the compounder. The goroutine's context is stored via `SetReconcileCancel()`.
+2. **Workspace dispose**: calls `CancelReconcile()` to abort any in-flight background goroutine, runs a synchronous authoritative reconcile, then calls `RemoveWorkspace()` unconditionally. Only after `RemoveWorkspace` returns does `dispose()` proceed to delete files.
+
+`RemoveWorkspace()` is the hard safety gate — it stops all fsnotify watches, cancels debounce timers, and removes the workspace from the compounder's map. After this call, no overlay reads, merges, or propagations can occur for the workspace.
+
+### Propagator guard
+
+The propagator skips workspaces with `Disposing` or `Recyclable` status when propagating changes. This prevents writing overlay content into a workspace whose files are about to be deleted.
+
+### Residual window
+
+After `RemoveWorkspace` calls `watcher.RemoveWorkspace` (which calls `timer.Stop()` on debounce timers), a callback already dequeued by the Go runtime may still fire. It checks `c.workspaces[workspaceID]` under RLock and finds nothing, so no propagation occurs. The file read hits ENOENT (file already deleted) and is logged and skipped. This is harmless log noise, not a correctness issue.
 
 ## Common modification patterns
 

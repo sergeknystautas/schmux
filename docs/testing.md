@@ -307,6 +307,35 @@ When adding new functionality:
 
 ---
 
+## Test Reliability
+
+### Contention vs. genuine flakiness
+
+When running many Docker containers in parallel on a single host, terminal-pipeline tests fail 10-55% of the time due to CPU contention. These same tests pass reliably in isolation (0% failure rate over 20 runs). CI runs a single container per test suite, so contention failures do not affect real CI reliability.
+
+To distinguish genuine flakiness from contention artifacts, run the suspect test in isolation multiple times:
+
+```bash
+./test.sh --scenarios --run "test name" --repeat 20
+```
+
+### Terminal fidelity test patterns
+
+Terminal tests are timing-sensitive because the rendering pipeline (tmux capture -> WebSocket -> xterm.js buffer) involves multiple async stages. Key reliability patterns:
+
+- **Drain write buffers before terminal reset.** Cancel pending `requestAnimationFrame` callbacks and drain `TerminalStream.writeBuffer` before calling `terminal.reset()` in `openTerminal`. Prevents stale data from being written into a freshly-cleared terminal.
+- **Poll the xterm.js buffer for sentinels, not the WebSocket.** Checking the rendered terminal buffer guarantees end-to-end delivery through the full rendering pipeline, rather than just confirming WebSocket delivery.
+- **Dispose sessions in `afterAll`.** Accumulated sessions overload the daemon. Each `describe.serial` block should dispose its sessions when finished.
+- **Wait for multiple WebSocket broadcasts before acting on absence.** A session appearing "missing" in the first broadcast may just be a stale initial state. Wait for 2+ broadcasts before treating a session as gone.
+
+### Git auto-gc interference
+
+Git's automatic garbage collection (`git gc --auto`) can cause intermittent failures in tests that create many commits. Disable it in test repos:
+
+```go
+exec.Command("git", "-C", repoDir, "config", "gc.auto", "0").Run()
+```
+
 ## See Also
 
 - [Architecture](architecture.md) — Package structure
