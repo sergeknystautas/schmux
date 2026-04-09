@@ -2586,6 +2586,14 @@ func (c *Config) GetRemoteVSCodeCommandTemplate() string {
 	return `{{.VSCodePath}} --remote ssh-remote+{{.Hostname}} {{.Path}}`
 }
 
+// defaultSSHCommand returns the default SSH command with keepalive options.
+// ServerAliveInterval sends a probe every 15s; ServerAliveCountMax=3 means
+// the connection is closed after 45s of unresponsive server. This prevents
+// silent connection drops through NAT, proxies, VPNs, and bastion hosts.
+func defaultSSHCommand(hostTemplate string) string {
+	return fmt.Sprintf(`ssh -tt -o ServerAliveInterval=15 -o ServerAliveCountMax=3 %s --`, hostTemplate)
+}
+
 // remoteTmuxControlSuffix returns the tmux control mode suffix for remote commands.
 // Uses -L for socket isolation on the remote host and -s for session naming.
 func remoteTmuxControlSuffix(socketName string) string {
@@ -2607,7 +2615,7 @@ func (rf *RemoteFlavor) GetConnectCommandTemplate(socketName string) string {
 	if rf.ConnectCommand != "" {
 		baseCmd = rf.ConnectCommand
 	} else {
-		baseCmd = `ssh -tt {{.Flavor}} --`
+		baseCmd = defaultSSHCommand("{{.Flavor}}")
 	}
 	return baseCmd + remoteTmuxControlSuffix(socketName)
 }
@@ -2620,7 +2628,7 @@ func (rf *RemoteFlavor) GetReconnectCommandTemplate(socketName string) string {
 	} else if rf.ConnectCommand != "" {
 		baseCmd = rf.ConnectCommand
 	} else {
-		baseCmd = `ssh -tt {{.Hostname}} --`
+		baseCmd = defaultSSHCommand("{{.Hostname}}")
 	}
 	return baseCmd + remoteTmuxControlSuffix(socketName)
 }
@@ -2635,7 +2643,7 @@ func (rf *RemoteFlavor) GetAttachCommandTemplate(socketName string) string {
 	} else if rf.ConnectCommand != "" {
 		baseCmd = rf.ConnectCommand
 	} else {
-		baseCmd = `ssh -tt {{.Hostname}} --`
+		baseCmd = defaultSSHCommand("{{.Hostname}}")
 	}
 	return baseCmd + remoteTmuxAttachSuffix(socketName)
 }
@@ -2865,7 +2873,7 @@ func (p *RemoteProfile) GetConnectCommandTemplate(socketName string) string {
 	if p.ConnectCommand != "" {
 		baseCmd = p.ConnectCommand
 	} else {
-		baseCmd = `ssh -tt {{.Flavor}} --`
+		baseCmd = defaultSSHCommand("{{.Flavor}}")
 	}
 	return baseCmd + remoteTmuxControlSuffix(socketName)
 }
@@ -2878,7 +2886,7 @@ func (p *RemoteProfile) GetReconnectCommandTemplate(socketName string) string {
 	} else if p.ConnectCommand != "" {
 		baseCmd = p.ConnectCommand
 	} else {
-		baseCmd = `ssh -tt {{.Hostname}} --`
+		baseCmd = defaultSSHCommand("{{.Hostname}}")
 	}
 	return baseCmd + remoteTmuxControlSuffix(socketName)
 }
@@ -2889,7 +2897,7 @@ func (rf *ResolvedFlavor) GetConnectCommandTemplate(socketName string) string {
 	if rf.ConnectCommand != "" {
 		baseCmd = rf.ConnectCommand
 	} else {
-		baseCmd = `ssh -tt {{.Flavor}} --`
+		baseCmd = defaultSSHCommand("{{.Flavor}}")
 	}
 	return baseCmd + remoteTmuxControlSuffix(socketName)
 }
@@ -2902,7 +2910,7 @@ func (rf *ResolvedFlavor) GetReconnectCommandTemplate(socketName string) string 
 	} else if rf.ConnectCommand != "" {
 		baseCmd = rf.ConnectCommand
 	} else {
-		baseCmd = `ssh -tt {{.Hostname}} --`
+		baseCmd = defaultSSHCommand("{{.Hostname}}")
 	}
 	return baseCmd + remoteTmuxControlSuffix(socketName)
 }

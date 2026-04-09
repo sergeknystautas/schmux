@@ -320,10 +320,23 @@ func (c *Connection) Connect(ctx context.Context) error {
 	// Monitor context cancellation during setup - kill process if context is canceled.
 	// Once Connect() returns, the monitoring stops so the caller's defer cancel()
 	// doesn't kill the long-lived connection.
+	//
+	// Race condition guard: when Connect() returns, connectDone is closed and then
+	// the caller's defer connectCancel() fires. If the monitoring goroutine hasn't
+	// been scheduled yet, both connectDone and ctx.Done() are ready simultaneously
+	// and Go randomly picks one. Without the flag, picking ctx.Done() would kill
+	// the just-established connection. The atomic flag ensures we only Close() if
+	// Connect() is still in progress.
+	var connectCompleted atomic.Bool
 	connectDone := make(chan struct{})
 	go func() {
 		select {
 		case <-ctx.Done():
+			if connectCompleted.Load() {
+				// Connect already returned successfully — the context was
+				// cancelled by the caller's defer, not a real cancellation.
+				return
+			}
 			if c.logger != nil {
 				c.logger.Warn("context canceled during connection, killing process", "host_id", c.host.ID)
 			}
@@ -359,6 +372,9 @@ func (c *Connection) Connect(ctx context.Context) error {
 
 	// Stop the context monitoring goroutine - the connection is established
 	// and should live independently of the setup context.
+	// Set the flag BEFORE closing the channel so the goroutine won't
+	// call Close() even if Go's select randomly picks ctx.Done().
+	connectCompleted.Store(true)
 	close(connectDone)
 
 	return nil
@@ -689,6 +705,14 @@ func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader) e
 			if c.logger != nil {
 				c.logger.Warn("tmux hostname fallback failed, leaving hostname empty", "host_id", c.host.ID, "err", err)
 			}
+		}
+	}
+
+	// Log the remote tmux version for diagnosing version-specific control mode issues.
+	if resp, _, err := c.client.Execute(ctx, "display-message -p '#{version}'"); err == nil {
+		v := strings.TrimSpace(resp)
+		if c.logger != nil {
+			c.logger.Info("remote tmux version", "host_id", c.host.ID, "version", v)
 		}
 	}
 

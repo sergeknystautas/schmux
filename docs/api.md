@@ -3462,6 +3462,8 @@ Request:
 
 Response: the created `RemoteProfileResponse` object (same shape as GET items).
 
+When `connect_command` is omitted, the default SSH command includes keepalive options (`-o ServerAliveInterval=15 -o ServerAliveCountMax=3`) to prevent silent connection drops through NAT, proxies, and VPN gateways.
+
 Errors:
 
 - 400: "Invalid request body" or validation error (plain text)

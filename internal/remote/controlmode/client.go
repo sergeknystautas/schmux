@@ -295,13 +295,28 @@ func (c *Client) processEvents() {
 			if !ok {
 				return
 			}
-			if event.Type == "pause" && len(event.Args) > 0 {
+			switch event.Type {
+			case "exit":
+				// %exit is sent when the control mode client is about to
+				// disconnect (session destroyed, server shutting down, etc.).
+				// The reason arg is critical for diagnosing unexpected drops.
+				reason := strings.Join(event.Args, " ")
 				if c.logger != nil {
-					c.logger.Info("pane paused by tmux (output fell behind)", "pane", event.Args[0])
+					c.logger.Warn("tmux control mode exit", "reason", reason)
 				}
-				select {
-				case c.pauseCh <- event.Args[0]:
-				default:
+			case "session-changed":
+				if c.logger != nil {
+					c.logger.Info("tmux session changed", "args", strings.Join(event.Args, " "))
+				}
+			case "pause":
+				if len(event.Args) > 0 {
+					if c.logger != nil {
+						c.logger.Info("pane paused by tmux (output fell behind)", "pane", event.Args[0])
+					}
+					select {
+					case c.pauseCh <- event.Args[0]:
+					default:
+					}
 				}
 			}
 		case <-c.closeCh:

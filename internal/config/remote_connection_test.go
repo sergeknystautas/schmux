@@ -14,7 +14,7 @@ func TestRemoteFlavor_GetConnectCommandTemplate_Default(t *testing.T) {
 	tmpl := rf.GetConnectCommandTemplate("schmux")
 
 	// Should return default SSH template with -tt and tmux appended
-	expected := `ssh -tt {{.Flavor}} -- tmux -L schmux -CC new-session -A -s schmux`
+	expected := `ssh -tt -o ServerAliveInterval=15 -o ServerAliveCountMax=3 {{.Flavor}} -- tmux -L schmux -CC new-session -A -s schmux`
 	if tmpl != expected {
 		t.Errorf("expected default template %q, got %q", expected, tmpl)
 	}
@@ -43,7 +43,7 @@ func TestRemoteFlavor_GetReconnectCommandTemplate_Default(t *testing.T) {
 	tmpl := rf.GetReconnectCommandTemplate("schmux")
 
 	// Should return default SSH reconnect template with -tt and tmux appended
-	expected := `ssh -tt {{.Hostname}} -- tmux -L schmux -CC new-session -A -s schmux`
+	expected := `ssh -tt -o ServerAliveInterval=15 -o ServerAliveCountMax=3 {{.Hostname}} -- tmux -L schmux -CC new-session -A -s schmux`
 	if tmpl != expected {
 		t.Errorf("expected default reconnect template %q, got %q", expected, tmpl)
 	}
@@ -107,7 +107,7 @@ func TestConnectCommandTemplate_Execution_SSH(t *testing.T) {
 		t.Fatalf("failed to execute template: %v", err)
 	}
 
-	expected := `ssh -tt dev12345.example.com -- tmux -L schmux -CC new-session -A -s schmux`
+	expected := `ssh -tt -o ServerAliveInterval=15 -o ServerAliveCountMax=3 dev12345.example.com -- tmux -L schmux -CC new-session -A -s schmux`
 	if result.String() != expected {
 		t.Errorf("expected %q, got %q", expected, result.String())
 	}
@@ -177,7 +177,7 @@ func TestReconnectCommandTemplate_Execution_SSH(t *testing.T) {
 		t.Fatalf("failed to execute template: %v", err)
 	}
 
-	expected := `ssh -tt dev12345.example.com -- tmux -L schmux -CC new-session -A -s schmux`
+	expected := `ssh -tt -o ServerAliveInterval=15 -o ServerAliveCountMax=3 dev12345.example.com -- tmux -L schmux -CC new-session -A -s schmux`
 	if result.String() != expected {
 		t.Errorf("expected %q, got %q", expected, result.String())
 	}

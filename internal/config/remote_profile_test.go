@@ -326,7 +326,7 @@ func TestMigrateRemoteFlavorsToProfiles_Idempotent(t *testing.T) {
 func TestRemoteProfile_GetConnectCommandTemplate(t *testing.T) {
 	t.Run("default", func(t *testing.T) {
 		p := &RemoteProfile{}
-		expected := `ssh -tt {{.Flavor}} -- tmux -L schmux -CC new-session -A -s schmux`
+		expected := `ssh -tt -o ServerAliveInterval=15 -o ServerAliveCountMax=3 {{.Flavor}} -- tmux -L schmux -CC new-session -A -s schmux`
 		if got := p.GetConnectCommandTemplate("schmux"); got != expected {
 			t.Errorf("got %q, want %q", got, expected)
 		}
@@ -346,7 +346,7 @@ func TestRemoteProfile_GetConnectCommandTemplate(t *testing.T) {
 func TestRemoteProfile_GetReconnectCommandTemplate(t *testing.T) {
 	t.Run("default", func(t *testing.T) {
 		p := &RemoteProfile{}
-		expected := `ssh -tt {{.Hostname}} -- tmux -L schmux -CC new-session -A -s schmux`
+		expected := `ssh -tt -o ServerAliveInterval=15 -o ServerAliveCountMax=3 {{.Hostname}} -- tmux -L schmux -CC new-session -A -s schmux`
 		if got := p.GetReconnectCommandTemplate("schmux"); got != expected {
 			t.Errorf("got %q, want %q", got, expected)
 		}
@@ -376,7 +376,7 @@ func TestRemoteProfile_GetReconnectCommandTemplate(t *testing.T) {
 func TestResolvedFlavor_GetConnectCommandTemplate(t *testing.T) {
 	t.Run("default", func(t *testing.T) {
 		rf := &ResolvedFlavor{}
-		expected := `ssh -tt {{.Flavor}} -- tmux -L schmux -CC new-session -A -s schmux`
+		expected := `ssh -tt -o ServerAliveInterval=15 -o ServerAliveCountMax=3 {{.Flavor}} -- tmux -L schmux -CC new-session -A -s schmux`
 		if got := rf.GetConnectCommandTemplate("schmux"); got != expected {
 			t.Errorf("got %q, want %q", got, expected)
 		}
@@ -396,7 +396,7 @@ func TestResolvedFlavor_GetConnectCommandTemplate(t *testing.T) {
 func TestResolvedFlavor_GetReconnectCommandTemplate(t *testing.T) {
 	t.Run("default", func(t *testing.T) {
 		rf := &ResolvedFlavor{}
-		expected := `ssh -tt {{.Hostname}} -- tmux -L schmux -CC new-session -A -s schmux`
+		expected := `ssh -tt -o ServerAliveInterval=15 -o ServerAliveCountMax=3 {{.Hostname}} -- tmux -L schmux -CC new-session -A -s schmux`
 		if got := rf.GetReconnectCommandTemplate("schmux"); got != expected {
 			t.Errorf("got %q, want %q", got, expected)
 		}
