@@ -358,6 +358,9 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 				styleObj = explicitStyleObj
 			} else if !explicitNone {
 				baseTool := s.models.ResolveTargetToTool(targetName)
+				if baseTool == "" {
+					baseTool = targetName // command targets use their name directly
+				}
 				if defaultID := s.config.GetCommStyles()[baseTool]; defaultID != "" {
 					styleObj, _ = s.styleManager.Get(defaultID)
 				}

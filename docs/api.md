@@ -1025,7 +1025,7 @@ Repos with `"vcs": "sapling"` use the sapling backend instead of git. The `vcs` 
 
 **`tmux_socket_name`** (string, optional, default `"schmux"`): The tmux socket name used by the daemon. All sessions are created on this socket. Changing this field flags `needs_restart`.
 
-**`comm_styles`** (object, optional): Per-agent-type default communication style IDs. Keys are base tool names (e.g., `"claude"`, `"codex"`). Example: `{"claude": "pirate", "codex": "caveman"}`. When a session is spawned without an explicit `style_id`, the default for that agent type is used. An empty map means no default styles.
+**`comm_styles`** (object, optional): Per-agent-type default communication style IDs. Keys are base tool names (e.g., `"claude"`, `"codex"`) or command target names (e.g., `"my-command"`). Example: `{"claude": "pirate", "codex": "caveman"}`. When a session is spawned without an explicit `style_id`, the default for that agent type is used. For model targets, the key is resolved via `ResolveTargetToTool`; for command targets, the target name is used directly. An empty map means no default styles.
 
 **TLS behavior**: The server serves HTTPS whenever `network.tls.cert_path` and `network.tls.key_path` are both set, regardless of whether `access_control.enabled` is true. This allows dashboard.sx HTTPS without requiring GitHub auth.
 
