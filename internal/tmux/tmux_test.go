@@ -417,3 +417,190 @@ func TestTmuxServerRenameSessionArgs(t *testing.T) {
 		t.Errorf("RenameSession cmd args = %v, want %v", got, want)
 	}
 }
+
+func TestValidateSessionName(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+		errMsg  string
+	}{
+		// Valid names
+		{
+			name:    "simple alphanumeric",
+			input:   "test123",
+			wantErr: false,
+		},
+		{
+			name:    "with dash",
+			input:   "my-session",
+			wantErr: false,
+		},
+		{
+			name:    "with underscore",
+			input:   "my_session",
+			wantErr: false,
+		},
+		{
+			name:    "mixed valid chars",
+			input:   "test-123_session",
+			wantErr: false,
+		},
+		{
+			name:    "single char",
+			input:   "a",
+			wantErr: false,
+		},
+		{
+			name:    "uppercase",
+			input:   "TEST-SESSION",
+			wantErr: false,
+		},
+
+		// Invalid names - command injection attempts
+		{
+			name:    "empty string",
+			input:   "",
+			wantErr: true,
+			errMsg:  "cannot be empty",
+		},
+		{
+			name:    "semicolon injection",
+			input:   "test; rm -rf /",
+			wantErr: true,
+			errMsg:  "invalid session name",
+		},
+		{
+			name:    "pipe injection",
+			input:   "test | cat /etc/passwd",
+			wantErr: true,
+			errMsg:  "invalid session name",
+		},
+		{
+			name:    "backtick injection",
+			input:   "test`whoami`",
+			wantErr: true,
+			errMsg:  "invalid session name",
+		},
+		{
+			name:    "dollar paren injection",
+			input:   "test$(whoami)",
+			wantErr: true,
+			errMsg:  "invalid session name",
+		},
+		{
+			name:    "ampersand injection",
+			input:   "test && rm file",
+			wantErr: true,
+			errMsg:  "invalid session name",
+		},
+		{
+			name:    "newline injection",
+			input:   "test\nrm -rf /",
+			wantErr: true,
+			errMsg:  "invalid session name",
+		},
+		{
+			name:    "space character",
+			input:   "test session",
+			wantErr: true,
+			errMsg:  "invalid session name",
+		},
+		{
+			name:    "forward slash",
+			input:   "test/session",
+			wantErr: true,
+			errMsg:  "invalid session name",
+		},
+		{
+			name:    "backslash",
+			input:   "test\\session",
+			wantErr: true,
+			errMsg:  "invalid session name",
+		},
+		{
+			name:    "single quote",
+			input:   "test'session",
+			wantErr: true,
+			errMsg:  "invalid session name",
+		},
+		{
+			name:    "double quote",
+			input:   "test\"session",
+			wantErr: true,
+			errMsg:  "invalid session name",
+		},
+		{
+			name:    "equals sign (tmux special)",
+			input:   "=test",
+			wantErr: true,
+			errMsg:  "invalid session name",
+		},
+		{
+			name:    "colon (tmux special)",
+			input:   "test:session",
+			wantErr: true,
+			errMsg:  "invalid session name",
+		},
+		{
+			name:    "dot",
+			input:   "test.session",
+			wantErr: true,
+			errMsg:  "invalid session name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSessionName(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ValidateSessionName(%q) expected error, got nil", tt.input)
+					return
+				}
+				if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("ValidateSessionName(%q) error = %q, want error containing %q", tt.input, err.Error(), tt.errMsg)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("ValidateSessionName(%q) unexpected error: %v", tt.input, err)
+				}
+			}
+		})
+	}
+}
+
+func TestGetAttachCommandValidation(t *testing.T) {
+	srv := NewTmuxServer("tmux", "test-sock", nil)
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "valid name",
+			input: "test-session",
+			want:  "tmux -L test-sock attach -t \"=test-session\"",
+		},
+		{
+			name:  "injection attempt returns empty",
+			input: "test; rm -rf /",
+			want:  "",
+		},
+		{
+			name:  "empty name returns empty",
+			input: "",
+			want:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := srv.GetAttachCommand(tt.input)
+			if got != tt.want {
+				t.Errorf("GetAttachCommand(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
