@@ -1359,6 +1359,112 @@ func (e *Env) SpawnRemoteSession(profileID, flavor, target, prompt, nickname str
 	return ""
 }
 
+// CreatePersona creates a persona YAML file in the daemon's personas directory.
+func (e *Env) CreatePersona(id, name, prompt string) {
+	e.T.Helper()
+	personasDir := filepath.Join(e.HomeDir, ".schmux", "personas")
+	if err := os.MkdirAll(personasDir, 0755); err != nil {
+		e.T.Fatalf("Failed to create personas dir: %v", err)
+	}
+
+	// Persona files use YAML frontmatter + body prompt
+	content := fmt.Sprintf("---\nid: %s\nname: %s\nicon: T\ncolor: \"#888\"\n---\n\n%s\n", id, name, prompt)
+	path := filepath.Join(personasDir, id+".yaml")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		e.T.Fatalf("Failed to write persona file: %v", err)
+	}
+	e.T.Logf("Created persona %s at %s", id, path)
+}
+
+// SpawnRemoteSessionWithPersona spawns a remote session with a persona_id.
+func (e *Env) SpawnRemoteSessionWithPersona(profileID, flavor, target, prompt, nickname, personaID string) string {
+	e.T.Helper()
+	e.T.Logf("Spawning remote session with persona: profile=%s flavor=%s target=%s persona=%s", profileID, flavor, target, personaID)
+
+	type SpawnRequest struct {
+		RemoteProfileID string         `json:"remote_profile_id"`
+		RemoteFlavor    string         `json:"remote_flavor,omitempty"`
+		Prompt          string         `json:"prompt"`
+		Nickname        string         `json:"nickname,omitempty"`
+		Targets         map[string]int `json:"targets"`
+		PersonaID       string         `json:"persona_id,omitempty"`
+	}
+
+	spawnReqBody := SpawnRequest{
+		RemoteProfileID: profileID,
+		RemoteFlavor:    flavor,
+		Prompt:          prompt,
+		Nickname:        nickname,
+		Targets:         map[string]int{target: 1},
+		PersonaID:       personaID,
+	}
+
+	reqBody, err := json.Marshal(spawnReqBody)
+	if err != nil {
+		e.T.Fatalf("Failed to marshal spawn request: %v", err)
+	}
+
+	type SpawnResult struct {
+		SessionID   string `json:"session_id"`
+		WorkspaceID string `json:"workspace_id"`
+		Target      string `json:"target"`
+		Status      string `json:"status"`
+		Error       string `json:"error,omitempty"`
+	}
+
+	const maxRetries = 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		spawnReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, e.DaemonURL+"/api/spawn", bytes.NewReader(reqBody))
+		spawnReq.Header.Set("Content-Type", "application/json")
+		spawnResp, err := http.DefaultClient.Do(spawnReq)
+		cancel()
+
+		if err != nil {
+			if attempt < maxRetries {
+				e.T.Logf("Spawn attempt %d/%d failed: %v — retrying", attempt, maxRetries, err)
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			e.T.Fatalf("Failed to spawn remote session: %v", err)
+		}
+		defer spawnResp.Body.Close()
+
+		body, _ := io.ReadAll(spawnResp.Body)
+		if spawnResp.StatusCode != http.StatusOK {
+			if attempt < maxRetries {
+				e.T.Logf("Spawn attempt %d/%d: status %d — retrying", attempt, maxRetries, spawnResp.StatusCode)
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			e.T.Fatalf("Spawn API returned %d: %s", spawnResp.StatusCode, body)
+		}
+
+		var results []SpawnResult
+		if err := json.Unmarshal(body, &results); err != nil {
+			e.T.Fatalf("Failed to decode spawn response: %v\nBody: %s", err, body)
+		}
+
+		if len(results) > 0 && results[0].Error != "" {
+			errMsg := results[0].Error
+			if attempt < maxRetries && (strings.Contains(errMsg, "control mode not ready") || strings.Contains(errMsg, "client closed")) {
+				e.T.Logf("Spawn attempt %d/%d failed (transient): %s — retrying", attempt, maxRetries, errMsg)
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			e.T.Fatalf("Remote spawn failed: %s", errMsg)
+		}
+
+		if len(results) > 0 {
+			return results[0].SessionID
+		}
+		return ""
+	}
+
+	e.T.Fatalf("Remote spawn failed after %d attempts", maxRetries)
+	return ""
+}
+
 // WaitForRemoteHostStatus waits for a remote host to reach a specific status.
 func (e *Env) WaitForRemoteHostStatus(profileID, expectedStatus string, timeout time.Duration) *RemoteHostResponse {
 	e.T.Helper()

@@ -596,3 +596,121 @@ func TestE2ERemoteHooksProvisioning(t *testing.T) {
 		env.DisposeSession(sessionID)
 	})
 }
+
+// TestE2ERemotePersonaFileCreated verifies that spawning a remote session with
+// a persona writes the persona prompt to a file on the remote host (in the
+// schmux data dir) instead of inlining it in the tmux new-window command.
+// Inline multi-line text corrupts tmux control mode (newlines are command
+// terminators), so the file-based approach is required for correctness.
+func TestE2ERemotePersonaFileCreated(t *testing.T) {
+	t.Parallel()
+	env := New(t)
+
+	workspaceRoot := t.TempDir()
+	remoteWorkspacePath := t.TempDir()
+
+	// Clean up any stale schmux data from previous runs
+	os.RemoveAll(filepath.Join(remoteWorkspacePath, ".schmux"))
+
+	t.Run("CreateConfig", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+	})
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
+	mockScriptPath := filepath.Join(cwd, "..", "..", "test", "mock-remote.sh")
+
+	var profileID string
+	flavor := "mock-remote-persona"
+	t.Run("AddRemoteProfile", func(t *testing.T) {
+		profileID = env.AddRemoteProfileToConfig(
+			flavor,
+			"Mock Remote Persona (E2E Test)",
+			remoteWorkspacePath,
+			mockScriptPath,
+		)
+		if profileID == "" {
+			t.Fatal("Expected profile ID, got empty")
+		}
+	})
+
+	t.Run("DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	// Create a test persona with multi-line prompt text
+	personaID := "test-architect"
+	personaPrompt := "## Persona: Software Architect\n\n### Behavioral Expectations\nProduce analysis and recommendations, not code.\nCommunicate through ASCII diagrams.\n\n### Instructions\nYou are a very senior software architect.\nYou've built systems long enough to know where designs break down."
+	t.Run("CreateTestPersona", func(t *testing.T) {
+		env.CreatePersona(personaID, "Architect", personaPrompt)
+	})
+
+	var sessionID string
+	t.Run("SpawnRemoteWithPersona", func(t *testing.T) {
+		sessionID = env.SpawnRemoteSessionWithPersona(profileID, flavor, "claude", "hello", env.Nickname("persona-test"), personaID)
+		if sessionID == "" {
+			t.Fatal("Expected session ID from remote spawn")
+		}
+	})
+
+	t.Run("WaitForConnection", func(t *testing.T) {
+		host := env.WaitForRemoteHostStatus(profileID, "connected", 15*time.Second)
+		if host == nil {
+			t.Fatal("Remote host did not connect")
+		}
+	})
+
+	t.Run("WaitForSessionRunning", func(t *testing.T) {
+		sess := env.WaitForSessionRunning(sessionID, 10*time.Second)
+		if sess == nil {
+			t.Fatal("Session did not become running")
+		}
+	})
+
+	t.Run("VerifyPersonaFileCreated", func(t *testing.T) {
+		// The persona file should be in the schmux data dir (git VCS = .schmux/)
+		personaPattern := filepath.Join(remoteWorkspacePath, ".schmux", "system-prompt-*.md")
+		var matches []string
+		env.PollUntil(5*time.Second, "persona file created", func() bool {
+			matches, _ = filepath.Glob(personaPattern)
+			return len(matches) > 0
+		})
+
+		if len(matches) == 0 {
+			t.Fatalf("No persona file found matching %s", personaPattern)
+		}
+
+		data, err := os.ReadFile(matches[0])
+		if err != nil {
+			t.Fatalf("Failed to read persona file: %v", err)
+		}
+
+		content := string(data)
+		t.Logf("Persona file content (%d bytes): %s", len(content), content[:min(200, len(content))])
+
+		// Verify content has the actual newlines preserved (not collapsed to spaces)
+		if !strings.Contains(content, "\n") {
+			t.Error("Persona file content has no newlines — newlines were not preserved")
+		}
+
+		// Verify key phrases from the multi-line persona prompt are present
+		for _, phrase := range []string{"Software Architect", "Behavioral Expectations", "senior software architect"} {
+			if !strings.Contains(content, phrase) {
+				t.Errorf("Persona file missing expected phrase: %q", phrase)
+			}
+		}
+	})
+
+	t.Run("DisposeSession", func(t *testing.T) {
+		env.DisposeSession(sessionID)
+	})
+}

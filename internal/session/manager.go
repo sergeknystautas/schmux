@@ -498,14 +498,20 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 		}
 	}
 
-	// Inject persona+style prompt inline via CLI flag for remote sessions.
-	// Remote sessions can't use --append-system-prompt-file because the file
-	// doesn't exist on the remote host; use --append-system-prompt instead.
+	// Inject persona+style prompt via file for remote sessions.
+	// The persona text is written to a file on the remote host (via RunCommand
+	// after connection is established) and referenced with --append-system-prompt-file.
+	// This avoids embedding multi-line text in the tmux new-window command,
+	// which would corrupt tmux control mode (newlines are command terminators).
+	var remotePersonaPath string
 	if opts.PersonaPrompt != "" {
 		if adapter := detect.GetAdapter(baseTool); adapter != nil {
 			if adapter.PersonaInjection() == detect.PersonaCLIFlag {
-				command = fmt.Sprintf("%s --append-system-prompt %s",
-					command, shellutil.Quote(opts.PersonaPrompt))
+				remotePersonaPath = filepath.Join(
+					state.SchmuxDataDirRelative(flavor.VCS),
+					fmt.Sprintf("system-prompt-%s.md", sessionID),
+				)
+				command = appendPersonaFlags(command, baseTool, remotePersonaPath)
 			}
 		}
 	}
@@ -528,10 +534,20 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 		windowName = sanitizeNickname(uniqueNickname)
 	}
 
+	// Build pre-create command for queued path: mkdir + persona file write
+	var preCreateCmd string
+	{
+		parts := []string{"mkdir -p " + filepath.Join(state.SchmuxDataDirRelative(flavor.VCS), "events")}
+		if remotePersonaPath != "" {
+			parts = append(parts, remotePersonaWriteCommand(opts.PersonaPrompt, remotePersonaPath))
+		}
+		preCreateCmd = strings.Join(parts, " && ")
+	}
+
 	// Check if connection is ready
 	if !conn.IsConnected() {
 		// Queue the session creation (directory will be created when connection is ready)
-		resultCh := conn.QueueSession(ctx, sessionID, windowName, flavor.WorkspacePath, command)
+		resultCh := conn.QueueSession(ctx, sessionID, windowName, flavor.WorkspacePath, command, preCreateCmd)
 
 		// Create session with status="provisioning"
 		sess := state.Session{
@@ -646,6 +662,17 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 		m.logger.Warn("failed to create schmux events directory on remote host", "err", err)
 	}
 	mkdirCancel()
+
+	// Write persona prompt to file on remote host (if configured).
+	// Must happen before CreateSession so the file exists when the agent starts.
+	if remotePersonaPath != "" {
+		writeCtx, writeCancel := context.WithTimeout(ctx, 10*time.Second)
+		writeCmd := remotePersonaWriteCommand(opts.PersonaPrompt, remotePersonaPath)
+		if _, err := conn.RunCommand(writeCtx, flavor.WorkspacePath, writeCmd); err != nil {
+			m.logger.Warn("failed to write persona file on remote host", "err", err)
+		}
+		writeCancel()
+	}
 
 	windowID, paneID, err := conn.CreateSession(ctx, windowName, flavor.WorkspacePath, command)
 	if err != nil {
@@ -1217,6 +1244,15 @@ func appendSignalingFlags(cmd, baseTool string, isRemote bool) string {
 // appendPersonaFlags injects persona prompt via CLI flag for tools that support it.
 // Only tools with PersonaCLIFlag injection method get flags appended.
 // Other tools use instruction file append or SpawnEnv for persona injection.
+// remotePersonaWriteCommand returns a single-line shell command that writes
+// the persona prompt to a file on the remote host. Uses base64 encoding to
+// avoid newlines in the command (tmux control mode uses newlines as command
+// terminators, so the RunCommand pipeline must stay single-line).
+func remotePersonaWriteCommand(prompt, filePath string) string {
+	encoded := base64.StdEncoding.EncodeToString([]byte(prompt))
+	return fmt.Sprintf("printf '%%s' '%s' | base64 -d > %s", encoded, filePath)
+}
+
 func appendPersonaFlags(cmd, baseTool, personaFilePath string) string {
 	adapter := detect.GetAdapter(baseTool)
 	if adapter == nil {

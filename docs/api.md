@@ -3462,7 +3462,7 @@ Request:
 
 Response: the created `RemoteProfileResponse` object (same shape as GET items).
 
-When `connect_command` is omitted, the default SSH command includes keepalive options (`-o ServerAliveInterval=15 -o ServerAliveCountMax=3`) to prevent silent connection drops through NAT, proxies, and VPN gateways.
+When `connect_command` is omitted, the default SSH command includes keepalive options (`-o ServerAliveInterval=15 -o ServerAliveCountMax=3`) to prevent silent connection drops through NAT, proxies, and VPN gateways. When spawning a remote session with `persona_id`, the persona prompt is written to a file on the remote host (in the schmux data directory) rather than passed inline, to avoid tmux control mode protocol issues with multi-line content.
 
 Errors:
 

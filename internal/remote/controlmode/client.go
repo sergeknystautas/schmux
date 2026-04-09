@@ -183,6 +183,14 @@ func (c *Client) Execute(ctx context.Context, cmd string) (string, time.Duration
 
 	// Send command (tmux control mode assigns IDs automatically based on order)
 	// Commands are matched to responses in FIFO order
+	//
+	// tmux control mode uses newlines as command terminators — each line is
+	// one command. Embedded newlines split a single command into multiple
+	// commands, corrupting the FIFO protocol. This happens when shell-quoted
+	// arguments contain literal newlines (e.g., persona prompts injected via
+	// --append-system-prompt on remote sessions). Collapse to spaces.
+	cmd = strings.ReplaceAll(cmd, "\n", " ")
+
 	// Protect stdin write with mutex to prevent concurrent command interleaving
 	mutexStart := time.Now()
 	c.stdinMu.Lock()

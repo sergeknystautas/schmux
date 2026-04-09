@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/base64"
 	"io"
 	"os"
 	"path/filepath"
@@ -985,6 +986,41 @@ func TestAppendPersonaFlags(t *testing.T) {
 				t.Errorf("appendPersonaFlags() = %q, should start with original cmd %q", got, tt.cmd)
 			}
 		})
+	}
+}
+
+func TestRemotePersonaWriteCommand(t *testing.T) {
+	t.Parallel()
+
+	personaPrompt := "## Persona: Architect\n\n### Instructions\nYou're a senior engineer.\n\nCore principles:\n- Simple > complex\n- It depends on what"
+	filePath := ".sl/schmux/system-prompt-session123.md"
+
+	cmd := remotePersonaWriteCommand(personaPrompt, filePath)
+
+	// Command must be single-line (safe for tmux control mode Execute)
+	if strings.Contains(cmd, "\n") {
+		t.Errorf("command contains newlines, would corrupt tmux control mode:\n%s", cmd)
+	}
+
+	// Command must write to the correct path
+	if !strings.Contains(cmd, filePath) {
+		t.Errorf("command should reference file path %q, got: %s", filePath, cmd)
+	}
+
+	// Base64 content must round-trip correctly
+	// Extract the base64 portion: command is "printf '%s' '<base64>' | base64 -d > <path>"
+	b64Start := strings.Index(cmd, "printf '%s' '") + len("printf '%s' '")
+	b64End := strings.Index(cmd[b64Start:], "'")
+	if b64Start < 0 || b64End < 0 {
+		t.Fatalf("could not extract base64 content from command: %s", cmd)
+	}
+	encoded := cmd[b64Start : b64Start+b64End]
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("base64 decode failed: %v (encoded: %q)", err, encoded)
+	}
+	if string(decoded) != personaPrompt {
+		t.Errorf("round-trip failed:\n  got:  %q\n  want: %q", string(decoded), personaPrompt)
 	}
 }
 

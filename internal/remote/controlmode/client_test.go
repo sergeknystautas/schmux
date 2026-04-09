@@ -491,6 +491,53 @@ func TestClientExecuteAfterClose(t *testing.T) {
 	}
 }
 
+// TestExecuteCollapsesNewlines verifies that Execute replaces newlines in
+// commands with spaces before writing to stdin. tmux control mode uses
+// newlines as command terminators — an embedded newline would split one
+// command into multiple commands, corrupting the protocol. This happens
+// when shell-quoted arguments contain literal newlines (e.g., persona
+// prompts passed via --append-system-prompt on remote sessions).
+func TestExecuteCollapsesNewlines(t *testing.T) {
+	// Set up a parser that will feed back a response so Execute doesn't block.
+	pr, pw := io.Pipe()
+	parser := NewParser(pr, nil)
+	go parser.Run()
+
+	var stdin strings.Builder
+	client := NewClient(&stdin, parser, nil)
+	client.Start()
+	defer client.Close()
+
+	// Send the response in the background so Execute can return.
+	go func() {
+		// Give Execute a moment to write the command
+		time.Sleep(50 * time.Millisecond)
+		_, _ = io.WriteString(pw, "%begin 1234 0 1\n%end 1234 0 1\n")
+	}()
+
+	cmd := "new-window -n test 'line1\nline2\nline3'"
+	_, _, err := client.Execute(context.Background(), cmd)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	written := stdin.String()
+
+	// The written command must be a single line (no embedded newlines).
+	lines := strings.Split(strings.TrimSuffix(written, "\n"), "\n")
+	if len(lines) != 1 {
+		t.Errorf("command was split into %d lines, want 1.\nWritten:\n%s", len(lines), written)
+	}
+
+	// The newlines must have been replaced with spaces.
+	if strings.Contains(written, "line1\nline2") {
+		t.Error("raw newlines survived in the command written to stdin")
+	}
+	if !strings.Contains(written, "line1 line2 line3") {
+		t.Errorf("expected newlines collapsed to spaces, got: %q", written)
+	}
+}
+
 // TestGetCursorState verifies the parsing logic of GetCursorState.
 func TestGetCursorState(t *testing.T) {
 	tests := []struct {

@@ -33,11 +33,12 @@ const (
 
 // PendingSession represents a session waiting for connection to be ready.
 type PendingSession struct {
-	SessionID  string
-	Name       string
-	WorkDir    string
-	Command    string
-	CompleteCh chan PendingSessionResult
+	SessionID    string
+	Name         string
+	WorkDir      string
+	Command      string
+	PreCreateCmd string // Shell command to run via RunCommand before CreateWindow (e.g., write persona file)
+	CompleteCh   chan PendingSessionResult
 }
 
 // PendingSessionResult contains the result of a queued session creation.
@@ -1058,16 +1059,19 @@ func (c *Connection) ListSessions(ctx context.Context) ([]controlmode.WindowInfo
 
 // QueueSession adds a session to the pending queue if connection is not ready.
 // Returns a channel that will receive the result when the session is created.
-func (c *Connection) QueueSession(ctx context.Context, sessionID, name, workdir, command string) <-chan PendingSessionResult {
+// preCreateCmd is an optional shell command to run (via RunCommand) before
+// creating the window — used to write persona files on the remote host.
+func (c *Connection) QueueSession(ctx context.Context, sessionID, name, workdir, command, preCreateCmd string) <-chan PendingSessionResult {
 	ch := make(chan PendingSessionResult, 1)
 
 	c.pendingSessionsMu.Lock()
 	c.pendingSessions = append(c.pendingSessions, PendingSession{
-		SessionID:  sessionID,
-		Name:       name,
-		WorkDir:    workdir,
-		Command:    command,
-		CompleteCh: ch,
+		SessionID:    sessionID,
+		Name:         name,
+		WorkDir:      workdir,
+		Command:      command,
+		PreCreateCmd: preCreateCmd,
+		CompleteCh:   ch,
 	})
 	n := len(c.pendingSessions)
 	c.pendingSessionsMu.Unlock()
@@ -1095,6 +1099,17 @@ func (c *Connection) drainPendingQueue(ctx context.Context) {
 	}
 
 	for _, p := range pending {
+		// Run pre-create command (e.g., write persona file) before creating the window.
+		if p.PreCreateCmd != "" {
+			preCtx, preCancel := context.WithTimeout(ctx, 10*time.Second)
+			if _, err := c.RunCommand(preCtx, p.WorkDir, p.PreCreateCmd); err != nil {
+				if c.logger != nil {
+					c.logger.Warn("pre-create command failed", "session_id", p.SessionID, "err", err)
+				}
+			}
+			preCancel()
+		}
+
 		windowID, paneID, err := c.client.CreateWindow(ctx, p.Name, p.WorkDir, p.Command)
 		if err != nil {
 			if c.logger != nil {

@@ -22,7 +22,7 @@ func TestConnection_QueueSession(t *testing.T) {
 	conn := NewConnection(cfg)
 
 	// Queue a session
-	resultCh := conn.QueueSession(context.Background(), "session-1", "test-window", "/tmp", "echo test")
+	resultCh := conn.QueueSession(context.Background(), "session-1", "test-window", "/tmp", "echo test", "")
 
 	// Verify session is in queue using polling with deadline
 	deadline := time.Now().Add(1 * time.Second)
@@ -250,8 +250,8 @@ func TestConnection_CloseNotifiesPendingSessions(t *testing.T) {
 	conn := NewConnection(cfg)
 
 	// Queue multiple sessions
-	ch1 := conn.QueueSession(context.Background(), "s1", "win1", "/tmp", "cmd1")
-	ch2 := conn.QueueSession(context.Background(), "s2", "win2", "/tmp", "cmd2")
+	ch1 := conn.QueueSession(context.Background(), "s1", "win1", "/tmp", "cmd1", "")
+	ch2 := conn.QueueSession(context.Background(), "s2", "win2", "/tmp", "cmd2", "")
 
 	// Close the connection — should notify all pending callers
 	conn.Close()
