@@ -157,6 +157,10 @@ func (c *Client) Execute(ctx context.Context, cmd string) (string, time.Duration
 
 	// Register channel in registry to track for cleanup
 	c.respChansMu.Lock()
+	if c.respChans == nil {
+		c.respChansMu.Unlock()
+		return "", 0, fmt.Errorf("client closed")
+	}
 	c.respChans[respCh] = true
 	c.respChansMu.Unlock()
 

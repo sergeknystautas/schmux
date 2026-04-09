@@ -472,6 +472,25 @@ func TestClientDoubleClose(t *testing.T) {
 	client.Close()
 }
 
+func TestClientExecuteAfterClose(t *testing.T) {
+	input := strings.NewReader("")
+	parser := NewParser(input, nil)
+
+	var stdin strings.Builder
+	client := NewClient(&stdin, parser, nil)
+	client.Start()
+	client.Close()
+
+	// Execute after Close should return an error, not panic
+	_, _, err := client.Execute(context.Background(), "list-windows")
+	if err == nil {
+		t.Fatal("expected error from Execute after Close")
+	}
+	if !strings.Contains(err.Error(), "client closed") {
+		t.Fatalf("expected 'client closed' error, got: %v", err)
+	}
+}
+
 // TestGetCursorState verifies the parsing logic of GetCursorState.
 func TestGetCursorState(t *testing.T) {
 	tests := []struct {
