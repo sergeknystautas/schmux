@@ -124,8 +124,6 @@ Before the `/commit` command runs, ensure:
 
 The pre-commit hook automatically formats staged Go, TypeScript, JavaScript, CSS, Markdown, and JSON files. Running `./format.sh` auto-installs the hook if missing.
 
-**`./format.sh` exit code 2 is normal** — it means no staged files required changes. Treat exit codes 0 and 2 as success; only exit code 1 indicates a real formatting error.
-
 For faster iteration during development:
 
 - Run unit tests only: `./test.sh --quick` (or `go test ./...`)

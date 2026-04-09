@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
+# Exit code 2 from formatters (gofmt, prettier) means "nothing to format" — not an error.
+trap 'rc=$?; [ $rc -eq 2 ] && exit 0; exit $rc' EXIT
+
 cd "$(dirname "$0")"
 
 # Auto-install pre-commit hook if missing or outdated
