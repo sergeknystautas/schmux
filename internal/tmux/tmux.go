@@ -13,6 +13,25 @@ import (
 	"github.com/charmbracelet/log"
 )
 
+var (
+	// validSessionNamePattern ensures tmux session names contain only safe characters
+	// to prevent command injection. tmux allows most characters, but we restrict to
+	// alphanumeric, dash, and underscore for safety.
+	validSessionNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+)
+
+// ValidateSessionName checks if a session name is safe to use with tmux.
+// Returns an error if the name contains characters that could be used for command injection.
+func ValidateSessionName(name string) error {
+	if name == "" {
+		return fmt.Errorf("session name cannot be empty")
+	}
+	if !validSessionNamePattern.MatchString(name) {
+		return fmt.Errorf("invalid session name %q: must contain only alphanumeric characters, dash, and underscore", name)
+	}
+	return nil
+}
+
 // ValidateBinary checks that the given path is a valid tmux executable.
 // It verifies the file exists, is executable, and outputs a recognized tmux
 // version string. Returns the version string (e.g. "tmux 3.5") on success.
@@ -94,6 +113,11 @@ func (s *TmuxServer) StartServer(ctx context.Context) error {
 
 // CreateSession creates a new tmux session with the given name, directory, and command.
 func (s *TmuxServer) CreateSession(ctx context.Context, name, dir, command string) error {
+	// Validate session name to prevent command injection
+	if err := ValidateSessionName(name); err != nil {
+		return fmt.Errorf("invalid session name: %w", err)
+	}
+
 	args := []string{
 		"new-session",
 		"-d",       // detached
@@ -119,6 +143,10 @@ func (s *TmuxServer) CreateSession(ctx context.Context, name, dir, command strin
 
 // KillSession kills a tmux session.
 func (s *TmuxServer) KillSession(ctx context.Context, name string) error {
+	// Validate session name to prevent command injection
+	if err := ValidateSessionName(name); err != nil {
+		return fmt.Errorf("invalid session name: %w", err)
+	}
 	// tmux kill-session -t <name> (= prefix for exact match)
 	cmd := s.cmd(ctx, "kill-session", "-t", "="+name)
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -157,6 +185,10 @@ func (s *TmuxServer) ListSessions(ctx context.Context) ([]string, error) {
 
 // SetOption sets a tmux option on a session.
 func (s *TmuxServer) SetOption(ctx context.Context, sessionName, option, value string) error {
+	// Validate session name to prevent command injection
+	if err := ValidateSessionName(sessionName); err != nil {
+		return fmt.Errorf("invalid session name: %w", err)
+	}
 	cmd := s.cmd(ctx, "set-option", "-t", sessionName, option, value)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to set %s: %w: %s", option, err, string(output))
@@ -175,6 +207,10 @@ func (s *TmuxServer) ConfigureStatusBar(ctx context.Context, sessionName string)
 
 // GetPanePID returns the PID of the first process in the tmux session's pane.
 func (s *TmuxServer) GetPanePID(ctx context.Context, name string) (int, error) {
+	// Validate session name to prevent command injection
+	if err := ValidateSessionName(name); err != nil {
+		return 0, fmt.Errorf("invalid session name: %w", err)
+	}
 	// tmux display-message -p -t <name> "#{pane_pid}"
 	cmd := s.cmd(ctx, "display-message", "-p", "-t", name, "#{pane_pid}")
 	var stdout bytes.Buffer

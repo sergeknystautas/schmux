@@ -509,6 +509,8 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 		}
 	}
 
+	m.logger.Info("spawn command (remote)", "session", sessionID, "target", opts.TargetName, "host", host.ID, "command", command)
+
 	// Generate unique nickname if provided
 	uniqueNickname := opts.Nickname
 	if opts.Nickname != "" {
@@ -553,6 +555,10 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 
 		// Wait for queue to process (async)
 		go func() {
+			// Add timeout to prevent goroutine leak if resultCh never receives
+			timeout := time.NewTimer(5 * time.Minute)
+			defer timeout.Stop()
+
 			select {
 			case result := <-resultCh:
 				var updatedStatus string
@@ -574,9 +580,8 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 					m.logger.Warn("queued session: session no longer in state", "session", sessionID)
 					return
 				}
-				if err := m.state.Save(); err != nil {
-					m.logger.Error("queued session: failed to save state", "session", sessionID, "err", err)
-				}
+				// Use batched save to avoid I/O saturation during rapid status updates
+				m.state.SaveBatched()
 				if updatedStatus == "running" {
 					// Ensure schmux events directory exists on remote host
 					qConn := m.remoteManager.GetConnection(host.ID)
@@ -607,6 +612,13 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 					}
 					m.StartRemoteSignalMonitor(updatedSess)
 				}
+			case <-timeout.C:
+				m.logger.Error("queued session timed out waiting for result", "session", sessionID)
+				// Mark session as failed due to timeout
+				m.state.UpdateSessionFunc(sessionID, func(sess *state.Session) {
+					sess.Status = "failed"
+				})
+				m.state.SaveBatched()
 			}
 		}()
 
@@ -891,6 +903,8 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		}
 	}
 
+	m.logger.Info("spawn command", "session", sessionID, "target", opts.TargetName, "command", command)
+
 	// Generate unique nickname if provided (auto-suffix if duplicate)
 	uniqueNickname := opts.Nickname
 	if opts.Nickname != "" {
@@ -1133,10 +1147,10 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 	baseCommand = appendSignalingFlags(baseCommand, baseTool, isRemote)
 
 	if target.Promptable {
-		if trimmedPrompt == "" {
-			return "", fmt.Errorf("prompt is required for target %s", target.Name)
+		command := baseCommand
+		if trimmedPrompt != "" {
+			command = fmt.Sprintf("%s %s", baseCommand, shellutil.Quote(prompt))
 		}
-		command := fmt.Sprintf("%s %s", baseCommand, shellutil.Quote(prompt))
 		if len(target.Env) > 0 {
 			return fmt.Sprintf("%s %s", buildEnvPrefix(target.Env), command), nil
 		}

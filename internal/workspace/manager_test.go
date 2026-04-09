@@ -779,6 +779,13 @@ func (m *mockStateStore) Save() error {
 	return m.state.Save()
 }
 
+func (m *mockStateStore) SaveBatched() {
+	if m.failSave {
+		return
+	}
+	m.state.SaveBatched()
+}
+
 // TestCreateCleanupOnStateSaveFailure verifies that workspace directory is cleaned up
 // when clone succeeds but state.Save() fails.
 func TestCreateCleanupOnStateSaveFailure(t *testing.T) {

@@ -87,6 +87,7 @@ type StateStore interface {
 
 	// Persistence
 	Save() error
+	SaveBatched()
 }
 
 // Ensure State implements StateStore at compile time.
