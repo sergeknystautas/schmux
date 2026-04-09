@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/config"
@@ -1525,5 +1526,52 @@ func TestEnsureEventsWindow_NoStaleWindow(t *testing.T) {
 		if call == "kill" {
 			t.Fatal("KillSession should not be called when no stale window exists")
 		}
+	}
+}
+
+func TestQueuedSessionTimeout(t *testing.T) {
+	m, st := newTestManager(t)
+	m.queueTimeout = 100 * time.Millisecond
+
+	// Add a session in "provisioning" status
+	sess := state.Session{
+		ID:        "timeout-test",
+		Target:    "claude",
+		Status:    "provisioning",
+		CreatedAt: time.Now(),
+	}
+	if err := st.AddSession(sess); err != nil {
+		t.Fatalf("failed to add session: %v", err)
+	}
+
+	// Simulate the queue-wait goroutine with a channel that never sends
+	resultCh := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		qTimeout := m.queueTimeout
+		timer := time.NewTimer(qTimeout)
+		defer timer.Stop()
+
+		select {
+		case <-resultCh:
+			t.Error("resultCh should not receive")
+		case <-timer.C:
+			st.UpdateSessionFunc("timeout-test", func(s *state.Session) {
+				s.Status = "failed"
+			})
+			st.SaveBatched()
+		}
+	}()
+
+	<-done
+
+	// Verify session was marked as failed
+	found, ok := st.GetSession("timeout-test")
+	if !ok {
+		t.Fatal("session not found in state")
+	}
+	if found.Status != "failed" {
+		t.Errorf("expected status 'failed', got %q", found.Status)
 	}
 }

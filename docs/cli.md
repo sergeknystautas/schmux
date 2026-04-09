@@ -185,7 +185,7 @@ schmux spawn -t <target> [flags]
 **Optional Flags:**
 | Flag | Description |
 |------|-------------|
-| `-p, --prompt` | Prompt for promptable targets (required if target is promptable) |
+| `-p, --prompt` | Prompt for promptable targets (optional; omit for interactive use) |
 | `-w, --workspace` | Workspace path (e.g., `.` for current dir, or `~/ws/myproject-001`) |
 | `-r, --repo` | Repo name from config (creates new workspace) |
 | `-b, --branch` | Git branch (default: `main`) |

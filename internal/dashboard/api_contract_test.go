@@ -100,7 +100,7 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 		}
 	})
 
-	t.Run("prompt required for promptable", func(t *testing.T) {
+	t.Run("promptable target without prompt proceeds to spawn", func(t *testing.T) {
 		body, _ := json.Marshal(SpawnRequest{
 			Repo:    "https://example.com/repo.git",
 			Branch:  "main",
@@ -119,8 +119,10 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 		if len(results) != 1 {
 			t.Fatalf("expected 1 result, got %d", len(results))
 		}
-		if results[0]["error"] == nil {
-			t.Fatalf("expected error for missing prompt")
+		// Prompt is optional for promptable targets — any error here is from
+		// downstream (e.g., workspace creation), not from prompt validation.
+		if errVal, ok := results[0]["error"].(string); ok && errVal == "prompt is required for promptable targets" {
+			t.Fatalf("prompt should not be required for promptable targets")
 		}
 	})
 

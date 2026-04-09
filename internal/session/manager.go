@@ -56,6 +56,7 @@ type Manager struct {
 	terminalCaptureCallback func(sessionID, workspaceID, output string)        // notify on terminal capture before dispose
 	telemetry               telemetry.Telemetry                                // optional, for usage tracking
 	recorderFactory         func(sessionID string, outputLog *OutputLog, gapCh <-chan SourceEvent) Runnable
+	queueTimeout            time.Duration // timeout for queued remote sessions; 0 = default (5m)
 }
 
 // remoteSignalMonitor holds a watcher pane and its metadata for a remote session.
@@ -509,7 +510,11 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 		}
 	}
 
-	m.logger.Info("spawn command (remote)", "session", sessionID, "target", opts.TargetName, "host", host.ID, "command", command)
+	if m.config.GetDebugUI() {
+		m.logger.Info("spawn command (remote)", "session", sessionID, "target", opts.TargetName, "host", host.ID, "command", command)
+	} else {
+		m.logger.Info("spawn command (remote)", "session", sessionID, "target", opts.TargetName, "host", host.ID, "command_len", len(command))
+	}
 
 	// Generate unique nickname if provided
 	uniqueNickname := opts.Nickname
@@ -556,7 +561,11 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 		// Wait for queue to process (async)
 		go func() {
 			// Add timeout to prevent goroutine leak if resultCh never receives
-			timeout := time.NewTimer(5 * time.Minute)
+			qTimeout := m.queueTimeout
+			if qTimeout == 0 {
+				qTimeout = 5 * time.Minute
+			}
+			timeout := time.NewTimer(qTimeout)
 			defer timeout.Stop()
 
 			select {
@@ -903,7 +912,11 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		}
 	}
 
-	m.logger.Info("spawn command", "session", sessionID, "target", opts.TargetName, "command", command)
+	if m.config.GetDebugUI() {
+		m.logger.Info("spawn command", "session", sessionID, "target", opts.TargetName, "command", command)
+	} else {
+		m.logger.Info("spawn command", "session", sessionID, "target", opts.TargetName, "command_len", len(command))
+	}
 
 	// Generate unique nickname if provided (auto-suffix if duplicate)
 	uniqueNickname := opts.Nickname

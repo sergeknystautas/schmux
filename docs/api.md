@@ -410,7 +410,7 @@ Contract (pre-2093ccf):
 - When `workspace_id` is provided, the spawn is an "existing directory spawn" and **no git operations** are performed.
 - Either `targets` or `command` is required (not both). `targets` maps target name -> quantity. `command` is a raw shell command string (used by quick launch presets like "shell").
 - Target names are resolved in order: (1) model IDs and aliases (e.g., "opus", "claude-sonnet-4-6"), (2) user-defined run targets from config, (3) builtin tool names ("claude", "codex", "gemini", "opencode") as a fallback when the tool binary isn't detected locally (useful for remote sessions where the tool is on the remote host). Default models (selecting an agent with no specific model) use bare tool names as IDs: "claude", "codex", "gemini", "opencode".
-- Promptable targets require `prompt`. Command targets must not include `prompt`.
+- `prompt` is optional for promptable targets (omit for interactive use). Command targets must not include `prompt`.
 - For non-promptable targets, the server forces `count` to 1.
 - If multiple sessions are spawned and `nickname` is provided, nicknames are auto-suffixed globally:
   - `"<nickname> (1)"`, `"<nickname> (2)"`, ...
