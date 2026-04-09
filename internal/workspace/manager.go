@@ -402,8 +402,11 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 				m.state.Save()
 				continue
 			}
-			// Divergence safety check (skip for non-git or local repos)
-			if IsGitVCS(w.VCS) && !strings.HasPrefix(repoURL, "local:") && !m.isUpToDateWithDefault(ctx, w.Path, repoURL) {
+			// Divergence safety check: prevent cross-branch commit pollution.
+			// Skip when the workspace already has the target branch — those
+			// commits are what the caller wants, and remote refs may be stale
+			// (recyclable workspaces are excluded from VCS polling).
+			if w.Branch != branch && IsGitVCS(w.VCS) && !strings.HasPrefix(repoURL, "local:") && !m.isUpToDateWithDefault(ctx, w.Path, repoURL) {
 				m.logger.Info("recyclable workspace diverged, skipping", "id", w.ID, "branch", w.Branch)
 				continue
 			}

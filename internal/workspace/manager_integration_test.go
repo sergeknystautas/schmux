@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"bytes"
 	"context"
 	"os/exec"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
@@ -670,5 +672,78 @@ func TestGetOrCreate_BranchReuse_PurgesConflictingRecyclable(t *testing.T) {
 	// Should have reused ws4 (switched from feature-1 to main)
 	if ws5.Branch != "main" {
 		t.Errorf("expected branch main, got %s", ws5.Branch)
+	}
+}
+
+// TestGetOrCreate_RecycleSameDivergedBranch verifies that Tier 0 reclaims a
+// recyclable workspace when the requested branch matches, even if the branch
+// has diverged from the default branch. The divergence check exists to prevent
+// cross-branch commit pollution — it should not block same-branch recycling.
+func TestGetOrCreate_RecycleSameDivergedBranch(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath, nil)
+
+	repoDir := gitTestWorkTree(t)
+	gitTestBranch(t, repoDir, "feature-1") // creates a commit not on main → diverged
+
+	var logBuf bytes.Buffer
+	logger := log.NewWithOptions(&logBuf, log.Options{Level: log.InfoLevel})
+
+	cfg := &config.Config{
+		WorkspacePath:     t.TempDir(),
+		WorktreeBasePath:  t.TempDir(),
+		RecycleWorkspaces: true,
+		Repos:             []config.Repo{testRepoWithBarePath(t, "test", repoDir)},
+	}
+	manager := New(cfg, st, statePath, logger)
+
+	// Create workspace on diverged feature branch
+	ws1, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
+	if err != nil {
+		t.Fatalf("GetOrCreate feature-1 failed: %v", err)
+	}
+
+	// Dispose → recyclable
+	if err := manager.Dispose(context.Background(), ws1.ID); err != nil {
+		t.Fatalf("Dispose failed: %v", err)
+	}
+
+	w, _ := st.GetWorkspace(ws1.ID)
+	if w.Status != state.WorkspaceStatusRecyclable {
+		t.Fatalf("expected recyclable, got %q", w.Status)
+	}
+
+	// Clear log buffer before the critical call
+	logBuf.Reset()
+
+	// Re-request same branch — should be reclaimed via Tier 0
+	ws2, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
+	if err != nil {
+		t.Fatalf("GetOrCreate feature-1 (second) failed: %v", err)
+	}
+
+	// Must be the same workspace
+	if ws2.ID != ws1.ID {
+		t.Errorf("expected same workspace ID %s, got %s", ws1.ID, ws2.ID)
+	}
+	if ws2.Branch != "feature-1" {
+		t.Errorf("expected branch feature-1, got %s", ws2.Branch)
+	}
+
+	w2, _ := st.GetWorkspace(ws2.ID)
+	if w2.Status != state.WorkspaceStatusRunning {
+		t.Errorf("status = %q, want running", w2.Status)
+	}
+
+	// Verify reclaimed via Tier 0 (not Tier 1 fallback).
+	// Tier 0 logs "reusing recyclable workspace", Tier 1 logs "reusing existing".
+	logs := logBuf.String()
+	if !strings.Contains(logs, "reusing recyclable workspace") {
+		t.Errorf("expected Tier 0 reclaim (\"reusing recyclable workspace\"), got logs:\n%s", logs)
 	}
 }
