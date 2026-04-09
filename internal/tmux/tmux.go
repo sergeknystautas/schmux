@@ -157,6 +157,10 @@ func (s *TmuxServer) KillSession(ctx context.Context, name string) error {
 
 // SessionExists checks if a tmux session with the given name exists.
 func (s *TmuxServer) SessionExists(ctx context.Context, name string) bool {
+	// Validate session name to prevent command injection
+	if err := ValidateSessionName(name); err != nil {
+		return false
+	}
 	// tmux has-session -t <name> (= prefix for exact match)
 	cmd := s.cmd(ctx, "has-session", "-t", "="+name)
 	err := cmd.Run()
@@ -231,11 +235,19 @@ func (s *TmuxServer) GetPanePID(ctx context.Context, name string) (int, error) {
 
 // GetAttachCommand returns the command to attach to a tmux session on this server's socket.
 func (s *TmuxServer) GetAttachCommand(name string) string {
+	// Validate session name to prevent command injection
+	if err := ValidateSessionName(name); err != nil {
+		return ""
+	}
 	return fmt.Sprintf("%s -L %s attach -t \"=%s\"", s.binary, s.socketName, name)
 }
 
 // CaptureOutput captures the current output of a tmux session, including full scrollback history.
 func (s *TmuxServer) CaptureOutput(ctx context.Context, name string) (string, error) {
+	// Validate session name to prevent command injection
+	if err := ValidateSessionName(name); err != nil {
+		return "", fmt.Errorf("invalid session name: %w", err)
+	}
 	// -e includes escape sequences for colors/attributes
 	// -p outputs to stdout
 	// -S - captures from the start of the scrollback buffer
@@ -252,6 +264,10 @@ func (s *TmuxServer) CaptureOutput(ctx context.Context, name string) (string, er
 
 // CaptureLastLines captures the last N lines of the pane.
 func (s *TmuxServer) CaptureLastLines(ctx context.Context, name string, lines int, includeEscapes bool) (string, error) {
+	// Validate session name to prevent command injection
+	if err := ValidateSessionName(name); err != nil {
+		return "", fmt.Errorf("invalid session name: %w", err)
+	}
 	if lines <= 0 {
 		return "", fmt.Errorf("invalid line count: %d", lines)
 	}
@@ -279,6 +295,10 @@ func (s *TmuxServer) CaptureLastLines(ctx context.Context, name string, lines in
 // GetCursorState returns the cursor position and visibility for a session.
 // Coordinates are 0-indexed.
 func (s *TmuxServer) GetCursorState(ctx context.Context, sessionName string) (CursorState, error) {
+	// Validate session name to prevent command injection
+	if err := ValidateSessionName(sessionName); err != nil {
+		return CursorState{}, fmt.Errorf("invalid session name: %w", err)
+	}
 	cmd := s.cmd(ctx, "display-message", "-p", "-t", sessionName, "#{cursor_x} #{cursor_y} #{cursor_flag}")
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
@@ -306,6 +326,13 @@ func (s *TmuxServer) GetCursorState(ctx context.Context, sessionName string) (Cu
 
 // RenameSession renames an existing tmux session.
 func (s *TmuxServer) RenameSession(ctx context.Context, oldName, newName string) error {
+	// Validate session names to prevent command injection
+	if err := ValidateSessionName(oldName); err != nil {
+		return fmt.Errorf("invalid old session name: %w", err)
+	}
+	if err := ValidateSessionName(newName); err != nil {
+		return fmt.Errorf("invalid new session name: %w", err)
+	}
 	cmd := s.cmd(ctx, "rename-session", "-t", "="+oldName, newName)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to rename tmux session: %w: %s", err, string(output))
