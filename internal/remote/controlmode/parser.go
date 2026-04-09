@@ -4,8 +4,11 @@ package controlmode
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
+	"net"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -146,9 +149,9 @@ func (p *Parser) Run() error {
 	for {
 		line, err := p.reader.ReadString('\n')
 		if err != nil {
-			if err == io.EOF {
+			if err == io.EOF || errors.Is(err, os.ErrClosed) || errors.Is(err, net.ErrClosed) {
 				if p.logger != nil {
-					p.logger.Debug("parser EOF, closing", "conn", p.connectionID)
+					p.logger.Debug("parser closing", "conn", p.connectionID, "reason", err)
 				}
 				p.Close()
 				return nil
