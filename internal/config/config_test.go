@@ -132,6 +132,118 @@ func TestSave_RequiresPath(t *testing.T) {
 	}
 }
 
+func TestReload_CopiesAllFields(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	// Write initial config with CommStyles and other fields
+	initial := Config{
+		WorkspacePath:   tmpDir,
+		Repos:           []Repo{{Name: "r", URL: "u"}},
+		CommStyles:      map[string]string{"claude": "trump"},
+		TmuxBinary:      "/usr/bin/tmux",
+		TmuxSocketName:  "old-socket",
+		Subreddit:       &SubredditConfig{Target: "old-target"},
+		SaplingCommands: SaplingCommands{CreateWorkspace: "old-cmd"},
+		BuiltInSkills:   map[string]bool{"skill1": true},
+		Timelapse:       &TimelapseConfig{Enabled: boolPtr(true)},
+	}
+	data, err := json.MarshalIndent(&initial, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Load the config
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify initial values loaded correctly
+	if cfg.CommStyles["claude"] != "trump" {
+		t.Fatalf("initial CommStyles wrong: %v", cfg.CommStyles)
+	}
+
+	// Now update the file on disk with different values
+	updated := Config{
+		WorkspacePath:   tmpDir,
+		Repos:           []Repo{{Name: "r", URL: "u"}},
+		CommStyles:      map[string]string{"claude": "valley-girl", "codex": "pirate"},
+		TmuxBinary:      "/usr/local/bin/tmux",
+		TmuxSocketName:  "new-socket",
+		Subreddit:       &SubredditConfig{Target: "new-target"},
+		SaplingCommands: SaplingCommands{CreateWorkspace: "new-cmd"},
+		BuiltInSkills:   map[string]bool{"skill2": true},
+		Timelapse:       &TimelapseConfig{Enabled: boolPtr(false)},
+	}
+	data, err = json.MarshalIndent(&updated, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reload from disk
+	if err := cfg.Reload(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify ALL fields were updated from disk
+	t.Run("CommStyles updated", func(t *testing.T) {
+		if len(cfg.CommStyles) != 2 {
+			t.Errorf("CommStyles len = %d, want 2", len(cfg.CommStyles))
+		}
+		if cfg.CommStyles["claude"] != "valley-girl" {
+			t.Errorf("CommStyles[claude] = %q, want %q", cfg.CommStyles["claude"], "valley-girl")
+		}
+		if cfg.CommStyles["codex"] != "pirate" {
+			t.Errorf("CommStyles[codex] = %q, want %q", cfg.CommStyles["codex"], "pirate")
+		}
+	})
+
+	t.Run("TmuxBinary updated", func(t *testing.T) {
+		if cfg.TmuxBinary != "/usr/local/bin/tmux" {
+			t.Errorf("TmuxBinary = %q, want %q", cfg.TmuxBinary, "/usr/local/bin/tmux")
+		}
+	})
+
+	t.Run("TmuxSocketName updated", func(t *testing.T) {
+		if cfg.TmuxSocketName != "new-socket" {
+			t.Errorf("TmuxSocketName = %q, want %q", cfg.TmuxSocketName, "new-socket")
+		}
+	})
+
+	t.Run("Subreddit updated", func(t *testing.T) {
+		if cfg.Subreddit == nil || cfg.Subreddit.Target != "new-target" {
+			t.Errorf("Subreddit.Target = %v, want %q", cfg.Subreddit, "new-target")
+		}
+	})
+
+	t.Run("SaplingCommands updated", func(t *testing.T) {
+		if cfg.SaplingCommands.CreateWorkspace != "new-cmd" {
+			t.Errorf("SaplingCommands.CreateWorkspace = %q, want %q", cfg.SaplingCommands.CreateWorkspace, "new-cmd")
+		}
+	})
+
+	t.Run("BuiltInSkills updated", func(t *testing.T) {
+		if !cfg.BuiltInSkills["skill2"] {
+			t.Errorf("BuiltInSkills = %v, want skill2=true", cfg.BuiltInSkills)
+		}
+	})
+
+	t.Run("Timelapse updated", func(t *testing.T) {
+		if cfg.Timelapse == nil || cfg.Timelapse.Enabled == nil || *cfg.Timelapse.Enabled != false {
+			t.Errorf("Timelapse.Enabled should be false after reload")
+		}
+	})
+}
+
+func boolPtr(b bool) *bool { return &b }
+
 func TestReload_RequiresPath(t *testing.T) {
 	// Creating a config directly without a path should fail on Reload
 	cfg := &Config{

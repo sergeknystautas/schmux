@@ -1725,6 +1725,16 @@ func (c *Config) Reload() error {
 	c.RemoteWorkspace = newCfg.RemoteWorkspace
 	c.RemoteAccess = newCfg.RemoteAccess
 	c.Models = newCfg.Models
+	c.CommStyles = newCfg.CommStyles
+	c.Subreddit = newCfg.Subreddit
+	c.Repofeed = newCfg.Repofeed
+	c.FloorManager = newCfg.FloorManager
+	c.SaplingCommands = newCfg.SaplingCommands
+	c.BuiltInSkills = newCfg.BuiltInSkills
+	c.TmuxBinary = newCfg.TmuxBinary
+	c.TmuxSocketName = newCfg.TmuxSocketName
+	c.IOWorkspaceTelemetry = newCfg.IOWorkspaceTelemetry
+	c.Timelapse = newCfg.Timelapse
 	c.TelemetryEnabled = newCfg.TelemetryEnabled
 	c.InstallationID = newCfg.InstallationID
 	c.path = configPath

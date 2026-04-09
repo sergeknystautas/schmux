@@ -687,7 +687,7 @@ export default function ConfigPage() {
           repos: state.repofeedRepos,
         },
         enabled_models: state.enabledModels,
-        comm_styles: Object.keys(state.commStyles).length > 0 ? state.commStyles : undefined,
+        comm_styles: state.commStyles,
         remote_access: {
           enabled: state.remoteAccessEnabled,
           timeout_minutes: state.remoteAccessTimeoutMinutes,
