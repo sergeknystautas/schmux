@@ -10,6 +10,7 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/fileutil"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 type ModelSecrets map[string]map[string]string
@@ -32,11 +33,11 @@ type GitHubSecrets struct {
 }
 
 func secretsPath() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
+	d := schmuxdir.Get()
+	if d == "" {
+		return "", fmt.Errorf("failed to resolve schmux directory")
 	}
-	return filepath.Join(homeDir, ".schmux", "secrets.json"), nil
+	return filepath.Join(d, "secrets.json"), nil
 }
 
 // LoadSecretsFile loads the secrets file or returns an empty structure if it doesn't exist.

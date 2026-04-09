@@ -900,7 +900,7 @@ Response:
 
 ### GET /api/config
 
-Returns the current config. On first run, the daemon creates `~/.schmux/config.json` with defaults automatically (no interactive prompt).
+Returns the current config. On first run, the daemon creates `~/.schmux/config.json` (or `$SCHMUX_HOME/config.json` if configured) with defaults automatically (no interactive prompt).
 
 Response:
 

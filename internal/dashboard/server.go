@@ -37,6 +37,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/preview"
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/repofeed"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/style"
@@ -512,7 +513,7 @@ func (s *Server) LogDashboardAssetPath() {
 	}
 	path := s.getDashboardDistPath()
 	// Determine source type for clearer message
-	if strings.HasPrefix(path, filepath.Join(os.Getenv("HOME"), ".schmux")) {
+	if strings.HasPrefix(path, schmuxdir.Get()) {
 		s.logger.Info("serving from cached assets", "path", path)
 	} else if strings.HasPrefix(path, ".") {
 		abs, _ := filepath.Abs(path)

@@ -17,6 +17,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/lore"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/schema"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -599,14 +600,10 @@ func (s *Server) runStreamingCuration(repoName, curationID, prompt string, entri
 	start := time.Now()
 
 	// Create per-run directory
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		s.logger.Error("failed to resolve home dir", "repo", repoName, "err", err)
-	}
 	var runDir string
 	var logFile *os.File
-	if homeDir != "" {
-		runDir = filepath.Join(homeDir, ".schmux", "lore-curator-runs", repoName, curationID)
+	if sd := schmuxdir.Get(); sd != "" {
+		runDir = filepath.Join(sd, "lore-curator-runs", repoName, curationID)
 		os.MkdirAll(runDir, 0755)
 
 		// Write prompt.txt
@@ -792,12 +789,7 @@ func (s *Server) handleLoreCurationsList(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		http.Error(w, "failed to resolve home directory", http.StatusInternalServerError)
-		return
-	}
-	runDir := filepath.Join(homeDir, ".schmux", "lore-curator-runs", repoName)
+	runDir := filepath.Join(schmuxdir.Get(), "lore-curator-runs", repoName)
 
 	entries, err := os.ReadDir(runDir)
 	if err != nil {
@@ -862,13 +854,7 @@ func (s *Server) handleLoreCurationLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		http.Error(w, "failed to resolve home directory", http.StatusInternalServerError)
-		return
-	}
-
-	logPath := filepath.Join(homeDir, ".schmux", "lore-curator-runs", repoName, curationID, "events.jsonl")
+	logPath := filepath.Join(schmuxdir.Get(), "lore-curator-runs", repoName, curationID, "events.jsonl")
 	data, err := os.ReadFile(logPath)
 	if err != nil {
 		http.Error(w, "log file not found", http.StatusNotFound)

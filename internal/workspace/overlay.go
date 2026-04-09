@@ -12,16 +12,13 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/compound"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 // OverlayDir returns the overlay directory path for a given repo name.
-// Returns ~/.schmux/overlays/<repoName>/.
+// Returns <schmuxdir>/overlays/<repoName>/.
 func OverlayDir(repoName string) (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
-	}
-	return filepath.Join(homeDir, ".schmux", "overlays", repoName), nil
+	return filepath.Join(schmuxdir.Get(), "overlays", repoName), nil
 }
 
 // EnsureOverlayDir ensures the overlay directory exists for a given repo name.

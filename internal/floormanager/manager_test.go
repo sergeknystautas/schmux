@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -295,6 +296,10 @@ func TestNew(t *testing.T) {
 	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
 
 	homeDir := t.TempDir()
+	schmuxHome := filepath.Join(homeDir, ".schmux")
+	schmuxdir.Set(schmuxHome)
+	t.Cleanup(schmuxdir.Reset)
+
 	m := New(cfg, sm, nil, homeDir, log.NewWithOptions(io.Discard, log.Options{}))
 
 	if m == nil {
@@ -303,7 +308,7 @@ func TestNew(t *testing.T) {
 	if m.sessionName != tmuxSessionName {
 		t.Errorf("expected session name %q, got %q", tmuxSessionName, m.sessionName)
 	}
-	expectedWorkDir := filepath.Join(homeDir, ".schmux", "floor-manager")
+	expectedWorkDir := filepath.Join(schmuxHome, "floor-manager")
 	if m.workDir != expectedWorkDir {
 		t.Errorf("expected workDir %q, got %q", expectedWorkDir, m.workDir)
 	}

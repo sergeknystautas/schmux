@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 // claudeHookHandler is a single hook handler in a Claude Code hooks config.
@@ -379,7 +381,7 @@ var claudeStopLoreCheckScript []byte
 // EnsureGlobalHookScripts writes hook scripts to ~/.schmux/hooks/.
 // Called once at daemon startup. Returns the hooks directory path.
 func EnsureGlobalHookScripts(homeDir string) (string, error) {
-	hooksDir := filepath.Join(homeDir, ".schmux", "hooks")
+	hooksDir := filepath.Join(schmuxdir.Get(), "hooks")
 	if err := os.MkdirAll(hooksDir, 0755); err != nil {
 		return "", err
 	}

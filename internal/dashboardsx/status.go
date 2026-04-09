@@ -38,22 +38,16 @@ func GetStatus(cfg ConfigReader) (*Status, error) {
 	}
 
 	// Check instance key
-	keyPath, err := InstanceKeyPath()
-	if err == nil {
-		if _, err := os.Stat(keyPath); err == nil {
-			s.HasInstanceKey = true
-		}
+	if _, err := os.Stat(InstanceKeyPath()); err == nil {
+		s.HasInstanceKey = true
 	}
 
 	// Check certificate
-	certPath, err := CertPath()
-	if err == nil {
-		if _, err := os.Stat(certPath); err == nil {
-			s.HasCert = true
-			if expiry, err := GetCertExpiry(); err == nil {
-				s.CertExpiry = expiry
-				s.DaysUntilExpiry = int(math.Ceil(time.Until(expiry).Hours() / 24))
-			}
+	if _, err := os.Stat(CertPath()); err == nil {
+		s.HasCert = true
+		if expiry, err := GetCertExpiry(); err == nil {
+			s.CertExpiry = expiry
+			s.DaysUntilExpiry = int(math.Ceil(time.Until(expiry).Hours() / 24))
 		}
 	}
 

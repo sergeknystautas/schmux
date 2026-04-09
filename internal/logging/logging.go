@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/log"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 // New creates a root logger configured from environment.
@@ -36,8 +37,8 @@ func New(forceColor ...bool) *log.Logger {
 
 		// In dev mode, also write to the daemon log file so agents
 		// running in tmux sessions can see daemon output.
-		if homeDir, err := os.UserHomeDir(); err == nil {
-			logPath := filepath.Join(homeDir, ".schmux", "daemon-startup.log")
+		{
+			logPath := filepath.Join(schmuxdir.Get(), "daemon-startup.log")
 			if logF, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
 				output = io.MultiWriter(output, logF)
 			}

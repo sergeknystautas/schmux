@@ -13,6 +13,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/logging"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/subreddit"
 )
 
@@ -137,8 +138,7 @@ func (s *Server) GenerateSubredditForAllRepos(ctx context.Context) error {
 
 // getSubredditDir returns the path to the subreddit directory.
 func (s *Server) getSubredditDir() string {
-	homeDir, _ := os.UserHomeDir()
-	return filepath.Join(homeDir, ".schmux", "subreddit")
+	return filepath.Join(schmuxdir.Get(), "subreddit")
 }
 
 // repoSlug creates a URL-safe slug from a repo name.

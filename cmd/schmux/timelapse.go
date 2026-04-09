@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/timelapse"
 )
 
@@ -128,8 +129,7 @@ func (c *TimelapseCommand) delete(recordingID string) error {
 }
 
 func recordingsDir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".schmux", "recordings")
+	return filepath.Join(schmuxdir.Get(), "recordings")
 }
 
 func formatDuration(seconds float64) string {

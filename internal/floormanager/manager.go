@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/pkg/shellutil"
@@ -62,7 +63,7 @@ func New(cfg *config.Config, sm *session.Manager, server *tmux.TmuxServer, homeD
 		sm:          sm,
 		server:      server,
 		logger:      logger,
-		workDir:     filepath.Join(homeDir, ".schmux", "floor-manager"),
+		workDir:     filepath.Join(schmuxdir.Get(), "floor-manager"),
 		sessionName: tmuxSessionName,
 		schmuxBin:   schmuxBin,
 		stopCh:      make(chan struct{}),

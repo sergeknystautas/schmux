@@ -41,6 +41,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/repofeed"
 	"github.com/sergeknystautas/schmux/internal/schema"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
@@ -122,12 +123,7 @@ func ValidateReadyToRun() error {
 		return err
 	}
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get home directory: %w", err)
-	}
-
-	schmuxDir := filepath.Join(homeDir, ".schmux")
+	schmuxDir := schmuxdir.Get()
 	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
 		return fmt.Errorf("failed to create schmux directory: %w", err)
 	}
@@ -161,12 +157,7 @@ func ValidateReadyToRun() error {
 
 // Start starts the daemon in the background.
 func Start() error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get home directory: %w", err)
-	}
-
-	schmuxDir := filepath.Join(homeDir, ".schmux")
+	schmuxDir := schmuxdir.Get()
 	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
 		return fmt.Errorf("failed to create schmux directory: %w", err)
 	}
@@ -210,6 +201,12 @@ func Start() error {
 	cmd.Stdout = logF
 	cmd.Stderr = logF
 
+	// Propagate SCHMUX_HOME to child process so the forked daemon
+	// uses the same directory even when the env var is not already set.
+	if d := schmuxdir.Get(); d != "" {
+		cmd.Env = append(os.Environ(), "SCHMUX_HOME="+d)
+	}
+
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start daemon: %w", err)
 	}
@@ -229,12 +226,7 @@ func Start() error {
 
 // Stop stops the daemon.
 func Stop() error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get home directory: %w", err)
-	}
-
-	pidFile := filepath.Join(homeDir, ".schmux", pidFileName)
+	pidFile := filepath.Join(schmuxdir.Get(), pidFileName)
 
 	pidData, err := os.ReadFile(pidFile)
 	if err != nil {
@@ -278,13 +270,9 @@ func Stop() error {
 
 // Status returns the status of the daemon.
 func Status() (running bool, url string, startedAt string, err error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return false, "", "", fmt.Errorf("failed to get home directory: %w", err)
-	}
-
-	pidFile := filepath.Join(homeDir, ".schmux", pidFileName)
-	startedFile := filepath.Join(homeDir, ".schmux", "daemon.started")
+	d := schmuxdir.Get()
+	pidFile := filepath.Join(d, pidFileName)
+	startedFile := filepath.Join(d, "daemon.started")
 
 	pidData, err := os.ReadFile(pidFile)
 	if err != nil {
@@ -310,13 +298,13 @@ func Status() (running bool, url string, startedAt string, err error) {
 	}
 
 	// Read the daemon URL from the breadcrumb file
-	urlFile := filepath.Join(homeDir, ".schmux", "daemon.url")
+	urlFile := filepath.Join(d, "daemon.url")
 	if data, err := os.ReadFile(urlFile); err == nil {
 		url = strings.TrimSpace(string(data))
 	} else {
 		// Fallback for backward compatibility (daemon started before this change)
 		url = fmt.Sprintf("http://localhost:%d", 7337)
-		if cfg, err := config.Load(filepath.Join(homeDir, ".schmux", "config.json")); err == nil {
+		if cfg, err := config.Load(filepath.Join(d, "config.json")); err == nil {
 			if cfgPort := cfg.GetPort(); cfgPort != 0 {
 				url = fmt.Sprintf("http://localhost:%d", cfgPort)
 			}
@@ -367,7 +355,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		return fmt.Errorf("failed to get home directory: %w", err)
 	}
 
-	schmuxDir := filepath.Join(homeDir, ".schmux")
+	schmuxDir := schmuxdir.Get()
 	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
 		return fmt.Errorf("failed to create schmux directory: %w", err)
 	}
@@ -520,15 +508,14 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	// Create managers
 	ensure.SetLogger(logging.Sub(workspaceLog, "ensure"))
 	// Wire lore instruction store for private layer injection at spawn time
-	loreInstructionsDir := filepath.Join(homeDir, ".schmux", "instructions")
+	loreInstructionsDir := filepath.Join(schmuxDir, "instructions")
 	ensure.SetInstructionStore(lore.NewInstructionStore(loreInstructionsDir))
 	wm := workspace.New(cfg, st, statePath, workspaceLog)
 	sm := session.New(cfg, st, statePath, wm, tmuxServer, sessionLog)
 
 	// Wire timelapse recording if enabled
 	if cfg.GetTimelapseEnabled() {
-		home, _ := os.UserHomeDir()
-		recordingsDir := filepath.Join(home, ".schmux", "recordings")
+		recordingsDir := filepath.Join(schmuxDir, "recordings")
 		maxBytes := int64(cfg.GetTimelapseMaxFileSizeMB()) * 1024 * 1024
 
 		if notice := timelapse.ShowFirstRunNotice(recordingsDir); notice != "" {
@@ -1073,7 +1060,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	}
 
 	// Emergence system: spawn entries store + metadata store
-	emergenceBaseDir := filepath.Join(homeDir, ".schmux", "emergence")
+	emergenceBaseDir := filepath.Join(schmuxDir, "emergence")
 	emergenceStore := emergence.NewStore(emergenceBaseDir)
 	emergenceMetadataStore := emergence.NewMetadataStore(emergenceBaseDir)
 	server.SetEmergenceStore(emergenceStore)
@@ -1085,7 +1072,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	})
 
 	// One-time migration from old actions registry to emergence store
-	actionBaseDir := filepath.Join(homeDir, ".schmux", "actions")
+	actionBaseDir := filepath.Join(schmuxDir, "actions")
 	if _, err := os.Stat(actionBaseDir); err == nil {
 		count, migErr := emergence.MigrateFromActions(actionBaseDir, emergenceStore)
 		if migErr != nil {
@@ -1106,18 +1093,18 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	// Lore system: trigger curator on session dispose
 	if cfg.GetLoreEnabled() {
-		loreProposalDir := filepath.Join(homeDir, ".schmux", "lore-proposals")
+		loreProposalDir := filepath.Join(schmuxDir, "lore-proposals")
 		loreStore := lore.NewProposalStore(loreProposalDir, loreLog)
 
 		// Wire lore store into dashboard server for API endpoints
 		server.SetLoreStore(loreStore)
 
 		// Wire lore instruction store for private layer management
-		loreInstructionsDir := filepath.Join(homeDir, ".schmux", "instructions")
+		loreInstructionsDir := filepath.Join(schmuxDir, "instructions")
 		server.SetLoreInstructionStore(lore.NewInstructionStore(loreInstructionsDir))
 
 		// Wire lore pending merge store for unified merge & push flow
-		lorePendingMergeDir := filepath.Join(homeDir, ".schmux", "lore-pending-merges")
+		lorePendingMergeDir := filepath.Join(schmuxDir, "lore-pending-merges")
 		pendingMergeStore := lore.NewPendingMergeStore(lorePendingMergeDir, loreLog)
 		server.SetLorePendingMergeStore(pendingMergeStore)
 
@@ -1192,7 +1179,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 				// Create per-run debug directory
 				curationID := fmt.Sprintf("auto-%s-%s", repoName, time.Now().UTC().Format("20060102-150405"))
-				runDir := filepath.Join(homeDir, ".schmux", "lore-curator-runs", repoName, curationID)
+				runDir := filepath.Join(schmuxDir, "lore-curator-runs", repoName, curationID)
 				os.MkdirAll(runDir, 0755)
 
 				// Write prompt.txt
@@ -1378,7 +1365,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	// The scheduler checks config on each run, so this also covers the case
 	// where subreddit digest is enabled after the daemon has already started.
 	subredditLog := logging.Sub(logger, "subreddit")
-	subredditDir := filepath.Join(homeDir, ".schmux", "subreddit")
+	subredditDir := filepath.Join(schmuxDir, "subreddit")
 	go startSubredditHourlyGenerator(d.shutdownCtx, cfg, subredditDir, server, subredditLog)
 
 	// Start repofeed intent publisher and consumer
@@ -1403,7 +1390,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	go startRepofeedConsumer(d.shutdownCtx, cfg, repofeedConsumer, server, repofeedLog)
 
 	// One-time migration: delete old subreddit.json file
-	oldCachePath := filepath.Join(homeDir, ".schmux", "subreddit.json")
+	oldCachePath := filepath.Join(schmuxDir, "subreddit.json")
 	if _, err := os.Stat(oldCachePath); err == nil {
 		os.Remove(oldCachePath)
 		subredditLog.Info("migrated old subreddit.json to new per-repo format")

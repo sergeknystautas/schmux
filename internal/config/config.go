@@ -19,6 +19,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/fileutil"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/version"
 )
 
@@ -911,11 +912,7 @@ func (c *Config) GetWorktreeBasePath() string {
 	if c.WorktreeBasePath != "" {
 		return c.WorktreeBasePath
 	}
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(homeDir, ".schmux", "repos")
+	return filepath.Join(schmuxdir.Get(), "repos")
 }
 
 // ResolveBareRepoDir returns the full directory path for a bare repo,
@@ -945,11 +942,7 @@ func (c *Config) ResolveBareRepoDir(barePath string) string {
 func (c *Config) GetQueryRepoPath() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(homeDir, ".schmux", "query")
+	return filepath.Join(schmuxdir.Get(), "query")
 }
 
 // GetSourceCodeManagement returns the configured source code management mode.
@@ -1920,12 +1913,8 @@ func (c *Config) Save() error {
 
 // ConfigExists checks if the config file exists.
 func ConfigExists() bool {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return false
-	}
-	configPath := filepath.Join(homeDir, ".schmux", "config.json")
-	_, err = os.Stat(configPath)
+	configPath := filepath.Join(schmuxdir.Get(), "config.json")
+	_, err := os.Stat(configPath)
 	return err == nil
 }
 
@@ -1936,12 +1925,7 @@ func EnsureExists() (bool, error) {
 		return true, nil
 	}
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return false, fmt.Errorf("failed to get home directory: %w", err)
-	}
-
-	configPath := filepath.Join(homeDir, ".schmux", "config.json")
+	configPath := filepath.Join(schmuxdir.Get(), "config.json")
 	cfg := CreateDefault(configPath)
 
 	if err := cfg.Save(); err != nil {

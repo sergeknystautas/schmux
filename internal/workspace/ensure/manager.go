@@ -12,6 +12,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/emergence"
 	"github.com/sergeknystautas/schmux/internal/lore"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -505,11 +506,7 @@ func RemoveAgentInstructions(workspacePath, targetName string) error {
 
 // SignalingInstructionsFilePath returns the canonical path for system prompt file injection.
 func SignalingInstructionsFilePath() string {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join(".schmux", "signaling.md")
-	}
-	return filepath.Join(homeDir, ".schmux", "signaling.md")
+	return filepath.Join(schmuxdir.Get(), "signaling.md")
 }
 
 // SignalingInstructionsFile writes signaling instructions to ~/.schmux/signaling.md.

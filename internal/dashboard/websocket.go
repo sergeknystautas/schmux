@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -17,6 +16,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/escbuf"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
@@ -789,7 +789,7 @@ drainBootstrap:
 					rbSnapshot = ringBuf.Snapshot()
 				}
 				// Write diagnostic directory
-				diagDir := filepath.Join(os.Getenv("HOME"), ".schmux", "diagnostics",
+				diagDir := filepath.Join(schmuxdir.Get(), "diagnostics",
 					fmt.Sprintf("%s-%s", time.Now().Format("2006-01-02T15-04-05"), sessionID))
 				diag := &DiagnosticCapture{
 					Timestamp:         time.Now(),
@@ -831,7 +831,7 @@ drainBootstrap:
 				}
 				ioSnap := ioProvider.IOWorkspaceTelemetrySnapshot(false)
 				ioDiag := workspace.NewIOWorkspaceDiagnosticCapture(ioSnap, time.Now())
-				ioDiagDir := filepath.Join(os.Getenv("HOME"), ".schmux", "diagnostics",
+				ioDiagDir := filepath.Join(schmuxdir.Get(), "diagnostics",
 					fmt.Sprintf("%s-io-workspace", time.Now().Format("2006-01-02T15-04-05")))
 				if err := ioDiag.WriteToDir(ioDiagDir); err != nil {
 					logging.Sub(s.logger, "io-workspace-diagnostic").Error("write failed", "err", err)

@@ -17,10 +17,7 @@ func EnsureInstanceKey() (string, error) {
 		return "", fmt.Errorf("failed to create dashboardsx directory: %w", err)
 	}
 
-	keyPath, err := InstanceKeyPath()
-	if err != nil {
-		return "", err
-	}
+	keyPath := InstanceKeyPath()
 
 	// Try to read existing key
 	data, err := os.ReadFile(keyPath)

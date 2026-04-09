@@ -171,10 +171,7 @@ func ProvisionCert(code, email string, staging bool, provider challenge.Provider
 // LoadOrCreateAccount loads an existing ACME account key or creates a new one.
 // Returns the registration resource (nil if new) and the private key.
 func LoadOrCreateAccount(email string) (*registration.Resource, crypto.PrivateKey, error) {
-	accountPath, err := ACMEAccountPath()
-	if err != nil {
-		return nil, nil, err
-	}
+	accountPath := ACMEAccountPath()
 
 	// Try to load existing key
 	data, err := os.ReadFile(accountPath)
@@ -215,14 +212,8 @@ func LoadOrCreateAccount(email string) (*registration.Resource, crypto.PrivateKe
 
 // SaveCert saves the certificate and private key to the dashboardsx directory.
 func SaveCert(certBytes, keyBytes []byte) error {
-	certPath, err := CertPath()
-	if err != nil {
-		return err
-	}
-	keyPath, err := KeyPath()
-	if err != nil {
-		return err
-	}
+	certPath := CertPath()
+	keyPath := KeyPath()
 
 	if err := os.WriteFile(certPath, certBytes, 0600); err != nil {
 		return fmt.Errorf("failed to write certificate: %w", err)
@@ -236,12 +227,7 @@ func SaveCert(certBytes, keyBytes []byte) error {
 
 // GetCertExpiry parses the certificate and returns the NotAfter time.
 func GetCertExpiry() (time.Time, error) {
-	certPath, err := CertPath()
-	if err != nil {
-		return time.Time{}, err
-	}
-
-	data, err := os.ReadFile(certPath)
+	data, err := os.ReadFile(CertPath())
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -261,12 +247,7 @@ func GetCertExpiry() (time.Time, error) {
 
 // GetCertDomain parses the certificate and returns the common name.
 func GetCertDomain() (string, error) {
-	certPath, err := CertPath()
-	if err != nil {
-		return "", err
-	}
-
-	data, err := os.ReadFile(certPath)
+	data, err := os.ReadFile(CertPath())
 	if err != nil {
 		return "", err
 	}

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 // viteClient is used for pause/resume requests to the Vite dev server.
@@ -50,11 +52,7 @@ func (s *Server) devSourceWorkspacePath() string {
 	if !s.devMode {
 		return ""
 	}
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	data, err := os.ReadFile(filepath.Join(homeDir, ".schmux", "dev-state.json"))
+	data, err := os.ReadFile(filepath.Join(schmuxdir.Get(), "dev-state.json"))
 	if err != nil {
 		return ""
 	}
@@ -67,12 +65,7 @@ func (s *Server) devSourceWorkspacePath() string {
 
 // handleDevStatus returns the current dev mode state.
 func (s *Server) handleDevStatus(w http.ResponseWriter, r *http.Request) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		http.Error(w, "Internal error", http.StatusInternalServerError)
-		return
-	}
-	schmuxDir := filepath.Join(homeDir, ".schmux")
+	schmuxDir := schmuxdir.Get()
 
 	response := map[string]any{
 		"active": true,
@@ -132,12 +125,6 @@ func (s *Server) handleDevRebuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Write restart manifest
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		http.Error(w, "Internal error", http.StatusInternalServerError)
-		return
-	}
-
 	manifest := devRestartManifest{
 		WorkspaceID:   req.WorkspaceID,
 		WorkspacePath: ws.Path,
@@ -151,7 +138,7 @@ func (s *Server) handleDevRebuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	manifestPath := filepath.Join(homeDir, ".schmux", "dev-restart.json")
+	manifestPath := filepath.Join(schmuxdir.Get(), "dev-restart.json")
 	if err := os.WriteFile(manifestPath, data, 0644); err != nil {
 		http.Error(w, "Failed to write restart manifest", http.StatusInternalServerError)
 		return

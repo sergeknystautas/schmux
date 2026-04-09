@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -19,6 +18,7 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/dashboardsx"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 // DashboardSXCommand implements the dashboardsx command.
@@ -65,11 +65,7 @@ func (cmd *DashboardSXCommand) loadConfig() (*config.Config, error) {
 		}
 	}
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get home directory: %w", err)
-	}
-	return config.Load(filepath.Join(homeDir, ".schmux", "config.json"))
+	return config.Load(filepath.Join(schmuxdir.Get(), "config.json"))
 }
 
 func (cmd *DashboardSXCommand) runSetup() error {

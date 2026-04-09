@@ -179,8 +179,8 @@ func (s *Server) provisionDashboardSXCert(client *dashboardsx.Client, code, emai
 	}
 
 	// Update config with TLS paths
-	certPath, _ := dashboardsx.CertPath()
-	keyPath, _ := dashboardsx.KeyPath()
+	certPath := dashboardsx.CertPath()
+	keyPath := dashboardsx.KeyPath()
 
 	port := s.config.GetPort()
 	s.config.Network.TLS = &config.TLSConfig{

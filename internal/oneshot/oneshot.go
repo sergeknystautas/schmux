@@ -18,6 +18,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/schema"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 // modelManager is the package-level model manager, set via SetModelManager.
@@ -578,11 +579,7 @@ func resolveSchema(label string) (string, error) {
 		return "", err
 	}
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve home directory: %w", err)
-	}
-	path := filepath.Join(homeDir, ".schmux", "schemas", label+".json")
+	path := filepath.Join(schmuxdir.Get(), "schemas", label+".json")
 
 	if _, err := os.Stat(path); err != nil {
 		// File missing — write it (shouldn't happen if daemon started correctly)
@@ -598,11 +595,7 @@ func resolveSchema(label string) (string, error) {
 // unconditionally overwriting any existing files. This should be called
 // on daemon startup to ensure schemas are always up to date.
 func WriteAllSchemas() error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to resolve home directory: %w", err)
-	}
-	dir := filepath.Join(homeDir, ".schmux", "schemas")
+	dir := filepath.Join(schmuxdir.Get(), "schemas")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create schema directory: %w", err)
 	}

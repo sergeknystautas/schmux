@@ -6,17 +6,18 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 func TestLoadOrCreateAccount(t *testing.T) {
 	// Use a temporary directory
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	t.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	schmuxdir.Set(tmpDir)
+	defer schmuxdir.Reset()
 
-	// Create .schmux dir
-	if err := os.MkdirAll(filepath.Join(tmpDir, ".schmux", "dashboardsx"), 0700); err != nil {
+	// Create dashboardsx dir
+	if err := os.MkdirAll(filepath.Join(tmpDir, "dashboardsx"), 0700); err != nil {
 		t.Fatal(err)
 	}
 
@@ -45,7 +46,7 @@ func TestLoadOrCreateAccount(t *testing.T) {
 	}
 
 	// Verify account key file permissions
-	accountPath, _ := ACMEAccountPath()
+	accountPath := ACMEAccountPath()
 	info, err := os.Stat(accountPath)
 	if err != nil {
 		t.Fatal(err)
@@ -57,11 +58,10 @@ func TestLoadOrCreateAccount(t *testing.T) {
 
 func TestSaveCert(t *testing.T) {
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	t.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	schmuxdir.Set(tmpDir)
+	defer schmuxdir.Reset()
 
-	if err := os.MkdirAll(filepath.Join(tmpDir, ".schmux", "dashboardsx"), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(tmpDir, "dashboardsx"), 0700); err != nil {
 		t.Fatal(err)
 	}
 
@@ -73,8 +73,8 @@ func TestSaveCert(t *testing.T) {
 	}
 
 	// Verify files exist and have correct permissions
-	certPath, _ := CertPath()
-	keyPath, _ := KeyPath()
+	certPath := CertPath()
+	keyPath := KeyPath()
 
 	for _, path := range []string{certPath, keyPath} {
 		info, err := os.Stat(path)

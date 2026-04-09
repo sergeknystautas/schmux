@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/timelapse"
 )
 
@@ -112,6 +113,5 @@ func (s *Server) handleTimelapseDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) recordingsDir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".schmux", "recordings")
+	return filepath.Join(schmuxdir.Get(), "recordings")
 }

@@ -76,12 +76,12 @@ func DetectBindableIPs() ([]string, error) {
 	return nil, fmt.Errorf("dashboardsx is not available in this build")
 }
 
-func CertPath() (string, error) {
-	return "", fmt.Errorf("dashboardsx is not available in this build")
+func CertPath() string {
+	return ""
 }
 
-func KeyPath() (string, error) {
-	return "", fmt.Errorf("dashboardsx is not available in this build")
+func KeyPath() string {
+	return ""
 }
 
 func NewServiceDNSProvider(_ *Client) (*ServiceDNSProvider, error) {

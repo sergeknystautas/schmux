@@ -3,10 +3,10 @@ package dashboard
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 	"path/filepath"
 
 	"github.com/sergeknystautas/schmux/internal/models"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 // handleGetUserModels returns the list of user-defined models.
@@ -32,8 +32,7 @@ func (s *Server) handleSetUserModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save to disk
-	homeDir, _ := os.UserHomeDir()
-	userModelsPath := filepath.Join(homeDir, ".schmux", "user-models.json")
+	userModelsPath := filepath.Join(schmuxdir.Get(), "user-models.json")
 	if err := models.SaveUserModels(userModelsPath, req.Models); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

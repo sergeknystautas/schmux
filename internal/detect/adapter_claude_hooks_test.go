@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 func TestClaudeSetupHooks(t *testing.T) {
@@ -424,6 +426,8 @@ func TestClaudeAdapterWrapRemoteCommand(t *testing.T) {
 
 func TestEnsureGlobalHookScripts(t *testing.T) {
 	tmpHome := t.TempDir()
+	schmuxdir.Set(filepath.Join(tmpHome, ".schmux"))
+	t.Cleanup(schmuxdir.Reset)
 
 	hooksDir, err := EnsureGlobalHookScripts(tmpHome)
 	if err != nil {

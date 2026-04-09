@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/huh"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 type AuthGitHubCommand struct {
@@ -68,7 +69,7 @@ func (cmd *AuthGitHubCommand) Run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get home directory: %w", err)
 	}
-	configPath := filepath.Join(cmd.homeDir, ".schmux", "config.json")
+	configPath := filepath.Join(schmuxdir.Get(), "config.json")
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return err
@@ -253,8 +254,8 @@ func (cmd *AuthGitHubCommand) stepTLSSetup(cfg *config.Config) error {
 	existingKey := cmd.keyPath
 
 	// Also check default location for this hostname
-	defaultCertPath := filepath.Join(cmd.homeDir, ".schmux", "tls", cmd.hostname+".pem")
-	defaultKeyPath := filepath.Join(cmd.homeDir, ".schmux", "tls", cmd.hostname+"-key.pem")
+	defaultCertPath := filepath.Join(schmuxdir.Get(), "tls", cmd.hostname+".pem")
+	defaultKeyPath := filepath.Join(schmuxdir.Get(), "tls", cmd.hostname+"-key.pem")
 
 	// If config paths don't exist but default paths do, use defaults
 	if (existingCert == "" || !fileExists(existingCert)) && fileExists(defaultCertPath) && fileExists(defaultKeyPath) {
@@ -386,7 +387,7 @@ func (cmd *AuthGitHubCommand) generateCerts() error {
 	}
 
 	// Create TLS directory
-	tlsDir := filepath.Join(cmd.homeDir, ".schmux", "tls")
+	tlsDir := filepath.Join(schmuxdir.Get(), "tls")
 	if err := os.MkdirAll(tlsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create TLS directory: %w", err)
 	}

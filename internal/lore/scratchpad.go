@@ -12,6 +12,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/events"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -653,11 +654,7 @@ func LoreStateDir(repoName string) (string, error) {
 	if strings.Contains(repoName, "..") || strings.Contains(repoName, "/") || strings.Contains(repoName, string(os.PathSeparator)) {
 		return "", fmt.Errorf("invalid repo name: %s", repoName)
 	}
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
-	}
-	dir := filepath.Join(homeDir, ".schmux", "lore", repoName)
+	dir := filepath.Join(schmuxdir.Get(), "lore", repoName)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create lore state dir: %w", err)
 	}

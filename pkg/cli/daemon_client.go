@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"time"
 )
 
@@ -43,9 +45,9 @@ func ResolveURL() string {
 		return url
 	}
 
-	home, err := os.UserHomeDir()
-	if err == nil {
-		data, err := os.ReadFile(filepath.Join(home, ".schmux", "daemon.url"))
+	d := schmuxdir.Get()
+	if d != "" {
+		data, err := os.ReadFile(filepath.Join(d, "daemon.url"))
 		if err == nil {
 			url := strings.TrimSpace(string(data))
 			if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {

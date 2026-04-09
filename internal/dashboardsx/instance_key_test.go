@@ -6,17 +6,18 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 func TestEnsureInstanceKey(t *testing.T) {
 	// Use a temporary directory
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	t.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	schmuxdir.Set(tmpDir)
+	defer schmuxdir.Reset()
 
-	// Create .schmux dir
-	if err := os.MkdirAll(filepath.Join(tmpDir, ".schmux", "dashboardsx"), 0700); err != nil {
+	// Create dashboardsx dir
+	if err := os.MkdirAll(filepath.Join(tmpDir, "dashboardsx"), 0700); err != nil {
 		t.Fatal(err)
 	}
 
@@ -39,7 +40,7 @@ func TestEnsureInstanceKey(t *testing.T) {
 	}
 
 	// Verify file permissions
-	keyPath, _ := InstanceKeyPath()
+	keyPath := InstanceKeyPath()
 	info, err := os.Stat(keyPath)
 	if err != nil {
 		t.Fatal(err)

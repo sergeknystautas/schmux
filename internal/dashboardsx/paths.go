@@ -5,60 +5,38 @@ package dashboardsx
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 const dirName = "dashboardsx"
 
-// Dir returns the dashboard.sx data directory (~/.schmux/dashboardsx/).
-func Dir() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(homeDir, ".schmux", dirName), nil
+// Dir returns the dashboard.sx data directory (<schmuxdir>/dashboardsx/).
+func Dir() string {
+	return filepath.Join(schmuxdir.Get(), dirName)
 }
 
 // InstanceKeyPath returns the path to the instance key file.
-func InstanceKeyPath() (string, error) {
-	dir, err := Dir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "instance.key"), nil
+func InstanceKeyPath() string {
+	return filepath.Join(Dir(), "instance.key")
 }
 
 // CertPath returns the path to the TLS certificate.
-func CertPath() (string, error) {
-	dir, err := Dir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "cert.pem"), nil
+func CertPath() string {
+	return filepath.Join(Dir(), "cert.pem")
 }
 
 // KeyPath returns the path to the TLS private key.
-func KeyPath() (string, error) {
-	dir, err := Dir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "key.pem"), nil
+func KeyPath() string {
+	return filepath.Join(Dir(), "key.pem")
 }
 
 // ACMEAccountPath returns the path to the ACME account key.
-func ACMEAccountPath() (string, error) {
-	dir, err := Dir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "acme-account.key"), nil
+func ACMEAccountPath() string {
+	return filepath.Join(Dir(), "acme-account.key")
 }
 
 // EnsureDir creates the dashboardsx directory with 0700 permissions.
 func EnsureDir() error {
-	dir, err := Dir()
-	if err != nil {
-		return err
-	}
-	return os.MkdirAll(dir, 0700)
+	return os.MkdirAll(Dir(), 0700)
 }

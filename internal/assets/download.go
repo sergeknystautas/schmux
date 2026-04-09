@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/log"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/version"
 )
 
@@ -23,11 +24,7 @@ const (
 
 // GetUserAssetsDir returns the path to the user's cached dashboard assets.
 func GetUserAssetsDir() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
-	}
-	return filepath.Join(homeDir, ".schmux", "dashboard"), nil
+	return filepath.Join(schmuxdir.Get(), "dashboard"), nil
 }
 
 // GetCachedVersion returns the version of cached assets, or empty string if none.

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/config"
@@ -12,6 +14,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/dashboardsx"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/repofeed"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
 	"github.com/sergeknystautas/schmux/internal/update"
 	"github.com/sergeknystautas/schmux/internal/version"
@@ -34,7 +37,51 @@ func parseDaemonRunFlags(args []string) (devProxy bool, background bool, devMode
 	return
 }
 
+func resolveAndStripConfigDir() {
+	var configDir string
+	var newArgs []string
+
+	args := os.Args
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--config-dir" && i+1 < len(args) {
+			configDir = args[i+1]
+			i++ // skip the value
+			continue
+		}
+		if strings.HasPrefix(arg, "--config-dir=") {
+			configDir = strings.TrimPrefix(arg, "--config-dir=")
+			continue
+		}
+		newArgs = append(newArgs, arg)
+	}
+	os.Args = newArgs
+
+	if configDir == "" {
+		configDir = os.Getenv("SCHMUX_HOME")
+	}
+
+	if configDir == "" {
+		return
+	}
+
+	if strings.HasPrefix(configDir, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			configDir = filepath.Join(home, configDir[2:])
+		}
+	}
+
+	if abs, err := filepath.Abs(configDir); err == nil {
+		configDir = abs
+	}
+
+	schmuxdir.Set(configDir)
+	fmt.Fprintf(os.Stderr, "schmux: using config dir %s\n", configDir)
+}
+
 func main() {
+	resolveAndStripConfigDir()
+
 	if len(os.Args) < 2 {
 		printUsage()
 		os.Exit(1)
@@ -319,6 +366,10 @@ func printUsage() {
 		fmt.Println("  update      Update schmux to the latest version")
 	}
 	fmt.Println("  help        Show this help message")
+	fmt.Println()
+	fmt.Println("Global Flags:")
+	fmt.Println("  --config-dir <path>  Use alternate config directory (default: ~/.schmux)")
+	fmt.Println("                       Can also set SCHMUX_HOME env var")
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Println("  schmux start                        # Start the daemon")
