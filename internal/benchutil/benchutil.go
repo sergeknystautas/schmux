@@ -3,7 +3,6 @@
 // benchmark suites.
 package benchutil
 
-
 // BenchResult holds latency percentile data in a format shared with the
 // Playwright benchmark spec so both can be compared with the same tooling.
 type BenchResult struct {
@@ -21,4 +20,3 @@ type BenchResult struct {
 	GCPauseUs  float64 `json:"gc_pause_total_us"`
 	Timestamp  string  `json:"timestamp"`
 }
-

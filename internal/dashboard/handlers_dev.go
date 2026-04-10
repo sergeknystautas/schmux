@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/log"
+	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
@@ -68,7 +70,8 @@ func (s *Server) handleDevStatus(w http.ResponseWriter, r *http.Request) {
 	schmuxDir := schmuxdir.Get()
 
 	response := map[string]any{
-		"active": true,
+		"active":    true,
+		"log_level": strings.ToLower(logging.GetLevel().String()),
 	}
 
 	// Read dev state (source workspace)
@@ -210,6 +213,41 @@ func (s *Server) handleDevSimulateTunnelStop(w http.ResponseWriter, r *http.Requ
 	if err := json.NewEncoder(w).Encode(map[string]string{"ok": "true"}); err != nil {
 		s.logger.Error("failed to encode response", "handler", "dev-simulate-tunnel-stop", "err", err)
 	}
+}
+
+// handleDevLogLevel handles GET (read) and POST (change) for the daemon log level.
+func (s *Server) handleDevLogLevel(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"level": strings.ToLower(logging.GetLevel().String()),
+		})
+		return
+	}
+
+	var req struct {
+		Level string `json:"level"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	parsed, err := log.ParseLevel(strings.ToLower(req.Level))
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Invalid log level %q: valid levels are debug, info, warn, error", req.Level), http.StatusBadRequest)
+		return
+	}
+
+	prev := logging.GetLevel()
+	logging.SetLevel(parsed)
+	s.logger.Info("log level changed", "from", strings.ToLower(prev.String()), "to", strings.ToLower(parsed.String()))
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"level": strings.ToLower(parsed.String()),
+	})
 }
 
 func (s *Server) handleDevClearPassword(w http.ResponseWriter, r *http.Request) {

@@ -109,4 +109,3 @@ func (g *GitOps) gitRun(args ...string) error {
 	}
 	return nil
 }
-

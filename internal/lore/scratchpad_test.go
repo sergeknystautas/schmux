@@ -370,7 +370,6 @@ func TestPruneEntries_MixedEntries(t *testing.T) {
 	}
 }
 
-
 func TestLoreStateDir(t *testing.T) {
 	dir, err := LoreStateDir("test-repo")
 	if err != nil {
@@ -405,7 +404,6 @@ func TestLoreStatePath(t *testing.T) {
 	// Clean up parent dir
 	os.RemoveAll(filepath.Dir(path))
 }
-
 
 func TestParseFailureEntry(t *testing.T) {
 	line := `{"ts":"2026-02-18T10:30:00Z","ws":"ws-1","agent":"claude-code","type":"failure","tool":"Bash","input_summary":"npm run build","error_summary":"Missing script","category":"wrong_command"}`
@@ -453,7 +451,6 @@ func TestEntryKey_FailureEntryNoTool(t *testing.T) {
 		t.Errorf("expected 'something', got %q", key)
 	}
 }
-
 
 func TestFilterByParams(t *testing.T) {
 	t.Parallel()
@@ -722,7 +719,6 @@ func TestMarkEntriesDirect(t *testing.T) {
 		}
 	}
 }
-
 
 func TestMarkEntriesDirect_DeduplicatesByTimestamp(t *testing.T) {
 	t.Parallel()

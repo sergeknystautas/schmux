@@ -261,4 +261,3 @@ func TestParserDropCounters(t *testing.T) {
 		t.Errorf("initial DroppedEvents = %d, want 0", p.DroppedEvents())
 	}
 }
-

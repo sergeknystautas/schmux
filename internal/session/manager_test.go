@@ -282,7 +282,6 @@ func TestEnsurePipePane(t *testing.T) {
 	})
 }
 
-
 func TestBuildCommand(t *testing.T) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {

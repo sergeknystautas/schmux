@@ -137,4 +137,3 @@ func ReadCastEvents(r io.Reader, fn func(Record) bool) error {
 	}
 	return scanner.Err()
 }
-

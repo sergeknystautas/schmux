@@ -50,4 +50,3 @@ func TestFileHash_EmptyFile(t *testing.T) {
 		t.Errorf("FileHash() = %s, want %s", hash, want)
 	}
 }
-

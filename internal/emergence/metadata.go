@@ -96,4 +96,3 @@ func (s *MetadataStore) Get(repo, skillName string) (contracts.EmergenceMetadata
 	meta, ok := s.data[repo][skillName]
 	return meta, ok, nil
 }
-

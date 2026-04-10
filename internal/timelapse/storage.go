@@ -117,4 +117,3 @@ func parseRecordingInfo(path string) (RecordingInfo, error) {
 
 	return info, nil
 }
-

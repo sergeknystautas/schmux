@@ -84,4 +84,3 @@ func encodeBranch(branch string) string {
 	}
 	return strings.Join(parts, "/")
 }
-

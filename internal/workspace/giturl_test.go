@@ -166,4 +166,3 @@ func TestBuildGitBranchURL(t *testing.T) {
 		})
 	}
 }
-

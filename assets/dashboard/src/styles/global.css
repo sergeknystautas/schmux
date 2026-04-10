@@ -903,6 +903,48 @@ body {
 }
 
 /* Dev rebuild dialog */
+.dev-log-level {
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+.dev-log-level__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 0.75rem;
+  width: 100%;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.dev-log-level__toggle:hover {
+  color: var(--color-text);
+  border-color: var(--color-text-muted);
+}
+
+.dev-log-level__toggle--active {
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+}
+
+.dev-log-level__icon {
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.dev-log-level__label {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
 .dev-rebuild-dialog {
   max-width: 320px;
 }

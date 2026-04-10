@@ -35,4 +35,3 @@ func GetAgentInstructionConfig(toolName string) (AgentInstructionConfig, bool) {
 	config, ok := agentInstructionConfigs[toolName]
 	return config, ok
 }
-

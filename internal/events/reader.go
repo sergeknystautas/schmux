@@ -43,4 +43,3 @@ func ReadEvents(path string, filter func(RawEvent) bool) ([]EventLine, error) {
 	}
 	return events, scanner.Err()
 }
-

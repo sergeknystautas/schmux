@@ -138,4 +138,3 @@ func (w *EventWatcher) Stop() {
 	w.cancel()
 	w.fsw.Close()
 }
-

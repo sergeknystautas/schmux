@@ -21,4 +21,3 @@ func Get() string {
 	}
 	return filepath.Join(home, ".schmux")
 }
-

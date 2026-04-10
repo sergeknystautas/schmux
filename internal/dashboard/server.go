@@ -803,9 +803,11 @@ func (s *Server) Start() error {
 		// Self-build routes (require ./dev.sh runner)
 		if s.devMode {
 			r.Get("/dev/status", s.handleDevStatus)
+			r.Get("/dev/log-level", s.handleDevLogLevel)
 			r.Group(func(r chi.Router) {
 				r.Use(s.csrfMiddleware)
 				r.Post("/dev/rebuild", s.handleDevRebuild)
+				r.Post("/dev/log-level", s.handleDevLogLevel)
 			})
 		}
 

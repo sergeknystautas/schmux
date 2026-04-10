@@ -916,6 +916,7 @@ export async function spawnCommitSession(
 export interface DevStatus {
   active: boolean;
   source_workspace?: string;
+  log_level?: string;
   last_build?: {
     success: boolean;
     workspace_path: string;
@@ -927,6 +928,16 @@ export interface DevStatus {
 export async function getDevStatus(): Promise<DevStatus> {
   const response = await apiFetch('/api/dev/status');
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch dev status');
+  return response.json();
+}
+
+export async function setDevLogLevel(level: 'debug' | 'info'): Promise<{ level: string }> {
+  const response = await apiFetch('/api/dev/log-level', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify({ level }),
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to set log level');
   return response.json();
 }
 
@@ -1291,10 +1302,7 @@ async function getAllSpawnEntries(repo: string): Promise<SpawnEntry[]> {
   return data.entries;
 }
 
-async function createSpawnEntry(
-  repo: string,
-  req: CreateSpawnEntryRequest
-): Promise<SpawnEntry> {
+async function createSpawnEntry(repo: string, req: CreateSpawnEntryRequest): Promise<SpawnEntry> {
   const response = await fetch(`/api/emergence/${encodeURIComponent(repo)}/entries`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },

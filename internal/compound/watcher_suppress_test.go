@@ -105,4 +105,3 @@ func TestSuppress_OverwritesPreviousEntry(t *testing.T) {
 		t.Error("Suppress() did not refresh the TTL for an existing entry")
 	}
 }
-

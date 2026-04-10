@@ -55,4 +55,3 @@ func (e *ScreenEmulator) CellGrid(width, height int) [][]rune {
 	}
 	return grid
 }
-

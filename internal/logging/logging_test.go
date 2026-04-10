@@ -37,6 +37,53 @@ func TestNew_ReturnsNonNil(t *testing.T) {
 	}
 }
 
+func TestSetLevel_UpdatesAllLoggers(t *testing.T) {
+	// Reset registry for test isolation
+	registryMu.Lock()
+	savedRegistry := registry
+	savedLevel := currentLevel
+	registry = nil
+	currentLevel = log.InfoLevel
+	registryMu.Unlock()
+	defer func() {
+		registryMu.Lock()
+		registry = savedRegistry
+		currentLevel = savedLevel
+		registryMu.Unlock()
+	}()
+
+	root := New()
+	child := Sub(root, "test")
+
+	if root.GetLevel() != log.InfoLevel {
+		t.Fatalf("root: expected InfoLevel, got %v", root.GetLevel())
+	}
+	if child.GetLevel() != log.InfoLevel {
+		t.Fatalf("child: expected InfoLevel, got %v", child.GetLevel())
+	}
+
+	SetLevel(log.DebugLevel)
+
+	if root.GetLevel() != log.DebugLevel {
+		t.Errorf("root: expected DebugLevel, got %v", root.GetLevel())
+	}
+	if child.GetLevel() != log.DebugLevel {
+		t.Errorf("child: expected DebugLevel, got %v", child.GetLevel())
+	}
+	if GetLevel() != log.DebugLevel {
+		t.Errorf("GetLevel: expected DebugLevel, got %v", GetLevel())
+	}
+
+	SetLevel(log.InfoLevel)
+
+	if root.GetLevel() != log.InfoLevel {
+		t.Errorf("root: expected InfoLevel after reset, got %v", root.GetLevel())
+	}
+	if child.GetLevel() != log.InfoLevel {
+		t.Errorf("child: expected InfoLevel after reset, got %v", child.GetLevel())
+	}
+}
+
 func TestSub_HasPrefix(t *testing.T) {
 	var buf bytes.Buffer
 	logger := log.NewWithOptions(&buf, log.Options{})

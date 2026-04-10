@@ -720,4 +720,3 @@ func (m *Manager) checkGitSafety(ctx context.Context, workspaceID string) (*VCSS
 
 	return status, nil
 }
-

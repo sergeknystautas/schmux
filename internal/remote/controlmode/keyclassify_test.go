@@ -304,8 +304,8 @@ func TestClassifyKeyRuns(t *testing.T) {
 
 		// Unknown CSI sequence is skipped silently
 		{
-			name:  "unknown CSI sequence skipped",
-			input: "\x1b[99~",
+			name:     "unknown CSI sequence skipped",
+			input:    "\x1b[99~",
 			expected: nil,
 		},
 

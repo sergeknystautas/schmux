@@ -63,6 +63,7 @@ Then proceed to Phase 1.
 ### Skip criteria
 
 Do NOT add tests for:
+
 - Simple getters/setters with no logic
 - Functions that are thin wrappers around stdlib calls
 - Code behind build tags (e2e) that's tested via E2E suite
@@ -107,11 +108,13 @@ Do NOT add tests for:
 
    - Apply the fix
    - Verify reliability: use `./test.sh --<suite> --run <TestName> --repeat 3` and confirm it's faster
+
 3. Report before/after timings for each fixed test
 
 ### Skip criteria
 
 Do NOT optimize:
+
 - Tests that are already <1s (unit) or <5s (E2E/scenario)
 - Tests where the sleep/wait is testing actual timing behavior
 

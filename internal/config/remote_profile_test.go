@@ -322,4 +322,3 @@ func TestMigrateRemoteFlavorsToProfiles_Idempotent(t *testing.T) {
 		t.Errorf("profile should be unchanged, got ID %q", cfg.RemoteProfiles[0].ID)
 	}
 }
-

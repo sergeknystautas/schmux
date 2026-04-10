@@ -70,4 +70,3 @@ func GetProviderProfile(modelsDevProvider string) (ProviderProfile, bool) {
 	p, ok := providerProfiles[modelsDevProvider]
 	return p, ok
 }
-

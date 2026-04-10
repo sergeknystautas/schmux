@@ -375,4 +375,3 @@ func TestLookupPortOwnerNotListening(t *testing.T) {
 		t.Fatal("expected error for closed port")
 	}
 }
-

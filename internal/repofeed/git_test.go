@@ -18,7 +18,6 @@ func initBareRepo(t *testing.T) string {
 	return dir
 }
 
-
 func TestReadAllDevFiles_NoBranch(t *testing.T) {
 	bareDir := initBareRepo(t)
 	g := &GitOps{BareDir: bareDir, Branch: "dev-repofeed"}

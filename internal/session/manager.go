@@ -1778,4 +1778,3 @@ func (m *Manager) updateTrackerSessionName(sessionID, tmuxSession string) {
 		tracker.SetTmuxSession(tmuxSession)
 	}
 }
-

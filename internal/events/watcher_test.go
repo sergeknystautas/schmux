@@ -74,4 +74,3 @@ func TestEventWatcherDispatch(t *testing.T) {
 		t.Error("failure handler should not have received events")
 	}
 }
-

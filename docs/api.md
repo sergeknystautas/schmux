@@ -3751,6 +3751,7 @@ Response:
 {
   "active": true,
   "source_workspace": "/path/to/current/worktree",
+  "log_level": "info",
   "last_build": {
     "success": true,
     "workspace_path": "/path/to/worktree",
@@ -3759,6 +3760,38 @@ Response:
   }
 }
 ```
+
+### GET /api/dev/log-level
+
+Returns the current daemon log level.
+
+Response:
+
+```json
+{ "level": "info" }
+```
+
+### POST /api/dev/log-level
+
+Changes the daemon log level at runtime. Affects all loggers (root and subsystem).
+
+Request:
+
+```json
+{ "level": "debug" }
+```
+
+Valid levels: `debug`, `info`, `warn`, `error`.
+
+Response:
+
+```json
+{ "level": "debug" }
+```
+
+Errors:
+
+- 400: invalid level value
 
 ### POST /api/dev/rebuild
 
