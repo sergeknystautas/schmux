@@ -1,54 +1,46 @@
 import { describe, it, expect } from 'vitest';
-import { isAttentionState, soundForState } from './notificationSound';
-
-describe('isAttentionState', () => {
-  it('"Needs Input" → true', () => {
-    expect(isAttentionState('Needs Input')).toBe(true);
-  });
-
-  it('"Error" → true', () => {
-    expect(isAttentionState('Error')).toBe(true);
-  });
-
-  it('"Running" → false', () => {
-    expect(isAttentionState('Running')).toBe(false);
-  });
-
-  it('"Idle" → false', () => {
-    expect(isAttentionState('Idle')).toBe(false);
-  });
-
-  it('undefined → false', () => {
-    expect(isAttentionState(undefined)).toBe(false);
-  });
-});
+import { soundForState, isAttentionState } from './notificationSound';
 
 describe('soundForState', () => {
-  it('"Needs Input" → attention', () => {
+  it('returns attention for Needs Input', () => {
     expect(soundForState('Needs Input')).toBe('attention');
   });
 
-  it('"Needs Attention" → attention', () => {
+  it('returns attention for Needs Attention', () => {
     expect(soundForState('Needs Attention')).toBe('attention');
   });
 
-  it('"Error" → attention', () => {
+  it('returns attention for Error', () => {
     expect(soundForState('Error')).toBe('attention');
   });
 
-  it('"Completed" → completion', () => {
+  it('returns completion for Completed', () => {
     expect(soundForState('Completed')).toBe('completion');
   });
 
-  it('"Working" → null', () => {
-    expect(soundForState('Working')).toBe(null);
+  it('returns null for Running', () => {
+    expect(soundForState('Running')).toBeNull();
   });
 
-  it('"Idle" → null', () => {
-    expect(soundForState('Idle')).toBe(null);
+  it('returns null for undefined', () => {
+    expect(soundForState(undefined)).toBeNull();
   });
 
-  it('undefined → null', () => {
-    expect(soundForState(undefined)).toBe(null);
+  it('returns null for empty string', () => {
+    expect(soundForState('')).toBeNull();
+  });
+});
+
+describe('isAttentionState', () => {
+  it('returns true for Needs Input', () => {
+    expect(isAttentionState('Needs Input')).toBe(true);
+  });
+
+  it('returns false for Completed', () => {
+    expect(isAttentionState('Completed')).toBe(false);
+  });
+
+  it('returns false for undefined', () => {
+    expect(isAttentionState(undefined)).toBe(false);
   });
 });

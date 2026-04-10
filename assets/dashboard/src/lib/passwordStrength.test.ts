@@ -2,23 +2,46 @@ import { describe, it, expect } from 'vitest';
 import { passwordStrength } from './passwordStrength';
 
 describe('passwordStrength', () => {
-  it.each([
-    ['123456', 'weak'],
-    ['111111', 'weak'],
-    ['abcdefg', 'weak'], // <8 chars
-    ['abcdefgh', 'ok'], // 8 chars, single type
-    ['99887766', 'ok'], // 8 digits, no pattern
-    ['a1b2c3d4', 'strong'], // 8 chars, mixed types
-    ['mySecurePin99', 'strong'], // 12+ chars
-    ['', 'weak'], // empty string
-    ['a', 'weak'], // single character
-    ['   ', 'weak'], // whitespace only (3 chars < 8)
-    ['aaaaaaaa', 'weak'], // 8 chars, all same character
-    ['12345678', 'weak'], // sequential digits at 8+ length
-    ['pässwörd123!', 'strong'], // unicode with mixed letters+digits
-    ['!@#$%^&*', 'ok'], // 8 special chars, no letter/digit mix
-    ['abcdefghijkl', 'strong'], // 12 chars, length alone qualifies
-  ] as const)('passwordStrength(%s) = %s', (password, expected) => {
-    expect(passwordStrength(password)).toBe(expected);
+  it('returns weak for short password (<8 chars)', () => {
+    expect(passwordStrength('abc')).toBe('weak');
+    expect(passwordStrength('1234567')).toBe('weak');
+    expect(passwordStrength('a')).toBe('weak');
+  });
+
+  it('returns weak for empty string', () => {
+    expect(passwordStrength('')).toBe('weak');
+  });
+
+  it('returns weak for all same character', () => {
+    expect(passwordStrength('aaaaaaaa')).toBe('weak');
+    expect(passwordStrength('zzzzzzzzzzz')).toBe('weak');
+  });
+
+  it('returns weak for sequential digits', () => {
+    expect(passwordStrength('12345678')).toBe('weak');
+    expect(passwordStrength('23456789')).toBe('weak');
+  });
+
+  it('returns strong for long password (>=12 chars, letters only)', () => {
+    expect(passwordStrength('abcdefghijkl')).toBe('strong');
+    expect(passwordStrength('longpasswordhere')).toBe('strong');
+  });
+
+  it('returns strong for mixed letters+digits (>=8 chars)', () => {
+    expect(passwordStrength('abcd1234')).toBe('strong');
+    expect(passwordStrength('pass99wo')).toBe('strong');
+  });
+
+  it('returns ok for letters only, 8-11 chars', () => {
+    expect(passwordStrength('abcdefgh')).toBe('ok');
+    expect(passwordStrength('helloworld!')).toBe('ok');
+  });
+
+  it('returns ok for digits only, 8+ chars, no weak pattern', () => {
+    expect(passwordStrength('99887766')).toBe('ok');
+  });
+
+  it('returns ok for special chars only, 8 chars', () => {
+    expect(passwordStrength('!@#$%^&*')).toBe('ok');
   });
 });

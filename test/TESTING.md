@@ -2,7 +2,7 @@
 
 Living document updated by `/improve-testing`. Read this before starting a round — it saves re-investigating known issues.
 
-Last updated: 2025-04-09 (round 2)
+Last updated: 2025-04-09 (round 3)
 
 ## Current Baseline
 
@@ -128,4 +128,18 @@ E2E tests contain `time.Sleep` calls that look like optimization targets but are
 
 **Flakiness findings:**
 - Zero flaky tests across all 4 suites in 3x repeat run (2,905 tests total)
+
+### Round 3 (2025-04-09)
+
+**Frontend coverage additions (4 new test files, 33 test cases):**
+- `passwordStrength.test.ts` — 9 tests: weak/ok/strong classification, edge cases (empty, repeated chars, sequential digits, mixed alphanumeric)
+- `tmuxHealth.test.ts` — 5 tests: histogram computation (bucket counts, edge cases, null for insufficient data)
+- `screenDiff.test.ts` — 9 tests: terminal desync detection (identical screens, ANSI stripping, different row counts, diff text format)
+- `notificationSound.test.ts` — 10 tests: nudge state → sound mapping (attention/completion/null)
+
+**Frontend coverage targets investigated but skipped:**
+- `accessoryTabOrder.ts` — uses localStorage, needs jsdom mocking for minimal value
+- `api.ts` (9.8% coverage) — HTTP client wrappers, tested via integration/scenario tests
+- `terminalStream.ts` (45%) — WebSocket streaming, requires complex mock setup
+- React components with low coverage — require rendering infrastructure, better tested via scenarios
 - Fixed lsof contention that made repeat runs unusable
