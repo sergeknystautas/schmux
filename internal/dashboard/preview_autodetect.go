@@ -473,9 +473,17 @@ func detectPortsViaSS(pid int) []preview.ListeningPort {
 	return result
 }
 
-// detectPortsViaLsof uses lsof (macOS) to find listening TCP ports for a PID.
-// Returns preview.ListeningPort entries with host information derived from the address type.
+// detectPortsForPIDFunc is the function used to find listening TCP ports for a PID via lsof.
+// Tests can replace this with a lightweight implementation to avoid lsof.
+var detectPortsForPIDFunc = defaultDetectPortsViaLsof
+
+// detectPortsViaLsof delegates to the pluggable function.
 func detectPortsViaLsof(pid int) []preview.ListeningPort {
+	return detectPortsForPIDFunc(pid)
+}
+
+// defaultDetectPortsViaLsof uses lsof (macOS) to find listening TCP ports for a PID.
+func defaultDetectPortsViaLsof(pid int) []preview.ListeningPort {
 	ctx, cancel := context.WithTimeout(context.Background(), 750*time.Millisecond)
 	defer cancel()
 

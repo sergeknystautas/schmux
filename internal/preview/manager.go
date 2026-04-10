@@ -593,9 +593,17 @@ func NormalizeTargetHost(host string) (string, error) {
 	return host, nil
 }
 
+// LookupPortOwnerFunc is the function used to find which PID owns a TCP port.
+// Tests can replace this with a lightweight implementation to avoid lsof.
+var LookupPortOwnerFunc = defaultLookupPortOwner
+
 // LookupPortOwner finds which PID is listening on a TCP port.
-// Uses lsof on macOS, ss on Linux. Prefers IPv4, lowest PID for ties.
 func LookupPortOwner(port int) (int, error) {
+	return LookupPortOwnerFunc(port)
+}
+
+// defaultLookupPortOwner uses lsof on macOS, ss on Linux.
+func defaultLookupPortOwner(port int) (int, error) {
 	pid, err := lookupPortOwnerViaLsof(port)
 	if err == nil {
 		return pid, nil
@@ -699,8 +707,17 @@ func isProcessAlive(pid int) bool {
 // Built once per reconciliation tick via a batch lsof/ss call.
 type PortOwnerCache map[int]int
 
-// BuildPortOwnerCache runs a single lsof/ss call to snapshot all TCP LISTEN ports.
+// BuildPortOwnerCacheFunc is the function used to snapshot all TCP LISTEN ports.
+// Tests can replace this with a lightweight implementation to avoid lsof.
+var BuildPortOwnerCacheFunc = defaultBuildPortOwnerCache
+
+// BuildPortOwnerCache snapshots all TCP LISTEN ports and their owning PIDs.
 func BuildPortOwnerCache() PortOwnerCache {
+	return BuildPortOwnerCacheFunc()
+}
+
+// defaultBuildPortOwnerCache runs a single lsof/ss call to snapshot all TCP LISTEN ports.
+func defaultBuildPortOwnerCache() PortOwnerCache {
 	cache := make(PortOwnerCache)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
