@@ -37,6 +37,13 @@ if ! (cd assets/dashboard && npm list knip >/dev/null 2>&1); then
     (cd assets/dashboard && npm install --save-dev knip --silent)
 fi
 
+for ts_dir in tools/test-runner tools/dev-runner; do
+    if [ -f "$ts_dir/package.json" ] && [ ! -d "$ts_dir/node_modules" ]; then
+        echo "Installing $ts_dir dependencies..."
+        (cd "$ts_dir" && npm install --silent)
+    fi
+done
+
 # --- Go: deadcode (unreachable functions) ---
 
 section "Go unreachable functions (deadcode)"
@@ -87,12 +94,45 @@ else
     echo "PASS"
 fi
 
+# --- npm: known vulnerabilities in dependencies ---
+
+section "npm dependency vulnerabilities (npm audit)"
+NPM_FAILED=0
+for pkg_dir in assets/dashboard tools/test-runner tools/dev-runner; do
+    if [ -f "$pkg_dir/package.json" ]; then
+        AUDIT_OUT=$(cd "$pkg_dir" && npm audit --omit=dev 2>&1) || true
+        if echo "$AUDIT_OUT" | grep -q "found 0 vulnerabilities"; then
+            echo "$pkg_dir: ok"
+        else
+            echo "--- $pkg_dir ---"
+            echo "$AUDIT_OUT"
+            NPM_FAILED=1
+        fi
+    fi
+done
+if [ $NPM_FAILED -ne 0 ]; then
+    FAILED=1
+else
+    echo "PASS"
+fi
+
 # --- TypeScript: strict type checking ---
 
 section "TypeScript type errors (tsc)"
-TSC_OUT=$(cd assets/dashboard && npx tsc --noEmit 2>&1) || true
-if [ -n "$TSC_OUT" ]; then
-    echo "$TSC_OUT"
+TSC_FAILED=0
+for ts_dir in assets/dashboard tools/test-runner tools/dev-runner; do
+    if [ -f "$ts_dir/tsconfig.json" ]; then
+        TSC_OUT=$(cd "$ts_dir" && npx tsc --noEmit 2>&1) || true
+        if [ -n "$TSC_OUT" ]; then
+            echo "--- $ts_dir ---"
+            echo "$TSC_OUT"
+            TSC_FAILED=1
+        else
+            echo "$ts_dir: ok"
+        fi
+    fi
+done
+if [ $TSC_FAILED -ne 0 ]; then
     FAILED=1
 else
     echo "PASS"
