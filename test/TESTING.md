@@ -2,7 +2,7 @@
 
 Living document updated by `/improve-testing`. Read this before starting a round — it saves re-investigating known issues.
 
-Last updated: 2025-04-09 (round 3)
+Last updated: 2025-04-09 (round 4)
 
 ## Current Baseline
 
@@ -128,6 +128,14 @@ E2E tests contain `time.Sleep` calls that look like optimization targets but are
 
 **Flakiness findings:**
 - Zero flaky tests across all 4 suites in 3x repeat run (2,905 tests total)
+
+### Round 4 (2025-04-09)
+
+**Coverage additions:**
+- `ClassifyKeyRuns` — 36 test cases for keyboard input parser (Go). Covers ASCII, Enter/Tab/Backspace, all arrow keys, control chars, Meta combos, F1-F4, PageUp/Down, Home/End, BTab, Delete, Insert, unknown CSI skip, bare escape, UTF-8, pre-allocated dst reuse. Coverage: 53% → ~95%.
+- `validateCompoundConfig` / `validateNudgenikConfig` — 9 test cases for config validators (Go). Both are currently stubs (always nil) — tests document this and will catch regressions.
+- `getQuickLaunchItems` — 7 test cases for quicklaunch deduplication/scoping (TS). Covers global/workspace scope ordering, deduplication across scopes, whitespace trimming/filtering.
+- `constants.ts` — investigated, skipped (only exports string constants, no functions)
 
 ### Round 3 (2025-04-09)
 

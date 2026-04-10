@@ -72,6 +72,97 @@ func TestValidateRunTargets(t *testing.T) {
 	}
 }
 
+func TestValidateCompoundConfig(t *testing.T) {
+	tests := []struct {
+		name     string
+		compound *CompoundConfig
+		wantErr  bool
+	}{
+		{
+			name:     "nil config",
+			compound: nil,
+			wantErr:  false,
+		},
+		{
+			name:     "empty target",
+			compound: &CompoundConfig{Target: ""},
+			wantErr:  false,
+		},
+		{
+			name:     "whitespace-only target",
+			compound: &CompoundConfig{Target: "   "},
+			wantErr:  false,
+		},
+		{
+			name:     "valid target",
+			compound: &CompoundConfig{Target: "claude-haiku"},
+			wantErr:  false,
+		},
+		{
+			name:     "target with other fields set",
+			compound: &CompoundConfig{Target: "claude-haiku", DebounceMs: 5000},
+			wantErr:  false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateCompoundConfig(tt.compound)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestValidateNudgenikConfig(t *testing.T) {
+	tests := []struct {
+		name     string
+		nudgenik *NudgenikConfig
+		wantErr  bool
+	}{
+		{
+			name:     "nil config",
+			nudgenik: nil,
+			wantErr:  false,
+		},
+		{
+			name:     "empty target",
+			nudgenik: &NudgenikConfig{Target: ""},
+			wantErr:  false,
+		},
+		{
+			name:     "whitespace-only target",
+			nudgenik: &NudgenikConfig{Target: "   "},
+			wantErr:  false,
+		},
+		{
+			name:     "valid target",
+			nudgenik: &NudgenikConfig{Target: "claude-haiku"},
+			wantErr:  false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateNudgenikConfig(tt.nudgenik)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
 func TestValidateQuickLaunch(t *testing.T) {
 	prompt := "do something"
 	tests := []struct {
