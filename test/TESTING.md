@@ -67,6 +67,16 @@ The remaining E2E tests cluster at 10-13s — this is the baseline cost of daemo
 - `internal/session/manager.go` (50.1%, 107 git commits) — frequently changed, `Spawn` at 0%. Needs daemon/tmux to test properly.
 - `internal/workspace/manager.go` (66.9%, 109 git commits) — frequently changed, but integration tests already cover the critical paths well.
 
+### Scenario test sleeps are well-structured (don't optimize)
+
+42 Playwright spec files, 191 tests, ~60s per run. 34/42 files use `test.describe.serial` (shared daemon state). Sleep usage investigated:
+- **Polling loops** (`sleep(200)` in `for` loops): condition-based polling for API readiness (git diff, remote host connection). Already the correct pattern.
+- **Negative assertions** (`waitForTimeout(2000)`): verifying things did NOT happen (e.g., dismissed tab stays gone). Cannot reduce.
+- **Timing measurement** (`sleep(10)`, `sleep(50)`): keystroke latency tests measuring real input timing.
+- **SSH connection waits** (`sleep(1000)` in loops): remote host tests polling for SSH readiness with 30-attempt limit. 1s interval is appropriate for SSH.
+
+Most sleep-heavy files: `git-operations.spec.ts` (8), `typing-latency.spec.ts` (7), `timelapse-recording.spec.ts` (7) — all are polling loops, not fixed waits.
+
 ### E2E sleeps are intentional (don't optimize)
 
 E2E tests contain `time.Sleep` calls that look like optimization targets but are NOT:
