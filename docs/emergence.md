@@ -10,8 +10,6 @@ Observes user prompts across sessions, distills recurring patterns into reusable
 | -------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `internal/emergence/store.go`                            | Per-repo spawn entry store (`spawn-entries.json`): CRUD, Pin/Dismiss, RecordUse, Import    |
 | `internal/emergence/metadata.go`                         | Per-repo skill metadata store (`metadata.json`): confidence, evidence, skill content       |
-| `internal/emergence/builtins.go`                         | Embeds `builtins/*.md` via `//go:embed`, exposes `ListBuiltins()`                          |
-| `internal/emergence/builtins/commit.md`                  | Built-in `/commit` skill (the only shipped built-in)                                       |
 | `internal/emergence/curator.go`                          | LLM prompt building and response parsing for skill distillation                            |
 | `internal/emergence/skillfile.go`                        | Renders a `SkillProposal` into a markdown file with YAML frontmatter                       |
 | `internal/emergence/history.go`                          | `CollectPromptHistory()`: scans workspace event JSONL for prompt autocomplete data         |
@@ -30,13 +28,13 @@ Observes user prompts across sessions, distills recurring patterns into reusable
 ## Architecture decisions
 
 - **Schmux proposes, agents execute.** Emerged skills are written into agents' native skill paths (`.claude/skills/schmux-<name>/SKILL.md`, `.opencode/commands/<name>.md`). The agent discovers and invokes them natively -- schmux has no invocation mechanism.
-- **Three skill sources coexist.** Built-in (shipped with binary), emerged (distilled from prompts), and manual (user-created). All surface in the spawn dropdown with no functional hierarchy.
+- **Two skill sources coexist.** Emerged (distilled from prompts) and manual (user-created). All surface in the spawn dropdown with no functional hierarchy.
 - **Invisible to git.** Injected skill files are hidden via `.git/info/exclude` entries managed by the ensure package. The `schmux-` prefix on directory names prevents collisions with user-created skills.
-- **Two injection paths.** (1) At workspace setup via `ensure/manager.go` -- all pinned skills are written when a workspace is first prepared. (2) On pin via `handlers_emergence.go` -- when a user pins a proposal, the skill is immediately injected into all existing workspaces for that repo.
+- **Two injection paths.** (1) At workspace setup via `ensure/manager.go` — all pinned emerged skills are written when a workspace is first prepared. (2) On pin via `handlers_emergence.go` — when a user pins a proposal, the skill is immediately injected into all existing workspaces for that repo.
 - **No standalone curation timer.** Emergence curation piggybacks on lore curation -- it fires as a side-effect at the end of every lore run (session dispose). Manual trigger is available via `POST /api/emergence/{repo}/curate`.
 - **Spawn entries are the user-facing registry.** `spawn-entries.json` tracks what appears in the spawn dropdown. Emergence metadata (evidence, confidence) is internal tracking in a separate `metadata.json`.
 - **Migration is one-time and automatic.** On first daemon startup, old `~/.schmux/actions/<repo>/registry.json` entries are migrated to spawn entries. The old directory is renamed to `actions.migrated`.
-- **`BuiltInSkills` config exists but is not yet wired.** The config struct has a `built_in_skills` map for per-skill enable/disable, but `ListBuiltins()` currently always returns all embedded skills.
+- **`BuiltInSkills` config field is deprecated.** The config struct retains `built_in_skills` for backward compatibility (so existing configs don't break on load), but it has no effect. Built-in skills have been removed in favor of per-repo emerged skills.
 
 ## Gotchas
 
@@ -49,9 +47,7 @@ Observes user prompts across sessions, distills recurring patterns into reusable
 
 ## Common modification patterns
 
-- **To add a new built-in skill:** Create a `.md` file in `internal/emergence/builtins/`. The `//go:embed` directive picks it up automatically. The filename (minus `.md`) becomes the skill name.
 - **To add a new spawn entry type:** Add the constant to `SpawnEntryType` in `contracts/emergence.go`. Update `CreateSpawnEntryRequest` validation in `handlers_emergence.go`. Update the frontend `CreateActionForm.tsx` to show the new type option.
 - **To change how skills are injected for a specific agent:** Edit the agent's `InjectSkill`/`RemoveSkill` methods in `adapter_<tool>.go`. The interface contract is in `adapter.go`.
-- **To wire `BuiltInSkills` config:** Read `config.BuiltInSkills` in `ensure/manager.go` before calling `ListBuiltins()`, and filter out disabled skills.
 - **To implement `CollectIntentSignals`:** Model it after `CollectPromptHistory` in `history.go` but return `[]IntentSignal` (defined in `curator.go`). It should read from the same `.schmux/events/*.jsonl` files.
 - **To change curation trigger conditions:** The trigger is in `daemon.go` inside the lore callback closure. The spec calls for minimum thresholds (3 similar signals, 2 sessions, 2 days) but these are not yet enforced.

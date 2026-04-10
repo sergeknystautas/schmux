@@ -2813,45 +2813,17 @@ func TestSubredditConfigCustomValues(t *testing.T) {
 	}
 }
 
-func TestBuiltinSkillsConfig(t *testing.T) {
+func TestBuiltinSkillsConfig_Deprecated(t *testing.T) {
 	t.Parallel()
 
-	t.Run("default all enabled", func(t *testing.T) {
+	t.Run("always returns false", func(t *testing.T) {
 		cfg := &Config{}
-		if !cfg.IsBuiltinEnabled("commit") {
-			t.Error("commit should be enabled by default")
-		}
-		if !cfg.IsBuiltinEnabled("anything") {
-			t.Error("unknown skills should be enabled by default")
-		}
-	})
-
-	t.Run("explicit disable", func(t *testing.T) {
-		cfg := &Config{
-			BuiltInSkills: map[string]bool{
-				"commit": false,
-			},
-		}
 		if cfg.IsBuiltinEnabled("commit") {
-			t.Error("commit should be disabled when set to false")
-		}
-		if !cfg.IsBuiltinEnabled("other") {
-			t.Error("other skills should still be enabled")
+			t.Error("deprecated IsBuiltinEnabled should always return false")
 		}
 	})
 
-	t.Run("explicit enable", func(t *testing.T) {
-		cfg := &Config{
-			BuiltInSkills: map[string]bool{
-				"commit": true,
-			},
-		}
-		if !cfg.IsBuiltinEnabled("commit") {
-			t.Error("commit should be enabled when set to true")
-		}
-	})
-
-	t.Run("json round-trip", func(t *testing.T) {
+	t.Run("json still parses without error", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.json")
 		json := `{
@@ -2861,12 +2833,9 @@ func TestBuiltinSkillsConfig(t *testing.T) {
 		}`
 		os.WriteFile(path, []byte(json), 0644)
 
-		cfg, err := Load(path)
+		_, err := Load(path)
 		if err != nil {
-			t.Fatal(err)
-		}
-		if cfg.IsBuiltinEnabled("commit") {
-			t.Error("commit should be disabled after loading from JSON")
+			t.Fatalf("config with built_in_skills should still parse: %v", err)
 		}
 	})
 }

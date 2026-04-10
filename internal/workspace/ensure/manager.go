@@ -190,25 +190,6 @@ func (e *Ensurer) ensureWorkspace(workspacePath string, hookTools []string, repo
 		}
 	}
 
-	// Inject built-in skills into workspace via adapter
-	builtins, err := emergence.ListBuiltins()
-	if err != nil {
-		fmt.Printf("[ensure] warning: failed to list built-in skills: %v\n", err)
-	} else {
-		for _, toolName := range hookTools {
-			adapter := detect.GetAdapter(toolName)
-			if adapter == nil {
-				continue
-			}
-			for _, b := range builtins {
-				skill := detect.SkillModule{Name: b.Name, Content: b.Content}
-				if err := adapter.InjectSkill(workspacePath, skill); err != nil {
-					fmt.Printf("[ensure] warning: failed to inject built-in skill %s for %s: %v\n", b.Name, toolName, err)
-				}
-			}
-		}
-	}
-
 	// Inject pinned emerged skills from emergence store
 	if emergenceStore != nil && repoNameResolver != nil && repoURL != "" {
 		if repoName, ok := repoNameResolver(repoURL); ok {

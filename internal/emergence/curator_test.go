@@ -11,10 +11,7 @@ func TestBuildEmergencePrompt_ContainsKeySections(t *testing.T) {
 		{Text: "fix the tests", Count: 3},
 		{Text: "deploy to staging", Count: 2},
 	}
-	existingSkills := []BuiltinSkill{
-		{Name: "commit", Content: "---\nname: commit\n---\n## Procedure\n"},
-	}
-	prompt := BuildEmergencePrompt(signals, existingSkills, nil, "my-repo")
+	prompt := BuildEmergencePrompt(signals, []string{"commit"}, "my-repo")
 
 	// Verify key sections exist
 	if !strings.Contains(prompt, "skill distiller") {
@@ -38,7 +35,7 @@ func TestBuildEmergencePrompt_ContainsKeySections(t *testing.T) {
 }
 
 func TestBuildEmergencePrompt_EmptySignals(t *testing.T) {
-	prompt := BuildEmergencePrompt(nil, nil, nil, "test-repo")
+	prompt := BuildEmergencePrompt(nil, nil, "test-repo")
 	if prompt == "" {
 		t.Error("prompt should not be empty even with no signals")
 	}
@@ -47,24 +44,24 @@ func TestBuildEmergencePrompt_EmptySignals(t *testing.T) {
 	}
 }
 
-func TestBuildEmergencePrompt_IncludesProposedSkills(t *testing.T) {
-	proposed := []string{"deploy-staging", "run-tests"}
-	prompt := BuildEmergencePrompt(nil, nil, proposed, "test-repo")
-	if !strings.Contains(prompt, "ALREADY PROPOSED SKILLS") {
-		t.Error("prompt should contain proposed skills section")
+func TestBuildEmergencePrompt_IncludesExistingSkills(t *testing.T) {
+	existing := []string{"deploy-staging", "run-tests"}
+	prompt := BuildEmergencePrompt(nil, existing, "test-repo")
+	if !strings.Contains(prompt, "EXISTING SKILLS") {
+		t.Error("prompt should contain existing skills section")
 	}
 	if !strings.Contains(prompt, "deploy-staging") {
-		t.Error("prompt should list proposed skill names")
+		t.Error("prompt should list existing skill names")
 	}
 	if !strings.Contains(prompt, "run-tests") {
-		t.Error("prompt should list all proposed skill names")
+		t.Error("prompt should list all existing skill names")
 	}
 }
 
-func TestBuildEmergencePrompt_OmitsProposedWhenEmpty(t *testing.T) {
-	prompt := BuildEmergencePrompt(nil, nil, nil, "test-repo")
-	if strings.Contains(prompt, "ALREADY PROPOSED SKILLS") {
-		t.Error("prompt should not contain proposed skills section when empty")
+func TestBuildEmergencePrompt_ShowsNoneWhenNoSkills(t *testing.T) {
+	prompt := BuildEmergencePrompt(nil, nil, "test-repo")
+	if !strings.Contains(prompt, "(none)") {
+		t.Error("prompt should show (none) when no existing skills")
 	}
 }
 

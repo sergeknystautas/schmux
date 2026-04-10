@@ -335,14 +335,11 @@ func (s *Server) handleEmergenceCurate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get existing skills (builtins)
-	builtins, _ := emergence.ListBuiltins()
-
 	// Get proposed/pinned skill names for dedup in prompt
 	proposedNames := s.emergenceStore.ProposedAndPinnedNames(repo)
 
 	// Build curator prompt
-	prompt := emergence.BuildEmergencePrompt(signals, builtins, proposedNames, repo)
+	prompt := emergence.BuildEmergencePrompt(signals, proposedNames, repo)
 
 	// Return 202 immediately
 	w.Header().Set("Content-Type", "application/json")
@@ -445,9 +442,8 @@ func (s *Server) TriggerEmergenceCuration(repo string) {
 		return
 	}
 
-	builtins, _ := emergence.ListBuiltins()
 	proposedNames := s.emergenceStore.ProposedAndPinnedNames(repo)
-	prompt := emergence.BuildEmergencePrompt(signals, builtins, proposedNames, repo)
+	prompt := emergence.BuildEmergencePrompt(signals, proposedNames, repo)
 
 	go s.runEmergenceCuration(repo, prompt)
 }

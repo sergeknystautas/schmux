@@ -100,7 +100,7 @@ type Config struct {
 	Repofeed                   *RepofeedConfig             `json:"repofeed,omitempty"`
 	FloorManager               *FloorManagerConfig         `json:"floor_manager,omitempty"`
 	SaplingCommands            SaplingCommands             `json:"sapling_commands,omitempty"`
-	BuiltInSkills              map[string]bool             `json:"built_in_skills,omitempty"`
+	BuiltInSkills              map[string]bool             `json:"built_in_skills,omitempty"` // Deprecated: no longer used. Kept for config compatibility.
 	TmuxBinary                 string                      `json:"tmux_binary,omitempty"`
 	TmuxSocketName             string                      `json:"tmux_socket_name,omitempty"`
 	RecycleWorkspaces          bool                        `json:"recycle_workspaces,omitempty"`
@@ -889,19 +889,11 @@ func (c *Config) GetWorkspacePath() string {
 	return c.WorkspacePath
 }
 
-// IsBuiltinEnabled returns whether a built-in skill is enabled.
-// Skills are enabled by default unless explicitly disabled in the config.
-func (c *Config) IsBuiltinEnabled(name string) bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if c.BuiltInSkills == nil {
-		return true
-	}
-	enabled, exists := c.BuiltInSkills[name]
-	if !exists {
-		return true
-	}
-	return enabled
+// IsBuiltinEnabled is deprecated. Built-in skills have been removed;
+// skills are now managed per-repo via the emergence system.
+// Kept temporarily for config compatibility.
+func (c *Config) IsBuiltinEnabled(_ string) bool {
+	return false
 }
 
 // GetWorktreeBasePath returns the path for bare clones (worktree base repos).
