@@ -1030,12 +1030,6 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// Test-only helper wrapper - kept for backward compatibility with existing tests.
-// Production code should use corsMiddleware via r.Use() instead.
-func (s *Server) withCORS(h http.HandlerFunc) http.HandlerFunc {
-	return s.corsMiddleware(http.HandlerFunc(h)).ServeHTTP
-}
-
 // isAllowedOrigin checks if a request origin should be permitted.
 // Allowed origins:
 //   - The configured public_base_url (https when TLS enabled, http when disabled)
@@ -1205,47 +1199,6 @@ func (s *Server) UnregisterWebSocket(sessionID string, conn *wsConn) {
 	if len(s.wsConns[sessionID]) == 0 {
 		delete(s.wsConns, sessionID)
 	}
-}
-
-// BroadcastToSession sends a message to all WebSocket connections for a session
-// and closes them. Returns the number of connections notified.
-func (s *Server) BroadcastToSession(sessionID string, msgType string, content string) int {
-	s.wsConnsMu.Lock()
-	conns := s.wsConns[sessionID]
-	delete(s.wsConns, sessionID)
-	s.wsConnsMu.Unlock()
-
-	if len(conns) == 0 {
-		return 0
-	}
-
-	msg := WSOutputMessage{Type: msgType, Content: content}
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return 0
-	}
-
-	count := 0
-	for _, conn := range conns {
-		if conn.IsClosed() {
-			continue
-		}
-		_ = conn.WriteMessage(websocket.TextMessage, data)
-		conn.Close()
-		count++
-	}
-	return count
-}
-
-// getRotationLock returns the rotation mutex for a session, creating it if needed.
-func (s *Server) getRotationLock(sessionID string) *sync.Mutex {
-	s.rotationLocksMu.Lock()
-	defer s.rotationLocksMu.Unlock()
-
-	if _, exists := s.rotationLocks[sessionID]; !exists {
-		s.rotationLocks[sessionID] = &sync.Mutex{}
-	}
-	return s.rotationLocks[sessionID]
 }
 
 // StartVersionCheck starts an async version check.

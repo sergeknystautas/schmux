@@ -50,7 +50,6 @@ func TestConnection_QueueSession(t *testing.T) {
 		select {
 		case <-resultCh:
 			received = true
-			break
 		default:
 			time.Sleep(10 * time.Millisecond)
 		}
@@ -91,7 +90,6 @@ func TestConnection_ContextCancellation(t *testing.T) {
 		select {
 		case <-ctx.Done():
 			contextDone = true
-			break
 		default:
 			time.Sleep(10 * time.Millisecond)
 		}

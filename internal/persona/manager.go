@@ -18,11 +18,6 @@ func NewManager(dir string) *Manager {
 	return &Manager{dir: dir}
 }
 
-// Dir returns the personas directory path.
-func (m *Manager) Dir() string {
-	return m.dir
-}
-
 // List returns all personas sorted by name.
 func (m *Manager) List() ([]*Persona, error) {
 	if err := os.MkdirAll(m.dir, 0700); err != nil {

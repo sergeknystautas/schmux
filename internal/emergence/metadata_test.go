@@ -55,27 +55,6 @@ func TestMetadataStore_GetMissing(t *testing.T) {
 	}
 }
 
-func TestMetadataStore_ListAll(t *testing.T) {
-	s := NewMetadataStore(t.TempDir())
-	repo := "test-repo"
-	now := time.Now().Truncate(time.Second)
-
-	s.Save(repo, contracts.EmergenceMetadata{
-		SkillName: "skill-a", Confidence: 0.9, EmergedAt: now, LastCurated: now,
-	})
-	s.Save(repo, contracts.EmergenceMetadata{
-		SkillName: "skill-b", Confidence: 0.7, EmergedAt: now, LastCurated: now,
-	})
-
-	all, err := s.ListAll(repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(all) != 2 {
-		t.Fatalf("expected 2 metadata entries, got %d", len(all))
-	}
-}
-
 func TestMetadataStore_Persistence(t *testing.T) {
 	dir := t.TempDir()
 	repo := "test-repo"
@@ -124,9 +103,12 @@ func TestMetadataStore_UpdateExisting(t *testing.T) {
 		t.Errorf("expected updated evidence_count 8, got %d", got.EvidenceCount)
 	}
 
-	// Should still have only one entry
-	all, _ := s.ListAll(repo)
-	if len(all) != 1 {
-		t.Errorf("expected 1 entry after update, got %d", len(all))
+	// Should still have only one entry — verify by getting back the same skill
+	got2, ok2, _ := s.Get(repo, "evolving")
+	if !ok2 {
+		t.Fatal("expected to find metadata after update")
+	}
+	if got2.Confidence != 0.9 {
+		t.Errorf("expected updated confidence 0.9, got %f", got2.Confidence)
 	}
 }

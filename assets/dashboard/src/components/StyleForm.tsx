@@ -8,7 +8,7 @@ export interface StyleFormData {
   prompt: string;
 }
 
-export const emptyForm: StyleFormData = {
+const emptyForm: StyleFormData = {
   id: '',
   name: '',
   icon: '',

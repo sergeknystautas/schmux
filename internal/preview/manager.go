@@ -265,13 +265,6 @@ func (m *Manager) DeleteWorkspace(workspaceID string) error {
 	return nil
 }
 
-// ReconcileWorkspace verifies previews for a workspace are still valid by checking
-// whether the source session's PID tree still owns the target port.
-// Returns true when preview set changed.
-func (m *Manager) ReconcileWorkspace(workspaceID string) (bool, error) {
-	return m.ReconcileWorkspaceWithCache(workspaceID, nil)
-}
-
 func (m *Manager) ReconcileWorkspaceWithCache(workspaceID string, cache PortOwnerCache) (bool, error) {
 	previews := m.state.GetWorkspacePreviews(workspaceID)
 	if len(previews) == 0 {

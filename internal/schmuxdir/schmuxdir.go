@@ -22,5 +22,3 @@ func Get() string {
 	return filepath.Join(home, ".schmux")
 }
 
-// Reset clears the stored directory (for testing only).
-func Reset() { dir = "" }

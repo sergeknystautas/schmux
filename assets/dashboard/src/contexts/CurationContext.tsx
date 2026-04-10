@@ -12,7 +12,7 @@ import { useSessions } from './SessionsContext';
 import { useToast } from '../components/ToastProvider';
 import type { CuratorStreamEvent } from '../lib/types';
 
-export interface CurationState {
+interface CurationState {
   phase: string;
   message: string;
   elapsed: number;

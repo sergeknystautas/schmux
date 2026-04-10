@@ -1,7 +1,7 @@
 import { createContext, useContext } from 'react';
 import type { OverlayChangeEvent } from '../lib/types';
 
-export type OverlayContextValue = {
+type OverlayContextValue = {
   overlayEvents: OverlayChangeEvent[];
   overlayUnreadCount: number;
   clearOverlayEvents: () => void;

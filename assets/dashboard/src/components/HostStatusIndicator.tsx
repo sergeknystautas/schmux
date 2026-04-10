@@ -1,6 +1,6 @@
 import type { RemoteHost } from '../lib/types';
 
-export type HostStatus =
+type HostStatus =
   | 'ready'
   | 'connected'
   | 'provisioning'

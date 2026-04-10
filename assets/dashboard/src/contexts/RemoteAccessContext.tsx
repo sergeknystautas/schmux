@@ -1,7 +1,7 @@
 import { createContext, useContext } from 'react';
 import type { RemoteAccessStatus } from '../lib/types';
 
-export type RemoteAccessContextValue = {
+type RemoteAccessContextValue = {
   remoteAccessStatus: RemoteAccessStatus;
   simulateRemote: boolean;
   setSimulateRemote: (value: boolean) => void;

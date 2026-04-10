@@ -36,7 +36,7 @@ func TestClient_Heartbeat(t *testing.T) {
 
 func TestClient_Heartbeat_Error(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "service unavailable", 503)
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 	}))
 	defer server.Close()
 

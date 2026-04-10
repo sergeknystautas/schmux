@@ -5,7 +5,7 @@ import type {
   WorkspaceSyncResultEvent,
 } from '../lib/types';
 
-export type SyncContextValue = {
+type SyncContextValue = {
   linearSyncResolveConflictStates: Record<string, LinearSyncResolveConflictStatePayload>;
   clearLinearSyncResolveConflictState: (workspaceId: string) => void;
   workspaceLockStates: Record<string, WorkspaceLockState>;

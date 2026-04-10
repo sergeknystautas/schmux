@@ -114,32 +114,11 @@ func TestReadCastEvents_EscapedData(t *testing.T) {
 	}
 }
 
-func TestReadRecords_BackwardCompat(t *testing.T) {
-	// ReadRecords should work as an alias for ReadCastEvents
-	input := `{"version":2,"width":80,"height":24}
-[0.000000,"o","hello"]
-`
-	var records []Record
-	err := ReadRecords(strings.NewReader(input), func(rec Record) bool {
-		records = append(records, rec)
-		return true
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(records) != 2 {
-		t.Fatalf("expected 2 records, got %d", len(records))
-	}
-	if records[1].D != "hello" {
-		t.Errorf("data = %q, want hello", records[1].D)
-	}
-}
-
 func TestRecordStruct_DIsString(t *testing.T) {
 	// Verify that Record.D is a string type (can hold arbitrary bytes as Go string)
 	rec := Record{
 		Type: RecordOutput,
-		T:    floatPtr(0.0),
+		T:    func() *float64 { v := 0.0; return &v }(),
 		D:    "hello\x00world", // arbitrary bytes in Go string
 	}
 	if rec.D != "hello\x00world" {

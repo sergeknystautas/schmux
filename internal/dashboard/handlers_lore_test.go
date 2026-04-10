@@ -27,18 +27,6 @@ import (
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
-// makeLoreApplyRequest creates an HTTP request with chi route context for the lore apply-merge endpoint.
-func makeLoreApplyRequest(t *testing.T, repoName, proposalID string, body []byte) *http.Request {
-	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/api/lore/"+repoName+"/proposals/"+proposalID+"/apply-merge", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("repo", repoName)
-	rctx.URLParams.Add("proposalID", proposalID)
-	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
-	return req
-}
-
 func TestHandleLorePendingMerge_NotFound(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.json")

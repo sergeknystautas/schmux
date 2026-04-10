@@ -1,6 +1,15 @@
 {
   "entry": ["src/main.tsx"],
   "project": ["src/**/*.{ts,tsx}"],
+  "ignore": ["src/setupTests.ts", "src/lib/types.generated.ts"],
+  "ignoreDependencies": [
+    "@vitejs/plugin-react",
+    "@vitest/coverage-v8",
+    "prettier",
+    "vite-plugin-istanbul",
+    "@testing-library/jest-dom"
+  ],
+  "exclude": ["duplicates"],
   "vite": {
     "config": []
   },

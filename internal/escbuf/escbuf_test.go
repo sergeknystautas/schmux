@@ -326,7 +326,7 @@ func TestSplitCleanChainedCalls(t *testing.T) {
 	}
 
 	// Frame 3: rest of sequence + more text
-	send, hold, scratch = SplitClean(scratch, hold, []byte(";196mworld"))
+	send, hold, _ = SplitClean(scratch, hold, []byte(";196mworld"))
 	if string(send) != "\x1b[38;5;196mworld" {
 		t.Errorf("frame 3 send: got %q, want %q", send, "\x1b[38;5;196mworld")
 	}

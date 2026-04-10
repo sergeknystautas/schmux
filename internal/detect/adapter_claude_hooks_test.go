@@ -427,7 +427,7 @@ func TestClaudeAdapterWrapRemoteCommand(t *testing.T) {
 func TestEnsureGlobalHookScripts(t *testing.T) {
 	tmpHome := t.TempDir()
 	schmuxdir.Set(filepath.Join(tmpHome, ".schmux"))
-	t.Cleanup(schmuxdir.Reset)
+	t.Cleanup(func() { schmuxdir.Set("") })
 
 	hooksDir, err := EnsureGlobalHookScripts(tmpHome)
 	if err != nil {

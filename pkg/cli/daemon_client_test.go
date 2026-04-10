@@ -416,7 +416,7 @@ func TestClient_Spawn(t *testing.T) {
 		defer server.Close()
 
 		client := NewDaemonClient(server.URL)
-		results, err := client.Spawn(nil, req)
+		results, err := client.Spawn(context.TODO(), req)
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -479,7 +479,7 @@ func TestClient_DisposeSession(t *testing.T) {
 		defer server.Close()
 
 		client := NewDaemonClient(server.URL)
-		err := client.DisposeSession(nil, "test-session")
+		err := client.DisposeSession(context.TODO(), "test-session")
 
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
@@ -539,7 +539,7 @@ func TestClient_ScanWorkspaces(t *testing.T) {
 		defer server.Close()
 
 		client := NewDaemonClient(server.URL)
-		result, err := client.ScanWorkspaces(nil)
+		result, err := client.ScanWorkspaces(context.TODO())
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)

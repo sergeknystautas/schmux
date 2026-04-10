@@ -3,7 +3,6 @@ package compound
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -437,7 +436,7 @@ func TestMergeAction_String(t *testing.T) {
 	}
 
 	t.Run("satisfies fmt.Stringer", func(t *testing.T) {
-		got := fmt.Sprintf("%s", MergeActionFastPath)
+		got := MergeActionFastPath.String()
 		if got != "fast-path" {
 			t.Errorf("fmt.Sprintf(%%s) = %q, want 'fast-path'", got)
 		}

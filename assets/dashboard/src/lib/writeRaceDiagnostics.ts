@@ -18,7 +18,7 @@
 
 import type { Terminal, IDisposable } from '@xterm/xterm';
 
-export type WriteRaceEvent = {
+type WriteRaceEvent = {
   ts: number;
   dataLen: number;
   totalMs: number;
@@ -36,7 +36,7 @@ export type WriteRaceEvent = {
   viewportYDelta: number;
 };
 
-export type StallEvent = {
+type StallEvent = {
   ts: number;
   gapMs: number;
   inWrite: boolean;

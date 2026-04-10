@@ -90,7 +90,7 @@ export interface RepoResponse {
   default_branch?: string;
 }
 
-export interface SaplingCommandsResponse {
+interface SaplingCommandsResponse {
   create_workspace?: string;
   remove_workspace?: string;
   check_repo_base?: string;
@@ -124,14 +124,9 @@ export type {
   ConfigUpdateRequest,
   CommitGraphResponse,
   CommitGraphNode,
-  CommitGraphBranch,
   Model,
   PRsResponse,
   PullRequest,
-  PrReview,
-  PrReviewUpdate,
-  Notifications,
-  NotificationsUpdate,
   RunnerInfo,
   Tab,
   TLSValidateResponse,
@@ -552,7 +547,7 @@ export interface LoreEntriesResponse {
   entries: LoreEntry[];
 }
 
-export interface LoreApplyResponse {
+interface LoreApplyResponse {
   status: string;
   branch: string;
 }

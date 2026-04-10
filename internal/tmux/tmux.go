@@ -372,15 +372,6 @@ func (s *TmuxServer) SetEnvironment(ctx context.Context, key, value string) erro
 	return nil
 }
 
-// ANSI escape sequence regex for stripping terminal codes.
-// Compiled once at package initialization for efficiency.
-var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07\x1b]*\x07|\x1b\][^\x07\x1b]*\x1b\\`)
-
-// StripAnsi removes ANSI escape sequences from text.
-func StripAnsi(text string) string {
-	return ansiRegex.ReplaceAllString(text, "")
-}
-
 // CursorState holds the cursor position and visibility for a session.
 type CursorState struct {
 	X       int

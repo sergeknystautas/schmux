@@ -1,6 +1,6 @@
 import { stripAnsi } from './ansiStrip';
 
-export interface ScreenDiff {
+interface ScreenDiff {
   differingRows: Array<{ row: number; tmux: string; xterm: string }>;
   summary: string;
   diffText: string;

@@ -89,14 +89,6 @@ func (ct *CurationTracker) Complete(repo string, err error) {
 	}
 }
 
-// Get returns the curation run for a repo, or nil if none exists.
-func (ct *CurationTracker) Get(repo string) *CurationRun {
-	ct.mu.RLock()
-	defer ct.mu.RUnlock()
-
-	return ct.runs[repo]
-}
-
 // Active returns all curation runs that are not yet done.
 func (ct *CurationTracker) Active() []*CurationRun {
 	ct.mu.RLock()

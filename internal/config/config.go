@@ -1250,9 +1250,12 @@ func (c *Config) GetTimelapseMaxTotalStorageMB() int {
 
 // GetBranchSuggestTarget returns the configured branch suggestion target name, if any.
 func (c *Config) GetBranchSuggestTarget() string {
+	if c == nil {
+		return ""
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.BranchSuggest == nil {
+	if c.BranchSuggest == nil {
 		return ""
 	}
 	return strings.TrimSpace(c.BranchSuggest.Target)
@@ -1276,9 +1279,12 @@ func (c *Config) getCompoundTargetLocked() string {
 
 // GetCompoundDebounceMs returns the compound debounce interval in milliseconds.
 func (c *Config) GetCompoundDebounceMs() int {
+	if c == nil {
+		return 2000
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.Compound == nil || c.Compound.DebounceMs <= 0 {
+	if c.Compound == nil || c.Compound.DebounceMs <= 0 {
 		return 2000
 	}
 	return c.Compound.DebounceMs
@@ -1286,9 +1292,12 @@ func (c *Config) GetCompoundDebounceMs() int {
 
 // GetCompoundEnabled returns whether compounding is enabled.
 func (c *Config) GetCompoundEnabled() bool {
+	if c == nil {
+		return true
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.Compound == nil || c.Compound.Enabled == nil {
+	if c.Compound == nil || c.Compound.Enabled == nil {
 		return true // enabled by default
 	}
 	return *c.Compound.Enabled
@@ -1296,9 +1305,12 @@ func (c *Config) GetCompoundEnabled() bool {
 
 // GetCompoundSuppressionTTLMs returns the suppression TTL in milliseconds.
 func (c *Config) GetCompoundSuppressionTTLMs() int {
+	if c == nil {
+		return 5000
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.Compound == nil || c.Compound.SuppressionTTLMs <= 0 {
+	if c.Compound == nil || c.Compound.SuppressionTTLMs <= 0 {
 		return 5000
 	}
 	return c.Compound.SuppressionTTLMs
@@ -1316,9 +1328,12 @@ var DefaultInstructionFiles = []string{
 // GetLoreEnabled returns whether the lore system is enabled.
 // Defaults to true if not explicitly configured.
 func (c *Config) GetLoreEnabled() bool {
+	if c == nil {
+		return true
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.Lore == nil || c.Lore.Enabled == nil {
+	if c.Lore == nil || c.Lore.Enabled == nil {
 		return true
 	}
 	return *c.Lore.Enabled
@@ -1327,9 +1342,12 @@ func (c *Config) GetLoreEnabled() bool {
 // GetLoreTarget returns the configured lore curator LLM target.
 // Falls back to the compound target if not explicitly configured.
 func (c *Config) GetLoreTarget() string {
+	if c == nil {
+		return ""
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c != nil && c.Lore != nil && c.Lore.Target != "" {
+	if c.Lore != nil && c.Lore.Target != "" {
 		return c.Lore.Target
 	}
 	return c.getCompoundTargetLocked()
@@ -1339,9 +1357,12 @@ func (c *Config) GetLoreTarget() string {
 // without any fallback. Returns "" if no target is set.
 // Use this for config UI display; use GetLoreTarget() for runtime behavior.
 func (c *Config) GetLoreTargetRaw() string {
+	if c == nil {
+		return ""
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.Lore == nil {
+	if c.Lore == nil {
 		return ""
 	}
 	return c.Lore.Target
@@ -1350,9 +1371,12 @@ func (c *Config) GetLoreTargetRaw() string {
 // GetLoreAutoPR returns whether to auto-create a PR after pushing a lore branch.
 // Defaults to false.
 func (c *Config) GetLoreAutoPR() bool {
+	if c == nil {
+		return false
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.Lore == nil || c.Lore.AutoPR == nil {
+	if c.Lore == nil || c.Lore.AutoPR == nil {
 		return false
 	}
 	return *c.Lore.AutoPR
@@ -1361,9 +1385,12 @@ func (c *Config) GetLoreAutoPR() bool {
 // GetLoreCurateOnDispose returns the curate-on-dispose mode.
 // Returns "session", "workspace", or "never". Defaults to "session".
 func (c *Config) GetLoreCurateOnDispose() string {
+	if c == nil {
+		return "session"
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.Lore == nil {
+	if c.Lore == nil {
 		return "session"
 	}
 	// If the string value is already set, use it directly
@@ -1391,9 +1418,12 @@ func (c *Config) GetLoreCurateOnDispose() string {
 // GetLorePublicRuleMode returns the configured public rule mode.
 // Returns "direct_push" or "create_pr". Defaults to "direct_push".
 func (c *Config) GetLorePublicRuleMode() string {
+	if c == nil {
+		return "direct_push"
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.Lore == nil {
+	if c.Lore == nil {
 		return "direct_push"
 	}
 	return c.Lore.GetPublicRuleMode()
@@ -1402,9 +1432,12 @@ func (c *Config) GetLorePublicRuleMode() string {
 // GetLoreCurateDebounceMs returns the debounce interval for auto-curation in milliseconds.
 // Defaults to 30000 (30 seconds).
 func (c *Config) GetLoreCurateDebounceMs() int {
+	if c == nil {
+		return 30000
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.Lore == nil || c.Lore.CurateDebounceMs <= 0 {
+	if c.Lore == nil || c.Lore.CurateDebounceMs <= 0 {
 		return 30000
 	}
 	return c.Lore.CurateDebounceMs
@@ -1413,9 +1446,12 @@ func (c *Config) GetLoreCurateDebounceMs() int {
 // GetLorePruneAfterDays returns the number of days before pruning applied/dismissed entries.
 // Defaults to 30.
 func (c *Config) GetLorePruneAfterDays() int {
+	if c == nil {
+		return 30
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.Lore == nil || c.Lore.PruneAfterDays <= 0 {
+	if c.Lore == nil || c.Lore.PruneAfterDays <= 0 {
 		return 30
 	}
 	return c.Lore.PruneAfterDays
@@ -1424,9 +1460,12 @@ func (c *Config) GetLorePruneAfterDays() int {
 // GetLoreInstructionFiles returns the instruction file patterns managed by the lore curator.
 // Defaults to DefaultInstructionFiles if not configured.
 func (c *Config) GetLoreInstructionFiles() []string {
+	if c == nil {
+		return DefaultInstructionFiles
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c != nil && c.Lore != nil && len(c.Lore.InstructionFiles) > 0 {
+	if c.Lore != nil && len(c.Lore.InstructionFiles) > 0 {
 		return c.Lore.InstructionFiles
 	}
 	return DefaultInstructionFiles
@@ -1442,6 +1481,9 @@ var DefaultOverlayPaths = []string{
 // GetOverlayPaths returns the deduplicated union of hardcoded defaults,
 // global config paths, and repo-specific paths for the given repo name.
 func (c *Config) GetOverlayPaths(repoName string) []string {
+	if c == nil {
+		return append([]string(nil), DefaultOverlayPaths...)
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	seen := make(map[string]bool)
@@ -1457,19 +1499,17 @@ func (c *Config) GetOverlayPaths(repoName string) []string {
 	for _, p := range DefaultOverlayPaths {
 		add(p)
 	}
-	if c != nil && c.Overlay != nil {
+	if c.Overlay != nil {
 		for _, p := range c.Overlay.Paths {
 			add(p)
 		}
 	}
-	if c != nil {
-		for _, repo := range c.Repos {
-			if repo.Name == repoName {
-				for _, p := range repo.OverlayPaths {
-					add(p)
-				}
-				break
+	for _, repo := range c.Repos {
+		if repo.Name == repoName {
+			for _, p := range repo.OverlayPaths {
+				add(p)
 			}
+			break
 		}
 	}
 	return paths
@@ -1477,9 +1517,12 @@ func (c *Config) GetOverlayPaths(repoName string) []string {
 
 // GetConflictResolveTarget returns the configured conflict resolution target name, if any.
 func (c *Config) GetConflictResolveTarget() string {
+	if c == nil {
+		return ""
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.ConflictResolve == nil {
+	if c.ConflictResolve == nil {
 		return ""
 	}
 	return strings.TrimSpace(c.ConflictResolve.Target)
@@ -1498,9 +1541,12 @@ func (c *Config) GetConflictResolveTimeoutMs() int {
 
 // GetPrReviewTarget returns the configured target for PR review sessions.
 func (c *Config) GetPrReviewTarget() string {
+	if c == nil {
+		return ""
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.PrReview == nil {
+	if c.PrReview == nil {
 		return ""
 	}
 	return strings.TrimSpace(c.PrReview.Target)
@@ -1508,9 +1554,12 @@ func (c *Config) GetPrReviewTarget() string {
 
 // GetCommitMessageTarget returns the configured target for commit message generation.
 func (c *Config) GetCommitMessageTarget() string {
+	if c == nil {
+		return ""
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.CommitMessage == nil {
+	if c.CommitMessage == nil {
 		return ""
 	}
 	return strings.TrimSpace(c.CommitMessage.Target)
@@ -1518,9 +1567,12 @@ func (c *Config) GetCommitMessageTarget() string {
 
 // GetDesyncEnabled returns whether desync diagnostics are enabled.
 func (c *Config) GetDesyncEnabled() bool {
+	if c == nil {
+		return false
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.Desync == nil || c.Desync.Enabled == nil {
+	if c.Desync == nil || c.Desync.Enabled == nil {
 		return false
 	}
 	return *c.Desync.Enabled
@@ -1528,9 +1580,12 @@ func (c *Config) GetDesyncEnabled() bool {
 
 // GetDesyncTarget returns the configured target for desync diagnostic capture sessions.
 func (c *Config) GetDesyncTarget() string {
+	if c == nil {
+		return ""
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.Desync == nil {
+	if c.Desync == nil {
 		return ""
 	}
 	return strings.TrimSpace(c.Desync.Target)
@@ -1538,9 +1593,12 @@ func (c *Config) GetDesyncTarget() string {
 
 // GetIOWorkspaceTelemetryEnabled returns whether I/O workspace telemetry is enabled.
 func (c *Config) GetIOWorkspaceTelemetryEnabled() bool {
+	if c == nil {
+		return false
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.IOWorkspaceTelemetry == nil || c.IOWorkspaceTelemetry.Enabled == nil {
+	if c.IOWorkspaceTelemetry == nil || c.IOWorkspaceTelemetry.Enabled == nil {
 		return false
 	}
 	return *c.IOWorkspaceTelemetry.Enabled
@@ -1548,9 +1606,12 @@ func (c *Config) GetIOWorkspaceTelemetryEnabled() bool {
 
 // GetIOWorkspaceTelemetryTarget returns the configured target for I/O workspace telemetry.
 func (c *Config) GetIOWorkspaceTelemetryTarget() string {
+	if c == nil {
+		return ""
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.IOWorkspaceTelemetry == nil {
+	if c.IOWorkspaceTelemetry == nil {
 		return ""
 	}
 	return strings.TrimSpace(c.IOWorkspaceTelemetry.Target)
@@ -1559,9 +1620,12 @@ func (c *Config) GetIOWorkspaceTelemetryTarget() string {
 // GetNotificationSoundEnabled returns whether notification sounds are enabled.
 // Defaults to true (sounds enabled) unless explicitly disabled.
 func (c *Config) GetNotificationSoundEnabled() bool {
+	if c == nil {
+		return true
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.Notifications == nil {
+	if c.Notifications == nil {
 		return true
 	}
 	return !c.Notifications.SoundDisabled
@@ -1570,9 +1634,12 @@ func (c *Config) GetNotificationSoundEnabled() bool {
 // GetConfirmBeforeClose returns whether the browser should show a "Leave site?" dialog on tab close.
 // Defaults to false (no confirmation).
 func (c *Config) GetConfirmBeforeClose() bool {
+	if c == nil {
+		return false
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.Notifications == nil {
+	if c.Notifications == nil {
 		return false
 	}
 	return c.Notifications.ConfirmBeforeClose
@@ -1581,9 +1648,12 @@ func (c *Config) GetConfirmBeforeClose() bool {
 // GetSuggestDisposeAfterPush returns whether to prompt disposing workspace after pushing to main.
 // Defaults to true (prompt enabled) unless explicitly disabled.
 func (c *Config) GetSuggestDisposeAfterPush() bool {
+	if c == nil {
+		return true
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.Notifications == nil || c.Notifications.SuggestDisposeAfterPush == nil {
+	if c.Notifications == nil || c.Notifications.SuggestDisposeAfterPush == nil {
 		return true
 	}
 	return *c.Notifications.SuggestDisposeAfterPush
@@ -2455,27 +2525,17 @@ func offsetToLineCol(data []byte, offset int64) (line, col int) {
 	return line, col
 }
 
-// EnsureModelSecrets validates that all required secrets for a model are non-empty.
-// Checks the first runner's RequiredSecrets since model-level RequiredSecrets was removed.
-// This is a shared helper used by multiple packages (session, oneshot, nudgenik).
-func EnsureModelSecrets(model detect.Model, secrets map[string]string) error {
-	for _, key := range model.FirstRunnerRequiredSecrets() {
-		val := strings.TrimSpace(secrets[key])
-		if val == "" {
-			return fmt.Errorf("%w: model %s missing required secret: %s", ErrInvalidConfig, model.ID, key)
-		}
-	}
-	return nil
-}
-
 // GetRemoteAccessEnabled returns whether remote access is enabled.
 // Defaults to false (disabled). Users must explicitly set "enabled": true.
 // For backward compatibility, "disabled": true in existing configs is respected
 // (inverted to enabled=false). If both fields are set, "enabled" takes precedence.
 func (c *Config) GetRemoteAccessEnabled() bool {
+	if c == nil {
+		return false
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.RemoteAccess == nil {
+	if c.RemoteAccess == nil {
 		return false
 	}
 	// New field takes precedence
@@ -2492,9 +2552,12 @@ func (c *Config) GetRemoteAccessEnabled() bool {
 // GetRemoteAccessTimeoutMinutes returns the tunnel auto-kill timeout in minutes.
 // Defaults to 120 (2 hours) when not configured. Set to -1 in config to disable.
 func (c *Config) GetRemoteAccessTimeoutMinutes() int {
+	if c == nil {
+		return 120
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.RemoteAccess == nil || c.RemoteAccess.TimeoutMinutes == 0 {
+	if c.RemoteAccess == nil || c.RemoteAccess.TimeoutMinutes == 0 {
 		return 120
 	}
 	if c.RemoteAccess.TimeoutMinutes < 0 {
@@ -2505,9 +2568,12 @@ func (c *Config) GetRemoteAccessTimeoutMinutes() int {
 
 // GetRemoteAccessNtfyTopic returns the ntfy.sh topic for push notifications.
 func (c *Config) GetRemoteAccessNtfyTopic() string {
+	if c == nil {
+		return ""
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.RemoteAccess == nil || c.RemoteAccess.Notify == nil {
+	if c.RemoteAccess == nil || c.RemoteAccess.Notify == nil {
 		return ""
 	}
 	return strings.TrimSpace(c.RemoteAccess.Notify.NtfyTopic)
@@ -2515,9 +2581,12 @@ func (c *Config) GetRemoteAccessNtfyTopic() string {
 
 // GetRemoteAccessNotifyCommand returns the custom notification command.
 func (c *Config) GetRemoteAccessNotifyCommand() string {
+	if c == nil {
+		return ""
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.RemoteAccess == nil || c.RemoteAccess.Notify == nil {
+	if c.RemoteAccess == nil || c.RemoteAccess.Notify == nil {
 		return ""
 	}
 	return strings.TrimSpace(c.RemoteAccess.Notify.Command)
@@ -2525,9 +2594,12 @@ func (c *Config) GetRemoteAccessNotifyCommand() string {
 
 // GetRemoteAccessPasswordHash returns the bcrypt-hashed password for remote access auth.
 func (c *Config) GetRemoteAccessPasswordHash() string {
+	if c == nil {
+		return ""
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.RemoteAccess == nil {
+	if c.RemoteAccess == nil {
 		return ""
 	}
 	return c.RemoteAccess.PasswordHash
@@ -2546,9 +2618,12 @@ func (c *Config) SetRemoteAccessPasswordHash(hash string) {
 // GetRemoteAccessAllowAutoDownload returns whether auto-downloading cloudflared is allowed.
 // Defaults to false (disabled). Set to true in config to allow unverified binary downloads.
 func (c *Config) GetRemoteAccessAllowAutoDownload() bool {
+	if c == nil {
+		return false
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.RemoteAccess == nil || c.RemoteAccess.AllowAutoDownload == nil {
+	if c.RemoteAccess == nil || c.RemoteAccess.AllowAutoDownload == nil {
 		return false
 	}
 	return *c.RemoteAccess.AllowAutoDownload
@@ -2821,11 +2896,6 @@ func generateRemoteFlavorID(flavor string) string {
 	return strings.ToLower(result.String())
 }
 
-// GenerateRemoteFlavorID is the exported version of generateRemoteFlavorID.
-func GenerateRemoteFlavorID(flavor string) string {
-	return generateRemoteFlavorID(flavor)
-}
-
 // ResolveProfileFlavor merges a profile's defaults with a specific flavor's overrides.
 // Returns an error if the flavor string is not found in the profile's Flavors list.
 func ResolveProfileFlavor(profile RemoteProfile, flavorStr string) (ResolvedFlavor, error) {
@@ -2887,30 +2957,6 @@ func (p *RemoteProfile) GetReconnectCommandTemplate(socketName string) string {
 		baseCmd = p.ReconnectCommand
 	} else if p.ConnectCommand != "" {
 		baseCmd = p.ConnectCommand
-	} else {
-		baseCmd = defaultSSHCommand("{{.Hostname}}")
-	}
-	return baseCmd + remoteTmuxControlSuffix(socketName)
-}
-
-// GetConnectCommandTemplate returns the full connection command template for this resolved flavor.
-func (rf *ResolvedFlavor) GetConnectCommandTemplate(socketName string) string {
-	var baseCmd string
-	if rf.ConnectCommand != "" {
-		baseCmd = rf.ConnectCommand
-	} else {
-		baseCmd = defaultSSHCommand("{{.Flavor}}")
-	}
-	return baseCmd + remoteTmuxControlSuffix(socketName)
-}
-
-// GetReconnectCommandTemplate returns the full reconnection command template for this resolved flavor.
-func (rf *ResolvedFlavor) GetReconnectCommandTemplate(socketName string) string {
-	var baseCmd string
-	if rf.ReconnectCommand != "" {
-		baseCmd = rf.ReconnectCommand
-	} else if rf.ConnectCommand != "" {
-		baseCmd = rf.ConnectCommand
 	} else {
 		baseCmd = defaultSSHCommand("{{.Hostname}}")
 	}
@@ -3065,9 +3111,12 @@ func (c *Config) MigrateRemoteFlavorsToProfiles() {
 // GetTelemetryEnabled returns whether telemetry is enabled.
 // Defaults to true if not explicitly configured.
 func (c *Config) GetTelemetryEnabled() bool {
+	if c == nil {
+		return true
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c == nil || c.TelemetryEnabled == nil {
+	if c.TelemetryEnabled == nil {
 		return true
 	}
 	return *c.TelemetryEnabled
@@ -3076,11 +3125,11 @@ func (c *Config) GetTelemetryEnabled() bool {
 // GetInstallationID returns the installation ID for telemetry.
 // Returns empty string if not set.
 func (c *Config) GetInstallationID() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
 	if c == nil {
 		return ""
 	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.InstallationID
 }
 

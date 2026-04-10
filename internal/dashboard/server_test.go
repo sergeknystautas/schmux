@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/gorilla/websocket"
@@ -300,55 +299,6 @@ func TestIsAllowedOrigin(t *testing.T) {
 	})
 }
 
-func TestGetRotationLock(t *testing.T) {
-	t.Run("returns same mutex for same sessionID", func(t *testing.T) {
-		s := &Server{
-			rotationLocks: make(map[string]*sync.Mutex),
-		}
-		lock1 := s.getRotationLock("session-123")
-		lock2 := s.getRotationLock("session-123")
-
-		if lock1 != lock2 {
-			t.Errorf("getRotationLock should return same mutex for same sessionID")
-		}
-	})
-
-	t.Run("returns different mutexes for different sessionIDs", func(t *testing.T) {
-		s := &Server{
-			rotationLocks: make(map[string]*sync.Mutex),
-		}
-		lock1 := s.getRotationLock("session-123")
-		lock2 := s.getRotationLock("session-456")
-
-		if lock1 == lock2 {
-			t.Errorf("getRotationLock should return different mutexes for different sessionIDs")
-		}
-	})
-
-	t.Run("concurrent calls are safe", func(t *testing.T) {
-		s := &Server{
-			rotationLocks: make(map[string]*sync.Mutex),
-		}
-		sessionID := "session-concurrent"
-		var wg sync.WaitGroup
-		calls := 10
-
-		for i := 0; i < calls; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				s.getRotationLock(sessionID)
-			}()
-		}
-		wg.Wait()
-
-		// Should only have one entry in the map
-		if len(s.rotationLocks) != 1 {
-			t.Errorf("expected 1 entry, got %d", len(s.rotationLocks))
-		}
-	})
-}
-
 func TestRegisterUnregisterWebSocket(t *testing.T) {
 	t.Run("register adds connection", func(t *testing.T) {
 		s := &Server{
@@ -411,45 +361,6 @@ func TestRegisterUnregisterWebSocket(t *testing.T) {
 		stored := s.wsConns[sessionID]
 		if len(stored) != 1 || stored[0] != conn1 {
 			t.Errorf("original connection should remain when unregistering different connection")
-		}
-	})
-}
-
-func TestBroadcastToSession(t *testing.T) {
-	// Note: BroadcastToSession tries to write to WebSocket connections,
-	// which requires complex mocking. These tests verify registry behavior only.
-
-	t.Run("clears entry even when connection exists", func(t *testing.T) {
-		s := &Server{
-			wsConns: make(map[string][]*wsConn),
-		}
-		// Can't use a real websocket.Conn as it has internal state
-		// Just verify the registry is cleared
-		s.wsConns["session-123"] = []*wsConn{{conn: &websocket.Conn{}}}
-
-		// This will panic on WriteMessage, but entry should be cleared first
-		func() {
-			defer func() {
-				// Expected to panic due to nil conn internals
-				_ = recover()
-			}()
-			s.BroadcastToSession("session-123", "test", "message")
-		}()
-
-		// Entry should be cleared after broadcast attempt
-		if _, exists := s.wsConns["session-123"]; exists {
-			t.Errorf("entry should be cleared after broadcast attempt")
-		}
-	})
-
-	t.Run("returns 0 for session with no connections", func(t *testing.T) {
-		s := &Server{
-			wsConns: make(map[string][]*wsConn),
-		}
-
-		count := s.BroadcastToSession("nonexistent", "test", "message")
-		if count != 0 {
-			t.Errorf("expected 0 for nonexistent session, got %d", count)
 		}
 	})
 }

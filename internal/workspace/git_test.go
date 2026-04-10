@@ -88,18 +88,6 @@ func writeFile(t *testing.T, dir, name, content string) {
 	}
 }
 
-// currentBranch returns the current git branch name.
-func currentBranch(t *testing.T, dir string) string {
-	t.Helper()
-	cmd := exec.Command("git", "branch", "--show-current")
-	cmd.Dir = dir
-	output, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("failed to get current branch: %v", err)
-	}
-	return strings.TrimSpace(string(output))
-}
-
 func TestValidateBranchName(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -993,49 +981,6 @@ func TestCountLinesCapped_FileNotFound(t *testing.T) {
 	_, err := countLinesCapped("/nonexistent/file.txt", 1000)
 	if err == nil {
 		t.Error("expected error for nonexistent file")
-	}
-}
-
-func TestCheckWorkspaceClean(t *testing.T) {
-	t.Parallel()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not available")
-	}
-
-	// Setup: create a bare repo from template
-	tmpDir := t.TempDir()
-	bareDir := filepath.Join(tmpDir, "remote.git")
-	runGit(t, tmpDir, "clone", "--bare", templateRepoDir, bareDir)
-
-	// Clone the repo into the actual workDir
-	workDir := t.TempDir()
-	runGit(t, tmpDir, "clone", bareDir, workDir)
-
-	// Create schmux/lore branch at same commit
-	runGit(t, workDir, "checkout", "-b", "schmux/lore")
-	runGit(t, workDir, "push", "origin", "schmux/lore")
-
-	// Should be clean
-	clean, reason := CheckWorkspaceClean(workDir)
-	if !clean {
-		t.Errorf("expected clean, got reason: %s", reason)
-	}
-
-	// Add unstaged file → not clean
-	os.WriteFile(filepath.Join(workDir, "dirty.txt"), []byte("dirty"), 0644)
-	clean, reason = CheckWorkspaceClean(workDir)
-	if clean {
-		t.Error("expected not clean with unstaged file")
-	}
-	os.Remove(filepath.Join(workDir, "dirty.txt"))
-
-	// Add commit ahead of origin/main → not clean
-	os.WriteFile(filepath.Join(workDir, "ahead.txt"), []byte("ahead"), 0644)
-	runGit(t, workDir, "add", ".")
-	runGit(t, workDir, "commit", "-m", "ahead")
-	clean, reason = CheckWorkspaceClean(workDir)
-	if clean {
-		t.Error("expected not clean with commits ahead")
 	}
 }
 

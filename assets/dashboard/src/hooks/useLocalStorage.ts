@@ -7,7 +7,7 @@ import { useEffect, useState, useCallback } from 'react';
  */
 // TODO: Add sessions filter UI to ConfigPage to restore this functionality
 // export const SESSIONS_FILTERS_KEY = 'sessions-filters';
-export const WORKSPACE_EXPANDED_KEY = 'workspace-expanded';
+const WORKSPACE_EXPANDED_KEY = 'workspace-expanded';
 export const VIEWED_SESSIONS_KEY = 'viewedSessions';
 export const SESSION_SIDEBAR_COLLAPSED_KEY = 'sessionSidebarCollapsed';
 

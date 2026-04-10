@@ -185,7 +185,7 @@ func TestResolveVSCodePathPrefersPATH(t *testing.T) {
 // TestResolveViaShellWithNilContext verifies resolveViaShell handles nil context.
 func TestResolveViaShellWithNilContext(t *testing.T) {
 	// This should not panic and should create its own context
-	path, found := resolveViaShell(nil, "sh")
+	path, found := resolveViaShell(context.TODO(), "sh")
 
 	// sh should exist on Unix systems
 	if runtime.GOOS != "windows" {

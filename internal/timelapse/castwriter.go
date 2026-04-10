@@ -21,8 +21,7 @@ type CastHeader struct {
 
 // CastWriter writes asciicast v2 format (NDJSON with header + events).
 type CastWriter struct {
-	w      io.Writer
-	offset float64
+	w io.Writer
 }
 
 // NewCastWriter creates a CastWriter and writes the header.
@@ -54,11 +53,6 @@ func (c *CastWriter) WriteEvent(timestamp float64, data string) error {
 	line := fmt.Sprintf("[%.6f,\"o\",%s]\n", timestamp, escapedData)
 	_, err := c.w.Write([]byte(line))
 	return err
-}
-
-// WriteKeyframe writes a keyframe (clear + full redraw) at the given timestamp.
-func (c *CastWriter) WriteKeyframe(timestamp float64, keyframe string) error {
-	return c.WriteEvent(timestamp, keyframe)
 }
 
 // jsonEscapeBytes produces a JSON string literal from raw bytes,
@@ -94,12 +88,3 @@ func jsonEscapeBytes(b []byte) string {
 	return string(buf)
 }
 
-// Offset returns the current time offset in the compressed timeline.
-func (c *CastWriter) Offset() float64 {
-	return c.offset
-}
-
-// SetOffset sets the current time offset.
-func (c *CastWriter) SetOffset(t float64) {
-	c.offset = t
-}

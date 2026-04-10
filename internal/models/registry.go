@@ -177,23 +177,6 @@ func RegistryCutoff() time.Time {
 	return time.Now().AddDate(0, -recencyMonths, 0)
 }
 
-// NormalizeProvider normalizes a provider string for lookup.
-// Handles "anthropic" -> "anthropic", etc.
-func NormalizeProvider(provider string) string {
-	// First check if it's a known models.dev provider
-	if _, ok := GetProviderProfile(provider); ok {
-		return provider
-	}
-	// Try to find by canonical name
-	provider = strings.ToLower(provider)
-	for k, p := range providerProfiles {
-		if strings.ToLower(p.SchmuxProvider) == provider || strings.ToLower(p.OpencodePrefix) == provider {
-			return k
-		}
-	}
-	return provider
-}
-
 // BuildDetectModels converts registry models to detect.Model using provider profiles.
 func BuildDetectModels(registry []RegistryModel) []detect.Model {
 	var result []detect.Model

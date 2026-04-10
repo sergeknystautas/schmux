@@ -14,7 +14,7 @@ import (
 func TestDownstreamFunctionsUseCustomDir(t *testing.T) {
 	tmpDir := t.TempDir()
 	schmuxdir.Set(tmpDir)
-	defer schmuxdir.Reset()
+	defer schmuxdir.Set("")
 
 	home, _ := os.UserHomeDir()
 	defaultDir := filepath.Join(home, ".schmux")
@@ -54,7 +54,7 @@ func TestDownstreamFunctionsUseCustomDir(t *testing.T) {
 func TestTwoInstancesNoInterference(t *testing.T) {
 	dirA := t.TempDir()
 	dirB := t.TempDir()
-	defer schmuxdir.Reset()
+	defer schmuxdir.Set("")
 
 	// --- Instance A: create config and secrets ---
 	schmuxdir.Set(dirA)

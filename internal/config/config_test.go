@@ -1301,28 +1301,6 @@ func TestRemoteFlavorCRUD(t *testing.T) {
 	})
 }
 
-func TestGenerateRemoteFlavorID(t *testing.T) {
-	tests := []struct {
-		flavor string
-		want   string
-	}{
-		{"simple", "simple"},
-		{"docker:devenv", "docker_devenv"},
-		{"gpu:ml-large", "gpu_ml_large"},
-		{"Test:With:Multiple:Colons", "test_with_multiple_colons"},
-		{"spaces are replaced", "spaces_are_replaced"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.flavor, func(t *testing.T) {
-			got := GenerateRemoteFlavorID(tt.flavor)
-			if got != tt.want {
-				t.Errorf("GenerateRemoteFlavorID(%q) = %q, want %q", tt.flavor, got, tt.want)
-			}
-		})
-	}
-}
-
 // TestRemoteFlavorTemplateValidation tests that invalid template syntax is caught
 // at config load time (Issue 5 fix).
 func TestRemoteFlavorTemplateValidation(t *testing.T) {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 
-export interface FloorManagerState {
+interface FloorManagerState {
   enabled: boolean;
   tmuxSession: string;
   running: boolean;

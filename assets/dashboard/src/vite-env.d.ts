@@ -14,5 +14,5 @@ declare module 'react-diff-viewer-continued';
 interface Window {
   __schmuxTerminal?: import('@xterm/xterm').Terminal;
   __schmuxStream?: import('./lib/terminalStream').default;
-  __inputLatency?: import('./lib/inputLatency').InputLatencyTracker;
+  __inputLatency?: typeof import('./lib/inputLatency').inputLatency;
 }

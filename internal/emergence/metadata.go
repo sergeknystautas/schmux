@@ -97,16 +97,3 @@ func (s *MetadataStore) Get(repo, skillName string) (contracts.EmergenceMetadata
 	return meta, ok, nil
 }
 
-// ListAll returns all metadata entries for a repo.
-func (s *MetadataStore) ListAll(repo string) ([]contracts.EmergenceMetadata, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.load(repo); err != nil {
-		return nil, err
-	}
-	result := make([]contracts.EmergenceMetadata, 0, len(s.data[repo]))
-	for _, meta := range s.data[repo] {
-		result = append(result, meta)
-	}
-	return result, nil
-}

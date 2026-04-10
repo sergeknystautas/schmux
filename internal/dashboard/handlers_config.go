@@ -714,7 +714,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 			enabled := *req.RemoteAccess.Enabled
 			cfg.RemoteAccess.Enabled = &enabled
 			// Clear deprecated field when new field is explicitly set
-			cfg.RemoteAccess.Disabled = nil
+			cfg.RemoteAccess.Disabled = nil //lint:ignore SA1019 clearing deprecated field for backward compatibility
 		}
 		if req.RemoteAccess.TimeoutMinutes != nil {
 			cfg.RemoteAccess.TimeoutMinutes = *req.RemoteAccess.TimeoutMinutes

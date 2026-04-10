@@ -1,10 +1,7 @@
 package config
 
 import (
-	"errors"
 	"testing"
-
-	"github.com/sergeknystautas/schmux/internal/detect"
 )
 
 func TestExpandNetworkPaths(t *testing.T) {
@@ -60,73 +57,6 @@ func TestExpandNetworkPaths(t *testing.T) {
 			}
 			if tt.wantKey != "" && tt.cfg.Network.TLS.KeyPath != tt.wantKey {
 				t.Errorf("KeyPath = %q, want %q", tt.cfg.Network.TLS.KeyPath, tt.wantKey)
-			}
-		})
-	}
-}
-
-func TestEnsureModelSecrets(t *testing.T) {
-	tests := []struct {
-		name    string
-		model   detect.Model
-		secrets map[string]string
-		wantErr bool
-	}{
-		{
-			name:    "no required secrets",
-			model:   detect.Model{ID: "test"},
-			secrets: nil,
-			wantErr: false,
-		},
-		{
-			name:    "all secrets present",
-			model:   detect.Model{ID: "test", Runners: map[string]detect.RunnerSpec{"tool": {RequiredSecrets: []string{"API_KEY", "SECRET"}}}},
-			secrets: map[string]string{"API_KEY": "key123", "SECRET": "s3cr3t"},
-			wantErr: false,
-		},
-		{
-			name:    "missing secret",
-			model:   detect.Model{ID: "test", Runners: map[string]detect.RunnerSpec{"tool": {RequiredSecrets: []string{"API_KEY"}}}},
-			secrets: map[string]string{},
-			wantErr: true,
-		},
-		{
-			name:    "empty string secret",
-			model:   detect.Model{ID: "test", Runners: map[string]detect.RunnerSpec{"tool": {RequiredSecrets: []string{"API_KEY"}}}},
-			secrets: map[string]string{"API_KEY": ""},
-			wantErr: true,
-		},
-		{
-			name:    "whitespace-only secret",
-			model:   detect.Model{ID: "test", Runners: map[string]detect.RunnerSpec{"tool": {RequiredSecrets: []string{"API_KEY"}}}},
-			secrets: map[string]string{"API_KEY": "   "},
-			wantErr: true,
-		},
-		{
-			name:    "nil secrets map",
-			model:   detect.Model{ID: "test", Runners: map[string]detect.RunnerSpec{"tool": {RequiredSecrets: []string{"API_KEY"}}}},
-			secrets: nil,
-			wantErr: true,
-		},
-		{
-			name:    "one present one missing",
-			model:   detect.Model{ID: "test", Runners: map[string]detect.RunnerSpec{"tool": {RequiredSecrets: []string{"KEY_A", "KEY_B"}}}},
-			secrets: map[string]string{"KEY_A": "val"},
-			wantErr: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := EnsureModelSecrets(tt.model, tt.secrets)
-			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if !errors.Is(err, ErrInvalidConfig) {
-					t.Errorf("error should wrap ErrInvalidConfig, got: %v", err)
-				}
-			} else if err != nil {
-				t.Fatalf("unexpected error: %v", err)
 			}
 		})
 	}

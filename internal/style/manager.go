@@ -16,10 +16,6 @@ func NewManager(dir string) *Manager {
 	return &Manager{dir: dir}
 }
 
-func (m *Manager) Dir() string {
-	return m.dir
-}
-
 func (m *Manager) List() ([]*Style, error) {
 	if err := os.MkdirAll(m.dir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create styles directory: %w", err)

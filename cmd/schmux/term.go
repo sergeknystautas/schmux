@@ -109,11 +109,6 @@ func (t *termStyle) Info(lines ...string) {
 	}
 }
 
-// Print prints normal text
-func (t *termStyle) Print(text string) {
-	fmt.Print(text)
-}
-
 // Println prints normal text with newline
 func (t *termStyle) Println(text string) {
 	fmt.Println(text)
@@ -129,11 +124,6 @@ func (t *termStyle) List(items []string) {
 	for i, item := range items {
 		fmt.Printf("  %s %s\n", t.Dim(fmt.Sprintf("%d.", i+1)), item)
 	}
-}
-
-// Bullet prints a bullet point
-func (t *termStyle) Bullet(text string) {
-	fmt.Printf("  • %s\n", text)
 }
 
 // KeyValue prints a key-value pair for summaries

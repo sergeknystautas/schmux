@@ -91,16 +91,6 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// Test-only helper wrappers - kept for backward compatibility with existing tests.
-// Production code should use authMiddleware + csrfMiddleware via r.Use() instead.
-func (s *Server) withAuth(h http.HandlerFunc) http.HandlerFunc {
-	return s.authMiddleware(http.HandlerFunc(h)).ServeHTTP
-}
-
-func (s *Server) withAuthAndCSRF(h http.HandlerFunc) http.HandlerFunc {
-	return s.authMiddleware(s.csrfMiddleware(http.HandlerFunc(h))).ServeHTTP
-}
-
 func (s *Server) requireAuthOrRedirect(w http.ResponseWriter, r *http.Request) bool {
 	if !s.requiresAuth() {
 		return true

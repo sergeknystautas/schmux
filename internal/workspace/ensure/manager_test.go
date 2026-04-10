@@ -159,83 +159,6 @@ func TestAgentInstructions_UnknownTarget(t *testing.T) {
 	}
 }
 
-func TestRemoveAgentInstructions(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// First ensure instructions exist
-	if err := AgentInstructions(tmpDir, "claude", ""); err != nil {
-		t.Fatal(err)
-	}
-
-	// Verify they exist
-	if !HasSignalingInstructions(tmpDir, "claude") {
-		t.Fatal("Instructions should exist after AgentInstructions")
-	}
-
-	// Remove them
-	if err := RemoveAgentInstructions(tmpDir, "claude"); err != nil {
-		t.Fatalf("RemoveAgentInstructions failed: %v", err)
-	}
-
-	// Verify they're gone (file should be removed since it was only the schmux block)
-	instructionPath := filepath.Join(tmpDir, ".claude", "CLAUDE.md")
-	if _, err := os.Stat(instructionPath); !os.IsNotExist(err) {
-		t.Error("Instruction file should be removed when it only contained schmux block")
-	}
-}
-
-func TestRemoveAgentInstructions_PreservesOtherContent(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create file with both user content and schmux block
-	instructionDir := filepath.Join(tmpDir, ".claude")
-	if err := os.MkdirAll(instructionDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	instructionPath := filepath.Join(instructionDir, "CLAUDE.md")
-	content := "# My Project\n\nUser content here.\n\n" + buildSchmuxBlock()
-	if err := os.WriteFile(instructionPath, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Remove schmux block
-	if err := RemoveAgentInstructions(tmpDir, "claude"); err != nil {
-		t.Fatal(err)
-	}
-
-	// File should still exist with user content
-	newContent, err := os.ReadFile(instructionPath)
-	if err != nil {
-		t.Fatal("File should still exist after removing schmux block")
-	}
-
-	if !strings.Contains(string(newContent), "User content here") {
-		t.Error("User content should be preserved")
-	}
-	if strings.Contains(string(newContent), schmuxMarkerStart) {
-		t.Error("Schmux block should be removed")
-	}
-}
-
-func TestHasSignalingInstructions(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Should be false initially
-	if HasSignalingInstructions(tmpDir, "claude") {
-		t.Error("Should be false before adding instructions")
-	}
-
-	// Add instructions
-	if err := AgentInstructions(tmpDir, "claude", ""); err != nil {
-		t.Fatal(err)
-	}
-
-	// Should be true now
-	if !HasSignalingInstructions(tmpDir, "claude") {
-		t.Error("Should be true after adding instructions")
-	}
-}
-
 func TestSignalingInstructionsFile(t *testing.T) {
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
@@ -548,14 +471,5 @@ func TestEnsureWorkspace_RunsGitExcludeForGit(t *testing.T) {
 	}
 	if !strings.Contains(string(content), excludeMarkerStart) {
 		t.Error(".git/info/exclude should contain schmux exclude markers")
-	}
-}
-
-// initGitRepo creates a minimal git repo for tests that need GitExclude.
-func initGitRepo(t *testing.T, dir string) {
-	t.Helper()
-	gitDir := filepath.Join(dir, ".git")
-	if err := os.MkdirAll(filepath.Join(gitDir, "info"), 0755); err != nil {
-		t.Fatal(err)
 	}
 }

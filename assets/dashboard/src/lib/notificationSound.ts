@@ -126,12 +126,12 @@ export async function playCompletionSound(): Promise<void> {
 /**
  * States that need immediate user attention (urgent sound).
  */
-export const ATTENTION_STATES = new Set(['Needs Input', 'Needs Attention', 'Error']);
+const ATTENTION_STATES = new Set(['Needs Input', 'Needs Attention', 'Error']);
 
 /**
  * States that indicate positive completion (gentle sound).
  */
-export const COMPLETION_STATES = new Set(['Completed']);
+const COMPLETION_STATES = new Set(['Completed']);
 
 /**
  * Determine which sound to play for a nudge state, if any.
@@ -147,7 +147,7 @@ export function soundForState(state: string | undefined): 'attention' | 'complet
  * Play the appropriate sound for a nudge state.
  * Returns without playing if the state doesn't warrant a sound.
  */
-export async function playSoundForState(state: string | undefined): Promise<void> {
+async function playSoundForState(state: string | undefined): Promise<void> {
   const sound = soundForState(state);
   if (sound === 'attention') {
     await playAttentionSound();

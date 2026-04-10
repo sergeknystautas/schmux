@@ -1,4 +1,4 @@
-export type QuickLaunchItem = {
+type QuickLaunchItem = {
   name: string;
   scope: 'global' | 'workspace';
 };

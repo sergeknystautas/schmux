@@ -58,9 +58,7 @@ func (s *SaplingCommandBuilder) Log(refs []string, maxCount int) string {
 	revset := "ancestors(.)"
 	if len(refs) > 1 {
 		quotedRefs := make([]string, len(refs))
-		for i, ref := range refs {
-			quotedRefs[i] = ref
-		}
+		copy(quotedRefs, refs)
 		revset = fmt.Sprintf("ancestors(%s)", strings.Join(quotedRefs, "+"))
 	} else if len(refs) == 1 && refs[0] != "HEAD" {
 		revset = fmt.Sprintf("ancestors(%s)", refs[0])

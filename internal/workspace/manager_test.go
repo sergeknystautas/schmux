@@ -187,7 +187,7 @@ func TestNew(t *testing.T) {
 
 	m := New(cfg, st, statePath, testLogger())
 	if m == nil {
-		t.Error("New() returned nil")
+		t.Fatal("New() returned nil")
 	}
 	if m.config != cfg {
 		t.Error("config not set correctly")

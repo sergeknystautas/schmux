@@ -62,15 +62,15 @@ func NewServiceDNSProvider(client *Client) (*ServiceDNSProvider, error) {
 // Present calls dashboard.sx to create a TXT record for the ACME challenge.
 // The keyAuth must be hashed (base64url(SHA256(keyAuth))) per the ACME DNS-01 spec.
 func (p *ServiceDNSProvider) Present(domain, token, keyAuth string) error {
-	fqdn, value := dns01.GetRecord(domain, keyAuth)
+	info := dns01.GetChallengeInfo(domain, keyAuth)
 	if p.OnStatus != nil {
-		p.OnStatus("dns_create", fmt.Sprintf("Creating DNS TXT record for %s...", fqdn))
+		p.OnStatus("dns_create", fmt.Sprintf("Creating DNS TXT record for %s...", info.EffectiveFQDN))
 	}
-	if err := p.client.DNSChallengeCreate(p.challengeToken, value); err != nil {
+	if err := p.client.DNSChallengeCreate(p.challengeToken, info.Value); err != nil {
 		return err
 	}
 	if p.OnStatus != nil {
-		p.OnStatus("dns_verify", fmt.Sprintf("TXT record created. Verifying DNS propagation for %s...", fqdn))
+		p.OnStatus("dns_verify", fmt.Sprintf("TXT record created. Verifying DNS propagation for %s...", info.EffectiveFQDN))
 	}
 	return nil
 }

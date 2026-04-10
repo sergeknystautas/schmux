@@ -254,25 +254,6 @@ func capContent(s string) string {
 	return s
 }
 
-// getFileContent gets file content from a specific VCS revision or worktree.
-// For "worktree", it reads from the working directory directly.
-// For other values, it uses the workspace's VCS command builder.
-func (s *Server) getFileContent(ctx context.Context, workspacePath, filePath, treeish string) string {
-	if treeish == "worktree" {
-		return readWorkingFile(workspacePath, filePath)
-	}
-	cmd := exec.CommandContext(ctx, "git", "-C", workspacePath, "show", fmt.Sprintf("%s:%s", treeish, filePath))
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	const maxContentSize = 1024 * 1024 // 1MB
-	if len(output) > maxContentSize {
-		output = output[:maxContentSize]
-	}
-	return string(output)
-}
-
 // handleFile serves raw file content from a workspace for image and markdown previews.
 // Path format: /api/file/{workspaceId}/...
 // Security: only allows allowed file types, blocks path traversal, checks .gitignore.
@@ -1069,7 +1050,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 			execCmd.Dir = ws.Path
 			execCmd.Env = append(os.Environ(),
 				fmt.Sprintf("LOCAL=%s", tmpPath),
-				fmt.Sprintf("REMOTE="),
+				"REMOTE=",
 				fmt.Sprintf("MERGED=%s", mergedPath),
 				fmt.Sprintf("BASE=%s", mergedPath),
 			)

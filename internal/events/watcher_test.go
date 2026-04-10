@@ -2,7 +2,6 @@ package events
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -76,71 +75,3 @@ func TestEventWatcherDispatch(t *testing.T) {
 	}
 }
 
-func TestEventWatcherReadCurrent(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.jsonl")
-
-	// Pre-populate file
-	AppendEvent(path, StatusEvent{Ts: "2026-02-18T14:30:00Z", Type: "status", State: "working", Message: "first"})
-	AppendEvent(path, StatusEvent{Ts: "2026-02-18T14:31:00Z", Type: "status", State: "completed", Message: "done"})
-
-	status, err := ReadCurrentStatus(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status.State != "completed" {
-		t.Errorf("state = %v, want completed", status.State)
-	}
-}
-
-func TestReadCurrentStatusNoFile(t *testing.T) {
-	_, err := ReadCurrentStatus("/nonexistent/path.jsonl")
-	if err == nil {
-		t.Error("expected error for nonexistent file")
-	}
-}
-
-func TestReadCurrentStatusUnmarshal(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.jsonl")
-
-	AppendEvent(path, StatusEvent{
-		Ts:      "2026-02-18T14:30:00Z",
-		Type:    "status",
-		State:   "needs_input",
-		Message: "approve this?",
-		Intent:  "get approval",
-	})
-
-	status, err := ReadCurrentStatus(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status.State != "needs_input" {
-		t.Errorf("state = %v, want needs_input", status.State)
-	}
-	if status.Intent != "get approval" {
-		t.Errorf("intent = %v, want 'get approval'", status.Intent)
-	}
-}
-
-func TestReadCurrentStatusFromJSON(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.jsonl")
-
-	AppendEvent(path, StatusEvent{
-		Ts: "2026-02-18T14:30:00Z", Type: "status", State: "completed", Message: "done",
-	})
-
-	_, data, err := ReadLastByType(path, "status")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var status StatusEvent
-	if err := json.Unmarshal(data, &status); err != nil {
-		t.Fatal(err)
-	}
-	if status.State != "completed" {
-		t.Errorf("state = %v, want completed", status.State)
-	}
-}

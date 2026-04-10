@@ -64,23 +64,6 @@ func toProfileResponse(p config.RemoteProfile) RemoteProfileResponse {
 	}
 }
 
-// toFlavorResponse converts a config.RemoteFlavor to a RemoteFlavorResponse.
-// DEPRECATED: kept for backward compatibility.
-func toFlavorResponse(f config.RemoteFlavor) RemoteFlavorResponse {
-	return RemoteFlavorResponse{
-		ID:                    f.ID,
-		Flavor:                f.Flavor,
-		DisplayName:           f.DisplayName,
-		VCS:                   f.VCS,
-		WorkspacePath:         f.WorkspacePath,
-		ConnectCommand:        f.ConnectCommand,
-		ReconnectCommand:      f.ReconnectCommand,
-		ProvisionCommand:      f.ProvisionCommand,
-		HostnameRegex:         f.HostnameRegex,
-		VSCodeCommandTemplate: f.VSCodeCommandTemplate,
-	}
-}
-
 // RemoteHostResponse represents a remote host in API responses.
 type RemoteHostResponse struct {
 	ID                    string `json:"id"`

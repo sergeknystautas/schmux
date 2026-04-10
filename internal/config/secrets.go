@@ -69,7 +69,7 @@ func LoadSecretsFile() (*SecretsFile, error) {
 			secrets.Models = ModelSecrets{}
 		}
 		// Migrate variants to models if present
-		if secrets.Variants != nil && len(secrets.Variants) > 0 {
+		if len(secrets.Variants) > 0 {
 			if secrets.Models == nil {
 				secrets.Models = ModelSecrets{}
 			}
@@ -97,7 +97,7 @@ func LoadSecretsFile() (*SecretsFile, error) {
 			secrets.Models = ModelSecrets{}
 		}
 		// Migrate variants to models
-		if secrets.Variants != nil && len(secrets.Variants) > 0 {
+		if len(secrets.Variants) > 0 {
 			for k, v := range secrets.Variants {
 				secrets.Models[k] = v
 			}
@@ -226,24 +226,6 @@ var legacyModelProviders = map[string]string{
 // static legacy map. Used only by SaveModelSecrets when no provider is passed.
 func getProviderForModel(modelID string) string {
 	return legacyModelProviders[modelID]
-}
-
-// SaveProviderSecrets saves secrets for a specific provider.
-func SaveProviderSecrets(provider string, secrets map[string]string) error {
-	if provider == "" {
-		return fmt.Errorf("provider is required")
-	}
-
-	existing, err := LoadSecretsFile()
-	if err != nil {
-		return err
-	}
-	if existing.Providers == nil {
-		existing.Providers = make(map[string]map[string]string)
-	}
-
-	existing.Providers[provider] = secrets
-	return SaveSecretsFile(existing)
 }
 
 // DeleteModelSecrets removes secrets for a specific model.

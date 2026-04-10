@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-export interface VersionInfo {
+interface VersionInfo {
   version: string;
   latest_version?: string;
   update_available?: boolean;

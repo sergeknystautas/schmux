@@ -163,101 +163,6 @@ func appendEntryToFile(path string, entry Entry) error {
 	return nil
 }
 
-// AppendEntry appends a single entry to a JSONL file. Creates the file if it doesn't exist.
-// Protected by scratchpadMu to prevent data loss during concurrent append + prune operations.
-func AppendEntry(path string, entry Entry) error {
-	scratchpadMu.Lock()
-	defer scratchpadMu.Unlock()
-	return appendEntryToFile(path, entry)
-}
-
-// AppendStateChange records a state transition for an entry.
-func AppendStateChange(path, stateChange, entryTS, proposalID string) error {
-	scratchpadMu.Lock()
-	defer scratchpadMu.Unlock()
-	return appendEntryToFile(path, Entry{
-		Timestamp:   time.Now().UTC(),
-		StateChange: stateChange,
-		EntryTS:     entryTS,
-		ProposalID:  proposalID,
-	})
-}
-
-// MarkEntriesByText finds entries whose Text matches the given texts and appends
-// state-change records for them. The entries_used from the curator contain entry
-// text strings, so we match by text and use the entry's timestamp as the reference.
-func MarkEntriesByText(path string, stateChange string, entryTexts []string, proposalID string) error {
-	scratchpadMu.Lock()
-	defer scratchpadMu.Unlock()
-
-	entries, err := ReadEntries(path, nil)
-	if err != nil {
-		return err
-	}
-	textSet := make(map[string]bool, len(entryTexts))
-	for _, t := range entryTexts {
-		textSet[t] = true
-	}
-	for _, e := range entries {
-		if e.StateChange != "" {
-			continue
-		}
-		if textSet[e.EntryKey()] {
-			if err := appendEntryToFile(path, Entry{
-				Timestamp:   time.Now().UTC(),
-				StateChange: stateChange,
-				EntryTS:     e.Timestamp.Format(time.RFC3339),
-				ProposalID:  proposalID,
-			}); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// MarkEntriesByTextMulti reads entries from multiple source paths to find timestamps,
-// then writes state-change records to a separate destination path.
-// This supports the architecture where raw entries live in workspace directories
-// but state-change records are stored in a central state file.
-func MarkEntriesByTextMulti(sourcePaths []string, destPath string, stateChange string, entryTexts []string, proposalID string) error {
-	scratchpadMu.Lock()
-	defer scratchpadMu.Unlock()
-
-	textSet := make(map[string]bool, len(entryTexts))
-	for _, t := range entryTexts {
-		textSet[t] = true
-	}
-
-	// Read entries from all source paths to find matching timestamps
-	// Track which texts we've already marked to avoid duplicates across files
-	marked := make(map[string]bool)
-	for _, srcPath := range sourcePaths {
-		entries, err := ReadEntries(srcPath, nil)
-		if err != nil {
-			continue // skip unreadable files
-		}
-		for _, e := range entries {
-			if e.StateChange != "" {
-				continue
-			}
-			key := e.EntryKey()
-			if textSet[key] && !marked[key] {
-				marked[key] = true
-				if err := appendEntryToFile(destPath, Entry{
-					Timestamp:   time.Now().UTC(),
-					StateChange: stateChange,
-					EntryTS:     e.Timestamp.Format(time.RFC3339),
-					ProposalID:  proposalID,
-				}); err != nil {
-					return err
-				}
-			}
-		}
-	}
-	return nil
-}
-
 // MarkEntriesDirect writes state-change records for the given entries directly
 // to destPath. Unlike MarkEntriesByText*, this does not match by text — it marks
 // each entry by its timestamp. Use this when you already have the exact entries
@@ -319,26 +224,6 @@ func MarkEntriesByTextFromEntries(sourceEntries []Entry, destPath string, stateC
 		}
 	}
 	return nil
-}
-
-// ResolveEntryState returns the effective state of a lore entry given all state-change records.
-// Returns "raw" if no state-change record exists for this entry.
-func ResolveEntryState(entry Entry, allEntries []Entry) string {
-	if entry.StateChange != "" {
-		return "" // this is a state-change record, not a lore entry
-	}
-	tsStr := entry.Timestamp.Format(time.RFC3339)
-	latestState := "raw"
-	var latestTS time.Time
-	for _, e := range allEntries {
-		if e.StateChange != "" && e.EntryTS == tsStr {
-			if e.Timestamp.After(latestTS) {
-				latestState = e.StateChange
-				latestTS = e.Timestamp
-			}
-		}
-	}
-	return latestState
 }
 
 // buildStateMap creates a map from entry timestamp to its latest resolved state.
@@ -547,44 +432,6 @@ func PruneEntries(path string, maxAge time.Duration) (pruned int, err error) {
 	}
 
 	return pruned, nil
-}
-
-// ReadEntriesMulti reads entries from multiple JSONL files, concatenates them,
-// deduplicates by ts+ws+text, then applies the optional filter.
-// Files that don't exist are silently skipped.
-func ReadEntriesMulti(paths []string, filter EntryFilter) ([]Entry, error) {
-	type dedupKey struct {
-		ts  string
-		ws  string
-		key string
-	}
-	seen := make(map[dedupKey]bool)
-	var all []Entry
-
-	for _, p := range paths {
-		entries, err := ReadEntries(p, nil)
-		if err != nil {
-			return nil, fmt.Errorf("reading %s: %w", p, err)
-		}
-		for _, e := range entries {
-			key := dedupKey{
-				ts:  e.Timestamp.Format(time.RFC3339),
-				ws:  e.Workspace,
-				key: e.EntryKey(),
-			}
-			// State-change records (no text, have StateChange) are always included
-			// since they reference entries by EntryTS and don't have a text-based key.
-			if e.StateChange != "" || !seen[key] {
-				seen[key] = true
-				all = append(all, e)
-			}
-		}
-	}
-
-	if filter != nil {
-		all = filter(all)
-	}
-	return all, nil
 }
 
 // loreEventTypes are the event types that map to lore entries.

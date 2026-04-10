@@ -3,7 +3,6 @@ package events
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -140,16 +139,3 @@ func (w *EventWatcher) Stop() {
 	w.fsw.Close()
 }
 
-// ReadCurrentStatus reads the event file and returns the latest status event.
-// Used for daemon restart recovery. Does not fire handlers.
-func ReadCurrentStatus(path string) (*StatusEvent, error) {
-	_, data, err := ReadLastByType(path, "status")
-	if err != nil {
-		return nil, err
-	}
-	var status StatusEvent
-	if err := json.Unmarshal(data, &status); err != nil {
-		return nil, err
-	}
-	return &status, nil
-}

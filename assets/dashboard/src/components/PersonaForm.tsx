@@ -9,7 +9,7 @@ export interface PersonaFormData {
   expectations: string;
 }
 
-export const emptyForm: PersonaFormData = {
+const emptyForm: PersonaFormData = {
   id: '',
   name: '',
   icon: '',

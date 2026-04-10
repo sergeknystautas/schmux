@@ -3,7 +3,7 @@ import { arrayMove } from '@dnd-kit/sortable';
 import { sortSessionsByTabOrder, saveTabOrder } from '../lib/tabOrder';
 import type { SessionResponse } from '../lib/types';
 
-export interface UseTabOrderResult {
+interface UseTabOrderResult {
   /** Sessions sorted by custom order (frozen during drag) */
   orderedSessions: SessionResponse[];
   /** Reorder: move activeId to overId's position, persist, and unfreeze */

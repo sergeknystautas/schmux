@@ -3,17 +3,6 @@
 // benchmark suites.
 package benchutil
 
-import (
-	"encoding/json"
-	"fmt"
-	"math"
-	"os"
-	"path/filepath"
-	"runtime"
-	"sort"
-	"testing"
-	"time"
-)
 
 // BenchResult holds latency percentile data in a format shared with the
 // Playwright benchmark spec so both can be compared with the same tooling.
@@ -33,70 +22,3 @@ type BenchResult struct {
 	Timestamp  string  `json:"timestamp"`
 }
 
-// ComputeBenchResult calculates percentiles and GC stats from raw durations.
-func ComputeBenchResult(name, variant string, durations []time.Duration, gcBefore, gcAfter *runtime.MemStats) BenchResult {
-	n := len(durations)
-	if n == 0 {
-		return BenchResult{}
-	}
-	ms := make([]float64, n)
-	var sum float64
-	for i, d := range durations {
-		ms[i] = float64(d.Microseconds()) / 1000.0
-		sum += ms[i]
-	}
-	sort.Float64s(ms)
-
-	mean := sum / float64(n)
-	var variance float64
-	for _, v := range ms {
-		diff := v - mean
-		variance += diff * diff
-	}
-	var stddev float64
-	if n > 1 {
-		stddev = math.Sqrt(variance / float64(n-1))
-	}
-
-	gcPauses := gcAfter.NumGC - gcBefore.NumGC
-	gcPauseTotal := float64(gcAfter.PauseTotalNs-gcBefore.PauseTotalNs) / 1000.0
-
-	return BenchResult{
-		Name:       name,
-		Variant:    variant,
-		Iterations: n,
-		P50Ms:      ms[min(n*50/100, n-1)],
-		P95Ms:      ms[min(n*95/100, n-1)],
-		P99Ms:      ms[min(n*99/100, n-1)],
-		MaxMs:      ms[n-1],
-		MeanMs:     mean,
-		MinMs:      ms[0],
-		StddevMs:   stddev,
-		GCPauses:   gcPauses,
-		GCPauseUs:  gcPauseTotal,
-		Timestamp:  time.Now().UTC().Format(time.RFC3339),
-	}
-}
-
-// ReportJSON logs the BenchResult as JSON and optionally writes it to
-// BENCH_OUTPUT_DIR if set.
-func ReportJSON(t *testing.T, result BenchResult) {
-	t.Helper()
-
-	data, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		t.Fatalf("failed to marshal result: %v", err)
-	}
-
-	t.Logf("BENCH_RESULT_JSON: %s", string(data))
-
-	if dir := os.Getenv("BENCH_OUTPUT_DIR"); dir != "" {
-		filename := fmt.Sprintf("%s_%s.json", result.Name, result.Variant)
-		path := filepath.Join(dir, filename)
-		if err := os.WriteFile(path, data, 0644); err != nil {
-			t.Errorf("failed to write result to %s: %v", path, err)
-		} else {
-			t.Logf("Result written to %s", path)
-		}
-	}
-}

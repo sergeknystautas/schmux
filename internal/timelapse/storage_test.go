@@ -104,50 +104,6 @@ func TestListRecordings_HasCompressed(t *testing.T) {
 	}
 }
 
-func TestPruneRecordings_AgeBased(t *testing.T) {
-	dir := t.TempDir()
-
-	now := time.Now()
-	// Old recording (10 days ago)
-	oldPath := createTestRecording(t, dir, "old-1", "s1", now.AddDate(0, 0, -10), 100.0)
-	// Recent recording (1 day ago)
-	recentPath := createTestRecording(t, dir, "new-1", "s2", now.AddDate(0, 0, -1), 50.0)
-
-	err := PruneRecordings(dir, 7, 1<<30) // 7 day retention, huge size limit
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
-		t.Error("old recording should be deleted")
-	}
-	if _, err := os.Stat(recentPath); err != nil {
-		t.Error("recent recording should still exist")
-	}
-}
-
-func TestPruneRecordings_SizeBased(t *testing.T) {
-	dir := t.TempDir()
-
-	now := time.Now()
-	// Create 3 recordings
-	createTestRecording(t, dir, "r1-1", "s1", now.Add(-3*time.Hour), 10.0)
-	createTestRecording(t, dir, "r2-2", "s2", now.Add(-2*time.Hour), 10.0)
-	createTestRecording(t, dir, "r3-3", "s3", now.Add(-1*time.Hour), 10.0)
-
-	// Set max total to very small (should evict oldest)
-	err := PruneRecordings(dir, 365, 200) // 200 bytes max total
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	remaining, _ := ListRecordings(dir)
-	// Should have evicted at least the oldest
-	if len(remaining) >= 3 {
-		t.Errorf("expected fewer than 3 recordings after pruning, got %d", len(remaining))
-	}
-}
-
 func TestFilePermissions(t *testing.T) {
 	dir := t.TempDir()
 	path := createTestRecording(t, dir, "perm-test", "s1", time.Now(), 10.0)

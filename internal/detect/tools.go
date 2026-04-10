@@ -3,13 +3,6 @@ package detect
 // Built-in detected tool names.
 var builtinToolNames = []string{"claude", "codex", "gemini", "opencode"}
 
-// GetBuiltinToolNames returns the built-in tool names.
-func GetBuiltinToolNames() []string {
-	out := make([]string, len(builtinToolNames))
-	copy(out, builtinToolNames)
-	return out
-}
-
 // IsBuiltinToolName reports whether name matches a built-in detected tool.
 func IsBuiltinToolName(name string) bool {
 	for _, tool := range builtinToolNames {
@@ -43,12 +36,3 @@ func GetAgentInstructionConfig(toolName string) (AgentInstructionConfig, bool) {
 	return config, ok
 }
 
-// GetInstructionPath returns the relative path to the instruction file for a tool.
-// Returns empty string if the tool is not recognized.
-func GetInstructionPath(toolName string) string {
-	config, ok := agentInstructionConfigs[toolName]
-	if !ok {
-		return ""
-	}
-	return config.InstructionDir + "/" + config.InstructionFile
-}

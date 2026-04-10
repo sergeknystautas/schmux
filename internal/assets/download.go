@@ -6,14 +6,11 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
-	"github.com/sergeknystautas/schmux/internal/version"
 )
 
 const (
@@ -25,99 +22,6 @@ const (
 // GetUserAssetsDir returns the path to the user's cached dashboard assets.
 func GetUserAssetsDir() (string, error) {
 	return filepath.Join(schmuxdir.Get(), "dashboard"), nil
-}
-
-// GetCachedVersion returns the version of cached assets, or empty string if none.
-func GetCachedVersion() string {
-	assetsDir, err := GetUserAssetsDir()
-	if err != nil {
-		return ""
-	}
-
-	versionFile := filepath.Join(assetsDir, ".version")
-	data, err := os.ReadFile(versionFile)
-	if err != nil {
-		return ""
-	}
-
-	return strings.TrimSpace(string(data))
-}
-
-// NeedsDownload returns true if dashboard assets need to be downloaded.
-// Returns false for dev builds or if correct version is already cached.
-func NeedsDownload() bool {
-	// Dev builds don't download
-	if version.Version == "dev" {
-		return false
-	}
-
-	// Check if correct version is cached
-	return GetCachedVersion() != version.Version
-}
-
-// EnsureAssets ensures dashboard assets are available.
-// Downloads from GitHub releases if needed.
-func EnsureAssets(logger *log.Logger) error {
-	if !NeedsDownload() {
-		return nil
-	}
-
-	assetsDir, err := GetUserAssetsDir()
-	if err != nil {
-		return err
-	}
-
-	url := fmt.Sprintf(GitHubReleaseURLTemplate, version.Version)
-	if logger != nil {
-		logger.Info("downloading dashboard assets", "version", version.Version)
-	}
-
-	if err := DownloadAndExtract(url, assetsDir); err != nil {
-		return fmt.Errorf("failed to download dashboard assets: %w", err)
-	}
-
-	// Write version marker
-	versionFile := filepath.Join(assetsDir, ".version")
-	if err := os.WriteFile(versionFile, []byte(version.Version), 0644); err != nil {
-		return fmt.Errorf("failed to write version file: %w", err)
-	}
-
-	if logger != nil {
-		logger.Info("dashboard assets installed", "version", version.Version)
-	}
-	return nil
-}
-
-// DownloadAndExtract downloads a tar.gz file and extracts it to destDir.
-func DownloadAndExtract(url, destDir string) error {
-	// Download to temp file
-	tmpFile, err := os.CreateTemp("", "schmux-assets-*.tar.gz")
-	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
-
-	// Download
-	resp, err := http.Get(url)
-	if err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("failed to download: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		tmpFile.Close()
-		return fmt.Errorf("download failed: %s", resp.Status)
-	}
-
-	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("failed to save download: %w", err)
-	}
-	tmpFile.Close()
-
-	return ExtractTarGzToDir(tmpPath, destDir)
 }
 
 // ExtractTarGzToDir extracts a tar.gz file to the destination directory atomically.

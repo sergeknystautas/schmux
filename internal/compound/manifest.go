@@ -3,15 +3,12 @@ package compound
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 )
-
-const maxBinaryCheckSize = 512
 
 // FileHash computes the SHA-256 hex digest of a file.
 func FileHash(path string) (string, error) {
@@ -31,29 +28,6 @@ func FileHash(path string) (string, error) {
 func HashBytes(data []byte) string {
 	h := sha256.Sum256(data)
 	return hex.EncodeToString(h[:])
-}
-
-// IsBinary checks if a file appears to be binary by looking for null bytes
-// in the first 512 bytes. Returns true for unreadable files to avoid
-// text merge on potentially binary data.
-func IsBinary(path string) bool {
-	f, err := os.Open(path)
-	if err != nil {
-		return true // treat unreadable files as binary to be safe
-	}
-	defer f.Close()
-
-	buf := make([]byte, maxBinaryCheckSize)
-	n, err := f.Read(buf)
-	if err != nil && !errors.Is(err, io.EOF) {
-		return true // treat read errors as binary to be safe
-	}
-	for i := 0; i < n; i++ {
-		if buf[i] == 0 {
-			return true
-		}
-	}
-	return false
 }
 
 // ValidateRelPath checks that a relative path does not escape the base directory

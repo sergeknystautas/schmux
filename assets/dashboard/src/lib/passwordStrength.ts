@@ -1,4 +1,4 @@
-export type PasswordStrength = 'weak' | 'ok' | 'strong';
+type PasswordStrength = 'weak' | 'ok' | 'strong';
 
 const WEAK_PATTERNS = [
   /^(.)\1+$/, // all same character

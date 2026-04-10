@@ -1779,24 +1779,3 @@ func (m *Manager) updateTrackerSessionName(sessionID, tmuxSession string) {
 	}
 }
 
-// PruneLogFiles removes log files in logsDir that don't belong to any active session.
-// Active session IDs are provided as a set. Log files are expected to be named "{sessionID}.log".
-func PruneLogFiles(logsDir string, activeIDs map[string]bool) (removed int) {
-	entries, err := os.ReadDir(logsDir)
-	if err != nil {
-		return 0
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".log") {
-			continue
-		}
-		sessionID := strings.TrimSuffix(entry.Name(), ".log")
-		if !activeIDs[sessionID] {
-			logPath := filepath.Join(logsDir, entry.Name())
-			if os.Remove(logPath) == nil {
-				removed++
-			}
-		}
-	}
-	return removed
-}

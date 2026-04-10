@@ -40,7 +40,13 @@ fi
 # --- Go: deadcode (unreachable functions) ---
 
 section "Go unreachable functions (deadcode)"
-DEADCODE_OUT=$(deadcode ./... 2>&1) || true
+# -tags e2e: include E2E test callers so helpers aren't flagged
+# Filter out: e2e test infrastructure, test utility mocks, ForTest helpers
+DEADCODE_OUT=$(deadcode -tags e2e ./... 2>&1 \
+    | grep -v "internal/e2e/" \
+    | grep -v "testutil.go" \
+    | grep -v "ForTest" \
+) || true
 if [ -n "$DEADCODE_OUT" ]; then
     echo "$DEADCODE_OUT"
     FAILED=1
@@ -73,7 +79,7 @@ fi
 # --- TypeScript: knip (unused files, exports, deps) ---
 
 section "TypeScript unused code (knip)"
-KNIP_OUT=$(cd assets/dashboard && npx knip --no-exit-code 2>&1) || true
+KNIP_OUT=$(cd assets/dashboard && npx knip --no-exit-code 2>&1 | grep -v "^Configuration hints" | grep -v "knip.json") || true
 if [ -n "$KNIP_OUT" ]; then
     echo "$KNIP_OUT"
     FAILED=1

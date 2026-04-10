@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"context"
 	"testing"
 )
 
@@ -168,31 +167,3 @@ func TestBuildGitBranchURL(t *testing.T) {
 	}
 }
 
-func TestRemoteBranchExists(t *testing.T) {
-	t.Parallel()
-	// Create a test worktree repo
-	repoDir := gitTestWorkTree(t)
-
-	// Add the repo as its own remote (so we can fetch from it)
-	runGit(t, repoDir, "remote", "add", "origin", repoDir)
-
-	// Create a bare clone of it (simulating the bare clone for querying)
-	bareDir := t.TempDir()
-	runGit(t, "", "clone", "--bare", repoDir, bareDir)
-
-	// Configure fetch refspec and fetch to populate refs/remotes/origin/*
-	runGit(t, bareDir, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
-	runGit(t, bareDir, "fetch", "origin")
-
-	ctx := context.Background()
-
-	// main branch should exist in bare clone
-	if !RemoteBranchExists(ctx, bareDir, "main") {
-		t.Error("RemoteBranchExists() returned false for main branch")
-	}
-
-	// Non-existent branch should return false
-	if RemoteBranchExists(ctx, bareDir, "nonexistent-branch") {
-		t.Error("RemoteBranchExists() returned true for non-existent branch")
-	}
-}

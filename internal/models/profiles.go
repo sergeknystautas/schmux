@@ -71,11 +71,3 @@ func GetProviderProfile(modelsDevProvider string) (ProviderProfile, bool) {
 	return p, ok
 }
 
-// SupportedProviders returns the list of models.dev provider names we support.
-func SupportedProviders() []string {
-	out := make([]string, 0, len(providerProfiles))
-	for k := range providerProfiles {
-		out = append(out, k)
-	}
-	return out
-}

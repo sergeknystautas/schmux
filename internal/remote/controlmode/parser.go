@@ -410,35 +410,6 @@ func UnescapeOutput(s string) string {
 	return result.String()
 }
 
-// EscapeKeys escapes special characters for tmux send-keys.
-// Used when sending input through control mode.
-func EscapeKeys(s string) string {
-	var result strings.Builder
-	result.Grow(len(s) * 2)
-
-	for _, c := range s {
-		switch c {
-		case '\\':
-			result.WriteString("\\\\")
-		case '\n':
-			result.WriteString("Enter")
-		case '\t':
-			result.WriteString("Tab")
-		case ' ':
-			result.WriteString("Space")
-		default:
-			if c < 32 {
-				// Control character
-				result.WriteString(fmt.Sprintf("C-%c", 'a'+c-1))
-			} else {
-				result.WriteRune(c)
-			}
-		}
-	}
-
-	return result.String()
-}
-
 func isOctalDigit(b byte) bool {
 	return b >= '0' && b <= '7'
 }

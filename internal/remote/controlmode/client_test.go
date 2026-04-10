@@ -29,7 +29,7 @@ func TestParser_NewParser(t *testing.T) {
 	// Without connection ID
 	p1 := NewParser(input, nil)
 	if p1 == nil {
-		t.Error("expected non-nil parser")
+		t.Fatal("expected non-nil parser")
 	}
 	if p1.connectionID != "" {
 		t.Error("expected empty connection ID")
@@ -38,7 +38,7 @@ func TestParser_NewParser(t *testing.T) {
 	// With connection ID
 	p2 := NewParser(input, nil, "test-conn-123")
 	if p2 == nil {
-		t.Error("expected non-nil parser")
+		t.Fatal("expected non-nil parser")
 	}
 	if p2.connectionID != "test-conn-123" {
 		t.Errorf("expected connection ID 'test-conn-123', got '%s'", p2.connectionID)

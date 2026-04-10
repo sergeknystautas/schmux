@@ -24,7 +24,7 @@ export type FrameSizeDistribution = {
   maxBytes: number; // upper bound of the last bucket
 };
 
-export type ConnectionEvent = {
+type ConnectionEvent = {
   ts: number;
   type: 'connect' | 'close' | 'error' | 'serverClose';
   closeCode?: number;
@@ -33,7 +33,7 @@ export type ConnectionEvent = {
   reconnectAttempt?: number;
 };
 
-export type ScrollDiagnosticEvent = {
+type ScrollDiagnosticEvent = {
   ts: number;
   trigger: 'userScroll' | 'jumpToBottom' | undefined;
   followBefore: boolean;
@@ -45,7 +45,7 @@ export type ScrollDiagnosticEvent = {
   lastReceivedSeq: string;
 };
 
-export type LifecycleEvent = {
+type LifecycleEvent = {
   ts: number;
   event: string;
   detail?: Record<string, unknown>;

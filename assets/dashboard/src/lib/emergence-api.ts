@@ -36,7 +36,7 @@ export async function createSpawnEntry(
   return response.json();
 }
 
-export async function updateSpawnEntry(
+async function updateSpawnEntry(
   repo: string,
   id: string,
   req: UpdateSpawnEntryRequest
@@ -52,7 +52,7 @@ export async function updateSpawnEntry(
   if (!response.ok) await parseErrorResponse(response, 'Failed to update spawn entry');
 }
 
-export async function deleteSpawnEntry(repo: string, id: string): Promise<void> {
+async function deleteSpawnEntry(repo: string, id: string): Promise<void> {
   const response = await fetch(
     `/api/emergence/${encodeURIComponent(repo)}/entries/${encodeURIComponent(id)}`,
     {
@@ -96,7 +96,7 @@ export async function recordSpawnEntryUse(repo: string, id: string): Promise<voi
   if (!response.ok) await parseErrorResponse(response, 'Failed to record spawn entry use');
 }
 
-export async function triggerEmergenceCuration(repo: string): Promise<void> {
+async function triggerEmergenceCuration(repo: string): Promise<void> {
   const response = await fetch(`/api/emergence/${encodeURIComponent(repo)}/curate`, {
     method: 'POST',
     headers: { ...csrfHeaders() },

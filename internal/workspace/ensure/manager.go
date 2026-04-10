@@ -429,62 +429,6 @@ func replaceSchmuxBlock(content, newBlock string) string {
 	return content[:startIdx] + newBlock + content[endIdx:]
 }
 
-// RemoveAgentInstructions removes the schmux signaling block from an instruction file.
-// Used for cleanup if needed.
-func RemoveAgentInstructions(workspacePath, targetName string) error {
-	if !detect.IsBuiltinToolName(targetName) {
-		return nil
-	}
-	config, ok := detect.GetAgentInstructionConfig(targetName)
-	if !ok {
-		return nil
-	}
-
-	instructionPath := filepath.Join(workspacePath, config.InstructionDir, config.InstructionFile)
-
-	content, err := os.ReadFile(instructionPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-
-	contentStr := string(content)
-	if !strings.Contains(contentStr, schmuxMarkerStart) {
-		return nil
-	}
-
-	startIdx := strings.Index(contentStr, schmuxMarkerStart)
-	endIdx := strings.Index(contentStr, schmuxMarkerEnd)
-
-	if startIdx == -1 || endIdx == -1 || endIdx < startIdx {
-		return nil
-	}
-
-	// Include the end marker and surrounding whitespace
-	endIdx += len(schmuxMarkerEnd)
-	if endIdx < len(contentStr) && contentStr[endIdx] == '\n' {
-		endIdx++
-	}
-	// Also remove preceding newline if present
-	if startIdx > 0 && contentStr[startIdx-1] == '\n' {
-		startIdx--
-	}
-
-	newContent := contentStr[:startIdx] + contentStr[endIdx:]
-
-	// If file is now empty or just whitespace, remove it
-	if strings.TrimSpace(newContent) == "" {
-		if err := os.Remove(instructionPath); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		return nil
-	}
-
-	return os.WriteFile(instructionPath, []byte(newContent), 0644)
-}
-
 // SignalingInstructionsFilePath returns the canonical path for system prompt file injection.
 func SignalingInstructionsFilePath() string {
 	return filepath.Join(schmuxdir.Get(), "signaling.md")
@@ -500,27 +444,6 @@ func SignalingInstructionsFile() error {
 		return fmt.Errorf("failed to write signaling instructions file: %w", err)
 	}
 	return nil
-}
-
-// HasSignalingInstructions checks if the instruction file for a target
-// already has the schmux signaling block.
-func HasSignalingInstructions(workspacePath, targetName string) bool {
-	if !detect.IsBuiltinToolName(targetName) {
-		return false
-	}
-	config, ok := detect.GetAgentInstructionConfig(targetName)
-	if !ok {
-		return false
-	}
-
-	instructionPath := filepath.Join(workspacePath, config.InstructionDir, config.InstructionFile)
-
-	content, err := os.ReadFile(instructionPath)
-	if err != nil {
-		return false
-	}
-
-	return strings.Contains(string(content), schmuxMarkerStart)
 }
 
 // Markers for the schmux-managed block in .git/info/exclude (gitignore comment syntax).

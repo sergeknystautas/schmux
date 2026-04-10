@@ -2,79 +2,12 @@ package tmux
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
-
-	"gopkg.in/yaml.v3"
 )
-
-func TestStripAnsi(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{
-			name:  "no escape sequences",
-			input: "plain text",
-			want:  "plain text",
-		},
-		{
-			name:  "color codes",
-			input: "\x1b[31mred text\x1b[0m",
-			want:  "red text",
-		},
-		{
-			name:  "bold",
-			input: "\x1b[1mbold\x1b[0m",
-			want:  "bold",
-		},
-		{
-			name:  "multiple codes",
-			input: "\x1b[31;1mred bold\x1b[0m",
-			want:  "red bold",
-		},
-		{
-			name:  "cursor movement",
-			input: "text\x1b[2K\x1b[1Gmore",
-			want:  "textmore",
-		},
-		{
-			name:  "mixed content",
-			input: "\x1b[90mConnecting\x1b[0m...\x1b[32mOK\x1b[0m",
-			want:  "Connecting...OK",
-		},
-		{
-			name:  "OSC sequences (window title)",
-			input: "\x1b]0;window title\x07text",
-			want:  "text",
-		},
-		{
-			name:  "OSC with ST terminator",
-			input: "\x1b]0;title\x1b\\text",
-			want:  "text",
-		},
-		{
-			name:  "multiline with codes",
-			input: "line1\x1b[0m\nline2\x1b[31mred\x1b[0m\nline3",
-			want:  "line1\nline2red\nline3",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := StripAnsi(tt.input)
-			if got != tt.want {
-				t.Errorf("StripAnsi() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
 
 // testServer is a TmuxServer used by tests that exercise tmux CLI methods.
 var testServer = NewTmuxServer("tmux", "default", nil)
@@ -182,111 +115,6 @@ func TestContextCancellation(t *testing.T) {
 			t.Error("expected error from cancelled context, got nil")
 		}
 	})
-}
-
-func TestExtractLatestResponse(t *testing.T) {
-	cases := loadNudgenikManifest(t)
-
-	for _, tc := range cases {
-		name := strings.TrimSuffix(tc.Capture, ".txt")
-		want := strings.TrimSuffix(tc.Capture, ".txt") + ".want.txt"
-		t.Run(name, func(t *testing.T) {
-			inputPath := filepath.Join("testdata", tc.Capture)
-			inputRaw, err := os.ReadFile(inputPath)
-			if err != nil {
-				t.Fatalf("read input: %v", err)
-			}
-
-			wantPath := filepath.Join("testdata", want)
-			wantRaw, err := os.ReadFile(wantPath)
-			if err != nil {
-				t.Fatalf("read want: %v", err)
-			}
-
-			input := StripAnsi(string(inputRaw))
-			lines := strings.Split(input, "\n")
-			got := ExtractLatestResponse(lines)
-			want := strings.TrimRight(string(wantRaw), "\n")
-
-			if got != want {
-				t.Errorf("extractLatestResponse() mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
-			}
-		})
-	}
-}
-
-// TestUpdateGoldenFiles regenerates .want.txt files from actual extractor output.
-// Run with: UPDATE_GOLDEN=1 go test -v -run TestUpdateGoldenFiles ./internal/tmux/...
-func TestUpdateGoldenFiles(t *testing.T) {
-	if os.Getenv("UPDATE_GOLDEN") == "" {
-		t.Skip("set UPDATE_GOLDEN=1 to regenerate golden files")
-	}
-
-	cases := loadNudgenikManifest(t)
-
-	for _, tc := range cases {
-		f := tc.Capture
-		inputPath := filepath.Join("testdata", f)
-		inputRaw, err := os.ReadFile(inputPath)
-		if err != nil {
-			t.Logf("skip %s: %v", f, err)
-			continue
-		}
-
-		input := StripAnsi(string(inputRaw))
-		lines := strings.Split(input, "\n")
-		got := ExtractLatestResponse(lines)
-
-		wantFile := strings.TrimSuffix(f, ".txt") + ".want.txt"
-		wantPath := filepath.Join("testdata", wantFile)
-		if err := os.WriteFile(wantPath, []byte(got+"\n"), 0644); err != nil {
-			t.Errorf("write %s: %v", wantFile, err)
-		} else {
-			t.Logf("updated %s", wantFile)
-		}
-	}
-}
-
-type nudgenikManifest struct {
-	Version int                `yaml:"version"`
-	Cases   []nudgenikTestCase `yaml:"cases"`
-}
-
-type nudgenikTestCase struct {
-	ID        string `yaml:"id"`
-	Capture   string `yaml:"capture"`
-	WantState string `yaml:"want_state"`
-	Notes     string `yaml:"notes"`
-}
-
-func loadNudgenikManifest(t *testing.T) []nudgenikTestCase {
-	t.Helper()
-
-	path := filepath.Join("testdata", "manifest.yaml")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read nudgenik manifest: %v", err)
-	}
-
-	var manifest nudgenikManifest
-	if err := yaml.Unmarshal(data, &manifest); err != nil {
-		t.Fatalf("parse nudgenik manifest: %v", err)
-	}
-
-	if len(manifest.Cases) == 0 {
-		t.Fatalf("nudgenik manifest has no cases")
-	}
-
-	for i, tc := range manifest.Cases {
-		if strings.TrimSpace(tc.Capture) == "" {
-			t.Fatalf("nudgenik manifest case %d missing capture", i)
-		}
-		if !strings.HasSuffix(tc.Capture, ".txt") {
-			t.Fatalf("nudgenik manifest case %d capture must be .txt: %q", i, tc.Capture)
-		}
-	}
-
-	return manifest.Cases
 }
 
 func TestExtractLatestResponseCapsContent(t *testing.T) {

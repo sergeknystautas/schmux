@@ -1229,8 +1229,13 @@ func (e *Env) AddRemoteProfileToConfig(flavor, displayName, workspacePath, conne
 		e.T.Fatalf("Failed to save config: %v", err)
 	}
 
-	// Return the generated ID (config generates ID from flavor string)
-	profileID := config.GenerateRemoteFlavorID(flavor)
+	// Generate ID from flavor string (sanitize non-alphanumeric to underscore, lowercase)
+	profileID := strings.ToLower(strings.Map(func(c rune) rune {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') {
+			return c
+		}
+		return '_'
+	}, flavor))
 	e.T.Logf("Remote profile added with ID: %s", profileID)
 	return profileID
 }

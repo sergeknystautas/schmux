@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -599,9 +598,6 @@ func (c *Client) FindWindowByName(ctx context.Context, name string) (*WindowInfo
 	}
 	return nil, nil
 }
-
-// ExtractPaneIDFromOutput extracts a pane ID from %output line.
-var paneIDRegex = regexp.MustCompile(`%\d+`)
 
 // GetWindowPaneID returns the pane ID for a window.
 func (c *Client) GetWindowPaneID(ctx context.Context, windowID string) (string, error) {

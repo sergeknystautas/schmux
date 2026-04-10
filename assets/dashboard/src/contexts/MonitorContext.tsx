@@ -1,7 +1,7 @@
 import { createContext, useContext } from 'react';
 import type { MonitorEvent } from '../lib/types';
 
-export type MonitorContextValue = {
+type MonitorContextValue = {
   monitorEvents: MonitorEvent[];
   clearMonitorEvents: () => void;
 };

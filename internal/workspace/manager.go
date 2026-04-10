@@ -1576,15 +1576,6 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 	return &current, nil
 }
 
-// getWorkspaceHEAD returns the current commit hash for a workspace.
-func (m *Manager) getWorkspaceHEAD(ctx context.Context, dir string) (string, error) {
-	output, err := m.runGit(ctx, "", RefreshTriggerExplicit, dir, "rev-parse", "HEAD")
-	if err != nil {
-		return "", fmt.Errorf("git rev-parse HEAD failed: %w", err)
-	}
-	return strings.TrimSpace(string(output)), nil
-}
-
 // addWorktreeForBranch adds a worktree for an existing branch.
 func (m *Manager) addWorktreeForBranch(ctx context.Context, worktreeBasePath, workspacePath, branch string) error {
 	m.logger.Debug("adding worktree for branch", "base", worktreeBasePath, "path", workspacePath, "branch", branch)

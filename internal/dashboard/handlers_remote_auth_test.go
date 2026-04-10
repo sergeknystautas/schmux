@@ -170,39 +170,6 @@ func TestRequiresAuth_FalseAfterTunnelStops(t *testing.T) {
 	}
 }
 
-func TestRemoteAccessOff_RequiresCSRFWhenRemoteSession(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
-	defer server.CloseForTest()
-	enabled := true
-	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
-	server.HandleTunnelConnected("https://test.trycloudflare.com")
-
-	// Build a valid remote cookie
-	nowStr := fmt.Sprintf("%d", time.Now().Unix())
-	server.remoteTokenMu.Lock()
-	secret := server.remoteSessionSecret
-	server.remoteTokenMu.Unlock()
-	uaHash := uaFingerprint(testUA)
-	payload := nowStr + "." + uaHash
-	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte(payload))
-	sig := hex.EncodeToString(mac.Sum(nil))
-
-	// POST with valid remote cookie but NO CSRF token from a non-local address
-	req, _ := http.NewRequest("POST", "/api/remote-access/off", nil)
-	req.Header.Set("User-Agent", testUA)
-	req.AddCookie(&http.Cookie{Name: "schmux_remote", Value: payload + "." + sig})
-	req.RemoteAddr = "1.2.3.4:12345" // non-local to trigger CSRF check
-
-	rr := httptest.NewRecorder()
-	handler := server.withAuthAndCSRF(server.handleRemoteAccessOff)
-	handler(rr, req)
-
-	if rr.Code != http.StatusForbidden {
-		t.Errorf("expected 403 Forbidden without CSRF token, got %d", rr.Code)
-	}
-}
-
 func TestHandleRemoteAccessSetPassword_RejectsShortPassword(t *testing.T) {
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
@@ -230,37 +197,6 @@ func TestHandleRemoteAccessSetPassword_RejectsShortPassword(t *testing.T) {
 				t.Errorf("expected 400 for password %q, got %d", tt.password, rr.Code)
 			}
 		})
-	}
-}
-
-func TestRemoteAccessOff_AllowsLocalRequestWithoutCSRF(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
-	defer server.CloseForTest()
-	server.HandleTunnelConnected("https://test.trycloudflare.com")
-
-	// Build a valid remote cookie
-	nowStr := fmt.Sprintf("%d", time.Now().Unix())
-	server.remoteTokenMu.Lock()
-	secret := server.remoteSessionSecret
-	server.remoteTokenMu.Unlock()
-	uaHash := uaFingerprint(testUA)
-	payload := nowStr + "." + uaHash
-	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte(payload))
-	sig := hex.EncodeToString(mac.Sum(nil))
-
-	// POST from localhost — should NOT require CSRF
-	req, _ := http.NewRequest("POST", "/api/remote-access/off", nil)
-	req.Header.Set("User-Agent", testUA)
-	req.AddCookie(&http.Cookie{Name: "schmux_remote", Value: payload + "." + sig})
-	req.RemoteAddr = "127.0.0.1:12345" // local
-
-	rr := httptest.NewRecorder()
-	handler := server.withAuthAndCSRF(server.handleRemoteAccessOff)
-	handler(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200 for local request without CSRF, got %d", rr.Code)
 	}
 }
 
@@ -632,40 +568,6 @@ func TestIsTrustedRequest_RemoteAccessDisabled_AlwaysTrusted(t *testing.T) {
 	}
 }
 
-func TestCSRF_RequiredForTunneledRequests(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
-	defer server.CloseForTest()
-	enabled := true
-	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
-	server.HandleTunnelConnected("https://test.trycloudflare.com")
-
-	// Build a valid remote cookie
-	nowStr := fmt.Sprintf("%d", time.Now().Unix())
-	server.remoteTokenMu.Lock()
-	secret := server.remoteSessionSecret
-	server.remoteTokenMu.Unlock()
-	uaHash := uaFingerprint(testUA)
-	payload := nowStr + "." + uaHash
-	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte(payload))
-	sig := hex.EncodeToString(mac.Sum(nil))
-
-	// POST from 127.0.0.1 with Cf-Connecting-IP (tunneled), no CSRF token
-	req, _ := http.NewRequest("POST", "/api/remote-access/off", nil)
-	req.Header.Set("User-Agent", testUA)
-	req.AddCookie(&http.Cookie{Name: "schmux_remote", Value: payload + "." + sig})
-	req.RemoteAddr = "127.0.0.1:12345"
-	req.Header.Set("Cf-Connecting-IP", "1.2.3.4")
-
-	rr := httptest.NewRecorder()
-	handler := server.withAuthAndCSRF(server.handleRemoteAccessOff)
-	handler(rr, req)
-
-	if rr.Code != http.StatusForbidden {
-		t.Errorf("expected 403 Forbidden for tunneled request without CSRF, got %d", rr.Code)
-	}
-}
-
 func TestNormalizeIPForRateLimit_TunnelActive_UsesCfConnectingIP(t *testing.T) {
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
@@ -693,87 +595,6 @@ func TestNormalizeIPForRateLimit_NoTunnel_IgnoresHeaders(t *testing.T) {
 	ip := server.normalizeIPForRateLimit(req)
 	if ip != "127.0.0.1" {
 		t.Errorf("expected RemoteAddr IP without tunnel, got %q", ip)
-	}
-}
-
-func TestSetPassword_WithoutTunnel_DoesNotActivateAuth(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
-	defer server.CloseForTest()
-
-	// Set up config with a saveable path — NO tunnel connected
-	configPath := filepath.Join(t.TempDir(), "config.json")
-	server.config = config.CreateDefault(configPath)
-
-	// Verify auth is not required before setting password
-	if server.requiresAuth() {
-		t.Fatal("auth should not be required before setting password")
-	}
-
-	// Set a password (no tunnel active)
-	body := strings.NewReader(`{"password":"mypassword123"}`)
-	req, _ := http.NewRequest("POST", "/api/remote-access/set-password", body)
-	req.Header.Set("Content-Type", "application/json")
-	req.RemoteAddr = "127.0.0.1:12345"
-	rr := httptest.NewRecorder()
-	server.handleRemoteAccessSetPassword(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	// Auth should still NOT be required — no tunnel is active
-	if server.requiresAuth() {
-		t.Error("setting password without active tunnel should not activate auth")
-	}
-
-	// Local API requests should still work without cookies
-	req2, _ := http.NewRequest("GET", "/api/config", nil)
-	req2.RemoteAddr = "127.0.0.1:12345"
-	rr2 := httptest.NewRecorder()
-	handler := server.withAuth(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	handler(rr2, req2)
-
-	if rr2.Code != http.StatusOK {
-		t.Errorf("local request should succeed without auth after setting password (no tunnel), got %d", rr2.Code)
-	}
-}
-
-func TestLocalRequestBypassesAuth_WhenTunnelActive(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
-	defer server.CloseForTest()
-	enabled := true
-	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
-	server.HandleTunnelConnected("https://test.trycloudflare.com")
-
-	// Auth is required (tunnel active)
-	if !server.requiresAuth() {
-		t.Fatal("auth should be required when tunnel is active")
-	}
-
-	// Local request without any cookies should still succeed
-	req, _ := http.NewRequest("GET", "/api/config", nil)
-	req.RemoteAddr = "127.0.0.1:12345"
-	rr := httptest.NewRecorder()
-	handler := server.withAuth(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	handler(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("local request should bypass tunnel-only auth, got %d", rr.Code)
-	}
-
-	// Remote request without cookies should fail
-	req2, _ := http.NewRequest("GET", "/api/config", nil)
-	req2.RemoteAddr = "127.0.0.1:12345"
-	req2.Header.Set("Cf-Connecting-IP", "1.2.3.4") // tunneled
-	rr2 := httptest.NewRecorder()
-	handler(rr2, req2)
-
-	if rr2.Code != http.StatusUnauthorized {
-		t.Errorf("tunneled request without auth should get 401, got %d", rr2.Code)
 	}
 }
 

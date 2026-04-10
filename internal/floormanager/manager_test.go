@@ -298,7 +298,6 @@ func TestNew(t *testing.T) {
 	homeDir := t.TempDir()
 	schmuxHome := filepath.Join(homeDir, ".schmux")
 	schmuxdir.Set(schmuxHome)
-	t.Cleanup(schmuxdir.Reset)
 
 	m := New(cfg, sm, nil, homeDir, log.NewWithOptions(io.Discard, log.Options{}))
 

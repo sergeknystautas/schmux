@@ -3,7 +3,7 @@ import { arrayMove } from '@dnd-kit/sortable';
 import type { Tab } from '../lib/types.generated';
 import { sortTabsByOrder, saveAccessoryTabOrder } from '../lib/accessoryTabOrder';
 
-export interface UseAccessoryTabOrderResult {
+interface UseAccessoryTabOrderResult {
   orderedTabs: Tab[];
   reorder: (activeId: string, overId: string) => void;
   startDrag: () => void;

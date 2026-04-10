@@ -8,7 +8,7 @@
 
 const MAX_SAMPLES = 1000;
 
-export type LatencyStats = {
+type LatencyStats = {
   count: number;
   p25: number;
   median: number;
@@ -28,7 +28,7 @@ export type LatencyDistribution = {
 
 // Server-side latency segments received from the Go backend via stats messages.
 // Field names match the JSON keys from LatencyPercentiles in latency_collector.go.
-export type ServerLatencySegments = {
+type ServerLatencySegments = {
   dispatchP50: number;
   dispatchP99: number;
   sendKeysP50: number;
@@ -52,7 +52,7 @@ export type ServerLatencySegments = {
 };
 
 // Per-keystroke server-side segment tuple from the inputEcho sideband.
-export type ServerSegmentTuple = {
+type ServerSegmentTuple = {
   dispatch: number;
   sendKeys: number;
   echo: number;
@@ -78,7 +78,7 @@ export type LatencyBreakdown = {
   total: number;
 };
 
-export type WireContext = {
+type WireContext = {
   framesBetweenP50: number;
   framesBetweenP99: number;
   handleOutputMsP50: number;
@@ -100,7 +100,7 @@ type TrackerSnapshot = {
   serverLatency: ServerLatencySegments | null;
 };
 
-export class InputLatencyTracker {
+class InputLatencyTracker {
   samples: number[] = [];
   renderSamples: number[] = [];
   serverSegmentSamples: ServerSegmentTuple[] = []; // per-keystroke paired server-side segments

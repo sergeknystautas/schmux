@@ -295,12 +295,7 @@ func (g *GitBackend) GetChangedFiles(ctx context.Context, workspacePath string) 
 	}
 	result := make([]VCSChangedFile, len(gitFiles))
 	for i, gf := range gitFiles {
-		result[i] = VCSChangedFile{
-			Path:         gf.Path,
-			Status:       gf.Status,
-			LinesAdded:   gf.LinesAdded,
-			LinesRemoved: gf.LinesRemoved,
-		}
+		result[i] = VCSChangedFile(gf)
 	}
 	return result, nil
 }

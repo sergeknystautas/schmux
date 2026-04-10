@@ -106,7 +106,7 @@ export default defineConfig(async () => ({
     rollupOptions: {
       output: {
         manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom', 'react-tooltip', 'qrcode.react'],
+          vendor: ['react', 'react-dom', 'react-router-dom', 'qrcode.react'],
           xterm: [
             '@xterm/xterm',
             '@xterm/addon-fit',

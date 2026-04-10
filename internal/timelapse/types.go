@@ -39,9 +39,6 @@ type Record struct {
 	Snapshot    *string    `json:"snapshot,omitempty"`    // gap: nullable screen content
 }
 
-// floatPtr creates a *float64 for use in Record.T fields.
-func floatPtr(f float64) *float64 { return &f }
-
 // ReadCastEvents reads an asciicast v2 file (.cast format).
 // The first line is a JSON header object; subsequent lines are [timestamp, type, data] arrays.
 // Events are returned as Record structs via the callback.
@@ -141,8 +138,3 @@ func ReadCastEvents(r io.Reader, fn func(Record) bool) error {
 	return scanner.Err()
 }
 
-// ReadRecords reads asciicast v2 events from r. This is an alias for ReadCastEvents
-// for backward compatibility.
-func ReadRecords(r io.Reader, fn func(Record) bool) error {
-	return ReadCastEvents(r, fn)
-}

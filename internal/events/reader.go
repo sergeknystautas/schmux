@@ -2,8 +2,6 @@ package events
 
 import (
 	"bufio"
-	"encoding/json"
-	"fmt"
 	"os"
 )
 
@@ -46,17 +44,3 @@ func ReadEvents(path string, filter func(RawEvent) bool) ([]EventLine, error) {
 	return events, scanner.Err()
 }
 
-// ReadLastByType returns the last event of the given type and its raw JSON.
-func ReadLastByType(path string, eventType string) (RawEvent, json.RawMessage, error) {
-	events, err := ReadEvents(path, func(raw RawEvent) bool {
-		return raw.Type == eventType
-	})
-	if err != nil {
-		return RawEvent{}, nil, err
-	}
-	if len(events) == 0 {
-		return RawEvent{}, nil, fmt.Errorf("no event of type %q found", eventType)
-	}
-	last := events[len(events)-1]
-	return last.RawEvent, json.RawMessage(last.Data), nil
-}

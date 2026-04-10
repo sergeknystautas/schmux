@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/charmbracelet/log"
 )
@@ -67,70 +66,6 @@ type ToolDetector interface {
 
 	// Name returns the tool name for logging/reporting.
 	Name() string
-}
-
-// DetectAvailableTools runs all registered detectors concurrently and returns available tools.
-// All detectors run in parallel with a shared timeout.
-// Logs progress via structured logger; if printProgress is true, also prints to stdout.
-func DetectAvailableTools(printProgress bool) []Tool {
-	if pkgLogger != nil {
-		pkgLogger.Info("starting tool detection")
-	}
-	detectors := allDetectors()
-
-	ctx, cancel := context.WithTimeout(context.Background(), detectTimeout)
-	defer cancel()
-
-	type result struct {
-		tool  Tool
-		found bool
-		name  string // detector name for not-found message
-	}
-	results := make(chan result, len(detectors))
-
-	var wg sync.WaitGroup
-	for _, detector := range detectors {
-		wg.Add(1)
-		go func(d ToolDetector) {
-			defer wg.Done()
-			tool, found := d.Detect(ctx)
-			results <- result{tool, found, d.Name()}
-		}(detector)
-	}
-
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	tools := []Tool{}
-	for r := range results {
-		if r.found {
-			// Detector already logged the specifics
-			if printProgress {
-				fmt.Printf("  Detecting %s... found (command: %s)\n", r.tool.Name, r.tool.Command)
-			}
-			tools = append(tools, r.tool)
-		} else {
-			if pkgLogger != nil {
-				pkgLogger.Info("tool not found", "tool", r.name)
-			}
-			if printProgress {
-				fmt.Printf("  Detecting %s... not found\n", r.name)
-			}
-		}
-	}
-
-	if pkgLogger != nil {
-		pkgLogger.Info("detection complete", "tools_found", len(tools))
-	}
-	return tools
-}
-
-// DetectAndPrint runs detection and prints progress messages to stdout.
-// Returns the detected tools for use in config.
-func DetectAndPrint() []Tool {
-	return DetectAvailableTools(true)
 }
 
 // DetectAvailableToolsContext runs all registered detectors concurrently with the given context.
@@ -192,28 +127,6 @@ func DetectAvailableToolsContext(ctx context.Context, printProgress bool) ([]Too
 	return tools, nil
 }
 
-// FindDetectedTool finds a detected tool by name.
-func FindDetectedTool(ctx context.Context, name string) (Tool, bool, error) {
-	tools, err := DetectAvailableToolsContext(ctx, false)
-	if err != nil {
-		return Tool{}, false, err
-	}
-	tool, found := FindToolInList(tools, name)
-	return tool, found, nil
-}
-
-// FindToolInList finds a detected tool by name in a list.
-func FindToolInList(tools []Tool, name string) (Tool, bool) {
-	for _, tool := range tools {
-		if tool.Name == name {
-			return tool, true
-		}
-	}
-	return Tool{}, false
-}
-
-var detectTimeout = 3 * time.Second // 3 seconds (increased for multiple detection methods)
-
 // ===== Shared Detection Utilities =====
 
 // cleanEnv returns the current environment with variables removed that prevent
@@ -235,14 +148,6 @@ func cleanEnv() []string {
 // Returns true if the command runs successfully (exit code 0).
 func tryCommand(ctx context.Context, command, versionFlag string) bool {
 	cmd := exec.CommandContext(ctx, command, versionFlag)
-	cmd.Env = cleanEnv()
-	return cmd.Run() == nil
-}
-
-// tryCommandArgs checks if a command runs successfully with multiple arguments.
-// Returns true if the command runs successfully (exit code 0).
-func tryCommandArgs(ctx context.Context, command string, args ...string) bool {
-	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Env = cleanEnv()
 	return cmd.Run() == nil
 }
@@ -382,8 +287,6 @@ func npmGlobalInstalled(ctx context.Context, pkg string) bool {
 
 type claudeDetector struct{}
 
-func (d *claudeDetector) Name() string { return "claude" }
-
 func (d *claudeDetector) Detect(ctx context.Context) (Tool, bool) {
 	// Method 1: Check if claude command exists in PATH (sufficient for detection;
 	// running "claude -v" is fragile — wrapper scripts, nested-session guards, and
@@ -440,8 +343,6 @@ func (d *claudeDetector) Detect(ctx context.Context) (Tool, bool) {
 
 type codexDetector struct{}
 
-func (d *codexDetector) Name() string { return "codex" }
-
 func (d *codexDetector) Detect(ctx context.Context) (Tool, bool) {
 	// Method 1: Check if codex command exists in PATH
 	if commandExists("codex") {
@@ -473,8 +374,6 @@ func (d *codexDetector) Detect(ctx context.Context) (Tool, bool) {
 // ===== Gemini Detector =====
 
 type geminiDetector struct{}
-
-func (d *geminiDetector) Name() string { return "gemini" }
 
 func (d *geminiDetector) Detect(ctx context.Context) (Tool, bool) {
 	// Method 1: Check if gemini command exists in PATH

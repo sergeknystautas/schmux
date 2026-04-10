@@ -2,7 +2,7 @@ import type { Tab } from './types.generated';
 
 const ACCESSORY_TAB_ORDER_KEY_PREFIX = 'schmux:accessory-tab-order:';
 
-export const ACCESSORY_TAB_ORDER_CHANGED_EVENT = 'schmux:accessory-tab-order-changed';
+const ACCESSORY_TAB_ORDER_CHANGED_EVENT = 'schmux:accessory-tab-order-changed';
 
 export function sortTabsByOrder(workspaceId: string, tabs: Tab[]): Tab[] {
   if (!workspaceId || tabs.length <= 1) return tabs;

@@ -262,31 +262,3 @@ func TestParserDropCounters(t *testing.T) {
 	}
 }
 
-func TestEscapeKeys(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{"plain text", "hello", "hello"},
-		{"space becomes Space", " ", "Space"},
-		{"newline becomes Enter", "\n", "Enter"},
-		{"tab becomes Tab", "\t", "Tab"},
-		{"backslash is escaped", "\\", "\\\\"},
-		{"mixed text with spaces", "ls -la", "lsSpace-la"},
-		{"control-a", "\x01", "C-a"},
-		{"control-c", "\x03", "C-c"},
-		{"empty string", "", ""},
-		{"multi-line command", "echo hello\n", "echoSpacehelloEnter"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := EscapeKeys(tt.input)
-			if got != tt.want {
-				t.Errorf("EscapeKeys(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
-	}
-}

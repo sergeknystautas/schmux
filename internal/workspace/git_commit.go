@@ -3,9 +3,7 @@ package workspace
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -422,23 +420,4 @@ func getFileAtCommit(ctx context.Context, gitDir, commit, path, fallbackPath str
 	}
 
 	return string(output)
-}
-
-// Helper for checking if a file is binary using the existing difftool pattern.
-func isBinaryFileInWorktree(gitDir, filePath string) bool {
-	fullPath := filepath.Join(gitDir, filePath)
-	f, err := os.Open(fullPath)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-
-	buf := make([]byte, 8192)
-	n, _ := f.Read(buf)
-	for i := 0; i < n; i++ {
-		if buf[i] == 0 {
-			return true
-		}
-	}
-	return false
 }

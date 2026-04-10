@@ -282,65 +282,6 @@ func TestEnsurePipePane(t *testing.T) {
 	})
 }
 
-func TestPruneLogFiles(t *testing.T) {
-	t.Run("prune with no active sessions", func(t *testing.T) {
-		tmpDir := t.TempDir()
-
-		// Create test log files
-		if err := os.WriteFile(filepath.Join(tmpDir, "orphaned-session.log"), []byte("test"), 0644); err != nil {
-			t.Fatalf("failed to create test log: %v", err)
-		}
-
-		removed := PruneLogFiles(tmpDir, map[string]bool{})
-		if removed != 1 {
-			t.Errorf("PruneLogFiles() removed = %d, want 1", removed)
-		}
-
-		// File should be gone
-		if _, err := os.Stat(filepath.Join(tmpDir, "orphaned-session.log")); err == nil {
-			t.Error("orphaned log file still exists (expected removal)")
-		}
-	})
-
-	t.Run("prune keeps active session logs", func(t *testing.T) {
-		tmpDir := t.TempDir()
-
-		// Create log files: one active, one orphaned
-		if err := os.WriteFile(filepath.Join(tmpDir, "active-session.log"), []byte("test"), 0644); err != nil {
-			t.Fatalf("failed to create active log: %v", err)
-		}
-		if err := os.WriteFile(filepath.Join(tmpDir, "orphaned-session.log"), []byte("test"), 0644); err != nil {
-			t.Fatalf("failed to create orphaned log: %v", err)
-		}
-
-		removed := PruneLogFiles(tmpDir, map[string]bool{"active-session": true})
-		if removed != 1 {
-			t.Errorf("PruneLogFiles() removed = %d, want 1", removed)
-		}
-
-		// Active log should remain
-		if _, err := os.Stat(filepath.Join(tmpDir, "active-session.log")); err != nil {
-			t.Error("active session log was removed (expected to be kept)")
-		}
-		// Orphaned log should be gone
-		if _, err := os.Stat(filepath.Join(tmpDir, "orphaned-session.log")); err == nil {
-			t.Error("orphaned log file still exists (expected removal)")
-		}
-	})
-
-	t.Run("prune skips non-log files", func(t *testing.T) {
-		tmpDir := t.TempDir()
-
-		if err := os.WriteFile(filepath.Join(tmpDir, "notes.txt"), []byte("test"), 0644); err != nil {
-			t.Fatalf("failed to create non-log file: %v", err)
-		}
-
-		removed := PruneLogFiles(tmpDir, map[string]bool{})
-		if removed != 0 {
-			t.Errorf("PruneLogFiles() removed = %d, want 0 (non-log files should be skipped)", removed)
-		}
-	})
-}
 
 func TestBuildCommand(t *testing.T) {
 	homeDir, err := os.UserHomeDir()
@@ -1178,21 +1119,6 @@ func TestResolveTarget(t *testing.T) {
 		}
 	})
 
-	t.Run("all builtin tool names resolve", func(t *testing.T) {
-		m, _ := newTestManager(t)
-		builtins := detect.GetBuiltinToolNames()
-
-		for _, name := range builtins {
-			resolved, err := m.ResolveTarget(context.Background(), name)
-			if err != nil {
-				t.Errorf("builtin %q should resolve, got error: %v", name, err)
-				continue
-			}
-			if !resolved.Promptable {
-				t.Errorf("builtin %q should be promptable", name)
-			}
-		}
-	})
 }
 
 func TestResolveWorkspace(t *testing.T) {

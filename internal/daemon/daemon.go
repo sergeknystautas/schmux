@@ -66,12 +66,7 @@ var ErrDevRestart = errors.New("dev restart requested")
 
 // Daemon represents the schmux daemon.
 type Daemon struct {
-	config    *config.Config
-	state     state.StateStore
-	workspace workspace.WorkspaceManager
-	session   *session.Manager
-	server    *dashboard.Server
-	logger    *log.Logger
+	logger *log.Logger
 
 	shutdownChan   chan struct{}
 	shutdownOnce   sync.Once

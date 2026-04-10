@@ -140,7 +140,7 @@ export async function spawnSessions(request: SpawnRequest): Promise<SpawnResult[
  * Checks if a branch is already in use by an existing workspace (worktree conflict).
  * Only relevant when source_code_manager is "git-worktree".
  */
-export async function checkBranchConflict(
+async function checkBranchConflict(
   repo: string,
   branch: string
 ): Promise<{ conflict: boolean; workspace_id?: string }> {
@@ -175,7 +175,7 @@ export async function suggestBranch(request: SuggestBranchRequest): Promise<Sugg
  * Prepares spawn data for an existing branch.
  * Gets commit log, generates nickname, and returns everything for the spawn form.
  */
-export interface PrepareBranchSpawnResponse {
+interface PrepareBranchSpawnResponse {
   repo: string;
   branch: string;
   prompt: string;
@@ -312,7 +312,7 @@ export async function getFileContent(workspaceId: string, filePath: string): Pro
   return response.text();
 }
 
-export async function getAuthMe(): Promise<{ login: string; avatar_url?: string; name?: string }> {
+async function getAuthMe(): Promise<{ login: string; avatar_url?: string; name?: string }> {
   const response = await apiFetch('/auth/me');
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to fetch auth user');
@@ -413,7 +413,7 @@ export async function diffExternal(
  * Detects available tools on the system.
  * Returns a list of detected tools with their names, commands, and sources.
  */
-export async function detectTools(): Promise<DetectToolsResponse> {
+async function detectTools(): Promise<DetectToolsResponse> {
   const response = await apiFetch('/api/detect-tools');
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to detect tools');
@@ -459,7 +459,7 @@ export async function getOverlays(): Promise<OverlaysResponse> {
   return response.json();
 }
 
-export async function refreshOverlay(workspaceId: string): Promise<{ status: string }> {
+async function refreshOverlay(workspaceId: string): Promise<{ status: string }> {
   const response = await apiFetch(`/api/workspaces/${workspaceId}/refresh-overlay`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
@@ -587,7 +587,7 @@ export async function getRecentBranches(limit: number = 10): Promise<RecentBranc
   return response.json();
 }
 
-export interface RecentBranchesRefreshResponse {
+interface RecentBranchesRefreshResponse {
   branches: RecentBranch[];
   fetched_count: number;
 }
@@ -752,7 +752,7 @@ export async function reconnectRemoteHost(hostId: string): Promise<RemoteHost> {
   return response.json();
 }
 
-export async function disconnectRemoteHost(hostId: string): Promise<void> {
+async function disconnectRemoteHost(hostId: string): Promise<void> {
   const response = await apiFetch(`/api/remote/hosts/${encodeURIComponent(hostId)}`, {
     method: 'DELETE',
     headers: { ...csrfHeaders() },
@@ -836,23 +836,23 @@ export async function commitUncommit(
   return response.json();
 }
 
-export interface CommitPromptResponse {
+interface CommitPromptResponse {
   prompt: string;
 }
 
-export interface CommitFile {
+interface CommitFile {
   path: string;
   added: number;
   deleted: number;
 }
 
-export interface CommitMessageResponse {
+interface CommitMessageResponse {
   message: string;
   files: CommitFile[];
 }
 
 // Fetch the commit prompt template from the backend.
-export async function getCommitPrompt(): Promise<string> {
+async function getCommitPrompt(): Promise<string> {
   const response = await apiFetch('/api/commit/prompt');
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to fetch commit prompt');
@@ -862,7 +862,7 @@ export async function getCommitPrompt(): Promise<string> {
 }
 
 // Generate a commit message using oneshot.
-export async function generateCommitMessage(workspaceId: string): Promise<CommitMessageResponse> {
+async function generateCommitMessage(workspaceId: string): Promise<CommitMessageResponse> {
   const response = await apiFetch('/api/commit/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
@@ -955,7 +955,7 @@ export async function getLoreProposals(repoName: string): Promise<LoreProposalsR
   return res.json();
 }
 
-export async function getLoreProposal(repoName: string, id: string): Promise<LoreProposal> {
+async function getLoreProposal(repoName: string, id: string): Promise<LoreProposal> {
   const res = await apiFetch(
     `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(id)}`
   );
@@ -963,7 +963,7 @@ export async function getLoreProposal(repoName: string, id: string): Promise<Lor
   return res.json();
 }
 
-export async function dismissLoreProposal(repoName: string, id: string): Promise<void> {
+async function dismissLoreProposal(repoName: string, id: string): Promise<void> {
   const res = await apiFetch(
     `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(id)}/dismiss`,
     {
@@ -1055,19 +1055,19 @@ export async function getLoreStatus(): Promise<LoreStatusResponse> {
   return res.json();
 }
 
-export interface CurationRunInfo {
+interface CurationRunInfo {
   id: string;
   size_bytes: number;
   created_at: string;
 }
 
-export async function getLoreCurations(repoName: string): Promise<{ runs: CurationRunInfo[] }> {
+async function getLoreCurations(repoName: string): Promise<{ runs: CurationRunInfo[] }> {
   const res = await apiFetch(`/api/lore/${encodeURIComponent(repoName)}/curations`);
   if (!res.ok) await parseErrorResponse(res, 'Failed to fetch curation runs');
   return res.json();
 }
 
-export async function getLoreCurationLog(
+async function getLoreCurationLog(
   repoName: string,
   id: string
 ): Promise<{ events: Record<string, unknown>[] }> {
@@ -1277,21 +1277,21 @@ export async function getRepofeedRepo(slug: string): Promise<RepofeedRepoRespons
 // Spawn Entries API (Emergence)
 // ============================================================================
 
-export async function getSpawnEntries(repo: string): Promise<SpawnEntry[]> {
+async function getSpawnEntries(repo: string): Promise<SpawnEntry[]> {
   const response = await fetch(`/api/emergence/${encodeURIComponent(repo)}/entries`);
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch spawn entries');
   const data: SpawnEntriesResponse = await response.json();
   return data.entries;
 }
 
-export async function getAllSpawnEntries(repo: string): Promise<SpawnEntry[]> {
+async function getAllSpawnEntries(repo: string): Promise<SpawnEntry[]> {
   const response = await fetch(`/api/emergence/${encodeURIComponent(repo)}/entries/all`);
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch all spawn entries');
   const data: SpawnEntriesResponse = await response.json();
   return data.entries;
 }
 
-export async function createSpawnEntry(
+async function createSpawnEntry(
   repo: string,
   req: CreateSpawnEntryRequest
 ): Promise<SpawnEntry> {
@@ -1304,7 +1304,7 @@ export async function createSpawnEntry(
   return response.json();
 }
 
-export async function updateSpawnEntry(
+async function updateSpawnEntry(
   repo: string,
   id: string,
   req: UpdateSpawnEntryRequest
@@ -1321,7 +1321,7 @@ export async function updateSpawnEntry(
   return response.json();
 }
 
-export async function deleteSpawnEntry(repo: string, id: string): Promise<void> {
+async function deleteSpawnEntry(repo: string, id: string): Promise<void> {
   const response = await fetch(
     `/api/emergence/${encodeURIComponent(repo)}/entries/${encodeURIComponent(id)}`,
     {
@@ -1332,7 +1332,7 @@ export async function deleteSpawnEntry(repo: string, id: string): Promise<void> 
   if (!response.ok) await parseErrorResponse(response, 'Failed to delete spawn entry');
 }
 
-export async function pinSpawnEntry(repo: string, id: string): Promise<void> {
+async function pinSpawnEntry(repo: string, id: string): Promise<void> {
   const response = await fetch(
     `/api/emergence/${encodeURIComponent(repo)}/entries/${encodeURIComponent(id)}/pin`,
     {
@@ -1343,7 +1343,7 @@ export async function pinSpawnEntry(repo: string, id: string): Promise<void> {
   if (!response.ok) await parseErrorResponse(response, 'Failed to pin spawn entry');
 }
 
-export async function dismissSpawnEntry(repo: string, id: string): Promise<void> {
+async function dismissSpawnEntry(repo: string, id: string): Promise<void> {
   const response = await fetch(
     `/api/emergence/${encodeURIComponent(repo)}/entries/${encodeURIComponent(id)}/dismiss`,
     {
@@ -1354,7 +1354,7 @@ export async function dismissSpawnEntry(repo: string, id: string): Promise<void>
   if (!response.ok) await parseErrorResponse(response, 'Failed to dismiss spawn entry');
 }
 
-export async function recordSpawnEntryUse(repo: string, id: string): Promise<void> {
+async function recordSpawnEntryUse(repo: string, id: string): Promise<void> {
   const response = await fetch(
     `/api/emergence/${encodeURIComponent(repo)}/entries/${encodeURIComponent(id)}/use`,
     {
@@ -1365,7 +1365,7 @@ export async function recordSpawnEntryUse(repo: string, id: string): Promise<voi
   if (!response.ok) await parseErrorResponse(response, 'Failed to record spawn entry use');
 }
 
-export async function getPromptHistory(repo: string): Promise<PromptHistoryResponse> {
+async function getPromptHistory(repo: string): Promise<PromptHistoryResponse> {
   const response = await fetch(`/api/emergence/${encodeURIComponent(repo)}/prompt-history`);
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch prompt history');
   return response.json();
@@ -1396,12 +1396,12 @@ export async function syncEnvironmentVar(key: string): Promise<void> {
 // Recyclable Workspaces API
 // ============================================================================
 
-export interface RecyclableWorkspacesResponse {
+interface RecyclableWorkspacesResponse {
   total: number;
   by_repo: Record<string, number>;
 }
 
-export interface PurgeWorkspacesResponse {
+interface PurgeWorkspacesResponse {
   status: string;
   purged: number;
 }

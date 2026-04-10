@@ -14,7 +14,7 @@ func TestEnsureInstanceKey(t *testing.T) {
 	// Use a temporary directory
 	tmpDir := t.TempDir()
 	schmuxdir.Set(tmpDir)
-	defer schmuxdir.Reset()
+	defer schmuxdir.Set("")
 
 	// Create dashboardsx dir
 	if err := os.MkdirAll(filepath.Join(tmpDir, "dashboardsx"), 0700); err != nil {

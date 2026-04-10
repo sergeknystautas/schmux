@@ -64,34 +64,6 @@ func NewWatcher(debounceMs int, suppressionTTL time.Duration, onChange OnChangeF
 	}, nil
 }
 
-// AddWorkspace registers a workspace's overlay-managed files for watching.
-func (w *Watcher) AddWorkspace(workspaceID, workspacePath string, manifest map[string]string) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	w.workspacePaths[workspaceID] = workspacePath
-	w.workspaceFiles[workspaceID] = make(map[string]bool)
-
-	dirsToWatch := make(map[string]bool)
-	for relPath := range manifest {
-		w.workspaceFiles[workspaceID][relPath] = true
-		absDir := filepath.Join(workspacePath, filepath.Dir(relPath))
-		dirsToWatch[absDir] = true
-	}
-
-	for dir := range dirsToWatch {
-		if err := w.watcher.Add(dir); err != nil {
-			if w.logger != nil {
-				w.logger.Warn("failed to watch directory", "dir", dir, "err", err)
-			}
-			continue
-		}
-		w.watchedDirs[dir] = append(w.watchedDirs[dir], workspaceID)
-	}
-
-	return nil
-}
-
 // AddWorkspaceWithDeclaredPaths registers a workspace's overlay-managed files for watching,
 // including declared paths that may not exist yet (e.g., agent-generated config files).
 // When a directory for a declared path doesn't exist, it is tracked as pending and the
