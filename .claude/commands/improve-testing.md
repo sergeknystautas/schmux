@@ -6,9 +6,11 @@ description: Continuous test improvement loop — increase meaningful coverage, 
 
 A unified test improvement loop that runs three phases in sequence, making one round of improvements per invocation. Each round profiles the current state, picks the highest-impact improvement across all three axes, executes it, and verifies the result.
 
+**Before doing anything, read `test/TESTING.md`.** This is the testing knowledge base — it contains current baselines, known slow tests that can't be fixed, coverage gaps that aren't worth testing, and a history of previous improvement rounds. Use this to avoid re-investigating known issues.
+
 ## Phase 0: Baseline
 
-Before any improvements, establish the current state using the test runner's built-in profiling.
+Before any improvements, establish the current state using the test runner's built-in profiling. Check `test/TESTING.md` first — if the baseline is recent (within the last week), you can skip the full profiling run and just verify the numbers are still accurate with a quick `./test.sh --quick`.
 
 Run these two commands separately (do NOT combine them — coverage instrumentation adds overhead that skews timing and can cause false flakiness):
 
@@ -138,8 +140,15 @@ Do NOT optimize:
 
 After completing all three phases:
 
-1. Present a **round summary** comparing before/after for each metric
-2. Ask: **"Run another round?"**
+1. **Update `test/TESTING.md`** with everything learned this round:
+   - Update the baseline table with new numbers
+   - Add any newly discovered slow tests to "Known Slow Tests"
+   - Add any investigated coverage gaps to "Coverage Gaps"
+   - Add any fixed issues to "Known Issues (Fixed)"
+   - Append a new entry to "Improvement History" summarizing what was done
+   - Update the "Last updated" date
+2. Present a **round summary** comparing before/after for each metric
+3. Ask: **"Run another round?"**
    - If yes: go back to Phase 0 (re-baseline with improvements applied)
    - If no: commit all improvements with `/commit`
 
