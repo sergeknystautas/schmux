@@ -1696,10 +1696,13 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionRuntime {
 		return existing
 	}
 
-	// Build event file path from workspace path
+	// Build event file path from workspace path (local sessions only —
+	// remote sessions use RemoteEventWatcher via sentinel-wrapped output)
 	var eventFilePath string
-	if ws, found := m.workspace.GetByID(sess.WorkspaceID); found && ws.Path != "" {
-		eventFilePath = filepath.Join(state.SchmuxDataDir(ws.Path), "events", sess.ID+".jsonl")
+	if !sess.IsRemoteSession() {
+		if ws, found := m.workspace.GetByID(sess.WorkspaceID); found && ws.Path != "" {
+			eventFilePath = filepath.Join(state.SchmuxDataDir(ws.Path), "events", sess.ID+".jsonl")
+		}
 	}
 
 	var outputCb func([]byte)
