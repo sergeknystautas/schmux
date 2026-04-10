@@ -12,6 +12,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/emergence"
+	"github.com/sergeknystautas/schmux/internal/schema"
 )
 
 // extractSkillDescription pulls the description field from skill file YAML frontmatter.
@@ -357,7 +358,7 @@ func (s *Server) runEmergenceCuration(repo, prompt string) {
 
 	s.logger.Info("starting emergence curation", "repo", repo)
 
-	response, err := s.loreExecutor(ctx, prompt, 5*time.Minute)
+	response, err := s.loreExecutor(ctx, prompt, schema.LabelEmergenceCurator, 5*time.Minute)
 	if err != nil {
 		s.logger.Error("emergence curation LLM call failed", "repo", repo, "err", err)
 		return

@@ -267,6 +267,16 @@ func TestParseExtractionResponse_EdgeCases(t *testing.T) {
 			input:     "Let me analyze...\n\nHere's my proposal:\n\n```json\n{\"rules\":[],\"discarded_entries\":[]}\n```\n\nThat covers the main issues.",
 			wantRules: 0,
 		},
+		{
+			name:      "prose-wrapped JSON without fences",
+			input:     "After analyzing the entries, here is my extraction:\n\n{\"rules\":[],\"discarded_entries\":[]}\n\nI hope this helps.",
+			wantRules: 0,
+		},
+		{
+			name:      "prose-wrapped JSON with rules",
+			input:     "As requested, here are the results:\n{\"rules\":[{\"text\":\"rule1\",\"category\":\"build\",\"suggested_layer\":\"repo_public\",\"source_entries\":[]}],\"discarded_entries\":[]}",
+			wantRules: 1,
+		},
 	}
 
 	for _, tt := range tests {

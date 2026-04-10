@@ -1103,10 +1103,10 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		pendingMergeStore := lore.NewPendingMergeStore(lorePendingMergeDir, loreLog)
 		server.SetLorePendingMergeStore(pendingMergeStore)
 
-		var loreExecutor func(ctx context.Context, prompt string, timeout time.Duration) (string, error)
+		var loreExecutor func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error)
 		if target := cfg.GetLoreTarget(); target != "" {
-			loreExecutor = func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
-				return oneshot.ExecuteTarget(ctx, cfg, target, prompt, "", timeout, "")
+			loreExecutor = func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error) {
+				return oneshot.ExecuteTarget(ctx, cfg, target, prompt, schemaLabel, timeout, "")
 			}
 		}
 
@@ -1213,7 +1213,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 				curateCtx, curateCancel := context.WithTimeout(d.shutdownCtx, 10*time.Minute)
 				defer curateCancel()
 
-				response, err := loreExecutor(curateCtx, prompt, 10*time.Minute)
+				response, err := loreExecutor(curateCtx, prompt, schema.LabelLoreCurator, 10*time.Minute)
 				elapsed := time.Since(start)
 				if err != nil {
 					loreLog.Error("auto-curation failed", "elapsed", elapsed.Round(time.Millisecond), "err", err)

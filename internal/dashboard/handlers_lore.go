@@ -669,7 +669,7 @@ func (s *Server) runWithStreamingExecutor(ctx context.Context, repoName, curatio
 
 // runWithLegacyExecutor runs curation using the non-streaming executor (fallback).
 func (s *Server) runWithLegacyExecutor(ctx context.Context, repoName, curationID, prompt string, entries []lore.Entry, runDir string, logFile *os.File, start time.Time) {
-	response, err := s.loreExecutor(ctx, prompt, 10*time.Minute)
+	response, err := s.loreExecutor(ctx, prompt, schema.LabelLoreCurator, 10*time.Minute)
 	if err != nil {
 		errRaw := json.RawMessage(fmt.Sprintf(`{"type":"curator_error","error":%q}`, err.Error()))
 		writeLogEvent(logFile, errRaw)
@@ -999,7 +999,7 @@ func (s *Server) handleLoreUnifiedMerge(w http.ResponseWriter, r *http.Request) 
 
 		// Run LLM merge
 		prompt := lore.BuildMergePrompt(currentContent, allRules)
-		response, err := executor(ctx, prompt, 5*time.Minute)
+		response, err := executor(ctx, prompt, "", 5*time.Minute)
 		if err != nil {
 			pm.Status = lore.PendingMergeStatusError
 			pm.Error = fmt.Sprintf("Merge failed: %v", err)
@@ -1320,8 +1320,8 @@ func (s *Server) refreshLoreExecutor(cfg *config.Config) {
 	target := cfg.GetLoreTargetRaw()
 
 	if target != "" {
-		s.loreExecutor = func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
-			return oneshot.ExecuteTarget(ctx, cfg, target, prompt, "", timeout, "")
+		s.loreExecutor = func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error) {
+			return oneshot.ExecuteTarget(ctx, cfg, target, prompt, schemaLabel, timeout, "")
 		}
 	} else {
 		s.loreExecutor = nil

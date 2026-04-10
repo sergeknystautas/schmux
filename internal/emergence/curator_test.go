@@ -111,6 +111,24 @@ func TestParseEmergenceResponse_CodeFenced(t *testing.T) {
 	}
 }
 
+func TestParseEmergenceResponse_ProseWrapped(t *testing.T) {
+	input := `After analyzing the intent signals, here is my assessment:
+
+{"new_skills": [], "updated_skills": [], "discarded_signals": {"deploy to staging": "only seen once"}}
+
+I hope this helps with the distillation process.`
+	resp, err := ParseEmergenceResponse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response")
+	}
+	if len(resp.DiscardedSignals) != 1 {
+		t.Errorf("expected 1 discarded signal, got %d", len(resp.DiscardedSignals))
+	}
+}
+
 func TestParseEmergenceResponse_Malformed(t *testing.T) {
 	_, err := ParseEmergenceResponse("this is not json")
 	if err == nil {

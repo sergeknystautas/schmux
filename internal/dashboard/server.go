@@ -197,7 +197,7 @@ type Server struct {
 	loreStore *lore.ProposalStore
 
 	// Lore LLM executor for curation requests
-	loreExecutor func(ctx context.Context, prompt string, timeout time.Duration) (string, error)
+	loreExecutor func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error)
 
 	// Lore instruction store for private layer management
 	loreInstructionStore *lore.InstructionStore
@@ -423,7 +423,7 @@ func (s *Server) SetEmergenceMetadataStore(store *emergence.MetadataStore) {
 }
 
 // SetLoreExecutor sets the LLM executor for lore curation requests.
-func (s *Server) SetLoreExecutor(exec func(ctx context.Context, prompt string, timeout time.Duration) (string, error)) {
+func (s *Server) SetLoreExecutor(exec func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error)) {
 	s.loreExecutor = exec
 }
 

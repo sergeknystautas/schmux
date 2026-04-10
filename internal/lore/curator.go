@@ -151,10 +151,18 @@ func ParseExtractionResponse(response string) (*ExtractionResponse, error) {
 	}
 	// Fallback: strip markdown code fences and retry.
 	stripped := stripFencing(response)
-	if err := json.Unmarshal([]byte(stripped), &result); err != nil {
-		return nil, fmt.Errorf("invalid extraction JSON: %w", err)
+	if err := json.Unmarshal([]byte(stripped), &result); err == nil {
+		return &result, nil
 	}
-	return &result, nil
+	// Fallback: extract outermost JSON object from prose-wrapped response.
+	if start := strings.Index(response, "{"); start >= 0 {
+		if end := strings.LastIndex(response, "}"); end > start {
+			if err := json.Unmarshal([]byte(response[start:end+1]), &result); err == nil {
+				return &result, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("invalid extraction JSON: no valid JSON object found in response")
 }
 
 // stripFencing removes markdown code fences from an LLM response, handling

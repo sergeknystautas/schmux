@@ -331,7 +331,7 @@ func TestHandleLoreStatus(t *testing.T) {
 		defer shutdownCancel()
 		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), logger, contracts.GitHubStatus{}, nil, ServerOptions{ShutdownCtx: shutdownCtx})
 		server.SetModelManager(models.New(cfg, nil, "", logger))
-		server.SetLoreExecutor(func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
+		server.SetLoreExecutor(func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error) {
 			return "", nil
 		})
 		defer server.CloseForTest()
