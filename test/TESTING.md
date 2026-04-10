@@ -2,7 +2,7 @@
 
 Living document updated by `/improve-testing`. Read this before starting a round — it saves re-investigating known issues.
 
-Last updated: 2025-04-09
+Last updated: 2025-04-09 (round 2)
 
 ## Current Baseline
 
@@ -10,7 +10,7 @@ Last updated: 2025-04-09
 |--------|-------|------|
 | Backend coverage | 45.0% | 2025-04-09 |
 | Frontend coverage | 48.8% | 2025-04-09 |
-| Total tests | 2,703 | 2025-04-09 |
+| Total tests | 2,905 (with 3x repeat) | 2025-04-09 |
 | Backend suite time | ~50s (1x), ~86s (3x repeat) | 2025-04-09 |
 | Frontend suite time | ~6s | 2025-04-09 |
 | E2E suite time | ~50s | 2025-04-09 |
@@ -31,6 +31,14 @@ These tests are inherently slow due to real git operations (clone, checkout, wor
 | TestGitGraph_MaxCommits | ~7s | Generates many real git commits |
 
 All top-20 slowest backend tests are in `internal/workspace/` and involve real git operations.
+
+The top-4 slowest E2E tests (~20s each) involve daemon restart cycles:
+- `TestE2EOverlayDaemonRestart` — start, spawn, stop, restart, verify overlay state survived
+- `TestE2ERemoteStatePersistence` — start, spawn remote, stop, restart, verify remote state
+- `TestE2ESignalDaemonRestart` — start, spawn, signal, stop, restart, verify signal state
+- `TestE2EGitAmendAndUncommit` — full git amend + uncommit workflow
+
+The remaining E2E tests cluster at 10-13s — this is the baseline cost of daemon start + workspace creation + spawn in Docker.
 
 ## Known Issues (Fixed)
 
@@ -59,6 +67,13 @@ All top-20 slowest backend tests are in `internal/workspace/` and involve real g
 - `internal/session/manager.go` (50.1%, 107 git commits) — frequently changed, `Spawn` at 0%. Needs daemon/tmux to test properly.
 - `internal/workspace/manager.go` (66.9%, 109 git commits) — frequently changed, but integration tests already cover the critical paths well.
 
+### E2E sleeps are intentional (don't optimize)
+
+E2E tests contain `time.Sleep` calls that look like optimization targets but are NOT:
+- **Negative assertion sleeps** (2s): "wait and verify nothing propagated" — reducing these risks false passes
+- **Suppression window waits** (500ms-1.2s): testing that overlay suppression expires correctly — these test actual timing behavior
+- **Polling loops** (200ms intervals): already using condition-based waiting with `WaitFor*` helpers — the sleep is between poll attempts, not a fixed wait
+
 ## Test Infrastructure Notes
 
 - `./test.sh` delegates to `tools/test-runner/` (TypeScript)
@@ -83,4 +98,24 @@ All top-20 slowest backend tests are in `internal/workspace/` and involve real g
 
 **Flakiness findings:**
 - Zero flaky tests in 3x repeat run (1594 backend tests, all consistent)
+
+### Round 2 (2025-04-09)
+
+**Full suite validation (all 4 suites, 3x repeat):**
+- 2,905 tests across frontend (844), backend (1600), E2E (49), scenarios (412)
+- Zero flaky tests — all consistent across 3 runs
+- Total time: 4m 34s
+
+**Coverage additions:**
+- `CopyResolveConflicts`, `copyConflictDiffs`, `copyStringSlice` deep copy tests with mutation isolation — `internal/state/copy_test.go`
+- `HasTextOutput`, `IsAllDigits` model registry helper tests — `internal/models/registry_helpers_test.go`
+- `cloneNetwork`, `cloneAccessControl` deep copy tests with TLS pointer independence — `internal/dashboard/handlers_config_test.go`
+
+**Performance findings:**
+- Top 4 slowest E2E tests (~20s) are daemon restart tests — inherently 2x daemon lifecycle
+- Remaining E2E tests cluster at 10-13s — baseline Docker + daemon + workspace cost
+- E2E sleeps investigated: all are negative assertions or timing behavior tests, not optimization targets
+
+**Flakiness findings:**
+- Zero flaky tests across all 4 suites in 3x repeat run (2,905 tests total)
 - Fixed lsof contention that made repeat runs unusable
