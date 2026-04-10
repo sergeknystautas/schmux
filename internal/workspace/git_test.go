@@ -419,6 +419,123 @@ func TestCheckGitSafety_PushedToOriginBranch(t *testing.T) {
 	}
 }
 
+// TestCheckGitSafety_DeletedFilesAreSafe verifies that deleted tracked files
+// do not block disposal. Deletions in a worktree are not data loss because
+// commits live in the bare clone. This also ensures a partially-deleted
+// worktree (from an interrupted git worktree remove) can be re-disposed.
+func TestCheckGitSafety_DeletedFilesAreSafe(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tests := []struct {
+		name          string
+		setup         func(t *testing.T, dir string) // mutate the worktree
+		wantSafe      bool
+		wantModified  int
+		wantUntracked int
+	}{
+		{
+			name: "unstaged deletions only",
+			setup: func(t *testing.T, dir string) {
+				// Simulate partial worktree removal: delete tracked files from disk
+				writeFile(t, dir, "a.txt", "a")
+				writeFile(t, dir, "b.txt", "b")
+				runGit(t, dir, "add", ".")
+				runGit(t, dir, "commit", "-m", "add files")
+				os.Remove(filepath.Join(dir, "a.txt"))
+				os.Remove(filepath.Join(dir, "b.txt"))
+			},
+			wantSafe:      true,
+			wantModified:  0,
+			wantUntracked: 0,
+		},
+		{
+			name: "staged deletions only",
+			setup: func(t *testing.T, dir string) {
+				writeFile(t, dir, "a.txt", "a")
+				runGit(t, dir, "add", ".")
+				runGit(t, dir, "commit", "-m", "add file")
+				runGit(t, dir, "rm", "a.txt")
+			},
+			wantSafe:      true,
+			wantModified:  0,
+			wantUntracked: 0,
+		},
+		{
+			name: "mixed deletions and modifications",
+			setup: func(t *testing.T, dir string) {
+				writeFile(t, dir, "a.txt", "a")
+				writeFile(t, dir, "b.txt", "b")
+				runGit(t, dir, "add", ".")
+				runGit(t, dir, "commit", "-m", "add files")
+				os.Remove(filepath.Join(dir, "a.txt"))         // deletion — safe
+				writeFile(t, dir, "b.txt", "modified content") // modification — unsafe
+			},
+			wantSafe:      false,
+			wantModified:  1,
+			wantUntracked: 0,
+		},
+		{
+			name: "deletions plus untracked files",
+			setup: func(t *testing.T, dir string) {
+				writeFile(t, dir, "a.txt", "a")
+				runGit(t, dir, "add", ".")
+				runGit(t, dir, "commit", "-m", "add file")
+				os.Remove(filepath.Join(dir, "a.txt"))          // deletion — safe
+				writeFile(t, dir, "untracked.txt", "new stuff") // untracked — unsafe
+			},
+			wantSafe:      false,
+			wantModified:  0,
+			wantUntracked: 1,
+		},
+		{
+			name: "clean worktree",
+			setup: func(t *testing.T, dir string) {
+				// no changes after initial commit
+			},
+			wantSafe:      true,
+			wantModified:  0,
+			wantUntracked: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := gitTestWorkTree(t)
+			tt.setup(t, dir)
+
+			tmpDir := t.TempDir()
+			statePath := filepath.Join(tmpDir, "state.json")
+			cfg := &config.Config{WorkspacePath: tmpDir}
+			st := state.New(statePath, nil)
+			m := New(cfg, st, statePath, testLogger())
+
+			st.AddWorkspace(state.Workspace{
+				ID:   "test-001",
+				Repo: "test",
+				Path: dir,
+			})
+
+			safety, err := m.checkGitSafety(context.Background(), "test-001")
+			if err != nil {
+				t.Fatalf("checkGitSafety() error: %v", err)
+			}
+			if safety.Safe != tt.wantSafe {
+				t.Errorf("Safe = %v, want %v (reason: %s)", safety.Safe, tt.wantSafe, safety.Reason)
+			}
+			if safety.ModifiedFiles != tt.wantModified {
+				t.Errorf("ModifiedFiles = %d, want %d", safety.ModifiedFiles, tt.wantModified)
+			}
+			if safety.UntrackedFiles != tt.wantUntracked {
+				t.Errorf("UntrackedFiles = %d, want %d", safety.UntrackedFiles, tt.wantUntracked)
+			}
+		})
+	}
+}
+
 func TestGitRemoteBranchExists(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {

@@ -668,7 +668,19 @@ func (m *Manager) checkGitSafety(ctx context.Context, workspaceID string) (*VCSS
 			continue
 		}
 
-		// Any other output means modified/added/deleted files
+		// Skip deletion-only entries — deleted tracked files are not data
+		// loss in a worktree (commits live in the bare clone). This also
+		// prevents partial worktree removal (interrupted git worktree
+		// remove) from permanently blocking re-disposal.
+		// Matches: " D" (unstaged delete), "D " (staged delete), "DD".
+		if len(line) >= 2 {
+			x, y := line[0], line[1]
+			if (x == ' ' || x == 'D') && (y == ' ' || y == 'D') && (x == 'D' || y == 'D') {
+				continue
+			}
+		}
+
+		// Any other output means modified/added/renamed files
 		status.ModifiedFiles++
 		status.Safe = false
 	}

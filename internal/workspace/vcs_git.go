@@ -121,13 +121,26 @@ func (g *GitBackend) CreateWorkspace(ctx context.Context, repoBasePath, branch, 
 func (g *GitBackend) RemoveWorkspace(ctx context.Context, workspacePath string) error {
 	g.manager.logger.Info("removing worktree", "path", workspacePath)
 
-	worktreeBase, err := resolveWorktreeBaseFromWorktree(workspacePath)
-	if err != nil {
-		return fmt.Errorf("failed to resolve worktree base: %w", err)
+	// Resolve the worktree base BEFORE deleting the directory, because
+	// resolution reads the .git file inside the worktree.
+	worktreeBase, resolveErr := resolveWorktreeBaseFromWorktree(workspacePath)
+
+	// Use os.RemoveAll instead of `git worktree remove --force`.
+	// git worktree remove deletes files one-by-one and can exceed context
+	// deadlines on large repos, leaving a half-deleted directory that
+	// blocks all subsequent dispose attempts.
+	if err := os.RemoveAll(workspacePath); err != nil {
+		return fmt.Errorf("failed to remove workspace directory: %w", err)
 	}
 
-	if _, err := g.manager.runGit(ctx, "", RefreshTriggerExplicit, worktreeBase, "worktree", "remove", "--force", workspacePath); err != nil {
-		return fmt.Errorf("git worktree remove failed: %w", err)
+	// Clean up git's worktree bookkeeping (.git/worktrees/<name>).
+	// Non-fatal: the directory is already gone, prune is just metadata.
+	if resolveErr == nil {
+		if _, err := g.manager.runGit(ctx, "", RefreshTriggerExplicit, worktreeBase, "worktree", "prune"); err != nil {
+			g.manager.logger.Warn("worktree prune failed (non-fatal)", "path", workspacePath, "err", err)
+		}
+	} else {
+		g.manager.logger.Warn("could not resolve worktree base for prune", "path", workspacePath, "err", resolveErr)
 	}
 
 	g.manager.logger.Info("worktree removed", "path", workspacePath)

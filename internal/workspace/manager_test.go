@@ -1324,6 +1324,212 @@ func TestDispose_RecycleDisabled_StillDeletesDirectory(t *testing.T) {
 	}
 }
 
+// TestDispose_WorktreeRemovalCleansBookkeeping verifies that disposing a
+// worktree-backed workspace removes the directory AND cleans up git's
+// worktree bookkeeping via prune.
+func TestDispose_WorktreeRemovalCleansBookkeeping(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	st := state.New(statePath, nil)
+
+	repoDir := gitTestWorkTree(t)
+
+	cfg := &config.Config{
+		WorkspacePath:    tmpDir,
+		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
+		Repos: []config.Repo{
+			testRepoWithBarePath(t, "test", repoDir),
+		},
+	}
+	m := New(cfg, st, statePath, testLogger())
+	ctx := context.Background()
+
+	// Create a worktree-backed workspace with some files
+	ws, err := m.GetOrCreate(ctx, repoDir, "feature-bookkeeping")
+	if err != nil {
+		t.Fatalf("GetOrCreate failed: %v", err)
+	}
+
+	// Add files so the worktree has content to remove
+	writeFile(t, ws.Path, "large1.txt", strings.Repeat("data", 1000))
+	writeFile(t, ws.Path, "large2.txt", strings.Repeat("more", 1000))
+	runGit(t, ws.Path, "add", ".")
+	runGit(t, ws.Path, "commit", "-m", "add files")
+
+	// Verify it's actually a worktree (not a full clone)
+	gitPath := filepath.Join(ws.Path, ".git")
+	info, err := os.Stat(gitPath)
+	if err != nil {
+		t.Fatalf("cannot stat .git: %v", err)
+	}
+	if info.IsDir() {
+		t.Fatal("expected .git to be a file (worktree), not a directory")
+	}
+
+	// Find the bare clone to check worktree bookkeeping
+	worktreeBasePath, err := m.findWorktreeBaseForWorkspace(*ws)
+	if err != nil {
+		t.Fatalf("findWorktreeBaseForWorkspace failed: %v", err)
+	}
+
+	// Verify worktree is registered before dispose
+	cmd := exec.Command("git", "worktree", "list", "--porcelain")
+	cmd.Dir = worktreeBasePath
+	beforeOutput, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git worktree list failed: %v", err)
+	}
+	if !strings.Contains(string(beforeOutput), ws.Path) {
+		t.Fatal("worktree should be listed before dispose")
+	}
+
+	// Dispose the workspace
+	if err := m.Dispose(ctx, ws.ID); err != nil {
+		t.Fatalf("Dispose failed: %v", err)
+	}
+
+	// Directory must be gone
+	if _, err := os.Stat(ws.Path); !os.IsNotExist(err) {
+		t.Error("workspace directory should be deleted after dispose")
+	}
+
+	// Worktree bookkeeping must be cleaned up (prune removes stale entries)
+	cmd = exec.Command("git", "worktree", "list", "--porcelain")
+	cmd.Dir = worktreeBasePath
+	afterOutput, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git worktree list failed after dispose: %v", err)
+	}
+	if strings.Contains(string(afterOutput), ws.Path) {
+		t.Error("worktree should not be listed after dispose (prune should have cleaned it)")
+	}
+}
+
+// TestDispose_PartiallyDeletedWorktree verifies that a workspace left in a
+// partially-deleted state (simulating an interrupted git worktree remove)
+// can still be disposed successfully on retry.
+func TestDispose_PartiallyDeletedWorktree(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	st := state.New(statePath, nil)
+
+	repoDir := gitTestWorkTree(t)
+
+	cfg := &config.Config{
+		WorkspacePath:    tmpDir,
+		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
+		Repos: []config.Repo{
+			testRepoWithBarePath(t, "test", repoDir),
+		},
+	}
+	m := New(cfg, st, statePath, testLogger())
+	ctx := context.Background()
+
+	// Create worktree-backed workspace with multiple files
+	ws, err := m.GetOrCreate(ctx, repoDir, "feature-partial")
+	if err != nil {
+		t.Fatalf("GetOrCreate failed: %v", err)
+	}
+
+	writeFile(t, ws.Path, "keep.txt", "this stays")
+	writeFile(t, ws.Path, "gone1.txt", "deleted")
+	writeFile(t, ws.Path, "gone2.txt", "also deleted")
+	writeFile(t, ws.Path, "gone3.txt", "also also deleted")
+	runGit(t, ws.Path, "add", ".")
+	runGit(t, ws.Path, "commit", "-m", "add files")
+
+	// Simulate partial worktree removal: delete some tracked files
+	// This is what happens when git worktree remove is killed mid-operation
+	os.Remove(filepath.Join(ws.Path, "gone1.txt"))
+	os.Remove(filepath.Join(ws.Path, "gone2.txt"))
+	os.Remove(filepath.Join(ws.Path, "gone3.txt"))
+
+	// Verify git sees dirty state (the precondition that used to block retry)
+	cmd := exec.Command("git", "status", "--porcelain")
+	cmd.Dir = ws.Path
+	statusOut, _ := cmd.Output()
+	if !strings.Contains(string(statusOut), " D ") {
+		t.Fatalf("expected deleted files in git status, got: %s", statusOut)
+	}
+
+	// Dispose should succeed despite the dirty (deletion-only) state
+	if err := m.Dispose(ctx, ws.ID); err != nil {
+		t.Fatalf("Dispose failed on partially-deleted worktree: %v", err)
+	}
+
+	// Directory must be gone
+	if _, err := os.Stat(ws.Path); !os.IsNotExist(err) {
+		t.Error("workspace directory should be deleted after dispose")
+	}
+
+	// State must be cleaned up
+	_, found := st.GetWorkspace(ws.ID)
+	if found {
+		t.Error("workspace should be removed from state after dispose")
+	}
+}
+
+// TestDispose_CancelledContextStillRemovesDirectory verifies that os.RemoveAll
+// (which doesn't use the context) succeeds even if the context is already
+// cancelled, unlike the old git worktree remove approach.
+func TestDispose_CancelledContextStillRemovesDirectory(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	st := state.New(statePath, nil)
+
+	repoDir := gitTestWorkTree(t)
+
+	cfg := &config.Config{
+		WorkspacePath:    tmpDir,
+		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
+		Repos: []config.Repo{
+			testRepoWithBarePath(t, "test", repoDir),
+		},
+	}
+	m := New(cfg, st, statePath, testLogger())
+
+	// Create worktree-backed workspace
+	ws, err := m.GetOrCreate(context.Background(), repoDir, "feature-timeout")
+	if err != nil {
+		t.Fatalf("GetOrCreate failed: %v", err)
+	}
+
+	writeFile(t, ws.Path, "data.txt", strings.Repeat("x", 10000))
+	runGit(t, ws.Path, "add", ".")
+	runGit(t, ws.Path, "commit", "-m", "add data")
+
+	// Force-dispose with an already-cancelled context.
+	// os.RemoveAll doesn't respect context, so directory deletion should work.
+	// Only the git worktree prune (metadata cleanup) might be skipped.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	err = m.DisposeForce(ctx, ws.ID)
+	if err != nil {
+		t.Fatalf("DisposeForce with cancelled context failed: %v", err)
+	}
+
+	// Directory must be gone despite cancelled context
+	if _, err := os.Stat(ws.Path); !os.IsNotExist(err) {
+		t.Error("workspace directory should be deleted even with cancelled context")
+	}
+}
+
 func TestPurge_DeletesRecyclableWorkspace(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()

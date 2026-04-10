@@ -104,8 +104,9 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 		s.BroadcastSessions()
 	}
 
-	// Use an independent context so disposal completes even if the client disconnects
-	wsCtx, wsCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// Use an independent context so disposal completes even if the client disconnects.
+	// 5 minutes accommodates large worktrees on slow filesystems (NFS, FUSE).
+	wsCtx, wsCancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer wsCancel()
 
 	if err := s.workspace.Dispose(wsCtx, workspaceID); err != nil {
@@ -217,7 +218,8 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 	// disposal above may have consumed part of the client's timeout budget.
 	// Use DisposeForce to skip safety checks: the user explicitly asked to
 	// destroy everything, and sessions were already disposed above.
-	wsCtx, wsCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// 5 minutes accommodates large worktrees on slow filesystems (NFS, FUSE).
+	wsCtx, wsCancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer wsCancel()
 	if err := s.workspace.DisposeForce(wsCtx, workspaceID); err != nil {
 		workspaceLog.Error("dispose-all workspace failed", "workspace_id", workspaceID, "err", err)
