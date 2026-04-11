@@ -7,9 +7,20 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
+)
+
+// registry tracks all loggers created by New and Sub so that SetLevel
+// can update them all atomically. charmbracelet/log's WithPrefix creates
+// independent copies, so each must be updated individually.
+var (
+	registryMu sync.Mutex
+	registry   []*log.Logger
+	// currentLevel is the active level for all registered loggers.
+	currentLevel = log.InfoLevel
 )
 
 // New creates a root logger configured from environment.
@@ -44,6 +55,11 @@ func New(forceColor ...bool) *log.Logger {
 		Level:           level,
 		ReportTimestamp: true,
 	})
+	registryMu.Lock()
+	currentLevel = level
+	registry = append(registry, logger)
+	registryMu.Unlock()
+
 	if len(forceColor) > 0 && forceColor[0] {
 		logger.SetTimeFormat("15:04:05")
 		// SetOutput auto-detects the writer as non-TTY (Ascii profile),
@@ -70,7 +86,28 @@ func New(forceColor ...bool) *log.Logger {
 // The charmbracelet/log formatter appends a colon after the prefix, so the
 // raw output is "[name]:" — the daemon strips the extra colon in dev mode.
 func Sub(parent *log.Logger, prefix string) *log.Logger {
-	return parent.WithPrefix("[" + prefix + "]")
+	child := parent.WithPrefix("[" + prefix + "]")
+	registryMu.Lock()
+	registry = append(registry, child)
+	registryMu.Unlock()
+	return child
+}
+
+// SetLevel changes the log level for all registered loggers.
+func SetLevel(level log.Level) {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	currentLevel = level
+	for _, l := range registry {
+		l.SetLevel(level)
+	}
+}
+
+// GetLevel returns the current global log level.
+func GetLevel() log.Level {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	return currentLevel
 }
 
 // ANSI 256-color codes matching the web dashboard palette.

@@ -3785,6 +3785,38 @@ Errors:
 - 400: missing workspace_id, invalid type
 - 404: workspace not found
 
+### GET /api/dev/log-level
+
+Returns the current daemon log level.
+
+Response:
+
+```json
+{ "level": "info" }
+```
+
+### POST /api/dev/log-level
+
+Changes the daemon log level at runtime. Affects all registered loggers.
+
+Request:
+
+```json
+{ "level": "debug" }
+```
+
+Valid levels: `debug`, `info`, `warn`, `error`.
+
+Response:
+
+```json
+{ "level": "debug" }
+```
+
+Errors:
+
+- 400: invalid request body or unrecognized level
+
 ### Debug Diagnostic Routes
 
 These endpoints are available when the daemon is started with `--dev-mode` (via `./dev.sh`) OR when `debug_ui` is set to `true` in the config. They provide diagnostic and testing tools.
