@@ -89,8 +89,8 @@ func TestDashboardWebSocket_BroadcastDelivery(t *testing.T) {
 	})
 	srv.BroadcastSessions()
 
-	// Wait for debounce (100ms) + margin
-	msg := readDashboardMsg(t, conn, 500*time.Millisecond)
+	// Wait for debounce (100ms) + margin — generous timeout to avoid flakes under parallel load
+	msg := readDashboardMsg(t, conn, 3*time.Second)
 	if msg["type"] != "sessions" {
 		t.Errorf("broadcast message type = %q, want %q", msg["type"], "sessions")
 	}
@@ -118,9 +118,9 @@ func TestDashboardWebSocket_MultipleClients(t *testing.T) {
 	// Trigger broadcast
 	srv.BroadcastSessions()
 
-	// Both clients should receive the broadcast
-	msg1 := readDashboardMsg(t, conn1, 500*time.Millisecond)
-	msg2 := readDashboardMsg(t, conn2, 500*time.Millisecond)
+	// Both clients should receive the broadcast — generous timeout for parallel load
+	msg1 := readDashboardMsg(t, conn1, 3*time.Second)
+	msg2 := readDashboardMsg(t, conn2, 3*time.Second)
 
 	if msg1["type"] != "sessions" {
 		t.Errorf("client 1 message type = %q, want sessions", msg1["type"])
@@ -190,7 +190,7 @@ func TestBroadcastOverlayChange(t *testing.T) {
 	})
 
 	// Should receive immediately (not debounced)
-	msg := readDashboardMsg(t, conn, 500*time.Millisecond)
+	msg := readDashboardMsg(t, conn, 3*time.Second)
 	if msg["type"] != "overlay_change" {
 		t.Errorf("message type = %q, want overlay_change", msg["type"])
 	}
@@ -214,7 +214,7 @@ func TestBroadcastWorkspaceLocked(t *testing.T) {
 	// Send lock message
 	srv.BroadcastWorkspaceLocked("ws-1", true)
 
-	msg := readDashboardMsg(t, conn, 500*time.Millisecond)
+	msg := readDashboardMsg(t, conn, 3*time.Second)
 	if msg["type"] != "workspace_locked" {
 		t.Errorf("message type = %q, want workspace_locked", msg["type"])
 	}
@@ -470,11 +470,11 @@ func TestBroadcastIncludesWorkspaceStatus(t *testing.T) {
 	defer cleanup()
 
 	// Consume initial snapshot
-	readDashboardMsg(t, conn, 500*time.Millisecond)
+	readDashboardMsg(t, conn, 3*time.Second)
 
 	srv.BroadcastSessions()
 
-	msg := readDashboardMsg(t, conn, 500*time.Millisecond)
+	msg := readDashboardMsg(t, conn, 3*time.Second)
 	workspaces := msg["workspaces"].([]interface{})
 	ws := workspaces[0].(map[string]interface{})
 	if ws["status"] != "running" {

@@ -118,7 +118,7 @@ func TestFlushClearsPartialInputBeforeInjecting(t *testing.T) {
 
 	// Create a session running bash (readline supports Ctrl+U)
 	if err := testServer.CreateSession(ctx, sessName, tmpDir, "bash --norc --noprofile"); err != nil {
-		t.Fatal("failed to create session:", err)
+		t.Skip("cannot create tmux session:", err)
 	}
 	time.Sleep(300 * time.Millisecond)
 

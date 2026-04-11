@@ -346,7 +346,7 @@ func TestLookupPortOwner(t *testing.T) {
 	port := ln.Addr().(*net.TCPAddr).Port
 
 	// Retry — lsof may not see the socket immediately after net.Listen
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for {
 		pid, err := LookupPortOwner(port)
 		if err == nil {

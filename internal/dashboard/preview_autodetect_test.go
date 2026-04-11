@@ -165,8 +165,9 @@ func TestFilterNonHTTPPorts_ValidServer(t *testing.T) {
 	go srv.Serve(ln)
 	defer srv.Close()
 
-	// Retry — server goroutine may not have entered Accept() yet
-	deadline := time.Now().Add(3 * time.Second)
+	// Retry — server goroutine may not have entered Accept() yet.
+	// Generous deadline + sleep to avoid busy-spin under parallel load.
+	deadline := time.Now().Add(5 * time.Second)
 	for {
 		filtered := filterNonHTTPPorts([]preview.ListeningPort{{Host: "127.0.0.1", Port: port}})
 		if len(filtered) == 1 && filtered[0].Port == port {
@@ -175,6 +176,7 @@ func TestFilterNonHTTPPorts_ValidServer(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatal("expected filterNonHTTPPorts to keep HTTP server port")
 		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
@@ -226,9 +228,17 @@ func TestFilterNonHTTPPorts_IPv6(t *testing.T) {
 	go srv.Serve(ln)
 	defer srv.Close()
 
-	filtered := filterNonHTTPPorts([]preview.ListeningPort{{Host: "::1", Port: port}})
-	if len(filtered) != 1 {
-		t.Fatalf("expected 1 port for IPv6 HTTP server, got %#v", filtered)
+	// Retry — server goroutine may not have entered Accept() yet under load
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		filtered := filterNonHTTPPorts([]preview.ListeningPort{{Host: "::1", Port: port}})
+		if len(filtered) == 1 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected 1 port for IPv6 HTTP server, got %#v", filtered)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 

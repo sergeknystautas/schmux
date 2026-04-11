@@ -190,7 +190,7 @@ func (s *Server) handlePreviewsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	result, created, err := s.previewManager.CreateOrGet(ctx, ws, host, req.TargetPort, req.SourceSessionID, ownerPID)
 	if err != nil {

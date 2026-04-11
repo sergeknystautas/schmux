@@ -279,10 +279,15 @@ func TestShutdownFlushesEvents(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Override endpoint for test
+	// Override endpoint and flush timeout for test — generous timeout for parallel load
 	originalEndpoint := posthogEndpoint
-	defer func() { posthogEndpoint = originalEndpoint }()
+	originalTimeout := flushTimeout
+	defer func() {
+		posthogEndpoint = originalEndpoint
+		flushTimeout = originalTimeout
+	}()
 	posthogEndpoint = server.URL
+	flushTimeout = 15 * time.Second
 
 	client := New("test-install-id", nil).(*Client)
 

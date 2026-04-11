@@ -27,15 +27,17 @@ const (
 	// eventQueueSize is the maximum number of events to buffer.
 	eventQueueSize = 100
 
-	// flushTimeout is the maximum time to wait for pending events on shutdown.
-	flushTimeout = 5 * time.Second
-
 	// failureLogInterval is the minimum time between failure log messages.
 	failureLogInterval = 1 * time.Minute
 )
 
-// posthogEndpoint allows overriding the endpoint for testing.
-var posthogEndpoint = defaultPosthogEndpoint
+var (
+	// posthogEndpoint allows overriding the endpoint for testing.
+	posthogEndpoint = defaultPosthogEndpoint
+
+	// flushTimeout is the maximum time to wait for pending events on shutdown.
+	flushTimeout = 5 * time.Second
+)
 
 // Event represents a telemetry event to be sent to PostHog.
 type Event struct {

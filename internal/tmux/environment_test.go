@@ -22,7 +22,7 @@ func TestShowEnvironment(t *testing.T) {
 	})
 
 	if err := server.CreateSession(ctx, sessName, t.TempDir(), "sleep 600"); err != nil {
-		t.Fatal("failed to create session:", err)
+		t.Skip("cannot create tmux session:", err)
 	}
 
 	env, err := server.ShowEnvironment(ctx)
@@ -50,7 +50,7 @@ func TestSetEnvironment(t *testing.T) {
 	})
 
 	if err := server.CreateSession(ctx, sessName, t.TempDir(), "sleep 600"); err != nil {
-		t.Fatal("failed to create session:", err)
+		t.Skip("cannot create tmux session:", err)
 	}
 
 	key := "SCHMUX_TEST_ENV_VAR"

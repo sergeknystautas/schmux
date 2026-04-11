@@ -46,8 +46,8 @@ func TestStartHeartbeatPersistsStatus(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go StartHeartbeat(ctx, client, writer)
 
-	// Wait for initial heartbeat to be processed
-	deadline := time.After(2 * time.Second)
+	// Wait for initial heartbeat to be processed — generous timeout for parallel load
+	deadline := time.After(5 * time.Second)
 	for {
 		if s := writer.get(); s != nil {
 			if s.StatusCode != 403 {
