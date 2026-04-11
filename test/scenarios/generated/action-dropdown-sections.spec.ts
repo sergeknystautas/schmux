@@ -26,7 +26,10 @@ test.describe.serial('Action dropdown shows quick launch and emerged sections', 
           promptable: true,
         },
       ],
-      quickLaunch: [{ name: 'echo-agent', target: 'echo-agent' }],
+      quickLaunch: [
+        { name: 'echo-agent', target: 'echo-agent' },
+        { name: 'shell:', command: "sh -c 'echo quick-launch-shell; sleep 600'" },
+      ],
     });
 
     // Spawn a session so we have a workspace with the tab bar visible
@@ -133,5 +136,40 @@ test.describe.serial('Action dropdown shows quick launch and emerged sections', 
       await sleep(500);
     }
     expect(newCount).toBeGreaterThan(initialSessionCount);
+  });
+
+  test('command quick launch can be used twice with suffixing', async ({ page }) => {
+    const workspaces = await getSessions();
+    const ws = workspaces.find((w) => w.id === workspaceId);
+    const sessionId = ws!.sessions[0].id;
+    await page.goto(`/sessions/${sessionId}`);
+    await waitForDashboardLive(page);
+
+    await page.waitForSelector('[data-tour="session-tabs"]', { timeout: 15000 });
+
+    for (let i = 0; i < 2; i++) {
+      await page.locator('[data-tour="session-tab-add"]').click();
+      const menu = page.getByRole('menu');
+      await expect(menu).toBeVisible({ timeout: 5000 });
+      await menu.getByRole('menuitem', { name: 'shell:' }).click();
+    }
+
+    const deadline = Date.now() + 15000;
+    let shellSessions: Array<{ nickname: string; target: string }> = [];
+    while (Date.now() < deadline) {
+      const updated = await getSessions();
+      const refreshed = updated.find((workspace) => workspace.id === workspaceId);
+      shellSessions = (refreshed?.sessions || []).filter(
+        (session) =>
+          session.target === 'command' &&
+          (session.nickname === 'shell' || session.nickname === 'shell (1)')
+      );
+      if (shellSessions.length >= 2) {
+        break;
+      }
+      await sleep(500);
+    }
+
+    expect(shellSessions.map((session) => session.nickname).sort()).toEqual(['shell', 'shell (1)']);
   });
 });

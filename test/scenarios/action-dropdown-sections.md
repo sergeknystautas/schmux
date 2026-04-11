@@ -9,6 +9,8 @@ both sections show their respective empty states.
 
 When quick launch presets are configured, they appear in the Quick Launch
 section and can be clicked to spawn a session immediately.
+When the same command-based quick launch is clicked twice, both sessions should
+spawn and the second one should be suffixed with `(1)` instead of colliding.
 
 ## Preconditions
 
@@ -25,4 +27,6 @@ section and can be clicked to spawn a session immediately.
 - Quick launch presets from config appear in the Quick Launch section
 - The Emerged section shows "No emerged actions yet" when empty
 - Clicking a quick launch preset spawns a session and navigates to it
+- Clicking the same command quick launch twice creates two sessions
+- The second command quick launch session is suffixed with `(1)`
 - Clicking the Quick Launch "manage" link navigates to the config page

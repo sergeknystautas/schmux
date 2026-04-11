@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
@@ -258,12 +260,12 @@ func TestSanitizeNickname(t *testing.T) {
 			expected: "a-b-c",
 		},
 		{
-			name:     "collapses runs of dashes",
+			name:     "preserves runs of dashes from repeated replacements",
 			input:    "a...b",
-			expected: "a-b",
+			expected: "a---b",
 		},
 		{
-			name:     "trims leading equals",
+			name:     "trims leading replacement dash",
 			input:    "=foo",
 			expected: "foo",
 		},
@@ -872,6 +874,31 @@ func TestNicknameExists(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("excludes specified session from live tmux check", func(t *testing.T) {
+		server := tmux.NewTmuxServer("tmux", fmt.Sprintf("nick-exclude-%d", time.Now().UnixNano()), nil)
+		if err := server.Check(); err != nil {
+			t.Skip("tmux not available")
+		}
+
+		ctx := context.Background()
+		tmuxName := "same-name"
+		_ = server.KillSession(ctx, tmuxName)
+		t.Cleanup(func() {
+			_ = server.KillSession(ctx, tmuxName)
+		})
+		if err := server.CreateSession(ctx, tmuxName, t.TempDir(), "sleep 600"); err != nil {
+			t.Skipf("cannot create tmux session: %v", err)
+		}
+
+		m.server = server
+		st.AddSession(state.Session{ID: "same", TmuxSession: tmuxName})
+
+		got := m.nicknameExists("same-name", "same")
+		if got != "" {
+			t.Errorf("nicknameExists should ignore the excluded session, got %q", got)
+		}
+	})
 }
 
 func TestGenerateUniqueNickname(t *testing.T) {
@@ -909,6 +936,41 @@ func TestGenerateUniqueNickname(t *testing.T) {
 		got := m.generateUniqueNickname("taken")
 		if got != "taken (2)" {
 			t.Errorf("expected 'taken (2)', got %q", got)
+		}
+	})
+
+	t.Run("sanitized trailing punctuation keeps stable suffixing", func(t *testing.T) {
+		st.AddSession(state.Session{ID: "s3", TmuxSession: sanitizeNickname("review:")})
+
+		got := m.generateUniqueNickname("review:")
+		if got != "review (1)" {
+			t.Errorf("expected 'review (1)', got %q", got)
+		}
+	})
+
+	t.Run("live tmux session is treated as taken even when state missed it", func(t *testing.T) {
+		server := tmux.NewTmuxServer("tmux", fmt.Sprintf("nick-test-%d", time.Now().UnixNano()), nil)
+		if err := server.Check(); err != nil {
+			t.Skip("tmux not available")
+		}
+
+		ctx := context.Background()
+		tmuxName := "zsh (1)"
+		_ = server.KillSession(ctx, tmuxName)
+		t.Cleanup(func() {
+			_ = server.KillSession(ctx, tmuxName)
+		})
+
+		if err := server.CreateSession(ctx, tmuxName, t.TempDir(), "sleep 600"); err != nil {
+			t.Skipf("cannot create tmux session: %v", err)
+		}
+
+		m.server = server
+		st.AddSession(state.Session{ID: "s3", TmuxSession: "zsh"})
+
+		got := m.generateUniqueNickname("zsh")
+		if got != "zsh (2)" {
+			t.Errorf("expected 'zsh (2)', got %q", got)
 		}
 	})
 }

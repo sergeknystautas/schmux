@@ -1621,18 +1621,17 @@ func (m *Manager) RenameSession(ctx context.Context, sessionID, newNickname stri
 
 var (
 	nicknameDisallowedChars = regexp.MustCompile(`[^a-zA-Z0-9 _\-+*?#%^~@/,<>()\[\]{}|!]`)
-	nicknameDashRun         = regexp.MustCompile(`-{2,}`)
 )
 
 // sanitizeNickname converts a user-supplied nickname into a string that
 // satisfies tmux.ValidateSessionName: alphanumerics, space, and a limited
 // punctuation set that is safe inside a double-quoted shell string.
-// Disallowed characters are replaced with '-', runs of dashes are collapsed,
-// and leading/trailing dashes and spaces are trimmed.
+// Disallowed characters are replaced with '-', then leading/trailing
+// dashes/spaces are trimmed to keep the result tmux-valid.
 func sanitizeNickname(nickname string) string {
 	result := nicknameDisallowedChars.ReplaceAllString(nickname, "-")
-	result = nicknameDashRun.ReplaceAllString(result, "-")
-	result = strings.Trim(result, "- ")
+	result = strings.TrimLeft(result, "- ")
+	result = strings.TrimRight(result, "- ")
 	return result
 }
 
@@ -1644,15 +1643,31 @@ func (m *Manager) nicknameExists(nickname, excludeSessionID string) string {
 		return ""
 	}
 	tmuxName := sanitizeNickname(nickname)
+	if tmuxName == "" {
+		return ""
+	}
 	sessions := m.state.GetSessions()
+	excludedTmuxName := ""
 	for _, sess := range sessions {
 		// Skip the session being edited (for rename operations)
 		if sess.ID == excludeSessionID {
+			excludedTmuxName = sess.TmuxSession
 			continue
 		}
 		// Check if tmux session name matches (nicknames are sanitized for tmux)
 		if sess.TmuxSession == tmuxName {
 			return sess.ID
+		}
+	}
+	socketName := ""
+	if m.server != nil {
+		socketName = m.server.SocketName()
+	}
+	if server := m.serverForSocket(socketName); server != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if tmuxName != excludedTmuxName && server.SessionExists(ctx, tmuxName) {
+			return tmuxName
 		}
 	}
 	return ""
@@ -1661,6 +1676,10 @@ func (m *Manager) nicknameExists(nickname, excludeSessionID string) string {
 // generateUniqueNickname generates a unique nickname by trying the base name,
 // then "name (1)", "name (2)", etc. until a unique name is found.
 func (m *Manager) generateUniqueNickname(baseNickname string) string {
+	if baseNickname == "" {
+		return ""
+	}
+	baseNickname = sanitizeNickname(baseNickname)
 	if baseNickname == "" {
 		return ""
 	}

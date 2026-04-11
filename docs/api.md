@@ -873,7 +873,7 @@ Response:
 { "status": "ok" }
 ```
 
-Nickname validation: allowed characters are letters, digits, space, and the punctuation set `_ - + * ? # % ^ ~ @ / , < > ( ) [ ] { } | !`. Disallowed characters (``$ ` \ " ; & ' . :``, control characters, newline, tab) are replaced with `-` when the nickname is sanitized for the underlying tmux session name. A nickname cannot start with `-` or space and cannot end with a space.
+Nickname validation: allowed characters are letters, digits, space, and the punctuation set `_ - + * ? # % ^ ~ @ / , < > ( ) [ ] { } | !`. Disallowed characters (``$ ` \ " ; & ' . :``, control characters, newline, tab) are replaced with `-` when the nickname is sanitized for the underlying tmux session name. Uniqueness is checked against both tracked sessions in state and live tmux sessions on the server.
 
 Errors:
 
