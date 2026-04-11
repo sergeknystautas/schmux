@@ -7,6 +7,7 @@ interface UseKeyboardOptions {
   onQuit: () => void;
   onToggleLayout: () => void;
   onResetWorkspace: () => void;
+  onToggleLogLevel: () => void;
   canRestart: boolean;
   canResetWorkspace: boolean;
 }
@@ -18,6 +19,7 @@ export function useKeyboard({
   onQuit,
   onToggleLayout,
   onResetWorkspace,
+  onToggleLogLevel,
   canRestart,
   canResetWorkspace,
 }: UseKeyboardOptions): void {
@@ -28,6 +30,8 @@ export function useKeyboard({
       onPull();
     } else if (input === 'w' && canResetWorkspace) {
       onResetWorkspace();
+    } else if (input === 'd') {
+      onToggleLogLevel();
     } else if (input === 'c') {
       onClear();
     } else if (input === 'l') {
