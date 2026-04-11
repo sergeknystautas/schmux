@@ -29,10 +29,6 @@ var (
 // stderr is not a TTY (e.g. when piped into the dev-runner TUI).
 func New(forceColor ...bool) *log.Logger {
 	level := log.InfoLevel
-	// In dev mode, default to debug level for full visibility.
-	if len(forceColor) > 0 && forceColor[0] {
-		level = log.DebugLevel
-	}
 	// SCHMUX_LOG_LEVEL always takes precedence if set.
 	if env := os.Getenv("SCHMUX_LOG_LEVEL"); env != "" {
 		parsed, err := log.ParseLevel(strings.ToLower(env))
