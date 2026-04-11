@@ -43,7 +43,7 @@ func TestGitDiffNumstat(t *testing.T) {
 func TestSaplingDiffNumstat(t *testing.T) {
 	cb := &SaplingCommandBuilder{}
 	got := cb.DiffNumstat()
-	want := "sl diff --numstat"
+	want := "sl status --no-status -mad | while IFS= read -r f; do printf '0\\t0\\t%s\\n' \"$f\"; done"
 	if got != want {
 		t.Errorf("DiffNumstat() = %q, want %q", got, want)
 	}
@@ -76,10 +76,10 @@ func TestSaplingShowFile(t *testing.T) {
 		want     string
 	}{
 		// HEAD should be translated to . (working copy parent)
-		{"main.go", "HEAD", "sl cat -r '.' 'main.go'"},
+		{"main.go", "HEAD", "sl cat --pager never -r '.' 'main.go' | head -2000"},
 		// Non-HEAD revisions pass through
-		{"src/app.ts", "abc123", "sl cat -r 'abc123' 'src/app.ts'"},
-		{"file.go", "deadbeef", "sl cat -r 'deadbeef' 'file.go'"},
+		{"src/app.ts", "abc123", "sl cat --pager never -r 'abc123' 'src/app.ts' | head -2000"},
+		{"file.go", "deadbeef", "sl cat --pager never -r 'deadbeef' 'file.go' | head -2000"},
 	}
 	cb := &SaplingCommandBuilder{}
 	for _, tt := range tests {
@@ -93,16 +93,16 @@ func TestSaplingShowFile(t *testing.T) {
 func TestGitFileContent(t *testing.T) {
 	cb := &GitCommandBuilder{}
 	got := cb.FileContent("src/main.go")
-	if got != "cat 'src/main.go'" {
-		t.Errorf("FileContent() = %q, want %q", got, "cat 'src/main.go'")
+	if got != "head -2000 'src/main.go'" {
+		t.Errorf("FileContent() = %q, want %q", got, "head -2000 'src/main.go'")
 	}
 }
 
 func TestSaplingFileContent(t *testing.T) {
 	cb := &SaplingCommandBuilder{}
 	got := cb.FileContent("src/main.go")
-	if got != "cat 'src/main.go'" {
-		t.Errorf("FileContent() = %q, want %q", got, "cat 'src/main.go'")
+	if got != "head -2000 'src/main.go'" {
+		t.Errorf("FileContent() = %q, want %q", got, "head -2000 'src/main.go'")
 	}
 }
 
@@ -169,57 +169,60 @@ func TestGitLog(t *testing.T) {
 }
 
 func TestSaplingLog(t *testing.T) {
-	tests := []struct {
-		name     string
-		refs     []string
-		maxCount int
-		wantRev  string // expected revset substring
-	}{
-		{
-			name:     "HEAD ref defaults to ancestors(.)",
-			refs:     []string{"HEAD"},
-			maxCount: 50,
-			wantRev:  "ancestors(.)",
-		},
-		{
-			name:     "single non-HEAD ref",
-			refs:     []string{"feature-branch"},
-			maxCount: 50,
-			wantRev:  "ancestors(feature-branch)",
-		},
-		{
-			name:     "multiple refs joined with +",
-			refs:     []string{"HEAD", "origin/main"},
-			maxCount: 100,
-			wantRev:  "ancestors(HEAD+origin/main)",
-		},
-		{
-			name:     "no refs defaults to ancestors(.)",
-			refs:     nil,
-			maxCount: 10,
-			wantRev:  "ancestors(.)",
-		},
-	}
 	cb := &SaplingCommandBuilder{}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := cb.Log(tt.refs, tt.maxCount)
-			if !strings.Contains(got, "sl log") {
-				t.Errorf("Log() should start with 'sl log': %q", got)
-			}
-			if !strings.Contains(got, tt.wantRev) {
-				t.Errorf("Log() missing revset %q in %q", tt.wantRev, got)
-			}
+
+	t.Run("HEAD ref uses efficient --limit", func(t *testing.T) {
+		got := cb.Log([]string{"HEAD"}, 50)
+		if !strings.Contains(got, "sl log") {
+			t.Errorf("should start with 'sl log': %q", got)
+		}
+		if !strings.Contains(got, "--limit 50") {
+			t.Errorf("HEAD should use --limit, got %q", got)
+		}
+		if strings.Contains(got, "ancestors") {
+			t.Errorf("HEAD should NOT use ancestors() revset (O(n) on large repos), got %q", got)
+		}
+	})
+
+	t.Run("no refs uses efficient --limit", func(t *testing.T) {
+		got := cb.Log(nil, 10)
+		if !strings.Contains(got, "--limit 10") {
+			t.Errorf("nil refs should use --limit, got %q", got)
+		}
+	})
+
+	t.Run("single non-HEAD ref uses revset", func(t *testing.T) {
+		got := cb.Log([]string{"feature-branch"}, 50)
+		wantRev := "ancestors(feature-branch)"
+		if !strings.Contains(got, wantRev) {
+			t.Errorf("missing revset %q in %q", wantRev, got)
+		}
+		wantLast := fmt.Sprintf("last(%s, %d)", wantRev, 50)
+		if !strings.Contains(got, wantLast) {
+			t.Errorf("should use last() for revset, want %q in %q", wantLast, got)
+		}
+	})
+
+	t.Run("multiple refs joined with +", func(t *testing.T) {
+		got := cb.Log([]string{"HEAD", "origin/main"}, 100)
+		wantRev := "ancestors(HEAD+origin/main)"
+		if !strings.Contains(got, wantRev) {
+			t.Errorf("missing revset %q in %q", wantRev, got)
+		}
+		wantLast := fmt.Sprintf("last(%s, %d)", wantRev, 100)
+		if !strings.Contains(got, wantLast) {
+			t.Errorf("should use last() for revset, want %q in %q", wantLast, got)
+		}
+	})
+
+	t.Run("all cases include parent template", func(t *testing.T) {
+		for _, refs := range [][]string{{"HEAD"}, nil, {"feature"}, {"HEAD", "origin/main"}} {
+			got := cb.Log(refs, 5)
 			if !strings.Contains(got, "{p1node} {p2node}") {
-				t.Errorf("Log() should use {p1node} {p2node} for parent format: %q", got)
+				t.Errorf("should use {p1node} {p2node} for refs=%v: %q", refs, got)
 			}
-			// Must use last() revset to get newest commits (not --limit which takes oldest)
-			wantLast := fmt.Sprintf("last(%s, %d)", tt.wantRev, tt.maxCount)
-			if !strings.Contains(got, wantLast) {
-				t.Errorf("Log() should use last() for newest-first limiting, want %q in %q", wantLast, got)
-			}
-		})
-	}
+		}
+	})
 }
 
 func TestGitLogRange(t *testing.T) {

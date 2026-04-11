@@ -140,7 +140,7 @@ func TestGitDiffUnified(t *testing.T) {
 func TestSaplingDiffUnified(t *testing.T) {
 	cb := NewCommandBuilder("sapling")
 	cmd := cb.DiffUnified()
-	if cmd != "sl diff" {
+	if cmd != "sl diff --pager never" {
 		t.Errorf("unexpected command: %s", cmd)
 	}
 }

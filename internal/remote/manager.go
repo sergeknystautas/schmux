@@ -22,6 +22,8 @@ type Manager struct {
 
 	// Callback for state updates
 	onStateChange func()
+	// Callback when a remote host connects or reconnects
+	onConnect func(hostID string)
 }
 
 // NewManager creates a new remote host manager.
@@ -38,6 +40,13 @@ func NewManager(cfg *config.Config, st *state.State, logger *log.Logger) *Manage
 func (m *Manager) SetStateChangeCallback(cb func()) {
 	m.mu.Lock()
 	m.onStateChange = cb
+	m.mu.Unlock()
+}
+
+// SetOnConnectCallback sets a callback invoked when a remote host connects or reconnects.
+func (m *Manager) SetOnConnectCallback(cb func(hostID string)) {
+	m.mu.Lock()
+	m.onConnect = cb
 	m.mu.Unlock()
 }
 
@@ -176,6 +185,7 @@ func (m *Manager) StartConnect(profileID, flavorStr string) (provisioningSession
 			}
 		}
 		m.notifyStateChange()
+		m.notifyConnect(finalHost.ID)
 	}()
 
 	return sessionID, nil
@@ -551,6 +561,16 @@ func (m *Manager) notifyStateChange() {
 	}
 }
 
+// notifyConnect calls the connect callback if set.
+func (m *Manager) notifyConnect(hostID string) {
+	m.mu.RLock()
+	cb := m.onConnect
+	m.mu.RUnlock()
+	if cb != nil {
+		cb(hostID)
+	}
+}
+
 // PruneExpiredHosts removes hosts that have expired from state.
 func (m *Manager) PruneExpiredHosts() {
 	now := time.Now()
@@ -745,6 +765,7 @@ func (m *Manager) StartReconnect(hostID string, onFail func(hostID string)) (pro
 			}
 		}
 		m.notifyStateChange()
+		m.notifyConnect(hostID)
 	}()
 
 	return sessionID, nil

@@ -50,7 +50,6 @@ export function App({ devRoot, plain }: AppProps) {
   const [dashboardPort, setDashboardPort] = useState(7337);
   const [backendStatusOverride, setBackendStatusOverride] = useState<ProcessStatus | null>(null);
   const [layout, setLayout] = useState<'horizontal' | 'vertical'>('vertical');
-  const [logLevel, setLogLevel] = useState('info');
   const binaryPath = `${devRoot}/tmp/schmux`;
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
@@ -282,23 +281,6 @@ export function App({ devRoot, plain }: AppProps) {
         backend.start();
 
         setPhase('running');
-
-        // Fetch initial log level from daemon (retry briefly since it's starting up)
-        (async () => {
-          for (let i = 0; i < 10; i++) {
-            try {
-              const resp = await fetch(`http://localhost:${port}/api/dev/log-level`);
-              if (resp.ok) {
-                const data = await resp.json();
-                if (!cancelled) setLogLevel(data.level);
-                return;
-              }
-            } catch {
-              // daemon not ready yet
-            }
-            await new Promise((r) => setTimeout(r, 500));
-          }
-        })();
       } catch (err) {
         if (!cancelled) {
           setErrorMsg(`Startup failed: ${err}`);
@@ -394,24 +376,6 @@ export function App({ devRoot, plain }: AppProps) {
     }
   }, [backend, binaryPath, addBackendLine, devRoot]);
 
-  const handleToggleLogLevel = useCallback(async () => {
-    const next = logLevel === 'debug' ? 'info' : 'debug';
-    try {
-      const resp = await fetch(`http://localhost:${dashboardPort}/api/dev/log-level`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ level: next }),
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        setLogLevel(data.level);
-        addBackendLine(`Log level changed to ${data.level}`);
-      }
-    } catch {
-      addBackendLine('Failed to toggle log level (daemon not reachable)');
-    }
-  }, [logLevel, dashboardPort, addBackendLine]);
-
   const canRestart =
     phase === 'running' &&
     effectiveBackendStatus !== 'building' &&
@@ -426,7 +390,6 @@ export function App({ devRoot, plain }: AppProps) {
     onQuit: handleQuit,
     onToggleLayout: handleToggleLayout,
     onResetWorkspace: handleResetWorkspace,
-    onToggleLogLevel: handleToggleLogLevel,
     canRestart,
     canResetWorkspace,
   });
@@ -468,7 +431,6 @@ export function App({ devRoot, plain }: AppProps) {
             backendStatus={effectiveBackendStatus}
             frontendStatus={frontend.status}
             port={dashboardPort}
-            logLevel={logLevel}
           />
           <KeyBar canRestart={canRestart} plain canResetWorkspace={canResetWorkspace} />
         </Box>
@@ -496,7 +458,6 @@ export function App({ devRoot, plain }: AppProps) {
         backendStatus={effectiveBackendStatus}
         frontendStatus={frontend.status}
         port={dashboardPort}
-        logLevel={logLevel}
       />
       <Box flexDirection={layout === 'horizontal' ? 'row' : 'column'} flexGrow={1}>
         <LogPanel

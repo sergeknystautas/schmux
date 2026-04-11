@@ -25,8 +25,6 @@ export function KeyBar({ canRestart, canResetWorkspace, layout, plain }: KeyBarP
             w
           </Text>
           <Text dimColor={!canResetWorkspace}> reset workspace </Text>
-          <Text bold>d</Text>
-          <Text> toggle debug </Text>
           <Text bold>q</Text>
           <Text> quit</Text>
         </Text>
@@ -49,8 +47,6 @@ export function KeyBar({ canRestart, canResetWorkspace, layout, plain }: KeyBarP
           w
         </Text>
         <Text dimColor={!canResetWorkspace}> reset workspace </Text>
-        <Text bold>d</Text>
-        <Text> toggle debug </Text>
         <Text bold>c</Text>
         <Text> clear logs </Text>
         <Text bold>l</Text>

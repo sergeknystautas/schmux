@@ -8,7 +8,6 @@ interface StatusBarProps {
   backendStatus: ProcessStatus;
   frontendStatus: ProcessStatus;
   port: number;
-  logLevel: string;
 }
 
 function statusDot(status: ProcessStatus): React.ReactNode {
@@ -54,7 +53,6 @@ export function StatusBar({
   backendStatus,
   frontendStatus,
   port,
-  logLevel,
 }: StatusBarProps) {
   const isSameWorkspace = devRoot === workspace;
   const workspaceAnnotation = isSameWorkspace ? ' (same as dev root)' : ' (switched)';
@@ -89,9 +87,7 @@ export function StatusBar({
         <Text> {statusLabel(backendStatus)} </Text>
         <Text>Frontend </Text>
         {statusDot(frontendStatus)}
-        <Text> {statusLabel(frontendStatus)} </Text>
-        <Text>Logs </Text>
-        <Text color={logLevel === 'debug' ? 'yellow' : 'green'}>{logLevel}</Text>
+        <Text> {statusLabel(frontendStatus)}</Text>
       </Text>
     </Box>
   );

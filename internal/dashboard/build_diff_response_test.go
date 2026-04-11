@@ -4,10 +4,21 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/vcs"
 )
+
+// localReadFile creates a readFileFunc that reads from a local directory.
+func localReadFile(dir string) readFileFunc {
+	return func(path string) string { return readWorkingFile(dir, path) }
+}
+
+// noBinary returns an isBinaryFunc that always returns false (sufficient for most tests).
+func noBinary() isBinaryFunc {
+	return func(string) bool { return false }
+}
 
 // mockRun creates a vcsRunFunc that returns canned responses keyed by command prefix.
 func mockRun(responses map[string]string) vcsRunFunc {
@@ -35,7 +46,7 @@ func TestBuildDiffResponse_ModifiedFile(t *testing.T) {
 		cb.UntrackedFiles():            "",
 	})
 
-	resp, err := buildDiffResponse(run, cb, dir, "ws-1", "repo", "main")
+	resp, err := buildDiffResponse(run, localReadFile(dir), noBinary(), cb, dir, "ws-1", "repo", "main")
 	if err != nil {
 		t.Fatalf("buildDiffResponse error: %v", err)
 	}
@@ -74,7 +85,7 @@ func TestBuildDiffResponse_AddedFile(t *testing.T) {
 	})
 	// ShowFile for HEAD returns error (file doesn't exist in HEAD) — mockRun returns error for unknown commands
 
-	resp, err := buildDiffResponse(run, cb, dir, "ws-1", "repo", "main")
+	resp, err := buildDiffResponse(run, localReadFile(dir), noBinary(), cb, dir, "ws-1", "repo", "main")
 	if err != nil {
 		t.Fatalf("buildDiffResponse error: %v", err)
 	}
@@ -102,7 +113,7 @@ func TestBuildDiffResponse_DeletedFile(t *testing.T) {
 		cb.UntrackedFiles():               "",
 	})
 
-	resp, err := buildDiffResponse(run, cb, dir, "ws-1", "repo", "main")
+	resp, err := buildDiffResponse(run, localReadFile(dir), noBinary(), cb, dir, "ws-1", "repo", "main")
 	if err != nil {
 		t.Fatalf("buildDiffResponse error: %v", err)
 	}
@@ -135,7 +146,7 @@ func TestBuildDiffResponse_BinaryFile(t *testing.T) {
 		cb.UntrackedFiles():              "",
 	})
 
-	resp, err := buildDiffResponse(run, cb, dir, "ws-1", "repo", "main")
+	resp, err := buildDiffResponse(run, localReadFile(dir), noBinary(), cb, dir, "ws-1", "repo", "main")
 	if err != nil {
 		t.Fatalf("buildDiffResponse error: %v", err)
 	}
@@ -162,7 +173,7 @@ func TestBuildDiffResponse_NewBinaryFile(t *testing.T) {
 		// ShowFile returns error — file not in HEAD
 	})
 
-	resp, err := buildDiffResponse(run, cb, dir, "ws-1", "repo", "main")
+	resp, err := buildDiffResponse(run, localReadFile(dir), noBinary(), cb, dir, "ws-1", "repo", "main")
 	if err != nil {
 		t.Fatalf("buildDiffResponse error: %v", err)
 	}
@@ -190,7 +201,7 @@ func TestBuildDiffResponse_UntrackedFile(t *testing.T) {
 		cb.UntrackedFiles(): "untracked.txt",
 	})
 
-	resp, err := buildDiffResponse(run, cb, dir, "ws-1", "repo", "main")
+	resp, err := buildDiffResponse(run, localReadFile(dir), noBinary(), cb, dir, "ws-1", "repo", "main")
 	if err != nil {
 		t.Fatalf("buildDiffResponse error: %v", err)
 	}
@@ -223,7 +234,7 @@ func TestBuildDiffResponse_MultipleFiles(t *testing.T) {
 		// b.go not in HEAD → added
 	})
 
-	resp, err := buildDiffResponse(run, cb, dir, "ws-1", "repo", "main")
+	resp, err := buildDiffResponse(run, localReadFile(dir), noBinary(), cb, dir, "ws-1", "repo", "main")
 	if err != nil {
 		t.Fatalf("buildDiffResponse error: %v", err)
 	}
@@ -251,7 +262,7 @@ func TestBuildDiffResponse_EmptyDiff(t *testing.T) {
 		cb.UntrackedFiles(): "",
 	})
 
-	resp, err := buildDiffResponse(run, cb, dir, "ws-1", "repo", "main")
+	resp, err := buildDiffResponse(run, localReadFile(dir), noBinary(), cb, dir, "ws-1", "repo", "main")
 	if err != nil {
 		t.Fatalf("buildDiffResponse error: %v", err)
 	}
@@ -277,7 +288,7 @@ func TestBuildDiffResponse_SaplingCommands(t *testing.T) {
 		cb.UntrackedFiles():            "",
 	})
 
-	resp, err := buildDiffResponse(run, cb, dir, "ws-1", "repo", "main")
+	resp, err := buildDiffResponse(run, localReadFile(dir), noBinary(), cb, dir, "ws-1", "repo", "main")
 	if err != nil {
 		t.Fatalf("buildDiffResponse error: %v", err)
 	}
@@ -302,7 +313,7 @@ func TestBuildDiffResponse_MalformedNumstatIgnored(t *testing.T) {
 
 	os.WriteFile(filepath.Join(dir, "good.go"), []byte("new\n"), 0o644)
 
-	resp, err := buildDiffResponse(run, cb, dir, "ws-1", "repo", "main")
+	resp, err := buildDiffResponse(run, localReadFile(dir), noBinary(), cb, dir, "ws-1", "repo", "main")
 	if err != nil {
 		t.Fatalf("buildDiffResponse error: %v", err)
 	}
@@ -324,5 +335,253 @@ func TestBuildDiffResponse_MalformedNumstatIgnored(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected good.go in response")
+	}
+}
+
+// --- Tests for buildBatchedDiffResponse (remote-optimized batching) ---
+
+// countingRun wraps a vcsRunFunc and counts how many times it is called.
+func countingRun(inner vcsRunFunc) (vcsRunFunc, *int) {
+	count := 0
+	return func(cmd string) (string, error) {
+		count++
+		return inner(cmd)
+	}, &count
+}
+
+// batchedMockRun simulates batched command execution: it splits the command
+// by "__SCHMUX_DIFF_DELIM__" or "__SCHMUX_FILE_DELIM__" and runs each
+// sub-command against the responses map, joining results with the delimiter.
+func batchedMockRun(responses map[string]string) vcsRunFunc {
+	return func(cmd string) (string, error) {
+		// Try each delimiter
+		for _, delim := range []string{"__SCHMUX_DIFF_DELIM__", "__SCHMUX_FILE_DELIM__"} {
+			if strings.Contains(cmd, "echo "+delim) {
+				subCmds := strings.Split(cmd, "; echo "+delim+"; ")
+				var results []string
+				for _, sub := range subCmds {
+					sub = strings.TrimSpace(sub)
+					if sub == "" {
+						results = append(results, "")
+						continue
+					}
+					found := false
+					for prefix, resp := range responses {
+						if sub == prefix || (len(sub) >= len(prefix) && sub[:len(prefix)] == prefix) {
+							results = append(results, resp)
+							found = true
+							break
+						}
+					}
+					if !found {
+						results = append(results, "")
+					}
+				}
+				return strings.Join(results, delim), nil
+			}
+		}
+		// No delimiter — single command
+		for prefix, resp := range responses {
+			if cmd == prefix || (len(cmd) >= len(prefix) && cmd[:len(prefix)] == prefix) {
+				return resp, nil
+			}
+		}
+		return "", fmt.Errorf("batchedMock: no response for %q", cmd)
+	}
+}
+
+func TestBatchedDiffResponse_UsesExactlyTwoRunCalls(t *testing.T) {
+	cb := vcs.NewCommandBuilder("git")
+	responses := map[string]string{
+		cb.DiffNumstat():               "5\t2\tmain.go\n3\t1\tutil.go",
+		cb.UntrackedFiles():            "new.txt",
+		cb.ShowFile("main.go", "HEAD"): "package old\n",
+		cb.ShowFile("util.go", "HEAD"): "old util\n",
+		cb.FileContent("main.go"):      "package new\n",
+		cb.FileContent("util.go"):      "new util\n",
+		cb.FileContent("new.txt"):      "untracked content\n",
+	}
+
+	run, count := countingRun(batchedMockRun(responses))
+	resp, err := buildBatchedDiffResponse(run, cb, "ws-1", "repo", "main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Must use exactly 2 run calls regardless of file count.
+	if *count != 2 {
+		t.Errorf("expected exactly 2 run calls, got %d", *count)
+	}
+
+	// 2 tracked + 1 untracked = 3 files
+	if len(resp.Files) != 3 {
+		t.Fatalf("expected 3 files, got %d", len(resp.Files))
+	}
+}
+
+func TestBatchedDiffResponse_ModifiedFile(t *testing.T) {
+	cb := vcs.NewCommandBuilder("git")
+	responses := map[string]string{
+		cb.DiffNumstat():               "5\t2\tmain.go",
+		cb.UntrackedFiles():            "",
+		cb.ShowFile("main.go", "HEAD"): "package old\n",
+		cb.FileContent("main.go"):      "package new\n",
+	}
+
+	resp, err := buildBatchedDiffResponse(batchedMockRun(responses), cb, "ws-1", "repo", "main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(resp.Files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(resp.Files))
+	}
+	f := resp.Files[0]
+	if f.Status != "modified" {
+		t.Errorf("expected 'modified', got %q", f.Status)
+	}
+	// capContent + TrimSpace strip trailing newlines from batched output
+	if f.OldContent != "package old" {
+		t.Errorf("unexpected old content: %q", f.OldContent)
+	}
+	if f.NewContent != "package new" {
+		t.Errorf("unexpected new content: %q", f.NewContent)
+	}
+	if f.LinesAdded != 5 || f.LinesRemoved != 2 {
+		t.Errorf("expected +5/-2, got +%d/-%d", f.LinesAdded, f.LinesRemoved)
+	}
+}
+
+func TestBatchedDiffResponse_AddedFile(t *testing.T) {
+	cb := vcs.NewCommandBuilder("git")
+	responses := map[string]string{
+		cb.DiffNumstat():              "10\t0\tnew.go",
+		cb.UntrackedFiles():           "",
+		cb.ShowFile("new.go", "HEAD"): "", // not in HEAD
+		cb.FileContent("new.go"):      "new file\n",
+	}
+
+	resp, err := buildBatchedDiffResponse(batchedMockRun(responses), cb, "ws-1", "repo", "main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(resp.Files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(resp.Files))
+	}
+	if resp.Files[0].Status != "added" {
+		t.Errorf("expected 'added', got %q", resp.Files[0].Status)
+	}
+}
+
+func TestBatchedDiffResponse_UntrackedFile(t *testing.T) {
+	cb := vcs.NewCommandBuilder("git")
+	responses := map[string]string{
+		cb.DiffNumstat():            "",
+		cb.UntrackedFiles():         "notes.txt",
+		cb.FileContent("notes.txt"): "hello\nworld\n",
+	}
+
+	resp, err := buildBatchedDiffResponse(batchedMockRun(responses), cb, "ws-1", "repo", "main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(resp.Files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(resp.Files))
+	}
+	f := resp.Files[0]
+	if f.Status != "untracked" {
+		t.Errorf("expected 'untracked', got %q", f.Status)
+	}
+	if f.LinesAdded != 2 {
+		t.Errorf("expected 2 lines, got %d", f.LinesAdded)
+	}
+}
+
+func TestBatchedDiffResponse_BinaryFileSkipsContent(t *testing.T) {
+	cb := vcs.NewCommandBuilder("git")
+	responses := map[string]string{
+		cb.DiffNumstat():    "-\t-\timage.png",
+		cb.UntrackedFiles(): "icon.png", // untracked binary
+	}
+
+	run, count := countingRun(batchedMockRun(responses))
+	resp, err := buildBatchedDiffResponse(run, cb, "ws-1", "repo", "main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Only 1 run call (phase 1) — no phase 2 because all files are binary.
+	if *count != 1 {
+		t.Errorf("expected 1 run call for all-binary diff, got %d", *count)
+	}
+
+	if len(resp.Files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(resp.Files))
+	}
+	for _, f := range resp.Files {
+		if !f.IsBinary {
+			t.Errorf("expected IsBinary for %s", f.NewPath)
+		}
+	}
+}
+
+func TestBatchedDiffResponse_EmptyDiff(t *testing.T) {
+	cb := vcs.NewCommandBuilder("git")
+	responses := map[string]string{
+		cb.DiffNumstat():    "",
+		cb.UntrackedFiles(): "",
+	}
+
+	run, count := countingRun(batchedMockRun(responses))
+	resp, err := buildBatchedDiffResponse(run, cb, "ws-1", "repo", "main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Only 1 run call (phase 1) — no phase 2 needed.
+	if *count != 1 {
+		t.Errorf("expected 1 run call for empty diff, got %d", *count)
+	}
+	if len(resp.Files) != 0 {
+		t.Errorf("expected 0 files, got %d", len(resp.Files))
+	}
+}
+
+func TestBatchedDiffResponse_ManyFilesStillTwoCalls(t *testing.T) {
+	cb := vcs.NewCommandBuilder("git")
+	// 10 tracked files + 5 untracked = 15 files total.
+	// With the old per-file approach this would be 2*10 + 2 = 22 run calls.
+	// With batching it should be exactly 2.
+	var numstatLines []string
+	responses := map[string]string{}
+	for i := 0; i < 10; i++ {
+		name := fmt.Sprintf("file%d.go", i)
+		numstatLines = append(numstatLines, fmt.Sprintf("1\t1\t%s", name))
+		responses[cb.ShowFile(name, "HEAD")] = fmt.Sprintf("old%d\n", i)
+		responses[cb.FileContent(name)] = fmt.Sprintf("new%d\n", i)
+	}
+	responses[cb.DiffNumstat()] = strings.Join(numstatLines, "\n")
+
+	var untrackedNames []string
+	for i := 0; i < 5; i++ {
+		name := fmt.Sprintf("untracked%d.txt", i)
+		untrackedNames = append(untrackedNames, name)
+		responses[cb.FileContent(name)] = fmt.Sprintf("content%d\n", i)
+	}
+	responses[cb.UntrackedFiles()] = strings.Join(untrackedNames, "\n")
+
+	run, count := countingRun(batchedMockRun(responses))
+	resp, err := buildBatchedDiffResponse(run, cb, "ws-1", "repo", "main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if *count != 2 {
+		t.Errorf("expected exactly 2 run calls for 15 files, got %d", *count)
+	}
+	if len(resp.Files) != 15 {
+		t.Errorf("expected 15 files, got %d", len(resp.Files))
 	}
 }

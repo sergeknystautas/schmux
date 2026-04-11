@@ -7,20 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
-)
-
-// registry tracks all loggers created by New and Sub so that SetLevel
-// can update them all atomically. charmbracelet/log's WithPrefix creates
-// independent copies, so each must be updated individually.
-var (
-	registryMu sync.Mutex
-	registry   []*log.Logger
-	// currentLevel is the active level for all registered loggers.
-	currentLevel = log.InfoLevel
 )
 
 // New creates a root logger configured from environment.
@@ -29,21 +18,32 @@ var (
 // stderr is not a TTY (e.g. when piped into the dev-runner TUI).
 func New(forceColor ...bool) *log.Logger {
 	level := log.InfoLevel
+	// In dev mode, default to debug level for full visibility.
+	if len(forceColor) > 0 && forceColor[0] {
+		level = log.DebugLevel
+	}
+	// SCHMUX_LOG_LEVEL always takes precedence if set.
 	if env := os.Getenv("SCHMUX_LOG_LEVEL"); env != "" {
 		parsed, err := log.ParseLevel(strings.ToLower(env))
 		if err == nil {
 			level = parsed
 		}
 	}
-	logger := log.NewWithOptions(os.Stderr, log.Options{
+
+	// Allow redirecting log output to a file via SCHMUX_LOG_FILE env var.
+	// Used by E2E tests where fd-inherited stderr doesn't reliably capture
+	// all output (kernel page cache truncation on SIGKILL).
+	var output io.Writer = os.Stderr
+	if logPath := os.Getenv("SCHMUX_LOG_FILE"); logPath != "" {
+		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644); err == nil {
+			output = io.MultiWriter(os.Stderr, f)
+		}
+	}
+
+	logger := log.NewWithOptions(output, log.Options{
 		Level:           level,
 		ReportTimestamp: true,
 	})
-	registryMu.Lock()
-	currentLevel = level
-	registry = append(registry, logger)
-	registryMu.Unlock()
-
 	if len(forceColor) > 0 && forceColor[0] {
 		logger.SetTimeFormat("15:04:05")
 		// SetOutput auto-detects the writer as non-TTY (Ascii profile),
@@ -70,28 +70,7 @@ func New(forceColor ...bool) *log.Logger {
 // The charmbracelet/log formatter appends a colon after the prefix, so the
 // raw output is "[name]:" — the daemon strips the extra colon in dev mode.
 func Sub(parent *log.Logger, prefix string) *log.Logger {
-	child := parent.WithPrefix("[" + prefix + "]")
-	registryMu.Lock()
-	registry = append(registry, child)
-	registryMu.Unlock()
-	return child
-}
-
-// SetLevel changes the log level for all registered loggers.
-func SetLevel(level log.Level) {
-	registryMu.Lock()
-	defer registryMu.Unlock()
-	currentLevel = level
-	for _, l := range registry {
-		l.SetLevel(level)
-	}
-}
-
-// GetLevel returns the current global log level.
-func GetLevel() log.Level {
-	registryMu.Lock()
-	defer registryMu.Unlock()
-	return currentLevel
+	return parent.WithPrefix("[" + prefix + "]")
 }
 
 // ANSI 256-color codes matching the web dashboard palette.

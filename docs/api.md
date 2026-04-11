@@ -1413,6 +1413,7 @@ Response:
 
 Returns git diff for a workspace (tracked files + untracked).
 Returns 400 for non-git workspaces (e.g., sapling).
+Works for both local and remote workspaces — remote file content is fetched via SSH.
 
 Response:
 
@@ -1437,10 +1438,11 @@ Errors:
 
 - 404: "workspace not found"
 - 400: "workspace ID is required"
+- 503: "remote host not connected" / "remote manager not available" (remote workspaces only)
 
 ### GET /api/file/{workspaceId}/{filepath}
 
-Serves a raw file from a workspace directory. Supports image files (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`) and markdown files (`.md`, `.mdx`). Verifies case-sensitive filename match on case-insensitive filesystems (macOS APFS).
+Serves a raw file from a workspace directory. Supports image files (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`) and markdown files (`.md`, `.mdx`). Verifies case-sensitive filename match on case-insensitive filesystems (macOS APFS). For remote workspaces, text files are fetched via `cat` and binary files via base64 encoding over SSH.
 
 Path:
 
@@ -1450,7 +1452,7 @@ Path:
 Security:
 
 - Path traversal is blocked
-- `.gitignore` patterns are respected
+- `.gitignore` patterns are respected (local workspaces only)
 - Only allowed file extensions are served
 - Directories cannot be served
 
@@ -1461,6 +1463,7 @@ Errors:
 - 400: `"workspace ID is required"` / `"invalid path format"`
 - 403: `"file type not allowed"` / `"invalid file path"` / `"cannot serve directory"` / `"file is ignored by git"`
 - 404: `"workspace not found"` / `"file not found"`
+- 503: `"remote host not connected"` / `"remote manager not available"` (remote workspaces only)
 
 ### POST /api/diff-external/{workspaceId}
 
@@ -3751,7 +3754,6 @@ Response:
 {
   "active": true,
   "source_workspace": "/path/to/current/worktree",
-  "log_level": "info",
   "last_build": {
     "success": true,
     "workspace_path": "/path/to/worktree",
@@ -3760,38 +3762,6 @@ Response:
   }
 }
 ```
-
-### GET /api/dev/log-level
-
-Returns the current daemon log level.
-
-Response:
-
-```json
-{ "level": "info" }
-```
-
-### POST /api/dev/log-level
-
-Changes the daemon log level at runtime. Affects all loggers (root and subsystem).
-
-Request:
-
-```json
-{ "level": "debug" }
-```
-
-Valid levels: `debug`, `info`, `warn`, `error`.
-
-Response:
-
-```json
-{ "level": "debug" }
-```
-
-Errors:
-
-- 400: invalid level value
 
 ### POST /api/dev/rebuild
 

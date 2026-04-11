@@ -916,7 +916,6 @@ export async function spawnCommitSession(
 export interface DevStatus {
   active: boolean;
   source_workspace?: string;
-  log_level?: string;
   last_build?: {
     success: boolean;
     workspace_path: string;

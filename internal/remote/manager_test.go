@@ -455,6 +455,41 @@ func TestManager_SetStateChangeCallback(t *testing.T) {
 	}
 }
 
+func TestManager_SetOnConnectCallback(t *testing.T) {
+	cfg := &config.Config{}
+	st := &state.State{
+		Workspaces:  []state.Workspace{},
+		Sessions:    []state.Session{},
+		RemoteHosts: []state.RemoteHost{},
+	}
+
+	mgr := NewManager(cfg, st, nil)
+
+	var receivedHostID string
+	mgr.SetOnConnectCallback(func(hostID string) {
+		receivedHostID = hostID
+	})
+
+	mgr.notifyConnect("test-host-123")
+
+	if receivedHostID != "test-host-123" {
+		t.Errorf("expected hostID 'test-host-123', got %q", receivedHostID)
+	}
+}
+
+func TestManager_OnConnectCallback_Nil(t *testing.T) {
+	cfg := &config.Config{}
+	st := &state.State{
+		Workspaces:  []state.Workspace{},
+		Sessions:    []state.Session{},
+		RemoteHosts: []state.RemoteHost{},
+	}
+
+	mgr := NewManager(cfg, st, nil)
+	// No callback set — should not panic
+	mgr.notifyConnect("test-host")
+}
+
 // TestReconcileWithRenamedWindows verifies that session reconciliation does NOT
 // fall back to window name matching (Issue 4 fix). This test validates the
 // strict ID-only matching logic without requiring a full connection setup.

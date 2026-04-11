@@ -19,7 +19,9 @@ func (g *GitCommandBuilder) ShowFile(path, revision string) string {
 }
 
 func (g *GitCommandBuilder) FileContent(path string) string {
-	return fmt.Sprintf("cat %s", shellutil.Quote(path))
+	// Cap at 2000 lines to avoid overflowing the tmux scrollback buffer
+	// when reading file content via RunCommand on remote hosts.
+	return fmt.Sprintf("head -2000 %s", shellutil.Quote(path))
 }
 
 func (g *GitCommandBuilder) UntrackedFiles() string {

@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -71,7 +72,11 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	run := localShellRun(ctx, ws.Path)
 
-	resp, err := buildDiffResponse(run, cb, ws.Path, ws.ID, ws.Repo, ws.Branch)
+	readFile := func(path string) string { return readWorkingFile(ws.Path, path) }
+	isBinaryCheck := func(path string) bool {
+		return difftool.IsBinaryFile(ctx, ws.Path, path)
+	}
+	resp, err := buildDiffResponse(run, readFile, isBinaryCheck, cb, ws.Path, ws.ID, ws.Repo, ws.Branch)
 	if err != nil {
 		s.logger.Error("diff failed", "err", err)
 		http.Error(w, `{"error":"diff failed"}`, http.StatusInternalServerError)
@@ -88,9 +93,16 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 // Returns trimmed output and any error (unlike runFunc which has no error return).
 type vcsRunFunc = func(string) (string, error)
 
+// readFileFunc reads a file from the working directory by relative path.
+// For local workspaces this uses os.ReadFile; for remote it runs a command via SSH.
+type readFileFunc = func(path string) string
+
+// isBinaryFunc checks whether a file in the working directory is binary.
+type isBinaryFunc = func(path string) bool
+
 // buildDiffResponse builds a diff response using VCS-agnostic commands.
 // Used by both local and remote diff handlers.
-func buildDiffResponse(run vcsRunFunc, cb vcs.CommandBuilder, workspacePath, workspaceID, repo, branch string) (*diffResponse, error) {
+func buildDiffResponse(run vcsRunFunc, readFile readFileFunc, isBinaryCheck isBinaryFunc, cb vcs.CommandBuilder, workspacePath, workspaceID, repo, branch string) (*diffResponse, error) {
 	type fileDiff = diffFileDiff
 
 	// Get numstat for file list and line counts
@@ -103,6 +115,10 @@ func buildDiffResponse(run vcsRunFunc, cb vcs.CommandBuilder, workspacePath, wor
 			continue
 		}
 		parts := strings.Split(line, "\t")
+		if len(parts) < 3 {
+			// Try spaces — capture-pane -J may convert tabs to spaces
+			parts = strings.Fields(line)
+		}
 		if len(parts) < 3 {
 			continue
 		}
@@ -138,7 +154,7 @@ func buildDiffResponse(run vcsRunFunc, cb vcs.CommandBuilder, workspacePath, wor
 			continue
 		}
 
-		newContent := readWorkingFile(workspacePath, filePath)
+		newContent := readFile(filePath)
 
 		status := "modified"
 		if oldContent == "" {
@@ -175,7 +191,7 @@ func buildDiffResponse(run vcsRunFunc, cb vcs.CommandBuilder, workspacePath, wor
 			if filePath == "" {
 				continue
 			}
-			if difftool.IsBinaryFile(context.Background(), workspacePath, filePath) {
+			if isBinaryCheck(filePath) {
 				files = append(files, fileDiff{
 					NewPath:  filePath,
 					Status:   "untracked",
@@ -183,7 +199,7 @@ func buildDiffResponse(run vcsRunFunc, cb vcs.CommandBuilder, workspacePath, wor
 				})
 				continue
 			}
-			newContent := readWorkingFile(workspacePath, filePath)
+			newContent := readFile(filePath)
 			lineCount := 0
 			if newContent != "" {
 				lineCount = strings.Count(newContent, "\n")
@@ -226,6 +242,32 @@ type diffResponse struct {
 	Repo        string         `json:"repo"`
 	Branch      string         `json:"branch"`
 	Files       []diffFileDiff `json:"files"`
+}
+
+// base64Decode decodes a base64-encoded string, trying standard then URL-safe encoding.
+func base64Decode(s string) ([]byte, error) {
+	data, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		// macOS base64 may not pad — try RawStdEncoding
+		data, err = base64.RawStdEncoding.DecodeString(s)
+	}
+	return data, err
+}
+
+// isBinaryExtension returns true if the file extension indicates a binary format.
+// Used for remote workspaces where local filesystem inspection isn't possible.
+func isBinaryExtension(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp", ".tiff", ".tif",
+		".svg", ".pdf", ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar",
+		".woff", ".woff2", ".ttf", ".eot", ".otf",
+		".mp3", ".mp4", ".wav", ".ogg", ".webm", ".avi", ".mov",
+		".exe", ".dll", ".so", ".dylib", ".a", ".o",
+		".pyc", ".class", ".wasm":
+		return true
+	}
+	return false
 }
 
 // readWorkingFile reads a file from the working directory with a 1MB cap.
@@ -395,14 +437,267 @@ func (s *Server) fileMatchesVCSIgnore(ctx context.Context, workspacePath, filePa
 }
 
 // handleRemoteFile handles file requests for remote workspaces.
+// Fetches file content from the remote host via SSH and serves it.
 func (s *Server) handleRemoteFile(w http.ResponseWriter, r *http.Request, ws state.Workspace, filePath string) {
-	// For remote workspaces, we need to fetch the file via remote command
-	// This is a simplified implementation - in production you'd use the remote connection
-	http.Error(w, "remote file preview not yet supported", http.StatusNotImplemented)
+	if s.remoteManager == nil {
+		http.Error(w, "remote manager not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	conn := s.remoteManager.GetConnection(ws.RemoteHostID)
+	if conn == nil || !conn.IsConnected() {
+		http.Error(w, "remote host not connected", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Block path traversal
+	if strings.Contains(filePath, "..") {
+		http.Error(w, "invalid file path", http.StatusForbidden)
+		return
+	}
+
+	// Only allow specific file types (same as local)
+	ext := strings.ToLower(filepath.Ext(filePath))
+	allowedExts := map[string]string{
+		".png":  "image/png",
+		".jpg":  "image/jpeg",
+		".jpeg": "image/jpeg",
+		".webp": "image/webp",
+		".gif":  "image/gif",
+		".md":   "text/markdown; charset=utf-8",
+		".mdx":  "text/markdown; charset=utf-8",
+	}
+	contentType, allowed := allowedExts[ext]
+	if !allowed {
+		http.Error(w, "file type not allowed", http.StatusForbidden)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	workdir := ws.RemotePath
+	isText := ext == ".md" || ext == ".mdx"
+
+	if isText {
+		// Text files: fetch via cat
+		cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
+		out, err := conn.RunCommand(ctx, workdir, cb.FileContent(filePath))
+		if err != nil {
+			http.Error(w, "file not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", contentType)
+		io.WriteString(w, out)
+	} else {
+		// Binary files (images): fetch via base64 encoding
+		out, err := conn.RunCommand(ctx, workdir, fmt.Sprintf("base64 -w0 %q 2>/dev/null || base64 %q", filePath, filePath))
+		if err != nil {
+			http.Error(w, "file not found", http.StatusNotFound)
+			return
+		}
+		decoded, err := base64Decode(strings.TrimSpace(out))
+		if err != nil {
+			http.Error(w, "failed to decode file", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Write(decoded)
+	}
+}
+
+// buildBatchedDiffResponse builds a diff response using exactly 2 run calls:
+//  1. numstat + untracked list (batched with delimiter)
+//  2. all file contents — old + new for tracked, new for untracked (batched with delimiter)
+//
+// This is the remote-optimized alternative to buildDiffResponse. Each run call
+// becomes a tmux RunCommand (~1.5s each), so batching is critical to avoid
+// a storm of 2N+2 calls for N files.
+func buildBatchedDiffResponse(run vcsRunFunc, cb vcs.CommandBuilder, workspaceID, repo, branch string) (*diffResponse, error) {
+	type fileDiff = diffFileDiff
+
+	// Phase 1: Get file list (numstat + untracked) in one run call.
+	const delim = "__SCHMUX_DIFF_DELIM__"
+	phase1Cmd := fmt.Sprintf("%s; echo %s; %s", cb.DiffNumstat(), delim, cb.UntrackedFiles())
+	phase1Out, err := run(phase1Cmd)
+	if err != nil {
+		return nil, fmt.Errorf("phase1 failed: %w", err)
+	}
+
+	phase1Parts := strings.SplitN(phase1Out, delim, 2)
+	numstatOutput := ""
+	untrackedOutput := ""
+	if len(phase1Parts) > 0 {
+		numstatOutput = strings.TrimSpace(phase1Parts[0])
+	}
+	if len(phase1Parts) > 1 {
+		untrackedOutput = strings.TrimSpace(phase1Parts[1])
+	}
+
+	// Parse numstat to get tracked modified files.
+	type fileEntry struct {
+		path         string
+		linesAdded   int
+		linesRemoved int
+		isBinary     bool
+	}
+	var trackedFiles []fileEntry
+	for _, line := range strings.Split(numstatOutput, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) < 3 {
+			parts = strings.Fields(line)
+		}
+		if len(parts) < 3 {
+			continue
+		}
+		isBin := parts[0] == "-" && parts[1] == "-"
+		added, _ := strconv.Atoi(parts[0])
+		removed, _ := strconv.Atoi(parts[1])
+		trackedFiles = append(trackedFiles, fileEntry{
+			path: parts[2], linesAdded: added, linesRemoved: removed, isBinary: isBin,
+		})
+	}
+
+	// Parse untracked files.
+	var untrackedFiles []string
+	for _, p := range strings.Split(untrackedOutput, "\n") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			untrackedFiles = append(untrackedFiles, p)
+		}
+	}
+
+	// Collect all non-binary files that need content fetched.
+	// For each tracked file: old content (ShowFile) + new content (FileContent).
+	// For each untracked file: new content only.
+	const fileDelim = "__SCHMUX_FILE_DELIM__"
+	var cmdParts []string
+	type contentSlot struct {
+		fileIdx     int
+		isOld       bool
+		isUntracked bool
+	}
+	var slots []contentSlot
+
+	for i, f := range trackedFiles {
+		if f.isBinary {
+			continue
+		}
+		cmdParts = append(cmdParts, cb.ShowFile(f.path, "HEAD"))
+		slots = append(slots, contentSlot{fileIdx: i, isOld: true})
+		cmdParts = append(cmdParts, cb.FileContent(f.path))
+		slots = append(slots, contentSlot{fileIdx: i, isOld: false})
+	}
+	for i, p := range untrackedFiles {
+		if isBinaryExtension(p) {
+			continue
+		}
+		cmdParts = append(cmdParts, cb.FileContent(p))
+		slots = append(slots, contentSlot{fileIdx: i, isUntracked: true})
+	}
+
+	// Phase 2: Fetch all file contents in one run call.
+	oldContents := make(map[int]string)
+	newContents := make(map[int]string)
+	untrackedContents := make(map[int]string)
+
+	if len(cmdParts) > 0 {
+		batchCmd := strings.Join(cmdParts, "; echo "+fileDelim+"; ")
+		phase2Out, err := run(batchCmd)
+		if err != nil {
+			// Fall through — return files without content
+		} else {
+			sections := strings.Split(phase2Out, fileDelim)
+			for idx, slot := range slots {
+				content := ""
+				if idx < len(sections) {
+					content = capContent(strings.TrimSpace(sections[idx]))
+				}
+				if slot.isUntracked {
+					untrackedContents[slot.fileIdx] = content
+				} else if slot.isOld {
+					oldContents[slot.fileIdx] = content
+				} else {
+					newContents[slot.fileIdx] = content
+				}
+			}
+		}
+	}
+
+	// Build response.
+	files := make([]fileDiff, 0, len(trackedFiles)+len(untrackedFiles))
+	for i, f := range trackedFiles {
+		if f.isBinary {
+			status := "modified"
+			if oldContents[i] == "" {
+				status = "added"
+			}
+			files = append(files, fileDiff{
+				NewPath: f.path, Status: status, IsBinary: true,
+			})
+			continue
+		}
+
+		oldContent := oldContents[i]
+		newContent := newContents[i]
+		status := "modified"
+		if oldContent == "" {
+			status = "added"
+		} else if newContent == "" {
+			status = "deleted"
+		}
+
+		if status == "deleted" {
+			files = append(files, fileDiff{
+				OldPath: f.path, OldContent: oldContent, Status: status,
+				LinesAdded: f.linesAdded, LinesRemoved: f.linesRemoved,
+			})
+		} else {
+			files = append(files, fileDiff{
+				NewPath: f.path, OldContent: oldContent, NewContent: newContent, Status: status,
+				LinesAdded: f.linesAdded, LinesRemoved: f.linesRemoved,
+			})
+		}
+	}
+
+	for i, p := range untrackedFiles {
+		if isBinaryExtension(p) {
+			files = append(files, fileDiff{
+				NewPath: p, Status: "untracked", IsBinary: true,
+			})
+			continue
+		}
+		content := untrackedContents[i]
+		lineCount := 0
+		if content != "" {
+			lineCount = strings.Count(content, "\n")
+			if !strings.HasSuffix(content, "\n") {
+				lineCount++
+			}
+		}
+		files = append(files, fileDiff{
+			NewPath: p, NewContent: content, Status: "untracked", LinesAdded: lineCount,
+		})
+	}
+
+	return &diffResponse{
+		WorkspaceID: workspaceID,
+		Repo:        repo,
+		Branch:      branch,
+		Files:       files,
+	}, nil
 }
 
 // handleRemoteDiff handles diff requests for remote workspaces by executing VCS
 // commands on the remote host via tmux control mode.
+//
+// Uses buildBatchedDiffResponse which makes exactly 2 RunCommands instead of
+// the per-file approach (2N+2 RunCommands) that was causing tmux channel storms.
 func (s *Server) handleRemoteDiff(w http.ResponseWriter, r *http.Request, ws state.Workspace) {
 	if s.remoteManager == nil {
 		http.Error(w, "remote manager not available", http.StatusServiceUnavailable)
@@ -417,7 +712,7 @@ func (s *Server) handleRemoteDiff(w http.ResponseWriter, r *http.Request, ws sta
 
 	cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
 
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 
 	workdir := ws.RemotePath
@@ -425,7 +720,7 @@ func (s *Server) handleRemoteDiff(w http.ResponseWriter, r *http.Request, ws sta
 		return conn.RunCommand(ctx, workdir, cmd)
 	}
 
-	resp, err := buildDiffResponse(run, cb, workdir, ws.ID, ws.Repo, ws.Branch)
+	resp, err := buildBatchedDiffResponse(run, cb, ws.ID, ws.Repo, ws.Branch)
 	if err != nil {
 		s.logger.Error("remote diff failed", "err", err)
 		http.Error(w, `{"error":"remote diff failed"}`, http.StatusInternalServerError)

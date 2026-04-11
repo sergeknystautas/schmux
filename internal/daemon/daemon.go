@@ -609,6 +609,18 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	remoteManager.SetStateChangeCallback(server.BroadcastSessions)
 	server.SetRemoteManager(remoteManager)
 	sm.SetRemoteManager(remoteManager)
+	wm.SetRemoteRunner(remoteManager)
+	remoteManager.SetOnConnectCallback(func(hostID string) {
+		// Trigger immediate VCS status update for workspaces on this host
+		for _, ws := range st.GetWorkspaces() {
+			if ws.RemoteHostID == hostID {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				wm.UpdateVCSStatus(ctx, ws.ID)
+				cancel()
+			}
+		}
+		server.BroadcastSessions()
+	})
 
 	// Create tunnel manager for remote access
 	tunnelMgr := tunnel.NewManager(tunnel.ManagerConfig{

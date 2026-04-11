@@ -64,7 +64,8 @@ type APIWorkspace struct {
 // Each test gets its own isolated HOME directory and ephemeral daemon port
 // so tests can run concurrently via t.Parallel().
 type Env struct {
-	daemonLogFile *os.File // daemon stderr log file, closed in Cleanup
+	daemonLogFile *os.File  // daemon stderr log file, closed in Cleanup
+	daemonCmd     *exec.Cmd // the daemon process
 	T             *testing.T
 	SchmuxBin     string
 	DaemonURL     string
@@ -177,25 +178,31 @@ func (e *Env) DaemonStart() {
 	// Set HOME to isolated dir so daemon uses its own ~/.schmux/
 	// Set TMUX_TMPDIR to isolated dir so each test's daemon gets its own tmux
 	// server socket, preventing session name collisions between parallel tests.
-	cmd.Env = append(os.Environ(), "HOME="+e.HomeDir, "TMUX_TMPDIR="+e.HomeDir)
+	// Set SCHMUX_LOG_FILE so the daemon writes logs directly to a file it opens
+	// itself (fd-inherited stderr is unreliable for capturing full output).
+	daemonLogFile := filepath.Join(e.HomeDir, ".schmux", "e2e-daemon-direct.log")
+	cmd.Env = append(os.Environ(), "HOME="+e.HomeDir, "TMUX_TMPDIR="+e.HomeDir, "SCHMUX_LOG_FILE="+daemonLogFile)
 
-	// Capture stderr to a log file for debugging
+	// Capture stderr to a log file. The daemon process writes directly to the
+	// file via inherited fd. CaptureArtifacts kills the process and syncs the
+	// file before reading to ensure all data is flushed.
 	logFile := filepath.Join(e.HomeDir, ".schmux", "e2e-daemon.log")
 	os.MkdirAll(filepath.Dir(logFile), 0755)
-	stderr, err := os.Create(logFile)
+	logF, err := os.Create(logFile)
 	if err != nil {
 		e.T.Fatalf("Failed to create daemon log file: %v", err)
 	}
-	cmd.Stderr = stderr
-	cmd.Stdout = stderr // Capture stdout too
+	cmd.Stderr = logF
+	cmd.Stdout = logF
 
 	if err := cmd.Start(); err != nil {
-		stderr.Close()
+		logF.Close()
 		e.T.Fatalf("Failed to start daemon: %v", err)
 	}
 
-	// Store the log file handle so Cleanup() can close it
-	e.daemonLogFile = stderr
+	// Store handles for cleanup
+	e.daemonLogFile = logF
+	e.daemonCmd = cmd
 
 	// Wait for daemon to be ready
 	e.T.Log("Waiting for daemon to be ready...")
@@ -250,10 +257,7 @@ func (e *Env) DaemonStop() {
 		time.Sleep(100 * time.Millisecond)
 	}
 	if !stopped {
-		// Log rather than Error: cleanup failures in deferred code should
-		// not mask actual test results. The container will clean up the
-		// daemon process on exit regardless.
-		e.T.Log("Warning: daemon is still running after stop")
+		e.T.Log("Warning: daemon is still running after stop (will be killed in CaptureArtifacts)")
 	}
 }
 
@@ -1010,11 +1014,27 @@ func (e *Env) CaptureArtifacts() {
 		os.WriteFile(filepath.Join(failureDir, "state.json"), data, 0644)
 	}
 
-	// Capture daemon log if it exists
-	daemonLogPath := filepath.Join(schmuxDir, "e2e-daemon.log")
-	if data, err := os.ReadFile(daemonLogPath); err == nil {
+	// Kill daemon process so it stops writing, then sync the log file to
+	// ensure all data written by the process is visible to ReadFile.
+	if e.daemonCmd != nil && e.daemonCmd.Process != nil {
+		e.daemonCmd.Process.Kill()
+		e.daemonCmd.Wait() // reap the process, releases pipe fds
+	}
+	if e.daemonLogFile != nil {
+		e.daemonLogFile.Sync()
+	}
+
+	// Capture daemon log — prefer the direct log file (opened by daemon itself
+	// via SCHMUX_LOG_FILE) over the stderr-inherited log file.
+	directLogPath := filepath.Join(schmuxDir, "e2e-daemon-direct.log")
+	stderrLogPath := filepath.Join(schmuxDir, "e2e-daemon.log")
+
+	logPath := directLogPath
+	if _, err := os.Stat(directLogPath); err != nil {
+		logPath = stderrLogPath
+	}
+	if data, err := os.ReadFile(logPath); err == nil {
 		os.WriteFile(filepath.Join(failureDir, "daemon.log"), data, 0644)
-		// Also print to test output for immediate visibility
 		e.T.Logf("=== DAEMON LOG ===\n%s", string(data))
 	}
 

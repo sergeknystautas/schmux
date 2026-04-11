@@ -18,6 +18,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
+	"github.com/sergeknystautas/schmux/internal/vcs"
 	"github.com/sergeknystautas/schmux/internal/workspace/ensure"
 )
 
@@ -28,6 +29,13 @@ const (
 )
 
 var ErrWorkspaceLocked = errors.New("workspace is locked")
+
+// RemoteCommandRunner executes shell commands on a remote host.
+// The remote.Manager satisfies this interface.
+type RemoteCommandRunner interface {
+	RunCommand(ctx context.Context, hostID, workdir, command string) (string, error)
+	IsConnected(hostID string) bool
+}
 
 // Manager manages workspace directories.
 type Manager struct {
@@ -60,6 +68,8 @@ type Manager struct {
 	models                 *models.Manager // Model manager for target validation
 	gitBackend             *GitBackend
 	backends               map[string]VCSBackend
+	remoteRunner           RemoteCommandRunner // optional, for remote VCS status polling
+	remotePollCounter      int                 // counts poll cycles; remote workspaces are polled every Nth cycle
 }
 
 // New creates a new workspace manager.
@@ -222,6 +232,11 @@ func (m *Manager) SetModelManager(mm *models.Manager) {
 
 func (m *Manager) SetIOWorkspaceTelemetry(tel *IOWorkspaceTelemetry) {
 	m.ioTelemetry = tel
+}
+
+// SetRemoteRunner sets the remote command runner for VCS status polling on remote workspaces.
+func (m *Manager) SetRemoteRunner(r RemoteCommandRunner) {
+	m.remoteRunner = r
 }
 
 // IOWorkspaceTelemetrySnapshot returns a point-in-time snapshot of git command telemetry.
@@ -970,9 +985,9 @@ func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, worksp
 		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
 	}
 
-	// Skip git operations for remote workspaces
+	// Route remote workspaces through remote VCS status path
 	if w.RemoteHostID != "" {
-		return &w, nil
+		return m.updateRemoteVCSStatus(ctx, w)
 	}
 
 	if m.IsWorkspaceLocked(workspaceID) {
@@ -1065,28 +1080,130 @@ func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, worksp
 	return &w, nil
 }
 
+// updateRemoteVCSStatus refreshes VCS status for a remote workspace by executing
+// a single batched command on the remote host. This minimizes tmux control mode
+// channel contention by using 1 RunCommand (1 window, 1 capture-pane poll loop)
+// instead of 3 separate ones.
+func (m *Manager) updateRemoteVCSStatus(ctx context.Context, w state.Workspace) (*state.Workspace, error) {
+	if m.remoteRunner == nil || !m.remoteRunner.IsConnected(w.RemoteHostID) {
+		return &w, nil
+	}
+
+	cb := vcs.NewCommandBuilder(w.VCS)
+	workdir := w.RemotePath
+
+	// Batch all 3 commands into a single shell invocation with delimiters.
+	// This creates 1 tmux window instead of 3, reducing channel contention.
+	const delim = "__SCHMUX_VCS_DELIM__"
+	batchCmd := fmt.Sprintf("%s; echo %s; %s; echo %s; %s",
+		cb.StatusPorcelain(), delim,
+		cb.DiffNumstat(), delim,
+		cb.CurrentBranch())
+
+	out, err := m.remoteRunner.RunCommand(ctx, w.RemoteHostID, workdir, batchCmd)
+	if err != nil {
+		return &w, nil // remote not ready or command failed — keep stale data
+	}
+
+	// Split output by delimiter
+	sections := strings.SplitN(out, delim, 3)
+
+	// Section 0: StatusPorcelain → dirty + filesChanged
+	if len(sections) > 0 {
+		trimmed := strings.TrimSpace(sections[0])
+		w.Dirty = trimmed != ""
+		if trimmed != "" {
+			w.FilesChanged = len(strings.Split(trimmed, "\n"))
+		} else {
+			w.FilesChanged = 0
+		}
+	}
+
+	// Section 1: DiffNumstat → linesAdded, linesRemoved
+	w.LinesAdded = 0
+	w.LinesRemoved = 0
+	if len(sections) > 1 {
+		for _, line := range strings.Split(strings.TrimSpace(sections[1]), "\n") {
+			parts := strings.Split(line, "\t")
+			if len(parts) < 3 {
+				// capture-pane -J may convert tabs to spaces
+				parts = strings.Fields(line)
+			}
+			if len(parts) < 3 {
+				continue
+			}
+			if a, e := strconv.Atoi(parts[0]); e == nil {
+				w.LinesAdded += a
+			}
+			if r, e := strconv.Atoi(parts[1]); e == nil && parts[1] != "-" {
+				w.LinesRemoved += r
+			}
+		}
+	}
+
+	// Section 2: CurrentBranch → branch name
+	if len(sections) > 2 {
+		branch := strings.TrimSpace(sections[2])
+		if branch != "" && branch != "HEAD" {
+			w.Branch = branch
+		}
+	}
+
+	if err := m.state.UpdateWorkspace(w); err != nil {
+		return nil, fmt.Errorf("failed to update workspace in state: %w", err)
+	}
+	return &w, nil
+}
+
 // UpdateAllGitStatus refreshes git status for all workspaces.
 // This is called periodically by the background goroutine.
 func (m *Manager) UpdateAllVCSStatus(ctx context.Context) {
 	workspaces := m.state.GetWorkspaces()
 	round := newPollRound()
 
-	// Collect local workspaces to process
+	// Collect workspaces to process (both local and remote)
 	var localWorkspaces []state.Workspace
+	var remoteWorkspaces []state.Workspace
 	for _, w := range workspaces {
-		if w.RemoteHostID != "" {
-			continue
-		}
 		if w.Status == state.WorkspaceStatusRecyclable {
 			continue
 		}
-		localWorkspaces = append(localWorkspaces, w)
+		if w.RemoteHostID != "" {
+			remoteWorkspaces = append(remoteWorkspaces, w)
+		} else {
+			localWorkspaces = append(localWorkspaces, w)
+		}
 	}
 
-	// Process workspaces in parallel. The gitFetchPollRound handles fetch
+	// Process all workspaces in parallel. The gitFetchPollRound handles fetch
 	// deduplication for worktrees sharing the same bare clone, and
 	// state.UpdateWorkspace is mutex-protected.
 	var wg sync.WaitGroup
+
+	// Remote workspaces: poll every 6th cycle (~60s at default 10s interval)
+	// to avoid congesting the tmux control mode channel with too many SSH commands.
+	m.remotePollCounter++
+	pollRemote := m.remotePollCounter%6 == 1
+	if !pollRemote {
+		remoteWorkspaces = nil
+	}
+	for _, w := range remoteWorkspaces {
+		if ctx.Err() != nil {
+			break
+		}
+		wg.Add(1)
+		go func(w state.Workspace) {
+			defer wg.Done()
+			if _, err := m.updateRemoteVCSStatus(ctx, w); err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				m.logger.Debug("failed to update remote VCS status", "id", w.ID, "err", err)
+			}
+		}(w)
+	}
+
+	// Local workspaces
 	for _, w := range localWorkspaces {
 		if ctx.Err() != nil {
 			break

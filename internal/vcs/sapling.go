@@ -23,10 +23,15 @@ func parseRangeToRevset(rangeSpec string) (exclude, include string) {
 }
 
 // SaplingCommandBuilder implements CommandBuilder for Sapling (sl).
+// All sl commands that produce output use --pager never to prevent
+// the pager from blocking when run non-interactively via RunCommand.
 type SaplingCommandBuilder struct{}
 
 func (s *SaplingCommandBuilder) DiffNumstat() string {
-	return "sl diff --numstat"
+	// Sapling doesn't support --numstat. Use sl status to get the file list
+	// and format as numstat-compatible output (0\t0\tfilename). The actual
+	// line counts are unknown but buildDiffResponse fetches content anyway.
+	return "sl status --no-status -mad | while IFS= read -r f; do printf '0\\t0\\t%s\\n' \"$f\"; done"
 }
 
 func (s *SaplingCommandBuilder) ShowFile(path, revision string) string {
@@ -35,11 +40,11 @@ func (s *SaplingCommandBuilder) ShowFile(path, revision string) string {
 	if revision == "HEAD" {
 		slRev = "."
 	}
-	return fmt.Sprintf("sl cat -r %s %s", shellutil.Quote(slRev), shellutil.Quote(path))
+	return fmt.Sprintf("sl cat --pager never -r %s %s | head -2000", shellutil.Quote(slRev), shellutil.Quote(path))
 }
 
 func (s *SaplingCommandBuilder) FileContent(path string) string {
-	return fmt.Sprintf("cat %s", shellutil.Quote(path))
+	return fmt.Sprintf("head -2000 %s", shellutil.Quote(path))
 }
 
 func (s *SaplingCommandBuilder) UntrackedFiles() string {
@@ -50,22 +55,27 @@ func (s *SaplingCommandBuilder) Log(refs []string, maxCount int) string {
 	// Sapling log with parseable template.
 	// Use {p1node} {p2node} instead of {parents} — the {parents} keyword outputs
 	// "rev:shorthash" format, not full hex hashes like git's %P.
-	//
-	// Use last(revset, N) instead of --limit N because Sapling's ancestors()
-	// returns commits in ascending order (oldest first). --limit N takes the
-	// first N (oldest), while last() takes the final N (newest) — matching
-	// git log's behavior of walking backwards from HEAD.
-	revset := "ancestors(.)"
+	tmpl := "'{node}|{short(node)}|{desc|firstline}|{author|user}|{date|isodate}|{p1node} {p2node}\\n'"
+
+	// Fast path: single-HEAD log. `sl log --limit N` without a revset walks
+	// backwards from `.` efficiently — O(N), not O(total_commits).
+	// The slow `last(ancestors(.), N)` revset computes the full ancestor set
+	// first, which is catastrophic on large monorepos (fbsource, etc.).
+	if len(refs) <= 1 && (len(refs) == 0 || refs[0] == "HEAD") {
+		return fmt.Sprintf("sl log --pager never -T %s --limit %d", tmpl, maxCount)
+	}
+
+	// Multi-ref or non-HEAD: need a revset to combine ancestry.
+	// Use last(revset, N) instead of --limit N because ancestors() returns
+	// commits in ascending order — --limit would take the oldest N.
+	var revset string
 	if len(refs) > 1 {
-		quotedRefs := make([]string, len(refs))
-		copy(quotedRefs, refs)
-		revset = fmt.Sprintf("ancestors(%s)", strings.Join(quotedRefs, "+"))
-	} else if len(refs) == 1 && refs[0] != "HEAD" {
+		revset = fmt.Sprintf("ancestors(%s)", strings.Join(refs, "+"))
+	} else {
 		revset = fmt.Sprintf("ancestors(%s)", refs[0])
 	}
 	limitedRevset := fmt.Sprintf("last(%s, %d)", revset, maxCount)
-	return fmt.Sprintf("sl log -T '{node}|{short(node)}|{desc|firstline}|{author|user}|{date|isodate}|{p1node} {p2node}\\n' -r %s",
-		shellutil.Quote(limitedRevset))
+	return fmt.Sprintf("sl log --pager never -T %s -r %s", tmpl, shellutil.Quote(limitedRevset))
 }
 
 func (s *SaplingCommandBuilder) LogRange(refs []string, forkPoint string) string {
@@ -81,7 +91,7 @@ func (s *SaplingCommandBuilder) LogRange(refs []string, forkPoint string) string
 	}
 	revset := fmt.Sprintf("(%s)::%s", forkPoint, strings.Join(refExprs, "+"))
 	limitedRevset := fmt.Sprintf("last(%s, 5000)", revset)
-	return fmt.Sprintf("sl log -T '{node}|{short(node)}|{desc|firstline}|{author|user}|{date|isodate}|{p1node} {p2node}\\n' -r %s", shellutil.Quote(limitedRevset))
+	return fmt.Sprintf("sl log --pager never -T '{node}|{short(node)}|{desc|firstline}|{author|user}|{date|isodate}|{p1node} {p2node}\\n' -r %s", shellutil.Quote(limitedRevset))
 }
 
 func (s *SaplingCommandBuilder) ResolveRef(ref string) string {
@@ -89,7 +99,7 @@ func (s *SaplingCommandBuilder) ResolveRef(ref string) string {
 	if ref == "HEAD" {
 		slRef = "."
 	}
-	return fmt.Sprintf("sl log -T '{node}' -r %s --limit 1", shellutil.Quote(slRef))
+	return fmt.Sprintf("sl log --pager never -T '{node}' -r %s --limit 1", shellutil.Quote(slRef))
 }
 
 func (s *SaplingCommandBuilder) MergeBase(ref1, ref2 string) string {
@@ -98,7 +108,7 @@ func (s *SaplingCommandBuilder) MergeBase(ref1, ref2 string) string {
 		slRef1 = "."
 	}
 	revset := fmt.Sprintf("ancestor(%s, %s)", slRef1, slRef2)
-	return fmt.Sprintf("sl log -T '{node}' -r %s --limit 1", shellutil.Quote(revset))
+	return fmt.Sprintf("sl log --pager never -T '{node}' -r %s --limit 1", shellutil.Quote(revset))
 }
 
 func (s *SaplingCommandBuilder) DefaultBranchRef(branch string) string {
@@ -116,9 +126,9 @@ func (s *SaplingCommandBuilder) RevListCount(rangeSpec string) string {
 	exclude, include := parseRangeToRevset(rangeSpec)
 	if exclude != "" {
 		revset := fmt.Sprintf("only(%s, %s)", include, exclude)
-		return fmt.Sprintf("sl log -T '.' -r %s | wc -l", shellutil.Quote(revset))
+		return fmt.Sprintf("sl log --pager never -T '.' -r %s | wc -l", shellutil.Quote(revset))
 	}
-	return fmt.Sprintf("sl log -T '.' -r %s | wc -l", shellutil.Quote(rangeSpec))
+	return fmt.Sprintf("sl log --pager never -T '.' -r %s | wc -l", shellutil.Quote(rangeSpec))
 }
 
 func (s *SaplingCommandBuilder) CurrentBranch() string {
@@ -130,16 +140,16 @@ func (s *SaplingCommandBuilder) StatusPorcelain() string {
 }
 
 func (s *SaplingCommandBuilder) RemoteBranchExists(branch string) string {
-	return fmt.Sprintf("sl log -r 'remote(%s)' --limit 1 -T '{node}' 2>/dev/null", branch)
+	return fmt.Sprintf("sl log --pager never -r 'remote(%s)' --limit 1 -T '{node}' 2>/dev/null", branch)
 }
 
 func (s *SaplingCommandBuilder) NewestTimestamp(rangeSpec string) string {
 	exclude, include := parseRangeToRevset(rangeSpec)
 	if exclude != "" {
 		revset := fmt.Sprintf("last(only(%s, %s))", include, exclude)
-		return fmt.Sprintf("sl log -T '{date|isodate}\\n' -r %s --limit 1", shellutil.Quote(revset))
+		return fmt.Sprintf("sl log --pager never -T '{date|isodate}\\n' -r %s --limit 1", shellutil.Quote(revset))
 	}
-	return fmt.Sprintf("sl log -T '{date|isodate}\\n' -r %s --limit 1", shellutil.Quote(rangeSpec))
+	return fmt.Sprintf("sl log --pager never -T '{date|isodate}\\n' -r %s --limit 1", shellutil.Quote(rangeSpec))
 }
 
 func (s *SaplingCommandBuilder) AddFiles(files []string) string {
@@ -185,5 +195,5 @@ func (s *SaplingCommandBuilder) CheckIgnore(file string) string {
 }
 
 func (s *SaplingCommandBuilder) DiffUnified() string {
-	return "sl diff"
+	return "sl diff --pager never"
 }

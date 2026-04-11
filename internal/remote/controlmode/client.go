@@ -50,6 +50,9 @@ type Client struct {
 	// Output fan-out drop counter (events dropped because subscriber couldn't keep up)
 	droppedFanOut atomic.Int64
 
+	// Serialize RunCommand calls — concurrent polls flood the FIFO queue
+	runCmdSem chan struct{}
+
 	// Pause notifications (pane IDs paused by tmux when output falls behind)
 	pauseCh chan string
 
@@ -79,6 +82,7 @@ func NewClient(stdin io.Writer, parser *Parser, logger *log.Logger) *Client {
 		outputSubs:   make(map[string][]chan OutputEvent),
 		pauseCh:      make(chan string, 10),
 		closeCh:      make(chan struct{}),
+		runCmdSem:    make(chan struct{}, 1), // max 1 concurrent RunCommand
 	}
 }
 
@@ -170,19 +174,6 @@ func (c *Client) Execute(ctx context.Context, cmd string) (string, time.Duration
 		c.respChansMu.Unlock()
 	}()
 
-	// Add to queue under lock
-	c.pendingMu.Lock()
-	if !c.running {
-		c.pendingMu.Unlock()
-		return "", 0, fmt.Errorf("client not running")
-	}
-	c.pendingQueue = append(c.pendingQueue, respCh)
-	c.firstCommandSent = true
-	c.pendingMu.Unlock()
-
-	// Send command (tmux control mode assigns IDs automatically based on order)
-	// Commands are matched to responses in FIFO order
-	//
 	// tmux control mode uses newlines as command terminators — each line is
 	// one command. Embedded newlines split a single command into multiple
 	// commands, corrupting the FIFO protocol. This happens when shell-quoted
@@ -190,10 +181,29 @@ func (c *Client) Execute(ctx context.Context, cmd string) (string, time.Duration
 	// --append-system-prompt on remote sessions). Collapse to spaces.
 	cmd = strings.ReplaceAll(cmd, "\n", " ")
 
-	// Protect stdin write with mutex to prevent concurrent command interleaving
+	// CRITICAL: Queue append and stdin write must be atomic. tmux assigns
+	// sequential command IDs based on the order commands arrive on stdin.
+	// Responses are matched to callers in FIFO order from pendingQueue.
+	// If goroutine A appends to the queue first but goroutine B writes to
+	// stdin first, the queue order [A,B] won't match the send order [B,A],
+	// causing every subsequent response to be delivered to the wrong caller.
+	//
+	// Fix: acquire stdinMu first (serializes senders), then append to queue
+	// under pendingMu, then write. Whoever sends first also queues first.
 	mutexStart := time.Now()
 	c.stdinMu.Lock()
 	mutexWait := time.Since(mutexStart)
+
+	c.pendingMu.Lock()
+	if !c.running {
+		c.pendingMu.Unlock()
+		c.stdinMu.Unlock()
+		return "", mutexWait, fmt.Errorf("client not running")
+	}
+	c.pendingQueue = append(c.pendingQueue, respCh)
+	c.firstCommandSent = true
+	c.pendingMu.Unlock()
+
 	_, err := fmt.Fprintf(c.stdin, "%s\n", cmd)
 	c.stdinMu.Unlock()
 	if err != nil {
@@ -202,27 +212,39 @@ func (c *Client) Execute(ctx context.Context, cmd string) (string, time.Duration
 		return "", mutexWait, fmt.Errorf("failed to send command: %w", err)
 	}
 
+	// Log non-trivial commands (skip per-keystroke send-keys and health probe noise).
+	if c.logger != nil && !strings.HasPrefix(cmd, "send-keys") && !strings.HasPrefix(cmd, "display-message") {
+		c.pendingMu.Lock()
+		qDepth := len(c.pendingQueue)
+		c.pendingMu.Unlock()
+		c.logger.Debug("Execute: sent", "cmd", cmd, "mutex_wait", mutexWait, "queue_depth", qDepth)
+	}
+
 	// Wait for response
+	sendTime := time.Now()
 	select {
 	case resp := <-respCh:
+		rtt := time.Since(sendTime)
 		if !resp.Success {
 			if c.logger != nil {
-				c.logger.Error("command failed", "cmd", cmd, "err", resp.Content)
+				c.logger.Error("command failed", "cmd", cmd, "err", resp.Content, "rtt", rtt)
 			}
 			return "", mutexWait, fmt.Errorf("command failed: %s", resp.Content)
 		}
+		if c.logger != nil && rtt > 2*time.Second {
+			c.logger.Warn("Execute: slow response", "cmd", cmd, "rtt", rtt)
+		}
 		return resp.Content, mutexWait, nil
 	case <-ctx.Done():
-		// DO NOT remove from queue or close channel - just stop listening
-		// The response will still arrive and be sent to this buffered channel (won't block)
-		// Since we're no longer listening, the value is effectively discarded
-		// Channel will be deregistered and cleaned up by defer
+		elapsed := time.Since(sendTime)
 		if c.logger != nil {
-			c.logger.Error("command timeout", "cmd", cmd)
+			c.pendingMu.Lock()
+			qDepth := len(c.pendingQueue)
+			c.pendingMu.Unlock()
+			c.logger.Error("command timeout", "cmd", cmd, "waited", elapsed, "queue_depth", qDepth)
 		}
 		return "", mutexWait, ctx.Err()
 	case <-c.closeCh:
-		// Client is closing, channel will be cleaned up by defer
 		return "", mutexWait, fmt.Errorf("client closed")
 	}
 }
@@ -260,7 +282,7 @@ func (c *Client) processResponses() {
 			} else {
 				c.pendingMu.Unlock()
 				if c.logger != nil {
-					c.logger.Warn("received response but no pending commands", "cmd_id", resp.CommandID)
+					c.logger.Error("FIFO desync: response arrived with empty queue", "cmd_id", resp.CommandID, "success", resp.Success, "content_len", len(resp.Content))
 				}
 			}
 		case <-c.closeCh:
@@ -628,20 +650,47 @@ func tmuxQuote(s string) string {
 }
 
 // RunCommand executes a command in a hidden tmux window and returns its output.
-// Instead of embedding the command in the new-window invocation (which has tmux
-// quoting issues with single quotes in VCS commands), it creates a window with
-// the default shell, types the command via send-keys, and polls capture-pane.
+// It creates a window with the default shell, types the command via send-keys,
+// creates a hidden tmux window that runs the command directly (no shell init
+// wait), then polls capture-pane until the end sentinel appears.
+//
+// The command is passed to new-window as the window process, so it starts
+// immediately — no send-keys, no shell init delay. A trailing "sleep 86400"
+// keeps the window alive until capture-pane reads the output.
+//
+// Contention with agent %output events is managed at a higher level:
+//   - VCS commands are batched (3 commands → 1 RunCommand with delimiters)
+//   - VCS polling is throttled (every 60s, not every 10s)
+//   - The semaphore serializes concurrent RunCommand calls
+//
+// Together these reduce FIFO queue pressure from ~3 Execute/s to ~0.1 Execute/s.
 func (c *Client) RunCommand(ctx context.Context, workdir, command string) (string, error) {
+	// Limit concurrent RunCommand calls to prevent tmux window spam.
+	select {
+	case c.runCmdSem <- struct{}{}:
+		defer func() { <-c.runCmdSem }()
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+
 	beginSentinel := fmt.Sprintf("__SCHMUX_BEGIN_%s__", uuid.New().String()[:8])
 	endSentinel := fmt.Sprintf("__SCHMUX_END_%s__", uuid.New().String()[:8])
 
+	runStart := time.Now()
 	if c.logger != nil {
-		c.logger.Info("RunCommand", "workdir", workdir, "cmd", command)
+		c.logger.Debug("RunCommand: start", "workdir", workdir, "cmd", command)
 	}
 
-	// Create a hidden window with the default shell (no command = default shell).
-	// This avoids all tmux command-quoting issues because we don't embed the
-	// VCS command in the new-window invocation.
+	// Build the shell command with sentinels. Disable ALL pagers since
+	// RunCommand runs non-interactively in a hidden tmux pane — a pager
+	// would block waiting for input and the end sentinel would never appear.
+	// PAGER covers most tools, GIT_PAGER covers git, HGPAGER covers
+	// Mercurial/Sapling (sl). The sl --config flag is belt-and-suspenders
+	// since Sapling may ignore PAGER in some configurations.
+	fullCmd := fmt.Sprintf("export PAGER=cat GIT_PAGER=cat HGPAGER=cat; echo %s; cd %s && %s; echo %s",
+		beginSentinel, shellutil.Quote(workdir), command, endSentinel)
+
+	// Create a hidden window with the default shell (long-running process).
 	output, _, err := c.Execute(ctx, "new-window -d -n schmux-cmd -P -F '#{window_id} #{pane_id}'")
 	if err != nil {
 		return "", fmt.Errorf("failed to create command window: %w", err)
@@ -655,7 +704,7 @@ func (c *Client) RunCommand(ctx context.Context, workdir, command string) (strin
 	paneID := parts[1]
 
 	if c.logger != nil {
-		c.logger.Info("RunCommand: created window", "window", windowID, "pane", paneID)
+		c.logger.Debug("RunCommand: created window", "window", windowID, "pane", paneID)
 	}
 
 	// Ensure the window is always cleaned up
@@ -673,76 +722,113 @@ func (c *Client) RunCommand(ctx context.Context, workdir, command string) (strin
 		}
 	}()
 
-	// Brief wait for the shell to initialize
-	time.Sleep(200 * time.Millisecond)
-
-	// Build the full command to type into the shell.
-	// Begin/end sentinels on their own lines let us cleanly extract just the output,
-	// ignoring the shell's command echo line.
-	fullCmd := fmt.Sprintf("echo %s; cd %s && %s; echo %s",
-		beginSentinel, shellutil.Quote(workdir), command, endSentinel)
+	// Set remain-on-exit on the window as a safety net — if the shell exits
+	// unexpectedly, the pane stays readable for capture-pane.
+	// Also increase scrollback so large command output doesn't push the
+	// begin sentinel off the buffer (default is 2000 lines).
+	_, _, _ = c.Execute(ctx, fmt.Sprintf("set-option -t %s remain-on-exit on", windowID))
+	_, _, _ = c.Execute(ctx, fmt.Sprintf("set-option -t %s history-limit 50000", windowID))
 
 	if c.logger != nil {
-		c.logger.Debug("RunCommand: typing into pane", "pane", paneID, "cmd", fullCmd)
+		c.logger.Debug("RunCommand: window ready, waiting for shell init", "elapsed", time.Since(runStart))
 	}
 
+	// Brief wait for the shell to initialize before typing the command.
+	time.Sleep(500 * time.Millisecond)
+
 	// Send command as literal keystrokes via send-keys -l.
-	// This bypasses tmux's command parser entirely — the text goes straight to the
-	// shell in the pane. tmuxQuote handles only the tmux protocol quoting layer.
 	_, _, err = c.Execute(ctx, fmt.Sprintf("send-keys -t %s -l %s", paneID, tmuxQuote(fullCmd)))
 	if err != nil {
 		return "", fmt.Errorf("failed to send command keys: %w", err)
 	}
-	// Press Enter to execute
 	_, _, err = c.Execute(ctx, fmt.Sprintf("send-keys -t %s Enter", paneID))
 	if err != nil {
 		return "", fmt.Errorf("failed to send Enter: %w", err)
 	}
 
-	// Poll capture-pane until end sentinel appears on its own line
+	if c.logger != nil {
+		c.logger.Debug("RunCommand: command sent, polling for sentinels", "elapsed", time.Since(runStart))
+	}
+
+	// Poll capture-pane until the end sentinel appears.
 	const pollInterval = 200 * time.Millisecond
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
-	beginMarker := "\n" + beginSentinel + "\n"
-
+	pollCount := 0
 	for {
 		select {
 		case <-ctx.Done():
+			if c.logger != nil {
+				c.logger.Error("RunCommand: context done during poll", "polls", pollCount, "elapsed", time.Since(runStart), "pane", paneID)
+			}
 			return "", ctx.Err()
 		case <-c.closeCh:
 			return "", fmt.Errorf("client closed")
 		case <-ticker.C:
-			captured, _, captureErr := c.Execute(ctx, fmt.Sprintf("capture-pane -t %s -p -S -50000", paneID))
-			if captureErr != nil {
-				return "", fmt.Errorf("capture-pane failed: %w", captureErr)
-			}
-
-			// Find end sentinel on its own line (last occurrence to skip command echo)
-			endIdx := strings.LastIndex(captured, "\n"+endSentinel)
-			if endIdx < 0 {
-				continue
-			}
-
-			// Find begin sentinel on its own line
-			beginIdx := strings.Index(captured, beginMarker)
-			if beginIdx < 0 {
-				continue
-			}
-
-			// Extract content between sentinels
-			contentStart := beginIdx + len(beginMarker)
-			// When the command produces no output, the end marker immediately
-			// follows the begin marker and contentStart can exceed endIdx.
-			var result string
-			if contentStart <= endIdx {
-				result = strings.TrimSpace(captured[contentStart:endIdx])
-			}
-
-			if c.logger != nil {
-				c.logger.Debug("RunCommand: captured output", "bytes", len(result), "pane", paneID)
-			}
-			return result, nil
 		}
+
+		pollCount++
+		captured, _, captureErr := c.Execute(ctx, fmt.Sprintf("capture-pane -J -t %s -p -S -32768", paneID))
+		if captureErr != nil {
+			if c.logger != nil {
+				c.logger.Error("RunCommand: capture-pane failed", "err", captureErr, "polls", pollCount, "elapsed", time.Since(runStart))
+			}
+			return "", fmt.Errorf("capture-pane failed: %w", captureErr)
+		}
+
+		// Log polls: first 3, every 10th, and a full dump at poll 20 (stall detection)
+		if c.logger != nil && (pollCount <= 3 || pollCount%10 == 0) {
+			preview := captured
+			if len(preview) > 200 {
+				preview = preview[:200] + "..."
+			}
+			c.logger.Debug("RunCommand: poll", "n", pollCount, "captured_len", len(captured), "preview", preview, "pane", paneID)
+		}
+		if c.logger != nil && pollCount == 20 {
+			// Full content dump on stall — show last 500 chars to see what's at the bottom
+			tail := captured
+			if len(tail) > 500 {
+				tail = "..." + tail[len(tail)-500:]
+			}
+			c.logger.Warn("RunCommand: stall detected", "polls", pollCount, "captured_len", len(captured), "tail", tail, "pane", paneID)
+		}
+
+		// Normalize: ensure captured starts with \n so sentinel matching
+		// works whether the sentinel is on the first line or preceded by
+		// other output (e.g., shell prompt). With new-window, the command
+		// runs directly so the sentinel IS the first line.
+		captured = "\n" + captured
+
+		endIdx := strings.LastIndex(captured, "\n"+endSentinel)
+		if endIdx < 0 {
+			continue // sentinel not yet visible
+		}
+
+		// Extract content between sentinels
+		beginMarker := "\n" + beginSentinel + "\n"
+		beginIdx := strings.Index(captured, beginMarker)
+		if beginIdx < 0 {
+			if c.logger != nil {
+				c.logger.Error("RunCommand: end sentinel found but begin missing", "polls", pollCount, "captured_len", len(captured))
+			}
+			return "", fmt.Errorf("begin sentinel not found in output")
+		}
+
+		contentStart := beginIdx + len(beginMarker)
+		var result string
+		if contentStart <= endIdx {
+			result = strings.TrimSpace(captured[contentStart:endIdx])
+		}
+
+		if c.logger != nil {
+			elapsed := time.Since(runStart)
+			if elapsed > 5*time.Second {
+				c.logger.Warn("RunCommand: slow", "bytes", len(result), "polls", pollCount, "elapsed", elapsed, "pane", paneID)
+			} else {
+				c.logger.Debug("RunCommand: done", "bytes", len(result), "polls", pollCount, "elapsed", elapsed, "pane", paneID)
+			}
+		}
+		return result, nil
 	}
 }

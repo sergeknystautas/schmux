@@ -3,7 +3,11 @@
 package e2e
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -709,6 +713,141 @@ func TestE2ERemotePersonaFileCreated(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("DisposeSession", func(t *testing.T) {
+		env.DisposeSession(sessionID)
+	})
+}
+
+// TestE2ERemoteRunCommand validates that RunCommand works end-to-end through
+// real tmux control mode. Creates a git repo, spawns a remote session, and
+// verifies the diff API returns actual file contents via RunCommand.
+func TestE2ERemoteRunCommand(t *testing.T) {
+	t.Parallel()
+	env := New(t)
+
+	workspaceRoot := t.TempDir()
+	t.Run("CreateConfig", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+	})
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
+	mockScriptPath := filepath.Join(cwd, "..", "..", "test", "mock-remote.sh")
+
+	// Use a unique workspace path — we'll create a git repo there.
+	// The mock remote runs locally, so this path is accessible.
+	remoteWorkspacePath := fmt.Sprintf("/tmp/test-runcommand-%d", time.Now().UnixNano())
+
+	var profileID string
+	flavor := "mock-remote-runcmd"
+	t.Run("AddRemoteProfile", func(t *testing.T) {
+		profileID = env.AddRemoteProfileToConfig(
+			flavor,
+			"Mock Remote RunCommand (E2E Test)",
+			remoteWorkspacePath,
+			mockScriptPath,
+		)
+	})
+
+	t.Run("DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+		os.RemoveAll(remoteWorkspacePath)
+	}()
+
+	// Create a git repo at the workspace path with a dirty working tree
+	t.Run("CreateGitRepo", func(t *testing.T) {
+		if err := os.MkdirAll(remoteWorkspacePath, 0o755); err != nil {
+			t.Fatalf("Failed to create workspace dir: %v", err)
+		}
+		RunCmd(t, remoteWorkspacePath, "git", "init", "-b", "main")
+		RunCmd(t, remoteWorkspacePath, "git", "config", "user.email", "e2e@test.local")
+		RunCmd(t, remoteWorkspacePath, "git", "config", "user.name", "E2E Test")
+		if err := os.WriteFile(filepath.Join(remoteWorkspacePath, "file.txt"), []byte("hello\n"), 0o644); err != nil {
+			t.Fatalf("Failed to create file: %v", err)
+		}
+		RunCmd(t, remoteWorkspacePath, "git", "add", ".")
+		RunCmd(t, remoteWorkspacePath, "git", "commit", "-m", "initial commit")
+		// Make a modification so VCS status reports dirty
+		if err := os.WriteFile(filepath.Join(remoteWorkspacePath, "file.txt"), []byte("hello\nmodified\n"), 0o644); err != nil {
+			t.Fatalf("Failed to modify file: %v", err)
+		}
+	})
+
+	var sessionID string
+	t.Run("SpawnRemoteSession", func(t *testing.T) {
+		sessionID = env.SpawnRemoteSession(profileID, flavor, "echo", "", env.Nickname("runcmd-test"))
+		if sessionID == "" {
+			t.Fatal("Expected session ID from remote spawn")
+		}
+	})
+
+	t.Run("WaitForConnection", func(t *testing.T) {
+		host := env.WaitForRemoteHostStatus(profileID, "connected", 15*time.Second)
+		if host == nil {
+			t.Fatal("Remote host did not connect")
+		}
+		env.WaitForSessionRunning(sessionID, 10*time.Second)
+	})
+
+	// Wait for the onConnect VCS RunCommand to complete (or timeout at 30s)
+	// and release the semaphore before calling the diff API.
+	time.Sleep(35 * time.Second)
+
+	// Call the diff API directly (NOT in a subtest — subtest output is swallowed)
+	{
+		workspaceID := env.GetWorkspaceIDForSession(sessionID)
+		t.Logf("E2E_DIFF_TEST: calling diff API for workspace %s", workspaceID)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
+			env.DaemonURL+"/api/diff/"+workspaceID, nil)
+		resp, diffErr := http.DefaultClient.Do(req)
+		cancel()
+
+		if diffErr != nil {
+			t.Logf("E2E_DIFF_TEST: HTTP error: %v", diffErr)
+			t.Fatalf("Diff API call failed: %v", diffErr)
+		}
+		defer resp.Body.Close()
+
+		body, _ := io.ReadAll(resp.Body)
+		t.Logf("E2E_DIFF_TEST: status=%d body_len=%d body=%s", resp.StatusCode, len(body), string(body[:min(len(body), 500)]))
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("Diff API returned %d: %s", resp.StatusCode, string(body))
+		}
+
+		var diffResp struct {
+			Files []struct {
+				NewPath    string `json:"new_path"`
+				NewContent string `json:"new_content"`
+			} `json:"files"`
+		}
+		if err := json.Unmarshal(body, &diffResp); err != nil {
+			t.Fatalf("Failed to parse diff response: %v", err)
+		}
+
+		if len(diffResp.Files) == 0 {
+			t.Fatal("E2E_DIFF_TEST: zero files — RunCommand returned no output")
+		}
+
+		for _, f := range diffResp.Files {
+			t.Logf("E2E_DIFF_TEST: file=%s content_len=%d", f.NewPath, len(f.NewContent))
+			if f.NewPath == "file.txt" && strings.Contains(f.NewContent, "modified") {
+				t.Logf("E2E_DIFF_TEST: SUCCESS — RunCommand returned file content")
+			}
+		}
+	}
 
 	t.Run("DisposeSession", func(t *testing.T) {
 		env.DisposeSession(sessionID)

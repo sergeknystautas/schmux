@@ -1109,7 +1109,7 @@ func (s *Server) HandleStatusEvent(sessionID, state, message, intent, blockers s
 		return
 	}
 
-	logging.Sub(s.logger, "events").Info("received status event", "session_id", sessionID, "state", state, "seq", seq, "message", message)
+	logging.Sub(s.logger, "events").Debug("received status event", "session_id", sessionID, "state", state, "seq", seq, "message", message)
 
 	// Broadcast via debouncer
 	go s.BroadcastSessions()

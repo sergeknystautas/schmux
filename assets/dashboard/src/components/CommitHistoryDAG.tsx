@@ -103,15 +103,25 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
       ? Math.max(minCommits, Math.floor(containerHeight / ROW_HEIGHT) - virtualRowOverhead)
       : 0;
 
+  // Use a ref for maxCommits so fetchData doesn't re-fire when diffFiles.length
+  // changes virtualRowOverhead → maxCommits. Without this, each fetch that returns
+  // new diff files triggers ANOTHER fetch (especially expensive for remote workspaces
+  // where each API call spawns SSH RunCommands).
+  const maxCommitsRef = useRef(maxCommits);
+  maxCommitsRef.current = maxCommits;
+
+  // Track in-flight fetches to prevent concurrent requests from piling up.
+  const fetchInFlightRef = useRef(false);
+
   const fetchData = useCallback(async () => {
-    if (maxCommits <= 0) return; // wait for container measurement
+    const mc = maxCommitsRef.current;
+    if (mc <= 0) return; // wait for container measurement
+    if (fetchInFlightRef.current) return; // skip if already fetching
+    fetchInFlightRef.current = true;
     try {
       const [graphResp, diffResp] = await Promise.all([
-        getCommitGraph(workspaceId, { maxTotal: maxCommits }),
-        // Skip diff fetch for sapling — commit/stage/discard actions are not supported
-        isSapling
-          ? Promise.resolve({ files: [] as FileDiff[] })
-          : getDiff(workspaceId).catch(() => ({ files: [] as FileDiff[] })),
+        getCommitGraph(workspaceId, { maxTotal: mc }),
+        getDiff(workspaceId).catch(() => ({ files: [] as FileDiff[] })),
       ]);
       setData(graphResp);
       const files = diffResp.files || [];
@@ -140,12 +150,14 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
       setError(err instanceof Error ? err.message : 'Failed to load git graph');
     } finally {
       setLoading(false);
+      fetchInFlightRef.current = false;
     }
-  }, [workspaceId, maxCommits]);
+  }, [workspaceId]);
 
+  // Initial fetch — only depends on workspaceId, not maxCommits.
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (maxCommits > 0) fetchData();
+  }, [fetchData, maxCommits > 0]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Refetch when git state changes via WebSocket session updates.
   // Track the git-relevant fields and refetch when they change.
@@ -317,6 +329,23 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
         </div>
       );
     }
+    if (ln.nodeType === 'commit-actions' && isSapling) {
+      // Sapling: show line count summary but no action buttons
+      return (
+        <div
+          key={ln.hash}
+          className="commit-dag__row commit-dag__commit-row"
+          style={{ height: lay.rowHeight }}
+        >
+          {ln.dirtyState && (
+            <span className="commit-dag__dirty-summary">
+              {ln.dirtyState.files_changed} file{ln.dirtyState.files_changed !== 1 ? 's' : ''}{' '}
+              changed
+            </span>
+          )}
+        </div>
+      );
+    }
     if (ln.nodeType === 'commit-actions') {
       return (
         <div
@@ -413,6 +442,8 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
       );
     }
     if (ln.nodeType === 'commit-footer') {
+      // Sapling remote workspaces: commit/amend not supported via tmux control mode
+      if (isSapling) return null;
       const canAmend = (ws?.ahead ?? 0) > 0;
       const commitDisabled = !commitMessageConfigured || selectedFiles.size === 0 || isCommitting;
 

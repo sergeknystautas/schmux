@@ -70,6 +70,10 @@ func (s *Server) handleWorkspaceCommitGraph(w http.ResponseWriter, r *http.Reque
 
 	// Delegate to remote handler if this is a remote workspace
 	if ws.RemoteHostID != "" {
+		// Cap remote to minimize SSH round-trips on large repos
+		if maxTotal > 10 {
+			maxTotal = 10
+		}
 		s.handleRemoteCommitGraph(w, r, ws, maxTotal, mainContext)
 		return
 	}
@@ -99,6 +103,8 @@ func (s *Server) handleWorkspaceCommitGraph(w http.ResponseWriter, r *http.Reque
 }
 
 // handleRemoteCommitGraph handles git graph requests for remote workspaces.
+// Uses a single batched RunCommand to resolve HEAD and fetch the log in one
+// tmux window — minimizes control mode channel contention.
 func (s *Server) handleRemoteCommitGraph(w http.ResponseWriter, r *http.Request, ws state.Workspace, maxTotal int, mainContext int) {
 	if s.remoteManager == nil {
 		writeJSONError(w, "remote manager not available", http.StatusServiceUnavailable)
@@ -113,140 +119,101 @@ func (s *Server) handleRemoteCommitGraph(w http.ResponseWriter, r *http.Request,
 
 	cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
 
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
 
 	workdir := ws.RemotePath
 	localBranch := ws.Branch
-
-	// Detect default branch using VCS-appropriate command
-	defaultBranch := "main"
-	if out, err := conn.RunCommand(ctx, workdir, cb.DetectDefaultBranch()); err == nil {
-		if branch := strings.TrimSpace(out); branch != "" {
-			defaultBranch = branch
-		}
+	// If the "branch" is a raw commit hash (Sapling on fbsource has no
+	// bookmarks), use the short hash as a label instead of the 40-char blob.
+	if isValidVCSHash(localBranch) && len(localBranch) >= 12 {
+		localBranch = localBranch[:12]
 	}
 
-	defaultBranchRef := cb.DefaultBranchRef(defaultBranch)
+	// Batch resolve-HEAD + detect default branch + log into a single RunCommand
+	// (1 tmux window, 1 poll loop). We skip resolving the default branch HEAD
+	// to save a round-trip — the branch label still appears for context.
+	const delim = "__SCHMUX_GRAPH_DELIM__"
+	batchCmd := fmt.Sprintf("%s; echo %s; %s; echo %s; %s",
+		cb.ResolveRef("HEAD"), delim,
+		cb.DetectDefaultBranch(), delim,
+		cb.Log([]string{"HEAD"}, maxTotal))
 
-	// Resolve HEAD and default branch ref
-	localHeadOutput, err := conn.RunCommand(ctx, workdir, cb.ResolveRef("HEAD"))
+	out, err := conn.RunCommand(ctx, workdir, batchCmd)
 	if err != nil {
-		writeJSONError(w, "cannot resolve HEAD", http.StatusInternalServerError)
+		s.logger.Error("remote commit graph failed", "err", err)
+		writeJSONError(w, fmt.Sprintf("commit graph failed: %v", err), http.StatusInternalServerError)
 		return
 	}
-	localHead := strings.TrimSpace(localHeadOutput)
+
+	sections := strings.SplitN(out, delim, 3)
+
+	// Section 0: HEAD hash
+	localHead := strings.TrimSpace(sections[0])
 	if !isValidVCSHash(localHead) {
 		writeJSONError(w, fmt.Sprintf("HEAD resolved to invalid hash: %q", localHead), http.StatusInternalServerError)
 		return
 	}
 
-	originMainHead := ""
-	if out, err := conn.RunCommand(ctx, workdir, cb.ResolveRef(defaultBranchRef)); err == nil {
-		trimmed := strings.TrimSpace(out)
-		if isValidVCSHash(trimmed) {
-			originMainHead = trimmed
-		} else {
-			s.logger.Debug("ignoring invalid default branch ref output", "output", trimmed)
-		}
+	// Section 1: default branch name (e.g., "main" or "master")
+	var defaultBranch string
+	if len(sections) > 1 {
+		defaultBranch = strings.TrimSpace(sections[1])
 	}
-
-	// Find fork point
-	var forkPoint string
-	if originMainHead != "" && localHead != originMainHead {
-		if out, err := conn.RunCommand(ctx, workdir, cb.MergeBase("HEAD", defaultBranchRef)); err == nil {
-			trimmed := strings.TrimSpace(out)
-			if isValidVCSHash(trimmed) {
-				forkPoint = trimmed
-			}
-		}
+	if defaultBranch == "" {
+		defaultBranch = "main"
 	}
+	defaultBranchRef := cb.DefaultBranchRef(defaultBranch) // e.g., "remote/main"
 
-	// Get main-ahead count (commits on origin/main that aren't on HEAD)
-	mainAheadCount := 0
-	if originMainHead != "" && localHead != originMainHead {
-		if out, err := conn.RunCommand(ctx, workdir, cb.RevListCount("HEAD.."+defaultBranchRef)); err == nil {
-			fmt.Sscanf(strings.TrimSpace(out), "%d", &mainAheadCount)
-		}
-	}
-
-	// Get newest timestamp of commits ahead on main
-	var mainAheadNewestTimestamp string
-	if mainAheadCount > 0 {
-		if out, err := conn.RunCommand(ctx, workdir, cb.NewestTimestamp("HEAD.."+defaultBranchRef)); err == nil {
-			mainAheadNewestTimestamp = strings.TrimSpace(out)
-		}
-	}
-
-	// Build workspace ID mapping for annotations
-	branchWorkspaces := make(map[string][]string)
-	for _, w := range s.state.GetWorkspaces() {
-		if w.Repo == ws.Repo {
-			branchWorkspaces[w.Branch] = append(branchWorkspaces[w.Branch], w.ID)
-		}
-	}
-
-	// Get log output
+	// Section 2: log output
 	var logOutput string
-	if originMainHead == "" || localHead == originMainHead {
-		out, err := conn.RunCommand(ctx, workdir, cb.Log([]string{"HEAD"}, mainContext+1))
-		if err != nil {
-			writeJSONError(w, fmt.Sprintf("log failed: %v", err), http.StatusInternalServerError)
-			return
-		}
-		logOutput = out
-	} else if forkPoint == "" {
-		out, err := conn.RunCommand(ctx, workdir, cb.Log([]string{"HEAD", defaultBranchRef}, maxTotal))
-		if err != nil {
-			writeJSONError(w, fmt.Sprintf("log failed: %v", err), http.StatusInternalServerError)
-			return
-		}
-		logOutput = out
-	} else {
-		// Divergence: get local commits + context (no main-ahead data)
-		// Get local commits from HEAD
-		maxLocal := maxTotal - mainContext
-		if maxLocal < 5 {
-			maxLocal = 5
-		}
-		out, err := conn.RunCommand(ctx, workdir, cb.Log([]string{"HEAD"}, maxLocal))
-		if err != nil {
-			writeJSONError(w, fmt.Sprintf("log failed: %v", err), http.StatusInternalServerError)
-			return
-		}
-		logOutput = out
+	if len(sections) > 2 {
+		logOutput = strings.TrimSpace(sections[2])
+	}
 
-		// Add context commits below fork point
-		if mainContext > 0 {
-			ctxOut, ctxErr := conn.RunCommand(ctx, workdir, cb.Log([]string{forkPoint}, mainContext))
-			if ctxErr == nil {
-				logOutput = logOutput + "\n" + ctxOut
-			}
+	if s.logger != nil {
+		lines := strings.Split(logOutput, "\n")
+		firstLine := ""
+		if len(lines) > 0 {
+			firstLine = lines[0]
 		}
+		s.logger.Debug("remote commit graph: raw output",
+			"head", localHead,
+			"log_len", len(logOutput),
+			"line_count", len(lines),
+			"first_line_len", len(firstLine),
+			"first_line", fmt.Sprintf("%q", firstLine),
+		)
 	}
 
 	rawNodes := workspace.ParseGitLogOutput(logOutput)
 
-	// Detect local truncation for the divergence case
-	localTruncated := false
-	if forkPoint != "" && originMainHead != "" && localHead != originMainHead {
-		maxLocal := maxTotal - mainContext
-		if maxLocal < 5 {
-			maxLocal = 5
-		}
-		localCount := 0
-		for _, n := range rawNodes {
-			if n.Hash == forkPoint {
-				break
+	// Build workspace ID mapping for annotations.
+	// Truncate hash-only branch names to match the localBranch truncation above.
+	branchWorkspaces := make(map[string][]string)
+	for _, ws2 := range s.state.GetWorkspaces() {
+		if ws2.Repo == ws.Repo {
+			bName := ws2.Branch
+			if isValidVCSHash(bName) && len(bName) >= 12 {
+				bName = bName[:12]
 			}
-			localCount++
+			branchWorkspaces[bName] = append(branchWorkspaces[bName], ws2.ID)
 		}
-		localTruncated = localCount >= maxLocal
 	}
 
-	resp := workspace.BuildGraphResponse(rawNodes, localBranch, defaultBranch, localHead, originMainHead, forkPoint, branchWorkspaces, ws.Repo, maxTotal, mainAheadCount)
-	resp.MainAheadNewestTimestamp = mainAheadNewestTimestamp
-	resp.LocalTruncated = localTruncated
+	// Build response with default branch reference (e.g., "remote/main").
+	// originMainHead is empty — we don't resolve it here to save a round trip.
+	// The default branch label still appears in the branches map for context.
+	resp := workspace.BuildGraphResponse(rawNodes, localBranch, defaultBranchRef, localHead, "", "", branchWorkspaces, ws.Repo, maxTotal, 0)
+
+	// Populate dirty state from workspace VCS stats (same as local handler)
+	if ws.FilesChanged > 0 {
+		resp.DirtyState = &contracts.CommitGraphDirtyState{
+			FilesChanged: ws.FilesChanged,
+			LinesAdded:   ws.LinesAdded,
+			LinesRemoved: ws.LinesRemoved,
+		}
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
