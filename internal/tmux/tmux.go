@@ -13,21 +13,26 @@ import (
 	"github.com/charmbracelet/log"
 )
 
-var (
-	// validSessionNamePattern ensures tmux session names contain only safe characters
-	// to prevent command injection. tmux allows most characters, but we restrict to
-	// alphanumeric, dash, and underscore for safety.
-	validSessionNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
-)
+// validSessionNameChars allows characters that are safe inside a tmux target
+// AND safe inside a double-quoted shell string (for GetAttachCommand copy-paste).
+// Rejected: $ ` \ " (shell escape), ; & ' (shell quoting hazards), . : (tmux rewrites),
+// control chars, newline, tab.
+var validSessionNameChars = regexp.MustCompile(`^[a-zA-Z0-9 _\-+*?#%^~@/,<>()\[\]{}|!]+$`)
 
-// ValidateSessionName checks if a session name is safe to use with tmux.
-// Returns an error if the name contains characters that could be used for command injection.
+// ValidateSessionName checks if a session name is safe to use with tmux and
+// safe to embed in a double-quoted shell string.
 func ValidateSessionName(name string) error {
 	if name == "" {
 		return fmt.Errorf("session name cannot be empty")
 	}
-	if !validSessionNamePattern.MatchString(name) {
-		return fmt.Errorf("invalid session name %q: must contain only alphanumeric characters, dash, and underscore", name)
+	if !validSessionNameChars.MatchString(name) {
+		return fmt.Errorf("invalid session name %q: contains disallowed characters", name)
+	}
+	if name[0] == '-' || name[0] == ' ' {
+		return fmt.Errorf("invalid session name %q: cannot start with %q", name, name[0])
+	}
+	if name[len(name)-1] == ' ' {
+		return fmt.Errorf("invalid session name %q: cannot end with a space", name)
 	}
 	return nil
 }

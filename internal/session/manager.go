@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -1618,11 +1619,20 @@ func (m *Manager) RenameSession(ctx context.Context, sessionID, newNickname stri
 	return nil
 }
 
-// sanitizeNickname sanitizes a nickname for use as a tmux session name.
-// tmux session names cannot contain dots (.) or colons (:).
+var (
+	nicknameDisallowedChars = regexp.MustCompile(`[^a-zA-Z0-9 _\-+*?#%^~@/,<>()\[\]{}|!]`)
+	nicknameDashRun         = regexp.MustCompile(`-{2,}`)
+)
+
+// sanitizeNickname converts a user-supplied nickname into a string that
+// satisfies tmux.ValidateSessionName: alphanumerics, space, and a limited
+// punctuation set that is safe inside a double-quoted shell string.
+// Disallowed characters are replaced with '-', runs of dashes are collapsed,
+// and leading/trailing dashes and spaces are trimmed.
 func sanitizeNickname(nickname string) string {
-	result := strings.ReplaceAll(nickname, ".", "-")
-	result = strings.ReplaceAll(result, ":", "-")
+	result := nicknameDisallowedChars.ReplaceAllString(nickname, "-")
+	result = nicknameDashRun.ReplaceAllString(result, "-")
+	result = strings.Trim(result, "- ")
 	return result
 }
 

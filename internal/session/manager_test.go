@@ -232,6 +232,56 @@ func TestSanitizeNickname(t *testing.T) {
 			input:    "",
 			expected: "",
 		},
+		{
+			name:     "preserves space and parens",
+			input:    "foo (1)",
+			expected: "foo (1)",
+		},
+		{
+			name:     "preserves slash",
+			input:    "feature/dark-mode",
+			expected: "feature/dark-mode",
+		},
+		{
+			name:     "replaces shell metachars",
+			input:    "a;b&c'd",
+			expected: "a-b-c-d",
+		},
+		{
+			name:     "replaces dollar and backtick",
+			input:    "a$b`c",
+			expected: "a-b-c",
+		},
+		{
+			name:     "replaces quotes and backslash",
+			input:    `a"b\c`,
+			expected: "a-b-c",
+		},
+		{
+			name:     "collapses runs of dashes",
+			input:    "a...b",
+			expected: "a-b",
+		},
+		{
+			name:     "trims leading equals",
+			input:    "=foo",
+			expected: "foo",
+		},
+		{
+			name:     "trims leading dash",
+			input:    "-foo",
+			expected: "foo",
+		},
+		{
+			name:     "trims leading and trailing spaces",
+			input:    "  hello  ",
+			expected: "hello",
+		},
+		{
+			name:     "fully invalid becomes empty",
+			input:    "...",
+			expected: "",
+		},
 	}
 
 	for _, tt := range tests {

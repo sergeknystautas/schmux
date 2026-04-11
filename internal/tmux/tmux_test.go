@@ -299,10 +299,9 @@ func TestValidateSessionName(t *testing.T) {
 			errMsg:  "invalid session name",
 		},
 		{
-			name:    "pipe injection",
-			input:   "test | cat /etc/passwd",
-			wantErr: true,
-			errMsg:  "invalid session name",
+			name:    "pipe is literal inside double quotes",
+			input:   "test | cat",
+			wantErr: false,
 		},
 		{
 			name:    "backtick injection",
@@ -331,14 +330,17 @@ func TestValidateSessionName(t *testing.T) {
 		{
 			name:    "space character",
 			input:   "test session",
-			wantErr: true,
-			errMsg:  "invalid session name",
+			wantErr: false,
+		},
+		{
+			name:    "parens and space",
+			input:   "foo (1)",
+			wantErr: false,
 		},
 		{
 			name:    "forward slash",
-			input:   "test/session",
-			wantErr: true,
-			errMsg:  "invalid session name",
+			input:   "feature/dark-mode",
+			wantErr: false,
 		},
 		{
 			name:    "backslash",
@@ -373,6 +375,30 @@ func TestValidateSessionName(t *testing.T) {
 		{
 			name:    "dot",
 			input:   "test.session",
+			wantErr: true,
+			errMsg:  "invalid session name",
+		},
+		{
+			name:    "leading dash",
+			input:   "-foo",
+			wantErr: true,
+			errMsg:  "cannot start with",
+		},
+		{
+			name:    "leading space",
+			input:   " foo",
+			wantErr: true,
+			errMsg:  "cannot start with",
+		},
+		{
+			name:    "trailing space",
+			input:   "foo ",
+			wantErr: true,
+			errMsg:  "cannot end with",
+		},
+		{
+			name:    "tab character",
+			input:   "foo\tbar",
 			wantErr: true,
 			errMsg:  "invalid session name",
 		},
