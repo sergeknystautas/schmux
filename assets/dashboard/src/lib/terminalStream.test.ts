@@ -2159,3 +2159,60 @@ describe('native typing escape sequence regression', () => {
     expect(arrow).toBe('\x1b[A');
   });
 });
+
+describe('native typing flush at right edge', () => {
+  it('flushes buffer when character would reach the right edge', async () => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    const stream = new TerminalStream('test-session', container);
+    await stream.initialized;
+
+    const wsSendSpy = vi.fn();
+    (stream as any).ws = { readyState: 1, send: wsSendSpy };
+    (stream as any).followTail = true;
+    stream.setNativeTyping(true);
+
+    const terminal = (stream as any).terminal;
+    terminal.cols = 80;
+    // Start typing at column 78 — localCursorCol will be set from cursorX
+    (terminal.buffer.active as any).cursorX = 78;
+
+    // First character at col 78: localCursorCol becomes 78, then advances to 79
+    stream.sendInput('a');
+    expect(stream.localBuffer).toBe('a');
+    expect(wsSendSpy).not.toHaveBeenCalled();
+
+    // Second character: localCursorCol is 79, 79 + 1 >= 80 → flush
+    stream.sendInput('b');
+    expect(stream.localBuffer).toBe('');
+    expect(stream.localEchoStart).toBeNull();
+    // Buffer "ab" should have been sent to the server
+    const sent = new TextDecoder().decode(wsSendSpy.mock.calls[0][0]);
+    expect(sent).toBe('ab');
+  });
+
+  it('does not flush when character fits before the right edge', async () => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    const stream = new TerminalStream('test-session', container);
+    await stream.initialized;
+
+    const wsSendSpy = vi.fn();
+    (stream as any).ws = { readyState: 1, send: wsSendSpy };
+    (stream as any).followTail = true;
+    stream.setNativeTyping(true);
+
+    const terminal = (stream as any).terminal;
+    terminal.cols = 80;
+    (terminal.buffer.active as any).cursorX = 70;
+
+    // Character at column 70 — plenty of room
+    stream.sendInput('x');
+    expect(stream.localBuffer).toBe('x');
+    expect(wsSendSpy).not.toHaveBeenCalled();
+  });
+});

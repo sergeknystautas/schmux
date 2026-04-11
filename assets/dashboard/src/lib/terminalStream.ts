@@ -246,6 +246,7 @@ export default class TerminalStream {
   nativeTypingEnabled = false;
   localBuffer = '';
   localEchoStart: { row: number; col: number } | null = null;
+  private localCursorCol = 0; // tracked independently — terminal.write() is async
   private fakeCursorRendered = false;
 
   lifecycleLogging = false;
@@ -1223,6 +1224,7 @@ export default class TerminalStream {
     // Step 3: Clear local state.
     this.localBuffer = '';
     this.localEchoStart = null;
+    this.localCursorCol = 0;
   }
 
   private echoLocally(char: string) {
@@ -1238,9 +1240,27 @@ export default class TerminalStream {
         row: buf.cursorY,
         col: buf.cursorX,
       };
+      this.localCursorCol = buf.cursorX;
+    }
+
+    // Compute character display width (1 for ASCII, 2 for CJK/wide chars)
+    const cp = char.codePointAt(0) ?? 0;
+    const unicodeService = (this.terminal as any)?._core?._unicodeService;
+    const charWidth = unicodeService ? unicodeService.wcwidth(cp) || 1 : 1;
+
+    // If this character would reach the right edge, buffer it but flush
+    // immediately — the server handles line wrapping and reflow correctly,
+    // whereas local echo would leave the cursor visually stuck at the edge.
+    // We track localCursorCol ourselves because terminal.write() is async
+    // and buffer.active.cursorX won't reflect our local writes yet.
+    if (this.localCursorCol + charWidth >= this.terminal.cols) {
+      this.localBuffer += char;
+      this.flushLocalBuffer();
+      return;
     }
 
     this.localBuffer += char;
+    this.localCursorCol += charWidth;
 
     // Measure local echo latency: keystroke → character rendered on screen.
     // This feeds the same typing performance widget as the server round-trip path,
@@ -1249,8 +1269,13 @@ export default class TerminalStream {
     this.terminal.write(char);
     inputLatency.markReceived();
 
-    // Render block cursor at the new typing position
-    this.renderFakeCursor();
+    // Render block cursor at the new typing position — but not at the last
+    // column: renderFakeCursor writes an inverse space that puts the cursor
+    // into deferred-wrap state, and removeFakeCursor's \b \b can't undo that
+    // correctly, leaving a ghost cursor artifact at the right edge.
+    if (this.localCursorCol < this.terminal.cols - 1) {
+      this.renderFakeCursor();
+    }
   }
 
   private localBackspace() {
@@ -1272,6 +1297,8 @@ export default class TerminalStream {
     const cp = removedChar.codePointAt(0) ?? 0;
     const unicodeService = (this.terminal as any)?._core?._unicodeService;
     const width = unicodeService ? unicodeService.wcwidth(cp) || 1 : 1;
+
+    this.localCursorCol -= width;
 
     const cursorX = this.terminal.buffer.active.cursorX;
 
@@ -1297,6 +1324,7 @@ export default class TerminalStream {
     // If buffer is now empty, clear the start position.
     if (this.localBuffer.length === 0) {
       this.localEchoStart = null;
+      this.localCursorCol = 0;
     } else {
       // Re-render cursor at the new end position
       this.renderFakeCursor();
