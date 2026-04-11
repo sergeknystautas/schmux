@@ -349,6 +349,132 @@ func TestDispose_ActiveSessions(t *testing.T) {
 	}
 }
 
+func TestDispose_ZombieWorkspace_EmptyDir(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{WorkspacePath: tmpDir}
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	// Create workspace directory with NO git metadata (zombie state)
+	workspaceID := "zombie-001"
+	workspacePath := filepath.Join(tmpDir, workspaceID)
+	if err := os.MkdirAll(workspacePath, 0755); err != nil {
+		t.Fatalf("failed to create zombie workspace directory: %v", err)
+	}
+
+	w := state.Workspace{
+		ID:     workspaceID,
+		Repo:   "test",
+		Branch: "main",
+		Path:   workspacePath,
+		VCS:    "git",
+	}
+	st.AddWorkspace(w)
+
+	// Dispose should succeed — dir is empty, no VCS metadata
+	err := m.Dispose(context.Background(), workspaceID)
+	if err != nil {
+		t.Errorf("Dispose() of empty zombie should succeed, got error: %v", err)
+	}
+
+	// Workspace removed from state
+	_, found := st.GetWorkspace(workspaceID)
+	if found {
+		t.Error("zombie workspace should be removed from state")
+	}
+
+	// Empty directory should be removed
+	if _, err := os.Stat(workspacePath); !os.IsNotExist(err) {
+		t.Error("empty zombie directory should be deleted")
+	}
+}
+
+func TestDispose_ZombieWorkspace_NonEmptyDir(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{WorkspacePath: tmpDir}
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	// Create zombie workspace with leftover files (no VCS metadata)
+	workspaceID := "zombie-002"
+	workspacePath := filepath.Join(tmpDir, workspaceID)
+	if err := os.MkdirAll(filepath.Join(workspacePath, ".schmux", "events"), 0755); err != nil {
+		t.Fatalf("failed to create zombie workspace directory: %v", err)
+	}
+
+	w := state.Workspace{
+		ID:     workspaceID,
+		Repo:   "test",
+		Branch: "main",
+		Path:   workspacePath,
+		VCS:    "git",
+	}
+	st.AddWorkspace(w)
+
+	// Dispose should succeed — workspace removed from state
+	err := m.Dispose(context.Background(), workspaceID)
+	if err != nil {
+		t.Errorf("Dispose() of non-empty zombie should succeed, got error: %v", err)
+	}
+
+	// Workspace removed from state
+	_, found := st.GetWorkspace(workspaceID)
+	if found {
+		t.Error("zombie workspace should be removed from state")
+	}
+
+	// Non-empty directory should still exist
+	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
+		t.Error("non-empty zombie directory should NOT be deleted")
+	}
+}
+
+func TestGetOrCreate_SkipsZombieWorkspace(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg.Repos = []config.Repo{{Name: "test", URL: "https://github.com/example/repo"}}
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	// Create a zombie workspace in state: directory exists, no VCS metadata
+	workspaceID := "zombie-reuse"
+	workspacePath := filepath.Join(tmpDir, workspaceID)
+	if err := os.MkdirAll(workspacePath, 0755); err != nil {
+		t.Fatalf("failed to create zombie directory: %v", err)
+	}
+
+	w := state.Workspace{
+		ID:     workspaceID,
+		Repo:   "https://github.com/example/repo",
+		Branch: "main",
+		Path:   workspacePath,
+		VCS:    "git",
+		Status: state.WorkspaceStatusRunning,
+	}
+	st.AddWorkspace(w)
+
+	// GetOrCreate for the same repo/branch should NOT reuse the zombie.
+	// It should skip it and try to create a new workspace (which will fail
+	// because there's no real bare clone). The key assertion: zombie still in state.
+	_, _ = m.GetOrCreate(context.Background(), "https://github.com/example/repo", "main")
+	// Error is expected (can't create real bare clone). What matters: zombie wasn't consumed.
+	_, found := st.GetWorkspace(workspaceID)
+	if !found {
+		t.Error("zombie workspace should NOT have been consumed by GetOrCreate")
+	}
+
+	// The zombie directory should still exist
+	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
+		t.Error("zombie directory should still exist after GetOrCreate attempt")
+	}
+}
+
 // TestDispose_Integration creates a real git workspace and disposes it.
 func TestDispose_Integration(t *testing.T) {
 	t.Parallel()

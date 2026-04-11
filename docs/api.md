@@ -797,6 +797,8 @@ Errors:
 
 Dispose a workspace (fails if workspace has active sessions). Sets workspace status to `disposing` and broadcasts immediately for visual feedback before starting teardown. Returns 200 OK if already disposing (idempotent). Reverts status on failure. Disposal runs with an independent server-side timeout and will complete even if the client disconnects.
 
+When the workspace directory exists but has no valid VCS metadata (a "zombie" state, e.g. after a partial `git worktree remove`), the disposal skips the safety check and recycling logic. It attempts to remove the directory only if empty (`os.Remove`), cleans up state, and returns success. If the directory is non-empty, the workspace is still removed from state but the directory is left on disk for manual cleanup.
+
 Response:
 
 ```json

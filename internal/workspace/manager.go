@@ -417,6 +417,11 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 				m.state.Save()
 				continue
 			}
+			// Verify VCS metadata is intact — skip zombie directories
+			if !hasVCSMetadata(w.Path, w.VCS) {
+				m.logger.Warn("recyclable workspace has no VCS metadata, skipping", "id", w.ID, "path", w.Path)
+				continue
+			}
 			// Divergence safety check: prevent cross-branch commit pollution.
 			// Skip when the workspace already has the target branch — those
 			// commits are what the caller wants, and remote refs may be stale
@@ -478,6 +483,11 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 			m.logger.Warn("directory missing, skipping", "id", w.ID, "path", w.Path)
 			continue
 		}
+		// Skip zombie workspaces (directory exists but no VCS metadata)
+		if !hasVCSMetadata(w.Path, w.VCS) {
+			m.logger.Warn("workspace has no VCS metadata, skipping", "id", w.ID, "path", w.Path)
+			continue
+		}
 		if w.Repo == repoURL && w.Branch == branch {
 			// Check if workspace has active sessions
 			if !m.hasActiveSessions(w.ID) {
@@ -512,6 +522,11 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 				// Check if workspace directory still exists
 				if _, err := os.Stat(w.Path); os.IsNotExist(err) {
 					m.logger.Warn("directory missing, skipping", "id", w.ID, "path", w.Path)
+					continue
+				}
+				// Skip zombie workspaces (directory exists but no VCS metadata)
+				if !hasVCSMetadata(w.Path, w.VCS) {
+					m.logger.Warn("workspace has no VCS metadata, skipping", "id", w.ID, "path", w.Path)
 					continue
 				}
 				// Only reuse if the workspace's branch hasn't diverged from the default branch.
@@ -1401,8 +1416,16 @@ func (m *Manager) dispose(ctx context.Context, workspaceID string, force bool, s
 		m.logger.Info("directory already deleted", "path", w.Path)
 	}
 
+	// Check if VCS metadata is intact (e.g., .git file/dir for git, .sl for sapling).
+	// A workspace with no VCS metadata is a "zombie" — the directory exists but VCS
+	// operations will fail. Safety checks and recycling only make sense when VCS is valid.
+	vcsExists := dirExists && hasVCSMetadata(w.Path, w.VCS)
+	if dirExists && !vcsExists {
+		m.logger.Warn("workspace directory exists but has no VCS metadata (zombie)", "path", w.Path, "vcs", w.VCS)
+	}
+
 	// Check git safety - only if directory exists
-	if !force && dirExists {
+	if !force && dirExists && vcsExists {
 		gitStatus, err := m.checkGitSafety(ctx, workspaceID)
 		if err != nil {
 			return fmt.Errorf("failed to check git status: %w", err)
@@ -1430,7 +1453,7 @@ func (m *Manager) dispose(ctx context.Context, workspaceID string, force bool, s
 	// Recycle: keep directory on disk, mark as recyclable for future reuse.
 	// Only recycle if the directory actually exists — recycling a missing directory
 	// would create a stale entry that Tier 0 can't reuse.
-	if m.config.RecycleWorkspaces && !skipRecycling && dirExists {
+	if m.config.RecycleWorkspaces && !skipRecycling && dirExists && vcsExists {
 		w.Status = state.WorkspaceStatusRecyclable
 		if err := m.state.UpdateWorkspace(w); err != nil {
 			return fmt.Errorf("failed to mark workspace as recyclable: %w", err)
@@ -1459,7 +1482,15 @@ func (m *Manager) dispose(ctx context.Context, workspaceID string, force bool, s
 	backend := m.backendForWorkspace(workspaceID)
 
 	if dirExists {
-		if w.VCS == "sapling" {
+		if !vcsExists {
+			// Zombie workspace: try to remove empty directory only.
+			// os.Remove fails if directory is non-empty — this is intentional.
+			if err := os.Remove(w.Path); err != nil {
+				m.logger.Warn("zombie workspace directory not empty, leaving on disk", "id", workspaceID, "path", w.Path, "err", err)
+			} else {
+				m.logger.Info("removed empty zombie workspace directory", "path", w.Path)
+			}
+		} else if w.VCS == "sapling" {
 			if err := backend.RemoveWorkspace(ctx, w.Path); err != nil {
 				m.logger.Warn("sapling remove failed, falling back to rm", "err", err)
 				if rmErr := os.RemoveAll(w.Path); rmErr != nil {

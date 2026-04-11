@@ -287,7 +287,7 @@ func TestHandleDisposeWorkspace_NonexistentWorkspace(t *testing.T) {
 func TestHandleDisposeWorkspace_NoGitRepo(t *testing.T) {
 	server, _, st := newTestServer(t)
 
-	// Temp dir without git — Dispose runs git safety checks and fails
+	// Temp dir without git — zombie workspace should be cleaned from state
 	wsDir := t.TempDir()
 	st.AddWorkspace(state.Workspace{
 		ID:     "ws-nogit",
@@ -300,18 +300,15 @@ func TestHandleDisposeWorkspace_NoGitRepo(t *testing.T) {
 	rr := httptest.NewRecorder()
 	server.handleDisposeWorkspace(rr, req)
 
-	// Safety check fails → 400
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("expected 400 (safety check failure), got %d: %s", rr.Code, rr.Body.String())
+	// Zombie workspace disposal succeeds — state cleaned up
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 (zombie disposal succeeds), got %d: %s", rr.Code, rr.Body.String())
 	}
 
-	// Workspace status should be reverted (not stuck in "disposing")
-	ws, found := st.GetWorkspace("ws-nogit")
-	if !found {
-		t.Fatal("workspace should still exist after failed dispose")
-	}
-	if ws.Status == "disposing" {
-		t.Error("workspace status should have been reverted after failed dispose")
+	// Workspace should be removed from state
+	_, found := st.GetWorkspace("ws-nogit")
+	if found {
+		t.Error("zombie workspace should be removed from state after successful dispose")
 	}
 }
 

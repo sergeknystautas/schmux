@@ -1,6 +1,10 @@
 package workspace
 
-import "context"
+import (
+	"context"
+	"os"
+	"path/filepath"
+)
 
 type VCSBackend interface {
 	EnsureRepoBase(ctx context.Context, repoIdentifier, basePath string) (string, error)
@@ -60,5 +64,20 @@ func IsGitVCS(vcs string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// hasVCSMetadata checks if a directory contains valid VCS metadata for the given VCS type.
+// For git variants (git, git-worktree, git-clone, empty): checks .git file or directory exists.
+// For sapling: checks .sl directory exists.
+func hasVCSMetadata(path, vcs string) bool {
+	switch vcs {
+	case "sapling":
+		info, err := os.Stat(filepath.Join(path, ".sl"))
+		return err == nil && info.IsDir()
+	default:
+		// git, git-worktree, git-clone, or empty (default to git)
+		_, err := os.Stat(filepath.Join(path, ".git"))
+		return err == nil
 	}
 }
