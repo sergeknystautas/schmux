@@ -38,7 +38,6 @@ import {
   reconnectRemoteHost,
   getDevStatus,
   devRebuild,
-  setDevLogLevel,
   getLoreProposals,
   type DevStatus,
 } from '../lib/api';
@@ -1035,31 +1034,6 @@ export default function AppShell() {
               );
             })}
           </div>
-
-          {isDevMode && devStatus && (
-            <div className="sidebar-section dev-log-level">
-              <button
-                className={`dev-log-level__toggle ${devStatus.log_level === 'debug' ? 'dev-log-level__toggle--active' : ''}`}
-                onClick={async () => {
-                  const next = devStatus.log_level === 'debug' ? 'info' : 'debug';
-                  try {
-                    const result = await setDevLogLevel(next);
-                    setDevStatus((prev) => (prev ? { ...prev, log_level: result.level } : prev));
-                  } catch {
-                    // toast handled by parseErrorResponse
-                  }
-                }}
-                title={`Log level: ${devStatus.log_level} (click to toggle)`}
-              >
-                <span className="dev-log-level__icon">
-                  {devStatus.log_level === 'debug' ? '\u25C9' : '\u25CE'}
-                </span>
-                {!navCollapsed && (
-                  <span className="dev-log-level__label">Logs: {devStatus.log_level}</span>
-                )}
-              </button>
-            </div>
-          )}
 
           {isDebugMode && <CurationStatus />}
           {isDebugMode && <EventMonitor />}

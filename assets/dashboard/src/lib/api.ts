@@ -931,16 +931,6 @@ export async function getDevStatus(): Promise<DevStatus> {
   return response.json();
 }
 
-export async function setDevLogLevel(level: 'debug' | 'info'): Promise<{ level: string }> {
-  const response = await apiFetch('/api/dev/log-level', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-    body: JSON.stringify({ level }),
-  });
-  if (!response.ok) await parseErrorResponse(response, 'Failed to set log level');
-  return response.json();
-}
-
 export async function devRebuild(
   workspaceId: string,
   type: 'frontend' | 'backend' | 'both'
