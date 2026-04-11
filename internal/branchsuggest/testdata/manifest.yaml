@@ -3,5 +3,4 @@ cases:
   - id: huh-onboarding
     prompt: huh-onboarding.txt
     want_branch: feature/huh-onboarding
-    want_nickname: Huh onboarding
     notes: Replace hand-rolled interactive screens with huh library

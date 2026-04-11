@@ -173,13 +173,12 @@ export async function suggestBranch(request: SuggestBranchRequest): Promise<Sugg
 
 /**
  * Prepares spawn data for an existing branch.
- * Gets commit log, generates nickname, and returns everything for the spawn form.
+ * Gets commit log and returns everything for the spawn form.
  */
 interface PrepareBranchSpawnResponse {
   repo: string;
   branch: string;
   prompt: string;
-  nickname: string;
 }
 
 export async function prepareBranchSpawn(

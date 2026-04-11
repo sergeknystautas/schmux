@@ -207,7 +207,7 @@ The spawn wizard is a single-page interface that prioritizes your task descripti
   - `/resume`: Resume the agent's last conversation in an existing workspace (requires workspace selection)
   - `/quick`: Run a quick launch preset (workspace mode only; shows dropdown of available quick commands)
 - **Parallel target configuration**: Select agents and configure targets in parallel below the prompt
-- **AI-powered branch suggestions**: Branch name and nickname are auto-generated from your prompt (when creating new workspaces)
+- **AI-powered branch suggestions**: Branch name is auto-generated from your prompt (when creating new workspaces)
 - **One-click engage**: The "Engage" button handles branch naming and spawning in sequence
 
 When spawning into an existing workspace, the page shows workspace context (header + tabs) and auto-navigates to the newly created session after successful spawn.
@@ -216,11 +216,11 @@ When spawning into an existing workspace, the page shows workspace context (head
 
 The spawn page has three modes, determined once on page load:
 
-| Mode        | Source                        | Description                                                                                 |
-| ----------- | ----------------------------- | ------------------------------------------------------------------------------------------- |
-| `workspace` | URL `?workspace_id=xxx`       | Spawn into existing workspace                                                               |
-| `prefilled` | React Router `location.state` | Pre-selected repo/branch with prepared prompt and nickname (from home page recent branches) |
-| `fresh`     | no params, no state           | New spawn from scratch                                                                      |
+| Mode        | Source                        | Description                                                                    |
+| ----------- | ----------------------------- | ------------------------------------------------------------------------------ |
+| `workspace` | URL `?workspace_id=xxx`       | Spawn into existing workspace                                                  |
+| `prefilled` | React Router `location.state` | Pre-selected repo/branch with prepared prompt (from home page recent branches) |
+| `fresh`     | no params, no state           | New spawn from scratch                                                         |
 
 ### Data Sources
 
@@ -230,7 +230,7 @@ The spawn page uses a three-layer persistence model:
 
 - Highest priority, determined by navigation method
 - URL parameters: `workspace_id` for existing workspace spawns
-- React Router location state: `repo`, `branch`, `prompt`, `nickname` for prefilled mode
+- React Router location state: `repo`, `branch`, `prompt` for prefilled mode
   - Passed via `navigate('/spawn', { state })` from home page
   - Produced by `POST /api/prepare-branch-spawn` (see below)
 
@@ -269,7 +269,7 @@ The spawn page uses a three-layer persistence model:
 | selectedCommand    | Which command to run (only when spawnMode is `'command'`)                    |
 | targetCounts       | Map of target name to count (e.g. `{'claude-code': 2}`)                      |
 | modelSelectionMode | `'single'`, `'multiple'`, or `'advanced'` - controls how agents are selected |
-| nickname           | Friendly name for the session (auto-generated from prompt in fresh mode)     |
+| nickname           | Friendly name for the session (user-provided)                                |
 
 ### Model Selection Modes
 
@@ -315,7 +315,7 @@ Field resolution follows priority order: **Mode Logic → Session Storage → Lo
 | modelSelectionMode | -                                | `modelSelectionMode`    | `spawn-last-model-selection-mode` | `'single'`     |
 | selectedCommand    | -                                | `selectedCommand`       | -                                 | `""`           |
 | targetCounts       | -                                | `targetCounts`          | `spawn-last-target-counts`        | `{}`           |
-| nickname           | `location.state.nickname`        | -                       | -                                 | -              |
+| nickname           | -                                | -                       | -                                 | `""`           |
 
 **Mode: `fresh`**
 
@@ -372,9 +372,8 @@ When the user clicks a recent branch on the home page:
 1. Home page calls `POST /api/prepare-branch-spawn` with `{ repo, branch }`
 2. Server does all work in one round-trip:
    - Runs `git log --oneline main..{branch}` on the bare clone to get commit messages
-   - Passes commit messages to the branch suggestion target for a nickname
    - Builds a standardized branch review prompt
-3. Returns `{ repo, branch, prompt, nickname }`
+3. Returns `{ repo, branch, prompt }`
 4. Home page navigates to `/spawn` via `navigate('/spawn', { state: result })`
 5. Spawn page detects `location.state` → enters prefilled mode
 
@@ -386,7 +385,7 @@ When the user clicks a recent branch on the home page:
 4. Identify what's completed, in progress, and remaining
 5. Summarize findings, then ask what to work on next
 
-The user can edit the prompt before engaging. Branch and nickname are auto-generated.
+The user can edit the prompt before engaging. Branch is pre-filled from the selection.
 
 ### On Successful Spawn
 
@@ -415,7 +414,7 @@ Called during the "Engage" flow (inside `handleEngage`) when ALL of these are tr
 - `prompt` is not empty
 - `branchSuggestTarget` is configured
 
-The Engage button shows "Naming branch..." during this phase. On success, both `branch` and `nickname` are set from the API response and passed directly to spawn.
+The Engage button shows "Naming branch..." during this phase. On success, `branch` is set from the API response and passed directly to spawn.
 
 **Failure handling:** If branch suggestion fails, the UI prompts you to enter a branch name manually instead of silently defaulting to the repository's default branch. This ensures you're always in control of the branch naming.
 

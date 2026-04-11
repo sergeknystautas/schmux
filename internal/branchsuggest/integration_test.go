@@ -18,9 +18,8 @@ import (
 )
 
 type resultCount struct {
-	branch   string
-	nickname string
-	count    int
+	branch string
+	count  int
 }
 
 func TestBranchSuggestion(t *testing.T) {
@@ -57,10 +56,9 @@ func TestBranchSuggestion(t *testing.T) {
 	cases := loadBranchSuggestManifest(t)
 
 	type summaryRow struct {
-		prompt       string
-		wantBranch   string
-		wantNickname string
-		gotResults   []resultCount
+		prompt     string
+		wantBranch string
+		gotResults []resultCount
 	}
 	var summaries []summaryRow
 	var summariesMu sync.Mutex
@@ -89,20 +87,19 @@ func TestBranchSuggestion(t *testing.T) {
 				}
 
 				// Track results
-				key := result.Branch + "|" + result.Nickname
+				key := result.Branch
 				resultCounts[key] = resultCount{
-					branch:   result.Branch,
-					nickname: result.Nickname,
-					count:    resultCounts[key].count + 1,
+					branch: result.Branch,
+					count:  resultCounts[key].count + 1,
 				}
 
-				if result.Branch != tt.WantBranch || result.Nickname != tt.WantNickname {
-					t.Errorf("run %d/%d: branch=%q nickname=%q, want branch=%q nickname=%q",
-						run, passRuns, result.Branch, result.Nickname, tt.WantBranch, tt.WantNickname)
+				if result.Branch != tt.WantBranch {
+					t.Errorf("run %d/%d: branch=%q, want branch=%q",
+						run, passRuns, result.Branch, tt.WantBranch)
 				}
 
 				if testing.Verbose() {
-					t.Logf("Result: branch=%s nickname=%s", result.Branch, result.Nickname)
+					t.Logf("Result: branch=%s", result.Branch)
 				}
 			}
 
@@ -117,10 +114,9 @@ func TestBranchSuggestion(t *testing.T) {
 
 			summariesMu.Lock()
 			summaries = append(summaries, summaryRow{
-				prompt:       tt.Prompt,
-				wantBranch:   tt.WantBranch,
-				wantNickname: tt.WantNickname,
-				gotResults:   gotResults,
+				prompt:     tt.Prompt,
+				wantBranch: tt.WantBranch,
+				gotResults: gotResults,
 			})
 			summariesMu.Unlock()
 		})
@@ -145,9 +141,8 @@ func TestBranchSuggestion(t *testing.T) {
 			if len(row.prompt) > promptWidth {
 				promptWidth = len(row.prompt)
 			}
-			wantText := fmt.Sprintf("%s (%s)", row.wantBranch, row.wantNickname)
-			if len(wantText) > wantWidth {
-				wantWidth = len(wantText)
+			if len(row.wantBranch) > wantWidth {
+				wantWidth = len(row.wantBranch)
 			}
 			gotText := formatGotResults(row.gotResults)
 			if len(gotText) > gotWidth {
@@ -159,18 +154,16 @@ func TestBranchSuggestion(t *testing.T) {
 		fmt.Println("Branch suggestion summary:")
 		fmt.Printf("%-*s  %-*s  %-*s  %s\n", promptWidth, "PROMPT", wantWidth, "WANT", gotWidth, "GOT", "STATUS")
 		for _, row := range summaries {
-			wantText := fmt.Sprintf("%s (%s)", row.wantBranch, row.wantNickname)
 			gotText := formatGotResults(row.gotResults)
 
 			status := "FAIL"
 			if len(row.gotResults) == 1 &&
 				row.gotResults[0].branch == row.wantBranch &&
-				row.gotResults[0].nickname == row.wantNickname &&
 				row.gotResults[0].count == passRuns {
 				status = "PASS"
 			}
 
-			fmt.Printf("%-*s  %-*s  %-*s  %s\n", promptWidth, row.prompt, wantWidth, wantText, gotWidth, gotText, status)
+			fmt.Printf("%-*s  %-*s  %-*s  %s\n", promptWidth, row.prompt, wantWidth, row.wantBranch, gotWidth, gotText, status)
 		}
 	})
 }
@@ -181,11 +174,10 @@ type branchSuggestManifest struct {
 }
 
 type branchSuggestTestCase struct {
-	ID           string `yaml:"id"`
-	Prompt       string `yaml:"prompt"`
-	WantBranch   string `yaml:"want_branch"`
-	WantNickname string `yaml:"want_nickname"`
-	Notes        string `yaml:"notes"`
+	ID         string `yaml:"id"`
+	Prompt     string `yaml:"prompt"`
+	WantBranch string `yaml:"want_branch"`
+	Notes      string `yaml:"notes"`
 }
 
 func loadBranchSuggestManifest(t *testing.T) []branchSuggestTestCase {
@@ -212,9 +204,6 @@ func loadBranchSuggestManifest(t *testing.T) []branchSuggestTestCase {
 		if strings.TrimSpace(tc.WantBranch) == "" {
 			t.Fatalf("branch suggest manifest case %d missing want_branch", i)
 		}
-		if strings.TrimSpace(tc.WantNickname) == "" {
-			t.Fatalf("branch suggest manifest case %d missing want_nickname", i)
-		}
 	}
 
 	return manifest.Cases
@@ -226,7 +215,7 @@ func formatGotResults(results []resultCount) string {
 	}
 	parts := make([]string, 0, len(results))
 	for _, r := range results {
-		parts = append(parts, fmt.Sprintf("%s (%s) x%d", r.branch, r.nickname, r.count))
+		parts = append(parts, fmt.Sprintf("%s x%d", r.branch, r.count))
 	}
 	return strings.Join(parts, ", ")
 }

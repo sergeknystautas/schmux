@@ -555,7 +555,7 @@ Notes:
 
 ### POST /api/suggest-branch
 
-AI-powered branch name and nickname suggestion from a prompt.
+AI-powered branch name suggestion from a prompt.
 
 Request:
 
@@ -569,8 +569,7 @@ Response:
 
 ```json
 {
-  "branch": "add-dark-mode-support",
-  "nickname": "Add dark mode support"
+  "branch": "add-dark-mode-support"
 }
 ```
 
@@ -584,7 +583,7 @@ Errors:
 Notes:
 
 - Requires `branch_suggest.target` to be configured
-- The target generates both a git-compatible branch name and a human-readable nickname
+- The target generates a git-compatible branch name
 
 ### POST /api/prepare-branch-spawn
 
@@ -605,21 +604,18 @@ Response:
 {
   "repo": "repo",
   "branch": "feature-branch",
-  "prompt": "Review the current state of this branch and prepare to resume work.\n\n...",
-  "nickname": "Add new feature"
+  "prompt": "Review the current state of this branch and prepare to resume work.\n\n..."
 }
 ```
 
 Process:
 
 1. Runs `git log --oneline main..{branch}` on the bare clone to get commit messages
-2. Passes commit messages to the branch suggestion target to generate a nickname (if configured)
-3. Builds a standardized branch review prompt with commit history
-4. Returns all data needed to populate the spawn form
+2. Builds a standardized branch review prompt with commit history
+3. Returns all data needed to populate the spawn form
 
 Notes:
 
-- Non-fatal errors (e.g., branch suggestion failure) still return a response with empty nickname
 - The prompt instructs the agent to review project context, understand changes, and prepare to resume work
 
 ### POST /api/sessions/{sessionId}/dispose

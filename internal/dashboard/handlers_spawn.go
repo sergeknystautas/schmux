@@ -526,8 +526,8 @@ func (s *Server) handleSuggestBranch(w http.ResponseWriter, r *http.Request) {
 }
 
 // handlePrepareBranchSpawn prepares spawn data for an existing branch.
-// Gets commit log from the bare clone, generates a nickname via branch suggestion, and returns
-// everything needed to populate the spawn form.
+// Gets commit log from the bare clone and returns everything needed to populate
+// the spawn form.
 func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	start := time.Now()
@@ -583,29 +583,13 @@ func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request
 
 	prompt += "Summarize your findings, then ask what to work on next."
 
-	// Generate nickname from commit messages if branch suggestion is enabled
-	nickname := ""
-	if branchsuggest.IsEnabled(s.config) && len(subjects) > 0 {
-		commitSummary := strings.Join(subjects, "\n")
-		suggestionPrompt := fmt.Sprintf("Branch: %s\n\n<commit_messages>\n%s\n</commit_messages>", req.Branch, commitSummary)
-
-		workspaceLog.Info("prepare-branch-spawn: asking for nickname", "commits", len(subjects))
-		result, err := branchsuggest.AskForPrompt(ctx, s.config, suggestionPrompt)
-		if err != nil {
-			workspaceLog.Warn("prepare-branch-spawn: nickname suggestion failed", "err", err)
-			// Non-fatal: proceed without nickname
-		} else {
-			nickname = result.Nickname
-			workspaceLog.Info("prepare-branch-spawn ok", "duration", time.Since(start).Truncate(time.Millisecond), "nickname", nickname)
-		}
-	}
+	workspaceLog.Info("prepare-branch-spawn ok", "duration", time.Since(start).Truncate(time.Millisecond))
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]string{
-		"repo":     repo.URL,
-		"branch":   req.Branch,
-		"prompt":   prompt,
-		"nickname": nickname,
+		"repo":   repo.URL,
+		"branch": req.Branch,
+		"prompt": prompt,
 	}); err != nil {
 		s.logger.Error("failed to encode response", "handler", "prepare-branch-spawn", "err", err)
 	}

@@ -337,12 +337,10 @@ export default function SpawnPage() {
         repo: string;
         branch: string;
         prompt: string;
-        nickname: string;
       };
       setRepo(state.repo);
       setBranch(state.branch);
       setPrompt(state.prompt);
-      if (state.nickname) setNickname(state.nickname);
     }
 
     // Layer 2: sessionStorage Draft (Active Draft)
@@ -821,7 +819,6 @@ export default function SpawnPage() {
         if (!isMounted.current) return;
         if (result && result.branch.trim()) {
           actualBranch = result.branch;
-          actualNickname = result.nickname || '';
         } else {
           // Abort — reveal branch input so user can provide one
           setShowBranchInput(true);
@@ -848,7 +845,6 @@ export default function SpawnPage() {
       if (!isMounted.current) return;
       if (result && result.branch.trim()) {
         newBranch = result.branch;
-        actualNickname = result.nickname || '';
       } else {
         setEngagePhase('idle');
         alert('Branch Suggestion Failed', `Branch suggestion failed: ${error}. Please try again.`);

@@ -22,31 +22,25 @@ func init() {
 const (
 	// Prompt is the branch suggestion prompt.
 	Prompt = `
-You are generating a git branch name and nickname from a coding task prompt.
+You are generating a git branch name from a coding task prompt.
 
-Generate:
-1. A branch name following git conventions (kebab-case, lowercase, concise)
-2. A short nickname (2-4 words, human-readable)
+Generate a branch name following git conventions (kebab-case, lowercase, concise).
 
 Rules:
-- Branch name should be 3-6 words max, use prefixes like "feature/", "fix/", "refactor/" when appropriate
-- Branch name must be kebab-case (lowercase, hyphens only, no spaces)
-- Nickname should be a brief summary someone would understand at a glance
+- 3-6 words max, use prefixes like "feature/", "fix/", "refactor/" when appropriate
+- Must be kebab-case (lowercase, hyphens only, no spaces)
 - Avoid the words "add", "implement" - focus on what it IS, not what you're DOING
 - If the prompt mentions a specific component/feature, include that in the branch name
 
 Examples:
 - Prompt: "Add dark mode to the settings panel"
   Branch: "feature/dark-mode-settings"
-  Nickname: "Dark mode"
 
 - Prompt: "Fix the login bug where users can't reset password"
   Branch: "fix/password-reset"
-  Nickname: "Password reset bug"
 
 - Prompt: "Refactor the auth flow to use JWT tokens"
   Branch: "refactor/auth-jwt"
-  Nickname: "JWT auth"
 
 Here is the user's prompt:
 <<<
@@ -76,12 +70,11 @@ func IsEnabled(cfg *config.Config) bool {
 // Result is the parsed branch suggestion response.
 // Struct tags control JSON schema generation via swaggest/jsonschema-go.
 type Result struct {
-	Branch   string   `json:"branch" required:"true"`
-	Nickname string   `json:"nickname" required:"true"`
-	_        struct{} `additionalProperties:"false"`
+	Branch string   `json:"branch" required:"true"`
+	_      struct{} `additionalProperties:"false"`
 }
 
-// AskForPrompt generates a branch name and nickname from a user prompt.
+// AskForPrompt generates a branch name from a user prompt.
 func AskForPrompt(ctx context.Context, cfg *config.Config, userPrompt string) (Result, error) {
 	userPrompt = strings.TrimSpace(userPrompt)
 	if userPrompt == "" {
