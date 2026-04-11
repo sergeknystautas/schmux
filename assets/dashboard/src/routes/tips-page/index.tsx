@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import styles from '../../styles/tips.module.css';
-import { useRequireConfig } from '../../contexts/ConfigContext';
 import { TmuxTab } from './tmux-tab';
 import { CliTab } from './cli-tab';
 import { WorkflowTab } from './workflow-tab';
@@ -31,7 +30,6 @@ const TAB_COMPONENTS = [
 ] as const;
 
 export default function TipsPage() {
-  useRequireConfig();
   const [currentTab, setCurrentTab] = useState(1);
 
   const ActiveTab = TAB_COMPONENTS[currentTab - 1];

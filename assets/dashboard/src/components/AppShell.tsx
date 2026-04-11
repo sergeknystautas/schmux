@@ -52,7 +52,7 @@ type WorkspaceSortMode = 'alpha' | 'time';
 
 export default function AppShell() {
   const { toggleTheme } = useTheme();
-  const { isNotConfigured, config, getRepoName } = useConfig();
+  const { config, getRepoName } = useConfig();
   const { versionInfo } = useVersionInfo();
   const { workspaces, connected, sessionsById } = useSessions();
   const {

@@ -105,9 +105,10 @@ func TestCreateDefault(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "test-config.json")
 	cfg := CreateDefault(configPath)
 
-	// WorkspacePath should be empty by default
-	if cfg.WorkspacePath != "" {
-		t.Errorf("WorkspacePath = %q, want empty", cfg.WorkspacePath)
+	// WorkspacePath should default to <configDir>/workspaces
+	expectedWsPath := filepath.Join(filepath.Dir(configPath), "workspaces")
+	if cfg.WorkspacePath != expectedWsPath {
+		t.Errorf("WorkspacePath = %q, want %q", cfg.WorkspacePath, expectedWsPath)
 	}
 
 	// Save should work since path is set

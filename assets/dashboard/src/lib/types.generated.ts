@@ -190,6 +190,29 @@ export interface DesyncUpdate {
   target?: string;
 }
 
+export interface DetectionAgent {
+  name: string;
+  command: string;
+  source: string;
+}
+
+export interface DetectionSummaryResponse {
+  status: string;
+  agents: DetectionAgent[];
+  vcs: DetectionVCS[];
+  tmux: DetectionTmux;
+}
+
+export interface DetectionTmux {
+  available: boolean;
+  path?: string;
+}
+
+export interface DetectionVCS {
+  name: string;
+  path: string;
+}
+
 export interface EmergenceMetadata {
   skill_name: string;
   skill_content?: string;

@@ -1817,7 +1817,7 @@ func (c *Config) Reload() error {
 func CreateDefault(configPath string) *Config {
 	cfg := &Config{
 		ConfigVersion:              version.Version,
-		WorkspacePath:              "",
+		WorkspacePath:              filepath.Join(filepath.Dir(configPath), "workspaces"),
 		Repos:                      []Repo{},
 		RunTargets:                 []RunTarget{},
 		QuickLaunch:                []QuickLaunch{},
@@ -2005,7 +2005,6 @@ func EnsureExists() (bool, error) {
 	}
 
 	fmt.Printf("Created default config at %s\n", configPath)
-	fmt.Println("Run 'schmux status' to get the dashboard URL and complete setup.")
 
 	return true, nil
 }

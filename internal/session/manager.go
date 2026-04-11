@@ -837,6 +837,15 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		return nil, err
 	}
 
+	// Check tmux availability early, before doing workspace resolution and
+	// signaling setup work that would be wasted if tmux is missing.
+	if m.server == nil {
+		return nil, fmt.Errorf("tmux is required to spawn sessions. Install it with: brew install tmux (macOS) or apt install tmux (Linux)")
+	}
+	if err := m.server.Check(); err != nil {
+		return nil, fmt.Errorf("tmux is required to spawn sessions. Install it with: brew install tmux (macOS) or apt install tmux (Linux)")
+	}
+
 	w, err := m.resolveWorkspace(ctx, opts)
 	if err != nil {
 		return nil, err

@@ -44,6 +44,7 @@ import type {
 } from './types';
 import type {
   CreateSpawnEntryRequest,
+  DetectionSummaryResponse,
   Persona,
   PersonaListResponse,
   PersonaCreateRequest,
@@ -1451,4 +1452,45 @@ export async function deleteTimelapseRecording(recordingId: string): Promise<voi
     method: 'DELETE',
     headers: csrfHeaders(),
   });
+}
+
+// ============================================================================
+// Detection Summary & Repo Scanning API
+// ============================================================================
+
+export async function getDetectionSummary(): Promise<DetectionSummaryResponse> {
+  const response = await apiFetch('/api/detection-summary');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch detection summary');
+  return response.json();
+}
+
+export interface LocalRepo {
+  name: string;
+  path: string;
+  vcs: string; // "git" or "sapling"
+  remote_url?: string;
+}
+
+export async function scanLocalRepos(): Promise<LocalRepo[]> {
+  const response = await apiFetch('/api/repos/scan');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to scan local repos');
+  return response.json();
+}
+
+export interface ProbeRepoResult {
+  accessible: boolean;
+  default_branch: string;
+  vcs?: string; // "git" or "sapling"
+  error?: string;
+  error_type?: string;
+}
+
+export async function probeRepo(url: string): Promise<ProbeRepoResult> {
+  const response = await apiFetch('/api/repos/probe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify({ url }),
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to probe repo');
+  return response.json();
 }

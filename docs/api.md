@@ -1276,6 +1276,78 @@ Response:
 }
 ```
 
+### GET /api/detection-summary
+
+Returns a summary of all tools detected at daemon startup: AI agents, VCS tools, and tmux availability.
+
+Response:
+
+```json
+{
+  "status": "ready",
+  "agents": [{ "name": "claude", "command": "claude", "source": "path" }],
+  "vcs": [{ "name": "git", "version": "2.40.0", "path": "/usr/bin/git" }],
+  "tmux": {
+    "available": true,
+    "version": "3.3a",
+    "path": "/usr/bin/tmux"
+  }
+}
+```
+
+### GET /api/repos/scan
+
+Scans the user's home directory (depth 2) for local git and sapling repositories. The scan root is determined server-side via `os.UserHomeDir()` — no client-supplied path parameters are accepted. Hidden directories, OS-managed directories (Library, Applications, Music, Pictures, Movies), and build artifact directories (node_modules, vendor, target, build, dist) are skipped. Symlinks are followed at depth 1 but not at depth 2. The scan has a 3-second timeout; partial results are returned if the timeout is reached.
+
+Response:
+
+```json
+[
+  {
+    "name": "my-project",
+    "path": "/Users/me/code/my-project",
+    "vcs": "git",
+    "remote_url": "git@github.com:user/my-project.git"
+  },
+  {
+    "name": "another-repo",
+    "path": "/Users/me/another-repo",
+    "vcs": "sapling"
+  }
+]
+```
+
+### POST /api/repos/probe
+
+Probes a repository URL for accessibility by running `git ls-remote`. CSRF-protected. Has a 10-second timeout.
+
+Request:
+
+```json
+{
+  "url": "git@github.com:user/repo.git"
+}
+```
+
+Response:
+
+```json
+{
+  "accessible": true,
+  "default_branch": "main"
+}
+```
+
+On failure:
+
+```json
+{
+  "accessible": false,
+  "error": "Can't connect — make sure your SSH key is added to this host.",
+  "error_type": "ssh"
+}
+```
+
 ### GET /api/models
 
 Lists available models and whether they are configured. Each model includes a `runners` list of tool names that can run it; tool-level details (availability, capabilities) are in the top-level `runners` map on the config response. Model catalog, availability, enablement, and resolution are owned by the internal model manager (`internal/models`). Model IDs are vendor-defined (e.g., `claude-sonnet-4-6`). Legacy IDs (`claude-sonnet`, `sonnet`, etc.) are automatically migrated on load.

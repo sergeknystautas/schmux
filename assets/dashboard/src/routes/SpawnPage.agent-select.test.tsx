@@ -112,14 +112,10 @@ vi.mock('../components/ModalProvider', () => ({
 }));
 
 vi.mock('../contexts/ConfigContext', () => ({
-  useRequireConfig: () => {},
   useConfig: () => ({
     config: configFixture,
     loading: false,
     error: null,
-    isNotConfigured: false,
-    isFirstRun: false,
-    completeFirstRun: vi.fn(),
     reloadConfig: vi.fn(),
     getRepoName: (url: string) => url,
   }),

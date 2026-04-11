@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useFeatures } from '../contexts/FeaturesContext';
 import {
   getConfig,
@@ -68,10 +68,9 @@ const slugToStep = (slug: string | null) => {
 };
 
 export default function ConfigPage() {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { isNotConfigured, isFirstRun, completeFirstRun, reloadConfig } = useConfig();
-  const { show, confirm, prompt, alert } = useModal();
+  const { reloadConfig } = useConfig();
+  const { confirm, prompt, alert } = useModal();
   const { success, error: toastError } = useToast();
   const { features } = useFeatures();
 
@@ -99,18 +98,16 @@ export default function ConfigPage() {
     snapshotConfig,
   } = useConfigForm(initialStep);
 
-  // Sync currentStep with URL (only in non-wizard mode)
+  // Sync currentStep with URL
   useEffect(() => {
-    if (!isFirstRun) {
-      const slug = stepToSlug(state.currentStep);
-      setSearchParams({ tab: slug });
-    }
-  }, [state.currentStep, isFirstRun, setSearchParams]);
+    const slug = stepToSlug(state.currentStep);
+    setSearchParams({ tab: slug });
+  }, [state.currentStep, setSearchParams]);
 
   // Browser close/refresh warning
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (!isFirstRun && hasChanges(isFirstRun)) {
+      if (hasChanges(false)) {
         e.preventDefault();
         e.returnValue = '';
       }
@@ -118,7 +115,7 @@ export default function ConfigPage() {
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [isFirstRun]); // Dependency doesn't include hasChanges values - function reads current state
+  }, []); // Dependency doesn't include hasChanges values - function reads current state
 
   // Load config
   useEffect(() => {
@@ -226,8 +223,8 @@ export default function ConfigPage() {
           },
         });
 
-        // Set original config for change detection (non-wizard mode)
-        if (!isFirstRun) {
+        // Set original config for change detection
+        {
           const originalConfig: ConfigSnapshot = {
             workspacePath: data.workspace_path || '',
             sourceCodeManagement: data.source_code_management || 'git-worktree',
@@ -778,13 +775,11 @@ export default function ConfigPage() {
         value: reloaded.needs_restart || false,
       });
 
-      if (!isFirstRun) {
-        dispatch({ type: 'SET_ORIGINAL', config: snapshotConfig() });
-      }
+      dispatch({ type: 'SET_ORIGINAL', config: snapshotConfig() });
 
-      if (result.warning && !isFirstRun) {
+      if (result.warning) {
         dispatch({ type: 'SET_FIELD', field: 'warning', value: result.warning });
-      } else if (!isFirstRun) {
+      } else {
         success('Configuration saved');
       }
       return true;
@@ -795,27 +790,6 @@ export default function ConfigPage() {
     } finally {
       dispatch({ type: 'SET_FIELD', field: 'saving', value: false });
     }
-  };
-
-  const nextStep = async () => {
-    if (!validateStep(state.currentStep)) {
-      if (state.stepErrors[state.currentStep]) {
-        toastError(state.stepErrors[state.currentStep]!);
-      }
-      return;
-    }
-    const saved = await saveCurrentStep();
-    if (saved && state.currentStep < TOTAL_STEPS) {
-      dispatch({ type: 'SET_FIELD', field: 'currentStep', value: state.currentStep + 1 });
-    }
-  };
-
-  const prevStep = () => {
-    dispatch({
-      type: 'SET_FIELD',
-      field: 'currentStep',
-      value: Math.max(1, state.currentStep - 1),
-    });
   };
 
   // Handler functions
@@ -1251,61 +1225,43 @@ export default function ConfigPage() {
 
   return (
     <>
-      {/* Sticky header for edit mode (non-first-run) */}
-      {!isFirstRun && (
-        <div className="config-sticky-header">
-          <div className="config-sticky-header__title-row">
-            <h1 className="config-sticky-header__title">Configuration</h1>
-            <div className="config-sticky-header__actions">
-              <button
-                className="btn btn--primary btn--sm"
-                onClick={async () => {
-                  await saveCurrentStep();
-                }}
-                disabled={state.saving || !hasChanges(isFirstRun)}
-                data-testid="config-save"
-              >
-                {state.saving ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          </div>
-          <div className="wizard__steps wizard__steps--compact">
-            {Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1).map((stepNum) => {
-              const isCurrent = stepNum === state.currentStep;
-              const stepLabel = TABS[stepNum - 1];
-              if (isTabHidden(TAB_SLUGS[stepNum - 1])) return null;
-
-              return (
-                <div
-                  key={stepNum}
-                  className={`wizard__step cursor-pointer ${isCurrent ? 'wizard__step--active' : ''}`}
-                  data-step={stepNum}
-                  data-testid={`config-tab-${TAB_SLUGS[stepNum - 1]}`}
-                  aria-selected={isCurrent}
-                  onClick={() => setCurrentStep(stepNum)}
-                >
-                  {stepLabel}
-                </div>
-              );
-            })}
+      <div className="config-sticky-header">
+        <div className="config-sticky-header__title-row">
+          <h1 className="config-sticky-header__title">Settings</h1>
+          <div className="config-sticky-header__actions">
+            <button
+              className="btn btn--primary btn--sm"
+              onClick={async () => {
+                await saveCurrentStep();
+              }}
+              disabled={state.saving || !hasChanges(false)}
+              data-testid="config-save"
+            >
+              {state.saving ? 'Saving...' : 'Save Changes'}
+            </button>
           </div>
         </div>
-      )}
+        <div className="wizard__steps wizard__steps--compact">
+          {Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1).map((stepNum) => {
+            const isCurrent = stepNum === state.currentStep;
+            const stepLabel = TABS[stepNum - 1];
+            if (isTabHidden(TAB_SLUGS[stepNum - 1])) return null;
 
-      {/* Non-sticky header for first-run wizard */}
-      {isFirstRun && (
-        <>
-          <div className="page-header">
-            <h1 className="page-header__title">Setup schmux</h1>
-          </div>
-
-          <div className="banner banner--info mb-lg">
-            <p className="m-0">
-              <strong>Welcome to schmux!</strong> Complete these steps to start spawning sessions.
-            </p>
-          </div>
-        </>
-      )}
+            return (
+              <div
+                key={stepNum}
+                className={`wizard__step cursor-pointer ${isCurrent ? 'wizard__step--active' : ''}`}
+                data-step={stepNum}
+                data-testid={`config-tab-${TAB_SLUGS[stepNum - 1]}`}
+                aria-selected={isCurrent}
+                onClick={() => setCurrentStep(stepNum)}
+              >
+                {stepLabel}
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
       {state.warning && (
         <div className="banner banner--warning mb-lg">
@@ -1324,31 +1280,7 @@ export default function ConfigPage() {
         </div>
       )}
 
-      {/* Steps navigation for first-run wizard only */}
-      {isFirstRun && (
-        <div className="wizard__steps">
-          {Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1).map((stepNum) => {
-            const isCompleted = isFirstRun && stepNum < state.currentStep;
-            const isCurrent = stepNum === state.currentStep;
-            const stepLabel = TABS[stepNum - 1];
-            if (isTabHidden(TAB_SLUGS[stepNum - 1])) return null;
-
-            return (
-              <div
-                key={stepNum}
-                className={`wizard__step cursor-pointer ${isCurrent ? 'wizard__step--active' : ''} ${isCompleted ? 'wizard__step--completed' : ''}`}
-                data-step={stepNum}
-                aria-selected={isCurrent}
-                onClick={() => setCurrentStep(stepNum)}
-              >
-                {stepLabel}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Wizard content */}
+      {/* Config content */}
       <div className="wizard">
         <div className="wizard__content">
           {currentTab === 1 && (
@@ -1565,47 +1497,6 @@ export default function ConfigPage() {
             />
           )}
         </div>
-
-        {/* Wizard footer navigation - only shown in first-run mode */}
-        {isFirstRun && (
-          <div className="wizard__actions">
-            <div className="wizard__actions-left">
-              {state.currentStep > 1 && (
-                <button className="btn" onClick={prevStep} disabled={state.saving}>
-                  ← Back
-                </button>
-              )}
-            </div>
-            <div className="wizard__actions-right">
-              <button
-                className="btn btn--primary"
-                onClick={async () => {
-                  if (state.currentStep < TOTAL_STEPS) {
-                    nextStep();
-                  } else {
-                    const saved = await saveCurrentStep();
-                    if (saved) {
-                      completeFirstRun();
-                      await show(
-                        'Setup Complete! 🎉',
-                        'schmux is ready to go. Spawn your first session to start working with run targets.',
-                        { confirmText: 'Go to Spawn', cancelText: null }
-                      );
-                      navigate('/spawn');
-                    }
-                  }
-                }}
-                disabled={state.saving}
-              >
-                {state.saving
-                  ? 'Saving...'
-                  : state.currentStep === TOTAL_STEPS
-                    ? 'Finish Setup'
-                    : 'Next →'}
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
       <ConfigModals

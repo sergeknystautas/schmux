@@ -12,7 +12,6 @@ vi.mock('../contexts/ConfigContext', () => ({
     config: {
       repos: [{ name: 'test-repo', url: 'https://github.com/test/repo.git' }],
     },
-    isNotConfigured: false,
   }),
 }));
 

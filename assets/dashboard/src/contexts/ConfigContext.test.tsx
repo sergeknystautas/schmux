@@ -50,23 +50,6 @@ describe('ConfigContext', () => {
     expect(result.current.error).toBeNull();
   });
 
-  it('sets isNotConfigured when no repos', async () => {
-    mockGetConfig.mockResolvedValue({
-      workspace_path: '/home/user/ws',
-      repos: [],
-      run_targets: [],
-      models: [],
-    });
-
-    const { result } = renderHook(() => useConfig(), { wrapper });
-
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-    });
-
-    expect(result.current.isNotConfigured).toBe(true);
-  });
-
   it('handles fetch error', async () => {
     mockGetConfig.mockRejectedValue(new Error('Network error'));
 

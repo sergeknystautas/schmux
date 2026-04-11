@@ -78,14 +78,10 @@ const baseConfig: ConfigResponse = {
 let currentConfig: ConfigResponse = { ...baseConfig };
 
 vi.mock('../contexts/ConfigContext', () => ({
-  useRequireConfig: () => {},
   useConfig: () => ({
     config: currentConfig,
     loading: false,
     error: null,
-    isNotConfigured: false,
-    isFirstRun: false,
-    completeFirstRun: vi.fn(),
     reloadConfig: vi.fn(),
     getRepoName: (url: string) => url,
   }),

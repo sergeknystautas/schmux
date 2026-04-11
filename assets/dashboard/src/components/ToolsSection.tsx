@@ -29,7 +29,7 @@ export default function ToolsSection({
   });
 
   const location = useLocation();
-  const { config, isNotConfigured } = useConfig();
+  const { config } = useConfig();
   const { proposalVersion } = useCuration();
   const { overlayUnreadCount, markOverlaysRead } = useOverlay();
   const { features } = useFeatures();
@@ -183,7 +183,6 @@ export default function ToolsSection({
     {
       to: '/tips',
       label: 'Tips',
-      disabled: isNotConfigured,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <circle cx="12" cy="12" r="10"></circle>
@@ -249,16 +248,11 @@ export default function ToolsSection({
               <Tooltip key={item.to} content={`${item.label}${getBadgeLabel(item)}`}>
                 <NavLink
                   to={item.to}
-                  className={`tools-section__icon${isItemActive(item.to) ? ' tools-section__icon--active' : ''}${item.disabled ? ' tools-section__icon--disabled' : ''}`}
-                  onClick={(e) => {
-                    if (item.disabled) {
-                      e.preventDefault();
-                      return;
-                    }
+                  className={`tools-section__icon${isItemActive(item.to) ? ' tools-section__icon--active' : ''}`}
+                  onClick={() => {
                     item.onClick?.();
                   }}
                   aria-label={item.label}
-                  tabIndex={item.disabled ? -1 : 0}
                 >
                   <span className="tools-section__icon-svg">{item.icon}</span>
                   {item.badge !== null && item.badge !== undefined && (
@@ -303,16 +297,11 @@ export default function ToolsSection({
                 key={item.to}
                 to={item.to}
                 className={({ isActive }) =>
-                  `tools-section__item${isActive ? ' tools-section__item--active' : ''}${item.disabled ? ' tools-section__item--disabled' : ''}`
+                  `tools-section__item${isActive ? ' tools-section__item--active' : ''}`
                 }
-                onClick={(e) => {
-                  if (item.disabled) {
-                    e.preventDefault();
-                    return;
-                  }
+                onClick={() => {
                   item.onClick?.();
                 }}
-                tabIndex={item.disabled ? -1 : 0}
               >
                 <span className="tools-section__item-icon">{item.icon}</span>
                 <span className="tools-section__item-label">{item.label}</span>

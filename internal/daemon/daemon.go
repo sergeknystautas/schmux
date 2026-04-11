@@ -106,18 +106,10 @@ func NewDaemon() *Daemon {
 	}
 }
 
-// ValidateReadyToRun checks if the system is ready to run the daemon.
-// It verifies tmux is available, the schmux directory exists, and
-// that no daemon is already running. Called by both 'start' and 'daemon-run'
-// before they diverge.
+// ValidateReadyToRun checks that the daemon is safe to start.
+// It verifies no other daemon is already running. tmux availability
+// is checked at session spawn time, not at startup.
 func ValidateReadyToRun() error {
-	// Check tmux dependency before forking.
-	// Use a temporary TmuxServer with the default binary to validate.
-	checker := tmux.NewTmuxServer("tmux", "schmux", nil)
-	if err := checker.Check(); err != nil {
-		return err
-	}
-
 	schmuxDir := schmuxdir.Get()
 	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
 		return fmt.Errorf("failed to create schmux directory: %w", err)
@@ -559,10 +551,22 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		detectedTargets = nil
 	}
 
+	if len(detectedTargets) > 0 {
+		var names []string
+		for _, t := range detectedTargets {
+			names = append(names, t.Name)
+		}
+		fmt.Printf("Found agents: %s\n", strings.Join(names, ", "))
+	}
+
 	// Create model manager (single owner for catalog, resolution, enablement)
 	// schmuxDir is already computed earlier in this function
 	modelsLog := logging.Sub(logger, "models")
 	mm := models.New(cfg, detectedTargets, schmuxDir, modelsLog)
+
+	// Detect VCS and tmux availability
+	detectedVCS := detect.DetectVCS()
+	detectedTmux := detect.DetectTmux()
 
 	// Start background registry fetch
 	mm.StartBackgroundFetch(d.shutdownCtx)
@@ -591,11 +595,13 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	// Create dashboard server
 	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, logger, d.githubStatus, tmuxServer, dashboard.ServerOptions{
-		Shutdown:    d.Shutdown,
-		DevRestart:  d.DevRestart,
-		DevProxy:    devProxy,
-		DevMode:     devMode,
-		ShutdownCtx: d.shutdownCtx,
+		Shutdown:     d.Shutdown,
+		DevRestart:   d.DevRestart,
+		DevProxy:     devProxy,
+		DevMode:      devMode,
+		ShutdownCtx:  d.shutdownCtx,
+		DetectedVCS:  detectedVCS,
+		DetectedTmux: detectedTmux,
 	})
 
 	// Wire model manager into server, session manager, workspace manager, and oneshot

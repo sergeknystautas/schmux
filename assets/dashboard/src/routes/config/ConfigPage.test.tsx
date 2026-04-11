@@ -45,9 +45,6 @@ vi.mock('../../components/ModalProvider', () => ({
 }));
 
 const mockConfigCtx = {
-  isNotConfigured: false,
-  isFirstRun: false,
-  completeFirstRun: vi.fn(),
   reloadConfig: vi.fn().mockResolvedValue(undefined),
 };
 vi.mock('../../contexts/ConfigContext', () => ({
@@ -162,8 +159,6 @@ describe('ConfigPage', () => {
     mockGetAuthSecretsStatus.mockResolvedValue({ client_id_set: false, client_secret_set: false });
     mockGetOverlays.mockResolvedValue({ overlays: [] });
     mockGetBuiltinQuickLaunch.mockResolvedValue([]);
-    mockConfigCtx.isFirstRun = false;
-    mockConfigCtx.isNotConfigured = false;
   });
 
   it('loads config and renders the Workspaces tab', async () => {
@@ -328,15 +323,6 @@ describe('ConfigPage', () => {
     });
   });
 
-  it('renders first-run wizard mode', async () => {
-    mockConfigCtx.isFirstRun = true;
-    renderConfigPage();
-    await waitFor(() => {
-      expect(screen.getByText('Setup schmux')).toBeInTheDocument();
-    });
-    expect(screen.getByText(/Welcome to schmux!/)).toBeInTheDocument();
-  });
-
   it('disables Save Changes when no changes made', async () => {
     renderConfigPage();
     await waitFor(() => {
@@ -345,184 +331,5 @@ describe('ConfigPage', () => {
 
     const saveBtn = screen.getByTestId('config-save');
     expect(saveBtn).toBeDisabled();
-  });
-
-  describe('onboarding wizard flow', () => {
-    beforeEach(() => {
-      mockConfigCtx.isFirstRun = true;
-    });
-
-    async function waitForWizardLoaded() {
-      await waitFor(() => {
-        expect(screen.queryByText('Loading configuration...')).not.toBeInTheDocument();
-      });
-      await waitFor(() => {
-        expect(screen.getByText('Setup schmux')).toBeInTheDocument();
-      });
-    }
-
-    it('shows wizard header and welcome banner', async () => {
-      renderConfigPage();
-      await waitForWizardLoaded();
-      expect(screen.getByText('Setup schmux')).toBeInTheDocument();
-      expect(screen.getByText(/Welcome to schmux!/)).toBeInTheDocument();
-    });
-
-    it('does not show sticky header or Save Changes button', async () => {
-      renderConfigPage();
-      await waitForWizardLoaded();
-      expect(screen.queryByTestId('config-save')).not.toBeInTheDocument();
-    });
-
-    it('shows Next button but no Back button on step 1', async () => {
-      renderConfigPage();
-      await waitForWizardLoaded();
-      expect(screen.getByRole('button', { name: /Next/ })).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /Back/ })).not.toBeInTheDocument();
-    });
-
-    it('advances to step 2 on Next click and saves', async () => {
-      renderConfigPage();
-      await waitForWizardLoaded();
-
-      // Click Next — should save step 1 and advance
-      await userEvent.click(screen.getByRole('button', { name: /Next/ }));
-
-      await waitFor(() => {
-        expect(mockUpdateConfig).toHaveBeenCalledTimes(1);
-      });
-
-      // Step 2 content should now be visible
-      await waitFor(() => {
-        expect(screen.getByText('Command Targets')).toBeInTheDocument();
-      });
-    });
-
-    it('shows Back button on step 2 and navigates back', async () => {
-      renderConfigPage();
-      await waitForWizardLoaded();
-
-      // Advance to step 2
-      await userEvent.click(screen.getByRole('button', { name: /Next/ }));
-      await waitFor(() => {
-        expect(screen.getByText('Command Targets')).toBeInTheDocument();
-      });
-
-      // Back button should be visible
-      const backBtn = screen.getByRole('button', { name: /Back/ });
-      expect(backBtn).toBeInTheDocument();
-
-      // Click Back — should go to step 1
-      await userEvent.click(backBtn);
-      await waitFor(() => {
-        expect(screen.getByDisplayValue('/home/user/ws')).toBeInTheDocument();
-      });
-    });
-
-    it('shows Finish Setup on the last step', async () => {
-      renderConfigPage();
-      await waitForWizardLoaded();
-
-      // Advance through all 9 intermediate steps to reach step 10
-      for (let i = 0; i < 9; i++) {
-        await userEvent.click(screen.getByRole('button', { name: /Next/ }));
-        await waitFor(() => {
-          expect(mockUpdateConfig).toHaveBeenCalledTimes(i + 1);
-        });
-      }
-
-      // On step 10, the button should say "Finish Setup"
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Finish Setup/ })).toBeInTheDocument();
-      });
-    });
-
-    it('completes wizard on Finish Setup and navigates to /spawn', async () => {
-      renderConfigPage();
-      await waitForWizardLoaded();
-
-      // Advance to step 10
-      for (let i = 0; i < 9; i++) {
-        await userEvent.click(screen.getByRole('button', { name: /Next/ }));
-        await waitFor(() => {
-          expect(mockUpdateConfig).toHaveBeenCalledTimes(i + 1);
-        });
-      }
-
-      // Click Finish Setup
-      await userEvent.click(screen.getByRole('button', { name: /Finish Setup/ }));
-
-      await waitFor(() => {
-        expect(mockUpdateConfig).toHaveBeenCalledTimes(10);
-      });
-
-      // completeFirstRun should have been called
-      await waitFor(() => {
-        expect(mockConfigCtx.completeFirstRun).toHaveBeenCalled();
-      });
-
-      // The "Setup Complete" modal should have been shown
-      expect(mockShow).toHaveBeenCalledWith(
-        expect.stringContaining('Setup Complete'),
-        expect.any(String),
-        expect.objectContaining({ confirmText: 'Go to Spawn', cancelText: null })
-      );
-    });
-
-    it('does not advance when save fails', async () => {
-      renderConfigPage();
-      await waitForWizardLoaded();
-
-      // Make updateConfig fail
-      mockUpdateConfig.mockRejectedValueOnce(new Error('Save failed'));
-
-      await userEvent.click(screen.getByRole('button', { name: /Next/ }));
-
-      await waitFor(() => {
-        expect(mockAlert).toHaveBeenCalledWith('Save Failed', 'Save failed');
-      });
-
-      // Should still be on step 1
-      expect(screen.getByDisplayValue('/home/user/ws')).toBeInTheDocument();
-      expect(screen.queryByText('Command Targets')).not.toBeInTheDocument();
-    });
-
-    it('wizard step indicators allow clicking to navigate', async () => {
-      renderConfigPage();
-      await waitForWizardLoaded();
-
-      // Click on the "Sessions" step indicator directly
-      await userEvent.click(screen.getByText('Sessions'));
-
-      // Should switch to step 2
-      await waitFor(() => {
-        expect(screen.getByText('Command Targets')).toBeInTheDocument();
-      });
-    });
-  });
-
-  it('validates step 1 requires workspace path', async () => {
-    // Return config with empty workspace but with repos so we don't hit the repos error
-    mockGetConfig.mockResolvedValue({ ...configFixture, workspace_path: '' });
-    mockConfigCtx.isFirstRun = true;
-    renderConfigPage();
-
-    // Wait for loading to complete
-    await waitFor(() => {
-      expect(screen.queryByText('Loading configuration...')).not.toBeInTheDocument();
-    });
-    await waitFor(() => {
-      expect(screen.getByText('Setup schmux')).toBeInTheDocument();
-    });
-
-    // Click Next — should validate and show error in the form
-    const nextBtn = screen.getByRole('button', { name: /Next/ });
-    await userEvent.click(nextBtn);
-    await waitFor(() => {
-      expect(screen.getByText('Workspace path is required')).toBeInTheDocument();
-    });
-
-    // Should NOT advance to step 2
-    expect(screen.queryByText('Command Targets')).not.toBeInTheDocument();
   });
 });

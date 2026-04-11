@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useSessions } from '../contexts/SessionsContext';
-import { useConfig, useRequireConfig } from '../contexts/ConfigContext';
+import { useConfig } from '../contexts/ConfigContext';
 import { useFeatures } from '../contexts/FeaturesContext';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
+import { EnvironmentSummary } from '../components/EnvironmentSummary';
+import AddRepoModal from '../components/AddRepoModal';
 import Tooltip from '../components/Tooltip';
 import {
   scanWorkspaces,
@@ -256,7 +258,6 @@ const arrowUp = (
 );
 
 export default function HomePage() {
-  useRequireConfig();
   const {
     workspaces,
     loading: sessionsLoading,
@@ -309,6 +310,7 @@ export default function HomePage() {
   const [heroDismissed, setHeroDismissed] = useState(() => {
     return localStorage.getItem('home-hero-dismissed') === 'true';
   });
+  const [showAddWorkspace, setShowAddWorkspace] = useState(false);
   const [overlays, setOverlays] = useState<OverlayInfo[]>([]);
   const [dismissedNudges, setDismissedNudges] = useState<Set<string>>(new Set());
   const [subreddit, setSubreddit] = useState<SubredditResponse | null>(null);
@@ -697,15 +699,18 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Tips */}
-      <div className={styles.tipsCard}>
-        <div className={styles.tipItem}>
-          <span className={styles.tipKey}>Tip:</span>
-          <span className={styles.tipText}>
-            Use <code>tmux -L schmux attach -t SESSION_NAME</code> to connect directly from terminal
-          </span>
+      {/* Tips — only show when there are sessions to attach to */}
+      {workspaces.length > 0 && (
+        <div className={styles.tipsCard}>
+          <div className={styles.tipItem}>
+            <span className={styles.tipKey}>Tip:</span>
+            <span className={styles.tipText}>
+              Use <code>tmux -L schmux attach -t SESSION_NAME</code> to connect directly from
+              terminal
+            </span>
+          </div>
         </div>
-      </div>
+      )}
     </>
   );
 
@@ -959,93 +964,125 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Primary Action - Spawn New Session (only when no workspaces) */}
-        {workspaces.length === 0 && (
-          <Link to="/spawn" className={styles.primaryAction} data-testid="spawn-new-session">
-            <span className={styles.primaryActionIcon}>
-              <RocketIcon />
-            </span>
+        {/* FTUE: show environment summary when no workspaces */}
+        {workspaces.length === 0 && !loading && <EnvironmentSummary />}
+
+        {/* Add Repository CTA — always visible */}
+        {!loading && (
+          <>
+            <button
+              className={styles.primaryAction}
+              data-testid="add-workspace-cta"
+              onClick={() => setShowAddWorkspace(true)}
+              type="button"
+            >
+              <span className={styles.primaryActionText}>
+                <span className={styles.primaryActionTitle}>+ Add Repository</span>
+                <span className={styles.primaryActionHint}>
+                  Add a repository to start spawning AI coding sessions
+                </span>
+              </span>
+              <span className={styles.primaryActionArrow}>
+                <ChevronRightIcon />
+              </span>
+            </button>
+            {showAddWorkspace && <AddRepoModal onClose={() => setShowAddWorkspace(false)} />}
+          </>
+        )}
+
+        {/* Spawn CTA — shown when repos exist but no workspaces yet */}
+        {!loading && workspaces.length === 0 && config.repos?.length > 0 && (
+          <button
+            className={styles.primaryAction}
+            data-testid="spawn-workspace-cta"
+            onClick={() => navigate('/spawn')}
+            type="button"
+          >
             <span className={styles.primaryActionText}>
-              <span className={styles.primaryActionTitle}>Spawn New Session</span>
-              <span className={styles.primaryActionHint}>Start your first AI coding session</span>
+              <span className={styles.primaryActionTitle}>+ Add Workspace</span>
+              <span className={styles.primaryActionHint}>
+                Spawn an AI coding session on a configured repository
+              </span>
             </span>
             <span className={styles.primaryActionArrow}>
               <ChevronRightIcon />
             </span>
-          </Link>
+          </button>
         )}
 
-        {/* Recent Branches Section */}
-        <div className={styles.sectionCard} data-testid="recent-branches">
-          <div className={styles.sectionHeader}>
-            <h2 className={styles.sectionTitle}>
-              <GitBranchIcon />
-              Recent Branches
-            </h2>
-            <button
-              className={styles.scanButton}
-              onClick={handleRefreshBranches}
-              disabled={branchesRefreshing}
-              title="Refresh branches from remote"
-            >
-              <RefreshIcon />
-              {branchesRefreshing ? 'Refreshing...' : 'Refresh'}
-            </button>
+        {/* Recent Branches Section (hidden during FTUE) */}
+        {workspaces.length > 0 && (
+          <div className={styles.sectionCard} data-testid="recent-branches">
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>
+                <GitBranchIcon />
+                Recent Branches
+              </h2>
+              <button
+                className={styles.scanButton}
+                onClick={handleRefreshBranches}
+                disabled={branchesRefreshing}
+                title="Refresh branches from remote"
+              >
+                <RefreshIcon />
+                {branchesRefreshing ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+            <div className={styles.sectionContent}>
+              {branchesLoading ? (
+                <div className={styles.loadingState}>
+                  <div className="spinner spinner--small" />
+                  <span>Loading branches...</span>
+                </div>
+              ) : recentBranches.length === 0 ? (
+                <div className={styles.placeholderState}>
+                  <p className={styles.placeholderText}>No branches found yet.</p>
+                  <p className={styles.placeholderHint}>
+                    Branches will appear after the first fetch completes.
+                  </p>
+                </div>
+              ) : (
+                <div className={styles.branchList}>
+                  {recentBranches.slice(0, 5).map((branch, idx) => {
+                    const key = `${branch.repo_name}:${branch.branch}`;
+                    const isPreparing = preparingBranch === key;
+                    return (
+                      <button
+                        key={`${branch.repo_name}-${branch.branch}-${idx}`}
+                        className={styles.branchItem}
+                        data-testid="branch-item"
+                        onClick={() => handleBranchClick(branch.repo_name, branch.branch)}
+                        title={`Spawn session on ${branch.branch}`}
+                        disabled={!!preparingBranch}
+                      >
+                        <div className={styles.branchRow1}>
+                          <span className={styles.branchName}>
+                            {branch.branch}
+                            {isPreparing && (
+                              <span className={styles.branchSpinner}>
+                                <div className="spinner spinner--small" />
+                              </span>
+                            )}
+                          </span>
+                          <span className={styles.branchRepo}>{branch.repo_name}</span>
+                          <span className={styles.branchDate}>
+                            {formatRelativeDate(branch.commit_date)}
+                          </span>
+                        </div>
+                        <div className={styles.branchRow2}>
+                          <span className={styles.branchSubject}>{branch.subject}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
-          <div className={styles.sectionContent}>
-            {branchesLoading ? (
-              <div className={styles.loadingState}>
-                <div className="spinner spinner--small" />
-                <span>Loading branches...</span>
-              </div>
-            ) : recentBranches.length === 0 ? (
-              <div className={styles.placeholderState}>
-                <p className={styles.placeholderText}>No branches found yet.</p>
-                <p className={styles.placeholderHint}>
-                  Branches will appear after the first fetch completes.
-                </p>
-              </div>
-            ) : (
-              <div className={styles.branchList}>
-                {recentBranches.slice(0, 5).map((branch, idx) => {
-                  const key = `${branch.repo_name}:${branch.branch}`;
-                  const isPreparing = preparingBranch === key;
-                  return (
-                    <button
-                      key={`${branch.repo_name}-${branch.branch}-${idx}`}
-                      className={styles.branchItem}
-                      data-testid="branch-item"
-                      onClick={() => handleBranchClick(branch.repo_name, branch.branch)}
-                      title={`Spawn session on ${branch.branch}`}
-                      disabled={!!preparingBranch}
-                    >
-                      <div className={styles.branchRow1}>
-                        <span className={styles.branchName}>
-                          {branch.branch}
-                          {isPreparing && (
-                            <span className={styles.branchSpinner}>
-                              <div className="spinner spinner--small" />
-                            </span>
-                          )}
-                        </span>
-                        <span className={styles.branchRepo}>{branch.repo_name}</span>
-                        <span className={styles.branchDate}>
-                          {formatRelativeDate(branch.commit_date)}
-                        </span>
-                      </div>
-                      <div className={styles.branchRow2}>
-                        <span className={styles.branchSubject}>{branch.subject}</span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
+        )}
 
-        {/* Pull Requests Section */}
-        {features.github && (
+        {/* Pull Requests Section (hidden during FTUE) */}
+        {workspaces.length > 0 && features.github && (
           <div className={styles.sectionCard}>
             <div className={styles.sectionHeader}>
               <h2 className={styles.sectionTitle}>
@@ -1153,8 +1190,8 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Subreddit Digest Section */}
-        {features.subreddit && subreddit?.enabled && (
+        {/* Subreddit Digest Section (hidden during FTUE) */}
+        {workspaces.length > 0 && features.subreddit && subreddit?.enabled && (
           <div className={styles.sectionCard}>
             <div className={styles.sectionHeader}>
               <h2 className={styles.sectionTitle}>
@@ -1411,16 +1448,18 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Tips */}
-        <div className={styles.tipsCard}>
-          <div className={styles.tipItem}>
-            <span className={styles.tipKey}>Tip:</span>
-            <span className={styles.tipText}>
-              Use <code>tmux -L schmux attach -t SESSION_NAME</code> to connect directly from
-              terminal
-            </span>
+        {/* Tips — only show when there are sessions to attach to */}
+        {workspaces.length > 0 && (
+          <div className={styles.tipsCard}>
+            <div className={styles.tipItem}>
+              <span className={styles.tipKey}>Tip:</span>
+              <span className={styles.tipText}>
+                Use <code>tmux -L schmux attach -t SESSION_NAME</code> to connect directly from
+                terminal
+              </span>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

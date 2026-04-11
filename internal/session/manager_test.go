@@ -1648,3 +1648,34 @@ func TestQueuedSessionTimeout(t *testing.T) {
 		t.Errorf("expected status 'failed', got %q", found.Status)
 	}
 }
+
+func TestSpawn_NoTmux(t *testing.T) {
+	cfg := &config.Config{
+		WorkspacePath: "/tmp/workspaces",
+		RunTargets: []config.RunTarget{
+			{Name: "test-tool", Command: "echo hello"},
+		},
+	}
+	st := state.New("", nil)
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+
+	// nil server = tmux not available (e.g., remote-only setup)
+	m := New(cfg, st, statePath, wm, nil, nil)
+
+	_, err := m.Spawn(context.Background(), SpawnOptions{
+		TargetName: "test-tool",
+	})
+	if err == nil {
+		t.Fatal("expected error when tmux is not available")
+	}
+	if !strings.Contains(err.Error(), "tmux is required") {
+		t.Errorf("expected tmux install instructions in error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "brew install tmux") {
+		t.Errorf("expected macOS install hint, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "apt install tmux") {
+		t.Errorf("expected Linux install hint, got: %v", err)
+	}
+}

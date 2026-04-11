@@ -25,6 +25,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/assets"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/emergence"
 	"github.com/sergeknystautas/schmux/internal/floormanager"
@@ -105,6 +106,10 @@ type ServerOptions struct {
 	DevMode           bool            // When true, dev mode API endpoints are enabled
 	ShutdownCtx       context.Context // Context cancelled on daemon shutdown; defaults to context.Background()
 	DashboardDistPath string          // Optional explicit dashboard dist path override (mainly for tests)
+
+	// Detection results (populated at daemon startup)
+	DetectedVCS  []detect.VCSTool
+	DetectedTmux detect.TmuxStatus
 }
 
 // Server represents the dashboard HTTP server.
@@ -152,6 +157,10 @@ type Server struct {
 	updateMu         sync.Mutex
 
 	authSessionKey []byte
+
+	// Detection results (populated at daemon startup)
+	detectedVCS  []detect.VCSTool
+	detectedTmux detect.TmuxStatus
 
 	// Model manager (catalog, resolution, enablement)
 	models *models.Manager
@@ -327,6 +336,8 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 			crTrackers:                      make(map[string]*session.SessionRuntime),
 		},
 	}
+	s.detectedVCS = opts.DetectedVCS
+	s.detectedTmux = opts.DetectedTmux
 	s.dashboardFS = dashboardassets.FS()
 
 	s.previewManager = preview.NewManager(
@@ -606,6 +617,7 @@ func (s *Server) Start() error {
 		r.Get("/sessions", s.handleSessions)
 		r.Get("/recent-branches", s.handleRecentBranches)
 		r.Get("/detect-tools", s.handleDetectTools)
+		r.Get("/detection-summary", s.handleDetectionSummary)
 		r.Get("/models", s.handleModels)
 		r.Get("/user-models", s.handleGetUserModels)
 		r.Put("/user-models", s.handleSetUserModels)
@@ -639,6 +651,7 @@ func (s *Server) Start() error {
 		r.Get("/github/status", s.handleGetGitHubStatus)
 		r.Get("/features", s.handleGetFeatures)
 		r.Get("/environment", s.handleGetEnvironment)
+		r.Get("/repos/scan", s.handleScanRepos)
 
 		// Dashboard.sx callbacks (no additional CSRF — hit by browser redirect before HTTPS is configured)
 		r.HandleFunc("/dashboardsx/callback", s.handleDashboardSXCallback)
@@ -658,6 +671,7 @@ func (s *Server) Start() error {
 			r.Post("/check-branch-conflict", s.handleCheckBranchConflict)
 			r.Post("/recent-branches/refresh", s.handleRecentBranchesRefresh)
 			r.Post("/commit/generate", s.handleCommitGenerate)
+			r.Post("/repos/probe", s.handleProbeRepo)
 			r.Post("/overlays/scan", s.handleOverlayScan)
 			r.Post("/overlays/add", s.handleOverlayAdd)
 			r.Post("/overlays/dismiss-nudge", s.handleDismissNudge)

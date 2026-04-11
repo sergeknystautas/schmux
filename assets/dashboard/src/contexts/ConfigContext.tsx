@@ -1,5 +1,4 @@
 import React, { createContext, useState, useContext, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { getConfig, getErrorMessage } from '../lib/api';
 import type { ConfigResponse } from '../lib/types';
 import { CONFIG_UPDATED_KEY } from '../lib/constants';
@@ -8,9 +7,6 @@ type ConfigContextValue = {
   config: ConfigResponse;
   loading: boolean;
   error: string | null;
-  isNotConfigured: boolean;
-  isFirstRun: boolean;
-  completeFirstRun: () => void;
   reloadConfig: () => Promise<void>;
   getRepoName: (repoUrl: string) => string;
 };
@@ -125,16 +121,11 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
   const [config, setConfig] = useState(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isFirstRun, setIsFirstRun] = useState(false);
 
   const loadConfig = useCallback(async () => {
     try {
       const data = await getConfig();
       setConfig(data);
-      // Set isFirstRun if workspace_path is empty on initial load
-      if (!data?.workspace_path?.trim()) {
-        setIsFirstRun(true);
-      }
       setError(null);
     } catch (err) {
       console.error('Failed to load config:', err);
@@ -159,14 +150,6 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, [loadConfig]);
 
-  // Compute whether app is configured
-  // App is "not configured" if: empty workspace path or no repos
-  const isNotConfigured = useMemo(() => {
-    if (loading || error) return false;
-    const wsPath = config?.workspace_path || '';
-    return !wsPath.trim() || !config?.repos || config.repos.length === 0;
-  }, [config, loading, error]);
-
   // Helper to get repo name from URL
   const getRepoName = useCallback(
     (repoUrl: string) => {
@@ -182,13 +165,10 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
       config,
       loading,
       error,
-      isNotConfigured,
-      isFirstRun,
-      completeFirstRun: () => setIsFirstRun(false),
       reloadConfig: loadConfig,
       getRepoName,
     }),
-    [config, loading, error, isNotConfigured, isFirstRun, loadConfig, getRepoName]
+    [config, loading, error, loadConfig, getRepoName]
   );
 
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
@@ -200,16 +180,4 @@ export function useConfig() {
     throw new Error('useConfig must be used within a ConfigProvider');
   }
   return ctx;
-}
-
-// Hook to redirect to /config if not configured
-export function useRequireConfig() {
-  const { isNotConfigured, loading } = useConfig();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    if (!loading && isNotConfigured) {
-      navigate('/config', { replace: true });
-    }
-  }, [isNotConfigured, loading, navigate]);
 }

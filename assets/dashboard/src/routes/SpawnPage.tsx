@@ -10,7 +10,7 @@ import {
 } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
-import { useRequireConfig, useConfig } from '../contexts/ConfigContext';
+import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import { usePendingNavigation } from '../lib/navigation';
 import { getQuickLaunchItems } from '../lib/quicklaunch';
@@ -153,7 +153,6 @@ function saveLastModelSelectionMode(mode: 'single' | 'multiple' | 'advanced'): v
 }
 
 export default function SpawnPage() {
-  useRequireConfig();
   const [repos, setRepos] = useState<RepoResponse[]>([]);
   const [commandTargets, setCommandTargets] = useState<{ name: string; command: string }[]>([]);
   const [models, setModels] = useState<Model[]>([]);
@@ -178,6 +177,7 @@ export default function SpawnPage() {
   const [styles, setStyles] = useState<Style[]>([]);
   const [selectedStyleId, setSelectedStyleId] = useState('');
   const [imageAttachments, setImageAttachments] = useState<string[]>([]);
+  const [tmuxError, setTmuxError] = useState('');
 
   const [searchParams] = useSearchParams();
   const { error: toastError } = useToast();
@@ -222,9 +222,8 @@ export default function SpawnPage() {
 
   // Spawn page mode: derived from current URL/state
   const urlWorkspaceId = searchParams.get('workspace_id');
-  const mode: 'workspace' | 'prefilled' | 'fresh' = (() => {
+  const mode: 'workspace' | 'fresh' = (() => {
     if (urlWorkspaceId) return 'workspace';
-    if (location.state?.repo && location.state?.branch) return 'prefilled';
     return 'fresh';
   })();
   const initialized = useRef(false);
@@ -332,15 +331,6 @@ export default function SpawnPage() {
         setRepo(workspace.repo);
         setBranch(workspace.branch);
       }
-    } else if (mode === 'prefilled') {
-      const state = location.state as {
-        repo: string;
-        branch: string;
-        prompt: string;
-      };
-      setRepo(state.repo);
-      setBranch(state.branch);
-      setPrompt(state.prompt);
     }
 
     // Layer 2: sessionStorage Draft (Active Draft)
@@ -352,9 +342,8 @@ export default function SpawnPage() {
     const lastModelSelectionMode = loadLastModelSelectionMode();
 
     // Apply three-layer waterfall for each field
-    if (mode === 'workspace' || mode === 'prefilled') {
-      // prompt: draft (workspace/prefilled already set prompt in Layer 1 for prefilled)
-      if (mode === 'workspace' && draft?.prompt) {
+    if (mode === 'workspace') {
+      if (draft?.prompt) {
         setPrompt(draft.prompt);
       }
       // modelSelectionMode: draft → localStorage → default
@@ -384,6 +373,11 @@ export default function SpawnPage() {
       } else if (lastTargetCounts) {
         setTargetCounts(lastTargetCounts);
       }
+
+      // Override with location.state if navigating from Add Repository flow
+      if (location.state?.repo) setRepo(location.state.repo);
+      if (location.state?.branch) setBranch(location.state.branch);
+      if (location.state?.prompt) setPrompt(location.state.prompt);
     }
 
     // imageAttachments: draft → default (applies to all modes)
@@ -613,10 +607,16 @@ export default function SpawnPage() {
       if (!hasSuccess) {
         const errors = response.filter((r) => r.error).map((r) => r.error);
         const unique = [...new Set(errors)];
-        alert('Spawn Failed', `Spawn failed: ${unique.join('; ')}`);
+        const combinedError = unique.join('; ');
+        if (combinedError.includes('tmux is required')) {
+          setTmuxError(combinedError);
+        } else {
+          alert('Spawn Failed', `Spawn failed: ${combinedError}`);
+        }
         setEngagePhase('idle');
         return false;
       }
+      setTmuxError('');
       clearSpawnDraft(urlWorkspaceId);
       setImageAttachments([]);
       const successfulResults = response.filter((r) => !r.error);
@@ -668,6 +668,7 @@ export default function SpawnPage() {
   const handleSlashCommandSelect = useCallback(
     async (command: string) => {
       if (engagePhase !== 'idle') return;
+      setTmuxError('');
 
       if (command === '/resume') {
         // Resume: spawn immediately with currently selected agent
@@ -709,7 +710,11 @@ export default function SpawnPage() {
           }
         } catch (err) {
           const errorMsg = getErrorMessage(err, 'Unknown error');
-          alert('Spawn Failed', `Failed to spawn: ${errorMsg}`);
+          if (errorMsg.includes('tmux is required')) {
+            setTmuxError(errorMsg);
+          } else {
+            alert('Spawn Failed', `Failed to spawn: ${errorMsg}`);
+          }
           setEngagePhase('idle');
         }
         return;
@@ -732,7 +737,11 @@ export default function SpawnPage() {
           handleSpawnResult(response);
         } catch (err) {
           const errorMsg = getErrorMessage(err, 'Unknown error');
-          alert('Spawn Failed', `Failed to spawn: ${errorMsg}`);
+          if (errorMsg.includes('tmux is required')) {
+            setTmuxError(errorMsg);
+          } else {
+            alert('Spawn Failed', `Failed to spawn: ${errorMsg}`);
+          }
           setEngagePhase('idle');
         }
         return;
@@ -767,7 +776,11 @@ export default function SpawnPage() {
         }
       } catch (err) {
         const errorMsg = getErrorMessage(err, 'Unknown error');
-        alert('Spawn Failed', `Failed to spawn: ${errorMsg}`);
+        if (errorMsg.includes('tmux is required')) {
+          setTmuxError(errorMsg);
+        } else {
+          alert('Spawn Failed', `Failed to spawn: ${errorMsg}`);
+        }
         setEngagePhase('idle');
       }
     },
@@ -790,6 +803,7 @@ export default function SpawnPage() {
 
   const handleEngage = useCallback(async () => {
     if (!validateForm()) return;
+    setTmuxError('');
 
     const selectedTargets: Record<string, number> = {};
     Object.entries(targetCounts).forEach(([name, count]) => {
@@ -878,7 +892,11 @@ export default function SpawnPage() {
       }
     } catch (err) {
       const errorMsg = getErrorMessage(err, 'Unknown error');
-      alert('Spawn Failed', `Failed to spawn: ${errorMsg}`);
+      if (errorMsg.includes('tmux is required')) {
+        setTmuxError(errorMsg);
+      } else {
+        alert('Spawn Failed', `Failed to spawn: ${errorMsg}`);
+      }
       setEngagePhase('idle');
     }
   }, [
@@ -1101,7 +1119,21 @@ export default function SpawnPage() {
                     <div className="grid-full">
                       <div data-testid="agent-repo-row" className="spawn-selectors">
                         <div className="spawn-selector">
-                          <span className="spawn-selector__label">Agent</span>
+                          <span className="spawn-selector__label">
+                            Agent
+                            {commandTargets.length === 0 && (
+                              <span
+                                style={{
+                                  fontWeight: 'normal',
+                                  opacity: 0.6,
+                                  marginLeft: 'var(--spacing-xs)',
+                                  fontSize: 'var(--font-size-xs)',
+                                }}
+                              >
+                                auto-detected from your system
+                              </span>
+                            )}
+                          </span>
                           <select
                             className="select"
                             data-testid="agent-select"
@@ -1235,7 +1267,21 @@ export default function SpawnPage() {
                     <div className="grid-full">
                       <div data-testid="agent-repo-row" className="spawn-selectors">
                         <div className="spawn-selector">
-                          <span className="spawn-selector__label">Agent</span>
+                          <span className="spawn-selector__label">
+                            Agent
+                            {commandTargets.length === 0 && (
+                              <span
+                                style={{
+                                  fontWeight: 'normal',
+                                  opacity: 0.6,
+                                  marginLeft: 'var(--spacing-xs)',
+                                  fontSize: 'var(--font-size-xs)',
+                                }}
+                              >
+                                auto-detected from your system
+                              </span>
+                            )}
+                          </span>
                           <select
                             className="select"
                             data-testid="agent-select"
@@ -1574,6 +1620,27 @@ export default function SpawnPage() {
               </div>
             )}
         </div>
+
+        {tmuxError && (
+          <div
+            className="mt-md"
+            data-testid="tmux-error"
+            style={{
+              padding: 'var(--spacing-md)',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-error-bg, rgba(239, 68, 68, 0.1))',
+              border: '1px solid var(--color-error, #ef4444)',
+              color: 'var(--color-error, #ef4444)',
+            }}
+          >
+            <strong>tmux not found</strong>
+            <p style={{ margin: 'var(--spacing-xs) 0 0' }}>{tmuxError}</p>
+            <p style={{ margin: 'var(--spacing-xs) 0 0', fontSize: 'var(--font-size-sm)' }}>
+              Install with: <code>brew install tmux</code> (macOS) or <code>apt install tmux</code>{' '}
+              (Linux), then retry.
+            </p>
+          </div>
+        )}
 
         <div className="flex-row mt-lg gap-sm" style={{ justifyContent: 'flex-end' }}>
           {/* Create new branch checkbox (only in workspace mode) */}
