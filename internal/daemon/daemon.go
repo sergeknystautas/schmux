@@ -556,7 +556,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		for _, t := range detectedTargets {
 			names = append(names, t.Name)
 		}
-		fmt.Printf("Found agents: %s\n", strings.Join(names, ", "))
+		configLog.Info("agents detected", "agents", strings.Join(names, ", "))
 	}
 
 	// Create model manager (single owner for catalog, resolution, enablement)
