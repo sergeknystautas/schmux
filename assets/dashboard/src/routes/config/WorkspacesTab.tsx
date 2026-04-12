@@ -203,7 +203,9 @@ export default function WorkspacesTab({
         </div>
       </details>
 
-      {showAddModal && <AddRepoModal onClose={() => setShowAddModal(false)} />}
+      {showAddModal && (
+        <AddRepoModal onClose={() => setShowAddModal(false)} navigateToSpawn={false} />
+      )}
     </div>
   );
 }

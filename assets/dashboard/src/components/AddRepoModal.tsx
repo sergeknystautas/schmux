@@ -7,6 +7,8 @@ import useFocusTrap from '../hooks/useFocusTrap';
 
 interface AddRepoModalProps {
   onClose: () => void;
+  /** When false, skip the redirect to /spawn after adding. Default: true. */
+  navigateToSpawn?: boolean;
 }
 
 /** Derive a short repo name from a URL or path (last segment, minus .git). */
@@ -18,7 +20,7 @@ function deriveRepoName(url: string): string {
 
 type Phase = 'input' | 'probing' | 'error';
 
-export default function AddRepoModal({ onClose }: AddRepoModalProps) {
+export default function AddRepoModal({ onClose, navigateToSpawn = true }: AddRepoModalProps) {
   const navigate = useNavigate();
   const { reloadConfig } = useConfig();
   const modalRef = useRef<HTMLDivElement>(null);
@@ -133,9 +135,11 @@ export default function AddRepoModal({ onClose }: AddRepoModalProps) {
       if (abortRef.current) return;
 
       onClose();
-      navigate('/spawn', {
-        state: { repo: resolvedUrl, branch: result.default_branch },
-      });
+      if (navigateToSpawn) {
+        navigate('/spawn', {
+          state: { repo: resolvedUrl, branch: result.default_branch },
+        });
+      }
     } catch (err) {
       if (abortRef.current) return;
       setPhase('error');
