@@ -285,6 +285,8 @@
   display: grid;
   grid-template-columns: 1fr auto auto;
   gap: 4px var(--spacing-md);
+  max-height: 240px;
+  overflow-y: auto;
 }
 
 .branchItem {
