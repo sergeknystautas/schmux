@@ -14,14 +14,28 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/preview"
 )
 
 const previewAutoDetectCooldown = 45 * time.Second
+const previewStreamBufferLimit = 4096
+const previewCandidateTTL = 8 * time.Second
+const defaultPreviewCandidateInterval = 350 * time.Millisecond
 
 // pidFieldRegex matches the pid= field in ss output.
 var pidFieldRegex = regexp.MustCompile(`pid=(\d+)`)
+
+type previewCandidate struct {
+	SessionID   string
+	WorkspaceID string
+	Host        string
+	Port        int
+	DetectedAt  time.Time
+	LastTriedAt time.Time
+	ExpiresAt   time.Time
+}
 
 func (s *Server) handleSessionOutputChunk(sessionID string, chunk []byte) {
 	if s.previewManager == nil || len(chunk) == 0 {
@@ -36,20 +50,16 @@ func (s *Server) handleSessionOutputChunk(sessionID string, chunk []byte) {
 		return
 	}
 
-	// Find http(s):// URLs in terminal output, extract ports with host info
-	candidatePorts := detectPortsFromChunk(chunk)
+	buffer := s.appendPreviewStreamBuffer(sessionID, chunk)
+
+	// Find http(s):// URLs in the rolling stream buffer, extract ports with host info
+	candidatePorts := detectPortsFromChunk([]byte(buffer))
 	if len(candidatePorts) == 0 {
 		return
 	}
 
-	// Filter out ports we already have previews for
-	ports := s.filterExistingPreviews(ws.ID, candidatePorts)
-	if len(ports) == 0 {
-		return
-	}
-
 	// Filter out our own proxy ports
-	ports = s.filterProxyPorts(ports)
+	ports := s.filterProxyPorts(candidatePorts)
 	if len(ports) == 0 {
 		return
 	}
@@ -60,68 +70,254 @@ func (s *Server) handleSessionOutputChunk(sessionID string, chunk []byte) {
 		return
 	}
 
-	// Filter out ports that don't speak HTTP
-	ports = filterNonHTTPPorts(ports)
-	if len(ports) == 0 {
+	previewLog := logging.Sub(s.logger, "preview")
+	for _, lp := range ports {
+		s.enqueuePreviewCandidate(sess.ID, ws.ID, lp, previewLog)
+	}
+}
+
+func (s *Server) appendPreviewStreamBuffer(sessionID string, chunk []byte) string {
+	s.previewStreamBuffersMu.Lock()
+	defer s.previewStreamBuffersMu.Unlock()
+
+	buffer := s.previewStreamBuffers[sessionID] + string(chunk)
+	if len(buffer) > previewStreamBufferLimit {
+		buffer = buffer[len(buffer)-previewStreamBufferLimit:]
+	}
+	s.previewStreamBuffers[sessionID] = buffer
+	return buffer
+}
+
+func previewCandidateKey(workspaceID, host string, port int) string {
+	return fmt.Sprintf("%s:%s:%d", workspaceID, host, port)
+}
+
+func (s *Server) enqueuePreviewCandidate(sessionID, workspaceID string, lp preview.ListeningPort, logger *log.Logger) {
+	if _, exists := s.state.FindPreview(workspaceID, lp.Host, lp.Port); exists {
+		if logger != nil {
+			logger.Debug("candidate skipped existing preview", "host", lp.Host, "port", lp.Port, "session", sessionID)
+		}
 		return
 	}
 
-	// Build PID tree for ownership lookup (includes session PID itself)
-	descendantPIDs := make(map[int]bool)
-	descendantPIDs[sess.Pid] = true
-	for _, dpid := range getDescendantPIDs(sess.Pid) {
-		descendantPIDs[dpid] = true
-	}
-
-	// Create previews for verified ports
-	previewLog := logging.Sub(s.logger, "preview")
 	now := time.Now().UTC()
-	var createdPreview *string // ID of first created preview for navigation
-	for _, lp := range ports {
-		// Look up which PID owns this port
-		ownerPID, err := preview.LookupPortOwner(lp.Port)
-		if err != nil {
+	key := previewCandidateKey(workspaceID, lp.Host, lp.Port)
+
+	s.previewCandidatesMu.Lock()
+	defer s.previewCandidatesMu.Unlock()
+
+	if existing := s.previewCandidates[key]; existing != nil {
+		existing.SessionID = sessionID
+		existing.WorkspaceID = workspaceID
+		existing.Host = lp.Host
+		existing.Port = lp.Port
+		if existing.ExpiresAt.Before(now.Add(previewCandidateTTL)) {
+			existing.ExpiresAt = now.Add(previewCandidateTTL)
+		}
+		if logger != nil {
+			logger.Debug("candidate refreshed", "host", lp.Host, "port", lp.Port, "session", sessionID)
+		}
+		return
+	}
+
+	s.previewCandidates[key] = &previewCandidate{
+		SessionID:   sessionID,
+		WorkspaceID: workspaceID,
+		Host:        lp.Host,
+		Port:        lp.Port,
+		DetectedAt:  now,
+		ExpiresAt:   now.Add(previewCandidateTTL),
+	}
+	if logger != nil {
+		logger.Debug("candidate queued", "host", lp.Host, "port", lp.Port, "session", sessionID)
+	}
+}
+
+func (s *Server) previewAutodetectLoop() {
+	if s.previewManager == nil {
+		return
+	}
+	interval := s.previewCandidateInterval
+	if interval <= 0 {
+		interval = defaultPreviewCandidateInterval
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			s.processPreviewCandidates(time.Now().UTC())
+		case <-s.shutdownCtx.Done():
+			return
+		}
+	}
+}
+
+func (s *Server) processPreviewCandidates(now time.Time) {
+	s.previewCandidatesMu.Lock()
+	keys := make([]string, 0, len(s.previewCandidates))
+	for key, candidate := range s.previewCandidates {
+		if candidate == nil {
+			delete(s.previewCandidates, key)
 			continue
 		}
-
-		// Check PID tree first, then fall back to PID file match
-		trigger := "autodetect"
-		if !descendantPIDs[ownerPID] {
-			if !matchesBrainstormPIDFile(ws.Path, ownerPID) {
-				previewLog.Debug("pid file scan no match", "port", lp.Port, "owner", ownerPID, "workspace", ws.Path)
-				continue
+		if now.After(candidate.ExpiresAt) {
+			delete(s.previewCandidates, key)
+			if s.logger != nil {
+				logging.Sub(s.logger, "preview").Debug("candidate expired", "host", candidate.Host, "port", candidate.Port, "session", candidate.SessionID)
 			}
-			trigger = "pid-file"
-		}
-
-		key := fmt.Sprintf("%s:%d", ws.ID, lp.Port)
-		s.previewDetectMu.Lock()
-		last, hasLast := s.previewDetect[key]
-		if hasLast && now.Sub(last) < previewAutoDetectCooldown {
-			s.previewDetectMu.Unlock()
 			continue
 		}
-		s.previewDetect[key] = now
+		keys = append(keys, key)
+	}
+	s.previewCandidatesMu.Unlock()
+
+	for _, key := range keys {
+		s.processPreviewCandidate(key, now)
+	}
+}
+
+func (s *Server) processPreviewCandidate(key string, now time.Time) {
+	previewLog := logging.Sub(s.logger, "preview")
+
+	s.previewCandidatesMu.Lock()
+	candidate := s.previewCandidates[key]
+	if candidate == nil {
+		s.previewCandidatesMu.Unlock()
+		return
+	}
+	interval := s.previewCandidateInterval
+	if interval <= 0 {
+		interval = defaultPreviewCandidateInterval
+	}
+	if !candidate.LastTriedAt.IsZero() && now.Sub(candidate.LastTriedAt) < interval {
+		s.previewCandidatesMu.Unlock()
+		return
+	}
+	candidate.LastTriedAt = now
+	s.previewCandidatesMu.Unlock()
+
+	sess, found := s.state.GetSession(candidate.SessionID)
+	if !found || sess.RemoteHostID != "" {
+		s.dropPreviewCandidate(key, "session-missing", candidate, previewLog)
+		return
+	}
+	ws, found := s.state.GetWorkspace(candidate.WorkspaceID)
+	if !found || ws.RemoteHostID != "" {
+		s.dropPreviewCandidate(key, "workspace-missing", candidate, previewLog)
+		return
+	}
+	if _, exists := s.state.FindPreview(ws.ID, candidate.Host, candidate.Port); exists {
+		s.dropPreviewCandidate(key, "preview-exists", candidate, previewLog)
+		return
+	}
+
+	if candidate.Port == s.config.GetPort() {
+		previewLog.Debug("candidate skipped daemon port", "host", candidate.Host, "port", candidate.Port, "session", candidate.SessionID)
+		return
+	}
+	if s.isKnownProxyPort(candidate.Port) {
+		previewLog.Debug("candidate skipped proxy port", "host", candidate.Host, "port", candidate.Port, "session", candidate.SessionID)
+		return
+	}
+
+	ownerPID, err := s.portOwnerLookup()(candidate.Port)
+	if err != nil {
+		previewLog.Debug("candidate waiting for port owner", "host", candidate.Host, "port", candidate.Port, "session", candidate.SessionID, "err", err)
+		return
+	}
+
+	trigger := "autodetect"
+	if !sessionOwnsPID(sess.Pid, ownerPID) {
+		if !matchesBrainstormPIDFile(ws.Path, ownerPID) {
+			previewLog.Debug("candidate waiting for matching owner", "host", candidate.Host, "port", candidate.Port, "session", candidate.SessionID, "owner", ownerPID, "workspace", ws.Path)
+			return
+		}
+		trigger = "pid-file"
+	}
+
+	lp := preview.ListeningPort{Host: candidate.Host, Port: candidate.Port}
+	if !s.httpProbe()(lp) {
+		previewLog.Debug("candidate waiting for http readiness", "host", candidate.Host, "port", candidate.Port, "session", candidate.SessionID)
+		return
+	}
+
+	s.previewDetectMu.Lock()
+	last, hasLast := s.previewDetect[key]
+	if hasLast && now.Sub(last) < previewAutoDetectCooldown {
 		s.previewDetectMu.Unlock()
+		previewLog.Debug("candidate suppressed by cooldown", "host", candidate.Host, "port", candidate.Port, "session", candidate.SessionID)
+		s.dropPreviewCandidate(key, "cooldown", candidate, previewLog)
+		return
+	}
+	s.previewDetectMu.Unlock()
 
-		ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-		result, wasCreated, err := s.previewManager.CreateOrGet(ctx, ws, lp.Host, lp.Port, sess.ID, ownerPID)
-		cancel()
-		if err != nil {
-			continue
-		}
-		if wasCreated {
-			previewLog.Info("created", "host", lp.Host, "port", lp.Port, "session", sess.ID, "server_pid", ownerPID, "trigger", trigger)
-			if createdPreview == nil {
-				createdPreview = &result.ID
-			}
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	result, wasCreated, err := s.previewManager.CreateOrGet(ctx, ws, candidate.Host, candidate.Port, sess.ID, ownerPID)
+	cancel()
+	if err != nil {
+		previewLog.Debug("candidate create failed", "host", candidate.Host, "port", candidate.Port, "session", candidate.SessionID, "err", err)
+		return
 	}
 
-	if createdPreview != nil {
+	s.previewDetectMu.Lock()
+	s.previewDetect[key] = now
+	s.previewDetectMu.Unlock()
+	s.dropPreviewCandidate(key, "created", candidate, previewLog)
+
+	if wasCreated {
+		previewLog.Info("created", "host", candidate.Host, "port", candidate.Port, "session", sess.ID, "server_pid", ownerPID, "trigger", trigger)
 		go s.BroadcastSessions()
-		go s.BroadcastPendingNavigation("preview", ws.ID, *createdPreview)
+		go s.BroadcastPendingNavigation("preview", ws.ID, result.ID)
 	}
+}
+
+func (s *Server) dropPreviewCandidate(key, reason string, candidate *previewCandidate, logger *log.Logger) {
+	s.previewCandidatesMu.Lock()
+	delete(s.previewCandidates, key)
+	s.previewCandidatesMu.Unlock()
+	if logger != nil && candidate != nil {
+		logger.Debug("candidate removed", "reason", reason, "host", candidate.Host, "port", candidate.Port, "session", candidate.SessionID)
+	}
+}
+
+func (s *Server) isKnownProxyPort(port int) bool {
+	for _, p := range s.state.GetPreviews() {
+		if p.ProxyPort == port {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) portOwnerLookup() func(port int) (int, error) {
+	if s.lookupPortOwner != nil {
+		return s.lookupPortOwner
+	}
+	return preview.LookupPortOwner
+}
+
+func (s *Server) httpProbe() func(lp preview.ListeningPort) bool {
+	if s.previewHTTPProbe != nil {
+		return s.previewHTTPProbe
+	}
+	return defaultPreviewHTTPProbe
+}
+
+func sessionOwnsPID(sessionPID, ownerPID int) bool {
+	if sessionPID <= 0 || ownerPID <= 0 {
+		return false
+	}
+	if sessionPID == ownerPID {
+		return true
+	}
+	for _, dpid := range getDescendantPIDs(sessionPID) {
+		if dpid == ownerPID {
+			return true
+		}
+	}
+	return false
 }
 
 // urlRegex matches http(s)://host[:port] patterns
@@ -283,6 +479,10 @@ func filterNonHTTPPorts(ports []preview.ListeningPort) []preview.ListeningPort {
 		filtered = append(filtered, lp)
 	}
 	return filtered
+}
+
+func defaultPreviewHTTPProbe(lp preview.ListeningPort) bool {
+	return len(filterNonHTTPPorts([]preview.ListeningPort{lp})) == 1
 }
 
 // filterDaemonPort removes the daemon's own listening port to prevent

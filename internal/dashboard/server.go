@@ -175,10 +175,16 @@ type Server struct {
 	remoteManager *remote.Manager
 
 	// Workspace preview proxy manager
-	previewManager  *preview.Manager
-	previewDetect   map[string]time.Time // workspaceID:port -> last detect time
-	previewDetectMu sync.Mutex
-	lookupPortOwner func(port int) (int, error) // nil → preview.LookupPortOwner
+	previewManager           *preview.Manager
+	previewDetect            map[string]time.Time // workspaceID:host:port -> last successful detect time
+	previewDetectMu          sync.Mutex
+	previewStreamBuffers     map[string]string
+	previewStreamBuffersMu   sync.Mutex
+	previewCandidates        map[string]*previewCandidate
+	previewCandidatesMu      sync.Mutex
+	lookupPortOwner          func(port int) (int, error)         // nil → preview.LookupPortOwner
+	previewHTTPProbe         func(lp preview.ListeningPort) bool // nil → defaultPreviewHTTPProbe
+	previewCandidateInterval time.Duration                       // nil-ish/zero → defaultPreviewCandidateInterval
 
 	// Tunnel manager for remote access
 	tunnelManager *tunnel.Manager
@@ -301,32 +307,34 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		shutdownCtx = context.Background()
 	}
 	s := &Server{
-		config:             cfg,
-		state:              st,
-		statePath:          statePath,
-		session:            sm,
-		workspace:          wm,
-		prDiscovery:        prd,
-		logger:             logger,
-		githubStatus:       ghStatus,
-		tmuxServer:         tmuxServer,
-		shutdown:           opts.Shutdown,
-		devRestart:         opts.DevRestart,
-		devProxy:           opts.DevProxy,
-		devMode:            opts.DevMode,
-		shutdownCtx:        shutdownCtx,
-		BoundAddr:          make(chan net.Addr, 1),
-		dashboardDistPath:  opts.DashboardDistPath,
-		wsConns:            make(map[string][]*wsConn),
-		sessionsConns:      make(map[*wsConn]bool),
-		rotationLocks:      make(map[string]*sync.Mutex),
-		broadcastDone:      make(chan struct{}),
-		broadcastExited:    make(chan struct{}),
-		broadcastReady:     make(chan struct{}),
-		connectLimiter:     NewRateLimiter(3, 1*time.Minute), // 3 connects per minute
-		previewDetect:      make(map[string]time.Time),
-		defaultBranchCache: make(map[string]defaultBranchEntry),
-		curationTracker:    NewCurationTracker(),
+		config:               cfg,
+		state:                st,
+		statePath:            statePath,
+		session:              sm,
+		workspace:            wm,
+		prDiscovery:          prd,
+		logger:               logger,
+		githubStatus:         ghStatus,
+		tmuxServer:           tmuxServer,
+		shutdown:             opts.Shutdown,
+		devRestart:           opts.DevRestart,
+		devProxy:             opts.DevProxy,
+		devMode:              opts.DevMode,
+		shutdownCtx:          shutdownCtx,
+		BoundAddr:            make(chan net.Addr, 1),
+		dashboardDistPath:    opts.DashboardDistPath,
+		wsConns:              make(map[string][]*wsConn),
+		sessionsConns:        make(map[*wsConn]bool),
+		rotationLocks:        make(map[string]*sync.Mutex),
+		broadcastDone:        make(chan struct{}),
+		broadcastExited:      make(chan struct{}),
+		broadcastReady:       make(chan struct{}),
+		connectLimiter:       NewRateLimiter(3, 1*time.Minute), // 3 connects per minute
+		previewDetect:        make(map[string]time.Time),
+		previewStreamBuffers: make(map[string]string),
+		previewCandidates:    make(map[string]*previewCandidate),
+		defaultBranchCache:   make(map[string]defaultBranchEntry),
+		curationTracker:      NewCurationTracker(),
 		remoteAuthState: remoteAuthState{
 			remoteAuthLimiter: NewRateLimiter(5, 1*time.Minute), // 5 auth attempts per minute per IP
 			remoteNonces:      make(map[string]*remoteNonce),
@@ -377,6 +385,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 	}
 	go s.broadcastLoop()
 	go s.previewReconcileLoop()
+	go s.previewAutodetectLoop()
 	// Start rate limiter cleanup goroutines
 	go s.connectLimiter.startCleanup(10 * time.Minute)
 	go s.remoteAuthLimiter.startCleanup(10 * time.Minute)

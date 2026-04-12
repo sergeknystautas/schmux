@@ -1,14 +1,19 @@
 package dashboard
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/preview"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -73,6 +78,136 @@ func TestDetectPortsFromChunk_DedupByHostPort(t *testing.T) {
 	// localhost:3000 and 127.0.0.1:3000 are different host+port pairs
 	if len(ports) != 2 {
 		t.Fatalf("expected 2 (localhost:3000 and 127.0.0.1:3000), got %#v", ports)
+	}
+}
+
+func TestHandleSessionOutputChunk_DetectsURLAcrossChunkBoundaries(t *testing.T) {
+	srv, st, cleanup := newPreviewAutodetectTestServer(t, log.NewWithOptions(io.Discard, log.Options{}))
+	defer cleanup()
+
+	addPreviewAutodetectFixture(t, st, "sess-1", "ws-1", 4242)
+
+	srv.handleSessionOutputChunk("sess-1", []byte("Vellum running at http://127.0.0."))
+	if len(srv.previewCandidates) != 0 {
+		t.Fatalf("expected no candidate before URL is complete, got %#v", srv.previewCandidates)
+	}
+
+	srv.handleSessionOutputChunk("sess-1", []byte("1:6500\n"))
+	key := previewCandidateKey("ws-1", "127.0.0.1", 6500)
+	candidate := srv.previewCandidates[key]
+	if candidate == nil {
+		t.Fatalf("expected queued candidate for completed URL, got %#v", srv.previewCandidates)
+	}
+	if candidate.SessionID != "sess-1" || candidate.Port != 6500 || candidate.Host != "127.0.0.1" {
+		t.Fatalf("unexpected candidate: %#v", candidate)
+	}
+}
+
+func TestProcessPreviewCandidates_RetriesAfterInitialVerificationMiss(t *testing.T) {
+	srv, st, cleanup := newPreviewAutodetectTestServer(t, log.NewWithOptions(io.Discard, log.Options{}))
+	defer cleanup()
+
+	addPreviewAutodetectFixture(t, st, "sess-2", "ws-2", 5252)
+
+	srv.lookupPortOwner = func(port int) (int, error) { return 5252, nil }
+	probeCalls := 0
+	srv.previewHTTPProbe = func(lp preview.ListeningPort) bool {
+		probeCalls++
+		return probeCalls >= 2
+	}
+
+	srv.handleSessionOutputChunk("sess-2", []byte("ready at http://127.0.0.1:6501\n"))
+
+	firstAttempt := time.Now().UTC()
+	srv.processPreviewCandidates(firstAttempt)
+	if _, ok := st.FindPreview("ws-2", "127.0.0.1", 6501); ok {
+		t.Fatal("preview should not be created on the first failed verification")
+	}
+	if len(srv.previewCandidates) != 1 {
+		t.Fatalf("expected candidate to remain queued after first miss, got %d", len(srv.previewCandidates))
+	}
+
+	srv.processPreviewCandidates(firstAttempt.Add(defaultPreviewCandidateInterval + 10*time.Millisecond))
+	if _, ok := st.FindPreview("ws-2", "127.0.0.1", 6501); !ok {
+		t.Fatal("expected preview to be created after retry succeeds")
+	}
+}
+
+func TestProcessPreviewCandidates_RemovesCandidateAfterSuccess(t *testing.T) {
+	srv, st, cleanup := newPreviewAutodetectTestServer(t, log.NewWithOptions(io.Discard, log.Options{}))
+	defer cleanup()
+
+	addPreviewAutodetectFixture(t, st, "sess-success", "ws-success", 7373)
+
+	srv.lookupPortOwner = func(port int) (int, error) { return 7373, nil }
+	srv.previewHTTPProbe = func(lp preview.ListeningPort) bool { return true }
+
+	srv.handleSessionOutputChunk("sess-success", []byte("ready at http://127.0.0.1:6503\n"))
+	srv.processPreviewCandidates(time.Now().UTC())
+
+	if _, ok := st.FindPreview("ws-success", "127.0.0.1", 6503); !ok {
+		t.Fatal("expected preview after successful verification")
+	}
+	if len(srv.previewCandidates) != 0 {
+		t.Fatalf("expected candidate queue to be empty after success, got %#v", srv.previewCandidates)
+	}
+}
+
+func TestProcessPreviewCandidates_LogsDecisionPoints(t *testing.T) {
+	var buf bytes.Buffer
+	logger := log.NewWithOptions(&buf, log.Options{Level: log.DebugLevel})
+	srv, st, cleanup := newPreviewAutodetectTestServer(t, logger)
+	defer cleanup()
+
+	addPreviewAutodetectFixture(t, st, "sess-3", "ws-3", 6262)
+
+	srv.lookupPortOwner = func(port int) (int, error) { return 6262, nil }
+	srv.previewHTTPProbe = func(lp preview.ListeningPort) bool { return false }
+
+	srv.handleSessionOutputChunk("sess-3", []byte("ready at http://127.0.0.1:6502\n"))
+	srv.processPreviewCandidates(time.Now().UTC())
+
+	logs := buf.String()
+	if !strings.Contains(logs, "candidate queued") {
+		t.Fatalf("expected queued log, got %q", logs)
+	}
+	if !strings.Contains(logs, "candidate waiting for http readiness") {
+		t.Fatalf("expected readiness log, got %q", logs)
+	}
+}
+
+func newPreviewAutodetectTestServer(t *testing.T, logger *log.Logger) (*Server, *state.State, func()) {
+	t.Helper()
+
+	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
+	if logger == nil {
+		logger = log.NewWithOptions(io.Discard, log.Options{})
+	}
+	srv := &Server{
+		config:                   &config.Config{Network: &config.NetworkConfig{Port: 7337}},
+		state:                    st,
+		logger:                   logger,
+		shutdownCtx:              context.Background(),
+		previewManager:           preview.NewManager(st, 3, 20, false, 53000, 10, false, "", "", logger, nil),
+		previewDetect:            make(map[string]time.Time),
+		previewStreamBuffers:     make(map[string]string),
+		previewCandidates:        make(map[string]*previewCandidate),
+		previewCandidateInterval: defaultPreviewCandidateInterval,
+		broadcastDone:            make(chan struct{}),
+		broadcastExited:          make(chan struct{}),
+		broadcastReady:           make(chan struct{}),
+	}
+	return srv, st, func() { srv.previewManager.Stop() }
+}
+
+func addPreviewAutodetectFixture(t *testing.T, st *state.State, sessionID, workspaceID string, pid int) {
+	t.Helper()
+
+	if err := st.AddWorkspace(state.Workspace{ID: workspaceID, Path: t.TempDir()}); err != nil {
+		t.Fatalf("add workspace: %v", err)
+	}
+	if err := st.AddSession(state.Session{ID: sessionID, WorkspaceID: workspaceID, Pid: pid}); err != nil {
+		t.Fatalf("add session: %v", err)
 	}
 }
 
