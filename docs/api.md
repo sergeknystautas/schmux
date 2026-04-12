@@ -82,7 +82,7 @@ Response:
 }
 ```
 
-When a module is excluded via build tags (e.g. `-tags nolore,nofloormanager,notimelapse`), its field is `false`. The dashboard uses these flags to hide experimental feature cards and their associated UI panels.
+When a module is excluded via build tags (e.g. `-tags nolore,nofloormanager,notimelapse`), its field is `false`. The `telemetry` field reflects the `noposthog` build tag (PostHog backend availability). The dashboard uses these flags to hide experimental feature cards and their associated UI panels.
 
 ### GET /api/healthz
 

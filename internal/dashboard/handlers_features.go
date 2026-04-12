@@ -26,7 +26,7 @@ func (s *Server) handleGetFeatures(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(contracts.Features{
 		Tunnel:        tunnel.IsAvailable(),
 		GitHub:        github.IsAvailable(),
-		Telemetry:     telemetry.IsAvailable(),
+		Telemetry:     telemetry.IsPostHogAvailable(),
 		Update:        update.IsAvailable(),
 		DashboardSX:   dashboardsx.IsAvailable(),
 		ModelRegistry: models.IsAvailable(),

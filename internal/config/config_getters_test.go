@@ -71,14 +71,34 @@ func TestGetTelemetryEnabled(t *testing.T) {
 		cfg  *Config
 		want bool
 	}{
-		{name: "nil pointer defaults true", cfg: &Config{TelemetryEnabled: nil}, want: true},
-		{name: "explicitly true", cfg: &Config{TelemetryEnabled: &trueVal}, want: true},
-		{name: "explicitly false", cfg: &Config{TelemetryEnabled: &falseVal}, want: false},
+		{name: "nil telemetry stanza defaults true", cfg: &Config{}, want: true},
+		{name: "nil enabled defaults true", cfg: &Config{Telemetry: &TelemetryConfig{}}, want: true},
+		{name: "explicitly true", cfg: &Config{Telemetry: &TelemetryConfig{Enabled: &trueVal}}, want: true},
+		{name: "explicitly false", cfg: &Config{Telemetry: &TelemetryConfig{Enabled: &falseVal}}, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := tt.cfg.GetTelemetryEnabled(); got != tt.want {
 				t.Errorf("GetTelemetryEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetTelemetryCommand(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *Config
+		want string
+	}{
+		{name: "nil telemetry config", cfg: &Config{}, want: ""},
+		{name: "empty command", cfg: &Config{Telemetry: &TelemetryConfig{Command: ""}}, want: ""},
+		{name: "set command", cfg: &Config{Telemetry: &TelemetryConfig{Command: "my-telemetry-sink"}}, want: "my-telemetry-sink"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.GetTelemetryCommand(); got != tt.want {
+				t.Errorf("GetTelemetryCommand() = %q, want %q", got, tt.want)
 			}
 		})
 	}

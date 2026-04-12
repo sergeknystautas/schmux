@@ -1,4 +1,4 @@
-//go:build !notelemetry
+//go:build !noposthog
 
 package telemetry
 

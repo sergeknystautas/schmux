@@ -411,7 +411,11 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	// Initialize telemetry
 	var tel telemetry.Telemetry = &telemetry.NoopTelemetry{}
-	if cfg.GetTelemetryEnabled() {
+
+	// Check environment variable kill switches
+	telemetryDisabled := os.Getenv("SCHMUX_TELEMETRY_OFF") != "" || os.Getenv("DO_NOT_TRACK") != ""
+
+	if cfg.GetTelemetryEnabled() && !telemetryDisabled {
 		// Ensure installation ID exists
 		installID := cfg.GetInstallationID()
 		if installID == "" {
@@ -422,9 +426,14 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 			}
 		}
 
-		tel = telemetry.New(installID, telemetryLog)
-		if _, ok := tel.(*telemetry.Client); ok {
-			telemetryLog.Info("anonymous usage metrics enabled (opt out: set telemetry_enabled=false in config)")
+		if cmd := cfg.GetTelemetryCommand(); cmd != "" {
+			tel = telemetry.NewCommandTelemetry(cmd, installID, telemetryLog)
+			telemetryLog.Info("telemetry via external command")
+		} else {
+			tel = telemetry.New(installID, telemetryLog)
+			if _, ok := tel.(*telemetry.Client); ok {
+				telemetryLog.Info("anonymous usage metrics enabled (opt out via config or environment)")
+			}
 		}
 	}
 

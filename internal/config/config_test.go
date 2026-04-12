@@ -3011,3 +3011,35 @@ func TestRecycleWorkspaces_ParsesFromJSON(t *testing.T) {
 		t.Error("RecycleWorkspaces should be true when set in JSON")
 	}
 }
+
+func TestMigrateTelemetryStanza(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	os.WriteFile(cfgPath, []byte(`{"telemetry_enabled": false, "installation_id": "test-uuid", "repos": [{"name": "r", "url": "u"}]}`), 0644)
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.GetTelemetryEnabled() {
+		t.Error("expected telemetry to be disabled after migration")
+	}
+	if cfg.GetInstallationID() != "test-uuid" {
+		t.Errorf("installation_id should be preserved, got %q", cfg.GetInstallationID())
+	}
+}
+
+func TestMigrateTelemetryStanza_NoOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	os.WriteFile(cfgPath, []byte(`{"telemetry_enabled": false, "telemetry": {"enabled": true, "command": "my-cmd"}, "repos": [{"name": "r", "url": "u"}]}`), 0644)
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.GetTelemetryEnabled() {
+		t.Error("expected new stanza to take precedence")
+	}
+	if cfg.GetTelemetryCommand() != "my-cmd" {
+		t.Errorf("expected command 'my-cmd', got %q", cfg.GetTelemetryCommand())
+	}
+}

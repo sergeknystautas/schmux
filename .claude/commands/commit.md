@@ -47,8 +47,6 @@ Run `git diff --cached --name-only` to list all staged files. Categorize them:
 
 Record which categories are present — you'll use this in Steps 2 and 3.
 
-**The categorization is based on file extensions and paths, not your opinion of the change.** A `.go` file is behavioral even if you "only changed a comment." A `.ts` file under `assets/dashboard/src/` is behavioral even if you "only renamed a variable." If the file extension and path match the behavioral list above, it is behavioral. You do not get to reclassify it.
-
 Continue to Step 2.
 
 ---
@@ -78,13 +76,15 @@ Using the categorization from Step 1:
 
 **If no behavioral files are staged** (all changes are non-behavioral): print "Skipping tests — no behavioral changes staged" and continue to Step 4.
 
-**If ANY behavioral files are staged:**
+**If any Go files (`.go`) are staged:**
 
-- Run `go vet ./...` (if Go files are staged). If it fails, STOP.
-- **Logger lint** (if Go files are staged): Check that no staged `internal/` Go file imports the standard `"log"` package. Run: `git diff --cached --name-only -- 'internal/*.go' | xargs grep -l '^\t"log"$' 2>/dev/null`. If any files are printed, STOP — they must use `charmbracelet/log` (via `internal/logging`) instead of stdlib `log`. Packages with a `*Server` receiver should use `s.logger`; standalone packages should accept a `*log.Logger` in their constructor or use the `SetLogger` pattern.
-- Run `./test.sh`. If it fails, STOP.
+- Run `go vet ./...`. If it fails, STOP.
+- **Logger lint**: Check that no staged `internal/` Go file imports the standard `"log"` package. Run: `git diff --cached --name-only -- 'internal/*.go' | xargs grep -l '^\t"log"$' 2>/dev/null`. If any files are printed, STOP — they must use `charmbracelet/log` (via `internal/logging`) instead of stdlib `log`. Packages with a `*Server` receiver should use `s.logger`; standalone packages should accept a `*log.Logger` in their constructor or use the `SetLogger` pattern.
+- Run `./test.sh --quick`. If it fails, STOP.
 
-**`./test.sh` means `./test.sh`.** Not `./test.sh --quick`. Not `go test ./...`. Not vitest. The full command, no flags, no substitutions. `--quick` skips typecheck and other critical validation — code that passes `--quick` can still be broken. If `./test.sh` is slow, that is not your problem to solve by weakening the gate.
+**If behavioral files are staged but none are Go files** (frontend-only changes):
+
+- Run `./test.sh --quick`. If it fails, STOP.
 
 Continue to Step 4.
 
@@ -98,7 +98,7 @@ Several packages can be excluded from the binary via build tags. If you modify f
 
 | Staged path prefix                         | Tag to verify     |
 | ------------------------------------------ | ----------------- |
-| `internal/telemetry/`                      | `notelemetry`     |
+| `internal/telemetry/`                      | `noposthog`       |
 | `internal/update/`                         | `noupdate`        |
 | `internal/models/registry`                 | `nomodelregistry` |
 | `internal/dashboardsx/`                    | `nodashboardsx`   |
@@ -133,7 +133,7 @@ For each affected tag, run: `go build -tags <tag> ./cmd/schmux`
 If verifying all tags (broad-impact file touched), run:
 
 ```
-go build -tags notelemetry ./cmd/schmux
+go build -tags noposthog ./cmd/schmux
 go build -tags noupdate ./cmd/schmux
 go build -tags nomodelregistry ./cmd/schmux
 go build -tags nodashboardsx ./cmd/schmux

@@ -8,18 +8,21 @@ schmux has two independent telemetry systems: **PostHog telemetry** sends anonym
 
 ### What it does
 
-Sends anonymous usage events to PostHog via their HTTP API. Telemetry is enabled by default with opt-out available. Events are non-blocking (enqueued and sent by a background worker) with at-most-once delivery guarantees.
+Sends anonymous usage events to PostHog via their HTTP API. PostHog is the default telemetry backend. A second backend, **CommandTelemetry**, can send events to an external command instead (see below). Telemetry is enabled by default with opt-out available. Events are non-blocking (enqueued and sent by a background worker) with at-most-once delivery guarantees.
 
 ### Key files
 
-| File                                   | Purpose                                                                                              |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `internal/telemetry/telemetry.go`      | PostHog client: `Telemetry` interface, `Client` (background worker), `NoopTelemetry` (disabled mode) |
-| `internal/telemetry/telemetry_test.go` | Unit tests for client lifecycle, event queuing, failure handling                                     |
-| `internal/daemon/daemon.go`            | Init telemetry, ensure `installation_id` in config                                                   |
-| `internal/workspace/manager.go`        | Tracks `workspace_created` events                                                                    |
-| `internal/session/manager.go`          | Tracks `session_created` events                                                                      |
-| `internal/workspace/linear_sync.go`    | Tracks `push_to_main` events                                                                         |
+| File                                     | Purpose                                                                         |
+| ---------------------------------------- | ------------------------------------------------------------------------------- |
+| `internal/telemetry/telemetry.go`        | `Telemetry` interface, `NoopTelemetry` (disabled mode) -- always compiled       |
+| `internal/telemetry/posthog.go`          | PostHog `Client` (background worker) -- compiled when `noposthog` tag is absent |
+| `internal/telemetry/posthog_disabled.go` | PostHog stubs -- compiled when `noposthog` tag is set                           |
+| `internal/telemetry/command.go`          | `CommandTelemetry` -- external command backend, always compiled                 |
+| `internal/telemetry/telemetry_test.go`   | Unit tests for PostHog client lifecycle, event queuing, failure handling        |
+| `internal/daemon/daemon.go`              | Init telemetry, ensure `installation_id` in config, select backend by priority  |
+| `internal/workspace/manager.go`          | Tracks `workspace_created` events                                               |
+| `internal/session/manager.go`            | Tracks `session_created` events                                                 |
+| `internal/workspace/linear_sync.go`      | Tracks `push_to_main` events                                                    |
 
 ### Architecture decisions
 
@@ -28,6 +31,8 @@ Sends anonymous usage events to PostHog via their HTTP API. Telemetry is enabled
 - **Why `Telemetry` interface instead of package globals:** Managers receive the interface via constructor injection. This allows `NoopTelemetry` when disabled and straightforward test mocking.
 - **Why at-most-once delivery:** No retry on failure. Telemetry is best-effort; retries would add complexity and latency for data that is not critical.
 - **Why the API key is hardcoded:** It is a write-only public key that only allows sending events. It is safe to commit to source. All builds (release binaries, local dev, `go install`) send telemetry.
+- **Why an external command backend:** `CommandTelemetry` execs a user-configured command per event, writing typed JSON to its stdin. This allows organizations to route telemetry to their own infrastructure without modifying schmux source. The command backend is always compiled (no build tag), so it remains available even when PostHog is excluded via `-tags noposthog`.
+- **Why `noposthog` instead of `notelemetry`:** The build tag compiles out only the PostHog client, not the telemetry infrastructure. Core types (`Telemetry` interface, `NoopTelemetry`, `CommandTelemetry`) are always available regardless of build tags.
 
 ### Events tracked
 
@@ -54,18 +59,6 @@ Only these properties are sent. No repository names, URLs, file paths, code cont
 
 Each installation is assigned a random UUID (`installation_id`) stored in `~/.schmux/config.json`. This ID is not linked to any personal information.
 
-### How to opt out
-
-Set `telemetry_enabled` to `false` in `~/.schmux/config.json`:
-
-```json
-{
-  "telemetry_enabled": false
-}
-```
-
-Environment variables `SCHMUX_TELEMETRY_OFF` or `DO_NOT_TRACK` (any non-empty value) also disable telemetry.
-
 ### Gotchas
 
 - Failure logging is rate-limited to 1 message per minute to avoid log spam during network outages.
@@ -77,23 +70,87 @@ Environment variables `SCHMUX_TELEMETRY_OFF` or `DO_NOT_TRACK` (any non-empty va
 - **Add a new event:** Call `telemetry.Track("event_name", map[string]any{...})` at the appropriate callsite. Add the event to the privacy allowlist documentation.
 - **Change the PostHog endpoint:** Override `posthogEndpoint` in tests. The default is `https://us.posthog.com/capture/`.
 
+---
+
+## CommandTelemetry (External Command Backend)
+
+### What it does
+
+`CommandTelemetry` sends events to a user-configured external command by writing typed JSON to its stdin. Each `Track()` call spawns the command once, writes the JSON payload, and returns immediately (the child process is reaped asynchronously). This allows organizations to route telemetry to their own infrastructure without modifying schmux source.
+
+### Typed JSON format
+
+Properties are categorized into buckets by Go type:
+
+| Bucket   | Contains                                                          |
+| -------- | ----------------------------------------------------------------- |
+| `int`    | integers, bools (true=1, false=0), and `time` (Unix timestamp)    |
+| `normal` | strings, `event` name, `installation_id`, and any fallback values |
+| `double` | float64 values (omitted if empty)                                 |
+
+Example payload written to stdin:
+
+```json
+{
+  "int": {
+    "time": 1712937600
+  },
+  "normal": {
+    "event": "daemon_started",
+    "installation_id": "550e8400-e29b-41d4-a716-446655440000",
+    "version": "1.2.3"
+  }
+}
+```
+
+The `double` bucket is included only when float64 properties are present.
+
+### Backend priority
+
+The daemon selects the telemetry backend at startup using this priority:
+
+1. **Disabled** -- if `telemetry.enabled` is `false` (or environment kill switch is set), use `NoopTelemetry`.
+2. **Command** -- if `telemetry.command` is set, use `CommandTelemetry`.
+3. **PostHog** -- if PostHog is compiled in (`-tags noposthog` was NOT used), use the PostHog `Client`.
+4. **Noop** -- fallback when PostHog is compiled out and no command is configured.
+
 ### Configuration
 
 ```json
 {
-  "telemetry_enabled": true,
+  "telemetry": {
+    "enabled": true,
+    "command": "my-telemetry-sink"
+  },
   "installation_id": "uuid-v4-here"
 }
 ```
 
-| Field               | Default        | Description                                                   |
-| ------------------- | -------------- | ------------------------------------------------------------- |
-| `telemetry_enabled` | `true`         | Set to `false` to disable all tracking.                       |
-| `installation_id`   | auto-generated | UUID v4, created on first run, used as PostHog `distinct_id`. |
+| Field               | Default        | Description                                                              |
+| ------------------- | -------------- | ------------------------------------------------------------------------ |
+| `telemetry.enabled` | `true`         | Set to `false` to disable all tracking.                                  |
+| `telemetry.command` | `""`           | External command to exec per event. If set, takes priority over PostHog. |
+| `installation_id`   | auto-generated | UUID v4, created on first run, used as PostHog `distinct_id`.            |
+
+Legacy flat field `telemetry_enabled` is migrated automatically to `telemetry.enabled` on load.
+
+### How to opt out
+
+Set `telemetry.enabled` to `false` in `~/.schmux/config.json`:
+
+```json
+{
+  "telemetry": {
+    "enabled": false
+  }
+}
+```
+
+Environment variables `SCHMUX_TELEMETRY_OFF` or `DO_NOT_TRACK` (any non-empty value) also disable telemetry.
 
 ### Data retention
 
-Events are sent to PostHog and retained according to their standard retention policies. The data is not shared with third parties.
+Events sent to PostHog are retained according to their standard retention policies. Events sent via CommandTelemetry are handled by whatever infrastructure the configured command routes to. The data is not shared with third parties by schmux itself.
 
 ---
 

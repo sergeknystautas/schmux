@@ -111,8 +111,8 @@ type Config struct {
 	Timelapse                  *TimelapseConfig            `json:"timelapse,omitempty"`
 
 	// Telemetry settings
-	TelemetryEnabled *bool  `json:"telemetry_enabled,omitempty"` // default true
-	InstallationID   string `json:"installation_id,omitempty"`   // UUID for anonymous tracking
+	Telemetry      *TelemetryConfig `json:"telemetry,omitempty"`
+	InstallationID string           `json:"installation_id,omitempty"` // UUID for anonymous tracking
 
 	// path is the file path where this config was loaded from or should be saved to.
 	// Not serialized to JSON.
@@ -274,6 +274,12 @@ type CommitMessageConfig struct {
 type DesyncConfig struct {
 	Enabled *bool  `json:"enabled,omitempty"` // enable/disable desync diagnostics
 	Target  string `json:"target,omitempty"`  // run target to invoke after diagnostic capture
+}
+
+// TelemetryConfig holds telemetry settings.
+type TelemetryConfig struct {
+	Enabled *bool  `json:"enabled,omitempty"` // default true
+	Command string `json:"command,omitempty"` // external command for telemetry events
 }
 
 // IOWorkspaceTelemetryConfig holds configuration for I/O workspace telemetry collection.
@@ -712,6 +718,24 @@ var migrations = []Migration{
 		},
 		Apply: func(_ map[string]json.RawMessage, cfg *Config) error {
 			cfg.MigrateRemoteFlavorsToProfiles()
+			return nil
+		},
+	},
+	{
+		Name: "migrate_telemetry_stanza",
+		Detect: func(raw map[string]json.RawMessage, _ *Config) bool {
+			_, hasOld := raw["telemetry_enabled"]
+			_, hasNew := raw["telemetry"]
+			return hasOld && !hasNew
+		},
+		Apply: func(raw map[string]json.RawMessage, cfg *Config) error {
+			var enabled bool
+			if err := json.Unmarshal(raw["telemetry_enabled"], &enabled); err != nil {
+				// If the value is malformed, default to true
+				enabled = true
+			}
+			cfg.Telemetry = &TelemetryConfig{Enabled: &enabled}
+			delete(raw, "telemetry_enabled")
 			return nil
 		},
 	},
@@ -1824,7 +1848,7 @@ func (c *Config) Reload() error {
 	c.TmuxSocketName = newCfg.TmuxSocketName
 	c.IOWorkspaceTelemetry = newCfg.IOWorkspaceTelemetry
 	c.Timelapse = newCfg.Timelapse
-	c.TelemetryEnabled = newCfg.TelemetryEnabled
+	c.Telemetry = newCfg.Telemetry
 	c.InstallationID = newCfg.InstallationID
 	c.path = configPath
 	c.mu.Unlock()
@@ -3142,10 +3166,24 @@ func (c *Config) GetTelemetryEnabled() bool {
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c.TelemetryEnabled == nil {
+	if c.Telemetry == nil || c.Telemetry.Enabled == nil {
 		return true
 	}
-	return *c.TelemetryEnabled
+	return *c.Telemetry.Enabled
+}
+
+// GetTelemetryCommand returns the external command for telemetry events.
+// Returns empty string if not configured.
+func (c *Config) GetTelemetryCommand() string {
+	if c == nil {
+		return ""
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Telemetry == nil {
+		return ""
+	}
+	return c.Telemetry.Command
 }
 
 // GetInstallationID returns the installation ID for telemetry.

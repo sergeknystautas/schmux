@@ -42,7 +42,7 @@ ExperimentalTab.tsx    →  hides cards where buildFeatureKey is false
 
 | Feature        | Build Tag         | Package                    | Has CLI? |
 | -------------- | ----------------- | -------------------------- | -------- |
-| Telemetry      | `notelemetry`     | `internal/telemetry/`      | No       |
+| Telemetry      | `noposthog`       | `internal/telemetry/`      | No       |
 | Update         | `noupdate`        | `internal/update/`         | No       |
 | Model Registry | `nomodelregistry` | `internal/models/registry` | No       |
 | DashboardSX    | `nodashboardsx`   | `internal/dashboardsx/`    | Yes      |
@@ -66,7 +66,7 @@ go build -tags nolore ./cmd/schmux
 go build -tags "nolore nofloormanager notimelapse" ./cmd/schmux
 
 # Exclude everything optional
-go build -tags "notelemetry noupdate nomodelregistry nodashboardsx norepofeed nosubreddit notunnel nogithub notimelapse nofloormanager nolore nopersonas nocommstyles" ./cmd/schmux
+go build -tags "noposthog noupdate nomodelregistry nodashboardsx norepofeed nosubreddit notunnel nogithub notimelapse nofloormanager nolore nopersonas nocommstyles" ./cmd/schmux
 ```
 
 ## Checklist: Adding a New Experimental Feature
