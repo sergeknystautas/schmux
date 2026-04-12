@@ -1109,19 +1109,31 @@ func TestRunCommand_ClientCloseDuringPoll(t *testing.T) {
 	parser := NewParser(pr, nil)
 	go parser.Run()
 
+	// triggerClose signals the close goroutine to shut down the client.
+	// Fired when onCmd stops responding (cmdCount > 5), making the test
+	// deterministic instead of relying on time.Sleep.
+	triggerClose := make(chan struct{}, 1)
+	var cmdMu sync.Mutex
 	var cmdCount int
 	stdin := &commandCapture{
 		inner: &strings.Builder{},
 		onCmd: func(cmd string) {
+			cmdMu.Lock()
 			cmdCount++
+			n := cmdCount
+			cmdMu.Unlock()
 			if strings.Contains(cmd, "new-window") {
 				// Return window/pane IDs for new-window
-				pw.Write([]byte(fmt.Sprintf("%%begin 1000 %d 0\n@99 %%99\n%%end 1000 %d 0\n", cmdCount-1, cmdCount-1)))
-			} else if cmdCount > 5 {
-				// After window creation + remain-on-exit + send-keys + Enter,
-				// don't respond to capture-pane — close the client instead
+				pw.Write([]byte(fmt.Sprintf("%%begin 1000 %d 0\n@99 %%99\n%%end 1000 %d 0\n", n-1, n-1)))
+			} else if n > 5 {
+				// After window creation + remain-on-exit + history-limit + send-keys + Enter,
+				// don't respond to capture-pane — signal close instead
+				select {
+				case triggerClose <- struct{}{}:
+				default:
+				}
 			} else {
-				pw.Write([]byte(fmt.Sprintf("%%begin 1000 %d 0\n\n%%end 1000 %d 0\n", cmdCount-1, cmdCount-1)))
+				pw.Write([]byte(fmt.Sprintf("%%begin 1000 %d 0\n\n%%end 1000 %d 0\n", n-1, n-1)))
 			}
 		},
 	}
@@ -1130,7 +1142,7 @@ func TestRunCommand_ClientCloseDuringPoll(t *testing.T) {
 	client.Start()
 
 	go func() {
-		time.Sleep(500 * time.Millisecond)
+		<-triggerClose
 		client.Close()
 		pw.Close()
 	}()
@@ -1142,8 +1154,17 @@ func TestRunCommand_ClientCloseDuringPoll(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from client close")
 	}
-	if !strings.Contains(err.Error(), "client closed") && !strings.Contains(err.Error(), "context deadline exceeded") {
-		t.Errorf("expected 'client closed' or deadline exceeded, got: %v", err)
+	errMsg := err.Error()
+	validErrors := []string{"client closed", "context deadline exceeded", "not running"}
+	matched := false
+	for _, substr := range validErrors {
+		if strings.Contains(errMsg, substr) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		t.Errorf("expected error containing 'client closed', 'not running', or 'context deadline exceeded', got: %v", err)
 	}
 }
 

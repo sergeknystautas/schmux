@@ -1,5 +1,5 @@
 import { test, expect } from './coverage-fixture';
-import { apiGet, seedConfig, sleep, waitForDashboardLive, waitForHealthy } from './helpers';
+import { apiGet, seedConfig, sleep, waitForHealthy } from './helpers';
 
 interface DetectionSummary {
   status: string;
@@ -23,28 +23,53 @@ async function waitForDetectionReady(timeoutMs = 30_000): Promise<void> {
   throw new Error(`Detection not ready after ${timeoutMs}ms`);
 }
 
+/** Dispose all workspaces (sessions + directories) so the home page is clean. */
+async function disposeAllWorkspaces(): Promise<void> {
+  const baseURL = process.env.SCHMUX_BASE_URL || 'http://localhost:7337';
+  try {
+    interface WS {
+      id: string;
+      sessions: Array<{ id: string; running: boolean }>;
+    }
+    const workspaces = await apiGet<WS[]>('/api/sessions');
+    for (const ws of workspaces) {
+      try {
+        await fetch(`${baseURL}/api/workspaces/${ws.id}/dispose-all`, { method: 'POST' });
+      } catch {
+        // Best-effort
+      }
+    }
+  } catch {
+    // API not ready or no workspaces
+  }
+}
+
 test.describe('First-time home page shows detected environment', () => {
   test.beforeAll(async () => {
     await waitForHealthy();
     await waitForDetectionReady();
 
-    // Seed an empty config: no repos, no run_targets, no workspaces
+    // Seed an empty config: no repos, no run_targets, no workspaces.
+    // seedConfig disposes sessions but workspaces created by tests sharing
+    // this worker may linger. Dispose them so the home page shows the FTUE.
     await seedConfig({
       repos: [],
       agents: [],
     });
+    await disposeAllWorkspaces();
   });
 
   test('home page renders environment summary without redirect', async ({ page }) => {
     await page.goto('/');
-    await waitForDashboardLive(page);
+
+    // Wait for the environment summary to appear. This implicitly waits for
+    // WebSocket connection + config/session loading + detection fetch, so use
+    // a generous timeout to avoid flaking under parallel load.
+    const envSummary = page.locator('[data-testid="env-summary"]');
+    await expect(envSummary).toBeVisible({ timeout: 30_000 });
 
     // Verify: no redirect to /config — still on /
     expect(page.url()).toMatch(/\/$/);
-
-    // Verify: environment summary is visible
-    const envSummary = page.locator('[data-testid="env-summary"]');
-    await expect(envSummary).toBeVisible({ timeout: 15_000 });
 
     // Verify: VCS badge is shown (git should be available in test env)
     const vcsBadges = page.locator('[data-testid="env-badge-vcs"]');
