@@ -112,6 +112,8 @@ export interface ConfigResponse {
   recycle_workspaces?: boolean;
   local_echo_remote?: boolean;
   debug_ui?: boolean;
+  personas_enabled?: boolean;
+  comm_styles_enabled?: boolean;
   system_capabilities: SystemCapabilities;
   needs_restart: boolean;
   dashboard_sx_status?: DashboardSXStatus;
@@ -152,6 +154,8 @@ export interface ConfigUpdateRequest {
   recycle_workspaces?: boolean;
   local_echo_remote?: boolean;
   debug_ui?: boolean;
+  personas_enabled?: boolean;
+  comm_styles_enabled?: boolean;
 }
 
 export interface ConflictResolve {

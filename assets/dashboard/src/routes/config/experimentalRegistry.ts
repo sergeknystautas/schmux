@@ -5,18 +5,33 @@ import FloorManagerConfig from './FloorManagerConfig';
 import RepofeedConfig from './RepofeedConfig';
 import SubredditConfig from './SubredditConfig';
 import TimelapseConfig from './TimelapseConfig';
+import CommStylesConfig from './CommStylesConfig';
 
 export type ExperimentalFeature = {
   id: string;
   name: string;
   description: string;
   enabledKey: keyof ConfigFormState;
-  configPanel: React.ComponentType<ConfigPanelProps>;
+  configPanel: React.ComponentType<ConfigPanelProps> | null;
   /** Key in the Features object; if set, the card is hidden when the build feature is false. */
   buildFeatureKey?: string;
 };
 
 export const EXPERIMENTAL_FEATURES: ExperimentalFeature[] = [
+  {
+    id: 'personas',
+    name: 'Personas',
+    description: 'Custom agent personalities with unique prompts and visual identity',
+    enabledKey: 'personasEnabled',
+    configPanel: null,
+  },
+  {
+    id: 'commStyles',
+    name: 'Comm Styles',
+    description: 'Control how agents communicate with customizable response styles',
+    enabledKey: 'commStylesEnabled',
+    configPanel: CommStylesConfig,
+  },
   {
     id: 'lore',
     name: 'Lore',

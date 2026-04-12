@@ -14,6 +14,8 @@ vi.mock('../contexts/ConfigContext', () => ({
       lore: { enabled: true },
       repofeed: { enabled: true },
       timelapse: { enabled: true },
+      personas_enabled: true,
+      comm_styles_enabled: true,
     },
   }),
 }));

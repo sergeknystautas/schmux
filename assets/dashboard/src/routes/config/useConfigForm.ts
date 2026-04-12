@@ -171,6 +171,8 @@ export type ConfigFormState = {
   saplingCmdCheckRepoBase: string;
   saplingCmdCreateRepoBase: string;
 
+  personasEnabled: boolean;
+  commStylesEnabled: boolean;
   localEchoRemote: boolean;
   debugUI: boolean;
   tmuxBinary: string;
@@ -341,6 +343,8 @@ export const initialState: ConfigFormState = {
   saplingCmdCheckRepoBase: '',
   saplingCmdCreateRepoBase: '',
 
+  personasEnabled: false,
+  commStylesEnabled: false,
   localEchoRemote: false,
   debugUI: false,
   tmuxBinary: '',

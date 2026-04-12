@@ -911,6 +911,8 @@ Response:
   "recycle_workspaces": false,
   "local_echo_remote": false,
   "debug_ui": false,
+  "personas_enabled": false,
+  "comm_styles_enabled": false,
   "repos": [{ "name": "repo", "url": "https://...", "vcs": "sapling" }],
   "run_targets": [{ "name": "target", "type": "promptable", "command": "...", "source": "user" }],
   "quick_launch": [
@@ -1021,6 +1023,10 @@ Repos with `"vcs": "sapling"` use the sapling backend instead of git. The `vcs` 
 
 **`debug_ui`** (boolean, optional, default `false`): Enables debug diagnostic panels and debug API endpoints without running `./dev.sh`. When `true`, the daemon sets `debug_mode` in the healthz response and registers debug routes. Can be toggled from the Settings page in the web dashboard — takes effect immediately without restart.
 
+**`personas_enabled`** (boolean, optional, default `false`): Enables the Personas experimental feature. When `true`, the Personas sidebar link and spawn page persona selector are visible.
+
+**`comm_styles_enabled`** (boolean, optional, default `false`): Enables the Communication Styles experimental feature. When `true`, the Comm Styles sidebar link, spawn page style selector, and per-tool default style configuration are visible.
+
 **`tmux_binary`**: Path to a custom tmux binary. When empty or omitted, the system default from `$PATH` is used. The path is validated on save (must exist, be executable, and output a recognized tmux version string). Changing this field flags `needs_restart`.
 
 **`tmux_socket_name`** (string, optional, default `"schmux"`): The tmux socket name used by the daemon. All sessions are created on this socket. Changing this field flags `needs_restart`.
@@ -1050,6 +1056,8 @@ Request:
   "recycle_workspaces": false,
   "local_echo_remote": false,
   "debug_ui": false,
+  "personas_enabled": false,
+  "comm_styles_enabled": false,
   "repos": [{ "name": "repo", "url": "https://...", "vcs": "sapling" }],
   "run_targets": [{ "name": "target", "type": "promptable", "command": "...", "source": "user" }],
   "quick_launch": [

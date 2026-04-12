@@ -279,20 +279,24 @@ export default function SpawnPage() {
         setCommandTargets(commandItems);
         setModels(cfg.models || []);
 
-        // Fetch personas
-        try {
-          const personaData = await getPersonas();
-          if (active) setPersonas(personaData.personas || []);
-        } catch {
-          // Non-fatal: personas are optional
+        // Fetch personas (only when feature is enabled)
+        if (cfg.personas_enabled) {
+          try {
+            const personaData = await getPersonas();
+            if (active) setPersonas(personaData.personas || []);
+          } catch {
+            // Non-fatal: personas are optional
+          }
         }
 
-        // Fetch styles
-        getStyles()
-          .then((data) => {
-            if (active) setStyles(data.styles || []);
-          })
-          .catch(() => {});
+        // Fetch styles (only when feature is enabled)
+        if (cfg.comm_styles_enabled) {
+          getStyles()
+            .then((data) => {
+              if (active) setStyles(data.styles || []);
+            })
+            .catch(() => {});
+        }
       } catch (err) {
         if (!active) return;
         setConfigError(getErrorMessage(err, 'Failed to load config'));

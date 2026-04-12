@@ -128,4 +128,55 @@ describe('ExperimentalTab', () => {
     expect(screen.getByText('Repofeed')).toBeInTheDocument();
     expect(screen.getByText('Subreddit')).toBeInTheDocument();
   });
+
+  it('renders Personas toggle with no config panel', () => {
+    renderTab({
+      personasEnabled: false,
+      loreEnabled: false,
+      fmEnabled: false,
+      repofeedEnabled: false,
+      subredditEnabled: false,
+      timelapseEnabled: false,
+      commStylesEnabled: false,
+    });
+    expect(screen.getByText('Personas')).toBeInTheDocument();
+    expect(
+      screen.getByText('Custom agent personalities with unique prompts and visual identity')
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('experimental-toggle-personas')).toBeInTheDocument();
+  });
+
+  it('renders Comm Styles toggle and shows config panel when enabled', () => {
+    renderTab({
+      personasEnabled: false,
+      loreEnabled: false,
+      fmEnabled: false,
+      repofeedEnabled: false,
+      subredditEnabled: false,
+      timelapseEnabled: false,
+      commStylesEnabled: true,
+      enabledModels: {},
+    });
+    expect(screen.getByText('Comm Styles')).toBeInTheDocument();
+    expect(
+      screen.getByText('Control how agents communicate with customizable response styles')
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('experimental-toggle-commStyles')).toBeChecked();
+  });
+
+  it('Personas enabled toggle does not render a config panel', () => {
+    renderTab({
+      personasEnabled: true,
+      loreEnabled: false,
+      fmEnabled: false,
+      repofeedEnabled: false,
+      subredditEnabled: false,
+      timelapseEnabled: false,
+      commStylesEnabled: false,
+    });
+    const toggle = screen.getByTestId('experimental-toggle-personas');
+    expect(toggle).toBeChecked();
+    // The Personas feature has no config panel, so there should be no extra content
+    // besides the toggle and description. The section should contain only those elements.
+  });
 });

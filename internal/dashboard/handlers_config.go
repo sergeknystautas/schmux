@@ -154,6 +154,8 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		TmuxSocketName:    s.config.GetTmuxSocketName(),
 		RecycleWorkspaces: s.config.RecycleWorkspaces,
 		DebugUI:           s.config.GetDebugUI(),
+		PersonasEnabled:   s.config.GetPersonasEnabled(),
+		CommStylesEnabled: s.config.GetCommStylesEnabled(),
 		LocalEchoRemote:   s.config.LocalEchoRemote,
 		SaplingCommands: func() *contracts.SaplingCommandsUpdate {
 			sc := s.config.SaplingCommands
@@ -765,6 +767,14 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 
 	if req.DebugUI != nil {
 		cfg.DebugUI = *req.DebugUI
+	}
+
+	if req.PersonasEnabled != nil {
+		cfg.PersonasEnabled = *req.PersonasEnabled
+	}
+
+	if req.CommStylesEnabled != nil {
+		cfg.CommStylesEnabled = *req.CommStylesEnabled
 	}
 
 	if req.LocalEchoRemote != nil {

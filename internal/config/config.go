@@ -106,6 +106,8 @@ type Config struct {
 	RecycleWorkspaces          bool                        `json:"recycle_workspaces,omitempty"`
 	LocalEchoRemote            bool                        `json:"local_echo_remote,omitempty"`
 	DebugUI                    bool                        `json:"debug_ui,omitempty"`
+	PersonasEnabled            bool                        `json:"personas_enabled,omitempty"`
+	CommStylesEnabled          bool                        `json:"comm_styles_enabled,omitempty"`
 	Timelapse                  *TimelapseConfig            `json:"timelapse,omitempty"`
 
 	// Telemetry settings
@@ -1108,6 +1110,20 @@ func (c *Config) GetDebugUI() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.DebugUI
+}
+
+// GetPersonasEnabled returns whether the personas feature is enabled.
+func (c *Config) GetPersonasEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.PersonasEnabled
+}
+
+// GetCommStylesEnabled returns whether the comm styles feature is enabled.
+func (c *Config) GetCommStylesEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.CommStylesEnabled
 }
 
 // GetRepofeedEnabled returns whether the repofeed system is enabled.

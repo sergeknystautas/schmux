@@ -6,14 +6,14 @@ The `/config` route provides a 6-tab settings page for configuring schmux. Featu
 
 ## Tab structure
 
-| Tab          | Purpose                                                                                        |
-| ------------ | ---------------------------------------------------------------------------------------------- |
-| Workspaces   | Workspace path, repository list, VCS settings                                                  |
-| Sessions     | Quick Launch, Pastebin, Command Targets, NudgeNik, Notifications, session behavior             |
-| Agents       | Task assignments (which model does which job), Model Catalog, User Models, Comm Style defaults |
-| Access       | Authentication, network, TLS, remote access                                                    |
-| Experimental | Per-feature opt-in toggles with inline config                                                  |
-| Advanced     | Debug toggle, tmux, polling/timeouts, xterm, sapling, diff tools, dev-only diagnostics         |
+| Tab          | Purpose                                                                                |
+| ------------ | -------------------------------------------------------------------------------------- |
+| Workspaces   | Workspace path, repository list, VCS settings                                          |
+| Sessions     | Quick Launch, Pastebin, Command Targets, NudgeNik, Notifications, session behavior     |
+| Agents       | Task assignments (which model does which job), Model Catalog, User Models              |
+| Access       | Authentication, network, TLS, remote access                                            |
+| Experimental | Per-feature opt-in toggles with inline config                                          |
+| Advanced     | Debug toggle, tmux, polling/timeouts, xterm, sapling, diff tools, dev-only diagnostics |
 
 ## Key files
 
@@ -26,7 +26,8 @@ The `/config` route provides a 6-tab settings page for configuring schmux. Featu
 | `assets/dashboard/src/routes/config/ExperimentalTab.tsx`     | Experimental tab — renders toggle cards from registry                   |
 | `assets/dashboard/src/routes/config/experimentalRegistry.ts` | Static array of experimental features with metadata                     |
 | `assets/dashboard/src/routes/config/ConfigPanelProps.ts`     | Shared props type for standalone config panel components                |
-| `assets/dashboard/src/routes/config/AgentsTab.tsx`           | Agents tab — task assignments, model catalog, comm styles               |
+| `assets/dashboard/src/routes/config/AgentsTab.tsx`           | Agents tab — task assignments, model catalog                            |
+| `assets/dashboard/src/routes/config/CommStylesConfig.tsx`    | Comm styles config panel — default style per tool (experimental)        |
 | `assets/dashboard/src/routes/config/SessionsTab.tsx`         | Sessions tab — spawn config, NudgeNik, notifications                    |
 | `assets/dashboard/src/routes/config/AdvancedTab.tsx`         | Advanced tab — infrastructure knobs, dev-only sections                  |
 
@@ -48,12 +49,12 @@ The `/config` route provides a 6-tab settings page for configuring schmux. Featu
 
 ## Visibility tiers
 
-| Tier                       | Gating mechanism                         | Examples                                   |
-| -------------------------- | ---------------------------------------- | ------------------------------------------ |
-| Always visible             | None                                     | Workspaces, Sessions, Agents, Access       |
-| Experimental               | Per-feature `enabled` bool, user-toggled | Lore, Floor Manager, Timelapse             |
-| Experimental + build-gated | Build-time flag AND `enabled` bool       | Repofeed, Subreddit                        |
-| Dev-only                   | `debug_ui` bool                          | Desync Diagnostics, IO Workspace Telemetry |
+| Tier                       | Gating mechanism                         | Examples                                              |
+| -------------------------- | ---------------------------------------- | ----------------------------------------------------- |
+| Always visible             | None                                     | Workspaces, Sessions, Agents, Access                  |
+| Experimental               | Per-feature `enabled` bool, user-toggled | Personas, Comm Styles, Lore, Floor Manager, Timelapse |
+| Experimental + build-gated | Build-time flag AND `enabled` bool       | Repofeed, Subreddit                                   |
+| Dev-only                   | `debug_ui` bool                          | Desync Diagnostics, IO Workspace Telemetry            |
 
 ## Auto-save system
 

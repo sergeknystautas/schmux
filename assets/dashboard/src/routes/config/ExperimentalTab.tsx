@@ -53,7 +53,7 @@ export default function ExperimentalTab({ state, dispatch, models }: Experimenta
                   <span>{feature.description}</span>
                 </label>
               </div>
-              {enabled && <Panel state={state} dispatch={dispatch} models={models} />}
+              {enabled && Panel && <Panel state={state} dispatch={dispatch} models={models} />}
             </div>
           </div>
         );

@@ -182,6 +182,8 @@ type ConfigResponse struct {
 	RecycleWorkspaces          bool                   `json:"recycle_workspaces,omitempty"`
 	LocalEchoRemote            bool                   `json:"local_echo_remote,omitempty"`
 	DebugUI                    bool                   `json:"debug_ui,omitempty"`
+	PersonasEnabled            bool                   `json:"personas_enabled,omitempty"`
+	CommStylesEnabled          bool                   `json:"comm_styles_enabled,omitempty"`
 	SystemCapabilities         SystemCapabilities     `json:"system_capabilities"`
 	NeedsRestart               bool                   `json:"needs_restart"`
 	DashboardSXStatus          *DashboardSXStatus     `json:"dashboard_sx_status,omitempty"`
@@ -326,6 +328,8 @@ type ConfigUpdateRequest struct {
 	RecycleWorkspaces          *bool                       `json:"recycle_workspaces,omitempty"`
 	LocalEchoRemote            *bool                       `json:"local_echo_remote,omitempty"`
 	DebugUI                    *bool                       `json:"debug_ui,omitempty"`
+	PersonasEnabled            *bool                       `json:"personas_enabled,omitempty"`
+	CommStylesEnabled          *bool                       `json:"comm_styles_enabled,omitempty"`
 }
 
 // DesyncUpdate represents partial desync diagnostic config updates.

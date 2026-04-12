@@ -7,7 +7,6 @@ import {
   getOverlays,
   getBuiltinQuickLaunch,
   getPersonas,
-  getStyles,
   getAuthSecretsStatus,
   saveAuthSecrets,
   setRemoteAccessPassword,
@@ -27,7 +26,7 @@ import AgentsTab from './config/AgentsTab';
 import ExperimentalTab from './config/ExperimentalTab';
 import ConfigModals from './config/ConfigModals';
 import type { ConfigResponse, Model, RunTargetResponse } from '../lib/types';
-import type { Persona, Style } from '../lib/types.generated';
+import type { Persona } from '../lib/types.generated';
 
 const TABS = ['Workspaces', 'Sessions', 'Agents', 'Access', 'Experimental', 'Advanced'];
 const TAB_SLUGS = ['workspaces', 'sessions', 'agents', 'access', 'experimental', 'advanced'];
@@ -185,6 +184,8 @@ export default function ConfigPage() {
           saplingCmdRemoveWorkspace: data.sapling_commands?.remove_workspace || '',
           saplingCmdCheckRepoBase: data.sapling_commands?.check_repo_base || '',
           saplingCmdCreateRepoBase: data.sapling_commands?.create_repo_base || '',
+          personasEnabled: data.personas_enabled ?? false,
+          commStylesEnabled: data.comm_styles_enabled ?? false,
           localEchoRemote: data.local_echo_remote || false,
           debugUI: data.debug_ui ?? false,
           tmuxBinary: data.tmux_binary || '',
@@ -294,24 +295,6 @@ export default function ConfigPage() {
       }
     };
     loadPersonas();
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  // Load styles for comm styles section
-  const [configStyles, setConfigStyles] = useState<Style[]>([]);
-  useEffect(() => {
-    let active = true;
-    const loadStyles = async () => {
-      try {
-        const data = await getStyles();
-        if (active) setConfigStyles(data.styles || []);
-      } catch {
-        // Non-fatal: styles are optional
-      }
-    };
-    loadStyles();
     return () => {
       active = false;
     };
@@ -1022,7 +1005,6 @@ export default function ConfigPage() {
               dispatch={dispatch}
               models={state.modelCatalog}
               runners={state.runners}
-              styles={configStyles}
               onModelAction={handleModelAction}
               onOpenRunTargetEditModal={openRunTargetEditModal}
               commitMessageTargetMissing={commitMessageTargetMissing}
