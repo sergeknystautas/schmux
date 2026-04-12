@@ -1,3 +1,5 @@
+//go:build !notimelapse
+
 package main
 
 import (

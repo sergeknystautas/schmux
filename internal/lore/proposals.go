@@ -1,3 +1,5 @@
+//go:build !nolore
+
 package lore
 
 import (
@@ -403,3 +405,6 @@ func (s *ProposalStore) UpdateRule(repo, proposalID, ruleID string, update RuleU
 	}
 	return s.Save(p)
 }
+
+// IsAvailable reports whether the lore package is compiled in.
+func IsAvailable() bool { return true }

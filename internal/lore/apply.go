@@ -1,3 +1,5 @@
+//go:build !nolore
+
 package lore
 
 import "fmt"

@@ -73,11 +73,16 @@ Response:
   "dashboardsx": true,
   "model_registry": true,
   "repofeed": true,
-  "subreddit": true
+  "subreddit": true,
+  "personas": true,
+  "comm_styles": true,
+  "lore": true,
+  "floor_manager": true,
+  "timelapse": true
 }
 ```
 
-When a module is excluded via build tags (e.g. `-tags notunnel,nogithub,notelemetry,noupdate,nodashboardsx,nomodelregistry,norepofeed,nosubreddit`), its field is `false`.
+When a module is excluded via build tags (e.g. `-tags nolore,nofloormanager,notimelapse`), its field is `false`. The dashboard uses these flags to hide experimental feature cards and their associated UI panels.
 
 ### GET /api/healthz
 

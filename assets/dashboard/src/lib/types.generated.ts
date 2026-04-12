@@ -251,6 +251,11 @@ export interface Features {
   model_registry: boolean;
   repofeed: boolean;
   subreddit: boolean;
+  personas: boolean;
+  comm_styles: boolean;
+  lore: boolean;
+  floor_manager: boolean;
+  timelapse: boolean;
 }
 
 export interface FileDiff {

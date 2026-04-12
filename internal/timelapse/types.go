@@ -1,3 +1,5 @@
+//go:build !notimelapse
+
 package timelapse
 
 import (
@@ -38,6 +40,9 @@ type Record struct {
 	LostSeqs    [2]uint64  `json:"lostSeqs,omitempty"`    // gap: [first, last]
 	Snapshot    *string    `json:"snapshot,omitempty"`    // gap: nullable screen content
 }
+
+// IsAvailable reports whether the timelapse module is included in this build.
+func IsAvailable() bool { return true }
 
 // ReadCastEvents reads an asciicast v2 file (.cast format).
 // The first line is a JSON header object; subsequent lines are [timestamp, type, data] arrays.

@@ -16,6 +16,11 @@ const DEFAULT_FEATURES: Features = {
   model_registry: true,
   repofeed: true,
   subreddit: true,
+  personas: true,
+  comm_styles: true,
+  lore: true,
+  floor_manager: true,
+  timelapse: true,
 };
 
 const FeaturesContext = createContext<FeaturesContextValue | null>(null);

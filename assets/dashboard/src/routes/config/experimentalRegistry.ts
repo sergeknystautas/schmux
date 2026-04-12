@@ -24,6 +24,7 @@ export const EXPERIMENTAL_FEATURES: ExperimentalFeature[] = [
     description: 'Custom agent personalities with unique prompts and visual identity',
     enabledKey: 'personasEnabled',
     configPanel: null,
+    buildFeatureKey: 'personas',
   },
   {
     id: 'commStyles',
@@ -31,6 +32,7 @@ export const EXPERIMENTAL_FEATURES: ExperimentalFeature[] = [
     description: 'Control how agents communicate with customizable response styles',
     enabledKey: 'commStylesEnabled',
     configPanel: CommStylesConfig,
+    buildFeatureKey: 'comm_styles',
   },
   {
     id: 'lore',
@@ -38,6 +40,7 @@ export const EXPERIMENTAL_FEATURES: ExperimentalFeature[] = [
     description: 'Learns from agent mistakes and suggests instruction updates',
     enabledKey: 'loreEnabled',
     configPanel: LoreConfig,
+    buildFeatureKey: 'lore',
   },
   {
     id: 'floorManager',
@@ -45,6 +48,7 @@ export const EXPERIMENTAL_FEATURES: ExperimentalFeature[] = [
     description: 'An overseer agent \u2014 one conversation to direct all your sessions',
     enabledKey: 'fmEnabled',
     configPanel: FloorManagerConfig,
+    buildFeatureKey: 'floor_manager',
   },
   {
     id: 'repofeed',
@@ -68,5 +72,6 @@ export const EXPERIMENTAL_FEATURES: ExperimentalFeature[] = [
     description: 'Terminal recording and playback',
     enabledKey: 'timelapseEnabled',
     configPanel: TimelapseConfig,
+    buildFeatureKey: 'timelapse',
   },
 ];

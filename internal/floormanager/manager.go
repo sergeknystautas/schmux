@@ -1,3 +1,5 @@
+//go:build !nofloormanager
+
 package floormanager
 
 import (
@@ -69,6 +71,9 @@ func New(cfg *config.Config, sm *session.Manager, server *tmux.TmuxServer, homeD
 		stopCh:      make(chan struct{}),
 	}
 }
+
+// IsAvailable reports whether the floormanager package is compiled in.
+func IsAvailable() bool { return true }
 
 // Start spawns the floor manager session and starts the monitor goroutine.
 func (m *Manager) Start(ctx context.Context) error {

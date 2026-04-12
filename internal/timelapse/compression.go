@@ -1,3 +1,5 @@
+//go:build !notimelapse
+
 package timelapse
 
 // IntervalType classifies a time interval in the recording.

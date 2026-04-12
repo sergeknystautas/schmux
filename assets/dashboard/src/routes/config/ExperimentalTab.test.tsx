@@ -16,6 +16,11 @@ const mockFeatures: Record<string, boolean> = {
   model_registry: true,
   repofeed: true,
   subreddit: true,
+  personas: true,
+  comm_styles: true,
+  lore: true,
+  floor_manager: true,
+  timelapse: true,
 };
 
 vi.mock('../../contexts/FeaturesContext', () => ({
@@ -84,9 +89,10 @@ describe('ExperimentalTab', () => {
   });
 
   it('hides build-gated features when build feature is false', () => {
-    // Disable repofeed and subreddit at the build level
+    // Disable repofeed, subreddit, and lore at the build level
     mockFeatures.repofeed = false;
     mockFeatures.subreddit = false;
+    mockFeatures.lore = false;
 
     // Disable all features so config panels don't duplicate headings
     renderTab({
@@ -97,18 +103,20 @@ describe('ExperimentalTab', () => {
       timelapseEnabled: false,
     });
 
-    // Repofeed and Subreddit should not appear
+    // Disabled features should not appear
     expect(screen.queryByText('Repofeed')).not.toBeInTheDocument();
     expect(screen.queryByText('Subreddit')).not.toBeInTheDocument();
+    expect(screen.queryByText('Lore')).not.toBeInTheDocument();
 
-    // Non-gated features should still appear
-    expect(screen.getByText('Lore')).toBeInTheDocument();
+    // Enabled features should still appear
     expect(screen.getByText('Floor Manager')).toBeInTheDocument();
     expect(screen.getByText('Timelapse')).toBeInTheDocument();
+    expect(screen.getByText('Personas')).toBeInTheDocument();
 
     // Restore for other tests
     mockFeatures.repofeed = true;
     mockFeatures.subreddit = true;
+    mockFeatures.lore = true;
   });
 
   it('shows build-gated features when build feature is true', () => {

@@ -1,3 +1,5 @@
+//go:build !nofloormanager
+
 package dashboard
 
 import (

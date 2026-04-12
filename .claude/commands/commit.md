@@ -96,21 +96,30 @@ Continue to Step 4.
 
 Several packages can be excluded from the binary via build tags. If you modify files in an excludable module, the disabled build must still compile. Check the staged file list against this mapping:
 
-| Staged path prefix                        | Tag to verify     |
-| ----------------------------------------- | ----------------- |
-| `internal/telemetry/`                     | `notelemetry`     |
-| `internal/update/`                        | `noupdate`        |
-| `internal/models/registry`                | `nomodelregistry` |
-| `internal/dashboardsx/`                   | `nodashboardsx`   |
-| `internal/dashboard/handlers_dashboardsx` | `nodashboardsx`   |
-| `cmd/schmux/dashboardsx`                  | `nodashboardsx`   |
-| `internal/repofeed/`                      | `norepofeed`      |
-| `internal/dashboard/handlers_repofeed`    | `norepofeed`      |
-| `cmd/schmux/repofeed`                     | `norepofeed`      |
-| `internal/subreddit/`                     | `nosubreddit`     |
-| `internal/dashboard/handlers_subreddit`   | `nosubreddit`     |
-| `internal/tunnel/`                        | `notunnel`        |
-| `internal/github/`                        | `nogithub`        |
+| Staged path prefix                         | Tag to verify     |
+| ------------------------------------------ | ----------------- |
+| `internal/telemetry/`                      | `notelemetry`     |
+| `internal/update/`                         | `noupdate`        |
+| `internal/models/registry`                 | `nomodelregistry` |
+| `internal/dashboardsx/`                    | `nodashboardsx`   |
+| `internal/dashboard/handlers_dashboardsx`  | `nodashboardsx`   |
+| `cmd/schmux/dashboardsx`                   | `nodashboardsx`   |
+| `internal/repofeed/`                       | `norepofeed`      |
+| `internal/dashboard/handlers_repofeed`     | `norepofeed`      |
+| `cmd/schmux/repofeed`                      | `norepofeed`      |
+| `internal/subreddit/`                      | `nosubreddit`     |
+| `internal/dashboard/handlers_subreddit`    | `nosubreddit`     |
+| `internal/tunnel/`                         | `notunnel`        |
+| `internal/github/`                         | `nogithub`        |
+| `internal/timelapse/`                      | `notimelapse`     |
+| `internal/dashboard/handlers_timelapse`    | `notimelapse`     |
+| `cmd/schmux/timelapse`                     | `notimelapse`     |
+| `internal/floormanager/`                   | `nofloormanager`  |
+| `internal/dashboard/handlers_floormanager` | `nofloormanager`  |
+| `internal/lore/`                           | `nolore`          |
+| `internal/dashboard/handlers_lore`         | `nolore`          |
+| `internal/personas/`                       | `nopersonas`      |
+| `internal/commstyles/`                     | `nocommstyles`    |
 
 **Broad-impact files** — if ANY of these are staged, verify ALL exclusion tags:
 
@@ -132,6 +141,11 @@ go build -tags norepofeed ./cmd/schmux
 go build -tags nosubreddit ./cmd/schmux
 go build -tags notunnel ./cmd/schmux
 go build -tags nogithub ./cmd/schmux
+go build -tags notimelapse ./cmd/schmux
+go build -tags nofloormanager ./cmd/schmux
+go build -tags nolore ./cmd/schmux
+go build -tags nopersonas ./cmd/schmux
+go build -tags nocommstyles ./cmd/schmux
 ```
 
 **If any exclusion build fails:** STOP. Update the corresponding `_disabled.go` stub to match your changes, then re-invoke `/commit` from the beginning.
