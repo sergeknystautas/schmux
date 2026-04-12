@@ -19,7 +19,7 @@ import SessionTabs from '../components/SessionTabs';
 import PromptTextarea from '../components/PromptTextarea';
 import Tooltip from '../components/Tooltip';
 import RemoteHostSelector, { type EnvironmentSelection } from '../components/RemoteHostSelector';
-import { getSpawnEntries, getPromptHistory } from '../lib/emergence-api';
+import { getSpawnEntries, getPromptHistory } from '../lib/spawn-api';
 import type { AutocompleteItem } from '../components/PromptAutocomplete';
 import type { Model, RepoResponse, SpawnResult, SuggestBranchResponse } from '../lib/types';
 import type { Persona, SpawnEntry, PromptHistoryEntry, Style } from '../lib/types.generated';

@@ -116,8 +116,8 @@ Several packages can be excluded from the binary via build tags. If you modify f
 | `cmd/schmux/timelapse`                     | `notimelapse`     |
 | `internal/floormanager/`                   | `nofloormanager`  |
 | `internal/dashboard/handlers_floormanager` | `nofloormanager`  |
-| `internal/lore/`                           | `nolore`          |
-| `internal/dashboard/handlers_lore`         | `nolore`          |
+| `internal/autolearn/`                      | `noautolearn`     |
+| `internal/dashboard/handlers_autolearn`    | `noautolearn`     |
 | `internal/personas/`                       | `nopersonas`      |
 | `internal/commstyles/`                     | `nocommstyles`    |
 
@@ -143,7 +143,7 @@ go build -tags notunnel ./cmd/schmux
 go build -tags nogithub ./cmd/schmux
 go build -tags notimelapse ./cmd/schmux
 go build -tags nofloormanager ./cmd/schmux
-go build -tags nolore ./cmd/schmux
+go build -tags noautolearn ./cmd/schmux
 go build -tags nopersonas ./cmd/schmux
 go build -tags nocommstyles ./cmd/schmux
 ```

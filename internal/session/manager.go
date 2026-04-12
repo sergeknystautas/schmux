@@ -53,7 +53,7 @@ type Manager struct {
 	remoteDetectors         map[string]*remoteSignalMonitor // signal detectors for remote sessions
 	mu                      sync.RWMutex
 	compoundCallback        func(workspaceID string, isSpawn bool)             // notify compounder on session spawn/dispose
-	loreCallback            func(repoName, repoURL string, isLastSession bool) // notify lore curator on session dispose
+	autolearnCallback       func(repoName, repoURL string, isLastSession bool) // notify autolearn curator on session dispose
 	terminalCaptureCallback func(sessionID, workspaceID, output string)        // notify on terminal capture before dispose
 	telemetry               telemetry.Telemetry                                // optional, for usage tracking
 	recorderFactory         func(sessionID string, outputLog *OutputLog, gapCh <-chan SourceEvent) Runnable
@@ -183,10 +183,10 @@ func (m *Manager) SetCompoundCallback(cb func(workspaceID string, isSpawn bool))
 	m.compoundCallback = cb
 }
 
-// SetLoreCallback sets the callback for notifying the lore system on session dispose.
+// SetAutolearnCallback sets the callback for notifying the autolearn system on session dispose.
 // Must be called before Start() — not safe for concurrent use.
-func (m *Manager) SetLoreCallback(cb func(repoName, repoURL string, isLastSession bool)) {
-	m.loreCallback = cb
+func (m *Manager) SetAutolearnCallback(cb func(repoName, repoURL string, isLastSession bool)) {
+	m.autolearnCallback = cb
 }
 
 // SetTerminalCaptureCallback sets the callback for capturing terminal output before session dispose.
@@ -1463,14 +1463,14 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 		m.compoundCallback(sess.WorkspaceID, false)
 	}
 
-	// Notify lore system on session dispose (always fires; daemon decides based on config)
-	if m.loreCallback != nil {
+	// Notify autolearn system on session dispose (always fires; daemon decides based on config)
+	if m.autolearnCallback != nil {
 		w, found := m.state.GetWorkspace(sess.WorkspaceID)
 		if found {
 			// Find repo name from URL
 			repoConfig, repoFound := m.config.FindRepoByURL(w.Repo)
 			if repoFound {
-				go m.loreCallback(repoConfig.Name, w.Repo, isLastSession)
+				go m.autolearnCallback(repoConfig.Name, w.Repo, isLastSession)
 			}
 		}
 	}

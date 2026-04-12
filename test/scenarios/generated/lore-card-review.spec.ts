@@ -7,21 +7,22 @@ import {
   waitForHealthy,
   apiGet,
   apiPost,
+  apiPatch,
 } from './helpers';
 
 const SCHMUX_HOME = process.env.SCHMUX_HOME || `${process.env.HOME}/.schmux`;
 
-/** Seed a proposal JSON file directly on disk so the daemon picks it up. */
-function seedProposal(repoName: string, proposal: Record<string, unknown>): void {
-  const proposalDir = `${SCHMUX_HOME}/lore-proposals/${repoName}`;
-  execSync(`mkdir -p ${proposalDir}`);
-  const json = JSON.stringify(proposal, null, 2);
-  const id = proposal.id as string;
-  execSync(`cat > ${proposalDir}/${id}.json << 'PROPEOF'\n${json}\nPROPEOF`);
+/** Seed a batch JSON file directly on disk so the daemon picks it up. */
+function seedBatch(repoName: string, batch: Record<string, unknown>): void {
+  const batchDir = `${SCHMUX_HOME}/autolearn/batches/${repoName}`;
+  execSync(`mkdir -p ${batchDir}`);
+  const json = JSON.stringify(batch, null, 2);
+  const id = batch.id as string;
+  execSync(`cat > ${batchDir}/${id}.json << 'BATCHEOF'\n${json}\nBATCHEOF`);
 }
 
-test.describe.serial('Lore card review flow', () => {
-  const repoName = 'test-lore-review';
+test.describe.serial('Autolearn card review flow', () => {
+  const repoName = 'test-autolearn-review';
 
   test.beforeAll(async () => {
     await waitForHealthy();
@@ -36,35 +37,41 @@ test.describe.serial('Lore card review flow', () => {
       ],
     });
 
-    // Seed a proposal with two pending rules
-    seedProposal(repoName, {
-      id: 'prop-review-001',
+    // Seed a batch with two pending learnings
+    seedBatch(repoName, {
+      id: 'batch-review-001',
       repo: repoName,
       created_at: new Date().toISOString(),
       status: 'pending',
-      rules: [
+      learnings: [
         {
           id: 'r1',
-          text: 'Always run tests before committing',
+          kind: 'rule',
+          status: 'pending',
+          title: 'Always run tests before committing',
           category: 'workflow',
           suggested_layer: 'repo_private',
-          status: 'pending',
-          source_entries: [],
+          sources: [],
+          created_at: new Date().toISOString(),
+          rule: {},
         },
         {
           id: 'r2',
-          text: 'Use go build ./cmd/schmux for building',
+          kind: 'rule',
+          status: 'pending',
+          title: 'Use go build ./cmd/schmux for building',
           category: 'build',
           suggested_layer: 'repo_public',
-          status: 'pending',
-          source_entries: [],
+          sources: [],
+          created_at: new Date().toISOString(),
+          rule: {},
         },
       ],
     });
   });
 
-  test('cards appear on lore page', async ({ page }) => {
-    await page.goto('/lore');
+  test('cards appear on autolearn page', async ({ page }) => {
+    await page.goto('/autolearn');
     await waitForDashboardLive(page);
 
     // Both rule texts should be visible as cards
@@ -73,19 +80,19 @@ test.describe.serial('Lore card review flow', () => {
   });
 
   test('approve changes card to collapsed approved state', async ({ page }) => {
-    await page.goto('/lore');
+    await page.goto('/autolearn');
     await waitForDashboardLive(page);
 
     // Wait for the first card to appear
-    await expect(page.locator('[data-testid="lore-card-r1"]')).toBeVisible();
+    await expect(page.locator('[data-testid="autolearn-card-r1"]')).toBeVisible();
 
     // Click the Approve button on the first card (r1)
-    const firstCard = page.locator('[data-testid="lore-card-r1"]');
+    const firstCard = page.locator('[data-testid="autolearn-card-r1"]');
     const approveButton = firstCard.locator('button', { hasText: 'Approve' });
     await approveButton.click();
 
     // After approval, the card should collapse and show a check mark
-    const collapsedCard = page.locator('[data-testid="lore-card-r1"]');
+    const collapsedCard = page.locator('[data-testid="autolearn-card-r1"]');
     await expect(collapsedCard).toBeVisible();
     // The collapsed card contains the check mark character
     await expect(collapsedCard.locator('text=\u2713')).toBeVisible();
@@ -94,12 +101,12 @@ test.describe.serial('Lore card review flow', () => {
   });
 
   test('dismiss removes card from view', async ({ page }) => {
-    await page.goto('/lore');
+    await page.goto('/autolearn');
     await waitForDashboardLive(page);
 
     // Wait for the second card (r2) to appear — r1 was approved in the previous test
     // so it shows as collapsed. r2 should still be a full pending card.
-    const secondCard = page.locator('[data-testid="lore-card-r2"]');
+    const secondCard = page.locator('[data-testid="autolearn-card-r2"]');
     await expect(secondCard).toBeVisible();
 
     // Click Dismiss on the second card
@@ -112,21 +119,21 @@ test.describe.serial('Lore card review flow', () => {
     });
   });
 
-  test('API confirms rule statuses persisted', async () => {
-    interface Proposal {
+  test('API confirms learning statuses persisted', async () => {
+    interface Batch {
       id: string;
       status: string;
-      rules: Array<{ id: string; status: string; text: string }>;
+      learnings: Array<{ id: string; status: string; title: string }>;
     }
 
-    const proposal = await apiGet<Proposal>(
-      `/api/lore/${encodeURIComponent(repoName)}/proposals/prop-review-001`
+    const batch = await apiGet<Batch>(
+      `/api/autolearn/${encodeURIComponent(repoName)}/batches/batch-review-001`
     );
 
-    expect(proposal.id).toBe('prop-review-001');
+    expect(batch.id).toBe('batch-review-001');
 
-    const r1 = proposal.rules.find((r) => r.id === 'r1');
-    const r2 = proposal.rules.find((r) => r.id === 'r2');
+    const r1 = batch.learnings.find((r) => r.id === 'r1');
+    const r2 = batch.learnings.find((r) => r.id === 'r2');
 
     expect(r1).toBeDefined();
     expect(r1!.status).toBe('approved');
@@ -135,30 +142,33 @@ test.describe.serial('Lore card review flow', () => {
     expect(r2!.status).toBe('dismissed');
   });
 
-  test('edit updates rule text', async ({ page }) => {
-    // Seed a fresh proposal for the edit test
-    seedProposal(repoName, {
-      id: 'prop-review-002',
+  test('edit updates learning title', async ({ page }) => {
+    // Seed a fresh batch for the edit test
+    seedBatch(repoName, {
+      id: 'batch-review-002',
       repo: repoName,
       created_at: new Date().toISOString(),
       status: 'pending',
-      rules: [
+      learnings: [
         {
           id: 'r-edit',
-          text: 'Original rule text for editing',
+          kind: 'rule',
+          title: 'Original rule text for editing',
           category: 'testing',
           suggested_layer: 'repo_private',
           status: 'pending',
-          source_entries: [],
+          sources: [],
+          created_at: new Date().toISOString(),
+          rule: {},
         },
       ],
     });
 
-    await page.goto('/lore');
+    await page.goto('/autolearn');
     await waitForDashboardLive(page);
 
     // Wait for the new card to appear
-    const editCard = page.locator('[data-testid="lore-card-r-edit"]');
+    const editCard = page.locator('[data-testid="autolearn-card-r-edit"]');
     await expect(editCard).toBeVisible();
 
     // Click Edit button
@@ -181,78 +191,84 @@ test.describe.serial('Lore card review flow', () => {
     await expect(editCard.locator('textarea')).toBeHidden();
     await expect(editCard).toContainText('Updated rule text after editing');
 
-    // Verify via API that the text was persisted
-    interface Proposal {
-      rules: Array<{ id: string; text: string }>;
+    // Verify via API that the title was persisted
+    interface Batch {
+      learnings: Array<{ id: string; title: string }>;
     }
-    const proposal = await apiGet<Proposal>(
-      `/api/lore/${encodeURIComponent(repoName)}/proposals/prop-review-002`
+    const batch = await apiGet<Batch>(
+      `/api/autolearn/${encodeURIComponent(repoName)}/batches/batch-review-002`
     );
-    const rule = proposal.rules.find((r) => r.id === 'r-edit');
-    expect(rule).toBeDefined();
-    expect(rule!.text).toBe('Updated rule text after editing');
+    const learning = batch.learnings.find((r) => r.id === 'r-edit');
+    expect(learning).toBeDefined();
+    expect(learning!.title).toBe('Updated rule text after editing');
   });
 
-  test('duplicate rules show as single card', async ({ page }) => {
-    // Seed two proposals with rules that have the same normalized text
-    seedProposal(repoName, {
-      id: 'prop-dedup-a',
+  test('duplicate learnings show as single card', async ({ page }) => {
+    // Seed two batches with learnings that have the same normalized title
+    seedBatch(repoName, {
+      id: 'batch-dedup-a',
       repo: repoName,
       created_at: new Date().toISOString(),
       status: 'pending',
-      rules: [
+      learnings: [
         {
           id: 'r-dup-a',
-          text: 'A unique dedup test rule',
+          kind: 'rule',
+          title: 'A unique dedup test rule',
           category: 'testing',
           suggested_layer: 'repo_private',
           status: 'pending',
-          source_entries: [],
+          sources: [],
+          created_at: new Date().toISOString(),
+          rule: {},
         },
       ],
     });
 
-    seedProposal(repoName, {
-      id: 'prop-dedup-b',
+    seedBatch(repoName, {
+      id: 'batch-dedup-b',
       repo: repoName,
       created_at: new Date().toISOString(),
       status: 'pending',
-      rules: [
+      learnings: [
         {
           id: 'r-dup-b',
-          text: 'a unique dedup test rule',
+          kind: 'rule',
+          title: 'a unique dedup test rule',
           category: 'testing',
           suggested_layer: 'repo_private',
           status: 'pending',
-          source_entries: [],
+          sources: [],
+          created_at: new Date().toISOString(),
+          rule: {},
         },
       ],
     });
 
-    await page.goto('/lore');
+    await page.goto('/autolearn');
     await waitForDashboardLive(page);
 
     // Wait for data to load — at least one instance must be visible
     await expect(page.locator('text=unique dedup test rule').first()).toBeVisible();
 
-    // The LorePage deduplicates by normalized text (case-insensitive, whitespace-collapsed).
+    // The AutolearnPage deduplicates by normalized title (case-insensitive, whitespace-collapsed).
     // Only one card should appear, not two.
     const cards = page.locator('text=unique dedup test rule');
     await expect(cards).toHaveCount(1);
   });
 
-  test('approved rules do not appear on page reload', async ({ page }) => {
-    // Approve a rule via API, then verify the card wall filters it out.
-    // The card wall only shows pending rules — approved ones are "triaged" and hidden.
-    await apiPost(
-      `/api/lore/${encodeURIComponent(repoName)}/proposals/prop-review-002/rules/r-edit`,
+  test('approved learnings do not appear on page reload', async ({ page }) => {
+    // Approve a learning via API, then verify the card wall filters it out.
+    // The card wall only shows pending learnings — approved ones are "triaged" and hidden.
+    await apiPatch(
+      `/api/autolearn/${encodeURIComponent(repoName)}/batches/batch-review-002/learnings/r-edit`,
       { status: 'approved' }
     );
 
-    await page.goto('/lore');
+    await page.goto('/autolearn');
     await waitForDashboardLive(page);
 
-    // The r-edit card should NOT appear — loadData skips non-pending rules
-    await expect(page.locator('[data-testid="lore-card-r-edit"]')).toBeHidden();
+    // The r-edit card should NOT appear — loadData skips non-pending learnings
+    await expect(page.locator('[data-testid="autolearn-card-r-edit"]')).toBeHidden();
   });
 });

@@ -253,7 +253,7 @@ export interface Features {
   subreddit: boolean;
   personas: boolean;
   comm_styles: boolean;
-  lore: boolean;
+  autolearn: boolean;
   floor_manager: boolean;
   timelapse: boolean;
 }
@@ -536,18 +536,6 @@ export interface SessionsUpdate {
   git_status_poll_interval_ms?: number;
   git_clone_timeout_ms?: number;
   git_status_timeout_ms?: number;
-}
-
-export interface SkillProposal {
-  name: string;
-  description: string;
-  triggers: string[];
-  procedure: string;
-  quality_criteria: string;
-  evidence: string[];
-  confidence: number;
-  is_update: boolean;
-  changes?: string;
 }
 
 export interface SpawnEntriesResponse {

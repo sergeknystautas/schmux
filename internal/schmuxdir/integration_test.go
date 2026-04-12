@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sergeknystautas/schmux/internal/autolearn"
 	"github.com/sergeknystautas/schmux/internal/config"
-	"github.com/sergeknystautas/schmux/internal/lore"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
@@ -30,21 +30,21 @@ func TestDownstreamFunctionsUseCustomDir(t *testing.T) {
 		t.Errorf("config.ConfigExists() returned true for empty temp dir -- likely still checking ~/.schmux instead of custom dir")
 	}
 
-	// Verify lore.LoreStateDir() returns path under custom dir
-	loreDir, err := lore.LoreStateDir("test-repo")
+	// Verify autolearn.StateDir() returns path under custom dir
+	autolearnDir, err := autolearn.StateDir("test-repo")
 	if err != nil {
-		t.Fatalf("lore.LoreStateDir() returned error: %v", err)
+		t.Fatalf("autolearn.StateDir() returned error: %v", err)
 	}
-	if !strings.HasPrefix(loreDir, tmpDir) {
-		t.Errorf("lore.LoreStateDir() = %q, want prefix %q", loreDir, tmpDir)
+	if !strings.HasPrefix(autolearnDir, tmpDir) {
+		t.Errorf("autolearn.StateDir() = %q, want prefix %q", autolearnDir, tmpDir)
 	}
-	if strings.HasPrefix(loreDir, defaultDir) {
-		t.Errorf("lore.LoreStateDir() = %q, must NOT start with default %q", loreDir, defaultDir)
+	if strings.HasPrefix(autolearnDir, defaultDir) {
+		t.Errorf("autolearn.StateDir() = %q, must NOT start with default %q", autolearnDir, defaultDir)
 	}
 
-	wantLore := filepath.Join(tmpDir, "lore", "test-repo")
-	if loreDir != wantLore {
-		t.Errorf("lore.LoreStateDir() = %q, want %q", loreDir, wantLore)
+	wantAutolearn := filepath.Join(tmpDir, "lore", "test-repo")
+	if autolearnDir != wantAutolearn {
+		t.Errorf("autolearn.StateDir() = %q, want %q", autolearnDir, wantAutolearn)
 	}
 }
 

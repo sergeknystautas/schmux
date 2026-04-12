@@ -95,6 +95,18 @@ export async function apiPost<T = unknown>(path: string, body?: unknown): Promis
   return res.json() as Promise<T>;
 }
 
+export async function apiPatch<T = unknown>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${getBaseURL()}${path}`, {
+    method: 'PATCH',
+    headers: body ? { 'Content-Type': 'application/json' } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    throw new Error(`PATCH ${path} failed: ${res.status} ${await res.text()}`);
+  }
+  return res.json() as Promise<T>;
+}
+
 // --- Health check ---
 
 export async function waitForHealthy(timeoutMs: number = 15_000): Promise<void> {

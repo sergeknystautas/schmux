@@ -1,6 +1,6 @@
 import type { ConfigFormState } from './useConfigForm';
 import type { ConfigPanelProps } from './ConfigPanelProps';
-import LoreConfig from './LoreConfig';
+import AutolearnConfig from './AutolearnConfig';
 import FloorManagerConfig from './FloorManagerConfig';
 import RepofeedConfig from './RepofeedConfig';
 import SubredditConfig from './SubredditConfig';
@@ -35,12 +35,12 @@ export const EXPERIMENTAL_FEATURES: ExperimentalFeature[] = [
     buildFeatureKey: 'comm_styles',
   },
   {
-    id: 'lore',
-    name: 'Lore',
-    description: 'Learns from agent mistakes and suggests instruction updates',
-    enabledKey: 'loreEnabled',
-    configPanel: LoreConfig,
-    buildFeatureKey: 'lore',
+    id: 'autolearn',
+    name: 'Autolearn',
+    description: 'Learns from agent friction and usage patterns — proposes rules and skills',
+    enabledKey: 'autolearnEnabled',
+    configPanel: AutolearnConfig,
+    buildFeatureKey: 'autolearn',
   },
   {
     id: 'floorManager',

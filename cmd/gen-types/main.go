@@ -42,7 +42,6 @@ func main() {
 		reflect.TypeOf(contracts.SpawnEntriesResponse{}),
 		reflect.TypeOf(contracts.CreateSpawnEntryRequest{}),
 		reflect.TypeOf(contracts.UpdateSpawnEntryRequest{}),
-		reflect.TypeOf(contracts.SkillProposal{}),
 		reflect.TypeOf(contracts.EmergenceMetadata{}),
 		reflect.TypeOf(contracts.PromptHistoryResponse{}),
 		reflect.TypeOf(contracts.Features{}),

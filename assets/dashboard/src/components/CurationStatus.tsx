@@ -9,7 +9,7 @@ export default function CurationStatus() {
 
   return (
     <div className="curation-status">
-      <span className="nav-section-title">Lore Curation</span>
+      <span className="nav-section-title">Autolearn Curation</span>
       {entries.map(([repo, state]) => (
         <div key={repo}>
           <div className="curation-status__item">

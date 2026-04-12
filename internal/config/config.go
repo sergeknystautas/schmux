@@ -81,6 +81,7 @@ type Config struct {
 	Compound                   *CompoundConfig             `json:"compound,omitempty"`
 	Overlay                    *OverlayConfig              `json:"overlay,omitempty"`
 	Lore                       *LoreConfig                 `json:"lore,omitempty"`
+	Autolearn                  *AutolearnConfig            `json:"autolearn,omitempty"`
 	Sessions                   *SessionsConfig             `json:"sessions,omitempty"`
 	Xterm                      *XtermConfig                `json:"xterm,omitempty"`
 	Network                    *NetworkConfig              `json:"network,omitempty"`
@@ -445,6 +446,52 @@ func (lc *LoreConfig) GetPublicRuleMode() string {
 		return "direct_push"
 	}
 	return lc.PublicRuleMode
+}
+
+// AutolearnConfig represents configuration for the autolearn (continual learning) system.
+// This is the successor to LoreConfig with the same fields.
+type AutolearnConfig struct {
+	Enabled          *bool    `json:"enabled,omitempty"`            // explicitly enable/disable (default: true)
+	CurateOnDispose  string   `json:"curate_on_dispose,omitempty"`  // "session", "workspace", or "never" (default: "session")
+	CurateDebounceMs int      `json:"curate_debounce_ms,omitempty"` // debounce for auto-curation (default 30000)
+	Target           string   `json:"llm_target,omitempty"`         // LLM target for curator (falls back to compound target)
+	InstructionFiles []string `json:"instruction_files,omitempty"`  // instruction file patterns to manage
+	PublicRuleMode   string   `json:"public_rule_mode,omitempty"`   // "direct_push" (default) or "create_pr"
+	PruneAfterDays   int      `json:"prune_after_days,omitempty"`   // days before pruning applied/dismissed entries (default 30)
+
+	// curateOnDisposeRaw stores the raw JSON value for backward compatibility.
+	// Old configs may have a boolean value (true → "session", false → "never").
+	curateOnDisposeRaw json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for AutolearnConfig to handle
+// backward compatibility where curate_on_dispose was a boolean.
+func (ac *AutolearnConfig) UnmarshalJSON(data []byte) error {
+	type autolearnConfigAlias AutolearnConfig
+	var alias autolearnConfigAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		var raw map[string]json.RawMessage
+		if err2 := json.Unmarshal(data, &raw); err2 != nil {
+			return err
+		}
+		codRaw := raw["curate_on_dispose"]
+		delete(raw, "curate_on_dispose")
+		sanitized, _ := json.Marshal(raw)
+		if err2 := json.Unmarshal(sanitized, &alias); err2 != nil {
+			return err
+		}
+		alias.curateOnDisposeRaw = codRaw
+	}
+	*ac = AutolearnConfig(alias)
+	return nil
+}
+
+// GetPublicRuleMode returns the configured public rule mode, defaulting to "direct_push".
+func (ac *AutolearnConfig) GetPublicRuleMode() string {
+	if ac == nil || ac.PublicRuleMode == "" {
+		return "direct_push"
+	}
+	return ac.PublicRuleMode
 }
 
 // SessionsConfig represents session and git-related timing configuration.
@@ -1522,6 +1569,136 @@ func (c *Config) GetLoreInstructionFiles() []string {
 	return DefaultInstructionFiles
 }
 
+// GetAutolearnEnabled returns whether the autolearn system is enabled.
+// Defaults to true if not explicitly configured.
+func (c *Config) GetAutolearnEnabled() bool {
+	if c == nil {
+		return true
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Autolearn == nil || c.Autolearn.Enabled == nil {
+		return true
+	}
+	return *c.Autolearn.Enabled
+}
+
+// GetAutolearnTarget returns the configured autolearn curator LLM target.
+// Falls back to the compound target if not explicitly configured.
+func (c *Config) GetAutolearnTarget() string {
+	if c == nil {
+		return ""
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Autolearn != nil && c.Autolearn.Target != "" {
+		return c.Autolearn.Target
+	}
+	return c.getCompoundTargetLocked()
+}
+
+// GetAutolearnTargetRaw returns the explicitly configured autolearn curator LLM target
+// without any fallback. Returns "" if no target is set.
+// Use this for config UI display; use GetAutolearnTarget() for runtime behavior.
+func (c *Config) GetAutolearnTargetRaw() string {
+	if c == nil {
+		return ""
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Autolearn == nil {
+		return ""
+	}
+	return c.Autolearn.Target
+}
+
+// GetAutolearnCurateOnDispose returns the autolearn curate-on-dispose mode.
+// Returns "session", "workspace", or "never". Defaults to "session".
+func (c *Config) GetAutolearnCurateOnDispose() string {
+	if c == nil {
+		return "session"
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Autolearn == nil {
+		return "session"
+	}
+	if c.Autolearn.CurateOnDispose != "" {
+		switch c.Autolearn.CurateOnDispose {
+		case "session", "workspace", "never":
+			return c.Autolearn.CurateOnDispose
+		default:
+			return "session"
+		}
+	}
+	if c.Autolearn.curateOnDisposeRaw != nil {
+		raw := string(c.Autolearn.curateOnDisposeRaw)
+		if raw == "false" {
+			return "never"
+		}
+		if raw == "true" {
+			return "session"
+		}
+	}
+	return "session"
+}
+
+// GetAutolearnDebounceMs returns the autolearn debounce interval for auto-curation in milliseconds.
+// Defaults to 30000 (30 seconds).
+func (c *Config) GetAutolearnDebounceMs() int {
+	if c == nil {
+		return 30000
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Autolearn == nil || c.Autolearn.CurateDebounceMs <= 0 {
+		return 30000
+	}
+	return c.Autolearn.CurateDebounceMs
+}
+
+// GetAutolearnPruneAfterDays returns the number of days before pruning applied/dismissed autolearn entries.
+// Defaults to 30.
+func (c *Config) GetAutolearnPruneAfterDays() int {
+	if c == nil {
+		return 30
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Autolearn == nil || c.Autolearn.PruneAfterDays <= 0 {
+		return 30
+	}
+	return c.Autolearn.PruneAfterDays
+}
+
+// GetAutolearnInstructionFiles returns the instruction file patterns managed by the autolearn curator.
+// Defaults to DefaultInstructionFiles if not configured.
+func (c *Config) GetAutolearnInstructionFiles() []string {
+	if c == nil {
+		return DefaultInstructionFiles
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Autolearn != nil && len(c.Autolearn.InstructionFiles) > 0 {
+		return c.Autolearn.InstructionFiles
+	}
+	return DefaultInstructionFiles
+}
+
+// GetAutolearnPublicRuleMode returns the configured autolearn public rule mode.
+// Returns "direct_push" or "create_pr". Defaults to "direct_push".
+func (c *Config) GetAutolearnPublicRuleMode() string {
+	if c == nil {
+		return "direct_push"
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Autolearn == nil {
+		return "direct_push"
+	}
+	return c.Autolearn.GetPublicRuleMode()
+}
+
 // DefaultOverlayPaths are always watched for all repos.
 // Note: .schmux/lore.jsonl is NOT an overlay path — lore is one-directional
 // (workspaces write, backend reads) and should not be broadcast via compounding.
@@ -1937,6 +2114,19 @@ func Load(configPath string) (*Config, error) {
 	// Apply migrations - each detects if it needs to run
 	if err := cfg.Migrate(rawJSON); err != nil {
 		return nil, fmt.Errorf("config migration failed: %w", err)
+	}
+
+	// Alias: populate Autolearn from Lore if only Lore is configured
+	if cfg.Autolearn == nil && cfg.Lore != nil {
+		cfg.Autolearn = &AutolearnConfig{
+			Enabled:          cfg.Lore.Enabled,
+			CurateOnDispose:  cfg.Lore.CurateOnDispose,
+			CurateDebounceMs: cfg.Lore.CurateDebounceMs,
+			Target:           cfg.Lore.Target,
+			InstructionFiles: cfg.Lore.InstructionFiles,
+			PublicRuleMode:   cfg.Lore.PublicRuleMode,
+			PruneAfterDays:   cfg.Lore.PruneAfterDays,
+		}
 	}
 
 	homeDir, err := os.UserHomeDir()

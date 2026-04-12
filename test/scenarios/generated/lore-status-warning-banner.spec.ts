@@ -8,14 +8,14 @@ import {
   apiPost,
 } from './helpers';
 
-test.describe.serial('Lore status warning banner', () => {
+test.describe.serial('Autolearn status warning banner', () => {
   let repoPath: string;
-  const repoName = 'test-lore-warning';
+  const repoName = 'test-autolearn-warning';
 
   test.beforeAll(async () => {
     await waitForHealthy();
     repoPath = await createTestRepo(repoName);
-    // Seed config with lore enabled but NO llm_target — curator cannot run
+    // Seed config with autolearn enabled but NO llm_target — curator cannot run
     await seedConfig({
       repos: [repoPath],
       agents: [
@@ -25,7 +25,7 @@ test.describe.serial('Lore status warning banner', () => {
         },
       ],
     });
-    // Explicitly reset lore: enabled with no llm_target (prior tests may have changed these)
+    // Explicitly reset autolearn: enabled with no llm_target (prior tests may have changed these)
     // Also clear compound/nudgenik targets so the fallback chain doesn't find a stale target.
     await apiPost('/api/config', {
       lore: { enabled: true, llm_target: '' },
@@ -34,8 +34,8 @@ test.describe.serial('Lore status warning banner', () => {
     });
   });
 
-  test('lore status API reports unconfigured curator', async () => {
-    interface LoreStatus {
+  test('autolearn status API reports unconfigured curator', async () => {
+    interface AutolearnStatus {
       enabled: boolean;
       curator_configured: boolean;
       curate_on_dispose: string;
@@ -43,22 +43,22 @@ test.describe.serial('Lore status warning banner', () => {
       issues: string[];
     }
 
-    const status = await apiGet<LoreStatus>('/api/lore/status');
+    const status = await apiGet<AutolearnStatus>('/api/autolearn/status');
     expect(status.enabled).toBe(true);
     expect(status.curator_configured).toBe(false);
     expect(status.issues.length).toBeGreaterThan(0);
     expect(status.issues[0]).toContain('LLM target');
   });
 
-  test('lore page shows warning banner', async ({ page }) => {
-    await page.goto('/lore');
+  test('autolearn page shows warning banner', async ({ page }) => {
+    await page.goto('/autolearn');
     await waitForDashboardLive(page);
 
     // Page heading should be visible
-    await expect(page.locator('h2', { hasText: 'Lore' })).toBeVisible();
+    await expect(page.locator('h2', { hasText: 'Autolearn' })).toBeVisible();
 
     // Warning banner should be visible
-    const banner = page.locator('[data-testid="lore-warning-banner"]');
+    const banner = page.locator('[data-testid="autolearn-warning-banner"]');
     await expect(banner).toBeVisible();
 
     // Banner should mention LLM target

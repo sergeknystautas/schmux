@@ -127,7 +127,7 @@
   margin-top: 0.75rem;
 }
 
-/* Match existing button styles from lore.module.css */
+/* Match existing button styles from autolearn.module.css */
 .dismissButton {
   padding: 0.375rem 1rem;
   background: transparent;

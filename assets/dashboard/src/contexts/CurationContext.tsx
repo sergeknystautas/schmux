@@ -101,8 +101,8 @@ export function CurationProvider({ children }: { children: React.ReactNode }) {
         const proposalId = raw.proposal_id as string | undefined;
         toastSuccess(
           proposalId
-            ? `Lore: proposal ${proposalId} created`
-            : `Lore: curation complete for ${repo}`
+            ? `Autolearn: proposal ${proposalId} created`
+            : `Autolearn: curation complete for ${repo}`
         );
         completionCallbacksRef.current.forEach((cb) =>
           cb(repo, {
@@ -122,7 +122,7 @@ export function CurationProvider({ children }: { children: React.ReactNode }) {
         });
         const raw = last.raw as Record<string, unknown>;
         const errorMsg = raw.error as string | undefined;
-        toastError(`Lore curation failed for ${repo}: ${errorMsg || 'unknown error'}`);
+        toastError(`Autolearn curation failed for ${repo}: ${errorMsg || 'unknown error'}`);
         completionCallbacksRef.current.forEach((cb) =>
           cb(repo, {
             event_type: 'curator_error',

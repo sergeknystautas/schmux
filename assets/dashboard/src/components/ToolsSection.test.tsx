@@ -52,14 +52,14 @@ vi.mock('../contexts/FeaturesContext', () => ({
 // Mock the API
 vi.mock('../lib/api', () => ({
   getLoreProposals: vi.fn().mockResolvedValue({
-    proposals: [
-      { status: 'pending', rules: [{ status: 'pending' }] },
-      { status: 'pending', rules: [{ status: 'pending' }] },
+    batches: [
+      { status: 'pending', learnings: [{ status: 'pending' }] },
+      { status: 'pending', learnings: [{ status: 'pending' }] },
     ],
   }),
 }));
 
-vi.mock('../lib/emergence-api', () => ({
+vi.mock('../lib/spawn-api', () => ({
   getAllSpawnEntries: vi.fn().mockResolvedValue([]),
 }));
 
@@ -93,7 +93,7 @@ describe('ToolsSection', () => {
     await renderWithAct(<ToolsSection />);
 
     expect(screen.getByText('Overlays')).toBeInTheDocument();
-    expect(screen.getByText('Lore')).toBeInTheDocument();
+    expect(screen.getByText('Autolearn')).toBeInTheDocument();
     expect(screen.getByText('Personas')).toBeInTheDocument();
     expect(screen.getByText('Comm Styles')).toBeInTheDocument();
     expect(screen.getByText('Repofeed')).toBeInTheDocument();
@@ -212,7 +212,7 @@ describe('ToolsSection', () => {
 
     // Simulate all proposals dismissed: return empty proposals on next fetch
     cleanup();
-    mockGetLoreProposals.mockResolvedValue({ proposals: [] });
+    mockGetLoreProposals.mockResolvedValue({ batches: [] });
     mockProposalVersion = 1;
     await renderWithAct(<ToolsSection />);
 

@@ -8,9 +8,9 @@ import {
   apiPost,
 } from './helpers';
 
-test.describe.serial('Configure lore settings', () => {
+test.describe.serial('Configure autolearn settings', () => {
   let repoPath: string;
-  const repoName = 'test-lore-config';
+  const repoName = 'test-autolearn-config';
   const agentName = 'echo-agent';
 
   test.beforeAll(async () => {
@@ -25,13 +25,13 @@ test.describe.serial('Configure lore settings', () => {
         },
       ],
     });
-    // Reset lore config so enabling it creates a change
+    // Reset autolearn config so enabling it creates a change (API uses "lore" key)
     await apiPost('/api/config', {
       lore: { enabled: true, llm_target: '', curate_on_dispose: 'session' },
     });
   });
 
-  test('Experimental tab shows Lore feature card', async ({ page }) => {
+  test('Experimental tab shows Autolearn feature card', async ({ page }) => {
     await page.goto('/config?tab=experimental');
     await waitForDashboardLive(page);
 
@@ -39,17 +39,17 @@ test.describe.serial('Configure lore settings', () => {
     const experimentalTab = page.locator('[data-testid="config-tab-experimental"]');
     await expect(experimentalTab).toHaveAttribute('aria-selected', 'true');
 
-    // Verify Lore section is visible (use .first() because the inner config
-    // panel also renders an h3 "Lore" heading)
-    const loreSection = page.locator('h3', { hasText: 'Lore' }).first();
-    await expect(loreSection).toBeVisible();
+    // Verify Autolearn section is visible (use .first() because the inner config
+    // panel also renders an h3 "Autolearn" heading)
+    const autolearnSection = page.locator('h3', { hasText: 'Autolearn' }).first();
+    await expect(autolearnSection).toBeVisible();
 
     // Enable toggle should be present
-    const enableToggle = page.locator('[data-testid="experimental-toggle-lore"]');
+    const enableToggle = page.locator('[data-testid="experimental-toggle-autolearn"]');
     await expect(enableToggle).toBeVisible();
     await expect(enableToggle).toBeChecked();
 
-    // LLM Target dropdown should be visible (lore is enabled)
+    // LLM Target dropdown should be visible (autolearn is enabled)
     const targetSelect = page.getByLabel('LLM Target');
     await expect(targetSelect).toBeVisible();
 
@@ -76,35 +76,32 @@ test.describe.serial('Configure lore settings', () => {
     await page.waitForTimeout(500);
   });
 
-  test('config API accepts lore fields', async () => {
+  test('config API accepts autolearn fields', async () => {
     interface ConfigResp {
       lore: {
         enabled: boolean;
         llm_target: string;
         curate_on_dispose: string;
-        auto_pr: boolean;
       };
     }
 
-    // POST lore config via API
+    // POST autolearn config via API (API contract still uses "lore" key)
     await apiPost('/api/config', {
       lore: {
         enabled: true,
         llm_target: agentName,
         curate_on_dispose: 'workspace',
-        auto_pr: false,
       },
     });
 
-    // GET config and verify lore fields round-trip
+    // GET config and verify fields round-trip
     const config = await apiGet<ConfigResp>('/api/config');
     expect(config.lore.enabled).toBe(true);
     expect(config.lore.llm_target).toBe(agentName);
     expect(config.lore.curate_on_dispose).toBe('workspace');
-    expect(config.lore.auto_pr).toBe(false);
   });
 
-  test('lore status shows curator configured after setting target', async () => {
+  test('autolearn status shows curator configured after setting target', async () => {
     interface ConfigResp {
       lore: { llm_target: string };
     }

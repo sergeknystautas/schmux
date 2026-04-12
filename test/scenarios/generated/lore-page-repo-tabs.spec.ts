@@ -7,9 +7,9 @@ import {
   apiGet,
 } from './helpers';
 
-test.describe.serial('Lore page as flat card wall', () => {
+test.describe.serial('Autolearn page as flat card wall', () => {
   let repoPathA: string;
-  const repoNameA = 'test-lore-repo-a';
+  const repoNameA = 'test-autolearn-repo-a';
 
   test.beforeAll(async () => {
     await waitForHealthy();
@@ -25,31 +25,31 @@ test.describe.serial('Lore page as flat card wall', () => {
     });
   });
 
-  test('sidebar shows single Lore link', async ({ page }) => {
+  test('sidebar shows single Autolearn link', async ({ page }) => {
     await page.goto('/');
     await waitForDashboardLive(page);
 
-    const loreLinks = page.locator('.tools-section__list a', { hasText: /^Lore/ });
-    await expect(loreLinks).toHaveCount(1);
+    const autolearnLinks = page.locator('.tools-section__list a', { hasText: /^Autolearn/ });
+    await expect(autolearnLinks).toHaveCount(1);
   });
 
-  test('navigates to /lore via sidebar', async ({ page }) => {
+  test('navigates to /autolearn via sidebar', async ({ page }) => {
     await page.goto('/');
     await waitForDashboardLive(page);
 
-    const loreLink = page.locator('.tools-section__list a', { hasText: /^Lore/ });
-    await loreLink.click();
+    const autolearnLink = page.locator('.tools-section__list a', { hasText: /^Autolearn/ });
+    await autolearnLink.click();
 
-    await page.waitForURL('/lore');
-    expect(page.url()).toMatch(/\/lore$/);
+    await page.waitForURL('/autolearn');
+    expect(page.url()).toMatch(/\/autolearn$/);
   });
 
   test('page shows heading, subtitle, and no repo tabs', async ({ page }) => {
-    await page.goto('/lore');
+    await page.goto('/autolearn');
     await waitForDashboardLive(page);
 
     // Page heading
-    await expect(page.locator('h2', { hasText: 'Lore' })).toBeVisible();
+    await expect(page.locator('h2', { hasText: 'Autolearn' })).toBeVisible();
 
     // Subtitle
     await expect(page.locator('p', { hasText: 'Schmux continual learning system' })).toBeVisible();
@@ -60,7 +60,7 @@ test.describe.serial('Lore page as flat card wall', () => {
   });
 
   test('shows empty state when no pending proposals', async ({ page }) => {
-    await page.goto('/lore');
+    await page.goto('/autolearn');
     await waitForDashboardLive(page);
 
     await expect(
@@ -68,14 +68,14 @@ test.describe.serial('Lore page as flat card wall', () => {
     ).toBeVisible();
   });
 
-  test('API returns proposals for configured repo', async () => {
-    interface ProposalsResponse {
-      proposals: Array<{ id: string }>;
+  test('API returns batches for configured repo', async () => {
+    interface BatchesResponse {
+      batches: Array<{ id: string }>;
     }
 
-    const data = await apiGet<ProposalsResponse>(
-      `/api/lore/${encodeURIComponent(repoNameA)}/proposals`
+    const data = await apiGet<BatchesResponse>(
+      `/api/autolearn/${encodeURIComponent(repoNameA)}/batches`
     );
-    expect(data).toHaveProperty('proposals');
+    expect(data).toHaveProperty('batches');
   });
 });

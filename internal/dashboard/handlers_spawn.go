@@ -447,18 +447,18 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 		go s.BroadcastSessions()
 
 		// Track spawn entry usage (non-blocking, best-effort)
-		if s.emergenceStore != nil && req.Repo != "" {
+		if s.spawnStore != nil && req.Repo != "" {
 			if repoInfo, found := s.config.FindRepoByURL(req.Repo); found {
 				repoName := repoInfo.Name
 				if req.ActionID != "" {
 					// Explicit action ID from dropdown click
-					s.emergenceStore.RecordUse(repoName, req.ActionID)
+					s.spawnStore.RecordUse(repoName, req.ActionID)
 				} else if prompt := strings.TrimSpace(req.Prompt); prompt != "" {
 					// Match prompt against pinned spawn entries
-					if entries, err := s.emergenceStore.List(repoName); err == nil {
+					if entries, err := s.spawnStore.List(repoName); err == nil {
 						for _, e := range entries {
 							if e.Prompt != "" && e.Prompt == prompt {
-								s.emergenceStore.RecordUse(repoName, e.ID)
+								s.spawnStore.RecordUse(repoName, e.ID)
 								break
 							}
 						}

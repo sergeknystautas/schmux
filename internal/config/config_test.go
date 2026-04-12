@@ -3043,3 +3043,210 @@ func TestMigrateTelemetryStanza_NoOverwrite(t *testing.T) {
 		t.Errorf("expected command 'my-cmd', got %q", cfg.GetTelemetryCommand())
 	}
 }
+
+func TestAutolearnConfig_Direct(t *testing.T) {
+	t.Run("enabled via autolearn section", func(t *testing.T) {
+		enabled := true
+		c := &Config{
+			Autolearn: &AutolearnConfig{
+				Enabled: &enabled,
+			},
+		}
+		if !c.GetAutolearnEnabled() {
+			t.Error("expected GetAutolearnEnabled() = true")
+		}
+	})
+
+	t.Run("disabled via autolearn section", func(t *testing.T) {
+		enabled := false
+		c := &Config{
+			Autolearn: &AutolearnConfig{
+				Enabled: &enabled,
+			},
+		}
+		if c.GetAutolearnEnabled() {
+			t.Error("expected GetAutolearnEnabled() = false")
+		}
+	})
+
+	t.Run("defaults to true when nil", func(t *testing.T) {
+		c := &Config{}
+		if !c.GetAutolearnEnabled() {
+			t.Error("expected GetAutolearnEnabled() = true when Autolearn is nil")
+		}
+	})
+
+	t.Run("target returns configured value", func(t *testing.T) {
+		c := &Config{
+			Autolearn: &AutolearnConfig{
+				Target: "my-model",
+			},
+		}
+		if got := c.GetAutolearnTarget(); got != "my-model" {
+			t.Errorf("expected target %q, got %q", "my-model", got)
+		}
+	})
+
+	t.Run("target raw returns empty when nil", func(t *testing.T) {
+		c := &Config{}
+		if got := c.GetAutolearnTargetRaw(); got != "" {
+			t.Errorf("expected empty target raw, got %q", got)
+		}
+	})
+
+	t.Run("curate on dispose defaults to session", func(t *testing.T) {
+		c := &Config{}
+		if got := c.GetAutolearnCurateOnDispose(); got != "session" {
+			t.Errorf("expected %q, got %q", "session", got)
+		}
+	})
+
+	t.Run("debounce defaults to 30000", func(t *testing.T) {
+		c := &Config{}
+		if got := c.GetAutolearnDebounceMs(); got != 30000 {
+			t.Errorf("expected 30000, got %d", got)
+		}
+	})
+
+	t.Run("prune after days defaults to 30", func(t *testing.T) {
+		c := &Config{}
+		if got := c.GetAutolearnPruneAfterDays(); got != 30 {
+			t.Errorf("expected 30, got %d", got)
+		}
+	})
+
+	t.Run("instruction files defaults", func(t *testing.T) {
+		c := &Config{}
+		files := c.GetAutolearnInstructionFiles()
+		if len(files) == 0 {
+			t.Error("expected default instruction files")
+		}
+	})
+
+	t.Run("public rule mode defaults to direct_push", func(t *testing.T) {
+		c := &Config{}
+		if got := c.GetAutolearnPublicRuleMode(); got != "direct_push" {
+			t.Errorf("expected %q, got %q", "direct_push", got)
+		}
+	})
+}
+
+func TestAutolearnConfig_AliasFromLore(t *testing.T) {
+	t.Run("lore fields copied to autolearn", func(t *testing.T) {
+		enabled := true
+		c := &Config{
+			Lore: &LoreConfig{
+				Enabled:          &enabled,
+				Target:           "lore-model",
+				CurateOnDispose:  "workspace",
+				CurateDebounceMs: 5000,
+				PruneAfterDays:   60,
+				InstructionFiles: []string{"CLAUDE.md"},
+				PublicRuleMode:   "create_pr",
+			},
+		}
+		// Simulate alias logic that Load() performs
+		if c.Autolearn == nil && c.Lore != nil {
+			c.Autolearn = &AutolearnConfig{
+				Enabled:          c.Lore.Enabled,
+				CurateOnDispose:  c.Lore.CurateOnDispose,
+				CurateDebounceMs: c.Lore.CurateDebounceMs,
+				Target:           c.Lore.Target,
+				InstructionFiles: c.Lore.InstructionFiles,
+				PublicRuleMode:   c.Lore.PublicRuleMode,
+				PruneAfterDays:   c.Lore.PruneAfterDays,
+			}
+		}
+		if !c.GetAutolearnEnabled() {
+			t.Error("expected GetAutolearnEnabled() = true from lore alias")
+		}
+		if got := c.GetAutolearnTarget(); got != "lore-model" {
+			t.Errorf("expected target %q, got %q", "lore-model", got)
+		}
+		if got := c.GetAutolearnCurateOnDispose(); got != "workspace" {
+			t.Errorf("expected %q, got %q", "workspace", got)
+		}
+		if got := c.GetAutolearnDebounceMs(); got != 5000 {
+			t.Errorf("expected 5000, got %d", got)
+		}
+		if got := c.GetAutolearnPruneAfterDays(); got != 60 {
+			t.Errorf("expected 60, got %d", got)
+		}
+		if got := c.GetAutolearnPublicRuleMode(); got != "create_pr" {
+			t.Errorf("expected %q, got %q", "create_pr", got)
+		}
+		files := c.GetAutolearnInstructionFiles()
+		if len(files) != 1 || files[0] != "CLAUDE.md" {
+			t.Errorf("expected [CLAUDE.md], got %v", files)
+		}
+	})
+
+	t.Run("autolearn takes precedence over lore", func(t *testing.T) {
+		loreEnabled := true
+		autolearnEnabled := false
+		c := &Config{
+			Lore: &LoreConfig{
+				Enabled: &loreEnabled,
+				Target:  "lore-model",
+			},
+			Autolearn: &AutolearnConfig{
+				Enabled: &autolearnEnabled,
+				Target:  "autolearn-model",
+			},
+		}
+		// Alias should NOT overwrite existing Autolearn
+		if c.Autolearn == nil && c.Lore != nil {
+			c.Autolearn = &AutolearnConfig{
+				Enabled: c.Lore.Enabled,
+				Target:  c.Lore.Target,
+			}
+		}
+		if c.GetAutolearnEnabled() {
+			t.Error("expected GetAutolearnEnabled() = false (autolearn takes precedence)")
+		}
+		if got := c.GetAutolearnTarget(); got != "autolearn-model" {
+			t.Errorf("expected target %q, got %q", "autolearn-model", got)
+		}
+	})
+}
+
+func TestAutolearnConfig_UnmarshalJSON_BackwardCompat(t *testing.T) {
+	t.Run("bool true in JSON", func(t *testing.T) {
+		input := `{"curate_on_dispose": true, "llm_target": "claude"}`
+		var ac AutolearnConfig
+		if err := json.Unmarshal([]byte(input), &ac); err != nil {
+			t.Fatalf("unmarshal failed: %v", err)
+		}
+		if ac.Target != "claude" {
+			t.Errorf("expected target %q, got %q", "claude", ac.Target)
+		}
+		c := &Config{Autolearn: &ac}
+		if got := c.GetAutolearnCurateOnDispose(); got != "session" {
+			t.Errorf("expected %q, got %q", "session", got)
+		}
+	})
+
+	t.Run("bool false in JSON", func(t *testing.T) {
+		input := `{"curate_on_dispose": false}`
+		var ac AutolearnConfig
+		if err := json.Unmarshal([]byte(input), &ac); err != nil {
+			t.Fatalf("unmarshal failed: %v", err)
+		}
+		c := &Config{Autolearn: &ac}
+		if got := c.GetAutolearnCurateOnDispose(); got != "never" {
+			t.Errorf("expected %q, got %q", "never", got)
+		}
+	})
+
+	t.Run("string value in JSON", func(t *testing.T) {
+		input := `{"curate_on_dispose": "workspace"}`
+		var ac AutolearnConfig
+		if err := json.Unmarshal([]byte(input), &ac); err != nil {
+			t.Fatalf("unmarshal failed: %v", err)
+		}
+		c := &Config{Autolearn: &ac}
+		if got := c.GetAutolearnCurateOnDispose(); got != "workspace" {
+			t.Errorf("expected %q, got %q", "workspace", got)
+		}
+	})
+}

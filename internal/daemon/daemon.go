@@ -23,26 +23,25 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/autolearn"
 	"github.com/sergeknystautas/schmux/internal/compound"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/dashboard"
 	"github.com/sergeknystautas/schmux/internal/dashboardsx"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/difftool"
-	"github.com/sergeknystautas/schmux/internal/emergence"
 	"github.com/sergeknystautas/schmux/internal/events"
 	"github.com/sergeknystautas/schmux/internal/floormanager"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/logging"
-	"github.com/sergeknystautas/schmux/internal/lore"
 	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/repofeed"
-	"github.com/sergeknystautas/schmux/internal/schema"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/session"
+	"github.com/sergeknystautas/schmux/internal/spawn"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
 	"github.com/sergeknystautas/schmux/internal/timelapse"
@@ -319,7 +318,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	configLog := logging.Sub(logger, "config")
 	compoundLog := logging.Sub(logger, "compound")
 	overlayLog := logging.Sub(logger, "overlay")
-	loreLog := logging.Sub(logger, "lore")
+	autolearnLog := logging.Sub(logger, "autolearn")
 	sessionLog := logging.Sub(logger, "session")
 	nudgenikLog := logging.Sub(logger, "nudgenik")
 	gitWatcherLog := logging.Sub(logger, "git-watcher")
@@ -329,7 +328,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	remoteAccessLog := logging.Sub(logger, "remote-access")
 
 	// Set package-level loggers for packages that use standalone functions
-	lore.SetLogger(loreLog)
+	autolearn.SetLogger(autolearnLog)
 	compound.SetLogger(compoundLog)
 	config.SetLogger(configLog)
 	detect.SetLogger(logging.Sub(configLog, "detect"))
@@ -503,9 +502,9 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	// Create managers
 	ensure.SetLogger(logging.Sub(workspaceLog, "ensure"))
-	// Wire lore instruction store for private layer injection at spawn time
-	loreInstructionsDir := filepath.Join(schmuxDir, "instructions")
-	ensure.SetInstructionStore(lore.NewInstructionStore(loreInstructionsDir))
+	// Wire autolearn instruction store for private layer injection at spawn time
+	autolearnInstructionsDir := filepath.Join(schmuxDir, "autolearn", "instructions")
+	ensure.SetInstructionStore(autolearn.NewInstructionStore(autolearnInstructionsDir))
 	wm := workspace.New(cfg, st, statePath, workspaceLog)
 	sm := session.New(cfg, st, statePath, wm, tmuxServer, sessionLog)
 
@@ -1081,22 +1080,22 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		compoundLog.Info("started overlay compounding loop")
 	}
 
-	// Emergence system: spawn entries store + metadata store
+	// Spawn entry system: spawn entries store + metadata store
 	emergenceBaseDir := filepath.Join(schmuxDir, "emergence")
-	emergenceStore := emergence.NewStore(emergenceBaseDir)
-	emergenceMetadataStore := emergence.NewMetadataStore(emergenceBaseDir)
-	server.SetEmergenceStore(emergenceStore)
-	server.SetEmergenceMetadataStore(emergenceMetadataStore)
-	ensure.SetEmergenceStores(emergenceStore, emergenceMetadataStore)
+	spawnStore := spawn.NewStore(emergenceBaseDir)
+	spawnMetadataStore := spawn.NewMetadataStore(emergenceBaseDir)
+	server.SetSpawnStore(spawnStore)
+	server.SetSpawnMetadataStore(spawnMetadataStore)
+	ensure.SetSpawnStores(spawnStore, spawnMetadataStore)
 	ensure.SetRepoNameResolver(func(repoURL string) (string, bool) {
 		repo, found := cfg.FindRepoByURL(repoURL)
 		return repo.Name, found
 	})
 
-	// One-time migration from old actions registry to emergence store
+	// One-time migration from old actions registry to spawn store
 	actionBaseDir := filepath.Join(schmuxDir, "actions")
 	if _, err := os.Stat(actionBaseDir); err == nil {
-		count, migErr := emergence.MigrateFromActions(actionBaseDir, emergenceStore)
+		count, migErr := spawn.MigrateFromActions(actionBaseDir, spawnStore)
 		if migErr != nil {
 			logger.Warn("actions migration failed", "err", migErr)
 		} else if count > 0 {
@@ -1109,214 +1108,26 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		}
 	}
 
-	// Lore curation timer — declared at Run() scope so shutdown can clean up
-	var loreCurateTimer *time.Timer
-	var loreCurateMu sync.Mutex
+	// Autolearn system: wire stores, executor, and instruction store
+	if cfg.GetAutolearnEnabled() {
+		autolearnBatchDir := filepath.Join(schmuxDir, "autolearn", "batches")
+		autolearnStore := autolearn.NewBatchStore(autolearnBatchDir, autolearnLog)
+		server.SetAutolearnStore(autolearnStore)
 
-	// Lore system: trigger curator on session dispose
-	if cfg.GetLoreEnabled() {
-		loreProposalDir := filepath.Join(schmuxDir, "lore-proposals")
-		loreStore := lore.NewProposalStore(loreProposalDir, loreLog)
+		autolearnPendingMergeDir := filepath.Join(schmuxDir, "autolearn", "pending-merges")
+		autolearnPendingMergeStore := autolearn.NewPendingMergeStore(autolearnPendingMergeDir, autolearnLog)
+		server.SetAutolearnPendingMergeStore(autolearnPendingMergeStore)
 
-		// Wire lore store into dashboard server for API endpoints
-		server.SetLoreStore(loreStore)
+		server.SetAutolearnInstructionStore(autolearn.NewInstructionStore(autolearnInstructionsDir))
 
-		// Wire lore instruction store for private layer management
-		loreInstructionsDir := filepath.Join(schmuxDir, "instructions")
-		server.SetLoreInstructionStore(lore.NewInstructionStore(loreInstructionsDir))
-
-		// Wire lore pending merge store for unified merge & push flow
-		lorePendingMergeDir := filepath.Join(schmuxDir, "lore-pending-merges")
-		pendingMergeStore := lore.NewPendingMergeStore(lorePendingMergeDir, loreLog)
-		server.SetLorePendingMergeStore(pendingMergeStore)
-
-		var loreExecutor func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error)
-		if target := cfg.GetLoreTarget(); target != "" {
-			loreExecutor = func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error) {
+		if target := cfg.GetAutolearnTarget(); target != "" {
+			autolearnExecutor := func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error) {
 				return oneshot.ExecuteTarget(ctx, cfg, target, prompt, schemaLabel, timeout, "")
 			}
+			server.SetAutolearnExecutor(autolearnExecutor)
 		}
 
-		// Wire lore executor into dashboard server for curation endpoint
-		server.SetLoreExecutor(loreExecutor)
-
-		// Wire streaming executor for observable curation
-		if target := cfg.GetLoreTarget(); target != "" {
-			server.SetStreamingExecutor(func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration, dir string, onEvent func(oneshot.StreamEvent)) (string, error) {
-				return oneshot.ExecuteTargetStreaming(ctx, cfg, target, prompt, schemaLabel, timeout, dir, onEvent)
-			})
-		}
-
-		sm.SetLoreCallback(func(repoName, repoURL string, isLastSession bool) {
-			mode := cfg.GetLoreCurateOnDispose()
-			if mode == "never" || loreExecutor == nil {
-				return
-			}
-			if mode == "workspace" && !isLastSession {
-				return
-			}
-			loreCurateMu.Lock()
-			if loreCurateTimer != nil {
-				loreCurateTimer.Stop()
-			}
-			debounce := time.Duration(cfg.GetLoreCurateDebounceMs()) * time.Millisecond
-			loreCurateTimer = time.AfterFunc(debounce, func() {
-				// Read raw entries from per-session event files + state file
-				var allEntries []lore.Entry
-				for _, w := range st.GetWorkspaces() {
-					if w.Repo == repoURL && w.RemoteHostID == "" {
-						entries, err := lore.ReadEntriesFromEvents(w.Path, w.ID, nil)
-						if err != nil {
-							continue
-						}
-						allEntries = append(allEntries, entries...)
-					}
-				}
-				// Central state file for state-change records
-				statePath, stateErr := lore.LoreStatePath(repoName)
-				if stateErr == nil {
-					stateEntries, err := lore.ReadEntries(statePath, nil)
-					if err == nil {
-						allEntries = append(allEntries, stateEntries...)
-					}
-				}
-
-				// Apply raw filter
-				rawEntries := lore.FilterRaw()(allEntries)
-				if len(rawEntries) == 0 {
-					loreLog.Debug("no raw entries to curate", "repo", repoName)
-					return
-				}
-
-				_, found := cfg.FindRepoByURL(repoURL)
-				if !found {
-					loreLog.Warn("repo not found for URL", "url", repoURL)
-					return
-				}
-
-				// Build extraction prompt (phase 1 — no instruction files needed)
-				existingRules := loreStore.PendingRuleTexts(repoName)
-				dismissedRules := loreStore.DismissedRuleTexts(repoName)
-				prompt := lore.BuildExtractionPrompt(rawEntries, existingRules, dismissedRules)
-
-				// Create per-run debug directory
-				curationID := fmt.Sprintf("auto-%s-%s", repoName, time.Now().UTC().Format("20060102-150405"))
-				runDir := filepath.Join(schmuxDir, "lore-curator-runs", repoName, curationID)
-				os.MkdirAll(runDir, 0755)
-
-				// Write prompt.txt
-				os.WriteFile(filepath.Join(runDir, "prompt.txt"), []byte(prompt), 0644)
-
-				// Write run.sh
-				if target := cfg.GetLoreTarget(); target != "" {
-					cmdInfo, cmdErr := oneshot.ResolveTargetCommand(cfg, target, schema.LabelLoreCurator, false)
-					if cmdErr == nil {
-						var sb strings.Builder
-						sb.WriteString("#!/bin/sh\n")
-						sb.WriteString("# Reproduce this auto-curator run\n")
-						sb.WriteString("# Generated by schmux — edit freely\n\n")
-						for k, v := range cmdInfo.Env {
-							fmt.Fprintf(&sb, "export %s=%q\n", k, v)
-						}
-						if len(cmdInfo.Env) > 0 {
-							sb.WriteString("\n")
-						}
-						var quotedArgs []string
-						for _, a := range cmdInfo.Args {
-							if strings.ContainsAny(a, " \t\n\"'\\$`") {
-								quotedArgs = append(quotedArgs, fmt.Sprintf("%q", a))
-							} else {
-								quotedArgs = append(quotedArgs, a)
-							}
-						}
-						fmt.Fprintf(&sb, "cat \"$(dirname \"$0\")/prompt.txt\" | \\\n  %s\n", strings.Join(quotedArgs, " \\\n  "))
-						os.WriteFile(filepath.Join(runDir, "run.sh"), []byte(sb.String()), 0755)
-					}
-				}
-
-				loreLog.Info("auto-curate: calling LLM", "repo", repoName, "entries", len(rawEntries), "curation_id", curationID)
-				start := time.Now()
-
-				curateCtx, curateCancel := context.WithTimeout(d.shutdownCtx, 10*time.Minute)
-				defer curateCancel()
-
-				response, err := loreExecutor(curateCtx, prompt, schema.LabelLoreCurator, 10*time.Minute)
-				elapsed := time.Since(start)
-				if err != nil {
-					loreLog.Error("auto-curation failed", "elapsed", elapsed.Round(time.Millisecond), "err", err)
-					os.WriteFile(filepath.Join(runDir, "error.txt"), []byte(err.Error()), 0644)
-					return
-				}
-				os.WriteFile(filepath.Join(runDir, "output.txt"), []byte(response), 0644)
-
-				result, err := lore.ParseExtractionResponse(response)
-				if err != nil {
-					loreLog.Error("auto-curation parse failed", "elapsed", elapsed.Round(time.Millisecond), "err", err)
-					os.WriteFile(filepath.Join(runDir, "error.txt"), []byte(err.Error()), 0644)
-					return
-				}
-
-				now := time.Now().UTC()
-				proposalID := fmt.Sprintf("prop-%s", now.Format("20060102-150405-")+curationID[len(curationID)-6:])
-				proposal := &lore.Proposal{
-					ID:        proposalID,
-					Repo:      repoName,
-					CreatedAt: now,
-					Status:    lore.ProposalPending,
-					Discarded: result.DiscardedEntries,
-				}
-				for i, er := range result.Rules {
-					proposal.Rules = append(proposal.Rules, lore.Rule{
-						ID:             fmt.Sprintf("r%d", i+1),
-						Text:           er.Text,
-						Category:       er.Category,
-						SuggestedLayer: lore.Layer(er.SuggestedLayer),
-						Status:         lore.RulePending,
-						SourceEntries:  er.SourceEntries,
-					})
-				}
-
-				// Deduplicate against existing pending and dismissed proposals
-				allExcluded := append(existingRules, dismissedRules...)
-				proposal.Rules, _ = lore.DeduplicateRules(proposal.Rules, allExcluded)
-
-				if err := loreStore.Save(proposal); err != nil {
-					loreLog.Error("failed to save proposal", "err", err)
-					return
-				}
-				loreLog.Info("auto-curate: proposal created", "repo", repoName, "proposal_id", proposal.ID, "rules", len(proposal.Rules), "elapsed", elapsed.Round(time.Millisecond))
-
-				// Mark all curated entries as "proposed" in the central state JSONL
-				if stateErr == nil {
-					if err := lore.MarkEntriesDirect(rawEntries, statePath, "proposed", proposal.ID); err != nil {
-						loreLog.Warn("failed to mark entries as proposed", "err", err)
-					}
-				}
-
-				// Also trigger emergence curation if the emergence system is initialized
-				server.TriggerEmergenceCuration(repoName)
-			})
-			loreCurateMu.Unlock()
-		})
-		loreLog.Info("system enabled, will curate on session dispose")
-
-		// Prune old state-change records on startup (from central state files only —
-		// raw entries in workspaces are append-only logs and don't need pruning)
-		go func() {
-			maxAge := time.Duration(cfg.GetLorePruneAfterDays()) * 24 * time.Hour
-			for _, repo := range cfg.GetRepos() {
-				statePath, err := lore.LoreStatePath(repo.Name)
-				if err != nil {
-					continue
-				}
-				pruned, err := lore.PruneEntries(statePath, maxAge)
-				if err != nil {
-					loreLog.Warn("prune failed", "repo", repo.Name, "err", err)
-				} else if pruned > 0 {
-					loreLog.Info("pruned old state entries", "count", pruned, "repo", repo.Name)
-				}
-			}
-		}()
+		autolearnLog.Info("autolearn system enabled")
 	}
 
 	// Start background goroutine to update git status for all workspaces.
@@ -1484,13 +1295,6 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		logger.Info("dev restart requested")
 		devRestart = true
 	}
-	// Stop pending lore curation timer
-	loreCurateMu.Lock()
-	if loreCurateTimer != nil {
-		loreCurateTimer.Stop()
-	}
-	loreCurateMu.Unlock()
-
 	// Flush any pending batched state saves and do a final save
 	st.FlushPending()
 	if err := st.Save(); err != nil {

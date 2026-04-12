@@ -1,10 +1,10 @@
-# View lore page as a flat card wall
+# View autolearn page as a flat card wall
 
-A user navigates to the lore page to review agent learnings. The page
+A user navigates to the autolearn page to review agent learnings. The page
 shows a flat list of cards aggregated across all configured repos —
 there are no repo tabs or sub-tabs.
 
-Each card shows the learning text. The page heading reads "Lore" with
+Each card shows the learning text. The page heading reads "Autolearn" with
 the subtitle "Schmux continual learning system".
 
 When no pending proposals exist, an empty state message is shown.
@@ -16,10 +16,10 @@ When no pending proposals exist, an empty state message is shown.
 
 ## Verifications
 
-- The sidebar shows a "Lore" link
-- Clicking "Lore" navigates to /lore
-- The page shows a "Lore" heading
+- The sidebar shows an "Autolearn" link
+- Clicking "Autolearn" navigates to /autolearn
+- The page shows an "Autolearn" heading
 - The page shows the subtitle "Schmux continual learning system"
 - There is no repo tab bar (no elements with data-testid="repo-tab")
-- GET /api/lore/{repoName}/proposals responds for each configured repo
+- GET /api/autolearn/{repoName}/proposals responds for each configured repo
 - When no pending proposals exist, the page shows "Nothing to review"

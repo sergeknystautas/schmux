@@ -29,7 +29,7 @@ const LinearSyncResolveConflictPage = lazy(() => import('./routes/LinearSyncReso
 const LegacyTerminalPage = lazy(() => import('./routes/LegacyTerminalPage'));
 const NotFoundPage = lazy(() => import('./routes/NotFoundPage'));
 const OverlayPage = lazy(() => import('./routes/OverlayPage'));
-const LorePage = lazy(() => import('./routes/LorePage'));
+const AutolearnPage = lazy(() => import('./routes/AutolearnPage'));
 const PersonasListPage = lazy(() => import('./routes/PersonasListPage'));
 const PersonaCreatePage = lazy(() => import('./routes/PersonaCreatePage'));
 const PersonaEditPage = lazy(() => import('./routes/PersonaEditPage'));
@@ -91,7 +91,7 @@ export default function App() {
                             <Route path="/styles" element={<StylesListPage />} />
                             <Route path="/styles/create" element={<StyleCreatePage />} />
                             <Route path="/styles/:styleId" element={<StyleEditPage />} />
-                            <Route path="/lore" element={<LorePage />} />
+                            <Route path="/autolearn" element={<AutolearnPage />} />
                             <Route path="/events" element={<EventsPage />} />
                             <Route path="/timelapse" element={<TimelapsePage />} />
                             <Route path="/repofeed" element={<RepofeedPage />} />

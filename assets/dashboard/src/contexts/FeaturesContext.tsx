@@ -18,7 +18,7 @@ const DEFAULT_FEATURES: Features = {
   subreddit: true,
   personas: true,
   comm_styles: true,
-  lore: true,
+  autolearn: true,
   floor_manager: true,
   timelapse: true,
 };

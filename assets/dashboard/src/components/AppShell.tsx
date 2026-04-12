@@ -208,7 +208,7 @@ export default function AppShell() {
       .catch(() => {});
   }, [isDevMode, connected]);
 
-  // Lore pending proposal counts
+  // Autolearn pending proposal counts
   const [loreCounts, setLoreCounts] = useState<Record<string, number>>({});
   const repoNamesKey = useMemo(
     () => (config?.repos || []).map((r) => r.name).join(','),
@@ -224,9 +224,9 @@ export default function AppShell() {
       results.forEach((result, i) => {
         if (result.status === 'fulfilled') {
           let count = 0;
-          for (const p of result.value.proposals || []) {
+          for (const p of result.value.batches || []) {
             if (p.status === 'pending' || p.status === 'merging') {
-              count += (p.rules || []).filter((r: any) => r.status === 'pending').length;
+              count += (p.learnings || []).filter((r: any) => r.status === 'pending').length;
             }
           }
           counts[repoNames[i]] = count;

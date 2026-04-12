@@ -68,19 +68,6 @@ type EmergenceMetadata struct {
 	LastCurated   time.Time `json:"last_curated"`
 }
 
-// SkillProposal is a proposed or updated skill from the curator.
-type SkillProposal struct {
-	Name            string   `json:"name"`
-	Description     string   `json:"description"`
-	Triggers        []string `json:"triggers"`
-	Procedure       string   `json:"procedure"`
-	QualityCriteria string   `json:"quality_criteria"`
-	Evidence        []string `json:"evidence"`
-	Confidence      float64  `json:"confidence"`
-	IsUpdate        bool     `json:"is_update"`
-	Changes         string   `json:"changes,omitempty"`
-}
-
 // --- API request/response types ---
 
 // SpawnEntriesResponse is the body for GET /api/emergence/{repo}/entries.

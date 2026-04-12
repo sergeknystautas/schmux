@@ -164,7 +164,7 @@ export default function ConfigPage() {
           suggestDisposeAfterPush: data.notifications?.suggest_dispose_after_push ?? true,
           enabledModels: data.enabled_models || {},
           commStyles: data.comm_styles || {},
-          loreEnabled: data.lore?.enabled ?? true,
+          autolearnEnabled: data.lore?.enabled ?? true,
           loreLLMTarget: data.lore?.llm_target || '',
           loreCurateOnDispose: data.lore?.curate_on_dispose || 'session',
           loreAutoPR: data.lore?.auto_pr || false,

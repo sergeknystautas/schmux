@@ -503,12 +503,12 @@ export interface RuleSourceEntry {
 
 export interface LoreRule {
   id: string;
-  text: string;
+  title: string;
   category: string;
   suggested_layer: LoreLayer;
   chosen_layer?: LoreLayer;
   status: LoreRuleStatus;
-  source_entries: RuleSourceEntry[];
+  sources: RuleSourceEntry[];
   merged_at?: string;
 }
 
@@ -517,7 +517,7 @@ export interface LoreProposal {
   repo: string;
   created_at: string;
   status: 'pending' | 'merging' | 'applied' | 'dismissed';
-  rules: LoreRule[];
+  learnings: LoreRule[];
   discarded?: string[];
   // Deprecated v1 fields (kept for backward compat with old proposals on disk)
   source_count?: number;
@@ -540,7 +540,7 @@ export interface LoreMergeApplyResult {
 }
 
 export interface LoreProposalsResponse {
-  proposals: LoreProposal[];
+  batches: LoreProposal[];
 }
 
 export interface LoreEntriesResponse {

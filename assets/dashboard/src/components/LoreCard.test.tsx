@@ -7,11 +7,11 @@ import type { SpawnEntry } from '../lib/types.generated';
 function makeRule(overrides: Partial<LoreRule> = {}): LoreRule {
   return {
     id: 'r1',
-    text: 'Always run tests before committing',
+    title: 'Always run tests before committing',
     category: 'workflow',
     suggested_layer: 'repo_private' as LoreLayer,
     status: 'pending',
-    source_entries: [
+    sources: [
       {
         type: 'failure',
         input_summary: 'git commit',

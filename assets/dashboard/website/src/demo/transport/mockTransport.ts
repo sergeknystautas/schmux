@@ -142,10 +142,10 @@ export function createDemoTransport(options: DemoTransportOptions): Transport & 
         );
       }
 
-      // Lore proposals — returns LoreProposalsResponse
-      if (url.includes('/api/lore/')) {
+      // Autolearn batches — returns batches list
+      if (url.includes('/api/autolearn/')) {
         return Promise.resolve(
-          new Response(JSON.stringify({ proposals: [] }), {
+          new Response(JSON.stringify({ batches: [] }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
           })

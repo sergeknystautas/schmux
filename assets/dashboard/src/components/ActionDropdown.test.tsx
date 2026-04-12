@@ -20,10 +20,10 @@ vi.mock('../lib/api', () => ({
   getErrorMessage: (_err: unknown, fallback: string) => fallback,
 }));
 
-// Mock emergence API
+// Mock spawn API
 const mockGetSpawnEntries = vi.fn().mockResolvedValue([]);
 const mockRecordSpawnEntryUse = vi.fn().mockResolvedValue(undefined);
-vi.mock('../lib/emergence-api', () => ({
+vi.mock('../lib/spawn-api', () => ({
   getSpawnEntries: (...args: unknown[]) => mockGetSpawnEntries(...args),
   recordSpawnEntryUse: (...args: unknown[]) => mockRecordSpawnEntryUse(...args),
 }));
@@ -216,7 +216,7 @@ describe('ActionDropdown', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/config?tab=sessions');
   });
 
-  it('Emerged manage link navigates to lore actions tab with repo', async () => {
+  it('Emerged manage link navigates to autolearn actions tab with repo', async () => {
     const user = userEvent.setup();
     const { onClose } = await renderDropdown();
 
@@ -224,7 +224,7 @@ describe('ActionDropdown', () => {
     await user.click(manageLinks[1]); // second manage = Emerged
 
     expect(onClose).toHaveBeenCalled();
-    expect(mockNavigate).toHaveBeenCalledWith('/lore?repo=test-repo&tab=actions');
+    expect(mockNavigate).toHaveBeenCalledWith('/autolearn?repo=test-repo&tab=actions');
   });
 
   // --- Spawning ---
@@ -270,13 +270,13 @@ describe('ActionDropdown', () => {
 
   // --- Create action ---
 
-  it('"+ Create action" navigates to lore actions tab', async () => {
+  it('"+ Create action" navigates to autolearn actions tab', async () => {
     const user = userEvent.setup();
     const { onClose } = await renderDropdown();
 
     await user.click(screen.getByText('+ Create action'));
 
     expect(onClose).toHaveBeenCalled();
-    expect(mockNavigate).toHaveBeenCalledWith('/lore?repo=test-repo&tab=actions&create=1');
+    expect(mockNavigate).toHaveBeenCalledWith('/autolearn?repo=test-repo&tab=actions&create=1');
   });
 });

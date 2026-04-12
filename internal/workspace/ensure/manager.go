@@ -9,24 +9,24 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/log"
+	"github.com/sergeknystautas/schmux/internal/autolearn"
 	"github.com/sergeknystautas/schmux/internal/detect"
-	"github.com/sergeknystautas/schmux/internal/emergence"
-	"github.com/sergeknystautas/schmux/internal/lore"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
+	"github.com/sergeknystautas/schmux/internal/spawn"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 // pkgLogger is the package-level logger, set via SetLogger.
 var pkgLogger *log.Logger
 
-// instrStore is the package-level instruction store for lore layer assembly.
-var instrStore *lore.InstructionStore
+// instrStore is the package-level instruction store for autolearn layer assembly.
+var instrStore *autolearn.InstructionStore
 
-// emergenceStore is the package-level emergence store for pinned skill injection.
-var emergenceStore *emergence.Store
+// spawnStore is the package-level spawn store for pinned skill injection.
+var spawnStore *spawn.Store
 
-// emergenceMetadataStore is the package-level emergence metadata store.
-var emergenceMetadataStore *emergence.MetadataStore
+// spawnMetadataStore is the package-level spawn metadata store.
+var spawnMetadataStore *spawn.MetadataStore
 
 // repoNameResolver maps a repo URL to a short repo name.
 var repoNameResolver func(repoURL string) (string, bool)
@@ -36,15 +36,15 @@ func SetLogger(l *log.Logger) {
 	pkgLogger = l
 }
 
-// SetInstructionStore configures the lore instruction store for private layer injection.
-func SetInstructionStore(s *lore.InstructionStore) {
+// SetInstructionStore configures the autolearn instruction store for private layer injection.
+func SetInstructionStore(s *autolearn.InstructionStore) {
 	instrStore = s
 }
 
-// SetEmergenceStores configures the emergence stores for pinned skill injection at spawn time.
-func SetEmergenceStores(s *emergence.Store, ms *emergence.MetadataStore) {
-	emergenceStore = s
-	emergenceMetadataStore = ms
+// SetSpawnStores configures the spawn stores for pinned skill injection at spawn time.
+func SetSpawnStores(s *spawn.Store, ms *spawn.MetadataStore) {
+	spawnStore = s
+	spawnMetadataStore = ms
 }
 
 // SetRepoNameResolver configures a function to resolve repo URL to short name.
@@ -190,18 +190,18 @@ func (e *Ensurer) ensureWorkspace(workspacePath string, hookTools []string, repo
 		}
 	}
 
-	// Inject pinned emerged skills from emergence store
-	if emergenceStore != nil && repoNameResolver != nil && repoURL != "" {
+	// Inject pinned emerged skills from spawn store
+	if spawnStore != nil && repoNameResolver != nil && repoURL != "" {
 		if repoName, ok := repoNameResolver(repoURL); ok {
-			pinned, err := emergenceStore.List(repoName)
+			pinned, err := spawnStore.List(repoName)
 			if err == nil {
 				for _, entry := range pinned {
 					if entry.SkillRef == "" {
 						continue
 					}
 					var content string
-					if emergenceMetadataStore != nil {
-						meta, found, _ := emergenceMetadataStore.Get(repoName, entry.SkillRef)
+					if spawnMetadataStore != nil {
+						meta, found, _ := spawnMetadataStore.Get(repoName, entry.SkillRef)
 						if found {
 							content = meta.SkillContent
 						}

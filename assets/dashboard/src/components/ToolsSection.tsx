@@ -5,7 +5,7 @@ import { useCuration } from '../contexts/CurationContext';
 import { useOverlay } from '../contexts/OverlayContext';
 import { useFeatures } from '../contexts/FeaturesContext';
 import { getLoreProposals } from '../lib/api';
-import { getAllSpawnEntries } from '../lib/emergence-api';
+import { getAllSpawnEntries } from '../lib/spawn-api';
 import Tooltip from './Tooltip';
 
 const TOOLS_COLLAPSED_KEY = 'schmux-tools-collapsed';
@@ -43,7 +43,7 @@ export default function ToolsSection({
     }
   }, [isCollapsed]);
 
-  // Lore pending proposal + proposed action counts
+  // Autolearn pending proposal + proposed action counts
   const [loreCounts, setLoreCounts] = useState<Record<string, number>>({});
   const repoNamesKey = useMemo(
     () => (config?.repos || []).map((r) => r.name).join(','),
@@ -63,9 +63,9 @@ export default function ToolsSection({
         let count = 0;
         const pr = proposalResults[i];
         if (pr.status === 'fulfilled') {
-          for (const p of pr.value.proposals || []) {
+          for (const p of pr.value.batches || []) {
             if (p.status === 'pending' || p.status === 'merging') {
-              count += (p.rules || []).filter((r: any) => r.status === 'pending').length;
+              count += (p.learnings || []).filter((r: any) => r.status === 'pending').length;
             }
           }
         }
@@ -102,8 +102,8 @@ export default function ToolsSection({
       ),
     },
     {
-      to: '/lore',
-      label: 'Lore',
+      to: '/autolearn',
+      label: 'Autolearn',
       badge: totalLorePending > 0 ? totalLorePending : null,
       badgeVariant: 'default' as const,
       hidden: !config?.lore?.enabled,

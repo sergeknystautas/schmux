@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { spawnSessions, getErrorMessage } from '../lib/api';
-import { getSpawnEntries, recordSpawnEntryUse } from '../lib/emergence-api';
+import { getSpawnEntries, recordSpawnEntryUse } from '../lib/spawn-api';
 import { useToast } from './ToastProvider';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
@@ -137,13 +137,13 @@ export default function ActionDropdown({
   const handleManageEmerged = (e: React.MouseEvent) => {
     e.stopPropagation();
     onClose();
-    navigate(`/lore?repo=${encodeURIComponent(repoName)}&tab=actions`);
+    navigate(`/autolearn?repo=${encodeURIComponent(repoName)}&tab=actions`);
   };
 
   const handleCreateAction = (e: React.MouseEvent) => {
     e.stopPropagation();
     onClose();
-    navigate(`/lore?repo=${encodeURIComponent(repoName)}&tab=actions&create=1`);
+    navigate(`/autolearn?repo=${encodeURIComponent(repoName)}&tab=actions&create=1`);
   };
 
   return (

@@ -5633,7 +5633,7 @@ body.keyboard-mode-active::after {
   }
 }
 
-/* Repo tabs — used by Overlays and Lore pages */
+/* Repo tabs — used by Overlays and Autolearn pages */
 .repo-tabs {
   display: flex;
   gap: 0;

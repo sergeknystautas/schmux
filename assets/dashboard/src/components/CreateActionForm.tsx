@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { createSpawnEntry } from '../lib/emergence-api';
+import { createSpawnEntry } from '../lib/spawn-api';
 import { useToast } from './ToastProvider';
 import { useModal } from './ModalProvider';
 import styles from './CreateActionForm.module.css';

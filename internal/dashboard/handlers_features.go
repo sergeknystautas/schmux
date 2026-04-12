@@ -5,11 +5,11 @@ import (
 	"net/http"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/autolearn"
 	"github.com/sergeknystautas/schmux/internal/commstyles"
 	"github.com/sergeknystautas/schmux/internal/dashboardsx"
 	"github.com/sergeknystautas/schmux/internal/floormanager"
 	"github.com/sergeknystautas/schmux/internal/github"
-	"github.com/sergeknystautas/schmux/internal/lore"
 	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/personas"
 	"github.com/sergeknystautas/schmux/internal/repofeed"
@@ -34,7 +34,7 @@ func (s *Server) handleGetFeatures(w http.ResponseWriter, r *http.Request) {
 		Subreddit:     subreddit.IsAvailable(),
 		Personas:      personas.IsAvailable(),
 		CommStyles:    commstyles.IsAvailable(),
-		Lore:          lore.IsAvailable(),
+		Autolearn:     autolearn.IsAvailable(),
 		FloorManager:  floormanager.IsAvailable(),
 		Timelapse:     timelapse.IsAvailable(),
 	})

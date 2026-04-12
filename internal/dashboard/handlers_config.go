@@ -818,8 +818,8 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	// Pass a function so poll always uses current repos list
 	s.prDiscovery.SetTarget(cfg.GetPrReviewTarget(), func() []config.Repo { return cfg.GetRepos() })
 
-	// Refresh lore executor when lore target changes
-	s.refreshLoreExecutor(cfg)
+	// Refresh autolearn executor when target changes
+	s.refreshAutolearnExecutor(cfg)
 
 	// Trigger subreddit generation if newly enabled
 	if req.Subreddit != nil {

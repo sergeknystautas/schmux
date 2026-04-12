@@ -93,7 +93,7 @@ export default function AdvancedTab({
             </label>
             <p className="form-group__hint">
               Show diagnostic panels and tools in the sidebar without running in dev mode. Enables
-              Event Monitor, Tmux diagnostics, Typing Performance, Lore Curation status, remote
+              Event Monitor, Tmux diagnostics, Typing Performance, Autolearn Curation status, remote
               access simulation, and debug API endpoints. Takes effect immediately.
             </p>
           </div>

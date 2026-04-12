@@ -3,9 +3,9 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import CreateActionForm from './CreateActionForm';
 
-// Mock emergence API
+// Mock spawn API
 const mockCreateSpawnEntry = vi.fn().mockResolvedValue(undefined);
-vi.mock('../lib/emergence-api', () => ({
+vi.mock('../lib/spawn-api', () => ({
   createSpawnEntry: (...args: unknown[]) => mockCreateSpawnEntry(...args),
 }));
 

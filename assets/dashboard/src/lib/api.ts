@@ -946,18 +946,18 @@ export async function devRebuild(
 }
 
 // ============================================================================
-// Lore API
+// Autolearn API
 // ============================================================================
 
 export async function getLoreProposals(repoName: string): Promise<LoreProposalsResponse> {
-  const res = await apiFetch(`/api/lore/${encodeURIComponent(repoName)}/proposals`);
+  const res = await apiFetch(`/api/autolearn/${encodeURIComponent(repoName)}/batches`);
   if (!res.ok) await parseErrorResponse(res, 'Failed to fetch lore proposals');
   return res.json();
 }
 
 async function getLoreProposal(repoName: string, id: string): Promise<LoreProposal> {
   const res = await apiFetch(
-    `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(id)}`
+    `/api/autolearn/${encodeURIComponent(repoName)}/batches/${encodeURIComponent(id)}`
   );
   if (!res.ok) await parseErrorResponse(res, 'Failed to fetch lore proposal');
   return res.json();
@@ -965,9 +965,9 @@ async function getLoreProposal(repoName: string, id: string): Promise<LorePropos
 
 async function dismissLoreProposal(repoName: string, id: string): Promise<void> {
   const res = await apiFetch(
-    `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(id)}/dismiss`,
+    `/api/autolearn/${encodeURIComponent(repoName)}/batches/${encodeURIComponent(id)}`,
     {
-      method: 'POST',
+      method: 'DELETE',
       headers: { ...csrfHeaders() },
     }
   );
@@ -978,12 +978,12 @@ export async function updateLoreRule(
   repoName: string,
   proposalID: string,
   ruleID: string,
-  update: { status?: LoreRuleStatus; text?: string; chosen_layer?: string }
+  update: { status?: LoreRuleStatus; title?: string; chosen_layer?: string }
 ): Promise<LoreProposal> {
   const res = await apiFetch(
-    `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(proposalID)}/rules/${encodeURIComponent(ruleID)}`,
+    `/api/autolearn/${encodeURIComponent(repoName)}/batches/${encodeURIComponent(proposalID)}/learnings/${encodeURIComponent(ruleID)}`,
     {
-      method: 'POST',
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
       body: JSON.stringify(update),
     }
@@ -999,7 +999,7 @@ export async function applyLoreMerge(
   autoCommit = false
 ): Promise<{ results: LoreMergeApplyResult[] }> {
   const res = await apiFetch(
-    `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(proposalID)}/apply-merge`,
+    `/api/autolearn/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(proposalID)}/apply-merge`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
@@ -1021,7 +1021,7 @@ export async function getLoreEntries(
   if (filters?.limit) params.set('limit', String(filters.limit));
   const qs = params.toString();
   const res = await apiFetch(
-    `/api/lore/${encodeURIComponent(repoName)}/entries${qs ? '?' + qs : ''}`
+    `/api/autolearn/${encodeURIComponent(repoName)}/entries${qs ? '?' + qs : ''}`
   );
   if (!res.ok) await parseErrorResponse(res, 'Failed to fetch lore entries');
   return res.json();
@@ -1030,7 +1030,7 @@ export async function getLoreEntries(
 export async function clearLoreEntries(
   repoName: string
 ): Promise<{ status: string; cleared: number }> {
-  const res = await apiFetch(`/api/lore/${encodeURIComponent(repoName)}/entries`, {
+  const res = await apiFetch(`/api/autolearn/${encodeURIComponent(repoName)}/entries`, {
     method: 'DELETE',
     headers: { ...csrfHeaders() },
   });
@@ -1039,7 +1039,7 @@ export async function clearLoreEntries(
 }
 
 export async function startLoreCuration(repoName: string): Promise<{ id: string; status: string }> {
-  const res = await apiFetch(`/api/lore/${encodeURIComponent(repoName)}/curate`, {
+  const res = await apiFetch(`/api/autolearn/${encodeURIComponent(repoName)}/curate`, {
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
@@ -1050,7 +1050,7 @@ export async function startLoreCuration(repoName: string): Promise<{ id: string;
 }
 
 export async function getLoreStatus(): Promise<LoreStatusResponse> {
-  const res = await apiFetch('/api/lore/status');
+  const res = await apiFetch('/api/autolearn/status');
   if (!res.ok) await parseErrorResponse(res, 'Failed to fetch lore status');
   return res.json();
 }
@@ -1062,7 +1062,7 @@ interface CurationRunInfo {
 }
 
 async function getLoreCurations(repoName: string): Promise<{ runs: CurationRunInfo[] }> {
-  const res = await apiFetch(`/api/lore/${encodeURIComponent(repoName)}/curations`);
+  const res = await apiFetch(`/api/autolearn/${encodeURIComponent(repoName)}/curations`);
   if (!res.ok) await parseErrorResponse(res, 'Failed to fetch curation runs');
   return res.json();
 }
@@ -1072,14 +1072,14 @@ async function getLoreCurationLog(
   id: string
 ): Promise<{ events: Record<string, unknown>[] }> {
   const res = await apiFetch(
-    `/api/lore/${encodeURIComponent(repoName)}/curations/${encodeURIComponent(id)}/log`
+    `/api/autolearn/${encodeURIComponent(repoName)}/curations/${encodeURIComponent(id)}/log`
   );
   if (!res.ok) await parseErrorResponse(res, 'Failed to fetch curation log');
   return res.json();
 }
 
 export async function getLorePendingMerge(repoName: string) {
-  const res = await apiFetch(`/api/lore/${encodeURIComponent(repoName)}/pending-merge`);
+  const res = await apiFetch(`/api/autolearn/${encodeURIComponent(repoName)}/pending-merge`);
   if (res.status === 404) return null;
   if (!res.ok) await parseErrorResponse(res, 'Failed to fetch pending merge');
   return res.json();
@@ -1087,19 +1087,19 @@ export async function getLorePendingMerge(repoName: string) {
 
 export async function startLoreUnifiedMerge(
   repoName: string,
-  proposals: { proposal_id: string; rule_ids: string[] }[]
+  batches: { batch_id: string; learning_ids: string[] }[]
 ) {
-  const res = await apiFetch(`/api/lore/${encodeURIComponent(repoName)}/merge`, {
+  const res = await apiFetch(`/api/autolearn/${encodeURIComponent(repoName)}/merge`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-    body: JSON.stringify({ proposals }),
+    body: JSON.stringify({ batches }),
   });
   if (!res.ok) await parseErrorResponse(res, 'Failed to start merge');
   return res.json();
 }
 
 export async function pushLoreMerge(repoName: string) {
-  const res = await apiFetch(`/api/lore/${encodeURIComponent(repoName)}/push`, {
+  const res = await apiFetch(`/api/autolearn/${encodeURIComponent(repoName)}/push`, {
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
@@ -1108,7 +1108,7 @@ export async function pushLoreMerge(repoName: string) {
 }
 
 export async function updateLorePendingMerge(repoName: string, editedContent: string) {
-  const res = await apiFetch(`/api/lore/${encodeURIComponent(repoName)}/pending-merge`, {
+  const res = await apiFetch(`/api/autolearn/${encodeURIComponent(repoName)}/pending-merge`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ edited_content: editedContent }),
@@ -1118,7 +1118,7 @@ export async function updateLorePendingMerge(repoName: string, editedContent: st
 }
 
 export async function deleteLorePendingMerge(repoName: string) {
-  const res = await apiFetch(`/api/lore/${encodeURIComponent(repoName)}/pending-merge`, {
+  const res = await apiFetch(`/api/autolearn/${encodeURIComponent(repoName)}/pending-merge`, {
     method: 'DELETE',
     headers: { ...csrfHeaders() },
   });
@@ -1274,25 +1274,25 @@ export async function getRepofeedRepo(slug: string): Promise<RepofeedRepoRespons
 }
 
 // ============================================================================
-// Spawn Entries API (Emergence)
+// Spawn Entries API
 // ============================================================================
 
 async function getSpawnEntries(repo: string): Promise<SpawnEntry[]> {
-  const response = await fetch(`/api/emergence/${encodeURIComponent(repo)}/entries`);
+  const response = await fetch(`/api/spawn/${encodeURIComponent(repo)}/entries`);
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch spawn entries');
   const data: SpawnEntriesResponse = await response.json();
   return data.entries;
 }
 
 async function getAllSpawnEntries(repo: string): Promise<SpawnEntry[]> {
-  const response = await fetch(`/api/emergence/${encodeURIComponent(repo)}/entries/all`);
+  const response = await fetch(`/api/spawn/${encodeURIComponent(repo)}/entries/all`);
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch all spawn entries');
   const data: SpawnEntriesResponse = await response.json();
   return data.entries;
 }
 
 async function createSpawnEntry(repo: string, req: CreateSpawnEntryRequest): Promise<SpawnEntry> {
-  const response = await fetch(`/api/emergence/${encodeURIComponent(repo)}/entries`, {
+  const response = await fetch(`/api/spawn/${encodeURIComponent(repo)}/entries`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(req),
@@ -1307,7 +1307,7 @@ async function updateSpawnEntry(
   req: UpdateSpawnEntryRequest
 ): Promise<SpawnEntry> {
   const response = await fetch(
-    `/api/emergence/${encodeURIComponent(repo)}/entries/${encodeURIComponent(id)}`,
+    `/api/spawn/${encodeURIComponent(repo)}/entries/${encodeURIComponent(id)}`,
     {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
@@ -1320,7 +1320,7 @@ async function updateSpawnEntry(
 
 async function deleteSpawnEntry(repo: string, id: string): Promise<void> {
   const response = await fetch(
-    `/api/emergence/${encodeURIComponent(repo)}/entries/${encodeURIComponent(id)}`,
+    `/api/spawn/${encodeURIComponent(repo)}/entries/${encodeURIComponent(id)}`,
     {
       method: 'DELETE',
       headers: { ...csrfHeaders() },
@@ -1331,7 +1331,7 @@ async function deleteSpawnEntry(repo: string, id: string): Promise<void> {
 
 async function pinSpawnEntry(repo: string, id: string): Promise<void> {
   const response = await fetch(
-    `/api/emergence/${encodeURIComponent(repo)}/entries/${encodeURIComponent(id)}/pin`,
+    `/api/spawn/${encodeURIComponent(repo)}/entries/${encodeURIComponent(id)}/pin`,
     {
       method: 'POST',
       headers: { ...csrfHeaders() },
@@ -1342,7 +1342,7 @@ async function pinSpawnEntry(repo: string, id: string): Promise<void> {
 
 async function dismissSpawnEntry(repo: string, id: string): Promise<void> {
   const response = await fetch(
-    `/api/emergence/${encodeURIComponent(repo)}/entries/${encodeURIComponent(id)}/dismiss`,
+    `/api/spawn/${encodeURIComponent(repo)}/entries/${encodeURIComponent(id)}/dismiss`,
     {
       method: 'POST',
       headers: { ...csrfHeaders() },
@@ -1353,7 +1353,7 @@ async function dismissSpawnEntry(repo: string, id: string): Promise<void> {
 
 async function recordSpawnEntryUse(repo: string, id: string): Promise<void> {
   const response = await fetch(
-    `/api/emergence/${encodeURIComponent(repo)}/entries/${encodeURIComponent(id)}/use`,
+    `/api/spawn/${encodeURIComponent(repo)}/entries/${encodeURIComponent(id)}/use`,
     {
       method: 'POST',
       headers: { ...csrfHeaders() },
@@ -1363,7 +1363,7 @@ async function recordSpawnEntryUse(repo: string, id: string): Promise<void> {
 }
 
 async function getPromptHistory(repo: string): Promise<PromptHistoryResponse> {
-  const response = await fetch(`/api/emergence/${encodeURIComponent(repo)}/prompt-history`);
+  const response = await fetch(`/api/spawn/${encodeURIComponent(repo)}/prompt-history`);
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch prompt history');
   return response.json();
 }

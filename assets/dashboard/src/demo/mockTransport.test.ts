@@ -174,15 +174,15 @@ describe('createDemoTransport', () => {
       expect(data.enabled).toBe(false);
     });
 
-    it('returns lore proposals for /api/lore/', async () => {
+    it('returns autolearn batches for /api/autolearn/', async () => {
       const dt = createDemoTransport({
         workspaces: createDemoWorkspaces(),
         recordings: {},
       });
 
-      const response = await dt.fetch('/api/lore/acme%2Fwebapp/proposals');
+      const response = await dt.fetch('/api/autolearn/acme%2Fwebapp/batches');
       const data = await response.json();
-      expect(data.proposals).toEqual([]);
+      expect(data.batches).toEqual([]);
     });
 
     it('returns diff with files for /api/diff/{workspaceId}', async () => {

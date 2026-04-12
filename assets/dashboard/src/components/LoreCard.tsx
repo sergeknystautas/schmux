@@ -77,7 +77,7 @@ export function LoreCard(props: LoreCardProps) {
   const id = type === 'instruction' ? props.rule.id : props.action.id;
   const currentText =
     type === 'instruction'
-      ? props.rule.text
+      ? props.rule.title
       : props.action.prompt || props.action.command || props.action.description || '';
   const category = type === 'instruction' ? props.rule.category : undefined;
   const status = type === 'instruction' ? props.rule.status : props.action.state;
@@ -95,7 +95,7 @@ export function LoreCard(props: LoreCardProps) {
   // Approved / collapsed state
   if (status === 'approved') {
     return (
-      <div className={styles.cardCollapsed} data-testid={`lore-card-${id}`}>
+      <div className={styles.cardCollapsed} data-testid={`autolearn-card-${id}`}>
         <span className={styles.collapsedCheck}>{'\u2713'}</span>
         <span className={styles.collapsedText}>
           {currentText.length > 80 ? currentText.slice(0, 80) + '\u2026' : currentText}
@@ -151,7 +151,7 @@ export function LoreCard(props: LoreCardProps) {
   const cardClassName = `${styles.card}${dismissing ? ` ${styles.cardDismissing}` : ''}`;
 
   return (
-    <div className={cardClassName} data-testid={`lore-card-${id}`}>
+    <div className={cardClassName} data-testid={`autolearn-card-${id}`}>
       {/* Header */}
       <div className={styles.cardHeader}>
         <div className={styles.headerLeft}>
@@ -189,7 +189,7 @@ export function LoreCard(props: LoreCardProps) {
       )}
 
       {/* Source signals */}
-      {type === 'instruction' && <SourceSignals entries={props.rule.source_entries} />}
+      {type === 'instruction' && <SourceSignals entries={props.rule.sources} />}
       {type === 'action' && <EvidenceSignals evidence={props.action.metadata?.evidence || []} />}
 
       {/* Privacy controls (instruction only) */}

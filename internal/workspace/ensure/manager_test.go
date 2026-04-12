@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sergeknystautas/schmux/internal/lore"
+	"github.com/sergeknystautas/schmux/internal/autolearn"
 )
 
 func TestAgentInstructions_CreatesNewFile(t *testing.T) {
@@ -352,9 +352,9 @@ func TestAgentInstructions_InjectsLoreInstructions(t *testing.T) {
 	loreDir := t.TempDir()
 
 	// Setup instruction store with global + repo-private content
-	store := lore.NewInstructionStore(loreDir)
-	store.Write(lore.LayerCrossRepoPrivate, "", "# Global\n- Prefer table-driven tests")
-	store.Write(lore.LayerRepoPrivate, "myrepo", "# Private\n- Use internal API v2")
+	store := autolearn.NewInstructionStore(loreDir)
+	store.Write(autolearn.LayerCrossRepoPrivate, "", "# Global\n- Prefer table-driven tests")
+	store.Write(autolearn.LayerRepoPrivate, "myrepo", "# Private\n- Use internal API v2")
 
 	// Set the package-level instruction store
 	oldStore := instrStore

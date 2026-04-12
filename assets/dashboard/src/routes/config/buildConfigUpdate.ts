@@ -63,7 +63,7 @@ export function buildConfigUpdate(state: ConfigFormState): ConfigUpdateRequest {
       suggest_dispose_after_push: state.suggestDisposeAfterPush,
     },
     lore: {
-      enabled: state.loreEnabled,
+      enabled: state.autolearnEnabled,
       llm_target: state.loreLLMTarget,
       curate_on_dispose: state.loreCurateOnDispose,
       auto_pr: state.loreAutoPR,

@@ -24,14 +24,13 @@ import (
 	dashboardassets "github.com/sergeknystautas/schmux/assets"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/assets"
+	"github.com/sergeknystautas/schmux/internal/autolearn"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/difftool"
-	"github.com/sergeknystautas/schmux/internal/emergence"
 	"github.com/sergeknystautas/schmux/internal/floormanager"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/logging"
-	"github.com/sergeknystautas/schmux/internal/lore"
 	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/persona"
@@ -40,6 +39,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/repofeed"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/session"
+	"github.com/sergeknystautas/schmux/internal/spawn"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/style"
 	"github.com/sergeknystautas/schmux/internal/tmux"
@@ -208,17 +208,17 @@ type Server struct {
 	defaultBranchCache   map[string]defaultBranchEntry
 	defaultBranchCacheMu sync.RWMutex
 
-	// Lore proposal storage
-	loreStore *lore.ProposalStore
+	// Autolearn batch storage
+	autolearnStore *autolearn.BatchStore
 
-	// Lore LLM executor for curation requests
-	loreExecutor func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error)
+	// Autolearn LLM executor for curation requests
+	autolearnExecutor func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error)
 
-	// Lore instruction store for private layer management
-	loreInstructionStore *lore.InstructionStore
+	// Autolearn instruction store for private layer management
+	autolearnInstructionStore *autolearn.InstructionStore
 
-	// Lore pending merge store
-	lorePendingMergeStore *lore.PendingMergeStore
+	// Autolearn pending merge store
+	autolearnPendingMergeStore *autolearn.PendingMergeStore
 
 	// Dashboard.sx provision status (in-memory, resets on restart)
 	dsxProvision   dsxProvisionStatus
@@ -239,9 +239,9 @@ type Server struct {
 	// Floor manager
 	floorManager *floormanager.Manager
 
-	// Emergence system
-	emergenceStore         *emergence.Store
-	emergenceMetadataStore *emergence.MetadataStore
+	// Spawn entry system
+	spawnStore         *spawn.Store
+	spawnMetadataStore *spawn.MetadataStore
 
 	// Subreddit next generation time tracking
 	nextSubredditGeneration atomic.Pointer[time.Time]
@@ -417,34 +417,34 @@ func (s *Server) SetRemoteManager(rm *remote.Manager) {
 	s.session.SetRemoteManager(rm)
 }
 
-// SetLoreStore sets the lore proposal store for the dashboard API.
-func (s *Server) SetLoreStore(store *lore.ProposalStore) {
-	s.loreStore = store
+// SetSpawnStore sets the spawn store for spawn entry management.
+func (s *Server) SetSpawnStore(store *spawn.Store) {
+	s.spawnStore = store
 }
 
-// SetLoreInstructionStore sets the lore instruction store for private layer management.
-func (s *Server) SetLoreInstructionStore(store *lore.InstructionStore) {
-	s.loreInstructionStore = store
+// SetSpawnMetadataStore sets the spawn metadata store.
+func (s *Server) SetSpawnMetadataStore(store *spawn.MetadataStore) {
+	s.spawnMetadataStore = store
 }
 
-// SetLorePendingMergeStore sets the pending merge store for the dashboard API.
-func (s *Server) SetLorePendingMergeStore(store *lore.PendingMergeStore) {
-	s.lorePendingMergeStore = store
+// SetAutolearnStore sets the autolearn batch store for the dashboard API.
+func (s *Server) SetAutolearnStore(store *autolearn.BatchStore) {
+	s.autolearnStore = store
 }
 
-// SetEmergenceStore sets the emergence store for spawn entry management.
-func (s *Server) SetEmergenceStore(store *emergence.Store) {
-	s.emergenceStore = store
+// SetAutolearnInstructionStore sets the autolearn instruction store for private layer management.
+func (s *Server) SetAutolearnInstructionStore(store *autolearn.InstructionStore) {
+	s.autolearnInstructionStore = store
 }
 
-// SetEmergenceMetadataStore sets the emergence metadata store.
-func (s *Server) SetEmergenceMetadataStore(store *emergence.MetadataStore) {
-	s.emergenceMetadataStore = store
+// SetAutolearnPendingMergeStore sets the autolearn pending merge store for the dashboard API.
+func (s *Server) SetAutolearnPendingMergeStore(store *autolearn.PendingMergeStore) {
+	s.autolearnPendingMergeStore = store
 }
 
-// SetLoreExecutor sets the LLM executor for lore curation requests.
-func (s *Server) SetLoreExecutor(exec func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error)) {
-	s.loreExecutor = exec
+// SetAutolearnExecutor sets the LLM executor for autolearn curation requests.
+func (s *Server) SetAutolearnExecutor(exec func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error)) {
+	s.autolearnExecutor = exec
 }
 
 // StreamingExecutorFunc is a function that runs a streaming one-shot execution.
@@ -785,31 +785,35 @@ func (s *Server) Start() error {
 				r.Delete("/purge", s.handlePurgeWorkspace)
 			})
 
-			// Lore routes
-			r.Get("/lore/status", s.handleLoreStatus)
-			r.Get("/lore/curations/active", s.handleLoreCurationsActive)
-			r.Route("/lore/{repo}", func(r chi.Router) {
-				r.Use(validateLoreRepo)
-				r.Get("/proposals", s.handleLoreProposals)
-				r.Get("/proposals/{proposalID}", s.handleLoreProposalGet)
-				r.Post("/proposals/{proposalID}/dismiss", s.handleLoreDismiss)
-				r.Post("/proposals/{proposalID}/rules/{ruleID}", s.handleLoreRuleUpdate)
-				r.Post("/proposals/{proposalID}/apply-merge", s.handleLoreApplyMerge)
-				r.Get("/entries", s.handleLoreEntries)
-				r.Delete("/entries", s.handleLoreEntriesClear)
-				r.Post("/curate", s.handleLoreCurate)
-				r.Get("/curations", s.handleLoreCurationsList)
-				r.Get("/curations/{curationID}/log", s.handleLoreCurationLog)
-				r.Post("/merge", s.handleLoreUnifiedMerge)
-				r.Get("/pending-merge", s.handleLorePendingMergeGet)
-				r.Delete("/pending-merge", s.handleLorePendingMergeDelete)
-				r.Patch("/pending-merge", s.handleLorePendingMergePatch)
-				r.Post("/push", s.handleLorePush)
+			// Autolearn routes (global, repo-independent)
+			r.Get("/autolearn/status", s.handleAutolearnStatus)
+			r.Get("/autolearn/curations/active", s.handleAutolearnCurationsActive)
+
+			// Autolearn routes (repo-scoped)
+			r.Route("/autolearn/{repo}", func(r chi.Router) {
+				r.Use(validateAutolearnRepo)
+				r.Get("/batches", s.handleAutolearnBatches)
+				r.Get("/batches/{batchID}", s.handleAutolearnBatchGet)
+				r.Delete("/batches/{batchID}", s.handleAutolearnBatchDismiss)
+				r.Patch("/batches/{batchID}/learnings/{learningID}", s.handleAutolearnLearningUpdate)
+				r.Post("/forget/{learningID}", s.handleAutolearnForget)
+				r.Get("/entries", s.handleAutolearnEntries)
+				r.Delete("/entries", s.handleAutolearnEntriesClear)
+				r.Post("/curate", s.handleAutolearnCurate)
+				r.Post("/merge", s.handleAutolearnMerge)
+				r.Get("/pending-merge", s.handleAutolearnPendingMergeGet)
+				r.Patch("/pending-merge", s.handleAutolearnPendingMergePatch)
+				r.Delete("/pending-merge", s.handleAutolearnPendingMergeDelete)
+				r.Post("/push", s.handleAutolearnPush)
+				r.Get("/prompt-history", s.handleAutolearnPromptHistory)
+				r.Get("/history", s.handleAutolearnHistory)
+				r.Get("/curations", s.handleAutolearnCurationsList)
+				r.Get("/curations/{curationID}/log", s.handleAutolearnCurationLog)
 			})
 
-			// Emergence routes
-			r.Route("/emergence/{repo}", func(r chi.Router) {
-				r.Use(validateEmergenceRepo)
+			// Spawn entry routes
+			r.Route("/spawn/{repo}", func(r chi.Router) {
+				r.Use(validateSpawnRepo)
 				r.Get("/entries", s.handleListSpawnEntries)
 				r.Get("/entries/all", s.handleListAllSpawnEntries)
 				r.Post("/entries", s.handleCreateSpawnEntry)
@@ -819,7 +823,6 @@ func (s *Server) Start() error {
 				r.Post("/entries/{id}/dismiss", s.handleDismissSpawnEntry)
 				r.Post("/entries/{id}/use", s.handleRecordSpawnEntryUse)
 				r.Get("/prompt-history", s.handlePromptHistory)
-				r.Post("/curate", s.handleEmergenceCurate)
 			})
 		})
 

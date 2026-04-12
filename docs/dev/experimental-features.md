@@ -52,7 +52,7 @@ ExperimentalTab.tsx    →  hides cards where buildFeatureKey is false
 | GitHub         | `nogithub`        | `internal/github/`         | No       |
 | Timelapse      | `notimelapse`     | `internal/timelapse/`      | Yes      |
 | Floor Manager  | `nofloormanager`  | `internal/floormanager/`   | No       |
-| Lore           | `nolore`          | `internal/lore/`           | No       |
+| Autolearn      | `noautolearn`     | `internal/autolearn/`      | No       |
 | Personas       | `nopersonas`      | `internal/personas/`       | No       |
 | Comm Styles    | `nocommstyles`    | `internal/commstyles/`     | No       |
 
@@ -60,13 +60,13 @@ ExperimentalTab.tsx    →  hides cards where buildFeatureKey is false
 
 ```bash
 # Exclude one feature
-go build -tags nolore ./cmd/schmux
+go build -tags noautolearn ./cmd/schmux
 
 # Exclude multiple features
-go build -tags "nolore nofloormanager notimelapse" ./cmd/schmux
+go build -tags "noautolearn nofloormanager notimelapse" ./cmd/schmux
 
 # Exclude everything optional
-go build -tags "noposthog noupdate nomodelregistry nodashboardsx norepofeed nosubreddit notunnel nogithub notimelapse nofloormanager nolore nopersonas nocommstyles" ./cmd/schmux
+go build -tags "noposthog noupdate nomodelregistry nodashboardsx norepofeed nosubreddit notunnel nogithub notimelapse nofloormanager noautolearn nopersonas nocommstyles" ./cmd/schmux
 ```
 
 ## Checklist: Adding a New Experimental Feature

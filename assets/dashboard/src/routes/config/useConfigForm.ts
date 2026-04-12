@@ -110,8 +110,8 @@ export type ConfigFormState = {
   enabledModels: Record<string, string>;
   commStyles: Record<string, string>;
 
-  // Lore
-  loreEnabled: boolean;
+  // Autolearn
+  autolearnEnabled: boolean;
   loreLLMTarget: string;
   loreCurateOnDispose: string;
   loreAutoPR: boolean;
@@ -283,7 +283,7 @@ export const initialState: ConfigFormState = {
   enabledModels: {},
   commStyles: {},
 
-  loreEnabled: true,
+  autolearnEnabled: true,
   loreLLMTarget: '',
   loreCurateOnDispose: 'session',
   loreAutoPR: false,

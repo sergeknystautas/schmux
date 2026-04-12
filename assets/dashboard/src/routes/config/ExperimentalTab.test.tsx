@@ -18,7 +18,7 @@ const mockFeatures: Record<string, boolean> = {
   subreddit: true,
   personas: true,
   comm_styles: true,
-  lore: true,
+  autolearn: true,
   floor_manager: true,
   timelapse: true,
 };
@@ -42,7 +42,7 @@ describe('ExperimentalTab', () => {
   it('renders all features with name and description', () => {
     // Start with all features disabled so config panels don't duplicate headings
     renderTab({
-      loreEnabled: false,
+      autolearnEnabled: false,
       fmEnabled: false,
       repofeedEnabled: false,
       subredditEnabled: false,
@@ -55,48 +55,48 @@ describe('ExperimentalTab', () => {
   });
 
   it('toggling a feature on shows its config panel', async () => {
-    // Start with lore disabled, toggle it on
+    // Start with autolearn disabled, toggle it on
     dispatch.mockClear();
-    renderTab({ loreEnabled: false });
+    renderTab({ autolearnEnabled: false });
 
     // Config panel content should not be visible initially.
-    // The Lore config panel renders a "Lore" heading inside its panel.
-    // Since the registry card already shows "Lore", look for the panel-specific content.
-    const toggle = screen.getByTestId('experimental-toggle-lore');
+    // The Autolearn config panel renders an "Autolearn" heading inside its panel.
+    // Since the registry card already shows "Autolearn", look for the panel-specific content.
+    const toggle = screen.getByTestId('experimental-toggle-autolearn');
     expect(toggle).not.toBeChecked();
 
     await userEvent.click(toggle);
     expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'SET_FIELD', field: 'loreEnabled', value: true })
+      expect.objectContaining({ type: 'SET_FIELD', field: 'autolearnEnabled', value: true })
     );
   });
 
   it('toggling a feature off hides its config panel', async () => {
-    // Start with lore enabled — the LoreConfig panel should be rendered
+    // Start with autolearn enabled — the AutolearnConfig panel should be rendered
     dispatch.mockClear();
-    renderTab({ loreEnabled: true });
+    renderTab({ autolearnEnabled: true });
 
-    const toggle = screen.getByTestId('experimental-toggle-lore');
+    const toggle = screen.getByTestId('experimental-toggle-autolearn');
     expect(toggle).toBeChecked();
 
-    // The LoreConfig panel renders its config fields (e.g., LLM Target)
+    // The AutolearnConfig panel renders its config fields (e.g., LLM Target)
     expect(screen.getByText('LLM Target')).toBeInTheDocument();
 
     await userEvent.click(toggle);
     expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'SET_FIELD', field: 'loreEnabled', value: false })
+      expect.objectContaining({ type: 'SET_FIELD', field: 'autolearnEnabled', value: false })
     );
   });
 
   it('hides build-gated features when build feature is false', () => {
-    // Disable repofeed, subreddit, and lore at the build level
+    // Disable repofeed, subreddit, and autolearn at the build level
     mockFeatures.repofeed = false;
     mockFeatures.subreddit = false;
-    mockFeatures.lore = false;
+    mockFeatures.autolearn = false;
 
     // Disable all features so config panels don't duplicate headings
     renderTab({
-      loreEnabled: false,
+      autolearnEnabled: false,
       fmEnabled: false,
       repofeedEnabled: false,
       subredditEnabled: false,
@@ -106,7 +106,7 @@ describe('ExperimentalTab', () => {
     // Disabled features should not appear
     expect(screen.queryByText('Repofeed')).not.toBeInTheDocument();
     expect(screen.queryByText('Subreddit')).not.toBeInTheDocument();
-    expect(screen.queryByText('Lore')).not.toBeInTheDocument();
+    expect(screen.queryByText('Autolearn')).not.toBeInTheDocument();
 
     // Enabled features should still appear
     expect(screen.getByText('Floor Manager')).toBeInTheDocument();
@@ -116,7 +116,7 @@ describe('ExperimentalTab', () => {
     // Restore for other tests
     mockFeatures.repofeed = true;
     mockFeatures.subreddit = true;
-    mockFeatures.lore = true;
+    mockFeatures.autolearn = true;
   });
 
   it('shows build-gated features when build feature is true', () => {
@@ -126,7 +126,7 @@ describe('ExperimentalTab', () => {
 
     // Disable all features so config panels don't duplicate headings
     renderTab({
-      loreEnabled: false,
+      autolearnEnabled: false,
       fmEnabled: false,
       repofeedEnabled: false,
       subredditEnabled: false,
@@ -140,7 +140,7 @@ describe('ExperimentalTab', () => {
   it('renders Personas toggle with no config panel', () => {
     renderTab({
       personasEnabled: false,
-      loreEnabled: false,
+      autolearnEnabled: false,
       fmEnabled: false,
       repofeedEnabled: false,
       subredditEnabled: false,
@@ -157,7 +157,7 @@ describe('ExperimentalTab', () => {
   it('renders Comm Styles toggle and shows config panel when enabled', () => {
     renderTab({
       personasEnabled: false,
-      loreEnabled: false,
+      autolearnEnabled: false,
       fmEnabled: false,
       repofeedEnabled: false,
       subredditEnabled: false,
@@ -175,7 +175,7 @@ describe('ExperimentalTab', () => {
   it('Personas enabled toggle does not render a config panel', () => {
     renderTab({
       personasEnabled: true,
-      loreEnabled: false,
+      autolearnEnabled: false,
       fmEnabled: false,
       repofeedEnabled: false,
       subredditEnabled: false,

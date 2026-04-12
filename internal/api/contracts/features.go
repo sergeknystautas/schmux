@@ -12,7 +12,7 @@ type Features struct {
 	Subreddit     bool `json:"subreddit"`
 	Personas      bool `json:"personas"`
 	CommStyles    bool `json:"comm_styles"`
-	Lore          bool `json:"lore"`
+	Autolearn     bool `json:"autolearn"`
 	FloorManager  bool `json:"floor_manager"`
 	Timelapse     bool `json:"timelapse"`
 }

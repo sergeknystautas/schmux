@@ -44,29 +44,29 @@ export function PowerToolsTab() {
         </li>
       </ul>
 
-      <h3>Lore (Continual Learning)</h3>
+      <h3>Autolearn (Continual Learning)</h3>
       <p>
         As agents work, they write down things they learn — workarounds, codebase quirks,
-        configuration gotchas — to <code>.schmux/lore.jsonl</code> in each workspace.
+        configuration gotchas — to <code>.schmux/autolearn.jsonl</code> in each workspace.
       </p>
 
       <h4>What schmux does with it</h4>
       <ul className={styles.tipsList}>
         <li>
           <strong>Curation:</strong> When sessions or workspaces are disposed, an LLM curator
-          reviews the raw lore and extracts useful learnings
+          reviews the raw signals and extracts useful learnings
         </li>
         <li>
           <strong>Proposals:</strong> Proposals appear for you to review, apply, or dismiss
         </li>
         <li>
-          <strong>Applied lore:</strong> Gets committed to your repo's instruction files (like{' '}
+          <strong>Applied rules:</strong> Gets committed to your repo's instruction files (like{' '}
           <code>CLAUDE.md</code>), so future agents benefit
         </li>
       </ul>
       <p>
         <em>
-          Configure in the <Link to="/config">config page</Link> (lore section) — set which LLM
+          Configure in the <Link to="/config">config page</Link> (autolearn section) — set which LLM
           curates, when curation triggers, and which instruction files to update.
         </em>
       </p>
