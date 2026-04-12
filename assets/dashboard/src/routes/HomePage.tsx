@@ -1013,186 +1013,6 @@ export default function HomePage() {
           </button>
         )}
 
-        {/* Recent Branches Section (dev mode only, hidden during FTUE) */}
-        {isDevMode && workspaces.length > 0 && (
-          <div className={styles.sectionCard} data-testid="recent-branches">
-            <div className={styles.sectionHeader}>
-              <h2 className={styles.sectionTitle}>
-                <GitBranchIcon />
-                Recent Branches
-              </h2>
-              <button
-                className={styles.scanButton}
-                onClick={handleRefreshBranches}
-                disabled={branchesRefreshing}
-                title="Refresh branches from remote"
-              >
-                <RefreshIcon />
-                {branchesRefreshing ? 'Refreshing...' : 'Refresh'}
-              </button>
-            </div>
-            <div className={styles.sectionContent}>
-              {branchesLoading ? (
-                <div className={styles.loadingState}>
-                  <div className="spinner spinner--small" />
-                  <span>Loading branches...</span>
-                </div>
-              ) : recentBranches.length === 0 ? (
-                <div className={styles.placeholderState}>
-                  <p className={styles.placeholderText}>No branches found yet.</p>
-                  <p className={styles.placeholderHint}>
-                    Branches will appear after the first fetch completes.
-                  </p>
-                </div>
-              ) : (
-                <div className={styles.branchList}>
-                  {recentBranches.slice(0, 5).map((branch, idx) => {
-                    const key = `${branch.repo_name}:${branch.branch}`;
-                    const isPreparing = preparingBranch === key;
-                    return (
-                      <button
-                        key={`${branch.repo_name}-${branch.branch}-${idx}`}
-                        className={styles.branchItem}
-                        data-testid="branch-item"
-                        onClick={() => handleBranchClick(branch.repo_name, branch.branch)}
-                        title={`Spawn session on ${branch.branch}`}
-                        disabled={!!preparingBranch}
-                      >
-                        <div className={styles.branchRow1}>
-                          <span className={styles.branchName}>
-                            {branch.branch}
-                            {isPreparing && (
-                              <span className={styles.branchSpinner}>
-                                <div className="spinner spinner--small" />
-                              </span>
-                            )}
-                          </span>
-                          <span className={styles.branchRepo}>{branch.repo_name}</span>
-                          <span className={styles.branchDate}>
-                            {formatRelativeDate(branch.commit_date)}
-                          </span>
-                        </div>
-                        <div className={styles.branchRow2}>
-                          <span className={styles.branchSubject}>{branch.subject}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Pull Requests Section (dev mode only, hidden during FTUE) */}
-        {isDevMode && workspaces.length > 0 && features.github && (
-          <div className={styles.sectionCard}>
-            <div className={styles.sectionHeader}>
-              <h2 className={styles.sectionTitle}>
-                <GitPullRequestIcon />
-                Pull Requests
-              </h2>
-              <button
-                className={styles.scanButton}
-                onClick={handleRefreshPRs}
-                disabled={prsRefreshing}
-                title="Refresh pull requests from GitHub"
-              >
-                <RefreshIcon />
-                {prsRefreshing ? 'Refreshing...' : 'Refresh'}
-              </button>
-            </div>
-            <div className={styles.sectionContent}>
-              {prsLoading ? (
-                <div className={styles.loadingState}>
-                  <div className="spinner spinner--small" />
-                  <span>Loading pull requests...</span>
-                </div>
-              ) : pullRequests.length === 0 ? (
-                <div className={styles.placeholderState}>
-                  <p className={styles.placeholderText}>No open pull requests found.</p>
-                  <p className={styles.placeholderHint}>
-                    PRs from public GitHub repos will appear here.
-                  </p>
-                </div>
-              ) : (
-                <div className={styles.branchList}>
-                  {pullRequests.map((pr) => {
-                    const checkoutKey = `${pr.repo_url}#${pr.number}`;
-                    const isCheckingOut = checkingOutPR === checkoutKey;
-                    const isBusy = checkingOutPR !== null;
-                    const canCheckout = hasPrReviewTarget();
-                    return (
-                      <div
-                        key={checkoutKey}
-                        className={styles.branchItem}
-                        onClick={() => {
-                          if (isBusy) return;
-                          if (!canCheckout) {
-                            toastError(
-                              'No PR review target configured. Set pr_review.target in config.'
-                            );
-                            return;
-                          }
-                          handlePRClick(pr);
-                        }}
-                        onKeyDown={(event) => {
-                          if (isBusy) return;
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault();
-                            if (!canCheckout) {
-                              toastError(
-                                'No PR review target configured. Set pr_review.target in config.'
-                              );
-                              return;
-                            }
-                            handlePRClick(pr);
-                          }
-                        }}
-                        role="button"
-                        tabIndex={0}
-                        aria-disabled={isBusy || !canCheckout}
-                        data-disabled={!canCheckout}
-                        data-busy={isBusy}
-                        title={`Review PR #${pr.number}: ${pr.title}`}
-                      >
-                        <div className={styles.branchRow1}>
-                          <span className={styles.branchName}>
-                            <a
-                              href={pr.html_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              style={{ color: 'inherit', textDecoration: 'none' }}
-                            >
-                              #{pr.number}
-                            </a>{' '}
-                            {pr.title}
-                            {isCheckingOut && (
-                              <span className={styles.branchSpinner}>
-                                <div className="spinner spinner--small" />
-                              </span>
-                            )}
-                          </span>
-                          <span className={styles.branchRepo}>{pr.repo_name}</span>
-                          <span className={styles.branchDate}>
-                            {formatRelativeDate(pr.created_at)}
-                          </span>
-                        </div>
-                        <div className={styles.branchRow2}>
-                          <span className={styles.branchSubject}>
-                            {pr.source_branch} &rarr; {pr.target_branch} &middot; @{pr.author}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* Subreddit Digest Section (hidden during FTUE) */}
         {workspaces.length > 0 && features.subreddit && subreddit?.enabled && (
           <div className={styles.sectionCard}>
@@ -1460,6 +1280,186 @@ export default function HomePage() {
                 Use <code>tmux -L schmux attach -t SESSION_NAME</code> to connect directly from
                 terminal
               </span>
+            </div>
+          </div>
+        )}
+
+        {/* Pull Requests (dev mode only) */}
+        {isDevMode && workspaces.length > 0 && features.github && (
+          <div className={styles.sectionCard}>
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>
+                <GitPullRequestIcon />
+                Pull Requests
+              </h2>
+              <button
+                className={styles.scanButton}
+                onClick={handleRefreshPRs}
+                disabled={prsRefreshing}
+                title="Refresh pull requests from GitHub"
+              >
+                <RefreshIcon />
+                {prsRefreshing ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+            <div className={styles.sectionContent}>
+              {prsLoading ? (
+                <div className={styles.loadingState}>
+                  <div className="spinner spinner--small" />
+                  <span>Loading pull requests...</span>
+                </div>
+              ) : pullRequests.length === 0 ? (
+                <div className={styles.placeholderState}>
+                  <p className={styles.placeholderText}>No open pull requests found.</p>
+                  <p className={styles.placeholderHint}>
+                    PRs from public GitHub repos will appear here.
+                  </p>
+                </div>
+              ) : (
+                <div className={styles.branchList}>
+                  {pullRequests.map((pr) => {
+                    const checkoutKey = `${pr.repo_url}#${pr.number}`;
+                    const isCheckingOut = checkingOutPR === checkoutKey;
+                    const isBusy = checkingOutPR !== null;
+                    const canCheckout = hasPrReviewTarget();
+                    return (
+                      <div
+                        key={checkoutKey}
+                        className={styles.branchItem}
+                        onClick={() => {
+                          if (isBusy) return;
+                          if (!canCheckout) {
+                            toastError(
+                              'No PR review target configured. Set pr_review.target in config.'
+                            );
+                            return;
+                          }
+                          handlePRClick(pr);
+                        }}
+                        onKeyDown={(event) => {
+                          if (isBusy) return;
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            if (!canCheckout) {
+                              toastError(
+                                'No PR review target configured. Set pr_review.target in config.'
+                              );
+                              return;
+                            }
+                            handlePRClick(pr);
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        aria-disabled={isBusy || !canCheckout}
+                        data-disabled={!canCheckout}
+                        data-busy={isBusy}
+                        title={`Review PR #${pr.number}: ${pr.title}`}
+                      >
+                        <div className={styles.branchRow1}>
+                          <span className={styles.branchName}>
+                            <a
+                              href={pr.html_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ color: 'inherit', textDecoration: 'none' }}
+                            >
+                              #{pr.number}
+                            </a>{' '}
+                            {pr.title}
+                            {isCheckingOut && (
+                              <span className={styles.branchSpinner}>
+                                <div className="spinner spinner--small" />
+                              </span>
+                            )}
+                          </span>
+                          <span className={styles.branchRepo}>{pr.repo_name}</span>
+                          <span className={styles.branchDate}>
+                            {formatRelativeDate(pr.created_at)}
+                          </span>
+                        </div>
+                        <div className={styles.branchRow2}>
+                          <span className={styles.branchSubject}>
+                            {pr.source_branch} &rarr; {pr.target_branch} &middot; @{pr.author}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Recent Branches (dev mode only) */}
+        {isDevMode && workspaces.length > 0 && (
+          <div className={styles.sectionCard} data-testid="recent-branches">
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>
+                <GitBranchIcon />
+                Recent Branches
+              </h2>
+              <button
+                className={styles.scanButton}
+                onClick={handleRefreshBranches}
+                disabled={branchesRefreshing}
+                title="Refresh branches from remote"
+              >
+                <RefreshIcon />
+                {branchesRefreshing ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+            <div className={styles.sectionContent}>
+              {branchesLoading ? (
+                <div className={styles.loadingState}>
+                  <div className="spinner spinner--small" />
+                  <span>Loading branches...</span>
+                </div>
+              ) : recentBranches.length === 0 ? (
+                <div className={styles.placeholderState}>
+                  <p className={styles.placeholderText}>No branches found yet.</p>
+                  <p className={styles.placeholderHint}>
+                    Branches will appear after the first fetch completes.
+                  </p>
+                </div>
+              ) : (
+                <div className={styles.branchList}>
+                  {recentBranches.slice(0, 5).map((branch, idx) => {
+                    const key = `${branch.repo_name}:${branch.branch}`;
+                    const isPreparing = preparingBranch === key;
+                    return (
+                      <button
+                        key={`${branch.repo_name}-${branch.branch}-${idx}`}
+                        className={styles.branchItem}
+                        data-testid="branch-item"
+                        onClick={() => handleBranchClick(branch.repo_name, branch.branch)}
+                        title={`Spawn session on ${branch.branch}`}
+                        disabled={!!preparingBranch}
+                      >
+                        <div className={styles.branchRow1}>
+                          <span className={styles.branchName}>
+                            {branch.branch}
+                            {isPreparing && (
+                              <span className={styles.branchSpinner}>
+                                <div className="spinner spinner--small" />
+                              </span>
+                            )}
+                          </span>
+                          <span className={styles.branchRepo}>{branch.repo_name}</span>
+                          <span className={styles.branchDate}>
+                            {formatRelativeDate(branch.commit_date)}
+                          </span>
+                        </div>
+                        <div className={styles.branchRow2}>
+                          <span className={styles.branchSubject}>{branch.subject}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}

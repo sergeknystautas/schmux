@@ -29,9 +29,9 @@ describe('SessionsTab', () => {
     expect(screen.getByText('Quick Launch')).toBeInTheDocument();
   });
 
-  it('renders Spawn Defaults section', () => {
+  it('renders Pastebin section', () => {
     render(<SessionsTab {...defaultProps} />);
-    expect(screen.getByText('Spawn Defaults')).toBeInTheDocument();
+    expect(screen.getByText('Pastebin')).toBeInTheDocument();
   });
 
   it('renders Command Targets section', () => {
