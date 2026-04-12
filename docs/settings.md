@@ -2,7 +2,7 @@
 
 ## What it does
 
-The `/config` route provides a 6-tab settings page for configuring schmux. Features are organized by maturity: core settings are always visible, experimental features require explicit opt-in, and dev-only diagnostics are gated behind the debug UI toggle.
+The `/config` route provides a 7-tab settings page for configuring schmux. Features are organized by maturity: core settings are always visible, experimental features require explicit opt-in, and dev-only diagnostics are gated behind the debug UI toggle.
 
 ## Tab structure
 
@@ -12,6 +12,7 @@ The `/config` route provides a 6-tab settings page for configuring schmux. Featu
 | Sessions     | Quick Launch, Pastebin, Command Targets, NudgeNik, Notifications, session behavior     |
 | Agents       | Task assignments (which model does which job), Model Catalog, User Models              |
 | Access       | Authentication, network, TLS, remote access                                            |
+| Remote       | Remote host profiles for SSH-based remote workspaces (CRUD for profiles and flavors)   |
 | Experimental | Per-feature opt-in toggles with inline config                                          |
 | Advanced     | Debug toggle, tmux, polling/timeouts, xterm, sapling, diff tools, dev-only diagnostics |
 

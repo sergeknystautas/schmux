@@ -24,12 +24,21 @@ import AccessTab from './config/AccessTab';
 import AdvancedTab from './config/AdvancedTab';
 import AgentsTab from './config/AgentsTab';
 import ExperimentalTab from './config/ExperimentalTab';
+import RemoteSettingsPage from './RemoteSettingsPage';
 import ConfigModals from './config/ConfigModals';
 import type { ConfigResponse, Model, RunTargetResponse } from '../lib/types';
 import type { Persona } from '../lib/types.generated';
 
-const TABS = ['Workspaces', 'Sessions', 'Agents', 'Access', 'Experimental', 'Advanced'];
-const TAB_SLUGS = ['workspaces', 'sessions', 'agents', 'access', 'experimental', 'advanced'];
+const TABS = ['Workspaces', 'Sessions', 'Agents', 'Access', 'Remote', 'Experimental', 'Advanced'];
+const TAB_SLUGS = [
+  'workspaces',
+  'sessions',
+  'agents',
+  'access',
+  'remote',
+  'experimental',
+  'advanced',
+];
 
 const stepToSlug = (step: number) => TAB_SLUGS[step - 1];
 const DISSOLVED_SLUGS = new Set([
@@ -1053,11 +1062,13 @@ export default function ConfigPage() {
             />
           )}
 
-          {currentTab === 5 && (
+          {currentTab === 5 && <RemoteSettingsPage />}
+
+          {currentTab === 6 && (
             <ExperimentalTab state={state} dispatch={dispatch} models={oneshotModels} />
           )}
 
-          {currentTab === 6 && (
+          {currentTab === 7 && (
             <AdvancedTab
               desyncEnabled={state.desyncEnabled}
               desyncTarget={state.desyncTarget}

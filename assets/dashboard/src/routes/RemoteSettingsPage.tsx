@@ -213,22 +213,23 @@ export default function RemoteSettingsPage() {
 
   return (
     <>
-      <div className="app-header">
-        <div className="app-header__info">
-          <h1 className="app-header__meta">Remote Hosts</h1>
-        </div>
-        <div className="app-header__actions">
-          <button className="btn btn--primary" onClick={handleAdd}>
+      <div className="spawn-content">
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: 'var(--spacing-md)',
+          }}
+        >
+          <p className="m-0 text-muted">
+            Configure remote host profiles for running agents on remote machines via SSH or custom
+            connection tools.
+          </p>
+          <button className="btn btn--primary" style={{ flexShrink: 0 }} onClick={handleAdd}>
             + Add Profile
           </button>
         </div>
-      </div>
-
-      <div className="spawn-content">
-        <p className="mb-lg text-muted">
-          Configure remote host profiles for running agents on remote machines via SSH or custom
-          connection tools.
-        </p>
 
         {profiles.length === 0 ? (
           <div className="empty-state">

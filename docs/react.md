@@ -163,7 +163,6 @@ All routes are nested under `AppShell` (sidebar + `<Outlet />`).
 | `/preview/:workspaceId/:previewId`      | PreviewPage                   |
 | `/resolve-conflict/:workspaceId/:tabId` | LinearSyncResolveConflictPage |
 | `/config`                               | ConfigPage                    |
-| `/settings/remote`                      | RemoteSettingsPage            |
 | `/environment`                          | EnvironmentPage               |
 | `/overlays`                             | OverlayPage                   |
 | `/personas`                             | PersonasListPage              |

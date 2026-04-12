@@ -19,7 +19,6 @@ import SessionDetailPage from './routes/SessionDetailPage';
 const SpawnPage = lazy(() => import('./routes/SpawnPage'));
 const TipsPage = lazy(() => import('./routes/TipsPage'));
 const ConfigPage = lazy(() => import('./routes/ConfigPage'));
-const RemoteSettingsPage = lazy(() => import('./routes/RemoteSettingsPage'));
 const DiffPage = lazy(() => import('./routes/DiffPage'));
 const MarkdownPreviewPage = lazy(() => import('./routes/MarkdownPreviewPage'));
 const ImagePreviewPage = lazy(() => import('./routes/ImagePreviewPage'));
@@ -84,7 +83,6 @@ export default function App() {
                             <Route path="/spawn" element={<SpawnPage key={location.key} />} />
                             <Route path="/tips" element={<TipsPage />} />
                             <Route path="/config" element={<ConfigPage />} />
-                            <Route path="/settings/remote" element={<RemoteSettingsPage />} />
                             <Route path="/environment" element={<EnvironmentPage />} />
                             <Route path="/overlays" element={<OverlayPage />} />
                             <Route path="/personas" element={<PersonasListPage />} />

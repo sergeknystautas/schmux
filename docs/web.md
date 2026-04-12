@@ -214,9 +214,9 @@ Interactive commit graph for a workspace's git history.
 
 Linear sync conflict resolution progress view for a persisted resolve-conflict tab.
 
-### Remote Settings (`/settings/remote`)
+### Remote Settings (Settings > Remote tab)
 
-Remote flavor configuration for SSH-based remote workspaces.
+Remote flavor configuration for SSH-based remote workspaces. Accessible via the "Remote" tab in `/config`.
 
 ### Environment (`/environment`)
 

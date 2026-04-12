@@ -20,7 +20,7 @@ export function PowerToolsTab() {
       <h4>How it works</h4>
       <ol className={styles.numberedList}>
         <li>
-          Configure a remote "flavor" in <Link to="/settings/remote">Settings &gt; Remote</Link> —
+          Configure a remote "flavor" in <Link to="/config?tab=remote">Settings &gt; Remote</Link> —
           define your connect command, provision command, and reconnect command
         </li>
         <li>When spawning a session, select your remote flavor as the target environment</li>

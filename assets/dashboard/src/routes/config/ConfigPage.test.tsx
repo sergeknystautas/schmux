@@ -242,8 +242,16 @@ describe('ConfigPage', () => {
       expect(screen.getByDisplayValue('/home/user/ws')).toBeInTheDocument();
     });
 
-    // All 6 tabs should be present
-    for (const slug of ['workspaces', 'sessions', 'agents', 'access', 'experimental', 'advanced']) {
+    // All 7 tabs should be present
+    for (const slug of [
+      'workspaces',
+      'sessions',
+      'agents',
+      'access',
+      'remote',
+      'experimental',
+      'advanced',
+    ]) {
       expect(screen.getByTestId(`config-tab-${slug}`)).toBeInTheDocument();
     }
 
