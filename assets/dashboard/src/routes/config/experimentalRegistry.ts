@@ -49,7 +49,7 @@ export const EXPERIMENTAL_FEATURES: ExperimentalFeature[] = [
   {
     id: 'repofeed',
     name: 'Repofeed',
-    description: 'Live feed of repository activity',
+    description: 'See what teammates are working on right now — live cross-developer activity feed',
     enabledKey: 'repofeedEnabled',
     configPanel: RepofeedConfig,
     buildFeatureKey: 'repofeed',
@@ -57,7 +57,7 @@ export const EXPERIMENTAL_FEATURES: ExperimentalFeature[] = [
   {
     id: 'subreddit',
     name: 'Subreddit',
-    description: 'Reddit-style discussion threads',
+    description: 'LLM-generated digest of landed commits — a per-repo changelog on the home page',
     enabledKey: 'subredditEnabled',
     configPanel: SubredditConfig,
     buildFeatureKey: 'subreddit',
