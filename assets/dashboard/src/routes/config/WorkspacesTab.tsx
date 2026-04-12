@@ -147,7 +147,7 @@ export default function WorkspacesTab({
           + Detect & Add
         </button>
         <span className="form-group__hint" style={{ paddingTop: 'var(--spacing-xs)' }}>
-          Scan your system for Git repositories and add them with one click
+          Scan your system for repositories and add them with one click
         </span>
       </div>
 
