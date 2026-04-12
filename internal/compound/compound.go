@@ -208,7 +208,7 @@ func (c *Compounder) processFileChange(ctx context.Context, workspaceID, relPath
 	}
 
 	if c.logger != nil {
-		c.logger.Info("syncing overlay", "path", relPath, "workspace_id", workspaceID, "action", action)
+		c.logger.Debug("syncing overlay", "path", relPath, "workspace_id", workspaceID, "action", action)
 	}
 
 	// Ensure overlay parent directory exists
@@ -244,7 +244,7 @@ func (c *Compounder) processFileChange(ctx context.Context, workspaceID, relPath
 	// Propagate to sibling workspaces
 	if c.propagate != nil && mergedContent != nil {
 		if c.logger != nil {
-			c.logger.Info("propagating to siblings", "path", relPath, "workspace_id", workspaceID)
+			c.logger.Debug("propagating to siblings", "path", relPath, "workspace_id", workspaceID)
 		}
 		c.propagate(workspaceID, repoURL, relPath, mergedContent)
 	}

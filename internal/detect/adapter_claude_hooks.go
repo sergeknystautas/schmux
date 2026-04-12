@@ -281,7 +281,7 @@ func claudeSetupHooks(workspacePath, hooksDir string) error {
 		return fmt.Errorf("failed to write settings file: %w", err)
 	}
 	if pkgLogger != nil {
-		pkgLogger.Info("configured Claude hooks", "path", settingsPath)
+		pkgLogger.Debug("configured Claude hooks", "path", settingsPath)
 	}
 	return nil
 }

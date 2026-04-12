@@ -92,7 +92,7 @@ func (m *Manager) ensureOriginQueryRepo(ctx context.Context, repoURL string) (st
 	queryRepoPath := filepath.Join(queryRepoDir, repo.BarePath)
 
 	if _, err := os.Stat(queryRepoPath); os.IsNotExist(err) {
-		m.logger.Info("creating origin query repo", "barePath", repo.BarePath)
+		m.logger.Debug("creating origin query repo", "barePath", repo.BarePath)
 		// Create parent directory (e.g., ~/.schmux/query/facebook/)
 		if err := os.MkdirAll(filepath.Dir(queryRepoPath), 0755); err != nil {
 			return "", fmt.Errorf("failed to create query repo directory: %w", err)

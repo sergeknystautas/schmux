@@ -931,7 +931,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 				// Update the target workspace's manifest hash (content already in memory)
 				newHash := compound.HashBytes(content)
 				st.UpdateOverlayManifestEntry(w.ID, relPath, newHash)
-				compoundLog.Info("propagated", "path", relPath, "workspace_id", w.ID)
+				compoundLog.Debug("propagated", "path", relPath, "workspace_id", w.ID)
 				targetWorkspaceIDs = append(targetWorkspaceIDs, w.ID)
 			}
 
@@ -1684,12 +1684,12 @@ func startSubredditHourlyGenerator(ctx context.Context, cfg *config.Config, subr
 	for {
 		select {
 		case <-timer.C:
-			logger.Info("subreddit scheduler tick")
+			logger.Debug("subreddit scheduler tick")
 			generateSubredditPosts(ctx, server, logger)
 
 			nextTime = time.Now().Add(interval)
 			server.SetNextSubredditGeneration(nextTime)
-			logger.Info("subreddit next scheduled", "next_at", nextTime)
+			logger.Debug("subreddit next scheduled", "next_at", nextTime)
 
 			timer.Reset(interval)
 		case <-ctx.Done():
@@ -1708,7 +1708,7 @@ func generateSubredditPosts(ctx context.Context, server *dashboard.Server, logge
 // startRepofeedConsumer starts the background fetch loop for repofeed data.
 func startRepofeedConsumer(ctx context.Context, cfg *config.Config, consumer *repofeed.Consumer, server *dashboard.Server, logger *log.Logger) {
 	if !cfg.GetRepofeedEnabled() {
-		logger.Info("repofeed consumer disabled")
+		logger.Debug("repofeed consumer disabled")
 		return
 	}
 
@@ -1721,7 +1721,7 @@ func startRepofeedConsumer(ctx context.Context, cfg *config.Config, consumer *re
 	for {
 		select {
 		case <-timer.C:
-			logger.Info("repofeed consumer tick")
+			logger.Debug("repofeed consumer tick")
 
 			var allFiles []*repofeed.DeveloperFile
 			for _, repo := range cfg.GetRepos() {

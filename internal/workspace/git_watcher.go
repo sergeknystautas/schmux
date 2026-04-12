@@ -129,7 +129,7 @@ func (gw *GitWatcher) AddWorkspace(workspaceID, workspacePath string) {
 	logsDir := filepath.Join(gitDir, "logs")
 	gw.watchRecursive(logsDir, workspaceID)
 
-	gw.logger.Info("watching", "workspace_id", workspaceID, "gitdir", gitDir)
+	gw.logger.Debug("watching", "workspace_id", workspaceID, "gitdir", gitDir)
 }
 
 // RemoveWorkspace removes all watches for a workspace and cancels its debounce timer.

@@ -204,13 +204,13 @@ func (m *Manager) copyOverlayFiles(ctx context.Context, repoName, workspacePath 
 		return nil, nil
 	}
 
-	m.logger.Info("copying overlay files", "repo", repoName, "to", workspacePath)
+	m.logger.Debug("copying overlay files", "repo", repoName, "to", workspacePath)
 	manifest, err := CopyOverlay(ctx, overlayDir, workspacePath, m.logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to copy overlay files: %w", err)
 	}
 
-	m.logger.Info("overlay files copied successfully")
+	m.logger.Debug("overlay files copied successfully")
 	return manifest, nil
 }
 
@@ -287,7 +287,7 @@ func (m *Manager) EnsureOverlayDirs(repos []config.Repo) error {
 			return fmt.Errorf("failed to ensure overlay directory for %s: %w", repo.Name, err)
 		}
 	}
-	m.logger.Info("ensured overlay directories", "count", len(repos))
+	m.logger.Debug("ensured overlay directories", "count", len(repos))
 	return nil
 }
 

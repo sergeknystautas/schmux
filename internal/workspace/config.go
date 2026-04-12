@@ -87,7 +87,7 @@ func (m *Manager) RefreshWorkspaceConfig(w state.Workspace) {
 		return
 	}
 	if repoCfg != nil {
-		m.logger.Info("loaded config", "path", configPath)
+		m.logger.Debug("loaded config", "path", configPath)
 	}
 
 	validQuickLaunch := validateWorkspaceQuickLaunch(configPath, repoCfg, m.models, m.logger)

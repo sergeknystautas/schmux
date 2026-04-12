@@ -79,18 +79,19 @@ func (s *Server) handleSubreddit(w http.ResponseWriter, r *http.Request) {
 // TriggerSubredditGeneration starts async generation of subreddit posts.
 // This is called when config is saved with subreddit enabled.
 func (s *Server) TriggerSubredditGeneration() {
+	logger := logging.Sub(s.logger, "subreddit")
 	if !subreddit.IsEnabled(s.config) {
-		s.logger.Info("subreddit generation trigger skipped", "reason", "disabled")
+		logger.Debug("subreddit generation trigger skipped", "reason", "disabled")
 		return
 	}
 
-	s.logger.Info("subreddit generation triggered", "source", "config_update")
+	logger.Info("subreddit generation triggered", "source", "config_update")
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 
 		if err := s.GenerateSubredditForAllRepos(ctx); err != nil {
-			s.logger.Error("subreddit generation failed", "source", "config_update", "err", err)
+			logger.Error("subreddit generation failed", "source", "config_update", "err", err)
 			return
 		}
 	}()
@@ -101,6 +102,7 @@ func (s *Server) TriggerSubredditGeneration() {
 func (s *Server) GenerateSubredditForAllRepos(ctx context.Context) error {
 	cfg := s.config
 	subredditDir := s.getSubredditDir()
+	logger := logging.Sub(s.logger, "subreddit")
 
 	// Ensure directory exists
 	if err := os.MkdirAll(subredditDir, 0755); err != nil {
@@ -126,19 +128,19 @@ func (s *Server) GenerateSubredditForAllRepos(ctx context.Context) error {
 			}
 		}
 
-		s.logger.Info("generating subreddit for repo", "repo", repo.Name, "slug", slug, "branch", defaultBranch)
+		logger.Debug("generating subreddit for repo", "repo", repo.Name, "slug", slug, "branch", defaultBranch)
 
 		err := subreddit.GenerateRepoPosts(ctx, cfg, repo.Name, slug, repo.BarePath, defaultBranch, subredditDir, cfg.GetWorktreeBasePath())
 		if err != nil {
 			if errors.Is(err, subreddit.ErrDisabled) {
-				s.logger.Info("subreddit disabled, skipping")
+				logger.Debug("subreddit disabled, skipping")
 				continue
 			}
-			s.logger.Warn("failed to generate subreddit for repo", "repo", repo.Name, "err", err)
+			logger.Warn("failed to generate subreddit for repo", "repo", repo.Name, "err", err)
 			continue
 		}
 
-		s.logger.Info("generated subreddit for repo", "repo", repo.Name)
+		logger.Debug("generated subreddit for repo", "repo", repo.Name)
 
 		// Broadcast subreddit update to WebSocket clients
 		s.BroadcastSubreddit()
