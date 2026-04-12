@@ -213,7 +213,7 @@ export default function RemoteSettingsPage() {
 
   return (
     <>
-      <div className="spawn-content">
+      <div className="wizard-step-content">
         <div
           style={{
             display: 'flex',

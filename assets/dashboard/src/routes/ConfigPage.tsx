@@ -29,7 +29,15 @@ import ConfigModals from './config/ConfigModals';
 import type { ConfigResponse, Model, RunTargetResponse } from '../lib/types';
 import type { Persona } from '../lib/types.generated';
 
-const TABS = ['Workspaces', 'Sessions', 'Agents', 'Access', 'Remote', 'Experimental', 'Advanced'];
+const TABS = [
+  'Workspaces',
+  'Sessions',
+  'Agents',
+  'Access',
+  'Remote Hosts',
+  'Experimental',
+  'Advanced',
+];
 const TAB_SLUGS = [
   'workspaces',
   'sessions',
