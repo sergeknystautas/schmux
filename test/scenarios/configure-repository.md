@@ -16,6 +16,7 @@ repository appears in the config API.
 ## Verifications
 
 - The Settings page loads with the Workspaces tab active by default
+- The manual add form is behind a disclosure ("Or add manually...") that must be opened first
 - The add form accepts a name and URL
 - Clicking "Add" adds the repo to the list and auto-saves
 - Wait briefly for auto-save to complete

@@ -8,6 +8,7 @@ can be "deleted" which resets them to their defaults.
 ## Preconditions
 
 - The daemon is running
+- Comm Styles experimental feature is enabled via PUT /api/config { comm_styles_enabled: true }
 
 ## Verifications
 

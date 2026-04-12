@@ -34,6 +34,9 @@ test.describe('Manage communication styles', () => {
   });
 
   test('sidebar link and styles list page', async ({ page }) => {
+    // Enable comm styles experimental feature first
+    await apiPost('/api/config', { comm_styles_enabled: true });
+
     await page.goto('/');
     await waitForDashboardLive(page);
 

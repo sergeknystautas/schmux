@@ -20,6 +20,9 @@ test.describe.serial('Configure a new repository', () => {
     await expect(workspacesTab).toBeVisible();
     await expect(workspacesTab).toHaveAttribute('aria-selected', 'true');
 
+    // Open the manual add form (collapsed by default behind a disclosure)
+    await page.locator('summary', { hasText: 'Or add manually' }).click();
+
     // Fill in the repo name
     await page.getByPlaceholder('Name').first().fill(repoName);
 
