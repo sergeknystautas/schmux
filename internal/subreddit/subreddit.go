@@ -357,8 +357,17 @@ func GenerateRepoPosts(ctx context.Context, cfg FullConfig, repoName, repoSlug s
 		return fmt.Errorf("read repo file: %w", err)
 	}
 
+	// Determine if bootstrap or incremental
+	isBootstrap := rf == nil || len(rf.Posts) == 0
+
+	// Use a wider window for bootstrap so the first generation finds commits
+	gatherRange := checkingRange
+	if isBootstrap && gatherRange < 720 {
+		gatherRange = 720 // 30 days for initial bootstrap
+	}
+
 	// Gather commits with SHA
-	commits, err := GatherRepoCommitsWithSHA(ctx, worktreeBasePath+"/"+barePath, repoName, defaultBranch, checkingRange)
+	commits, err := GatherRepoCommitsWithSHA(ctx, worktreeBasePath+"/"+barePath, repoName, defaultBranch, gatherRange)
 	if err != nil {
 		return fmt.Errorf("gather commits: %w", err)
 	}
@@ -366,9 +375,6 @@ func GenerateRepoPosts(ctx context.Context, cfg FullConfig, repoName, repoSlug s
 	if len(commits) == 0 {
 		return nil // No new commits, nothing to do
 	}
-
-	// Determine if bootstrap or incremental
-	isBootstrap := rf == nil || len(rf.Posts) == 0
 
 	var newRF *RepoFile
 	if isBootstrap {
