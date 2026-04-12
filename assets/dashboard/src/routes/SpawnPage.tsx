@@ -1123,21 +1123,7 @@ export default function SpawnPage() {
                     <div className="grid-full">
                       <div data-testid="agent-repo-row" className="spawn-selectors">
                         <div className="spawn-selector">
-                          <span className="spawn-selector__label">
-                            Agent
-                            {commandTargets.length === 0 && (
-                              <span
-                                style={{
-                                  fontWeight: 'normal',
-                                  opacity: 0.6,
-                                  marginLeft: 'var(--spacing-xs)',
-                                  fontSize: 'var(--font-size-xs)',
-                                }}
-                              >
-                                auto-detected from your system
-                              </span>
-                            )}
-                          </span>
+                          <span className="spawn-selector__label">Agent</span>
                           <select
                             className="select"
                             data-testid="agent-select"
@@ -1271,21 +1257,7 @@ export default function SpawnPage() {
                     <div className="grid-full">
                       <div data-testid="agent-repo-row" className="spawn-selectors">
                         <div className="spawn-selector">
-                          <span className="spawn-selector__label">
-                            Agent
-                            {commandTargets.length === 0 && (
-                              <span
-                                style={{
-                                  fontWeight: 'normal',
-                                  opacity: 0.6,
-                                  marginLeft: 'var(--spacing-xs)',
-                                  fontSize: 'var(--font-size-xs)',
-                                }}
-                              >
-                                auto-detected from your system
-                              </span>
-                            )}
-                          </span>
+                          <span className="spawn-selector__label">Agent</span>
                           <select
                             className="select"
                             data-testid="agent-select"
