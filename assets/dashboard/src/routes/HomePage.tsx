@@ -1086,6 +1086,39 @@ export default function HomePage() {
             </div>
           </div>
         )}
+
+        {/* Repofeed Summary (hidden during FTUE) */}
+        {workspaces.length > 0 &&
+          features.repofeed &&
+          repofeedList &&
+          repofeedList.repos.length > 0 && (
+            <div className={styles.sectionCard}>
+              <div className={styles.sectionHeader}>
+                <h2 className={styles.sectionTitle}>
+                  <span style={{ fontSize: '1.1em' }}>📡</span>
+                  Also Active
+                </h2>
+                <Link to="/repofeed" className={styles.sectionLink}>
+                  View full repofeed →
+                </Link>
+              </div>
+              <div className={styles.sectionContent}>
+                {repofeedList.repos.map((repo) => (
+                  <div
+                    key={repo.slug}
+                    style={{
+                      fontSize: '0.875rem',
+                      color: 'var(--text-secondary)',
+                      padding: '0.25rem 0',
+                    }}
+                  >
+                    <strong>{repo.name}</strong>: {repo.active_intents} developer
+                    {repo.active_intents !== 1 ? 's' : ''} working
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
       </div>
 
       {/* Right Column - Workspaces */}
