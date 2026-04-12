@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -115,9 +116,19 @@ func (s *Server) GenerateSubredditForAllRepos(ctx context.Context) error {
 			continue
 		}
 
-		s.logger.Info("generating subreddit for repo", "repo", repo.Name, "slug", slug)
+		// Detect default branch from the bare repo's HEAD
+		fullBarePath := filepath.Join(cfg.GetWorktreeBasePath(), repo.BarePath)
+		defaultBranch := "main"
+		if headBytes, readErr := os.ReadFile(filepath.Join(fullBarePath, "HEAD")); readErr == nil {
+			head := strings.TrimSpace(string(headBytes))
+			if strings.HasPrefix(head, "ref: refs/heads/") {
+				defaultBranch = strings.TrimPrefix(head, "ref: refs/heads/")
+			}
+		}
 
-		err := subreddit.GenerateRepoPosts(ctx, cfg, repo.Name, slug, repo.BarePath, "main", subredditDir, cfg.GetWorktreeBasePath())
+		s.logger.Info("generating subreddit for repo", "repo", repo.Name, "slug", slug, "branch", defaultBranch)
+
+		err := subreddit.GenerateRepoPosts(ctx, cfg, repo.Name, slug, repo.BarePath, defaultBranch, subredditDir, cfg.GetWorktreeBasePath())
 		if err != nil {
 			if errors.Is(err, subreddit.ErrDisabled) {
 				s.logger.Info("subreddit disabled, skipping")
