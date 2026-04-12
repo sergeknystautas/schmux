@@ -335,10 +335,10 @@ export default function SessionsTab({
         </div>
       </div>
 
-      {/* Spawn Defaults (Pastebin) */}
+      {/* Pastebin */}
       <div className="settings-section">
         <div className="settings-section__header">
-          <h3 className="settings-section__title">Spawn Defaults</h3>
+          <h3 className="settings-section__title">Pastebin</h3>
         </div>
         <div className="settings-section__body">
           <p className="form-group__hint mb-md">
