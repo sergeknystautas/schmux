@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import AddRepoModal from '../../components/AddRepoModal';
 import type { ConfigFormAction, ConfigFormState } from './useConfigForm';
 import type { OverlayInfo, RepoResponse } from '../../lib/types';
 
@@ -30,6 +31,7 @@ export default function WorkspacesTab({
   onRemoveRepo,
   onAddRepo,
 }: WorkspacesTabProps) {
+  const [showAddModal, setShowAddModal] = useState(false);
   const setField = (field: string, value: unknown) =>
     dispatch({ type: 'SET_FIELD', field: field as keyof ConfigFormState, value });
   return (
@@ -135,52 +137,73 @@ export default function WorkspacesTab({
         </div>
       )}
 
-      <div className="add-item-form">
-        <div className="add-item-form__inputs">
-          <input
-            type="text"
-            className="input"
-            placeholder="Name"
-            value={newRepoName}
-            onChange={(e) =>
-              dispatch({ type: 'SET_FIELD', field: 'newRepoName', value: e.target.value })
-            }
-            onKeyDown={(e) => e.key === 'Enter' && onAddRepo()}
-          />
-          <input
-            type="text"
-            className="input"
-            placeholder={
-              newRepoVcs === 'sapling' ? 'Repo Identifier' : 'git@github.com:user/repo.git'
-            }
-            value={newRepoUrl}
-            onChange={(e) =>
-              dispatch({ type: 'SET_FIELD', field: 'newRepoUrl', value: e.target.value })
-            }
-            onKeyDown={(e) => e.key === 'Enter' && onAddRepo()}
-          />
-          <select
-            className="select"
-            value={newRepoVcs}
-            onChange={(e) =>
-              dispatch({ type: 'SET_FIELD', field: 'newRepoVcs', value: e.target.value })
-            }
-            style={{ width: 'auto', minWidth: '130px' }}
-          >
-            <option value="">git worktree</option>
-            <option value="git-clone">git clone</option>
-            <option value="sapling">sapling</option>
-          </select>
-        </div>
+      <div style={{ display: 'flex', gap: 'var(--spacing-md)', alignItems: 'flex-start' }}>
         <button
           type="button"
-          className="btn btn--sm btn--primary"
-          onClick={onAddRepo}
-          data-testid="add-repo"
+          className="btn btn--primary"
+          onClick={() => setShowAddModal(true)}
+          data-testid="detect-repos"
         >
-          Add
+          + Detect & Add
         </button>
+        <span className="form-group__hint" style={{ paddingTop: 'var(--spacing-xs)' }}>
+          Scan your system for Git repositories and add them with one click
+        </span>
       </div>
+
+      <details style={{ marginTop: 'var(--spacing-md)' }}>
+        <summary className="form-group__hint" style={{ cursor: 'pointer' }}>
+          Or add manually...
+        </summary>
+        <div className="add-item-form" style={{ marginTop: 'var(--spacing-sm)' }}>
+          <div className="add-item-form__inputs">
+            <input
+              type="text"
+              className="input"
+              placeholder="Name"
+              value={newRepoName}
+              onChange={(e) =>
+                dispatch({ type: 'SET_FIELD', field: 'newRepoName', value: e.target.value })
+              }
+              onKeyDown={(e) => e.key === 'Enter' && onAddRepo()}
+            />
+            <input
+              type="text"
+              className="input"
+              placeholder={
+                newRepoVcs === 'sapling' ? 'Repo Identifier' : 'git@github.com:user/repo.git'
+              }
+              value={newRepoUrl}
+              onChange={(e) =>
+                dispatch({ type: 'SET_FIELD', field: 'newRepoUrl', value: e.target.value })
+              }
+              onKeyDown={(e) => e.key === 'Enter' && onAddRepo()}
+            />
+            <select
+              className="select"
+              value={newRepoVcs}
+              onChange={(e) =>
+                dispatch({ type: 'SET_FIELD', field: 'newRepoVcs', value: e.target.value })
+              }
+              style={{ width: 'auto', minWidth: '130px' }}
+            >
+              <option value="">git worktree</option>
+              <option value="git-clone">git clone</option>
+              <option value="sapling">sapling</option>
+            </select>
+          </div>
+          <button
+            type="button"
+            className="btn btn--sm btn--primary"
+            onClick={onAddRepo}
+            data-testid="add-repo"
+          >
+            Add
+          </button>
+        </div>
+      </details>
+
+      {showAddModal && <AddRepoModal onClose={() => setShowAddModal(false)} />}
     </div>
   );
 }
