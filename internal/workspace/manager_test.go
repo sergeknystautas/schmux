@@ -433,48 +433,6 @@ func TestDispose_ZombieWorkspace_NonEmptyDir(t *testing.T) {
 	}
 }
 
-func TestGetOrCreate_SkipsZombieWorkspace(t *testing.T) {
-	t.Parallel()
-	tmpDir := t.TempDir()
-	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
-	cfg.Repos = []config.Repo{{Name: "test", URL: "https://github.com/example/repo"}}
-	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
-
-	// Create a zombie workspace in state: directory exists, no VCS metadata
-	workspaceID := "zombie-reuse"
-	workspacePath := filepath.Join(tmpDir, workspaceID)
-	if err := os.MkdirAll(workspacePath, 0755); err != nil {
-		t.Fatalf("failed to create zombie directory: %v", err)
-	}
-
-	w := state.Workspace{
-		ID:     workspaceID,
-		Repo:   "https://github.com/example/repo",
-		Branch: "main",
-		Path:   workspacePath,
-		VCS:    "git",
-		Status: state.WorkspaceStatusRunning,
-	}
-	st.AddWorkspace(w)
-
-	// GetOrCreate for the same repo/branch should NOT reuse the zombie.
-	// It should skip it and try to create a new workspace (which will fail
-	// because there's no real bare clone). The key assertion: zombie still in state.
-	_, _ = m.GetOrCreate(context.Background(), "https://github.com/example/repo", "main")
-	// Error is expected (can't create real bare clone). What matters: zombie wasn't consumed.
-	_, found := st.GetWorkspace(workspaceID)
-	if !found {
-		t.Error("zombie workspace should NOT have been consumed by GetOrCreate")
-	}
-
-	// The zombie directory should still exist
-	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
-		t.Error("zombie directory should still exist after GetOrCreate attempt")
-	}
-}
-
 // TestDispose_Integration creates a real git workspace and disposes it.
 func TestDispose_Integration(t *testing.T) {
 	t.Parallel()

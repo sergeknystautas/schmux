@@ -417,11 +417,6 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 				m.state.Save()
 				continue
 			}
-			// Verify VCS metadata is intact — skip zombie directories
-			if !hasVCSMetadata(w.Path, w.VCS) {
-				m.logger.Warn("recyclable workspace has no VCS metadata, skipping", "id", w.ID, "path", w.Path)
-				continue
-			}
 			// Divergence safety check: prevent cross-branch commit pollution.
 			// Skip when the workspace already has the target branch — those
 			// commits are what the caller wants, and remote refs may be stale
@@ -483,11 +478,6 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 			m.logger.Warn("directory missing, skipping", "id", w.ID, "path", w.Path)
 			continue
 		}
-		// Skip zombie workspaces (directory exists but no VCS metadata)
-		if !hasVCSMetadata(w.Path, w.VCS) {
-			m.logger.Warn("workspace has no VCS metadata, skipping", "id", w.ID, "path", w.Path)
-			continue
-		}
 		if w.Repo == repoURL && w.Branch == branch {
 			// Check if workspace has active sessions
 			if !m.hasActiveSessions(w.ID) {
@@ -522,11 +512,6 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 				// Check if workspace directory still exists
 				if _, err := os.Stat(w.Path); os.IsNotExist(err) {
 					m.logger.Warn("directory missing, skipping", "id", w.ID, "path", w.Path)
-					continue
-				}
-				// Skip zombie workspaces (directory exists but no VCS metadata)
-				if !hasVCSMetadata(w.Path, w.VCS) {
-					m.logger.Warn("workspace has no VCS metadata, skipping", "id", w.ID, "path", w.Path)
 					continue
 				}
 				// Only reuse if the workspace's branch hasn't diverged from the default branch.
