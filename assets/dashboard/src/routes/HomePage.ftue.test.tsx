@@ -6,6 +6,8 @@ import type { ConfigResponse, WorkspaceResponse } from '../lib/types';
 // --- Mutable state for mocks (must be declared before vi.mock factories) ---
 
 let currentWorkspaces: WorkspaceResponse[] = [];
+let currentRepos: Array<{ name: string; url: string }> = [];
+let currentDevMode = false;
 
 // --- Mocks (vi.mock is hoisted — factories must not reference const declarations) ---
 
@@ -14,7 +16,7 @@ vi.mock('../contexts/ConfigContext', () => ({
     config: {
       workspace_path: '/home/user/ws',
       source_code_management: 'git-worktree',
-      repos: [{ name: 'my-repo', url: 'https://github.com/user/repo.git' }],
+      repos: currentRepos,
       run_targets: [],
       runners: {
         claude: { available: true, capabilities: ['interactive', 'oneshot', 'streaming'] },
@@ -92,6 +94,13 @@ vi.mock('../components/ModalProvider', () => ({
   useModal: () => ({ alert: vi.fn(), confirm: vi.fn().mockResolvedValue(true), prompt: vi.fn() }),
 }));
 
+vi.mock('../hooks/useVersionInfo', () => ({
+  default: () => ({
+    versionInfo: { version: '0.0.0-test', dev_mode: currentDevMode },
+    loading: false,
+  }),
+}));
+
 vi.mock('../hooks/useFloorManager', () => ({
   useFloorManager: () => ({
     enabled: false,
@@ -158,6 +167,8 @@ function renderPage() {
 beforeEach(() => {
   vi.clearAllMocks();
   currentWorkspaces = [];
+  currentRepos = [];
+  currentDevMode = false;
 });
 
 describe('HomePage FTUE (zero workspaces)', () => {
@@ -167,13 +178,21 @@ describe('HomePage FTUE (zero workspaces)', () => {
     expect(screen.getByTestId('env-summary')).toBeInTheDocument();
   });
 
-  it('renders "+ Add Repository" CTA when zero workspaces', () => {
+  it('renders "+ Add Repository" CTA when no repos configured', () => {
     currentWorkspaces = [];
+    currentRepos = [];
     renderPage();
     const cta = screen.getByTestId('add-workspace-cta');
     expect(cta).toBeInTheDocument();
     expect(cta).toHaveTextContent('+ Add Repository');
     expect(cta).toHaveTextContent('Add a repository to start spawning AI coding sessions');
+  });
+
+  it('hides "+ Add Repository" CTA when a repo is configured', () => {
+    currentWorkspaces = [];
+    currentRepos = [{ name: 'my-repo', url: 'https://github.com/user/repo.git' }];
+    renderPage();
+    expect(screen.queryByTestId('add-workspace-cta')).not.toBeInTheDocument();
   });
 
   it('does NOT render branches section when zero workspaces', () => {
@@ -190,6 +209,7 @@ describe('HomePage FTUE (zero workspaces)', () => {
 
   it('opens AddRepoModal when CTA is clicked', () => {
     currentWorkspaces = [];
+    currentRepos = [];
     renderPage();
     const cta = screen.getByTestId('add-workspace-cta');
     fireEvent.click(cta);
@@ -213,10 +233,18 @@ describe('HomePage with workspaces (active user)', () => {
     sessions: [],
   };
 
-  it('renders branches section when workspaces exist', () => {
+  it('renders branches section when workspaces exist and dev mode is on', () => {
     currentWorkspaces = [mockWorkspace];
+    currentDevMode = true;
     renderPage();
     expect(screen.getByTestId('recent-branches')).toBeInTheDocument();
+  });
+
+  it('does NOT render branches section when dev mode is off', () => {
+    currentWorkspaces = [mockWorkspace];
+    currentDevMode = false;
+    renderPage();
+    expect(screen.queryByTestId('recent-branches')).not.toBeInTheDocument();
   });
 
   it('does NOT render EnvironmentSummary when workspaces exist', () => {
@@ -225,10 +253,11 @@ describe('HomePage with workspaces (active user)', () => {
     expect(screen.queryByTestId('env-summary')).not.toBeInTheDocument();
   });
 
-  it('renders add-repo CTA even when workspaces exist', () => {
+  it('hides add-repo CTA when repos are configured', () => {
     currentWorkspaces = [mockWorkspace];
+    currentRepos = [{ name: 'my-repo', url: 'https://github.com/user/repo.git' }];
     renderPage();
-    expect(screen.getByTestId('add-workspace-cta')).toBeInTheDocument();
+    expect(screen.queryByTestId('add-workspace-cta')).not.toBeInTheDocument();
   });
 
   it('renders workspace list when workspaces exist', () => {

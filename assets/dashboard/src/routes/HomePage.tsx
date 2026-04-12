@@ -27,6 +27,7 @@ import {
 } from '../lib/api';
 import { navigateToWorkspace, usePendingNavigation } from '../lib/navigation';
 import { useFloorManager } from '../hooks/useFloorManager';
+import useVersionInfo from '../hooks/useVersionInfo';
 import { useTerminalStream } from '../hooks/useTerminalStream';
 import type {
   WorkspaceResponse,
@@ -267,6 +268,8 @@ export default function HomePage() {
   } = useSessions();
   const { config, loading: configLoading, getRepoName } = useConfig();
   const { features } = useFeatures();
+  const { versionInfo } = useVersionInfo();
+  const isDevMode = !!versionInfo?.dev_mode;
 
   // dashboard.sx alerts
   const dxStatus = config.dashboard_sx_status;
@@ -967,8 +970,8 @@ export default function HomePage() {
         {/* FTUE: show environment summary when no workspaces */}
         {workspaces.length === 0 && !loading && <EnvironmentSummary />}
 
-        {/* Add Repository CTA — always visible */}
-        {!loading && (
+        {/* Add Repository CTA — hidden once a repo is configured */}
+        {!loading && (!config.repos || config.repos.length === 0) && (
           <>
             <button
               className={styles.primaryAction}
@@ -1010,8 +1013,8 @@ export default function HomePage() {
           </button>
         )}
 
-        {/* Recent Branches Section (hidden during FTUE) */}
-        {workspaces.length > 0 && (
+        {/* Recent Branches Section (dev mode only, hidden during FTUE) */}
+        {isDevMode && workspaces.length > 0 && (
           <div className={styles.sectionCard} data-testid="recent-branches">
             <div className={styles.sectionHeader}>
               <h2 className={styles.sectionTitle}>
@@ -1081,8 +1084,8 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Pull Requests Section (hidden during FTUE) */}
-        {workspaces.length > 0 && features.github && (
+        {/* Pull Requests Section (dev mode only, hidden during FTUE) */}
+        {isDevMode && workspaces.length > 0 && features.github && (
           <div className={styles.sectionCard}>
             <div className={styles.sectionHeader}>
               <h2 className={styles.sectionTitle}>
