@@ -12,10 +12,11 @@ const defaultProps = {
   models: [],
   personas: [],
   builtinQuickLaunch: [],
-  selectedCookbookTemplate: null,
-  onAddQuickLaunch: vi.fn(),
+  onEditQuickLaunch: vi.fn(),
   onRemoveQuickLaunch: vi.fn(),
-  onOpenQuickLaunchEditModal: vi.fn(),
+  onAddAgent: vi.fn(),
+  onAddQuickLaunchCommand: vi.fn(),
+  onAddFromCookbook: vi.fn(),
   onOpenPastebinEditModal: vi.fn(),
   onOpenAddPastebinModal: vi.fn(),
   onAddCommand: vi.fn(),
@@ -47,5 +48,11 @@ describe('SessionsTab', () => {
   it('renders Notifications section', () => {
     render(<SessionsTab {...defaultProps} />);
     expect(screen.getByText('Notifications')).toBeInTheDocument();
+  });
+
+  it('renders Add Agent and Add Command buttons', () => {
+    render(<SessionsTab {...defaultProps} />);
+    expect(screen.getByText('Add Agent')).toBeInTheDocument();
+    expect(screen.getByText('Add Command')).toBeInTheDocument();
   });
 });

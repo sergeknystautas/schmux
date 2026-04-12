@@ -21,10 +21,15 @@ export type PastebinEditModalState = {
   error: string;
 } | null;
 
-export type QuickLaunchEditModalState = {
-  item: QuickLaunchPreset;
-  prompt: string;
-  isCommandTarget: boolean;
+export type QuickLaunchDialogModalState = {
+  mode: 'add' | 'edit';
+  kind: 'agent' | 'command';
+  name: string;
+  originalName?: string;
+  target?: string;
+  personaId?: string;
+  prompt?: string;
+  command?: string;
   error: string;
 } | null;
 
@@ -69,13 +74,6 @@ export type ConfigFormState = {
   newRepoVcs: string;
   newCommandName: string;
   newCommandCommand: string;
-  newQuickLaunchName: string;
-  newQuickLaunchMode: 'agent' | 'command';
-  newQuickLaunchTarget: string;
-  newQuickLaunchPrompt: string;
-  newQuickLaunchCommand: string;
-  newQuickLaunchPersonaId: string;
-  selectedCookbookTemplate: BuiltinQuickLaunchCookbook | null;
   newDiffName: string;
   newDiffCommand: string;
 
@@ -184,7 +182,7 @@ export type ConfigFormState = {
 
   // Modal state
   runTargetEditModal: RunTargetEditModalState;
-  quickLaunchEditModal: QuickLaunchEditModalState;
+  quickLaunchDialogModal: QuickLaunchDialogModalState;
   pastebinEditModal: PastebinEditModalState;
   authSecretsModal: AuthSecretsModalState;
   tlsModal: TlsModalState;
@@ -218,10 +216,9 @@ export type ConfigFormAction =
   | { type: 'SET_MODELS'; models: Model[] }
   | { type: 'RESET_NEW_REPO' }
   | { type: 'RESET_NEW_COMMAND' }
-  | { type: 'RESET_NEW_QUICK_LAUNCH' }
   | { type: 'RESET_NEW_DIFF' }
   | { type: 'SET_RUN_TARGET_EDIT_MODAL'; modal: RunTargetEditModalState }
-  | { type: 'SET_QUICK_LAUNCH_EDIT_MODAL'; modal: QuickLaunchEditModalState }
+  | { type: 'SET_QUICK_LAUNCH_DIALOG_MODAL'; modal: QuickLaunchDialogModalState }
   | { type: 'SET_PASTEBIN_EDIT_MODAL'; modal: PastebinEditModalState }
   | { type: 'UPDATE_PASTEBIN'; index: number; content: string }
   | { type: 'SET_AUTH_SECRETS_MODAL'; modal: AuthSecretsModalState }
@@ -251,13 +248,6 @@ export const initialState: ConfigFormState = {
   newRepoVcs: '',
   newCommandName: '',
   newCommandCommand: '',
-  newQuickLaunchName: '',
-  newQuickLaunchMode: 'agent',
-  newQuickLaunchTarget: '',
-  newQuickLaunchPrompt: '',
-  newQuickLaunchCommand: '',
-  newQuickLaunchPersonaId: '',
-  selectedCookbookTemplate: null,
   newDiffName: '',
   newDiffCommand: '',
   pastebin: [],
@@ -354,7 +344,7 @@ export const initialState: ConfigFormState = {
   loadingOverlays: true,
 
   runTargetEditModal: null,
-  quickLaunchEditModal: null,
+  quickLaunchDialogModal: null,
   pastebinEditModal: null,
   authSecretsModal: null,
   tlsModal: null,
@@ -465,26 +455,14 @@ function configFormReducer(state: ConfigFormState, action: ConfigFormAction): Co
     case 'RESET_NEW_COMMAND':
       return { ...state, newCommandName: '', newCommandCommand: '' };
 
-    case 'RESET_NEW_QUICK_LAUNCH':
-      return {
-        ...state,
-        newQuickLaunchName: '',
-        newQuickLaunchMode: 'agent',
-        newQuickLaunchTarget: '',
-        newQuickLaunchPrompt: '',
-        newQuickLaunchCommand: '',
-        newQuickLaunchPersonaId: '',
-        selectedCookbookTemplate: null,
-      };
-
     case 'RESET_NEW_DIFF':
       return { ...state, newDiffName: '', newDiffCommand: '' };
 
     case 'SET_RUN_TARGET_EDIT_MODAL':
       return { ...state, runTargetEditModal: action.modal };
 
-    case 'SET_QUICK_LAUNCH_EDIT_MODAL':
-      return { ...state, quickLaunchEditModal: action.modal };
+    case 'SET_QUICK_LAUNCH_DIALOG_MODAL':
+      return { ...state, quickLaunchDialogModal: action.modal };
 
     case 'SET_AUTH_SECRETS_MODAL':
       return { ...state, authSecretsModal: action.modal };

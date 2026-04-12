@@ -16,10 +16,11 @@ type SessionsTabProps = {
   models: Model[];
   personas: Persona[];
   builtinQuickLaunch: BuiltinQuickLaunchCookbook[];
-  selectedCookbookTemplate: BuiltinQuickLaunchCookbook | null;
-  onAddQuickLaunch: () => void;
+  onEditQuickLaunch: (item: QuickLaunchPreset) => void;
   onRemoveQuickLaunch: (name: string) => void;
-  onOpenQuickLaunchEditModal: (item: QuickLaunchPreset) => void;
+  onAddAgent: () => void;
+  onAddQuickLaunchCommand: () => void;
+  onAddFromCookbook: (template: BuiltinQuickLaunchCookbook) => void;
   onOpenPastebinEditModal: (index: number, content: string) => void;
   onOpenAddPastebinModal: () => void;
   onAddCommand: () => void;
@@ -33,18 +34,17 @@ export default function SessionsTab({
   models,
   personas,
   builtinQuickLaunch,
-  selectedCookbookTemplate,
-  onAddQuickLaunch,
+  onEditQuickLaunch,
   onRemoveQuickLaunch,
-  onOpenQuickLaunchEditModal,
+  onAddAgent,
+  onAddQuickLaunchCommand,
+  onAddFromCookbook,
   onOpenPastebinEditModal,
   onOpenAddPastebinModal,
   onAddCommand,
   onRemoveCommand,
   onOpenRunTargetEditModal,
 }: SessionsTabProps) {
-  const isAgentMode = state.newQuickLaunchMode === 'agent';
-
   return (
     <div className="wizard-step-content" data-step="2">
       <h2 className="wizard-step-content__title">Sessions</h2>
@@ -90,7 +90,7 @@ export default function SessionsTab({
                     <div className="btn-group">
                       <button
                         className="btn btn--sm btn--primary"
-                        onClick={() => onOpenQuickLaunchEditModal(item)}
+                        onClick={() => onEditQuickLaunch(item)}
                       >
                         Edit
                       </button>
@@ -106,164 +106,13 @@ export default function SessionsTab({
               </div>
             )}
 
-            <div className="quick-launch-editor__form">
-              {selectedCookbookTemplate && (
-                <div className="quick-launch-editor__cookbook-selected">
-                  <span className="quick-launch-editor__cookbook-label">
-                    Adding from Cookbook: <strong>{selectedCookbookTemplate.name}</strong>
-                  </span>
-                  <button
-                    type="button"
-                    className="quick-launch-editor__cookbook-clear"
-                    onClick={() => {
-                      dispatch({
-                        type: 'SET_FIELD',
-                        field: 'selectedCookbookTemplate',
-                        value: null,
-                      });
-                      dispatch({ type: 'SET_FIELD', field: 'newQuickLaunchName', value: '' });
-                      dispatch({ type: 'SET_FIELD', field: 'newQuickLaunchPrompt', value: '' });
-                    }}
-                  >
-                    Clear
-                  </button>
-                </div>
-              )}
-
-              {!selectedCookbookTemplate && (
-                <div className="quick-launch-editor__mode-toggle">
-                  <label className="quick-launch-editor__mode-option">
-                    <input
-                      type="radio"
-                      name="quickLaunchMode"
-                      checked={isAgentMode}
-                      onChange={() => {
-                        dispatch({
-                          type: 'SET_FIELD',
-                          field: 'newQuickLaunchMode',
-                          value: 'agent',
-                        });
-                      }}
-                    />
-                    Agent
-                  </label>
-                  <label className="quick-launch-editor__mode-option">
-                    <input
-                      type="radio"
-                      name="quickLaunchMode"
-                      checked={!isAgentMode}
-                      onChange={() => {
-                        dispatch({
-                          type: 'SET_FIELD',
-                          field: 'newQuickLaunchMode',
-                          value: 'command',
-                        });
-                      }}
-                    />
-                    Command
-                  </label>
-                </div>
-              )}
-
-              <div className="quick-launch-editor__row">
-                <input
-                  type="text"
-                  className="input quick-launch-editor__name"
-                  placeholder="Name"
-                  value={state.newQuickLaunchName}
-                  onChange={(e) =>
-                    dispatch({
-                      type: 'SET_FIELD',
-                      field: 'newQuickLaunchName',
-                      value: e.target.value,
-                    })
-                  }
-                />
-                {isAgentMode || selectedCookbookTemplate ? (
-                  <>
-                    <select
-                      className="input quick-launch-editor__select"
-                      value={state.newQuickLaunchTarget}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        dispatch({ type: 'SET_FIELD', field: 'newQuickLaunchTarget', value });
-                        if (!state.newQuickLaunchName.trim()) {
-                          dispatch({ type: 'SET_FIELD', field: 'newQuickLaunchName', value });
-                        }
-                      }}
-                    >
-                      <option value="">Select agent...</option>
-                      <optgroup label="Agents">
-                        {models
-                          .filter((model) => model.configured)
-                          .map((model) => (
-                            <option key={model.id} value={model.id}>
-                              {model.display_name}
-                            </option>
-                          ))}
-                      </optgroup>
-                    </select>
-                    {personas.length > 0 && (
-                      <select
-                        className="input quick-launch-editor__select"
-                        value={state.newQuickLaunchPersonaId}
-                        onChange={(e) =>
-                          dispatch({
-                            type: 'SET_FIELD',
-                            field: 'newQuickLaunchPersonaId',
-                            value: e.target.value,
-                          })
-                        }
-                      >
-                        <option value="">No persona</option>
-                        {personas.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.icon} {p.name}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </>
-                ) : (
-                  <input
-                    type="text"
-                    className="input quick-launch-editor__command"
-                    placeholder="Shell command (e.g. make build)"
-                    value={state.newQuickLaunchCommand}
-                    onChange={(e) =>
-                      dispatch({
-                        type: 'SET_FIELD',
-                        field: 'newQuickLaunchCommand',
-                        value: e.target.value,
-                      })
-                    }
-                  />
-                )}
-                <button type="button" className="btn btn--primary" onClick={onAddQuickLaunch}>
-                  Add
-                </button>
-              </div>
-
-              {(isAgentMode || selectedCookbookTemplate) && (
-                <div className="quick-launch-editor__prompt">
-                  <label className="form-group__label">
-                    {selectedCookbookTemplate ? 'Prompt (from Cookbook)' : 'Prompt'}
-                  </label>
-                  <textarea
-                    className="input quick-launch-editor__prompt-input"
-                    placeholder={selectedCookbookTemplate ? '' : 'Prompt'}
-                    value={state.newQuickLaunchPrompt}
-                    onChange={(e) =>
-                      dispatch({
-                        type: 'SET_FIELD',
-                        field: 'newQuickLaunchPrompt',
-                        value: e.target.value,
-                      })
-                    }
-                    rows={6}
-                  />
-                </div>
-              )}
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+              <button className="btn btn--primary" onClick={onAddAgent}>
+                Add Agent
+              </button>
+              <button className="btn btn--primary" onClick={onAddQuickLaunchCommand}>
+                Add Command
+              </button>
             </div>
 
             {builtinQuickLaunch.length > 0 && (
@@ -276,10 +125,9 @@ export default function SessionsTab({
                 <div className="quick-launch-editor__list">
                   {builtinQuickLaunch.map((template) => {
                     const isAdded = state.quickLaunch.some((p) => p.name === template.name);
-                    const isSelected = selectedCookbookTemplate?.name === template.name;
                     return (
                       <div
-                        className={`quick-launch-editor__item quick-launch-editor__item--cookbook${isSelected ? ' quick-launch-editor__item--selected' : ''}`}
+                        className="quick-launch-editor__item quick-launch-editor__item--cookbook"
                         key={`cookbook-${template.name}`}
                       >
                         <div className="quick-launch-editor__item-main">
@@ -293,34 +141,8 @@ export default function SessionsTab({
                           <span className="quick-launch-editor__item-status">Added</span>
                         ) : (
                           <button
-                            className="btn"
-                            onClick={() => {
-                              dispatch({
-                                type: 'SET_FIELD',
-                                field: 'selectedCookbookTemplate',
-                                value: template,
-                              });
-                              dispatch({
-                                type: 'SET_FIELD',
-                                field: 'newQuickLaunchMode',
-                                value: 'agent',
-                              });
-                              dispatch({
-                                type: 'SET_FIELD',
-                                field: 'newQuickLaunchName',
-                                value: template.name,
-                              });
-                              dispatch({
-                                type: 'SET_FIELD',
-                                field: 'newQuickLaunchPrompt',
-                                value: template.prompt,
-                              });
-                              (
-                                document.querySelector(
-                                  '.quick-launch-editor__select'
-                                ) as HTMLSelectElement | null
-                              )?.focus();
-                            }}
+                            className="btn btn--sm btn--primary"
+                            onClick={() => onAddFromCookbook(template)}
                           >
                             Add
                           </button>

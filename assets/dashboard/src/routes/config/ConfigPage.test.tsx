@@ -262,17 +262,16 @@ describe('ConfigPage', () => {
     });
   });
 
-  it('falls back to Workspaces tab for dissolved slugs', async () => {
+  it('redirects quicklaunch slug to Sessions tab', async () => {
     render(
       <MemoryRouter initialEntries={['/config?tab=quicklaunch']}>
         <ConfigPage />
       </MemoryRouter>
     );
+    // Wait for config to load, then check that the Sessions tab is active
     await waitFor(() => {
-      expect(screen.getByDisplayValue('/home/user/ws')).toBeInTheDocument();
+      expect(screen.getByTestId('config-tab-sessions')).toHaveAttribute('aria-selected', 'true');
     });
-    // The Workspaces tab should be active (fallback from dissolved slug)
-    expect(screen.getByTestId('config-tab-workspaces')).toHaveAttribute('aria-selected', 'true');
   });
 
   it('shows error toast when auto-save fails', async () => {

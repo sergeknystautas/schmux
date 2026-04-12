@@ -188,29 +188,6 @@ describe('useConfigForm', () => {
       expect(result.current.state.quickLaunch[0].target).toBeUndefined();
     });
 
-    it('RESET_NEW_QUICK_LAUNCH clears mode and command fields', () => {
-      const { result } = renderHook(() => useConfigForm());
-      act(() => {
-        result.current.dispatch({
-          type: 'SET_FIELD',
-          field: 'newQuickLaunchMode',
-          value: 'command',
-        });
-        result.current.dispatch({
-          type: 'SET_FIELD',
-          field: 'newQuickLaunchCommand',
-          value: 'make test',
-        });
-      });
-      expect(result.current.state.newQuickLaunchMode).toBe('command');
-      expect(result.current.state.newQuickLaunchCommand).toBe('make test');
-      act(() => {
-        result.current.dispatch({ type: 'RESET_NEW_QUICK_LAUNCH' });
-      });
-      expect(result.current.state.newQuickLaunchMode).toBe('agent');
-      expect(result.current.state.newQuickLaunchCommand).toBe('');
-    });
-
     it('ADD_QUICK_LAUNCH preserves persona_id on agent items', () => {
       const { result } = renderHook(() => useConfigForm());
       act(() => {
@@ -223,20 +200,54 @@ describe('useConfigForm', () => {
       expect(result.current.state.quickLaunch[0].persona_id).toBe('reviewer');
     });
 
-    it('RESET_NEW_QUICK_LAUNCH clears persona_id', () => {
+    it('SET_QUICK_LAUNCH_DIALOG_MODAL opens with agent defaults', () => {
       const { result } = renderHook(() => useConfigForm());
       act(() => {
         result.current.dispatch({
-          type: 'SET_FIELD',
-          field: 'newQuickLaunchPersonaId',
-          value: 'reviewer',
+          type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+          modal: { mode: 'add', kind: 'agent', name: '', error: '' },
         });
       });
-      expect(result.current.state.newQuickLaunchPersonaId).toBe('reviewer');
-      act(() => {
-        result.current.dispatch({ type: 'RESET_NEW_QUICK_LAUNCH' });
+      expect(result.current.state.quickLaunchDialogModal).toEqual({
+        mode: 'add',
+        kind: 'agent',
+        name: '',
+        error: '',
       });
-      expect(result.current.state.newQuickLaunchPersonaId).toBe('');
+    });
+
+    it('SET_QUICK_LAUNCH_DIALOG_MODAL clears to null on close', () => {
+      const { result } = renderHook(() => useConfigForm());
+      act(() => {
+        result.current.dispatch({
+          type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+          modal: { mode: 'add', kind: 'agent', name: '', error: '' },
+        });
+      });
+      act(() => {
+        result.current.dispatch({ type: 'SET_QUICK_LAUNCH_DIALOG_MODAL', modal: null });
+      });
+      expect(result.current.state.quickLaunchDialogModal).toBeNull();
+    });
+
+    it('SET_QUICK_LAUNCH_DIALOG_MODAL preserves edit fields', () => {
+      const { result } = renderHook(() => useConfigForm());
+      act(() => {
+        result.current.dispatch({
+          type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+          modal: {
+            mode: 'edit',
+            kind: 'agent',
+            name: 'code-review',
+            originalName: 'code-review',
+            target: 'claude-sonnet',
+            prompt: 'Review this code',
+            error: '',
+          },
+        });
+      });
+      expect(result.current.state.quickLaunchDialogModal?.target).toBe('claude-sonnet');
+      expect(result.current.state.quickLaunchDialogModal?.prompt).toBe('Review this code');
     });
   });
 

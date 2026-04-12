@@ -131,7 +131,7 @@ export default function ActionDropdown({
   const handleManageQuickLaunch = (e: React.MouseEvent) => {
     e.stopPropagation();
     onClose();
-    navigate('/config?tab=quicklaunch');
+    navigate('/config?tab=sessions');
   };
 
   const handleManageEmerged = (e: React.MouseEvent) => {

@@ -18,17 +18,19 @@ describe('ConfigModals', () => {
             error: '',
           }}
           runTargetEditModal={null}
-          quickLaunchEditModal={null}
+          quickLaunchDialogModal={null}
           tlsModal={null}
           pastebinEditModal={null}
           dispatch={dispatch}
           onSaveAuthSecrets={vi.fn()}
           onSaveRunTargetEdit={vi.fn()}
-          onSaveQuickLaunchEdit={vi.fn()}
+          onSaveQuickLaunchDialog={vi.fn()}
           onSavePastebinEdit={vi.fn()}
           onSaveTls={vi.fn()}
           onValidateTls={vi.fn()}
           authPublicBaseURL=""
+          models={[]}
+          personas={[]}
         />
       );
       expect(screen.getByText('GitHub OAuth Credentials')).toBeInTheDocument();
@@ -41,17 +43,19 @@ describe('ConfigModals', () => {
         <ConfigModals
           authSecretsModal={null}
           runTargetEditModal={null}
-          quickLaunchEditModal={null}
+          quickLaunchDialogModal={null}
           tlsModal={null}
           pastebinEditModal={null}
           dispatch={dispatch}
           onSaveAuthSecrets={vi.fn()}
           onSaveRunTargetEdit={vi.fn()}
-          onSaveQuickLaunchEdit={vi.fn()}
+          onSaveQuickLaunchDialog={vi.fn()}
           onSavePastebinEdit={vi.fn()}
           onSaveTls={vi.fn()}
           onValidateTls={vi.fn()}
           authPublicBaseURL=""
+          models={[]}
+          personas={[]}
         />
       );
       expect(screen.queryByText('GitHub OAuth Credentials')).not.toBeInTheDocument();
@@ -68,17 +72,19 @@ describe('ConfigModals', () => {
             error: '',
           }}
           runTargetEditModal={null}
-          quickLaunchEditModal={null}
+          quickLaunchDialogModal={null}
           tlsModal={null}
           pastebinEditModal={null}
           dispatch={dispatch}
           onSaveAuthSecrets={onSaveAuthSecrets}
           onSaveRunTargetEdit={vi.fn()}
-          onSaveQuickLaunchEdit={vi.fn()}
+          onSaveQuickLaunchDialog={vi.fn()}
           onSavePastebinEdit={vi.fn()}
           onSaveTls={vi.fn()}
           onValidateTls={vi.fn()}
           authPublicBaseURL=""
+          models={[]}
+          personas={[]}
         />
       );
       await userEvent.click(screen.getByText('Save'));
@@ -95,17 +101,19 @@ describe('ConfigModals', () => {
             error: 'Bad creds',
           }}
           runTargetEditModal={null}
-          quickLaunchEditModal={null}
+          quickLaunchDialogModal={null}
           tlsModal={null}
           pastebinEditModal={null}
           dispatch={dispatch}
           onSaveAuthSecrets={vi.fn()}
           onSaveRunTargetEdit={vi.fn()}
-          onSaveQuickLaunchEdit={vi.fn()}
+          onSaveQuickLaunchDialog={vi.fn()}
           onSavePastebinEdit={vi.fn()}
           onSaveTls={vi.fn()}
           onValidateTls={vi.fn()}
           authPublicBaseURL=""
+          models={[]}
+          personas={[]}
         />
       );
       expect(screen.getByText('Bad creds')).toBeInTheDocument();
@@ -122,17 +130,19 @@ describe('ConfigModals', () => {
             error: '',
           }}
           runTargetEditModal={null}
-          quickLaunchEditModal={null}
+          quickLaunchDialogModal={null}
           tlsModal={null}
           pastebinEditModal={null}
           dispatch={dispatch}
           onSaveAuthSecrets={vi.fn()}
           onSaveRunTargetEdit={vi.fn()}
-          onSaveQuickLaunchEdit={vi.fn()}
+          onSaveQuickLaunchDialog={vi.fn()}
           onSavePastebinEdit={vi.fn()}
           onSaveTls={vi.fn()}
           onValidateTls={vi.fn()}
           authPublicBaseURL=""
+          models={[]}
+          personas={[]}
         />
       );
       await userEvent.click(screen.getByText('Cancel'));
@@ -150,17 +160,19 @@ describe('ConfigModals', () => {
             command: 'my-agent --prompt',
             error: '',
           }}
-          quickLaunchEditModal={null}
+          quickLaunchDialogModal={null}
           tlsModal={null}
           pastebinEditModal={null}
           dispatch={dispatch}
           onSaveAuthSecrets={vi.fn()}
           onSaveRunTargetEdit={vi.fn()}
-          onSaveQuickLaunchEdit={vi.fn()}
+          onSaveQuickLaunchDialog={vi.fn()}
           onSavePastebinEdit={vi.fn()}
           onSaveTls={vi.fn()}
           onValidateTls={vi.fn()}
           authPublicBaseURL=""
+          models={[]}
+          personas={[]}
         />
       );
       expect(screen.getByText('Edit my-agent')).toBeInTheDocument();
@@ -177,17 +189,19 @@ describe('ConfigModals', () => {
             command: 'x',
             error: '',
           }}
-          quickLaunchEditModal={null}
+          quickLaunchDialogModal={null}
           tlsModal={null}
           pastebinEditModal={null}
           dispatch={dispatch}
           onSaveAuthSecrets={vi.fn()}
           onSaveRunTargetEdit={onSaveRunTargetEdit}
-          onSaveQuickLaunchEdit={vi.fn()}
+          onSaveQuickLaunchDialog={vi.fn()}
           onSavePastebinEdit={vi.fn()}
           onSaveTls={vi.fn()}
           onValidateTls={vi.fn()}
           authPublicBaseURL=""
+          models={[]}
+          personas={[]}
         />
       );
       await userEvent.click(screen.getByText('Save'));
@@ -195,60 +209,223 @@ describe('ConfigModals', () => {
     });
   });
 
-  describe('quick launch edit modal', () => {
-    it('renders prompt textarea for promptable targets', () => {
+  describe('quick launch dialog modal', () => {
+    const mockModels = [
+      { id: 'claude-sonnet', display_name: 'Claude Sonnet', configured: true },
+    ] as any;
+
+    const agentModal = {
+      mode: 'add' as const,
+      kind: 'agent' as const,
+      name: '',
+      target: '',
+      prompt: '',
+      error: '',
+    };
+
+    const commandModal = {
+      mode: 'add' as const,
+      kind: 'command' as const,
+      name: '',
+      command: '',
+      error: '',
+    };
+
+    const editAgentModal = {
+      mode: 'edit' as const,
+      kind: 'agent' as const,
+      name: 'code-review',
+      originalName: 'code-review',
+      target: 'claude-sonnet',
+      prompt: 'Review this code',
+      error: '',
+    };
+
+    it('renders agent dialog with model select and prompt textarea', () => {
       render(
         <ConfigModals
           authSecretsModal={null}
           runTargetEditModal={null}
-          quickLaunchEditModal={{
-            item: { name: 'ql1', target: 'claude', prompt: 'hello' },
-            prompt: 'hello',
-            isCommandTarget: false,
-            error: '',
-          }}
+          quickLaunchDialogModal={agentModal}
           tlsModal={null}
           pastebinEditModal={null}
           dispatch={dispatch}
           onSaveAuthSecrets={vi.fn()}
           onSaveRunTargetEdit={vi.fn()}
-          onSaveQuickLaunchEdit={vi.fn()}
+          onSaveQuickLaunchDialog={vi.fn()}
           onSavePastebinEdit={vi.fn()}
           onSaveTls={vi.fn()}
           onValidateTls={vi.fn()}
           authPublicBaseURL=""
+          models={mockModels}
+          personas={[]}
         />
       );
-      expect(screen.getByText('Edit ql1')).toBeInTheDocument();
+      expect(screen.getByText('Add Quick Launch')).toBeInTheDocument();
+      expect(screen.getByText('Model')).toBeInTheDocument();
       expect(screen.getByText('Prompt')).toBeInTheDocument();
-      expect(screen.getByDisplayValue('hello')).toBeInTheDocument();
+      expect(screen.queryByText('Command')).not.toBeInTheDocument();
     });
 
-    it('renders command textarea for command targets', () => {
+    it('renders command dialog with command textarea', () => {
       render(
         <ConfigModals
           authSecretsModal={null}
           runTargetEditModal={null}
-          quickLaunchEditModal={{
-            item: { name: 'ql2', target: 'build', prompt: null },
-            prompt: 'make build',
-            isCommandTarget: true,
-            error: '',
-          }}
+          quickLaunchDialogModal={commandModal}
           tlsModal={null}
           pastebinEditModal={null}
           dispatch={dispatch}
           onSaveAuthSecrets={vi.fn()}
           onSaveRunTargetEdit={vi.fn()}
-          onSaveQuickLaunchEdit={vi.fn()}
+          onSaveQuickLaunchDialog={vi.fn()}
           onSavePastebinEdit={vi.fn()}
           onSaveTls={vi.fn()}
           onValidateTls={vi.fn()}
           authPublicBaseURL=""
+          models={mockModels}
+          personas={[]}
         />
       );
+      expect(screen.getByText('Add Quick Launch')).toBeInTheDocument();
       expect(screen.getByText('Command')).toBeInTheDocument();
-      expect(screen.getByDisplayValue('make build')).toBeInTheDocument();
+      expect(screen.queryByText('Model')).not.toBeInTheDocument();
+    });
+
+    it('renders edit mode with title and read-only name', () => {
+      render(
+        <ConfigModals
+          authSecretsModal={null}
+          runTargetEditModal={null}
+          quickLaunchDialogModal={editAgentModal}
+          tlsModal={null}
+          pastebinEditModal={null}
+          dispatch={dispatch}
+          onSaveAuthSecrets={vi.fn()}
+          onSaveRunTargetEdit={vi.fn()}
+          onSaveQuickLaunchDialog={vi.fn()}
+          onSavePastebinEdit={vi.fn()}
+          onSaveTls={vi.fn()}
+          onValidateTls={vi.fn()}
+          authPublicBaseURL=""
+          models={mockModels}
+          personas={[]}
+        />
+      );
+      expect(screen.getByText('Edit code-review')).toBeInTheDocument();
+      const nameInput = screen.getByDisplayValue('code-review') as HTMLInputElement;
+      expect(nameInput.readOnly).toBe(true);
+    });
+
+    it('calls save handler on Save click', () => {
+      const onSave = vi.fn();
+      render(
+        <ConfigModals
+          authSecretsModal={null}
+          runTargetEditModal={null}
+          quickLaunchDialogModal={agentModal}
+          tlsModal={null}
+          pastebinEditModal={null}
+          dispatch={dispatch}
+          onSaveAuthSecrets={vi.fn()}
+          onSaveRunTargetEdit={vi.fn()}
+          onSaveQuickLaunchDialog={onSave}
+          onSavePastebinEdit={vi.fn()}
+          onSaveTls={vi.fn()}
+          onValidateTls={vi.fn()}
+          authPublicBaseURL=""
+          models={mockModels}
+          personas={[]}
+        />
+      );
+      const saveBtn = screen.getAllByText('Save').find((el) => el.closest('.modal__footer'));
+      saveBtn?.click();
+      expect(onSave).toHaveBeenCalled();
+    });
+
+    it('dispatches close on Cancel click', () => {
+      const localDispatch = vi.fn();
+      render(
+        <ConfigModals
+          authSecretsModal={null}
+          runTargetEditModal={null}
+          quickLaunchDialogModal={agentModal}
+          tlsModal={null}
+          pastebinEditModal={null}
+          dispatch={localDispatch}
+          onSaveAuthSecrets={vi.fn()}
+          onSaveRunTargetEdit={vi.fn()}
+          onSaveQuickLaunchDialog={vi.fn()}
+          onSavePastebinEdit={vi.fn()}
+          onSaveTls={vi.fn()}
+          onValidateTls={vi.fn()}
+          authPublicBaseURL=""
+          models={mockModels}
+          personas={[]}
+        />
+      );
+      const cancelBtn = screen.getAllByText('Cancel').find((el) => el.closest('.modal__footer'));
+      cancelBtn?.click();
+      expect(localDispatch).toHaveBeenCalledWith({
+        type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+        modal: null,
+      });
+    });
+
+    it('shows stale model as unavailable option in edit mode', () => {
+      const staleModal = {
+        mode: 'edit' as const,
+        kind: 'agent' as const,
+        name: 'old-preset',
+        originalName: 'old-preset',
+        target: 'deleted-model',
+        prompt: 'Do stuff',
+        error: '',
+      };
+      render(
+        <ConfigModals
+          authSecretsModal={null}
+          runTargetEditModal={null}
+          quickLaunchDialogModal={staleModal}
+          tlsModal={null}
+          pastebinEditModal={null}
+          dispatch={dispatch}
+          onSaveAuthSecrets={vi.fn()}
+          onSaveRunTargetEdit={vi.fn()}
+          onSaveQuickLaunchDialog={vi.fn()}
+          onSavePastebinEdit={vi.fn()}
+          onSaveTls={vi.fn()}
+          onValidateTls={vi.fn()}
+          authPublicBaseURL=""
+          models={mockModels}
+          personas={[]}
+        />
+      );
+      expect(screen.getByText('deleted-model (unavailable)')).toBeInTheDocument();
+    });
+
+    it('displays error message', () => {
+      const errorModal = { ...agentModal, error: 'Name is required' };
+      render(
+        <ConfigModals
+          authSecretsModal={null}
+          runTargetEditModal={null}
+          quickLaunchDialogModal={errorModal}
+          tlsModal={null}
+          pastebinEditModal={null}
+          dispatch={dispatch}
+          onSaveAuthSecrets={vi.fn()}
+          onSaveRunTargetEdit={vi.fn()}
+          onSaveQuickLaunchDialog={vi.fn()}
+          onSavePastebinEdit={vi.fn()}
+          onSaveTls={vi.fn()}
+          onValidateTls={vi.fn()}
+          authPublicBaseURL=""
+          models={mockModels}
+          personas={[]}
+        />
+      );
+      expect(screen.getByText('Name is required')).toBeInTheDocument();
     });
   });
 
@@ -258,7 +435,7 @@ describe('ConfigModals', () => {
         <ConfigModals
           authSecretsModal={null}
           runTargetEditModal={null}
-          quickLaunchEditModal={null}
+          quickLaunchDialogModal={null}
           tlsModal={{
             certPath: '',
             keyPath: '',
@@ -271,11 +448,13 @@ describe('ConfigModals', () => {
           dispatch={dispatch}
           onSaveAuthSecrets={vi.fn()}
           onSaveRunTargetEdit={vi.fn()}
-          onSaveQuickLaunchEdit={vi.fn()}
+          onSaveQuickLaunchDialog={vi.fn()}
           onSavePastebinEdit={vi.fn()}
           onSaveTls={vi.fn()}
           onValidateTls={vi.fn()}
           authPublicBaseURL=""
+          models={[]}
+          personas={[]}
         />
       );
       expect(screen.getByText('TLS Certificate')).toBeInTheDocument();
@@ -287,17 +466,19 @@ describe('ConfigModals', () => {
         <ConfigModals
           authSecretsModal={null}
           runTargetEditModal={null}
-          quickLaunchEditModal={null}
+          quickLaunchDialogModal={null}
           tlsModal={null}
           pastebinEditModal={null}
           dispatch={dispatch}
           onSaveAuthSecrets={vi.fn()}
           onSaveRunTargetEdit={vi.fn()}
-          onSaveQuickLaunchEdit={vi.fn()}
+          onSaveQuickLaunchDialog={vi.fn()}
           onSavePastebinEdit={vi.fn()}
           onSaveTls={vi.fn()}
           onValidateTls={vi.fn()}
           authPublicBaseURL=""
+          models={[]}
+          personas={[]}
         />
       );
       expect(screen.queryByText('TLS Certificate')).not.toBeInTheDocument();
@@ -309,7 +490,7 @@ describe('ConfigModals', () => {
         <ConfigModals
           authSecretsModal={null}
           runTargetEditModal={null}
-          quickLaunchEditModal={null}
+          quickLaunchDialogModal={null}
           tlsModal={{
             certPath: '/path/to/cert.pem',
             keyPath: '/path/to/key.pem',
@@ -322,11 +503,13 @@ describe('ConfigModals', () => {
           dispatch={dispatch}
           onSaveAuthSecrets={vi.fn()}
           onSaveRunTargetEdit={vi.fn()}
-          onSaveQuickLaunchEdit={vi.fn()}
+          onSaveQuickLaunchDialog={vi.fn()}
           onSavePastebinEdit={vi.fn()}
           onSaveTls={vi.fn()}
           onValidateTls={onValidateTls}
           authPublicBaseURL=""
+          models={[]}
+          personas={[]}
         />
       );
       await userEvent.click(screen.getByText('Validate'));
@@ -338,7 +521,7 @@ describe('ConfigModals', () => {
         <ConfigModals
           authSecretsModal={null}
           runTargetEditModal={null}
-          quickLaunchEditModal={null}
+          quickLaunchDialogModal={null}
           tlsModal={{
             certPath: '/path/to/cert.pem',
             keyPath: '/path/to/key.pem',
@@ -351,11 +534,13 @@ describe('ConfigModals', () => {
           dispatch={dispatch}
           onSaveAuthSecrets={vi.fn()}
           onSaveRunTargetEdit={vi.fn()}
-          onSaveQuickLaunchEdit={vi.fn()}
+          onSaveQuickLaunchDialog={vi.fn()}
           onSavePastebinEdit={vi.fn()}
           onSaveTls={vi.fn()}
           onValidateTls={vi.fn()}
           authPublicBaseURL=""
+          models={[]}
+          personas={[]}
         />
       );
       expect(screen.getByText('Valid certificate')).toBeInTheDocument();

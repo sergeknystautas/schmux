@@ -205,7 +205,7 @@ describe('ActionDropdown', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/spawn?workspace_id=ws-1');
   });
 
-  it('Quick Launch manage link navigates to config quicklaunch tab', async () => {
+  it('Quick Launch manage link navigates to config sessions tab', async () => {
     const user = userEvent.setup();
     const { onClose } = await renderDropdown();
 
@@ -213,7 +213,7 @@ describe('ActionDropdown', () => {
     await user.click(manageLinks[0]); // first manage = Quick Launch
 
     expect(onClose).toHaveBeenCalled();
-    expect(mockNavigate).toHaveBeenCalledWith('/config?tab=quicklaunch');
+    expect(mockNavigate).toHaveBeenCalledWith('/config?tab=sessions');
   });
 
   it('Emerged manage link navigates to lore actions tab with repo', async () => {

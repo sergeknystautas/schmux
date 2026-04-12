@@ -50,14 +50,17 @@ const TAB_SLUGS = [
 
 const stepToSlug = (step: number) => TAB_SLUGS[step - 1];
 const DISSOLVED_SLUGS = new Set([
-  'quicklaunch',
   'pastebin',
   'codereview',
   'floormanager',
   'subreddit',
   'repofeed',
 ]);
+const DISSOLVED_SLUG_REDIRECTS: Record<string, number> = {
+  quicklaunch: 2, // Sessions tab
+};
 const slugToStep = (slug: string | null) => {
+  if (slug && slug in DISSOLVED_SLUG_REDIRECTS) return DISSOLVED_SLUG_REDIRECTS[slug];
   if (slug && DISSOLVED_SLUGS.has(slug)) return 1;
   const index = slug ? TAB_SLUGS.indexOf(slug) : -1;
   return index >= 0 ? index + 1 : 1;
@@ -78,8 +81,6 @@ export default function ConfigPage() {
     dispatch: rawDispatch,
     models,
     oneshotModels,
-    modelTargetNames,
-    commandTargetNames,
     branchSuggestTargetMissing,
     conflictResolveTargetMissing,
     prReviewTargetMissing,
@@ -550,51 +551,138 @@ export default function ConfigPage() {
     }
   };
 
-  const addQuickLaunch = () => {
-    if (state.newQuickLaunchMode === 'command') {
-      const command = state.newQuickLaunchCommand.trim();
-      if (!command) {
-        toastError('Command is required');
-        return;
-      }
-      const name = state.newQuickLaunchName.trim() || command;
-      if (state.quickLaunch.some((q) => q.name === name)) {
-        toastError('Quick launch name already exists');
-        return;
-      }
+  const openAddAgentDialog = () => {
+    dispatch({
+      type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+      modal: { mode: 'add', kind: 'agent', name: '', target: '', prompt: '', error: '' },
+    });
+  };
+
+  const openAddCommandDialog = () => {
+    dispatch({
+      type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+      modal: { mode: 'add', kind: 'command', name: '', command: '', error: '' },
+    });
+  };
+
+  const openEditQuickLaunchDialog = (item: import('../lib/types').QuickLaunchPreset) => {
+    const commandTarget = state.commandTargets.find((t) => t.name === item.target);
+    if (item.command || commandTarget) {
       dispatch({
-        type: 'ADD_QUICK_LAUNCH',
-        item: { name, command },
+        type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+        modal: {
+          mode: 'edit',
+          kind: 'command',
+          name: item.name,
+          originalName: item.name,
+          command: item.command || commandTarget?.command || '',
+          error: '',
+        },
       });
-      dispatch({ type: 'RESET_NEW_QUICK_LAUNCH' });
+    } else {
+      dispatch({
+        type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+        modal: {
+          mode: 'edit',
+          kind: 'agent',
+          name: item.name,
+          originalName: item.name,
+          target: item.target || '',
+          prompt: item.prompt || '',
+          personaId: item.persona_id || '',
+          error: '',
+        },
+      });
+    }
+  };
+
+  const openCookbookDialog = (template: import('../lib/types').BuiltinQuickLaunchCookbook) => {
+    dispatch({
+      type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+      modal: {
+        mode: 'add',
+        kind: 'agent',
+        name: template.name,
+        target: '',
+        prompt: template.prompt,
+        error: '',
+      },
+    });
+  };
+
+  const saveQuickLaunchDialog = () => {
+    if (!state.quickLaunchDialogModal) return;
+    const modal = state.quickLaunchDialogModal;
+
+    if (modal.kind === 'command') {
+      const command = (modal.command || '').trim();
+      if (!command) {
+        dispatch({
+          type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+          modal: { ...modal, error: 'Command is required' },
+        });
+        return;
+      }
+      const name = modal.name.trim() || command;
+      if (modal.mode === 'add' && state.quickLaunch.some((q) => q.name === name)) {
+        dispatch({
+          type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+          modal: { ...modal, error: 'Quick launch name already exists' },
+        });
+        return;
+      }
+      if (modal.mode === 'add') {
+        dispatch({ type: 'ADD_QUICK_LAUNCH', item: { name, command } });
+      } else {
+        dispatch({
+          type: 'UPDATE_QUICK_LAUNCH',
+          name: modal.originalName!,
+          updates: { name, command },
+        });
+      }
+      dispatch({ type: 'SET_QUICK_LAUNCH_DIALOG_MODAL', modal: null });
       return;
     }
 
-    const targetName = state.newQuickLaunchTarget.trim();
-    if (!targetName) {
-      toastError('Quick launch target is required');
+    // Agent kind
+    const target = (modal.target || '').trim();
+    if (!target) {
+      dispatch({
+        type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+        modal: { ...modal, error: 'Model is required' },
+      });
       return;
     }
-    const name = state.newQuickLaunchName.trim() || targetName;
-    if (state.quickLaunch.some((q) => q.name === name)) {
-      toastError('Quick launch name already exists');
+    const name = modal.name.trim() || target;
+    if (modal.mode === 'add' && state.quickLaunch.some((q) => q.name === name)) {
+      dispatch({
+        type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+        modal: { ...modal, error: 'Quick launch name already exists' },
+      });
       return;
     }
-    const promptValue = state.newQuickLaunchPrompt.trim();
-    if (promptValue === '') {
-      toastError('Prompt is required for agent targets');
+    const prompt = (modal.prompt || '').trim();
+    if (!prompt) {
+      dispatch({
+        type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+        modal: { ...modal, error: 'Prompt is required' },
+      });
       return;
     }
-    dispatch({
-      type: 'ADD_QUICK_LAUNCH',
-      item: {
-        name,
-        target: targetName,
-        prompt: promptValue,
-        persona_id: state.newQuickLaunchPersonaId || undefined,
-      },
-    });
-    dispatch({ type: 'RESET_NEW_QUICK_LAUNCH' });
+
+    if (modal.mode === 'add') {
+      dispatch({
+        type: 'ADD_QUICK_LAUNCH',
+        item: { name, target, prompt, persona_id: modal.personaId || undefined },
+      });
+    } else {
+      dispatch({
+        type: 'UPDATE_QUICK_LAUNCH',
+        name: modal.originalName!,
+        updates: { name, target, prompt, persona_id: modal.personaId || undefined },
+      });
+    }
+    dispatch({ type: 'SET_QUICK_LAUNCH_DIALOG_MODAL', modal: null });
   };
 
   const removeQuickLaunch = async (name: string) => {
@@ -676,60 +764,6 @@ export default function ConfigPage() {
     }
     dispatch({ type: 'UPDATE_COMMAND_TARGET', name: target.name, command });
     dispatch({ type: 'SET_RUN_TARGET_EDIT_MODAL', modal: null });
-  };
-
-  const openQuickLaunchEditModal = (item: import('../lib/types').QuickLaunchPreset) => {
-    const isCommandTarget = commandTargetNames.has(item.target || '');
-    let initialPrompt = item.prompt || '';
-    if (isCommandTarget) {
-      const commandTarget = state.commandTargets.find((t) => t.name === item.target);
-      if (commandTarget) {
-        initialPrompt = commandTarget.command;
-      }
-    }
-    dispatch({
-      type: 'SET_QUICK_LAUNCH_EDIT_MODAL',
-      modal: { item, prompt: initialPrompt, isCommandTarget, error: '' },
-    });
-  };
-
-  const saveQuickLaunchEditModal = () => {
-    if (!state.quickLaunchEditModal) return;
-    const { item, prompt: modalPrompt, isCommandTarget } = state.quickLaunchEditModal;
-    const target = item.target || '';
-
-    const isPromptable = modelTargetNames.has(target);
-    if (isPromptable && !modalPrompt.trim()) {
-      dispatch({
-        type: 'SET_QUICK_LAUNCH_EDIT_MODAL',
-        modal: {
-          ...state.quickLaunchEditModal,
-          error: 'Prompt is required for promptable targets',
-        },
-      });
-      return;
-    }
-
-    if (isCommandTarget) {
-      if (!modalPrompt.trim()) {
-        dispatch({
-          type: 'SET_QUICK_LAUNCH_EDIT_MODAL',
-          modal: {
-            ...state.quickLaunchEditModal,
-            error: 'Command is required for command targets',
-          },
-        });
-        return;
-      }
-      dispatch({ type: 'UPDATE_COMMAND_TARGET', name: target, command: modalPrompt });
-    }
-
-    dispatch({
-      type: 'UPDATE_QUICK_LAUNCH',
-      name: item.name,
-      updates: { name: item.name, target, prompt: isPromptable ? modalPrompt : null },
-    });
-    dispatch({ type: 'SET_QUICK_LAUNCH_EDIT_MODAL', modal: null });
   };
 
   const savePastebinEditModal = () => {
@@ -994,10 +1028,11 @@ export default function ConfigPage() {
               models={models}
               personas={personas}
               builtinQuickLaunch={state.builtinQuickLaunch}
-              selectedCookbookTemplate={state.selectedCookbookTemplate}
-              onAddQuickLaunch={addQuickLaunch}
+              onEditQuickLaunch={openEditQuickLaunchDialog}
               onRemoveQuickLaunch={removeQuickLaunch}
-              onOpenQuickLaunchEditModal={openQuickLaunchEditModal}
+              onAddAgent={openAddAgentDialog}
+              onAddQuickLaunchCommand={openAddCommandDialog}
+              onAddFromCookbook={openCookbookDialog}
               onOpenPastebinEditModal={(index, content) => {
                 dispatch({
                   type: 'SET_PASTEBIN_EDIT_MODAL',
@@ -1113,17 +1148,19 @@ export default function ConfigPage() {
       <ConfigModals
         authSecretsModal={state.authSecretsModal}
         runTargetEditModal={state.runTargetEditModal}
-        quickLaunchEditModal={state.quickLaunchEditModal}
+        quickLaunchDialogModal={state.quickLaunchDialogModal}
         pastebinEditModal={state.pastebinEditModal}
         tlsModal={state.tlsModal}
         dispatch={dispatch}
         onSaveAuthSecrets={saveAuthSecretsModal}
         onSaveRunTargetEdit={saveRunTargetEditModal}
-        onSaveQuickLaunchEdit={saveQuickLaunchEditModal}
+        onSaveQuickLaunchDialog={saveQuickLaunchDialog}
         onSavePastebinEdit={savePastebinEditModal}
         onSaveTls={handleTlsModalSave}
         onValidateTls={handleTlsValidate}
         authPublicBaseURL={state.authPublicBaseURL}
+        models={models}
+        personas={personas}
       />
     </>
   );

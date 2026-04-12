@@ -3,47 +3,52 @@ import type {
   AuthSecretsModalState,
   ConfigFormAction,
   PastebinEditModalState,
-  QuickLaunchEditModalState,
+  QuickLaunchDialogModalState,
   RunTargetEditModalState,
   TlsModalState,
 } from './useConfigForm';
+import type { Model, Persona } from '../../lib/types.generated';
 
 type ConfigModalsProps = {
   authSecretsModal: AuthSecretsModalState;
   runTargetEditModal: RunTargetEditModalState;
-  quickLaunchEditModal: QuickLaunchEditModalState;
+  quickLaunchDialogModal: QuickLaunchDialogModalState;
   pastebinEditModal: PastebinEditModalState;
   tlsModal: TlsModalState;
   dispatch: React.Dispatch<ConfigFormAction>;
   onSaveAuthSecrets: () => void;
   onSaveRunTargetEdit: () => void;
-  onSaveQuickLaunchEdit: () => void;
+  onSaveQuickLaunchDialog: () => void;
   onSavePastebinEdit: () => void;
   onSaveTls: () => void;
   onValidateTls: () => void;
   authPublicBaseURL: string;
+  models: Model[];
+  personas: Persona[];
 };
 
 export default function ConfigModals({
   authSecretsModal,
   runTargetEditModal,
-  quickLaunchEditModal,
+  quickLaunchDialogModal,
   pastebinEditModal,
   tlsModal,
   dispatch,
   onSaveAuthSecrets,
   onSaveRunTargetEdit,
-  onSaveQuickLaunchEdit,
+  onSaveQuickLaunchDialog,
   onSavePastebinEdit,
   onSaveTls,
   onValidateTls,
   authPublicBaseURL,
+  models,
+  personas,
 }: ConfigModalsProps) {
   const closeAuthSecretsModal = () => dispatch({ type: 'SET_AUTH_SECRETS_MODAL', modal: null });
   const closeRunTargetEditModal = () =>
     dispatch({ type: 'SET_RUN_TARGET_EDIT_MODAL', modal: null });
-  const closeQuickLaunchEditModal = () =>
-    dispatch({ type: 'SET_QUICK_LAUNCH_EDIT_MODAL', modal: null });
+  const closeQuickLaunchDialogModal = () =>
+    dispatch({ type: 'SET_QUICK_LAUNCH_DIALOG_MODAL', modal: null });
   const closePastebinEditModal = () => dispatch({ type: 'SET_PASTEBIN_EDIT_MODAL', modal: null });
   const closeTlsModal = () => dispatch({ type: 'SET_TLS_MODAL', modal: null });
 
@@ -325,70 +330,162 @@ export default function ConfigModals({
         </div>
       )}
 
-      {quickLaunchEditModal && (
+      {quickLaunchDialogModal && (
         <div
           className="modal-overlay"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="quicklaunch-edit-modal-title"
+          aria-labelledby="quicklaunch-dialog-modal-title"
           onKeyDown={(e) => {
-            if (e.key === 'Escape') closeQuickLaunchEditModal();
+            if (e.key === 'Escape') closeQuickLaunchDialogModal();
           }}
         >
-          <div className="modal">
+          <div className="modal modal--wide">
             <div className="modal__header">
-              <h2 className="modal__title" id="quicklaunch-edit-modal-title">
-                Edit {quickLaunchEditModal.item.name}
+              <h2 className="modal__title" id="quicklaunch-dialog-modal-title">
+                {quickLaunchDialogModal.mode === 'edit'
+                  ? `Edit ${quickLaunchDialogModal.name}`
+                  : 'Add Quick Launch'}
               </h2>
             </div>
             <div className="modal__body">
-              {quickLaunchEditModal.isCommandTarget ? (
-                <div className="form-group">
-                  <label className="form-group__label">Command</label>
-                  <textarea
-                    className="input"
-                    value={quickLaunchEditModal.prompt}
-                    onChange={(e) =>
-                      dispatch({
-                        type: 'SET_QUICK_LAUNCH_EDIT_MODAL',
-                        modal: { ...quickLaunchEditModal, prompt: e.target.value, error: '' },
-                      })
-                    }
-                    placeholder="Shell command to run"
-                    rows={6}
-                    autoFocus
-                  />
-                  <p className="form-group__hint" style={{ color: 'var(--color-warning-text)' }}>
-                    This will update the underlying command target used by this quick launch item.
-                  </p>
-                </div>
+              {quickLaunchDialogModal.kind === 'command' ? (
+                <>
+                  <div className="form-group">
+                    <label className="form-group__label">Name</label>
+                    <input
+                      className="input"
+                      value={quickLaunchDialogModal.name}
+                      onChange={(e) =>
+                        dispatch({
+                          type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+                          modal: { ...quickLaunchDialogModal, name: e.target.value, error: '' },
+                        })
+                      }
+                      placeholder="e.g. build"
+                      readOnly={quickLaunchDialogModal.mode === 'edit'}
+                      autoFocus
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-group__label">Command</label>
+                    <textarea
+                      className="input"
+                      value={quickLaunchDialogModal.command || ''}
+                      onChange={(e) =>
+                        dispatch({
+                          type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+                          modal: { ...quickLaunchDialogModal, command: e.target.value, error: '' },
+                        })
+                      }
+                      placeholder="Shell command (e.g. make build)"
+                      rows={10}
+                    />
+                  </div>
+                </>
               ) : (
-                <div className="form-group">
-                  <label className="form-group__label">Prompt</label>
-                  <textarea
-                    className="input quick-launch-editor__prompt-input"
-                    value={quickLaunchEditModal.prompt}
-                    onChange={(e) =>
-                      dispatch({
-                        type: 'SET_QUICK_LAUNCH_EDIT_MODAL',
-                        modal: { ...quickLaunchEditModal, prompt: e.target.value, error: '' },
-                      })
-                    }
-                    placeholder="Prompt to send to the agent"
-                    rows={10}
-                    autoFocus
-                  />
-                </div>
+                <>
+                  <div className="form-group">
+                    <label className="form-group__label">Name</label>
+                    <input
+                      className="input"
+                      value={quickLaunchDialogModal.name}
+                      onChange={(e) =>
+                        dispatch({
+                          type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+                          modal: { ...quickLaunchDialogModal, name: e.target.value, error: '' },
+                        })
+                      }
+                      placeholder="e.g. code-review"
+                      readOnly={quickLaunchDialogModal.mode === 'edit'}
+                      autoFocus
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-group__label">Model</label>
+                    <select
+                      className="input"
+                      value={quickLaunchDialogModal.target || ''}
+                      onChange={(e) =>
+                        dispatch({
+                          type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+                          modal: { ...quickLaunchDialogModal, target: e.target.value, error: '' },
+                        })
+                      }
+                    >
+                      <option value="">Select agent...</option>
+                      {quickLaunchDialogModal.mode === 'edit' &&
+                        quickLaunchDialogModal.target &&
+                        !models.some(
+                          (m) => m.id === quickLaunchDialogModal.target && m.configured
+                        ) && (
+                          <option value={quickLaunchDialogModal.target} disabled>
+                            {quickLaunchDialogModal.target} (unavailable)
+                          </option>
+                        )}
+                      <optgroup label="Agents">
+                        {models
+                          .filter((model) => model.configured)
+                          .map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.display_name}
+                            </option>
+                          ))}
+                      </optgroup>
+                    </select>
+                  </div>
+                  {personas.length > 0 && (
+                    <div className="form-group">
+                      <label className="form-group__label">Persona</label>
+                      <select
+                        className="input"
+                        value={quickLaunchDialogModal.personaId || ''}
+                        onChange={(e) =>
+                          dispatch({
+                            type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+                            modal: {
+                              ...quickLaunchDialogModal,
+                              personaId: e.target.value,
+                              error: '',
+                            },
+                          })
+                        }
+                      >
+                        <option value="">No persona</option>
+                        {personas.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.icon} {p.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div className="form-group">
+                    <label className="form-group__label">Prompt</label>
+                    <textarea
+                      className="input"
+                      value={quickLaunchDialogModal.prompt || ''}
+                      onChange={(e) =>
+                        dispatch({
+                          type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+                          modal: { ...quickLaunchDialogModal, prompt: e.target.value, error: '' },
+                        })
+                      }
+                      placeholder="Prompt to send to the agent"
+                      rows={10}
+                    />
+                  </div>
+                </>
               )}
-              {quickLaunchEditModal.error && (
-                <p className="form-group__error">{quickLaunchEditModal.error}</p>
+              {quickLaunchDialogModal.error && (
+                <p className="form-group__error">{quickLaunchDialogModal.error}</p>
               )}
             </div>
             <div className="modal__footer">
-              <button className="btn" onClick={closeQuickLaunchEditModal}>
+              <button className="btn" onClick={closeQuickLaunchDialogModal}>
                 Cancel
               </button>
-              <button className="btn btn--primary" onClick={onSaveQuickLaunchEdit}>
+              <button className="btn btn--primary" onClick={onSaveQuickLaunchDialog}>
                 Save
               </button>
             </div>

@@ -100,9 +100,9 @@ test.describe.serial('Action dropdown shows quick launch and emerged sections', 
     const manageLinks = menu.getByText('manage');
     await manageLinks.first().click();
 
-    // Should navigate to config page with quicklaunch tab
-    await page.waitForURL(/\/config\?tab=quicklaunch/, { timeout: 5000 });
-    expect(page.url()).toContain('/config?tab=quicklaunch');
+    // Should navigate to config page with sessions tab (quick launch lives there now)
+    await page.waitForURL(/\/config\?tab=sessions/, { timeout: 5000 });
+    expect(page.url()).toContain('/config?tab=sessions');
   });
 
   test('quick launch preset spawns a session', async ({ page }) => {
