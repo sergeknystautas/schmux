@@ -340,6 +340,12 @@ func GenerateRepoPosts(ctx context.Context, cfg FullConfig, repoName, repoSlug s
 		return ErrDisabled
 	}
 
+	// Check if bare repo exists on disk before attempting git operations
+	fullBarePath := worktreeBasePath + "/" + barePath
+	if _, statErr := os.Stat(fullBarePath); os.IsNotExist(statErr) {
+		return fmt.Errorf("bare repo not found at %s (repo may not have been cloned yet)", fullBarePath)
+	}
+
 	checkingRange := cfg.GetSubredditCheckingRange()
 	maxPosts := cfg.GetSubredditMaxPosts()
 	maxAge := cfg.GetSubredditMaxAge()
