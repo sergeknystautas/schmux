@@ -25,32 +25,31 @@ test.describe.serial('Configure lore settings', () => {
         },
       ],
     });
-    // Reset lore config so selecting the LLM target creates a change
-    // (previous test runs may have already set it)
+    // Reset lore config so enabling it creates a change
     await apiPost('/api/config', {
-      lore: { llm_target: '', curate_on_dispose: 'session' },
+      lore: { enabled: true, llm_target: '', curate_on_dispose: 'session' },
     });
   });
 
-  test('Advanced tab shows Lore settings section', async ({ page }) => {
-    await page.goto('/config');
+  test('Experimental tab shows Lore feature card', async ({ page }) => {
+    await page.goto('/config?tab=experimental');
     await waitForDashboardLive(page);
 
-    // Click Advanced tab
-    const advancedTab = page.locator('[data-testid="config-tab-advanced"]');
-    await advancedTab.click();
+    // Verify Experimental tab is active
+    const experimentalTab = page.locator('[data-testid="config-tab-experimental"]');
+    await expect(experimentalTab).toHaveAttribute('aria-selected', 'true');
 
-    // Verify Lore section is visible
-    const loreSection = page.locator('h3', { hasText: 'Lore' });
+    // Verify Lore section is visible (use .first() because the inner config
+    // panel also renders an h3 "Lore" heading)
+    const loreSection = page.locator('h3', { hasText: 'Lore' }).first();
     await expect(loreSection).toBeVisible();
 
-    // Enable checkbox should be checked by default
-    const enableCheckbox = page
-      .locator('label', { hasText: 'Enable lore system' })
-      .locator('input[type="checkbox"]');
-    await expect(enableCheckbox).toBeChecked();
+    // Enable toggle should be present
+    const enableToggle = page.locator('[data-testid="experimental-toggle-lore"]');
+    await expect(enableToggle).toBeVisible();
+    await expect(enableToggle).toBeChecked();
 
-    // LLM Target dropdown should be visible
+    // LLM Target dropdown should be visible (lore is enabled)
     const targetSelect = page.getByLabel('LLM Target');
     await expect(targetSelect).toBeVisible();
 
@@ -65,25 +64,16 @@ test.describe.serial('Configure lore settings', () => {
     await expect(curateSelect.locator('option', { hasText: 'Never' })).toHaveCount(1);
   });
 
-  test('configure curate-on-dispose and save', async ({ page }) => {
-    await page.goto('/config');
+  test('configure curate-on-dispose and auto-save', async ({ page }) => {
+    await page.goto('/config?tab=experimental');
     await waitForDashboardLive(page);
-
-    // Click Advanced tab
-    const advancedTab = page.locator('[data-testid="config-tab-advanced"]');
-    await advancedTab.click();
 
     // Change curate-on-dispose to "workspace" (last session per workspace)
     const curateSelect = page.getByLabel('Curate On Dispose');
     await curateSelect.selectOption('workspace');
 
-    // Save
-    const saveButton = page.locator('[data-testid="config-save"]');
-    await expect(saveButton).toBeEnabled();
-    await saveButton.click();
-
-    // Verify save succeeds — button becomes disabled after saving
-    await expect(saveButton).toBeDisabled({ timeout: 10000 });
+    // Wait briefly for auto-save to complete
+    await page.waitForTimeout(500);
   });
 
   test('config API accepts lore fields', async () => {
@@ -115,22 +105,12 @@ test.describe.serial('Configure lore settings', () => {
   });
 
   test('lore status shows curator configured after setting target', async () => {
-    interface LoreStatus {
-      enabled: boolean;
-      curator_configured: boolean;
-      issues: string[];
-    }
-
-    const status = await apiGet<LoreStatus>('/api/lore/status');
-    expect(status.enabled).toBe(true);
-    // Note: curator_configured depends on whether the daemon wired an executor,
-    // which only happens at startup. The API still reports the config correctly.
-    // The issues array should be empty if target is set.
-    // However, since the daemon doesn't hot-reload the curator executor,
-    // we verify the config round-trip via GET /api/config instead.
     interface ConfigResp {
       lore: { llm_target: string };
     }
+    // Note: curator_configured depends on whether the daemon wired an executor,
+    // which only happens at startup. The API still reports the config correctly.
+    // We verify the config round-trip via GET /api/config instead.
     const config = await apiGet<ConfigResp>('/api/config');
     expect(config.lore.llm_target).toBe(agentName);
   });

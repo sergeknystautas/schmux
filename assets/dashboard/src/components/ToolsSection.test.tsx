@@ -11,6 +11,9 @@ vi.mock('../contexts/ConfigContext', () => ({
   useConfig: () => ({
     config: {
       repos: [{ name: 'test-repo', url: 'https://github.com/test/repo.git' }],
+      lore: { enabled: true },
+      repofeed: { enabled: true },
+      timelapse: { enabled: true },
     },
   }),
 }));
@@ -54,6 +57,10 @@ vi.mock('../lib/api', () => ({
   }),
 }));
 
+vi.mock('../lib/emergence-api', () => ({
+  getAllSpawnEntries: vi.fn().mockResolvedValue([]),
+}));
+
 // Wrapper component with router
 const TestWrapper = ({ children }: { children: React.ReactNode }) => (
   <MemoryRouter>{children}</MemoryRouter>
@@ -86,7 +93,11 @@ describe('ToolsSection', () => {
     expect(screen.getByText('Overlays')).toBeInTheDocument();
     expect(screen.getByText('Lore')).toBeInTheDocument();
     expect(screen.getByText('Personas')).toBeInTheDocument();
+    expect(screen.getByText('Comm Styles')).toBeInTheDocument();
+    expect(screen.getByText('Repofeed')).toBeInTheDocument();
+    expect(screen.getByText('Timelapse')).toBeInTheDocument();
     expect(screen.getByText('Remote Hosts')).toBeInTheDocument();
+    expect(screen.getByText('Environment')).toBeInTheDocument();
     expect(screen.getByText('Tips')).toBeInTheDocument();
     expect(screen.getByText('Config')).toBeInTheDocument();
   });

@@ -65,6 +65,7 @@ const configFixture: ConfigResponse = {
   },
   lore: { enabled: true, llm_target: '', curate_on_dispose: 'session', auto_pr: false },
   subreddit: {
+    enabled: false,
     target: '',
     interval: 30,
     checking_range: 48,

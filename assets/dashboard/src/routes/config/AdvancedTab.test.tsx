@@ -17,25 +17,10 @@ const models: Model[] = [
   },
 ];
 const defaultProps = {
-  loreEnabled: true,
-  loreLLMTarget: '',
-  loreCurateOnDispose: 'session',
-  loreAutoPR: false,
-  lorePublicRuleMode: 'direct_push',
-  subredditTarget: '',
-  subredditHours: 24,
-  nudgenikTarget: '',
-  viewedBuffer: 5000,
-  nudgenikSeenInterval: 2000,
   desyncEnabled: false,
   desyncTarget: '',
   ioWorkspaceTelemetryEnabled: false,
   ioWorkspaceTelemetryTarget: '',
-  branchSuggestTarget: '',
-  conflictResolveTarget: '',
-  soundDisabled: false,
-  confirmBeforeClose: false,
-  suggestDisposeAfterPush: true,
   dashboardPollInterval: 5000,
   gitStatusPollInterval: 10000,
   gitCloneTimeout: 300000,
@@ -45,13 +30,6 @@ const defaultProps = {
   xtermUseWebGL: true,
   localEchoRemote: false,
   debugUI: false,
-  nudgenikTargetMissing: false,
-  branchSuggestTargetMissing: false,
-  conflictResolveTargetMissing: false,
-  stepErrors: { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null } as Record<
-    number,
-    string | null
-  >,
   hasSaplingRepos: false,
   saplingCmdCreateWorkspace: '',
   saplingCmdRemoveWorkspace: '',
@@ -59,98 +37,50 @@ const defaultProps = {
   saplingCmdCreateRepoBase: '',
   tmuxBinary: '',
   tmuxSocketName: '',
-  timelapseEnabled: true,
-  timelapseRetentionDays: 7,
-  timelapseMaxFileSizeMB: 50,
-  timelapseMaxTotalStorageMB: 500,
+  externalDiffCommands: [] as { name: string; command: string }[],
+  externalDiffCleanupMinutes: 60,
+  newDiffName: '',
+  newDiffCommand: '',
+  onAddDiffCommand: vi.fn(),
   models,
   dispatch,
 };
 
 describe('AdvancedTab', () => {
-  it('renders all sections', () => {
+  it('renders core sections', () => {
     render(<AdvancedTab {...defaultProps} />);
-    expect(screen.getByText('Lore')).toBeInTheDocument();
-    expect(screen.getByText('NudgeNik')).toBeInTheDocument();
-    expect(screen.getByText('Terminal Desync Diagnostics')).toBeInTheDocument();
-    expect(screen.getByText('Branch Suggestion')).toBeInTheDocument();
-    expect(screen.getByText('Conflict Resolution')).toBeInTheDocument();
-    expect(screen.getByText('Notifications')).toBeInTheDocument();
     expect(screen.getByText('Sessions')).toBeInTheDocument();
     expect(screen.getByText('Xterm')).toBeInTheDocument();
+    expect(screen.getByText('Custom Diff Tools')).toBeInTheDocument();
+    expect(screen.getByText('Temp Cleanup')).toBeInTheDocument();
+    // Dev-only sections hidden when debugUI is false
+    expect(screen.queryByText('Terminal Desync Diagnostics')).not.toBeInTheDocument();
+    expect(screen.queryByText('IO Workspace Telemetry')).not.toBeInTheDocument();
   });
 
-  it('renders lore checkbox checked', () => {
-    render(<AdvancedTab {...defaultProps} loreEnabled={true} />);
-    const checkbox = screen.getByLabelText('Enable lore system');
-    expect(checkbox).toBeChecked();
+  it('renders dev-only sections when debugUI is true', () => {
+    render(<AdvancedTab {...defaultProps} debugUI={true} />);
+    expect(screen.getByText('Terminal Desync Diagnostics')).toBeInTheDocument();
+    expect(screen.getByText('IO Workspace Telemetry')).toBeInTheDocument();
   });
 
-  it('dispatches loreEnabled toggle', async () => {
-    dispatch.mockClear();
-    render(<AdvancedTab {...defaultProps} loreEnabled={true} />);
-    await userEvent.click(screen.getByLabelText('Enable lore system'));
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'SET_FIELD', field: 'loreEnabled', value: false })
-    );
-  });
-
-  it('renders sound notification checkbox', () => {
-    render(<AdvancedTab {...defaultProps} soundDisabled={false} />);
-    expect(screen.getByLabelText('Play sound when agents need attention')).toBeChecked();
-  });
-
-  it('renders confirm before close checkbox', () => {
-    render(<AdvancedTab {...defaultProps} confirmBeforeClose={true} />);
-    expect(screen.getByLabelText('Confirm before closing tab')).toBeChecked();
-  });
-
-  it('shows missing target warnings', () => {
-    render(
-      <AdvancedTab
-        {...defaultProps}
-        nudgenikTarget="missing"
-        nudgenikTargetMissing={true}
-        branchSuggestTarget="missing"
-        branchSuggestTargetMissing={true}
-        conflictResolveTarget="missing"
-        conflictResolveTargetMissing={true}
-      />
-    );
-    const errors = screen.getAllByText('Selected target is not available.');
-    expect(errors).toHaveLength(3);
-  });
-
-  it('shows step 5 error when present', () => {
-    render(
-      <AdvancedTab
-        {...defaultProps}
-        stepErrors={{ ...defaultProps.stepErrors, 5: 'xterm error' }}
-      />
-    );
-    expect(screen.getByText('xterm error')).toBeInTheDocument();
+  it('does not render Branch Suggestion or Conflict Resolution', () => {
+    render(<AdvancedTab {...defaultProps} />);
+    expect(screen.queryByText('Branch Suggestion')).not.toBeInTheDocument();
+    expect(screen.queryByText('Conflict Resolution')).not.toBeInTheDocument();
   });
 
   it('renders desync checkbox unchecked by default', () => {
-    render(<AdvancedTab {...defaultProps} />);
+    render(<AdvancedTab {...defaultProps} debugUI={true} />);
     expect(screen.getByLabelText('Enable terminal desync diagnostics')).not.toBeChecked();
   });
 
   it('dispatches desyncEnabled toggle', async () => {
     dispatch.mockClear();
-    render(<AdvancedTab {...defaultProps} desyncEnabled={false} />);
+    render(<AdvancedTab {...defaultProps} debugUI={true} desyncEnabled={false} />);
     await userEvent.click(screen.getByLabelText('Enable terminal desync diagnostics'));
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'SET_FIELD', field: 'desyncEnabled', value: true })
-    );
-  });
-
-  it('dispatches loreCurateOnDispose change', async () => {
-    dispatch.mockClear();
-    render(<AdvancedTab {...defaultProps} loreCurateOnDispose="session" />);
-    await userEvent.selectOptions(screen.getByDisplayValue('Every session'), 'never');
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'SET_FIELD', field: 'loreCurateOnDispose', value: 'never' })
     );
   });
 
@@ -165,5 +95,16 @@ describe('AdvancedTab', () => {
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'SET_FIELD', field: 'dashboardPollInterval' })
     );
+  });
+
+  it('renders diff tools when provided', () => {
+    render(
+      <AdvancedTab
+        {...defaultProps}
+        externalDiffCommands={[{ name: 'Kaleidoscope', command: 'ksdiff' }]}
+      />
+    );
+    expect(screen.getByText('Kaleidoscope')).toBeInTheDocument();
+    expect(screen.getByText('ksdiff')).toBeInTheDocument();
   });
 });

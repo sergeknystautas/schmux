@@ -181,6 +181,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			PublicRuleMode:  s.config.GetLorePublicRuleMode(),
 		},
 		Subreddit: contracts.Subreddit{
+			Enabled:       s.config.GetSubredditEnabled(),
 			Target:        s.config.GetSubredditTarget(),
 			Interval:      s.config.GetSubredditInterval(),
 			CheckingRange: s.config.GetSubredditCheckingRange(),
@@ -615,6 +616,9 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	if req.Subreddit != nil {
 		if cfg.Subreddit == nil {
 			cfg.Subreddit = &config.SubredditConfig{}
+		}
+		if req.Subreddit.Enabled != nil {
+			cfg.Subreddit.Enabled = *req.Subreddit.Enabled
 		}
 		if req.Subreddit.Target != nil {
 			cfg.Subreddit.Target = strings.TrimSpace(*req.Subreddit.Target)

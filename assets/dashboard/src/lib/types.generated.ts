@@ -590,6 +590,7 @@ export interface StyleUpdateRequest {
 }
 
 export interface Subreddit {
+  enabled: boolean;
   target: string;
   interval: number;
   checking_range: number;
@@ -599,6 +600,7 @@ export interface Subreddit {
 }
 
 export interface SubredditUpdate {
+  enabled?: boolean;
   target?: string;
   interval?: number;
   checking_range?: number;

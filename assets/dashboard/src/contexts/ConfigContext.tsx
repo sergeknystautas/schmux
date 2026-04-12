@@ -75,6 +75,7 @@ const DEFAULT_CONFIG: ConfigResponse = {
     auto_pr: false,
   },
   subreddit: {
+    enabled: false,
     target: '',
     interval: 30,
     checking_range: 48,

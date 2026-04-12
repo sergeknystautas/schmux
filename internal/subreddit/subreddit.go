@@ -36,8 +36,8 @@ var (
 func IsAvailable() bool { return true }
 
 // IsEnabled returns true if the subreddit feature is enabled.
-func IsEnabled(getter interface{ GetSubredditTarget() string }) bool {
-	return getter.GetSubredditTarget() != ""
+func IsEnabled(getter interface{ GetSubredditEnabled() bool }) bool {
+	return getter.GetSubredditEnabled()
 }
 
 // PostCommit tracks a commit incorporated into a post.
@@ -314,6 +314,7 @@ func truncate(s string, maxLen int) string {
 
 // Config provides the minimal interface needed for generation.
 type Config interface {
+	GetSubredditEnabled() bool
 	GetSubredditTarget() string
 	GetSubredditCheckingRange() int
 	GetSubredditInterval() int
@@ -331,6 +332,9 @@ type FullConfig interface {
 // GenerateRepoPosts generates subreddit posts for a single repo.
 // It handles both bootstrap (no existing posts) and incremental (update existing) cases.
 func GenerateRepoPosts(ctx context.Context, cfg FullConfig, repoName, repoSlug string, barePath, defaultBranch string, subredditDir string, worktreeBasePath string) error {
+	if !cfg.GetSubredditEnabled() {
+		return ErrDisabled
+	}
 	target := cfg.GetSubredditTarget()
 	if target == "" {
 		return ErrDisabled

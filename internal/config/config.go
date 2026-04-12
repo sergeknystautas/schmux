@@ -331,6 +331,7 @@ type NudgenikConfig struct {
 
 // SubredditConfig represents configuration for the subreddit digest feature.
 type SubredditConfig struct {
+	Enabled       bool            `json:"enabled,omitempty"`        // Whether subreddit digest is enabled
 	Target        string          `json:"target,omitempty"`         // LLM target for generation, empty = disabled
 	Interval      int             `json:"interval,omitempty"`       // Polling interval in minutes, default 30
 	CheckingRange int             `json:"checking_range,omitempty"` // Lookback for new commits in hours, default 48
@@ -1010,6 +1011,16 @@ func (c *Config) getNudgenikTargetLocked() string {
 		return ""
 	}
 	return strings.TrimSpace(c.Nudgenik.Target)
+}
+
+// GetSubredditEnabled returns whether the subreddit digest is enabled.
+func (c *Config) GetSubredditEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Subreddit == nil {
+		return false
+	}
+	return c.Subreddit.Enabled
 }
 
 // GetSubredditTarget returns the configured subreddit target name, if any.

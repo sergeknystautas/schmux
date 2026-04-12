@@ -15,10 +15,6 @@ const defaultProps = {
   newRepoName: '',
   newRepoUrl: '',
   newRepoVcs: '',
-  stepErrors: { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null } as Record<
-    number,
-    string | null
-  >,
   dispatch,
   onEditWorkspacePath: vi.fn(),
   onRemoveRepo: vi.fn(),
@@ -84,10 +80,5 @@ describe('WorkspacesTab', () => {
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'SET_FIELD', field: 'newRepoName' })
     );
-  });
-
-  it('shows step error when present', () => {
-    renderTab({ stepErrors: { 1: 'Workspace path is required' } });
-    expect(screen.getByText('Workspace path is required')).toBeInTheDocument();
   });
 });

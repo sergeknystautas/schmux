@@ -5,6 +5,7 @@
 *.so
 *.dylib
 /schmux
+/gen-types
 
 # Test binary, built with `go test -c`
 *.test

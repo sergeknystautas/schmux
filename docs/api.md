@@ -1118,6 +1118,7 @@ Request:
     }
   },
   "subreddit": {
+    "enabled": true,
     "target": "claude",
     "hours": 24
   },
@@ -3115,6 +3116,7 @@ Post object fields:
 
 Configuration is via the config API:
 
+- `subreddit.enabled` - Whether subreddit digest is enabled (default: false)
 - `subreddit.target` - LLM target for generation
 - `subreddit.interval` - Polling interval in minutes (default: 30)
 - `subreddit.checking_range` - Hours to look back for commits (default: 48)

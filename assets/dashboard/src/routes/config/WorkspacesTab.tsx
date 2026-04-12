@@ -11,7 +11,6 @@ type WorkspacesTabProps = {
   newRepoName: string;
   newRepoUrl: string;
   newRepoVcs: string;
-  stepErrors: Record<number, string | null>;
   dispatch: React.Dispatch<ConfigFormAction>;
   onEditWorkspacePath: () => void;
   onRemoveRepo: (name: string) => void;
@@ -26,7 +25,6 @@ export default function WorkspacesTab({
   newRepoName,
   newRepoUrl,
   newRepoVcs,
-  stepErrors,
   dispatch,
   onEditWorkspacePath,
   onRemoveRepo,
@@ -183,8 +181,6 @@ export default function WorkspacesTab({
           Add
         </button>
       </div>
-
-      {stepErrors[1] && <p className="form-group__error mt-md">{stepErrors[1]}</p>}
     </div>
   );
 }

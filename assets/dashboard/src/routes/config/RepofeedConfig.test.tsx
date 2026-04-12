@@ -1,13 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import RepofeedTab from './RepofeedTab';
+import RepofeedConfig from './RepofeedConfig';
 import type { ConfigFormAction, ConfigFormState } from './useConfigForm';
 import type { RepoResponse } from '../../lib/types';
 
 function renderTab(
   overrides: Partial<{
-    repofeedEnabled: boolean;
     repofeedPublishInterval: number;
     repofeedFetchInterval: number;
     repofeedCompletedRetention: number;
@@ -18,69 +17,52 @@ function renderTab(
 ) {
   const mockDispatch = dispatch || vi.fn();
   const props = {
-    repofeedEnabled: false,
     repofeedPublishInterval: 30,
     repofeedFetchInterval: 60,
     repofeedCompletedRetention: 48,
     repofeedRepos: {},
     repos: [],
-    dispatch: mockDispatch,
     ...overrides,
   };
-  render(<RepofeedTab {...props} />);
+  render(
+    <RepofeedConfig
+      state={props as unknown as ConfigFormState}
+      dispatch={mockDispatch}
+      models={[]}
+    />
+  );
   return mockDispatch;
 }
 
-describe('RepofeedTab', () => {
-  it('shows enable checkbox', () => {
+describe('RepofeedConfig', () => {
+  it('renders timing section', () => {
     renderTab();
-    expect(screen.getByLabelText(/Enable repofeed/)).toBeInTheDocument();
-  });
-
-  it('hides timing section when disabled', () => {
-    renderTab({ repofeedEnabled: false });
-    expect(screen.queryByText('Timing')).not.toBeInTheDocument();
-  });
-
-  it('shows timing section when enabled', () => {
-    renderTab({ repofeedEnabled: true });
     expect(screen.getByText('Timing')).toBeInTheDocument();
     expect(screen.getByText('Publish interval')).toBeInTheDocument();
     expect(screen.getByText('Fetch interval')).toBeInTheDocument();
     expect(screen.getByText('Completed retention')).toBeInTheDocument();
   });
 
-  it('dispatches SET_FIELD when enable checkbox toggled', async () => {
-    const dispatch = vi.fn();
-    renderTab({ repofeedEnabled: false }, dispatch);
-    await userEvent.click(screen.getByLabelText(/Enable repofeed/));
-    expect(dispatch).toHaveBeenCalledWith({
-      type: 'SET_FIELD',
-      field: 'repofeedEnabled',
-      value: true,
-    });
-  });
-
-  it('shows repo checkboxes when enabled and repos exist', () => {
+  it('shows repo checkboxes when repos exist', () => {
     const repos: RepoResponse[] = [
       { name: 'Frontend App', url: 'https://example.com/frontend' },
       { name: 'Backend API', url: 'https://example.com/backend' },
     ];
-    renderTab({ repofeedEnabled: true, repos });
+    renderTab({ repos });
     expect(screen.getByText('Repos')).toBeInTheDocument();
     expect(screen.getByLabelText('Frontend App')).toBeInTheDocument();
     expect(screen.getByLabelText('Backend API')).toBeInTheDocument();
   });
 
   it('hides repo section when no repos', () => {
-    renderTab({ repofeedEnabled: true, repos: [] });
+    renderTab({ repos: [] });
     expect(screen.queryByText('Repos')).not.toBeInTheDocument();
   });
 
   it('toggles repo via dispatch', async () => {
     const repos: RepoResponse[] = [{ name: 'my-repo', url: 'https://example.com/repo' }];
     const dispatch = vi.fn();
-    renderTab({ repofeedEnabled: true, repos, repofeedRepos: {} }, dispatch);
+    renderTab({ repos, repofeedRepos: {} }, dispatch);
 
     await userEvent.click(screen.getByLabelText('my-repo'));
     expect(dispatch).toHaveBeenCalledWith({
@@ -92,7 +74,7 @@ describe('RepofeedTab', () => {
 
   it('repos default to enabled when not in repofeedRepos map', () => {
     const repos: RepoResponse[] = [{ name: 'my-repo', url: 'https://example.com/repo' }];
-    renderTab({ repofeedEnabled: true, repos, repofeedRepos: {} });
+    renderTab({ repos, repofeedRepos: {} });
     const checkbox = screen.getByLabelText('my-repo') as HTMLInputElement;
     expect(checkbox.checked).toBe(true);
   });
@@ -100,7 +82,6 @@ describe('RepofeedTab', () => {
   it('shows repo as unchecked when explicitly disabled', () => {
     const repos: RepoResponse[] = [{ name: 'my-repo', url: 'https://example.com/repo' }];
     renderTab({
-      repofeedEnabled: true,
       repos,
       repofeedRepos: { 'my-repo': false },
     });

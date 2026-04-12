@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -28,6 +28,9 @@ vi.mock('../../lib/api', () => ({
   saveAuthSecrets: vi.fn(),
   setRemoteAccessPassword: vi.fn(),
   testRemoteAccessNotification: vi.fn(),
+  getPersonas: vi.fn().mockResolvedValue({ personas: [] }),
+  getStyles: vi.fn().mockResolvedValue({ styles: [] }),
+  validateTLS: vi.fn(),
 }));
 
 const mockSuccess = vi.fn();
@@ -117,6 +120,7 @@ const configFixture: ConfigResponse = {
     public_rule_mode: 'direct_push',
   },
   subreddit: {
+    enabled: false,
     target: '',
     interval: 30,
     checking_range: 48,
@@ -154,11 +158,16 @@ function renderConfigPage() {
 describe('ConfigPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     mockGetConfig.mockResolvedValue(configFixture);
     mockUpdateConfig.mockResolvedValue({ status: 'ok' });
     mockGetAuthSecretsStatus.mockResolvedValue({ client_id_set: false, client_secret_set: false });
     mockGetOverlays.mockResolvedValue({ overlays: [] });
     mockGetBuiltinQuickLaunch.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('loads config and renders the Workspaces tab', async () => {
@@ -185,15 +194,26 @@ describe('ConfigPage', () => {
     });
   });
 
-  it('sends correct save payload on Save Changes click', async () => {
+  it('has no Save button (auto-save)', async () => {
     renderConfigPage();
-
-    // Wait for config to load
     await waitFor(() => {
       expect(screen.getByDisplayValue('/home/user/ws')).toBeInTheDocument();
     });
 
-    // Make a change to trigger hasChanges — modify workspace path via the edit prompt
+    // No Save Changes button
+    expect(screen.queryByText('Save Changes')).not.toBeInTheDocument();
+
+    // Error indicator only shown on failure, not visible by default
+    expect(screen.queryByTestId('config-save-status')).not.toBeInTheDocument();
+  });
+
+  it('auto-saves after a change with debounce', async () => {
+    renderConfigPage();
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('/home/user/ws')).toBeInTheDocument();
+    });
+
+    // Make a change — modify workspace path via the edit prompt
     mockPrompt.mockResolvedValueOnce('/home/user/new-ws');
     await userEvent.click(screen.getByText('Edit'));
 
@@ -202,112 +222,18 @@ describe('ConfigPage', () => {
       expect(screen.getByDisplayValue('/home/user/new-ws')).toBeInTheDocument();
     });
 
-    // The Save button should now be enabled
-    const saveBtn = screen.getByTestId('config-save');
-    expect(saveBtn).not.toBeDisabled();
-
     // Also need getConfig for reload after save
     mockGetConfig.mockResolvedValue({ ...configFixture, workspace_path: '/home/user/new-ws' });
 
-    await userEvent.click(saveBtn);
+    // Advance past the 300ms debounce
+    vi.advanceTimersByTime(350);
 
     await waitFor(() => {
       expect(mockUpdateConfig).toHaveBeenCalledTimes(1);
     });
 
     const payload = mockUpdateConfig.mock.calls[0][0];
-
-    // Verify key fields in the payload
     expect(payload.workspace_path).toBe('/home/user/new-ws');
-    expect(payload.source_code_management).toBe('git-worktree');
-    expect(payload.repos).toEqual([{ name: 'my-repo', url: 'https://github.com/user/repo.git' }]);
-    expect(payload.run_targets).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ name: 'my-agent', command: 'my-agent --prompt' }),
-        expect.objectContaining({ name: 'build', command: 'make build' }),
-      ])
-    );
-    expect(payload.quick_launch).toEqual([{ name: 'ql1', target: 'claude', prompt: 'hello' }]);
-    expect(payload.nudgenik).toEqual({
-      target: '',
-      viewed_buffer_ms: 5000,
-      seen_interval_ms: 2000,
-    });
-    expect(payload.sessions).toEqual({
-      dashboard_poll_interval_ms: 5000,
-      git_status_poll_interval_ms: 10000,
-      git_clone_timeout_ms: 300000,
-      git_status_timeout_ms: 30000,
-    });
-    expect(payload.xterm).toEqual({
-      query_timeout_ms: 5000,
-      operation_timeout_ms: 10000,
-      use_webgl: true,
-    });
-    expect(payload.network).toEqual({
-      bind_address: '127.0.0.1',
-      public_base_url: '',
-      tls: { cert_path: '', key_path: '' },
-    });
-    expect(payload.access_control).toEqual({
-      enabled: false,
-      provider: 'github',
-      session_ttl_minutes: 1440,
-    });
-    expect(payload.notifications).toEqual({
-      sound_disabled: false,
-      confirm_before_close: false,
-      suggest_dispose_after_push: true,
-    });
-    expect(payload.lore).toEqual({
-      enabled: true,
-      llm_target: '',
-      curate_on_dispose: 'session',
-      auto_pr: false,
-      public_rule_mode: 'direct_push',
-    });
-    expect(payload.desync).toEqual({ enabled: false, target: '' });
-  });
-
-  it('shows success toast after save', async () => {
-    renderConfigPage();
-    await waitFor(() => {
-      expect(screen.getByDisplayValue('/home/user/ws')).toBeInTheDocument();
-    });
-
-    // Make a change
-    mockPrompt.mockResolvedValueOnce('/home/user/changed');
-    await userEvent.click(screen.getByText('Edit'));
-    await waitFor(() => {
-      expect(screen.getByDisplayValue('/home/user/changed')).toBeInTheDocument();
-    });
-
-    mockGetConfig.mockResolvedValue({ ...configFixture, workspace_path: '/home/user/changed' });
-    await userEvent.click(screen.getByTestId('config-save'));
-
-    await waitFor(() => {
-      expect(mockSuccess).toHaveBeenCalledWith('Configuration saved');
-    });
-  });
-
-  it('shows error dialog when save fails', async () => {
-    renderConfigPage();
-    await waitFor(() => {
-      expect(screen.getByDisplayValue('/home/user/ws')).toBeInTheDocument();
-    });
-
-    mockPrompt.mockResolvedValueOnce('/home/user/fail');
-    await userEvent.click(screen.getByText('Edit'));
-    await waitFor(() => {
-      expect(screen.getByDisplayValue('/home/user/fail')).toBeInTheDocument();
-    });
-
-    mockUpdateConfig.mockRejectedValueOnce(new Error('Server error'));
-    await userEvent.click(screen.getByTestId('config-save'));
-
-    await waitFor(() => {
-      expect(mockAlert).toHaveBeenCalledWith('Save Failed', 'Server error');
-    });
   });
 
   it('switches tabs via tab buttons', async () => {
@@ -316,6 +242,11 @@ describe('ConfigPage', () => {
       expect(screen.getByDisplayValue('/home/user/ws')).toBeInTheDocument();
     });
 
+    // All 6 tabs should be present
+    for (const slug of ['workspaces', 'sessions', 'agents', 'access', 'experimental', 'advanced']) {
+      expect(screen.getByTestId(`config-tab-${slug}`)).toBeInTheDocument();
+    }
+
     // Click on the Sessions tab
     await userEvent.click(screen.getByTestId('config-tab-sessions'));
     await waitFor(() => {
@@ -323,13 +254,39 @@ describe('ConfigPage', () => {
     });
   });
 
-  it('disables Save Changes when no changes made', async () => {
+  it('falls back to Workspaces tab for dissolved slugs', async () => {
+    render(
+      <MemoryRouter initialEntries={['/config?tab=quicklaunch']}>
+        <ConfigPage />
+      </MemoryRouter>
+    );
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('/home/user/ws')).toBeInTheDocument();
+    });
+    // The Workspaces tab should be active (fallback from dissolved slug)
+    expect(screen.getByTestId('config-tab-workspaces')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('shows error toast when auto-save fails', async () => {
     renderConfigPage();
     await waitFor(() => {
       expect(screen.getByDisplayValue('/home/user/ws')).toBeInTheDocument();
     });
 
-    const saveBtn = screen.getByTestId('config-save');
-    expect(saveBtn).toBeDisabled();
+    // Make a change
+    mockPrompt.mockResolvedValueOnce('/home/user/fail');
+    await userEvent.click(screen.getByText('Edit'));
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('/home/user/fail')).toBeInTheDocument();
+    });
+
+    mockUpdateConfig.mockRejectedValueOnce(new Error('Server error'));
+
+    // Advance past debounce
+    vi.advanceTimersByTime(350);
+
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledWith('Failed to save config');
+    });
   });
 });

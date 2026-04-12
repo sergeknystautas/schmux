@@ -9,85 +9,6 @@ import type {
   RunTargetResponse,
 } from '../../lib/types';
 
-export type ConfigSnapshot = {
-  workspacePath: string;
-  sourceCodeManagement: string;
-  recycleWorkspaces: boolean;
-  repos: RepoResponse[];
-  commandTargets: RunTargetResponse[];
-  quickLaunch: QuickLaunchPreset[];
-  externalDiffCommands: { name: string; command: string }[];
-  externalDiffCleanupMinutes: number;
-  pastebin: string[];
-  nudgenikTarget: string;
-  branchSuggestTarget: string;
-  conflictResolveTarget: string;
-  prReviewTarget: string;
-  commitMessageTarget: string;
-  dashboardPollInterval: number;
-  viewedBuffer: number;
-  nudgenikSeenInterval: number;
-  gitStatusPollInterval: number;
-  gitCloneTimeout: number;
-  gitStatusTimeout: number;
-  xtermQueryTimeout: number;
-  xtermOperationTimeout: number;
-  xtermUseWebGL: boolean;
-
-  networkAccess: boolean;
-  authEnabled: boolean;
-  authProvider: string;
-  authPublicBaseURL: string;
-  authSessionTTLMinutes: number;
-  authTlsCertPath: string;
-  authTlsKeyPath: string;
-  soundDisabled: boolean;
-  confirmBeforeClose: boolean;
-  suggestDisposeAfterPush: boolean;
-  enabledModels: Record<string, string>;
-  commStyles: Record<string, string>;
-  loreEnabled: boolean;
-  loreLLMTarget: string;
-  loreCurateOnDispose: string;
-  loreAutoPR: boolean;
-  lorePublicRuleMode: string;
-  subredditTarget: string;
-  subredditInterval: number;
-  subredditCheckingRange: number;
-  subredditMaxPosts: number;
-  subredditMaxAge: number;
-  subredditRepos: Record<string, boolean>;
-  repofeedEnabled: boolean;
-  repofeedPublishInterval: number;
-  repofeedFetchInterval: number;
-  repofeedCompletedRetention: number;
-  repofeedRepos: Record<string, boolean>;
-  remoteAccessEnabled: boolean;
-  remoteAccessTimeoutMinutes: number;
-  remoteAccessNtfyTopic: string;
-  remoteAccessNotifyCommand: string;
-  desyncEnabled: boolean;
-  desyncTarget: string;
-  fmEnabled: boolean;
-  fmTarget: string;
-  fmRotationThreshold: number;
-  fmDebounceMs: number;
-  timelapseEnabled: boolean;
-  timelapseRetentionDays: number;
-  timelapseMaxFileSizeMB: number;
-  timelapseMaxTotalStorageMB: number;
-  ioWorkspaceTelemetryEnabled: boolean;
-  ioWorkspaceTelemetryTarget: string;
-  saplingCmdCreateWorkspace: string;
-  saplingCmdRemoveWorkspace: string;
-  saplingCmdCheckRepoBase: string;
-  saplingCmdCreateRepoBase: string;
-  localEchoRemote: boolean;
-  debugUI: boolean;
-  tmuxBinary: string;
-  tmuxSocketName: string;
-};
-
 export type RunTargetEditModalState = {
   target: RunTargetResponse;
   command: string;
@@ -199,6 +120,7 @@ export type ConfigFormState = {
   lorePublicRuleMode: string;
 
   // Subreddit
+  subredditEnabled: boolean;
   subredditTarget: string;
   subredditInterval: number;
   subredditCheckingRange: number;
@@ -258,12 +180,6 @@ export type ConfigFormState = {
   overlays: OverlayInfo[];
   loadingOverlays: boolean;
 
-  // Original config for change detection
-  originalConfig: ConfigSnapshot | null;
-
-  // Validation
-  stepErrors: Record<number, string | null>;
-
   // Modal state
   runTargetEditModal: RunTargetEditModalState;
   quickLaunchEditModal: QuickLaunchEditModalState;
@@ -284,7 +200,6 @@ export type ConfigFormState = {
 export type ConfigFormAction =
   | { type: 'SET_FIELD'; field: keyof ConfigFormState; value: unknown }
   | { type: 'LOAD_CONFIG'; state: Partial<ConfigFormState> }
-  | { type: 'SET_ORIGINAL'; config: ConfigSnapshot | null }
   | { type: 'ADD_REPO'; repo: RepoResponse }
   | { type: 'REMOVE_REPO'; name: string }
   | { type: 'ADD_COMMAND_TARGET'; target: RunTargetResponse }
@@ -299,7 +214,6 @@ export type ConfigFormAction =
   | { type: 'REMOVE_PASTEBIN'; index: number }
   | { type: 'UPDATE_PASTEBIN'; index: number; content: string }
   | { type: 'SET_MODELS'; models: Model[] }
-  | { type: 'SET_STEP_ERROR'; step: number; error: string | null }
   | { type: 'RESET_NEW_REPO' }
   | { type: 'RESET_NEW_COMMAND' }
   | { type: 'RESET_NEW_QUICK_LAUNCH' }
@@ -383,6 +297,7 @@ export const initialState: ConfigFormState = {
   loreAutoPR: false,
   lorePublicRuleMode: 'direct_push',
 
+  subredditEnabled: false,
   subredditTarget: '',
   subredditInterval: 30,
   subredditCheckingRange: 48,
@@ -434,10 +349,6 @@ export const initialState: ConfigFormState = {
   overlays: [],
   loadingOverlays: true,
 
-  originalConfig: null,
-
-  stepErrors: { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null, 7: null },
-
   runTargetEditModal: null,
   quickLaunchEditModal: null,
   pastebinEditModal: null,
@@ -459,9 +370,6 @@ function configFormReducer(state: ConfigFormState, action: ConfigFormAction): Co
 
     case 'LOAD_CONFIG':
       return { ...state, ...action.state };
-
-    case 'SET_ORIGINAL':
-      return { ...state, originalConfig: action.config };
 
     case 'ADD_REPO':
       return { ...state, repos: [...state.repos, action.repo] };
@@ -546,9 +454,6 @@ function configFormReducer(state: ConfigFormState, action: ConfigFormAction): Co
 
     case 'SET_MODELS':
       return { ...state, modelCatalog: action.models };
-
-    case 'SET_STEP_ERROR':
-      return { ...state, stepErrors: { ...state.stepErrors, [action.step]: action.error } };
 
     case 'RESET_NEW_REPO':
       return { ...state, newRepoName: '', newRepoUrl: '', newRepoVcs: '' };
@@ -653,99 +558,6 @@ export function useConfigForm(initialStep: number = 1) {
     state.commitMessageTarget.trim() !== '' &&
     !modelTargetNames.has(state.commitMessageTarget.trim());
 
-  const hasChanges = useCallback(
-    (isFirstRun: boolean) => {
-      if (isFirstRun || !state.originalConfig) return false;
-
-      const oc = state.originalConfig;
-
-      const arraysMatch = (a: unknown[], b: unknown[]) => {
-        if (a.length !== b.length) return false;
-        return a.every((item, i) => JSON.stringify(item) === JSON.stringify(b[i]));
-      };
-
-      return (
-        state.workspacePath !== oc.workspacePath ||
-        state.sourceCodeManagement !== oc.sourceCodeManagement ||
-        !arraysMatch(state.repos, oc.repos) ||
-        !arraysMatch(state.commandTargets, oc.commandTargets) ||
-        !arraysMatch(state.quickLaunch, oc.quickLaunch) ||
-        !arraysMatch(state.externalDiffCommands, oc.externalDiffCommands) ||
-        state.externalDiffCleanupMinutes !== oc.externalDiffCleanupMinutes ||
-        !arraysMatch(state.pastebin, oc.pastebin) ||
-        state.nudgenikTarget !== oc.nudgenikTarget ||
-        state.branchSuggestTarget !== oc.branchSuggestTarget ||
-        state.conflictResolveTarget !== oc.conflictResolveTarget ||
-        state.prReviewTarget !== oc.prReviewTarget ||
-        state.commitMessageTarget !== oc.commitMessageTarget ||
-        state.dashboardPollInterval !== oc.dashboardPollInterval ||
-        state.viewedBuffer !== oc.viewedBuffer ||
-        state.nudgenikSeenInterval !== oc.nudgenikSeenInterval ||
-        state.gitStatusPollInterval !== oc.gitStatusPollInterval ||
-        state.gitCloneTimeout !== oc.gitCloneTimeout ||
-        state.gitStatusTimeout !== oc.gitStatusTimeout ||
-        state.xtermQueryTimeout !== oc.xtermQueryTimeout ||
-        state.xtermOperationTimeout !== oc.xtermOperationTimeout ||
-        state.xtermUseWebGL !== oc.xtermUseWebGL ||
-        state.networkAccess !== oc.networkAccess ||
-        state.authEnabled !== oc.authEnabled ||
-        state.authProvider !== oc.authProvider ||
-        state.authPublicBaseURL !== oc.authPublicBaseURL ||
-        state.authSessionTTLMinutes !== oc.authSessionTTLMinutes ||
-        state.authTlsCertPath !== oc.authTlsCertPath ||
-        state.authTlsKeyPath !== oc.authTlsKeyPath ||
-        state.recycleWorkspaces !== oc.recycleWorkspaces ||
-        state.soundDisabled !== oc.soundDisabled ||
-        state.confirmBeforeClose !== oc.confirmBeforeClose ||
-        state.suggestDisposeAfterPush !== oc.suggestDisposeAfterPush ||
-        JSON.stringify(state.enabledModels) !== JSON.stringify(oc.enabledModels) ||
-        JSON.stringify(state.commStyles) !== JSON.stringify(oc.commStyles) ||
-        state.loreEnabled !== oc.loreEnabled ||
-        state.loreLLMTarget !== oc.loreLLMTarget ||
-        state.loreCurateOnDispose !== oc.loreCurateOnDispose ||
-        state.loreAutoPR !== oc.loreAutoPR ||
-        state.lorePublicRuleMode !== oc.lorePublicRuleMode ||
-        state.subredditTarget !== oc.subredditTarget ||
-        state.subredditInterval !== oc.subredditInterval ||
-        state.subredditCheckingRange !== oc.subredditCheckingRange ||
-        state.subredditMaxPosts !== oc.subredditMaxPosts ||
-        state.subredditMaxAge !== oc.subredditMaxAge ||
-        JSON.stringify(state.subredditRepos) !== JSON.stringify(oc.subredditRepos) ||
-        state.repofeedEnabled !== oc.repofeedEnabled ||
-        state.repofeedPublishInterval !== oc.repofeedPublishInterval ||
-        state.repofeedFetchInterval !== oc.repofeedFetchInterval ||
-        state.repofeedCompletedRetention !== oc.repofeedCompletedRetention ||
-        JSON.stringify(state.repofeedRepos) !== JSON.stringify(oc.repofeedRepos) ||
-        state.remoteAccessEnabled !== oc.remoteAccessEnabled ||
-        state.remoteAccessTimeoutMinutes !== oc.remoteAccessTimeoutMinutes ||
-        state.remoteAccessNtfyTopic !== oc.remoteAccessNtfyTopic ||
-        state.remoteAccessNotifyCommand !== oc.remoteAccessNotifyCommand ||
-        state.desyncEnabled !== oc.desyncEnabled ||
-        state.desyncTarget !== oc.desyncTarget ||
-        state.fmEnabled !== oc.fmEnabled ||
-        state.fmTarget !== oc.fmTarget ||
-        state.fmRotationThreshold !== oc.fmRotationThreshold ||
-        state.fmDebounceMs !== oc.fmDebounceMs ||
-        state.timelapseEnabled !== oc.timelapseEnabled ||
-        state.timelapseRetentionDays !== oc.timelapseRetentionDays ||
-        state.timelapseMaxFileSizeMB !== oc.timelapseMaxFileSizeMB ||
-        state.timelapseMaxTotalStorageMB !== oc.timelapseMaxTotalStorageMB ||
-        state.ioWorkspaceTelemetryEnabled !== oc.ioWorkspaceTelemetryEnabled ||
-        state.ioWorkspaceTelemetryTarget !== oc.ioWorkspaceTelemetryTarget ||
-        state.saplingCmdCreateWorkspace !== oc.saplingCmdCreateWorkspace ||
-        state.saplingCmdRemoveWorkspace !== oc.saplingCmdRemoveWorkspace ||
-        state.saplingCmdCheckRepoBase !== oc.saplingCmdCheckRepoBase ||
-        state.saplingCmdCreateRepoBase !== oc.saplingCmdCreateRepoBase ||
-        state.localEchoRemote !== oc.localEchoRemote ||
-        state.debugUI !== oc.debugUI ||
-        state.tmuxBinary !== oc.tmuxBinary ||
-        state.tmuxSocketName !== oc.tmuxSocketName ||
-        state.authSecretsChanged
-      );
-    },
-    [state]
-  );
-
   const checkTargetUsage = useCallback(
     (targetName: string) => {
       const inQuickLaunch = state.quickLaunch.some((item) => item.target === targetName);
@@ -766,86 +578,6 @@ export function useConfigForm(initialStep: number = 1) {
     [state]
   );
 
-  const snapshotConfig = useCallback((): ConfigSnapshot => {
-    return {
-      workspacePath: state.workspacePath,
-      sourceCodeManagement: state.sourceCodeManagement,
-      recycleWorkspaces: state.recycleWorkspaces,
-      repos: state.repos,
-      commandTargets: state.commandTargets,
-      quickLaunch: state.quickLaunch,
-      externalDiffCommands: state.externalDiffCommands,
-      externalDiffCleanupMinutes: state.externalDiffCleanupMinutes,
-      pastebin: state.pastebin,
-      nudgenikTarget: state.nudgenikTarget,
-      branchSuggestTarget: state.branchSuggestTarget,
-      conflictResolveTarget: state.conflictResolveTarget,
-      prReviewTarget: state.prReviewTarget,
-      commitMessageTarget: state.commitMessageTarget,
-      dashboardPollInterval: state.dashboardPollInterval,
-      viewedBuffer: state.viewedBuffer,
-      nudgenikSeenInterval: state.nudgenikSeenInterval,
-      gitStatusPollInterval: state.gitStatusPollInterval,
-      gitCloneTimeout: state.gitCloneTimeout,
-      gitStatusTimeout: state.gitStatusTimeout,
-      xtermQueryTimeout: state.xtermQueryTimeout,
-      xtermOperationTimeout: state.xtermOperationTimeout,
-      xtermUseWebGL: state.xtermUseWebGL,
-      networkAccess: state.networkAccess,
-      authEnabled: state.authEnabled,
-      authProvider: state.authProvider,
-      authPublicBaseURL: state.authPublicBaseURL,
-      authSessionTTLMinutes: state.authSessionTTLMinutes,
-      authTlsCertPath: state.authTlsCertPath,
-      authTlsKeyPath: state.authTlsKeyPath,
-      soundDisabled: state.soundDisabled,
-      confirmBeforeClose: state.confirmBeforeClose,
-      suggestDisposeAfterPush: state.suggestDisposeAfterPush,
-      enabledModels: state.enabledModels,
-      commStyles: state.commStyles,
-      loreEnabled: state.loreEnabled,
-      loreLLMTarget: state.loreLLMTarget,
-      loreCurateOnDispose: state.loreCurateOnDispose,
-      loreAutoPR: state.loreAutoPR,
-      lorePublicRuleMode: state.lorePublicRuleMode,
-      subredditTarget: state.subredditTarget,
-      subredditInterval: state.subredditInterval,
-      subredditCheckingRange: state.subredditCheckingRange,
-      subredditMaxPosts: state.subredditMaxPosts,
-      subredditMaxAge: state.subredditMaxAge,
-      subredditRepos: state.subredditRepos,
-      repofeedEnabled: state.repofeedEnabled,
-      repofeedPublishInterval: state.repofeedPublishInterval,
-      repofeedFetchInterval: state.repofeedFetchInterval,
-      repofeedCompletedRetention: state.repofeedCompletedRetention,
-      repofeedRepos: state.repofeedRepos,
-      remoteAccessEnabled: state.remoteAccessEnabled,
-      remoteAccessTimeoutMinutes: state.remoteAccessTimeoutMinutes,
-      remoteAccessNtfyTopic: state.remoteAccessNtfyTopic,
-      remoteAccessNotifyCommand: state.remoteAccessNotifyCommand,
-      desyncEnabled: state.desyncEnabled,
-      desyncTarget: state.desyncTarget,
-      fmEnabled: state.fmEnabled,
-      fmTarget: state.fmTarget,
-      fmRotationThreshold: state.fmRotationThreshold,
-      fmDebounceMs: state.fmDebounceMs,
-      timelapseEnabled: state.timelapseEnabled,
-      timelapseRetentionDays: state.timelapseRetentionDays,
-      timelapseMaxFileSizeMB: state.timelapseMaxFileSizeMB,
-      timelapseMaxTotalStorageMB: state.timelapseMaxTotalStorageMB,
-      ioWorkspaceTelemetryEnabled: state.ioWorkspaceTelemetryEnabled,
-      ioWorkspaceTelemetryTarget: state.ioWorkspaceTelemetryTarget,
-      saplingCmdCreateWorkspace: state.saplingCmdCreateWorkspace,
-      saplingCmdRemoveWorkspace: state.saplingCmdRemoveWorkspace,
-      saplingCmdCheckRepoBase: state.saplingCmdCheckRepoBase,
-      saplingCmdCreateRepoBase: state.saplingCmdCreateRepoBase,
-      localEchoRemote: state.localEchoRemote,
-      debugUI: state.debugUI,
-      tmuxBinary: state.tmuxBinary,
-      tmuxSocketName: state.tmuxSocketName,
-    };
-  }, [state]);
-
   return {
     state,
     dispatch,
@@ -858,8 +590,6 @@ export function useConfigForm(initialStep: number = 1) {
     conflictResolveTargetMissing,
     prReviewTargetMissing,
     commitMessageTargetMissing,
-    hasChanges,
     checkTargetUsage,
-    snapshotConfig,
   };
 }

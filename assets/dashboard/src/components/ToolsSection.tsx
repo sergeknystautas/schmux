@@ -106,7 +106,7 @@ export default function ToolsSection({
       label: 'Lore',
       badge: totalLorePending > 0 ? totalLorePending : null,
       badgeVariant: 'default' as const,
-      hidden: !config?.repos?.length,
+      hidden: !config?.lore?.enabled,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
@@ -136,7 +136,7 @@ export default function ToolsSection({
     {
       to: '/repofeed',
       label: 'Repofeed',
-      hidden: !features.repofeed || !config?.repofeed?.enabled || !config?.repos?.length,
+      hidden: !features.repofeed || !config?.repofeed?.enabled,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M4 11a9 9 0 0 1 9 9"></path>
@@ -148,7 +148,7 @@ export default function ToolsSection({
     {
       to: '/timelapse',
       label: 'Timelapse',
-      hidden: config?.timelapse?.enabled === false,
+      hidden: !config?.timelapse?.enabled,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <circle cx="12" cy="12" r="10"></circle>

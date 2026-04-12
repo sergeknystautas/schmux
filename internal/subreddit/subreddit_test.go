@@ -17,13 +17,18 @@ func TestIsEnabled(t *testing.T) {
 		want bool
 	}{
 		{
-			name: "empty target",
-			cfg:  mockConfig{target: ""},
+			name: "disabled",
+			cfg:  mockConfig{enabled: false, target: "sonnet"},
 			want: false,
 		},
 		{
-			name: "target set",
-			cfg:  mockConfig{target: "sonnet"},
+			name: "enabled",
+			cfg:  mockConfig{enabled: true, target: "sonnet"},
+			want: true,
+		},
+		{
+			name: "enabled without target",
+			cfg:  mockConfig{enabled: true, target: ""},
 			want: true,
 		},
 	}
@@ -38,8 +43,13 @@ func TestIsEnabled(t *testing.T) {
 
 // mockConfig implements the interface for testing
 type mockConfig struct {
+	enabled       bool
 	target        string
 	checkingRange int
+}
+
+func (m mockConfig) GetSubredditEnabled() bool {
+	return m.enabled
 }
 
 func (m mockConfig) GetSubredditTarget() string {

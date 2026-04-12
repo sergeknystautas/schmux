@@ -23,7 +23,7 @@ test.describe.serial('Configure remote access settings', () => {
         },
       ],
     });
-    // Reset remote access config to defaults so hasChanges() detects the test's fills
+    // Reset remote access config to defaults
     await apiPost('/api/config', {
       remote_access: {
         enabled: true,
@@ -160,7 +160,7 @@ test.describe.serial('Configure remote access settings', () => {
     expect(config.remote_access.password_hash_set).toBe(true);
   });
 
-  test('saving remote access settings persists via API', async ({ page }) => {
+  test('saving remote access settings auto-saves via config', async ({ page }) => {
     await page.goto('/config?tab=access');
     await waitForDashboardLive(page);
 
@@ -176,13 +176,11 @@ test.describe.serial('Configure remote access settings', () => {
     const commandInput = page.getByLabel('Notify Command');
     await commandInput.fill('echo test');
 
-    // Save
-    const saveButton = page.locator('[data-testid="config-save"]');
-    await expect(saveButton).toBeEnabled({ timeout: 10000 });
-    await saveButton.click();
+    // Blur the last field to flush the debounced auto-save
+    await commandInput.blur();
 
-    // Wait for save to complete
-    await expect(saveButton).toBeDisabled({ timeout: 10000 });
+    // Wait briefly for auto-save to complete
+    await page.waitForTimeout(500);
   });
 
   test('GET /api/config reflects saved remote access values', async () => {

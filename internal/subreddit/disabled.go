@@ -19,7 +19,7 @@ var (
 func IsAvailable() bool { return false }
 
 // IsEnabled returns false when the subreddit module is excluded.
-func IsEnabled(_ interface{ GetSubredditTarget() string }) bool {
+func IsEnabled(_ interface{ GetSubredditEnabled() bool }) bool {
 	return false
 }
 
@@ -49,6 +49,7 @@ type RepoFile struct {
 
 // Config provides the minimal interface needed for generation.
 type Config interface {
+	GetSubredditEnabled() bool
 	GetSubredditTarget() string
 	GetSubredditCheckingRange() int
 	GetSubredditInterval() int

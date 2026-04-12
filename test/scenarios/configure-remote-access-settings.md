@@ -22,7 +22,8 @@ command.
 - Entering mismatched passwords shows "passwords do not match" error
 - Entering matching passwords (at least 8 chars) and clicking "Set password" calls POST /api/remote-access/set-password
 - After setting password, the status text changes to "password is configured"
-- Setting ntfy topic to "test-topic", timeout to 30, and notify command to "echo test" then saving persists via POST /api/config
-- GET /api/config after save shows remote_access.notify.ntfy_topic="test-topic", remote_access.timeout_minutes=30, remote_access.notify.command="echo test"
+- Setting ntfy topic to "test-topic", timeout to 30, and notify command to "echo test" auto-saves via POST /api/config
+- Wait briefly for auto-save to complete after each field change
+- GET /api/config after auto-save shows remote_access.notify.ntfy_topic="test-topic", remote_access.timeout_minutes=30, remote_access.notify.command="echo test"
 - The Network and Authentication sections are present in the Access tab (moved from Advanced)
 - The Advanced tab no longer contains Network or Authentication sections

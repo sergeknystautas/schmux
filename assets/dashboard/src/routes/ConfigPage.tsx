@@ -1,9 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useFeatures } from '../contexts/FeaturesContext';
 import {
   getConfig,
-  updateConfig,
   configureModelSecrets,
   removeModelSecrets,
   getOverlays,
@@ -19,50 +17,32 @@ import {
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
-import { CONFIG_UPDATED_KEY } from '../lib/constants';
-import { useConfigForm, type ConfigSnapshot } from './config/useConfigForm';
+import { useConfigForm } from './config/useConfigForm';
+import { useAutoSave, type SaveStatus } from './config/useAutoSave';
 import WorkspacesTab from './config/WorkspacesTab';
 import SessionsTab from './config/SessionsTab';
-import QuickLaunchTab from './config/QuickLaunchTab';
-import CodeReviewTab from './config/CodeReviewTab';
-import FloorManagerTab from './config/FloorManagerTab';
 import AccessTab from './config/AccessTab';
-import SubredditTab from './config/SubredditTab';
-import RepofeedTab from './config/RepofeedTab';
 import AdvancedTab from './config/AdvancedTab';
-import PastebinTab from './config/PastebinTab';
+import AgentsTab from './config/AgentsTab';
+import ExperimentalTab from './config/ExperimentalTab';
 import ConfigModals from './config/ConfigModals';
-import type { ConfigResponse, ConfigUpdateRequest, Model, RunTargetResponse } from '../lib/types';
+import type { ConfigResponse, Model, RunTargetResponse } from '../lib/types';
 import type { Persona, Style } from '../lib/types.generated';
 
-const TOTAL_STEPS = 10;
-const TABS = [
-  'Workspaces',
-  'Sessions',
-  'Quick Launch',
-  'Pastebin',
-  'Code Review',
-  'Floor Manager',
-  'Access',
-  'Subreddit',
-  'Repofeed',
-  'Advanced',
-];
-const TAB_SLUGS = [
-  'workspaces',
-  'sessions',
+const TABS = ['Workspaces', 'Sessions', 'Agents', 'Access', 'Experimental', 'Advanced'];
+const TAB_SLUGS = ['workspaces', 'sessions', 'agents', 'access', 'experimental', 'advanced'];
+
+const stepToSlug = (step: number) => TAB_SLUGS[step - 1];
+const DISSOLVED_SLUGS = new Set([
   'quicklaunch',
   'pastebin',
   'codereview',
   'floormanager',
-  'access',
   'subreddit',
   'repofeed',
-  'advanced',
-];
-
-const stepToSlug = (step: number) => TAB_SLUGS[step - 1];
+]);
 const slugToStep = (slug: string | null) => {
+  if (slug && DISSOLVED_SLUGS.has(slug)) return 1;
   const index = slug ? TAB_SLUGS.indexOf(slug) : -1;
   return index >= 0 ? index + 1 : 1;
 };
@@ -72,31 +52,36 @@ export default function ConfigPage() {
   const { reloadConfig } = useConfig();
   const { confirm, prompt, alert } = useModal();
   const { success, error: toastError } = useToast();
-  const { features } = useFeatures();
-
-  const isTabHidden = (slug: string) => {
-    if (slug === 'subreddit' && !features.subreddit) return true;
-    if (slug === 'repofeed' && !features.repofeed) return true;
+  const isTabHidden = (_slug: string) => {
     return false;
   };
 
   const initialStep = searchParams.get('tab') ? slugToStep(searchParams.get('tab')) : 1;
   const {
     state,
-    dispatch,
+    dispatch: rawDispatch,
     models,
     oneshotModels,
     modelTargetNames,
     commandTargetNames,
-    nudgenikTargetMissing,
     branchSuggestTargetMissing,
     conflictResolveTargetMissing,
     prReviewTargetMissing,
     commitMessageTargetMissing,
-    hasChanges,
     checkTargetUsage,
-    snapshotConfig,
   } = useConfigForm(initialStep);
+
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const saveStatusRef = useRef<SaveStatus>('idle');
+  // Keep ref in sync for async callbacks
+  saveStatusRef.current = saveStatus;
+
+  const { dispatch, flushSave, setLastSavedConfig } = useAutoSave(
+    state,
+    rawDispatch,
+    saveStatusRef,
+    setSaveStatus
+  );
 
   // Sync currentStep with URL
   useEffect(() => {
@@ -104,26 +89,13 @@ export default function ConfigPage() {
     setSearchParams({ tab: slug });
   }, [state.currentStep, setSearchParams]);
 
-  // Browser close/refresh warning
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (hasChanges(false)) {
-        e.preventDefault();
-        e.returnValue = '';
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, []); // Dependency doesn't include hasChanges values - function reads current state
-
   // Load config
   useEffect(() => {
     let active = true;
 
     const load = async () => {
-      dispatch({ type: 'SET_FIELD', field: 'loading', value: true });
-      dispatch({ type: 'SET_FIELD', field: 'error', value: '' });
+      rawDispatch({ type: 'SET_FIELD', field: 'loading', value: true });
+      rawDispatch({ type: 'SET_FIELD', field: 'error', value: '' });
       try {
         const data: ConfigResponse = await getConfig();
         if (!active) return;
@@ -132,202 +104,121 @@ export default function ConfigPage() {
 
         const netAccess = data.network?.bind_address === '0.0.0.0';
 
-        dispatch({
-          type: 'LOAD_CONFIG',
-          state: {
-            workspacePath: data.workspace_path || '',
-            sourceCodeManagement: data.source_code_management || 'git-worktree',
-            recycleWorkspaces: data.recycle_workspaces ?? false,
-            repos: (data.repos || []).sort((a, b) => a.name.localeCompare(b.name)),
-            commandTargets: commandItems,
-            quickLaunch: (data.quick_launch || []).sort((a, b) => a.name.localeCompare(b.name)),
-            externalDiffCommands: data.external_diff_commands || [],
-            externalDiffCleanupMinutes: Math.max(
-              1,
-              (data.external_diff_cleanup_after_ms || 3600000) / 60000
-            ),
-            pastebin: (data.pastebin || [])
-              .slice()
-              .sort((a: string, b: string) => a.localeCompare(b)),
-            nudgenikTarget: data.nudgenik?.target || '',
-            branchSuggestTarget: data.branch_suggest?.target || '',
-            conflictResolveTarget: data.conflict_resolve?.target || '',
-            prReviewTarget: data.pr_review?.target || '',
-            commitMessageTarget: data.commit_message?.target || '',
-            dashboardPollInterval: data.sessions?.dashboard_poll_interval_ms || 5000,
-            viewedBuffer: data.nudgenik?.viewed_buffer_ms || 5000,
-            nudgenikSeenInterval: data.nudgenik?.seen_interval_ms || 2000,
-            gitStatusPollInterval: data.sessions?.git_status_poll_interval_ms || 10000,
-            gitCloneTimeout: data.sessions?.git_clone_timeout_ms || 300000,
-            gitStatusTimeout: data.sessions?.git_status_timeout_ms || 30000,
-            xtermQueryTimeout: data.xterm?.query_timeout_ms || 5000,
-            xtermOperationTimeout: data.xterm?.operation_timeout_ms || 10000,
-            xtermUseWebGL: data.xterm?.use_webgl !== false,
-            networkAccess: netAccess,
-            authEnabled: data.access_control?.enabled || false,
-            authProvider: data.access_control?.provider || 'github',
-            authPublicBaseURL: data.network?.public_base_url || '',
-            authSessionTTLMinutes: data.access_control?.session_ttl_minutes || 1440,
-            authTlsCertPath: data.network?.tls?.cert_path || '',
-            authTlsKeyPath: data.network?.tls?.key_path || '',
-            authWarnings: [],
-            apiNeedsRestart: data.needs_restart || false,
-            soundDisabled: data.notifications?.sound_disabled || false,
-            confirmBeforeClose: data.notifications?.confirm_before_close || false,
-            suggestDisposeAfterPush: data.notifications?.suggest_dispose_after_push ?? true,
-            enabledModels: data.enabled_models || {},
-            commStyles: data.comm_styles || {},
-            loreEnabled: data.lore?.enabled ?? true,
-            loreLLMTarget: data.lore?.llm_target || '',
-            loreCurateOnDispose: data.lore?.curate_on_dispose || 'session',
-            loreAutoPR: data.lore?.auto_pr || false,
-            lorePublicRuleMode: data.lore?.public_rule_mode || 'direct_push',
-            subredditTarget: data.subreddit?.target || '',
-            subredditInterval: data.subreddit?.interval || 30,
-            subredditCheckingRange: data.subreddit?.checking_range || 48,
-            subredditMaxPosts: data.subreddit?.max_posts || 30,
-            subredditMaxAge: data.subreddit?.max_age || 14,
-            subredditRepos: data.subreddit?.repos || {},
-            repofeedEnabled: data.repofeed?.enabled || false,
-            repofeedPublishInterval: data.repofeed?.publish_interval_seconds || 30,
-            repofeedFetchInterval: data.repofeed?.fetch_interval_seconds || 60,
-            repofeedCompletedRetention: data.repofeed?.completed_retention_hours || 48,
-            repofeedRepos: data.repofeed?.repos || {},
-            remoteAccessEnabled: data.remote_access?.enabled || false,
-            remoteAccessTimeoutMinutes: data.remote_access?.timeout_minutes || 0,
-            remoteAccessNtfyTopic: data.remote_access?.notify?.ntfy_topic || '',
-            remoteAccessNotifyCommand: data.remote_access?.notify?.command || '',
-            remoteAccessPasswordHashSet: data.remote_access?.password_hash_set || false,
-            desyncEnabled: data.desync?.enabled || false,
-            desyncTarget: data.desync?.target || '',
-            fmEnabled: data.floor_manager?.enabled || false,
-            fmTarget: data.floor_manager?.target || '',
-            fmRotationThreshold: data.floor_manager?.rotation_threshold || 150,
-            fmDebounceMs: data.floor_manager?.debounce_ms || 2000,
-            timelapseEnabled: data.timelapse?.enabled ?? true,
-            timelapseRetentionDays: data.timelapse?.retention_days || 7,
-            timelapseMaxFileSizeMB: data.timelapse?.max_file_size_mb || 50,
-            timelapseMaxTotalStorageMB: data.timelapse?.max_total_storage_mb || 500,
-            ioWorkspaceTelemetryEnabled: data.io_workspace_telemetry?.enabled || false,
-            ioWorkspaceTelemetryTarget: data.io_workspace_telemetry?.target || '',
-            saplingCmdCreateWorkspace: data.sapling_commands?.create_workspace || '',
-            saplingCmdRemoveWorkspace: data.sapling_commands?.remove_workspace || '',
-            saplingCmdCheckRepoBase: data.sapling_commands?.check_repo_base || '',
-            saplingCmdCreateRepoBase: data.sapling_commands?.create_repo_base || '',
-            localEchoRemote: data.local_echo_remote || false,
-            debugUI: data.debug_ui ?? false,
-            tmuxBinary: data.tmux_binary || '',
-            tmuxSocketName: data.tmux_socket_name || '',
-            modelCatalog: data.models || [],
-            runners: data.runners || {},
-          },
-        });
+        const loadedState: Partial<import('./config/useConfigForm').ConfigFormState> = {
+          workspacePath: data.workspace_path || '',
+          sourceCodeManagement: data.source_code_management || 'git-worktree',
+          recycleWorkspaces: data.recycle_workspaces ?? false,
+          repos: (data.repos || []).sort((a, b) => a.name.localeCompare(b.name)),
+          commandTargets: commandItems,
+          quickLaunch: (data.quick_launch || []).sort((a, b) => a.name.localeCompare(b.name)),
+          externalDiffCommands: data.external_diff_commands || [],
+          externalDiffCleanupMinutes: Math.max(
+            1,
+            (data.external_diff_cleanup_after_ms || 3600000) / 60000
+          ),
+          pastebin: (data.pastebin || [])
+            .slice()
+            .sort((a: string, b: string) => a.localeCompare(b)),
+          nudgenikTarget: data.nudgenik?.target || '',
+          branchSuggestTarget: data.branch_suggest?.target || '',
+          conflictResolveTarget: data.conflict_resolve?.target || '',
+          prReviewTarget: data.pr_review?.target || '',
+          commitMessageTarget: data.commit_message?.target || '',
+          dashboardPollInterval: data.sessions?.dashboard_poll_interval_ms || 5000,
+          viewedBuffer: data.nudgenik?.viewed_buffer_ms || 5000,
+          nudgenikSeenInterval: data.nudgenik?.seen_interval_ms || 2000,
+          gitStatusPollInterval: data.sessions?.git_status_poll_interval_ms || 10000,
+          gitCloneTimeout: data.sessions?.git_clone_timeout_ms || 300000,
+          gitStatusTimeout: data.sessions?.git_status_timeout_ms || 30000,
+          xtermQueryTimeout: data.xterm?.query_timeout_ms || 5000,
+          xtermOperationTimeout: data.xterm?.operation_timeout_ms || 10000,
+          xtermUseWebGL: data.xterm?.use_webgl !== false,
+          networkAccess: netAccess,
+          authEnabled: data.access_control?.enabled || false,
+          authProvider: data.access_control?.provider || 'github',
+          authPublicBaseURL: data.network?.public_base_url || '',
+          authSessionTTLMinutes: data.access_control?.session_ttl_minutes || 1440,
+          authTlsCertPath: data.network?.tls?.cert_path || '',
+          authTlsKeyPath: data.network?.tls?.key_path || '',
+          authWarnings: [],
+          apiNeedsRestart: data.needs_restart || false,
+          soundDisabled: data.notifications?.sound_disabled || false,
+          confirmBeforeClose: data.notifications?.confirm_before_close || false,
+          suggestDisposeAfterPush: data.notifications?.suggest_dispose_after_push ?? true,
+          enabledModels: data.enabled_models || {},
+          commStyles: data.comm_styles || {},
+          loreEnabled: data.lore?.enabled ?? true,
+          loreLLMTarget: data.lore?.llm_target || '',
+          loreCurateOnDispose: data.lore?.curate_on_dispose || 'session',
+          loreAutoPR: data.lore?.auto_pr || false,
+          lorePublicRuleMode: data.lore?.public_rule_mode || 'direct_push',
+          subredditEnabled: data.subreddit?.enabled ?? false,
+          subredditTarget: data.subreddit?.target || '',
+          subredditInterval: data.subreddit?.interval || 30,
+          subredditCheckingRange: data.subreddit?.checking_range || 48,
+          subredditMaxPosts: data.subreddit?.max_posts || 30,
+          subredditMaxAge: data.subreddit?.max_age || 14,
+          subredditRepos: data.subreddit?.repos || {},
+          repofeedEnabled: data.repofeed?.enabled || false,
+          repofeedPublishInterval: data.repofeed?.publish_interval_seconds || 30,
+          repofeedFetchInterval: data.repofeed?.fetch_interval_seconds || 60,
+          repofeedCompletedRetention: data.repofeed?.completed_retention_hours || 48,
+          repofeedRepos: data.repofeed?.repos || {},
+          remoteAccessEnabled: data.remote_access?.enabled || false,
+          remoteAccessTimeoutMinutes: data.remote_access?.timeout_minutes || 0,
+          remoteAccessNtfyTopic: data.remote_access?.notify?.ntfy_topic || '',
+          remoteAccessNotifyCommand: data.remote_access?.notify?.command || '',
+          remoteAccessPasswordHashSet: data.remote_access?.password_hash_set || false,
+          desyncEnabled: data.desync?.enabled || false,
+          desyncTarget: data.desync?.target || '',
+          fmEnabled: data.floor_manager?.enabled || false,
+          fmTarget: data.floor_manager?.target || '',
+          fmRotationThreshold: data.floor_manager?.rotation_threshold || 150,
+          fmDebounceMs: data.floor_manager?.debounce_ms || 2000,
+          timelapseEnabled: data.timelapse?.enabled ?? true,
+          timelapseRetentionDays: data.timelapse?.retention_days || 7,
+          timelapseMaxFileSizeMB: data.timelapse?.max_file_size_mb || 50,
+          timelapseMaxTotalStorageMB: data.timelapse?.max_total_storage_mb || 500,
+          ioWorkspaceTelemetryEnabled: data.io_workspace_telemetry?.enabled || false,
+          ioWorkspaceTelemetryTarget: data.io_workspace_telemetry?.target || '',
+          saplingCmdCreateWorkspace: data.sapling_commands?.create_workspace || '',
+          saplingCmdRemoveWorkspace: data.sapling_commands?.remove_workspace || '',
+          saplingCmdCheckRepoBase: data.sapling_commands?.check_repo_base || '',
+          saplingCmdCreateRepoBase: data.sapling_commands?.create_repo_base || '',
+          localEchoRemote: data.local_echo_remote || false,
+          debugUI: data.debug_ui ?? false,
+          tmuxBinary: data.tmux_binary || '',
+          tmuxSocketName: data.tmux_socket_name || '',
+          modelCatalog: data.models || [],
+          runners: data.runners || {},
+        };
 
-        // Set original config for change detection
-        {
-          const originalConfig: ConfigSnapshot = {
-            workspacePath: data.workspace_path || '',
-            sourceCodeManagement: data.source_code_management || 'git-worktree',
-            recycleWorkspaces: data.recycle_workspaces ?? false,
-            repos: (data.repos || []).sort((a, b) => a.name.localeCompare(b.name)),
-            commandTargets: commandItems,
-            quickLaunch: data.quick_launch || [],
-            externalDiffCommands: data.external_diff_commands || [],
-            externalDiffCleanupMinutes: Math.max(
-              1,
-              (data.external_diff_cleanup_after_ms || 3600000) / 60000
-            ),
-            pastebin: (data.pastebin || [])
-              .slice()
-              .sort((a: string, b: string) => a.localeCompare(b)),
-            nudgenikTarget: data.nudgenik?.target || '',
-            branchSuggestTarget: data.branch_suggest?.target || '',
-            conflictResolveTarget: data.conflict_resolve?.target || '',
-            prReviewTarget: data.pr_review?.target || '',
-            commitMessageTarget: data.commit_message?.target || '',
-            dashboardPollInterval: data.sessions?.dashboard_poll_interval_ms || 5000,
-            viewedBuffer: data.nudgenik?.viewed_buffer_ms || 5000,
-            nudgenikSeenInterval: data.nudgenik?.seen_interval_ms || 2000,
-            gitStatusPollInterval: data.sessions?.git_status_poll_interval_ms || 10000,
-            gitCloneTimeout: data.sessions?.git_clone_timeout_ms || 300000,
-            gitStatusTimeout: data.sessions?.git_status_timeout_ms || 30000,
-            xtermQueryTimeout: data.xterm?.query_timeout_ms || 5000,
-            xtermOperationTimeout: data.xterm?.operation_timeout_ms || 10000,
-            xtermUseWebGL: data.xterm?.use_webgl !== false,
-            networkAccess: netAccess,
-            authEnabled: data.access_control?.enabled || false,
-            authProvider: data.access_control?.provider || 'github',
-            authPublicBaseURL: data.network?.public_base_url || '',
-            authSessionTTLMinutes: data.access_control?.session_ttl_minutes || 1440,
-            authTlsCertPath: data.network?.tls?.cert_path || '',
-            authTlsKeyPath: data.network?.tls?.key_path || '',
-            soundDisabled: data.notifications?.sound_disabled || false,
-            confirmBeforeClose: data.notifications?.confirm_before_close || false,
-            suggestDisposeAfterPush: data.notifications?.suggest_dispose_after_push ?? true,
-            enabledModels: data.enabled_models || {},
-            commStyles: data.comm_styles || {},
-            loreEnabled: data.lore?.enabled ?? true,
-            loreLLMTarget: data.lore?.llm_target || '',
-            loreCurateOnDispose: data.lore?.curate_on_dispose || 'session',
-            loreAutoPR: data.lore?.auto_pr || false,
-            lorePublicRuleMode: data.lore?.public_rule_mode || 'direct_push',
-            subredditTarget: data.subreddit?.target || '',
-            subredditInterval: data.subreddit?.interval || 30,
-            subredditCheckingRange: data.subreddit?.checking_range || 48,
-            subredditMaxPosts: data.subreddit?.max_posts || 30,
-            subredditMaxAge: data.subreddit?.max_age || 14,
-            subredditRepos: data.subreddit?.repos || {},
-            repofeedEnabled: data.repofeed?.enabled || false,
-            repofeedPublishInterval: data.repofeed?.publish_interval_seconds || 30,
-            repofeedFetchInterval: data.repofeed?.fetch_interval_seconds || 60,
-            repofeedCompletedRetention: data.repofeed?.completed_retention_hours || 48,
-            repofeedRepos: data.repofeed?.repos || {},
-            remoteAccessEnabled: data.remote_access?.enabled || false,
-            remoteAccessTimeoutMinutes: data.remote_access?.timeout_minutes || 0,
-            remoteAccessNtfyTopic: data.remote_access?.notify?.ntfy_topic || '',
-            remoteAccessNotifyCommand: data.remote_access?.notify?.command || '',
-            desyncEnabled: data.desync?.enabled || false,
-            desyncTarget: data.desync?.target || '',
-            fmEnabled: data.floor_manager?.enabled || false,
-            fmTarget: data.floor_manager?.target || '',
-            fmRotationThreshold: data.floor_manager?.rotation_threshold || 150,
-            fmDebounceMs: data.floor_manager?.debounce_ms || 2000,
-            timelapseEnabled: data.timelapse?.enabled ?? true,
-            timelapseRetentionDays: data.timelapse?.retention_days || 7,
-            timelapseMaxFileSizeMB: data.timelapse?.max_file_size_mb || 50,
-            timelapseMaxTotalStorageMB: data.timelapse?.max_total_storage_mb || 500,
-            ioWorkspaceTelemetryEnabled: data.io_workspace_telemetry?.enabled || false,
-            ioWorkspaceTelemetryTarget: data.io_workspace_telemetry?.target || '',
-            saplingCmdCreateWorkspace: data.sapling_commands?.create_workspace || '',
-            saplingCmdRemoveWorkspace: data.sapling_commands?.remove_workspace || '',
-            saplingCmdCheckRepoBase: data.sapling_commands?.check_repo_base || '',
-            saplingCmdCreateRepoBase: data.sapling_commands?.create_repo_base || '',
-            localEchoRemote: data.local_echo_remote || false,
-            debugUI: data.debug_ui ?? false,
-            tmuxBinary: data.tmux_binary || '',
-            tmuxSocketName: data.tmux_socket_name || '',
-          };
-          dispatch({ type: 'SET_ORIGINAL', config: originalConfig });
-        }
+        rawDispatch({ type: 'LOAD_CONFIG', state: loadedState });
+
+        // Initialize auto-save baseline from loaded config
+        setLastSavedConfig({
+          ...state,
+          ...loadedState,
+        } as import('./config/useConfigForm').ConfigFormState);
 
         const authStatus = await getAuthSecretsStatus();
         if (active) {
-          dispatch({
+          rawDispatch({
             type: 'SET_FIELD',
             field: 'authClientIdSet',
             value: !!authStatus.client_id,
           });
-          dispatch({
+          rawDispatch({
             type: 'SET_FIELD',
             field: 'authClientSecretSet',
             value: !!authStatus.client_secret_set,
           });
-          dispatch({
+          rawDispatch({
             type: 'SET_FIELD',
             field: 'authClientId',
             value: authStatus.client_id || '',
           });
-          dispatch({
+          rawDispatch({
             type: 'SET_FIELD',
             field: 'authClientSecretWasSet',
             value: !!authStatus.client_secret_set,
@@ -336,9 +227,9 @@ export default function ConfigPage() {
       } catch (err) {
         if (!active) return;
         const message = err instanceof Error ? err.message : 'Failed to load config';
-        dispatch({ type: 'SET_FIELD', field: 'error', value: message });
+        rawDispatch({ type: 'SET_FIELD', field: 'error', value: message });
       } finally {
-        if (active) dispatch({ type: 'SET_FIELD', field: 'loading', value: false });
+        if (active) rawDispatch({ type: 'SET_FIELD', field: 'loading', value: false });
       }
     };
 
@@ -352,16 +243,16 @@ export default function ConfigPage() {
   useEffect(() => {
     let active = true;
     const loadOverlays = async () => {
-      dispatch({ type: 'SET_FIELD', field: 'loadingOverlays', value: true });
+      rawDispatch({ type: 'SET_FIELD', field: 'loadingOverlays', value: true });
       try {
         const data = await getOverlays();
         if (!active) return;
-        dispatch({ type: 'SET_FIELD', field: 'overlays', value: data.overlays || [] });
+        rawDispatch({ type: 'SET_FIELD', field: 'overlays', value: data.overlays || [] });
       } catch (err) {
         if (!active) return;
         console.error('Failed to load overlays:', err);
       } finally {
-        if (active) dispatch({ type: 'SET_FIELD', field: 'loadingOverlays', value: false });
+        if (active) rawDispatch({ type: 'SET_FIELD', field: 'loadingOverlays', value: false });
       }
     };
     loadOverlays();
@@ -377,7 +268,7 @@ export default function ConfigPage() {
       try {
         const data = await getBuiltinQuickLaunch();
         if (active) {
-          dispatch({ type: 'SET_FIELD', field: 'builtinQuickLaunch', value: data || [] });
+          rawDispatch({ type: 'SET_FIELD', field: 'builtinQuickLaunch', value: data || [] });
         }
       } catch (err) {
         if (!active) return;
@@ -569,229 +460,6 @@ export default function ConfigPage() {
     }
   };
 
-  // Validation
-  const validateStep = (step: number) => {
-    let error = null;
-    if (step === 1) {
-      if (!state.workspacePath.trim()) {
-        error = 'Workspace path is required';
-      } else if (state.repos.length === 0) {
-        error = 'Add at least one repository';
-      }
-    } else if (step === 7) {
-      if (
-        !state.xtermQueryTimeout ||
-        !state.xtermOperationTimeout ||
-        state.xtermQueryTimeout <= 0 ||
-        state.xtermOperationTimeout <= 0
-      ) {
-        error = 'xterm settings must be greater than 0';
-      }
-    }
-    dispatch({ type: 'SET_STEP_ERROR', step, error });
-    return !error;
-  };
-
-  // Save
-  const saveCurrentStep = async () => {
-    if (!validateStep(state.currentStep)) {
-      if (state.stepErrors[state.currentStep]) {
-        toastError(state.stepErrors[state.currentStep]!);
-      }
-      return false;
-    }
-
-    dispatch({ type: 'SET_FIELD', field: 'saving', value: true });
-    dispatch({ type: 'SET_FIELD', field: 'warning', value: '' });
-
-    try {
-      const runTargets = state.commandTargets.map((t) => ({ name: t.name, command: t.command }));
-
-      const updateRequest: ConfigUpdateRequest = {
-        workspace_path: state.workspacePath,
-        source_code_management: state.sourceCodeManagement,
-        recycle_workspaces: state.recycleWorkspaces,
-        repos: state.repos,
-        run_targets: runTargets,
-        quick_launch: state.quickLaunch.map((q) => ({
-          ...q,
-          prompt: q.prompt ?? undefined,
-        })),
-        external_diff_commands: state.externalDiffCommands,
-        external_diff_cleanup_after_ms: Math.max(
-          60000,
-          Math.round(state.externalDiffCleanupMinutes * 60000)
-        ),
-        pastebin: state.pastebin,
-        nudgenik: {
-          target: state.nudgenikTarget || '',
-          viewed_buffer_ms: state.viewedBuffer,
-          seen_interval_ms: state.nudgenikSeenInterval,
-        },
-        branch_suggest: { target: state.branchSuggestTarget || '' },
-        conflict_resolve: { target: state.conflictResolveTarget || '' },
-        pr_review: { target: state.prReviewTarget || '' },
-        commit_message: { target: state.commitMessageTarget || '' },
-        sessions: {
-          dashboard_poll_interval_ms: state.dashboardPollInterval,
-          git_status_poll_interval_ms: state.gitStatusPollInterval,
-          git_clone_timeout_ms: state.gitCloneTimeout,
-          git_status_timeout_ms: state.gitStatusTimeout,
-        },
-        xterm: {
-          query_timeout_ms: state.xtermQueryTimeout,
-          operation_timeout_ms: state.xtermOperationTimeout,
-          use_webgl: state.xtermUseWebGL,
-        },
-        network: {
-          bind_address: state.networkAccess ? '0.0.0.0' : '127.0.0.1',
-          public_base_url: state.authPublicBaseURL,
-          tls: {
-            cert_path: state.authTlsCertPath,
-            key_path: state.authTlsKeyPath,
-          },
-        },
-        access_control: {
-          enabled: state.authEnabled,
-          provider: state.authProvider,
-          session_ttl_minutes: state.authSessionTTLMinutes,
-        },
-        notifications: {
-          sound_disabled: state.soundDisabled,
-          confirm_before_close: state.confirmBeforeClose,
-          suggest_dispose_after_push: state.suggestDisposeAfterPush,
-        },
-        lore: {
-          enabled: state.loreEnabled,
-          llm_target: state.loreLLMTarget,
-          curate_on_dispose: state.loreCurateOnDispose,
-          auto_pr: state.loreAutoPR,
-          public_rule_mode: state.lorePublicRuleMode,
-        },
-        subreddit: {
-          target: state.subredditTarget,
-          interval: state.subredditInterval,
-          checking_range: state.subredditCheckingRange,
-          max_posts: state.subredditMaxPosts,
-          max_age: state.subredditMaxAge,
-          repos: state.subredditRepos,
-        },
-        repofeed: {
-          enabled: state.repofeedEnabled,
-          publish_interval_seconds: state.repofeedPublishInterval,
-          fetch_interval_seconds: state.repofeedFetchInterval,
-          completed_retention_hours: state.repofeedCompletedRetention,
-          repos: state.repofeedRepos,
-        },
-        enabled_models: state.enabledModels,
-        comm_styles: state.commStyles,
-        remote_access: {
-          enabled: state.remoteAccessEnabled,
-          timeout_minutes: state.remoteAccessTimeoutMinutes,
-          notify: {
-            ntfy_topic: state.remoteAccessNtfyTopic,
-            command: state.remoteAccessNotifyCommand,
-          },
-        },
-        desync: {
-          enabled: state.desyncEnabled,
-          target: state.desyncTarget || '',
-        },
-        floor_manager: {
-          enabled: state.fmEnabled,
-          target: state.fmTarget || '',
-          rotation_threshold: state.fmRotationThreshold,
-          debounce_ms: state.fmDebounceMs,
-        },
-        timelapse: {
-          enabled: state.timelapseEnabled,
-          retention_days: state.timelapseRetentionDays,
-          max_file_size_mb: state.timelapseMaxFileSizeMB,
-          max_total_storage_mb: state.timelapseMaxTotalStorageMB,
-        },
-        io_workspace_telemetry: {
-          enabled: state.ioWorkspaceTelemetryEnabled,
-          target: state.ioWorkspaceTelemetryTarget || '',
-        },
-        sapling_commands:
-          state.saplingCmdCreateWorkspace ||
-          state.saplingCmdRemoveWorkspace ||
-          state.saplingCmdCheckRepoBase ||
-          state.saplingCmdCreateRepoBase
-            ? {
-                create_workspace: state.saplingCmdCreateWorkspace || undefined,
-                remove_workspace: state.saplingCmdRemoveWorkspace || undefined,
-                check_repo_base: state.saplingCmdCheckRepoBase || undefined,
-                create_repo_base: state.saplingCmdCreateRepoBase || undefined,
-              }
-            : undefined,
-        tmux_binary:
-          state.tmuxBinary !== state.originalConfig?.tmuxBinary ? state.tmuxBinary : undefined,
-        tmux_socket_name:
-          state.tmuxSocketName !== state.originalConfig?.tmuxSocketName
-            ? state.tmuxSocketName
-            : undefined,
-        local_echo_remote: state.localEchoRemote,
-        debug_ui: state.debugUI,
-      };
-
-      const result = await updateConfig(updateRequest);
-
-      // Save staged GitHub OAuth credentials if changed
-      if (state.authSecretsChanged && state.authClientId.trim()) {
-        const secretPayload: { client_id: string; client_secret?: string } = {
-          client_id: state.authClientId.trim(),
-        };
-        // Only include secret if user entered a new one
-        if (state.authClientSecret.trim()) {
-          secretPayload.client_secret = state.authClientSecret.trim();
-        }
-        await saveAuthSecrets(secretPayload);
-        dispatch({ type: 'SET_FIELD', field: 'authSecretsChanged', value: false });
-        dispatch({ type: 'SET_FIELD', field: 'authClientSecret', value: '' }); // Clear staged secret
-        // Reload auth status after saving
-        const authStatus = await getAuthSecretsStatus();
-        dispatch({ type: 'SET_FIELD', field: 'authClientIdSet', value: !!authStatus.client_id });
-        dispatch({
-          type: 'SET_FIELD',
-          field: 'authClientSecretSet',
-          value: !!authStatus.client_secret_set,
-        });
-        dispatch({
-          type: 'SET_FIELD',
-          field: 'authClientSecretWasSet',
-          value: !!authStatus.client_secret_set,
-        });
-      }
-
-      reloadConfig();
-      localStorage.setItem(CONFIG_UPDATED_KEY, Date.now().toString());
-      dispatch({ type: 'SET_FIELD', field: 'authWarnings', value: result.warnings || [] });
-
-      const reloaded = await getConfig();
-      dispatch({
-        type: 'SET_FIELD',
-        field: 'apiNeedsRestart',
-        value: reloaded.needs_restart || false,
-      });
-
-      dispatch({ type: 'SET_ORIGINAL', config: snapshotConfig() });
-
-      if (result.warning) {
-        dispatch({ type: 'SET_FIELD', field: 'warning', value: result.warning });
-      } else {
-        success('Configuration saved');
-      }
-      return true;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to save config';
-      alert('Save Failed', message);
-      return false;
-    } finally {
-      dispatch({ type: 'SET_FIELD', field: 'saving', value: false });
-    }
-  };
-
   // Handler functions
   const handleEditWorkspacePath = async () => {
     const newPath = await prompt('Edit Workspace Directory', {
@@ -801,9 +469,6 @@ export default function ConfigPage() {
     });
     if (newPath !== null) {
       dispatch({ type: 'SET_FIELD', field: 'workspacePath', value: newPath });
-      if (newPath.trim()) {
-        dispatch({ type: 'SET_STEP_ERROR', step: 1, error: null });
-      }
     }
   };
 
@@ -1099,13 +764,13 @@ export default function ConfigPage() {
     });
   };
 
-  const saveAuthSecretsModal = () => {
+  const saveAuthSecretsModal = async () => {
     if (!state.authSecretsModal) return;
     const { clientId, clientSecret, clientSecretWasSet } = state.authSecretsModal;
 
     // Validate client ID is required
     if (!clientId.trim()) {
-      dispatch({
+      rawDispatch({
         type: 'SET_AUTH_SECRETS_MODAL',
         modal: {
           ...state.authSecretsModal,
@@ -1117,7 +782,7 @@ export default function ConfigPage() {
 
     // Validate client secret is required for first-time setup
     if (!clientSecretWasSet && !clientSecret.trim()) {
-      dispatch({
+      rawDispatch({
         type: 'SET_AUTH_SECRETS_MODAL',
         modal: {
           ...state.authSecretsModal,
@@ -1127,21 +792,45 @@ export default function ConfigPage() {
       return;
     }
 
-    // Stage credentials in form state (save with "Save Changes")
-    // Only store new secret if user entered one (not the mask)
-    const newSecret = clientSecret.trim() && clientSecret !== '••••••••' ? clientSecret.trim() : '';
-    dispatch({ type: 'SET_FIELD', field: 'authClientId', value: clientId.trim() });
-    dispatch({ type: 'SET_FIELD', field: 'authClientSecret', value: newSecret });
-    dispatch({ type: 'SET_FIELD', field: 'authClientSecretWasSet', value: clientSecretWasSet });
-    dispatch({ type: 'SET_FIELD', field: 'authSecretsChanged', value: true });
-    dispatch({ type: 'SET_FIELD', field: 'authClientIdSet', value: !!clientId.trim() });
-    dispatch({
-      type: 'SET_FIELD',
-      field: 'authClientSecretSet',
-      value: clientSecretWasSet || !!newSecret,
-    });
-    dispatch({ type: 'SET_AUTH_SECRETS_MODAL', modal: null });
-    success('Credentials staged - click Save Changes to apply');
+    // Save auth secrets directly (separate from config auto-save)
+    const newSecret =
+      clientSecret.trim() && clientSecret !== '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'
+        ? clientSecret.trim()
+        : '';
+    try {
+      const secretPayload: { client_id: string; client_secret?: string } = {
+        client_id: clientId.trim(),
+      };
+      if (newSecret) {
+        secretPayload.client_secret = newSecret;
+      }
+      await saveAuthSecrets(secretPayload);
+
+      // Reload auth status
+      const authStatus = await getAuthSecretsStatus();
+      rawDispatch({ type: 'SET_FIELD', field: 'authClientId', value: authStatus.client_id || '' });
+      rawDispatch({ type: 'SET_FIELD', field: 'authClientIdSet', value: !!authStatus.client_id });
+      rawDispatch({
+        type: 'SET_FIELD',
+        field: 'authClientSecretSet',
+        value: !!authStatus.client_secret_set,
+      });
+      rawDispatch({
+        type: 'SET_FIELD',
+        field: 'authClientSecretWasSet',
+        value: !!authStatus.client_secret_set,
+      });
+      rawDispatch({ type: 'SET_AUTH_SECRETS_MODAL', modal: null });
+      success('Auth credentials saved');
+    } catch (err) {
+      rawDispatch({
+        type: 'SET_AUTH_SECRETS_MODAL',
+        modal: {
+          ...state.authSecretsModal,
+          error: getErrorMessage(err, 'Failed to save auth credentials'),
+        },
+      });
+    }
   };
 
   const handleSetPassword = async () => {
@@ -1198,7 +887,7 @@ export default function ConfigPage() {
   };
 
   const setCurrentStep = (step: number) => {
-    dispatch({ type: 'SET_FIELD', field: 'currentStep', value: step });
+    rawDispatch({ type: 'SET_FIELD', field: 'currentStep', value: step });
   };
 
   // Early returns
@@ -1229,20 +918,19 @@ export default function ConfigPage() {
         <div className="config-sticky-header__title-row">
           <h1 className="config-sticky-header__title">Settings</h1>
           <div className="config-sticky-header__actions">
-            <button
-              className="btn btn--primary btn--sm"
-              onClick={async () => {
-                await saveCurrentStep();
-              }}
-              disabled={state.saving || !hasChanges(false)}
-              data-testid="config-save"
-            >
-              {state.saving ? 'Saving...' : 'Save Changes'}
-            </button>
+            {saveStatus === 'error' && (
+              <span
+                className="config-save-status config-save-status--error"
+                data-testid="config-save-status"
+                data-status="error"
+              >
+                Error saving
+              </span>
+            )}
           </div>
         </div>
         <div className="wizard__steps wizard__steps--compact">
-          {Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1).map((stepNum) => {
+          {Array.from({ length: TABS.length }, (_, i) => i + 1).map((stepNum) => {
             const isCurrent = stepNum === state.currentStep;
             const stepLabel = TABS[stepNum - 1];
             if (isTabHidden(TAB_SLUGS[stepNum - 1])) return null;
@@ -1292,7 +980,6 @@ export default function ConfigPage() {
               newRepoName={state.newRepoName}
               newRepoUrl={state.newRepoUrl}
               newRepoVcs={state.newRepoVcs}
-              stepErrors={state.stepErrors}
               dispatch={dispatch}
               onEditWorkspacePath={handleEditWorkspacePath}
               onRemoveRepo={removeRepo}
@@ -1302,46 +989,15 @@ export default function ConfigPage() {
 
           {currentTab === 2 && (
             <SessionsTab
-              models={state.modelCatalog}
-              runners={state.runners}
-              enabledModels={state.enabledModels}
-              commStyles={state.commStyles}
-              styles={configStyles}
-              commandTargets={state.commandTargets}
-              newCommandName={state.newCommandName}
-              newCommandCommand={state.newCommandCommand}
+              state={state}
               dispatch={dispatch}
-              onAddCommand={addCommand}
-              onRemoveCommand={removeCommand}
-              onModelAction={handleModelAction}
-              onOpenRunTargetEditModal={openRunTargetEditModal}
-            />
-          )}
-
-          {currentTab === 3 && (
-            <QuickLaunchTab
-              quickLaunch={state.quickLaunch}
-              builtinQuickLaunch={state.builtinQuickLaunch}
               models={models}
               personas={personas}
-              newQuickLaunchName={state.newQuickLaunchName}
-              newQuickLaunchMode={state.newQuickLaunchMode}
-              newQuickLaunchTarget={state.newQuickLaunchTarget}
-              newQuickLaunchPrompt={state.newQuickLaunchPrompt}
-              newQuickLaunchCommand={state.newQuickLaunchCommand}
-              newQuickLaunchPersonaId={state.newQuickLaunchPersonaId}
+              builtinQuickLaunch={state.builtinQuickLaunch}
               selectedCookbookTemplate={state.selectedCookbookTemplate}
-              dispatch={dispatch}
               onAddQuickLaunch={addQuickLaunch}
               onRemoveQuickLaunch={removeQuickLaunch}
               onOpenQuickLaunchEditModal={openQuickLaunchEditModal}
-            />
-          )}
-
-          {currentTab === 4 && (
-            <PastebinTab
-              pastebin={state.pastebin}
-              dispatch={dispatch}
               onOpenPastebinEditModal={(index, content) => {
                 dispatch({
                   type: 'SET_PASTEBIN_EDIT_MODAL',
@@ -1354,37 +1010,29 @@ export default function ConfigPage() {
                   modal: { content: '', error: '' },
                 });
               }}
+              onAddCommand={addCommand}
+              onRemoveCommand={removeCommand}
+              onOpenRunTargetEditModal={openRunTargetEditModal}
             />
           )}
 
-          {currentTab === 5 && (
-            <CodeReviewTab
-              commitMessageTarget={state.commitMessageTarget}
-              prReviewTarget={state.prReviewTarget}
-              externalDiffCommands={state.externalDiffCommands}
-              externalDiffCleanupMinutes={state.externalDiffCleanupMinutes}
-              newDiffName={state.newDiffName}
-              newDiffCommand={state.newDiffCommand}
+          {currentTab === 3 && (
+            <AgentsTab
+              state={state}
+              dispatch={dispatch}
+              models={state.modelCatalog}
+              runners={state.runners}
+              styles={configStyles}
+              onModelAction={handleModelAction}
+              onOpenRunTargetEditModal={openRunTargetEditModal}
               commitMessageTargetMissing={commitMessageTargetMissing}
               prReviewTargetMissing={prReviewTargetMissing}
-              models={oneshotModels}
-              dispatch={dispatch}
-              onAddDiffCommand={addDiffCommand}
+              branchSuggestTargetMissing={branchSuggestTargetMissing}
+              conflictResolveTargetMissing={conflictResolveTargetMissing}
             />
           )}
 
-          {currentTab === 6 && (
-            <FloorManagerTab
-              fmEnabled={state.fmEnabled}
-              fmTarget={state.fmTarget}
-              fmRotationThreshold={state.fmRotationThreshold}
-              fmDebounceMs={state.fmDebounceMs}
-              models={oneshotModels}
-              dispatch={dispatch}
-            />
-          )}
-
-          {currentTab === 7 && (
+          {currentTab === 4 && (
             <AccessTab
               networkAccess={state.networkAccess}
               remoteAccessEnabled={state.remoteAccessEnabled}
@@ -1423,51 +1071,16 @@ export default function ConfigPage() {
             />
           )}
 
-          {features.subreddit && currentTab === 8 && (
-            <SubredditTab
-              subredditTarget={state.subredditTarget}
-              subredditInterval={state.subredditInterval}
-              subredditCheckingRange={state.subredditCheckingRange}
-              subredditMaxPosts={state.subredditMaxPosts}
-              subredditMaxAge={state.subredditMaxAge}
-              subredditRepos={state.subredditRepos}
-              repos={state.repos}
-              models={oneshotModels}
-              dispatch={dispatch}
-            />
+          {currentTab === 5 && (
+            <ExperimentalTab state={state} dispatch={dispatch} models={oneshotModels} />
           )}
 
-          {features.repofeed && currentTab === 9 && (
-            <RepofeedTab
-              repofeedEnabled={state.repofeedEnabled}
-              repofeedPublishInterval={state.repofeedPublishInterval}
-              repofeedFetchInterval={state.repofeedFetchInterval}
-              repofeedCompletedRetention={state.repofeedCompletedRetention}
-              repofeedRepos={state.repofeedRepos}
-              repos={state.repos}
-              dispatch={dispatch}
-            />
-          )}
-
-          {currentTab === 10 && (
+          {currentTab === 6 && (
             <AdvancedTab
-              loreEnabled={state.loreEnabled}
-              loreLLMTarget={state.loreLLMTarget}
-              loreCurateOnDispose={state.loreCurateOnDispose}
-              loreAutoPR={state.loreAutoPR}
-              lorePublicRuleMode={state.lorePublicRuleMode}
-              nudgenikTarget={state.nudgenikTarget}
-              viewedBuffer={state.viewedBuffer}
-              nudgenikSeenInterval={state.nudgenikSeenInterval}
               desyncEnabled={state.desyncEnabled}
               desyncTarget={state.desyncTarget}
               ioWorkspaceTelemetryEnabled={state.ioWorkspaceTelemetryEnabled}
               ioWorkspaceTelemetryTarget={state.ioWorkspaceTelemetryTarget}
-              branchSuggestTarget={state.branchSuggestTarget}
-              conflictResolveTarget={state.conflictResolveTarget}
-              soundDisabled={state.soundDisabled}
-              confirmBeforeClose={state.confirmBeforeClose}
-              suggestDisposeAfterPush={state.suggestDisposeAfterPush}
               dashboardPollInterval={state.dashboardPollInterval}
               gitStatusPollInterval={state.gitStatusPollInterval}
               gitCloneTimeout={state.gitCloneTimeout}
@@ -1477,9 +1090,6 @@ export default function ConfigPage() {
               xtermUseWebGL={state.xtermUseWebGL}
               localEchoRemote={state.localEchoRemote}
               debugUI={state.debugUI}
-              nudgenikTargetMissing={nudgenikTargetMissing}
-              branchSuggestTargetMissing={branchSuggestTargetMissing}
-              conflictResolveTargetMissing={conflictResolveTargetMissing}
               hasSaplingRepos={state.repos.some((r) => r.vcs === 'sapling')}
               saplingCmdCreateWorkspace={state.saplingCmdCreateWorkspace}
               saplingCmdRemoveWorkspace={state.saplingCmdRemoveWorkspace}
@@ -1487,11 +1097,11 @@ export default function ConfigPage() {
               saplingCmdCreateRepoBase={state.saplingCmdCreateRepoBase}
               tmuxBinary={state.tmuxBinary}
               tmuxSocketName={state.tmuxSocketName}
-              timelapseEnabled={state.timelapseEnabled}
-              timelapseRetentionDays={state.timelapseRetentionDays}
-              timelapseMaxFileSizeMB={state.timelapseMaxFileSizeMB}
-              timelapseMaxTotalStorageMB={state.timelapseMaxTotalStorageMB}
-              stepErrors={state.stepErrors}
+              externalDiffCommands={state.externalDiffCommands}
+              externalDiffCleanupMinutes={state.externalDiffCleanupMinutes}
+              newDiffName={state.newDiffName}
+              newDiffCommand={state.newDiffCommand}
+              onAddDiffCommand={addDiffCommand}
               models={oneshotModels}
               dispatch={dispatch}
             />

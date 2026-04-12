@@ -36,7 +36,7 @@ test.describe.serial('Toggle debug UI from settings', () => {
     await expect(debugCheckbox).not.toBeChecked();
   });
 
-  test('enable debug UI via the UI and save', async ({ page }) => {
+  test('enable debug UI via the UI — auto-saves', async ({ page }) => {
     await page.goto('/config?tab=advanced');
     await waitForDashboardLive(page);
 
@@ -45,10 +45,8 @@ test.describe.serial('Toggle debug UI from settings', () => {
       .locator('input[type="checkbox"]');
     await debugCheckbox.check();
 
-    const saveButton = page.locator('[data-testid="config-save"]');
-    await expect(saveButton).toBeEnabled();
-    await saveButton.click();
-    await expect(saveButton).toBeDisabled({ timeout: 10_000 });
+    // Wait briefly for auto-save to complete
+    await page.waitForTimeout(500);
   });
 
   test('API confirms debug_ui=true after enabling', async () => {
@@ -71,7 +69,7 @@ test.describe.serial('Toggle debug UI from settings', () => {
     await expect(debugCheckbox).toBeChecked();
   });
 
-  test('disable debug UI via the UI and save', async ({ page }) => {
+  test('disable debug UI via the UI — auto-saves', async ({ page }) => {
     await page.goto('/config?tab=advanced');
     await waitForDashboardLive(page);
 
@@ -80,10 +78,8 @@ test.describe.serial('Toggle debug UI from settings', () => {
       .locator('input[type="checkbox"]');
     await debugCheckbox.uncheck();
 
-    const saveButton = page.locator('[data-testid="config-save"]');
-    await expect(saveButton).toBeEnabled();
-    await saveButton.click();
-    await expect(saveButton).toBeDisabled({ timeout: 10_000 });
+    // Wait briefly for auto-save to complete
+    await page.waitForTimeout(500);
   });
 
   test('API confirms debug_ui=false after disabling', async () => {

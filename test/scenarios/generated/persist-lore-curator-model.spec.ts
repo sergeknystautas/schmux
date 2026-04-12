@@ -60,12 +60,8 @@ test.describe.serial('Persist lore curator model selection', () => {
       lore: { llm_target: agentName, curate_on_dispose: 'session' },
     });
 
-    await page.goto('/config');
+    await page.goto('/config?tab=experimental');
     await waitForDashboardLive(page);
-
-    // Navigate to Advanced tab
-    const advancedTab = page.locator('[data-testid="config-tab-advanced"]');
-    await advancedTab.click();
 
     // Change curate on dispose via UI
     const curateSelect = page
@@ -75,19 +71,12 @@ test.describe.serial('Persist lore curator model selection', () => {
       .locator('select');
     await curateSelect.selectOption('workspace');
 
-    // Save
-    const saveButton = page.locator('[data-testid="config-save"]');
-    await expect(saveButton).toBeEnabled();
-    await saveButton.click();
-    await expect(saveButton).toBeDisabled({ timeout: 10000 });
+    // Wait briefly for auto-save to complete
+    await page.waitForTimeout(500);
 
-    // Reload the page completely
+    // Reload the page completely (URL still has ?tab=experimental)
     await page.reload();
     await waitForDashboardLive(page);
-
-    // Navigate back to Advanced tab
-    const advancedTabAfterReload = page.locator('[data-testid="config-tab-advanced"]');
-    await advancedTabAfterReload.click();
 
     // Verify curate on dispose is still workspace
     const curateSelectAfterReload = page

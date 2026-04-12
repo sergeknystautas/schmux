@@ -65,22 +65,21 @@ test.describe.serial('Configure repofeed settings', () => {
     expect(data.repos).toEqual([]);
   });
 
-  test('Repofeed tab is accessible on config page', async ({ page }) => {
-    await page.goto('/config');
+  test('Repofeed is accessible on the Experimental tab', async ({ page }) => {
+    await page.goto('/config?tab=experimental');
     await waitForDashboardLive(page);
 
-    // Click Repofeed tab
-    const repofeedTab = page.locator('[data-testid="config-tab-repofeed"]');
-    await repofeedTab.click();
+    // Verify Experimental tab is active
+    const experimentalTab = page.locator('[data-testid="config-tab-experimental"]');
+    await expect(experimentalTab).toHaveAttribute('aria-selected', 'true');
 
-    // Verify Repofeed section is visible
-    const repofeedSection = page.locator('h3', { hasText: 'Repofeed' });
+    // Verify Repofeed section is visible (use .first() because the inner
+    // config panel also renders an h3 "Repofeed" heading when enabled)
+    const repofeedSection = page.locator('h3', { hasText: 'Repofeed' }).first();
     await expect(repofeedSection).toBeVisible();
 
-    // Enable checkbox should be present
-    const enableCheckbox = page
-      .locator('label', { hasText: 'Enable repofeed' })
-      .locator('input[type="checkbox"]');
-    await expect(enableCheckbox).toBeVisible();
+    // Enable toggle should be present
+    const enableToggle = page.locator('[data-testid="experimental-toggle-repofeed"]');
+    await expect(enableToggle).toBeVisible();
   });
 });

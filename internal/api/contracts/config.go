@@ -371,6 +371,7 @@ type LoreUpdate struct {
 
 // Subreddit represents subreddit digest configuration in the API response.
 type Subreddit struct {
+	Enabled       bool            `json:"enabled"`        // Whether subreddit digest is enabled
 	Target        string          `json:"target"`         // LLM target for generation, empty = disabled
 	Interval      int             `json:"interval"`       // Polling interval in minutes, default 30
 	CheckingRange int             `json:"checking_range"` // Lookback for new commits in hours, default 48
@@ -381,6 +382,7 @@ type Subreddit struct {
 
 // SubredditUpdate represents partial subreddit config updates.
 type SubredditUpdate struct {
+	Enabled       *bool           `json:"enabled,omitempty"`
 	Target        *string         `json:"target,omitempty"`
 	Interval      *int            `json:"interval,omitempty"`
 	CheckingRange *int            `json:"checking_range,omitempty"`

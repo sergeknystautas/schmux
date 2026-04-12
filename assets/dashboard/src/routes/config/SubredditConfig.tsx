@@ -1,27 +1,7 @@
 import React from 'react';
 import TargetSelect from './TargetSelect';
-import type { ConfigFormAction, ConfigFormState } from './useConfigForm';
-import type { Model, RepoResponse } from '../../lib/types';
-
-type SubredditTabProps = {
-  subredditTarget: string;
-  subredditInterval: number;
-  subredditCheckingRange: number;
-  subredditMaxPosts: number;
-  subredditMaxAge: number;
-  subredditRepos: Record<string, boolean>;
-  repos: RepoResponse[];
-  models: Model[];
-  dispatch: React.Dispatch<ConfigFormAction>;
-};
-
-const setField = (
-  dispatch: React.Dispatch<ConfigFormAction>,
-  field: keyof ConfigFormState,
-  value: unknown
-) => {
-  dispatch({ type: 'SET_FIELD', field, value });
-};
+import type { ConfigPanelProps } from './ConfigPanelProps';
+import type { ConfigFormState } from './useConfigForm';
 
 // Create URL-safe slug from repo name
 function repoSlug(name: string): string {
@@ -31,56 +11,32 @@ function repoSlug(name: string): string {
     .replace(/^-|-$/g, '');
 }
 
-export default function SubredditTab({
-  subredditTarget,
-  subredditInterval,
-  subredditCheckingRange,
-  subredditMaxPosts,
-  subredditMaxAge,
-  subredditRepos,
-  repos,
-  models,
-  dispatch,
-}: SubredditTabProps) {
-  const enabled = !!subredditTarget;
+export default function SubredditConfig({ state, dispatch, models }: ConfigPanelProps) {
+  const setField = (field: keyof ConfigFormState, value: unknown) =>
+    dispatch({ type: 'SET_FIELD', field, value });
 
   const toggleRepo = (slug: string) => {
-    const newRepos = { ...subredditRepos };
+    const newRepos = { ...state.subredditRepos };
     newRepos[slug] = !newRepos[slug];
-    setField(dispatch, 'subredditRepos', newRepos);
+    setField('subredditRepos', newRepos);
   };
 
   return (
-    <div className="wizard-step-content" data-step="7">
-      <h2 className="wizard-step-content__title">Subreddit</h2>
-      <p className="wizard-step-content__description">
-        Generate Reddit-style posts about recent commits for each repository. Posts are created and
-        updated automatically based on commit activity.
-      </p>
-
-      {/* Section 1: Target */}
-      <div className="settings-section">
-        <div className="settings-section__header">
-          <h3 className="settings-section__title">Target</h3>
-        </div>
-        <div className="settings-section__body">
-          <div className="form-group">
-            <label className="form-group__label">LLM Target</label>
-            <TargetSelect
-              value={subredditTarget}
-              onChange={(v) => setField(dispatch, 'subredditTarget', v)}
-              models={models}
-              includeDisabledOption={true}
-            />
-            <p className="form-group__hint">
-              Select an LLM target to enable subreddit generation. When disabled, the digest card is
-              hidden from the home page.
-            </p>
-          </div>
-        </div>
+    <>
+      <div className="form-group">
+        <label className="form-group__label">LLM Target</label>
+        <TargetSelect
+          value={state.subredditTarget}
+          onChange={(v) => setField('subredditTarget', v)}
+          models={models}
+          includeDisabledOption={true}
+        />
+        <p className="form-group__hint">
+          Select an LLM target to enable subreddit generation. When disabled, the digest card is
+          hidden from the home page.
+        </p>
       </div>
 
-      {/* Section 2: Timing - 2x2 grid */}
       <div className="settings-section">
         <div className="settings-section__header">
           <h3 className="settings-section__title">Timing</h3>
@@ -95,15 +51,13 @@ export default function SubredditTab({
                   className="input input--compact"
                   min="5"
                   max="1440"
-                  value={subredditInterval || 30}
+                  value={state.subredditInterval || 30}
                   onChange={(e) =>
                     setField(
-                      dispatch,
                       'subredditInterval',
                       e.target.value === '' ? 30 : parseInt(e.target.value) || 30
                     )
                   }
-                  disabled={!enabled}
                   data-testid="subreddit-interval"
                 />
                 <span className="input-unit">min</span>
@@ -118,15 +72,13 @@ export default function SubredditTab({
                   className="input input--compact"
                   min="1"
                   max="168"
-                  value={subredditCheckingRange || 48}
+                  value={state.subredditCheckingRange || 48}
                   onChange={(e) =>
                     setField(
-                      dispatch,
                       'subredditCheckingRange',
                       e.target.value === '' ? 48 : parseInt(e.target.value) || 48
                     )
                   }
-                  disabled={!enabled}
                   data-testid="subreddit-checking-range"
                 />
                 <span className="input-unit">hrs</span>
@@ -143,15 +95,13 @@ export default function SubredditTab({
                   className="input input--compact"
                   min="1"
                   max="100"
-                  value={subredditMaxPosts || 30}
+                  value={state.subredditMaxPosts || 30}
                   onChange={(e) =>
                     setField(
-                      dispatch,
                       'subredditMaxPosts',
                       e.target.value === '' ? 30 : parseInt(e.target.value) || 30
                     )
                   }
-                  disabled={!enabled}
                   data-testid="subreddit-max-posts"
                 />
                 <span className="input-unit">/repo</span>
@@ -166,15 +116,13 @@ export default function SubredditTab({
                   className="input input--compact"
                   min="1"
                   max="365"
-                  value={subredditMaxAge || 14}
+                  value={state.subredditMaxAge || 14}
                   onChange={(e) =>
                     setField(
-                      dispatch,
                       'subredditMaxAge',
                       e.target.value === '' ? 14 : parseInt(e.target.value) || 14
                     )
                   }
-                  disabled={!enabled}
                   data-testid="subreddit-max-age"
                 />
                 <span className="input-unit">days</span>
@@ -185,8 +133,7 @@ export default function SubredditTab({
         </div>
       </div>
 
-      {/* Section 3: Repos */}
-      {repos.length > 0 && (
+      {state.repos.length > 0 && (
         <div className="settings-section">
           <div className="settings-section__header">
             <h3 className="settings-section__title">Repositories</h3>
@@ -196,24 +143,12 @@ export default function SubredditTab({
               Select which repositories should generate posts.
             </p>
             <div className="repo-list">
-              {repos.map((repo) => {
+              {state.repos.map((repo) => {
                 const slug = repoSlug(repo.name);
-                const isEnabled = subredditRepos[slug] !== false;
+                const isEnabled = state.subredditRepos[slug] !== false;
                 return (
-                  <label
-                    key={slug}
-                    className="flex-row gap-xs"
-                    style={{
-                      cursor: enabled ? 'pointer' : 'not-allowed',
-                      opacity: enabled ? 1 : 0.6,
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isEnabled}
-                      onChange={() => toggleRepo(slug)}
-                      disabled={!enabled}
-                    />
+                  <label key={slug} className="flex-row gap-xs cursor-pointer">
+                    <input type="checkbox" checked={isEnabled} onChange={() => toggleRepo(slug)} />
                     <span>{repo.name}</span>
                   </label>
                 );
@@ -222,6 +157,6 @@ export default function SubredditTab({
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
