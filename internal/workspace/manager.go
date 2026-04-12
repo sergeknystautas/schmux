@@ -1165,7 +1165,7 @@ func (m *Manager) UpdateAllVCSStatus(ctx context.Context) {
 	var localWorkspaces []state.Workspace
 	var remoteWorkspaces []state.Workspace
 	for _, w := range workspaces {
-		if w.Status == state.WorkspaceStatusRecyclable {
+		if w.Status != state.WorkspaceStatusRunning {
 			continue
 		}
 		if w.RemoteHostID != "" {

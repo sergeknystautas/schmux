@@ -550,8 +550,8 @@ func TestUpdateAllVCSStatus_ParallelExecution(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: tmpDir}
 	st := state.New(statePath, nil)
 
-	st.AddWorkspace(state.Workspace{ID: "ws-001", Repo: remoteDir, Branch: "main", Path: clone1})
-	st.AddWorkspace(state.Workspace{ID: "ws-002", Repo: remoteDir, Branch: "main", Path: clone2})
+	st.AddWorkspace(state.Workspace{ID: "ws-001", Repo: remoteDir, Branch: "main", Path: clone1, Status: state.WorkspaceStatusRunning})
+	st.AddWorkspace(state.Workspace{ID: "ws-002", Repo: remoteDir, Branch: "main", Path: clone2, Status: state.WorkspaceStatusRunning})
 
 	m := New(cfg, st, statePath, testLogger())
 

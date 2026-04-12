@@ -285,10 +285,9 @@ describe('RemoteHostSelector', () => {
       expect(screen.queryByText('Loading remote hosts...')).not.toBeInTheDocument();
     });
 
-    // Click the connected host card - find via the <strong> title element
-    const hostnameElements = screen.getAllByText('myhost.example.com');
-    const strongEl = hostnameElements.find((el) => el.tagName.toLowerCase() === 'strong');
-    const hostCard = strongEl?.closest('[role="button"]');
+    // Click the connected host card - wait for it to appear, then find the clickable card
+    const strongEl = await screen.findByText('myhost.example.com', { selector: 'strong' });
+    const hostCard = strongEl.closest('[role="button"]');
     expect(hostCard).toBeTruthy();
 
     await act(async () => {

@@ -82,6 +82,14 @@ func TestManager_ConnectRace(t *testing.T) {
 	if connCount != numGoroutines {
 		t.Errorf("expected %d connections in map, got %d", numGoroutines, connCount)
 	}
+
+	// Clean up background Connect() goroutines so they don't outlive the test
+	// and race on t.TempDir() cleanup.
+	mgr.mu.RLock()
+	for _, conn := range mgr.connections {
+		conn.Close()
+	}
+	mgr.mu.RUnlock()
 }
 
 func TestManager_PruneExpiredHosts(t *testing.T) {
