@@ -474,7 +474,7 @@ export interface RemoteHostConnectRequest {
   flavor: string;
 }
 
-export interface LoreEntry {
+export interface AutolearnEntry {
   ts: string;
   ws?: string;
   session?: string;
@@ -490,10 +490,10 @@ export interface LoreEntry {
   proposal_id?: string;
 }
 
-export type LoreLayer = 'repo_public' | 'repo_private' | 'cross_repo_private';
-export type LoreRuleStatus = 'pending' | 'approved' | 'dismissed';
+export type LearningLayer = 'repo_public' | 'repo_private' | 'cross_repo_private';
+export type LearningStatus = 'pending' | 'approved' | 'dismissed';
 
-export interface RuleSourceEntry {
+export interface LearningSourceEntry {
   type: 'failure' | 'reflection' | 'friction';
   text?: string;
   input_summary?: string;
@@ -501,23 +501,23 @@ export interface RuleSourceEntry {
   tool?: string;
 }
 
-export interface LoreRule {
+export interface AutolearnLearning {
   id: string;
   title: string;
   category: string;
-  suggested_layer: LoreLayer;
-  chosen_layer?: LoreLayer;
-  status: LoreRuleStatus;
-  sources: RuleSourceEntry[];
+  suggested_layer: LearningLayer;
+  chosen_layer?: LearningLayer;
+  status: LearningStatus;
+  sources: LearningSourceEntry[];
   merged_at?: string;
 }
 
-export interface LoreProposal {
+export interface AutolearnBatch {
   id: string;
   repo: string;
   created_at: string;
   status: 'pending' | 'merging' | 'applied' | 'dismissed';
-  learnings: LoreRule[];
+  learnings: AutolearnLearning[];
   discarded?: string[];
   // Deprecated v1 fields (kept for backward compat with old proposals on disk)
   source_count?: number;
@@ -530,7 +530,7 @@ export interface LoreProposal {
   entries_discarded?: Record<string, string>;
 }
 
-export interface LoreMergeApplyResult {
+export interface AutolearnMergeApplyResult {
   layer: string;
   status: string;
   workspace_id?: string;
@@ -539,12 +539,12 @@ export interface LoreMergeApplyResult {
   commit_sha?: string;
 }
 
-export interface LoreProposalsResponse {
-  batches: LoreProposal[];
+export interface AutolearnBatchesResponse {
+  batches: AutolearnBatch[];
 }
 
-export interface LoreEntriesResponse {
-  entries: LoreEntry[];
+export interface AutolearnEntriesResponse {
+  entries: AutolearnEntry[];
 }
 
 interface LoreApplyResponse {
@@ -552,7 +552,7 @@ interface LoreApplyResponse {
   branch: string;
 }
 
-export interface LoreStatusResponse {
+export interface AutolearnStatusResponse {
   enabled: boolean;
   curator_configured: boolean;
   curate_on_dispose: string;

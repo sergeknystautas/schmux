@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import type { LoreRule, LoreLayer, RuleSourceEntry } from '../lib/types';
+import type { AutolearnLearning, LearningLayer, LearningSourceEntry } from '../lib/types';
 import type { SpawnEntry } from '../lib/types.generated';
-import styles from './LoreCard.module.css';
+import styles from './AutolearnCard.module.css';
 
 const LAYER_LABELS: Record<string, string> = {
   repo_public: 'Public',
@@ -11,13 +11,13 @@ const LAYER_LABELS: Record<string, string> = {
 
 type InstructionCardProps = {
   type: 'instruction';
-  rule: LoreRule;
+  rule: AutolearnLearning;
   repoName: string;
   proposalId: string;
   onApprove: (ruleId: string) => void;
   onDismiss: (ruleId: string) => void;
   onEdit: (ruleId: string, newText: string) => void;
-  onLayerChange: (ruleId: string, layer: LoreLayer) => void;
+  onLayerChange: (ruleId: string, layer: LearningLayer) => void;
   onUnapprove?: (ruleId: string) => void;
 };
 
@@ -33,9 +33,9 @@ type ActionCardProps = {
   onUnapprove?: never;
 };
 
-type LoreCardProps = InstructionCardProps | ActionCardProps;
+type AutolearnCardProps = InstructionCardProps | ActionCardProps;
 
-function SourceSignals({ entries }: { entries: RuleSourceEntry[] }) {
+function SourceSignals({ entries }: { entries: LearningSourceEntry[] }) {
   if (!entries || entries.length === 0) return null;
   return (
     <>
@@ -65,13 +65,13 @@ function EvidenceSignals({ evidence }: { evidence: string[] }) {
   );
 }
 
-function layerFromChecks(commitToRepo: boolean, applyAll: boolean): LoreLayer {
+function layerFromChecks(commitToRepo: boolean, applyAll: boolean): LearningLayer {
   if (applyAll) return 'cross_repo_private';
   if (commitToRepo) return 'repo_public';
   return 'repo_private';
 }
 
-export function LoreCard(props: LoreCardProps) {
+export function AutolearnCard(props: AutolearnCardProps) {
   const { type, repoName, onApprove, onDismiss, onEdit } = props;
 
   const id = type === 'instruction' ? props.rule.id : props.action.id;

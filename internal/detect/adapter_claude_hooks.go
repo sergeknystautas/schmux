@@ -54,17 +54,17 @@ func statusEventWithContextCommand(state, jqField string) string {
 // When hooksDir is empty, falls back to $CLAUDE_PROJECT_DIR/.schmux/hooks/ paths.
 func buildClaudeHooksMap(hooksDir string) map[string][]claudeHookMatcherGroup {
 	// Build stop hook commands using centralized or per-workspace paths
-	var stopStatusCmd, stopLoreCmd, captureFailureCmd string
+	var stopStatusCmd, stopAutolearnCmd, captureFailureCmd string
 	if hooksDir != "" {
 		stopStatusPath := filepath.Join(hooksDir, "stop-status-check.sh")
-		stopLorePath := filepath.Join(hooksDir, "stop-lore-check.sh")
+		stopAutolearnPath := filepath.Join(hooksDir, "stop-autolearn-check.sh")
 		captureFailurePath := filepath.Join(hooksDir, "capture-failure.sh")
 		stopStatusCmd = fmt.Sprintf(`[ -f "%s" ] && "%s" || true`, stopStatusPath, stopStatusPath)
-		stopLoreCmd = fmt.Sprintf(`[ -f "%s" ] && "%s" || true`, stopLorePath, stopLorePath)
+		stopAutolearnCmd = fmt.Sprintf(`[ -f "%s" ] && "%s" || true`, stopAutolearnPath, stopAutolearnPath)
 		captureFailureCmd = fmt.Sprintf(`[ -f "%s" ] && "%s" || true`, captureFailurePath, captureFailurePath)
 	} else {
 		stopStatusCmd = `[ -f "$CLAUDE_PROJECT_DIR/.schmux/hooks/stop-status-check.sh" ] && "$CLAUDE_PROJECT_DIR"/.schmux/hooks/stop-status-check.sh || true`
-		stopLoreCmd = `[ -f "$CLAUDE_PROJECT_DIR/.schmux/hooks/stop-lore-check.sh" ] && "$CLAUDE_PROJECT_DIR"/.schmux/hooks/stop-lore-check.sh || true`
+		stopAutolearnCmd = `[ -f "$CLAUDE_PROJECT_DIR/.schmux/hooks/stop-autolearn-check.sh" ] && "$CLAUDE_PROJECT_DIR"/.schmux/hooks/stop-autolearn-check.sh || true`
 		captureFailureCmd = `[ -f "$CLAUDE_PROJECT_DIR/.schmux/hooks/capture-failure.sh" ] && "$CLAUDE_PROJECT_DIR"/.schmux/hooks/capture-failure.sh || true`
 	}
 
@@ -131,7 +131,7 @@ func buildClaudeHooksMap(hooksDir string) map[string][]claudeHookMatcherGroup {
 					{
 						Type:          "command",
 						Command:       captureFailureCmd,
-						StatusMessage: "schmux: lore capture",
+						StatusMessage: "schmux: autolearn capture",
 					},
 				},
 			},
@@ -150,13 +150,13 @@ func buildClaudeHooksMap(hooksDir string) map[string][]claudeHookMatcherGroup {
 			},
 		})
 	}
-	if stopLoreCmd != "" {
+	if stopAutolearnCmd != "" {
 		hooks["Stop"] = append(hooks["Stop"], claudeHookMatcherGroup{
 			Hooks: []claudeHookHandler{
 				{
 					Type:          "command",
-					Command:       stopLoreCmd,
-					StatusMessage: "schmux: lore check",
+					Command:       stopAutolearnCmd,
+					StatusMessage: "schmux: autolearn check",
 				},
 			},
 		})
@@ -375,8 +375,8 @@ var claudeCaptureFailureScript []byte
 //go:embed hooks/stop-status-check.sh
 var claudeStopStatusCheckScript []byte
 
-//go:embed hooks/stop-lore-check.sh
-var claudeStopLoreCheckScript []byte
+//go:embed hooks/stop-autolearn-check.sh
+var claudeStopAutolearnCheckScript []byte
 
 // EnsureGlobalHookScripts writes hook scripts to ~/.schmux/hooks/.
 // Called once at daemon startup. Returns the hooks directory path.
@@ -386,9 +386,9 @@ func EnsureGlobalHookScripts(homeDir string) (string, error) {
 		return "", err
 	}
 	scripts := map[string][]byte{
-		"capture-failure.sh":   claudeCaptureFailureScript,
-		"stop-status-check.sh": claudeStopStatusCheckScript,
-		"stop-lore-check.sh":   claudeStopLoreCheckScript,
+		"capture-failure.sh":      claudeCaptureFailureScript,
+		"stop-status-check.sh":    claudeStopStatusCheckScript,
+		"stop-autolearn-check.sh": claudeStopAutolearnCheckScript,
 	}
 	for name, content := range scripts {
 		path := filepath.Join(hooksDir, name)

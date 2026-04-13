@@ -1,17 +1,17 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
 import {
-  getLoreProposals,
-  getLoreStatus,
-  getLoreEntries,
-  clearLoreEntries,
-  updateLoreRule,
-  applyLoreMerge,
-  getLorePendingMerge,
-  startLoreUnifiedMerge,
-  pushLoreMerge,
-  updateLorePendingMerge,
-  deleteLorePendingMerge,
+  getAutolearnBatches,
+  getAutolearnStatus,
+  getAutolearnEntries,
+  clearAutolearnEntries,
+  updateAutolearnLearning,
+  applyAutolearnMerge,
+  getAutolearnPendingMerge,
+  startAutolearnMerge,
+  pushAutolearnMerge,
+  updateAutolearnPendingMerge,
+  deleteAutolearnPendingMerge,
   getErrorMessage,
 } from '../lib/api';
 import { getAllSpawnEntries, pinSpawnEntry, dismissSpawnEntry } from '../lib/spawn-api';
@@ -21,13 +21,13 @@ import { useCuration } from '../contexts/CurationContext';
 import { useSessions } from '../contexts/SessionsContext';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
-import { LoreCard } from '../components/LoreCard';
+import { AutolearnCard } from '../components/AutolearnCard';
 import useTheme from '../hooks/useTheme';
 import type {
-  LoreEntry,
-  LoreRule,
-  LoreLayer,
-  LoreStatusResponse,
+  AutolearnEntry,
+  AutolearnLearning,
+  LearningLayer,
+  AutolearnStatusResponse,
   PendingMerge,
 } from '../lib/types';
 import styles from '../styles/autolearn.module.css';
@@ -37,7 +37,7 @@ type DuplicateRef = { proposalId: string; ruleId: string; repoName: string };
 type CardItem =
   | {
       kind: 'instruction';
-      rule: LoreRule;
+      rule: AutolearnLearning;
       repoName: string;
       proposalId: string;
       createdAt: string;
@@ -45,7 +45,7 @@ type CardItem =
     }
   | { kind: 'action'; action: SpawnEntry; repoName: string; createdAt: string };
 
-function normalizeRuleText(text: string): string {
+function normalizeLearningTitle(text: string): string {
   return text.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
@@ -69,7 +69,7 @@ export default function AutolearnPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [cards, setCards] = useState<CardItem[]>([]);
-  const [loreStatus, setLoreStatus] = useState<LoreStatusResponse | null>(null);
+  const [loreStatus, setLoreStatus] = useState<AutolearnStatusResponse | null>(null);
 
   // Server-driven pending merges keyed by repo name
   const [pendingMerges, setPendingMerges] = useState<Record<string, PendingMerge>>({});
@@ -84,13 +84,13 @@ export default function AutolearnPage() {
 
   // Dev mode debug
   const [showDebug, setShowDebug] = useState(false);
-  const [debugEntries, setDebugEntries] = useState<(LoreEntry & { _repo: string })[]>([]);
+  const [debugEntries, setDebugEntries] = useState<(AutolearnEntry & { _repo: string })[]>([]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError('');
 
-    const statusPromise = getLoreStatus()
+    const statusPromise = getAutolearnStatus()
       .then(setLoreStatus)
       .catch(() => {});
 
@@ -99,7 +99,7 @@ export default function AutolearnPage() {
     await Promise.allSettled(
       repos.map(async (repo) => {
         const [proposalRes, actionRes] = await Promise.all([
-          getLoreProposals(repo.name),
+          getAutolearnBatches(repo.name),
           getAllSpawnEntries(repo.name),
         ]);
 
@@ -112,9 +112,10 @@ export default function AutolearnPage() {
           if (proposal.status !== 'pending') continue;
           for (const rule of proposal.learnings || []) {
             if (rule.status !== 'pending') continue;
-            const normalizedText = normalizeRuleText(rule.title);
+            const normalizedText = normalizeLearningTitle(rule.title);
             const existingIdx = allCards.findIndex(
-              (c) => c.kind === 'instruction' && normalizeRuleText(c.rule.title) === normalizedText
+              (c) =>
+                c.kind === 'instruction' && normalizeLearningTitle(c.rule.title) === normalizedText
             );
             if (existingIdx !== -1) {
               // Track duplicate on the primary card instead of showing it
@@ -153,7 +154,7 @@ export default function AutolearnPage() {
     const mergeResults: Record<string, PendingMerge> = {};
     await Promise.allSettled(
       repos.map(async (repo) => {
-        const pm = await getLorePendingMerge(repo.name);
+        const pm = await getAutolearnPendingMerge(repo.name);
         if (pm) mergeResults[repo.name] = pm;
       })
     );
@@ -200,12 +201,17 @@ export default function AutolearnPage() {
   const handleApprove = async (card: CardItem) => {
     if (card.kind === 'instruction') {
       try {
-        const updated = await updateLoreRule(card.repoName, card.proposalId, card.rule.id, {
-          status: 'approved',
-        });
+        const updated = await updateAutolearnLearning(
+          card.repoName,
+          card.proposalId,
+          card.rule.id,
+          {
+            status: 'approved',
+          }
+        );
         // Also approve any tracked duplicates in other proposals
         for (const dup of card.duplicates) {
-          await updateLoreRule(dup.repoName, dup.proposalId, dup.ruleId, {
+          await updateAutolearnLearning(dup.repoName, dup.proposalId, dup.ruleId, {
             status: 'approved',
           }).catch(() => {});
         }
@@ -216,7 +222,9 @@ export default function AutolearnPage() {
               c.proposalId === card.proposalId &&
               c.rule.id === card.rule.id
             ) {
-              const updatedRule = updated.learnings.find((r: LoreRule) => r.id === card.rule.id);
+              const updatedRule = updated.learnings.find(
+                (r: AutolearnLearning) => r.id === card.rule.id
+              );
               return updatedRule ? { ...c, rule: updatedRule } : c;
             }
             return c;
@@ -243,14 +251,14 @@ export default function AutolearnPage() {
   const handleUnapprove = async (card: CardItem) => {
     if (card.kind !== 'instruction') return;
     try {
-      const updated = await updateLoreRule(card.repoName, card.proposalId, card.rule.id, {
+      const updated = await updateAutolearnLearning(card.repoName, card.proposalId, card.rule.id, {
         status: 'pending',
       });
       // Also unapprove duplicates
       for (const dup of card.duplicates) {
-        await updateLoreRule(dup.repoName, dup.proposalId, dup.ruleId, { status: 'pending' }).catch(
-          () => {}
-        );
+        await updateAutolearnLearning(dup.repoName, dup.proposalId, dup.ruleId, {
+          status: 'pending',
+        }).catch(() => {});
       }
       setCards((prev) =>
         prev.map((c) => {
@@ -259,7 +267,9 @@ export default function AutolearnPage() {
             c.proposalId === card.proposalId &&
             c.rule.id === card.rule.id
           ) {
-            const updatedRule = updated.learnings.find((r: LoreRule) => r.id === card.rule.id);
+            const updatedRule = updated.learnings.find(
+              (r: AutolearnLearning) => r.id === card.rule.id
+            );
             return updatedRule ? { ...c, rule: updatedRule } : c;
           }
           return c;
@@ -274,10 +284,12 @@ export default function AutolearnPage() {
   const handleDismiss = async (card: CardItem) => {
     if (card.kind === 'instruction') {
       try {
-        await updateLoreRule(card.repoName, card.proposalId, card.rule.id, { status: 'dismissed' });
+        await updateAutolearnLearning(card.repoName, card.proposalId, card.rule.id, {
+          status: 'dismissed',
+        });
         // Also dismiss duplicates
         for (const dup of card.duplicates) {
-          await updateLoreRule(dup.repoName, dup.proposalId, dup.ruleId, {
+          await updateAutolearnLearning(dup.repoName, dup.proposalId, dup.ruleId, {
             status: 'dismissed',
           }).catch(() => {});
         }
@@ -312,7 +324,7 @@ export default function AutolearnPage() {
   const handleEdit = async (card: CardItem, newText: string) => {
     if (card.kind !== 'instruction') return;
     try {
-      const updated = await updateLoreRule(card.repoName, card.proposalId, card.rule.id, {
+      const updated = await updateAutolearnLearning(card.repoName, card.proposalId, card.rule.id, {
         title: newText,
       });
       setCards((prev) =>
@@ -322,7 +334,9 @@ export default function AutolearnPage() {
             c.proposalId === card.proposalId &&
             c.rule.id === card.rule.id
           ) {
-            const updatedRule = updated.learnings.find((r: LoreRule) => r.id === card.rule.id);
+            const updatedRule = updated.learnings.find(
+              (r: AutolearnLearning) => r.id === card.rule.id
+            );
             return updatedRule ? { ...c, rule: updatedRule } : c;
           }
           return c;
@@ -333,10 +347,10 @@ export default function AutolearnPage() {
     }
   };
 
-  const handleLayerChange = async (card: CardItem, layer: LoreLayer) => {
+  const handleLayerChange = async (card: CardItem, layer: LearningLayer) => {
     if (card.kind !== 'instruction') return;
     try {
-      const updated = await updateLoreRule(card.repoName, card.proposalId, card.rule.id, {
+      const updated = await updateAutolearnLearning(card.repoName, card.proposalId, card.rule.id, {
         chosen_layer: layer,
       });
       setCards((prev) =>
@@ -346,7 +360,9 @@ export default function AutolearnPage() {
             c.proposalId === card.proposalId &&
             c.rule.id === card.rule.id
           ) {
-            const updatedRule = updated.learnings.find((r: LoreRule) => r.id === card.rule.id);
+            const updatedRule = updated.learnings.find(
+              (r: AutolearnLearning) => r.id === card.rule.id
+            );
             return updatedRule ? { ...c, rule: updatedRule } : c;
           }
           return c;
@@ -368,7 +384,7 @@ export default function AutolearnPage() {
 
   // --- Apply flow ---
 
-  const effectiveLayer = (rule: LoreRule): LoreLayer => {
+  const effectiveLayer = (rule: AutolearnLearning): LearningLayer => {
     return rule.chosen_layer || rule.suggested_layer;
   };
 
@@ -385,7 +401,7 @@ export default function AutolearnPage() {
     // Group by proposal
     const groups = new Map<
       string,
-      { repoName: string; proposalId: string; learnings: LoreRule[] }
+      { repoName: string; proposalId: string; learnings: AutolearnLearning[] }
     >();
     for (const card of approvedCards) {
       const key = `${card.repoName}::${card.proposalId}`;
@@ -395,7 +411,7 @@ export default function AutolearnPage() {
       groups.get(key)!.learnings.push(card.rule);
     }
 
-    // Separate private-layer rules (applied via applyLoreMerge per-proposal)
+    // Separate private-layer rules (applied via applyAutolearnMerge per-proposal)
     // from public-layer rules (applied via unified merge per-repo)
     const privateGroups: typeof groups = new Map();
     // Group public rules by repo: Map<repoName, { batch_id, learning_ids }[]>
@@ -427,7 +443,7 @@ export default function AutolearnPage() {
             layer: effectiveLayer(r),
             content: r.title,
           }));
-          await applyLoreMerge(group.repoName, group.proposalId, merges);
+          await applyAutolearnMerge(group.repoName, group.proposalId, merges);
         }
         if (publicByRepo.size === 0) {
           toastSuccess(`${approvedCards.length} rules saved`);
@@ -437,7 +453,7 @@ export default function AutolearnPage() {
       // Start unified merge for public layers (per-repo)
       if (publicByRepo.size > 0) {
         for (const [repoName, proposals] of publicByRepo) {
-          await startLoreUnifiedMerge(repoName, proposals);
+          await startAutolearnMerge(repoName, proposals);
         }
         toastSuccess(
           'Merge started. You can leave this page — the diff will be here when you return.'
@@ -456,7 +472,7 @@ export default function AutolearnPage() {
   const handleCommitAndPush = async (repoName: string) => {
     setApplying(true);
     try {
-      await pushLoreMerge(repoName);
+      await pushAutolearnMerge(repoName);
       const mode = config?.lore?.public_rule_mode || 'direct_push';
       toastSuccess(mode === 'create_pr' ? 'PR created' : `Pushed to ${repoName}`);
       setPendingMerges((prev) => {
@@ -475,7 +491,7 @@ export default function AutolearnPage() {
 
   const handleDismissMergeReview = async (repoName: string) => {
     try {
-      await deleteLorePendingMerge(repoName);
+      await deleteAutolearnPendingMerge(repoName);
       setPendingMerges((prev) => {
         const next = { ...prev };
         delete next[repoName];
@@ -494,7 +510,7 @@ export default function AutolearnPage() {
     }));
     clearTimeout(editTimerRef.current);
     editTimerRef.current = setTimeout(() => {
-      updateLorePendingMerge(repoName, value).catch(() => {});
+      updateAutolearnPendingMerge(repoName, value).catch(() => {});
     }, 1000);
   };
 
@@ -749,7 +765,7 @@ export default function AutolearnPage() {
                     ? `rule-${card.proposalId}-${card.rule.id}`
                     : `action-${card.action.id}`;
                 return card.kind === 'instruction' ? (
-                  <LoreCard
+                  <AutolearnCard
                     key={key}
                     type="instruction"
                     rule={card.rule}
@@ -762,7 +778,7 @@ export default function AutolearnPage() {
                     onUnapprove={() => handleUnapprove(card)}
                   />
                 ) : (
-                  <LoreCard
+                  <AutolearnCard
                     key={key}
                     type="action"
                     action={card.action}
@@ -794,9 +810,9 @@ export default function AutolearnPage() {
               if (next) {
                 Promise.all(
                   repos.map((r) =>
-                    getLoreEntries(r.name)
+                    getAutolearnEntries(r.name)
                       .then((res) => (res.entries || []).map((e) => ({ ...e, _repo: r.name })))
-                      .catch(() => [] as (LoreEntry & { _repo: string })[])
+                      .catch(() => [] as (AutolearnEntry & { _repo: string })[])
                   )
                 ).then((results) => {
                   const all = results.flat().sort((a, b) => b.ts.localeCompare(a.ts));
@@ -828,7 +844,9 @@ export default function AutolearnPage() {
                   style={{ marginLeft: 'auto' }}
                   onClick={async () => {
                     try {
-                      const results = await Promise.all(repos.map((r) => clearLoreEntries(r.name)));
+                      const results = await Promise.all(
+                        repos.map((r) => clearAutolearnEntries(r.name))
+                      );
                       const total = results.reduce((sum, r) => sum + r.cleared, 0);
                       toastSuccess(`Deleted ${total} signal file(s)`);
                       setDebugEntries([]);

@@ -440,7 +440,7 @@ func TestEnsureGlobalHookScripts(t *testing.T) {
 	}
 
 	// Verify all scripts were written
-	for _, name := range []string{"capture-failure.sh", "stop-status-check.sh", "stop-lore-check.sh"} {
+	for _, name := range []string{"capture-failure.sh", "stop-status-check.sh", "stop-autolearn-check.sh"} {
 		path := filepath.Join(hooksDir, name)
 		info, err := os.Stat(path)
 		if err != nil {

@@ -54,11 +54,11 @@ type SpawnEntry struct {
 	LastUsed *time.Time `json:"last_used,omitempty"`
 
 	// Emergence metadata (populated by entries/all endpoint for skill entries)
-	Metadata *EmergenceMetadata `json:"metadata,omitempty"`
+	Metadata *SpawnMetadata `json:"metadata,omitempty"`
 }
 
-// EmergenceMetadata tracks emergence-internal data for a skill.
-type EmergenceMetadata struct {
+// SpawnMetadata tracks spawn-internal data for a skill.
+type SpawnMetadata struct {
 	SkillName     string    `json:"skill_name"`
 	SkillContent  string    `json:"skill_content,omitempty"`
 	Confidence    float64   `json:"confidence"`

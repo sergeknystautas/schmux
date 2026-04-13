@@ -12,7 +12,7 @@ func TestMetadataStore_SaveAndLoad(t *testing.T) {
 	repo := "test-repo"
 	now := time.Now().Truncate(time.Second)
 
-	meta := contracts.EmergenceMetadata{
+	meta := contracts.SpawnMetadata{
 		SkillName:     "code-review",
 		Confidence:    0.85,
 		EvidenceCount: 5,
@@ -61,7 +61,7 @@ func TestMetadataStore_Persistence(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
 	s1 := NewMetadataStore(dir)
-	s1.Save(repo, contracts.EmergenceMetadata{
+	s1.Save(repo, contracts.SpawnMetadata{
 		SkillName: "persistent", Confidence: 0.95, EmergedAt: now, LastCurated: now,
 	})
 
@@ -83,12 +83,12 @@ func TestMetadataStore_UpdateExisting(t *testing.T) {
 	repo := "test-repo"
 	now := time.Now().Truncate(time.Second)
 
-	s.Save(repo, contracts.EmergenceMetadata{
+	s.Save(repo, contracts.SpawnMetadata{
 		SkillName: "evolving", Confidence: 0.5, EvidenceCount: 3, EmergedAt: now, LastCurated: now,
 	})
 
 	later := now.Add(time.Hour)
-	s.Save(repo, contracts.EmergenceMetadata{
+	s.Save(repo, contracts.SpawnMetadata{
 		SkillName: "evolving", Confidence: 0.9, EvidenceCount: 8, EmergedAt: now, LastCurated: later,
 	})
 

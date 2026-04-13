@@ -217,16 +217,6 @@ export interface DetectionVCS {
   path: string;
 }
 
-export interface EmergenceMetadata {
-  skill_name: string;
-  skill_content?: string;
-  confidence: number;
-  evidence_count: number;
-  evidence?: string[];
-  emerged_at: string;
-  last_curated: string;
-}
-
 export interface EnvironmentResponse {
   vars: EnvironmentVar[];
   blocked: string[];
@@ -555,7 +545,17 @@ export interface SpawnEntry {
   target?: string;
   use_count: number;
   last_used?: string;
-  metadata?: EmergenceMetadata;
+  metadata?: SpawnMetadata;
+}
+
+export interface SpawnMetadata {
+  skill_name: string;
+  skill_content?: string;
+  confidence: number;
+  evidence_count: number;
+  evidence?: string[];
+  emerged_at: string;
+  last_curated: string;
 }
 
 export interface Style {

@@ -3,22 +3,22 @@ import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import AutolearnPage from './AutolearnPage';
-import type { LoreRule, LoreLayer } from '../lib/types';
+import type { AutolearnLearning, LearningLayer } from '../lib/types';
 
 // --- Mocks ---
 
 vi.mock('../lib/api', () => ({
-  getLoreProposals: vi.fn(),
-  getLoreStatus: vi.fn(),
-  getLoreEntries: vi.fn(),
-  clearLoreEntries: vi.fn(),
-  updateLoreRule: vi.fn(),
-  applyLoreMerge: vi.fn(),
-  getLorePendingMerge: vi.fn(),
-  startLoreUnifiedMerge: vi.fn(),
-  pushLoreMerge: vi.fn(),
-  updateLorePendingMerge: vi.fn(),
-  deleteLorePendingMerge: vi.fn(),
+  getAutolearnBatches: vi.fn(),
+  getAutolearnStatus: vi.fn(),
+  getAutolearnEntries: vi.fn(),
+  clearAutolearnEntries: vi.fn(),
+  updateAutolearnLearning: vi.fn(),
+  applyAutolearnMerge: vi.fn(),
+  getAutolearnPendingMerge: vi.fn(),
+  startAutolearnMerge: vi.fn(),
+  pushAutolearnMerge: vi.fn(),
+  updateAutolearnPendingMerge: vi.fn(),
+  deleteAutolearnPendingMerge: vi.fn(),
   getErrorMessage: (err: unknown, fallback: string) =>
     err instanceof Error ? err.message : fallback,
 }));
@@ -73,21 +73,26 @@ vi.mock('react-diff-viewer-continued', () => ({
   DiffMethod: { CHARS: 'chars' },
 }));
 
-import { getLoreProposals, getLoreStatus, getLorePendingMerge, updateLoreRule } from '../lib/api';
+import {
+  getAutolearnBatches,
+  getAutolearnStatus,
+  getAutolearnPendingMerge,
+  updateAutolearnLearning,
+} from '../lib/api';
 import { getAllSpawnEntries } from '../lib/spawn-api';
 
-const mockGetLoreProposals = vi.mocked(getLoreProposals);
-const mockGetLoreStatus = vi.mocked(getLoreStatus);
-const mockGetLorePendingMerge = vi.mocked(getLorePendingMerge);
-const mockUpdateLoreRule = vi.mocked(updateLoreRule);
+const mockGetAutolearnBatches = vi.mocked(getAutolearnBatches);
+const mockGetAutolearnStatus = vi.mocked(getAutolearnStatus);
+const mockGetAutolearnPendingMerge = vi.mocked(getAutolearnPendingMerge);
+const mockUpdateAutolearnLearning = vi.mocked(updateAutolearnLearning);
 const mockGetAllSpawnEntries = vi.mocked(getAllSpawnEntries);
 
-function makeRule(overrides: Partial<LoreRule> = {}): LoreRule {
+function makeRule(overrides: Partial<AutolearnLearning> = {}): AutolearnLearning {
   return {
     id: 'r1',
     title: 'Always run tests before committing',
     category: 'workflow',
-    suggested_layer: 'repo_private' as LoreLayer,
+    suggested_layer: 'repo_private' as LearningLayer,
     status: 'pending',
     sources: [],
     ...overrides,
@@ -104,16 +109,16 @@ function renderPage() {
 
 /** Set up standard mocks that resolve with empty/enabled defaults. */
 function setupEmptyMocks() {
-  mockGetLoreProposals.mockResolvedValue({ batches: [] });
+  mockGetAutolearnBatches.mockResolvedValue({ batches: [] });
   mockGetAllSpawnEntries.mockResolvedValue([]);
-  mockGetLoreStatus.mockResolvedValue({
+  mockGetAutolearnStatus.mockResolvedValue({
     enabled: true,
     curator_configured: true,
     curate_on_dispose: 'ask',
     llm_target: '',
     issues: [],
   });
-  mockGetLorePendingMerge.mockResolvedValue(null);
+  mockGetAutolearnPendingMerge.mockResolvedValue(null);
 }
 
 beforeEach(() => {
@@ -124,10 +129,10 @@ describe('AutolearnPage', () => {
   // --- 1. Loading state ---
   it('renders loading state', () => {
     // Make all API calls never resolve so loading stays visible
-    mockGetLoreProposals.mockReturnValue(new Promise(() => {}));
+    mockGetAutolearnBatches.mockReturnValue(new Promise(() => {}));
     mockGetAllSpawnEntries.mockReturnValue(new Promise(() => {}));
-    mockGetLoreStatus.mockReturnValue(new Promise(() => {}));
-    mockGetLorePendingMerge.mockReturnValue(new Promise(() => {}));
+    mockGetAutolearnStatus.mockReturnValue(new Promise(() => {}));
+    mockGetAutolearnPendingMerge.mockReturnValue(new Promise(() => {}));
 
     renderPage();
     expect(screen.getByText('Loading autolearn...')).toBeInTheDocument();
@@ -148,7 +153,7 @@ describe('AutolearnPage', () => {
   // --- 3. Renders cards for pending proposals ---
   it('renders cards for pending proposals', async () => {
     setupEmptyMocks();
-    mockGetLoreProposals.mockResolvedValue({
+    mockGetAutolearnBatches.mockResolvedValue({
       batches: [
         {
           id: 'p1',
@@ -174,7 +179,7 @@ describe('AutolearnPage', () => {
   // --- 4. Deduplicates rules with same normalized text across proposals ---
   it('deduplicates rules with same normalized text across proposals', async () => {
     setupEmptyMocks();
-    mockGetLoreProposals.mockResolvedValue({
+    mockGetAutolearnBatches.mockResolvedValue({
       batches: [
         {
           id: 'p1',
@@ -207,7 +212,7 @@ describe('AutolearnPage', () => {
   // --- 5. Approve propagates to duplicates ---
   it('approve propagates to duplicates', async () => {
     setupEmptyMocks();
-    mockGetLoreProposals.mockResolvedValue({
+    mockGetAutolearnBatches.mockResolvedValue({
       batches: [
         {
           id: 'p1',
@@ -226,8 +231,8 @@ describe('AutolearnPage', () => {
       ],
     });
 
-    // updateLoreRule returns the updated proposal with the rule marked approved
-    mockUpdateLoreRule.mockResolvedValue({
+    // updateAutolearnLearning returns the updated proposal with the rule marked approved
+    mockUpdateAutolearnLearning.mockResolvedValue({
       id: 'p1',
       repo: 'test-repo',
       created_at: '2026-04-01T00:00:00Z',
@@ -248,11 +253,11 @@ describe('AutolearnPage', () => {
 
     await waitFor(() => {
       // Primary rule update
-      expect(mockUpdateLoreRule).toHaveBeenCalledWith('test-repo', 'p1', 'r1', {
+      expect(mockUpdateAutolearnLearning).toHaveBeenCalledWith('test-repo', 'p1', 'r1', {
         status: 'approved',
       });
       // Duplicate rule update (propagated)
-      expect(mockUpdateLoreRule).toHaveBeenCalledWith('test-repo', 'p2', 'r2', {
+      expect(mockUpdateAutolearnLearning).toHaveBeenCalledWith('test-repo', 'p2', 'r2', {
         status: 'approved',
       });
     });
@@ -263,7 +268,7 @@ describe('AutolearnPage', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
 
     setupEmptyMocks();
-    mockGetLoreProposals.mockResolvedValue({
+    mockGetAutolearnBatches.mockResolvedValue({
       batches: [
         {
           id: 'p1',
@@ -282,7 +287,7 @@ describe('AutolearnPage', () => {
       ],
     });
 
-    mockUpdateLoreRule.mockResolvedValue({
+    mockUpdateAutolearnLearning.mockResolvedValue({
       id: 'p1',
       repo: 'test-repo',
       created_at: '2026-04-01T00:00:00Z',
@@ -300,18 +305,18 @@ describe('AutolearnPage', () => {
     const dismissButton = await screen.findByText('Dismiss');
     dismissButton.click();
 
-    // LoreCard has a 200ms animation delay before calling onDismiss
+    // AutolearnCard has a 200ms animation delay before calling onDismiss
     await act(async () => {
       vi.advanceTimersByTime(300);
     });
 
     await waitFor(() => {
       // Primary rule dismissed
-      expect(mockUpdateLoreRule).toHaveBeenCalledWith('test-repo', 'p1', 'r1', {
+      expect(mockUpdateAutolearnLearning).toHaveBeenCalledWith('test-repo', 'p1', 'r1', {
         status: 'dismissed',
       });
       // Duplicate rule dismissed (propagated)
-      expect(mockUpdateLoreRule).toHaveBeenCalledWith('test-repo', 'p2', 'r2', {
+      expect(mockUpdateAutolearnLearning).toHaveBeenCalledWith('test-repo', 'p2', 'r2', {
         status: 'dismissed',
       });
     });

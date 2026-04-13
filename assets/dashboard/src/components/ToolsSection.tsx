@@ -4,7 +4,7 @@ import { useConfig } from '../contexts/ConfigContext';
 import { useCuration } from '../contexts/CurationContext';
 import { useOverlay } from '../contexts/OverlayContext';
 import { useFeatures } from '../contexts/FeaturesContext';
-import { getLoreProposals } from '../lib/api';
+import { getAutolearnBatches } from '../lib/api';
 import { getAllSpawnEntries } from '../lib/spawn-api';
 import Tooltip from './Tooltip';
 
@@ -55,7 +55,7 @@ export default function ToolsSection({
     const repoNames = repoNamesKey.split(',');
     const fetchCounts = async () => {
       const [proposalResults, actionResults] = await Promise.all([
-        Promise.allSettled(repoNames.map((name) => getLoreProposals(name))),
+        Promise.allSettled(repoNames.map((name) => getAutolearnBatches(name))),
         Promise.allSettled(repoNames.map((name) => getAllSpawnEntries(name))),
       ]);
       const counts: Record<string, number> = {};

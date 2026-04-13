@@ -1,15 +1,15 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { LoreCard } from './LoreCard';
-import type { LoreRule, LoreLayer } from '../lib/types';
+import { AutolearnCard } from './AutolearnCard';
+import type { AutolearnLearning, LearningLayer } from '../lib/types';
 import type { SpawnEntry } from '../lib/types.generated';
 
-function makeRule(overrides: Partial<LoreRule> = {}): LoreRule {
+function makeRule(overrides: Partial<AutolearnLearning> = {}): AutolearnLearning {
   return {
     id: 'r1',
     title: 'Always run tests before committing',
     category: 'workflow',
-    suggested_layer: 'repo_private' as LoreLayer,
+    suggested_layer: 'repo_private' as LearningLayer,
     status: 'pending',
     sources: [
       {
@@ -67,10 +67,10 @@ const actionDefaults = {
   onEdit: vi.fn(),
 };
 
-describe('LoreCard instruction variant', () => {
+describe('AutolearnCard instruction variant', () => {
   it('renders rule text and source signals', () => {
     const rule = makeRule();
-    render(<LoreCard {...instructionDefaults} rule={rule} />);
+    render(<AutolearnCard {...instructionDefaults} rule={rule} />);
 
     expect(screen.getByText('Always run tests before committing')).toBeInTheDocument();
     // Failure signal
@@ -80,14 +80,14 @@ describe('LoreCard instruction variant', () => {
   });
 
   it('shows category tag and repo name', () => {
-    render(<LoreCard {...instructionDefaults} rule={makeRule()} />);
+    render(<AutolearnCard {...instructionDefaults} rule={makeRule()} />);
 
     expect(screen.getByText('workflow')).toBeInTheDocument();
     expect(screen.getByText('schmux')).toBeInTheDocument();
   });
 
   it('defaults to private with "Commit to repo" unchecked', () => {
-    render(<LoreCard {...instructionDefaults} rule={makeRule()} />);
+    render(<AutolearnCard {...instructionDefaults} rule={makeRule()} />);
 
     const checkbox = screen.getByLabelText('Commit to repo (visible to collaborators)');
     expect(checkbox).not.toBeChecked();
@@ -95,7 +95,7 @@ describe('LoreCard instruction variant', () => {
 
   it('calls onApprove with rule ID when Approve clicked', () => {
     const onApprove = vi.fn();
-    render(<LoreCard {...instructionDefaults} rule={makeRule()} onApprove={onApprove} />);
+    render(<AutolearnCard {...instructionDefaults} rule={makeRule()} onApprove={onApprove} />);
 
     fireEvent.click(screen.getByText('Approve'));
     expect(onApprove).toHaveBeenCalledTimes(1);
@@ -105,7 +105,7 @@ describe('LoreCard instruction variant', () => {
   it('calls onDismiss with rule ID when Dismiss clicked', () => {
     vi.useFakeTimers();
     const onDismiss = vi.fn();
-    render(<LoreCard {...instructionDefaults} rule={makeRule()} onDismiss={onDismiss} />);
+    render(<AutolearnCard {...instructionDefaults} rule={makeRule()} onDismiss={onDismiss} />);
 
     fireEvent.click(screen.getByText('Dismiss'));
     // Should not fire immediately
@@ -119,7 +119,7 @@ describe('LoreCard instruction variant', () => {
 
   it('shows textarea when Edit clicked, calls onEdit with new text on Save', () => {
     const onEdit = vi.fn();
-    render(<LoreCard {...instructionDefaults} rule={makeRule()} onEdit={onEdit} />);
+    render(<AutolearnCard {...instructionDefaults} rule={makeRule()} onEdit={onEdit} />);
 
     fireEvent.click(screen.getByText('Edit'));
 
@@ -135,7 +135,7 @@ describe('LoreCard instruction variant', () => {
   });
 
   it('restores original text on Cancel', () => {
-    render(<LoreCard {...instructionDefaults} rule={makeRule()} />);
+    render(<AutolearnCard {...instructionDefaults} rule={makeRule()} />);
 
     fireEvent.click(screen.getByText('Edit'));
 
@@ -151,7 +151,7 @@ describe('LoreCard instruction variant', () => {
 
   it('shows collapsed variant when status is approved', () => {
     const rule = makeRule({ status: 'approved', chosen_layer: 'repo_public' });
-    render(<LoreCard {...instructionDefaults} rule={rule} />);
+    render(<AutolearnCard {...instructionDefaults} rule={rule} />);
 
     // Collapsed state shows check mark and truncated text
     expect(screen.getByText('\u2713')).toBeInTheDocument();
@@ -166,7 +166,9 @@ describe('LoreCard instruction variant', () => {
 
   it('calls onLayerChange when privacy checkboxes change', () => {
     const onLayerChange = vi.fn();
-    render(<LoreCard {...instructionDefaults} rule={makeRule()} onLayerChange={onLayerChange} />);
+    render(
+      <AutolearnCard {...instructionDefaults} rule={makeRule()} onLayerChange={onLayerChange} />
+    );
 
     const commitCheckbox = screen.getByLabelText('Commit to repo (visible to collaborators)');
     fireEvent.click(commitCheckbox);
@@ -181,16 +183,16 @@ describe('LoreCard instruction variant', () => {
   });
 });
 
-describe('LoreCard action variant', () => {
+describe('AutolearnCard action variant', () => {
   it('renders action name and prompt', () => {
-    render(<LoreCard {...actionDefaults} action={makeAction()} />);
+    render(<AutolearnCard {...actionDefaults} action={makeAction()} />);
 
     expect(screen.getByText('Fix lint errors')).toBeInTheDocument();
     expect(screen.getByText('./format.sh && ./test.sh --quick')).toBeInTheDocument();
   });
 
   it('does not show privacy controls', () => {
-    render(<LoreCard {...actionDefaults} action={makeAction()} />);
+    render(<AutolearnCard {...actionDefaults} action={makeAction()} />);
 
     expect(
       screen.queryByLabelText('Commit to repo (visible to collaborators)')
@@ -198,14 +200,14 @@ describe('LoreCard action variant', () => {
   });
 
   it('shows evidence as source signals', () => {
-    render(<LoreCard {...actionDefaults} action={makeAction()} />);
+    render(<AutolearnCard {...actionDefaults} action={makeAction()} />);
 
     expect(screen.getByText('ran format 4 times')).toBeInTheDocument();
   });
 
   it('falls back to description when prompt and command are empty', () => {
     const action = makeAction({ prompt: undefined, command: undefined });
-    render(<LoreCard {...actionDefaults} action={action} />);
+    render(<AutolearnCard {...actionDefaults} action={action} />);
 
     expect(screen.getByText('Fix lint errors')).toBeInTheDocument();
     expect(screen.getByText('Auto-format and run quick tests')).toBeInTheDocument();
@@ -213,7 +215,7 @@ describe('LoreCard action variant', () => {
 
   it('calls onApprove with action ID when Approve clicked', () => {
     const onApprove = vi.fn();
-    render(<LoreCard {...actionDefaults} action={makeAction()} onApprove={onApprove} />);
+    render(<AutolearnCard {...actionDefaults} action={makeAction()} onApprove={onApprove} />);
 
     fireEvent.click(screen.getByText('Approve'));
     expect(onApprove).toHaveBeenCalledWith('a1');

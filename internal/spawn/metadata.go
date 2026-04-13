@@ -13,7 +13,7 @@ import (
 // MetadataStore manages emergence metadata per skill per repository.
 type MetadataStore struct {
 	mu      sync.Mutex
-	data    map[string]map[string]contracts.EmergenceMetadata // repo -> skill_name -> metadata
+	data    map[string]map[string]contracts.SpawnMetadata // repo -> skill_name -> metadata
 	baseDir string
 }
 
@@ -21,7 +21,7 @@ type MetadataStore struct {
 func NewMetadataStore(baseDir string) *MetadataStore {
 	return &MetadataStore{
 		baseDir: baseDir,
-		data:    make(map[string]map[string]contracts.EmergenceMetadata),
+		data:    make(map[string]map[string]contracts.SpawnMetadata),
 	}
 }
 
@@ -36,12 +36,12 @@ func (s *MetadataStore) load(repo string) error {
 	data, err := os.ReadFile(s.filePath(repo))
 	if err != nil {
 		if os.IsNotExist(err) {
-			s.data[repo] = make(map[string]contracts.EmergenceMetadata)
+			s.data[repo] = make(map[string]contracts.SpawnMetadata)
 			return nil
 		}
 		return fmt.Errorf("read emergence metadata: %w", err)
 	}
-	var m map[string]contracts.EmergenceMetadata
+	var m map[string]contracts.SpawnMetadata
 	if err := json.Unmarshal(data, &m); err != nil {
 		return fmt.Errorf("parse emergence metadata: %w", err)
 	}
@@ -76,7 +76,7 @@ func (s *MetadataStore) save(repo string) error {
 }
 
 // Save writes or updates metadata for a skill.
-func (s *MetadataStore) Save(repo string, meta contracts.EmergenceMetadata) error {
+func (s *MetadataStore) Save(repo string, meta contracts.SpawnMetadata) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.load(repo); err != nil {
@@ -87,11 +87,11 @@ func (s *MetadataStore) Save(repo string, meta contracts.EmergenceMetadata) erro
 }
 
 // Get returns metadata for a specific skill.
-func (s *MetadataStore) Get(repo, skillName string) (contracts.EmergenceMetadata, bool, error) {
+func (s *MetadataStore) Get(repo, skillName string) (contracts.SpawnMetadata, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.load(repo); err != nil {
-		return contracts.EmergenceMetadata{}, false, err
+		return contracts.SpawnMetadata{}, false, err
 	}
 	meta, ok := s.data[repo][skillName]
 	return meta, ok, nil

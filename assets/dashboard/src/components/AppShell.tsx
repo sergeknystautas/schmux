@@ -38,7 +38,7 @@ import {
   reconnectRemoteHost,
   getDevStatus,
   devRebuild,
-  getLoreProposals,
+  getAutolearnBatches,
   type DevStatus,
 } from '../lib/api';
 import type { WorkspaceResponse } from '../lib/types';
@@ -219,7 +219,7 @@ export default function AppShell() {
     if (!repoNamesKey) return;
     const repoNames = repoNamesKey.split(',');
     const fetchCounts = async () => {
-      const results = await Promise.allSettled(repoNames.map((name) => getLoreProposals(name)));
+      const results = await Promise.allSettled(repoNames.map((name) => getAutolearnBatches(name)));
       const counts: Record<string, number> = {};
       results.forEach((result, i) => {
         if (result.status === 'fulfilled') {

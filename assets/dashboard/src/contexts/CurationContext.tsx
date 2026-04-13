@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { startLoreCuration } from '../lib/api';
+import { startAutolearnCuration } from '../lib/api';
 import { useSessions } from './SessionsContext';
 import { useToast } from '../components/ToastProvider';
 import type { CuratorStreamEvent } from '../lib/types';
@@ -141,7 +141,7 @@ export function CurationProvider({ children }: { children: React.ReactNode }) {
       // Mark as pending immediately so the UI shows feedback before WebSocket events arrive
       setPendingCurations((prev) => new Set(prev).add(repoName));
       try {
-        const response = await startLoreCuration(repoName);
+        const response = await startAutolearnCuration(repoName);
         if (response.status === 'no_raw_entries') {
           setPendingCurations((prev) => {
             const next = new Set(prev);

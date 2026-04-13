@@ -51,7 +51,7 @@ vi.mock('../contexts/FeaturesContext', () => ({
 
 // Mock the API
 vi.mock('../lib/api', () => ({
-  getLoreProposals: vi.fn().mockResolvedValue({
+  getAutolearnBatches: vi.fn().mockResolvedValue({
     batches: [
       { status: 'pending', learnings: [{ status: 'pending' }] },
       { status: 'pending', learnings: [{ status: 'pending' }] },
@@ -184,13 +184,13 @@ describe('ToolsSection', () => {
   });
 
   it('re-fetches lore counts when proposalVersion changes', async () => {
-    const { getLoreProposals } = await import('../lib/api');
-    const mockGetLoreProposals = getLoreProposals as ReturnType<typeof vi.fn>;
+    const { getAutolearnBatches } = await import('../lib/api');
+    const mockGetAutolearnBatches = getAutolearnBatches as ReturnType<typeof vi.fn>;
 
     await renderWithAct(<ToolsSection />);
 
     // Initial fetch on mount
-    expect(mockGetLoreProposals).toHaveBeenCalledTimes(1);
+    expect(mockGetAutolearnBatches).toHaveBeenCalledTimes(1);
 
     // Bump proposalVersion and re-render
     cleanup();
@@ -198,12 +198,12 @@ describe('ToolsSection', () => {
     await renderWithAct(<ToolsSection />);
 
     // Should have fetched again due to proposalVersion change
-    expect(mockGetLoreProposals).toHaveBeenCalledTimes(2);
+    expect(mockGetAutolearnBatches).toHaveBeenCalledTimes(2);
   });
 
   it('removes lore badge when proposals are all dismissed', async () => {
-    const { getLoreProposals } = await import('../lib/api');
-    const mockGetLoreProposals = getLoreProposals as ReturnType<typeof vi.fn>;
+    const { getAutolearnBatches } = await import('../lib/api');
+    const mockGetAutolearnBatches = getAutolearnBatches as ReturnType<typeof vi.fn>;
 
     await renderWithAct(<ToolsSection />);
 
@@ -212,7 +212,7 @@ describe('ToolsSection', () => {
 
     // Simulate all proposals dismissed: return empty proposals on next fetch
     cleanup();
-    mockGetLoreProposals.mockResolvedValue({ batches: [] });
+    mockGetAutolearnBatches.mockResolvedValue({ batches: [] });
     mockProposalVersion = 1;
     await renderWithAct(<ToolsSection />);
 

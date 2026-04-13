@@ -10,12 +10,12 @@ import type {
   CommitGraphResponse,
   LinearSyncResponse,
   LinearSyncResolveConflictResponse,
-  LoreEntriesResponse,
-  LoreMergeApplyResult,
-  LoreProposal,
-  LoreProposalsResponse,
-  LoreRuleStatus,
-  LoreStatusResponse,
+  AutolearnEntriesResponse,
+  AutolearnMergeApplyResult,
+  AutolearnBatch,
+  AutolearnBatchesResponse,
+  LearningStatus,
+  AutolearnStatusResponse,
   OpenVSCodeResponse,
   OverlayAddRequest,
   OverlayAddResponse,
@@ -949,13 +949,13 @@ export async function devRebuild(
 // Autolearn API
 // ============================================================================
 
-export async function getLoreProposals(repoName: string): Promise<LoreProposalsResponse> {
+export async function getAutolearnBatches(repoName: string): Promise<AutolearnBatchesResponse> {
   const res = await apiFetch(`/api/autolearn/${encodeURIComponent(repoName)}/batches`);
   if (!res.ok) await parseErrorResponse(res, 'Failed to fetch lore proposals');
   return res.json();
 }
 
-async function getLoreProposal(repoName: string, id: string): Promise<LoreProposal> {
+async function getAutolearnBatch(repoName: string, id: string): Promise<AutolearnBatch> {
   const res = await apiFetch(
     `/api/autolearn/${encodeURIComponent(repoName)}/batches/${encodeURIComponent(id)}`
   );
@@ -963,7 +963,7 @@ async function getLoreProposal(repoName: string, id: string): Promise<LorePropos
   return res.json();
 }
 
-async function dismissLoreProposal(repoName: string, id: string): Promise<void> {
+async function dismissAutolearnBatch(repoName: string, id: string): Promise<void> {
   const res = await apiFetch(
     `/api/autolearn/${encodeURIComponent(repoName)}/batches/${encodeURIComponent(id)}`,
     {
@@ -974,12 +974,12 @@ async function dismissLoreProposal(repoName: string, id: string): Promise<void> 
   if (!res.ok) await parseErrorResponse(res, 'Failed to dismiss lore proposal');
 }
 
-export async function updateLoreRule(
+export async function updateAutolearnLearning(
   repoName: string,
   proposalID: string,
   ruleID: string,
-  update: { status?: LoreRuleStatus; title?: string; chosen_layer?: string }
-): Promise<LoreProposal> {
+  update: { status?: LearningStatus; title?: string; chosen_layer?: string }
+): Promise<AutolearnBatch> {
   const res = await apiFetch(
     `/api/autolearn/${encodeURIComponent(repoName)}/batches/${encodeURIComponent(proposalID)}/learnings/${encodeURIComponent(ruleID)}`,
     {
@@ -992,12 +992,12 @@ export async function updateLoreRule(
   return res.json();
 }
 
-export async function applyLoreMerge(
+export async function applyAutolearnMerge(
   repoName: string,
   proposalID: string,
   merges: { layer: string; content: string }[],
   autoCommit = false
-): Promise<{ results: LoreMergeApplyResult[] }> {
+): Promise<{ results: AutolearnMergeApplyResult[] }> {
   const res = await apiFetch(
     `/api/autolearn/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(proposalID)}/apply-merge`,
     {
@@ -1010,10 +1010,10 @@ export async function applyLoreMerge(
   return res.json();
 }
 
-export async function getLoreEntries(
+export async function getAutolearnEntries(
   repoName: string,
   filters?: { state?: string; agent?: string; type?: string; limit?: number }
-): Promise<LoreEntriesResponse> {
+): Promise<AutolearnEntriesResponse> {
   const params = new URLSearchParams();
   if (filters?.state) params.set('state', filters.state);
   if (filters?.agent) params.set('agent', filters.agent);
@@ -1027,7 +1027,7 @@ export async function getLoreEntries(
   return res.json();
 }
 
-export async function clearLoreEntries(
+export async function clearAutolearnEntries(
   repoName: string
 ): Promise<{ status: string; cleared: number }> {
   const res = await apiFetch(`/api/autolearn/${encodeURIComponent(repoName)}/entries`, {
@@ -1038,7 +1038,9 @@ export async function clearLoreEntries(
   return res.json();
 }
 
-export async function startLoreCuration(repoName: string): Promise<{ id: string; status: string }> {
+export async function startAutolearnCuration(
+  repoName: string
+): Promise<{ id: string; status: string }> {
   const res = await apiFetch(`/api/autolearn/${encodeURIComponent(repoName)}/curate`, {
     method: 'POST',
     headers: { ...csrfHeaders() },
@@ -1049,7 +1051,7 @@ export async function startLoreCuration(repoName: string): Promise<{ id: string;
   return res.json();
 }
 
-export async function getLoreStatus(): Promise<LoreStatusResponse> {
+export async function getAutolearnStatus(): Promise<AutolearnStatusResponse> {
   const res = await apiFetch('/api/autolearn/status');
   if (!res.ok) await parseErrorResponse(res, 'Failed to fetch lore status');
   return res.json();
@@ -1078,14 +1080,14 @@ async function getLoreCurationLog(
   return res.json();
 }
 
-export async function getLorePendingMerge(repoName: string) {
+export async function getAutolearnPendingMerge(repoName: string) {
   const res = await apiFetch(`/api/autolearn/${encodeURIComponent(repoName)}/pending-merge`);
   if (res.status === 404) return null;
   if (!res.ok) await parseErrorResponse(res, 'Failed to fetch pending merge');
   return res.json();
 }
 
-export async function startLoreUnifiedMerge(
+export async function startAutolearnMerge(
   repoName: string,
   batches: { batch_id: string; learning_ids: string[] }[]
 ) {
@@ -1098,7 +1100,7 @@ export async function startLoreUnifiedMerge(
   return res.json();
 }
 
-export async function pushLoreMerge(repoName: string) {
+export async function pushAutolearnMerge(repoName: string) {
   const res = await apiFetch(`/api/autolearn/${encodeURIComponent(repoName)}/push`, {
     method: 'POST',
     headers: { ...csrfHeaders() },
@@ -1107,7 +1109,7 @@ export async function pushLoreMerge(repoName: string) {
   return res.json();
 }
 
-export async function updateLorePendingMerge(repoName: string, editedContent: string) {
+export async function updateAutolearnPendingMerge(repoName: string, editedContent: string) {
   const res = await apiFetch(`/api/autolearn/${encodeURIComponent(repoName)}/pending-merge`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
@@ -1117,7 +1119,7 @@ export async function updateLorePendingMerge(repoName: string, editedContent: st
   return res.json();
 }
 
-export async function deleteLorePendingMerge(repoName: string) {
+export async function deleteAutolearnPendingMerge(repoName: string) {
   const res = await apiFetch(`/api/autolearn/${encodeURIComponent(repoName)}/pending-merge`, {
     method: 'DELETE',
     headers: { ...csrfHeaders() },
