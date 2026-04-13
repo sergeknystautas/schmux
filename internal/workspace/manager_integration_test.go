@@ -52,6 +52,10 @@ func TestGetOrCreate_BranchReuse_Success(t *testing.T) {
 		t.Errorf("expected branch main, got %s", ws1State.Branch)
 	}
 
+	// Mark as recyclable — only non-running workspaces are eligible for Tier 2 reuse
+	ws1State.Status = state.WorkspaceStatusRecyclable
+	st.UpdateWorkspace(ws1State)
+
 	// Reuse for "feature-1" (exists in repo)
 	ws2, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
 	if err != nil {
@@ -338,6 +342,11 @@ func TestGetOrCreate_BranchReuse_UpToDateAllowsReuse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOrCreate main failed: %v", err)
 	}
+
+	// Mark as recyclable — only non-running workspaces are eligible for Tier 2 reuse
+	w := *ws1
+	w.Status = state.WorkspaceStatusRecyclable
+	st.UpdateWorkspace(w)
 
 	// Request different branch — workspace is up-to-date with main so reuse is OK
 	ws2, err := manager.GetOrCreate(ctx, repoDir, "feature-1")
@@ -745,5 +754,65 @@ func TestGetOrCreate_RecycleSameDivergedBranch(t *testing.T) {
 	logs := logBuf.String()
 	if !strings.Contains(logs, "reusing recyclable workspace") {
 		t.Errorf("expected Tier 0 reclaim (\"reusing recyclable workspace\"), got logs:\n%s", logs)
+	}
+}
+
+// TestGetOrCreate_BranchReuse_SkipsRunningWorkspaces verifies that a workspace
+// with status "running" is NOT reused for a different branch, even when it has
+// no active sessions and its branch is up-to-date with the default branch.
+// Running workspaces are part of the user's active working set and must not be
+// silently hijacked.
+func TestGetOrCreate_BranchReuse_SkipsRunningWorkspaces(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath, nil)
+
+	repoDir := gitTestWorkTree(t)
+	gitTestBranch(t, repoDir, "feature-new")
+
+	cfg := &config.Config{
+		WorkspacePath:    t.TempDir(),
+		WorktreeBasePath: t.TempDir(),
+		Repos: []config.Repo{
+			testRepoWithBarePath(t, "test", repoDir),
+		},
+	}
+	manager := New(cfg, st, statePath, testLogger())
+	ctx := context.Background()
+
+	// Create a workspace on "main" — GetOrCreate sets status to "running"
+	ws1, err := manager.GetOrCreate(ctx, repoDir, "main")
+	if err != nil {
+		t.Fatalf("GetOrCreate main failed: %v", err)
+	}
+
+	// Verify it is indeed running with no sessions
+	w1, _ := st.GetWorkspace(ws1.ID)
+	if w1.Status != state.WorkspaceStatusRunning {
+		t.Fatalf("precondition: expected status running, got %s", w1.Status)
+	}
+
+	// Request a different branch — the existing workspace is "running" so it
+	// must NOT be reused. A brand new workspace should be created.
+	ws2, err := manager.GetOrCreate(ctx, repoDir, "feature-new")
+	if err != nil {
+		t.Fatalf("GetOrCreate feature-new failed: %v", err)
+	}
+
+	if ws2.ID == ws1.ID {
+		t.Fatalf("running workspace was reused for a different branch: got same ID %s", ws2.ID)
+	}
+
+	// Original workspace should be untouched
+	w1After, _ := st.GetWorkspace(ws1.ID)
+	if w1After.Branch != "main" {
+		t.Errorf("original workspace branch changed from main to %s", w1After.Branch)
+	}
+	if w1After.Status != state.WorkspaceStatusRunning {
+		t.Errorf("original workspace status changed from running to %s", w1After.Status)
 	}
 }

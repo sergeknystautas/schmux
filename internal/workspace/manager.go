@@ -504,9 +504,11 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 		}
 	}
 
-	// Try to find any unused workspace for this repo (different branch OK)
+	// Try to find any unused workspace for this repo (different branch OK).
+	// Only consider workspaces that are NOT actively running — running workspaces
+	// are part of the user's working set and must not be silently hijacked.
 	for _, w := range m.state.GetWorkspaces() {
-		if w.Repo == repoURL {
+		if w.Repo == repoURL && w.Status != state.WorkspaceStatusRunning {
 			// Check if workspace has active sessions
 			if !m.hasActiveSessions(w.ID) {
 				// Check if workspace directory still exists
