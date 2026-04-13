@@ -693,16 +693,33 @@ func (s *Server) Start() error {
 			deleteLinearSyncResolveConflictState: s.deleteLinearSyncResolveConflictState,
 		}
 
+		// Spawn handler group
+		spawnH := &SpawnHandlers{
+			config:         s.config,
+			state:          s.state,
+			session:        s.session,
+			workspace:      s.workspace,
+			models:         s.models,
+			remoteManager:  s.remoteManager,
+			personaManager: s.personaManager,
+			styleManager:   s.styleManager,
+			spawnStore:     s.spawnStore,
+			logger:         s.logger,
+
+			broadcastSessions:   s.BroadcastSessions,
+			vcsTypeForWorkspace: s.vcsTypeForWorkspace,
+		}
+
 		// Read-only endpoints (no CSRF needed)
 		r.Get("/healthz", s.handleHealthz)
 		r.Get("/sessions", s.handleSessions)
-		r.Get("/recent-branches", s.handleRecentBranches)
+		r.Get("/recent-branches", spawnH.handleRecentBranches)
 		r.Get("/detect-tools", configH.handleDetectTools)
 		r.Get("/detection-summary", configH.handleDetectionSummary)
 		r.Get("/models", configH.handleModels)
 		r.Get("/user-models", configH.handleGetUserModels)
 		r.Put("/user-models", configH.handleSetUserModels)
-		r.Get("/builtin-quick-launch", s.handleBuiltinQuickLaunch)
+		r.Get("/builtin-quick-launch", spawnH.handleBuiltinQuickLaunch)
 		r.Get("/commit/prompt", gitH.handleCommitPrompt)
 		r.Get("/diff/*", gitH.handleDiff)
 		r.Get("/file/*", gitH.handleFile)
@@ -740,7 +757,7 @@ func (s *Server) Start() error {
 
 		r.Get("/sessions/{sessionID}/events", s.handleGetSessionEvents)
 		r.Get("/sessions/{sessionID}/capture", s.handleCaptureSession)
-		r.Get("/branches", s.handleGetBranches)
+		r.Get("/branches", spawnH.handleGetBranches)
 
 		r.Get("/github/status", s.handleGetGitHubStatus)
 		r.Get("/features", configH.handleGetFeatures)
@@ -755,15 +772,15 @@ func (s *Server) Start() error {
 		r.Group(func(r chi.Router) {
 			r.Use(s.csrfMiddleware)
 
-			r.Post("/spawn", s.handleSpawnPost)
+			r.Post("/spawn", spawnH.handleSpawnPost)
 			r.Post("/update", s.handleUpdate)
 			r.Post("/workspaces/scan", wsH.handleWorkspacesScan)
 			r.Delete("/workspaces/purge", wsH.handlePurgeAll)
 			r.Get("/workspaces/recyclable", wsH.handleGetRecyclableWorkspaces)
-			r.Post("/suggest-branch", s.handleSuggestBranch)
-			r.Post("/prepare-branch-spawn", s.handlePrepareBranchSpawn)
-			r.Post("/check-branch-conflict", s.handleCheckBranchConflict)
-			r.Post("/recent-branches/refresh", s.handleRecentBranchesRefresh)
+			r.Post("/suggest-branch", spawnH.handleSuggestBranch)
+			r.Post("/prepare-branch-spawn", spawnH.handlePrepareBranchSpawn)
+			r.Post("/check-branch-conflict", spawnH.handleCheckBranchConflict)
+			r.Post("/recent-branches/refresh", spawnH.handleRecentBranchesRefresh)
 			r.Post("/commit/generate", gitH.handleCommitGenerate)
 			r.Post("/repos/probe", wsH.handleProbeRepo)
 			r.Post("/overlays/scan", wsH.handleOverlayScan)

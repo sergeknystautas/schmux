@@ -13,12 +13,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/log"
+
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/branchsuggest"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/logging"
+	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/persona"
+	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/session"
+	"github.com/sergeknystautas/schmux/internal/spawn"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/style"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -27,11 +32,30 @@ import (
 //go:embed cookbooks.json
 var cookbooksFS embed.FS
 
+// SpawnHandlers groups HTTP handlers for spawn, branch suggestion,
+// branch conflict checks, recent branches, and built-in quick launch.
+type SpawnHandlers struct {
+	config         *config.Config
+	state          state.StateStore
+	session        *session.Manager
+	workspace      workspace.WorkspaceManager
+	models         *models.Manager
+	remoteManager  *remote.Manager
+	personaManager *persona.Manager
+	styleManager   *style.Manager
+	spawnStore     *spawn.Store
+	logger         *log.Logger
+
+	// Callbacks into Server methods that cannot be extracted.
+	broadcastSessions   func()
+	vcsTypeForWorkspace func(ws state.Workspace) string
+}
+
 // SpawnRequest is a type alias for contracts.SpawnRequest.
 type SpawnRequest = contracts.SpawnRequest
 
 // handleSpawnPost handles session spawning requests.
-func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
+func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	// Spawn requests may include base64-encoded image attachments (up to 5 images).
 	// Use a larger body limit than the default 1MB.
 	const maxSpawnBodySize = 50 * 1024 * 1024 // 50MB
@@ -51,7 +75,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, "workspace_id is required for quick_launch_name", http.StatusBadRequest)
 			return
 		}
-		resolved, err := s.resolveQuickLaunchByName(req.WorkspaceID, req.QuickLaunchName)
+		resolved, err := h.resolveQuickLaunchByName(req.WorkspaceID, req.QuickLaunchName)
 		if err != nil {
 			writeJSONError(w, err.Error(), http.StatusBadRequest)
 			return
@@ -73,12 +97,12 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	// Auto-detect remote host/flavor from request or workspace
 	remoteHostID := req.RemoteHostID
 	if remoteHostID == "" && req.WorkspaceID != "" {
-		if ws, found := s.state.GetWorkspace(req.WorkspaceID); found && ws.RemoteHostID != "" {
+		if ws, found := h.state.GetWorkspace(req.WorkspaceID); found && ws.RemoteHostID != "" {
 			remoteHostID = ws.RemoteHostID
 		}
 	}
 	if remoteHostID != "" && req.RemoteProfileID == "" {
-		if host, found := s.state.GetRemoteHost(remoteHostID); found {
+		if host, found := h.state.GetRemoteHost(remoteHostID); found {
 			req.RemoteProfileID = host.ProfileID
 			req.RemoteFlavor = host.Flavor
 		}
@@ -88,8 +112,8 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	// to an existing workspace (e.g., CLI callers, E2E tests). New hosts are
 	// only created when no connected host exists or when explicitly requested
 	// via the "+ New host" card (which sets remote_host_id).
-	if remoteHostID == "" && req.RemoteProfileID != "" && s.remoteManager != nil {
-		conns := s.remoteManager.GetConnectionsByProfileAndFlavor(req.RemoteProfileID, req.RemoteFlavor)
+	if remoteHostID == "" && req.RemoteProfileID != "" && h.remoteManager != nil {
+		conns := h.remoteManager.GetConnectionsByProfileAndFlavor(req.RemoteProfileID, req.RemoteFlavor)
 		for _, conn := range conns {
 			if conn.IsConnected() {
 				remoteHostID = conn.Host().ID
@@ -155,18 +179,18 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 
 	// Detect git URL in repo field and register if new
 	if req.Repo != "" && isGitURL(req.Repo) {
-		if _, found := s.config.FindRepoByURL(req.Repo); !found {
-			existingNames := make([]string, 0, len(s.config.Repos))
-			for _, r := range s.config.Repos {
+		if _, found := h.config.FindRepoByURL(req.Repo); !found {
+			existingNames := make([]string, 0, len(h.config.Repos))
+			for _, r := range h.config.Repos {
 				existingNames = append(existingNames, r.Name)
 			}
 			name := repoNameFromURL(req.Repo, existingNames)
-			s.config.Repos = append(s.config.Repos, config.Repo{
+			h.config.Repos = append(h.config.Repos, config.Repo{
 				Name:     name,
 				URL:      req.Repo,
 				BarePath: name + ".git",
 			})
-			if err := s.config.Save(); err != nil {
+			if err := h.config.Save(); err != nil {
 				writeJSONError(w, fmt.Sprintf("failed to register repo: %v", err), http.StatusInternalServerError)
 				return
 			}
@@ -175,8 +199,8 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 
 	// Server-side branch conflict check for worktree mode
 	// This catches race conditions where UI check passed but another spawn claimed the branch
-	if req.WorkspaceID == "" && s.config.UseWorktrees() {
-		for _, ws := range s.state.GetWorkspaces() {
+	if req.WorkspaceID == "" && h.config.UseWorktrees() {
+		for _, ws := range h.state.GetWorkspaces() {
 			if ws.Repo == req.Repo && ws.Branch == req.Branch {
 				writeJSONError(w, fmt.Sprintf("branch_conflict: branch %q is already in use by workspace %q", req.Branch, ws.ID), http.StatusConflict)
 				return
@@ -205,11 +229,11 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		sessionLog := logging.Sub(s.logger, "session")
+		sessionLog := logging.Sub(h.logger, "session")
 		sessionLog.Info("spawn request", "repo", req.Repo, "branch", req.Branch, "workspace_id", req.WorkspaceID, "command", req.Command, "nickname", req.Nickname)
 
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
-		sess, err := s.session.SpawnCommand(ctx, session.SpawnOptions{
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(h.config.GetGitCloneTimeoutMs())*time.Millisecond)
+		sess, err := h.session.SpawnCommand(ctx, session.SpawnOptions{
 			RepoURL:     req.Repo,
 			Branch:      req.Branch,
 			Command:     req.Command,
@@ -238,7 +262,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 
 		// Broadcast update to WebSocket clients so waitForSession resolves immediately
 		if err == nil {
-			go s.BroadcastSessions()
+			go h.broadcastSessions()
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -253,7 +277,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	if len(promptPreview) > 100 {
 		promptPreview = promptPreview[:100] + "..."
 	}
-	sessionLog := logging.Sub(s.logger, "session")
+	sessionLog := logging.Sub(h.logger, "session")
 	if req.RemoteProfileID != "" {
 		sessionLog.Info("spawn request (remote)", "profile_id", req.RemoteProfileID, "flavor", req.RemoteFlavor, "host_id", remoteHostID, "req_host_id", req.RemoteHostID, "targets", req.Targets, "prompt", promptPreview)
 	} else {
@@ -263,7 +287,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	// Calculate total sessions to spawn for global nickname numbering
 	totalToSpawn := 0
 	for targetName, count := range req.Targets {
-		promptable, found := s.models.IsModel(targetName)
+		promptable, found := h.models.IsModel(targetName)
 		if !found || (promptable && strings.TrimSpace(req.Prompt) == "") || (!promptable && strings.TrimSpace(req.Prompt) != "") {
 			continue
 		}
@@ -280,7 +304,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	// Resolve persona
 	var personaObj *persona.Persona
 	if req.PersonaID != "" {
-		p, err := s.personaManager.Get(req.PersonaID)
+		p, err := h.personaManager.Get(req.PersonaID)
 		if err != nil {
 			writeJSONError(w, fmt.Sprintf("persona not found: %s", req.PersonaID), http.StatusBadRequest)
 			return
@@ -294,7 +318,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	if req.StyleID == "none" {
 		explicitNone = true
 	} else if req.StyleID != "" {
-		st, err := s.styleManager.Get(req.StyleID)
+		st, err := h.styleManager.Get(req.StyleID)
 		if err != nil {
 			writeJSONError(w, fmt.Sprintf("style not found: %s", req.StyleID), http.StatusBadRequest)
 			return
@@ -303,7 +327,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for targetName, count := range req.Targets {
-		promptable, found := s.models.IsModel(targetName)
+		promptable, found := h.models.IsModel(targetName)
 		if !found {
 			results = append(results, SessionResult{
 				Target: targetName,
@@ -340,12 +364,12 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			if explicitStyleObj != nil {
 				styleObj = explicitStyleObj
 			} else if !explicitNone {
-				baseTool := s.models.ResolveTargetToTool(targetName)
+				baseTool := h.models.ResolveTargetToTool(targetName)
 				if baseTool == "" {
 					baseTool = targetName // command targets use their name directly
 				}
-				if defaultID := s.config.GetCommStyles()[baseTool]; defaultID != "" {
-					styleObj, _ = s.styleManager.Get(defaultID)
+				if defaultID := h.config.GetCommStyles()[baseTool]; defaultID != "" {
+					styleObj, _ = h.styleManager.Get(defaultID)
 				}
 			}
 
@@ -357,7 +381,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			agentPrompt := formatAgentSystemPrompt(personaObj, styleObj)
 
 			// Session spawn needs a longer timeout for git operations
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(h.config.GetGitCloneTimeoutMs())*time.Millisecond)
 
 			var sess *state.Session
 			var err error
@@ -365,7 +389,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			// Route to remote or local spawn based on request
 			if req.RemoteProfileID != "" {
 				// Remote spawn - use SpawnRemote()
-				sess, err = s.session.SpawnRemote(ctx, session.RemoteSpawnOptions{
+				sess, err = h.session.SpawnRemote(ctx, session.RemoteSpawnOptions{
 					ProfileID:     req.RemoteProfileID,
 					FlavorStr:     req.RemoteFlavor,
 					HostID:        remoteHostID,
@@ -378,7 +402,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 				})
 			} else {
 				// Local spawn - use existing Spawn()
-				sess, err = s.session.Spawn(ctx, session.SpawnOptions{
+				sess, err = h.session.Spawn(ctx, session.SpawnOptions{
 					RepoURL:          req.Repo,
 					Branch:           req.Branch,
 					TargetName:       targetName,
@@ -427,21 +451,21 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 
 	// Broadcast update to WebSocket clients
 	if hasSuccess {
-		go s.BroadcastSessions()
+		go h.broadcastSessions()
 
 		// Track spawn entry usage (non-blocking, best-effort)
-		if s.spawnStore != nil && req.Repo != "" {
-			if repoInfo, found := s.config.FindRepoByURL(req.Repo); found {
+		if h.spawnStore != nil && req.Repo != "" {
+			if repoInfo, found := h.config.FindRepoByURL(req.Repo); found {
 				repoName := repoInfo.Name
 				if req.ActionID != "" {
 					// Explicit action ID from dropdown click
-					s.spawnStore.RecordUse(repoName, req.ActionID)
+					h.spawnStore.RecordUse(repoName, req.ActionID)
 				} else if prompt := strings.TrimSpace(req.Prompt); prompt != "" {
 					// Match prompt against pinned spawn entries
-					if entries, err := s.spawnStore.List(repoName); err == nil {
+					if entries, err := h.spawnStore.List(repoName); err == nil {
 						for _, e := range entries {
 							if e.Prompt != "" && e.Prompt == prompt {
-								s.spawnStore.RecordUse(repoName, e.ID)
+								h.spawnStore.RecordUse(repoName, e.ID)
 								break
 							}
 						}
@@ -453,12 +477,12 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(results); err != nil {
-		s.logger.Error("failed to encode response", "handler", "spawn", "err", err)
+		h.logger.Error("failed to encode response", "handler", "spawn", "err", err)
 	}
 }
 
 // handleSuggestBranch handles branch name suggestion requests.
-func (s *Server) handleSuggestBranch(w http.ResponseWriter, r *http.Request) {
+func (h *SpawnHandlers) handleSuggestBranch(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	start := time.Now()
 
@@ -472,17 +496,17 @@ func (s *Server) handleSuggestBranch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if branch suggestion is enabled
-	if !branchsuggest.IsEnabled(s.config) {
+	if !branchsuggest.IsEnabled(h.config) {
 		writeJSONError(w, "Branch suggestion is not configured", http.StatusServiceUnavailable)
 		return
 	}
 
-	targetName := s.config.GetBranchSuggestTarget()
-	workspaceLog := logging.Sub(s.logger, "workspace")
+	targetName := h.config.GetBranchSuggestTarget()
+	workspaceLog := logging.Sub(h.logger, "workspace")
 	workspaceLog.Info("asking for branch suggestion", "target", targetName)
 
 	// Generate branch suggestion
-	result, err := branchsuggest.AskForPrompt(r.Context(), s.config, req.Prompt)
+	result, err := branchsuggest.AskForPrompt(r.Context(), h.config, req.Prompt)
 	if err != nil {
 		status := http.StatusInternalServerError
 		switch {
@@ -504,14 +528,14 @@ func (s *Server) handleSuggestBranch(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(result); err != nil {
-		s.logger.Error("failed to encode response", "handler", "suggest-branch", "err", err)
+		h.logger.Error("failed to encode response", "handler", "suggest-branch", "err", err)
 	}
 }
 
 // handlePrepareBranchSpawn prepares spawn data for an existing branch.
 // Gets commit log from the bare clone and returns everything needed to populate
 // the spawn form.
-func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request) {
+func (h *SpawnHandlers) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	start := time.Now()
 
@@ -529,7 +553,7 @@ func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request
 	}
 
 	// Look up repo URL from name
-	repo, found := s.config.FindRepo(req.RepoName)
+	repo, found := h.config.FindRepo(req.RepoName)
 	if !found {
 		writeJSONError(w, "repo not found", http.StatusNotFound)
 		return
@@ -539,8 +563,8 @@ func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request
 	defer cancel()
 
 	// Get commit subjects from bare clone
-	workspaceLog := logging.Sub(s.logger, "workspace")
-	subjects, err := s.workspace.GetBranchCommitLog(ctx, repo.URL, req.Branch, 20)
+	workspaceLog := logging.Sub(h.logger, "workspace")
+	subjects, err := h.workspace.GetBranchCommitLog(ctx, repo.URL, req.Branch, 20)
 	if err != nil {
 		workspaceLog.Warn("prepare-branch-spawn: failed to get commit log", "err", err)
 		// Non-fatal: proceed without commit log
@@ -574,7 +598,7 @@ func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request
 		"branch": req.Branch,
 		"prompt": prompt,
 	}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "prepare-branch-spawn", "err", err)
+		h.logger.Error("failed to encode response", "handler", "prepare-branch-spawn", "err", err)
 	}
 }
 
@@ -586,22 +610,22 @@ type resolvedQuickLaunch struct {
 	PersonaID string
 }
 
-func (s *Server) resolveQuickLaunchByName(workspaceID, name string) (*resolvedQuickLaunch, error) {
+func (h *SpawnHandlers) resolveQuickLaunchByName(workspaceID, name string) (*resolvedQuickLaunch, error) {
 	if name == "" {
 		return nil, fmt.Errorf("quick_launch_name is required")
 	}
-	if wsCfg := s.workspace.GetWorkspaceConfig(workspaceID); wsCfg != nil {
-		if resolved := s.resolveQuickLaunchFromPresets(wsCfg.QuickLaunch, name); resolved != nil {
+	if wsCfg := h.workspace.GetWorkspaceConfig(workspaceID); wsCfg != nil {
+		if resolved := h.resolveQuickLaunchFromPresets(wsCfg.QuickLaunch, name); resolved != nil {
 			return resolved, nil
 		}
 	}
-	if resolved := s.resolveQuickLaunchFromPresets(adaptQuickLaunch(s.config.GetQuickLaunch()), name); resolved != nil {
+	if resolved := h.resolveQuickLaunchFromPresets(adaptQuickLaunch(h.config.GetQuickLaunch()), name); resolved != nil {
 		return resolved, nil
 	}
 	return nil, fmt.Errorf("quick launch not found: %s", name)
 }
 
-func (s *Server) resolveQuickLaunchFromPresets(presets []contracts.QuickLaunch, name string) *resolvedQuickLaunch {
+func (h *SpawnHandlers) resolveQuickLaunchFromPresets(presets []contracts.QuickLaunch, name string) *resolvedQuickLaunch {
 	for _, preset := range presets {
 		if preset.Name != name {
 			continue
@@ -612,7 +636,7 @@ func (s *Server) resolveQuickLaunchFromPresets(presets []contracts.QuickLaunch, 
 		if strings.TrimSpace(preset.Target) == "" {
 			return nil
 		}
-		promptable, found := s.models.IsModel(preset.Target)
+		promptable, found := h.models.IsModel(preset.Target)
 		if !found {
 			return nil
 		}
@@ -655,11 +679,11 @@ type BuiltinQuickLaunchCookbook struct {
 }
 
 // handleBuiltinQuickLaunch returns the list of built-in quick launch cookbooks.
-func (s *Server) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request) {
+func (h *SpawnHandlers) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request) {
 	// Try embedded file first (production), fall back to filesystem (development)
 	var data []byte
 	var readErr error
-	sessionLog := logging.Sub(s.logger, "session")
+	sessionLog := logging.Sub(h.logger, "session")
 	data, readErr = cookbooksFS.ReadFile("cookbooks.json")
 	if readErr != nil {
 		// Fallback to filesystem for development
@@ -707,7 +731,7 @@ func (s *Server) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(validCookbooks); err != nil {
-		s.logger.Error("failed to encode response", "handler", "builtin-quick-launch", "err", err)
+		h.logger.Error("failed to encode response", "handler", "builtin-quick-launch", "err", err)
 	}
 }
 
@@ -715,7 +739,7 @@ func (s *Server) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request
 // POST /api/check-branch-conflict
 // Request body: {"repo": "git@github.com:user/repo.git", "branch": "main"}
 // Response: {"conflict": false} or {"conflict": true, "workspace_id": "repo-001"}
-func (s *Server) handleCheckBranchConflict(w http.ResponseWriter, r *http.Request) {
+func (h *SpawnHandlers) handleCheckBranchConflict(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Repo   string `json:"repo"`
 		Branch string `json:"branch"`
@@ -737,24 +761,24 @@ func (s *Server) handleCheckBranchConflict(w http.ResponseWriter, r *http.Reques
 	}
 
 	// If not using worktrees, there's no branch conflict concern
-	if !s.config.UseWorktrees() {
+	if !h.config.UseWorktrees() {
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(BranchConflictResponse{Conflict: false}); err != nil {
-			s.logger.Error("failed to encode response", "handler", "check-branch-conflict", "err", err)
+			h.logger.Error("failed to encode response", "handler", "check-branch-conflict", "err", err)
 		}
 		return
 	}
 
 	// Check if any existing workspace has this repo+branch combination
 	// (which means the branch is already checked out in a worktree)
-	for _, ws := range s.state.GetWorkspaces() {
+	for _, ws := range h.state.GetWorkspaces() {
 		if ws.Repo == req.Repo && ws.Branch == req.Branch {
 			w.Header().Set("Content-Type", "application/json")
 			if err := json.NewEncoder(w).Encode(BranchConflictResponse{
 				Conflict:    true,
 				WorkspaceID: ws.ID,
 			}); err != nil {
-				s.logger.Error("failed to encode response", "handler", "check-branch-conflict", "err", err)
+				h.logger.Error("failed to encode response", "handler", "check-branch-conflict", "err", err)
 			}
 			return
 		}
@@ -762,13 +786,13 @@ func (s *Server) handleCheckBranchConflict(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(BranchConflictResponse{Conflict: false}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "check-branch-conflict", "err", err)
+		h.logger.Error("failed to encode response", "handler", "check-branch-conflict", "err", err)
 	}
 }
 
 // handleRecentBranches returns recent branches from all configured repos.
 // GET /api/recent-branches?limit=10
-func (s *Server) handleRecentBranches(w http.ResponseWriter, r *http.Request) {
+func (h *SpawnHandlers) handleRecentBranches(w http.ResponseWriter, r *http.Request) {
 	// Parse limit from query string, default to 10
 	limit := 10
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
@@ -785,7 +809,7 @@ func (s *Server) handleRecentBranches(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	branches, err := s.workspace.GetRecentBranches(ctx, limit)
+	branches, err := h.workspace.GetRecentBranches(ctx, limit)
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("Failed to get recent branches: %v", err), http.StatusInternalServerError)
 		return
@@ -793,20 +817,20 @@ func (s *Server) handleRecentBranches(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(branches); err != nil {
-		s.logger.Error("failed to encode response", "handler", "recent-branches", "err", err)
+		h.logger.Error("failed to encode response", "handler", "recent-branches", "err", err)
 	}
 }
 
 // handleRecentBranchesRefresh handles POST /api/recent-branches/refresh - fetches updates from remotes.
-func (s *Server) handleRecentBranchesRefresh(w http.ResponseWriter, r *http.Request) {
+func (h *SpawnHandlers) handleRecentBranchesRefresh(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 
 	// Fetch updates from all origin query repos
-	s.workspace.FetchOriginQueries(ctx)
+	h.workspace.FetchOriginQueries(ctx)
 
 	// Return fresh branches
-	branches, err := s.workspace.GetRecentBranches(ctx, 10)
+	branches, err := h.workspace.GetRecentBranches(ctx, 10)
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("Failed to get recent branches: %v", err), http.StatusInternalServerError)
 		return
@@ -821,7 +845,7 @@ func (s *Server) handleRecentBranchesRefresh(w http.ResponseWriter, r *http.Requ
 		"branches":      branches,
 		"fetched_count": len(branches),
 	}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "recent-branches-refresh", "err", err)
+		h.logger.Error("failed to encode response", "handler", "recent-branches-refresh", "err", err)
 	}
 }
 

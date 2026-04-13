@@ -102,6 +102,25 @@ func newTestWorkspaceHandlers(s *Server) *WorkspaceHandlers {
 	}
 }
 
+// newTestSpawnHandlers builds a SpawnHandlers from a Server for tests.
+func newTestSpawnHandlers(s *Server) *SpawnHandlers {
+	return &SpawnHandlers{
+		config:         s.config,
+		state:          s.state,
+		session:        s.session,
+		workspace:      s.workspace,
+		models:         s.models,
+		remoteManager:  s.remoteManager,
+		personaManager: s.personaManager,
+		styleManager:   s.styleManager,
+		spawnStore:     s.spawnStore,
+		logger:         s.logger,
+
+		broadcastSessions:   s.BroadcastSessions,
+		vcsTypeForWorkspace: s.vcsTypeForWorkspace,
+	}
+}
+
 // newTestConfigHandlers builds a ConfigHandlers from a Server for tests.
 func newTestConfigHandlers(s *Server) *ConfigHandlers {
 	return &ConfigHandlers{
@@ -142,6 +161,7 @@ func TestAPIContract_Healthz(t *testing.T) {
 
 func TestAPIContract_SpawnValidation(t *testing.T) {
 	server, _, _ := newTestServer(t)
+	spawnH := newTestSpawnHandlers(server)
 
 	t.Run("missing repo", func(t *testing.T) {
 		body, _ := json.Marshal(SpawnRequest{
@@ -150,7 +170,7 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
-		server.handleSpawnPost(rr, req)
+		spawnH.handleSpawnPost(rr, req)
 		if rr.Code != http.StatusBadRequest {
 			t.Fatalf("expected status 400, got %d", rr.Code)
 		}
@@ -163,7 +183,7 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
-		server.handleSpawnPost(rr, req)
+		spawnH.handleSpawnPost(rr, req)
 		if rr.Code != http.StatusBadRequest {
 			t.Fatalf("expected status 400, got %d", rr.Code)
 		}
@@ -177,7 +197,7 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
-		server.handleSpawnPost(rr, req)
+		spawnH.handleSpawnPost(rr, req)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("expected status 200, got %d", rr.Code)
 		}
@@ -204,7 +224,7 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
-		server.handleSpawnPost(rr, req)
+		spawnH.handleSpawnPost(rr, req)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("expected status 200, got %d", rr.Code)
 		}
@@ -228,7 +248,7 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
-		server.handleSpawnPost(rr, req)
+		spawnH.handleSpawnPost(rr, req)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("expected status 200, got %d", rr.Code)
 		}
@@ -254,7 +274,7 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
-		server.handleSpawnPost(rr, req)
+		spawnH.handleSpawnPost(rr, req)
 		if rr.Code != http.StatusBadRequest {
 			t.Fatalf("expected status 400, got %d", rr.Code)
 		}
@@ -269,7 +289,7 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
-		server.handleSpawnPost(rr, req)
+		spawnH.handleSpawnPost(rr, req)
 		if rr.Code != http.StatusBadRequest {
 			t.Fatalf("expected status 400, got %d", rr.Code)
 		}
@@ -285,7 +305,7 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
-		server.handleSpawnPost(rr, req)
+		spawnH.handleSpawnPost(rr, req)
 		if rr.Code != http.StatusBadRequest {
 			t.Fatalf("expected status 400, got %d", rr.Code)
 		}
@@ -301,7 +321,7 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
-		server.handleSpawnPost(rr, req)
+		spawnH.handleSpawnPost(rr, req)
 		if rr.Code != http.StatusBadRequest {
 			t.Fatalf("expected status 400, got %d", rr.Code)
 		}
@@ -317,7 +337,7 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
-		server.handleSpawnPost(rr, req)
+		spawnH.handleSpawnPost(rr, req)
 		if rr.Code == http.StatusBadRequest {
 			t.Fatalf("expected non-400 status for valid image attachments, got %d: %s", rr.Code, rr.Body.String())
 		}
@@ -333,7 +353,7 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
-		server.handleSpawnPost(rr, req)
+		spawnH.handleSpawnPost(rr, req)
 		if rr.Code == http.StatusBadRequest {
 			t.Fatalf("expected non-400 for exactly 5 attachments, got %d: %s", rr.Code, rr.Body.String())
 		}

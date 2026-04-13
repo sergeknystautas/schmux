@@ -83,7 +83,8 @@ func newTunnelTestServer(t *testing.T, password string) *tunnelTestServer {
 		r.Group(func(r chi.Router) {
 			r.Use(s.csrfMiddleware)
 
-			r.Post("/spawn", s.handleSpawnPost)
+			spawnH := newTestSpawnHandlers(s)
+			r.Post("/spawn", spawnH.handleSpawnPost)
 			r.Post("/remote-access/on", s.handleRemoteAccessOn)
 			r.Post("/remote-access/off", s.handleRemoteAccessOff)
 			r.Post("/remote-access/set-password", s.handleRemoteAccessSetPassword)

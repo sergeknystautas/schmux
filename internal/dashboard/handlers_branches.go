@@ -23,9 +23,9 @@ type branchEntry struct {
 	Disconnected  bool     `json:"disconnected,omitempty"`
 }
 
-func (s *Server) handleGetBranches(w http.ResponseWriter, r *http.Request) {
-	workspaces := s.state.GetWorkspaces()
-	allSessions := s.state.GetSessions()
+func (h *SpawnHandlers) handleGetBranches(w http.ResponseWriter, r *http.Request) {
+	workspaces := h.state.GetWorkspaces()
+	allSessions := h.state.GetSessions()
 	var entries []branchEntry
 
 	for _, ws := range workspaces {
@@ -34,7 +34,7 @@ func (s *Server) handleGetBranches(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Get repo name from config
-		if repo, found := s.config.FindRepoByURL(ws.Repo); found {
+		if repo, found := h.config.FindRepoByURL(ws.Repo); found {
 			entry.Repo = repo.Name
 		} else {
 			entry.Repo = ws.Repo
@@ -56,15 +56,15 @@ func (s *Server) handleGetBranches(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
+		cb := vcs.NewCommandBuilder(h.vcsTypeForWorkspace(ws))
 
 		if ws.RemoteHostID != "" {
-			if s.remoteManager == nil {
+			if h.remoteManager == nil {
 				entry.Disconnected = true
 				entries = append(entries, entry)
 				continue
 			}
-			conn := s.remoteManager.GetConnection(ws.RemoteHostID)
+			conn := h.remoteManager.GetConnection(ws.RemoteHostID)
 			if conn == nil {
 				entry.Disconnected = true
 				entries = append(entries, entry)

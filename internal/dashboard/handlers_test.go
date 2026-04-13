@@ -188,7 +188,8 @@ func TestResolveQuickLaunchByName(t *testing.T) {
 	}
 	wm.RefreshWorkspaceConfig(ws)
 
-	resolved, err := server.resolveQuickLaunchByName(ws.ID, "Run")
+	spawnH := newTestSpawnHandlers(server)
+	resolved, err := spawnH.resolveQuickLaunchByName(ws.ID, "Run")
 	if err != nil {
 		t.Fatalf("expected resolve to succeed: %v", err)
 	}
@@ -196,7 +197,7 @@ func TestResolveQuickLaunchByName(t *testing.T) {
 		t.Fatalf("expected command-based quick launch, got %+v", resolved)
 	}
 
-	resolved, err = server.resolveQuickLaunchByName(ws.ID, "Fix")
+	resolved, err = spawnH.resolveQuickLaunchByName(ws.ID, "Fix")
 	if err != nil {
 		t.Fatalf("expected resolve to succeed: %v", err)
 	}
@@ -207,6 +208,7 @@ func TestResolveQuickLaunchByName(t *testing.T) {
 
 func TestHandleSpawnPost_CommandMissingWorkspace(t *testing.T) {
 	server, _, _ := newTestServer(t)
+	spawnH := newTestSpawnHandlers(server)
 
 	body, _ := json.Marshal(SpawnRequest{
 		WorkspaceID: "missing-workspace",
@@ -215,7 +217,7 @@ func TestHandleSpawnPost_CommandMissingWorkspace(t *testing.T) {
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
-	server.handleSpawnPost(rr, req)
+	spawnH.handleSpawnPost(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rr.Code)
@@ -242,12 +244,13 @@ func TestHandleSuggestBranch(t *testing.T) {
 		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 		sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
 		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
+		spawnH := newTestSpawnHandlers(server)
 
 		body := bytes.NewReader([]byte(`{"prompt":"test prompt"}`))
 		req, _ := http.NewRequest(http.MethodPost, "/api/suggest-branch", body)
 		rr := httptest.NewRecorder()
 
-		server.handleSuggestBranch(rr, req)
+		spawnH.handleSuggestBranch(rr, req)
 
 		if rr.Code != http.StatusServiceUnavailable {
 			t.Fatalf("expected status 503, got %d", rr.Code)
@@ -263,12 +266,13 @@ func TestHandleBuiltinQuickLaunchCookbook(t *testing.T) {
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
 	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
+	spawnH := newTestSpawnHandlers(server)
 
 	t.Run("GET request returns presets", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/api/builtin-quick-launch", nil)
 		rr := httptest.NewRecorder()
 
-		server.handleBuiltinQuickLaunch(rr, req)
+		spawnH.handleBuiltinQuickLaunch(rr, req)
 
 		if rr.Code != http.StatusOK {
 			t.Errorf("expected status 200, got %d", rr.Code)
@@ -305,7 +309,7 @@ func TestHandleBuiltinQuickLaunchCookbook(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/api/builtin-quick-launch", nil)
 		rr := httptest.NewRecorder()
 
-		server.handleBuiltinQuickLaunch(rr, req)
+		spawnH.handleBuiltinQuickLaunch(rr, req)
 
 		var presets []BuiltinQuickLaunchCookbook
 		if err := json.NewDecoder(rr.Body).Decode(&presets); err != nil {

@@ -552,11 +552,12 @@ func TestHandleInspectWorkspace_FallbackRepoName(t *testing.T) {
 
 func TestHandleGetBranches_Empty(t *testing.T) {
 	server, _, _ := newTestServer(t)
+	spawnH := newTestSpawnHandlers(server)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/branches", nil)
 	rr := httptest.NewRecorder()
 
-	server.handleGetBranches(rr, req)
+	spawnH.handleGetBranches(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", rr.Code)
@@ -573,6 +574,7 @@ func TestHandleGetBranches_Empty(t *testing.T) {
 
 func TestHandleGetBranches_LocalWorkspaces(t *testing.T) {
 	server, cfg, st := newTestServer(t)
+	spawnH := newTestSpawnHandlers(server)
 
 	wsPath := t.TempDir()
 	cfg.Repos = []config.Repo{{Name: "myrepo", URL: "https://github.com/user/myrepo.git"}}
@@ -585,7 +587,7 @@ func TestHandleGetBranches_LocalWorkspaces(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/branches", nil)
 	rr := httptest.NewRecorder()
 
-	server.handleGetBranches(rr, req)
+	spawnH.handleGetBranches(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", rr.Code)
@@ -608,6 +610,7 @@ func TestHandleGetBranches_LocalWorkspaces(t *testing.T) {
 
 func TestHandleGetBranches_WithSessions(t *testing.T) {
 	server, _, st := newTestServer(t)
+	spawnH := newTestSpawnHandlers(server)
 
 	wsPath := t.TempDir()
 	st.AddWorkspace(state.Workspace{
@@ -633,7 +636,7 @@ func TestHandleGetBranches_WithSessions(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/branches", nil)
 	rr := httptest.NewRecorder()
 
-	server.handleGetBranches(rr, req)
+	spawnH.handleGetBranches(rr, req)
 
 	var entries []branchEntry
 	json.NewDecoder(rr.Body).Decode(&entries)
@@ -650,6 +653,7 @@ func TestHandleGetBranches_WithSessions(t *testing.T) {
 
 func TestHandleGetBranches_RemoteDisconnected(t *testing.T) {
 	server, _, st := newTestServer(t)
+	spawnH := newTestSpawnHandlers(server)
 
 	st.AddWorkspace(state.Workspace{
 		ID:           "ws-disconnected",
@@ -661,7 +665,7 @@ func TestHandleGetBranches_RemoteDisconnected(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/branches", nil)
 	rr := httptest.NewRecorder()
 
-	server.handleGetBranches(rr, req)
+	spawnH.handleGetBranches(rr, req)
 
 	var entries []branchEntry
 	json.NewDecoder(rr.Body).Decode(&entries)

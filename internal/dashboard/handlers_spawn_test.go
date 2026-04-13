@@ -90,7 +90,8 @@ func TestHandleSpawnPost_ValidationErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server, _, _ := newTestServer(t)
-			rr := postSpawnJSON(t, server.handleSpawnPost, tt.body)
+			spawnH := newTestSpawnHandlers(server)
+			rr := postSpawnJSON(t, spawnH.handleSpawnPost, tt.body)
 			if rr.Code != tt.wantCode {
 				t.Errorf("got status %d, want %d; body: %s", rr.Code, tt.wantCode, rr.Body.String())
 			}
@@ -106,10 +107,11 @@ func TestHandleSpawnPost_ValidationErrors(t *testing.T) {
 
 func TestHandleSpawnPost_InvalidJSON(t *testing.T) {
 	server, _, _ := newTestServer(t)
+	spawnH := newTestSpawnHandlers(server)
 	req := httptest.NewRequest("POST", "/api/spawn", bytes.NewReader([]byte("not json")))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
-	server.handleSpawnPost(rr, req)
+	spawnH.handleSpawnPost(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("got status %d, want %d", rr.Code, http.StatusBadRequest)
@@ -149,6 +151,7 @@ func TestParseNudgeSummary_Whitespace(t *testing.T) {
 
 func TestHandleSpawnPost_GitURLRegistersRepo(t *testing.T) {
 	server, cfg, _ := newTestServer(t)
+	spawnH := newTestSpawnHandlers(server)
 
 	if len(cfg.Repos) != 0 {
 		t.Fatalf("expected 0 repos, got %d", len(cfg.Repos))
@@ -160,7 +163,7 @@ func TestHandleSpawnPost_GitURLRegistersRepo(t *testing.T) {
 		Targets: map[string]int{"command": 1},
 		Prompt:  "hello",
 	}
-	postSpawnJSON(t, server.handleSpawnPost, body)
+	postSpawnJSON(t, spawnH.handleSpawnPost, body)
 
 	_, found := cfg.FindRepoByURL("https://github.com/anthropics/claude-code.git")
 	if !found {
@@ -170,6 +173,7 @@ func TestHandleSpawnPost_GitURLRegistersRepo(t *testing.T) {
 
 func TestHandleSpawnPost_GitURLExistingRepoSkipsRegistration(t *testing.T) {
 	server, cfg, _ := newTestServer(t)
+	spawnH := newTestSpawnHandlers(server)
 
 	cfg.Repos = append(cfg.Repos, config.Repo{
 		Name:     "claude-code",
@@ -183,7 +187,7 @@ func TestHandleSpawnPost_GitURLExistingRepoSkipsRegistration(t *testing.T) {
 		Targets: map[string]int{"command": 1},
 		Prompt:  "hello",
 	}
-	postSpawnJSON(t, server.handleSpawnPost, body)
+	postSpawnJSON(t, spawnH.handleSpawnPost, body)
 
 	count := 0
 	for _, r := range cfg.Repos {
@@ -198,6 +202,7 @@ func TestHandleSpawnPost_GitURLExistingRepoSkipsRegistration(t *testing.T) {
 
 func TestHandleSpawnPost_GitURLGeneratesCorrectName(t *testing.T) {
 	server, cfg, _ := newTestServer(t)
+	spawnH := newTestSpawnHandlers(server)
 
 	body := SpawnRequest{
 		Repo:    "https://github.com/anthropics/claude-code.git",
@@ -205,7 +210,7 @@ func TestHandleSpawnPost_GitURLGeneratesCorrectName(t *testing.T) {
 		Targets: map[string]int{"command": 1},
 		Prompt:  "hello",
 	}
-	postSpawnJSON(t, server.handleSpawnPost, body)
+	postSpawnJSON(t, spawnH.handleSpawnPost, body)
 
 	repo, found := cfg.FindRepoByURL("https://github.com/anthropics/claude-code.git")
 	if !found {
@@ -250,6 +255,7 @@ func TestSpawnRequest_RemoteHostID_Deserialization(t *testing.T) {
 // SpawnRemote call (via the local remoteHostID variable).
 func TestHandleSpawnPost_RemoteHostID_PassedToSpawnRemote(t *testing.T) {
 	server, _, st := newTestServer(t)
+	spawnH := newTestSpawnHandlers(server)
 
 	// Register a remote host in state so the auto-detect path finds its flavor
 	st.AddRemoteHost(state.RemoteHost{
@@ -268,7 +274,7 @@ func TestHandleSpawnPost_RemoteHostID_PassedToSpawnRemote(t *testing.T) {
 		Targets:         map[string]int{"claude": 1},
 		Prompt:          "hello",
 	}
-	rr := postSpawnJSON(t, server.handleSpawnPost, body)
+	rr := postSpawnJSON(t, spawnH.handleSpawnPost, body)
 
 	// We expect the handler to try SpawnRemote and fail (no remote manager set),
 	// but the important thing is it got past validation - meaning remote_host_id
@@ -282,6 +288,7 @@ func TestHandleSpawnPost_RemoteHostID_PassedToSpawnRemote(t *testing.T) {
 
 func TestResolveQuickLaunchFromPresets_PersonaID(t *testing.T) {
 	server, _, _ := newTestServer(t)
+	spawnH := newTestSpawnHandlers(server)
 	prompt := "review the code"
 	presets := []contracts.QuickLaunch{
 		{Name: "review", Target: "claude", Prompt: &prompt, PersonaID: "reviewer"},
@@ -289,7 +296,7 @@ func TestResolveQuickLaunchFromPresets_PersonaID(t *testing.T) {
 	}
 
 	// Agent preset carries persona_id
-	resolved := server.resolveQuickLaunchFromPresets(presets, "review")
+	resolved := spawnH.resolveQuickLaunchFromPresets(presets, "review")
 	if resolved == nil {
 		t.Fatal("expected resolved quick launch for 'review'")
 	}
@@ -298,7 +305,7 @@ func TestResolveQuickLaunchFromPresets_PersonaID(t *testing.T) {
 	}
 
 	// Command preset carries persona_id (even though it's unused, the data should flow through)
-	resolved = server.resolveQuickLaunchFromPresets(presets, "build")
+	resolved = spawnH.resolveQuickLaunchFromPresets(presets, "build")
 	if resolved == nil {
 		t.Fatal("expected resolved quick launch for 'build'")
 	}
