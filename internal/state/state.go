@@ -702,14 +702,14 @@ func (s *State) AddTab(workspaceID string, tab Tab) error {
 	for i, existing := range s.Tabs {
 		if existing.WorkspaceID == workspaceID && tabDedupKey(existing) == key {
 			if s.logger != nil {
-				s.logger.Info("AddTab: updated existing", "workspace", workspaceID, "tab", tab.ID, "kind", tab.Kind, "dedup_key", key)
+				s.logger.Debug("AddTab: updated existing", "workspace", workspaceID, "tab", tab.ID, "kind", tab.Kind, "dedup_key", key)
 			}
 			s.Tabs[i] = tab
 			return nil
 		}
 	}
 	if s.logger != nil {
-		s.logger.Info("AddTab: created", "workspace", workspaceID, "tab", tab.ID, "kind", tab.Kind)
+		s.logger.Debug("AddTab: created", "workspace", workspaceID, "tab", tab.ID, "kind", tab.Kind)
 	}
 	s.Tabs = append([]Tab{tab}, s.Tabs...)
 	return nil
