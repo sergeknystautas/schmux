@@ -230,10 +230,9 @@ func TestInternalSuppressionLifecycle(t *testing.T) {
 func TestWatcherDisabledByConfig(t *testing.T) {
 	t.Parallel()
 	disabled := false
-	cfg := &config.Config{
-		Sessions: &config.SessionsConfig{
-			GitStatusWatchEnabled: &disabled,
-		},
+	cfg := &config.Config{}
+	cfg.Sessions = &config.SessionsConfig{
+		GitStatusWatchEnabled: &disabled,
 	}
 
 	gw := NewGitWatcher(cfg, nil, nil, testLogger())
@@ -264,10 +263,9 @@ func TestDebounceCollapse(t *testing.T) {
 
 	var refreshCount atomic.Int32
 
-	cfg := &config.Config{
-		Sessions: &config.SessionsConfig{
-			GitStatusWatchDebounceMs: 200,
-		},
+	cfg := &config.Config{}
+	cfg.Sessions = &config.SessionsConfig{
+		GitStatusWatchDebounceMs: 200,
 	}
 
 	gw := NewGitWatcher(cfg, nil, nil, testLogger())
@@ -319,10 +317,9 @@ func TestAddRemoveWorkspace(t *testing.T) {
 		t.Fatalf("failed to create dirs: %v", err)
 	}
 
-	cfg := &config.Config{
-		Sessions: &config.SessionsConfig{
-			GitStatusWatchDebounceMs: 60000, // long debounce to prevent timer fires
-		},
+	cfg := &config.Config{}
+	cfg.Sessions = &config.SessionsConfig{
+		GitStatusWatchDebounceMs: 60000, // long debounce to prevent timer fires
 	}
 	gw := NewGitWatcher(cfg, nil, nil, testLogger())
 	if gw == nil {
@@ -368,10 +365,9 @@ func TestNewDirsWatched(t *testing.T) {
 
 	// Use a very long debounce so the timer doesn't fire during the test
 	// (we're only testing directory watching, not refresh behavior)
-	cfg := &config.Config{
-		Sessions: &config.SessionsConfig{
-			GitStatusWatchDebounceMs: 60000,
-		},
+	cfg := &config.Config{}
+	cfg.Sessions = &config.SessionsConfig{
+		GitStatusWatchDebounceMs: 60000,
 	}
 
 	gw := NewGitWatcher(cfg, nil, nil, testLogger())

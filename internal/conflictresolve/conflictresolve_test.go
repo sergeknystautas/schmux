@@ -236,12 +236,12 @@ func TestBuildPrompt(t *testing.T) {
 
 // testConfig returns a minimal config with conflict resolution enabled.
 func testConfig(target string) *config.Config {
-	return &config.Config{
-		ConflictResolve: &config.ConflictResolveConfig{
-			Target:    target,
-			TimeoutMs: 30000,
-		},
+	cfg := &config.Config{}
+	cfg.ConflictResolve = &config.ConflictResolveConfig{
+		Target:    target,
+		TimeoutMs: 30000,
 	}
+	return cfg
 }
 
 func TestExecute_RawResponseOnParseError(t *testing.T) {

@@ -20,11 +20,11 @@ func TestGetRemoteVSCodeCommandTemplate_Default(t *testing.T) {
 }
 
 func TestGetRemoteVSCodeCommandTemplate_Custom(t *testing.T) {
-	cfg := &Config{
+	cfg := &Config{ConfigData: ConfigData{
 		RemoteWorkspace: &RemoteWorkspaceConfig{
 			VSCodeCommandTemplate: `{{.VSCodePath}} --folder-uri vscode-remote://custom+{{.Hostname}}{{.Path}}`,
 		},
-	}
+	}}
 
 	tmpl := cfg.GetRemoteVSCodeCommandTemplate()
 
@@ -70,11 +70,11 @@ func TestRemoteVSCodeCommandTemplate_Execution_Default(t *testing.T) {
 }
 
 func TestRemoteVSCodeCommandTemplate_Execution_Custom(t *testing.T) {
-	cfg := &Config{
+	cfg := &Config{ConfigData: ConfigData{
 		RemoteWorkspace: &RemoteWorkspaceConfig{
 			VSCodeCommandTemplate: `{{.VSCodePath}} --folder-uri vscode-remote://custom+{{.Hostname}}{{.Path}}`,
 		},
-	}
+	}}
 
 	templateStr := cfg.GetRemoteVSCodeCommandTemplate()
 
@@ -109,11 +109,11 @@ func TestRemoteVSCodeCommandTemplate_Execution_Custom(t *testing.T) {
 }
 
 func TestRemoteVSCodeCommandTemplate_Execution_WithSpaces(t *testing.T) {
-	cfg := &Config{
+	cfg := &Config{ConfigData: ConfigData{
 		RemoteWorkspace: &RemoteWorkspaceConfig{
 			VSCodeCommandTemplate: `{{.VSCodePath}} --folder-uri vscode-remote://custom+{{.Hostname}}{{.Path}}`,
 		},
-	}
+	}}
 
 	templateStr := cfg.GetRemoteVSCodeCommandTemplate()
 
@@ -148,11 +148,11 @@ func TestRemoteVSCodeCommandTemplate_Execution_WithSpaces(t *testing.T) {
 }
 
 func TestRemoteVSCodeCommandTemplate_InvalidTemplate(t *testing.T) {
-	cfg := &Config{
+	cfg := &Config{ConfigData: ConfigData{
 		RemoteWorkspace: &RemoteWorkspaceConfig{
 			VSCodeCommandTemplate: `{{.VSCodePath}} {{.InvalidField}}`, // Invalid field
 		},
-	}
+	}}
 
 	templateStr := cfg.GetRemoteVSCodeCommandTemplate()
 

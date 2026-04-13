@@ -18,7 +18,7 @@ func TestLoad(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "test-config.json")
 
 	// Create a valid config
-	validConfig := Config{
+	validConfig := Config{ConfigData: ConfigData{
 		WorkspacePath: tmpDir,
 		Repos: []Repo{
 			{Name: "myproject", URL: "git@github.com:user/myproject.git"},
@@ -26,7 +26,7 @@ func TestLoad(t *testing.T) {
 		RunTargets: []RunTarget{
 			{Name: "test-agent", Command: "echo test"},
 		},
-	}
+	}}
 
 	data, err := json.MarshalIndent(&validConfig, "", "  ")
 	if err != nil {
@@ -64,9 +64,9 @@ func TestLoad(t *testing.T) {
 }
 
 func TestGetWorkspacePath(t *testing.T) {
-	cfg := &Config{
+	cfg := &Config{ConfigData: ConfigData{
 		WorkspacePath: "/tmp/workspaces",
-	}
+	}}
 
 	path := cfg.GetWorkspacePath()
 	if path != "/tmp/workspaces" {
@@ -79,7 +79,7 @@ func TestGetRepos(t *testing.T) {
 		{Name: "test1", URL: "git@github.com:test1/test1.git"},
 		{Name: "test2", URL: "git@github.com:test2/test2.git"},
 	}
-	cfg := &Config{Repos: repos}
+	cfg := &Config{ConfigData: ConfigData{Repos: repos}}
 
 	got := cfg.GetRepos()
 	if len(got) != 2 {
@@ -92,7 +92,7 @@ func TestGetRunTargets(t *testing.T) {
 		{Name: "build", Command: "go build ./..."},
 		{Name: "zsh", Command: "zsh"},
 	}
-	cfg := &Config{RunTargets: targets}
+	cfg := &Config{ConfigData: ConfigData{RunTargets: targets}}
 
 	got := cfg.GetRunTargets()
 	if len(got) != 2 {
@@ -120,9 +120,9 @@ func TestCreateDefault(t *testing.T) {
 
 func TestSave_RequiresPath(t *testing.T) {
 	// Creating a config directly without a path should fail on Save
-	cfg := &Config{
+	cfg := &Config{ConfigData: ConfigData{
 		WorkspacePath: "/tmp/test",
-	}
+	}}
 
 	err := cfg.Save()
 	if err == nil {
@@ -138,7 +138,7 @@ func TestReload_CopiesAllFields(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.json")
 
 	// Write initial config with CommStyles and other fields
-	initial := Config{
+	initial := Config{ConfigData: ConfigData{
 		WorkspacePath:   tmpDir,
 		Repos:           []Repo{{Name: "r", URL: "u"}},
 		CommStyles:      map[string]string{"claude": "trump"},
@@ -148,7 +148,7 @@ func TestReload_CopiesAllFields(t *testing.T) {
 		SaplingCommands: SaplingCommands{CreateWorkspace: "old-cmd"},
 		BuiltInSkills:   map[string]bool{"skill1": true},
 		Timelapse:       &TimelapseConfig{Enabled: boolPtr(true)},
-	}
+	}}
 	data, err := json.MarshalIndent(&initial, "", "  ")
 	if err != nil {
 		t.Fatal(err)
@@ -169,7 +169,7 @@ func TestReload_CopiesAllFields(t *testing.T) {
 	}
 
 	// Now update the file on disk with different values
-	updated := Config{
+	updated := Config{ConfigData: ConfigData{
 		WorkspacePath:   tmpDir,
 		Repos:           []Repo{{Name: "r", URL: "u"}},
 		CommStyles:      map[string]string{"claude": "valley-girl", "codex": "pirate"},
@@ -179,7 +179,7 @@ func TestReload_CopiesAllFields(t *testing.T) {
 		SaplingCommands: SaplingCommands{CreateWorkspace: "new-cmd"},
 		BuiltInSkills:   map[string]bool{"skill2": true},
 		Timelapse:       &TimelapseConfig{Enabled: boolPtr(false)},
-	}
+	}}
 	data, err = json.MarshalIndent(&updated, "", "  ")
 	if err != nil {
 		t.Fatal(err)
@@ -247,9 +247,9 @@ func boolPtr(b bool) *bool { return &b }
 
 func TestReload_RequiresPath(t *testing.T) {
 	// Creating a config directly without a path should fail on Reload
-	cfg := &Config{
+	cfg := &Config{ConfigData: ConfigData{
 		WorkspacePath: "/tmp/test",
-	}
+	}}
 
 	err := cfg.Reload()
 	if err == nil {
@@ -277,9 +277,9 @@ func TestConfigExists(t *testing.T) {
 
 func TestGetDashboardPollIntervalMs(t *testing.T) {
 	t.Run("returns configured value", func(t *testing.T) {
-		cfg := &Config{
+		cfg := &Config{ConfigData: ConfigData{
 			Sessions: &SessionsConfig{DashboardPollIntervalMs: 2000},
-		}
+		}}
 		got := cfg.GetDashboardPollIntervalMs()
 		if got != 2000 {
 			t.Errorf("got %d, want 2000", got)
@@ -297,9 +297,9 @@ func TestGetDashboardPollIntervalMs(t *testing.T) {
 
 func TestGetNudgenikViewedBufferMs(t *testing.T) {
 	t.Run("returns configured value", func(t *testing.T) {
-		cfg := &Config{
+		cfg := &Config{ConfigData: ConfigData{
 			Nudgenik: &NudgenikConfig{ViewedBufferMs: 3000},
-		}
+		}}
 		got := cfg.GetNudgenikViewedBufferMs()
 		if got != 3000 {
 			t.Errorf("got %d, want 3000", got)
@@ -317,9 +317,9 @@ func TestGetNudgenikViewedBufferMs(t *testing.T) {
 
 func TestGetNudgenikSeenIntervalMs(t *testing.T) {
 	t.Run("returns configured value", func(t *testing.T) {
-		cfg := &Config{
+		cfg := &Config{ConfigData: ConfigData{
 			Nudgenik: &NudgenikConfig{SeenIntervalMs: 1500},
-		}
+		}}
 		got := cfg.GetNudgenikSeenIntervalMs()
 		if got != 1500 {
 			t.Errorf("got %d, want 1500", got)
@@ -345,7 +345,7 @@ func TestGetSubredditTarget(t *testing.T) {
 	})
 
 	t.Run("returns empty string when subreddit config exists but target is empty", func(t *testing.T) {
-		cfg := &Config{Subreddit: &SubredditConfig{}}
+		cfg := &Config{ConfigData: ConfigData{Subreddit: &SubredditConfig{}}}
 		got := cfg.GetSubredditTarget()
 		if got != "" {
 			t.Errorf("got %q, want empty string", got)
@@ -353,7 +353,7 @@ func TestGetSubredditTarget(t *testing.T) {
 	})
 
 	t.Run("returns configured target", func(t *testing.T) {
-		cfg := &Config{Subreddit: &SubredditConfig{Target: "sonnet"}}
+		cfg := &Config{ConfigData: ConfigData{Subreddit: &SubredditConfig{Target: "sonnet"}}}
 		got := cfg.GetSubredditTarget()
 		if got != "sonnet" {
 			t.Errorf("got %q, want %q", got, "sonnet")
@@ -361,7 +361,7 @@ func TestGetSubredditTarget(t *testing.T) {
 	})
 
 	t.Run("trims whitespace from target", func(t *testing.T) {
-		cfg := &Config{Subreddit: &SubredditConfig{Target: "  sonnet  "}}
+		cfg := &Config{ConfigData: ConfigData{Subreddit: &SubredditConfig{Target: "  sonnet  "}}}
 		got := cfg.GetSubredditTarget()
 		if got != "sonnet" {
 			t.Errorf("got %q, want %q", got, "sonnet")
@@ -371,9 +371,9 @@ func TestGetSubredditTarget(t *testing.T) {
 
 func TestGetGitStatusPollIntervalMs(t *testing.T) {
 	t.Run("returns configured value", func(t *testing.T) {
-		cfg := &Config{
+		cfg := &Config{ConfigData: ConfigData{
 			Sessions: &SessionsConfig{GitStatusPollIntervalMs: 5000},
-		}
+		}}
 		got := cfg.GetGitStatusPollIntervalMs()
 		if got != 5000 {
 			t.Errorf("got %d, want 5000", got)
@@ -391,9 +391,9 @@ func TestGetGitStatusPollIntervalMs(t *testing.T) {
 
 func TestGetGitCloneTimeoutMs(t *testing.T) {
 	t.Run("returns configured value", func(t *testing.T) {
-		cfg := &Config{
+		cfg := &Config{ConfigData: ConfigData{
 			Sessions: &SessionsConfig{GitCloneTimeoutMs: 600000},
-		}
+		}}
 		got := cfg.GetGitCloneTimeoutMs()
 		if got != 600000 {
 			t.Errorf("got %d, want 600000", got)
@@ -411,9 +411,9 @@ func TestGetGitCloneTimeoutMs(t *testing.T) {
 
 func TestGetGitStatusTimeoutMs(t *testing.T) {
 	t.Run("returns configured value", func(t *testing.T) {
-		cfg := &Config{
+		cfg := &Config{ConfigData: ConfigData{
 			Sessions: &SessionsConfig{GitStatusTimeoutMs: 60000},
-		}
+		}}
 		got := cfg.GetGitStatusTimeoutMs()
 		if got != 60000 {
 			t.Errorf("got %d, want 60000", got)
@@ -431,9 +431,9 @@ func TestGetGitStatusTimeoutMs(t *testing.T) {
 
 func TestGetDisposeGracePeriodMs(t *testing.T) {
 	t.Run("returns configured value", func(t *testing.T) {
-		cfg := &Config{
+		cfg := &Config{ConfigData: ConfigData{
 			Sessions: &SessionsConfig{DisposeGracePeriodMs: 60000},
-		}
+		}}
 		got := cfg.GetDisposeGracePeriodMs()
 		if got != 60000 {
 			t.Errorf("got %d, want 60000", got)
@@ -449,7 +449,7 @@ func TestGetDisposeGracePeriodMs(t *testing.T) {
 	})
 
 	t.Run("returns default when sessions nil", func(t *testing.T) {
-		cfg := &Config{Sessions: nil}
+		cfg := &Config{ConfigData: ConfigData{Sessions: nil}}
 		got := cfg.GetDisposeGracePeriodMs()
 		if got != DefaultDisposeGracePeriodMs {
 			t.Errorf("got %d, want %d", got, DefaultDisposeGracePeriodMs)
@@ -457,9 +457,9 @@ func TestGetDisposeGracePeriodMs(t *testing.T) {
 	})
 
 	t.Run("returns default when zero", func(t *testing.T) {
-		cfg := &Config{
+		cfg := &Config{ConfigData: ConfigData{
 			Sessions: &SessionsConfig{DisposeGracePeriodMs: 0},
-		}
+		}}
 		got := cfg.GetDisposeGracePeriodMs()
 		if got != DefaultDisposeGracePeriodMs {
 			t.Errorf("got %d, want %d", got, DefaultDisposeGracePeriodMs)
@@ -467,9 +467,9 @@ func TestGetDisposeGracePeriodMs(t *testing.T) {
 	})
 
 	t.Run("DisposeGracePeriod returns duration", func(t *testing.T) {
-		cfg := &Config{
+		cfg := &Config{ConfigData: ConfigData{
 			Sessions: &SessionsConfig{DisposeGracePeriodMs: 15000},
-		}
+		}}
 		got := cfg.DisposeGracePeriod()
 		want := 15 * time.Second
 		if got != want {
@@ -524,9 +524,9 @@ func TestDisposeGracePeriodMs_JSONRoundTrip(t *testing.T) {
 
 func TestGetXtermQueryTimeoutMs(t *testing.T) {
 	t.Run("returns configured value", func(t *testing.T) {
-		cfg := &Config{
+		cfg := &Config{ConfigData: ConfigData{
 			Xterm: &XtermConfig{QueryTimeoutMs: 10000},
-		}
+		}}
 		got := cfg.GetXtermQueryTimeoutMs()
 		if got != 10000 {
 			t.Errorf("got %d, want 10000", got)
@@ -544,9 +544,9 @@ func TestGetXtermQueryTimeoutMs(t *testing.T) {
 
 func TestGetXtermOperationTimeoutMs(t *testing.T) {
 	t.Run("returns configured value", func(t *testing.T) {
-		cfg := &Config{
+		cfg := &Config{ConfigData: ConfigData{
 			Xterm: &XtermConfig{OperationTimeoutMs: 20000},
-		}
+		}}
 		got := cfg.GetXtermOperationTimeoutMs()
 		if got != 20000 {
 			t.Errorf("got %d, want 20000", got)
@@ -563,12 +563,12 @@ func TestGetXtermOperationTimeoutMs(t *testing.T) {
 }
 
 func TestFindRepo(t *testing.T) {
-	cfg := &Config{
+	cfg := &Config{ConfigData: ConfigData{
 		Repos: []Repo{
 			{Name: "project1", URL: "git@github.com:user/project1.git"},
 			{Name: "project2", URL: "git@github.com:user/project2.git"},
 		},
-	}
+	}}
 
 	repo, found := cfg.FindRepo("project1")
 	if !found {
@@ -855,11 +855,11 @@ func TestConfigVersion_MigrateCalled(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "test-config.json")
 
 	// Create a valid config
-	validConfig := Config{
+	validConfig := Config{ConfigData: ConfigData{
 		WorkspacePath: tmpDir,
 		Repos:         []Repo{},
 		RunTargets:    []RunTarget{},
-	}
+	}}
 
 	data, err := json.MarshalIndent(&validConfig, "", "  ")
 	if err != nil {
@@ -1111,9 +1111,9 @@ func TestGetSourceCodeManagement(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{
+			cfg := &Config{ConfigData: ConfigData{
 				SourceCodeManagement: tt.field,
-			}
+			}}
 			got := cfg.GetSourceCodeManagement()
 			if got != tt.want {
 				t.Errorf("GetSourceCodeManagement() = %q, want %q", got, tt.want)
@@ -1212,12 +1212,12 @@ func TestRemoteFlavorCRUD(t *testing.T) {
 	})
 
 	t.Run("GetRemoteFlavor returns flavor by ID", func(t *testing.T) {
-		cfg := &Config{
+		cfg := &Config{ConfigData: ConfigData{
 			RemoteFlavors: []RemoteFlavor{
 				{ID: "flavor1", Flavor: "test:1", DisplayName: "Test 1", WorkspacePath: "~/1"},
 				{ID: "flavor2", Flavor: "test:2", DisplayName: "Test 2", WorkspacePath: "~/2"},
 			},
-		}
+		}}
 
 		rf, found := cfg.GetRemoteFlavor("flavor2")
 		if !found {
@@ -1234,11 +1234,11 @@ func TestRemoteFlavorCRUD(t *testing.T) {
 	})
 
 	t.Run("UpdateRemoteFlavor modifies existing flavor", func(t *testing.T) {
-		cfg := &Config{
+		cfg := &Config{ConfigData: ConfigData{
 			RemoteFlavors: []RemoteFlavor{
 				{ID: "flavor1", Flavor: "test:1", DisplayName: "Test 1", WorkspacePath: "~/1", VCS: "git"},
 			},
-		}
+		}}
 
 		err := cfg.UpdateRemoteFlavor(RemoteFlavor{
 			ID:            "flavor1",
@@ -1274,12 +1274,12 @@ func TestRemoteFlavorCRUD(t *testing.T) {
 	})
 
 	t.Run("RemoveRemoteFlavor removes flavor", func(t *testing.T) {
-		cfg := &Config{
+		cfg := &Config{ConfigData: ConfigData{
 			RemoteFlavors: []RemoteFlavor{
 				{ID: "flavor1", Flavor: "test:1", DisplayName: "Test 1", WorkspacePath: "~/1"},
 				{ID: "flavor2", Flavor: "test:2", DisplayName: "Test 2", WorkspacePath: "~/2"},
 			},
-		}
+		}}
 
 		if err := cfg.RemoveRemoteFlavor("flavor1"); err != nil {
 			t.Fatalf("RemoveRemoteFlavor failed: %v", err)
@@ -1602,14 +1602,14 @@ func TestGetOverlayPaths_DefaultsOnly(t *testing.T) {
 }
 
 func TestGetOverlayPaths_WithGlobalAndRepoConfig(t *testing.T) {
-	cfg := &Config{
+	cfg := &Config{ConfigData: ConfigData{
 		Overlay: &OverlayConfig{
 			Paths: []string{".tool-versions"},
 		},
 		Repos: []Repo{
 			{Name: "myrepo", URL: "git@github.com:org/myrepo.git", OverlayPaths: []string{".env"}},
 		},
-	}
+	}}
 	paths := cfg.GetOverlayPaths("myrepo")
 	found := make(map[string]bool)
 	for _, p := range paths {
@@ -1627,14 +1627,14 @@ func TestGetOverlayPaths_WithGlobalAndRepoConfig(t *testing.T) {
 }
 
 func TestGetOverlayPaths_Deduplication(t *testing.T) {
-	cfg := &Config{
+	cfg := &Config{ConfigData: ConfigData{
 		Overlay: &OverlayConfig{
 			Paths: []string{".claude/settings.local.json"}, // duplicate of default
 		},
 		Repos: []Repo{
 			{Name: "myrepo", URL: "url", OverlayPaths: []string{".claude/settings.local.json"}},
 		},
-	}
+	}}
 	paths := cfg.GetOverlayPaths("myrepo")
 	count := 0
 	for _, p := range paths {
@@ -1656,24 +1656,24 @@ func TestGetLoreEnabled_Default(t *testing.T) {
 
 func TestGetLoreEnabled_Explicit(t *testing.T) {
 	enabled := false
-	c := &Config{Lore: &LoreConfig{Enabled: &enabled}}
+	c := &Config{ConfigData: ConfigData{Lore: &LoreConfig{Enabled: &enabled}}}
 	if c.GetLoreEnabled() {
 		t.Error("expected lore disabled when explicitly set to false")
 	}
 }
 
 func TestGetLoreTarget_FallsBackToCompound(t *testing.T) {
-	c := &Config{Compound: &CompoundConfig{Target: "claude-haiku-4-5"}}
+	c := &Config{ConfigData: ConfigData{Compound: &CompoundConfig{Target: "claude-haiku-4-5"}}}
 	if got := c.GetLoreTarget(); got != "claude-haiku-4-5" {
 		t.Errorf("expected fallback to compound target, got %q", got)
 	}
 }
 
 func TestGetLoreTarget_OwnTarget(t *testing.T) {
-	c := &Config{
+	c := &Config{ConfigData: ConfigData{
 		Compound: &CompoundConfig{Target: "claude-haiku-4-5"},
 		Lore:     &LoreConfig{Target: "claude-sonnet-4-6"},
-	}
+	}}
 	if got := c.GetLoreTarget(); got != "claude-sonnet-4-6" {
 		t.Errorf("expected lore-specific target, got %q", got)
 	}
@@ -1716,53 +1716,53 @@ func TestGetLoreCurateOnDispose(t *testing.T) {
 	})
 
 	t.Run("nil lore config defaults to session", func(t *testing.T) {
-		c := &Config{Lore: nil}
+		c := &Config{ConfigData: ConfigData{Lore: nil}}
 		if got := c.GetLoreCurateOnDispose(); got != "session" {
 			t.Errorf("expected %q, got %q", "session", got)
 		}
 	})
 
 	t.Run("string value session", func(t *testing.T) {
-		c := &Config{Lore: &LoreConfig{CurateOnDispose: "session"}}
+		c := &Config{ConfigData: ConfigData{Lore: &LoreConfig{CurateOnDispose: "session"}}}
 		if got := c.GetLoreCurateOnDispose(); got != "session" {
 			t.Errorf("expected %q, got %q", "session", got)
 		}
 	})
 
 	t.Run("string value workspace", func(t *testing.T) {
-		c := &Config{Lore: &LoreConfig{CurateOnDispose: "workspace"}}
+		c := &Config{ConfigData: ConfigData{Lore: &LoreConfig{CurateOnDispose: "workspace"}}}
 		if got := c.GetLoreCurateOnDispose(); got != "workspace" {
 			t.Errorf("expected %q, got %q", "workspace", got)
 		}
 	})
 
 	t.Run("string value never", func(t *testing.T) {
-		c := &Config{Lore: &LoreConfig{CurateOnDispose: "never"}}
+		c := &Config{ConfigData: ConfigData{Lore: &LoreConfig{CurateOnDispose: "never"}}}
 		if got := c.GetLoreCurateOnDispose(); got != "never" {
 			t.Errorf("expected %q, got %q", "never", got)
 		}
 	})
 
 	t.Run("invalid string defaults to session", func(t *testing.T) {
-		c := &Config{Lore: &LoreConfig{CurateOnDispose: "bogus"}}
+		c := &Config{ConfigData: ConfigData{Lore: &LoreConfig{CurateOnDispose: "bogus"}}}
 		if got := c.GetLoreCurateOnDispose(); got != "session" {
 			t.Errorf("expected %q, got %q", "session", got)
 		}
 	})
 
 	t.Run("backward compat bool true becomes session", func(t *testing.T) {
-		c := &Config{Lore: &LoreConfig{
+		c := &Config{ConfigData: ConfigData{Lore: &LoreConfig{
 			curateOnDisposeRaw: json.RawMessage("true"),
-		}}
+		}}}
 		if got := c.GetLoreCurateOnDispose(); got != "session" {
 			t.Errorf("expected %q, got %q", "session", got)
 		}
 	})
 
 	t.Run("backward compat bool false becomes never", func(t *testing.T) {
-		c := &Config{Lore: &LoreConfig{
+		c := &Config{ConfigData: ConfigData{Lore: &LoreConfig{
 			curateOnDisposeRaw: json.RawMessage("false"),
-		}}
+		}}}
 		if got := c.GetLoreCurateOnDispose(); got != "never" {
 			t.Errorf("expected %q, got %q", "never", got)
 		}
@@ -1780,7 +1780,7 @@ func TestLoreConfig_UnmarshalJSON_BackwardCompat(t *testing.T) {
 			t.Errorf("expected target %q, got %q", "claude", lc.Target)
 		}
 		// Build config to check getter
-		c := &Config{Lore: &lc}
+		c := &Config{ConfigData: ConfigData{Lore: &lc}}
 		if got := c.GetLoreCurateOnDispose(); got != "session" {
 			t.Errorf("expected %q, got %q", "session", got)
 		}
@@ -1792,7 +1792,7 @@ func TestLoreConfig_UnmarshalJSON_BackwardCompat(t *testing.T) {
 		if err := json.Unmarshal([]byte(input), &lc); err != nil {
 			t.Fatalf("unmarshal failed: %v", err)
 		}
-		c := &Config{Lore: &lc}
+		c := &Config{ConfigData: ConfigData{Lore: &lc}}
 		if got := c.GetLoreCurateOnDispose(); got != "never" {
 			t.Errorf("expected %q, got %q", "never", got)
 		}
@@ -1804,7 +1804,7 @@ func TestLoreConfig_UnmarshalJSON_BackwardCompat(t *testing.T) {
 		if err := json.Unmarshal([]byte(input), &lc); err != nil {
 			t.Fatalf("unmarshal failed: %v", err)
 		}
-		c := &Config{Lore: &lc}
+		c := &Config{ConfigData: ConfigData{Lore: &lc}}
 		if got := c.GetLoreCurateOnDispose(); got != "workspace" {
 			t.Errorf("expected %q, got %q", "workspace", got)
 		}
@@ -1816,7 +1816,7 @@ func TestLoreConfig_UnmarshalJSON_BackwardCompat(t *testing.T) {
 		if err := json.Unmarshal([]byte(input), &lc); err != nil {
 			t.Fatalf("unmarshal failed: %v", err)
 		}
-		c := &Config{Lore: &lc}
+		c := &Config{ConfigData: ConfigData{Lore: &lc}}
 		if got := c.GetLoreCurateOnDispose(); got != "session" {
 			t.Errorf("expected %q, got %q", "session", got)
 		}
@@ -1854,7 +1854,7 @@ func TestGetRemoteAccessEnabled(t *testing.T) {
 
 	t.Run("returns true when explicitly enabled", func(t *testing.T) {
 		enabled := true
-		cfg := &Config{RemoteAccess: &RemoteAccessConfig{Enabled: &enabled}}
+		cfg := &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{Enabled: &enabled}}}
 		if !cfg.GetRemoteAccessEnabled() {
 			t.Error("expected GetRemoteAccessEnabled() = true")
 		}
@@ -1862,7 +1862,7 @@ func TestGetRemoteAccessEnabled(t *testing.T) {
 
 	t.Run("returns false when explicitly disabled", func(t *testing.T) {
 		enabled := false
-		cfg := &Config{RemoteAccess: &RemoteAccessConfig{Enabled: &enabled}}
+		cfg := &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{Enabled: &enabled}}}
 		if cfg.GetRemoteAccessEnabled() {
 			t.Error("expected GetRemoteAccessEnabled() = false when explicitly set to false")
 		}
@@ -1870,7 +1870,7 @@ func TestGetRemoteAccessEnabled(t *testing.T) {
 
 	t.Run("backward compat: disabled=true means enabled=false", func(t *testing.T) {
 		disabled := true
-		cfg := &Config{RemoteAccess: &RemoteAccessConfig{Disabled: &disabled}}
+		cfg := &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{Disabled: &disabled}}}
 		if cfg.GetRemoteAccessEnabled() {
 			t.Error("expected GetRemoteAccessEnabled() = false when Disabled=true (backward compat)")
 		}
@@ -1878,7 +1878,7 @@ func TestGetRemoteAccessEnabled(t *testing.T) {
 
 	t.Run("backward compat: disabled=false means enabled=true", func(t *testing.T) {
 		disabled := false
-		cfg := &Config{RemoteAccess: &RemoteAccessConfig{Disabled: &disabled}}
+		cfg := &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{Disabled: &disabled}}}
 		if !cfg.GetRemoteAccessEnabled() {
 			t.Error("expected GetRemoteAccessEnabled() = true when Disabled=false (backward compat)")
 		}
@@ -1887,7 +1887,7 @@ func TestGetRemoteAccessEnabled(t *testing.T) {
 	t.Run("enabled takes precedence over disabled", func(t *testing.T) {
 		enabled := true
 		disabled := true
-		cfg := &Config{RemoteAccess: &RemoteAccessConfig{Enabled: &enabled, Disabled: &disabled}}
+		cfg := &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{Enabled: &enabled, Disabled: &disabled}}}
 		if !cfg.GetRemoteAccessEnabled() {
 			t.Error("expected Enabled to take precedence over Disabled")
 		}
@@ -1903,21 +1903,21 @@ func TestGetRemoteAccessTimeoutMinutes(t *testing.T) {
 	})
 
 	t.Run("defaults to 120 when zero", func(t *testing.T) {
-		cfg := &Config{RemoteAccess: &RemoteAccessConfig{TimeoutMinutes: 0}}
+		cfg := &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{TimeoutMinutes: 0}}}
 		if cfg.GetRemoteAccessTimeoutMinutes() != 120 {
 			t.Errorf("expected 120, got %d", cfg.GetRemoteAccessTimeoutMinutes())
 		}
 	})
 
 	t.Run("negative disables timeout", func(t *testing.T) {
-		cfg := &Config{RemoteAccess: &RemoteAccessConfig{TimeoutMinutes: -1}}
+		cfg := &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{TimeoutMinutes: -1}}}
 		if cfg.GetRemoteAccessTimeoutMinutes() != 0 {
 			t.Errorf("expected 0, got %d", cfg.GetRemoteAccessTimeoutMinutes())
 		}
 	})
 
 	t.Run("returns configured value", func(t *testing.T) {
-		cfg := &Config{RemoteAccess: &RemoteAccessConfig{TimeoutMinutes: 480}}
+		cfg := &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{TimeoutMinutes: 480}}}
 		if cfg.GetRemoteAccessTimeoutMinutes() != 480 {
 			t.Errorf("expected 480, got %d", cfg.GetRemoteAccessTimeoutMinutes())
 		}
@@ -1933,9 +1933,9 @@ func TestGetRemoteAccessNtfyTopic(t *testing.T) {
 	})
 
 	t.Run("returns trimmed value", func(t *testing.T) {
-		cfg := &Config{RemoteAccess: &RemoteAccessConfig{
+		cfg := &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{
 			Notify: &RemoteAccessNotifyConfig{NtfyTopic: "  my-topic  "},
-		}}
+		}}}
 		if cfg.GetRemoteAccessNtfyTopic() != "my-topic" {
 			t.Errorf("expected 'my-topic', got %q", cfg.GetRemoteAccessNtfyTopic())
 		}
@@ -1951,9 +1951,9 @@ func TestGetRemoteAccessNotifyCommand(t *testing.T) {
 	})
 
 	t.Run("returns configured value", func(t *testing.T) {
-		cfg := &Config{RemoteAccess: &RemoteAccessConfig{
+		cfg := &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{
 			Notify: &RemoteAccessNotifyConfig{Command: "echo $SCHMUX_REMOTE_URL"},
-		}}
+		}}}
 		if cfg.GetRemoteAccessNotifyCommand() != "echo $SCHMUX_REMOTE_URL" {
 			t.Errorf("unexpected value: %q", cfg.GetRemoteAccessNotifyCommand())
 		}
@@ -1988,59 +1988,59 @@ func TestValidate_NegativeCases(t *testing.T) {
 		// validateRunTargets errors
 		{
 			name: "empty run target name",
-			cfg: &Config{
+			cfg: &Config{ConfigData: ConfigData{
 				RunTargets: []RunTarget{
 					{Name: "", Command: "echo hi"},
 				},
-			},
+			}},
 			wantContains: "name is required",
 		},
 		{
 			name: "missing command",
-			cfg: &Config{
+			cfg: &Config{ConfigData: ConfigData{
 				RunTargets: []RunTarget{
 					{Name: "my-agent", Command: ""},
 				},
-			},
+			}},
 			wantContains: "command is required",
 		},
 		{
 			name: "duplicate target names",
-			cfg: &Config{
+			cfg: &Config{ConfigData: ConfigData{
 				RunTargets: []RunTarget{
 					{Name: "agent", Command: "echo a"},
 					{Name: "agent", Command: "echo b"},
 				},
-			},
+			}},
 			wantContains: "duplicate run target name",
 		},
 		// validateQuickLaunch errors (use "claude" as builtin tool target)
 		{
 			name: "empty quick launch name",
-			cfg: &Config{
+			cfg: &Config{ConfigData: ConfigData{
 				QuickLaunch: []QuickLaunch{
 					{Name: "", Target: "claude", Prompt: &prompt},
 				},
-			},
+			}},
 			wantContains: "name is required",
 		},
 		{
 			name: "duplicate quick launch names",
-			cfg: &Config{
+			cfg: &Config{ConfigData: ConfigData{
 				QuickLaunch: []QuickLaunch{
 					{Name: "preset", Target: "claude", Prompt: &prompt},
 					{Name: "preset", Target: "claude", Prompt: &prompt},
 				},
-			},
+			}},
 			wantContains: "duplicate quick launch name",
 		},
 		{
 			name: "no target or command in quick launch",
-			cfg: &Config{
+			cfg: &Config{ConfigData: ConfigData{
 				QuickLaunch: []QuickLaunch{
 					{Name: "preset", Target: "", Prompt: &prompt},
 				},
-			},
+			}},
 			wantContains: "target or command is required",
 		},
 	}
@@ -2067,25 +2067,25 @@ func TestGetDashboardSXEnabled(t *testing.T) {
 	})
 
 	t.Run("nil dashboardsx", func(t *testing.T) {
-		cfg := &Config{Network: &NetworkConfig{}}
+		cfg := &Config{ConfigData: ConfigData{Network: &NetworkConfig{}}}
 		if cfg.GetDashboardSXEnabled() {
 			t.Error("expected false for nil DashboardSX")
 		}
 	})
 
 	t.Run("disabled", func(t *testing.T) {
-		cfg := &Config{Network: &NetworkConfig{
+		cfg := &Config{ConfigData: ConfigData{Network: &NetworkConfig{
 			DashboardSX: &DashboardSXConfig{Enabled: false},
-		}}
+		}}}
 		if cfg.GetDashboardSXEnabled() {
 			t.Error("expected false for disabled")
 		}
 	})
 
 	t.Run("enabled", func(t *testing.T) {
-		cfg := &Config{Network: &NetworkConfig{
+		cfg := &Config{ConfigData: ConfigData{Network: &NetworkConfig{
 			DashboardSX: &DashboardSXConfig{Enabled: true},
-		}}
+		}}}
 		if !cfg.GetDashboardSXEnabled() {
 			t.Error("expected true for enabled")
 		}
@@ -2093,9 +2093,9 @@ func TestGetDashboardSXEnabled(t *testing.T) {
 }
 
 func TestGetDashboardSXCode(t *testing.T) {
-	cfg := &Config{Network: &NetworkConfig{
+	cfg := &Config{ConfigData: ConfigData{Network: &NetworkConfig{
 		DashboardSX: &DashboardSXConfig{Code: "12345"},
-	}}
+	}}}
 	if got := cfg.GetDashboardSXCode(); got != "12345" {
 		t.Errorf("GetDashboardSXCode() = %q, want %q", got, "12345")
 	}
@@ -2103,9 +2103,9 @@ func TestGetDashboardSXCode(t *testing.T) {
 
 func TestGetDashboardSXHostname(t *testing.T) {
 	t.Run("with code", func(t *testing.T) {
-		cfg := &Config{Network: &NetworkConfig{
+		cfg := &Config{ConfigData: ConfigData{Network: &NetworkConfig{
 			DashboardSX: &DashboardSXConfig{Code: "12345"},
-		}}
+		}}}
 		if got := cfg.GetDashboardSXHostname(); got != "12345.dashboard.sx" {
 			t.Errorf("GetDashboardSXHostname() = %q, want %q", got, "12345.dashboard.sx")
 		}
@@ -2165,16 +2165,16 @@ func TestGetDashboardSXEmail(t *testing.T) {
 	})
 
 	t.Run("nil dashboardsx", func(t *testing.T) {
-		cfg := &Config{Network: &NetworkConfig{}}
+		cfg := &Config{ConfigData: ConfigData{Network: &NetworkConfig{}}}
 		if got := cfg.GetDashboardSXEmail(); got != "" {
 			t.Errorf("expected empty, got %q", got)
 		}
 	})
 
 	t.Run("with email", func(t *testing.T) {
-		cfg := &Config{Network: &NetworkConfig{
+		cfg := &Config{ConfigData: ConfigData{Network: &NetworkConfig{
 			DashboardSX: &DashboardSXConfig{Email: "user@example.com"},
-		}}
+		}}}
 		if got := cfg.GetDashboardSXEmail(); got != "user@example.com" {
 			t.Errorf("GetDashboardSXEmail() = %q, want %q", got, "user@example.com")
 		}
@@ -2218,12 +2218,12 @@ func TestResolveBareRepoDir_FallbackWhenMissing(t *testing.T) {
 
 func TestFindRepoByURL(t *testing.T) {
 	t.Parallel()
-	cfg := &Config{
+	cfg := &Config{ConfigData: ConfigData{
 		Repos: []Repo{
 			{Name: "project-a", URL: "git@github.com:user/project-a.git"},
 			{Name: "project-b", URL: "https://github.com/user/project-b.git"},
 		},
-	}
+	}}
 
 	t.Run("finds repo by SSH URL", func(t *testing.T) {
 		repo, found := cfg.FindRepoByURL("git@github.com:user/project-a.git")
@@ -2266,13 +2266,13 @@ func TestFindRepoByURL(t *testing.T) {
 
 func TestGetRunTarget(t *testing.T) {
 	t.Parallel()
-	cfg := &Config{
+	cfg := &Config{ConfigData: ConfigData{
 		RunTargets: []RunTarget{
 			{Name: "build", Command: "go build"},
 			{Name: "lint", Command: "golangci-lint run"},
 			{Name: "my-script", Command: "bash run.sh"},
 		},
-	}
+	}}
 
 	t.Run("finds target by name", func(t *testing.T) {
 		target, found := cfg.GetRunTarget("build")
@@ -2306,7 +2306,7 @@ func TestGetBindAddress(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{Network: tt.network}
+			cfg := &Config{ConfigData: ConfigData{Network: tt.network}}
 			got := cfg.GetBindAddress()
 			if got != tt.want {
 				t.Errorf("GetBindAddress() = %q, want %q", got, tt.want)
@@ -2329,7 +2329,7 @@ func TestGetNetworkAccess(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{Network: tt.network}
+			cfg := &Config{ConfigData: ConfigData{Network: tt.network}}
 			got := cfg.GetNetworkAccess()
 			if got != tt.want {
 				t.Errorf("GetNetworkAccess() = %v, want %v", got, tt.want)
@@ -2353,7 +2353,7 @@ func TestGetPort(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{Network: tt.network}
+			cfg := &Config{ConfigData: ConfigData{Network: tt.network}}
 			got := cfg.GetPort()
 			if got != tt.want {
 				t.Errorf("GetPort() = %d, want %d", got, tt.want)
@@ -2376,7 +2376,7 @@ func TestUseWorktrees(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{SourceCodeManagement: tt.scm}
+			cfg := &Config{ConfigData: ConfigData{SourceCodeManagement: tt.scm}}
 			got := cfg.UseWorktrees()
 			if got != tt.want {
 				t.Errorf("UseWorktrees() = %v, want %v", got, tt.want)
@@ -2424,7 +2424,7 @@ func TestGetCompoundEnabled(t *testing.T) {
 	})
 
 	t.Run("returns true when Enabled is nil", func(t *testing.T) {
-		cfg := &Config{Compound: &CompoundConfig{}}
+		cfg := &Config{ConfigData: ConfigData{Compound: &CompoundConfig{}}}
 		if !cfg.GetCompoundEnabled() {
 			t.Error("expected true when Enabled is nil")
 		}
@@ -2432,7 +2432,7 @@ func TestGetCompoundEnabled(t *testing.T) {
 
 	t.Run("returns false when explicitly disabled", func(t *testing.T) {
 		disabled := false
-		cfg := &Config{Compound: &CompoundConfig{Enabled: &disabled}}
+		cfg := &Config{ConfigData: ConfigData{Compound: &CompoundConfig{Enabled: &disabled}}}
 		if cfg.GetCompoundEnabled() {
 			t.Error("expected false when explicitly disabled")
 		}
@@ -2440,7 +2440,7 @@ func TestGetCompoundEnabled(t *testing.T) {
 
 	t.Run("returns true when explicitly enabled", func(t *testing.T) {
 		enabled := true
-		cfg := &Config{Compound: &CompoundConfig{Enabled: &enabled}}
+		cfg := &Config{ConfigData: ConfigData{Compound: &CompoundConfig{Enabled: &enabled}}}
 		if !cfg.GetCompoundEnabled() {
 			t.Error("expected true when explicitly enabled")
 		}
@@ -2457,14 +2457,14 @@ func TestGetCompoundDebounceMs(t *testing.T) {
 	})
 
 	t.Run("defaults to 2000 when zero", func(t *testing.T) {
-		cfg := &Config{Compound: &CompoundConfig{DebounceMs: 0}}
+		cfg := &Config{ConfigData: ConfigData{Compound: &CompoundConfig{DebounceMs: 0}}}
 		if got := cfg.GetCompoundDebounceMs(); got != 2000 {
 			t.Errorf("got %d, want 2000", got)
 		}
 	})
 
 	t.Run("returns configured value", func(t *testing.T) {
-		cfg := &Config{Compound: &CompoundConfig{DebounceMs: 5000}}
+		cfg := &Config{ConfigData: ConfigData{Compound: &CompoundConfig{DebounceMs: 5000}}}
 		if got := cfg.GetCompoundDebounceMs(); got != 5000 {
 			t.Errorf("got %d, want 5000", got)
 		}
@@ -2481,14 +2481,14 @@ func TestGetNotificationSoundEnabled(t *testing.T) {
 	})
 
 	t.Run("returns true when SoundDisabled is false", func(t *testing.T) {
-		cfg := &Config{Notifications: &NotificationsConfig{SoundDisabled: false}}
+		cfg := &Config{ConfigData: ConfigData{Notifications: &NotificationsConfig{SoundDisabled: false}}}
 		if !cfg.GetNotificationSoundEnabled() {
 			t.Error("expected true when SoundDisabled is false")
 		}
 	})
 
 	t.Run("returns false when SoundDisabled is true", func(t *testing.T) {
-		cfg := &Config{Notifications: &NotificationsConfig{SoundDisabled: true}}
+		cfg := &Config{ConfigData: ConfigData{Notifications: &NotificationsConfig{SoundDisabled: true}}}
 		if cfg.GetNotificationSoundEnabled() {
 			t.Error("expected false when SoundDisabled is true")
 		}
@@ -2505,7 +2505,7 @@ func TestGetConfirmBeforeClose(t *testing.T) {
 	})
 
 	t.Run("returns configured value", func(t *testing.T) {
-		cfg := &Config{Notifications: &NotificationsConfig{ConfirmBeforeClose: true}}
+		cfg := &Config{ConfigData: ConfigData{Notifications: &NotificationsConfig{ConfirmBeforeClose: true}}}
 		if !cfg.GetConfirmBeforeClose() {
 			t.Error("expected true when configured")
 		}
@@ -2514,7 +2514,7 @@ func TestGetConfirmBeforeClose(t *testing.T) {
 
 func TestTimeoutDurationConverters(t *testing.T) {
 	t.Parallel()
-	cfg := &Config{
+	cfg := &Config{ConfigData: ConfigData{
 		Sessions: &SessionsConfig{
 			GitCloneTimeoutMs:  30000,
 			GitStatusTimeoutMs: 5000,
@@ -2523,7 +2523,7 @@ func TestTimeoutDurationConverters(t *testing.T) {
 			QueryTimeoutMs:     1000,
 			OperationTimeoutMs: 2000,
 		},
-	}
+	}}
 
 	tests := []struct {
 		name string
@@ -2590,7 +2590,7 @@ func TestModelsEnabled(t *testing.T) {
 }
 
 func TestMigrateModelIDs(t *testing.T) {
-	cfg := &Config{
+	cfg := &Config{ConfigData: ConfigData{
 		QuickLaunch: []QuickLaunch{
 			{Name: "test", Target: "claude-opus"},
 			{Name: "test2", Target: "minimax"},
@@ -2612,7 +2612,7 @@ func TestMigrateModelIDs(t *testing.T) {
 				"minimax":     "opencode",
 			},
 		},
-	}
+	}}
 
 	cfg.migrateModelIDs()
 
@@ -2676,9 +2676,9 @@ func TestMigrateModelIDs(t *testing.T) {
 
 func TestHasLegacyModelIDs(t *testing.T) {
 	// No legacy IDs
-	cfg := &Config{
+	cfg := &Config{ConfigData: ConfigData{
 		Nudgenik: &NudgenikConfig{Target: "claude-opus-4-6"},
-	}
+	}}
 	if cfg.hasLegacyModelIDs() {
 		t.Error("should return false when no legacy IDs present")
 	}
@@ -2690,19 +2690,19 @@ func TestHasLegacyModelIDs(t *testing.T) {
 	}
 
 	// Legacy ID in quick launch
-	cfg2 := &Config{
+	cfg2 := &Config{ConfigData: ConfigData{
 		QuickLaunch: []QuickLaunch{{Name: "test", Target: "minimax"}},
-	}
+	}}
 	if !cfg2.hasLegacyModelIDs() {
 		t.Error("should return true when legacy ID in quick launch")
 	}
 
 	// Legacy ID in models.enabled
-	cfg3 := &Config{
+	cfg3 := &Config{ConfigData: ConfigData{
 		Models: &ModelsConfig{
 			Enabled: map[string]string{"claude-sonnet": "claude"},
 		},
-	}
+	}}
 	if !cfg3.hasLegacyModelIDs() {
 		t.Error("should return true when legacy ID in models.enabled")
 	}
@@ -2768,7 +2768,7 @@ func TestSubredditConfigDefaults(t *testing.T) {
 }
 
 func TestSubredditConfigCustomValues(t *testing.T) {
-	cfg := &Config{
+	cfg := &Config{ConfigData: ConfigData{
 		Subreddit: &SubredditConfig{
 			Target:        "sonnet",
 			Interval:      60,
@@ -2777,7 +2777,7 @@ func TestSubredditConfigCustomValues(t *testing.T) {
 			MaxAge:        7,
 			Repos:         map[string]bool{"my-repo": false, "other": true},
 		},
-	}
+	}}
 	if cfg.GetSubredditInterval() != 60 {
 		t.Errorf("expected 60, got %d", cfg.GetSubredditInterval())
 	}
@@ -2840,7 +2840,7 @@ func TestRepofeedConfigDefaults(t *testing.T) {
 }
 
 func TestRepofeedConfigWithValues(t *testing.T) {
-	cfg := &Config{
+	cfg := &Config{ConfigData: ConfigData{
 		Repofeed: &RepofeedConfig{
 			Enabled:                 true,
 			PublishIntervalSeconds:  15,
@@ -2848,7 +2848,7 @@ func TestRepofeedConfigWithValues(t *testing.T) {
 			CompletedRetentionHours: 24,
 			Repos:                   map[string]bool{"schmux": true, "other": false},
 		},
-	}
+	}}
 
 	if !cfg.GetRepofeedEnabled() {
 		t.Error("repofeed should be enabled")
@@ -2881,7 +2881,7 @@ func TestDashboardHostname(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{Network: tt.network}
+			cfg := &Config{ConfigData: ConfigData{Network: tt.network}}
 			if got := cfg.GetDashboardHostname(); got != tt.want {
 				t.Errorf("GetDashboardHostname() = %q, want %q", got, tt.want)
 			}
@@ -2893,7 +2893,7 @@ func TestDashboardHostname(t *testing.T) {
 		if err != nil {
 			t.Skip("cannot get hostname")
 		}
-		cfg := &Config{Network: &NetworkConfig{DashboardHostname: h}}
+		cfg := &Config{ConfigData: ConfigData{Network: &NetworkConfig{DashboardHostname: h}}}
 		if got := cfg.GetDashboardHostname(); got != h {
 			t.Errorf("GetDashboardHostname() = %q, want %q", got, h)
 		}
@@ -2939,7 +2939,7 @@ func TestDashboardURL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{Network: tt.network}
+			cfg := &Config{ConfigData: ConfigData{Network: tt.network}}
 			if got := cfg.GetDashboardURL(); got != tt.want {
 				t.Errorf("GetDashboardURL() = %q, want %q", got, tt.want)
 			}
@@ -2968,12 +2968,12 @@ func TestTimelapseConfig_Explicit(t *testing.T) {
 	days := 14
 	fileSize := 100
 	totalSize := 1000
-	c := &Config{Timelapse: &TimelapseConfig{
+	c := &Config{ConfigData: ConfigData{Timelapse: &TimelapseConfig{
 		Enabled:           &enabled,
 		RetentionDays:     &days,
 		MaxFileSizeMB:     &fileSize,
 		MaxTotalStorageMB: &totalSize,
-	}}
+	}}}
 	if c.GetTimelapseEnabled() {
 		t.Error("expected timelapse disabled")
 	}
@@ -3047,11 +3047,11 @@ func TestMigrateTelemetryStanza_NoOverwrite(t *testing.T) {
 func TestAutolearnConfig_Direct(t *testing.T) {
 	t.Run("enabled via autolearn section", func(t *testing.T) {
 		enabled := true
-		c := &Config{
+		c := &Config{ConfigData: ConfigData{
 			Autolearn: &AutolearnConfig{
 				Enabled: &enabled,
 			},
-		}
+		}}
 		if !c.GetAutolearnEnabled() {
 			t.Error("expected GetAutolearnEnabled() = true")
 		}
@@ -3059,11 +3059,11 @@ func TestAutolearnConfig_Direct(t *testing.T) {
 
 	t.Run("disabled via autolearn section", func(t *testing.T) {
 		enabled := false
-		c := &Config{
+		c := &Config{ConfigData: ConfigData{
 			Autolearn: &AutolearnConfig{
 				Enabled: &enabled,
 			},
-		}
+		}}
 		if c.GetAutolearnEnabled() {
 			t.Error("expected GetAutolearnEnabled() = false")
 		}
@@ -3077,11 +3077,11 @@ func TestAutolearnConfig_Direct(t *testing.T) {
 	})
 
 	t.Run("target returns configured value", func(t *testing.T) {
-		c := &Config{
+		c := &Config{ConfigData: ConfigData{
 			Autolearn: &AutolearnConfig{
 				Target: "my-model",
 			},
-		}
+		}}
 		if got := c.GetAutolearnTarget(); got != "my-model" {
 			t.Errorf("expected target %q, got %q", "my-model", got)
 		}
@@ -3134,7 +3134,7 @@ func TestAutolearnConfig_Direct(t *testing.T) {
 func TestAutolearnConfig_AliasFromLore(t *testing.T) {
 	t.Run("lore fields copied to autolearn", func(t *testing.T) {
 		enabled := true
-		c := &Config{
+		c := &Config{ConfigData: ConfigData{
 			Lore: &LoreConfig{
 				Enabled:          &enabled,
 				Target:           "lore-model",
@@ -3144,7 +3144,7 @@ func TestAutolearnConfig_AliasFromLore(t *testing.T) {
 				InstructionFiles: []string{"CLAUDE.md"},
 				PublicRuleMode:   "create_pr",
 			},
-		}
+		}}
 		// Simulate alias logic that Load() performs
 		if c.Autolearn == nil && c.Lore != nil {
 			c.Autolearn = &AutolearnConfig{
@@ -3184,7 +3184,7 @@ func TestAutolearnConfig_AliasFromLore(t *testing.T) {
 	t.Run("autolearn takes precedence over lore", func(t *testing.T) {
 		loreEnabled := true
 		autolearnEnabled := false
-		c := &Config{
+		c := &Config{ConfigData: ConfigData{
 			Lore: &LoreConfig{
 				Enabled: &loreEnabled,
 				Target:  "lore-model",
@@ -3193,7 +3193,7 @@ func TestAutolearnConfig_AliasFromLore(t *testing.T) {
 				Enabled: &autolearnEnabled,
 				Target:  "autolearn-model",
 			},
-		}
+		}}
 		// Alias should NOT overwrite existing Autolearn
 		if c.Autolearn == nil && c.Lore != nil {
 			c.Autolearn = &AutolearnConfig{
@@ -3220,7 +3220,7 @@ func TestAutolearnConfig_UnmarshalJSON_BackwardCompat(t *testing.T) {
 		if ac.Target != "claude" {
 			t.Errorf("expected target %q, got %q", "claude", ac.Target)
 		}
-		c := &Config{Autolearn: &ac}
+		c := &Config{ConfigData: ConfigData{Autolearn: &ac}}
 		if got := c.GetAutolearnCurateOnDispose(); got != "session" {
 			t.Errorf("expected %q, got %q", "session", got)
 		}
@@ -3232,7 +3232,7 @@ func TestAutolearnConfig_UnmarshalJSON_BackwardCompat(t *testing.T) {
 		if err := json.Unmarshal([]byte(input), &ac); err != nil {
 			t.Fatalf("unmarshal failed: %v", err)
 		}
-		c := &Config{Autolearn: &ac}
+		c := &Config{ConfigData: ConfigData{Autolearn: &ac}}
 		if got := c.GetAutolearnCurateOnDispose(); got != "never" {
 			t.Errorf("expected %q, got %q", "never", got)
 		}
@@ -3244,7 +3244,7 @@ func TestAutolearnConfig_UnmarshalJSON_BackwardCompat(t *testing.T) {
 		if err := json.Unmarshal([]byte(input), &ac); err != nil {
 			t.Fatalf("unmarshal failed: %v", err)
 		}
-		c := &Config{Autolearn: &ac}
+		c := &Config{ConfigData: ConfigData{Autolearn: &ac}}
 		if got := c.GetAutolearnCurateOnDispose(); got != "workspace" {
 			t.Errorf("expected %q, got %q", "workspace", got)
 		}

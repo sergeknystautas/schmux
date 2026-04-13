@@ -9,9 +9,8 @@ import (
 )
 
 func TestAskForCaptureNoResponse(t *testing.T) {
-	cfg := &config.Config{
-		Nudgenik: &config.NudgenikConfig{Target: "claude"},
-	}
+	cfg := &config.Config{}
+	cfg.Nudgenik = &config.NudgenikConfig{Target: "claude"}
 
 	_, err := AskForCapture(context.Background(), cfg, "❯\n")
 	if !errors.Is(err, ErrNoResponse) {

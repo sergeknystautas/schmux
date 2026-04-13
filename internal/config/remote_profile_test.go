@@ -224,7 +224,7 @@ func TestConfig_AddRemoteProfile_DuplicateFlavor(t *testing.T) {
 }
 
 func TestMigrateRemoteFlavorsToProfiles(t *testing.T) {
-	cfg := &Config{
+	cfg := &Config{ConfigData: ConfigData{
 		RemoteFlavors: []RemoteFlavor{
 			{
 				ID:                    "my_gpu_flavor",
@@ -239,7 +239,7 @@ func TestMigrateRemoteFlavorsToProfiles(t *testing.T) {
 				VSCodeCommandTemplate: `{{.VSCodePath}} --remote ssh-remote+{{.Hostname}} {{.Path}}`,
 			},
 		},
-	}
+	}}
 
 	cfg.MigrateRemoteFlavorsToProfiles()
 
@@ -291,7 +291,7 @@ func TestMigrateRemoteFlavorsToProfiles(t *testing.T) {
 }
 
 func TestMigrateRemoteFlavorsToProfiles_Idempotent(t *testing.T) {
-	cfg := &Config{
+	cfg := &Config{ConfigData: ConfigData{
 		RemoteFlavors: []RemoteFlavor{
 			{
 				ID:            "old_flavor",
@@ -310,7 +310,7 @@ func TestMigrateRemoteFlavorsToProfiles_Idempotent(t *testing.T) {
 				Flavors:       []RemoteProfileFlavor{{Flavor: "existing-flavor"}},
 			},
 		},
-	}
+	}}
 
 	cfg.MigrateRemoteFlavorsToProfiles()
 

@@ -190,8 +190,10 @@ func newPreviewAutodetectTestServer(t *testing.T, logger *log.Logger) (*Server, 
 	if logger == nil {
 		logger = log.NewWithOptions(io.Discard, log.Options{})
 	}
+	previewCfg := &config.Config{}
+	previewCfg.Network = &config.NetworkConfig{Port: 7337}
 	srv := &Server{
-		config:                   &config.Config{Network: &config.NetworkConfig{Port: 7337}},
+		config:                   previewCfg,
 		state:                    st,
 		logger:                   logger,
 		shutdownCtx:              context.Background(),
@@ -253,7 +255,8 @@ func TestFilterExistingPreviews(t *testing.T) {
 }
 
 func TestFilterDaemonPort_BlocksDaemonPort(t *testing.T) {
-	cfg := &config.Config{Network: &config.NetworkConfig{Port: 7337}}
+	cfg := &config.Config{}
+	cfg.Network = &config.NetworkConfig{Port: 7337}
 	srv := &Server{config: cfg}
 
 	ports := []preview.ListeningPort{
@@ -268,7 +271,8 @@ func TestFilterDaemonPort_BlocksDaemonPort(t *testing.T) {
 }
 
 func TestFilterDaemonPort_PassthroughWhenNoMatch(t *testing.T) {
-	cfg := &config.Config{Network: &config.NetworkConfig{Port: 7337}}
+	cfg := &config.Config{}
+	cfg.Network = &config.NetworkConfig{Port: 7337}
 	srv := &Server{config: cfg}
 
 	ports := []preview.ListeningPort{

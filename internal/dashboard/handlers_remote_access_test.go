@@ -22,7 +22,8 @@ import (
 
 func newTestServerWithTunnel(t *testing.T, tunnelMgr *tunnel.Manager) *Server {
 	t.Helper()
-	cfg := &config.Config{WorkspacePath: t.TempDir()}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -57,7 +58,8 @@ func TestHandleRemoteAccessStatus(t *testing.T) {
 }
 
 func TestHandleRemoteAccessStatus_NoManager(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: t.TempDir()}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -79,10 +81,9 @@ func TestHandleRemoteAccessStatus_NoManager(t *testing.T) {
 
 func TestHandleRemoteAccessOn_ReturnsErrorWhenDisabled(t *testing.T) {
 	mgr := tunnel.NewManager(tunnel.ManagerConfig{Disabled: func() bool { return true }}, nil)
-	cfg := &config.Config{
-		WorkspacePath: t.TempDir(),
-		// RemoteAccess.Enabled not set — defaults to false (disabled)
-	}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
+	// RemoteAccess.Enabled not set — defaults to false (disabled)
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -104,7 +105,8 @@ func TestHandleRemoteAccessOn_ReturnsErrorWhenDisabled(t *testing.T) {
 // responses automatically via r.Post route registration.
 
 func TestHandleRemoteAccessOn_NoManager(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: t.TempDir()}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -125,7 +127,8 @@ func TestHandleRemoteAccessOn_NoManager(t *testing.T) {
 // responses automatically via r.Post route registration.
 
 func TestHandleRemoteAccessOff_NoManager(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: t.TempDir()}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))

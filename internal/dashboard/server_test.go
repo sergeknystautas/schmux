@@ -44,9 +44,8 @@ func TestIsValidResourceID(t *testing.T) {
 
 func TestCheckWSOrigin(t *testing.T) {
 	t.Run("allows localhost when auth not required", func(t *testing.T) {
-		cfg := &config.Config{
-			Network: &config.NetworkConfig{Port: 7337},
-		}
+		cfg := &config.Config{}
+		cfg.Network = &config.NetworkConfig{Port: 7337}
 		s := &Server{config: cfg}
 
 		req := httptest.NewRequest("GET", "/ws/terminal/test", nil)
@@ -57,9 +56,8 @@ func TestCheckWSOrigin(t *testing.T) {
 	})
 
 	t.Run("allows empty origin when auth not required", func(t *testing.T) {
-		cfg := &config.Config{
-			Network: &config.NetworkConfig{Port: 7337},
-		}
+		cfg := &config.Config{}
+		cfg.Network = &config.NetworkConfig{Port: 7337}
 		s := &Server{config: cfg}
 
 		req := httptest.NewRequest("GET", "/ws/terminal/test", nil)
@@ -70,9 +68,8 @@ func TestCheckWSOrigin(t *testing.T) {
 	})
 
 	t.Run("rejects unknown origin", func(t *testing.T) {
-		cfg := &config.Config{
-			Network: &config.NetworkConfig{Port: 7337},
-		}
+		cfg := &config.Config{}
+		cfg.Network = &config.NetworkConfig{Port: 7337}
 		s := &Server{config: cfg}
 
 		req := httptest.NewRequest("GET", "/ws/terminal/test", nil)
@@ -83,13 +80,12 @@ func TestCheckWSOrigin(t *testing.T) {
 	})
 
 	t.Run("allows configured public_base_url", func(t *testing.T) {
-		cfg := &config.Config{
-			Network: &config.NetworkConfig{
-				Port:          7337,
-				PublicBaseURL: "https://schmux.example.com:7337",
-			},
-			AccessControl: &config.AccessControlConfig{Enabled: true},
+		cfg := &config.Config{}
+		cfg.Network = &config.NetworkConfig{
+			Port:          7337,
+			PublicBaseURL: "https://schmux.example.com:7337",
 		}
+		cfg.AccessControl = &config.AccessControlConfig{Enabled: true}
 		s := &Server{config: cfg}
 
 		req := httptest.NewRequest("GET", "/ws/terminal/test", nil)
@@ -100,11 +96,10 @@ func TestCheckWSOrigin(t *testing.T) {
 	})
 
 	t.Run("rejects empty origin when auth required", func(t *testing.T) {
-		cfg := &config.Config{
-			Network: &config.NetworkConfig{Port: 7337},
-			AccessControl: &config.AccessControlConfig{
-				Enabled: true,
-			},
+		cfg := &config.Config{}
+		cfg.Network = &config.NetworkConfig{Port: 7337}
+		cfg.AccessControl = &config.AccessControlConfig{
+			Enabled: true,
 		}
 		s := &Server{config: cfg}
 
@@ -127,9 +122,8 @@ func TestIsAllowedOrigin(t *testing.T) {
 	})
 
 	t.Run("localhost allowed with http when auth disabled", func(t *testing.T) {
-		cfg := &config.Config{
-			Network: &config.NetworkConfig{Port: 7337},
-		}
+		cfg := &config.Config{}
+		cfg.Network = &config.NetworkConfig{Port: 7337}
 		s := &Server{config: cfg}
 
 		if !s.isAllowedOrigin("http://localhost:7337") {
@@ -141,16 +135,15 @@ func TestIsAllowedOrigin(t *testing.T) {
 	})
 
 	t.Run("localhost allowed with https when TLS enabled", func(t *testing.T) {
-		cfg := &config.Config{
-			Network: &config.NetworkConfig{
-				Port: 7337,
-				TLS: &config.TLSConfig{
-					CertPath: "/path/to/cert.pem",
-					KeyPath:  "/path/to/key.pem",
-				},
+		cfg := &config.Config{}
+		cfg.Network = &config.NetworkConfig{
+			Port: 7337,
+			TLS: &config.TLSConfig{
+				CertPath: "/path/to/cert.pem",
+				KeyPath:  "/path/to/key.pem",
 			},
-			AccessControl: &config.AccessControlConfig{Enabled: true},
 		}
+		cfg.AccessControl = &config.AccessControlConfig{Enabled: true}
 		s := &Server{config: cfg}
 
 		if !s.isAllowedOrigin("https://localhost:7337") {
@@ -166,13 +159,12 @@ func TestIsAllowedOrigin(t *testing.T) {
 	})
 
 	t.Run("configured public_base_url allowed", func(t *testing.T) {
-		cfg := &config.Config{
-			Network: &config.NetworkConfig{
-				Port:          7337,
-				PublicBaseURL: "https://schmux.local:7337",
-			},
-			AccessControl: &config.AccessControlConfig{Enabled: true},
+		cfg := &config.Config{}
+		cfg.Network = &config.NetworkConfig{
+			Port:          7337,
+			PublicBaseURL: "https://schmux.local:7337",
 		}
+		cfg.AccessControl = &config.AccessControlConfig{Enabled: true}
 		s := &Server{config: cfg}
 
 		if !s.isAllowedOrigin("https://schmux.local:7337") {
@@ -181,11 +173,10 @@ func TestIsAllowedOrigin(t *testing.T) {
 	})
 
 	t.Run("http version of public_base_url allowed when auth disabled", func(t *testing.T) {
-		cfg := &config.Config{
-			Network: &config.NetworkConfig{
-				Port:          7337,
-				PublicBaseURL: "https://schmux.local:7337",
-			},
+		cfg := &config.Config{}
+		cfg.Network = &config.NetworkConfig{
+			Port:          7337,
+			PublicBaseURL: "https://schmux.local:7337",
 		}
 		s := &Server{config: cfg}
 
@@ -195,9 +186,8 @@ func TestIsAllowedOrigin(t *testing.T) {
 	})
 
 	t.Run("random origin rejected when network_access disabled", func(t *testing.T) {
-		cfg := &config.Config{
-			Network: &config.NetworkConfig{Port: 7337},
-		}
+		cfg := &config.Config{}
+		cfg.Network = &config.NetworkConfig{Port: 7337}
 		s := &Server{config: cfg}
 
 		if s.isAllowedOrigin("http://evil.com") {
@@ -209,11 +199,10 @@ func TestIsAllowedOrigin(t *testing.T) {
 	})
 
 	t.Run("same-port origins allowed when network_access enabled", func(t *testing.T) {
-		cfg := &config.Config{
-			Network: &config.NetworkConfig{
-				Port:        7337,
-				BindAddress: "0.0.0.0",
-			},
+		cfg := &config.Config{}
+		cfg.Network = &config.NetworkConfig{
+			Port:        7337,
+			BindAddress: "0.0.0.0",
 		}
 		s := &Server{config: cfg}
 
@@ -243,11 +232,10 @@ func TestIsAllowedOrigin(t *testing.T) {
 		if err != nil {
 			t.Skip("cannot get hostname")
 		}
-		cfg := &config.Config{
-			Network: &config.NetworkConfig{
-				Port:              7337,
-				DashboardHostname: localHost,
-			},
+		cfg := &config.Config{}
+		cfg.Network = &config.NetworkConfig{
+			Port:              7337,
+			DashboardHostname: localHost,
 		}
 		s := &Server{config: cfg}
 
@@ -264,14 +252,13 @@ func TestIsAllowedOrigin(t *testing.T) {
 		if err != nil {
 			t.Skip("cannot get hostname")
 		}
-		cfg := &config.Config{
-			Network: &config.NetworkConfig{
-				Port:              7337,
-				DashboardHostname: localHost,
-				TLS: &config.TLSConfig{
-					CertPath: "/path/to/cert.pem",
-					KeyPath:  "/path/to/key.pem",
-				},
+		cfg := &config.Config{}
+		cfg.Network = &config.NetworkConfig{
+			Port:              7337,
+			DashboardHostname: localHost,
+			TLS: &config.TLSConfig{
+				CertPath: "/path/to/cert.pem",
+				KeyPath:  "/path/to/key.pem",
 			},
 		}
 		s := &Server{config: cfg}
@@ -285,11 +272,10 @@ func TestIsAllowedOrigin(t *testing.T) {
 	})
 
 	t.Run("non-local dashboard_hostname is ignored", func(t *testing.T) {
-		cfg := &config.Config{
-			Network: &config.NetworkConfig{
-				Port:              7337,
-				DashboardHostname: "not.a.local.host.example.com",
-			},
+		cfg := &config.Config{}
+		cfg.Network = &config.NetworkConfig{
+			Port:              7337,
+			DashboardHostname: "not.a.local.host.example.com",
 		}
 		s := &Server{config: cfg}
 

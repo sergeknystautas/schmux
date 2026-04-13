@@ -31,12 +31,11 @@ func TestGetOrCreate_BranchReuse_Success(t *testing.T) {
 	gitTestBranch(t, repoDir, "feature-1")
 
 	// Set up isolated config
-	cfg := &config.Config{
-		WorkspacePath:    t.TempDir(),
-		WorktreeBasePath: t.TempDir(),
-		Repos: []config.Repo{
-			testRepoWithBarePath(t, "test", repoDir),
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
+	cfg.WorktreeBasePath = t.TempDir()
+	cfg.Repos = []config.Repo{
+		testRepoWithBarePath(t, "test", repoDir),
 	}
 	manager := New(cfg, st, statePath, testLogger())
 
@@ -85,12 +84,11 @@ func TestGetOrCreate_PerRepoMutexBlocks(t *testing.T) {
 
 	repoDir := gitTestWorkTree(t)
 
-	cfg := &config.Config{
-		WorkspacePath:    t.TempDir(),
-		WorktreeBasePath: t.TempDir(),
-		Repos: []config.Repo{
-			testRepoWithBarePath(t, "test", repoDir),
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
+	cfg.WorktreeBasePath = t.TempDir()
+	cfg.Repos = []config.Repo{
+		testRepoWithBarePath(t, "test", repoDir),
 	}
 	manager := New(cfg, st, statePath, testLogger())
 
@@ -139,12 +137,11 @@ func TestGetOrCreate_UniqueBranchOnWorktreeConflict(t *testing.T) {
 
 	repoDir := gitTestWorkTree(t)
 
-	cfg := &config.Config{
-		WorkspacePath:    t.TempDir(),
-		WorktreeBasePath: t.TempDir(),
-		Repos: []config.Repo{
-			testRepoWithBarePath(t, "test", repoDir),
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
+	cfg.WorktreeBasePath = t.TempDir()
+	cfg.Repos = []config.Repo{
+		testRepoWithBarePath(t, "test", repoDir),
 	}
 	manager := New(cfg, st, statePath, testLogger())
 
@@ -202,13 +199,12 @@ func TestGetOrCreate_FullCloneDoesNotUniquifyBranch(t *testing.T) {
 	repoDir := gitTestWorkTree(t)
 	gitTestBranch(t, repoDir, "feature-1")
 
-	cfg := &config.Config{
-		WorkspacePath:        t.TempDir(),
-		WorktreeBasePath:     t.TempDir(),
-		SourceCodeManagement: config.SourceCodeManagementGit,
-		Repos: []config.Repo{
-			testRepoWithBarePath(t, "test", repoDir),
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
+	cfg.WorktreeBasePath = t.TempDir()
+	cfg.SourceCodeManagement = config.SourceCodeManagementGit
+	cfg.Repos = []config.Repo{
+		testRepoWithBarePath(t, "test", repoDir),
 	}
 	manager := New(cfg, st, statePath, testLogger())
 
@@ -270,12 +266,11 @@ func TestGetOrCreate_BranchReuse_DivergedSkipsReuse(t *testing.T) {
 
 	repoDir := gitTestWorkTree(t)
 
-	cfg := &config.Config{
-		WorkspacePath:    t.TempDir(),
-		WorktreeBasePath: t.TempDir(),
-		Repos: []config.Repo{
-			testRepoWithBarePath(t, "test", repoDir),
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
+	cfg.WorktreeBasePath = t.TempDir()
+	cfg.Repos = []config.Repo{
+		testRepoWithBarePath(t, "test", repoDir),
 	}
 	manager := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
@@ -327,12 +322,11 @@ func TestGetOrCreate_BranchReuse_UpToDateAllowsReuse(t *testing.T) {
 	repoDir := gitTestWorkTree(t)
 	gitTestBranch(t, repoDir, "feature-1")
 
-	cfg := &config.Config{
-		WorkspacePath:    t.TempDir(),
-		WorktreeBasePath: t.TempDir(),
-		Repos: []config.Repo{
-			testRepoWithBarePath(t, "test", repoDir),
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
+	cfg.WorktreeBasePath = t.TempDir()
+	cfg.Repos = []config.Repo{
+		testRepoWithBarePath(t, "test", repoDir),
 	}
 	manager := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
@@ -376,12 +370,11 @@ func TestGetOrCreate_RecyclableWorkspace_ReusedBeforeCreate(t *testing.T) {
 	repoDir := gitTestWorkTree(t)
 	gitTestBranch(t, repoDir, "feature-1")
 
-	cfg := &config.Config{
-		WorkspacePath:     t.TempDir(),
-		WorktreeBasePath:  t.TempDir(),
-		RecycleWorkspaces: true,
-		Repos:             []config.Repo{testRepoWithBarePath(t, "test", repoDir)},
-	}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
+	cfg.WorktreeBasePath = t.TempDir()
+	cfg.RecycleWorkspaces = true
+	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
 	manager := New(cfg, st, statePath, testLogger())
 
 	// Create workspace on "main"
@@ -486,12 +479,11 @@ func TestGetOrCreate_RecyclableBranchCollision_PurgesAndRetries(t *testing.T) {
 	repoDir := gitTestWorkTree(t)
 	gitTestBranch(t, repoDir, "feature-1")
 
-	cfg := &config.Config{
-		WorkspacePath:     t.TempDir(),
-		WorktreeBasePath:  t.TempDir(),
-		RecycleWorkspaces: true,
-		Repos:             []config.Repo{testRepoWithBarePath(t, "test", repoDir)},
-	}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
+	cfg.WorktreeBasePath = t.TempDir()
+	cfg.RecycleWorkspaces = true
+	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
 	manager := New(cfg, st, statePath, testLogger())
 
 	// Create workspace on "feature-1"
@@ -547,13 +539,12 @@ func TestGetOrCreate_BranchReuse_PromotesRecyclableStatus(t *testing.T) {
 	repoDir := gitTestWorkTree(t)
 	gitTestBranch(t, repoDir, "feature-1")
 
-	cfg := &config.Config{
-		WorkspacePath:    t.TempDir(),
-		WorktreeBasePath: t.TempDir(),
-		// RecycleWorkspaces is false — Tier 0 won't run.
-		// A workspace can still end up recyclable via direct state manipulation.
-		Repos: []config.Repo{testRepoWithBarePath(t, "test", repoDir)},
-	}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
+	cfg.WorktreeBasePath = t.TempDir()
+	// RecycleWorkspaces is false — Tier 0 won't run.
+	// A workspace can still end up recyclable via direct state manipulation.
+	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
 	manager := New(cfg, st, statePath, testLogger())
 
 	ws1, err := manager.GetOrCreate(context.Background(), repoDir, "main")
@@ -597,12 +588,11 @@ func TestGetOrCreate_BranchReuse_PurgesConflictingRecyclable(t *testing.T) {
 	repoDir := gitTestWorkTree(t)
 	gitTestBranch(t, repoDir, "feature-1")
 
-	cfg := &config.Config{
-		WorkspacePath:     t.TempDir(),
-		WorktreeBasePath:  t.TempDir(),
-		RecycleWorkspaces: true,
-		Repos:             []config.Repo{testRepoWithBarePath(t, "test", repoDir)},
-	}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
+	cfg.WorktreeBasePath = t.TempDir()
+	cfg.RecycleWorkspaces = true
+	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
 	manager := New(cfg, st, statePath, testLogger())
 
 	// Create two workspaces on different branches
@@ -703,12 +693,11 @@ func TestGetOrCreate_RecycleSameDivergedBranch(t *testing.T) {
 	var logBuf bytes.Buffer
 	logger := log.NewWithOptions(&logBuf, log.Options{Level: log.InfoLevel})
 
-	cfg := &config.Config{
-		WorkspacePath:     t.TempDir(),
-		WorktreeBasePath:  t.TempDir(),
-		RecycleWorkspaces: true,
-		Repos:             []config.Repo{testRepoWithBarePath(t, "test", repoDir)},
-	}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
+	cfg.WorktreeBasePath = t.TempDir()
+	cfg.RecycleWorkspaces = true
+	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
 	manager := New(cfg, st, statePath, logger)
 
 	// Create workspace on diverged feature branch

@@ -252,7 +252,8 @@ func TestLinearSyncFromDefault_RejectsOrphanDefaultBranch(t *testing.T) {
 
 	// Set up workspace manager
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 	m.setDefaultBranch(remoteDir, "main")

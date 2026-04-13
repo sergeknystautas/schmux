@@ -28,7 +28,8 @@ func TestGitStatus_WatcherSkipsFetch(t *testing.T) {
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
 
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 
@@ -78,7 +79,8 @@ func TestGitStatus_WatcherStillReturnsAccurateLocalState(t *testing.T) {
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
 
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
@@ -118,7 +120,8 @@ func TestGitStatus_ReturnsCurrentBranch(t *testing.T) {
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
 
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
@@ -231,7 +234,8 @@ func TestEnsuredQueryRepos_InitializedInNew(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 
@@ -258,7 +262,8 @@ func TestUpdateVCSStatus_NoDuplicateBranchQueries(t *testing.T) {
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
 
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 
 	// Add workspace to state
@@ -313,7 +318,8 @@ func TestUpdateVCSStatus_NoDuplicateRemoteBranchCheck(t *testing.T) {
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
 
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 
 	w := state.Workspace{
@@ -547,7 +553,8 @@ func TestUpdateAllVCSStatus_ParallelExecution(t *testing.T) {
 	runGit(t, tmpDir, "clone", remoteDir, "ws-002")
 
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 
 	st.AddWorkspace(state.Workspace{ID: "ws-001", Repo: remoteDir, Branch: "main", Path: clone1})
@@ -791,7 +798,8 @@ func TestCommitsSyncedWithRemote_DerivedFromRevList(t *testing.T) {
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
 
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 
@@ -846,7 +854,8 @@ func TestCommitsSyncedWithRemote_FalseWhenAhead(t *testing.T) {
 	runGit(t, cloneDir, "commit", "-m", "local commit")
 
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 
@@ -875,7 +884,8 @@ func TestOrphanCheck_SkippedWhenSynced(t *testing.T) {
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
 
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 
 	w := state.Workspace{
@@ -937,7 +947,8 @@ func TestOrphanCheck_StillRunsWhenAhead(t *testing.T) {
 	runGit(t, cloneDir, "commit", "-m", "ahead commit")
 
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 
 	w := state.Workspace{

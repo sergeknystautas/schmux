@@ -18,12 +18,11 @@ func TestCleanup_SkipsNonGitWorkspaces(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{
-		WorkspacePath:    filepath.Join(tmpDir, "workspaces"),
-		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
-		Repos: []config.Repo{
-			{Name: "sl-repo", URL: "sl-repo-id", VCS: "sapling"},
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	cfg.Repos = []config.Repo{
+		{Name: "sl-repo", URL: "sl-repo-id", VCS: "sapling"},
 	}
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
@@ -54,12 +53,11 @@ func TestScan_SkipsNonGitWorkspaces(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{
-		WorkspacePath:    tmpDir,
-		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
-		Repos: []config.Repo{
-			{Name: "sl-repo", URL: "sl-repo-id", VCS: "sapling"},
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	cfg.Repos = []config.Repo{
+		{Name: "sl-repo", URL: "sl-repo-id", VCS: "sapling"},
 	}
 	st := state.New(statePath, nil)
 
@@ -103,12 +101,11 @@ func TestCheckoutPR_RejectsNonGitRepos(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{
-		WorkspacePath:    filepath.Join(tmpDir, "workspaces"),
-		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
-		Repos: []config.Repo{
-			{Name: "sl-repo", URL: "sl-repo-id", VCS: "sapling"},
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	cfg.Repos = []config.Repo{
+		{Name: "sl-repo", URL: "sl-repo-id", VCS: "sapling"},
 	}
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
@@ -138,12 +135,11 @@ func TestUpdateVCSStatus_RoutesSaplingThroughBackend(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{
-		WorkspacePath:    filepath.Join(tmpDir, "workspaces"),
-		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
-		Repos: []config.Repo{
-			{Name: "sl-repo", URL: "sl-repo-id", VCS: "sapling"},
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	cfg.Repos = []config.Repo{
+		{Name: "sl-repo", URL: "sl-repo-id", VCS: "sapling"},
 	}
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())

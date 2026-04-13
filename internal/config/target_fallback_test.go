@@ -12,25 +12,25 @@ func TestGetCompoundTarget_FallbackChain(t *testing.T) {
 	}{
 		{
 			name: "explicit compound target used",
-			cfg: &Config{
+			cfg: &Config{ConfigData: ConfigData{
 				Compound: &CompoundConfig{Target: "compound-model"},
 				Nudgenik: &NudgenikConfig{Target: "nudgenik-model"},
-			},
+			}},
 			want: "compound-model",
 		},
 		{
 			name: "falls back to nudgenik when compound target empty",
-			cfg: &Config{
+			cfg: &Config{ConfigData: ConfigData{
 				Compound: &CompoundConfig{Target: ""},
 				Nudgenik: &NudgenikConfig{Target: "nudgenik-model"},
-			},
+			}},
 			want: "nudgenik-model",
 		},
 		{
 			name: "falls back to nudgenik when compound nil",
-			cfg: &Config{
+			cfg: &Config{ConfigData: ConfigData{
 				Nudgenik: &NudgenikConfig{Target: "nudgenik-model"},
-			},
+			}},
 			want: "nudgenik-model",
 		},
 		{
@@ -40,25 +40,25 @@ func TestGetCompoundTarget_FallbackChain(t *testing.T) {
 		},
 		{
 			name: "returns empty when nudgenik also empty",
-			cfg: &Config{
+			cfg: &Config{ConfigData: ConfigData{
 				Compound: &CompoundConfig{Target: ""},
 				Nudgenik: &NudgenikConfig{Target: ""},
-			},
+			}},
 			want: "",
 		},
 		{
 			name: "trims whitespace from compound target",
-			cfg: &Config{
+			cfg: &Config{ConfigData: ConfigData{
 				Compound: &CompoundConfig{Target: "  model-x  "},
-			},
+			}},
 			want: "model-x",
 		},
 		{
 			name: "whitespace-only compound falls back to nudgenik",
-			cfg: &Config{
+			cfg: &Config{ConfigData: ConfigData{
 				Compound: &CompoundConfig{Target: "   "},
 				Nudgenik: &NudgenikConfig{Target: "nudge"},
-			},
+			}},
 			want: "nudge",
 		},
 	}
@@ -80,36 +80,36 @@ func TestGetLoreTarget_FallbackChain(t *testing.T) {
 	}{
 		{
 			name: "explicit lore target used",
-			cfg: &Config{
+			cfg: &Config{ConfigData: ConfigData{
 				Lore:     &LoreConfig{Target: "lore-model"},
 				Compound: &CompoundConfig{Target: "compound-model"},
 				Nudgenik: &NudgenikConfig{Target: "nudgenik-model"},
-			},
+			}},
 			want: "lore-model",
 		},
 		{
 			name: "falls back to compound when lore target empty",
-			cfg: &Config{
+			cfg: &Config{ConfigData: ConfigData{
 				Lore:     &LoreConfig{Target: ""},
 				Compound: &CompoundConfig{Target: "compound-model"},
 				Nudgenik: &NudgenikConfig{Target: "nudgenik-model"},
-			},
+			}},
 			want: "compound-model",
 		},
 		{
 			name: "falls back through compound to nudgenik",
-			cfg: &Config{
+			cfg: &Config{ConfigData: ConfigData{
 				Lore:     &LoreConfig{Target: ""},
 				Compound: &CompoundConfig{Target: ""},
 				Nudgenik: &NudgenikConfig{Target: "nudgenik-model"},
-			},
+			}},
 			want: "nudgenik-model",
 		},
 		{
 			name: "falls back to nudgenik when lore and compound nil",
-			cfg: &Config{
+			cfg: &Config{ConfigData: ConfigData{
 				Nudgenik: &NudgenikConfig{Target: "nudgenik-model"},
-			},
+			}},
 			want: "nudgenik-model",
 		},
 		{
@@ -119,9 +119,9 @@ func TestGetLoreTarget_FallbackChain(t *testing.T) {
 		},
 		{
 			name: "lore nil falls back to compound",
-			cfg: &Config{
+			cfg: &Config{ConfigData: ConfigData{
 				Compound: &CompoundConfig{Target: "compound-model"},
-			},
+			}},
 			want: "compound-model",
 		},
 	}
@@ -151,37 +151,37 @@ func TestGetRemoteAccessEnabled_BackwardCompat(t *testing.T) {
 		},
 		{
 			name: "empty RemoteAccess defaults to false",
-			cfg:  &Config{RemoteAccess: &RemoteAccessConfig{}},
+			cfg:  &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{}}},
 			want: false,
 		},
 		{
 			name: "Enabled true",
-			cfg:  &Config{RemoteAccess: &RemoteAccessConfig{Enabled: &trueVal}},
+			cfg:  &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{Enabled: &trueVal}}},
 			want: true,
 		},
 		{
 			name: "Enabled false",
-			cfg:  &Config{RemoteAccess: &RemoteAccessConfig{Enabled: &falseVal}},
+			cfg:  &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{Enabled: &falseVal}}},
 			want: false,
 		},
 		{
 			name: "deprecated Disabled true inverts to enabled=false",
-			cfg:  &Config{RemoteAccess: &RemoteAccessConfig{Disabled: &trueVal}},
+			cfg:  &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{Disabled: &trueVal}}},
 			want: false,
 		},
 		{
 			name: "deprecated Disabled false inverts to enabled=true",
-			cfg:  &Config{RemoteAccess: &RemoteAccessConfig{Disabled: &falseVal}},
+			cfg:  &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{Disabled: &falseVal}}},
 			want: true,
 		},
 		{
 			name: "Enabled takes precedence over Disabled",
-			cfg:  &Config{RemoteAccess: &RemoteAccessConfig{Enabled: &trueVal, Disabled: &trueVal}},
+			cfg:  &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{Enabled: &trueVal, Disabled: &trueVal}}},
 			want: true,
 		},
 		{
 			name: "Enabled false takes precedence over Disabled false",
-			cfg:  &Config{RemoteAccess: &RemoteAccessConfig{Enabled: &falseVal, Disabled: &falseVal}},
+			cfg:  &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{Enabled: &falseVal, Disabled: &falseVal}}},
 			want: false,
 		},
 	}

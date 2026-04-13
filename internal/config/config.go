@@ -63,8 +63,9 @@ const (
 	SourceCodeManagementGit         = "git"          // vanilla full clone
 )
 
-// Config represents the application configuration.
-type Config struct {
+// ConfigData holds all JSON-serializable fields. Extracted so Reload()
+// can swap all JSON fields atomically without touching runtime fields.
+type ConfigData struct {
 	ConfigVersion              string                      `json:"config_version,omitempty"`
 	WorkspacePath              string                      `json:"workspace_path"`
 	WorktreeBasePath           string                      `json:"base_repos_path,omitempty"`        // path for bare clones (worktree base repos)
@@ -115,6 +116,13 @@ type Config struct {
 	// Telemetry settings
 	Telemetry      *TelemetryConfig `json:"telemetry,omitempty"`
 	InstallationID string           `json:"installation_id,omitempty"` // UUID for anonymous tracking
+}
+
+// Config represents the application configuration.
+type Config struct {
+	ConfigData // embedded — all JSON-serializable fields
+
+	// Runtime fields (not serialized)
 
 	// path is the file path where this config was loaded from or should be saved to.
 	// Not serialized to JSON.
@@ -1989,52 +1997,9 @@ func (c *Config) Reload() error {
 	newCfg.path = configPath
 	newCfg.populateBarePaths()
 
-	// Replace all fields under write lock, preserving mutexes and cache.
+	// Replace all JSON fields atomically, preserving runtime fields (mu, caches).
 	c.mu.Lock()
-	c.ConfigVersion = newCfg.ConfigVersion
-	c.WorkspacePath = newCfg.WorkspacePath
-	c.WorktreeBasePath = newCfg.WorktreeBasePath
-	c.SourceCodeManagement = newCfg.SourceCodeManagement
-	c.RecycleWorkspaces = newCfg.RecycleWorkspaces
-	c.LocalEchoRemote = newCfg.LocalEchoRemote
-	c.DebugUI = newCfg.DebugUI
-	c.Repos = newCfg.Repos
-	c.RunTargets = newCfg.RunTargets
-	c.QuickLaunch = newCfg.QuickLaunch
-	c.ExternalDiffCommands = newCfg.ExternalDiffCommands
-	c.ExternalDiffCleanupAfterMs = newCfg.ExternalDiffCleanupAfterMs
-	c.Pastebin = newCfg.Pastebin
-	c.Nudgenik = newCfg.Nudgenik
-	c.BranchSuggest = newCfg.BranchSuggest
-	c.ConflictResolve = newCfg.ConflictResolve
-	c.Compound = newCfg.Compound
-	c.Overlay = newCfg.Overlay
-	c.Lore = newCfg.Lore
-	c.Sessions = newCfg.Sessions
-	c.Xterm = newCfg.Xterm
-	c.Network = newCfg.Network
-	c.AccessControl = newCfg.AccessControl
-	c.PrReview = newCfg.PrReview
-	c.CommitMessage = newCfg.CommitMessage
-	c.Desync = newCfg.Desync
-	c.Notifications = newCfg.Notifications
-	c.RemoteFlavors = newCfg.RemoteFlavors
-	c.RemoteProfiles = newCfg.RemoteProfiles
-	c.RemoteWorkspace = newCfg.RemoteWorkspace
-	c.RemoteAccess = newCfg.RemoteAccess
-	c.Models = newCfg.Models
-	c.CommStyles = newCfg.CommStyles
-	c.Subreddit = newCfg.Subreddit
-	c.Repofeed = newCfg.Repofeed
-	c.FloorManager = newCfg.FloorManager
-	c.SaplingCommands = newCfg.SaplingCommands
-	c.BuiltInSkills = newCfg.BuiltInSkills
-	c.TmuxBinary = newCfg.TmuxBinary
-	c.TmuxSocketName = newCfg.TmuxSocketName
-	c.IOWorkspaceTelemetry = newCfg.IOWorkspaceTelemetry
-	c.Timelapse = newCfg.Timelapse
-	c.Telemetry = newCfg.Telemetry
-	c.InstallationID = newCfg.InstallationID
+	c.ConfigData = newCfg.ConfigData
 	c.path = configPath
 	c.mu.Unlock()
 
@@ -2052,15 +2017,17 @@ func (c *Config) Reload() error {
 // onto the Go defaults so that deployment-specific values take effect on first run.
 func CreateDefault(configPath string) *Config {
 	cfg := &Config{
-		ConfigVersion:              version.Version,
-		WorkspacePath:              filepath.Join(filepath.Dir(configPath), "workspaces"),
-		Repos:                      []Repo{},
-		RunTargets:                 []RunTarget{},
-		QuickLaunch:                []QuickLaunch{},
-		ExternalDiffCommands:       []ExternalDiffCommand{},
-		ExternalDiffCleanupAfterMs: DefaultExternalDiffCleanupAfterMs,
-		Pastebin:                   []string{},
-		path:                       configPath,
+		ConfigData: ConfigData{
+			ConfigVersion:              version.Version,
+			WorkspacePath:              filepath.Join(filepath.Dir(configPath), "workspaces"),
+			Repos:                      []Repo{},
+			RunTargets:                 []RunTarget{},
+			QuickLaunch:                []QuickLaunch{},
+			ExternalDiffCommands:       []ExternalDiffCommand{},
+			ExternalDiffCleanupAfterMs: DefaultExternalDiffCleanupAfterMs,
+			Pastebin:                   []string{},
+		},
+		path: configPath,
 	}
 
 	// Apply embedded build defaults (no-op when build_defaults.json is absent).

@@ -38,7 +38,8 @@ func TestWriteJSON_SetsContentType(t *testing.T) {
 
 func TestHandleHasNudgenik(t *testing.T) {
 	t.Run("disabled when no target configured", func(t *testing.T) {
-		cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+		cfg := &config.Config{}
+		cfg.WorkspacePath = "/tmp/workspaces"
 		st := state.New("", nil)
 		statePath := t.TempDir() + "/state.json"
 		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -65,10 +66,9 @@ func TestHandleHasNudgenik(t *testing.T) {
 	})
 
 	t.Run("enabled when target configured", func(t *testing.T) {
-		cfg := &config.Config{
-			WorkspacePath: "/tmp/workspaces",
-			Nudgenik:      &config.NudgenikConfig{Target: "any-target"},
-		}
+		cfg := &config.Config{}
+		cfg.WorkspacePath = "/tmp/workspaces"
+		cfg.Nudgenik = &config.NudgenikConfig{Target: "any-target"}
 		st := state.New("", nil)
 		statePath := t.TempDir() + "/state.json"
 		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -96,7 +96,8 @@ func TestHandleHasNudgenik(t *testing.T) {
 }
 
 func TestHandleAskNudgenik(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = "/tmp/workspaces"
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -234,7 +235,8 @@ func TestHandleSpawnPost_CommandMissingWorkspace(t *testing.T) {
 
 func TestHandleSuggestBranch(t *testing.T) {
 	t.Run("disabled when no target configured", func(t *testing.T) {
-		cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+		cfg := &config.Config{}
+		cfg.WorkspacePath = "/tmp/workspaces"
 		st := state.New("", nil)
 		statePath := t.TempDir() + "/state.json"
 		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -254,7 +256,8 @@ func TestHandleSuggestBranch(t *testing.T) {
 }
 
 func TestHandleBuiltinQuickLaunchCookbook(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = "/tmp/workspaces"
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -332,7 +335,8 @@ func TestHandleBuiltinQuickLaunchCookbook(t *testing.T) {
 }
 
 func TestHandleHealthz(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = "/tmp/workspaces"
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -396,7 +400,8 @@ func TestValidateGitFilePaths(t *testing.T) {
 }
 
 func TestHandleUpdate(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = "/tmp/workspaces"
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))

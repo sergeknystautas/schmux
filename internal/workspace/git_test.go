@@ -279,7 +279,8 @@ func TestGitPullRebase_MultipleBranchesConfig(t *testing.T) {
 
 	// Now test that schmux's gitPullRebase with explicit branch works
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
@@ -315,7 +316,8 @@ func TestGitPullRebase_WithBranchParameter(t *testing.T) {
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
 
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
@@ -378,7 +380,8 @@ func TestCheckGitSafety_PushedToOriginBranch(t *testing.T) {
 
 	// Set up the workspace manager
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 
@@ -497,7 +500,8 @@ func TestCheckGitSafety_DeletedFilesAreSafe(t *testing.T) {
 
 			tmpDir := t.TempDir()
 			statePath := filepath.Join(tmpDir, "state.json")
-			cfg := &config.Config{WorkspacePath: tmpDir}
+			cfg := &config.Config{}
+			cfg.WorkspacePath = tmpDir
 			st := state.New(statePath, nil)
 			m := New(cfg, st, statePath, testLogger())
 
@@ -542,7 +546,8 @@ func TestGitRemoteBranchExists(t *testing.T) {
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
 
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
@@ -855,7 +860,8 @@ func TestHasCommonAncestor_NormalBranch(t *testing.T) {
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
 
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
@@ -895,7 +901,8 @@ func TestHasCommonAncestor_OrphanBranch(t *testing.T) {
 	runGit(t, tmpDir, "clone", remoteDir, "clone")
 
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()

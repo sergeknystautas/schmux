@@ -179,9 +179,8 @@ func TestFindNextWorkspaceNumber(t *testing.T) {
 
 func TestNew(t *testing.T) {
 	t.Parallel()
-	cfg := &config.Config{
-		WorkspacePath: "/tmp/workspaces",
-	}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = "/tmp/workspaces"
 	statePath := t.TempDir() + "/state.json"
 	st := state.New(statePath, nil)
 
@@ -209,7 +208,8 @@ func TestGetWorkspacesForRepo(t *testing.T) {
 		{ID: "other-001", Repo: "other", Branch: "main", Path: "/tmp/other-001"},
 	}
 
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = "/tmp/workspaces"
 	m := New(cfg, st, statePath, testLogger())
 
 	workspaces := m.getWorkspacesForRepo("test")
@@ -232,7 +232,8 @@ func TestDispose(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 
@@ -278,7 +279,8 @@ func TestDispose_NotFound(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 
@@ -296,7 +298,8 @@ func TestDispose_ActiveSessions(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 
@@ -353,7 +356,8 @@ func TestDispose_ZombieWorkspace_EmptyDir(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 
@@ -395,7 +399,8 @@ func TestDispose_ZombieWorkspace_NonEmptyDir(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 
@@ -448,12 +453,11 @@ func TestDispose_Integration(t *testing.T) {
 	repoDir := gitTestWorkTree(t)
 	gitTestBranch(t, repoDir, "feature-1")
 
-	cfg := &config.Config{
-		WorkspacePath:    tmpDir,
-		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
-		Repos: []config.Repo{
-			testRepoWithBarePath(t, "test", repoDir),
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	cfg.Repos = []config.Repo{
+		testRepoWithBarePath(t, "test", repoDir),
 	}
 	m := New(cfg, st, statePath, testLogger())
 
@@ -509,12 +513,11 @@ func TestDispose_DeletesLocalBranch(t *testing.T) {
 	// Create test repo (source / "remote") — only has main branch
 	repoDir := gitTestWorkTree(t)
 
-	cfg := &config.Config{
-		WorkspacePath:    tmpDir,
-		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
-		Repos: []config.Repo{
-			testRepoWithBarePath(t, "test", repoDir),
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	cfg.Repos = []config.Repo{
+		testRepoWithBarePath(t, "test", repoDir),
 	}
 	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
@@ -564,12 +567,11 @@ func TestDispose_KeepsBranchPushedToRemote(t *testing.T) {
 	repoDir := gitTestWorkTree(t)
 	gitTestBranch(t, repoDir, "feature-pushed")
 
-	cfg := &config.Config{
-		WorkspacePath:    tmpDir,
-		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
-		Repos: []config.Repo{
-			testRepoWithBarePath(t, "test", repoDir),
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	cfg.Repos = []config.Repo{
+		testRepoWithBarePath(t, "test", repoDir),
 	}
 	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
@@ -889,12 +891,11 @@ func TestCreateCleanupOnStateSaveFailure(t *testing.T) {
 	repoDir := gitTestWorkTree(t)
 
 	// Create a minimal config
-	cfg := &config.Config{
-		WorkspacePath:    workspaceBaseDir,
-		WorktreeBasePath: reposDir,
-		Repos: []config.Repo{
-			testRepoWithBarePath(t, "test-repo", repoDir),
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = workspaceBaseDir
+	cfg.WorktreeBasePath = reposDir
+	cfg.Repos = []config.Repo{
+		testRepoWithBarePath(t, "test-repo", repoDir),
 	}
 
 	// Create a mock state store that will fail on Save
@@ -943,12 +944,11 @@ func TestCreateNoCleanupOnSuccess(t *testing.T) {
 	}
 
 	// Create a minimal config
-	cfg := &config.Config{
-		WorkspacePath:    workspaceBaseDir,
-		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
-		Repos: []config.Repo{
-			testRepoWithBarePath(t, "test-repo", repoDir),
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = workspaceBaseDir
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	cfg.Repos = []config.Repo{
+		testRepoWithBarePath(t, "test-repo", repoDir),
 	}
 
 	// Create a mock state store that will succeed
@@ -1191,7 +1191,8 @@ func TestRefreshWorkspaceConfig(t *testing.T) {
 }
 
 func TestMarkWorkspaceDisposing(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: t.TempDir()}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath, nil)
 	mgr := New(cfg, st, statePath, testLogger())
@@ -1222,7 +1223,8 @@ func TestMarkWorkspaceDisposing(t *testing.T) {
 }
 
 func TestMarkWorkspaceDisposingIdempotent(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: t.TempDir()}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath, nil)
 	mgr := New(cfg, st, statePath, testLogger())
@@ -1245,7 +1247,8 @@ func TestMarkWorkspaceDisposingIdempotent(t *testing.T) {
 }
 
 func TestMarkWorkspaceDisposingNotFound(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: t.TempDir()}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath, nil)
 	mgr := New(cfg, st, statePath, testLogger())
@@ -1285,10 +1288,9 @@ func TestDispose_RecycleWorkspaces_KeepsDirectory(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{
-		WorkspacePath:     tmpDir,
-		RecycleWorkspaces: true,
-	}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	cfg.RecycleWorkspaces = true
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 
@@ -1329,10 +1331,9 @@ func TestDispose_RecycleWorkspaces_ForceStillRecycles(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{
-		WorkspacePath:     tmpDir,
-		RecycleWorkspaces: true,
-	}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	cfg.RecycleWorkspaces = true
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 
@@ -1372,10 +1373,9 @@ func TestDispose_RecycleDisabled_StillDeletesDirectory(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{
-		WorkspacePath:     tmpDir,
-		RecycleWorkspaces: false,
-	}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	cfg.RecycleWorkspaces = false
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 
@@ -1423,12 +1423,11 @@ func TestDispose_WorktreeRemovalCleansBookkeeping(t *testing.T) {
 
 	repoDir := gitTestWorkTree(t)
 
-	cfg := &config.Config{
-		WorkspacePath:    tmpDir,
-		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
-		Repos: []config.Repo{
-			testRepoWithBarePath(t, "test", repoDir),
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	cfg.Repos = []config.Repo{
+		testRepoWithBarePath(t, "test", repoDir),
 	}
 	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
@@ -1509,12 +1508,11 @@ func TestDispose_PartiallyDeletedWorktree(t *testing.T) {
 
 	repoDir := gitTestWorkTree(t)
 
-	cfg := &config.Config{
-		WorkspacePath:    tmpDir,
-		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
-		Repos: []config.Repo{
-			testRepoWithBarePath(t, "test", repoDir),
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	cfg.Repos = []config.Repo{
+		testRepoWithBarePath(t, "test", repoDir),
 	}
 	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
@@ -1578,12 +1576,11 @@ func TestDispose_CancelledContextStillRemovesDirectory(t *testing.T) {
 
 	repoDir := gitTestWorkTree(t)
 
-	cfg := &config.Config{
-		WorkspacePath:    tmpDir,
-		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
-		Repos: []config.Repo{
-			testRepoWithBarePath(t, "test", repoDir),
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	cfg.Repos = []config.Repo{
+		testRepoWithBarePath(t, "test", repoDir),
 	}
 	m := New(cfg, st, statePath, testLogger())
 
@@ -1618,10 +1615,9 @@ func TestPurge_DeletesRecyclableWorkspace(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{
-		WorkspacePath:     tmpDir,
-		RecycleWorkspaces: true,
-	}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	cfg.RecycleWorkspaces = true
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 
@@ -1657,7 +1653,8 @@ func TestPurge_RejectsNonRecyclableWorkspace(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 
@@ -1679,10 +1676,9 @@ func TestPurgeAll_DeletesAllRecyclable(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{
-		WorkspacePath:     tmpDir,
-		RecycleWorkspaces: true,
-	}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	cfg.RecycleWorkspaces = true
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 
@@ -1714,7 +1710,8 @@ func TestUpdateAllVCSStatus_SkipsRecyclable(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 

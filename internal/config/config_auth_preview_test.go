@@ -17,12 +17,12 @@ func TestGetAuthEnabled(t *testing.T) {
 		},
 		{
 			name: "explicit enabled",
-			cfg:  &Config{AccessControl: &AccessControlConfig{Enabled: true}},
+			cfg:  &Config{ConfigData: ConfigData{AccessControl: &AccessControlConfig{Enabled: true}}},
 			want: true,
 		},
 		{
 			name: "explicit disabled",
-			cfg:  &Config{AccessControl: &AccessControlConfig{Enabled: false}},
+			cfg:  &Config{ConfigData: ConfigData{AccessControl: &AccessControlConfig{Enabled: false}}},
 			want: false,
 		},
 	}
@@ -48,17 +48,17 @@ func TestGetAuthProvider(t *testing.T) {
 		},
 		{
 			name: "empty provider defaults to github",
-			cfg:  &Config{AccessControl: &AccessControlConfig{}},
+			cfg:  &Config{ConfigData: ConfigData{AccessControl: &AccessControlConfig{}}},
 			want: "github",
 		},
 		{
 			name: "whitespace-only provider defaults to github",
-			cfg:  &Config{AccessControl: &AccessControlConfig{Provider: "   "}},
+			cfg:  &Config{ConfigData: ConfigData{AccessControl: &AccessControlConfig{Provider: "   "}}},
 			want: "github",
 		},
 		{
 			name: "custom provider used",
-			cfg:  &Config{AccessControl: &AccessControlConfig{Provider: "oidc"}},
+			cfg:  &Config{ConfigData: ConfigData{AccessControl: &AccessControlConfig{Provider: "oidc"}}},
 			want: "oidc",
 		},
 	}
@@ -84,17 +84,17 @@ func TestGetAuthSessionTTLMinutes(t *testing.T) {
 		},
 		{
 			name: "zero TTL defaults to 1440",
-			cfg:  &Config{AccessControl: &AccessControlConfig{SessionTTLMinutes: 0}},
+			cfg:  &Config{ConfigData: ConfigData{AccessControl: &AccessControlConfig{SessionTTLMinutes: 0}}},
 			want: DefaultAuthSessionTTLMinutes,
 		},
 		{
 			name: "negative TTL defaults to 1440",
-			cfg:  &Config{AccessControl: &AccessControlConfig{SessionTTLMinutes: -1}},
+			cfg:  &Config{ConfigData: ConfigData{AccessControl: &AccessControlConfig{SessionTTLMinutes: -1}}},
 			want: DefaultAuthSessionTTLMinutes,
 		},
 		{
 			name: "custom TTL used",
-			cfg:  &Config{AccessControl: &AccessControlConfig{SessionTTLMinutes: 60}},
+			cfg:  &Config{ConfigData: ConfigData{AccessControl: &AccessControlConfig{SessionTTLMinutes: 60}}},
 			want: 60,
 		},
 	}
@@ -114,9 +114,9 @@ func TestGetPreviewMaxPerWorkspace(t *testing.T) {
 		want int
 	}{
 		{name: "nil Network", cfg: &Config{}, want: DefaultPreviewMaxPerWorkspace},
-		{name: "zero value", cfg: &Config{Network: &NetworkConfig{PreviewMaxPerWorkspace: 0}}, want: DefaultPreviewMaxPerWorkspace},
-		{name: "negative", cfg: &Config{Network: &NetworkConfig{PreviewMaxPerWorkspace: -1}}, want: DefaultPreviewMaxPerWorkspace},
-		{name: "custom", cfg: &Config{Network: &NetworkConfig{PreviewMaxPerWorkspace: 10}}, want: 10},
+		{name: "zero value", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{PreviewMaxPerWorkspace: 0}}}, want: DefaultPreviewMaxPerWorkspace},
+		{name: "negative", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{PreviewMaxPerWorkspace: -1}}}, want: DefaultPreviewMaxPerWorkspace},
+		{name: "custom", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{PreviewMaxPerWorkspace: 10}}}, want: 10},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -134,8 +134,8 @@ func TestGetPreviewMaxGlobal(t *testing.T) {
 		want int
 	}{
 		{name: "nil Network", cfg: &Config{}, want: DefaultPreviewMaxGlobal},
-		{name: "zero value", cfg: &Config{Network: &NetworkConfig{PreviewMaxGlobal: 0}}, want: DefaultPreviewMaxGlobal},
-		{name: "custom", cfg: &Config{Network: &NetworkConfig{PreviewMaxGlobal: 50}}, want: 50},
+		{name: "zero value", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{PreviewMaxGlobal: 0}}}, want: DefaultPreviewMaxGlobal},
+		{name: "custom", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{PreviewMaxGlobal: 50}}}, want: 50},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -153,8 +153,8 @@ func TestGetPreviewPortBase(t *testing.T) {
 		want int
 	}{
 		{name: "nil Network", cfg: &Config{}, want: DefaultPreviewPortBase},
-		{name: "zero value", cfg: &Config{Network: &NetworkConfig{PreviewPortBase: 0}}, want: DefaultPreviewPortBase},
-		{name: "custom", cfg: &Config{Network: &NetworkConfig{PreviewPortBase: 60000}}, want: 60000},
+		{name: "zero value", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{PreviewPortBase: 0}}}, want: DefaultPreviewPortBase},
+		{name: "custom", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{PreviewPortBase: 60000}}}, want: 60000},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -172,8 +172,8 @@ func TestGetPreviewPortBlockSize(t *testing.T) {
 		want int
 	}{
 		{name: "nil Network", cfg: &Config{}, want: DefaultPreviewPortBlockSize},
-		{name: "zero value", cfg: &Config{Network: &NetworkConfig{PreviewPortBlockSize: 0}}, want: DefaultPreviewPortBlockSize},
-		{name: "custom", cfg: &Config{Network: &NetworkConfig{PreviewPortBlockSize: 5}}, want: 5},
+		{name: "zero value", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{PreviewPortBlockSize: 0}}}, want: DefaultPreviewPortBlockSize},
+		{name: "custom", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{PreviewPortBlockSize: 5}}}, want: 5},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -191,9 +191,9 @@ func TestGetPublicBaseURL(t *testing.T) {
 		want string
 	}{
 		{name: "nil Network", cfg: &Config{}, want: ""},
-		{name: "empty URL", cfg: &Config{Network: &NetworkConfig{PublicBaseURL: ""}}, want: ""},
-		{name: "whitespace URL trimmed", cfg: &Config{Network: &NetworkConfig{PublicBaseURL: "  https://example.com  "}}, want: "https://example.com"},
-		{name: "set URL", cfg: &Config{Network: &NetworkConfig{PublicBaseURL: "https://my.domain.com"}}, want: "https://my.domain.com"},
+		{name: "empty URL", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{PublicBaseURL: ""}}}, want: ""},
+		{name: "whitespace URL trimmed", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{PublicBaseURL: "  https://example.com  "}}}, want: "https://example.com"},
+		{name: "set URL", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{PublicBaseURL: "https://my.domain.com"}}}, want: "https://my.domain.com"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -214,9 +214,9 @@ func TestGetGitStatusWatchEnabled(t *testing.T) {
 		want bool
 	}{
 		{name: "nil Sessions defaults to true", cfg: &Config{}, want: true},
-		{name: "nil Enabled defaults to true", cfg: &Config{Sessions: &SessionsConfig{}}, want: true},
-		{name: "explicit true", cfg: &Config{Sessions: &SessionsConfig{GitStatusWatchEnabled: &trueVal}}, want: true},
-		{name: "explicit false", cfg: &Config{Sessions: &SessionsConfig{GitStatusWatchEnabled: &falseVal}}, want: false},
+		{name: "nil Enabled defaults to true", cfg: &Config{ConfigData: ConfigData{Sessions: &SessionsConfig{}}}, want: true},
+		{name: "explicit true", cfg: &Config{ConfigData: ConfigData{Sessions: &SessionsConfig{GitStatusWatchEnabled: &trueVal}}}, want: true},
+		{name: "explicit false", cfg: &Config{ConfigData: ConfigData{Sessions: &SessionsConfig{GitStatusWatchEnabled: &falseVal}}}, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -234,9 +234,9 @@ func TestGetGitStatusWatchDebounceMs(t *testing.T) {
 		want int
 	}{
 		{name: "nil Sessions", cfg: &Config{}, want: DefaultGitStatusWatchDebounceMs},
-		{name: "zero value", cfg: &Config{Sessions: &SessionsConfig{GitStatusWatchDebounceMs: 0}}, want: DefaultGitStatusWatchDebounceMs},
-		{name: "negative", cfg: &Config{Sessions: &SessionsConfig{GitStatusWatchDebounceMs: -1}}, want: DefaultGitStatusWatchDebounceMs},
-		{name: "custom", cfg: &Config{Sessions: &SessionsConfig{GitStatusWatchDebounceMs: 2000}}, want: 2000},
+		{name: "zero value", cfg: &Config{ConfigData: ConfigData{Sessions: &SessionsConfig{GitStatusWatchDebounceMs: 0}}}, want: DefaultGitStatusWatchDebounceMs},
+		{name: "negative", cfg: &Config{ConfigData: ConfigData{Sessions: &SessionsConfig{GitStatusWatchDebounceMs: -1}}}, want: DefaultGitStatusWatchDebounceMs},
+		{name: "custom", cfg: &Config{ConfigData: ConfigData{Sessions: &SessionsConfig{GitStatusWatchDebounceMs: 2000}}}, want: 2000},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -254,11 +254,11 @@ func TestGetTLSEnabled(t *testing.T) {
 		want bool
 	}{
 		{name: "nil Network", cfg: &Config{}, want: false},
-		{name: "nil TLS", cfg: &Config{Network: &NetworkConfig{}}, want: false},
-		{name: "empty paths", cfg: &Config{Network: &NetworkConfig{TLS: &TLSConfig{}}}, want: false},
-		{name: "only cert", cfg: &Config{Network: &NetworkConfig{TLS: &TLSConfig{CertPath: "/cert.pem"}}}, want: false},
-		{name: "only key", cfg: &Config{Network: &NetworkConfig{TLS: &TLSConfig{KeyPath: "/key.pem"}}}, want: false},
-		{name: "both paths set", cfg: &Config{Network: &NetworkConfig{TLS: &TLSConfig{CertPath: "/cert.pem", KeyPath: "/key.pem"}}}, want: true},
+		{name: "nil TLS", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{}}}, want: false},
+		{name: "empty paths", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{TLS: &TLSConfig{}}}}, want: false},
+		{name: "only cert", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{TLS: &TLSConfig{CertPath: "/cert.pem"}}}}, want: false},
+		{name: "only key", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{TLS: &TLSConfig{KeyPath: "/key.pem"}}}}, want: false},
+		{name: "both paths set", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{TLS: &TLSConfig{CertPath: "/cert.pem", KeyPath: "/key.pem"}}}}, want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -276,8 +276,8 @@ func TestGetTLSCertPath(t *testing.T) {
 		want string
 	}{
 		{name: "nil Network", cfg: &Config{}, want: ""},
-		{name: "nil TLS", cfg: &Config{Network: &NetworkConfig{}}, want: ""},
-		{name: "set", cfg: &Config{Network: &NetworkConfig{TLS: &TLSConfig{CertPath: "/etc/ssl/cert.pem"}}}, want: "/etc/ssl/cert.pem"},
+		{name: "nil TLS", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{}}}, want: ""},
+		{name: "set", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{TLS: &TLSConfig{CertPath: "/etc/ssl/cert.pem"}}}}, want: "/etc/ssl/cert.pem"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -295,8 +295,8 @@ func TestGetTLSKeyPath(t *testing.T) {
 		want string
 	}{
 		{name: "nil Network", cfg: &Config{}, want: ""},
-		{name: "nil TLS", cfg: &Config{Network: &NetworkConfig{}}, want: ""},
-		{name: "set", cfg: &Config{Network: &NetworkConfig{TLS: &TLSConfig{KeyPath: "/etc/ssl/key.pem"}}}, want: "/etc/ssl/key.pem"},
+		{name: "nil TLS", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{}}}, want: ""},
+		{name: "set", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{TLS: &TLSConfig{KeyPath: "/etc/ssl/key.pem"}}}}, want: "/etc/ssl/key.pem"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

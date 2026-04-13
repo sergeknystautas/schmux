@@ -19,31 +19,31 @@ func TestExpandNetworkPaths(t *testing.T) {
 		},
 		{
 			name:    "nil TLS",
-			cfg:     &Config{Network: &NetworkConfig{}},
+			cfg:     &Config{ConfigData: ConfigData{Network: &NetworkConfig{}}},
 			homeDir: "/home/user",
 		},
 		{
 			name:    "empty home dir",
-			cfg:     &Config{Network: &NetworkConfig{TLS: &TLSConfig{CertPath: "~/cert.pem", KeyPath: "~/key.pem"}}},
+			cfg:     &Config{ConfigData: ConfigData{Network: &NetworkConfig{TLS: &TLSConfig{CertPath: "~/cert.pem", KeyPath: "~/key.pem"}}}},
 			homeDir: "",
 		},
 		{
 			name:     "no tilde prefix",
-			cfg:      &Config{Network: &NetworkConfig{TLS: &TLSConfig{CertPath: "/etc/cert.pem", KeyPath: "/etc/key.pem"}}},
+			cfg:      &Config{ConfigData: ConfigData{Network: &NetworkConfig{TLS: &TLSConfig{CertPath: "/etc/cert.pem", KeyPath: "/etc/key.pem"}}}},
 			homeDir:  "/home/user",
 			wantCert: "/etc/cert.pem",
 			wantKey:  "/etc/key.pem",
 		},
 		{
 			name:     "tilde expansion",
-			cfg:      &Config{Network: &NetworkConfig{TLS: &TLSConfig{CertPath: "~/certs/cert.pem", KeyPath: "~/certs/key.pem"}}},
+			cfg:      &Config{ConfigData: ConfigData{Network: &NetworkConfig{TLS: &TLSConfig{CertPath: "~/certs/cert.pem", KeyPath: "~/certs/key.pem"}}}},
 			homeDir:  "/home/user",
 			wantCert: "/home/user/certs/cert.pem",
 			wantKey:  "/home/user/certs/key.pem",
 		},
 		{
 			name:     "only cert has tilde",
-			cfg:      &Config{Network: &NetworkConfig{TLS: &TLSConfig{CertPath: "~/cert.pem", KeyPath: "/abs/key.pem"}}},
+			cfg:      &Config{ConfigData: ConfigData{Network: &NetworkConfig{TLS: &TLSConfig{CertPath: "~/cert.pem", KeyPath: "/abs/key.pem"}}}},
 			homeDir:  "/home/user",
 			wantCert: "/home/user/cert.pem",
 			wantKey:  "/abs/key.pem",
@@ -72,9 +72,9 @@ func TestGetTelemetryEnabled(t *testing.T) {
 		want bool
 	}{
 		{name: "nil telemetry stanza defaults true", cfg: &Config{}, want: true},
-		{name: "nil enabled defaults true", cfg: &Config{Telemetry: &TelemetryConfig{}}, want: true},
-		{name: "explicitly true", cfg: &Config{Telemetry: &TelemetryConfig{Enabled: &trueVal}}, want: true},
-		{name: "explicitly false", cfg: &Config{Telemetry: &TelemetryConfig{Enabled: &falseVal}}, want: false},
+		{name: "nil enabled defaults true", cfg: &Config{ConfigData: ConfigData{Telemetry: &TelemetryConfig{}}}, want: true},
+		{name: "explicitly true", cfg: &Config{ConfigData: ConfigData{Telemetry: &TelemetryConfig{Enabled: &trueVal}}}, want: true},
+		{name: "explicitly false", cfg: &Config{ConfigData: ConfigData{Telemetry: &TelemetryConfig{Enabled: &falseVal}}}, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -92,8 +92,8 @@ func TestGetTelemetryCommand(t *testing.T) {
 		want string
 	}{
 		{name: "nil telemetry config", cfg: &Config{}, want: ""},
-		{name: "empty command", cfg: &Config{Telemetry: &TelemetryConfig{Command: ""}}, want: ""},
-		{name: "set command", cfg: &Config{Telemetry: &TelemetryConfig{Command: "my-telemetry-sink"}}, want: "my-telemetry-sink"},
+		{name: "empty command", cfg: &Config{ConfigData: ConfigData{Telemetry: &TelemetryConfig{Command: ""}}}, want: ""},
+		{name: "set command", cfg: &Config{ConfigData: ConfigData{Telemetry: &TelemetryConfig{Command: "my-telemetry-sink"}}}, want: "my-telemetry-sink"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

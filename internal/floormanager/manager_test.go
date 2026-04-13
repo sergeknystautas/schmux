@@ -95,11 +95,10 @@ func TestManagerInjectionCount(t *testing.T) {
 // newTestFMManager creates a Manager with a session manager that can resolve targets.
 func newTestFMManager(t *testing.T, fmTarget string) *Manager {
 	t.Helper()
-	cfg := &config.Config{
-		WorkspacePath: t.TempDir(),
-		FloorManager: &config.FloorManagerConfig{
-			Target: fmTarget,
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
+	cfg.FloorManager = &config.FloorManagerConfig{
+		Target: fmTarget,
 	}
 	st := state.New("", nil)
 	statePath := filepath.Join(t.TempDir(), "state.json")
@@ -256,7 +255,8 @@ func TestResolveSessionName(t *testing.T) {
 	})
 
 	t.Run("session with nickname returns nickname", func(t *testing.T) {
-		cfg := &config.Config{WorkspacePath: t.TempDir()}
+		cfg := &config.Config{}
+		cfg.WorkspacePath = t.TempDir()
 		st := state.New("", nil)
 		statePath := filepath.Join(t.TempDir(), "state.json")
 		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -272,7 +272,8 @@ func TestResolveSessionName(t *testing.T) {
 	})
 
 	t.Run("session with empty nickname returns ID", func(t *testing.T) {
-		cfg := &config.Config{WorkspacePath: t.TempDir()}
+		cfg := &config.Config{}
+		cfg.WorkspacePath = t.TempDir()
 		st := state.New("", nil)
 		statePath := filepath.Join(t.TempDir(), "state.json")
 		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -289,7 +290,8 @@ func TestResolveSessionName(t *testing.T) {
 }
 
 func TestNew(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: t.TempDir()}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
 	st := state.New("", nil)
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))

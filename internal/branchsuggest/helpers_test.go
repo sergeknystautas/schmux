@@ -8,6 +8,12 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 )
 
+func branchSuggestCfg(bs *config.BranchSuggestConfig) *config.Config {
+	cfg := &config.Config{}
+	cfg.BranchSuggest = bs
+	return cfg
+}
+
 func TestIsEnabled(t *testing.T) {
 	tests := []struct {
 		name string
@@ -16,10 +22,10 @@ func TestIsEnabled(t *testing.T) {
 	}{
 		{name: "nil config", cfg: nil, want: false},
 		{name: "empty config", cfg: &config.Config{}, want: false},
-		{name: "nil branch suggest", cfg: &config.Config{BranchSuggest: nil}, want: false},
-		{name: "empty target", cfg: &config.Config{BranchSuggest: &config.BranchSuggestConfig{Target: ""}}, want: false},
-		{name: "whitespace target", cfg: &config.Config{BranchSuggest: &config.BranchSuggestConfig{Target: "  "}}, want: false},
-		{name: "target set", cfg: &config.Config{BranchSuggest: &config.BranchSuggestConfig{Target: "claude"}}, want: true},
+		{name: "nil branch suggest", cfg: branchSuggestCfg(nil), want: false},
+		{name: "empty target", cfg: branchSuggestCfg(&config.BranchSuggestConfig{Target: ""}), want: false},
+		{name: "whitespace target", cfg: branchSuggestCfg(&config.BranchSuggestConfig{Target: "  "}), want: false},
+		{name: "target set", cfg: branchSuggestCfg(&config.BranchSuggestConfig{Target: "claude"}), want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -39,13 +45,13 @@ func TestAskForPrompt_Validation(t *testing.T) {
 	}{
 		{
 			name:    "empty prompt",
-			cfg:     &config.Config{BranchSuggest: &config.BranchSuggestConfig{Target: "claude"}},
+			cfg:     branchSuggestCfg(&config.BranchSuggestConfig{Target: "claude"}),
 			prompt:  "",
 			wantErr: ErrNoPrompt,
 		},
 		{
 			name:    "whitespace-only prompt",
-			cfg:     &config.Config{BranchSuggest: &config.BranchSuggestConfig{Target: "claude"}},
+			cfg:     branchSuggestCfg(&config.BranchSuggestConfig{Target: "claude"}),
 			prompt:  "   ",
 			wantErr: ErrNoPrompt,
 		},
@@ -63,7 +69,7 @@ func TestAskForPrompt_Validation(t *testing.T) {
 		},
 		{
 			name:    "empty target string",
-			cfg:     &config.Config{BranchSuggest: &config.BranchSuggestConfig{Target: ""}},
+			cfg:     branchSuggestCfg(&config.BranchSuggestConfig{Target: ""}),
 			prompt:  "add dark mode",
 			wantErr: ErrDisabled,
 		},

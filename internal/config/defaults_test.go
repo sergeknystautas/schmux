@@ -97,11 +97,11 @@ func TestTemplateResolution_UserInDashboardHostname(t *testing.T) {
 		t.Skip("USER env var not set")
 	}
 
-	cfg := &Config{
+	cfg := &Config{ConfigData: ConfigData{
 		Network: &NetworkConfig{
 			DashboardHostname: "${USER}.dashboard.example.com",
 		},
-	}
+	}}
 	cfgJSON, err := json.Marshal(cfg)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -120,11 +120,11 @@ func TestTemplateResolution_UserInDashboardHostname(t *testing.T) {
 }
 
 func TestTemplateResolution_GoTemplatesUntouched(t *testing.T) {
-	cfg := &Config{
+	cfg := &Config{ConfigData: ConfigData{
 		SaplingCommands: SaplingCommands{
 			CreateWorkspace: "sl clone {{.RepoIdentifier}} {{.DestPath}}",
 		},
-	}
+	}}
 	cfgJSON, err := json.Marshal(cfg)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)

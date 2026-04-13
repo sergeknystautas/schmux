@@ -127,8 +127,10 @@ func TestLoreSaveWithUserConfigStructure(t *testing.T) {
 
 func TestLoreConfigPublicRuleMode(t *testing.T) {
 	cfg := &Config{
-		Lore: &LoreConfig{
-			PublicRuleMode: "create_pr",
+		ConfigData: ConfigData{
+			Lore: &LoreConfig{
+				PublicRuleMode: "create_pr",
+			},
 		},
 	}
 	data, err := json.Marshal(cfg)

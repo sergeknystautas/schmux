@@ -32,7 +32,8 @@ func setupPushTest(t *testing.T) (string, string, *Manager, *state.State, string
 
 	// Set up workspace manager
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
 

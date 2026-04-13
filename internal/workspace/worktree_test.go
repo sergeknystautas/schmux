@@ -254,10 +254,9 @@ func TestCreateLocalRepoCleanupOnStateSaveFailure(t *testing.T) {
 	}
 
 	// Create a minimal config
-	cfg := &config.Config{
-		WorkspacePath: workspaceBaseDir,
-		Repos:         []config.Repo{},
-	}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = workspaceBaseDir
+	cfg.Repos = []config.Repo{}
 
 	// Create a mock state store that will fail on Save
 	st := state.New("", nil)

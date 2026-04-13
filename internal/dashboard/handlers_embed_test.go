@@ -21,7 +21,8 @@ import (
 
 func newServerWithEmbedFS(t *testing.T, opts ServerOptions) *Server {
 	t.Helper()
-	cfg := &config.Config{WorkspacePath: t.TempDir()}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))

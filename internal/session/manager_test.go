@@ -25,7 +25,8 @@ import (
 // Returns the manager and state for further test setup (e.g., adding sessions).
 func newTestManager(t *testing.T) (*Manager, *state.State) {
 	t.Helper()
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = "/tmp/workspaces"
 	st := state.New("", nil)
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -34,11 +35,10 @@ func newTestManager(t *testing.T) (*Manager, *state.State) {
 }
 
 func TestNew(t *testing.T) {
-	cfg := &config.Config{
-		WorkspacePath: "/tmp/workspaces",
-		RunTargets: []config.RunTarget{
-			{Name: "test", Command: "test"},
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = "/tmp/workspaces"
+	cfg.RunTargets = []config.RunTarget{
+		{Name: "test", Command: "test"},
 	}
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
@@ -308,7 +308,8 @@ func TestRenameSession(t *testing.T) {
 }
 
 func TestDispose(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = "/tmp/workspaces"
 	statePath := t.TempDir() + "/state.json"
 	st := state.New(statePath, nil)
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -1077,7 +1078,8 @@ func TestRemotePersonaWriteCommand(t *testing.T) {
 }
 
 func TestMarkSessionDisposing(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = "/tmp/workspaces"
 	statePath := t.TempDir() + "/state.json"
 	st := state.New(statePath, nil)
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -1104,7 +1106,8 @@ func TestMarkSessionDisposing(t *testing.T) {
 }
 
 func TestMarkSessionDisposingIdempotent(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = "/tmp/workspaces"
 	statePath := t.TempDir() + "/state.json"
 	st := state.New(statePath, nil)
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -1123,7 +1126,8 @@ func TestMarkSessionDisposingIdempotent(t *testing.T) {
 }
 
 func TestMarkSessionDisposingNotFound(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = "/tmp/workspaces"
 	statePath := t.TempDir() + "/state.json"
 	st := state.New(statePath, nil)
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -1137,11 +1141,10 @@ func TestMarkSessionDisposingNotFound(t *testing.T) {
 
 func TestResolveTarget(t *testing.T) {
 	t.Run("user run target", func(t *testing.T) {
-		cfg := &config.Config{
-			WorkspacePath: "/tmp/workspaces",
-			RunTargets: []config.RunTarget{
-				{Name: "lint", Command: "golangci-lint run"},
-			},
+		cfg := &config.Config{}
+		cfg.WorkspacePath = "/tmp/workspaces"
+		cfg.RunTargets = []config.RunTarget{
+			{Name: "lint", Command: "golangci-lint run"},
 		}
 		st := state.New("", nil)
 		statePath := filepath.Join(t.TempDir(), "state.json")
@@ -1167,7 +1170,8 @@ func TestResolveTarget(t *testing.T) {
 	})
 
 	t.Run("builtin tool name fallback", func(t *testing.T) {
-		cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+		cfg := &config.Config{}
+		cfg.WorkspacePath = "/tmp/workspaces"
 		st := state.New("", nil)
 		statePath := filepath.Join(t.TempDir(), "state.json")
 		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -1207,11 +1211,10 @@ func TestResolveTarget(t *testing.T) {
 		// If user defines a run target named "claude", it should match
 		// as a user target (not builtin), because config is checked first
 		// after models.
-		cfg := &config.Config{
-			WorkspacePath: "/tmp/workspaces",
-			RunTargets: []config.RunTarget{
-				{Name: "claude", Command: "my-custom-claude-wrapper"},
-			},
+		cfg := &config.Config{}
+		cfg.WorkspacePath = "/tmp/workspaces"
+		cfg.RunTargets = []config.RunTarget{
+			{Name: "claude", Command: "my-custom-claude-wrapper"},
 		}
 		st := state.New("", nil)
 		statePath := filepath.Join(t.TempDir(), "state.json")
@@ -1273,7 +1276,8 @@ func TestResolveWorkspace(t *testing.T) {
 }
 
 func TestDispose_StoppedSession(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = "/tmp/workspaces"
 	statePath := t.TempDir() + "/state.json"
 	st := state.New(statePath, nil)
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -1308,7 +1312,8 @@ func TestDispose_StoppedSession(t *testing.T) {
 }
 
 func TestDispose_CleansUpTracker(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = "/tmp/workspaces"
 	statePath := t.TempDir() + "/state.json"
 	st := state.New(statePath, nil)
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -1355,7 +1360,8 @@ func TestDispose_CleansUpTracker(t *testing.T) {
 }
 
 func TestDispose_LastSessionNotifiesCompound(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = "/tmp/workspaces"
 	statePath := t.TempDir() + "/state.json"
 	st := state.New(statePath, nil)
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -1396,7 +1402,8 @@ func TestDispose_LastSessionNotifiesCompound(t *testing.T) {
 }
 
 func TestDispose_NotLastSessionSkipsCompound(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = "/tmp/workspaces"
 	statePath := t.TempDir() + "/state.json"
 	st := state.New(statePath, nil)
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -1437,7 +1444,8 @@ func TestDispose_NotLastSessionSkipsCompound(t *testing.T) {
 
 func TestRevertSessionStatus(t *testing.T) {
 	t.Run("restores original status", func(t *testing.T) {
-		cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+		cfg := &config.Config{}
+		cfg.WorkspacePath = "/tmp/workspaces"
 		statePath := t.TempDir() + "/state.json"
 		st := state.New(statePath, nil)
 		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
@@ -1650,11 +1658,10 @@ func TestQueuedSessionTimeout(t *testing.T) {
 }
 
 func TestSpawn_NoTmux(t *testing.T) {
-	cfg := &config.Config{
-		WorkspacePath: "/tmp/workspaces",
-		RunTargets: []config.RunTarget{
-			{Name: "test-tool", Command: "echo hello"},
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = "/tmp/workspaces"
+	cfg.RunTargets = []config.RunTarget{
+		{Name: "test-tool", Command: "echo hello"},
 	}
 	st := state.New("", nil)
 	statePath := filepath.Join(t.TempDir(), "state.json")

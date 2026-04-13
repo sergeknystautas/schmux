@@ -516,15 +516,14 @@ func TestManager_OnConnectCallback_Nil(t *testing.T) {
 // fall back to window name matching (Issue 4 fix). This test validates the
 // strict ID-only matching logic without requiring a full connection setup.
 func TestReconcileWithRenamedWindows(t *testing.T) {
-	cfg := &config.Config{
-		RemoteProfiles: []config.RemoteProfile{
-			{
-				ID:            "test-flavor",
-				DisplayName:   "Test",
-				WorkspacePath: "/workspace",
-				VCS:           "git",
-				Flavors:       []config.RemoteProfileFlavor{{Flavor: "test"}},
-			},
+	cfg := &config.Config{}
+	cfg.RemoteProfiles = []config.RemoteProfile{
+		{
+			ID:            "test-flavor",
+			DisplayName:   "Test",
+			WorkspacePath: "/workspace",
+			VCS:           "git",
+			Flavors:       []config.RemoteProfileFlavor{{Flavor: "test"}},
 		},
 	}
 
@@ -667,15 +666,14 @@ func TestReconcileStrictIDMatching(t *testing.T) {
 // TestConnectWithAndWithoutProgress verifies that both Connect() and ConnectWithProgress()
 // use the same internal implementation (Issue 8 fix - deduplication).
 func TestConnectWithAndWithoutProgress(t *testing.T) {
-	cfg := &config.Config{
-		RemoteProfiles: []config.RemoteProfile{
-			{
-				ID:            "test-flavor",
-				DisplayName:   "Test Flavor",
-				WorkspacePath: "/tmp/test",
-				VCS:           "git",
-				Flavors:       []config.RemoteProfileFlavor{{Flavor: "test"}},
-			},
+	cfg := &config.Config{}
+	cfg.RemoteProfiles = []config.RemoteProfile{
+		{
+			ID:            "test-flavor",
+			DisplayName:   "Test Flavor",
+			WorkspacePath: "/tmp/test",
+			VCS:           "git",
+			Flavors:       []config.RemoteProfileFlavor{{Flavor: "test"}},
 		},
 	}
 

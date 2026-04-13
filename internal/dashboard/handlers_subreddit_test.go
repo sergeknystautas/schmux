@@ -20,7 +20,8 @@ import (
 
 func TestHandleSubreddit(t *testing.T) {
 	t.Run("disabled when no target configured", func(t *testing.T) {
-		cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+		cfg := &config.Config{}
+		cfg.WorkspacePath = "/tmp/workspaces"
 		st := state.New("", nil)
 		statePath := t.TempDir() + "/state.json"
 		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))

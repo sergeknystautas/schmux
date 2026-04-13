@@ -8,6 +8,12 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 )
 
+func nudgenikCfg(n *config.NudgenikConfig) *config.Config {
+	cfg := &config.Config{}
+	cfg.Nudgenik = n
+	return cfg
+}
+
 func TestIsEnabled(t *testing.T) {
 	tests := []struct {
 		name string
@@ -16,10 +22,10 @@ func TestIsEnabled(t *testing.T) {
 	}{
 		{name: "nil config", cfg: nil, want: false},
 		{name: "empty config", cfg: &config.Config{}, want: false},
-		{name: "nil nudgenik", cfg: &config.Config{Nudgenik: nil}, want: false},
-		{name: "empty target", cfg: &config.Config{Nudgenik: &config.NudgenikConfig{Target: ""}}, want: false},
-		{name: "target set", cfg: &config.Config{Nudgenik: &config.NudgenikConfig{Target: "claude"}}, want: true},
-		{name: "whitespace target", cfg: &config.Config{Nudgenik: &config.NudgenikConfig{Target: "  "}}, want: false}, // trimmed by getter
+		{name: "nil nudgenik", cfg: nudgenikCfg(nil), want: false},
+		{name: "empty target", cfg: nudgenikCfg(&config.NudgenikConfig{Target: ""}), want: false},
+		{name: "target set", cfg: nudgenikCfg(&config.NudgenikConfig{Target: "claude"}), want: true},
+		{name: "whitespace target", cfg: nudgenikCfg(&config.NudgenikConfig{Target: "  "}), want: false}, // trimmed by getter
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

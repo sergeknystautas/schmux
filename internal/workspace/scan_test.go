@@ -19,11 +19,10 @@ func TestScan_EmptyWorkspaceDirectory(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{
-		WorkspacePath: tmpDir,
-		Repos: []config.Repo{
-			{Name: "test", URL: "https://example.com/test.git"},
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	cfg.Repos = []config.Repo{
+		{Name: "test", URL: "https://example.com/test.git"},
 	}
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
@@ -61,11 +60,10 @@ func TestScan_AddNewWorkspace(t *testing.T) {
 		t.Fatalf("failed to move repo: %v", err)
 	}
 
-	cfg := &config.Config{
-		WorkspacePath: tmpDir,
-		Repos: []config.Repo{
-			{Name: "test", URL: "https://example.com/test.git"},
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	cfg.Repos = []config.Repo{
+		{Name: "test", URL: "https://example.com/test.git"},
 	}
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
@@ -99,11 +97,10 @@ func TestScan_RemoveMissingWorkspace(t *testing.T) {
 		t.Fatalf("failed to move repo: %v", err)
 	}
 
-	cfg := &config.Config{
-		WorkspacePath: tmpDir,
-		Repos: []config.Repo{
-			{Name: "test", URL: "https://example.com/test.git"},
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	cfg.Repos = []config.Repo{
+		{Name: "test", URL: "https://example.com/test.git"},
 	}
 	st := state.New(statePath, nil)
 
@@ -162,11 +159,10 @@ func TestScan_UpdateWorkspaceBranch(t *testing.T) {
 	// Add a new branch
 	runGit(t, workspacePath, "checkout", "-b", "feature-branch")
 
-	cfg := &config.Config{
-		WorkspacePath: tmpDir,
-		Repos: []config.Repo{
-			{Name: "test", URL: "https://example.com/test.git"},
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	cfg.Repos = []config.Repo{
+		{Name: "test", URL: "https://example.com/test.git"},
 	}
 	st := state.New(statePath, nil)
 
@@ -205,11 +201,10 @@ func TestScan_SkipActiveSessionWorkspaces(t *testing.T) {
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
 
-	cfg := &config.Config{
-		WorkspacePath: tmpDir,
-		Repos: []config.Repo{
-			{Name: "test", URL: "https://example.com/test.git"},
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	cfg.Repos = []config.Repo{
+		{Name: "test", URL: "https://example.com/test.git"},
 	}
 	st := state.New(statePath, nil)
 
@@ -282,11 +277,10 @@ func TestScan_Integration(t *testing.T) {
 	runGit(t, workspacePath1, "config", "remote.origin.url", "https://example.com/test.git")
 	runGit(t, workspacePath1, "checkout", "-b", "feature")
 
-	cfg := &config.Config{
-		WorkspacePath: tmpDir,
-		Repos: []config.Repo{
-			{Name: "test", URL: "https://example.com/test.git"},
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	cfg.Repos = []config.Repo{
+		{Name: "test", URL: "https://example.com/test.git"},
 	}
 	st := state.New(statePath, nil)
 
