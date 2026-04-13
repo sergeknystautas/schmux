@@ -128,12 +128,16 @@ function SortableAccessoryTab({
   tab,
   isActive,
   badgeContent,
+  displayLabel,
+  displayClosable,
   onTabClick,
   onClose,
 }: {
   tab: Tab;
   isActive: boolean;
   badgeContent: React.ReactNode;
+  displayLabel: string;
+  displayClosable: boolean;
   onTabClick: () => void;
   onClose?: (e: React.MouseEvent) => void;
 }) {
@@ -166,10 +170,10 @@ function SortableAccessoryTab({
     >
       <div className="session-tab__row1">
         <span className="session-tab__name">
-          {tab.label.length > 20 ? tab.label.slice(0, 17) + '…' : tab.label}
+          {displayLabel.length > 20 ? displayLabel.slice(0, 17) + '…' : displayLabel}
         </span>
         {badgeContent}
-        {tab.closable && onClose && (
+        {displayClosable && onClose && (
           <Tooltip content="Close tab" variant="warning">
             <button
               className="btn btn--sm btn--ghost btn--danger session-tab__dispose"
@@ -693,12 +697,36 @@ export default function SessionTabs({
       );
     }
 
-    return { isActive, badgeContent, handleClose, handleClick: () => navigate(tab.route) };
+    // Derive display label for tabs whose labels are client-computed
+    let displayLabel = tab.label;
+    if (tab.kind === 'diff' && workspace) {
+      const fc = workspace.files_changed ?? 0;
+      displayLabel = `${fc} file${fc !== 1 ? 's' : ''} changed`;
+    }
+    if (tab.kind === 'resolve-conflict' && tab.meta?.hash) {
+      displayLabel = `Conflict ${tab.meta.hash}`;
+    }
+
+    // Derive closability: resolve-conflict tabs are not closable while in progress
+    let displayClosable = tab.closable;
+    if (tab.kind === 'resolve-conflict' && resolveConflictStatus === 'in_progress') {
+      displayClosable = false;
+    }
+
+    return {
+      isActive,
+      badgeContent,
+      handleClose,
+      displayLabel,
+      displayClosable,
+      handleClick: () => navigate(tab.route),
+    };
   };
 
   // Render an accessory tab without sortable wrapping (used in non-DnD mode)
   const renderAccessoryTab = (tab: Tab) => {
-    const { isActive, badgeContent, handleClose, handleClick } = getAccessoryTabProps(tab);
+    const { isActive, badgeContent, handleClose, displayLabel, displayClosable, handleClick } =
+      getAccessoryTabProps(tab);
     return (
       <div
         key={tab.id}
@@ -716,10 +744,10 @@ export default function SessionTabs({
       >
         <div className="session-tab__row1">
           <span className="session-tab__name">
-            {tab.label.length > 20 ? tab.label.slice(0, 17) + '…' : tab.label}
+            {displayLabel.length > 20 ? displayLabel.slice(0, 17) + '…' : displayLabel}
           </span>
           {badgeContent}
-          {tab.closable && handleClose && (
+          {displayClosable && handleClose && (
             <Tooltip content="Close tab" variant="warning">
               <button
                 className="btn btn--sm btn--ghost btn--danger session-tab__dispose"
@@ -916,14 +944,22 @@ export default function SessionTabs({
               strategy={horizontalListSortingStrategy}
             >
               {orderedAccessoryTabs.map((tab) => {
-                const { isActive, badgeContent, handleClose, handleClick } =
-                  getAccessoryTabProps(tab);
+                const {
+                  isActive,
+                  badgeContent,
+                  handleClose,
+                  displayLabel,
+                  displayClosable,
+                  handleClick,
+                } = getAccessoryTabProps(tab);
                 return (
                   <SortableAccessoryTab
                     key={tab.id}
                     tab={tab}
                     isActive={isActive}
                     badgeContent={badgeContent}
+                    displayLabel={displayLabel}
+                    displayClosable={displayClosable}
                     onTabClick={handleClick}
                     onClose={handleClose}
                   />

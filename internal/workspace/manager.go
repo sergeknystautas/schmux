@@ -59,6 +59,8 @@ type Manager struct {
 	workspaceGates         map[string]*sync.RWMutex // per-workspace gate: coordinates git status vs sync operations
 	workspaceGatesMu       sync.Mutex
 	onLockChangeFn         func(workspaceID string, locked bool)        // optional, called when lock state changes
+	broadcastFn            func()                                       // optional, called after tab mutations to broadcast state
+	tabCloseHooks          map[string]TabCloseHook                      // kind -> hook for tab close cleanup
 	compoundReconcile      func(workspaceID string)                     // reconcile overlay before dispose
 	syncProgressFn         func(workspaceID string, current, total int) // optional, called during LinearSyncFromDefault
 	telemetry              telemetry.Telemetry                          // optional, for usage tracking
@@ -212,6 +214,25 @@ func (m *Manager) SetOnLockChangeFn(fn func(workspaceID string, locked bool)) {
 // SetSyncProgressFn sets a callback invoked after each commit rebase in LinearSyncFromDefault.
 func (m *Manager) SetSyncProgressFn(fn func(workspaceID string, current, total int)) {
 	m.syncProgressFn = fn
+}
+
+// SetBroadcastFn sets the callback invoked after tab mutations to broadcast state.
+func (m *Manager) SetBroadcastFn(fn func()) {
+	m.broadcastFn = fn
+}
+
+// mutateTabsAndSave wraps every tab mutation. Guarantees save + broadcast after success.
+func (m *Manager) mutateTabsAndSave(fn func() error) error {
+	if err := fn(); err != nil {
+		return err
+	}
+	if err := m.state.Save(); err != nil {
+		return err
+	}
+	if m.broadcastFn != nil {
+		m.broadcastFn()
+	}
+	return nil
 }
 
 // SetCompoundReconcile sets the callback for reconciling overlay files before workspace disposal.
@@ -703,11 +724,8 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 		Status: state.WorkspaceStatusProvisioning,
 	}
 
-	if err := m.state.AddWorkspace(w); err != nil {
+	if err := m.AddWorkspaceWithTabs(w); err != nil {
 		return nil, fmt.Errorf("failed to add workspace to state: %w", err)
-	}
-	if err := m.state.Save(); err != nil {
-		return nil, fmt.Errorf("failed to save state: %w", err)
 	}
 
 	// Store overlay manifest after workspace is persisted
@@ -789,11 +807,8 @@ func (m *Manager) CreateLocalRepo(ctx context.Context, repoName, branch string) 
 		Path:   workspacePath,
 	}
 
-	if err := m.state.AddWorkspace(w); err != nil {
+	if err := m.AddWorkspaceWithTabs(w); err != nil {
 		return nil, fmt.Errorf("failed to add workspace to state: %w", err)
-	}
-	if err := m.state.Save(); err != nil {
-		return nil, fmt.Errorf("failed to save state: %w", err)
 	}
 
 	// State is persisted, workspace is valid even if config update fails
@@ -1680,11 +1695,8 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 		VCS:    repoConfig.VCS,
 	}
 
-	if err := m.state.AddWorkspace(w); err != nil {
+	if err := m.AddWorkspaceWithTabs(w); err != nil {
 		return nil, fmt.Errorf("failed to add workspace to state: %w", err)
-	}
-	if err := m.state.Save(); err != nil {
-		return nil, fmt.Errorf("failed to save state: %w", err)
 	}
 
 	// Store overlay manifest if files were copied

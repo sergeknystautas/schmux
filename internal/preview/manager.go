@@ -20,6 +20,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
 // Compiled regexes for ss output parsing.
@@ -57,6 +58,7 @@ type Manager struct {
 	tlsKeyPath      string // path to TLS key
 	logger          *log.Logger
 	portDetector    PortDetector
+	workspaceMgr    workspace.WorkspaceManager // for tab creation
 
 	mu      sync.Mutex
 	entries map[string]*entry // preview_id -> listener entry
@@ -96,6 +98,11 @@ func NewManager(st state.StateStore, maxPerWorkspace, maxGlobal int, networkAcce
 		entries:         map[string]*entry{},
 	}
 	return m
+}
+
+// SetWorkspaceManager sets the workspace manager for tab creation.
+func (m *Manager) SetWorkspaceManager(wm workspace.WorkspaceManager) {
+	m.workspaceMgr = wm
 }
 
 func (m *Manager) Stop() {
@@ -180,16 +187,7 @@ func (m *Manager) CreateOrGet(ctx context.Context, ws state.Workspace, targetHos
 	}
 
 	// Create a corresponding accessory tab for this preview.
-	previewTab := state.Tab{
-		ID:        "sys-preview-" + preview.ID,
-		Kind:      "preview",
-		Label:     fmt.Sprintf("web:%d", preview.TargetPort),
-		Route:     fmt.Sprintf("/preview/%s/%s", ws.ID, preview.ID),
-		Closable:  true,
-		Meta:      map[string]string{"preview_id": preview.ID},
-		CreatedAt: preview.CreatedAt,
-	}
-	_ = m.state.AddTab(ws.ID, previewTab)
+	_, _ = m.workspaceMgr.OpenPreviewTab(ws.ID, preview.ID, preview.TargetPort)
 
 	return result, true, nil
 }
@@ -213,6 +211,19 @@ func (m *Manager) List(ctx context.Context, workspaceID string) ([]state.Workspa
 }
 
 func (m *Manager) Delete(workspaceID, previewID string) error {
+	if err := m.DeletePreviewOnly(workspaceID, previewID); err != nil {
+		return err
+	}
+	// Remove the corresponding accessory tab through the workspace manager.
+	tabID := "sys-preview-" + previewID
+	// Ignore "not found" — the tab may not exist (e.g., preview created before tabs were wired).
+	_ = m.workspaceMgr.CloseTab(workspaceID, tabID)
+	return nil
+}
+
+// DeletePreviewOnly stops the listener and removes the preview record but NOT the tab.
+// Used by close hooks where the workspace manager already removed the tab.
+func (m *Manager) DeletePreviewOnly(workspaceID, previewID string) error {
 	preview, ok := m.state.GetPreview(previewID)
 	if !ok {
 		return nil
@@ -220,17 +231,10 @@ func (m *Manager) Delete(workspaceID, previewID string) error {
 	if preview.WorkspaceID != workspaceID {
 		return fmt.Errorf("preview not found in workspace")
 	}
-
 	m.mu.Lock()
 	m.stopEntryLocked(previewID)
 	m.mu.Unlock()
-
-	if err := m.state.RemovePreview(previewID); err != nil {
-		return err
-	}
-	// Remove the corresponding accessory tab.
-	_ = m.state.RemoveTab(workspaceID, "sys-preview-"+previewID)
-	return m.state.Save()
+	return m.state.RemovePreview(previewID)
 }
 
 // DeleteBySession removes all previews created by the given session and stops their listeners.

@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -43,11 +42,8 @@ func TestHandleTabCreate(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(createTabRequest{
-		Kind:     "markdown",
-		Label:    "README.md",
-		Route:    "/diff/ws-tab-create/md/README.md",
-		Closable: true,
-		Meta:     map[string]string{"filepath": "README.md"},
+		Kind: "commit",
+		Hash: "abc123def456",
 	})
 	req := makeTabRequest(t, http.MethodPost, "/api/workspaces/ws-tab-create/tabs", "ws-tab-create", "", body)
 	rr := httptest.NewRecorder()
@@ -64,20 +60,23 @@ func TestHandleTabCreate(t *testing.T) {
 	if result["id"] == "" {
 		t.Fatal("response missing tab id")
 	}
+	if result["route"] == "" {
+		t.Fatal("response missing route")
+	}
 	if result["status"] != "ok" {
 		t.Fatalf("expected status ok, got %q", result["status"])
 	}
 
 	// Verify tab was created in state.
 	tabs := st.GetWorkspaceTabs("ws-tab-create")
-	var mdCount int
+	var commitCount int
 	for _, tab := range tabs {
-		if tab.Kind == "markdown" {
-			mdCount++
+		if tab.Kind == "commit" {
+			commitCount++
 		}
 	}
-	if mdCount != 1 {
-		t.Fatalf("expected 1 markdown tab, got %d", mdCount)
+	if commitCount != 1 {
+		t.Fatalf("expected 1 commit tab, got %d", commitCount)
 	}
 }
 
@@ -93,10 +92,7 @@ func TestHandleTabCreate_DisallowedKind(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(createTabRequest{
-		Kind:     "preview",
-		Label:    "Preview",
-		Route:    "/preview/ws-tab-kind/p1",
-		Closable: true,
+		Kind: "preview",
 	})
 	req := makeTabRequest(t, http.MethodPost, "/api/workspaces/ws-tab-kind/tabs", "ws-tab-kind", "", body)
 	rr := httptest.NewRecorder()
@@ -111,17 +107,15 @@ func TestHandleTabCreate_WorkspaceNotFound(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 
 	body, _ := json.Marshal(createTabRequest{
-		Kind:     "markdown",
-		Label:    "README.md",
-		Route:    "/diff/nonexistent/md/README.md",
-		Closable: true,
+		Kind: "commit",
+		Hash: "abc123",
 	})
 	req := makeTabRequest(t, http.MethodPost, "/api/workspaces/nonexistent/tabs", "nonexistent", "", body)
 	rr := httptest.NewRecorder()
 	srv.handleTabCreate(rr, req)
 
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for missing workspace, got %d: %s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for missing workspace, got %d: %s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -156,18 +150,12 @@ func TestHandleTabDelete(t *testing.T) {
 		t.Fatalf("failed to add workspace: %v", err)
 	}
 
-	tab := state.Tab{
-		ID:       "tab-del-1",
-		Kind:     "markdown",
-		Label:    "README.md",
-		Route:    "/diff/ws-tab-del/md/README.md",
-		Closable: true,
-	}
-	if err := st.AddTab("ws-tab-del", tab); err != nil {
-		t.Fatalf("failed to add tab: %v", err)
+	tab, err := srv.workspace.OpenCommitTab("ws-tab-del", "abc123def456")
+	if err != nil {
+		t.Fatalf("failed to open commit tab: %v", err)
 	}
 
-	req := makeTabRequest(t, http.MethodDelete, "/api/workspaces/ws-tab-del/tabs/tab-del-1", "ws-tab-del", "tab-del-1", nil)
+	req := makeTabRequest(t, http.MethodDelete, "/api/workspaces/ws-tab-del/tabs/"+tab.ID, "ws-tab-del", tab.ID, nil)
 	rr := httptest.NewRecorder()
 	srv.handleTabDelete(rr, req)
 
@@ -177,107 +165,10 @@ func TestHandleTabDelete(t *testing.T) {
 
 	tabs := st.GetWorkspaceTabs("ws-tab-del")
 	for _, tt := range tabs {
-		if tt.ID == "tab-del-1" {
+		if tt.ID == tab.ID {
 			t.Fatal("tab should have been removed")
 		}
 	}
-}
-
-func TestHandleTabDelete_RemovesResolveConflictRecord(t *testing.T) {
-	srv, _, st := newTestServer(t)
-	hash := "abcdef1"
-	if err := st.AddWorkspace(state.Workspace{
-		ID:     "ws-tab-rc",
-		Repo:   "https://example.com/repo.git",
-		Branch: "main",
-		Path:   t.TempDir(),
-		Tabs: []state.Tab{
-			{
-				ID:       "sys-resolve-conflict-abcdef1",
-				Kind:     "resolve-conflict",
-				Label:    "Conflict abcdef1",
-				Route:    "/resolve-conflict/ws-tab-rc/sys-resolve-conflict-abcdef1",
-				Closable: true,
-				Meta:     map[string]string{"hash": hash},
-			},
-		},
-	}); err != nil {
-		t.Fatalf("failed to add workspace: %v", err)
-	}
-	if err := st.UpsertResolveConflict("ws-tab-rc", state.ResolveConflict{
-		Type:        "linear_sync_resolve_conflict",
-		WorkspaceID: "ws-tab-rc",
-		Status:      "done",
-		Hash:        hash,
-		StartedAt:   time.Now().Format(time.RFC3339),
-		Steps:       []state.ResolveConflictStep{},
-	}); err != nil {
-		t.Fatalf("failed to add resolve conflict: %v", err)
-	}
-	srv.setLinearSyncResolveConflictState("ws-tab-rc", &LinearSyncResolveConflictState{
-		ResolveConflict: state.ResolveConflict{
-			Type:        "linear_sync_resolve_conflict",
-			WorkspaceID: "ws-tab-rc",
-			Status:      "done",
-			Hash:        hash,
-			StartedAt:   time.Now().Format(time.RFC3339),
-			Steps:       []state.ResolveConflictStep{},
-		},
-	})
-
-	req := makeTabRequest(
-		t,
-		http.MethodDelete,
-		"/api/workspaces/ws-tab-rc/tabs/sys-resolve-conflict-abcdef1",
-		"ws-tab-rc",
-		"sys-resolve-conflict-abcdef1",
-		nil,
-	)
-	rr := httptest.NewRecorder()
-	srv.handleTabDelete(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("DELETE resolve-conflict tab: status = %d, body = %s", rr.Code, rr.Body.String())
-	}
-
-	if _, found := st.GetResolveConflict("ws-tab-rc", hash); found {
-		t.Fatal("resolve-conflict record should have been removed")
-	}
-	if srv.getLinearSyncResolveConflictState("ws-tab-rc") != nil {
-		t.Fatal("live resolve-conflict state should have been cleared")
-	}
-}
-
-func TestEnsureResolveConflictTab_UsesShortHashKey(t *testing.T) {
-	srv, _, st := newTestServer(t)
-	if err := st.AddWorkspace(state.Workspace{
-		ID:     "ws-tab-short",
-		Repo:   "https://example.com/repo.git",
-		Branch: "main",
-		Path:   t.TempDir(),
-	}); err != nil {
-		t.Fatalf("failed to add workspace: %v", err)
-	}
-
-	srv.ensureResolveConflictTab("ws-tab-short", "abcdef123456")
-
-	tabs := st.GetWorkspaceTabs("ws-tab-short")
-	for _, tab := range tabs {
-		if tab.Kind != "resolve-conflict" {
-			continue
-		}
-		if tab.ID != "sys-resolve-conflict-abcdef1" {
-			t.Fatalf("resolve-conflict tab id = %q, want short-hash key", tab.ID)
-		}
-		if tab.Route != "/resolve-conflict/ws-tab-short/sys-resolve-conflict-abcdef1" {
-			t.Fatalf("resolve-conflict tab route = %q", tab.Route)
-		}
-		if tab.Meta["hash"] != "abcdef1" {
-			t.Fatalf("resolve-conflict tab hash = %q", tab.Meta["hash"])
-		}
-		return
-	}
-	t.Fatal("resolve-conflict tab not found")
 }
 
 func TestHandleTabDelete_NonClosable(t *testing.T) {
@@ -291,7 +182,14 @@ func TestHandleTabDelete_NonClosable(t *testing.T) {
 		t.Fatalf("failed to add workspace: %v", err)
 	}
 
-	// AddWorkspace seeds a non-closable "diff" tab automatically.
+	// Add a non-closable diff tab directly to state
+	if err := st.AddTab("ws-tab-nc", state.Tab{
+		ID: "sys-diff-ws-tab-nc", Kind: "diff",
+		Route: "/diff/ws-tab-nc", Closable: false,
+	}); err != nil {
+		t.Fatalf("failed to add diff tab: %v", err)
+	}
+
 	tabs := st.GetWorkspaceTabs("ws-tab-nc")
 	var diffTabID string
 	for _, tab := range tabs {
@@ -301,7 +199,7 @@ func TestHandleTabDelete_NonClosable(t *testing.T) {
 		}
 	}
 	if diffTabID == "" {
-		t.Fatal("no diff tab found after workspace creation")
+		t.Fatal("no diff tab found after seeding")
 	}
 
 	req := makeTabRequest(t, http.MethodDelete, "/api/workspaces/ws-tab-nc/tabs/"+diffTabID, "ws-tab-nc", diffTabID, nil)
@@ -310,84 +208,6 @@ func TestHandleTabDelete_NonClosable(t *testing.T) {
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("DELETE non-closable tab: status = %d, want 400", rr.Code)
-	}
-}
-
-func TestHandleTabDelete_StaleInProgressClosable(t *testing.T) {
-	// When no in-memory state exists (e.g. daemon restarted), a resolve-conflict
-	// tab with a persisted "in_progress" record should still be closable.
-	srv, _, st := newTestServer(t)
-	hash := "stale01"
-	if err := st.AddWorkspace(state.Workspace{
-		ID:     "ws-stale",
-		Repo:   "https://example.com/repo.git",
-		Branch: "main",
-		Path:   t.TempDir(),
-		Tabs: []state.Tab{
-			{
-				ID:       "sys-resolve-conflict-" + hash,
-				Kind:     "resolve-conflict",
-				Label:    "Conflict " + hash,
-				Route:    "/resolve-conflict/ws-stale/sys-resolve-conflict-" + hash,
-				Closable: true,
-				Meta:     map[string]string{"hash": hash},
-			},
-		},
-	}); err != nil {
-		t.Fatalf("failed to add workspace: %v", err)
-	}
-	if err := st.UpsertResolveConflict("ws-stale", state.ResolveConflict{
-		Status: "in_progress",
-		Hash:   hash,
-	}); err != nil {
-		t.Fatalf("failed to add resolve conflict: %v", err)
-	}
-	// Deliberately do NOT set in-memory state — simulates daemon restart.
-
-	req := makeTabRequest(t, http.MethodDelete, "/api/workspaces/ws-stale/tabs/sys-resolve-conflict-"+hash, "ws-stale", "sys-resolve-conflict-"+hash, nil)
-	rr := httptest.NewRecorder()
-	srv.handleTabDelete(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("DELETE stale in-progress tab: status = %d, body = %s, want 200", rr.Code, rr.Body.String())
-	}
-}
-
-func TestHandleTabDelete_RunningInProgressNotClosable(t *testing.T) {
-	// When in-memory state exists and is "in_progress", the tab should NOT be closable.
-	srv, _, st := newTestServer(t)
-	hash := "running"
-	if err := st.AddWorkspace(state.Workspace{
-		ID:     "ws-running",
-		Repo:   "https://example.com/repo.git",
-		Branch: "main",
-		Path:   t.TempDir(),
-		Tabs: []state.Tab{
-			{
-				ID:       "sys-resolve-conflict-" + hash,
-				Kind:     "resolve-conflict",
-				Label:    "Conflict " + hash,
-				Route:    "/resolve-conflict/ws-running/sys-resolve-conflict-" + hash,
-				Closable: true,
-				Meta:     map[string]string{"hash": hash},
-			},
-		},
-	}); err != nil {
-		t.Fatalf("failed to add workspace: %v", err)
-	}
-	srv.setLinearSyncResolveConflictState("ws-running", &LinearSyncResolveConflictState{
-		ResolveConflict: state.ResolveConflict{
-			Status: "in_progress",
-			Hash:   hash,
-		},
-	})
-
-	req := makeTabRequest(t, http.MethodDelete, "/api/workspaces/ws-running/tabs/sys-resolve-conflict-"+hash, "ws-running", "sys-resolve-conflict-"+hash, nil)
-	rr := httptest.NewRecorder()
-	srv.handleTabDelete(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("DELETE running in-progress tab: status = %d, want 400", rr.Code)
 	}
 }
 

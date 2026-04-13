@@ -9,7 +9,18 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/workspace"
 )
+
+// noopWM satisfies workspace.WorkspaceManager for tests that only need workspace creation to not crash.
+type noopWM struct {
+	workspace.WorkspaceManager
+	st *state.State
+}
+
+func (m *noopWM) AddWorkspaceWithTabs(ws state.Workspace) error {
+	return m.st.AddWorkspace(ws)
+}
 
 func TestManager_ConnectRace(t *testing.T) {
 	// Create test config and state
@@ -27,6 +38,7 @@ func TestManager_ConnectRace(t *testing.T) {
 	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
 
 	mgr := NewManager(cfg, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
 
 	// Launch multiple goroutines trying to StartConnect to same profile+flavor.
 	// Each should get a unique provisioning session ID (no 1:1 enforcement).
@@ -114,6 +126,7 @@ func TestManager_PruneExpiredHosts(t *testing.T) {
 	}
 
 	mgr := NewManager(cfg, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
 
 	// Run pruning
 	mgr.PruneExpiredHosts()
@@ -143,6 +156,7 @@ func TestManager_GetConnection(t *testing.T) {
 	}
 
 	mgr := NewManager(cfg, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
 
 	// Create a mock connection
 	conn := NewConnection(ConnectionConfig{
@@ -183,6 +197,7 @@ func TestManager_IsConnected(t *testing.T) {
 	}
 
 	mgr := NewManager(cfg, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
 
 	// Create a mock connection
 	conn := NewConnection(ConnectionConfig{
@@ -218,6 +233,7 @@ func TestManager_DisconnectAll(t *testing.T) {
 	}
 
 	mgr := NewManager(cfg, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
 
 	// Create multiple mock connections
 	for i := 0; i < 3; i++ {
@@ -281,6 +297,7 @@ func TestManager_GetProfileStatuses(t *testing.T) {
 	}
 
 	mgr := NewManager(cfg, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
 
 	// Get statuses
 	statuses := mgr.GetProfileStatuses()
@@ -318,6 +335,7 @@ func TestManager_GetConnectionsByProfileAndFlavor(t *testing.T) {
 	}
 
 	mgr := NewManager(cfg, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
 
 	// Create two "www" connections and one "gpu" connection
 	www1 := NewConnection(ConnectionConfig{
@@ -386,6 +404,7 @@ func TestManager_GetProfileStatuses_MultiHost(t *testing.T) {
 	}
 
 	mgr := NewManager(cfg, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
 
 	// Create two "www" connections
 	www1 := NewConnection(ConnectionConfig{
@@ -441,6 +460,7 @@ func TestManager_SetStateChangeCallback(t *testing.T) {
 	}
 
 	mgr := NewManager(cfg, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
 
 	callbackCalled := false
 	mgr.SetStateChangeCallback(func() {
@@ -464,6 +484,7 @@ func TestManager_SetOnConnectCallback(t *testing.T) {
 	}
 
 	mgr := NewManager(cfg, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
 
 	var receivedHostID string
 	mgr.SetOnConnectCallback(func(hostID string) {
@@ -486,6 +507,7 @@ func TestManager_OnConnectCallback_Nil(t *testing.T) {
 	}
 
 	mgr := NewManager(cfg, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
 	// No callback set — should not panic
 	mgr.notifyConnect("test-host")
 }
@@ -664,6 +686,7 @@ func TestConnectWithAndWithoutProgress(t *testing.T) {
 	}
 
 	mgr := NewManager(cfg, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
 
 	// Test 1: Connect without progress (will fail but should not panic)
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -711,6 +734,7 @@ func TestManager_StartConnect_CreatesWorkspace(t *testing.T) {
 	}}
 	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
 	mgr := NewManager(cfg, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
 
 	_, err := mgr.StartConnect("www", "www")
 	if err != nil {
@@ -749,6 +773,7 @@ func TestManager_ConnectMultipleHostsSameFlavor(t *testing.T) {
 	}}
 	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
 	mgr := NewManager(cfg, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
 
 	// Two StartConnect calls should produce two different provisioning sessions
 	provID1, err := mgr.StartConnect("www", "www")

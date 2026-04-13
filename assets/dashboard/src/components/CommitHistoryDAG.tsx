@@ -608,15 +608,11 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
           disabled={isNavigatingCommit !== null}
           onClick={async () => {
             if (isNavigatingCommit) return;
-            const route = `/commits/${workspaceId}/${ln.node.short_hash}`;
             setIsNavigatingCommit(ln.node.short_hash);
             try {
-              await createTab(workspaceId, {
+              const { route } = await createTab(workspaceId, {
                 kind: 'commit',
-                label: `commit ${ln.node.short_hash}`,
-                route,
-                closable: true,
-                meta: { hash: ln.node.hash },
+                hash: ln.node.hash,
               });
               setPendingNavigation({ type: 'tab', workspaceId, tabRoute: route });
             } catch {

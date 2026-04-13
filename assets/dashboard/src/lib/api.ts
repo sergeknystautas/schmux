@@ -274,18 +274,12 @@ export async function disposeWorkspaceAll(
 
 export async function createTab(
   workspaceId: string,
-  tab: {
-    kind: string;
-    label: string;
-    route: string;
-    closable: boolean;
-    meta?: Record<string, string>;
-  }
-): Promise<{ id: string; status: string }> {
+  params: { kind: 'commit'; hash: string } | { kind: 'markdown'; filepath: string }
+): Promise<{ id: string; route: string; status: string }> {
   const response = await apiFetch(`/api/workspaces/${workspaceId}/tabs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-    body: JSON.stringify(tab),
+    body: JSON.stringify(params),
   });
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to create tab');

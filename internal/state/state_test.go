@@ -1736,64 +1736,6 @@ func TestRemoveTabDoesNotAliasStaleWorkspaceCopy(t *testing.T) {
 	}
 }
 
-func TestLoadMigratesTabsForExistingWorkspaces(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "state.json")
-	data := []byte(`{"workspaces":[{"id":"ws-1","repo":"repo","branch":"main","path":"/tmp/ws1"}],"sessions":[]}`)
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		t.Fatalf("WriteFile failed: %v", err)
-	}
-
-	s, err := Load(path, nil)
-	if err != nil {
-		t.Fatalf("Load() failed: %v", err)
-	}
-
-	tabs := s.GetWorkspaceTabs("ws-1")
-	if len(tabs) < 2 {
-		t.Fatalf("expected at least 2 seeded tabs after migration, got %d", len(tabs))
-	}
-
-	kinds := map[string]bool{}
-	for _, tab := range tabs {
-		kinds[tab.Kind] = true
-	}
-	if !kinds["diff"] {
-		t.Error("expected a 'diff' tab to be seeded")
-	}
-	if !kinds["git"] {
-		t.Error("expected a 'git' tab to be seeded")
-	}
-}
-
-func TestAddWorkspaceSeedsTabs(t *testing.T) {
-	s := New("", nil)
-
-	t.Run("VCS git workspace gets diff and git tabs", func(t *testing.T) {
-		s.AddWorkspace(Workspace{ID: "ws-git", Repo: "repo", Branch: "main", Path: "/tmp"})
-		tabs := s.GetWorkspaceTabs("ws-git")
-		kinds := map[string]bool{}
-		for _, tab := range tabs {
-			kinds[tab.Kind] = true
-		}
-		if !kinds["diff"] || !kinds["git"] {
-			t.Errorf("expected diff+git tabs, got kinds: %v", kinds)
-		}
-	})
-
-	t.Run("workspace with explicit Tabs is not seeded", func(t *testing.T) {
-		existing := Tab{ID: "custom-tab", Kind: "markdown", Label: "Notes", Route: "/notes"}
-		s.AddWorkspace(Workspace{ID: "ws-custom", Repo: "repo", Branch: "main", Path: "/tmp", Tabs: []Tab{existing}})
-		tabs := s.GetWorkspaceTabs("ws-custom")
-		if len(tabs) != 1 {
-			t.Fatalf("expected 1 tab (no seeding), got %d", len(tabs))
-		}
-		if tabs[0].ID != "custom-tab" {
-			t.Errorf("tab ID = %q, want 'custom-tab'", tabs[0].ID)
-		}
-	})
-}
-
 func TestGetSessionsByRemoteHostID(t *testing.T) {
 	t.Parallel()
 	s := &State{

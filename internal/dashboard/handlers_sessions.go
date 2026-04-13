@@ -223,42 +223,15 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			workspaceMap[ws.ID].Previews = items
 		}
 
-		// Populate tabs from workspace state.
-		wsTabs := ws.Tabs
-		resolveConflictsByHash := make(map[string]state.ResolveConflict, len(ws.ResolveConflicts))
-		for _, conflict := range ws.ResolveConflicts {
-			resolveConflictsByHash[conflict.Hash] = conflict
-		}
-		tabItems := make([]contracts.Tab, 0, len(wsTabs))
-		for _, tab := range wsTabs {
-			label := tab.Label
-			closable := tab.Closable
-			// Derive diff tab label from workspace git stats
-			if tab.Kind == "diff" {
-				label = fmt.Sprintf("%d file%s changed", ws.FilesChanged, pluralS(ws.FilesChanged))
-			}
-			if tab.Kind == "resolve-conflict" {
-				hash := tab.Meta["hash"]
-				if conflict, ok := resolveConflictsByHash[hash]; ok {
-					label = "Conflict " + shortHash(conflict.Hash)
-				}
-				// Use in-memory state (always current) to determine closability.
-				// If no in-memory state exists, no goroutine is running — allow close.
-				if hash != "" {
-					if crState := s.getLinearSyncResolveConflictState(ws.ID); crState != nil {
-						snapshot := crState.Snapshot()
-						if snapshot.Hash == hash {
-							closable = snapshot.Status != "in_progress"
-						}
-					}
-				}
-			}
+		// Populate tabs from workspace state — no field rewriting.
+		tabItems := make([]contracts.Tab, 0, len(ws.Tabs))
+		for _, tab := range ws.Tabs {
 			tabItems = append(tabItems, contracts.Tab{
 				ID:        tab.ID,
 				Kind:      tab.Kind,
-				Label:     label,
+				Label:     tab.Label,
 				Route:     tab.Route,
-				Closable:  closable,
+				Closable:  tab.Closable,
 				Meta:      tab.Meta,
 				CreatedAt: tab.CreatedAt.Format(time.RFC3339),
 			})

@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
 // Manager manages multiple remote host connections.
@@ -24,6 +25,8 @@ type Manager struct {
 	onStateChange func()
 	// Callback when a remote host connects or reconnects
 	onConnect func(hostID string)
+	// Workspace manager for workspace creation
+	workspaceManager workspace.WorkspaceManager
 }
 
 // NewManager creates a new remote host manager.
@@ -47,6 +50,13 @@ func (m *Manager) SetStateChangeCallback(cb func()) {
 func (m *Manager) SetOnConnectCallback(cb func(hostID string)) {
 	m.mu.Lock()
 	m.onConnect = cb
+	m.mu.Unlock()
+}
+
+// SetWorkspaceManager sets the workspace manager for workspace creation.
+func (m *Manager) SetWorkspaceManager(wm workspace.WorkspaceManager) {
+	m.mu.Lock()
+	m.workspaceManager = wm
 	m.mu.Unlock()
 }
 
@@ -548,7 +558,9 @@ func (m *Manager) ensureWorkspaceForHost(host state.RemoteHost, resolved config.
 		RemoteHostID: host.ID,
 		RemotePath:   resolved.WorkspacePath,
 	}
-	m.state.AddWorkspace(ws)
+	if err := m.workspaceManager.AddWorkspaceWithTabs(ws); err != nil {
+		m.logger.Warn("failed to add workspace for remote host", "host", host.ID, "err", err)
+	}
 }
 
 // notifyStateChange calls the state change callback if set.

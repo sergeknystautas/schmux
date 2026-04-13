@@ -403,46 +403,6 @@ func Load(path string, logger *log.Logger) (*State, error) {
 		st.Previews = map[string]WorkspacePreview{}
 	}
 
-	// Migrate: seed baseline tabs via addTabLocked (dedup-safe).
-	if st.logger != nil {
-		for _, w := range st.Workspaces {
-			st.logger.Info("TAB-DEBUG: Load migration starting", "workspace", w.ID, "existing_tab_count", len(w.Tabs))
-			for _, t := range w.Tabs {
-				st.logger.Info("TAB-DEBUG: existing tab", "workspace", w.ID, "tab_id", t.ID, "kind", t.Kind, "label", t.Label)
-			}
-		}
-	}
-	tabsMigrated := false
-	for i := range st.Workspaces {
-		w := &st.Workspaces[i]
-		if w.Tabs == nil {
-			w.Tabs = []Tab{}
-		}
-		vcs := w.VCS
-		if vcs == "" || vcs == "git" || vcs == "git-worktree" || vcs == "git-clone" || vcs == "sapling" {
-			now := time.Now()
-			// Reverse order: addTabLocked prepends, so git first → diff second → [diff, git]
-			if st.addTabLocked(w.ID, Tab{ID: "sys-git-" + w.ID, Kind: "git", Label: "commit graph", Route: "/commits/" + w.ID, Closable: false, CreatedAt: now}) == nil {
-				tabsMigrated = true
-			}
-			if st.addTabLocked(w.ID, Tab{ID: "sys-diff-" + w.ID, Kind: "diff", Label: "Diff", Route: "/diff/" + w.ID, Closable: false, CreatedAt: now}) == nil {
-				tabsMigrated = true
-			}
-		}
-		for _, preview := range st.Previews {
-			if preview.WorkspaceID != w.ID {
-				continue
-			}
-			if st.addTabLocked(w.ID, Tab{
-				ID: "sys-preview-" + preview.ID, Kind: "preview",
-				Label: fmt.Sprintf("web:%d", preview.TargetPort), Route: "/preview/" + w.ID + "/" + preview.ID,
-				Closable: true, Meta: map[string]string{"preview_id": preview.ID}, CreatedAt: preview.CreatedAt,
-			}) == nil {
-				tabsMigrated = true
-			}
-		}
-	}
-
 	// Reset LastOutputAt for all loaded sessions to avoid treating restored
 	// sessions as "recently active" on startup, which would block git status updates.
 	for i := range st.Sessions {
@@ -450,7 +410,7 @@ func Load(path string, logger *log.Logger) (*State, error) {
 	}
 
 	// Migrate legacy model IDs in session targets
-	if migrateSessionTargets(st.Sessions) || tabsMigrated {
+	if migrateSessionTargets(st.Sessions) {
 		// Best-effort save to persist migration
 		_ = st.saveNow()
 	}
@@ -573,22 +533,10 @@ func (s *State) AddWorkspace(w Workspace) error {
 			return nil
 		}
 	}
-	// Append first so addTabLocked can find the workspace
-	needsSeed := w.Tabs == nil
-	if needsSeed {
+	if w.Tabs == nil {
 		w.Tabs = []Tab{}
 	}
 	s.Workspaces = append(s.Workspaces, w)
-	// Seed baseline tabs for VCS-capable workspaces via addTabLocked (dedup-safe)
-	if needsSeed {
-		vcs := w.VCS
-		if vcs == "" || vcs == "git" || vcs == "git-worktree" || vcs == "git-clone" || vcs == "sapling" {
-			now := time.Now()
-			// Reverse order: addTabLocked prepends, so git first → diff second → [diff, git]
-			s.addTabLocked(w.ID, Tab{ID: "sys-git-" + w.ID, Kind: "git", Label: "commit graph", Route: "/commits/" + w.ID, Closable: false, CreatedAt: now})
-			s.addTabLocked(w.ID, Tab{ID: "sys-diff-" + w.ID, Kind: "diff", Label: "Diff", Route: "/diff/" + w.ID, Closable: false, CreatedAt: now})
-		}
-	}
 	return nil
 }
 
@@ -741,22 +689,10 @@ func (s *State) addTabLocked(workspaceID string, tab Tab) error {
 		for j, existing := range w.Tabs {
 			if tabDedupKey(existing) == key {
 				s.Workspaces[i].Tabs[j] = tab
-				if s.logger != nil {
-					s.logger.Info("TAB-DEBUG: updated existing tab", "workspace", workspaceID, "dedup_key", key, "tab_id", tab.ID, "existing_id", existing.ID, "kind", tab.Kind, "label", tab.Label)
-				}
 				return nil
 			}
 		}
 		s.Workspaces[i].Tabs = append([]Tab{tab}, s.Workspaces[i].Tabs...)
-		// if s.logger != nil {
-		// 	caller := "unknown"
-		// 	if pc, _, _, ok := runtime.Caller(2); ok {
-		// 		if fn := runtime.FuncForPC(pc); fn != nil {
-		// 			caller = fn.Name()
-		// 		}
-		// 	}
-		// 	s.logger.Info("TAB-DEBUG: added new tab", "workspace", workspaceID, "dedup_key", key, "tab_id", tab.ID, "kind", tab.Kind, "label", tab.Label, "total_tabs", len(s.Workspaces[i].Tabs), "caller", caller)
-		// }
 		return nil
 	}
 	return fmt.Errorf("workspace not found: %s", workspaceID)

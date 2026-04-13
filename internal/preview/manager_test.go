@@ -13,7 +13,25 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/workspace"
 )
+
+// noopWorkspaceManager is a minimal mock for preview tests.
+type noopWorkspaceManager struct {
+	workspace.WorkspaceManager
+	st *state.State
+}
+
+func (m *noopWorkspaceManager) OpenPreviewTab(_, _ string, _ int) (*state.Tab, error) {
+	return &state.Tab{}, nil
+}
+func (m *noopWorkspaceManager) CloseTab(wsID, tabID string) error {
+	return m.st.RemoveTab(wsID, tabID)
+}
+
+func newNoopWorkspaceManager(st *state.State) *noopWorkspaceManager {
+	return &noopWorkspaceManager{st: st}
+}
 
 // testServerPort extracts the port number from a running httptest.Server.
 func testServerPort(s *httptest.Server) int {
@@ -79,6 +97,7 @@ func TestManagerCreateOrGetReuse(t *testing.T) {
 	port := testServerPort(upstream)
 
 	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, nil)
+	m.SetWorkspaceManager(newNoopWorkspaceManager(st))
 	defer m.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -108,6 +127,7 @@ func TestManagerRemoteWorkspaceUnsupported(t *testing.T) {
 	ws := state.Workspace{ID: "ws-remote", Repo: "repo", Branch: "main", RemoteHostID: "rh-1"}
 	st, _ := newPreviewTestState(t, ws)
 	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, nil)
+	m.SetWorkspaceManager(newNoopWorkspaceManager(st))
 	defer m.Stop()
 
 	_, _, err := m.CreateOrGet(context.Background(), ws, "127.0.0.1", 5173, "", 0)
@@ -128,6 +148,7 @@ func TestManagerStablePortSurvivesRestart(t *testing.T) {
 
 	// First "daemon run": create a preview, note its port.
 	m1 := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, nil)
+	m1.SetWorkspaceManager(newNoopWorkspaceManager(st))
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	first, _, err := m1.CreateOrGet(ctx, ws, "127.0.0.1", upstreamPort, "", 0)
 	cancel()
@@ -145,6 +166,7 @@ func TestManagerStablePortSurvivesRestart(t *testing.T) {
 
 	// Second "daemon run": the preview should come back on the same port.
 	m2 := NewManager(st2, 3, 20, false, 53000, 10, false, "", "", nil, nil)
+	m2.SetWorkspaceManager(newNoopWorkspaceManager(st2))
 	defer m2.Stop()
 
 	ws2, _ := st2.GetWorkspace("ws-1")
@@ -170,6 +192,7 @@ func TestManagerDifferentWorkspacesGetDifferentBlocks(t *testing.T) {
 	defer upstream2.Close()
 
 	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, nil)
+	m.SetWorkspaceManager(newNoopWorkspaceManager(st))
 	defer m.Stop()
 
 	ctx := context.Background()
@@ -232,6 +255,7 @@ func TestManagerWebSocketProxying(t *testing.T) {
 	ws := state.Workspace{ID: "ws-ws", Repo: "repo", Branch: "main", Path: t.TempDir()}
 	st, _ := newPreviewTestState(t, ws)
 	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, nil)
+	m.SetWorkspaceManager(newNoopWorkspaceManager(st))
 	defer m.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -277,6 +301,7 @@ func TestManagerDeleteBySession(t *testing.T) {
 	defer upstream2.Close()
 
 	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, nil)
+	m.SetWorkspaceManager(newNoopWorkspaceManager(st))
 	defer m.Stop()
 
 	ctx := context.Background()
@@ -316,6 +341,7 @@ func TestManagerCreateOrGetSetsSourceSessionID(t *testing.T) {
 	port := testServerPort(upstream)
 
 	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, nil)
+	m.SetWorkspaceManager(newNoopWorkspaceManager(st))
 	defer m.Stop()
 
 	ctx := context.Background()

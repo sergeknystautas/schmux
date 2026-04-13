@@ -455,7 +455,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 			RemoteHostID: host.ID,
 			RemotePath:   flavor.WorkspacePath,
 		}
-		if err := m.state.AddWorkspace(ws); err != nil {
+		if err := m.workspace.AddWorkspaceWithTabs(ws); err != nil {
 			return nil, fmt.Errorf("failed to add workspace to state: %w", err)
 		}
 	} else {

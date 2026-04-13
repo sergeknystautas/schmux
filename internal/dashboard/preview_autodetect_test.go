@@ -19,6 +19,13 @@ import (
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
+// newAutodetectPreviewManager creates a preview manager wired with a noop workspace manager.
+func newAutodetectPreviewManager(st *state.State, logger *log.Logger) *preview.Manager {
+	m := preview.NewManager(st, 3, 20, false, 53000, 10, false, "", "", logger, nil)
+	m.SetWorkspaceManager(&noopTabWorkspaceManager{st: st})
+	return m
+}
+
 func TestDetectPortsFromChunk(t *testing.T) {
 	chunk := []byte("ready in 300ms\nLocal: http://localhost:5173/\nNetwork: use --host to expose")
 	ports := detectPortsFromChunk(chunk)
@@ -188,7 +195,7 @@ func newPreviewAutodetectTestServer(t *testing.T, logger *log.Logger) (*Server, 
 		state:                    st,
 		logger:                   logger,
 		shutdownCtx:              context.Background(),
-		previewManager:           preview.NewManager(st, 3, 20, false, 53000, 10, false, "", "", logger, nil),
+		previewManager:           newAutodetectPreviewManager(st, logger),
 		previewDetect:            make(map[string]time.Time),
 		previewStreamBuffers:     make(map[string]string),
 		previewCandidates:        make(map[string]*previewCandidate),

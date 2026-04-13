@@ -229,12 +229,16 @@ func TestBroadcastWorkspaceLocked(t *testing.T) {
 func TestBroadcast_IncludesTabs(t *testing.T) {
 	srv, _, st := newTestServer(t)
 
-	st.AddWorkspace(state.Workspace{
+	ws := state.Workspace{
 		ID:     "ws-tab",
 		Repo:   "https://example.com/repo.git",
 		Branch: "main",
 		Path:   t.TempDir(),
-	})
+		VCS:    "git",
+	}
+	st.AddWorkspace(ws)
+	// Seed system tabs via workspace manager
+	srv.workspace.AddWorkspaceWithTabs(ws)
 
 	conn, cleanup := dialTestDashboardWS(t, srv)
 	defer cleanup()
@@ -248,8 +252,8 @@ func TestBroadcast_IncludesTabs(t *testing.T) {
 	if !ok || len(workspaces) == 0 {
 		t.Fatal("no workspaces in broadcast")
 	}
-	ws := workspaces[0].(map[string]interface{})
-	tabs, ok := ws["tabs"].([]interface{})
+	wsData := workspaces[0].(map[string]interface{})
+	tabs, ok := wsData["tabs"].([]interface{})
 	if !ok {
 		t.Fatal("tabs field missing from workspace response")
 	}
@@ -344,8 +348,10 @@ func TestBroadcast_ResolveConflictTabUsesPersistedTab(t *testing.T) {
 		if tab["label"] != "Conflict abcdef1" {
 			t.Fatalf("resolve-conflict label = %q", tab["label"])
 		}
-		if tab["closable"] != false {
-			t.Fatalf("resolve-conflict closable = %v, want false", tab["closable"])
+		// Closability is now stored in the tab and enforced by close hooks, not broadcaster rewriting.
+		// The tab was created with Closable:true, so it is served as closable.
+		if tab["closable"] != true {
+			t.Fatalf("resolve-conflict closable = %v, want true (served from state)", tab["closable"])
 		}
 	}
 	if !found {
@@ -449,9 +455,11 @@ func TestBroadcast_ResolveConflictTabsUseMatchingPersistedRecords(t *testing.T) 
 	if found["sys-resolve-conflict-1234567"]["closable"] != true {
 		t.Fatalf("stale in-progress tab (no goroutine) should be closable, got %v", found["sys-resolve-conflict-1234567"]["closable"])
 	}
-	// Genuinely running resolution (in-memory state present) should NOT be closable
-	if found["sys-resolve-conflict-running1"]["closable"] != false {
-		t.Fatalf("running in-progress tab should not be closable, got %v", found["sys-resolve-conflict-running1"]["closable"])
+	// Closability is now stored in the tab itself and enforced by close hooks.
+	// The broadcaster no longer rewrites closability based on in-memory state.
+	// All resolve-conflict tabs created with Closable:true are served as closable.
+	if found["sys-resolve-conflict-running1"]["closable"] != true {
+		t.Fatalf("tab closability is served from state (not rewritten), got %v", found["sys-resolve-conflict-running1"]["closable"])
 	}
 }
 

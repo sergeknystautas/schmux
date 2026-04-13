@@ -190,6 +190,15 @@ type WorkspaceManager interface {
 
 	// RevertWorkspaceStatus restores a workspace's status after a failed disposal.
 	RevertWorkspaceStatus(workspaceID, previousStatus string)
+
+	// Tab lifecycle
+	OpenCommitTab(wsID, hash string) (*state.Tab, error)
+	OpenMarkdownTab(wsID, filepath string) (*state.Tab, error)
+	OpenPreviewTab(wsID, previewID string, port int) (*state.Tab, error)
+	OpenResolveConflictTab(wsID, hash string) (*state.Tab, error)
+	CloseTab(wsID, tabID string) error
+	RegisterTabCloseHook(kind string, hook TabCloseHook)
+	AddWorkspaceWithTabs(ws state.Workspace) error
 }
 
 // Ensure *Manager implements WorkspaceManager at compile time.

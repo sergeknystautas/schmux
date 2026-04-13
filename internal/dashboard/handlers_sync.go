@@ -561,24 +561,7 @@ func (s *Server) ensureResolveConflictTab(workspaceID, hash string) {
 	if hash == "" {
 		return
 	}
-	key := shortHash(hash)
-	tabs := s.state.GetWorkspaceTabs(workspaceID)
-	for _, existingTab := range tabs {
-		if existingTab.Kind == "resolve-conflict" && existingTab.Meta["hash"] == key {
-			return
-		}
-	}
-	id := "sys-resolve-conflict-" + key
-	crTab := state.Tab{
-		ID:        id,
-		Kind:      "resolve-conflict",
-		Label:     "Conflict " + key,
-		Route:     fmt.Sprintf("/resolve-conflict/%s/%s", workspaceID, id),
-		Closable:  true,
-		Meta:      map[string]string{"hash": key},
-		CreatedAt: time.Now(),
-	}
-	if err := s.state.AddTab(workspaceID, crTab); err != nil {
+	if _, err := s.workspace.OpenResolveConflictTab(workspaceID, hash); err != nil {
 		logging.Sub(s.logger, "workspace").Warn("linear-sync-resolve-conflict: failed to add tab", "err", err)
 	}
 }

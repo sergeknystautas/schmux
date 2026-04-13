@@ -441,16 +441,12 @@ export default function DiffPage() {
                           disabled={openingPreview}
                           onClick={async () => {
                             const filepath = selectedFile.new_path || '';
-                            const route = `/diff/${workspaceId}/md/${encodeURIComponent(filepath)}`;
                             if (workspaceId) {
                               setOpeningPreview(true);
                               try {
-                                await createTab(workspaceId, {
+                                const { route } = await createTab(workspaceId, {
                                   kind: 'markdown',
-                                  label: filepath.split('/').pop() || filepath,
-                                  route,
-                                  closable: true,
-                                  meta: { filepath },
+                                  filepath,
                                 });
                                 setPendingNavigation({ type: 'tab', workspaceId, tabRoute: route });
                               } catch {

@@ -361,6 +361,8 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		logging.Sub(logger, "preview"),
 		detectListeningPortsByPID,
 	)
+	s.previewManager.SetWorkspaceManager(wm)
+	s.RegisterTabCloseHooks(wm, s.previewManager)
 	s.session.SetOutputCallback(s.handleSessionOutputChunk)
 
 	// Initialize persona manager

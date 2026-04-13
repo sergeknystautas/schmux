@@ -147,13 +147,16 @@ func (m *Manager) Scan() (ScanResult, error) {
 			Branch: fsInfo.branch,
 			Path:   fsInfo.path,
 		}
-		m.state.AddWorkspace(newWS)
+		if err := m.AddWorkspaceWithTabs(newWS); err != nil {
+			m.logger.Warn("failed to add workspace", "id", newWS.ID, "err", err)
+			continue
+		}
 		result.Added = append(result.Added, newWS)
 		m.logger.Info("added workspace", "id", newWS.ID, "repo", newWS.Repo, "branch", newWS.Branch)
 	}
 
 	// Step 4: Save state if anything changed
-	if len(result.Added) > 0 || len(result.Updated) > 0 || len(result.Removed) > 0 {
+	if len(result.Updated) > 0 || len(result.Removed) > 0 {
 		if err := m.state.Save(); err != nil {
 			return ScanResult{}, fmt.Errorf("failed to save state: %w", err)
 		}

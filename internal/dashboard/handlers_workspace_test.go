@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/preview"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
 // newPreviewManager returns a preview.Manager wired to the given state store,
@@ -21,7 +22,7 @@ import (
 func newPreviewManager(t *testing.T, st *state.State, maxPerWorkspace int) *preview.Manager {
 	t.Helper()
 	logger := log.NewWithOptions(io.Discard, log.Options{})
-	return preview.NewManager(
+	m := preview.NewManager(
 		st,
 		maxPerWorkspace, // maxPerWorkspace
 		100,             // maxGlobal — large enough not to matter for individual tests
@@ -34,6 +35,25 @@ func newPreviewManager(t *testing.T, st *state.State, maxPerWorkspace int) *prev
 		logger,
 		nil, // portDetector — not needed for handler tests
 	)
+	// Wire a minimal workspace manager so tab operations don't nil-panic.
+	m.SetWorkspaceManager(&noopTabWorkspaceManager{st: st})
+	return m
+}
+
+// noopTabWorkspaceManager satisfies workspace.WorkspaceManager for tests that
+// only need tab operations to not crash.
+type noopTabWorkspaceManager struct {
+	workspace.WorkspaceManager
+	st *state.State
+}
+
+func (m *noopTabWorkspaceManager) OpenPreviewTab(_, _ string, _ int) (*state.Tab, error) {
+	return &state.Tab{}, nil
+}
+
+func (m *noopTabWorkspaceManager) CloseTab(wsID, tabID string) error {
+	_ = m.st.RemoveTab(wsID, tabID)
+	return nil
 }
 
 // startEchoServer starts a real TCP listener that serves minimal HTTP responses.

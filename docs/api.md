@@ -267,7 +267,7 @@ Notes:
 - `tmux_socket` (string, optional): the tmux socket name this session was created on. Omitted when empty (pre-isolation sessions).
 - `tmux_session` (string, optional): the tmux session name used by this session.
 - Session `status` field includes `disposing` during teardown. Dispose endpoints return 200 OK if the item is already in `disposing` status (idempotent).
-- Workspace `tabs` array contains Tab objects with fields: `id`, `kind` (tab type), `label`, `route`, `closable`, `meta` (type-specific metadata), and `created_at`.
+- Workspace `tabs` array contains Tab objects with fields: `id`, `kind` (tab type), `label`, `route`, `closable`, `meta` (type-specific metadata), and `created_at`. The `diff` and `resolve-conflict` tabs have no server-side label — the frontend derives their display from workspace data (`files_changed` for diff, `resolve_conflicts` records for conflict tabs). The broadcaster serves tabs as persisted with no field rewriting.
 - Workspace `resolve_conflicts` contains persisted conflict-process records keyed by the 7-character short hash; resolve-conflict tabs point at these records via `tabs[].meta.hash`.
 - Unrecognized workspace sub-routes return 404.
 
@@ -344,30 +344,32 @@ Response:
 
 ### POST /api/workspaces/{workspaceId}/tabs
 
-Create a workspace tab. Only certain kinds (`markdown`, `commit`) are allowed for client creation. Server-managed kinds (`diff`, `git`, `preview`, `resolve-conflict`) are created automatically.
+Create a workspace tab. The client sends only the tab kind and identifying parameters — the server constructs the route, label, ID, and all other fields. Only `markdown` and `commit` kinds are allowed for client creation. Server-managed kinds (`diff`, `git`, `preview`, `resolve-conflict`) are created automatically.
 
-Request:
+Request (commit tab):
 
 ```json
-{
-  "kind": "markdown",
-  "label": "README.md",
-  "route": "/diff/{workspaceId}/md/README.md",
-  "closable": true,
-  "meta": { "filepath": "README.md" }
-}
+{ "kind": "commit", "hash": "abc123def456" }
+```
+
+Request (markdown tab):
+
+```json
+{ "kind": "markdown", "filepath": "docs/README.md" }
 ```
 
 Response: `200 OK`
 
 ```json
-{ "id": "generated-uuid", "status": "ok" }
+{ "id": "generated-uuid", "route": "/commits/{workspaceId}/abc123d", "status": "ok" }
 ```
+
+The response includes `route` so the client can navigate to the newly created tab.
 
 Errors:
 
-- 400: "invalid request body", "unsupported tab kind"
-- 404: "workspace not found"
+- 400: "invalid request body", "tab kind not supported", "hash is required for commit tabs", "filepath is required for markdown tabs"
+- 500: workspace not found or tab creation failure
 
 ### DELETE /api/workspaces/{workspaceId}/tabs/{tabId}
 

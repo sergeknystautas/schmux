@@ -506,6 +506,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	autolearnInstructionsDir := filepath.Join(schmuxDir, "autolearn", "instructions")
 	ensure.SetInstructionStore(autolearn.NewInstructionStore(autolearnInstructionsDir))
 	wm := workspace.New(cfg, st, statePath, workspaceLog)
+	// SetBroadcastFn will be wired after server creation (see below)
 	sm := session.New(cfg, st, statePath, wm, tmuxServer, sessionLog)
 
 	// Wire timelapse recording if enabled
@@ -612,6 +613,9 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		DetectedTmux: detectedTmux,
 	})
 
+	// Wire workspace manager broadcast to trigger dashboard updates after tab mutations
+	wm.SetBroadcastFn(func() { go server.BroadcastSessions() })
+
 	// Wire model manager into server, session manager, workspace manager, and oneshot
 	server.SetModelManager(mm)
 	sm.SetModelManager(mm)
@@ -620,6 +624,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	// Create remote manager for remote workspace support
 	remoteManager := remote.NewManager(cfg, st, remoteLog)
+	remoteManager.SetWorkspaceManager(wm)
 	remoteManager.SetStateChangeCallback(server.BroadcastSessions)
 	server.SetRemoteManager(remoteManager)
 	sm.SetRemoteManager(remoteManager)
