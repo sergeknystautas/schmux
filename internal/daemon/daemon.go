@@ -1711,9 +1711,8 @@ func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *
 		logger.Info("asking", "session_id", sess.ID, "target", targetName)
 		nudge := askNudgeNikForSession(ctx, cfg, sess, sm, logger)
 		if nudge != "" {
-			sess.Nudge = nudge
-			if err := st.UpdateSession(sess); err != nil {
-				logger.Error("failed to save nudge", "session_id", sess.ID, "err", err)
+			if ok := st.UpdateSessionFunc(sess.ID, func(s *state.Session) { s.Nudge = nudge }); !ok {
+				logger.Error("failed to save nudge (session not found)", "session_id", sess.ID)
 			} else if err := st.Save(); err != nil {
 				logger.Error("failed to persist state", "session_id", sess.ID, "err", err)
 			} else {
