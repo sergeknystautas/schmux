@@ -1202,7 +1202,7 @@ func TestWaitForTrackerAttach_TimesOut(t *testing.T) {
 	defer srv.session.Stop()
 
 	start := time.Now()
-	waitForTrackerAttach(tracker, 50*time.Millisecond)
+	waitForTrackerAttach(context.Background(), tracker, 50*time.Millisecond)
 	elapsed := time.Since(start)
 
 	// Should exit after ~50ms timeout since tracker can't attach

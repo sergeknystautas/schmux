@@ -204,7 +204,7 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	}()
 
 	// Wait for tracker to attach before subscribing
-	waitForTrackerAttach(tracker, 2*time.Second)
+	waitForTrackerAttach(r.Context(), tracker, 2*time.Second)
 
 	// Start reading client messages early so we can process resize before bootstrap
 	controlChan := startWSMessageReader(conn)
@@ -836,7 +836,7 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 	defer conn.Close()
 
 	// Wait briefly for tracker to attach before subscribing
-	waitForTrackerAttach(tracker, 2*time.Second)
+	waitForTrackerAttach(r.Context(), tracker, 2*time.Second)
 
 	// Bootstrap with scrollback — send as binary frame
 	// Fall back to tmux CLI capture if control mode not attached
@@ -915,7 +915,7 @@ func (s *Server) handleFMTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 	defer conn.Close()
 
 	// Wait briefly for tracker to attach before subscribing
-	waitForTrackerAttach(tracker, 2*time.Second)
+	waitForTrackerAttach(r.Context(), tracker, 2*time.Second)
 
 	// Start reading client messages
 	controlChan := startWSMessageReader(rawConn)
@@ -1169,8 +1169,15 @@ func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request
 	ptmx := conn.PTY()
 	if ptmx == nil {
 		// Wait up to 5 seconds for PTY to become available
+		ctx := r.Context()
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
 		for i := 0; i < 50; i++ {
-			time.Sleep(100 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
 			ptmx = conn.PTY()
 			if ptmx != nil {
 				break

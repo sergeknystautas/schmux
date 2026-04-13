@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -79,11 +80,18 @@ type wsReader interface {
 	ReadMessage() (messageType int, p []byte, err error)
 }
 
-// waitForTrackerAttach busy-waits up to the given timeout for the session
-// tracker to attach to control mode.
-func waitForTrackerAttach(tracker *session.SessionRuntime, timeout time.Duration) {
+// waitForTrackerAttach waits up to the given timeout for the session
+// tracker to attach to control mode, checking every 25ms. If ctx is
+// cancelled before the tracker attaches, it returns early.
+func waitForTrackerAttach(ctx context.Context, tracker *session.SessionRuntime, timeout time.Duration) {
 	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
 	for !tracker.IsAttached() && time.Now().Before(deadline) {
-		time.Sleep(25 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 }
