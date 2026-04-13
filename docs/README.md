@@ -47,7 +47,7 @@ When modifying a subsystem, read its guide first. The guide tells you which file
 | [telemetry.md](telemetry.md)         | PostHog telemetry, IO workspace telemetry                        |
 | [preview.md](preview.md)             | Preview proxy lifecycle, auto-detection, port allocation         |
 | [subreddit.md](subreddit.md)         | Subreddit news feed (per-repo posts, upvotes)                    |
-| [emergence.md](emergence.md)         | Emergence system (skill discovery, injection, spawn entries)     |
+| [autolearn.md](autolearn.md)         | Autolearn system (continual learning, curation, merge)           |
 
 ### Frontend
 
