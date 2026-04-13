@@ -623,15 +623,31 @@ func (s *Server) Start() error {
 		r.Use(s.corsMiddleware)
 		r.Use(s.authMiddleware)
 
+		// Config handler group
+		configH := &ConfigHandlers{
+			config:                     s.config,
+			state:                      s.state,
+			models:                     s.models,
+			workspace:                  s.workspace,
+			logger:                     s.logger,
+			detectedVCS:                s.detectedVCS,
+			detectedTmux:               s.detectedTmux,
+			tunnelManager:              s.tunnelManager,
+			prDiscovery:                s.prDiscovery,
+			refreshAutolearnExecutor:   s.refreshAutolearnExecutor,
+			triggerSubredditGeneration: s.TriggerSubredditGeneration,
+			clearRemoteAuth:            s.ClearRemoteAuth,
+		}
+
 		// Read-only endpoints (no CSRF needed)
 		r.Get("/healthz", s.handleHealthz)
 		r.Get("/sessions", s.handleSessions)
 		r.Get("/recent-branches", s.handleRecentBranches)
-		r.Get("/detect-tools", s.handleDetectTools)
-		r.Get("/detection-summary", s.handleDetectionSummary)
-		r.Get("/models", s.handleModels)
-		r.Get("/user-models", s.handleGetUserModels)
-		r.Put("/user-models", s.handleSetUserModels)
+		r.Get("/detect-tools", configH.handleDetectTools)
+		r.Get("/detection-summary", configH.handleDetectionSummary)
+		r.Get("/models", configH.handleModels)
+		r.Get("/user-models", configH.handleGetUserModels)
+		r.Put("/user-models", configH.handleSetUserModels)
 		r.Get("/builtin-quick-launch", s.handleBuiltinQuickLaunch)
 		r.Get("/commit/prompt", s.handleCommitPrompt)
 		r.Get("/diff/*", s.handleDiff)
@@ -673,7 +689,7 @@ func (s *Server) Start() error {
 		r.Get("/branches", s.handleGetBranches)
 
 		r.Get("/github/status", s.handleGetGitHubStatus)
-		r.Get("/features", s.handleGetFeatures)
+		r.Get("/features", configH.handleGetFeatures)
 		r.Get("/environment", s.handleGetEnvironment)
 		r.Get("/repos/scan", s.handleScanRepos)
 
@@ -720,19 +736,19 @@ func (s *Server) Start() error {
 			r.Put("/sessions-xterm-title/{sessionID}", s.handleUpdateXtermTitle)
 
 			// Config routes
-			r.Get("/config", s.handleConfigGet)
-			r.Put("/config", s.handleConfigUpdate)
-			r.Post("/config", s.handleConfigUpdate)
+			r.Get("/config", configH.handleConfigGet)
+			r.Put("/config", configH.handleConfigUpdate)
+			r.Post("/config", configH.handleConfigUpdate)
 
 			// Auth secrets routes
-			r.Get("/auth/secrets", s.handleAuthSecretsGet)
-			r.Put("/auth/secrets", s.handleAuthSecretsUpdate)
-			r.Post("/auth/secrets", s.handleAuthSecretsUpdate)
+			r.Get("/auth/secrets", configH.handleAuthSecretsGet)
+			r.Put("/auth/secrets", configH.handleAuthSecretsUpdate)
+			r.Post("/auth/secrets", configH.handleAuthSecretsUpdate)
 
 			// Model routes
-			r.Get("/models/{name}/configured", s.handleModelConfigured)
-			r.Post("/models/{name}/secrets", s.handleModelSecretsPost)
-			r.Delete("/models/{name}/secrets", s.handleModelSecretsDelete)
+			r.Get("/models/{name}/configured", configH.handleModelConfigured)
+			r.Post("/models/{name}/secrets", configH.handleModelSecretsPost)
+			r.Delete("/models/{name}/secrets", configH.handleModelSecretsDelete)
 
 			// Diff/VSCode routes
 			r.Post("/diff-external/*", s.handleDiffExternal)

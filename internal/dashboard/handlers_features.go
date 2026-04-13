@@ -21,7 +21,7 @@ import (
 )
 
 // handleGetFeatures handles GET /api/features — reports which optional modules are available.
-func (s *Server) handleGetFeatures(w http.ResponseWriter, r *http.Request) {
+func (h *ConfigHandlers) handleGetFeatures(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(contracts.Features{
 		Tunnel:        tunnel.IsAvailable(),

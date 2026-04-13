@@ -11,8 +11,8 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 )
 
-func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
-	catalog, err := s.models.GetCatalog()
+func (h *ConfigHandlers) handleModels(w http.ResponseWriter, r *http.Request) {
+	catalog, err := h.models.GetCatalog()
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("Failed to read models: %v", err), http.StatusInternalServerError)
 		return
@@ -20,7 +20,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]any{"models": catalog.Models}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "models", "err", err)
+		h.logger.Error("failed to encode response", "handler", "models", "err", err)
 	}
 }
 
@@ -37,20 +37,20 @@ func buildTLS(cfg *config.Config) *contracts.TLS {
 }
 
 // handleModelConfigured handles GET /api/models/{name}/configured
-func (s *Server) handleModelConfigured(w http.ResponseWriter, r *http.Request) {
+func (h *ConfigHandlers) handleModelConfigured(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	if name == "" {
 		writeJSONError(w, "model name required", http.StatusBadRequest)
 		return
 	}
 
-	model, ok := s.models.FindModel(name)
+	model, ok := h.models.FindModel(name)
 	if !ok {
 		writeJSONError(w, "model not found", http.StatusNotFound)
 		return
 	}
 
-	configured, err := s.models.IsConfigured(model)
+	configured, err := h.models.IsConfigured(model)
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("Failed to read secrets: %v", err), http.StatusInternalServerError)
 		return
@@ -60,14 +60,14 @@ func (s *Server) handleModelConfigured(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleModelSecretsPost handles POST /api/models/{name}/secrets
-func (s *Server) handleModelSecretsPost(w http.ResponseWriter, r *http.Request) {
+func (h *ConfigHandlers) handleModelSecretsPost(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	if name == "" {
 		writeJSONError(w, "model name required", http.StatusBadRequest)
 		return
 	}
 
-	model, ok := s.models.FindModel(name)
+	model, ok := h.models.FindModel(name)
 	if !ok {
 		writeJSONError(w, "model not found", http.StatusNotFound)
 		return
@@ -82,7 +82,7 @@ func (s *Server) handleModelSecretsPost(w http.ResponseWriter, r *http.Request) 
 		writeJSONError(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
 		return
 	}
-	if err := s.models.ValidateSecrets(model, req.Secrets); err != nil {
+	if err := h.models.ValidateSecrets(model, req.Secrets); err != nil {
 		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -95,20 +95,20 @@ func (s *Server) handleModelSecretsPost(w http.ResponseWriter, r *http.Request) 
 }
 
 // handleModelSecretsDelete handles DELETE /api/models/{name}/secrets
-func (s *Server) handleModelSecretsDelete(w http.ResponseWriter, r *http.Request) {
+func (h *ConfigHandlers) handleModelSecretsDelete(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	if name == "" {
 		writeJSONError(w, "model name required", http.StatusBadRequest)
 		return
 	}
 
-	model, ok := s.models.FindModel(name)
+	model, ok := h.models.FindModel(name)
 	if !ok {
 		writeJSONError(w, "model not found", http.StatusNotFound)
 		return
 	}
 
-	if s.models.IsTargetInUse(model.ID) {
+	if h.models.IsTargetInUse(model.ID) {
 		writeJSONError(w, "model is in use by nudgenik or quick launch", http.StatusBadRequest)
 		return
 	}

@@ -2,31 +2,38 @@ package dashboard
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/models"
 )
 
 func TestHandleDetectionSummary(t *testing.T) {
 	t.Run("returns detection summary with expected structure", func(t *testing.T) {
-		server, _, _ := newTestServer(t)
-
-		// Set detection data on the server
-		server.detectedVCS = []detect.VCSTool{
-			{Name: "git", Path: "/usr/bin/git"},
-		}
-		server.detectedTmux = detect.TmuxStatus{
-			Available: true,
-			Path:      "/usr/bin/tmux",
+		logger := log.NewWithOptions(io.Discard, log.Options{})
+		cfg := config.CreateDefault(t.TempDir() + "/config.json")
+		h := &ConfigHandlers{
+			models: models.New(cfg, nil, "", logger),
+			logger: logger,
+			detectedVCS: []detect.VCSTool{
+				{Name: "git", Path: "/usr/bin/git"},
+			},
+			detectedTmux: detect.TmuxStatus{
+				Available: true,
+				Path:      "/usr/bin/tmux",
+			},
 		}
 
 		req := httptest.NewRequest(http.MethodGet, "/api/detection-summary", nil)
 		rr := httptest.NewRecorder()
 
-		server.handleDetectionSummary(rr, req)
+		h.handleDetectionSummary(rr, req)
 
 		if rr.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
@@ -71,14 +78,17 @@ func TestHandleDetectionSummary(t *testing.T) {
 	})
 
 	t.Run("returns empty arrays when nothing detected", func(t *testing.T) {
-		server, _, _ := newTestServer(t)
-
-		// Leave detectedVCS and detectedTmux at zero values
+		logger := log.NewWithOptions(io.Discard, log.Options{})
+		cfg := config.CreateDefault(t.TempDir() + "/config.json")
+		h := &ConfigHandlers{
+			models: models.New(cfg, nil, "", logger),
+			logger: logger,
+		}
 
 		req := httptest.NewRequest(http.MethodGet, "/api/detection-summary", nil)
 		rr := httptest.NewRecorder()
 
-		server.handleDetectionSummary(rr, req)
+		h.handleDetectionSummary(rr, req)
 
 		if rr.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())

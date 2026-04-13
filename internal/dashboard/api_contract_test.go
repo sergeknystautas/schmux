@@ -51,6 +51,24 @@ func newTestServer(t *testing.T) (*Server, *config.Config, *state.State) {
 	return server, cfg, st
 }
 
+// newTestConfigHandlers builds a ConfigHandlers from a Server for tests.
+func newTestConfigHandlers(s *Server) *ConfigHandlers {
+	return &ConfigHandlers{
+		config:                     s.config,
+		state:                      s.state,
+		models:                     s.models,
+		workspace:                  s.workspace,
+		logger:                     s.logger,
+		detectedVCS:                s.detectedVCS,
+		detectedTmux:               s.detectedTmux,
+		tunnelManager:              s.tunnelManager,
+		prDiscovery:                s.prDiscovery,
+		refreshAutolearnExecutor:   s.refreshAutolearnExecutor,
+		triggerSubredditGeneration: s.TriggerSubredditGeneration,
+		clearRemoteAuth:            s.ClearRemoteAuth,
+	}
+}
+
 func TestAPIContract_Healthz(t *testing.T) {
 	server, _, _ := newTestServer(t)
 
@@ -276,7 +294,7 @@ func TestAPIContract_ConfigGet(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
 	rr := httptest.NewRecorder()
-	server.handleConfigGet(rr, req)
+	newTestConfigHandlers(server).handleConfigGet(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rr.Code)
@@ -301,7 +319,7 @@ func TestAPIContract_ConfigUpdateValidation(t *testing.T) {
 	body := []byte(`{"repos":[{"name":"demo","url":""}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
-	server.handleConfigUpdate(rr, req)
+	newTestConfigHandlers(server).handleConfigUpdate(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d", rr.Code)
@@ -323,7 +341,7 @@ func TestAPIContract_ConfigUpdatePreservesBarePath(t *testing.T) {
 	body := []byte(`{"repos":[{"name":"myrepo","url":"https://github.com/owner/myrepo.git"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
-	server.handleConfigUpdate(rr, req)
+	newTestConfigHandlers(server).handleConfigUpdate(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
@@ -350,7 +368,7 @@ func TestAPIContract_ConfigUpdatePersistsRecycleWorkspaces(t *testing.T) {
 	body := []byte(`{"recycle_workspaces": true}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
-	server.handleConfigUpdate(rr, req)
+	newTestConfigHandlers(server).handleConfigUpdate(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
@@ -364,7 +382,7 @@ func TestAPIContract_ConfigUpdatePersistsRecycleWorkspaces(t *testing.T) {
 	// Verify it appears in the GET response
 	getReq := httptest.NewRequest(http.MethodGet, "/api/config", nil)
 	getRR := httptest.NewRecorder()
-	server.handleConfigGet(getRR, getReq)
+	newTestConfigHandlers(server).handleConfigGet(getRR, getReq)
 
 	var resp contracts.ConfigResponse
 	if err := json.NewDecoder(getRR.Body).Decode(&resp); err != nil {
@@ -378,7 +396,7 @@ func TestAPIContract_ConfigUpdatePersistsRecycleWorkspaces(t *testing.T) {
 	body = []byte(`{"recycle_workspaces": false}`)
 	req = httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
 	rr = httptest.NewRecorder()
-	server.handleConfigUpdate(rr, req)
+	newTestConfigHandlers(server).handleConfigUpdate(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200 on disable, got %d: %s", rr.Code, rr.Body.String())
@@ -532,7 +550,7 @@ func TestAPIContract_DetectTools(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/detect-tools", nil)
 	rr := httptest.NewRecorder()
-	server.handleDetectTools(rr, req)
+	newTestConfigHandlers(server).handleDetectTools(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rr.Code)
@@ -772,7 +790,7 @@ func TestAPIContract_ConfigUpdateRejectsDuplicateRepoNames(t *testing.T) {
 	body := []byte(`{"repos":[{"name":"react","url":"https://github.com/facebook/react.git"},{"name":"react","url":"https://github.com/preactjs/react.git"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
-	server.handleConfigUpdate(rr, req)
+	newTestConfigHandlers(server).handleConfigUpdate(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400 for duplicate repo names, got %d: %s", rr.Code, rr.Body.String())
@@ -983,7 +1001,7 @@ func TestAPIContract_DebugMode_ConfigUpdatePersistsDebugUI(t *testing.T) {
 	body := []byte(`{"debug_ui": true}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
-	server.handleConfigUpdate(rr, req)
+	newTestConfigHandlers(server).handleConfigUpdate(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
@@ -997,7 +1015,7 @@ func TestAPIContract_DebugMode_ConfigUpdatePersistsDebugUI(t *testing.T) {
 	// Verify it appears in the GET response
 	getReq := httptest.NewRequest(http.MethodGet, "/api/config", nil)
 	getRR := httptest.NewRecorder()
-	server.handleConfigGet(getRR, getReq)
+	newTestConfigHandlers(server).handleConfigGet(getRR, getReq)
 
 	var resp contracts.ConfigResponse
 	if err := json.NewDecoder(getRR.Body).Decode(&resp); err != nil {
@@ -1011,7 +1029,7 @@ func TestAPIContract_DebugMode_ConfigUpdatePersistsDebugUI(t *testing.T) {
 	body = []byte(`{"debug_ui": false}`)
 	req = httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
 	rr = httptest.NewRecorder()
-	server.handleConfigUpdate(rr, req)
+	newTestConfigHandlers(server).handleConfigUpdate(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200 on disable, got %d: %s", rr.Code, rr.Body.String())
@@ -1027,7 +1045,7 @@ func TestAPIContract_DebugMode_ConfigGetReturnsDebugUI(t *testing.T) {
 	// Default: debug_ui is off
 	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
 	rr := httptest.NewRecorder()
-	server.handleConfigGet(rr, req)
+	newTestConfigHandlers(server).handleConfigGet(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rr.Code)
@@ -1050,7 +1068,7 @@ func TestAPIContract_DebugMode_ConfigGetReturnsDebugUI(t *testing.T) {
 	// Verify GET now returns true
 	req = httptest.NewRequest(http.MethodGet, "/api/config", nil)
 	rr = httptest.NewRecorder()
-	server.handleConfigGet(rr, req)
+	newTestConfigHandlers(server).handleConfigGet(rr, req)
 
 	resp = contracts.ConfigResponse{}
 	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {

@@ -10,15 +10,38 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/github"
+	"github.com/sergeknystautas/schmux/internal/models"
+	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
+	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
+// ConfigHandlers groups HTTP handlers for configuration, model, detection, and feature endpoints.
+type ConfigHandlers struct {
+	config        *config.Config
+	state         state.StateStore
+	models        *models.Manager
+	workspace     workspace.WorkspaceManager
+	logger        *log.Logger
+	detectedVCS   []detect.VCSTool
+	detectedTmux  detect.TmuxStatus
+	tunnelManager *tunnel.Manager
+	prDiscovery   github.DiscoveryProvider
+
+	// Callbacks into Server methods that cannot be extracted.
+	refreshAutolearnExecutor   func(cfg *config.Config)
+	triggerSubredditGeneration func()
+	clearRemoteAuth            func()
+}
+
 // handleDetectTools returns detected tools (GET only).
-func (s *Server) handleDetectTools(w http.ResponseWriter, r *http.Request) {
+func (h *ConfigHandlers) handleDetectTools(w http.ResponseWriter, r *http.Request) {
 	type ToolResponse struct {
 		Name    string `json:"name"`
 		Command string `json:"command"`
@@ -29,7 +52,7 @@ func (s *Server) handleDetectTools(w http.ResponseWriter, r *http.Request) {
 		Tools []ToolResponse `json:"tools"`
 	}
 
-	detectedTools := s.models.GetDetectedTools()
+	detectedTools := h.models.GetDetectedTools()
 	toolResp := make([]ToolResponse, len(detectedTools))
 	for i, dt := range detectedTools {
 		toolResp[i] = ToolResponse{
@@ -47,10 +70,10 @@ func (s *Server) handleDetectTools(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleConfigGet returns the current config.
-func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
-	repos := s.config.GetRepos()
-	runTargets := s.config.GetRunTargets()
-	quickLaunch := s.config.GetQuickLaunch()
+func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request) {
+	repos := h.config.GetRepos()
+	runTargets := h.config.GetRunTargets()
+	quickLaunch := h.config.GetQuickLaunch()
 
 	// Build repo response with default branch from cache
 	ctx := r.Context()
@@ -58,7 +81,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	for i, repo := range repos {
 		resp := contracts.RepoWithConfig{Name: repo.Name, URL: repo.URL, VCS: repo.VCS}
 		// Try to get default branch from cache (omit if not detected)
-		if defaultBranch, err := s.workspace.GetDefaultBranch(ctx, repo.URL); err == nil {
+		if defaultBranch, err := h.workspace.GetDefaultBranch(ctx, repo.URL); err == nil {
 			resp.DefaultBranch = defaultBranch
 		}
 		repoResp[i] = resp
@@ -76,90 +99,90 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		quickLaunchResp[i] = contracts.QuickLaunch{Name: preset.Name, Command: preset.Command, Target: preset.Target, Prompt: preset.Prompt}
 	}
 
-	externalDiffCommands := s.config.GetExternalDiffCommands()
+	externalDiffCommands := h.config.GetExternalDiffCommands()
 	externalDiffCommandsResp := make([]contracts.ExternalDiffCommand, len(externalDiffCommands))
 	for i, cmd := range externalDiffCommands {
 		externalDiffCommandsResp[i] = contracts.ExternalDiffCommand{Name: cmd.Name, Command: cmd.Command}
 	}
 
 	// Build models list with full metadata
-	catalog, err := s.models.GetCatalog()
+	catalog, err := h.models.GetCatalog()
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("Failed to read models: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	response := contracts.ConfigResponse{
-		WorkspacePath:              s.config.GetWorkspacePath(),
-		SourceCodeManagement:       s.config.GetSourceCodeManagement(),
+		WorkspacePath:              h.config.GetWorkspacePath(),
+		SourceCodeManagement:       h.config.GetSourceCodeManagement(),
 		Repos:                      repoResp,
 		RunTargets:                 runTargetResp,
 		QuickLaunch:                quickLaunchResp,
 		ExternalDiffCommands:       externalDiffCommandsResp,
-		ExternalDiffCleanupAfterMs: s.config.GetExternalDiffCleanupAfterMs(),
-		Pastebin:                   s.config.GetPastebin(),
+		ExternalDiffCleanupAfterMs: h.config.GetExternalDiffCleanupAfterMs(),
+		Pastebin:                   h.config.GetPastebin(),
 		Runners:                    catalog.Runners,
 		Models:                     catalog.Models,
-		EnabledModels:              s.models.GetEnabledModels(),
-		CommStyles:                 s.config.GetCommStyles(),
+		EnabledModels:              h.models.GetEnabledModels(),
+		CommStyles:                 h.config.GetCommStyles(),
 		Nudgenik: contracts.Nudgenik{
-			Target:         s.config.GetNudgenikTarget(),
-			ViewedBufferMs: s.config.GetNudgenikViewedBufferMs(),
-			SeenIntervalMs: s.config.GetNudgenikSeenIntervalMs(),
+			Target:         h.config.GetNudgenikTarget(),
+			ViewedBufferMs: h.config.GetNudgenikViewedBufferMs(),
+			SeenIntervalMs: h.config.GetNudgenikSeenIntervalMs(),
 		},
 		BranchSuggest: contracts.BranchSuggest{
-			Target: s.config.GetBranchSuggestTarget(),
+			Target: h.config.GetBranchSuggestTarget(),
 		},
 		ConflictResolve: contracts.ConflictResolve{
-			Target:    s.config.GetConflictResolveTarget(),
-			TimeoutMs: s.config.GetConflictResolveTimeoutMs(),
+			Target:    h.config.GetConflictResolveTarget(),
+			TimeoutMs: h.config.GetConflictResolveTimeoutMs(),
 		},
 		Sessions: contracts.Sessions{
-			DashboardPollIntervalMs: s.config.GetDashboardPollIntervalMs(),
-			GitStatusPollIntervalMs: s.config.GetGitStatusPollIntervalMs(),
-			GitCloneTimeoutMs:       s.config.GetGitCloneTimeoutMs(),
-			GitStatusTimeoutMs:      s.config.GetGitStatusTimeoutMs(),
+			DashboardPollIntervalMs: h.config.GetDashboardPollIntervalMs(),
+			GitStatusPollIntervalMs: h.config.GetGitStatusPollIntervalMs(),
+			GitCloneTimeoutMs:       h.config.GetGitCloneTimeoutMs(),
+			GitStatusTimeoutMs:      h.config.GetGitStatusTimeoutMs(),
 		},
 		Xterm: contracts.Xterm{
-			QueryTimeoutMs:     s.config.GetXtermQueryTimeoutMs(),
-			OperationTimeoutMs: s.config.GetXtermOperationTimeoutMs(),
-			UseWebGL:           s.config.GetXtermUseWebGL(),
+			QueryTimeoutMs:     h.config.GetXtermQueryTimeoutMs(),
+			OperationTimeoutMs: h.config.GetXtermOperationTimeoutMs(),
+			UseWebGL:           h.config.GetXtermUseWebGL(),
 		},
 		Network: contracts.Network{
-			BindAddress:   s.config.GetBindAddress(),
-			Port:          s.config.GetPort(),
-			PublicBaseURL: s.config.GetPublicBaseURL(),
-			TLS:           buildTLS(s.config),
+			BindAddress:   h.config.GetBindAddress(),
+			Port:          h.config.GetPort(),
+			PublicBaseURL: h.config.GetPublicBaseURL(),
+			TLS:           buildTLS(h.config),
 		},
 		AccessControl: contracts.AccessControl{
-			Enabled:           s.config.GetAuthEnabled(),
-			Provider:          s.config.GetAuthProvider(),
-			SessionTTLMinutes: s.config.GetAuthSessionTTLMinutes(),
+			Enabled:           h.config.GetAuthEnabled(),
+			Provider:          h.config.GetAuthProvider(),
+			SessionTTLMinutes: h.config.GetAuthSessionTTLMinutes(),
 		},
 		PrReview: contracts.PrReview{
-			Target: s.config.GetPrReviewTarget(),
+			Target: h.config.GetPrReviewTarget(),
 		},
 		CommitMessage: contracts.CommitMessage{
-			Target: s.config.GetCommitMessageTarget(),
+			Target: h.config.GetCommitMessageTarget(),
 		},
 		Desync: contracts.Desync{
-			Enabled: s.config.GetDesyncEnabled(),
-			Target:  s.config.GetDesyncTarget(),
+			Enabled: h.config.GetDesyncEnabled(),
+			Target:  h.config.GetDesyncTarget(),
 		},
 		IOWorkspaceTelemetry: contracts.IOWorkspaceTelemetry{
-			Enabled: s.config.GetIOWorkspaceTelemetryEnabled(),
-			Target:  s.config.GetIOWorkspaceTelemetryTarget(),
+			Enabled: h.config.GetIOWorkspaceTelemetryEnabled(),
+			Target:  h.config.GetIOWorkspaceTelemetryTarget(),
 		},
-		TmuxBinary:        s.config.TmuxBinary,
-		TmuxSocketName:    s.config.GetTmuxSocketName(),
-		RecycleWorkspaces: s.config.RecycleWorkspaces,
-		DebugUI:           s.config.GetDebugUI(),
-		PersonasEnabled:   s.config.GetPersonasEnabled(),
-		CommStylesEnabled: s.config.GetCommStylesEnabled(),
-		BackburnerEnabled: s.config.GetBackburnerEnabled(),
-		LocalEchoRemote:   s.config.LocalEchoRemote,
+		TmuxBinary:        h.config.TmuxBinary,
+		TmuxSocketName:    h.config.GetTmuxSocketName(),
+		RecycleWorkspaces: h.config.RecycleWorkspaces,
+		DebugUI:           h.config.GetDebugUI(),
+		PersonasEnabled:   h.config.GetPersonasEnabled(),
+		CommStylesEnabled: h.config.GetCommStylesEnabled(),
+		BackburnerEnabled: h.config.GetBackburnerEnabled(),
+		LocalEchoRemote:   h.config.LocalEchoRemote,
 		SaplingCommands: func() *contracts.SaplingCommandsUpdate {
-			sc := s.config.SaplingCommands
+			sc := h.config.SaplingCommands
 			if sc.CreateWorkspace == "" && sc.RemoveWorkspace == "" && sc.CheckRepoBase == "" && sc.CreateRepoBase == "" {
 				return nil
 			}
@@ -172,57 +195,57 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			}
 		}(),
 		Notifications: contracts.Notifications{
-			SoundDisabled:           !s.config.GetNotificationSoundEnabled(),
-			ConfirmBeforeClose:      s.config.GetConfirmBeforeClose(),
-			SuggestDisposeAfterPush: s.config.GetSuggestDisposeAfterPush(),
+			SoundDisabled:           !h.config.GetNotificationSoundEnabled(),
+			ConfirmBeforeClose:      h.config.GetConfirmBeforeClose(),
+			SuggestDisposeAfterPush: h.config.GetSuggestDisposeAfterPush(),
 		},
 		Lore: contracts.Lore{
-			Enabled:         s.config.GetLoreEnabled(),
-			LLMTarget:       s.config.GetLoreTargetRaw(),
-			CurateOnDispose: s.config.GetLoreCurateOnDispose(),
-			AutoPR:          s.config.GetLoreAutoPR(),
-			PublicRuleMode:  s.config.GetLorePublicRuleMode(),
+			Enabled:         h.config.GetLoreEnabled(),
+			LLMTarget:       h.config.GetLoreTargetRaw(),
+			CurateOnDispose: h.config.GetLoreCurateOnDispose(),
+			AutoPR:          h.config.GetLoreAutoPR(),
+			PublicRuleMode:  h.config.GetLorePublicRuleMode(),
 		},
 		Subreddit: contracts.Subreddit{
-			Enabled:       s.config.GetSubredditEnabled(),
-			Target:        s.config.GetSubredditTarget(),
-			Interval:      s.config.GetSubredditInterval(),
-			CheckingRange: s.config.GetSubredditCheckingRange(),
-			MaxPosts:      s.config.GetSubredditMaxPosts(),
-			MaxAge:        s.config.GetSubredditMaxAge(),
-			Repos:         s.config.GetSubredditRepos(),
+			Enabled:       h.config.GetSubredditEnabled(),
+			Target:        h.config.GetSubredditTarget(),
+			Interval:      h.config.GetSubredditInterval(),
+			CheckingRange: h.config.GetSubredditCheckingRange(),
+			MaxPosts:      h.config.GetSubredditMaxPosts(),
+			MaxAge:        h.config.GetSubredditMaxAge(),
+			Repos:         h.config.GetSubredditRepos(),
 		},
 		Repofeed: contracts.Repofeed{
-			Enabled:                 s.config.GetRepofeedEnabled(),
-			PublishIntervalSeconds:  s.config.GetRepofeedPublishInterval(),
-			FetchIntervalSeconds:    s.config.GetRepofeedFetchInterval(),
-			CompletedRetentionHours: s.config.GetRepofeedCompletedRetention(),
-			Repos:                   s.config.GetRepofeedRepos(),
+			Enabled:                 h.config.GetRepofeedEnabled(),
+			PublishIntervalSeconds:  h.config.GetRepofeedPublishInterval(),
+			FetchIntervalSeconds:    h.config.GetRepofeedFetchInterval(),
+			CompletedRetentionHours: h.config.GetRepofeedCompletedRetention(),
+			Repos:                   h.config.GetRepofeedRepos(),
 		},
 		FloorManager: contracts.FloorManager{
-			Enabled:           s.config.GetFloorManagerEnabled(),
-			Target:            s.config.GetFloorManagerTarget(),
-			RotationThreshold: s.config.GetFloorManagerRotationThreshold(),
-			DebounceMs:        s.config.GetFloorManagerDebounceMs(),
+			Enabled:           h.config.GetFloorManagerEnabled(),
+			Target:            h.config.GetFloorManagerTarget(),
+			RotationThreshold: h.config.GetFloorManagerRotationThreshold(),
+			DebounceMs:        h.config.GetFloorManagerDebounceMs(),
 		},
 		Timelapse: contracts.Timelapse{
-			Enabled:           s.config.GetTimelapseEnabled(),
-			RetentionDays:     s.config.GetTimelapseRetentionDays(),
-			MaxFileSizeMB:     s.config.GetTimelapseMaxFileSizeMB(),
-			MaxTotalStorageMB: s.config.GetTimelapseMaxTotalStorageMB(),
+			Enabled:           h.config.GetTimelapseEnabled(),
+			RetentionDays:     h.config.GetTimelapseRetentionDays(),
+			MaxFileSizeMB:     h.config.GetTimelapseMaxFileSizeMB(),
+			MaxTotalStorageMB: h.config.GetTimelapseMaxTotalStorageMB(),
 		},
 		RemoteAccess: contracts.RemoteAccess{
-			Enabled:         s.config.GetRemoteAccessEnabled(),
-			TimeoutMinutes:  s.config.GetRemoteAccessTimeoutMinutes(),
-			PasswordHashSet: s.config.GetRemoteAccessPasswordHash() != "",
+			Enabled:         h.config.GetRemoteAccessEnabled(),
+			TimeoutMinutes:  h.config.GetRemoteAccessTimeoutMinutes(),
+			PasswordHashSet: h.config.GetRemoteAccessPasswordHash() != "",
 			Notify: contracts.RemoteAccessNotify{
-				NtfyTopic: s.config.GetRemoteAccessNtfyTopic(),
-				Command:   s.config.GetRemoteAccessNotifyCommand(),
+				NtfyTopic: h.config.GetRemoteAccessNtfyTopic(),
+				Command:   h.config.GetRemoteAccessNotifyCommand(),
 			},
 		},
-		NeedsRestart: s.state.GetNeedsRestart(),
+		NeedsRestart: h.state.GetNeedsRestart(),
 		DashboardSXStatus: func() *contracts.DashboardSXStatus {
-			st := s.state.GetDashboardSXStatus()
+			st := h.state.GetDashboardSXStatus()
 			if st == nil {
 				return nil
 			}
@@ -246,28 +269,28 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		s.logger.Error("failed to encode response", "handler", "config", "err", err)
+		h.logger.Error("failed to encode response", "handler", "config", "err", err)
 	}
 }
 
 // handleConfigUpdate handles config update requests.
-func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
+func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req contracts.ConfigUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.logger.Error("invalid JSON payload", "err", err)
+		h.logger.Error("invalid JSON payload", "err", err)
 		writeJSONError(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	// Reload config from disk to get all current values (including tools, etc.)
-	if err := s.config.Reload(); err != nil {
-		s.logger.Error("failed to reload config", "err", err)
+	if err := h.config.Reload(); err != nil {
+		h.logger.Error("failed to reload config", "err", err)
 		writeJSONError(w, fmt.Sprintf("Failed to reload config: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	cfg := s.config
+	cfg := h.config
 	oldNetwork := cloneNetwork(cfg.Network)
 	oldAccessControl := cloneAccessControl(cfg.AccessControl)
 	oldTmuxBinary := cfg.TmuxBinary
@@ -275,8 +298,8 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	oldRepos := cfg.GetRepos()
 
 	// Check for workspace path change (for warning after save)
-	sessionCount := len(s.state.GetSessions())
-	workspaceCount := len(s.state.GetWorkspaces())
+	sessionCount := len(h.state.GetSessions())
+	workspaceCount := len(h.state.GetWorkspaces())
 	pathChanged := false
 	var newPath string
 
@@ -788,21 +811,21 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 
 	warnings, err := cfg.ValidateForSave()
 	if err != nil {
-		s.logger.Error("validation error", "err", err)
+		h.logger.Error("validation error", "err", err)
 		writeJSONError(w, fmt.Sprintf("Invalid config: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	if !reflect.DeepEqual(oldNetwork, cfg.Network) || !reflect.DeepEqual(oldAccessControl, cfg.AccessControl) || cfg.TmuxBinary != oldTmuxBinary || cfg.TmuxSocketName != oldTmuxSocketName {
-		s.state.SetNeedsRestart(true)
-		if err := s.state.Save(); err != nil {
-			s.logger.Error("failed to save restart-needed state", "err", err)
+		h.state.SetNeedsRestart(true)
+		if err := h.state.Save(); err != nil {
+			h.logger.Error("failed to save restart-needed state", "err", err)
 		}
 	}
 
 	// Save config
 	if err := cfg.Save(); err != nil {
-		s.logger.Error("failed to save config", "err", err)
+		h.logger.Error("failed to save config", "err", err)
 		writeJSONError(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -810,25 +833,25 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	// If remote access is disabled but a tunnel is active, stop it immediately.
 	// This prevents a security hole where an active tunnel could bypass auth
 	// after the config is reloaded with remote_access.enabled = false.
-	if !cfg.GetRemoteAccessEnabled() && s.tunnelManager != nil {
-		status := s.tunnelManager.Status()
+	if !cfg.GetRemoteAccessEnabled() && h.tunnelManager != nil {
+		status := h.tunnelManager.Status()
 		if status.State == tunnel.StateConnected || status.State == tunnel.StateStarting {
-			s.logger.Info("stopping tunnel because remote_access is disabled")
-			s.tunnelManager.Stop()
-			s.ClearRemoteAuth()
+			h.logger.Info("stopping tunnel because remote_access is disabled")
+			h.tunnelManager.Stop()
+			h.clearRemoteAuth()
 		}
 	}
 
 	// Update PR discovery polling based on new config
 	// Pass a function so poll always uses current repos list
-	s.prDiscovery.SetTarget(cfg.GetPrReviewTarget(), func() []config.Repo { return cfg.GetRepos() })
+	h.prDiscovery.SetTarget(cfg.GetPrReviewTarget(), func() []config.Repo { return cfg.GetRepos() })
 
 	// Refresh autolearn executor when target changes
-	s.refreshAutolearnExecutor(cfg)
+	h.refreshAutolearnExecutor(cfg)
 
 	// Trigger subreddit generation if newly enabled
 	if req.Subreddit != nil {
-		s.TriggerSubredditGeneration()
+		h.triggerSubredditGeneration()
 	}
 
 	// Toggle floor manager if enabled changed
@@ -839,8 +862,8 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	// Ensure overlay directories exist for all repos if repos were actually updated
 	newRepos := cfg.GetRepos()
 	if !reposEqual(oldRepos, newRepos) {
-		if err := s.workspace.EnsureOverlayDirs(newRepos); err != nil {
-			s.logger.Warn("failed to ensure overlay directories", "err", err)
+		if err := h.workspace.EnsureOverlayDirs(newRepos); err != nil {
+			h.logger.Warn("failed to ensure overlay directories", "err", err)
 			// Don't fail the request for this - overlay dirs can be created manually
 		}
 	}
@@ -876,7 +899,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		Message:  "Config saved and reloaded. Changes are now in effect.",
 		Warnings: warnings,
 	}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "config-update", "err", err)
+		h.logger.Error("failed to encode response", "handler", "config-update", "err", err)
 	}
 }
 
@@ -925,7 +948,7 @@ func reposEqual(a, b []config.Repo) bool {
 }
 
 // handleAuthSecretsGet returns GitHub auth secrets status.
-func (s *Server) handleAuthSecretsGet(w http.ResponseWriter, r *http.Request) {
+func (h *ConfigHandlers) handleAuthSecretsGet(w http.ResponseWriter, r *http.Request) {
 	secrets, err := config.GetAuthSecrets()
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("Failed to read secrets: %v", err), http.StatusInternalServerError)
@@ -944,7 +967,7 @@ func (s *Server) handleAuthSecretsGet(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleAuthSecretsUpdate saves GitHub auth secrets.
-func (s *Server) handleAuthSecretsUpdate(w http.ResponseWriter, r *http.Request) {
+func (h *ConfigHandlers) handleAuthSecretsUpdate(w http.ResponseWriter, r *http.Request) {
 	type SecretsRequest struct {
 		ClientID     string `json:"client_id"`
 		ClientSecret string `json:"client_secret"`

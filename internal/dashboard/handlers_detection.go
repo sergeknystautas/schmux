@@ -8,9 +8,9 @@ import (
 )
 
 // handleDetectionSummary returns what tools were detected at daemon startup.
-func (s *Server) handleDetectionSummary(w http.ResponseWriter, r *http.Request) {
+func (h *ConfigHandlers) handleDetectionSummary(w http.ResponseWriter, r *http.Request) {
 	// Map detected agents from the model manager
-	detectedTools := s.models.GetDetectedTools()
+	detectedTools := h.models.GetDetectedTools()
 	agents := make([]contracts.DetectionAgent, len(detectedTools))
 	for i, dt := range detectedTools {
 		agents[i] = contracts.DetectionAgent{
@@ -21,8 +21,8 @@ func (s *Server) handleDetectionSummary(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Map detected VCS tools
-	vcs := make([]contracts.DetectionVCS, len(s.detectedVCS))
-	for i, v := range s.detectedVCS {
+	vcs := make([]contracts.DetectionVCS, len(h.detectedVCS))
+	for i, v := range h.detectedVCS {
 		vcs[i] = contracts.DetectionVCS{
 			Name: v.Name,
 			Path: v.Path,
@@ -31,8 +31,8 @@ func (s *Server) handleDetectionSummary(w http.ResponseWriter, r *http.Request) 
 
 	// Map detected tmux status
 	tmuxStatus := contracts.DetectionTmux{
-		Available: s.detectedTmux.Available,
-		Path:      s.detectedTmux.Path,
+		Available: h.detectedTmux.Available,
+		Path:      h.detectedTmux.Path,
 	}
 
 	resp := contracts.DetectionSummaryResponse{
@@ -44,6 +44,6 @@ func (s *Server) handleDetectionSummary(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		s.logger.Error("failed to encode response", "handler", "detection-summary", "err", err)
+		h.logger.Error("failed to encode response", "handler", "detection-summary", "err", err)
 	}
 }

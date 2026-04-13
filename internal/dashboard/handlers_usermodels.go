@@ -10,13 +10,13 @@ import (
 )
 
 // handleGetUserModels returns the list of user-defined models.
-func (s *Server) handleGetUserModels(w http.ResponseWriter, r *http.Request) {
-	userModels := s.models.GetUserModels()
+func (h *ConfigHandlers) handleGetUserModels(w http.ResponseWriter, r *http.Request) {
+	userModels := h.models.GetUserModels()
 	json.NewEncoder(w).Encode(map[string]any{"models": userModels})
 }
 
 // handleSetUserModels saves user-defined models.
-func (s *Server) handleSetUserModels(w http.ResponseWriter, r *http.Request) {
+func (h *ConfigHandlers) handleSetUserModels(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Models []models.UserModel `json:"models"`
 	}
@@ -25,7 +25,7 @@ func (s *Server) handleSetUserModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	toolNames := s.models.DetectedToolNames()
+	toolNames := h.models.DetectedToolNames()
 	if err := models.ValidateUserModels(req.Models, toolNames); err != nil {
 		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return

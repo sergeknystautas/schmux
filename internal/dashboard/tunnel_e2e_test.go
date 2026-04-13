@@ -87,9 +87,15 @@ func newTunnelTestServer(t *testing.T, password string) *tunnelTestServer {
 			r.Post("/remote-access/on", s.handleRemoteAccessOn)
 			r.Post("/remote-access/off", s.handleRemoteAccessOff)
 			r.Post("/remote-access/set-password", s.handleRemoteAccessSetPassword)
-			r.Get("/config", s.handleConfigGet)
-			r.Put("/config", s.handleConfigUpdate)
-			r.Post("/config", s.handleConfigUpdate)
+			cfgH := &ConfigHandlers{
+				config: s.config,
+				state:  s.state,
+				models: s.models,
+				logger: s.logger,
+			}
+			r.Get("/config", cfgH.handleConfigGet)
+			r.Put("/config", cfgH.handleConfigUpdate)
+			r.Post("/config", cfgH.handleConfigUpdate)
 		})
 	})
 
