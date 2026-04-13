@@ -18,8 +18,6 @@ import (
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/session"
-	"github.com/sergeknystautas/schmux/internal/state"
-	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
@@ -134,11 +132,6 @@ func (s *Server) checkWSOrigin(r *http.Request) bool {
 		return true
 	}
 	return s.isAllowedOrigin(origin)
-}
-
-// serverForSession returns the TmuxServer for a session's socket.
-func (s *Server) serverForSession(sess *state.Session) *tmux.TmuxServer {
-	return s.session.ServerForSocket(sess.TmuxSocket)
 }
 
 // handleTerminalWebSocket streams tmux output to websocket clients via binary frames.
@@ -302,15 +295,10 @@ resizeWaitLoop:
 	defer tracker.UnsubscribeOutput(outputCh)
 
 	capCtx, capCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
-	bootstrap, err := tracker.CaptureLastLines(capCtx, bootstrapCaptureLines)
+	bootstrap, err := s.session.CaptureLastLines(capCtx, sessionID, bootstrapCaptureLines)
 	if err != nil {
-		if server := s.serverForSession(sess); server != nil {
-			bootstrap, err = server.CaptureLastLines(capCtx, sess.TmuxSession, bootstrapCaptureLines, true)
-		}
-		if err != nil {
-			logging.Sub(s.logger, "ws").Error("bootstrap capture failed", "session_id", sessionID[:8], "err", err)
-			bootstrap = ""
-		}
+		logging.Sub(s.logger, "ws").Error("bootstrap capture failed", "session_id", sessionID[:8], "err", err)
+		bootstrap = ""
 	}
 	capCancel()
 
@@ -332,25 +320,9 @@ resizeWaitLoop:
 	// capture-pane doesn't preserve terminal modes like cursor visibility,
 	// so without this: (1) the cursor sits at column 0 of the last non-empty
 	// line, and (2) a hidden cursor (e.g. Claude Code's TUI) shows as visible.
-	var curX, curY int
-	var curVisible bool
 	curCtx, curCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	curState, curErr := tracker.GetCursorState(curCtx)
+	curX, curY, curVisible, curErr := s.session.GetCursorState(curCtx, sessionID)
 	curCancel()
-	if curErr == nil {
-		curX, curY, curVisible = curState.X, curState.Y, curState.Visible
-	} else {
-		// Fallback to tmux CLI
-		if server := s.serverForSession(sess); server != nil {
-			curCtx2, curCancel2 := context.WithTimeout(context.Background(), 500*time.Millisecond)
-			cliState, cliErr := server.GetCursorState(curCtx2, sess.TmuxSession)
-			curCancel2()
-			if cliErr == nil {
-				curX, curY, curVisible = cliState.X, cliState.Y, cliState.Visible
-				curErr = nil
-			}
-		}
-	}
 	if curErr == nil {
 		// Cursor restoration is ephemeral (not logged), sent as a separate unsequenced frame
 		cursorRestore := fmt.Sprintf("\033[%d;%dH", curY+1, curX+1)

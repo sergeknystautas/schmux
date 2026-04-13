@@ -1726,6 +1726,57 @@ func (m *Manager) GetTracker(sessionID string) (*SessionRuntime, error) {
 	return m.ensureTrackerFromSession(sess), nil
 }
 
+// CaptureLastLines captures the last N lines from a session's terminal.
+// It tries the session tracker first (works for both local and remote sessions),
+// then falls back to direct tmux CLI for local sessions.
+func (m *Manager) CaptureLastLines(ctx context.Context, sessionID string, lines int) (string, error) {
+	tracker, err := m.GetTracker(sessionID)
+	if err != nil {
+		return "", err
+	}
+	result, trackerErr := tracker.CaptureLastLines(ctx, lines)
+	if trackerErr == nil {
+		return result, nil
+	}
+	// Fallback to direct tmux CLI
+	sess, ok := m.state.GetSession(sessionID)
+	if !ok {
+		return "", trackerErr
+	}
+	server := m.ServerForSocket(sess.TmuxSocket)
+	if server == nil {
+		return "", trackerErr
+	}
+	return server.CaptureLastLines(ctx, sess.TmuxSession, lines, true)
+}
+
+// GetCursorState returns the cursor position and visibility for a session.
+// It tries the session tracker first, then falls back to direct tmux CLI.
+func (m *Manager) GetCursorState(ctx context.Context, sessionID string) (x, y int, visible bool, err error) {
+	tracker, trackerErr := m.GetTracker(sessionID)
+	if trackerErr != nil {
+		return 0, 0, false, trackerErr
+	}
+	curState, trackerErr := tracker.GetCursorState(ctx)
+	if trackerErr == nil {
+		return curState.X, curState.Y, curState.Visible, nil
+	}
+	// Fallback to direct tmux CLI
+	sess, ok := m.state.GetSession(sessionID)
+	if !ok {
+		return 0, 0, false, trackerErr
+	}
+	server := m.ServerForSocket(sess.TmuxSocket)
+	if server == nil {
+		return 0, 0, false, trackerErr
+	}
+	cliState, cliErr := server.GetCursorState(ctx, sess.TmuxSession)
+	if cliErr != nil {
+		return 0, 0, false, cliErr
+	}
+	return cliState.X, cliState.Y, cliState.Visible, nil
+}
+
 func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionRuntime {
 	m.mu.Lock()
 	if existing := m.trackers[sess.ID]; existing != nil {
