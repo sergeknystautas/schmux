@@ -77,6 +77,46 @@ type Daemon struct {
 	githubStatus contracts.GitHubStatus
 }
 
+// shutdownHandles bundles the handles needed by the shutdown sequence.
+type shutdownHandles struct {
+	st                 *state.State
+	tel                telemetry.Telemetry
+	sm                 *session.Manager
+	remoteManager      *remote.Manager
+	tunnelMgr          *tunnel.Manager
+	gitWatcher         *workspace.GitWatcher
+	compounder         *compound.Compounder
+	detachFloorManager func()
+	server             *dashboard.Server
+}
+
+// daemonInit bundles the values produced by the config/state initialization
+// phase of Run() so they can be returned from initConfigAndState.
+type daemonInit struct {
+	logger          *log.Logger
+	cfg             *config.Config
+	st              *state.State
+	tel             telemetry.Telemetry
+	tmuxServer      *tmux.TmuxServer
+	tmuxBin         string
+	homeDir         string
+	schmuxDir       string
+	statePath       string
+	hooksDir        string
+	pidFile         string
+	workspaceLog    *log.Logger
+	configLog       *log.Logger
+	compoundLog     *log.Logger
+	overlayLog      *log.Logger
+	autolearnLog    *log.Logger
+	sessionLog      *log.Logger
+	nudgenikLog     *log.Logger
+	gitWatcherLog   *log.Logger
+	githubLog       *log.Logger
+	remoteLog       *log.Logger
+	remoteAccessLog *log.Logger
+}
+
 // heartbeatStateWriter adapts state.StateStore to dashboardsx.HeartbeatStatusWriter.
 type heartbeatStateWriter struct {
 	state state.StateStore
@@ -311,6 +351,88 @@ func Status() (running bool, url string, startedAt string, err error) {
 // If devMode is true, dev mode API endpoints are enabled and the daemon
 // can exit with ErrDevRestart (exit code 42) for workspace switching.
 func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
+	di, err := d.initConfigAndState(devMode)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(di.pidFile)
+
+	// Unpack frequently used values for readability — matches the variable
+	// names the rest of Run() already uses, minimising the diff.
+	logger := di.logger
+	cfg := di.cfg
+	st := di.st
+	tel := di.tel
+	tmuxServer := di.tmuxServer
+	tmuxBin := di.tmuxBin
+	homeDir := di.homeDir
+	schmuxDir := di.schmuxDir
+	statePath := di.statePath
+	hooksDir := di.hooksDir
+	workspaceLog := di.workspaceLog
+	configLog := di.configLog
+	compoundLog := di.compoundLog
+	overlayLog := di.overlayLog
+	autolearnLog := di.autolearnLog
+	sessionLog := di.sessionLog
+	nudgenikLog := di.nudgenikLog
+	gitWatcherLog := di.gitWatcherLog
+	githubLog := di.githubLog
+	remoteLog := di.remoteLog
+	remoteAccessLog := di.remoteAccessLog
+
+	d.initDashboardSX(cfg, st, logger)
+
+	wm, sm, autolearnInstructionsDir := d.initManagers(cfg, st, tmuxServer, statePath, hooksDir, tel, schmuxDir, workspaceLog, sessionLog)
+
+	server, mm, prDiscovery, err := d.initDashboard(cfg, st, wm, sm, tmuxServer, statePath, schmuxDir, devProxy, devMode, logger, configLog, githubLog)
+	if err != nil {
+		return err
+	}
+
+	remoteManager, tunnelMgr, detachFloorManager, eventHandlers := d.wireCallbacks(cfg, st, sm, wm, mm, server, tmuxServer, statePath, homeDir, logger, remoteLog, remoteAccessLog)
+
+	gitWatcher := d.restoreSessions(cfg, st, sm, wm, remoteManager, tmuxServer, tmuxBin, server, logger, sessionLog, gitWatcherLog)
+
+	compounder := d.initCompound(cfg, st, sm, wm, server, compoundLog, overlayLog)
+
+	d.initAutolearn(cfg, st, server, schmuxDir, autolearnInstructionsDir, autolearnLog, logger)
+
+	d.startBackgroundJobs(cfg, st, sm, wm, server, prDiscovery, eventHandlers, logger, nudgenikLog, schmuxDir)
+	defer prDiscovery.Stop()
+
+	devRestart, err := d.startAndWait(server, cfg, schmuxDir, background, logger)
+	if err != nil {
+		return err
+	}
+
+	if err := d.shutdown(shutdownHandles{
+		st:                 st,
+		tel:                tel,
+		sm:                 sm,
+		remoteManager:      remoteManager,
+		tunnelMgr:          tunnelMgr,
+		gitWatcher:         gitWatcher,
+		compounder:         compounder,
+		detachFloorManager: detachFloorManager,
+		server:             server,
+	}); err != nil {
+		return fmt.Errorf("failed to stop server: %w", err)
+	}
+
+	if devRestart {
+		return ErrDevRestart
+	}
+	return nil
+}
+
+// initConfigAndState sets up logging, loads config and state, initialises
+// telemetry, and performs early filesystem housekeeping. It returns a
+// daemonInit containing every value the rest of Run() needs.
+//
+// NOTE: the PID-file defer is NOT placed here — callers must defer
+// os.Remove(di.pidFile) themselves so the cleanup fires at the right time.
+func (d *Daemon) initConfigAndState(devMode bool) (*daemonInit, error) {
 	d.logger = logging.New(devMode)
 	logger := d.logger
 	telemetryLog := logging.Sub(logger, "telemetry")
@@ -338,12 +460,12 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return fmt.Errorf("failed to get home directory: %w", err)
+		return nil, fmt.Errorf("failed to get home directory: %w", err)
 	}
 
 	schmuxDir := schmuxdir.Get()
 	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
-		return fmt.Errorf("failed to create schmux directory: %w", err)
+		return nil, fmt.Errorf("failed to create schmux directory: %w", err)
 	}
 
 	cleanupOrphanedLoreWorktrees()
@@ -370,26 +492,25 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	// Write PID file
 	pid := os.Getpid()
 	if err := os.WriteFile(pidFile, []byte(fmt.Sprintf("%d\n", pid)), 0644); err != nil {
-		return fmt.Errorf("failed to write PID file: %w", err)
+		return nil, fmt.Errorf("failed to write PID file: %w", err)
 	}
-	defer os.Remove(pidFile)
 
 	// Record daemon start time
 	startedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	if err := os.WriteFile(startedFile, []byte(startedAt+"\n"), 0644); err != nil {
-		return fmt.Errorf("failed to write daemon start time: %w", err)
+		return nil, fmt.Errorf("failed to write daemon start time: %w", err)
 	}
 
 	// Write all schemas on startup (ensures they're always up to date)
 	if err := oneshot.WriteAllSchemas(); err != nil {
-		return fmt.Errorf("failed to write schemas: %w", err)
+		return nil, fmt.Errorf("failed to write schemas: %w", err)
 	}
 
 	// Load config
 	configPath := filepath.Join(schmuxDir, "config.json")
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 	if cfg.TmuxBinary != "" {
 		logger.Info("using custom tmux binary", "path", cfg.TmuxBinary)
@@ -404,7 +525,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	if cfg.GetAuthEnabled() {
 		if _, err := config.EnsureSessionSecret(); err != nil {
-			return fmt.Errorf("failed to initialize auth session secret: %w", err)
+			return nil, fmt.Errorf("failed to initialize auth session secret: %w", err)
 		}
 	}
 
@@ -447,12 +568,12 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	// Load state
 	st, err := state.Load(statePath, stateLog)
 	if err != nil {
-		return fmt.Errorf("failed to load state: %w", err)
+		return nil, fmt.Errorf("failed to load state: %w", err)
 	}
 
 	// Verify we can access tmux sessions for existing sessions
 	if err := validateSessionAccess(st); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Clear needs_restart flag on daemon start (config changes now taking effect)
@@ -464,42 +585,47 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	// Normalize bare repo paths — rename non-conforming directories to {name}.git
 	config.NormalizeBarePaths(cfg, st)
 
-	// Populate dashboard.sx status and start background services
-	if cfg.GetDashboardSXEnabled() {
-		// Populate cert info in state
-		dxStatus := st.GetDashboardSXStatus()
-		if dxStatus == nil {
-			dxStatus = &state.DashboardSXStatus{}
-		}
-		if domain, err := dashboardsx.GetCertDomain(); err == nil {
-			dxStatus.CertDomain = domain
-		}
-		if expiry, err := dashboardsx.GetCertExpiry(); err == nil {
-			dxStatus.CertExpiresAt = expiry
-		}
-		st.SetDashboardSXStatus(dxStatus)
-		st.Save()
+	return &daemonInit{
+		logger:          logger,
+		cfg:             cfg,
+		st:              st,
+		tel:             tel,
+		tmuxServer:      tmuxServer,
+		tmuxBin:         tmuxBin,
+		homeDir:         homeDir,
+		schmuxDir:       schmuxDir,
+		statePath:       statePath,
+		hooksDir:        hooksDir,
+		pidFile:         pidFile,
+		workspaceLog:    workspaceLog,
+		configLog:       configLog,
+		compoundLog:     compoundLog,
+		overlayLog:      overlayLog,
+		autolearnLog:    autolearnLog,
+		sessionLog:      sessionLog,
+		nudgenikLog:     nudgenikLog,
+		gitWatcherLog:   gitWatcherLog,
+		githubLog:       githubLog,
+		remoteLog:       remoteLog,
+		remoteAccessLog: remoteAccessLog,
+	}, nil
+}
 
-		// Start heartbeat and auto-renewal goroutines
-		instanceKey, err := dashboardsx.EnsureInstanceKey()
-		if err != nil {
-			logger.Warn("failed to read instance key", "err", err)
-		} else {
-			serviceURL := dashboardsx.DefaultServiceURL
-			if cfg.Network != nil && cfg.Network.DashboardSX != nil && cfg.Network.DashboardSX.ServiceURL != "" {
-				serviceURL = cfg.Network.DashboardSX.ServiceURL
-			}
-			client := dashboardsx.NewClient(serviceURL, instanceKey, cfg.GetDashboardSXCode())
-
-			writer := &heartbeatStateWriter{state: st}
-			go dashboardsx.StartHeartbeat(d.shutdownCtx, client, writer)
-
-			if email := cfg.GetDashboardSXEmail(); email != "" {
-				go dashboardsx.StartAutoRenewal(d.shutdownCtx, client, email)
-			}
-		}
-	}
-
+// initManagers creates the workspace and session managers, wires timelapse,
+// telemetry, hooks, I/O telemetry, overlay dirs, and calls EnsureAll. It
+// returns the two managers plus the autolearn instructions directory (which
+// is used later in Run()).
+func (d *Daemon) initManagers(
+	cfg *config.Config,
+	st *state.State,
+	tmuxServer *tmux.TmuxServer,
+	statePath string,
+	hooksDir string,
+	tel telemetry.Telemetry,
+	schmuxDir string,
+	workspaceLog *log.Logger,
+	sessionLog *log.Logger,
+) (*workspace.Manager, *session.Manager, string) {
 	// Create managers
 	ensure.SetLogger(logging.Sub(workspaceLog, "ensure"))
 	// Wire autolearn instruction store for private layer injection at spawn time
@@ -551,6 +677,26 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	// Ensure all workspaces have the necessary schmux configuration
 	wm.EnsureAll()
 
+	return wm, sm, autolearnInstructionsDir
+}
+
+// initDashboard detects available tools, creates the model manager, starts
+// background registry fetch, ensures the workspace directory, creates PR
+// discovery, checks GitHub auth, and creates the dashboard server.
+func (d *Daemon) initDashboard(
+	cfg *config.Config,
+	st *state.State,
+	wm *workspace.Manager,
+	sm *session.Manager,
+	tmuxServer *tmux.TmuxServer,
+	statePath string,
+	schmuxDir string,
+	devProxy bool,
+	devMode bool,
+	logger *log.Logger,
+	configLog *log.Logger,
+	githubLog *log.Logger,
+) (*dashboard.Server, *models.Manager, *github.Discovery, error) {
 	// Detect available tools for model catalog
 	detectCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	detectedTargets, err := detect.DetectAvailableToolsContext(detectCtx, false)
@@ -582,7 +728,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	// Ensure workspace directory exists
 	if err := wm.EnsureWorkspaceDir(); err != nil {
-		return fmt.Errorf("failed to create workspace directory: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to create workspace directory: %w", err)
 	}
 
 	// Create GitHub PR discovery service
@@ -616,6 +762,27 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	// Wire workspace manager broadcast to trigger dashboard updates after tab mutations
 	wm.SetBroadcastFn(func() { go server.BroadcastSessions() })
 
+	return server, mm, prDiscovery, nil
+}
+
+// wireCallbacks wires model manager, remote manager, tunnel manager, event
+// handlers, and floor manager into the daemon subsystems. It returns the four
+// values needed by the rest of Run(): remoteManager, tunnelMgr,
+// detachFloorManager (closure), and eventHandlers.
+func (d *Daemon) wireCallbacks(
+	cfg *config.Config,
+	st *state.State,
+	sm *session.Manager,
+	wm *workspace.Manager,
+	mm *models.Manager,
+	server *dashboard.Server,
+	tmuxServer *tmux.TmuxServer,
+	statePath string,
+	homeDir string,
+	logger *log.Logger,
+	remoteLog *log.Logger,
+	remoteAccessLog *log.Logger,
+) (remoteManager *remote.Manager, tunnelMgr *tunnel.Manager, detachFloorManager func(), eventHandlers map[string][]events.EventHandler) {
 	// Wire model manager into server, session manager, workspace manager, and oneshot
 	server.SetModelManager(mm)
 	sm.SetModelManager(mm)
@@ -623,7 +790,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	oneshot.SetModelManager(mm)
 
 	// Create remote manager for remote workspace support
-	remoteManager := remote.NewManager(cfg, st, remoteLog)
+	remoteManager = remote.NewManager(cfg, st, remoteLog)
 	remoteManager.SetWorkspaceManager(wm)
 	remoteManager.SetStateChangeCallback(server.BroadcastSessions)
 	server.SetRemoteManager(remoteManager)
@@ -642,7 +809,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	})
 
 	// Create tunnel manager for remote access
-	tunnelMgr := tunnel.NewManager(tunnel.ManagerConfig{
+	tunnelMgr = tunnel.NewManager(tunnel.ManagerConfig{
 		Disabled:          func() bool { return !cfg.GetRemoteAccessEnabled() },
 		PasswordHashSet:   func() bool { return cfg.GetRemoteAccessPasswordHash() != "" },
 		Port:              cfg.GetPort(),
@@ -663,7 +830,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	dashHandler := events.NewDashboardHandler(func(sessionID, state, message, intent, blockers string) {
 		server.HandleStatusEvent(sessionID, state, message, intent, blockers)
 	})
-	eventHandlers := map[string][]events.EventHandler{
+	eventHandlers = map[string][]events.EventHandler{
 		"status": {dashHandler},
 	}
 
@@ -723,7 +890,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	// detachFloorManager stops monitoring but leaves the tmux session alive
 	// so the next daemon start can reconnect to it.
-	detachFloorManager := func() {
+	detachFloorManager = func() {
 		fmMu.Lock()
 		defer fmMu.Unlock()
 		if fm == nil {
@@ -751,6 +918,25 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		}
 	}
 
+	return
+}
+
+// restoreSessions starts tmux servers for restored sessions, resumes output
+// trackers and remote signal monitors, reconciles stuck disposals, and creates
+// the filesystem git watcher.
+func (d *Daemon) restoreSessions(
+	cfg *config.Config,
+	st *state.State,
+	sm *session.Manager,
+	wm *workspace.Manager,
+	remoteManager *remote.Manager,
+	tmuxServer *tmux.TmuxServer,
+	tmuxBin string,
+	server *dashboard.Server,
+	logger *log.Logger,
+	sessionLog *log.Logger,
+	gitWatcherLog *log.Logger,
+) *workspace.GitWatcher {
 	// Start tmux servers for all sockets that restored sessions live on.
 	activeSocketSet := map[string]bool{cfg.GetTmuxSocketName(): true}
 	for _, sess := range st.GetSessions() {
@@ -860,6 +1046,319 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		gitWatcher.Start()
 	}
 
+	return gitWatcher
+}
+
+// initDashboardSX populates dashboard.sx status in state and starts the
+// heartbeat and auto-renewal background goroutines.
+func (d *Daemon) initDashboardSX(cfg *config.Config, st *state.State, logger *log.Logger) {
+	// Populate dashboard.sx status and start background services
+	if cfg.GetDashboardSXEnabled() {
+		// Populate cert info in state
+		dxStatus := st.GetDashboardSXStatus()
+		if dxStatus == nil {
+			dxStatus = &state.DashboardSXStatus{}
+		}
+		if domain, err := dashboardsx.GetCertDomain(); err == nil {
+			dxStatus.CertDomain = domain
+		}
+		if expiry, err := dashboardsx.GetCertExpiry(); err == nil {
+			dxStatus.CertExpiresAt = expiry
+		}
+		st.SetDashboardSXStatus(dxStatus)
+		st.Save()
+
+		// Start heartbeat and auto-renewal goroutines
+		instanceKey, err := dashboardsx.EnsureInstanceKey()
+		if err != nil {
+			logger.Warn("failed to read instance key", "err", err)
+		} else {
+			serviceURL := dashboardsx.DefaultServiceURL
+			if cfg.Network != nil && cfg.Network.DashboardSX != nil && cfg.Network.DashboardSX.ServiceURL != "" {
+				serviceURL = cfg.Network.DashboardSX.ServiceURL
+			}
+			client := dashboardsx.NewClient(serviceURL, instanceKey, cfg.GetDashboardSXCode())
+
+			writer := &heartbeatStateWriter{state: st}
+			go dashboardsx.StartHeartbeat(d.shutdownCtx, client, writer)
+
+			if email := cfg.GetDashboardSXEmail(); email != "" {
+				go dashboardsx.StartAutoRenewal(d.shutdownCtx, client, email)
+			}
+		}
+	}
+}
+
+// initAutolearn wires the spawn entry system (spawn store + metadata store),
+// runs the one-time actions migration, and sets up the autolearn subsystem
+// (batch store, pending-merge store, instruction store, executor).
+func (d *Daemon) initAutolearn(
+	cfg *config.Config,
+	st *state.State,
+	server *dashboard.Server,
+	schmuxDir string,
+	autolearnInstructionsDir string,
+	autolearnLog *log.Logger,
+	logger *log.Logger,
+) {
+	// Spawn entry system: spawn entries store + metadata store
+	emergenceBaseDir := filepath.Join(schmuxDir, "emergence")
+	spawnStore := spawn.NewStore(emergenceBaseDir)
+	spawnMetadataStore := spawn.NewMetadataStore(emergenceBaseDir)
+	server.SetSpawnStore(spawnStore)
+	server.SetSpawnMetadataStore(spawnMetadataStore)
+	ensure.SetSpawnStores(spawnStore, spawnMetadataStore)
+	ensure.SetRepoNameResolver(func(repoURL string) (string, bool) {
+		repo, found := cfg.FindRepoByURL(repoURL)
+		return repo.Name, found
+	})
+
+	// One-time migration from old actions registry to spawn store
+	actionBaseDir := filepath.Join(schmuxDir, "actions")
+	if _, err := os.Stat(actionBaseDir); err == nil {
+		count, migErr := spawn.MigrateFromActions(actionBaseDir, spawnStore)
+		if migErr != nil {
+			logger.Warn("actions migration failed", "err", migErr)
+		} else if count > 0 {
+			migratedDir := actionBaseDir + ".migrated"
+			if err := os.Rename(actionBaseDir, migratedDir); err != nil {
+				logger.Warn("failed to rename actions dir after migration", "err", err)
+			} else {
+				logger.Info("migrated actions to emergence", "count", count)
+			}
+		}
+	}
+
+	// Autolearn system: wire stores, executor, and instruction store
+	if cfg.GetAutolearnEnabled() {
+		autolearnBatchDir := filepath.Join(schmuxDir, "autolearn", "batches")
+		autolearnStore := autolearn.NewBatchStore(autolearnBatchDir, autolearnLog)
+		server.SetAutolearnStore(autolearnStore)
+
+		autolearnPendingMergeDir := filepath.Join(schmuxDir, "autolearn", "pending-merges")
+		autolearnPendingMergeStore := autolearn.NewPendingMergeStore(autolearnPendingMergeDir, autolearnLog)
+		server.SetAutolearnPendingMergeStore(autolearnPendingMergeStore)
+
+		server.SetAutolearnInstructionStore(autolearn.NewInstructionStore(autolearnInstructionsDir))
+
+		if target := cfg.GetAutolearnTarget(); target != "" {
+			autolearnExecutor := func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error) {
+				return oneshot.ExecuteTarget(ctx, cfg, target, prompt, schemaLabel, timeout, "")
+			}
+			server.SetAutolearnExecutor(autolearnExecutor)
+		}
+
+		autolearnLog.Info("autolearn system enabled")
+	}
+}
+
+// startAndWait starts the dashboard server, waits for it to bind, writes the
+// daemon.url breadcrumb, then blocks until a shutdown signal, server error,
+// shutdown channel, or dev-restart channel fires. Returns whether a dev
+// restart was requested.
+func (d *Daemon) startAndWait(
+	server *dashboard.Server,
+	cfg *config.Config,
+	schmuxDir string,
+	background bool,
+	logger *log.Logger,
+) (devRestart bool, err error) {
+	// Log where dashboard assets are being served from
+	server.LogDashboardAssetPath()
+
+	// Start async version check
+	server.StartVersionCheck()
+
+	// Handle shutdown signals
+	sigChan := make(chan os.Signal, 1)
+	if background {
+		// Ignore SIGINT/SIGQUIT when running in background (started via 'start' command)
+		// This prevents Ctrl-C from killing the daemon when tailing logs
+		signal.Ignore(syscall.SIGINT, syscall.SIGQUIT)
+		signal.Notify(sigChan, syscall.SIGTERM)
+	} else {
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	}
+
+	// Start dashboard server in background
+	serverErrChan := make(chan error, 1)
+	go func() {
+		if err := server.Start(); err != nil {
+			serverErrChan <- err
+		}
+	}()
+
+	// Wait for the server to bind before writing daemon.url
+	var urlFile string
+	select {
+	case boundAddr := <-server.BoundAddr:
+		if boundAddr == nil {
+			return false, fmt.Errorf("dashboard server failed to bind")
+		}
+		scheme := "http"
+		if cfg.GetTLSEnabled() {
+			scheme = "https"
+		}
+		urlFile = filepath.Join(schmuxDir, "daemon.url")
+		daemonURL := fmt.Sprintf("%s://%s", scheme, boundAddr.String())
+		if err := os.WriteFile(urlFile, []byte(daemonURL+"\n"), 0644); err != nil {
+			return false, fmt.Errorf("failed to write daemon URL file: %w", err)
+		}
+		defer os.Remove(urlFile)
+		logger.Info("daemon URL written", "url", daemonURL, "file", urlFile)
+	case err := <-serverErrChan:
+		return false, fmt.Errorf("dashboard server error: %w", err)
+	}
+
+	// Wait for shutdown signal or server error
+	select {
+	case sig := <-sigChan:
+		logger.Info("received signal, shutting down", "signal", sig)
+		d.cancelFunc() // Cancel shutdownCtx so background goroutines exit cleanly
+	case err := <-serverErrChan:
+		return false, fmt.Errorf("dashboard server error: %w", err)
+	case <-d.shutdownChan:
+		logger.Info("shutdown requested")
+	case <-d.devRestartChan:
+		logger.Info("dev restart requested")
+		devRestart = true
+	}
+
+	return devRestart, nil
+}
+
+// startBackgroundJobs launches all background goroutines and one-time setup
+// that runs after the dashboard server is created: git status polling,
+// NudgeNik checker, subreddit scheduler, repofeed publisher/consumer, and
+// PR discovery polling.
+func (d *Daemon) startBackgroundJobs(
+	cfg *config.Config,
+	st *state.State,
+	sm *session.Manager,
+	wm *workspace.Manager,
+	server *dashboard.Server,
+	prDiscovery *github.Discovery,
+	eventHandlers map[string][]events.EventHandler,
+	logger *log.Logger,
+	nudgenikLog *log.Logger,
+	schmuxDir string,
+) {
+	// Start background goroutine to update git status for all workspaces.
+	// Started after EnsureWorkspaceDir to avoid race with directory creation.
+	// Started after server creation so it can broadcast updates to WebSocket clients.
+	go func() {
+		pollInterval := time.Duration(cfg.GetGitStatusPollIntervalMs()) * time.Millisecond
+		ticker := time.NewTicker(pollInterval)
+		defer ticker.Stop()
+		// Do initial update immediately on startup
+		select {
+		case <-d.shutdownCtx.Done():
+			return
+		default:
+			ctx, cancel := context.WithTimeout(d.shutdownCtx, cfg.GitStatusTimeout())
+			// Ensure origin query repos exist for branch queries (creates if missing)
+			if err := wm.EnsureOriginQueries(ctx); err != nil {
+				logger.Warn("failed to ensure origin queries", "err", err)
+			}
+			// Fetch origin queries and update workspace git status concurrently.
+			// These operate on independent repos and don't depend on each other.
+			var pollWg sync.WaitGroup
+			pollWg.Add(2)
+			go func() {
+				defer pollWg.Done()
+				wm.FetchOriginQueries(ctx)
+			}()
+			go func() {
+				defer pollWg.Done()
+				wm.UpdateAllVCSStatus(ctx)
+			}()
+			pollWg.Wait()
+			cancel()
+			server.BroadcastSessions()
+		}
+		for {
+			select {
+			case <-ticker.C:
+				ctx, cancel := context.WithTimeout(d.shutdownCtx, cfg.GitStatusTimeout())
+				// Ensure origin query repos exist (in case new repos were added)
+				if err := wm.EnsureOriginQueries(ctx); err != nil {
+					logger.Warn("failed to ensure origin queries", "err", err)
+				}
+				// Fetch origin queries and update workspace git status concurrently.
+				var pollWg sync.WaitGroup
+				pollWg.Add(2)
+				go func() {
+					defer pollWg.Done()
+					wm.FetchOriginQueries(ctx)
+				}()
+				go func() {
+					defer pollWg.Done()
+					wm.UpdateAllVCSStatus(ctx)
+				}()
+				pollWg.Wait()
+				cancel()
+				server.BroadcastSessions()
+			case <-d.shutdownCtx.Done():
+				return
+			}
+		}
+	}()
+
+	// Start background goroutine to check for inactive sessions and ask NudgeNik
+	go startNudgeNikChecker(d.shutdownCtx, cfg, st, sm, server.BroadcastSessions, nudgenikLog)
+
+	// Start subreddit digest hourly scheduler unconditionally.
+	// The scheduler checks config on each run, so this also covers the case
+	// where subreddit digest is enabled after the daemon has already started.
+	subredditLog := logging.Sub(logger, "subreddit")
+	subredditDir := filepath.Join(schmuxDir, "subreddit")
+	go startSubredditHourlyGenerator(d.shutdownCtx, cfg, subredditDir, server, subredditLog)
+
+	// Start repofeed intent publisher and consumer
+	repofeedLog := logging.Sub(logger, "repofeed")
+	devEmail := getGitConfigValue("user.email")
+	devName := getGitConfigValue("user.name")
+	repofeedPublisher := repofeed.NewPublisher(repofeed.PublisherConfig{
+		DeveloperEmail: devEmail,
+		DisplayName:    devName,
+	})
+	repofeedConsumer := repofeed.NewConsumer(repofeed.ConsumerConfig{
+		OwnEmail: devEmail,
+	})
+	server.SetRepofeedPublisher(repofeedPublisher)
+	server.SetRepofeedConsumer(repofeedConsumer)
+
+	if cfg.GetRepofeedEnabled() {
+		eventHandlers["status"] = append(eventHandlers["status"], repofeedPublisher)
+		sm.SetEventHandlers(eventHandlers)
+		repofeedLog.Info("repofeed publisher registered", "email", devEmail)
+	}
+	go startRepofeedConsumer(d.shutdownCtx, cfg, repofeedConsumer, server, repofeedLog)
+
+	// One-time migration: delete old subreddit.json file
+	oldCachePath := filepath.Join(schmuxDir, "subreddit.json")
+	if _, err := os.Stat(oldCachePath); err == nil {
+		os.Remove(oldCachePath)
+		subredditLog.Info("migrated old subreddit.json to new per-repo format")
+	}
+
+	// Initialize PR discovery polling based on current config
+	// Pass a function so poll always uses current repos list
+	prDiscovery.SetTarget(cfg.GetPrReviewTarget(), func() []config.Repo { return cfg.GetRepos() })
+}
+
+// initCompound creates and starts the overlay compounder for bidirectional
+// overlay sync, wiring callbacks into the session and workspace managers.
+// Returns nil if compound is disabled or creation fails.
+func (d *Daemon) initCompound(
+	cfg *config.Config,
+	st *state.State,
+	sm *session.Manager,
+	wm *workspace.Manager,
+	server *dashboard.Server,
+	compoundLog *log.Logger,
+	overlayLog *log.Logger,
+) *compound.Compounder {
 	// Create and start overlay compounder for bidirectional overlay sync
 	var compounder *compound.Compounder
 	if cfg.GetCompoundEnabled() {
@@ -1085,261 +1584,45 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		compoundLog.Info("started overlay compounding loop")
 	}
 
-	// Spawn entry system: spawn entries store + metadata store
-	emergenceBaseDir := filepath.Join(schmuxDir, "emergence")
-	spawnStore := spawn.NewStore(emergenceBaseDir)
-	spawnMetadataStore := spawn.NewMetadataStore(emergenceBaseDir)
-	server.SetSpawnStore(spawnStore)
-	server.SetSpawnMetadataStore(spawnMetadataStore)
-	ensure.SetSpawnStores(spawnStore, spawnMetadataStore)
-	ensure.SetRepoNameResolver(func(repoURL string) (string, bool) {
-		repo, found := cfg.FindRepoByURL(repoURL)
-		return repo.Name, found
-	})
+	return compounder
+}
 
-	// One-time migration from old actions registry to spawn store
-	actionBaseDir := filepath.Join(schmuxDir, "actions")
-	if _, err := os.Stat(actionBaseDir); err == nil {
-		count, migErr := spawn.MigrateFromActions(actionBaseDir, spawnStore)
-		if migErr != nil {
-			logger.Warn("actions migration failed", "err", migErr)
-		} else if count > 0 {
-			migratedDir := actionBaseDir + ".migrated"
-			if err := os.Rename(actionBaseDir, migratedDir); err != nil {
-				logger.Warn("failed to rename actions dir after migration", "err", err)
-			} else {
-				logger.Info("migrated actions to emergence", "count", count)
-			}
-		}
-	}
-
-	// Autolearn system: wire stores, executor, and instruction store
-	if cfg.GetAutolearnEnabled() {
-		autolearnBatchDir := filepath.Join(schmuxDir, "autolearn", "batches")
-		autolearnStore := autolearn.NewBatchStore(autolearnBatchDir, autolearnLog)
-		server.SetAutolearnStore(autolearnStore)
-
-		autolearnPendingMergeDir := filepath.Join(schmuxDir, "autolearn", "pending-merges")
-		autolearnPendingMergeStore := autolearn.NewPendingMergeStore(autolearnPendingMergeDir, autolearnLog)
-		server.SetAutolearnPendingMergeStore(autolearnPendingMergeStore)
-
-		server.SetAutolearnInstructionStore(autolearn.NewInstructionStore(autolearnInstructionsDir))
-
-		if target := cfg.GetAutolearnTarget(); target != "" {
-			autolearnExecutor := func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error) {
-				return oneshot.ExecuteTarget(ctx, cfg, target, prompt, schemaLabel, timeout, "")
-			}
-			server.SetAutolearnExecutor(autolearnExecutor)
-		}
-
-		autolearnLog.Info("autolearn system enabled")
-	}
-
-	// Start background goroutine to update git status for all workspaces.
-	// Started after EnsureWorkspaceDir to avoid race with directory creation.
-	// Started after server creation so it can broadcast updates to WebSocket clients.
-	go func() {
-		pollInterval := time.Duration(cfg.GetGitStatusPollIntervalMs()) * time.Millisecond
-		ticker := time.NewTicker(pollInterval)
-		defer ticker.Stop()
-		// Do initial update immediately on startup
-		select {
-		case <-d.shutdownCtx.Done():
-			return
-		default:
-			ctx, cancel := context.WithTimeout(d.shutdownCtx, cfg.GitStatusTimeout())
-			// Ensure origin query repos exist for branch queries (creates if missing)
-			if err := wm.EnsureOriginQueries(ctx); err != nil {
-				logger.Warn("failed to ensure origin queries", "err", err)
-			}
-			// Fetch origin queries and update workspace git status concurrently.
-			// These operate on independent repos and don't depend on each other.
-			var pollWg sync.WaitGroup
-			pollWg.Add(2)
-			go func() {
-				defer pollWg.Done()
-				wm.FetchOriginQueries(ctx)
-			}()
-			go func() {
-				defer pollWg.Done()
-				wm.UpdateAllVCSStatus(ctx)
-			}()
-			pollWg.Wait()
-			cancel()
-			server.BroadcastSessions()
-		}
-		for {
-			select {
-			case <-ticker.C:
-				ctx, cancel := context.WithTimeout(d.shutdownCtx, cfg.GitStatusTimeout())
-				// Ensure origin query repos exist (in case new repos were added)
-				if err := wm.EnsureOriginQueries(ctx); err != nil {
-					logger.Warn("failed to ensure origin queries", "err", err)
-				}
-				// Fetch origin queries and update workspace git status concurrently.
-				var pollWg sync.WaitGroup
-				pollWg.Add(2)
-				go func() {
-					defer pollWg.Done()
-					wm.FetchOriginQueries(ctx)
-				}()
-				go func() {
-					defer pollWg.Done()
-					wm.UpdateAllVCSStatus(ctx)
-				}()
-				pollWg.Wait()
-				cancel()
-				server.BroadcastSessions()
-			case <-d.shutdownCtx.Done():
-				return
-			}
-		}
-	}()
-
-	// Start background goroutine to check for inactive sessions and ask NudgeNik
-	go startNudgeNikChecker(d.shutdownCtx, cfg, st, sm, server.BroadcastSessions, nudgenikLog)
-
-	// Start subreddit digest hourly scheduler unconditionally.
-	// The scheduler checks config on each run, so this also covers the case
-	// where subreddit digest is enabled after the daemon has already started.
-	subredditLog := logging.Sub(logger, "subreddit")
-	subredditDir := filepath.Join(schmuxDir, "subreddit")
-	go startSubredditHourlyGenerator(d.shutdownCtx, cfg, subredditDir, server, subredditLog)
-
-	// Start repofeed intent publisher and consumer
-	repofeedLog := logging.Sub(logger, "repofeed")
-	devEmail := getGitConfigValue("user.email")
-	devName := getGitConfigValue("user.name")
-	repofeedPublisher := repofeed.NewPublisher(repofeed.PublisherConfig{
-		DeveloperEmail: devEmail,
-		DisplayName:    devName,
-	})
-	repofeedConsumer := repofeed.NewConsumer(repofeed.ConsumerConfig{
-		OwnEmail: devEmail,
-	})
-	server.SetRepofeedPublisher(repofeedPublisher)
-	server.SetRepofeedConsumer(repofeedConsumer)
-
-	if cfg.GetRepofeedEnabled() {
-		eventHandlers["status"] = append(eventHandlers["status"], repofeedPublisher)
-		sm.SetEventHandlers(eventHandlers)
-		repofeedLog.Info("repofeed publisher registered", "email", devEmail)
-	}
-	go startRepofeedConsumer(d.shutdownCtx, cfg, repofeedConsumer, server, repofeedLog)
-
-	// One-time migration: delete old subreddit.json file
-	oldCachePath := filepath.Join(schmuxDir, "subreddit.json")
-	if _, err := os.Stat(oldCachePath); err == nil {
-		os.Remove(oldCachePath)
-		subredditLog.Info("migrated old subreddit.json to new per-repo format")
-	}
-
-	// Initialize PR discovery polling based on current config
-	// Pass a function so poll always uses current repos list
-	prDiscovery.SetTarget(cfg.GetPrReviewTarget(), func() []config.Repo { return cfg.GetRepos() })
-	defer prDiscovery.Stop()
-
-	// Log where dashboard assets are being served from
-	server.LogDashboardAssetPath()
-
-	// Start async version check
-	server.StartVersionCheck()
-
-	// Handle shutdown signals
-	sigChan := make(chan os.Signal, 1)
-	if background {
-		// Ignore SIGINT/SIGQUIT when running in background (started via 'start' command)
-		// This prevents Ctrl-C from killing the daemon when tailing logs
-		signal.Ignore(syscall.SIGINT, syscall.SIGQUIT)
-		signal.Notify(sigChan, syscall.SIGTERM)
-	} else {
-		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	}
-
-	// Start dashboard server in background
-	serverErrChan := make(chan error, 1)
-	go func() {
-		if err := server.Start(); err != nil {
-			serverErrChan <- err
-		}
-	}()
-
-	// Wait for the server to bind before writing daemon.url
-	var urlFile string
-	select {
-	case boundAddr := <-server.BoundAddr:
-		if boundAddr == nil {
-			return fmt.Errorf("dashboard server failed to bind")
-		}
-		scheme := "http"
-		if cfg.GetTLSEnabled() {
-			scheme = "https"
-		}
-		urlFile = filepath.Join(schmuxDir, "daemon.url")
-		daemonURL := fmt.Sprintf("%s://%s", scheme, boundAddr.String())
-		if err := os.WriteFile(urlFile, []byte(daemonURL+"\n"), 0644); err != nil {
-			return fmt.Errorf("failed to write daemon URL file: %w", err)
-		}
-		defer os.Remove(urlFile)
-		logger.Info("daemon URL written", "url", daemonURL, "file", urlFile)
-	case err := <-serverErrChan:
-		return fmt.Errorf("dashboard server error: %w", err)
-	}
-
-	// Wait for shutdown signal or server error
-	var devRestart bool
-	select {
-	case sig := <-sigChan:
-		logger.Info("received signal, shutting down", "signal", sig)
-		d.cancelFunc() // Cancel shutdownCtx so background goroutines exit cleanly
-	case err := <-serverErrChan:
-		return fmt.Errorf("dashboard server error: %w", err)
-	case <-d.shutdownChan:
-		logger.Info("shutdown requested")
-	case <-d.devRestartChan:
-		logger.Info("dev restart requested")
-		devRestart = true
-	}
+// shutdown performs the orderly shutdown sequence: flush state, stop all
+// subsystems, and stop the dashboard server.
+func (d *Daemon) shutdown(h shutdownHandles) error {
 	// Flush any pending batched state saves and do a final save
-	st.FlushPending()
-	if err := st.Save(); err != nil {
-		logger.Warn("final state save failed", "err", err)
+	h.st.FlushPending()
+	if err := h.st.Save(); err != nil {
+		d.logger.Warn("final state save failed", "err", err)
 	}
 
 	// Shutdown telemetry (flush pending events)
-	tel.Shutdown()
+	h.tel.Shutdown()
 
 	// Stop session manager (kills tmux attach-client processes)
-	sm.Stop()
+	h.sm.Stop()
 
 	// Disconnect all remote hosts (cancels pending connect goroutines, kills SSH processes)
-	remoteManager.DisconnectAll()
+	h.remoteManager.DisconnectAll()
 
 	// Stop tunnel manager
-	tunnelMgr.Stop()
+	h.tunnelMgr.Stop()
 
 	// Stop git watcher
-	if gitWatcher != nil {
-		gitWatcher.Stop()
+	if h.gitWatcher != nil {
+		h.gitWatcher.Stop()
 	}
 
 	// Stop compounder
-	if compounder != nil {
-		compounder.Stop()
+	if h.compounder != nil {
+		h.compounder.Stop()
 	}
 
 	// Detach floor manager — leave tmux session alive for reconnection on restart
-	detachFloorManager()
+	h.detachFloorManager()
 
 	// Stop dashboard server
-	if err := server.Stop(); err != nil {
-		return fmt.Errorf("failed to stop server: %w", err)
-	}
-
-	if devRestart {
-		return ErrDevRestart
-	}
-	return nil
+	return h.server.Stop()
 }
 
 // Shutdown triggers a graceful shutdown. Safe to call multiple times.
