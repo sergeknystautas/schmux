@@ -16,7 +16,7 @@ type createTabRequest struct {
 	Filepath string `json:"filepath,omitempty"`
 }
 
-func (s *Server) handleTabCreate(w http.ResponseWriter, r *http.Request) {
+func (h *WorkspaceHandlers) handleTabCreate(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceID")
 
 	var req createTabRequest
@@ -35,13 +35,13 @@ func (s *Server) handleTabCreate(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, "hash is required for commit tabs", http.StatusBadRequest)
 			return
 		}
-		tab, err = s.workspace.OpenCommitTab(workspaceID, req.Hash)
+		tab, err = h.workspace.OpenCommitTab(workspaceID, req.Hash)
 	case "markdown":
 		if req.Filepath == "" {
 			writeJSONError(w, "filepath is required for markdown tabs", http.StatusBadRequest)
 			return
 		}
-		tab, err = s.workspace.OpenMarkdownTab(workspaceID, req.Filepath)
+		tab, err = h.workspace.OpenMarkdownTab(workspaceID, req.Filepath)
 	default:
 		writeJSONError(w, fmt.Sprintf("tab kind %q not supported", req.Kind), http.StatusBadRequest)
 		return
@@ -60,11 +60,11 @@ func (s *Server) handleTabCreate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleTabDelete(w http.ResponseWriter, r *http.Request) {
+func (h *WorkspaceHandlers) handleTabDelete(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceID")
 	tabID := chi.URLParam(r, "tabID")
 
-	if err := s.workspace.CloseTab(workspaceID, tabID); err != nil {
+	if err := h.workspace.CloseTab(workspaceID, tabID); err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			writeJSONError(w, err.Error(), http.StatusNotFound)
 		} else if strings.Contains(err.Error(), "not closable") {

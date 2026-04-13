@@ -13,7 +13,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
-func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
+func (h *WorkspaceHandlers) handleDispose(w http.ResponseWriter, r *http.Request) {
 	// Extract session ID from chi URL param
 	sessionID := chi.URLParam(r, "sessionID")
 	if sessionID == "" {
@@ -22,8 +22,8 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Mark as disposing and broadcast immediately for visual feedback
-	sessionLog := logging.Sub(s.logger, "session")
-	prevStatus, markErr := s.session.MarkSessionDisposing(sessionID)
+	sessionLog := logging.Sub(h.logger, "session")
+	prevStatus, markErr := h.session.MarkSessionDisposing(sessionID)
 	if markErr != nil {
 		sessionLog.Warn("mark disposing failed, proceeding with dispose", "session_id", sessionID, "err", markErr)
 	} else if prevStatus == "disposing" {
@@ -32,17 +32,17 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 		return
 	} else {
-		s.BroadcastSessions()
+		h.broadcastSessions()
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), s.config.DisposeGracePeriod()+10*time.Second)
-	if err := s.session.Dispose(ctx, sessionID); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), h.config.DisposeGracePeriod()+10*time.Second)
+	if err := h.session.Dispose(ctx, sessionID); err != nil {
 		cancel()
 		sessionLog.Error("dispose failed", "session_id", sessionID, "err", err)
 		// Revert status on failure
 		if markErr == nil {
-			s.session.RevertSessionStatus(sessionID, prevStatus)
-			s.BroadcastSessions()
+			h.session.RevertSessionStatus(sessionID, prevStatus)
+			h.broadcastSessions()
 		}
 		writeJSONError(w, fmt.Sprintf("Failed to dispose session: %v", err), http.StatusInternalServerError)
 		return
@@ -51,31 +51,31 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 	sessionLog.Info("dispose success", "session_id", sessionID)
 
 	// Clean up rotation lock for disposed session
-	s.rotationLocksMu.Lock()
-	delete(s.rotationLocks, sessionID)
-	s.rotationLocksMu.Unlock()
+	h.rotationLocksMu.Lock()
+	delete(h.rotationLocks, sessionID)
+	h.rotationLocksMu.Unlock()
 
 	// Delete previews owned by this session
-	if s.previewManager != nil {
-		if deleted, err := s.previewManager.DeleteBySession(sessionID); err != nil {
-			previewLog := logging.Sub(s.logger, "preview")
+	if h.previewManager != nil {
+		if deleted, err := h.previewManager.DeleteBySession(sessionID); err != nil {
+			previewLog := logging.Sub(h.logger, "preview")
 			previewLog.Warn("preview cleanup on dispose failed", "session_id", sessionID, "err", err)
 		} else if deleted > 0 {
-			go s.BroadcastSessions()
+			go h.broadcastSessions()
 		}
 	}
 
 	// Broadcast update to WebSocket clients
-	go s.BroadcastSessions()
+	go h.broadcastSessions()
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "dispose-session", "err", err)
+		h.logger.Error("failed to encode response", "handler", "dispose-session", "err", err)
 	}
 }
 
 // handleDisposeWorkspace handles workspace disposal requests.
-func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) {
+func (h *WorkspaceHandlers) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) {
 	// Extract workspace ID from chi URL param
 	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
@@ -84,16 +84,16 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Block disposal of the workspace that is live in dev mode
-	if devPath := s.devSourceWorkspacePath(); devPath != "" {
-		if ws, ok := s.state.GetWorkspace(workspaceID); ok && ws.Path == devPath {
+	if devPath := h.devSourceWorkspacePath(); devPath != "" {
+		if ws, ok := h.state.GetWorkspace(workspaceID); ok && ws.Path == devPath {
 			writeJSONError(w, "cannot dispose workspace that is live in dev mode", http.StatusConflict)
 			return
 		}
 	}
 
 	// Mark as disposing and broadcast immediately for visual feedback
-	workspaceLog := logging.Sub(s.logger, "workspace")
-	prevWsStatus, markErr := s.workspace.MarkWorkspaceDisposing(workspaceID)
+	workspaceLog := logging.Sub(h.logger, "workspace")
+	prevWsStatus, markErr := h.workspace.MarkWorkspaceDisposing(workspaceID)
 	if markErr != nil {
 		workspaceLog.Warn("mark disposing failed, proceeding with dispose", "workspace_id", workspaceID, "err", markErr)
 	} else if prevWsStatus == "disposing" {
@@ -101,7 +101,7 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 		return
 	} else {
-		s.BroadcastSessions()
+		h.broadcastSessions()
 	}
 
 	// Use an independent context so disposal completes even if the client disconnects.
@@ -109,34 +109,34 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 	wsCtx, wsCancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer wsCancel()
 
-	if err := s.workspace.Dispose(wsCtx, workspaceID); err != nil {
+	if err := h.workspace.Dispose(wsCtx, workspaceID); err != nil {
 		workspaceLog.Error("dispose failed", "workspace_id", workspaceID, "err", err)
 		if markErr == nil {
-			s.workspace.RevertWorkspaceStatus(workspaceID, prevWsStatus)
-			s.BroadcastSessions()
+			h.workspace.RevertWorkspaceStatus(workspaceID, prevWsStatus)
+			h.broadcastSessions()
 		}
 		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if s.previewManager != nil {
-		if err := s.previewManager.DeleteWorkspace(workspaceID); err != nil {
-			previewLog := logging.Sub(s.logger, "preview")
+	if h.previewManager != nil {
+		if err := h.previewManager.DeleteWorkspace(workspaceID); err != nil {
+			previewLog := logging.Sub(h.logger, "preview")
 			previewLog.Warn("dispose cleanup failed", "workspace_id", workspaceID, "err", err)
 		}
 	}
 	workspaceLog.Info("dispose success", "workspace_id", workspaceID)
 
 	// Broadcast update to WebSocket clients
-	go s.BroadcastSessions()
+	go h.broadcastSessions()
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "dispose-workspace", "err", err)
+		h.logger.Error("failed to encode response", "handler", "dispose-workspace", "err", err)
 	}
 }
 
 // handleDisposeWorkspaceAll handles workspace disposal requests including all sessions.
-func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Request) {
+func (h *WorkspaceHandlers) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Request) {
 	// Extract workspace ID from chi URL param
 	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
@@ -145,16 +145,16 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Block disposal of the workspace that is live in dev mode
-	if devPath := s.devSourceWorkspacePath(); devPath != "" {
-		if ws, ok := s.state.GetWorkspace(workspaceID); ok && ws.Path == devPath {
+	if devPath := h.devSourceWorkspacePath(); devPath != "" {
+		if ws, ok := h.state.GetWorkspace(workspaceID); ok && ws.Path == devPath {
 			writeJSONError(w, "cannot dispose workspace that is live in dev mode", http.StatusConflict)
 			return
 		}
 	}
 
 	// Mark workspace as disposing and broadcast immediately
-	workspaceLog := logging.Sub(s.logger, "workspace")
-	prevWsStatus, markErr := s.workspace.MarkWorkspaceDisposing(workspaceID)
+	workspaceLog := logging.Sub(h.logger, "workspace")
+	prevWsStatus, markErr := h.workspace.MarkWorkspaceDisposing(workspaceID)
 	if markErr != nil {
 		workspaceLog.Warn("mark disposing failed, proceeding with dispose", "workspace_id", workspaceID, "err", markErr)
 	} else if prevWsStatus == "disposing" {
@@ -164,19 +164,19 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Mark all sessions as disposing
-	sessions := s.state.GetSessions()
+	sessions := h.state.GetSessions()
 	var wsSessions []string
 	for _, sess := range sessions {
 		if sess.WorkspaceID == workspaceID {
 			wsSessions = append(wsSessions, sess.ID)
-			if _, sessMarkErr := s.session.MarkSessionDisposing(sess.ID); sessMarkErr != nil {
+			if _, sessMarkErr := h.session.MarkSessionDisposing(sess.ID); sessMarkErr != nil {
 				workspaceLog.Warn("failed to mark session disposing", "session_id", sess.ID, "err", sessMarkErr)
 			}
 		}
 	}
 
 	// Broadcast immediately — everything grays out at once
-	s.BroadcastSessions()
+	h.broadcastSessions()
 
 	// Dispose all sessions concurrently
 	type disposeResult struct {
@@ -192,7 +192,7 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 			// enough headroom for tmux subprocess operations to complete.
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
-			results <- disposeResult{sessionID: id, err: s.session.Dispose(ctx, id)}
+			results <- disposeResult{sessionID: id, err: h.session.Dispose(ctx, id)}
 		}(sid)
 	}
 
@@ -208,11 +208,11 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Clean up rotation locks for disposed sessions
-	s.rotationLocksMu.Lock()
+	h.rotationLocksMu.Lock()
 	for _, sid := range sessionsDisposed {
-		delete(s.rotationLocks, sid)
+		delete(h.rotationLocks, sid)
 	}
-	s.rotationLocksMu.Unlock()
+	h.rotationLocksMu.Unlock()
 
 	// Then dispose the workspace — use an independent context since session
 	// disposal above may have consumed part of the client's timeout budget.
@@ -221,35 +221,35 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 	// 5 minutes accommodates large worktrees on slow filesystems (NFS, FUSE).
 	wsCtx, wsCancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer wsCancel()
-	if err := s.workspace.DisposeForce(wsCtx, workspaceID); err != nil {
+	if err := h.workspace.DisposeForce(wsCtx, workspaceID); err != nil {
 		workspaceLog.Error("dispose-all workspace failed", "workspace_id", workspaceID, "err", err)
 		if markErr == nil {
-			s.workspace.RevertWorkspaceStatus(workspaceID, prevWsStatus)
-			go s.BroadcastSessions()
+			h.workspace.RevertWorkspaceStatus(workspaceID, prevWsStatus)
+			go h.broadcastSessions()
 		}
 		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if s.previewManager != nil {
-		if err := s.previewManager.DeleteWorkspace(workspaceID); err != nil {
-			previewLog := logging.Sub(s.logger, "preview")
+	if h.previewManager != nil {
+		if err := h.previewManager.DeleteWorkspace(workspaceID); err != nil {
+			previewLog := logging.Sub(h.logger, "preview")
 			previewLog.Warn("dispose-all cleanup failed", "workspace_id", workspaceID, "err", err)
 		}
 	}
 	workspaceLog.Info("dispose-all success", "workspace_id", workspaceID, "sessions_disposed", len(sessionsDisposed))
 
-	go s.BroadcastSessions()
+	go h.broadcastSessions()
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":            "ok",
 		"sessions_disposed": len(sessionsDisposed),
 	}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "dispose-all", "err", err)
+		h.logger.Error("failed to encode response", "handler", "dispose-all", "err", err)
 	}
 }
 
-func (s *Server) handlePurgeWorkspace(w http.ResponseWriter, r *http.Request) {
+func (h *WorkspaceHandlers) handlePurgeWorkspace(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
 		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
@@ -259,34 +259,34 @@ func (s *Server) handlePurgeWorkspace(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	if err := s.workspace.Purge(ctx, workspaceID); err != nil {
+	if err := h.workspace.Purge(ctx, workspaceID); err != nil {
 		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	if s.previewManager != nil {
-		s.previewManager.DeleteWorkspace(workspaceID)
+	if h.previewManager != nil {
+		h.previewManager.DeleteWorkspace(workspaceID)
 	}
 
-	go s.BroadcastSessions()
+	go h.broadcastSessions()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
-func (s *Server) handlePurgeAll(w http.ResponseWriter, r *http.Request) {
+func (h *WorkspaceHandlers) handlePurgeAll(w http.ResponseWriter, r *http.Request) {
 	repoURL := r.URL.Query().Get("repo")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	purged, err := s.workspace.PurgeAll(ctx, repoURL)
+	purged, err := h.workspace.PurgeAll(ctx, repoURL)
 	if err != nil {
 		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	go s.BroadcastSessions()
+	go h.broadcastSessions()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -295,8 +295,8 @@ func (s *Server) handlePurgeAll(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleGetRecyclableWorkspaces(w http.ResponseWriter, r *http.Request) {
-	workspaces := s.state.GetWorkspaces()
+func (h *WorkspaceHandlers) handleGetRecyclableWorkspaces(w http.ResponseWriter, r *http.Request) {
+	workspaces := h.state.GetWorkspaces()
 	total := 0
 	byRepo := make(map[string]int)
 	for _, ws := range workspaces {
@@ -305,7 +305,7 @@ func (s *Server) handleGetRecyclableWorkspaces(w http.ResponseWriter, r *http.Re
 		}
 		total++
 		repoName := ws.Repo
-		if rc, found := s.config.FindRepoByURL(ws.Repo); found {
+		if rc, found := h.config.FindRepoByURL(ws.Repo); found {
 			repoName = rc.Name
 		}
 		byRepo[repoName]++

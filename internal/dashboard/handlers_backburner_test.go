@@ -13,11 +13,12 @@ func TestHandleBackburnerWorkspace(t *testing.T) {
 		cfg.BackburnerEnabled = true
 		ws := addWorkspaceToServer(t, st, "ws-bb-1")
 
+		wsH := newTestWorkspaceHandlers(server)
 		body, _ := json.Marshal(map[string]bool{"backburner": true})
 		req := makeWorkspaceRequest(t, http.MethodPost,
 			"/api/workspaces/"+ws.ID+"/backburner", ws.ID, body)
 		rr := httptest.NewRecorder()
-		server.handleBackburnerWorkspace(rr, req)
+		wsH.handleBackburnerWorkspace(rr, req)
 
 		if rr.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
@@ -42,11 +43,12 @@ func TestHandleBackburnerWorkspace(t *testing.T) {
 		wsState.Backburner = true
 		st.UpdateWorkspace(wsState)
 
+		wsH := newTestWorkspaceHandlers(server)
 		body, _ := json.Marshal(map[string]bool{"backburner": false})
 		req := makeWorkspaceRequest(t, http.MethodPost,
 			"/api/workspaces/"+ws.ID+"/backburner", ws.ID, body)
 		rr := httptest.NewRecorder()
-		server.handleBackburnerWorkspace(rr, req)
+		wsH.handleBackburnerWorkspace(rr, req)
 
 		if rr.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
@@ -63,11 +65,12 @@ func TestHandleBackburnerWorkspace(t *testing.T) {
 		cfg.BackburnerEnabled = false
 		ws := addWorkspaceToServer(t, st, "ws-bb-3")
 
+		wsH := newTestWorkspaceHandlers(server)
 		body, _ := json.Marshal(map[string]bool{"backburner": true})
 		req := makeWorkspaceRequest(t, http.MethodPost,
 			"/api/workspaces/"+ws.ID+"/backburner", ws.ID, body)
 		rr := httptest.NewRecorder()
-		server.handleBackburnerWorkspace(rr, req)
+		wsH.handleBackburnerWorkspace(rr, req)
 
 		if rr.Code != http.StatusNotFound {
 			t.Fatalf("expected 404, got %d: %s", rr.Code, rr.Body.String())
@@ -78,11 +81,12 @@ func TestHandleBackburnerWorkspace(t *testing.T) {
 		server, cfg, _ := newTestServer(t)
 		cfg.BackburnerEnabled = true
 
+		wsH := newTestWorkspaceHandlers(server)
 		body, _ := json.Marshal(map[string]bool{"backburner": true})
 		req := makeWorkspaceRequest(t, http.MethodPost,
 			"/api/workspaces/ws-nonexistent/backburner", "ws-nonexistent", body)
 		rr := httptest.NewRecorder()
-		server.handleBackburnerWorkspace(rr, req)
+		wsH.handleBackburnerWorkspace(rr, req)
 
 		if rr.Code != http.StatusNotFound {
 			t.Fatalf("expected 404, got %d: %s", rr.Code, rr.Body.String())
@@ -94,10 +98,11 @@ func TestHandleBackburnerWorkspace(t *testing.T) {
 		cfg.BackburnerEnabled = true
 		ws := addWorkspaceToServer(t, st, "ws-bb-4")
 
+		wsH := newTestWorkspaceHandlers(server)
 		req := makeWorkspaceRequest(t, http.MethodPost,
 			"/api/workspaces/"+ws.ID+"/backburner", ws.ID, []byte("not-json"))
 		rr := httptest.NewRecorder()
-		server.handleBackburnerWorkspace(rr, req)
+		wsH.handleBackburnerWorkspace(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())

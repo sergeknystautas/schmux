@@ -672,6 +672,27 @@ func (s *Server) Start() error {
 		}
 		s.gitHandlers = gitH
 
+		// Workspace handler group
+		wsH := &WorkspaceHandlers{
+			config:         s.config,
+			state:          s.state,
+			workspace:      s.workspace,
+			session:        s.session,
+			logger:         s.logger,
+			previewManager: s.previewManager,
+
+			rotationLocks:   s.rotationLocks,
+			rotationLocksMu: &s.rotationLocksMu,
+
+			broadcastSessions:                    s.BroadcastSessions,
+			isTrustedRequest:                     s.isTrustedRequest,
+			lookupPortOwner:                      s.lookupPortOwner,
+			devSourceWorkspacePath:               s.devSourceWorkspacePath,
+			requireWorkspace:                     s.requireWorkspace,
+			getLinearSyncResolveConflictState:    s.getLinearSyncResolveConflictState,
+			deleteLinearSyncResolveConflictState: s.deleteLinearSyncResolveConflictState,
+		}
+
 		// Read-only endpoints (no CSRF needed)
 		r.Get("/healthz", s.handleHealthz)
 		r.Get("/sessions", s.handleSessions)
@@ -685,7 +706,7 @@ func (s *Server) Start() error {
 		r.Get("/commit/prompt", gitH.handleCommitPrompt)
 		r.Get("/diff/*", gitH.handleDiff)
 		r.Get("/file/*", gitH.handleFile)
-		r.Get("/overlays", s.handleOverlays)
+		r.Get("/overlays", wsH.handleOverlays)
 		r.Get("/prs", s.handlePRs)
 		r.Get("/hasNudgenik", s.handleHasNudgenik)
 		r.Get("/askNudgenik/*", s.handleAskNudgenik)
@@ -724,7 +745,7 @@ func (s *Server) Start() error {
 		r.Get("/github/status", s.handleGetGitHubStatus)
 		r.Get("/features", configH.handleGetFeatures)
 		r.Get("/environment", s.handleGetEnvironment)
-		r.Get("/repos/scan", s.handleScanRepos)
+		r.Get("/repos/scan", wsH.handleScanRepos)
 
 		// Dashboard.sx callbacks (no additional CSRF — hit by browser redirect before HTTPS is configured)
 		r.HandleFunc("/dashboardsx/callback", s.handleDashboardSXCallback)
@@ -736,18 +757,18 @@ func (s *Server) Start() error {
 
 			r.Post("/spawn", s.handleSpawnPost)
 			r.Post("/update", s.handleUpdate)
-			r.Post("/workspaces/scan", s.handleWorkspacesScan)
-			r.Delete("/workspaces/purge", s.handlePurgeAll)
-			r.Get("/workspaces/recyclable", s.handleGetRecyclableWorkspaces)
+			r.Post("/workspaces/scan", wsH.handleWorkspacesScan)
+			r.Delete("/workspaces/purge", wsH.handlePurgeAll)
+			r.Get("/workspaces/recyclable", wsH.handleGetRecyclableWorkspaces)
 			r.Post("/suggest-branch", s.handleSuggestBranch)
 			r.Post("/prepare-branch-spawn", s.handlePrepareBranchSpawn)
 			r.Post("/check-branch-conflict", s.handleCheckBranchConflict)
 			r.Post("/recent-branches/refresh", s.handleRecentBranchesRefresh)
 			r.Post("/commit/generate", gitH.handleCommitGenerate)
-			r.Post("/repos/probe", s.handleProbeRepo)
-			r.Post("/overlays/scan", s.handleOverlayScan)
-			r.Post("/overlays/add", s.handleOverlayAdd)
-			r.Post("/overlays/dismiss-nudge", s.handleDismissNudge)
+			r.Post("/repos/probe", wsH.handleProbeRepo)
+			r.Post("/overlays/scan", wsH.handleOverlayScan)
+			r.Post("/overlays/add", wsH.handleOverlayAdd)
+			r.Post("/overlays/dismiss-nudge", wsH.handleDismissNudge)
 			r.Post("/prs/refresh", s.handlePRRefresh)
 			r.Post("/prs/checkout", s.handlePRCheckout)
 			r.Post("/remote/hosts/connect", remoteH.handleRemoteHostConnect)
@@ -762,7 +783,7 @@ func (s *Server) Start() error {
 			r.Post("/environment/sync", s.handleSyncEnvironment)
 
 			// Session routes
-			r.Post("/sessions/{sessionID}/dispose", s.handleDispose)
+			r.Post("/sessions/{sessionID}/dispose", wsH.handleDispose)
 			r.Post("/sessions/{sessionID}/tell", s.handleTellSession)
 			r.Put("/sessions-nickname/{sessionID}", s.handleUpdateNickname)
 			r.Patch("/sessions-nickname/{sessionID}", s.handleUpdateNickname)
@@ -826,9 +847,9 @@ func (s *Server) Start() error {
 				// Inspect route
 				r.Get("/inspect", gitH.handleInspectWorkspace)
 				// Preview routes
-				r.Get("/previews", s.handlePreviewsList)
-				r.Post("/previews", s.handlePreviewsCreate)
-				r.Delete("/previews/{previewID}", s.handlePreviewsDelete)
+				r.Get("/previews", wsH.handlePreviewsList)
+				r.Post("/previews", wsH.handlePreviewsCreate)
+				r.Delete("/previews/{previewID}", wsH.handlePreviewsDelete)
 
 				// Commit graph/detail routes
 				r.Get("/commit-graph", gitH.handleWorkspaceCommitGraph)
@@ -845,19 +866,19 @@ func (s *Server) Start() error {
 				r.Post("/amend", gitH.handleAmend)
 				r.Post("/discard", gitH.handleDiscard)
 				r.Post("/uncommit", gitH.handleUncommit)
-				r.Post("/refresh-overlay", s.handleRefreshOverlay)
+				r.Post("/refresh-overlay", wsH.handleRefreshOverlay)
 
 				// Tab routes
-				r.Post("/tabs", s.handleTabCreate)
-				r.Delete("/tabs/{tabID}", s.handleTabDelete)
+				r.Post("/tabs", wsH.handleTabCreate)
+				r.Delete("/tabs/{tabID}", wsH.handleTabDelete)
 
 				// Workspace dispose routes
-				r.Post("/dispose", s.handleDisposeWorkspace)
-				r.Post("/dispose-all", s.handleDisposeWorkspaceAll)
-				r.Delete("/purge", s.handlePurgeWorkspace)
+				r.Post("/dispose", wsH.handleDisposeWorkspace)
+				r.Post("/dispose-all", wsH.handleDisposeWorkspaceAll)
+				r.Delete("/purge", wsH.handlePurgeWorkspace)
 
 				// Backburner route
-				r.Post("/backburner", s.handleBackburnerWorkspace)
+				r.Post("/backburner", wsH.handleBackburnerWorkspace)
 			})
 
 			// Autolearn routes

@@ -34,11 +34,12 @@ func makeSessionRequest(t *testing.T, method, path, sessionID string, body []byt
 
 func TestHandleDispose_Guards(t *testing.T) {
 	server, _, _ := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(server)
 
 	t.Run("rejects missing session ID", func(t *testing.T) {
 		req := makeSessionRequest(t, http.MethodDelete, "/api/sessions//dispose", "", nil)
 		rr := httptest.NewRecorder()
-		server.handleDispose(rr, req)
+		wsH.handleDispose(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
@@ -48,11 +49,12 @@ func TestHandleDispose_Guards(t *testing.T) {
 
 func TestHandleDisposeWorkspace_Guards(t *testing.T) {
 	server, _, _ := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(server)
 
 	t.Run("rejects missing workspace ID", func(t *testing.T) {
 		req := makeWorkspaceRequest(t, http.MethodDelete, "/api/workspaces//dispose", "", nil)
 		rr := httptest.NewRecorder()
-		server.handleDisposeWorkspace(rr, req)
+		wsH.handleDisposeWorkspace(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
@@ -62,11 +64,12 @@ func TestHandleDisposeWorkspace_Guards(t *testing.T) {
 
 func TestHandleDisposeWorkspaceAll_Guards(t *testing.T) {
 	server, _, _ := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(server)
 
 	t.Run("rejects missing workspace ID", func(t *testing.T) {
 		req := makeWorkspaceRequest(t, http.MethodDelete, "/api/workspaces//dispose-all", "", nil)
 		rr := httptest.NewRecorder()
-		server.handleDisposeWorkspaceAll(rr, req)
+		wsH.handleDisposeWorkspaceAll(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
@@ -186,10 +189,11 @@ func TestHandleUpdateXtermTitle(t *testing.T) {
 
 func TestHandleDispose_NonexistentSession(t *testing.T) {
 	server, _, _ := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(server)
 
 	req := makeSessionRequest(t, http.MethodDelete, "/api/sessions/nonexistent-id/dispose", "nonexistent-id", nil)
 	rr := httptest.NewRecorder()
-	server.handleDispose(rr, req)
+	wsH.handleDispose(rr, req)
 
 	// MarkSessionDisposing fails silently (warns), then Dispose returns error → 500
 	if rr.Code != http.StatusInternalServerError {
@@ -199,6 +203,7 @@ func TestHandleDispose_NonexistentSession(t *testing.T) {
 
 func TestHandleDispose_SuccessfulDispose(t *testing.T) {
 	server, _, st := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(server)
 
 	st.AddWorkspace(state.Workspace{
 		ID:     "ws-disp",
@@ -216,7 +221,7 @@ func TestHandleDispose_SuccessfulDispose(t *testing.T) {
 
 	req := makeSessionRequest(t, http.MethodDelete, "/api/sessions/sess-disp/dispose", "sess-disp", nil)
 	rr := httptest.NewRecorder()
-	server.handleDispose(rr, req)
+	wsH.handleDispose(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
@@ -238,6 +243,7 @@ func TestHandleDispose_SuccessfulDispose(t *testing.T) {
 
 func TestHandleDispose_AlreadyDisposing(t *testing.T) {
 	server, _, st := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(server)
 
 	st.AddWorkspace(state.Workspace{
 		ID:     "ws-adis",
@@ -255,7 +261,7 @@ func TestHandleDispose_AlreadyDisposing(t *testing.T) {
 
 	req := makeSessionRequest(t, http.MethodDelete, "/api/sessions/sess-adis/dispose", "sess-adis", nil)
 	rr := httptest.NewRecorder()
-	server.handleDispose(rr, req)
+	wsH.handleDispose(rr, req)
 
 	// Idempotent — should return OK without re-disposing
 	if rr.Code != http.StatusOK {
@@ -273,10 +279,11 @@ func TestHandleDispose_AlreadyDisposing(t *testing.T) {
 
 func TestHandleDisposeWorkspace_NonexistentWorkspace(t *testing.T) {
 	server, _, _ := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(server)
 
 	req := makeWorkspaceRequest(t, http.MethodDelete, "/api/workspaces/nonexistent-ws/dispose", "nonexistent-ws", nil)
 	rr := httptest.NewRecorder()
-	server.handleDisposeWorkspace(rr, req)
+	wsH.handleDisposeWorkspace(rr, req)
 
 	// MarkWorkspaceDisposing fails, then Dispose also fails → 400
 	if rr.Code != http.StatusBadRequest {
@@ -286,6 +293,7 @@ func TestHandleDisposeWorkspace_NonexistentWorkspace(t *testing.T) {
 
 func TestHandleDisposeWorkspace_NoGitRepo(t *testing.T) {
 	server, _, st := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(server)
 
 	// Temp dir without git — zombie workspace should be cleaned from state
 	wsDir := t.TempDir()
@@ -298,7 +306,7 @@ func TestHandleDisposeWorkspace_NoGitRepo(t *testing.T) {
 
 	req := makeWorkspaceRequest(t, http.MethodDelete, "/api/workspaces/ws-nogit/dispose", "ws-nogit", nil)
 	rr := httptest.NewRecorder()
-	server.handleDisposeWorkspace(rr, req)
+	wsH.handleDisposeWorkspace(rr, req)
 
 	// Zombie workspace disposal succeeds — state cleaned up
 	if rr.Code != http.StatusOK {
@@ -314,10 +322,11 @@ func TestHandleDisposeWorkspace_NoGitRepo(t *testing.T) {
 
 func TestHandleDisposeWorkspaceAll_NonexistentWorkspace(t *testing.T) {
 	server, _, _ := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(server)
 
 	req := makeWorkspaceRequest(t, http.MethodDelete, "/api/workspaces/nonexistent-ws/dispose-all", "nonexistent-ws", nil)
 	rr := httptest.NewRecorder()
-	server.handleDisposeWorkspaceAll(rr, req)
+	wsH.handleDisposeWorkspaceAll(rr, req)
 
 	// MarkWorkspaceDisposing fails, then DisposeForce also fails → 400
 	if rr.Code != http.StatusBadRequest {
@@ -327,6 +336,7 @@ func TestHandleDisposeWorkspaceAll_NonexistentWorkspace(t *testing.T) {
 
 func TestHandleDisposeWorkspaceAll_WithSessions(t *testing.T) {
 	server, _, st := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(server)
 
 	wsDir := t.TempDir()
 	st.AddWorkspace(state.Workspace{
@@ -352,7 +362,7 @@ func TestHandleDisposeWorkspaceAll_WithSessions(t *testing.T) {
 
 	req := makeWorkspaceRequest(t, http.MethodDelete, "/api/workspaces/ws-all/dispose-all", "ws-all", nil)
 	rr := httptest.NewRecorder()
-	server.handleDisposeWorkspaceAll(rr, req)
+	wsH.handleDisposeWorkspaceAll(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
@@ -386,6 +396,7 @@ func TestHandleDisposeWorkspaceAll_WithSessions(t *testing.T) {
 
 func TestHandlePurgeWorkspace(t *testing.T) {
 	server, _, st := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(server)
 
 	workspacePath := filepath.Join(t.TempDir(), "test-001")
 	os.MkdirAll(workspacePath, 0755)
@@ -401,7 +412,7 @@ func TestHandlePurgeWorkspace(t *testing.T) {
 
 	req := makeWorkspaceRequest(t, http.MethodDelete, "/api/workspaces/test-001/purge", "test-001", nil)
 	rr := httptest.NewRecorder()
-	server.handlePurgeWorkspace(rr, req)
+	wsH.handlePurgeWorkspace(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d: %s", rr.Code, rr.Body.String())
@@ -415,6 +426,7 @@ func TestHandlePurgeWorkspace(t *testing.T) {
 
 func TestHandlePurgeAll(t *testing.T) {
 	server, _, st := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(server)
 
 	for i := 0; i < 3; i++ {
 		id := fmt.Sprintf("test-%03d", i+1)
@@ -429,7 +441,7 @@ func TestHandlePurgeAll(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/workspaces/purge", nil)
 	rr := httptest.NewRecorder()
-	server.handlePurgeAll(rr, req)
+	wsH.handlePurgeAll(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d: %s", rr.Code, rr.Body.String())

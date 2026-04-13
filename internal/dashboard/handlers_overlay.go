@@ -19,7 +19,7 @@ import (
 )
 
 // handleOverlays returns overlay information for all repos.
-func (s *Server) handleOverlays(w http.ResponseWriter, r *http.Request) {
+func (h *WorkspaceHandlers) handleOverlays(w http.ResponseWriter, r *http.Request) {
 	type PathInfo struct {
 		Path   string `json:"path"`
 		Source string `json:"source"` // "builtin", "global", or "repo"
@@ -39,7 +39,7 @@ func (s *Server) handleOverlays(w http.ResponseWriter, r *http.Request) {
 		Overlays []OverlayInfo `json:"overlays"`
 	}
 
-	repos := s.config.GetRepos()
+	repos := h.config.GetRepos()
 	overlays := make([]OverlayInfo, 0, len(repos))
 
 	// Build lookup sets for source classification
@@ -48,8 +48,8 @@ func (s *Server) handleOverlays(w http.ResponseWriter, r *http.Request) {
 		builtinSet[p] = true
 	}
 	globalSet := make(map[string]bool)
-	if s.config.Overlay != nil {
-		for _, p := range s.config.Overlay.Paths {
+	if h.config.Overlay != nil {
+		for _, p := range h.config.Overlay.Paths {
 			globalSet[p] = true
 		}
 	}
@@ -57,7 +57,7 @@ func (s *Server) handleOverlays(w http.ResponseWriter, r *http.Request) {
 	for _, repo := range repos {
 		overlayDir, err := workspace.OverlayDir(repo.Name)
 		if err != nil {
-			s.logger.Error("failed to get overlay directory", "repo", repo.Name, "err", err)
+			h.logger.Error("failed to get overlay directory", "repo", repo.Name, "err", err)
 			continue
 		}
 
@@ -72,14 +72,14 @@ func (s *Server) handleOverlays(w http.ResponseWriter, r *http.Request) {
 		if exists {
 			files, err := workspace.ListOverlayFiles(repo.Name)
 			if err != nil {
-				s.logger.Error("failed to list overlay files", "repo", repo.Name, "err", err)
+				h.logger.Error("failed to list overlay files", "repo", repo.Name, "err", err)
 			} else {
 				fileCount = len(files)
 			}
 		}
 
 		// Get all declared paths for this repo and classify them
-		declaredPaths := s.config.GetOverlayPaths(repo.Name)
+		declaredPaths := h.config.GetOverlayPaths(repo.Name)
 		pathInfos := make([]PathInfo, 0, len(declaredPaths))
 		for _, p := range declaredPaths {
 			// Determine source (check in priority order)
@@ -118,12 +118,12 @@ func (s *Server) handleOverlays(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(Response{Overlays: overlays}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "overlays", "err", err)
+		h.logger.Error("failed to encode response", "handler", "overlays", "err", err)
 	}
 }
 
 // handleRefreshOverlay handles POST requests to refresh overlay files for a workspace.
-func (s *Server) handleRefreshOverlay(w http.ResponseWriter, r *http.Request) {
+func (h *WorkspaceHandlers) handleRefreshOverlay(w http.ResponseWriter, r *http.Request) {
 	// Extract workspace ID from chi URL param
 	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
@@ -131,25 +131,25 @@ func (s *Server) handleRefreshOverlay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(h.config.GetXtermOperationTimeoutMs())*time.Millisecond)
 	defer cancel()
 
-	if err := s.workspace.RefreshOverlay(ctx, workspaceID); err != nil {
-		s.logger.Error("refresh-overlay error", "workspace_id", workspaceID, "err", err)
+	if err := h.workspace.RefreshOverlay(ctx, workspaceID); err != nil {
+		h.logger.Error("refresh-overlay error", "workspace_id", workspaceID, "err", err)
 		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	s.logger.Info("refresh-overlay success", "workspace_id", workspaceID)
+	h.logger.Info("refresh-overlay success", "workspace_id", workspaceID)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "refresh-overlay", "err", err)
+		h.logger.Error("failed to encode response", "handler", "refresh-overlay", "err", err)
 	}
 }
 
 // handleOverlayScan scans a workspace for gitignored files that could be added to the overlay.
-func (s *Server) handleOverlayScan(w http.ResponseWriter, r *http.Request) {
+func (h *WorkspaceHandlers) handleOverlayScan(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 
 	var req struct {
@@ -161,7 +161,7 @@ func (s *Server) handleOverlayScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ws, found := s.state.GetWorkspace(req.WorkspaceID)
+	ws, found := h.state.GetWorkspace(req.WorkspaceID)
 	if !found {
 		writeJSONError(w, "Workspace not found", http.StatusNotFound)
 		return
@@ -170,7 +170,7 @@ func (s *Server) handleOverlayScan(w http.ResponseWriter, r *http.Request) {
 	// Validate repo name if provided
 	if req.RepoName != "" {
 		repoFound := false
-		for _, repo := range s.config.GetRepos() {
+		for _, repo := range h.config.GetRepos() {
 			if repo.Name == req.RepoName {
 				repoFound = true
 				break
@@ -222,12 +222,12 @@ func (s *Server) handleOverlayScan(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]any{"candidates": candidates}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "overlay-scan", "err", err)
+		h.logger.Error("failed to encode response", "handler", "overlay-scan", "err", err)
 	}
 }
 
 // handleOverlayAdd copies files from a workspace to the overlay directory and updates config.
-func (s *Server) handleOverlayAdd(w http.ResponseWriter, r *http.Request) {
+func (h *WorkspaceHandlers) handleOverlayAdd(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 
 	var req struct {
@@ -246,7 +246,7 @@ func (s *Server) handleOverlayAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ws, found := s.state.GetWorkspace(req.WorkspaceID)
+	ws, found := h.state.GetWorkspace(req.WorkspaceID)
 	if !found {
 		writeJSONError(w, "Workspace not found", http.StatusNotFound)
 		return
@@ -254,7 +254,7 @@ func (s *Server) handleOverlayAdd(w http.ResponseWriter, r *http.Request) {
 
 	// Validate repo name against configured repos
 	var matchedRepo *config.Repo
-	for _, repo := range s.config.GetRepos() {
+	for _, repo := range h.config.GetRepos() {
 		if repo.Name == req.RepoName {
 			r := repo
 			matchedRepo = &r
@@ -322,8 +322,8 @@ func (s *Server) handleOverlayAdd(w http.ResponseWriter, r *http.Request) {
 	allNewPaths = append(allNewPaths, copied...)
 	allNewPaths = append(allNewPaths, validCustom...)
 	if len(allNewPaths) > 0 {
-		s.config.AddRepoOverlayPaths(req.RepoName, allNewPaths)
-		s.config.Save()
+		h.config.AddRepoOverlayPaths(req.RepoName, allNewPaths)
+		h.config.Save()
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -333,12 +333,12 @@ func (s *Server) handleOverlayAdd(w http.ResponseWriter, r *http.Request) {
 		"registered": allNewPaths,
 		"errors":     errors,
 	}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "overlay-add", "err", err)
+		h.logger.Error("failed to encode response", "handler", "overlay-add", "err", err)
 	}
 }
 
 // handleDismissNudge handles POST requests to dismiss the overlay nudge banner for a repo.
-func (s *Server) handleDismissNudge(w http.ResponseWriter, r *http.Request) {
+func (h *WorkspaceHandlers) handleDismissNudge(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 
 	var req struct {
@@ -360,7 +360,7 @@ func (s *Server) handleDismissNudge(w http.ResponseWriter, r *http.Request) {
 	// UI operation where concurrent mutations are extremely unlikely. A proper fix
 	// would return a copy from GetRepos() or use a dedicated update method with
 	// locking on the config object.
-	repos := s.config.GetRepos()
+	repos := h.config.GetRepos()
 	found := false
 	for i := range repos {
 		if repos[i].Name == req.RepoName {
@@ -374,14 +374,14 @@ func (s *Server) handleDismissNudge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.config.Save(); err != nil {
-		s.logger.Error("failed to save config after dismiss-nudge", "err", err)
+	if err := h.config.Save(); err != nil {
+		h.logger.Error("failed to save config after dismiss-nudge", "err", err)
 		writeJSONError(w, "Failed to save config", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "dismiss-nudge", "err", err)
+		h.logger.Error("failed to encode response", "handler", "dismiss-nudge", "err", err)
 	}
 }

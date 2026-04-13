@@ -144,12 +144,13 @@ func TestHandlePreviewsCreate(t *testing.T) {
 		server.previewManager = newPreviewManager(t, st, 3)
 		t.Cleanup(func() { server.previewManager.Stop() })
 
+		wsH := newTestWorkspaceHandlers(server)
 		req := postPreviewRequest(t, ws.ID, createPreviewRequest{
 			TargetPort:      port,
 			SourceSessionID: "sess-1",
 		})
 		rr := httptest.NewRecorder()
-		server.handlePreviewsCreate(rr, req)
+		wsH.handlePreviewsCreate(rr, req)
 
 		if rr.Code != http.StatusCreated {
 			t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
@@ -173,11 +174,12 @@ func TestHandlePreviewsCreate(t *testing.T) {
 		server.previewManager = newPreviewManager(t, st, 3)
 		t.Cleanup(func() { server.previewManager.Stop() })
 
+		wsH := newTestWorkspaceHandlers(server)
 		req := postPreviewRequest(t, ws.ID, createPreviewRequest{
 			TargetPort: port,
 		})
 		rr := httptest.NewRecorder()
-		server.handlePreviewsCreate(rr, req)
+		wsH.handlePreviewsCreate(rr, req)
 
 		if rr.Code != http.StatusCreated {
 			t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
@@ -205,11 +207,12 @@ func TestHandlePreviewsCreate(t *testing.T) {
 		server.previewManager = newPreviewManager(t, st, 3)
 		t.Cleanup(func() { server.previewManager.Stop() })
 
+		wsH := newTestWorkspaceHandlers(server)
 		req := postPreviewRequest(t, ws.ID, createPreviewRequest{
 			TargetPort: unusedPort,
 		})
 		rr := httptest.NewRecorder()
-		server.handlePreviewsCreate(rr, req)
+		wsH.handlePreviewsCreate(rr, req)
 
 		if rr.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("expected 422, got %d: %s", rr.Code, rr.Body.String())
@@ -223,12 +226,13 @@ func TestHandlePreviewsCreate(t *testing.T) {
 		server.previewManager = newPreviewManager(t, st, 3)
 		t.Cleanup(func() { server.previewManager.Stop() })
 
+		wsH := newTestWorkspaceHandlers(server)
 		req := postPreviewRequest(t, ws.ID, createPreviewRequest{
 			TargetPort: 3000,
 			TargetHost: "0.0.0.0",
 		})
 		rr := httptest.NewRecorder()
-		server.handlePreviewsCreate(rr, req)
+		wsH.handlePreviewsCreate(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
@@ -242,11 +246,12 @@ func TestHandlePreviewsCreate(t *testing.T) {
 		server.previewManager = newPreviewManager(t, st, 3)
 		t.Cleanup(func() { server.previewManager.Stop() })
 
+		wsH := newTestWorkspaceHandlers(server)
 		req := postPreviewRequest(t, ws.ID, createPreviewRequest{
 			TargetPort: 0,
 		})
 		rr := httptest.NewRecorder()
-		server.handlePreviewsCreate(rr, req)
+		wsH.handlePreviewsCreate(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
@@ -259,11 +264,12 @@ func TestHandlePreviewsCreate(t *testing.T) {
 		server.previewManager = newPreviewManager(t, st, 3)
 		t.Cleanup(func() { server.previewManager.Stop() })
 
+		wsH := newTestWorkspaceHandlers(server)
 		req := postPreviewRequest(t, "nonexistent-ws", createPreviewRequest{
 			TargetPort: 3000,
 		})
 		rr := httptest.NewRecorder()
-		server.handlePreviewsCreate(rr, req)
+		wsH.handlePreviewsCreate(rr, req)
 
 		if rr.Code != http.StatusNotFound {
 			t.Fatalf("expected 404, got %d: %s", rr.Code, rr.Body.String())
@@ -280,10 +286,12 @@ func TestHandlePreviewsCreate(t *testing.T) {
 		server.previewManager = newPreviewManager(t, st, 3)
 		t.Cleanup(func() { server.previewManager.Stop() })
 
+		wsH := newTestWorkspaceHandlers(server)
+
 		// First POST.
 		req1 := postPreviewRequest(t, ws.ID, createPreviewRequest{TargetPort: port})
 		rr1 := httptest.NewRecorder()
-		server.handlePreviewsCreate(rr1, req1)
+		wsH.handlePreviewsCreate(rr1, req1)
 		if rr1.Code != http.StatusCreated {
 			t.Fatalf("first POST: expected 201, got %d: %s", rr1.Code, rr1.Body.String())
 		}
@@ -292,7 +300,7 @@ func TestHandlePreviewsCreate(t *testing.T) {
 		// Second POST — same port.
 		req2 := postPreviewRequest(t, ws.ID, createPreviewRequest{TargetPort: port})
 		rr2 := httptest.NewRecorder()
-		server.handlePreviewsCreate(rr2, req2)
+		wsH.handlePreviewsCreate(rr2, req2)
 		if rr2.Code != http.StatusOK {
 			t.Fatalf("second POST: expected 200, got %d: %s", rr2.Code, rr2.Body.String())
 		}
@@ -317,10 +325,12 @@ func TestHandlePreviewsCreate(t *testing.T) {
 		server.previewManager = newPreviewManager(t, st, 3)
 		t.Cleanup(func() { server.previewManager.Stop() })
 
+		wsH := newTestWorkspaceHandlers(server)
+
 		// First POST with sess-a.
 		req1 := postPreviewRequest(t, ws.ID, createPreviewRequest{TargetPort: port, SourceSessionID: "sess-a"})
 		rr1 := httptest.NewRecorder()
-		server.handlePreviewsCreate(rr1, req1)
+		wsH.handlePreviewsCreate(rr1, req1)
 		if rr1.Code != http.StatusCreated {
 			t.Fatalf("first POST: expected 201, got %d: %s", rr1.Code, rr1.Body.String())
 		}
@@ -329,7 +339,7 @@ func TestHandlePreviewsCreate(t *testing.T) {
 		// Second POST — same port, different session.
 		req2 := postPreviewRequest(t, ws.ID, createPreviewRequest{TargetPort: port, SourceSessionID: "sess-b"})
 		rr2 := httptest.NewRecorder()
-		server.handlePreviewsCreate(rr2, req2)
+		wsH.handlePreviewsCreate(rr2, req2)
 		if rr2.Code != http.StatusOK {
 			t.Fatalf("second POST: expected 200, got %d: %s", rr2.Code, rr2.Body.String())
 		}
@@ -354,12 +364,14 @@ func TestHandlePreviewsCreate(t *testing.T) {
 		server.previewManager = newPreviewManager(t, st, cap)
 		t.Cleanup(func() { server.previewManager.Stop() })
 
+		wsH := newTestWorkspaceHandlers(server)
+
 		// Fill to cap.
 		for i := 0; i < cap; i++ {
 			port := startEchoServer(t)
 			req := postPreviewRequest(t, ws.ID, createPreviewRequest{TargetPort: port})
 			rr := httptest.NewRecorder()
-			server.handlePreviewsCreate(rr, req)
+			wsH.handlePreviewsCreate(rr, req)
 			if rr.Code != http.StatusCreated {
 				t.Fatalf("fill iteration %d: expected 201, got %d: %s", i, rr.Code, rr.Body.String())
 			}
@@ -369,7 +381,7 @@ func TestHandlePreviewsCreate(t *testing.T) {
 		port := startEchoServer(t)
 		req := postPreviewRequest(t, ws.ID, createPreviewRequest{TargetPort: port})
 		rr := httptest.NewRecorder()
-		server.handlePreviewsCreate(rr, req)
+		wsH.handlePreviewsCreate(rr, req)
 
 		if rr.Code != http.StatusConflict {
 			t.Fatalf("expected 409 on cap exceeded, got %d: %s", rr.Code, rr.Body.String())
@@ -383,13 +395,14 @@ func TestHandlePreviewsCreate(t *testing.T) {
 		server.previewManager = newPreviewManager(t, st, 3)
 		t.Cleanup(func() { server.previewManager.Stop() })
 
+		wsH := newTestWorkspaceHandlers(server)
 		req := makeWorkspaceRequest(t, http.MethodPost,
 			"/api/workspaces/"+ws.ID+"/previews",
 			ws.ID,
 			[]byte("{garbage json"),
 		)
 		rr := httptest.NewRecorder()
-		server.handlePreviewsCreate(rr, req)
+		wsH.handlePreviewsCreate(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())

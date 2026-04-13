@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
@@ -149,8 +151,30 @@ func makeLocalRepo(ctx context.Context, name, path, vcs string) LocalRepo {
 	return repo
 }
 
+// handleWorkspacesScan scans the workspace directory and reconciles with state.
+func (h *WorkspaceHandlers) handleWorkspacesScan(w http.ResponseWriter, r *http.Request) {
+	result, err := h.workspace.Scan()
+	if err != nil {
+		writeJSONError(w, fmt.Sprintf("Failed to scan workspaces: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if h.previewManager != nil {
+		previewLog := logging.Sub(h.logger, "preview")
+		for _, removed := range result.Removed {
+			if err := h.previewManager.DeleteWorkspace(removed.ID); err != nil {
+				previewLog.Warn("scan cleanup failed", "workspace_id", removed.ID, "err", err)
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		h.logger.Error("failed to encode response", "handler", "workspaces-scan", "err", err)
+	}
+}
+
 // handleScanRepos scans the user's home directory for local repositories.
-func (s *Server) handleScanRepos(w http.ResponseWriter, r *http.Request) {
+func (h *WorkspaceHandlers) handleScanRepos(w http.ResponseWriter, r *http.Request) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		writeJSONError(w, "Failed to determine home directory", http.StatusInternalServerError)
@@ -168,7 +192,7 @@ func (s *Server) handleScanRepos(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleProbeRepo probes a repository URL for accessibility.
-func (s *Server) handleProbeRepo(w http.ResponseWriter, r *http.Request) {
+func (h *WorkspaceHandlers) handleProbeRepo(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 
 	var req struct {

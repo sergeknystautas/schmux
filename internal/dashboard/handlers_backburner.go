@@ -6,13 +6,13 @@ import (
 )
 
 // handleBackburnerWorkspace toggles the backburner state of a workspace.
-func (s *Server) handleBackburnerWorkspace(w http.ResponseWriter, r *http.Request) {
-	if !s.config.GetBackburnerEnabled() {
+func (h *WorkspaceHandlers) handleBackburnerWorkspace(w http.ResponseWriter, r *http.Request) {
+	if !h.config.GetBackburnerEnabled() {
 		writeJSONError(w, "backburner feature is not enabled", http.StatusNotFound)
 		return
 	}
 
-	ws, ok := s.requireWorkspace(w, r)
+	ws, ok := h.requireWorkspace(w, r)
 	if !ok {
 		return
 	}
@@ -27,12 +27,12 @@ func (s *Server) handleBackburnerWorkspace(w http.ResponseWriter, r *http.Reques
 	}
 
 	ws.Backburner = req.Backburner
-	if err := s.state.UpdateWorkspace(ws); err != nil {
+	if err := h.state.UpdateWorkspace(ws); err != nil {
 		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	s.BroadcastSessions()
+	h.broadcastSessions()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})

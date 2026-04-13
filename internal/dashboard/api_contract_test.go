@@ -79,6 +79,29 @@ func newTestGitHandlers(s *Server) *GitHandlers {
 	}
 }
 
+// newTestWorkspaceHandlers builds a WorkspaceHandlers from a Server for tests.
+func newTestWorkspaceHandlers(s *Server) *WorkspaceHandlers {
+	return &WorkspaceHandlers{
+		config:         s.config,
+		state:          s.state,
+		workspace:      s.workspace,
+		session:        s.session,
+		logger:         s.logger,
+		previewManager: s.previewManager,
+
+		rotationLocks:   s.rotationLocks,
+		rotationLocksMu: &s.rotationLocksMu,
+
+		broadcastSessions:                    s.BroadcastSessions,
+		isTrustedRequest:                     s.isTrustedRequest,
+		lookupPortOwner:                      s.lookupPortOwner,
+		devSourceWorkspacePath:               s.devSourceWorkspacePath,
+		requireWorkspace:                     s.requireWorkspace,
+		getLinearSyncResolveConflictState:    s.getLinearSyncResolveConflictState,
+		deleteLinearSyncResolveConflictState: s.deleteLinearSyncResolveConflictState,
+	}
+}
+
 // newTestConfigHandlers builds a ConfigHandlers from a Server for tests.
 func newTestConfigHandlers(s *Server) *ConfigHandlers {
 	return &ConfigHandlers{
@@ -541,6 +564,7 @@ func TestAPIContract_SessionsQuickLaunchNamesOnly(t *testing.T) {
 func TestAPIContract_MissingIDErrors(t *testing.T) {
 	server, _, _ := newTestServer(t)
 	gitH := newTestGitHandlers(server)
+	wsH := newTestWorkspaceHandlers(server)
 
 	tests := []struct {
 		name     string
@@ -549,8 +573,8 @@ func TestAPIContract_MissingIDErrors(t *testing.T) {
 		fn       func(http.ResponseWriter, *http.Request)
 		paramKey string
 	}{
-		{"dispose missing id", http.MethodPost, "/api/sessions//dispose", server.handleDispose, "sessionID"},
-		{"dispose workspace missing id", http.MethodPost, "/api/workspaces//dispose", server.handleDisposeWorkspace, "workspaceID"},
+		{"dispose missing id", http.MethodPost, "/api/sessions//dispose", wsH.handleDispose, "sessionID"},
+		{"dispose workspace missing id", http.MethodPost, "/api/workspaces//dispose", wsH.handleDisposeWorkspace, "workspaceID"},
 		{"diff missing id", http.MethodGet, "/api/diff/", gitH.handleDiff, ""},
 		{"open vscode missing id", http.MethodPost, "/api/open-vscode/", gitH.handleOpenVSCode, ""},
 		{"sessions nickname missing id", http.MethodPut, "/api/sessions-nickname/", server.handleUpdateNickname, "sessionID"},
@@ -596,10 +620,11 @@ func TestAPIContract_DetectTools(t *testing.T) {
 
 func TestAPIContract_Overlays(t *testing.T) {
 	server, _, _ := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(server)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/overlays", nil)
 	rr := httptest.NewRecorder()
-	server.handleOverlays(rr, req)
+	wsH.handleOverlays(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rr.Code)
@@ -729,13 +754,15 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 		t.Fatalf("failed to write dev-state.json: %v", err)
 	}
 
+	wsH := newTestWorkspaceHandlers(server)
+
 	t.Run("dispose blocked for dev-live workspace", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/workspaces/ws-dev-live/dispose", nil)
 		rctx := chi.NewRouteContext()
 		rctx.URLParams.Add("workspaceID", "ws-dev-live")
 		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 		rr := httptest.NewRecorder()
-		server.handleDisposeWorkspace(rr, req)
+		wsH.handleDisposeWorkspace(rr, req)
 		if rr.Code != http.StatusConflict {
 			t.Fatalf("expected status 409, got %d: %s", rr.Code, rr.Body.String())
 		}
@@ -754,7 +781,7 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 		rctx.URLParams.Add("workspaceID", "ws-dev-live")
 		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 		rr := httptest.NewRecorder()
-		server.handleDisposeWorkspaceAll(rr, req)
+		wsH.handleDisposeWorkspaceAll(rr, req)
 		if rr.Code != http.StatusConflict {
 			t.Fatalf("expected status 409, got %d: %s", rr.Code, rr.Body.String())
 		}
@@ -776,7 +803,7 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 		rctx.URLParams.Add("workspaceID", "ws-other")
 		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 		rr := httptest.NewRecorder()
-		server.handleDisposeWorkspace(rr, req)
+		wsH.handleDisposeWorkspace(rr, req)
 		// Should NOT be 409 — the workspace is not dev-live, so it proceeds
 		// (may fail for other reasons like git safety, but not 409)
 		if rr.Code == http.StatusConflict {
@@ -802,12 +829,13 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 		}
 		_ = st.AddWorkspace(ws3)
 
+		wsH2 := newTestWorkspaceHandlers(server2)
 		req := httptest.NewRequest(http.MethodPost, "/api/workspaces/ws-dev-live-2/dispose", nil)
 		rctx := chi.NewRouteContext()
 		rctx.URLParams.Add("workspaceID", "ws-dev-live-2")
 		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 		rr := httptest.NewRecorder()
-		server2.handleDisposeWorkspace(rr, req)
+		wsH2.handleDisposeWorkspace(rr, req)
 		if rr.Code == http.StatusConflict {
 			t.Fatal("expected non-409 when dev mode is off, got 409")
 		}

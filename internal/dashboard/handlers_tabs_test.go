@@ -32,6 +32,7 @@ func makeTabRequest(t *testing.T, method, path, workspaceID, tabID string, body 
 
 func TestHandleTabCreate(t *testing.T) {
 	srv, _, st := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(srv)
 	if err := st.AddWorkspace(state.Workspace{
 		ID:     "ws-tab-create",
 		Repo:   "https://example.com/repo.git",
@@ -47,7 +48,7 @@ func TestHandleTabCreate(t *testing.T) {
 	})
 	req := makeTabRequest(t, http.MethodPost, "/api/workspaces/ws-tab-create/tabs", "ws-tab-create", "", body)
 	rr := httptest.NewRecorder()
-	srv.handleTabCreate(rr, req)
+	wsH.handleTabCreate(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("POST tabs: status = %d, body = %s", rr.Code, rr.Body.String())
@@ -82,6 +83,7 @@ func TestHandleTabCreate(t *testing.T) {
 
 func TestHandleTabCreate_DisallowedKind(t *testing.T) {
 	srv, _, st := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(srv)
 	if err := st.AddWorkspace(state.Workspace{
 		ID:     "ws-tab-kind",
 		Repo:   "https://example.com/repo.git",
@@ -96,7 +98,7 @@ func TestHandleTabCreate_DisallowedKind(t *testing.T) {
 	})
 	req := makeTabRequest(t, http.MethodPost, "/api/workspaces/ws-tab-kind/tabs", "ws-tab-kind", "", body)
 	rr := httptest.NewRecorder()
-	srv.handleTabCreate(rr, req)
+	wsH.handleTabCreate(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for disallowed kind, got %d: %s", rr.Code, rr.Body.String())
@@ -105,6 +107,7 @@ func TestHandleTabCreate_DisallowedKind(t *testing.T) {
 
 func TestHandleTabCreate_WorkspaceNotFound(t *testing.T) {
 	srv, _, _ := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(srv)
 
 	body, _ := json.Marshal(createTabRequest{
 		Kind: "commit",
@@ -112,7 +115,7 @@ func TestHandleTabCreate_WorkspaceNotFound(t *testing.T) {
 	})
 	req := makeTabRequest(t, http.MethodPost, "/api/workspaces/nonexistent/tabs", "nonexistent", "", body)
 	rr := httptest.NewRecorder()
-	srv.handleTabCreate(rr, req)
+	wsH.handleTabCreate(rr, req)
 
 	if rr.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500 for missing workspace, got %d: %s", rr.Code, rr.Body.String())
@@ -121,6 +124,7 @@ func TestHandleTabCreate_WorkspaceNotFound(t *testing.T) {
 
 func TestHandleTabCreate_InvalidBody(t *testing.T) {
 	srv, _, st := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(srv)
 	if err := st.AddWorkspace(state.Workspace{
 		ID:     "ws-tab-bad-body",
 		Repo:   "https://example.com/repo.git",
@@ -132,7 +136,7 @@ func TestHandleTabCreate_InvalidBody(t *testing.T) {
 
 	req := makeTabRequest(t, http.MethodPost, "/api/workspaces/ws-tab-bad-body/tabs", "ws-tab-bad-body", "", []byte(`{not json}`))
 	rr := httptest.NewRecorder()
-	srv.handleTabCreate(rr, req)
+	wsH.handleTabCreate(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for invalid body, got %d: %s", rr.Code, rr.Body.String())
@@ -141,6 +145,7 @@ func TestHandleTabCreate_InvalidBody(t *testing.T) {
 
 func TestHandleTabDelete(t *testing.T) {
 	srv, _, st := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(srv)
 	if err := st.AddWorkspace(state.Workspace{
 		ID:     "ws-tab-del",
 		Repo:   "https://example.com/repo.git",
@@ -157,7 +162,7 @@ func TestHandleTabDelete(t *testing.T) {
 
 	req := makeTabRequest(t, http.MethodDelete, "/api/workspaces/ws-tab-del/tabs/"+tab.ID, "ws-tab-del", tab.ID, nil)
 	rr := httptest.NewRecorder()
-	srv.handleTabDelete(rr, req)
+	wsH.handleTabDelete(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("DELETE tab: status = %d, body = %s", rr.Code, rr.Body.String())
@@ -173,6 +178,7 @@ func TestHandleTabDelete(t *testing.T) {
 
 func TestHandleTabDelete_NonClosable(t *testing.T) {
 	srv, _, st := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(srv)
 	if err := st.AddWorkspace(state.Workspace{
 		ID:     "ws-tab-nc",
 		Repo:   "https://example.com/repo.git",
@@ -204,7 +210,7 @@ func TestHandleTabDelete_NonClosable(t *testing.T) {
 
 	req := makeTabRequest(t, http.MethodDelete, "/api/workspaces/ws-tab-nc/tabs/"+diffTabID, "ws-tab-nc", diffTabID, nil)
 	rr := httptest.NewRecorder()
-	srv.handleTabDelete(rr, req)
+	wsH.handleTabDelete(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("DELETE non-closable tab: status = %d, want 400", rr.Code)
@@ -213,6 +219,7 @@ func TestHandleTabDelete_NonClosable(t *testing.T) {
 
 func TestHandleTabDelete_NotFound(t *testing.T) {
 	srv, _, st := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(srv)
 	if err := st.AddWorkspace(state.Workspace{
 		ID:     "ws-tab-nf",
 		Repo:   "https://example.com/repo.git",
@@ -224,7 +231,7 @@ func TestHandleTabDelete_NotFound(t *testing.T) {
 
 	req := makeTabRequest(t, http.MethodDelete, "/api/workspaces/ws-tab-nf/tabs/nonexistent-tab", "ws-tab-nf", "nonexistent-tab", nil)
 	rr := httptest.NewRecorder()
-	srv.handleTabDelete(rr, req)
+	wsH.handleTabDelete(rr, req)
 
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("DELETE missing tab: status = %d, want 404", rr.Code)

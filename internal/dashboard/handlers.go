@@ -175,28 +175,6 @@ func (s *Server) serveAppIndex(w http.ResponseWriter, r *http.Request) {
 // maxBodySize is the maximum request body size for JSON requests (1MB).
 const maxBodySize = 1 << 20
 
-// handleWorkspacesScan scans the workspace directory and reconciles with state.
-func (s *Server) handleWorkspacesScan(w http.ResponseWriter, r *http.Request) {
-	result, err := s.workspace.Scan()
-	if err != nil {
-		writeJSONError(w, fmt.Sprintf("Failed to scan workspaces: %v", err), http.StatusInternalServerError)
-		return
-	}
-	if s.previewManager != nil {
-		previewLog := logging.Sub(s.logger, "preview")
-		for _, removed := range result.Removed {
-			if err := s.previewManager.DeleteWorkspace(removed.ID); err != nil {
-				previewLog.Warn("scan cleanup failed", "workspace_id", removed.ID, "err", err)
-			}
-		}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(result); err != nil {
-		s.logger.Error("failed to encode response", "handler", "workspaces-scan", "err", err)
-	}
-}
-
 // handleHealthz returns a simple health check response with version info.
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	v := s.GetVersionInfo()
