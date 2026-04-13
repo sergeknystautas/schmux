@@ -1004,7 +1004,9 @@ func (s *Server) handleOpenVSCodeURI(w http.ResponseWriter, ws state.Workspace) 
 				if liveHostname := conn.Hostname(); liveHostname != "" {
 					host.Hostname = liveHostname
 					s.state.UpdateRemoteHost(conn.Host())
-					_ = s.state.Save()
+					if err := s.state.Save(); err != nil {
+						s.logger.Error("failed to save state", "err", err)
+					}
 				}
 			}
 		}
