@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -147,7 +148,7 @@ func (s *Server) handleUpdateSpawnEntry(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := s.spawnStore.Update(repo, id, req); err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, spawn.ErrNotFound) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 		} else {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -170,7 +171,7 @@ func (s *Server) handleDeleteSpawnEntry(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := s.spawnStore.Delete(repo, id); err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, spawn.ErrNotFound) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 		} else {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -199,7 +200,7 @@ func (s *Server) handlePinSpawnEntry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.spawnStore.Pin(repo, id); err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, spawn.ErrNotFound) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 		} else {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -240,7 +241,7 @@ func (s *Server) handleDismissSpawnEntry(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := s.spawnStore.Dismiss(repo, id); err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, spawn.ErrNotFound) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 		} else {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -262,7 +263,7 @@ func (s *Server) handleRecordSpawnEntryUse(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := s.spawnStore.RecordUse(repo, id); err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, spawn.ErrNotFound) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 		} else {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

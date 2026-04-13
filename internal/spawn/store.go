@@ -204,7 +204,7 @@ func (s *Store) Update(repo, id string, req contracts.UpdateSpawnEntryRequest) e
 			return s.save(repo)
 		}
 	}
-	return fmt.Errorf("spawn entry not found: %s", id)
+	return fmt.Errorf("%w: %s", ErrNotFound, id)
 }
 
 // Delete removes an entry by ID.
@@ -220,7 +220,7 @@ func (s *Store) Delete(repo, id string) error {
 			return s.save(repo)
 		}
 	}
-	return fmt.Errorf("spawn entry not found: %s", id)
+	return fmt.Errorf("%w: %s", ErrNotFound, id)
 }
 
 // Pin changes a proposed entry's state to pinned.
@@ -236,7 +236,7 @@ func (s *Store) Pin(repo, id string) error {
 			return s.save(repo)
 		}
 	}
-	return fmt.Errorf("spawn entry not found: %s", id)
+	return fmt.Errorf("%w: %s", ErrNotFound, id)
 }
 
 // Dismiss changes a proposed entry's state to dismissed.
@@ -252,7 +252,7 @@ func (s *Store) Dismiss(repo, id string) error {
 			return s.save(repo)
 		}
 	}
-	return fmt.Errorf("spawn entry not found: %s", id)
+	return fmt.Errorf("%w: %s", ErrNotFound, id)
 }
 
 // RecordUse increments use_count and sets last_used.
@@ -270,7 +270,7 @@ func (s *Store) RecordUse(repo, id string) error {
 			return s.save(repo)
 		}
 	}
-	return fmt.Errorf("spawn entry not found: %s", id)
+	return fmt.Errorf("%w: %s", ErrNotFound, id)
 }
 
 // AddProposed adds proposed entries in bulk with state=proposed, source=emerged.

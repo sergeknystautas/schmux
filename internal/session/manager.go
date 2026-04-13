@@ -1594,7 +1594,7 @@ func (m *Manager) RenameSession(ctx context.Context, sessionID, newNickname stri
 
 	// Check if new nickname conflicts with an existing session
 	if conflictingID := m.nicknameExists(newNickname, sessionID); conflictingID != "" {
-		return fmt.Errorf("nickname %q already in use by session %s", newNickname, conflictingID)
+		return fmt.Errorf("%w: %q (conflicts with session %s)", ErrNicknameInUse, newNickname, conflictingID)
 	}
 
 	oldTmuxName := sess.TmuxSession

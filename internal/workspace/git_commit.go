@@ -22,13 +22,13 @@ var commitHashRegex = regexp.MustCompile(`^[a-fA-F0-9]{4,40}$`)
 func (m *Manager) GetCommitDetail(ctx context.Context, workspaceID, commitHash string) (*contracts.CommitDetailResponse, error) {
 	// Validate commit hash format
 	if err := validateCommitHash(commitHash); err != nil {
-		return nil, fmt.Errorf("invalid commit hash: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidCommit, err)
 	}
 
 	// Look up workspace
 	ws, ok := m.state.GetWorkspace(workspaceID)
 	if !ok {
-		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
+		return nil, fmt.Errorf("%w: %s", ErrNotFound, workspaceID)
 	}
 
 	gitDir := ws.Path
@@ -100,7 +100,7 @@ func resolveAndValidateCommit(ctx context.Context, gitDir, hash string) (string,
 	cmd := exec.CommandContext(ctx, "git", "-C", gitDir, "cat-file", "-t", hash)
 	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("commit not found: %s", hash)
+		return "", fmt.Errorf("%w: %s", ErrCommitNotFound, hash)
 	}
 	objType := strings.TrimSpace(string(output))
 	if objType != "commit" {

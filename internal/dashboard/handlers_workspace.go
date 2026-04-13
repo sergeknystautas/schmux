@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -194,7 +195,7 @@ func (s *Server) handlePreviewsCreate(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	result, created, err := s.previewManager.CreateOrGet(ctx, ws, host, req.TargetPort, req.SourceSessionID, ownerPID)
 	if err != nil {
-		if strings.Contains(err.Error(), "limit reached") {
+		if errors.Is(err, preview.ErrLimitReached) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}

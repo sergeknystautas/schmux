@@ -390,10 +390,10 @@ func (m *Manager) ReconcileWorkspaceWithCache(workspaceID string, cache PortOwne
 
 func (m *Manager) enforceCaps(workspaceID string) error {
 	if len(m.state.GetPreviews()) >= m.maxGlobal {
-		return fmt.Errorf("global preview limit reached (%d)", m.maxGlobal)
+		return fmt.Errorf("%w: global (%d)", ErrLimitReached, m.maxGlobal)
 	}
 	if len(m.state.GetWorkspacePreviews(workspaceID)) >= m.maxPerWorkspace {
-		return fmt.Errorf("workspace preview limit reached (%d)", m.maxPerWorkspace)
+		return fmt.Errorf("%w: workspace (%d)", ErrLimitReached, m.maxPerWorkspace)
 	}
 	return nil
 }

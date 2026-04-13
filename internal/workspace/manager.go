@@ -28,8 +28,6 @@ const (
 	workspaceNumberFormat = "%03d"
 )
 
-var ErrWorkspaceLocked = errors.New("workspace is locked")
-
 // RemoteCommandRunner executes shell commands on a remote host.
 // The remote.Manager satisfies this interface.
 type RemoteCommandRunner interface {

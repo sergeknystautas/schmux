@@ -20,6 +20,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
+	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/update"
 	"github.com/sergeknystautas/schmux/pkg/shellutil"
@@ -284,7 +285,7 @@ func (s *Server) handleUpdateNickname(w http.ResponseWriter, r *http.Request) {
 	cancel()
 	if err != nil {
 		// Check if this is a nickname conflict error
-		if strings.Contains(err.Error(), "already in use") {
+		if errors.Is(err, session.ErrNicknameInUse) {
 			writeJSONError(w, err.Error(), http.StatusConflict)
 			return
 		}

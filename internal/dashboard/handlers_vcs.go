@@ -269,9 +269,9 @@ func (s *Server) handleWorkspaceCommitDetail(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		// Determine appropriate status code based on error
 		statusCode := http.StatusInternalServerError
-		if strings.Contains(err.Error(), "invalid commit hash") {
+		if errors.Is(err, workspace.ErrInvalidCommit) {
 			statusCode = http.StatusBadRequest
-		} else if strings.Contains(err.Error(), "commit not found") || strings.Contains(err.Error(), "workspace not found") {
+		} else if errors.Is(err, workspace.ErrCommitNotFound) || errors.Is(err, workspace.ErrNotFound) {
 			statusCode = http.StatusNotFound
 		}
 		writeJSONError(w, err.Error(), statusCode)
