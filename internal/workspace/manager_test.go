@@ -872,6 +872,10 @@ func (m *mockStateStore) SaveBatched() {
 	m.state.SaveBatched()
 }
 
+func (m *mockStateStore) FlushPending() {
+	m.state.FlushPending()
+}
+
 // TestCreateCleanupOnStateSaveFailure verifies that workspace directory is cleaned up
 // when clone succeeds but state.Save() fails.
 func TestCreateCleanupOnStateSaveFailure(t *testing.T) {

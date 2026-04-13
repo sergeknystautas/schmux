@@ -87,109 +87,22 @@ type VCSSafetyStatus struct {
 	AheadCommits   int    // number of unpushed commits
 }
 
-// WorkspaceManager defines the interface for workspace operations.
-type WorkspaceManager interface {
-	// GetByID returns a workspace by its ID.
+// WorkspaceCRUD defines workspace lifecycle operations.
+type WorkspaceCRUD interface {
 	GetByID(workspaceID string) (*state.Workspace, bool)
-
-	// GetOrCreate finds an existing workspace for the repoURL/branch or creates a new one.
-	// Returns a workspace ready for use (fetch/pull/clean already done).
 	GetOrCreate(ctx context.Context, repoURL, branch string) (*state.Workspace, error)
-
-	// Cleanup cleans up a workspace by resetting git state.
-	Cleanup(ctx context.Context, workspaceID string) error
-
-	UpdateVCSStatus(ctx context.Context, workspaceID string) (*state.Workspace, error)
-
-	GetWorkspaceChangedFiles(ctx context.Context, workspaceID string) ([]GitChangedFile, error)
-
-	UpdateAllVCSStatus(ctx context.Context)
-
-	// EnsureWorkspaceDir ensures the workspace base directory exists.
-	EnsureWorkspaceDir() error
-
-	// Dispose deletes a workspace by removing its directory and removing it from state.
 	Dispose(ctx context.Context, workspaceID string) error
-
-	// DisposeForce deletes a workspace, skipping safety checks (active sessions, git status).
 	DisposeForce(ctx context.Context, workspaceID string) error
-
-	// Purge permanently deletes a recyclable workspace (files + state).
 	Purge(ctx context.Context, workspaceID string) error
-
-	// PurgeAll permanently deletes all recyclable workspaces for a repo (or all repos if empty).
 	PurgeAll(ctx context.Context, repoURL string) (int, error)
-
-	// Scan scans the workspace directory and reconciles state with filesystem.
-	// Returns what was added, updated, and removed.
-	Scan() (ScanResult, error)
-
-	// RefreshOverlay reapplies overlay files to an existing workspace.
-	RefreshOverlay(ctx context.Context, workspaceID string) error
-
-	// EnsureOverlayDirs ensures overlay directories exist for all configured repos.
-	EnsureOverlayDirs(repos []config.Repo) error
-
-	// GetWorkspaceConfig returns the cached workspace config for the given workspace ID.
-	GetWorkspaceConfig(workspaceID string) *contracts.RepoConfig
-
-	// CreateLocalRepo creates a new workspace with a fresh local git repository.
+	Cleanup(ctx context.Context, workspaceID string) error
 	CreateLocalRepo(ctx context.Context, repoName, branch string) (*state.Workspace, error)
-
-	// CreateFromWorkspace creates a new workspace with a new branch,
-	// branching from the source workspace's current branch/commit.
 	CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, newBranch string) (*state.Workspace, error)
-
-	// GetDefaultBranch returns the detected default branch for a repo URL.
-	GetDefaultBranch(ctx context.Context, repoURL string) (string, error)
-
-	// LinearSyncFromDefault performs an iterative rebase from the default branch into the current branch.
-	LinearSyncFromDefault(ctx context.Context, workspaceID string) (*LinearSyncResult, error)
-
-	// LinearSyncToDefault performs a fast-forward push to the default branch.
-	LinearSyncToDefault(ctx context.Context, workspaceID string) (*LinearSyncResult, error)
-
-	// LinearSyncResolveConflict rebases exactly one commit from the default branch, handling conflicts.
-	// The optional onStep callback is called at each progress step (may be nil).
-	LinearSyncResolveConflict(ctx context.Context, workspaceID string, onStep ResolveConflictStepFunc) (*LinearSyncResolveConflictResult, error)
-
-	// PushToBranch pushes the current branch to origin using --force-with-lease.
-	// If branches have diverged and confirm=false, returns NeedsConfirm=true with divergent commit info.
-	// Fails if local is behind origin.
-	PushToBranch(ctx context.Context, workspaceID string, confirm bool) (*LinearSyncResult, error)
-
-	// EnsureOriginQueries ensures origin query repos exist for all configured repos.
-	EnsureOriginQueries(ctx context.Context) error
-
-	// FetchOriginQueries fetches updates for all origin query repos.
-	FetchOriginQueries(ctx context.Context)
-
-	// GetRecentBranches returns recent branches from all bare clones, sorted by commit date.
-	GetRecentBranches(ctx context.Context, limit int) ([]RecentBranch, error)
-
-	// GetBranchCommitLog returns commit subjects for a branch relative to the default branch.
-	GetBranchCommitLog(ctx context.Context, repoURL, branch string, limit int) ([]string, error)
-
-	// CheckoutPR creates a workspace from a GitHub pull request ref.
-	CheckoutPR(ctx context.Context, pr contracts.PullRequest) (*state.Workspace, error)
-
-	// GetGitGraph returns the commit graph for a workspace showing local branch vs origin/main.
-	// maxTotal: Maximum total commits to display (applied after category limits)
-	// mainContext: Number of commits on main BEFORE fork point (historical context)
-	GetGitGraph(ctx context.Context, workspaceID string, maxTotal int, mainContext int) (*contracts.CommitGraphResponse, error)
-
-	// GetCommitDetail returns detailed information about a specific commit.
-	GetCommitDetail(ctx context.Context, workspaceID, commitHash string) (*contracts.CommitDetailResponse, error)
-
-	// IsWorkspaceLocked returns true if a sync operation is running on the workspace.
+	GetWorkspaceConfig(workspaceID string) *contracts.RepoConfig
 	IsWorkspaceLocked(workspaceID string) bool
-
-	// MarkWorkspaceDisposing sets a workspace's status to "disposing" and saves state.
-	// Returns the previous status (for rollback) and any error.
 	MarkWorkspaceDisposing(workspaceID string) (previousStatus string, err error)
-
-	// RevertWorkspaceStatus restores a workspace's status after a failed disposal.
 	RevertWorkspaceStatus(workspaceID, previousStatus string)
+	Scan() (ScanResult, error)
 
 	// Tab lifecycle
 	OpenCommitTab(wsID, hash string) (*state.Tab, error)
@@ -201,5 +114,42 @@ type WorkspaceManager interface {
 	AddWorkspaceWithTabs(ws state.Workspace) error
 }
 
-// Ensure *Manager implements WorkspaceManager at compile time.
+// WorkspaceVCS defines version control operations on workspaces.
+type WorkspaceVCS interface {
+	UpdateVCSStatus(ctx context.Context, workspaceID string) (*state.Workspace, error)
+	UpdateAllVCSStatus(ctx context.Context)
+	GetWorkspaceChangedFiles(ctx context.Context, workspaceID string) ([]GitChangedFile, error)
+	GetDefaultBranch(ctx context.Context, repoURL string) (string, error)
+	GetGitGraph(ctx context.Context, workspaceID string, maxTotal int, mainContext int) (*contracts.CommitGraphResponse, error)
+	GetCommitDetail(ctx context.Context, workspaceID, commitHash string) (*contracts.CommitDetailResponse, error)
+	GetRecentBranches(ctx context.Context, limit int) ([]RecentBranch, error)
+	GetBranchCommitLog(ctx context.Context, repoURL, branch string, limit int) ([]string, error)
+	LinearSyncFromDefault(ctx context.Context, workspaceID string) (*LinearSyncResult, error)
+	LinearSyncToDefault(ctx context.Context, workspaceID string) (*LinearSyncResult, error)
+	LinearSyncResolveConflict(ctx context.Context, workspaceID string, onStep ResolveConflictStepFunc) (*LinearSyncResolveConflictResult, error)
+	PushToBranch(ctx context.Context, workspaceID string, confirm bool) (*LinearSyncResult, error)
+	CheckoutPR(ctx context.Context, pr contracts.PullRequest) (*state.Workspace, error)
+}
+
+// WorkspaceInfra defines infrastructure and overlay operations.
+type WorkspaceInfra interface {
+	EnsureWorkspaceDir() error
+	EnsureOriginQueries(ctx context.Context) error
+	FetchOriginQueries(ctx context.Context)
+	RefreshOverlay(ctx context.Context, workspaceID string) error
+	EnsureOverlayDirs(repos []config.Repo) error
+}
+
+// WorkspaceManager defines the full interface for workspace operations.
+// It composes all domain-specific sub-interfaces.
+type WorkspaceManager interface {
+	WorkspaceCRUD
+	WorkspaceVCS
+	WorkspaceInfra
+}
+
+// Compile-time interface checks.
 var _ WorkspaceManager = (*Manager)(nil)
+var _ WorkspaceCRUD = (*Manager)(nil)
+var _ WorkspaceVCS = (*Manager)(nil)
+var _ WorkspaceInfra = (*Manager)(nil)

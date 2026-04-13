@@ -6,9 +6,8 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 )
 
-// StateStore defines the interface for state persistence.
-type StateStore interface {
-	// Session operations
+// SessionStore defines session-related state operations.
+type SessionStore interface {
 	GetSessions() []Session
 	GetSession(id string) (Session, bool)
 	AddSession(sess Session) error
@@ -22,8 +21,10 @@ type StateStore interface {
 	GetNudgeSeq(sessionID string) uint64
 	UpdateSessionNudge(sessionID, nudge string) error
 	ClearSessionNudge(sessionID string) bool
+}
 
-	// Workspace operations
+// WorkspaceStore defines workspace-related state operations.
+type WorkspaceStore interface {
 	GetWorkspaces() []Workspace
 	GetWorkspace(id string) (Workspace, bool)
 	FindWorkspaceByRepoBranch(repo, branch string) (Workspace, bool)
@@ -32,8 +33,6 @@ type StateStore interface {
 	RemoveWorkspace(id string) error
 	UpdateOverlayManifest(workspaceID string, manifest map[string]string)
 	UpdateOverlayManifestEntry(workspaceID, relPath, hash string)
-
-	// Tab operations
 	GetWorkspaceTabs(workspaceID string) []Tab
 	AddTab(workspaceID string, tab Tab) error
 	RemoveTab(workspaceID, tabID string) error
@@ -41,21 +40,10 @@ type StateStore interface {
 	GetResolveConflict(workspaceID, hash string) (ResolveConflict, bool)
 	UpsertResolveConflict(workspaceID string, conflict ResolveConflict) error
 	RemoveResolveConflict(workspaceID, hash string) error
+}
 
-	// Preview operations
-	GetPreviews() []WorkspacePreview
-	GetWorkspacePreviews(workspaceID string) []WorkspacePreview
-	GetPreview(id string) (WorkspacePreview, bool)
-	FindPreview(workspaceID, targetHost string, targetPort int) (WorkspacePreview, bool)
-	UpsertPreview(preview WorkspacePreview) error
-	RemovePreview(id string) error
-	RemoveWorkspacePreviews(workspaceID string) int
-
-	GetRepoBases() []RepoBase
-	GetRepoBaseByURL(repoURL string) (RepoBase, bool)
-	AddRepoBase(wb RepoBase) error
-
-	// Remote host operations
+// RemoteHostStore defines remote host state operations.
+type RemoteHostStore interface {
 	GetRemoteHosts() []RemoteHost
 	GetRemoteHost(id string) (RemoteHost, bool)
 	GetRemoteHostByFlavorID(flavorID string) (RemoteHost, bool)
@@ -70,6 +58,38 @@ type StateStore interface {
 	RemoveRemoteHost(id string) error
 	GetSessionsByRemoteHostID(hostID string) []Session
 	GetWorkspacesByRemoteHostID(hostID string) []Workspace
+}
+
+// PersistenceStore defines state persistence operations.
+type PersistenceStore interface {
+	Save() error
+	SaveBatched()
+	FlushPending()
+	GetNeedsRestart() bool
+	SetNeedsRestart(needsRestart bool) error
+}
+
+// StateStore defines the full interface for state persistence.
+// It composes all domain-specific sub-interfaces.
+type StateStore interface {
+	SessionStore
+	WorkspaceStore
+	RemoteHostStore
+	PersistenceStore
+
+	// Preview operations
+	GetPreviews() []WorkspacePreview
+	GetWorkspacePreviews(workspaceID string) []WorkspacePreview
+	GetPreview(id string) (WorkspacePreview, bool)
+	FindPreview(workspaceID, targetHost string, targetPort int) (WorkspacePreview, bool)
+	UpsertPreview(preview WorkspacePreview) error
+	RemovePreview(id string) error
+	RemoveWorkspacePreviews(workspaceID string) int
+
+	// Repo base operations
+	GetRepoBases() []RepoBase
+	GetRepoBaseByURL(repoURL string) (RepoBase, bool)
+	AddRepoBase(wb RepoBase) error
 
 	// PR discovery state
 	GetPullRequests() []contracts.PullRequest
@@ -77,18 +97,14 @@ type StateStore interface {
 	GetPublicRepos() []string
 	SetPublicRepos(repos []string)
 
-	// Daemon state
-	GetNeedsRestart() bool
-	SetNeedsRestart(needsRestart bool) error
-
 	// DashboardSX status
 	GetDashboardSXStatus() *DashboardSXStatus
 	SetDashboardSXStatus(status *DashboardSXStatus)
-
-	// Persistence
-	Save() error
-	SaveBatched()
 }
 
-// Ensure State implements StateStore at compile time.
+// Compile-time interface checks.
 var _ StateStore = (*State)(nil)
+var _ SessionStore = (*State)(nil)
+var _ WorkspaceStore = (*State)(nil)
+var _ RemoteHostStore = (*State)(nil)
+var _ PersistenceStore = (*State)(nil)
