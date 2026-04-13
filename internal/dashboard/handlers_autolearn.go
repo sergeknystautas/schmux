@@ -646,37 +646,6 @@ func (h *AutolearnHandlers) finalizeAutolearnCuration(repoName, curationID, rawR
 	h.logger.Info("batch created", "repo", repoName, "batch", batch.ID, "learnings", len(batch.Learnings), "elapsed", elapsed.Round(time.Millisecond))
 }
 
-// triggerAutolearnCuration triggers autolearn curation for a repo in the background.
-func (h *AutolearnHandlers) triggerAutolearnCuration(repo string) {
-	if h.autolearnStore == nil || h.autolearnExecutor == nil {
-		return
-	}
-
-	rawEntries, err := h.readAutolearnEntries(repo, autolearn.FilterRaw())
-	if err != nil || len(rawEntries) == 0 {
-		return
-	}
-
-	existingTitles := h.autolearnStore.PendingLearningTitles(repo)
-	dismissedTitles := h.autolearnStore.DismissedLearningTitles(repo)
-	prompt := autolearn.BuildFrictionPrompt(rawEntries, existingTitles, dismissedTitles)
-
-	curationID := fmt.Sprintf("cur-%s-%s", repo, time.Now().UTC().Format("20060102-150405"))
-	if _, err := h.curationTracker.Start(repo, curationID); err != nil {
-		return
-	}
-
-	go h.runAutolearnCuration(repo, curationID, prompt, rawEntries)
-}
-
-// TriggerAutolearnCuration triggers autolearn curation for a repo in the background.
-// Called by the daemon auto-curation callback on session dispose.
-func (s *Server) TriggerAutolearnCuration(repo string) {
-	if s.autolearnHandlers != nil {
-		s.autolearnHandlers.triggerAutolearnCuration(repo)
-	}
-}
-
 // handleAutolearnCurationsActive returns all active curation runs with their buffered events.
 func (h *AutolearnHandlers) handleAutolearnCurationsActive(w http.ResponseWriter, r *http.Request) {
 	runs := h.curationTracker.Active()

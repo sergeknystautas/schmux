@@ -35,8 +35,6 @@ func (h *AutolearnHandlers) readAutolearnEntries(_ string, _ interface{}) ([]int
 
 func (s *Server) refreshAutolearnExecutor(_ *config.Config) {}
 
-func (s *Server) TriggerAutolearnCuration(_ string) {}
-
 func (h *AutolearnHandlers) handleAutolearnStatus(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
 }

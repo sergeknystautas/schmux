@@ -56,19 +56,6 @@ func (s *InstructionStore) Read(layer Layer, repo string) (string, error) {
 	return string(data), nil
 }
 
-// Write writes content to the instruction file for the given layer and repo.
-// Creates parent directories as needed.
-func (s *InstructionStore) Write(layer Layer, repo string, content string) error {
-	path, err := s.pathFor(layer, repo)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return fmt.Errorf("create directory: %w", err)
-	}
-	return os.WriteFile(path, []byte(content), 0644)
-}
-
 // Assemble concatenates all instruction layers for a given repo, in order:
 // cross_repo_private, repo_private, then the public content (passed in).
 // Empty layers are skipped. Each layer is separated by a blank line.

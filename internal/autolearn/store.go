@@ -177,24 +177,6 @@ func applyLearningUpdate(l *Learning, u LearningUpdate) {
 	}
 }
 
-// GetLearning finds a learning by ID across all batches for a repo.
-func (s *BatchStore) GetLearning(repo, learningID string) (*Learning, *Batch, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	batches, err := s.list(repo)
-	if err != nil {
-		return nil, nil, err
-	}
-	for _, b := range batches {
-		for i := range b.Learnings {
-			if b.Learnings[i].ID == learningID {
-				return &b.Learnings[i], b, nil
-			}
-		}
-	}
-	return nil, nil, fmt.Errorf("learning not found: %s", learningID)
-}
-
 // PendingLearningTitles returns titles of all pending learnings across all batches for a repo.
 func (s *BatchStore) PendingLearningTitles(repo string) []string {
 	s.mu.Lock()
@@ -231,23 +213,4 @@ func (s *BatchStore) DismissedLearningTitles(repo string) []string {
 		}
 	}
 	return titles
-}
-
-// DismissedLearnings returns full Learning objects for all dismissed learnings across batches for a repo.
-func (s *BatchStore) DismissedLearnings(repo string) []Learning {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	batches, err := s.list(repo)
-	if err != nil {
-		return nil
-	}
-	var result []Learning
-	for _, b := range batches {
-		for _, l := range b.Learnings {
-			if l.Status == StatusDismissed {
-				result = append(result, l)
-			}
-		}
-	}
-	return result
 }

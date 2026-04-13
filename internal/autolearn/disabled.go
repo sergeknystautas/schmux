@@ -198,18 +198,15 @@ func (s *BatchStore) Get(_, _ string) (*Batch, error)                       { re
 func (s *BatchStore) List(_ string) ([]*Batch, error)                       { return nil, nil }
 func (s *BatchStore) UpdateStatus(_, _ string, _ BatchStatus) error         { return nil }
 func (s *BatchStore) UpdateLearning(_, _, _ string, _ LearningUpdate) error { return nil }
-func (s *BatchStore) GetLearning(_, _ string) (*Learning, *Batch, error)    { return nil, nil, nil }
 func (s *BatchStore) PendingLearningTitles(_ string) []string               { return nil }
 func (s *BatchStore) DismissedLearningTitles(_ string) []string             { return nil }
-func (s *BatchStore) DismissedLearnings(_ string) []Learning                { return nil }
 
 type InstructionStore struct{}
 
 func NewInstructionStore(_ string) *InstructionStore { return &InstructionStore{} }
 
-func (s *InstructionStore) Read(_ Layer, _ string) (string, error)  { return "", nil }
-func (s *InstructionStore) Write(_ Layer, _ string, _ string) error { return nil }
-func (s *InstructionStore) Assemble(_ string, _ string) string      { return "" }
+func (s *InstructionStore) Read(_ Layer, _ string) (string, error) { return "", nil }
+func (s *InstructionStore) Assemble(_ string, _ string) string     { return "" }
 
 type PendingMergeStore struct{}
 
@@ -231,8 +228,6 @@ func FilterLearnings(_ []*Batch, _ *LearningKind, _ *LearningStatus, _ *Layer) [
 	return nil
 }
 
-func AllLearnings(_ []*Batch) []Learning { return nil }
-
 func FilterRaw() EntryFilter { return nil }
 
 func ParseEntry(_ string) (Entry, error) { return Entry{}, nil }
@@ -249,8 +244,6 @@ func MarkEntriesByTextFromEntries(_ []Entry, _ string, _ string, _ []string, _ s
 	return nil
 }
 
-func PruneEntries(_ string, _ time.Duration) (int, error) { return 0, nil }
-
 func StatePath(_ string) (string, error) { return "", nil }
 
 func StateDir(_ string) (string, error) { return "", nil }
@@ -265,19 +258,9 @@ func ParseFrictionResponse(_ string) (*FrictionCuratorResponse, error) {
 
 func ReadFileFromRepo(_ context.Context, _, _ string) (string, error) { return "", nil }
 
-func BuildIntentPrompt(_ []IntentSignal, _ []string, _ []string, _ string) string { return "" }
-
-func ParseIntentResponse(_ string) (*IntentCuratorResponse, error) {
-	return &IntentCuratorResponse{}, nil
-}
-
-func GenerateSkillFile(_ Learning) string { return "" }
-
 func BuildMergePrompt(_ string, _ []Learning) string { return "" }
 
 func ParseMergeResponse(_ string) (*MergeResponse, error) { return &MergeResponse{}, nil }
-
-func ApplyToLayer(_ *InstructionStore, _ Layer, _, _ string) error { return nil }
 
 func NormalizeLearningTitle(text string) string { return text }
 

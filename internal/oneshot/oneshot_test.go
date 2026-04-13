@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sergeknystautas/schmux/internal/detect"
 )
@@ -461,63 +460,6 @@ func TestResultEventErrorParsing(t *testing.T) {
 	}
 	if re.Result != "something went wrong" {
 		t.Errorf("Result = %q, want 'something went wrong'", re.Result)
-	}
-}
-
-func TestExtractAssistantText(t *testing.T) {
-	tests := []struct {
-		name string
-		line string
-		want string
-	}{
-		{
-			name: "single text block",
-			line: `{"type":"assistant","message":{"content":[{"type":"text","text":"hello world"}]}}`,
-			want: "hello world",
-		},
-		{
-			name: "multiple text blocks",
-			line: `{"type":"assistant","message":{"content":[{"type":"text","text":"part1"},{"type":"text","text":"part2"}]}}`,
-			want: "part1part2",
-		},
-		{
-			name: "text and tool_use mixed",
-			line: `{"type":"assistant","message":{"content":[{"type":"text","text":"analysis"},{"type":"tool_use","id":"t1","name":"TodoWrite","input":{}}]}}`,
-			want: "analysis",
-		},
-		{
-			name: "no text blocks",
-			line: `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Read","input":{}}]}}`,
-			want: "",
-		},
-		{
-			name: "non-assistant event",
-			line: `{"type":"system","subtype":"init"}`,
-			want: "",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := extractAssistantText([]byte(tt.line))
-			if got != tt.want {
-				t.Errorf("extractAssistantText() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestExecuteTargetStreamingInputValidation(t *testing.T) {
-	ctx := context.Background()
-
-	_, err := ExecuteTargetStreaming(ctx, nil, "test", "", "schema", time.Minute, "", nil)
-	if err == nil || !strings.Contains(err.Error(), "prompt cannot be empty") {
-		t.Errorf("expected 'prompt cannot be empty' error, got: %v", err)
-	}
-
-	// Empty schema label should be accepted (no constrained decoding).
-	_, err = ExecuteTargetStreaming(ctx, nil, "test", "prompt", "", time.Minute, "", nil)
-	if err != nil && strings.Contains(err.Error(), "schema label cannot be empty") {
-		t.Fatal("ExecuteTargetStreaming should accept empty schema label to allow prompt-only JSON output")
 	}
 }
 

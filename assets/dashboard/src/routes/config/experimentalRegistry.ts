@@ -7,7 +7,7 @@ import SubredditConfig from './SubredditConfig';
 import TimelapseConfig from './TimelapseConfig';
 import CommStylesConfig from './CommStylesConfig';
 
-export type ExperimentalFeature = {
+type ExperimentalFeature = {
   id: string;
   name: string;
   description: string;

@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/sergeknystautas/schmux/internal/autolearn"
 )
 
 func TestAgentInstructions_CreatesNewFile(t *testing.T) {
@@ -344,63 +342,6 @@ func TestEnsureExcludeEntries_NoTrailingNewline(t *testing.T) {
 	// The schmux block should be on its own lines (not joined to *.log)
 	if strings.Contains(contentStr, "*.log"+excludeMarkerStart) {
 		t.Error("block should be separated from existing content")
-	}
-}
-
-func TestAgentInstructions_InjectsLoreInstructions(t *testing.T) {
-	tmpDir := t.TempDir()
-	loreDir := t.TempDir()
-
-	// Setup instruction store with global + repo-private content
-	store := autolearn.NewInstructionStore(loreDir)
-	store.Write(autolearn.LayerCrossRepoPrivate, "", "# Global\n- Prefer table-driven tests")
-	store.Write(autolearn.LayerRepoPrivate, "myrepo", "# Private\n- Use internal API v2")
-
-	// Set the package-level instruction store
-	oldStore := instrStore
-	SetInstructionStore(store)
-	defer func() { instrStore = oldStore }()
-
-	err := AgentInstructions(tmpDir, "claude", "myrepo")
-	if err != nil {
-		t.Fatalf("AgentInstructions failed: %v", err)
-	}
-
-	instructionPath := filepath.Join(tmpDir, ".claude", "CLAUDE.md")
-	content, err := os.ReadFile(instructionPath)
-	if err != nil {
-		t.Fatalf("Failed to read instruction file: %v", err)
-	}
-
-	contentStr := string(content)
-
-	// Should contain signaling instructions
-	if !strings.Contains(contentStr, "$SCHMUX_EVENTS_FILE") {
-		t.Error("File should contain signaling instructions")
-	}
-
-	// Should contain lore global instructions
-	if !strings.Contains(contentStr, "Prefer table-driven tests") {
-		t.Error("File should contain global lore instructions")
-	}
-
-	// Should contain lore repo-private instructions
-	if !strings.Contains(contentStr, "Use internal API v2") {
-		t.Error("File should contain repo-private lore instructions")
-	}
-
-	// All lore content should be within the schmux markers
-	startIdx := strings.Index(contentStr, schmuxMarkerStart)
-	endIdx := strings.Index(contentStr, schmuxMarkerEnd)
-	if startIdx == -1 || endIdx == -1 {
-		t.Fatal("Schmux markers not found")
-	}
-	schmuxSection := contentStr[startIdx:endIdx]
-	if !strings.Contains(schmuxSection, "Prefer table-driven tests") {
-		t.Error("Global instructions should be within schmux markers")
-	}
-	if !strings.Contains(schmuxSection, "Use internal API v2") {
-		t.Error("Repo-private instructions should be within schmux markers")
 	}
 }
 

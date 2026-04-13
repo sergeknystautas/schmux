@@ -1,49 +1,8 @@
 package autolearn
 
 import (
-	"strings"
 	"testing"
 )
-
-func TestApplyToPrivateLayer(t *testing.T) {
-	dir := t.TempDir()
-	store := NewInstructionStore(dir)
-
-	err := ApplyToLayer(store, LayerRepoPrivate, "myrepo", "# Private Learnings\n- Don't use internal tool X")
-	if err != nil {
-		t.Fatalf("apply failed: %v", err)
-	}
-
-	content, _ := store.Read(LayerRepoPrivate, "myrepo")
-	if !strings.Contains(content, "internal tool X") {
-		t.Error("private layer should contain applied content")
-	}
-}
-
-func TestApplyToGlobalLayer(t *testing.T) {
-	dir := t.TempDir()
-	store := NewInstructionStore(dir)
-
-	err := ApplyToLayer(store, LayerCrossRepoPrivate, "", "# Global\n- Prefer table-driven tests")
-	if err != nil {
-		t.Fatalf("apply failed: %v", err)
-	}
-
-	content, _ := store.Read(LayerCrossRepoPrivate, "")
-	if !strings.Contains(content, "table-driven") {
-		t.Error("global layer should contain applied content")
-	}
-}
-
-func TestApplyToLayer_RejectsPublic(t *testing.T) {
-	dir := t.TempDir()
-	store := NewInstructionStore(dir)
-
-	err := ApplyToLayer(store, LayerRepoPublic, "myrepo", "content")
-	if err == nil {
-		t.Error("expected error for repo_public layer")
-	}
-}
 
 func TestNormalizeLearningTitle(t *testing.T) {
 	tests := []struct {

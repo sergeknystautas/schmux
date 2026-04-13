@@ -209,10 +209,6 @@ type Server struct {
 	// Optional explicit dashboard dist path override.
 	dashboardDistPath string
 
-	// Cached default branches: repoURL -> {branch, fetchedAt}
-	defaultBranchCache   map[string]defaultBranchEntry
-	defaultBranchCacheMu sync.RWMutex
-
 	// Autolearn batch storage
 	autolearnStore *autolearn.BatchStore
 
@@ -343,7 +339,6 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		connectLimiter:       NewRateLimiter(connectRateLimit, connectRateWindow),
 		previewStreamBuffers: make(map[string]string),
 		previewCandidates:    make(map[string]*previewCandidate),
-		defaultBranchCache:   make(map[string]defaultBranchEntry),
 		curationTracker:      NewCurationTracker(),
 		remoteAuthState: remoteAuthState{
 			remoteAuthLimiter: NewRateLimiter(authRateLimit, authRateWindow),
@@ -485,11 +480,6 @@ func (s *Server) SetAutolearnExecutor(exec func(ctx context.Context, prompt, sch
 
 // StreamingExecutorFunc is a function that runs a streaming one-shot execution.
 type StreamingExecutorFunc func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration, dir string, onEvent func(oneshot.StreamEvent)) (string, error)
-
-// SetStreamingExecutor sets the streaming executor for observable curation.
-func (s *Server) SetStreamingExecutor(fn StreamingExecutorFunc) {
-	s.streamingExecutor = fn
-}
 
 // SetTunnelManager sets the tunnel manager for remote access.
 func (s *Server) SetTunnelManager(tm *tunnel.Manager) {

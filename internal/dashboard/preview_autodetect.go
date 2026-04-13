@@ -379,19 +379,6 @@ func detectPortsFromChunk(chunk []byte) []preview.ListeningPort {
 	return ports
 }
 
-// filterExistingPreviews removes ports that already have previews for this workspace.
-// Returns preview.ListeningPort entries for ports that don't have existing previews.
-func (s *Server) filterExistingPreviews(workspaceID string, ports []preview.ListeningPort) []preview.ListeningPort {
-	var filtered []preview.ListeningPort
-	for _, lp := range ports {
-		if _, exists := s.state.FindPreview(workspaceID, lp.Host, lp.Port); exists {
-			continue
-		}
-		filtered = append(filtered, lp)
-	}
-	return filtered
-}
-
 // filterProxyPorts removes ports that are our proxy ports (ephemeral ports we assigned)
 func (s *Server) filterProxyPorts(ports []preview.ListeningPort) []preview.ListeningPort {
 	proxyPorts := make(map[int]bool)

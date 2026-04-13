@@ -23,12 +23,3 @@ func FilterLearnings(batches []*Batch, kind *LearningKind, status *LearningStatu
 	}
 	return result
 }
-
-// AllLearnings flattens all learnings from all batches into a single slice.
-func AllLearnings(batches []*Batch) []Learning {
-	var result []Learning
-	for _, b := range batches {
-		result = append(result, b.Learnings...)
-	}
-	return result
-}

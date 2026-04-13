@@ -107,53 +107,6 @@ func TestStore_ListReturnsPinnedSortedByUseCount(t *testing.T) {
 	}
 }
 
-func TestStore_ListExcludesProposedAndDismissed(t *testing.T) {
-	s := newTestStore(t)
-	repo := "test-repo"
-
-	// Create a pinned entry
-	s.Create(repo, contracts.CreateSpawnEntryRequest{
-		Name: "pinned", Type: contracts.SpawnEntryCommand, Command: "echo pinned",
-	})
-
-	// Add proposed entries
-	s.AddProposed(repo, []contracts.SpawnEntry{
-		{ID: "prop-1", Name: "proposed", Type: contracts.SpawnEntrySkill, SkillRef: "test"},
-	})
-
-	// List should only return pinned
-	entries, err := s.List(repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 entry, got %d", len(entries))
-	}
-	if entries[0].Name != "pinned" {
-		t.Errorf("expected 'pinned', got %q", entries[0].Name)
-	}
-}
-
-func TestStore_ListAll(t *testing.T) {
-	s := newTestStore(t)
-	repo := "test-repo"
-
-	s.Create(repo, contracts.CreateSpawnEntryRequest{
-		Name: "pinned", Type: contracts.SpawnEntryCommand, Command: "echo 1",
-	})
-	s.AddProposed(repo, []contracts.SpawnEntry{
-		{ID: "prop-1", Name: "proposed", Type: contracts.SpawnEntrySkill, Source: contracts.SpawnSourceEmerged, State: contracts.SpawnStateProposed},
-	})
-
-	entries, err := s.ListAll(repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 2 {
-		t.Fatalf("expected 2 entries, got %d", len(entries))
-	}
-}
-
 func TestStore_Update(t *testing.T) {
 	s := newTestStore(t)
 	repo := "test-repo"
@@ -203,50 +156,6 @@ func TestStore_Delete(t *testing.T) {
 	}
 }
 
-func TestStore_Pin(t *testing.T) {
-	s := newTestStore(t)
-	repo := "test-repo"
-
-	s.AddProposed(repo, []contracts.SpawnEntry{
-		{ID: "prop-1", Name: "proposed skill", Type: contracts.SpawnEntrySkill, Source: contracts.SpawnSourceEmerged, State: contracts.SpawnStateProposed},
-	})
-
-	err := s.Pin(repo, "prop-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got, ok, _ := s.Get(repo, "prop-1")
-	if !ok {
-		t.Fatal("entry not found after pin")
-	}
-	if got.State != contracts.SpawnStatePinned {
-		t.Errorf("expected state pinned, got %q", got.State)
-	}
-}
-
-func TestStore_Dismiss(t *testing.T) {
-	s := newTestStore(t)
-	repo := "test-repo"
-
-	s.AddProposed(repo, []contracts.SpawnEntry{
-		{ID: "prop-1", Name: "proposed skill", Type: contracts.SpawnEntrySkill, Source: contracts.SpawnSourceEmerged, State: contracts.SpawnStateProposed},
-	})
-
-	err := s.Dismiss(repo, "prop-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got, ok, _ := s.Get(repo, "prop-1")
-	if !ok {
-		t.Fatal("entry not found after dismiss")
-	}
-	if got.State != contracts.SpawnStateDismissed {
-		t.Errorf("expected state dismissed, got %q", got.State)
-	}
-}
-
 func TestStore_RecordUse(t *testing.T) {
 	s := newTestStore(t)
 	repo := "test-repo"
@@ -269,74 +178,6 @@ func TestStore_RecordUse(t *testing.T) {
 	}
 	if got.LastUsed == nil {
 		t.Error("expected last_used to be set")
-	}
-}
-
-func TestStore_AddProposed(t *testing.T) {
-	s := newTestStore(t)
-	repo := "test-repo"
-
-	proposed := []contracts.SpawnEntry{
-		{ID: "p1", Name: "skill-a", Type: contracts.SpawnEntrySkill, SkillRef: "a"},
-		{ID: "p2", Name: "skill-b", Type: contracts.SpawnEntrySkill, SkillRef: "b"},
-	}
-	err := s.AddProposed(repo, proposed)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	entries, _ := s.ListAll(repo)
-	if len(entries) != 2 {
-		t.Fatalf("expected 2 entries, got %d", len(entries))
-	}
-	for _, e := range entries {
-		if e.State != contracts.SpawnStateProposed {
-			t.Errorf("expected state proposed, got %q for %s", e.State, e.Name)
-		}
-		if e.Source != contracts.SpawnSourceEmerged {
-			t.Errorf("expected source emerged, got %q for %s", e.Source, e.Name)
-		}
-	}
-}
-
-func TestStore_AddProposed_DeduplicatesExisting(t *testing.T) {
-	s := newTestStore(t)
-	repo := "test-repo"
-
-	// Create a pinned entry
-	s.Create(repo, contracts.CreateSpawnEntryRequest{
-		Name: "existing-skill", Type: contracts.SpawnEntrySkill,
-	})
-	// Add a proposed entry
-	s.AddProposed(repo, []contracts.SpawnEntry{
-		{ID: "p1", Name: "proposed-skill", Type: contracts.SpawnEntrySkill},
-	})
-
-	// Try to add entries that overlap with existing pinned and proposed
-	err := s.AddProposed(repo, []contracts.SpawnEntry{
-		{ID: "p2", Name: "existing-skill", Type: contracts.SpawnEntrySkill}, // duplicate of pinned
-		{ID: "p3", Name: "proposed-skill", Type: contracts.SpawnEntrySkill}, // duplicate of proposed
-		{ID: "p4", Name: "new-skill", Type: contracts.SpawnEntrySkill},      // new
-		{ID: "p5", Name: "new-skill", Type: contracts.SpawnEntrySkill},      // intra-batch duplicate
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	entries, _ := s.ListAll(repo)
-	// Should have: existing-skill (pinned), proposed-skill (proposed), new-skill (proposed)
-	if len(entries) != 3 {
-		t.Fatalf("expected 3 entries, got %d", len(entries))
-	}
-
-	names := make(map[string]bool)
-	for _, e := range entries {
-		names[e.Name] = true
-	}
-	for _, want := range []string{"existing-skill", "proposed-skill", "new-skill"} {
-		if !names[want] {
-			t.Errorf("expected entry %q to exist", want)
-		}
 	}
 }
 

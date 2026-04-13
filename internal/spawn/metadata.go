@@ -49,43 +49,6 @@ func (s *MetadataStore) load(repo string) error {
 	return nil
 }
 
-func (s *MetadataStore) save(repo string) error {
-	dir := filepath.Dir(s.filePath(repo))
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("create metadata dir: %w", err)
-	}
-	data, err := json.MarshalIndent(s.data[repo], "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal emergence metadata: %w", err)
-	}
-	tmp, err := os.CreateTemp(dir, ".metadata-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
-	}
-	tmpPath := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
-		return fmt.Errorf("write temp file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("close temp file: %w", err)
-	}
-	return os.Rename(tmpPath, s.filePath(repo))
-}
-
-// Save writes or updates metadata for a skill.
-func (s *MetadataStore) Save(repo string, meta contracts.SpawnMetadata) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.load(repo); err != nil {
-		return err
-	}
-	s.data[repo][meta.SkillName] = meta
-	return s.save(repo)
-}
-
 // Get returns metadata for a specific skill.
 func (s *MetadataStore) Get(repo, skillName string) (contracts.SpawnMetadata, bool, error) {
 	s.mu.Lock()

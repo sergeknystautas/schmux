@@ -235,25 +235,6 @@ func TestFilterProxyPorts_IgnoresKnownProxyPorts(t *testing.T) {
 	}
 }
 
-func TestFilterExistingPreviews(t *testing.T) {
-	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
-	_ = st.UpsertPreview(state.WorkspacePreview{
-		ID:          "prev_1",
-		WorkspaceID: "ws-1",
-		TargetHost:  "127.0.0.1",
-		TargetPort:  5173,
-		ProxyPort:   51853,
-	})
-	srv := &Server{state: st}
-
-	ports := []preview.ListeningPort{{Host: "127.0.0.1", Port: 5173}, {Host: "127.0.0.1", Port: 3000}} // 5173 already exists, 3000 is new
-
-	filtered := srv.filterExistingPreviews("ws-1", ports)
-	if len(filtered) != 1 || filtered[0].Port != 3000 {
-		t.Fatalf("expected only port 3000, got %#v", filtered)
-	}
-}
-
 func TestFilterDaemonPort_BlocksDaemonPort(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Network = &config.NetworkConfig{Port: 7337}
