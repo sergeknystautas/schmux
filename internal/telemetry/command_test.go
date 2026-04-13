@@ -9,6 +9,21 @@ import (
 	"time"
 )
 
+// waitForFile polls until path has non-empty content or the timeout expires.
+func waitForFile(t *testing.T, path string, timeout time.Duration) []byte {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(path)
+		if err == nil && len(data) > 0 {
+			return data
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s to have content", path)
+	return nil
+}
+
 func TestCommandTelemetry_Track(t *testing.T) {
 	dir := t.TempDir()
 	outFile := filepath.Join(dir, "event.json")
@@ -18,13 +33,7 @@ func TestCommandTelemetry_Track(t *testing.T) {
 	ct := NewCommandTelemetry(script, "test-install-id", nil)
 	ct.Track("daemon_started", map[string]any{"version": "1.0.0"})
 
-	// Wait for fire-and-forget process to complete
-	time.Sleep(500 * time.Millisecond)
-
-	data, err := os.ReadFile(outFile)
-	if err != nil {
-		t.Fatalf("failed to read output: %v", err)
-	}
+	data := waitForFile(t, outFile, 5*time.Second)
 
 	var result map[string]map[string]any
 	if err := json.Unmarshal(data, &result); err != nil {
@@ -61,9 +70,8 @@ func TestCommandTelemetry_TypeBucketing(t *testing.T) {
 		"bool_val":  true,
 	})
 
-	time.Sleep(500 * time.Millisecond)
+	data := waitForFile(t, outFile, 5*time.Second)
 
-	data, _ := os.ReadFile(outFile)
 	var result map[string]map[string]any
 	json.Unmarshal(data, &result)
 
@@ -100,9 +108,8 @@ func TestCommandTelemetry_OmitsEmptyBuckets(t *testing.T) {
 	ct := NewCommandTelemetry(script, "test-id", nil)
 	ct.Track("test", map[string]any{"key": "val"})
 
-	time.Sleep(500 * time.Millisecond)
+	data := waitForFile(t, outFile, 5*time.Second)
 
-	data, _ := os.ReadFile(outFile)
 	if strings.Contains(string(data), "double") {
 		t.Error("should not include empty double bucket")
 	}
