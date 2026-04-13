@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -65,7 +64,7 @@ func (cmd *DashboardSXCommand) loadConfig() (*config.Config, error) {
 		}
 	}
 
-	return config.Load(filepath.Join(schmuxdir.Get(), "config.json"))
+	return config.Load(schmuxdir.ConfigPath())
 }
 
 func (cmd *DashboardSXCommand) runSetup() error {

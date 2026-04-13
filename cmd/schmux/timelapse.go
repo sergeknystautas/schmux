@@ -131,7 +131,7 @@ func (c *TimelapseCommand) delete(recordingID string) error {
 }
 
 func recordingsDir() string {
-	return filepath.Join(schmuxdir.Get(), "recordings")
+	return schmuxdir.RecordingsDir()
 }
 
 func formatDuration(seconds float64) string {

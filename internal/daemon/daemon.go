@@ -154,7 +154,7 @@ func ValidateReadyToRun() error {
 		return fmt.Errorf("failed to create schmux directory: %w", err)
 	}
 
-	pidFile := filepath.Join(schmuxDir, pidFileName)
+	pidFile := schmuxdir.PIDPath()
 
 	// Check if already running
 	if _, err := os.Stat(pidFile); err == nil {
@@ -198,7 +198,7 @@ func Start() error {
 	// Apply custom tmux settings from config (if set) before starting the server.
 	tmuxBinary := "tmux"
 	socketName := "schmux"
-	if cfg, err := config.Load(filepath.Join(schmuxDir, "config.json")); err == nil {
+	if cfg, err := config.Load(schmuxdir.ConfigPath()); err == nil {
 		if cfg.TmuxBinary != "" {
 			tmuxBinary = cfg.TmuxBinary
 		}
@@ -252,7 +252,7 @@ func Start() error {
 
 // Stop stops the daemon.
 func Stop() error {
-	pidFile := filepath.Join(schmuxdir.Get(), pidFileName)
+	pidFile := schmuxdir.PIDPath()
 
 	pidData, err := os.ReadFile(pidFile)
 	if err != nil {
@@ -296,9 +296,8 @@ func Stop() error {
 
 // Status returns the status of the daemon.
 func Status() (running bool, url string, startedAt string, err error) {
-	d := schmuxdir.Get()
-	pidFile := filepath.Join(d, pidFileName)
-	startedFile := filepath.Join(d, "daemon.started")
+	pidFile := schmuxdir.PIDPath()
+	startedFile := filepath.Join(schmuxdir.Get(), "daemon.started")
 
 	pidData, err := os.ReadFile(pidFile)
 	if err != nil {
@@ -324,13 +323,13 @@ func Status() (running bool, url string, startedAt string, err error) {
 	}
 
 	// Read the daemon URL from the breadcrumb file
-	urlFile := filepath.Join(d, "daemon.url")
+	urlFile := filepath.Join(schmuxdir.Get(), "daemon.url")
 	if data, err := os.ReadFile(urlFile); err == nil {
 		url = strings.TrimSpace(string(data))
 	} else {
 		// Fallback for backward compatibility (daemon started before this change)
 		url = fmt.Sprintf("http://localhost:%d", 7337)
-		if cfg, err := config.Load(filepath.Join(d, "config.json")); err == nil {
+		if cfg, err := config.Load(schmuxdir.ConfigPath()); err == nil {
 			if cfgPort := cfg.GetPort(); cfgPort != 0 {
 				url = fmt.Sprintf("http://localhost:%d", cfgPort)
 			}
@@ -482,11 +481,11 @@ func (d *Daemon) initConfigAndState(devMode bool) (*daemonInit, error) {
 			logger.Warn("failed to create dev config backup", "err", err)
 		}
 		// Cleanup old backups (>3 days)
-		backupDir := filepath.Join(schmuxDir, "backups")
+		backupDir := schmuxdir.BackupsDir()
 		cleanupOldBackups(backupDir, 3*24*time.Hour)
 	}
 
-	pidFile := filepath.Join(schmuxDir, pidFileName)
+	pidFile := schmuxdir.PIDPath()
 	startedFile := filepath.Join(schmuxDir, "daemon.started")
 
 	// Write PID file
@@ -507,7 +506,7 @@ func (d *Daemon) initConfigAndState(devMode bool) (*daemonInit, error) {
 	}
 
 	// Load config
-	configPath := filepath.Join(schmuxDir, "config.json")
+	configPath := schmuxdir.ConfigPath()
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
@@ -563,7 +562,7 @@ func (d *Daemon) initConfigAndState(devMode bool) (*daemonInit, error) {
 	})
 
 	// Compute state path
-	statePath := filepath.Join(schmuxDir, "state.json")
+	statePath := schmuxdir.StatePath()
 
 	// Load state
 	st, err := state.Load(statePath, stateLog)
@@ -637,7 +636,7 @@ func (d *Daemon) initManagers(
 
 	// Wire timelapse recording if enabled
 	if cfg.GetTimelapseEnabled() {
-		recordingsDir := filepath.Join(schmuxDir, "recordings")
+		recordingsDir := schmuxdir.RecordingsDir()
 		maxBytes := int64(cfg.GetTimelapseMaxFileSizeMB()) * 1024 * 1024
 
 		if notice := timelapse.ShowFirstRunNotice(recordingsDir); notice != "" {
@@ -1953,7 +1952,7 @@ func findOtherTmuxServerOwners(currentUID int) []string {
 // The backup filename format is: config-<timestamp>_<cwd-basename>.tar.gz
 func createDevConfigBackup(schmuxDir string) error {
 	// Create backups directory
-	backupDir := filepath.Join(schmuxDir, "backups")
+	backupDir := schmuxdir.BackupsDir()
 	if err := os.MkdirAll(backupDir, 0755); err != nil {
 		return fmt.Errorf("failed to create backup directory: %w", err)
 	}

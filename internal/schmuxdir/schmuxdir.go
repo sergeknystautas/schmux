@@ -21,3 +21,15 @@ func Get() string {
 	}
 	return filepath.Join(home, ".schmux")
 }
+
+// Path helpers — centralize well-known file and directory paths under ~/.schmux/.
+
+func ConfigPath() string      { return filepath.Join(Get(), "config.json") }
+func StatePath() string       { return filepath.Join(Get(), "state.json") }
+func SecretsPath() string     { return filepath.Join(Get(), "secrets.json") }
+func PIDPath() string         { return filepath.Join(Get(), "daemon.pid") }
+func RecordingsDir() string   { return filepath.Join(Get(), "recordings") }
+func HooksDir() string        { return filepath.Join(Get(), "hooks") }
+func InstructionsDir() string { return filepath.Join(Get(), "instructions") }
+func BackupsDir() string      { return filepath.Join(Get(), "backups") }
+func BinDir() string          { return filepath.Join(Get(), "bin") }

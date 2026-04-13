@@ -69,7 +69,7 @@ func (cmd *AuthGitHubCommand) Run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get home directory: %w", err)
 	}
-	configPath := filepath.Join(schmuxdir.Get(), "config.json")
+	configPath := schmuxdir.ConfigPath()
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return err
