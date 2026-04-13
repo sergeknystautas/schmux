@@ -21,6 +21,22 @@ import (
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
+const (
+	// WebSocket buffer sizes
+	wsReadBufferSize  = 4096
+	wsWriteBufferSize = 8192
+
+	// Terminal streaming
+	trackerAttachTimeout    = 2 * time.Second
+	terminalRingBufferSize  = 256 * 1024
+	sessionLivenessInterval = 500 * time.Millisecond
+	healthMonitorInterval   = 1 * time.Second
+	resizeWaitDeadline      = 100 * time.Millisecond
+
+	// Input batching
+	inputBatchBufferSize = 10
+)
+
 // ioWorkspaceTelemetryProvider is implemented by workspace.Manager when IO telemetry is enabled.
 type ioWorkspaceTelemetryProvider interface {
 	IOWorkspaceTelemetrySnapshot(reset bool) workspace.IOWorkspaceTelemetrySnapshot
@@ -191,7 +207,7 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 		sessionType = "remote"
 	}
 
-	rawConn, err := s.upgradeWebSocket(w, r, 4096, 8192)
+	rawConn, err := s.upgradeWebSocket(w, r, wsReadBufferSize, wsWriteBufferSize)
 	if err != nil {
 		return
 	}
@@ -204,7 +220,7 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	}()
 
 	// Wait for tracker to attach before subscribing
-	waitForTrackerAttach(r.Context(), tracker, 2*time.Second)
+	waitForTrackerAttach(r.Context(), tracker, trackerAttachTimeout)
 
 	// Start reading client messages early so we can process resize before bootstrap
 	controlChan := startWSMessageReader(conn)
@@ -214,7 +230,7 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	// arrive within ~10-100ms. This ensures we know the terminal size before
 	// sending bootstrap content.
 	var preBootstrapMessages []WSMessage
-	resizeDeadline := time.Now().Add(100 * time.Millisecond)
+	resizeDeadline := time.Now().Add(resizeWaitDeadline)
 resizeWaitLoop:
 	for time.Now().Before(resizeDeadline) {
 		select {
@@ -383,7 +399,7 @@ drainBootstrap:
 	var prevBytes int64
 	var prevTime time.Time
 	if s.devMode {
-		ringBuf = NewRingBuffer(256 * 1024) // 256KB
+		ringBuf = NewRingBuffer(terminalRingBufferSize)
 	}
 	_, hasIOTelemetry := s.workspace.(ioWorkspaceTelemetryProvider)
 	if s.devMode || hasIOTelemetry {
@@ -396,7 +412,7 @@ drainBootstrap:
 	// Session liveness check
 	sessionDead := make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(500 * time.Millisecond)
+		ticker := time.NewTicker(sessionLivenessInterval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -416,7 +432,7 @@ drainBootstrap:
 
 	// Control mode health monitor — notify frontend when tmux control mode detaches/reattaches
 	go func() {
-		ticker := time.NewTicker(1 * time.Second)
+		ticker := time.NewTicker(healthMonitorInterval)
 		defer ticker.Stop()
 		lastAttached := true // assume attached at start
 		for {
@@ -470,8 +486,8 @@ drainBootstrap:
 		executeNet    time.Duration
 		executeCount  int
 	}
-	inputBatchCh := make(chan inputBatch, 10)
-	inputDoneCh := make(chan inputResult, 10)
+	inputBatchCh := make(chan inputBatch, inputBatchBufferSize)
+	inputDoneCh := make(chan inputResult, inputBatchBufferSize)
 	go func() {
 		defer close(inputDoneCh)
 		for batch := range inputBatchCh {
@@ -828,7 +844,7 @@ drainBootstrap:
 func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Request,
 	tmuxName string, tracker *session.SessionRuntime) {
 
-	rawConn, err := s.upgradeWebSocket(w, r, 4096, 8192)
+	rawConn, err := s.upgradeWebSocket(w, r, wsReadBufferSize, wsWriteBufferSize)
 	if err != nil {
 		return
 	}
@@ -836,7 +852,7 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 	defer conn.Close()
 
 	// Wait briefly for tracker to attach before subscribing
-	waitForTrackerAttach(r.Context(), tracker, 2*time.Second)
+	waitForTrackerAttach(r.Context(), tracker, trackerAttachTimeout)
 
 	// Bootstrap with scrollback — send as binary frame
 	// Fall back to tmux CLI capture if control mode not attached
@@ -907,7 +923,7 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleFMTerminalWebSocket(w http.ResponseWriter, r *http.Request,
 	tmuxName string, tracker *session.SessionRuntime) {
 
-	rawConn, err := s.upgradeWebSocket(w, r, 4096, 8192)
+	rawConn, err := s.upgradeWebSocket(w, r, wsReadBufferSize, wsWriteBufferSize)
 	if err != nil {
 		return
 	}
@@ -915,13 +931,13 @@ func (s *Server) handleFMTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 	defer conn.Close()
 
 	// Wait briefly for tracker to attach before subscribing
-	waitForTrackerAttach(r.Context(), tracker, 2*time.Second)
+	waitForTrackerAttach(r.Context(), tracker, trackerAttachTimeout)
 
 	// Start reading client messages
 	controlChan := startWSMessageReader(rawConn)
 
 	// Wait for initial resize from frontend
-	resizeDeadline := time.Now().Add(100 * time.Millisecond)
+	resizeDeadline := time.Now().Add(resizeWaitDeadline)
 resizeWait:
 	for time.Now().Before(resizeDeadline) {
 		select {

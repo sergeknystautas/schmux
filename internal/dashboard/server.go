@@ -53,6 +53,13 @@ const (
 	readTimeout       = 15 * time.Second
 	writeTimeout      = time.Duration(0) // Disabled: WebSocket, SSE, and terminal streams are long-lived connections.
 	readHeaderTimeout = 5 * time.Second
+
+	// Rate limiter settings
+	connectRateLimit           = 3
+	connectRateWindow          = 1 * time.Minute
+	authRateLimit              = 5
+	authRateWindow             = 1 * time.Minute
+	rateLimiterCleanupInterval = 10 * time.Minute
 )
 
 // wsConn wraps a websocket.Conn with a mutex for concurrent write safety.
@@ -333,13 +340,13 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		broadcastDone:        make(chan struct{}),
 		broadcastExited:      make(chan struct{}),
 		broadcastReady:       make(chan struct{}),
-		connectLimiter:       NewRateLimiter(3, 1*time.Minute), // 3 connects per minute
+		connectLimiter:       NewRateLimiter(connectRateLimit, connectRateWindow),
 		previewStreamBuffers: make(map[string]string),
 		previewCandidates:    make(map[string]*previewCandidate),
 		defaultBranchCache:   make(map[string]defaultBranchEntry),
 		curationTracker:      NewCurationTracker(),
 		remoteAuthState: remoteAuthState{
-			remoteAuthLimiter: NewRateLimiter(5, 1*time.Minute), // 5 auth attempts per minute per IP
+			remoteAuthLimiter: NewRateLimiter(authRateLimit, authRateWindow),
 			remoteNonces:      make(map[string]*remoteNonce),
 		},
 		linearSyncState: linearSyncState{
@@ -410,8 +417,8 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 	go s.previewReconcileLoop()
 	go s.previewAutodetectLoop()
 	// Start rate limiter cleanup goroutines
-	go s.connectLimiter.startCleanup(10 * time.Minute)
-	go s.remoteAuthLimiter.startCleanup(10 * time.Minute)
+	go s.connectLimiter.startCleanup(rateLimiterCleanupInterval)
+	go s.remoteAuthLimiter.startCleanup(rateLimiterCleanupInterval)
 	return s
 }
 
@@ -1772,7 +1779,7 @@ func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request
 		logging.Sub(s.logger, "ws/dashboard").Error("upgrade error", "err", err)
 		return
 	}
-	rawConn.SetReadLimit(64 * 1024) // 64KB max message size
+	rawConn.SetReadLimit(wsReadLimit)
 
 	// Wrap the connection in a wsConn for concurrent write safety
 	conn := &wsConn{conn: rawConn}

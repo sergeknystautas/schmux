@@ -12,6 +12,14 @@ import (
 	"github.com/sergeknystautas/schmux/internal/session"
 )
 
+const (
+	// WebSocket read limit
+	wsReadLimit = 64 * 1024
+
+	// Control channel buffer size for WebSocket message reader
+	controlChannelBufferSize = 10
+)
+
 // clearNudgeOnInput checks if the input data contains interactive characters
 // (Enter, Tab, backtab, or bare Escape) and clears any pending nudge for the
 // session. Save and broadcast are performed asynchronously.
@@ -41,7 +49,7 @@ func (s *Server) upgradeWebSocket(w http.ResponseWriter, r *http.Request, readBu
 	if err != nil {
 		return nil, err
 	}
-	rawConn.SetReadLimit(64 * 1024)
+	rawConn.SetReadLimit(wsReadLimit)
 	return rawConn, nil
 }
 
@@ -52,7 +60,7 @@ func (s *Server) upgradeWebSocket(w http.ResponseWriter, r *http.Request, readBu
 // messages (resize, gap, etc.). The channel is closed when the connection
 // errors or is closed.
 func startWSMessageReader(conn wsReader) chan WSMessage {
-	controlChan := make(chan WSMessage, 10)
+	controlChan := make(chan WSMessage, controlChannelBufferSize)
 	go func() {
 		defer close(controlChan)
 		for {
