@@ -55,6 +55,7 @@ type RemoteHostStore interface {
 	AddRemoteHost(rh RemoteHost) error
 	UpdateRemoteHost(rh RemoteHost) error
 	UpdateRemoteHostStatus(id, status string) error
+	UpdateRemoteHostProvisioned(id string, provisioned bool) error
 	RemoveRemoteHost(id string) error
 	GetSessionsByRemoteHostID(hostID string) []Session
 	GetWorkspacesByRemoteHostID(hostID string) []Workspace

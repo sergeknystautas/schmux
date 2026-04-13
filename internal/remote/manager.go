@@ -15,7 +15,7 @@ import (
 // Manager manages multiple remote host connections.
 type Manager struct {
 	config *config.Config
-	state  *state.State
+	state  state.StateStore
 	logger *log.Logger
 
 	connections map[string]*Connection // hostID -> connection
@@ -30,7 +30,7 @@ type Manager struct {
 }
 
 // NewManager creates a new remote host manager.
-func NewManager(cfg *config.Config, st *state.State, logger *log.Logger) *Manager {
+func NewManager(cfg *config.Config, st state.StateStore, logger *log.Logger) *Manager {
 	return &Manager{
 		config:      cfg,
 		state:       st,

@@ -876,6 +876,10 @@ func (m *mockStateStore) FlushPending() {
 	m.state.FlushPending()
 }
 
+func (m *mockStateStore) UpdateRemoteHostProvisioned(id string, provisioned bool) error {
+	return m.state.UpdateRemoteHostProvisioned(id, provisioned)
+}
+
 // TestCreateCleanupOnStateSaveFailure verifies that workspace directory is cleaned up
 // when clone succeeds but state.Save() fails.
 func TestCreateCleanupOnStateSaveFailure(t *testing.T) {
