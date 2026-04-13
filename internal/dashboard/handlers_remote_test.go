@@ -112,8 +112,24 @@ func TestCleanupOnceIdempotent(t *testing.T) {
 // When a flavor has no connections, the API must return hosts as an empty JSON
 // array ([]), not null. Go serializes nil slices as null, which crashed the
 // frontend when it tried to call .map() on null.
+func newRemoteHandlers(s *Server) *RemoteHandlers {
+	return &RemoteHandlers{
+		config:              s.config,
+		state:               s.state,
+		remoteManager:       s.remoteManager,
+		previewManager:      s.previewManager,
+		logger:              s.logger,
+		connectLimiter:      s.connectLimiter,
+		broadcastSessions:   s.BroadcastSessions,
+		normalizeRateKey:    s.normalizeIPForRateLimit,
+		authenticateRequest: s.authenticateRequest,
+		authEnabled:         s.config.GetAuthEnabled,
+	}
+}
+
 func TestHandleRemoteProfileStatuses_EmptyHostsNotNull(t *testing.T) {
 	server, cfg, _ := newTestServer(t)
+	remoteH := newRemoteHandlers(server)
 
 	// Add a remote profile with no active connections
 	if err := cfg.AddRemoteProfile(config.RemoteProfile{
@@ -127,7 +143,7 @@ func TestHandleRemoteProfileStatuses_EmptyHostsNotNull(t *testing.T) {
 
 	req := httptest.NewRequest("GET", "/api/remote/profile-statuses", nil)
 	rr := httptest.NewRecorder()
-	server.handleRemoteProfileStatuses(rr, req)
+	remoteH.handleRemoteProfileStatuses(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
@@ -159,6 +175,7 @@ func TestHandleRemoteProfileStatuses_EmptyHostsNotNull(t *testing.T) {
 // with ?dismiss=true removes the host, its sessions, and its workspaces.
 func TestHandleRemoteHostDisconnect_DismissRemovesAll(t *testing.T) {
 	server, _, st := newTestServer(t)
+	remoteH := newRemoteHandlers(server)
 
 	hostID := "host-dismiss-test"
 
@@ -198,7 +215,7 @@ func TestHandleRemoteHostDisconnect_DismissRemovesAll(t *testing.T) {
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 
 	rr := httptest.NewRecorder()
-	server.handleRemoteHostDisconnect(rr, req)
+	remoteH.handleRemoteHostDisconnect(rr, req)
 
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d; body: %s", rr.Code, rr.Body.String())
@@ -218,6 +235,7 @@ func TestHandleRemoteHostDisconnect_DismissRemovesAll(t *testing.T) {
 
 func TestHandleRemoteProfileUpdate_NotFound(t *testing.T) {
 	server, _, _ := newTestServer(t)
+	remoteH := newRemoteHandlers(server)
 
 	body, _ := json.Marshal(map[string]interface{}{
 		"display_name":   "OnDemand",
@@ -232,7 +250,7 @@ func TestHandleRemoteProfileUpdate_NotFound(t *testing.T) {
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 
 	rr := httptest.NewRecorder()
-	server.handleRemoteProfileUpdate(rr, req)
+	remoteH.handleRemoteProfileUpdate(rr, req)
 
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", rr.Code)

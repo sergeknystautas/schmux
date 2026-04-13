@@ -8,13 +8,30 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/go-chi/chi/v5"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/logging"
+	"github.com/sergeknystautas/schmux/internal/preview"
+	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
+
+// RemoteHandlers groups all remote host handler methods.
+type RemoteHandlers struct {
+	config              *config.Config
+	state               state.StateStore
+	remoteManager       *remote.Manager
+	previewManager      *preview.Manager
+	logger              *log.Logger
+	connectLimiter      *RateLimiter
+	broadcastSessions   func()
+	normalizeRateKey    func(r *http.Request) string
+	authenticateRequest func(r *http.Request) (*authSession, error)
+	authEnabled         func() bool
+}
 
 // Type aliases for contracts types used throughout this file.
 type RemoteProfileResponse = contracts.RemoteProfileResponse
@@ -46,20 +63,20 @@ func toProfileResponse(p config.RemoteProfile) RemoteProfileResponse {
 }
 
 // handleGetRemoteProfiles returns all configured remote profiles.
-func (s *Server) handleGetRemoteProfiles(w http.ResponseWriter, r *http.Request) {
-	profiles := s.config.GetRemoteProfiles()
+func (h *RemoteHandlers) handleGetRemoteProfiles(w http.ResponseWriter, r *http.Request) {
+	profiles := h.config.GetRemoteProfiles()
 	response := make([]RemoteProfileResponse, len(profiles))
 	for i, p := range profiles {
 		response[i] = toProfileResponse(p)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		s.logger.Error("failed to encode response", "handler", "remote-profiles", "err", err)
+		h.logger.Error("failed to encode response", "handler", "remote-profiles", "err", err)
 	}
 }
 
 // handleCreateRemoteProfile creates a new remote profile.
-func (s *Server) handleCreateRemoteProfile(w http.ResponseWriter, r *http.Request) {
+func (h *RemoteHandlers) handleCreateRemoteProfile(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req struct {
 		DisplayName           string                       `json:"display_name"`
@@ -90,18 +107,18 @@ func (s *Server) handleCreateRemoteProfile(w http.ResponseWriter, r *http.Reques
 		Flavors:               req.Flavors,
 	}
 
-	if err := s.config.AddRemoteProfile(rp); err != nil {
+	if err := h.config.AddRemoteProfile(rp); err != nil {
 		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	if err := s.config.Save(); err != nil {
+	if err := h.config.Save(); err != nil {
 		writeJSONError(w, "Failed to save config", http.StatusInternalServerError)
 		return
 	}
 
 	// Find the added profile to get the generated ID
-	profiles := s.config.GetRemoteProfiles()
+	profiles := h.config.GetRemoteProfiles()
 	var addedProfile config.RemoteProfile
 	found := false
 	for _, p := range profiles {
@@ -118,19 +135,19 @@ func (s *Server) handleCreateRemoteProfile(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(toProfileResponse(addedProfile)); err != nil {
-		s.logger.Error("failed to encode response", "handler", "create-remote-profile", "err", err)
+		h.logger.Error("failed to encode response", "handler", "create-remote-profile", "err", err)
 	}
 }
 
 // handleRemoteProfileGet handles GET /api/config/remote-profiles/{id}
-func (s *Server) handleRemoteProfileGet(w http.ResponseWriter, r *http.Request) {
+func (h *RemoteHandlers) handleRemoteProfileGet(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		writeJSONError(w, "Profile ID required", http.StatusBadRequest)
 		return
 	}
 
-	profile, found := s.config.GetRemoteProfile(id)
+	profile, found := h.config.GetRemoteProfile(id)
 	if !found {
 		writeJSONError(w, "Profile not found", http.StatusNotFound)
 		return
@@ -140,14 +157,14 @@ func (s *Server) handleRemoteProfileGet(w http.ResponseWriter, r *http.Request) 
 }
 
 // handleRemoteProfileUpdate handles PUT /api/config/remote-profiles/{id}
-func (s *Server) handleRemoteProfileUpdate(w http.ResponseWriter, r *http.Request) {
+func (h *RemoteHandlers) handleRemoteProfileUpdate(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		writeJSONError(w, "Profile ID required", http.StatusBadRequest)
 		return
 	}
 
-	_, found := s.config.GetRemoteProfile(id)
+	_, found := h.config.GetRemoteProfile(id)
 	if !found {
 		writeJSONError(w, "Profile not found", http.StatusNotFound)
 		return
@@ -183,12 +200,12 @@ func (s *Server) handleRemoteProfileUpdate(w http.ResponseWriter, r *http.Reques
 		Flavors:               req.Flavors,
 	}
 
-	if err := s.config.UpdateRemoteProfile(rp); err != nil {
+	if err := h.config.UpdateRemoteProfile(rp); err != nil {
 		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	if err := s.config.Save(); err != nil {
+	if err := h.config.Save(); err != nil {
 		writeJSONError(w, "Failed to save config", http.StatusInternalServerError)
 		return
 	}
@@ -198,19 +215,19 @@ func (s *Server) handleRemoteProfileUpdate(w http.ResponseWriter, r *http.Reques
 }
 
 // handleRemoteProfileDelete handles DELETE /api/config/remote-profiles/{id}
-func (s *Server) handleRemoteProfileDelete(w http.ResponseWriter, r *http.Request) {
+func (h *RemoteHandlers) handleRemoteProfileDelete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		writeJSONError(w, "Profile ID required", http.StatusBadRequest)
 		return
 	}
 
-	if err := s.config.RemoveRemoteProfile(id); err != nil {
+	if err := h.config.RemoveRemoteProfile(id); err != nil {
 		writeJSONError(w, err.Error(), http.StatusNotFound)
 		return
 	}
 
-	if err := s.config.Save(); err != nil {
+	if err := h.config.Save(); err != nil {
 		writeJSONError(w, "Failed to save config", http.StatusInternalServerError)
 		return
 	}
@@ -219,17 +236,17 @@ func (s *Server) handleRemoteProfileDelete(w http.ResponseWriter, r *http.Reques
 }
 
 // handleRemoteHosts handles GET /api/remote/hosts
-func (s *Server) handleRemoteHosts(w http.ResponseWriter, r *http.Request) {
-	hosts := s.state.GetRemoteHosts()
+func (h *RemoteHandlers) handleRemoteHosts(w http.ResponseWriter, r *http.Request) {
+	hosts := h.state.GetRemoteHosts()
 	response := make([]RemoteHostResponse, len(hosts))
 
-	for i, h := range hosts {
+	for i, rh := range hosts {
 		displayName := ""
 		vcs := ""
 		provisioningSessionID := ""
 
-		if profile, found := s.config.GetRemoteProfile(h.ProfileID); found {
-			if resolved, err := config.ResolveProfileFlavor(profile, h.Flavor); err == nil {
+		if profile, found := h.config.GetRemoteProfile(rh.ProfileID); found {
+			if resolved, err := config.ResolveProfileFlavor(profile, rh.Flavor); err == nil {
 				displayName = resolved.FlavorDisplayName
 				vcs = resolved.VCS
 			} else {
@@ -239,47 +256,47 @@ func (s *Server) handleRemoteHosts(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Get provisioning session ID if available
-		if s.remoteManager != nil {
-			if conn := s.remoteManager.GetConnection(h.ID); conn != nil {
+		if h.remoteManager != nil {
+			if conn := h.remoteManager.GetConnection(rh.ID); conn != nil {
 				provisioningSessionID = conn.ProvisioningSessionID()
 			}
 		}
 
 		response[i] = RemoteHostResponse{
-			ID:                    h.ID,
-			ProfileID:             h.ProfileID,
-			Flavor:                h.Flavor,
+			ID:                    rh.ID,
+			ProfileID:             rh.ProfileID,
+			Flavor:                rh.Flavor,
 			DisplayName:           displayName,
-			Hostname:              h.Hostname,
-			UUID:                  h.UUID,
-			Status:                h.Status,
-			Provisioned:           h.Provisioned,
+			Hostname:              rh.Hostname,
+			UUID:                  rh.UUID,
+			Status:                rh.Status,
+			Provisioned:           rh.Provisioned,
 			VCS:                   vcs,
-			ConnectedAt:           h.ConnectedAt.Format("2006-01-02T15:04:05Z07:00"),
-			ExpiresAt:             h.ExpiresAt.Format("2006-01-02T15:04:05Z07:00"),
+			ConnectedAt:           rh.ConnectedAt.Format("2006-01-02T15:04:05Z07:00"),
+			ExpiresAt:             rh.ExpiresAt.Format("2006-01-02T15:04:05Z07:00"),
 			ProvisioningSessionID: provisioningSessionID,
 		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		s.logger.Error("failed to encode response", "handler", "remote-hosts", "err", err)
+		h.logger.Error("failed to encode response", "handler", "remote-hosts", "err", err)
 	}
 }
 
 // handleRemoteHostConnect handles POST /api/remote/hosts/connect
 // This starts a connection asynchronously and returns immediately.
 // The client should poll /api/remote/hosts for status updates.
-func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request) {
+func (h *RemoteHandlers) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request) {
 	// Rate limiting by user (if auth enabled) or IP (without port)
-	rateLimitKey := s.normalizeIPForRateLimit(r)
-	if s.config.GetAuthEnabled() {
-		if user, err := s.authenticateRequest(r); err == nil && user != nil {
+	rateLimitKey := h.normalizeRateKey(r)
+	if h.authEnabled() {
+		if user, err := h.authenticateRequest(r); err == nil && user != nil {
 			rateLimitKey = user.Login
 		}
 	}
 
-	if !s.connectLimiter.Allow(rateLimitKey) {
+	if !h.connectLimiter.Allow(rateLimitKey) {
 		writeJSONError(w, "Rate limit exceeded. Max 3 connection attempts per minute.",
 			http.StatusTooManyRequests)
 		return
@@ -305,13 +322,13 @@ func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if s.remoteManager == nil {
+	if h.remoteManager == nil {
 		writeJSONError(w, "Remote workspace support not enabled", http.StatusServiceUnavailable)
 		return
 	}
 
 	// Check if profile exists and resolve flavor
-	profile, found := s.config.GetRemoteProfile(req.ProfileID)
+	profile, found := h.config.GetRemoteProfile(req.ProfileID)
 	if !found {
 		writeJSONError(w, fmt.Sprintf("Profile not found: %s", req.ProfileID), http.StatusNotFound)
 		return
@@ -323,7 +340,7 @@ func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Start connection (returns immediately with provisioning session ID)
-	provisioningSessionID, err := s.remoteManager.StartConnect(req.ProfileID, req.Flavor)
+	provisioningSessionID, err := h.remoteManager.StartConnect(req.ProfileID, req.Flavor)
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("Failed to start connection: %v", err), http.StatusInternalServerError)
 		return
@@ -340,26 +357,26 @@ func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request)
 		VCS:                   resolved.VCS,
 		ProvisioningSessionID: provisioningSessionID,
 	}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "remote-host-connect", "err", err)
+		h.logger.Error("failed to encode response", "handler", "remote-host-connect", "err", err)
 	}
 }
 
 // handleRemoteHostReconnect handles POST /api/remote/hosts/{hostID}/reconnect
 // This starts reconnection asynchronously and returns immediately with a provisioning session ID.
 // The client should open a WebSocket to /ws/provision/{provisioningSessionId} for interactive auth.
-func (s *Server) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Request) {
+func (h *RemoteHandlers) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Request) {
 	hostID := chi.URLParam(r, "hostID")
 	if hostID == "" {
 		writeJSONError(w, "Host ID required", http.StatusBadRequest)
 		return
 	}
 
-	if s.remoteManager == nil {
+	if h.remoteManager == nil {
 		writeJSONError(w, "Remote workspace support not enabled", http.StatusServiceUnavailable)
 		return
 	}
 
-	host, found := s.state.GetRemoteHost(hostID)
+	host, found := h.state.GetRemoteHost(hostID)
 	if !found {
 		writeJSONError(w, "Host not found", http.StatusNotFound)
 		return
@@ -367,7 +384,7 @@ func (s *Server) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Reques
 
 	displayName := ""
 	vcs := ""
-	if profile, found := s.config.GetRemoteProfile(host.ProfileID); found {
+	if profile, found := h.config.GetRemoteProfile(host.ProfileID); found {
 		if resolved, err := config.ResolveProfileFlavor(profile, host.Flavor); err == nil {
 			displayName = resolved.FlavorDisplayName
 			vcs = resolved.VCS
@@ -378,27 +395,27 @@ func (s *Server) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Start reconnection asynchronously (returns provisioning session ID for WebSocket terminal)
-	provisioningSessionID, err := s.remoteManager.StartReconnect(hostID, func(failedHostID string) {
+	provisioningSessionID, err := h.remoteManager.StartReconnect(hostID, func(failedHostID string) {
 		// Cleanup on failure
-		remoteLog := logging.Sub(s.logger, "remote")
+		remoteLog := logging.Sub(h.logger, "remote")
 		remoteLog.Info("cleaning up failed reconnection", "host_id", failedHostID)
-		for _, sess := range s.state.GetSessionsByRemoteHostID(failedHostID) {
-			s.state.RemoveSession(sess.ID)
+		for _, sess := range h.state.GetSessionsByRemoteHostID(failedHostID) {
+			h.state.RemoveSession(sess.ID)
 		}
-		for _, ws := range s.state.GetWorkspacesByRemoteHostID(failedHostID) {
-			s.state.RemoveWorkspace(ws.ID)
-			if s.previewManager != nil {
-				if err := s.previewManager.DeleteWorkspace(ws.ID); err != nil {
-					previewLog := logging.Sub(s.logger, "preview")
+		for _, ws := range h.state.GetWorkspacesByRemoteHostID(failedHostID) {
+			h.state.RemoveWorkspace(ws.ID)
+			if h.previewManager != nil {
+				if err := h.previewManager.DeleteWorkspace(ws.ID); err != nil {
+					previewLog := logging.Sub(h.logger, "preview")
 					previewLog.Warn("remote cleanup failed", "workspace_id", ws.ID, "err", err)
 				}
 			}
 		}
-		s.state.RemoveRemoteHost(failedHostID)
-		if err := s.state.Save(); err != nil {
+		h.state.RemoveRemoteHost(failedHostID)
+		if err := h.state.Save(); err != nil {
 			remoteLog.Error("failed to save state after cleanup", "err", err)
 		}
-		s.BroadcastSessions()
+		h.broadcastSessions()
 	})
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("Failed to start reconnection: %v", err), http.StatusInternalServerError)
@@ -417,12 +434,12 @@ func (s *Server) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Reques
 		VCS:                   vcs,
 		ProvisioningSessionID: provisioningSessionID,
 	}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "remote-host-reconnect", "err", err)
+		h.logger.Error("failed to encode response", "handler", "remote-host-reconnect", "err", err)
 	}
 }
 
 // handleRemoteHostDisconnect handles DELETE /api/remote/hosts/{hostID}
-func (s *Server) handleRemoteHostDisconnect(w http.ResponseWriter, r *http.Request) {
+func (h *RemoteHandlers) handleRemoteHostDisconnect(w http.ResponseWriter, r *http.Request) {
 	hostID := chi.URLParam(r, "hostID")
 	if hostID == "" {
 		writeJSONError(w, "Host ID required", http.StatusBadRequest)
@@ -433,34 +450,34 @@ func (s *Server) handleRemoteHostDisconnect(w http.ResponseWriter, r *http.Reque
 
 	if dismiss {
 		// Dismiss: remove all associated sessions, workspaces, and the host itself
-		for _, sess := range s.state.GetSessionsByRemoteHostID(hostID) {
-			s.state.RemoveSession(sess.ID)
+		for _, sess := range h.state.GetSessionsByRemoteHostID(hostID) {
+			h.state.RemoveSession(sess.ID)
 		}
-		for _, ws := range s.state.GetWorkspacesByRemoteHostID(hostID) {
-			s.state.RemoveWorkspace(ws.ID)
+		for _, ws := range h.state.GetWorkspacesByRemoteHostID(hostID) {
+			h.state.RemoveWorkspace(ws.ID)
 		}
-		s.state.RemoveRemoteHost(hostID)
-		if s.remoteManager != nil {
-			s.remoteManager.Disconnect(hostID)
+		h.state.RemoveRemoteHost(hostID)
+		if h.remoteManager != nil {
+			h.remoteManager.Disconnect(hostID)
 		}
-		if err := s.state.Save(); err != nil {
+		if err := h.state.Save(); err != nil {
 			writeJSONError(w, "Failed to save state", http.StatusInternalServerError)
 			return
 		}
 	} else {
 		// Default: disconnect only
-		if s.remoteManager != nil {
-			if err := s.remoteManager.Disconnect(hostID); err != nil {
-				remoteLog := logging.Sub(s.logger, "remote")
+		if h.remoteManager != nil {
+			if err := h.remoteManager.Disconnect(hostID); err != nil {
+				remoteLog := logging.Sub(h.logger, "remote")
 				remoteLog.Warn("disconnect failed", "err", err)
 			}
 		} else {
 			// Fallback: just update state
-			if err := s.state.UpdateRemoteHostStatus(hostID, state.RemoteHostStatusDisconnected); err != nil {
+			if err := h.state.UpdateRemoteHostStatus(hostID, state.RemoteHostStatusDisconnected); err != nil {
 				writeJSONError(w, fmt.Sprintf("Failed to update host: %v", err), http.StatusInternalServerError)
 				return
 			}
-			if err := s.state.Save(); err != nil {
+			if err := h.state.Save(); err != nil {
 				writeJSONError(w, "Failed to save state", http.StatusInternalServerError)
 				return
 			}
@@ -471,12 +488,12 @@ func (s *Server) handleRemoteHostDisconnect(w http.ResponseWriter, r *http.Reque
 }
 
 // handleRemoteProfileStatuses returns all profiles with their connection status.
-func (s *Server) handleRemoteProfileStatuses(w http.ResponseWriter, r *http.Request) {
-	profiles := s.config.GetRemoteProfiles()
+func (h *RemoteHandlers) handleRemoteProfileStatuses(w http.ResponseWriter, r *http.Request) {
+	profiles := h.config.GetRemoteProfiles()
 
 	// If remote manager is available, use its real-time connection status
-	if s.remoteManager != nil {
-		statuses := s.remoteManager.GetProfileStatuses()
+	if h.remoteManager != nil {
+		statuses := h.remoteManager.GetProfileStatuses()
 		response := make([]RemoteProfileStatusResponse, len(statuses))
 		for i, ps := range statuses {
 			resp := RemoteProfileStatusResponse{
@@ -488,12 +505,12 @@ func (s *Server) handleRemoteProfileStatuses(w http.ResponseWriter, r *http.Requ
 					Flavor: fg.Flavor,
 					Hosts:  []RemoteHostStatusItem{},
 				}
-				for _, h := range fg.Hosts {
+				for _, fh := range fg.Hosts {
 					group.Hosts = append(group.Hosts, RemoteHostStatusItem{
-						HostID:    h.HostID,
-						Hostname:  h.Hostname,
-						Status:    h.Status,
-						Connected: h.Status == "connected",
+						HostID:    fh.HostID,
+						Hostname:  fh.Hostname,
+						Status:    fh.Status,
+						Connected: fh.Status == "connected",
 					})
 				}
 				resp.FlavorHosts = append(resp.FlavorHosts, group)
@@ -502,13 +519,13 @@ func (s *Server) handleRemoteProfileStatuses(w http.ResponseWriter, r *http.Requ
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(response); err != nil {
-			s.logger.Error("failed to encode response", "handler", "remote-profile-statuses", "err", err)
+			h.logger.Error("failed to encode response", "handler", "remote-profile-statuses", "err", err)
 		}
 		return
 	}
 
 	// Fallback: use state-based connection status
-	hosts := s.state.GetRemoteHosts()
+	hosts := h.state.GetRemoteHosts()
 
 	// Build a map of profileID -> flavor -> hosts
 	type profileFlavorKey struct {
@@ -516,9 +533,9 @@ func (s *Server) handleRemoteProfileStatuses(w http.ResponseWriter, r *http.Requ
 		flavor    string
 	}
 	pfToHosts := make(map[profileFlavorKey][]state.RemoteHost)
-	for _, h := range hosts {
-		key := profileFlavorKey{h.ProfileID, h.Flavor}
-		pfToHosts[key] = append(pfToHosts[key], h)
+	for _, rh := range hosts {
+		key := profileFlavorKey{rh.ProfileID, rh.Flavor}
+		pfToHosts[key] = append(pfToHosts[key], rh)
 	}
 
 	response := make([]RemoteProfileStatusResponse, len(profiles))
@@ -548,13 +565,13 @@ func (s *Server) handleRemoteProfileStatuses(w http.ResponseWriter, r *http.Requ
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		s.logger.Error("failed to encode response", "handler", "remote-profile-statuses", "err", err)
+		h.logger.Error("failed to encode response", "handler", "remote-profile-statuses", "err", err)
 	}
 }
 
 // handleRemoteConnectStream handles GET /api/remote/hosts/connect/stream
 // This streams provisioning progress via Server-Sent Events (SSE).
-func (s *Server) handleRemoteConnectStream(w http.ResponseWriter, r *http.Request) {
+func (h *RemoteHandlers) handleRemoteConnectStream(w http.ResponseWriter, r *http.Request) {
 	profileID := r.URL.Query().Get("profile_id")
 	flavorStr := r.URL.Query().Get("flavor")
 	if profileID == "" || flavorStr == "" {
@@ -562,7 +579,7 @@ func (s *Server) handleRemoteConnectStream(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if s.remoteManager == nil {
+	if h.remoteManager == nil {
 		writeJSONError(w, "Remote workspace support not enabled", http.StatusServiceUnavailable)
 		return
 	}
@@ -603,7 +620,7 @@ func (s *Server) handleRemoteConnectStream(w http.ResponseWriter, r *http.Reques
 		ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 		defer cancel()
 
-		_, err := s.remoteManager.ConnectWithProgress(ctx, profileID, flavorStr, progressCh)
+		_, err := h.remoteManager.ConnectWithProgress(ctx, profileID, flavorStr, progressCh)
 		if err != nil {
 			// Try to send error, but don't panic if channel is closed or nobody listening
 			select {

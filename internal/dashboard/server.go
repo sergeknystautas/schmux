@@ -644,9 +644,22 @@ func (s *Server) Start() error {
 		r.Get("/repofeed", s.handleRepofeedList)
 		r.Get("/repofeed/{slug}", s.handleRepofeedRepo)
 		r.Get("/floor-manager", s.handleGetFloorManager)
-		r.Get("/remote/hosts", s.handleRemoteHosts)
-		r.Get("/remote/hosts/connect/stream", s.handleRemoteConnectStream)
-		r.Get("/remote/profile-statuses", s.handleRemoteProfileStatuses)
+		remoteH := &RemoteHandlers{
+			config:              s.config,
+			state:               s.state,
+			remoteManager:       s.remoteManager,
+			previewManager:      s.previewManager,
+			logger:              s.logger,
+			connectLimiter:      s.connectLimiter,
+			broadcastSessions:   s.BroadcastSessions,
+			normalizeRateKey:    s.normalizeIPForRateLimit,
+			authenticateRequest: s.authenticateRequest,
+			authEnabled:         s.config.GetAuthEnabled,
+		}
+
+		r.Get("/remote/hosts", remoteH.handleRemoteHosts)
+		r.Get("/remote/hosts/connect/stream", remoteH.handleRemoteConnectStream)
+		r.Get("/remote/profile-statuses", remoteH.handleRemoteProfileStatuses)
 		r.Get("/remote-access/status", s.handleRemoteAccessStatus)
 
 		r.Get("/timelapse", s.handleTimelapseList)
@@ -688,7 +701,7 @@ func (s *Server) Start() error {
 			r.Post("/overlays/dismiss-nudge", s.handleDismissNudge)
 			r.Post("/prs/refresh", s.handlePRRefresh)
 			r.Post("/prs/checkout", s.handlePRCheckout)
-			r.Post("/remote/hosts/connect", s.handleRemoteHostConnect)
+			r.Post("/remote/hosts/connect", remoteH.handleRemoteHostConnect)
 			r.Post("/remote-access/on", s.handleRemoteAccessOn)
 			r.Post("/remote-access/off", s.handleRemoteAccessOff)
 			r.Post("/remote-access/set-password", s.handleRemoteAccessSetPassword)
@@ -726,11 +739,11 @@ func (s *Server) Start() error {
 			r.Post("/open-vscode/*", s.handleOpenVSCode)
 
 			// Remote profile routes
-			r.Get("/config/remote-profiles", s.handleGetRemoteProfiles)
-			r.Post("/config/remote-profiles", s.handleCreateRemoteProfile)
-			r.Get("/config/remote-profiles/{id}", s.handleRemoteProfileGet)
-			r.Put("/config/remote-profiles/{id}", s.handleRemoteProfileUpdate)
-			r.Delete("/config/remote-profiles/{id}", s.handleRemoteProfileDelete)
+			r.Get("/config/remote-profiles", remoteH.handleGetRemoteProfiles)
+			r.Post("/config/remote-profiles", remoteH.handleCreateRemoteProfile)
+			r.Get("/config/remote-profiles/{id}", remoteH.handleRemoteProfileGet)
+			r.Put("/config/remote-profiles/{id}", remoteH.handleRemoteProfileUpdate)
+			r.Delete("/config/remote-profiles/{id}", remoteH.handleRemoteProfileDelete)
 
 			// Persona routes
 			personaH := &PersonaHandlers{
@@ -755,8 +768,8 @@ func (s *Server) Start() error {
 			r.Delete("/styles/{id}", styleH.handleDeleteStyle)
 
 			// Remote host routes
-			r.Post("/remote/hosts/{hostID}/reconnect", s.handleRemoteHostReconnect)
-			r.Delete("/remote/hosts/{hostID}", s.handleRemoteHostDisconnect)
+			r.Post("/remote/hosts/{hostID}/reconnect", remoteH.handleRemoteHostReconnect)
+			r.Delete("/remote/hosts/{hostID}", remoteH.handleRemoteHostDisconnect)
 
 			// Workspace routes (nested group)
 			r.Route("/workspaces/{workspaceID}", func(r chi.Router) {
