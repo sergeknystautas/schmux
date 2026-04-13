@@ -10,11 +10,15 @@ import {
   apiPatch,
 } from './helpers';
 
-const SCHMUX_HOME = process.env.SCHMUX_HOME || `${process.env.HOME}/.schmux`;
+/** Returns the schmux home directory at call time (not import time).
+ *  Must be called after the fixture sets process.env.HOME. */
+function getSchmuxHome(): string {
+  return process.env.SCHMUX_HOME || `${process.env.HOME}/.schmux`;
+}
 
 /** Seed a batch JSON file directly on disk so the daemon picks it up. */
 function seedBatch(repoName: string, batch: Record<string, unknown>): void {
-  const batchDir = `${SCHMUX_HOME}/autolearn/batches/${repoName}`;
+  const batchDir = `${getSchmuxHome()}/autolearn/batches/${repoName}`;
   execSync(`mkdir -p ${batchDir}`);
   const json = JSON.stringify(batch, null, 2);
   const id = batch.id as string;

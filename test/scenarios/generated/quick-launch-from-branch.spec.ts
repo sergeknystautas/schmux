@@ -52,17 +52,25 @@ test.describe.serial('Quick launch a session from a recent branch', () => {
     // Poll recent-branches API until branches appear.
     // EnsureOriginQueries runs on the daemon's periodic tick (default 10s),
     // so we need to wait long enough for the tick to fire and the bare clone
-    // to be created from the local test repo.
-    for (let attempt = 0; attempt < 60; attempt++) {
+    // to be created from the local test repo. Under Docker load this can
+    // take longer than expected, so we poll for up to 90s.
+    let branchesFound = false;
+    for (let attempt = 0; attempt < 90; attempt++) {
       try {
         const branches = await apiGet<Array<{ branch: string }>>('/api/recent-branches?limit=10');
         if (branches && branches.length > 0) {
+          branchesFound = true;
           break;
         }
       } catch {
         // not ready yet
       }
-      await sleep(500);
+      await sleep(1000);
+    }
+    if (!branchesFound) {
+      throw new Error(
+        'Recent branches never appeared after 90s polling — daemon tick may not have fired'
+      );
     }
   });
 
