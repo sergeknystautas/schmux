@@ -9,12 +9,16 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 func TestCreateDevConfigBackup(t *testing.T) {
 	// Setup: create temp schmuxDir with config files
 	tmpDir := t.TempDir()
 	schmuxDir := filepath.Join(tmpDir, ".schmux")
+	schmuxdir.Set(schmuxDir)
+	defer schmuxdir.Set("")
 	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
 		t.Fatalf("failed to create schmux dir: %v", err)
 	}
@@ -82,6 +86,8 @@ func TestCreateDevConfigBackupSkipsMissingFiles(t *testing.T) {
 	// Setup: create temp schmuxDir with only config.json (no secrets.json or state.json)
 	tmpDir := t.TempDir()
 	schmuxDir := filepath.Join(tmpDir, ".schmux")
+	schmuxdir.Set(schmuxDir)
+	defer schmuxdir.Set("")
 	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
 		t.Fatalf("failed to create schmux dir: %v", err)
 	}

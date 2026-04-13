@@ -173,12 +173,12 @@ func TestTwoInstancesNoInterference(t *testing.T) {
 	filesB := fileNames(entriesB)
 
 	for _, f := range filesA {
-		if f != "config.json" && f != "secrets.json" {
+		if f != "config.json" && f != "secrets.json" && f != "secrets.json.lock" {
 			t.Errorf("instance A: unexpected file %q", f)
 		}
 	}
 	for _, f := range filesB {
-		if f != "config.json" && f != "secrets.json" {
+		if f != "config.json" && f != "secrets.json" && f != "secrets.json.lock" {
 			t.Errorf("instance B: unexpected file %q", f)
 		}
 	}

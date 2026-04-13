@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/fileutil"
@@ -125,32 +126,50 @@ func LoadSecretsFile() (*SecretsFile, error) {
 	return secrets, nil
 }
 
+// withSecretsLock acquires an exclusive file lock around fn to prevent
+// concurrent corruption of the secrets file.
+func withSecretsLock(path string, fn func() error) error {
+	lockPath := path + ".lock"
+	f, err := os.Create(lockPath)
+	if err != nil {
+		return fmt.Errorf("failed to create lock file: %w", err)
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("failed to acquire lock: %w", err)
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
+	return fn()
+}
+
 func SaveSecretsFile(secrets *SecretsFile) error {
 	path, err := secretsPath()
 	if err != nil {
 		return err
 	}
 
-	if secrets == nil {
-		secrets = &SecretsFile{}
-	}
-	if secrets.Models == nil {
-		secrets.Models = ModelSecrets{}
-	}
+	return withSecretsLock(path, func() error {
+		if secrets == nil {
+			secrets = &SecretsFile{}
+		}
+		if secrets.Models == nil {
+			secrets.Models = ModelSecrets{}
+		}
 
-	data, err := json.MarshalIndent(secrets, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal secrets: %w", err)
-	}
+		data, err := json.MarshalIndent(secrets, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal secrets: %w", err)
+		}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return fmt.Errorf("failed to create schmux directory: %w", err)
-	}
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			return fmt.Errorf("failed to create schmux directory: %w", err)
+		}
 
-	if err := fileutil.AtomicWriteFile(path, data, 0600); err != nil {
-		return fmt.Errorf("failed to write secrets: %w", err)
-	}
-	return nil
+		if err := fileutil.AtomicWriteFile(path, data, 0600); err != nil {
+			return fmt.Errorf("failed to write secrets: %w", err)
+		}
+		return nil
+	})
 }
 
 // SaveModelSecrets saves secrets for a specific model.
