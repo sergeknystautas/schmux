@@ -3,16 +3,27 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
+	"github.com/charmbracelet/log"
+	"github.com/go-chi/chi/v5"
+
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/logging"
+	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
+	"github.com/sergeknystautas/schmux/internal/persona"
+	"github.com/sergeknystautas/schmux/internal/preview"
+	"github.com/sergeknystautas/schmux/internal/remote"
+	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
@@ -22,13 +33,34 @@ type SessionResponseItem = contracts.SessionResponseItem
 type SessionModelInfo = contracts.SessionModelInfo
 type WorkspaceResponseItem = contracts.WorkspaceResponseItem
 
+// SessionHandlers groups session-scoped HTTP handlers.
+type SessionHandlers struct {
+	config         *config.Config
+	state          state.StateStore
+	session        *session.Manager
+	workspace      workspace.WorkspaceManager
+	models         *models.Manager
+	remoteManager  *remote.Manager
+	previewManager *preview.Manager
+	personaManager *persona.Manager
+	logger         *log.Logger
+
+	// Callbacks into Server methods that cannot be extracted.
+	broadcastSessions                 func()
+	getLinearSyncResolveConflictState func(workspaceID string) *LinearSyncResolveConflictState
+
+	// Cached default branches: repoURL -> {branch, fetchedAt}
+	defaultBranchCache   map[string]defaultBranchEntry
+	defaultBranchCacheMu sync.RWMutex
+}
+
 // buildSessionsResponse builds the sessions/workspaces response data.
 // Used by both the HTTP handler and WebSocket broadcast.
-func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
-	sessions := s.session.GetAllSessions()
+func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
+	sessions := h.session.GetAllSessions()
 
 	workspaceMap := make(map[string]*WorkspaceResponseItem)
-	workspaces := s.state.GetWorkspaces()
+	workspaces := h.state.GetWorkspaces()
 	ctx := context.Background()
 	for _, ws := range workspaces {
 		// Hide recyclable workspaces from the dashboard
@@ -51,19 +83,19 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 		vcs := ws.VCS
 		if ws.RemoteHostID != "" {
 			remoteHostID = ws.RemoteHostID
-			if host, found := s.state.GetRemoteHost(ws.RemoteHostID); found {
+			if host, found := h.state.GetRemoteHost(ws.RemoteHostID); found {
 				if host.Hostname != "" {
 					branch = host.Hostname
 				}
 				// Use live connection status from remote manager if available,
 				// since persisted state can be stale after daemon restarts.
-				if s.remoteManager != nil {
-					liveStatus, _ := s.remoteManager.GetHostConnectionStatus(ws.RemoteHostID)
+				if h.remoteManager != nil {
+					liveStatus, _ := h.remoteManager.GetHostConnectionStatus(ws.RemoteHostID)
 					remoteHostStatus = liveStatus
 				} else {
 					remoteHostStatus = host.Status
 				}
-				if profile, found := s.config.GetRemoteProfile(host.ProfileID); found {
+				if profile, found := h.config.GetRemoteProfile(host.ProfileID); found {
 					if resolved, err := config.ResolveProfileFlavor(profile, host.Flavor); err == nil {
 						remoteFlavorName = resolved.FlavorDisplayName
 						remoteFlavor = resolved.Flavor
@@ -79,7 +111,7 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 		}
 
 		var quickLaunchNames []string
-		if cfg := s.workspace.GetWorkspaceConfig(ws.ID); cfg != nil && len(cfg.QuickLaunch) > 0 {
+		if cfg := h.workspace.GetWorkspaceConfig(ws.ID); cfg != nil && len(cfg.QuickLaunch) > 0 {
 			quickLaunchNames = make([]string, 0, len(cfg.QuickLaunch))
 			for _, preset := range cfg.QuickLaunch {
 				if preset.Name != "" {
@@ -95,13 +127,13 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 
 		// Get default branch from server-level TTL cache
 		defaultBranch := ""
-		if db, err := s.cachedDefaultBranch(ctx, ws.Repo); err == nil {
+		if db, err := h.cachedDefaultBranch(ctx, ws.Repo); err == nil {
 			defaultBranch = db
 		}
 
 		// Get repo name from config
 		repoName := ""
-		if r, found := s.config.FindRepoByURL(ws.Repo); found {
+		if r, found := h.config.FindRepoByURL(ws.Repo); found {
 			repoName = r.Name
 		}
 
@@ -137,8 +169,8 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			Status:                  ws.Status,
 			Backburner:              ws.Backburner,
 		}
-		if s.previewManager != nil {
-			previews := s.state.GetWorkspacePreviews(ws.ID)
+		if h.previewManager != nil {
+			previews := h.state.GetWorkspacePreviews(ws.ID)
 			sort.Slice(previews, func(i, j int) bool {
 				if previews[i].TargetPort == previews[j].TargetPort {
 					return previews[i].ID < previews[j].ID
@@ -176,11 +208,11 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 		running bool
 	}
 	runningCh := make(chan runningResult, len(sessions))
-	timeout := time.Duration(s.config.GetXtermQueryTimeoutMs()) * time.Millisecond
+	timeout := time.Duration(h.config.GetXtermQueryTimeoutMs()) * time.Millisecond
 	for _, sess := range sessions {
 		go func(id string) {
 			timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
-			r := s.session.IsRunning(timeoutCtx, id)
+			r := h.session.IsRunning(timeoutCtx, id)
 			cancel()
 			runningCh <- runningResult{id: id, running: r}
 		}(sess.ID)
@@ -198,7 +230,7 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			continue
 		}
 
-		attachCmd, _ := s.session.GetAttachCommand(sess.ID)
+		attachCmd, _ := h.session.GetAttachCommand(sess.ID)
 		lastOutputAt := ""
 		if !sess.LastOutputAt.IsZero() {
 			lastOutputAt = sess.LastOutputAt.Format(time.RFC3339)
@@ -209,9 +241,9 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 		// Get remote host info if this is a remote session
 		var remoteHostname, remoteFlavorName string
 		if sess.RemoteHostID != "" {
-			if host, found := s.state.GetRemoteHost(sess.RemoteHostID); found {
+			if host, found := h.state.GetRemoteHost(sess.RemoteHostID); found {
 				remoteHostname = host.Hostname
-				if profile, found := s.config.GetRemoteProfile(host.ProfileID); found {
+				if profile, found := h.config.GetRemoteProfile(host.ProfileID); found {
 					resolved, resolveErr := config.ResolveProfileFlavor(profile, host.Flavor)
 					if resolveErr == nil {
 						remoteFlavorName = resolved.FlavorDisplayName
@@ -228,7 +260,7 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 							reconnectCmd = "ssh -tt {{.Hostname}} --"
 						}
 						// Target the agent's window on the isolated socket
-						socketName := s.config.GetTmuxSocketName()
+						socketName := h.config.GetTmuxSocketName()
 						tmuxTarget := socketName
 						if sess.RemoteWindow != "" {
 							tmuxTarget = socketName + ":" + sess.RemoteWindow
@@ -251,9 +283,9 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 
 		// Resolve persona info for display
 		var personaID, personaIcon, personaColor, personaName string
-		if sess.PersonaID != "" && s.personaManager != nil {
+		if sess.PersonaID != "" && h.personaManager != nil {
 			personaID = sess.PersonaID
-			if p, err := s.personaManager.Get(sess.PersonaID); err == nil {
+			if p, err := h.personaManager.Get(sess.PersonaID); err == nil {
 				personaIcon = p.Icon
 				personaColor = p.Color
 				personaName = p.Name
@@ -262,9 +294,9 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 
 		// Resolve model metadata if models manager is available
 		var modelInfo *SessionModelInfo
-		if s.models != nil {
-			if model, found := s.models.FindModel(sess.Target); found {
-				meta := s.models.GetRegistryMeta(model.ID)
+		if h.models != nil {
+			if model, found := h.models.FindModel(sess.Target); found {
+				meta := h.models.GetRegistryMeta(model.ID)
 				if meta.ContextWindow > 0 || meta.CostInput > 0 || meta.CostOutput > 0 {
 					modelInfo = &SessionModelInfo{
 						ContextWindow:     meta.ContextWindow,
@@ -326,11 +358,155 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 
 // handleSessions returns the list of workspaces and their sessions as JSON.
 // Returns a hierarchical structure: workspaces -> sessions
-func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
-	response := s.buildSessionsResponse()
+func (h *SessionHandlers) handleSessions(w http.ResponseWriter, r *http.Request) {
+	response := h.buildSessionsResponse()
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		s.logger.Error("failed to encode response", "handler", "sessions", "err", err)
+		h.logger.Error("failed to encode response", "handler", "sessions", "err", err)
+	}
+}
+
+// handleUpdateNickname handles session nickname update requests.
+func (h *SessionHandlers) handleUpdateNickname(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+
+	// Extract session ID from chi URL param
+	sessionID := chi.URLParam(r, "sessionID")
+	if sessionID == "" {
+		writeJSONError(w, "session ID is required", http.StatusBadRequest)
+		return
+	}
+
+	var req UpdateNicknameRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Update nickname (and rename tmux session)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(h.config.GetXtermOperationTimeoutMs())*time.Millisecond)
+	err := h.session.RenameSession(ctx, sessionID, req.Nickname)
+	cancel()
+	if err != nil {
+		// Check if this is a nickname conflict error
+		if errors.Is(err, session.ErrNicknameInUse) {
+			writeJSONError(w, err.Error(), http.StatusConflict)
+			return
+		}
+		writeJSONError(w, fmt.Sprintf("Failed to rename session: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Broadcast update to WebSocket clients
+	go h.broadcastSessions()
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
+		h.logger.Error("failed to encode response", "handler", "update-nickname", "err", err)
+	}
+}
+
+// handleUpdateXtermTitle handles xterm title change reports from the frontend.
+// PUT /api/sessions-xterm-title/{sessionID}
+func (h *SessionHandlers) handleUpdateXtermTitle(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+
+	sessionID := chi.URLParam(r, "sessionID")
+	if sessionID == "" {
+		writeJSONError(w, "session ID is required", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	changed := h.state.UpdateSessionXtermTitle(sessionID, req.Title)
+	if changed {
+		go h.broadcastSessions()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
+		h.logger.Error("failed to encode response", "handler", "update-xterm-title", "err", err)
+	}
+}
+
+// handleAskNudgenik handles GET requests to ask NudgeNik about a session's output.
+// GET /api/askNudgenik/{sessionId}
+//
+// Combines extraction of the latest session response with the Claude CLI call.
+// The response extraction happens internally on the server side.
+func (h *SessionHandlers) handleAskNudgenik(w http.ResponseWriter, r *http.Request) {
+	// Extract session ID from chi wildcard param
+	sessionID := chi.URLParam(r, "*")
+	if sessionID == "" {
+		writeJSONError(w, "session ID is required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify session exists (for proper 404 response)
+	if _, found := h.state.GetSession(sessionID); !found {
+		writeJSONError(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	// Capture via tracker (handles local and remote sessions via ControlSource)
+	tracker, err := h.session.GetTracker(sessionID)
+	if err != nil {
+		writeJSONError(w, fmt.Sprintf("session tracker not available: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	captureCtx, cancel := context.WithTimeout(r.Context(), h.config.XtermOperationTimeout())
+	content, err := tracker.CaptureLastLines(captureCtx, 100)
+	cancel()
+	if err != nil {
+		writeJSONError(w, fmt.Sprintf("failed to capture session output: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	ctx := context.Background()
+	result, err := nudgenik.AskForCapture(ctx, h.config, content)
+	if err != nil {
+		nudgenikLog := logging.Sub(h.logger, "nudgenik")
+		switch {
+		case errors.Is(err, nudgenik.ErrDisabled):
+			nudgenikLog.Info("nudgenik is disabled")
+			writeJSONError(w, "Nudgenik is disabled. Configure a target in settings.", http.StatusServiceUnavailable)
+		case errors.Is(err, nudgenik.ErrNoResponse):
+			nudgenikLog.Info("no response extracted", "session_id", sessionID)
+			writeJSONError(w, "No response found in session output", http.StatusBadRequest)
+		case errors.Is(err, nudgenik.ErrTargetNotFound):
+			nudgenikLog.Warn("target not found in config")
+			writeJSONError(w, "Nudgenik target not found", http.StatusServiceUnavailable)
+		case errors.Is(err, nudgenik.ErrTargetNoSecrets):
+			nudgenikLog.Warn("target missing required secrets")
+			writeJSONError(w, "Nudgenik target missing required secrets", http.StatusServiceUnavailable)
+		default:
+			nudgenikLog.Error("failed to ask", "session_id", sessionID, "err", err)
+			writeJSONError(w, fmt.Sprintf("Failed to ask nudgenik: %v", err), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		h.logger.Error("failed to encode response", "handler", "ask-nudgenik", "err", err)
+	}
+}
+
+// handleHasNudgenik handles GET requests to check if nudgenik is available globally.
+// Returns available: true only when a nudgenik target is configured.
+func (h *SessionHandlers) handleHasNudgenik(w http.ResponseWriter, r *http.Request) {
+	available := nudgenik.IsEnabled(h.config)
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]bool{"available": available}); err != nil {
+		h.logger.Error("failed to encode response", "handler", "has-nudgenik", "err", err)
 	}
 }
 
@@ -357,14 +533,14 @@ func pluralS(n int) string {
 }
 
 // cachedDefaultBranch returns the default branch for a repo URL, using a
-// server-level TTL cache to avoid calling into the workspace manager (which
+// TTL cache to avoid calling into the workspace manager (which
 // may run git commands) on every WebSocket broadcast.
-func (s *Server) cachedDefaultBranch(ctx context.Context, repoURL string) (string, error) {
+func (h *SessionHandlers) cachedDefaultBranch(ctx context.Context, repoURL string) (string, error) {
 	now := time.Now()
 
-	s.defaultBranchCacheMu.RLock()
-	entry, ok := s.defaultBranchCache[repoURL]
-	s.defaultBranchCacheMu.RUnlock()
+	h.defaultBranchCacheMu.RLock()
+	entry, ok := h.defaultBranchCache[repoURL]
+	h.defaultBranchCacheMu.RUnlock()
 
 	if ok && now.Sub(entry.fetchedAt) < defaultBranchCacheTTL {
 		if entry.branch == "" {
@@ -374,14 +550,14 @@ func (s *Server) cachedDefaultBranch(ctx context.Context, repoURL string) (strin
 	}
 
 	// Cache miss or stale — call through to workspace manager.
-	branch, err := s.workspace.GetDefaultBranch(ctx, repoURL)
+	branch, err := h.workspace.GetDefaultBranch(ctx, repoURL)
 
-	s.defaultBranchCacheMu.Lock()
-	s.defaultBranchCache[repoURL] = defaultBranchEntry{
+	h.defaultBranchCacheMu.Lock()
+	h.defaultBranchCache[repoURL] = defaultBranchEntry{
 		branch:    branch,
 		fetchedAt: now,
 	}
-	s.defaultBranchCacheMu.Unlock()
+	h.defaultBranchCacheMu.Unlock()
 
 	return branch, err
 }

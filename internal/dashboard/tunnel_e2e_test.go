@@ -77,7 +77,7 @@ func newTunnelTestServer(t *testing.T, password string) *tunnelTestServer {
 		r.Use(s.authMiddleware)
 
 		r.Get("/healthz", s.handleHealthz)
-		r.Get("/sessions", s.handleSessions)
+		r.Get("/sessions", s.sessionHandlers.handleSessions)
 		r.Get("/remote-access/status", s.handleRemoteAccessStatus)
 
 		r.Group(func(r chi.Router) {

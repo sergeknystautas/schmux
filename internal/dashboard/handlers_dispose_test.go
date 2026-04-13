@@ -102,7 +102,7 @@ func TestHandleUpdateNickname_Guards(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{"nickname": "new-name"})
 		req := makeSessionRequest(t, http.MethodPatch, "/api/sessions//nickname", "", body)
 		rr := httptest.NewRecorder()
-		server.handleUpdateNickname(rr, req)
+		server.sessionHandlers.handleUpdateNickname(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
@@ -112,7 +112,7 @@ func TestHandleUpdateNickname_Guards(t *testing.T) {
 	t.Run("rejects malformed body", func(t *testing.T) {
 		req := makeSessionRequest(t, http.MethodPatch, "/api/sessions/sess-nick/nickname", "sess-nick", []byte(`{broken`))
 		rr := httptest.NewRecorder()
-		server.handleUpdateNickname(rr, req)
+		server.sessionHandlers.handleUpdateNickname(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
@@ -139,7 +139,7 @@ func TestHandleUpdateXtermTitle(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{"title": "Working on feature X"})
 		req := makeSessionRequest(t, http.MethodPut, "/api/sessions-xterm-title/sess-title", "sess-title", body)
 		rr := httptest.NewRecorder()
-		server.handleUpdateXtermTitle(rr, req)
+		server.sessionHandlers.handleUpdateXtermTitle(rr, req)
 
 		if rr.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
@@ -154,7 +154,7 @@ func TestHandleUpdateXtermTitle(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{"title": "test"})
 		req := makeSessionRequest(t, http.MethodPut, "/api/sessions-xterm-title/", "", body)
 		rr := httptest.NewRecorder()
-		server.handleUpdateXtermTitle(rr, req)
+		server.sessionHandlers.handleUpdateXtermTitle(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected 400, got %d: %s", rr.Code, rr.Body.String())
@@ -164,7 +164,7 @@ func TestHandleUpdateXtermTitle(t *testing.T) {
 	t.Run("rejects malformed body", func(t *testing.T) {
 		req := makeSessionRequest(t, http.MethodPut, "/api/sessions-xterm-title/sess-title", "sess-title", []byte(`{broken`))
 		rr := httptest.NewRecorder()
-		server.handleUpdateXtermTitle(rr, req)
+		server.sessionHandlers.handleUpdateXtermTitle(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected 400, got %d: %s", rr.Code, rr.Body.String())
@@ -175,7 +175,7 @@ func TestHandleUpdateXtermTitle(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{"title": ""})
 		req := makeSessionRequest(t, http.MethodPut, "/api/sessions-xterm-title/sess-title", "sess-title", body)
 		rr := httptest.NewRecorder()
-		server.handleUpdateXtermTitle(rr, req)
+		server.sessionHandlers.handleUpdateXtermTitle(rr, req)
 
 		if rr.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())

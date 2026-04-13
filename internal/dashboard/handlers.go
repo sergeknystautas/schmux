@@ -3,7 +3,6 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -12,15 +11,12 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/go-chi/chi/v5"
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/logging"
-	"github.com/sergeknystautas/schmux/internal/nudgenik"
-	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/update"
 	"github.com/sergeknystautas/schmux/pkg/shellutil"
@@ -238,150 +234,6 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 // UpdateNicknameRequest represents a request to update a session's nickname.
 type UpdateNicknameRequest struct {
 	Nickname string `json:"nickname"`
-}
-
-// handleUpdateNickname handles session nickname update requests.
-func (s *Server) handleUpdateNickname(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
-
-	// Extract session ID from chi URL param
-	sessionID := chi.URLParam(r, "sessionID")
-	if sessionID == "" {
-		writeJSONError(w, "session ID is required", http.StatusBadRequest)
-		return
-	}
-
-	var req UpdateNicknameRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	// Update nickname (and rename tmux session)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
-	err := s.session.RenameSession(ctx, sessionID, req.Nickname)
-	cancel()
-	if err != nil {
-		// Check if this is a nickname conflict error
-		if errors.Is(err, session.ErrNicknameInUse) {
-			writeJSONError(w, err.Error(), http.StatusConflict)
-			return
-		}
-		writeJSONError(w, fmt.Sprintf("Failed to rename session: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Broadcast update to WebSocket clients
-	go s.BroadcastSessions()
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "update-nickname", "err", err)
-	}
-}
-
-// handleUpdateXtermTitle handles xterm title change reports from the frontend.
-// PUT /api/sessions-xterm-title/{sessionID}
-func (s *Server) handleUpdateXtermTitle(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
-
-	sessionID := chi.URLParam(r, "sessionID")
-	if sessionID == "" {
-		writeJSONError(w, "session ID is required", http.StatusBadRequest)
-		return
-	}
-
-	var req struct {
-		Title string `json:"title"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	changed := s.state.UpdateSessionXtermTitle(sessionID, req.Title)
-	if changed {
-		go s.BroadcastSessions()
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "update-xterm-title", "err", err)
-	}
-}
-
-// handleAskNudgenik handles GET requests to ask NudgeNik about a session's output.
-// GET /api/askNudgenik/{sessionId}
-//
-// Combines extraction of the latest session response with the Claude CLI call.
-// The response extraction happens internally on the server side.
-func (s *Server) handleAskNudgenik(w http.ResponseWriter, r *http.Request) {
-	// Extract session ID from chi wildcard param
-	sessionID := chi.URLParam(r, "*")
-	if sessionID == "" {
-		writeJSONError(w, "session ID is required", http.StatusBadRequest)
-		return
-	}
-
-	// Verify session exists (for proper 404 response)
-	if _, found := s.state.GetSession(sessionID); !found {
-		writeJSONError(w, "session not found", http.StatusNotFound)
-		return
-	}
-
-	// Capture via tracker (handles local and remote sessions via ControlSource)
-	tracker, err := s.session.GetTracker(sessionID)
-	if err != nil {
-		writeJSONError(w, fmt.Sprintf("session tracker not available: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	captureCtx, cancel := context.WithTimeout(r.Context(), s.config.XtermOperationTimeout())
-	content, err := tracker.CaptureLastLines(captureCtx, 100)
-	cancel()
-	if err != nil {
-		writeJSONError(w, fmt.Sprintf("failed to capture session output: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	ctx := context.Background()
-	result, err := nudgenik.AskForCapture(ctx, s.config, content)
-	if err != nil {
-		nudgenikLog := logging.Sub(s.logger, "nudgenik")
-		switch {
-		case errors.Is(err, nudgenik.ErrDisabled):
-			nudgenikLog.Info("nudgenik is disabled")
-			writeJSONError(w, "Nudgenik is disabled. Configure a target in settings.", http.StatusServiceUnavailable)
-		case errors.Is(err, nudgenik.ErrNoResponse):
-			nudgenikLog.Info("no response extracted", "session_id", sessionID)
-			writeJSONError(w, "No response found in session output", http.StatusBadRequest)
-		case errors.Is(err, nudgenik.ErrTargetNotFound):
-			nudgenikLog.Warn("target not found in config")
-			writeJSONError(w, "Nudgenik target not found", http.StatusServiceUnavailable)
-		case errors.Is(err, nudgenik.ErrTargetNoSecrets):
-			nudgenikLog.Warn("target missing required secrets")
-			writeJSONError(w, "Nudgenik target missing required secrets", http.StatusServiceUnavailable)
-		default:
-			nudgenikLog.Error("failed to ask", "session_id", sessionID, "err", err)
-			writeJSONError(w, fmt.Sprintf("Failed to ask nudgenik: %v", err), http.StatusInternalServerError)
-		}
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(result); err != nil {
-		s.logger.Error("failed to encode response", "handler", "ask-nudgenik", "err", err)
-	}
-}
-
-// handleHasNudgenik handles GET requests to check if nudgenik is available globally.
-// Returns available: true only when a nudgenik target is configured.
-func (s *Server) handleHasNudgenik(w http.ResponseWriter, r *http.Request) {
-	available := nudgenik.IsEnabled(s.config)
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]bool{"available": available}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "has-nudgenik", "err", err)
-	}
 }
 
 // shellSplit splits a command line string into arguments, respecting quotes.

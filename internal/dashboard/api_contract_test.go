@@ -504,7 +504,7 @@ func TestAPIContract_SessionsShape(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
 	rr := httptest.NewRecorder()
-	server.handleSessions(rr, req)
+	server.sessionHandlers.handleSessions(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rr.Code)
@@ -555,7 +555,7 @@ func TestAPIContract_SessionsQuickLaunchNamesOnly(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
 	rr := httptest.NewRecorder()
-	server.handleSessions(rr, req)
+	server.sessionHandlers.handleSessions(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rr.Code)
@@ -597,8 +597,8 @@ func TestAPIContract_MissingIDErrors(t *testing.T) {
 		{"dispose workspace missing id", http.MethodPost, "/api/workspaces//dispose", wsH.handleDisposeWorkspace, "workspaceID"},
 		{"diff missing id", http.MethodGet, "/api/diff/", gitH.handleDiff, ""},
 		{"open vscode missing id", http.MethodPost, "/api/open-vscode/", gitH.handleOpenVSCode, ""},
-		{"sessions nickname missing id", http.MethodPut, "/api/sessions-nickname/", server.handleUpdateNickname, "sessionID"},
-		{"sessions xterm-title missing id", http.MethodPut, "/api/sessions-xterm-title/", server.handleUpdateXtermTitle, "sessionID"},
+		{"sessions nickname missing id", http.MethodPut, "/api/sessions-nickname/", server.sessionHandlers.handleUpdateNickname, "sessionID"},
+		{"sessions xterm-title missing id", http.MethodPut, "/api/sessions-xterm-title/", server.sessionHandlers.handleUpdateXtermTitle, "sessionID"},
 	}
 
 	for _, tt := range tests {

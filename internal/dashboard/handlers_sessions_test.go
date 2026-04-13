@@ -24,7 +24,7 @@ func TestBuildSessionsResponse_ExcludesRecyclableWorkspaces(t *testing.T) {
 		Status: state.WorkspaceStatusRecyclable,
 	})
 
-	response := server.buildSessionsResponse()
+	response := server.sessionHandlers.buildSessionsResponse()
 
 	for _, item := range response {
 		if item.ID == "recycled-001" {

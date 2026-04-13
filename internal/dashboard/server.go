@@ -229,6 +229,7 @@ type Server struct {
 	curationTracker *CurationTracker
 
 	// Extracted handler groups
+	sessionHandlers   *SessionHandlers
 	autolearnHandlers *AutolearnHandlers
 	gitHandlers       *GitHandlers
 
@@ -380,6 +381,24 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		logger.Warn("failed to ensure built-in styles", "err", err)
 	}
 
+	// Initialize session handler group (needed before Start() for test access)
+	s.sessionHandlers = &SessionHandlers{
+		config:         s.config,
+		state:          st,
+		session:        sm,
+		workspace:      wm,
+		models:         s.models,
+		remoteManager:  s.remoteManager,
+		previewManager: s.previewManager,
+		personaManager: s.personaManager,
+		logger:         logger,
+
+		broadcastSessions:                 s.BroadcastSessions,
+		getLinearSyncResolveConflictState: s.getLinearSyncResolveConflictState,
+
+		defaultBranchCache: make(map[string]defaultBranchEntry),
+	}
+
 	if mgr, ok := wm.(*workspace.Manager); ok {
 		mgr.SetOnLockChangeFn(s.BroadcastWorkspaceLocked)
 		mgr.SetSyncProgressFn(func(workspaceID string, current, total int) {
@@ -398,6 +417,9 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 // SetModelManager sets the model manager for model catalog and resolution.
 func (s *Server) SetModelManager(mm *models.Manager) {
 	s.models = mm
+	if s.sessionHandlers != nil {
+		s.sessionHandlers.models = mm
+	}
 	// Set up callback to broadcast catalog updates to WebSocket clients
 	mm.SetOnCatalogUpdated(func() {
 		s.BroadcastCatalogUpdated()
@@ -416,6 +438,9 @@ func (s *Server) BroadcastCatalogUpdated() {
 // SetRemoteManager sets the remote manager for remote workspace support.
 func (s *Server) SetRemoteManager(rm *remote.Manager) {
 	s.remoteManager = rm
+	if s.sessionHandlers != nil {
+		s.sessionHandlers.remoteManager = rm
+	}
 	// Also set it on the session manager
 	s.session.SetRemoteManager(rm)
 }
@@ -710,9 +735,28 @@ func (s *Server) Start() error {
 			vcsTypeForWorkspace: s.vcsTypeForWorkspace,
 		}
 
+		// Session handler group
+		sessionH := &SessionHandlers{
+			config:         s.config,
+			state:          s.state,
+			session:        s.session,
+			workspace:      s.workspace,
+			models:         s.models,
+			remoteManager:  s.remoteManager,
+			previewManager: s.previewManager,
+			personaManager: s.personaManager,
+			logger:         s.logger,
+
+			broadcastSessions:                 s.BroadcastSessions,
+			getLinearSyncResolveConflictState: s.getLinearSyncResolveConflictState,
+
+			defaultBranchCache: make(map[string]defaultBranchEntry),
+		}
+		s.sessionHandlers = sessionH
+
 		// Read-only endpoints (no CSRF needed)
 		r.Get("/healthz", s.handleHealthz)
-		r.Get("/sessions", s.handleSessions)
+		r.Get("/sessions", sessionH.handleSessions)
 		r.Get("/recent-branches", spawnH.handleRecentBranches)
 		r.Get("/detect-tools", configH.handleDetectTools)
 		r.Get("/detection-summary", configH.handleDetectionSummary)
@@ -725,8 +769,8 @@ func (s *Server) Start() error {
 		r.Get("/file/*", gitH.handleFile)
 		r.Get("/overlays", wsH.handleOverlays)
 		r.Get("/prs", s.handlePRs)
-		r.Get("/hasNudgenik", s.handleHasNudgenik)
-		r.Get("/askNudgenik/*", s.handleAskNudgenik)
+		r.Get("/hasNudgenik", sessionH.handleHasNudgenik)
+		r.Get("/askNudgenik/*", sessionH.handleAskNudgenik)
 		r.Get("/subreddit", s.handleSubreddit)
 		r.Get("/repofeed", s.handleRepofeedList)
 		r.Get("/repofeed/{slug}", s.handleRepofeedRepo)
@@ -802,9 +846,9 @@ func (s *Server) Start() error {
 			// Session routes
 			r.Post("/sessions/{sessionID}/dispose", wsH.handleDispose)
 			r.Post("/sessions/{sessionID}/tell", s.handleTellSession)
-			r.Put("/sessions-nickname/{sessionID}", s.handleUpdateNickname)
-			r.Patch("/sessions-nickname/{sessionID}", s.handleUpdateNickname)
-			r.Put("/sessions-xterm-title/{sessionID}", s.handleUpdateXtermTitle)
+			r.Put("/sessions-nickname/{sessionID}", sessionH.handleUpdateNickname)
+			r.Patch("/sessions-nickname/{sessionID}", sessionH.handleUpdateNickname)
+			r.Put("/sessions-xterm-title/{sessionID}", sessionH.handleUpdateXtermTitle)
 
 			// Config routes
 			r.Get("/config", configH.handleConfigGet)
@@ -1469,7 +1513,7 @@ func (s *Server) broadcastLoop() {
 // doBroadcast performs the actual broadcast to all connected WebSocket clients.
 func (s *Server) doBroadcast() {
 	// Build the sessions response
-	data := s.buildSessionsResponse()
+	data := s.sessionHandlers.buildSessionsResponse()
 
 	// Marshal to JSON with type field
 	payload, err := json.Marshal(map[string]interface{}{
@@ -1734,7 +1778,7 @@ func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request
 	defer s.UnregisterDashboardConn(conn)
 
 	// Send initial full state with type field
-	data := s.buildSessionsResponse()
+	data := s.sessionHandlers.buildSessionsResponse()
 	payload, err := json.Marshal(map[string]interface{}{
 		"type":       "sessions",
 		"workspaces": data,

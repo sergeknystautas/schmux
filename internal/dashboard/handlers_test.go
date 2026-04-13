@@ -49,7 +49,7 @@ func TestHandleHasNudgenik(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/api/hasNudgenik", nil)
 		rr := httptest.NewRecorder()
 
-		server.handleHasNudgenik(rr, req)
+		server.sessionHandlers.handleHasNudgenik(rr, req)
 
 		if rr.Code != http.StatusOK {
 			t.Errorf("expected status 200, got %d", rr.Code)
@@ -78,7 +78,7 @@ func TestHandleHasNudgenik(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/api/hasNudgenik", nil)
 		rr := httptest.NewRecorder()
 
-		server.handleHasNudgenik(rr, req)
+		server.sessionHandlers.handleHasNudgenik(rr, req)
 
 		if rr.Code != http.StatusOK {
 			t.Errorf("expected status 200, got %d", rr.Code)
@@ -145,7 +145,7 @@ func TestHandleAskNudgenik(t *testing.T) {
 			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 			rr := httptest.NewRecorder()
 
-			server.handleAskNudgenik(rr, req)
+			server.sessionHandlers.handleAskNudgenik(rr, req)
 
 			if rr.Code != tt.wantStatus {
 				t.Errorf("expected status %d, got %d", tt.wantStatus, rr.Code)

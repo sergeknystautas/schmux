@@ -122,7 +122,7 @@ func TestHandleSessions_EmptyState(t *testing.T) {
 	server, _, _ := newTestServer(t)
 	req := httptest.NewRequest("GET", "/api/sessions", nil)
 	rr := httptest.NewRecorder()
-	server.handleSessions(rr, req)
+	server.sessionHandlers.handleSessions(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Errorf("got status %d, want %d", rr.Code, http.StatusOK)
