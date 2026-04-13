@@ -27,7 +27,7 @@ import (
 // AutolearnHandlers groups HTTP handlers for autolearn CRUD and curation operations.
 type AutolearnHandlers struct {
 	config                     *config.Config
-	state                      state.StateStore
+	state                      state.WorkspaceStore
 	autolearnStore             *autolearn.BatchStore
 	autolearnExecutor          func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error)
 	autolearnPendingMergeStore *autolearn.PendingMergeStore
