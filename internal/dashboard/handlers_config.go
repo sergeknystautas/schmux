@@ -38,6 +38,7 @@ type ConfigHandlers struct {
 	refreshAutolearnExecutor   func(cfg *config.Config)
 	triggerSubredditGeneration func()
 	clearRemoteAuth            func()
+	onFloorManagerToggle       func(enabled bool)
 }
 
 // handleDetectTools returns detected tools (GET only).
@@ -855,8 +856,8 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Toggle floor manager if enabled changed
-	if req.FloorManager != nil && req.FloorManager.Enabled != nil && OnFloorManagerToggle != nil {
-		OnFloorManagerToggle(*req.FloorManager.Enabled)
+	if req.FloorManager != nil && req.FloorManager.Enabled != nil && h.onFloorManagerToggle != nil {
+		h.onFloorManagerToggle(*req.FloorManager.Enabled)
 	}
 
 	// Ensure overlay directories exist for all repos if repos were actually updated

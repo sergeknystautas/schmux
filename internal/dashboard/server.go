@@ -240,7 +240,8 @@ type Server struct {
 	styleManager *style.Manager
 
 	// Floor manager
-	floorManager *floormanager.Manager
+	floorManager         *floormanager.Manager
+	onFloorManagerToggle func(enabled bool)
 
 	// Spawn entry system
 	spawnStore         *spawn.Store
@@ -493,8 +494,11 @@ func (s *Server) SetFloorManager(fm *floormanager.Manager) {
 	s.floorManager = fm
 }
 
-// OnFloorManagerToggle is a callback for config changes to floor_manager.enabled.
-var OnFloorManagerToggle func(enabled bool)
+// SetFloorManagerToggle sets the callback invoked when the floor_manager.enabled
+// config value is toggled via the dashboard API.
+func (s *Server) SetFloorManagerToggle(fn func(enabled bool)) {
+	s.onFloorManagerToggle = fn
+}
 
 // HandleTunnelConnected handles a newly connected tunnel by generating an auth token and sending notifications.
 func (s *Server) HandleTunnelConnected(tunnelURL string) {
@@ -668,6 +672,7 @@ func (s *Server) Start() error {
 			refreshAutolearnExecutor:   s.refreshAutolearnExecutor,
 			triggerSubredditGeneration: s.TriggerSubredditGeneration,
 			clearRemoteAuth:            s.ClearRemoteAuth,
+			onFloorManagerToggle:       s.onFloorManagerToggle,
 		}
 
 		// Git/VCS handler group

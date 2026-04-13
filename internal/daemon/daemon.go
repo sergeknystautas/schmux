@@ -281,14 +281,16 @@ func Stop() error {
 	// Check every 100ms, up to 10 seconds. The shutdown sequence includes remote host
 	// disconnection, session manager stop, and HTTP server shutdown, which can take
 	// several seconds under CPU contention (e.g., Docker containers).
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
+		<-ticker.C
 		// Check if process still exists by sending signal 0
 		if err := process.Signal(syscall.Signal(0)); err != nil {
 			// Process has exited
 			return nil
 		}
-		time.Sleep(100 * time.Millisecond)
 	}
 
 	return fmt.Errorf("timeout waiting for daemon to stop")
@@ -909,13 +911,13 @@ func (d *Daemon) wireCallbacks(
 	}
 
 	// Wire config toggle callback for floor manager
-	dashboard.OnFloorManagerToggle = func(enabled bool) {
+	server.SetFloorManagerToggle(func(enabled bool) {
 		if enabled {
 			startFloorManager()
 		} else {
 			stopFloorManager()
 		}
-	}
+	})
 
 	return
 }
@@ -1315,8 +1317,8 @@ func (d *Daemon) startBackgroundJobs(
 
 	// Start repofeed intent publisher and consumer
 	repofeedLog := logging.Sub(logger, "repofeed")
-	devEmail := getGitConfigValue("user.email")
-	devName := getGitConfigValue("user.name")
+	devEmail := getGitConfigValue(d.shutdownCtx, "user.email")
+	devName := getGitConfigValue(d.shutdownCtx, "user.name")
 	repofeedPublisher := repofeed.NewPublisher(repofeed.PublisherConfig{
 		DeveloperEmail: devEmail,
 		DisplayName:    devName,
@@ -1856,8 +1858,11 @@ func startRepofeedConsumer(ctx context.Context, cfg *config.Config, consumer *re
 }
 
 // getGitConfigValue reads a global git config value.
-func getGitConfigValue(key string) string {
-	out, err := exec.Command("git", "config", "--global", key).Output()
+func getGitConfigValue(ctx context.Context, key string) string {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "config", "--global", key)
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
