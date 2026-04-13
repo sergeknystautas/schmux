@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/types"
 )
 
 func validateRunTargets(targets []RunTarget) error {
@@ -20,7 +20,7 @@ func validateRunTargets(targets []RunTarget) error {
 		if _, exists := seen[name]; exists {
 			return fmt.Errorf("%w: duplicate run target name: %s", ErrInvalidConfig, name)
 		}
-		if detect.IsBuiltinToolName(name) {
+		if types.IsBuiltinToolName(name) {
 			return fmt.Errorf("%w: run target name %s collides with detected tool", ErrInvalidConfig, name)
 		}
 		seen[name] = struct{}{}

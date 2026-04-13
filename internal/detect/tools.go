@@ -1,16 +1,10 @@
 package detect
 
-// Built-in detected tool names.
-var builtinToolNames = []string{"claude", "codex", "gemini", "opencode"}
+import "github.com/sergeknystautas/schmux/internal/types"
 
 // IsBuiltinToolName reports whether name matches a built-in detected tool.
 func IsBuiltinToolName(name string) bool {
-	for _, tool := range builtinToolNames {
-		if tool == name {
-			return true
-		}
-	}
-	return false
+	return types.IsBuiltinToolName(name)
 }
 
 // AgentInstructionConfig defines how an agent receives instructions.

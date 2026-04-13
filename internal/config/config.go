@@ -17,9 +17,9 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
-	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/fileutil"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
+	"github.com/sergeknystautas/schmux/internal/types"
 	"github.com/sergeknystautas/schmux/internal/version"
 )
 
@@ -736,14 +736,14 @@ var migrations = []Migration{
 		Name: "rewrite_tool_name_targets_to_model_ids",
 		Detect: func(_ map[string]json.RawMessage, cfg *Config) bool {
 			for _, ql := range cfg.QuickLaunch {
-				if detect.IsBuiltinToolName(ql.Target) {
+				if types.IsBuiltinToolName(ql.Target) {
 					return true
 				}
 			}
-			if cfg.Nudgenik != nil && detect.IsBuiltinToolName(cfg.Nudgenik.Target) {
+			if cfg.Nudgenik != nil && types.IsBuiltinToolName(cfg.Nudgenik.Target) {
 				return true
 			}
-			if cfg.Compound != nil && detect.IsBuiltinToolName(cfg.Compound.Target) {
+			if cfg.Compound != nil && types.IsBuiltinToolName(cfg.Compound.Target) {
 				return true
 			}
 			return false
@@ -754,14 +754,14 @@ var migrations = []Migration{
 			}
 
 			for i := range cfg.QuickLaunch {
-				if detect.IsBuiltinToolName(cfg.QuickLaunch[i].Target) {
+				if types.IsBuiltinToolName(cfg.QuickLaunch[i].Target) {
 					cfg.QuickLaunch[i].Target = resolve(cfg.QuickLaunch[i].Target)
 				}
 			}
-			if cfg.Nudgenik != nil && detect.IsBuiltinToolName(cfg.Nudgenik.Target) {
+			if cfg.Nudgenik != nil && types.IsBuiltinToolName(cfg.Nudgenik.Target) {
 				cfg.Nudgenik.Target = resolve(cfg.Nudgenik.Target)
 			}
-			if cfg.Compound != nil && detect.IsBuiltinToolName(cfg.Compound.Target) {
+			if cfg.Compound != nil && types.IsBuiltinToolName(cfg.Compound.Target) {
 				cfg.Compound.Target = resolve(cfg.Compound.Target)
 			}
 			return nil
@@ -799,7 +799,7 @@ var migrations = []Migration{
 
 // hasLegacyModelIDs returns true if any config field contains a legacy model ID.
 func (c *Config) hasLegacyModelIDs() bool {
-	legacy := detect.LegacyIDMigrations()
+	legacy := types.LegacyIDMigrations()
 	isLegacy := func(id string) bool {
 		if id == "" {
 			return false
@@ -867,14 +867,14 @@ func (c *Config) migrateModelIDs() {
 	// Quick launch targets
 	for i, ql := range c.QuickLaunch {
 		if ql.Target != "" {
-			c.QuickLaunch[i].Target = detect.MigrateModelID(ql.Target)
+			c.QuickLaunch[i].Target = types.MigrateModelID(ql.Target)
 		}
 	}
 
 	// Nested config targets
 	migrateTarget := func(field *string) {
 		if field != nil && *field != "" {
-			*field = detect.MigrateModelID(*field)
+			*field = types.MigrateModelID(*field)
 		}
 	}
 
@@ -916,7 +916,7 @@ func (c *Config) migrateModelIDs() {
 	if c.Models != nil && c.Models.Enabled != nil {
 		newEnabled := make(map[string]string, len(c.Models.Enabled))
 		for id, tool := range c.Models.Enabled {
-			newEnabled[detect.MigrateModelID(id)] = tool
+			newEnabled[types.MigrateModelID(id)] = tool
 		}
 		c.Models.Enabled = newEnabled
 	}

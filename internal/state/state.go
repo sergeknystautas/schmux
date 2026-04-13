@@ -11,8 +11,8 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
-	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/fileutil"
+	"github.com/sergeknystautas/schmux/internal/types"
 )
 
 // DashboardSXStatus tracks the last heartbeat response and certificate expiry.
@@ -459,7 +459,7 @@ func migrateSessionTargets(sessions []Session) bool {
 	changed := false
 	for i := range sessions {
 		if sessions[i].Target != "" {
-			newTarget := detect.MigrateModelID(sessions[i].Target)
+			newTarget := types.MigrateModelID(sessions[i].Target)
 			if newTarget != sessions[i].Target {
 				sessions[i].Target = newTarget
 				changed = true
