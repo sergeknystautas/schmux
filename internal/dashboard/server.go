@@ -228,6 +228,9 @@ type Server struct {
 	// Curation state tracking for WebSocket broadcast
 	curationTracker *CurationTracker
 
+	// Extracted autolearn handler group
+	autolearnHandlers *AutolearnHandlers
+
 	// Persona manager
 	personaManager *persona.Manager
 
@@ -787,30 +790,34 @@ func (s *Server) Start() error {
 				r.Post("/backburner", s.handleBackburnerWorkspace)
 			})
 
+			// Autolearn routes
+			autolearnH := newAutolearnHandlers(s)
+			s.autolearnHandlers = autolearnH
+
 			// Autolearn routes (global, repo-independent)
-			r.Get("/autolearn/status", s.handleAutolearnStatus)
-			r.Get("/autolearn/curations/active", s.handleAutolearnCurationsActive)
+			r.Get("/autolearn/status", autolearnH.handleAutolearnStatus)
+			r.Get("/autolearn/curations/active", autolearnH.handleAutolearnCurationsActive)
 
 			// Autolearn routes (repo-scoped)
 			r.Route("/autolearn/{repo}", func(r chi.Router) {
 				r.Use(validateAutolearnRepo)
-				r.Get("/batches", s.handleAutolearnBatches)
-				r.Get("/batches/{batchID}", s.handleAutolearnBatchGet)
-				r.Delete("/batches/{batchID}", s.handleAutolearnBatchDismiss)
-				r.Patch("/batches/{batchID}/learnings/{learningID}", s.handleAutolearnLearningUpdate)
-				r.Post("/forget/{learningID}", s.handleAutolearnForget)
-				r.Get("/entries", s.handleAutolearnEntries)
-				r.Delete("/entries", s.handleAutolearnEntriesClear)
-				r.Post("/curate", s.handleAutolearnCurate)
-				r.Post("/merge", s.handleAutolearnMerge)
-				r.Get("/pending-merge", s.handleAutolearnPendingMergeGet)
-				r.Patch("/pending-merge", s.handleAutolearnPendingMergePatch)
-				r.Delete("/pending-merge", s.handleAutolearnPendingMergeDelete)
-				r.Post("/push", s.handleAutolearnPush)
-				r.Get("/prompt-history", s.handleAutolearnPromptHistory)
-				r.Get("/history", s.handleAutolearnHistory)
-				r.Get("/curations", s.handleAutolearnCurationsList)
-				r.Get("/curations/{curationID}/log", s.handleAutolearnCurationLog)
+				r.Get("/batches", autolearnH.handleAutolearnBatches)
+				r.Get("/batches/{batchID}", autolearnH.handleAutolearnBatchGet)
+				r.Delete("/batches/{batchID}", autolearnH.handleAutolearnBatchDismiss)
+				r.Patch("/batches/{batchID}/learnings/{learningID}", autolearnH.handleAutolearnLearningUpdate)
+				r.Post("/forget/{learningID}", autolearnH.handleAutolearnForget)
+				r.Get("/entries", autolearnH.handleAutolearnEntries)
+				r.Delete("/entries", autolearnH.handleAutolearnEntriesClear)
+				r.Post("/curate", autolearnH.handleAutolearnCurate)
+				r.Post("/merge", autolearnH.handleAutolearnMerge)
+				r.Get("/pending-merge", autolearnH.handleAutolearnPendingMergeGet)
+				r.Patch("/pending-merge", autolearnH.handleAutolearnPendingMergePatch)
+				r.Delete("/pending-merge", autolearnH.handleAutolearnPendingMergeDelete)
+				r.Post("/push", autolearnH.handleAutolearnPush)
+				r.Get("/prompt-history", autolearnH.handleAutolearnPromptHistory)
+				r.Get("/history", autolearnH.handleAutolearnHistory)
+				r.Get("/curations", autolearnH.handleAutolearnCurationsList)
+				r.Get("/curations/{curationID}/log", autolearnH.handleAutolearnCurationLog)
 			})
 
 			// Spawn entry routes
@@ -818,7 +825,7 @@ func (s *Server) Start() error {
 				spawnStore:             s.spawnStore,
 				spawnMetadataStore:     s.spawnMetadataStore,
 				logger:                 s.logger,
-				getAutolearnWorkspaces: s.getAutolearnWorkspaces,
+				getAutolearnWorkspaces: autolearnH.getAutolearnWorkspaces,
 			}
 			r.Route("/spawn/{repo}", func(r chi.Router) {
 				r.Use(validateSpawnRepo)

@@ -13,15 +13,23 @@ type autolearnWorkspace struct {
 	ID   string
 }
 
+// AutolearnHandlers is a minimal stub when autolearn is compiled out.
+type AutolearnHandlers struct{}
+
+// newAutolearnHandlers returns a stub AutolearnHandlers when autolearn is compiled out.
+func newAutolearnHandlers(_ *Server) *AutolearnHandlers {
+	return &AutolearnHandlers{}
+}
+
 func validateAutolearnRepo(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
 	})
 }
 
-func (s *Server) getAutolearnWorkspaces(_ string) []autolearnWorkspace { return nil }
+func (h *AutolearnHandlers) getAutolearnWorkspaces(_ string) []autolearnWorkspace { return nil }
 
-func (s *Server) readAutolearnEntries(_ string, _ interface{}) ([]interface{}, error) {
+func (h *AutolearnHandlers) readAutolearnEntries(_ string, _ interface{}) ([]interface{}, error) {
 	return nil, nil
 }
 
@@ -29,78 +37,78 @@ func (s *Server) refreshAutolearnExecutor(_ *config.Config) {}
 
 func (s *Server) TriggerAutolearnCuration(_ string) {}
 
-func (s *Server) handleAutolearnStatus(w http.ResponseWriter, _ *http.Request) {
+func (h *AutolearnHandlers) handleAutolearnStatus(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
 }
 
-func (s *Server) handleAutolearnBatches(w http.ResponseWriter, _ *http.Request) {
+func (h *AutolearnHandlers) handleAutolearnBatches(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
 }
 
-func (s *Server) handleAutolearnBatchGet(w http.ResponseWriter, _ *http.Request) {
+func (h *AutolearnHandlers) handleAutolearnBatchGet(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
 }
 
-func (s *Server) handleAutolearnBatchDismiss(w http.ResponseWriter, _ *http.Request) {
+func (h *AutolearnHandlers) handleAutolearnBatchDismiss(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
 }
 
-func (s *Server) handleAutolearnLearningUpdate(w http.ResponseWriter, _ *http.Request) {
+func (h *AutolearnHandlers) handleAutolearnLearningUpdate(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
 }
 
-func (s *Server) handleAutolearnForget(w http.ResponseWriter, _ *http.Request) {
+func (h *AutolearnHandlers) handleAutolearnForget(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
 }
 
-func (s *Server) handleAutolearnEntries(w http.ResponseWriter, _ *http.Request) {
+func (h *AutolearnHandlers) handleAutolearnEntries(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
 }
 
-func (s *Server) handleAutolearnEntriesClear(w http.ResponseWriter, _ *http.Request) {
+func (h *AutolearnHandlers) handleAutolearnEntriesClear(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
 }
 
-func (s *Server) handleAutolearnCurate(w http.ResponseWriter, _ *http.Request) {
+func (h *AutolearnHandlers) handleAutolearnCurate(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
 }
 
-func (s *Server) handleAutolearnCurationsActive(w http.ResponseWriter, _ *http.Request) {
+func (h *AutolearnHandlers) handleAutolearnCurationsActive(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
 }
 
-func (s *Server) handleAutolearnCurationsList(w http.ResponseWriter, _ *http.Request) {
+func (h *AutolearnHandlers) handleAutolearnCurationsList(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
 }
 
-func (s *Server) handleAutolearnCurationLog(w http.ResponseWriter, _ *http.Request) {
+func (h *AutolearnHandlers) handleAutolearnCurationLog(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
 }
 
-func (s *Server) handleAutolearnMerge(w http.ResponseWriter, _ *http.Request) {
+func (h *AutolearnHandlers) handleAutolearnMerge(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
 }
 
-func (s *Server) handleAutolearnPendingMergeGet(w http.ResponseWriter, _ *http.Request) {
+func (h *AutolearnHandlers) handleAutolearnPendingMergeGet(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
 }
 
-func (s *Server) handleAutolearnPendingMergeDelete(w http.ResponseWriter, _ *http.Request) {
+func (h *AutolearnHandlers) handleAutolearnPendingMergeDelete(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
 }
 
-func (s *Server) handleAutolearnPendingMergePatch(w http.ResponseWriter, _ *http.Request) {
+func (h *AutolearnHandlers) handleAutolearnPendingMergePatch(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
 }
 
-func (s *Server) handleAutolearnPush(w http.ResponseWriter, _ *http.Request) {
+func (h *AutolearnHandlers) handleAutolearnPush(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
 }
 
-func (s *Server) handleAutolearnHistory(w http.ResponseWriter, _ *http.Request) {
+func (h *AutolearnHandlers) handleAutolearnHistory(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
 }
 
-func (s *Server) handleAutolearnPromptHistory(w http.ResponseWriter, _ *http.Request) {
+func (h *AutolearnHandlers) handleAutolearnPromptHistory(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
 }
