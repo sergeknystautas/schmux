@@ -11,22 +11,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/preview"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
-type previewResponse struct {
-	ID              string `json:"id"`
-	WorkspaceID     string `json:"workspace_id"`
-	TargetHost      string `json:"target_host"`
-	TargetPort      int    `json:"target_port"`
-	ProxyPort       int    `json:"proxy_port"`
-	Status          string `json:"status"`
-	LastError       string `json:"last_error,omitempty"`
-	ServerPID       int    `json:"server_pid,omitempty"`
-	SourceSessionID string `json:"source_session_id,omitempty"`
-}
+// previewResponse is a type alias for contracts.PreviewResponse.
+type previewResponse = contracts.PreviewResponse
 
 // validateWorkspaceID is a chi middleware that validates the {workspaceID} URL parameter.
 // Rejects requests with IDs that contain path separators, null bytes, dots, or exceed 128 chars.

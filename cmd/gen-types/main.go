@@ -48,6 +48,17 @@ func main() {
 		reflect.TypeOf(contracts.EnvironmentResponse{}),
 		reflect.TypeOf(contracts.Tab{}),
 		reflect.TypeOf(contracts.DetectionSummaryResponse{}),
+		reflect.TypeOf(contracts.SessionResponseItem{}),
+		reflect.TypeOf(contracts.WorkspaceResponseItem{}),
+		reflect.TypeOf(contracts.SpawnRequest{}),
+		reflect.TypeOf(contracts.RemoteProfileResponse{}),
+		reflect.TypeOf(contracts.RemoteFlavorResponse{}),
+		reflect.TypeOf(contracts.RemoteHostResponse{}),
+		reflect.TypeOf(contracts.RemoteProfileStatusResponse{}),
+		reflect.TypeOf(contracts.RemoteHostStatusItem{}),
+		reflect.TypeOf(contracts.DiffResponse{}),
+		reflect.TypeOf(contracts.PreviewResponse{}),
+		reflect.TypeOf(contracts.ResolveConflict{}),
 	}
 
 	typeMap := collectTypes(rootTypes)

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/fileutil"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/types"
@@ -245,14 +246,9 @@ type RemoteProfile struct {
 	Flavors               []RemoteProfileFlavor `json:"flavors"`
 }
 
-// RemoteProfileFlavor represents a flavor (machine type) within a remote profile.
+// RemoteProfileFlavor is a type alias for contracts.RemoteProfileFlavor.
 // Flavor-level fields override the profile-level defaults when non-empty.
-type RemoteProfileFlavor struct {
-	Flavor           string `json:"flavor"`
-	DisplayName      string `json:"display_name,omitempty"`
-	WorkspacePath    string `json:"workspace_path,omitempty"`
-	ProvisionCommand string `json:"provision_command,omitempty"`
-}
+type RemoteProfileFlavor = contracts.RemoteProfileFlavor
 
 // ResolvedFlavor holds the merged result of a profile and one of its flavors.
 // All fields are resolved (flavor overrides applied on top of profile defaults).

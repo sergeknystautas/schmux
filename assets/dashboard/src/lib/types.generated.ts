@@ -219,6 +219,24 @@ export interface DetectionVCS {
   path: string;
 }
 
+export interface DiffFileDiff {
+  old_path?: string;
+  new_path?: string;
+  old_content?: string;
+  new_content?: string;
+  status?: string;
+  lines_added: number;
+  lines_removed: number;
+  is_binary: boolean;
+}
+
+export interface DiffResponse {
+  workspace_id: string;
+  repo: string;
+  branch: string;
+  files: DiffFileDiff[];
+}
+
 export interface EnvironmentResponse {
   vars: EnvironmentVar[];
   blocked: string[];
@@ -406,6 +424,18 @@ export interface PrReviewUpdate {
   target?: string;
 }
 
+export interface PreviewResponse {
+  id: string;
+  workspace_id: string;
+  target_host: string;
+  target_port: number;
+  proxy_port: number;
+  status: string;
+  last_error?: string;
+  server_pid?: number;
+  source_session_id?: string;
+}
+
 export interface PromptHistoryEntry {
   text: string;
   last_seen: string;
@@ -463,6 +493,71 @@ export interface RemoteAccessUpdate {
   notify?: RemoteAccessNotifyUpdate;
 }
 
+export interface RemoteFlavorHostGroup {
+  flavor: string;
+  hosts: RemoteHostStatusItem[];
+}
+
+export interface RemoteFlavorResponse {
+  id: string;
+  flavor: string;
+  display_name: string;
+  vcs: string;
+  workspace_path: string;
+  connect_command?: string;
+  reconnect_command?: string;
+  provision_command?: string;
+  hostname_regex?: string;
+  vscode_command_template?: string;
+}
+
+export interface RemoteHostResponse {
+  id: string;
+  profile_id: string;
+  flavor: string;
+  display_name?: string;
+  hostname: string;
+  uuid?: string;
+  status: string;
+  provisioned: boolean;
+  vcs?: string;
+  connected_at?: string;
+  expires_at?: string;
+  provisioning_session_id?: string;
+}
+
+export interface RemoteHostStatusItem {
+  host_id: string;
+  hostname: string;
+  status: string;
+  connected: boolean;
+}
+
+export interface RemoteProfileFlavor {
+  flavor: string;
+  display_name?: string;
+  workspace_path?: string;
+  provision_command?: string;
+}
+
+export interface RemoteProfileResponse {
+  id: string;
+  display_name: string;
+  vcs: string;
+  workspace_path: string;
+  connect_command?: string;
+  reconnect_command?: string;
+  provision_command?: string;
+  hostname_regex?: string;
+  vscode_command_template?: string;
+  flavors: RemoteProfileFlavor[];
+}
+
+export interface RemoteProfileStatusResponse {
+  profile: RemoteProfileResponse;
+  flavor_hosts: RemoteFlavorHostGroup[];
+}
+
 export interface Repo {
   name: string;
   url: string;
@@ -498,6 +593,44 @@ export interface RepofeedUpdate {
   repos?: Record<string, boolean>;
 }
 
+export interface ResolveConflict {
+  type: string;
+  workspace_id: string;
+  status: string;
+  hash: string;
+  hash_message?: string;
+  tmux_session?: string;
+  started_at: string;
+  finished_at?: string;
+  message?: string;
+  steps: ResolveConflictStep[];
+  resolutions?: ResolveConflictResolution[];
+}
+
+export interface ResolveConflictResolution {
+  local_commit: string;
+  local_commit_message: string;
+  all_resolved: boolean;
+  confidence: string;
+  summary: string;
+  files: string[];
+}
+
+export interface ResolveConflictStep {
+  action: string;
+  status: string;
+  message: string[];
+  at: string;
+  local_commit?: string;
+  local_commit_message?: string;
+  files?: string[];
+  conflict_diffs?: Record<string, string[]>;
+  confidence?: string;
+  summary?: string;
+  created?: boolean;
+  tmux_session?: string;
+}
+
 export interface RunTarget {
   name: string;
   command: string;
@@ -514,6 +647,41 @@ export interface SaplingCommandsUpdate {
   check_repo_base?: string;
   create_repo_base?: string;
   list_workspaces?: string;
+}
+
+export interface SessionModelInfo {
+  context_window?: number;
+  cost_input_per_mtok?: number;
+  cost_output_per_mtok?: number;
+}
+
+export interface SessionResponseItem {
+  id: string;
+  target: string;
+  branch: string;
+  branch_url?: string;
+  nickname?: string;
+  xterm_title?: string;
+  created_at: string;
+  last_output_at?: string;
+  running: boolean;
+  status?: string;
+  attach_cmd: string;
+  tmux_socket?: string;
+  tmux_session?: string;
+  nudge_state?: string;
+  nudge_summary?: string;
+  nudge_seq?: number;
+  model?: SessionModelInfo;
+  remote_host_id?: string;
+  remote_pane_id?: string;
+  remote_hostname?: string;
+  remote_flavor_name?: string;
+  persona_id?: string;
+  persona_icon?: string;
+  persona_color?: string;
+  persona_name?: string;
+  style_id?: string;
 }
 
 export interface Sessions {
@@ -558,6 +726,26 @@ export interface SpawnMetadata {
   evidence?: string[];
   emerged_at: string;
   last_curated: string;
+}
+
+export interface SpawnRequest {
+  repo: string;
+  branch: string;
+  prompt: string;
+  nickname?: string;
+  targets: Record<string, number>;
+  workspace_id?: string;
+  command?: string;
+  quick_launch_name?: string;
+  action_id?: string;
+  resume?: boolean;
+  remote_profile_id?: string;
+  remote_flavor?: string;
+  remote_host_id?: string;
+  new_branch?: string;
+  persona_id?: string;
+  style_id?: string;
+  image_attachments?: string[];
 }
 
 export interface Style {
@@ -663,6 +851,39 @@ export interface UpdateSpawnEntryRequest {
   command?: string;
   prompt?: string;
   target?: string;
+}
+
+export interface WorkspaceResponseItem {
+  id: string;
+  repo: string;
+  repo_name?: string;
+  default_branch?: string;
+  branch: string;
+  branch_url?: string;
+  path: string;
+  session_count: number;
+  sessions: SessionResponseItem[];
+  quick_launch?: string[];
+  ahead: number;
+  behind: number;
+  lines_added: number;
+  lines_removed: number;
+  files_changed: number;
+  remote_host_id?: string;
+  remote_host_status?: string;
+  remote_flavor_name?: string;
+  remote_flavor?: string;
+  vcs?: string;
+  conflict_on_branch?: string;
+  commits_synced_with_remote: boolean;
+  default_branch_orphaned: boolean;
+  remote_branch_exists: boolean;
+  local_unique_commits: number;
+  remote_unique_commits: number;
+  previews?: PreviewResponse[];
+  tabs: Tab[];
+  resolve_conflicts?: ResolveConflict[];
+  status?: string;
 }
 
 export interface Xterm {

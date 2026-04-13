@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/difftool"
@@ -224,25 +225,9 @@ func buildDiffResponse(run vcsRunFunc, readFile readFileFunc, isBinaryCheck isBi
 	}, nil
 }
 
-// diffFileDiff is the per-file structure in a diff response.
-type diffFileDiff struct {
-	OldPath      string `json:"old_path,omitempty"`
-	NewPath      string `json:"new_path,omitempty"`
-	OldContent   string `json:"old_content,omitempty"`
-	NewContent   string `json:"new_content,omitempty"`
-	Status       string `json:"status,omitempty"`
-	LinesAdded   int    `json:"lines_added"`
-	LinesRemoved int    `json:"lines_removed"`
-	IsBinary     bool   `json:"is_binary"`
-}
-
-// diffResponse is the top-level diff API response.
-type diffResponse struct {
-	WorkspaceID string         `json:"workspace_id"`
-	Repo        string         `json:"repo"`
-	Branch      string         `json:"branch"`
-	Files       []diffFileDiff `json:"files"`
-}
+// Type aliases for contracts types used throughout this file.
+type diffFileDiff = contracts.DiffFileDiff
+type diffResponse = contracts.DiffResponse
 
 // base64Decode decodes a base64-encoded string, trying standard then URL-safe encoding.
 func base64Decode(s string) ([]byte, error) {

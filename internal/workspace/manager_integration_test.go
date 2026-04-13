@@ -763,12 +763,11 @@ func TestGetOrCreate_BranchReuse_SkipsRunningWorkspaces(t *testing.T) {
 	repoDir := gitTestWorkTree(t)
 	gitTestBranch(t, repoDir, "feature-new")
 
-	cfg := &config.Config{
-		WorkspacePath:    t.TempDir(),
-		WorktreeBasePath: t.TempDir(),
-		Repos: []config.Repo{
-			testRepoWithBarePath(t, "test", repoDir),
-		},
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
+	cfg.WorktreeBasePath = t.TempDir()
+	cfg.Repos = []config.Repo{
+		testRepoWithBarePath(t, "test", repoDir),
 	}
 	manager := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
