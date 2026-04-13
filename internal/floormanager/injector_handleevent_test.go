@@ -209,15 +209,20 @@ func TestFlush_RetainsPendingWhenTmuxSessionEmpty(t *testing.T) {
 	raw, data := makeStatusEvent("error", "build failed")
 	inj.HandleEvent(ctx, "session-1", raw, data)
 
-	// Wait for debounce timer to fire
-	time.Sleep(200 * time.Millisecond)
-
-	// flush should have run but returned early since TmuxSession() is "".
-	// Messages are preserved in pending so they can be retried once the
-	// session comes back (e.g. after FM restart).
-	inj.mu.Lock()
-	pendingCount := len(inj.pending)
-	inj.mu.Unlock()
+	// Poll for the debounce timer to fire and flush to run.
+	// flush returns early since TmuxSession() is "", so messages are
+	// preserved in pending for retry once the session comes back.
+	deadline := time.Now().Add(2 * time.Second)
+	var pendingCount int
+	for time.Now().Before(deadline) {
+		inj.mu.Lock()
+		pendingCount = len(inj.pending)
+		inj.mu.Unlock()
+		if pendingCount == 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	if pendingCount != 1 {
 		t.Errorf("expected 1 pending message retained after flush with empty session, got %d", pendingCount)

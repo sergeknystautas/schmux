@@ -123,8 +123,18 @@ func TestClearNudgeOnInput_InteractiveChars(t *testing.T) {
 
 			s.clearNudgeOnInput("sess-1", tt.input)
 
-			// Wait briefly for the async goroutine to complete
-			time.Sleep(50 * time.Millisecond)
+			// Poll for the async goroutine to clear the nudge.
+			deadline := time.Now().Add(2 * time.Second)
+			for time.Now().Before(deadline) {
+				sess, ok := s.state.GetSession("sess-1")
+				if !ok {
+					t.Fatal("session not found")
+				}
+				if sess.Nudge == "" {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
 
 			sess, ok := s.state.GetSession("sess-1")
 			if !ok {
@@ -173,7 +183,18 @@ func TestClearNudgeOnInput_NoNudge(t *testing.T) {
 	// Should not panic or error when there's no nudge to clear
 	s.clearNudgeOnInput("sess-1", "\r")
 
-	time.Sleep(50 * time.Millisecond)
+	// Poll for the async goroutine to complete.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		sess, ok := s.state.GetSession("sess-1")
+		if !ok {
+			t.Fatal("session not found")
+		}
+		if sess.Nudge == "" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	sess, ok := s.state.GetSession("sess-1")
 	if !ok {
