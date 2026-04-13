@@ -90,6 +90,7 @@ type WorkspaceResponseItem struct {
 	Tabs                    []contracts.Tab         `json:"tabs"`
 	ResolveConflicts        []state.ResolveConflict `json:"resolve_conflicts,omitempty"`
 	Status                  string                  `json:"status,omitempty"`
+	Backburner              bool                    `json:"backburner,omitempty"`
 }
 
 // buildSessionsResponse builds the sessions/workspaces response data.
@@ -205,6 +206,7 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			Previews:                []previewResponse{},
 			ResolveConflicts:        ws.ResolveConflicts,
 			Status:                  ws.Status,
+			Backburner:              ws.Backburner,
 		}
 		if s.previewManager != nil {
 			previews := s.state.GetWorkspacePreviews(ws.ID)

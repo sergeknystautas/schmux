@@ -1,6 +1,12 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { openVSCode, disposeWorkspace, disposeWorkspaceAll, getErrorMessage } from '../lib/api';
+import {
+  openVSCode,
+  disposeWorkspace,
+  disposeWorkspaceAll,
+  getErrorMessage,
+  setBackburner,
+} from '../lib/api';
 import { useModal } from './ModalProvider';
 import { useToast } from './ToastProvider';
 import { useSyncState } from '../contexts/SyncContext';
@@ -29,6 +35,7 @@ export default function WorkspaceHeader({
   const { simulateRemote } = useRemoteAccess();
   const { handleLinearSyncFromMain, handleLinearSyncToMain, startConflictResolution } = useSync();
   const [openingVSCode, setOpeningVSCode] = useState(false);
+  const [togglingBackburner, setTogglingBackburner] = useState(false);
   const { devStatus } = useDevStatus();
 
   // Check if workspace is locked (resolve conflict or clean sync in progress)
@@ -153,6 +160,17 @@ export default function WorkspaceHeader({
     }
   };
 
+  const handleToggleBackburner = async () => {
+    setTogglingBackburner(true);
+    try {
+      await setBackburner(workspace.id, !workspace.backburner);
+    } catch {
+      // Error will show via WebSocket state update failure
+    } finally {
+      setTogglingBackburner(false);
+    }
+  };
+
   // For remote workspaces, use hostname from sessions if branch matches repo (fallback case)
   const isRemote = workspace.sessions?.some((s) => s.remote_host_id);
   const remoteHostname = workspace.sessions?.find((s) => s.remote_hostname)?.remote_hostname;
@@ -240,6 +258,39 @@ export default function WorkspaceHeader({
           <span className="app-header__name">{displayName}</span>
         </div>
         <div className="app-header__actions">
+          {config.backburner_enabled && (
+            <Tooltip content={workspace.backburner ? 'Wake up' : 'Backburner'}>
+              <button
+                className="btn btn--sm btn--ghost btn--bordered"
+                style={
+                  workspace.backburner
+                    ? {
+                        background: 'rgba(184,169,224,0.1)',
+                        borderColor: 'rgba(184,169,224,0.4)',
+                      }
+                    : undefined
+                }
+                disabled={togglingBackburner}
+                onClick={handleToggleBackburner}
+                aria-label={workspace.backburner ? 'Wake up' : 'Backburner'}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={workspace.backburner ? '#b8a9e0' : 'currentColor'}
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M2 10h6l-6 8h6" />
+                  <path d="M10 5h5l-5 7h5" />
+                  <path d="M16 2h5l-5 6h5" />
+                </svg>
+              </button>
+            </Tooltip>
+          )}
           <Tooltip content={vsCodeTooltip}>
             <button
               className="btn btn--sm btn--ghost btn--bordered vscode-btn"

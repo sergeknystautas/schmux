@@ -263,6 +263,7 @@ Notes:
 - `repo_name` is the configured repo name from `config.json`, populated when the workspace repo URL matches a configured repo. May be empty for workspaces from unconfigured repos.
 - `nudge_state` values: `Working`, `Idle`, `Needs Input`, `Needs Attention`, `Needs Feature Clarification`, `Completed`, `Error`. State priority prevents lower-tier states from overwriting higher-tier ones: tier 0 (Working, Idle) < tier 1 (Needs Input, Needs Attention) < tier 2 (Completed, Error). Only `Working` can reset a terminal state (new turn started).
 - Workspace `status` field: `provisioning` (being created), `running` (ready), `failed` (creation failed), `disposing` (being torn down), `recyclable` (disposed but directory kept on disk for reuse). Omitted for pre-existing workspaces (treat as `running`). Recyclable workspaces are hidden from `buildSessionsResponse` and not included in WebSocket broadcasts. Stale worktree entries (from externally deleted directories) are pruned automatically before workspace creation and branch switching. When a recyclable workspace is reused, stale overlay files (from the previous lifecycle's manifest and declared paths) are removed before fresh overlays are copied from the canonical overlay directory.
+- Workspace `backburner` field (boolean, optional): when `true`, the workspace is backburnered — dimmed and sorted to the bottom of workspace lists. Only shown when `backburner_enabled` config is `true`.
 - `tmux_socket` (string, optional): the tmux socket name this session was created on. Omitted when empty (pre-isolation sessions).
 - `tmux_session` (string, optional): the tmux session name used by this session.
 - Session `status` field includes `disposing` during teardown. Dispose endpoints return 200 OK if the item is already in `disposing` status (idempotent).
@@ -854,6 +855,27 @@ Response:
 { "status": "ok", "purged": 3 }
 ```
 
+### POST /api/workspaces/{workspaceId}/backburner
+
+Toggle backburner state for a workspace. Requires `backburner_enabled` config toggle. Backburnered workspaces are dimmed and sorted to the bottom of workspace lists.
+
+Request body:
+
+```json
+{ "backburner": true }
+```
+
+Response:
+
+```json
+{ "status": "ok" }
+```
+
+Errors:
+
+- 404 if feature is disabled or workspace not found
+- 400 if request body is invalid
+
 ### GET /api/workspaces/recyclable
 
 Get counts of recyclable workspaces, broken down by repo.
@@ -918,6 +940,7 @@ Response:
   "debug_ui": false,
   "personas_enabled": false,
   "comm_styles_enabled": false,
+  "backburner_enabled": false,
   "repos": [{ "name": "repo", "url": "https://...", "vcs": "sapling" }],
   "run_targets": [{ "name": "target", "type": "promptable", "command": "...", "source": "user" }],
   "quick_launch": [
@@ -1032,6 +1055,8 @@ Repos with `"vcs": "sapling"` use the sapling backend instead of git. The `vcs` 
 
 **`comm_styles_enabled`** (boolean, optional, default `false`): Enables the Communication Styles experimental feature. When `true`, the Comm Styles sidebar link, spawn page style selector, and per-tool default style configuration are visible.
 
+**`backburner_enabled`** (boolean, optional, default `false`): Enables the Backburner experimental feature. When `true`, workspace headers show a backburner toggle button. Backburnered workspaces are dimmed and sorted to the bottom of workspace lists.
+
 **`tmux_binary`**: Path to a custom tmux binary. When empty or omitted, the system default from `$PATH` is used. The path is validated on save (must exist, be executable, and output a recognized tmux version string). Changing this field flags `needs_restart`.
 
 **`tmux_socket_name`** (string, optional, default `"schmux"`): The tmux socket name used by the daemon. All sessions are created on this socket. Changing this field flags `needs_restart`.
@@ -1063,6 +1088,7 @@ Request:
   "debug_ui": false,
   "personas_enabled": false,
   "comm_styles_enabled": false,
+  "backburner_enabled": false,
   "repos": [{ "name": "repo", "url": "https://...", "vcs": "sapling" }],
   "run_targets": [{ "name": "target", "type": "promptable", "command": "...", "source": "user" }],
   "quick_launch": [

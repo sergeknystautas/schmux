@@ -783,6 +783,9 @@ func (s *Server) Start() error {
 				r.Post("/dispose", s.handleDisposeWorkspace)
 				r.Post("/dispose-all", s.handleDisposeWorkspaceAll)
 				r.Delete("/purge", s.handlePurgeWorkspace)
+
+				// Backburner route
+				r.Post("/backburner", s.handleBackburnerWorkspace)
 			})
 
 			// Autolearn routes (global, repo-independent)

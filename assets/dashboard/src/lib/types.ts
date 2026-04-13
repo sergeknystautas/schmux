@@ -57,6 +57,7 @@ export interface WorkspaceResponse {
   tabs?: Tab[];
   resolve_conflicts?: ResolveConflictRecordPayload[];
   status?: string;
+  backburner?: boolean;
 }
 
 export interface WorkspacePreview {

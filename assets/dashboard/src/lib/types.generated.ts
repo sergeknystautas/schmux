@@ -114,6 +114,7 @@ export interface ConfigResponse {
   debug_ui?: boolean;
   personas_enabled?: boolean;
   comm_styles_enabled?: boolean;
+  backburner_enabled?: boolean;
   system_capabilities: SystemCapabilities;
   needs_restart: boolean;
   dashboard_sx_status?: DashboardSXStatus;
@@ -156,6 +157,7 @@ export interface ConfigUpdateRequest {
   debug_ui?: boolean;
   personas_enabled?: boolean;
   comm_styles_enabled?: boolean;
+  backburner_enabled?: boolean;
 }
 
 export interface ConflictResolve {

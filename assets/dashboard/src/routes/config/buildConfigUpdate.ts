@@ -131,6 +131,7 @@ export function buildConfigUpdate(state: ConfigFormState): ConfigUpdateRequest {
     tmux_socket_name: state.tmuxSocketName || undefined,
     personas_enabled: state.personasEnabled,
     comm_styles_enabled: state.commStylesEnabled,
+    backburner_enabled: state.backburnerEnabled,
     local_echo_remote: state.localEchoRemote,
     debug_ui: state.debugUI,
   };

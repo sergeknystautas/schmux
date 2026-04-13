@@ -145,6 +145,7 @@ type Workspace struct {
 	Status                  string            `json:"status,omitempty"`
 	Tabs                    []Tab             `json:"tabs,omitempty"`
 	ResolveConflicts        []ResolveConflict `json:"resolve_conflicts,omitempty"`
+	Backburner              bool              `json:"backburner,omitempty"`
 }
 
 // Tab represents an accessory tab in a workspace (diff, git, preview, markdown, etc.).

@@ -156,6 +156,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		DebugUI:           s.config.GetDebugUI(),
 		PersonasEnabled:   s.config.GetPersonasEnabled(),
 		CommStylesEnabled: s.config.GetCommStylesEnabled(),
+		BackburnerEnabled: s.config.GetBackburnerEnabled(),
 		LocalEchoRemote:   s.config.LocalEchoRemote,
 		SaplingCommands: func() *contracts.SaplingCommandsUpdate {
 			sc := s.config.SaplingCommands
@@ -775,6 +776,10 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 
 	if req.CommStylesEnabled != nil {
 		cfg.CommStylesEnabled = *req.CommStylesEnabled
+	}
+
+	if req.BackburnerEnabled != nil {
+		cfg.BackburnerEnabled = *req.BackburnerEnabled
 	}
 
 	if req.LocalEchoRemote != nil {

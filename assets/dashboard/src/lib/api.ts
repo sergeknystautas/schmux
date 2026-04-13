@@ -244,6 +244,21 @@ export async function disposeWorkspace(workspaceId: string): Promise<{ status: s
   return response.json();
 }
 
+export async function setBackburner(
+  workspaceId: string,
+  backburner: boolean
+): Promise<{ status: string }> {
+  const response = await apiFetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/backburner`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify({ backburner }),
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to update backburner');
+  }
+  return response.json();
+}
+
 export async function disposeWorkspaceAll(
   workspaceId: string
 ): Promise<{ status: string; sessions_disposed: number }> {

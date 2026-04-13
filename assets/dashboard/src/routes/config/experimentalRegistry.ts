@@ -74,4 +74,11 @@ export const EXPERIMENTAL_FEATURES: ExperimentalFeature[] = [
     configPanel: TimelapseConfig,
     buildFeatureKey: 'timelapse',
   },
+  {
+    id: 'backburner',
+    name: 'Backburner',
+    description: 'Dim and sort workspaces you want to set aside',
+    enabledKey: 'backburnerEnabled',
+    configPanel: null,
+  },
 ];

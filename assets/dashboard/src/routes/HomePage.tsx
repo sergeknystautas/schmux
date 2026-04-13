@@ -41,6 +41,7 @@ import { ArrowDownIcon, ArrowUpIcon } from '../components/Icons';
 import RecyclableIndicator from '../components/RecyclableIndicator';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { sortWorkspaces } from '../lib/workspaceSort';
 import styles from '../styles/home.module.css';
 
 // Helper to format relative date from ISO string
@@ -574,6 +575,12 @@ export default function HomePage() {
     };
   }, [workspaces, config.tmux_socket_name]);
 
+  // Sort backburnered workspaces to the bottom when feature is enabled
+  const sortedHomeWorkspaces = useMemo(() => {
+    if (!workspaces || !config.backburner_enabled) return workspaces;
+    return sortWorkspaces(workspaces, 'alpha', getRepoName, true);
+  }, [workspaces, config.backburner_enabled, getRepoName]);
+
   // Shared sidebar content: workspaces, connection, tips
   const sidebarContent = (
     <>
@@ -628,7 +635,7 @@ export default function HomePage() {
           ) : (
             <div className={styles.workspaceTable} data-testid="workspace-list">
               <div className={styles.tableBody}>
-                {workspaces.map((ws) => {
+                {sortedHomeWorkspaces.map((ws) => {
                   const runningCount = ws.sessions.filter((s) => s.running).length;
                   const isRemoteDead =
                     ws.remote_host_id &&
@@ -641,6 +648,9 @@ export default function HomePage() {
                       onClick={() => handleWorkspaceClick(ws.id)}
                       type="button"
                       data-testid={`workspace-${ws.id}`}
+                      style={
+                        config.backburner_enabled && ws.backburner ? { opacity: 0.38 } : undefined
+                      }
                     >
                       <div className={styles.workspaceInfo}>
                         <span className={styles.workspaceBranch}>{ws.branch}</span>
@@ -1174,7 +1184,7 @@ export default function HomePage() {
             ) : (
               <div className={styles.workspaceTable} data-testid="workspace-list">
                 <div className={styles.tableBody}>
-                  {workspaces.map((ws) => {
+                  {sortedHomeWorkspaces.map((ws) => {
                     const runningCount = ws.sessions.filter((s) => s.running).length;
                     const isRemoteDead =
                       ws.remote_host_id &&
@@ -1187,6 +1197,9 @@ export default function HomePage() {
                         onClick={() => handleWorkspaceClick(ws.id)}
                         type="button"
                         data-testid={`workspace-${ws.id}`}
+                        style={
+                          config.backburner_enabled && ws.backburner ? { opacity: 0.38 } : undefined
+                        }
                       >
                         <div className={styles.workspaceInfo}>
                           <span className={styles.workspaceBranch}>{ws.branch}</span>

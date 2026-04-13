@@ -109,6 +109,7 @@ type Config struct {
 	DebugUI                    bool                        `json:"debug_ui,omitempty"`
 	PersonasEnabled            bool                        `json:"personas_enabled,omitempty"`
 	CommStylesEnabled          bool                        `json:"comm_styles_enabled,omitempty"`
+	BackburnerEnabled          bool                        `json:"backburner_enabled,omitempty"`
 	Timelapse                  *TimelapseConfig            `json:"timelapse,omitempty"`
 
 	// Telemetry settings
@@ -1195,6 +1196,13 @@ func (c *Config) GetCommStylesEnabled() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.CommStylesEnabled
+}
+
+// GetBackburnerEnabled returns whether the backburner workspace feature is enabled.
+func (c *Config) GetBackburnerEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.BackburnerEnabled
 }
 
 // GetRepofeedEnabled returns whether the repofeed system is enabled.

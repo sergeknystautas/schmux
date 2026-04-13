@@ -16,7 +16,8 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { sortSessionsByTabOrder, TAB_ORDER_KEY_PREFIX } from '../lib/tabOrder';
-import type { SessionResponse } from '../lib/types';
+import { sortWorkspaces } from '../lib/workspaceSort';
+import type { SessionResponse, WorkspaceResponse } from '../lib/types';
 
 function makeSession(id: string): SessionResponse {
   return {
@@ -70,5 +71,95 @@ describe('AppShell sidebar — session ordering via sortSessionsByTabOrder', () 
     const ordered = sortSessionsByTabOrder(workspaceId, sessions);
 
     expect(ordered.map((s) => s.id)).toEqual(['a', 'c']);
+  });
+});
+
+// --- Workspace backburner sorting tests ---
+
+function makeWorkspace(
+  id: string,
+  branch: string,
+  opts: { backburner?: boolean; repo?: string } = {}
+): WorkspaceResponse {
+  return {
+    id,
+    repo: opts.repo || `https://example.com/${branch}.git`,
+    branch,
+    path: `/workspaces/${id}`,
+    session_count: 0,
+    sessions: [],
+    ahead: 0,
+    behind: 0,
+    lines_added: 0,
+    lines_removed: 0,
+    files_changed: 0,
+    backburner: opts.backburner,
+  };
+}
+
+const identityRepoName = (url: string) => url;
+
+describe('backburner sorting', () => {
+  it('sorts backburnered workspaces to bottom in alpha mode', () => {
+    const workspaces = [
+      makeWorkspace('ws-alpha', 'alpha'),
+      makeWorkspace('ws-charlie', 'charlie', { backburner: true }),
+      makeWorkspace('ws-bravo', 'bravo'),
+    ];
+
+    const sorted = sortWorkspaces(workspaces, 'alpha', identityRepoName, true);
+    expect(sorted.map((w) => w.id)).toEqual(['ws-alpha', 'ws-bravo', 'ws-charlie']);
+  });
+
+  it('preserves alphabetical order within each group', () => {
+    const workspaces = [
+      makeWorkspace('ws-delta', 'delta', { backburner: true }),
+      makeWorkspace('ws-alpha', 'alpha'),
+      makeWorkspace('ws-charlie', 'charlie', { backburner: true }),
+      makeWorkspace('ws-bravo', 'bravo'),
+    ];
+
+    const sorted = sortWorkspaces(workspaces, 'alpha', identityRepoName, true);
+    expect(sorted.map((w) => w.id)).toEqual(['ws-alpha', 'ws-bravo', 'ws-charlie', 'ws-delta']);
+  });
+
+  it('does not partition when backburner is disabled', () => {
+    const workspaces = [
+      makeWorkspace('ws-delta', 'delta', { backburner: true }),
+      makeWorkspace('ws-alpha', 'alpha'),
+      makeWorkspace('ws-charlie', 'charlie', { backburner: true }),
+      makeWorkspace('ws-bravo', 'bravo'),
+    ];
+
+    const sorted = sortWorkspaces(workspaces, 'alpha', identityRepoName, false);
+    // Pure alphabetical, ignoring backburner flag
+    expect(sorted.map((w) => w.id)).toEqual(['ws-alpha', 'ws-bravo', 'ws-charlie', 'ws-delta']);
+  });
+
+  it('sorts backburnered workspaces to bottom in time mode', () => {
+    const now = Date.now();
+    const workspaces = [
+      makeWorkspace('ws-alpha', 'alpha'),
+      makeWorkspace('ws-charlie', 'charlie', { backburner: true }),
+      makeWorkspace('ws-bravo', 'bravo'),
+    ];
+
+    // Give charlie a more recent activity — it should still sort below non-bb
+    workspaces[1].sessions = [
+      {
+        id: 's1',
+        target: 't',
+        branch: 'main',
+        created_at: new Date(now).toISOString(),
+        running: true,
+        attach_cmd: '',
+        last_output_at: new Date(now).toISOString(),
+      },
+    ];
+
+    const sorted = sortWorkspaces(workspaces, 'time', identityRepoName, true);
+    // alpha and bravo have no sessions (tied) so sorted alphabetically,
+    // charlie has recent activity but is backburnered so goes last
+    expect(sorted.map((w) => w.id)).toEqual(['ws-alpha', 'ws-bravo', 'ws-charlie']);
   });
 });

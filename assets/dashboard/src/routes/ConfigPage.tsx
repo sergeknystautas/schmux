@@ -204,6 +204,7 @@ export default function ConfigPage() {
           saplingCmdCreateRepoBase: data.sapling_commands?.create_repo_base || '',
           personasEnabled: data.personas_enabled ?? false,
           commStylesEnabled: data.comm_styles_enabled ?? false,
+          backburnerEnabled: data.backburner_enabled ?? false,
           localEchoRemote: data.local_echo_remote || false,
           debugUI: data.debug_ui ?? false,
           tmuxBinary: data.tmux_binary || '',

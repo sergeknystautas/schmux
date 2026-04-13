@@ -27,6 +27,7 @@ import {
 } from '../lib/utils';
 import { sortSessionsByTabOrder, TAB_ORDER_CHANGED_EVENT } from '../lib/tabOrder';
 import { sortTabsByOrder } from '../lib/accessoryTabOrder';
+import { sortWorkspaces } from '../lib/workspaceSort';
 import { navigateToWorkspace, findNextWorkspaceWithSessions } from '../lib/navigation';
 import { useModal } from './ModalProvider';
 import { useToast } from './ToastProvider';
@@ -120,50 +121,12 @@ export default function AppShell() {
   }, [workspaceSort]);
 
   // Sort workspaces based on current preference
+  const backburnerEnabled = !!config?.backburner_enabled;
   const sortedWorkspaces = useMemo(() => {
     if (!workspaces) return workspaces;
 
-    const sorted = [...workspaces];
-
-    if (workspaceSort === 'alpha') {
-      sorted.sort((a, b) => {
-        const repoA = a.repo_name || getRepoName(a.repo);
-        const repoB = b.repo_name || getRepoName(b.repo);
-        if (repoA !== repoB) return repoA.localeCompare(repoB);
-        return a.branch.localeCompare(b.branch);
-      });
-    } else {
-      // Time sort: most recent session activity first
-      sorted.sort((a, b) => {
-        const getTime = (ws: WorkspaceResponse): number => {
-          const times =
-            ws.sessions
-              ?.filter((s) => s.last_output_at)
-              .map((s) => new Date(s.last_output_at!).getTime()) || [];
-          return times.length > 0 ? Math.max(...times) : 0;
-        };
-        const timeA = getTime(a);
-        const timeB = getTime(b);
-        // Most recent first, workspaces with no sessions go to bottom
-        if (timeA === 0 && timeB === 0) {
-          const repoA = a.repo_name || getRepoName(a.repo);
-          const repoB = b.repo_name || getRepoName(b.repo);
-          if (repoA !== repoB) return repoA.localeCompare(repoB);
-          return a.branch.localeCompare(b.branch);
-        }
-        if (timeA === 0) return 1;
-        if (timeB === 0) return -1;
-        if (timeA !== timeB) return timeB - timeA;
-        // Equal timestamps: secondary sort alphabetically
-        const repoA = a.repo_name || getRepoName(a.repo);
-        const repoB = b.repo_name || getRepoName(b.repo);
-        if (repoA !== repoB) return repoA.localeCompare(repoB);
-        return a.branch.localeCompare(b.branch);
-      });
-    }
-
-    return sorted;
-  }, [workspaces, workspaceSort, getRepoName]);
+    return sortWorkspaces(workspaces, workspaceSort, getRepoName, backburnerEnabled);
+  }, [workspaces, workspaceSort, getRepoName, backburnerEnabled]);
 
   useEffect(() => {
     if (syncResultProcessingRef.current || syncResultEvents.length === 0) return;
@@ -785,6 +748,7 @@ export default function AppShell() {
                   key={workspace.id}
                   ref={isWorkspaceActive ? activeWorkspaceRef : null}
                   className={`nav-workspace${isWorkspaceActive ? ' nav-workspace--active' : ''}${isDevLive ? ' nav-workspace--dev-live' : ''}${workspace.status === 'disposing' ? ' nav-workspace--disposing' : ''}`}
+                  style={backburnerEnabled && workspace.backburner ? { opacity: 0.38 } : undefined}
                 >
                   <div
                     className="nav-workspace__header"

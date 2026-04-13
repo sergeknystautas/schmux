@@ -171,6 +171,7 @@ export type ConfigFormState = {
 
   personasEnabled: boolean;
   commStylesEnabled: boolean;
+  backburnerEnabled: boolean;
   localEchoRemote: boolean;
   debugUI: boolean;
   tmuxBinary: string;
@@ -335,6 +336,7 @@ export const initialState: ConfigFormState = {
 
   personasEnabled: false,
   commStylesEnabled: false,
+  backburnerEnabled: false,
   localEchoRemote: false,
   debugUI: false,
   tmuxBinary: '',
