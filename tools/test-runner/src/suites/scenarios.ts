@@ -329,7 +329,13 @@ async function runSingleContainer(
     },
   });
 
-  const status = containerResult.exitCode === 0 ? 'passed' : 'failed';
+  // Determine status from test results, not just exit code.
+  // Playwright exits non-zero when --grep filters out all tests in a spec file,
+  // even if every matched test passed. Trust the parsed results over the exit code.
+  const status =
+    failedTests.length > 0 || (passedTests.length === 0 && containerResult.exitCode !== 0)
+      ? 'failed'
+      : 'passed';
 
   if (status === 'failed' || opts.recordVideo) {
     onEvent('scenarios', {
@@ -340,7 +346,7 @@ async function runSingleContainer(
 
   onEvent('scenarios', {
     type: 'suite_status',
-    status: status === 'passed' ? 'passed' : 'failed',
+    status,
     message: status === 'passed' ? 'Scenario tests passed' : 'Scenario tests failed',
   });
 
@@ -429,7 +435,10 @@ async function runParallelContainers(
   // Deduplicate skipped tests (same tests skipped in every container)
   const uniqueSkipped = [...new Set(mergedSkipped)];
 
-  const status = anyFailed ? 'failed' : 'passed';
+  // Trust parsed results over exit codes — Playwright exits non-zero when
+  // --grep filters out all tests in a spec file, even if matched tests pass.
+  const status =
+    mergedFailed.length > 0 || (mergedPassed.length === 0 && anyFailed) ? 'failed' : 'passed';
 
   if (status === 'failed' || opts.recordVideo) {
     onEvent('scenarios', {
