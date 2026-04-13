@@ -21,7 +21,7 @@ func (s *Server) handleTabCreate(w http.ResponseWriter, r *http.Request) {
 
 	var req createTabRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -32,23 +32,23 @@ func (s *Server) handleTabCreate(w http.ResponseWriter, r *http.Request) {
 	switch req.Kind {
 	case "commit":
 		if req.Hash == "" {
-			http.Error(w, "hash is required for commit tabs", http.StatusBadRequest)
+			writeJSONError(w, "hash is required for commit tabs", http.StatusBadRequest)
 			return
 		}
 		tab, err = s.workspace.OpenCommitTab(workspaceID, req.Hash)
 	case "markdown":
 		if req.Filepath == "" {
-			http.Error(w, "filepath is required for markdown tabs", http.StatusBadRequest)
+			writeJSONError(w, "filepath is required for markdown tabs", http.StatusBadRequest)
 			return
 		}
 		tab, err = s.workspace.OpenMarkdownTab(workspaceID, req.Filepath)
 	default:
-		http.Error(w, fmt.Sprintf("tab kind %q not supported", req.Kind), http.StatusBadRequest)
+		writeJSONError(w, fmt.Sprintf("tab kind %q not supported", req.Kind), http.StatusBadRequest)
 		return
 	}
 
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -66,11 +66,11 @@ func (s *Server) handleTabDelete(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.workspace.CloseTab(workspaceID, tabID); err != nil {
 		if strings.Contains(err.Error(), "not found") {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			writeJSONError(w, err.Error(), http.StatusNotFound)
 		} else if strings.Contains(err.Error(), "not closable") {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			writeJSONError(w, err.Error(), http.StatusBadRequest)
 		} else {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
 	}

@@ -39,14 +39,14 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	// Extract workspace ID from chi URL param
 	workspaceID := chi.URLParam(r, "*")
 	if workspaceID == "" {
-		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
 		return
 	}
 
 	// Get workspace from state
 	ws, found := s.state.GetWorkspace(workspaceID)
 	if !found {
-		http.Error(w, "workspace not found", http.StatusNotFound)
+		writeJSONError(w, "workspace not found", http.StatusNotFound)
 		return
 	}
 
@@ -79,7 +79,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	resp, err := buildDiffResponse(run, readFile, isBinaryCheck, cb, ws.Path, ws.ID, ws.Repo, ws.Branch)
 	if err != nil {
 		s.logger.Error("diff failed", "err", err)
-		http.Error(w, `{"error":"diff failed"}`, http.StatusInternalServerError)
+		writeJSONError(w, `{"error":"diff failed"}`, http.StatusInternalServerError)
 		return
 	}
 
@@ -304,32 +304,32 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 	// Extract workspace ID and file path from chi wildcard param
 	trimmedPath := chi.URLParam(r, "*")
 	if trimmedPath == "" {
-		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
 		return
 	}
 	slashIdx := strings.Index(trimmedPath, "/")
 	if slashIdx <= 0 {
-		http.Error(w, "invalid path format", http.StatusBadRequest)
+		writeJSONError(w, "invalid path format", http.StatusBadRequest)
 		return
 	}
 	workspaceID := trimmedPath[:slashIdx]
 	filePath := trimmedPath[slashIdx+1:]
 	filePath, err := url.QueryUnescape(filePath)
 	if err != nil {
-		http.Error(w, "invalid file path", http.StatusBadRequest)
+		writeJSONError(w, "invalid file path", http.StatusBadRequest)
 		return
 	}
 
 	// Validate workspace ID
 	if !isValidResourceID(workspaceID) {
-		http.Error(w, "invalid workspace ID", http.StatusBadRequest)
+		writeJSONError(w, "invalid workspace ID", http.StatusBadRequest)
 		return
 	}
 
 	// Get workspace from state
 	ws, found := s.state.GetWorkspace(workspaceID)
 	if !found {
-		http.Error(w, "workspace not found", http.StatusNotFound)
+		writeJSONError(w, "workspace not found", http.StatusNotFound)
 		return
 	}
 
@@ -349,7 +349,7 @@ func (s *Server) serveWorkspaceFile(w http.ResponseWriter, r *http.Request, ws s
 	fullPath := filepath.Join(ws.Path, filePath)
 	cleanFullPath := filepath.Clean(fullPath)
 	if !isPathWithinDir(fullPath, ws.Path) {
-		http.Error(w, "invalid file path", http.StatusForbidden)
+		writeJSONError(w, "invalid file path", http.StatusForbidden)
 		return
 	}
 
@@ -357,21 +357,21 @@ func (s *Server) serveWorkspaceFile(w http.ResponseWriter, r *http.Request, ws s
 	info, err := os.Stat(cleanFullPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			http.Error(w, "file not found", http.StatusNotFound)
+			writeJSONError(w, "file not found", http.StatusNotFound)
 			return
 		}
-		http.Error(w, "cannot access file", http.StatusInternalServerError)
+		writeJSONError(w, "cannot access file", http.StatusInternalServerError)
 		return
 	}
 	if info.IsDir() {
-		http.Error(w, "cannot serve directory", http.StatusForbidden)
+		writeJSONError(w, "cannot serve directory", http.StatusForbidden)
 		return
 	}
 
 	// Verify exact case match — macOS (APFS) is case-insensitive,
 	// so os.Stat may resolve a different casing than requested.
 	if !caseSensitiveFileExists(filepath.Dir(cleanFullPath), filepath.Base(filePath)) {
-		http.Error(w, "file not found", http.StatusNotFound)
+		writeJSONError(w, "file not found", http.StatusNotFound)
 		return
 	}
 
@@ -388,7 +388,7 @@ func (s *Server) serveWorkspaceFile(w http.ResponseWriter, r *http.Request, ws s
 	}
 	contentType, allowed := allowedExts[ext]
 	if !allowed {
-		http.Error(w, "file type not allowed", http.StatusForbidden)
+		writeJSONError(w, "file type not allowed", http.StatusForbidden)
 		return
 	}
 
@@ -401,11 +401,11 @@ func (s *Server) serveWorkspaceFile(w http.ResponseWriter, r *http.Request, ws s
 
 	gitignoreMatches, err := s.fileMatchesVCSIgnore(ctx, ws.Path, filePath, s.vcsTypeForWorkspace(ws))
 	if err != nil {
-		http.Error(w, "failed to check ignore patterns", http.StatusInternalServerError)
+		writeJSONError(w, "failed to check ignore patterns", http.StatusInternalServerError)
 		return
 	}
 	if gitignoreMatches {
-		http.Error(w, "file is ignored by git", http.StatusForbidden)
+		writeJSONError(w, "file is ignored by git", http.StatusForbidden)
 		return
 	}
 
@@ -440,19 +440,19 @@ func (s *Server) fileMatchesVCSIgnore(ctx context.Context, workspacePath, filePa
 // Fetches file content from the remote host via SSH and serves it.
 func (s *Server) handleRemoteFile(w http.ResponseWriter, r *http.Request, ws state.Workspace, filePath string) {
 	if s.remoteManager == nil {
-		http.Error(w, "remote manager not available", http.StatusServiceUnavailable)
+		writeJSONError(w, "remote manager not available", http.StatusServiceUnavailable)
 		return
 	}
 
 	conn := s.remoteManager.GetConnection(ws.RemoteHostID)
 	if conn == nil || !conn.IsConnected() {
-		http.Error(w, "remote host not connected", http.StatusServiceUnavailable)
+		writeJSONError(w, "remote host not connected", http.StatusServiceUnavailable)
 		return
 	}
 
 	// Block path traversal
 	if strings.Contains(filePath, "..") {
-		http.Error(w, "invalid file path", http.StatusForbidden)
+		writeJSONError(w, "invalid file path", http.StatusForbidden)
 		return
 	}
 
@@ -469,7 +469,7 @@ func (s *Server) handleRemoteFile(w http.ResponseWriter, r *http.Request, ws sta
 	}
 	contentType, allowed := allowedExts[ext]
 	if !allowed {
-		http.Error(w, "file type not allowed", http.StatusForbidden)
+		writeJSONError(w, "file type not allowed", http.StatusForbidden)
 		return
 	}
 
@@ -484,7 +484,7 @@ func (s *Server) handleRemoteFile(w http.ResponseWriter, r *http.Request, ws sta
 		cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
 		out, err := conn.RunCommand(ctx, workdir, cb.FileContent(filePath))
 		if err != nil {
-			http.Error(w, "file not found", http.StatusNotFound)
+			writeJSONError(w, "file not found", http.StatusNotFound)
 			return
 		}
 		w.Header().Set("Content-Type", contentType)
@@ -493,12 +493,12 @@ func (s *Server) handleRemoteFile(w http.ResponseWriter, r *http.Request, ws sta
 		// Binary files (images): fetch via base64 encoding
 		out, err := conn.RunCommand(ctx, workdir, fmt.Sprintf("base64 -w0 %q 2>/dev/null || base64 %q", filePath, filePath))
 		if err != nil {
-			http.Error(w, "file not found", http.StatusNotFound)
+			writeJSONError(w, "file not found", http.StatusNotFound)
 			return
 		}
 		decoded, err := base64Decode(strings.TrimSpace(out))
 		if err != nil {
-			http.Error(w, "failed to decode file", http.StatusInternalServerError)
+			writeJSONError(w, "failed to decode file", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", contentType)
@@ -700,13 +700,13 @@ func buildBatchedDiffResponse(run vcsRunFunc, cb vcs.CommandBuilder, workspaceID
 // the per-file approach (2N+2 RunCommands) that was causing tmux channel storms.
 func (s *Server) handleRemoteDiff(w http.ResponseWriter, r *http.Request, ws state.Workspace) {
 	if s.remoteManager == nil {
-		http.Error(w, "remote manager not available", http.StatusServiceUnavailable)
+		writeJSONError(w, "remote manager not available", http.StatusServiceUnavailable)
 		return
 	}
 
 	conn := s.remoteManager.GetConnection(ws.RemoteHostID)
 	if conn == nil || !conn.IsConnected() {
-		http.Error(w, "remote host not connected", http.StatusServiceUnavailable)
+		writeJSONError(w, "remote host not connected", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -723,7 +723,7 @@ func (s *Server) handleRemoteDiff(w http.ResponseWriter, r *http.Request, ws sta
 	resp, err := buildBatchedDiffResponse(run, cb, ws.ID, ws.Repo, ws.Branch)
 	if err != nil {
 		s.logger.Error("remote diff failed", "err", err)
-		http.Error(w, `{"error":"remote diff failed"}`, http.StatusInternalServerError)
+		writeJSONError(w, `{"error":"remote diff failed"}`, http.StatusInternalServerError)
 		return
 	}
 
@@ -744,7 +744,7 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 	// Extract workspace ID from chi wildcard param
 	workspaceID := chi.URLParam(r, "*")
 	if workspaceID == "" {
-		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
 		return
 	}
 
@@ -1080,7 +1080,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 	// Extract workspace ID from chi wildcard param
 	workspaceID := chi.URLParam(r, "*")
 	if workspaceID == "" {
-		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
 		return
 	}
 

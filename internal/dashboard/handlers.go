@@ -164,7 +164,7 @@ func (s *Server) serveAppIndex(w http.ResponseWriter, r *http.Request) {
 
 	content, err := os.ReadFile(filePath)
 	if err != nil {
-		http.Error(w, "Dashboard assets not built. Run `go run ./cmd/build-dashboard`.", http.StatusNotFound)
+		writeJSONError(w, "Dashboard assets not built. Run `go run ./cmd/build-dashboard`.", http.StatusNotFound)
 		return
 	}
 
@@ -341,20 +341,20 @@ func (s *Server) handleAskNudgenik(w http.ResponseWriter, r *http.Request) {
 	// Extract session ID from chi wildcard param
 	sessionID := chi.URLParam(r, "*")
 	if sessionID == "" {
-		http.Error(w, "session ID is required", http.StatusBadRequest)
+		writeJSONError(w, "session ID is required", http.StatusBadRequest)
 		return
 	}
 
 	// Verify session exists (for proper 404 response)
 	if _, found := s.state.GetSession(sessionID); !found {
-		http.Error(w, "session not found", http.StatusNotFound)
+		writeJSONError(w, "session not found", http.StatusNotFound)
 		return
 	}
 
 	// Capture via tracker (handles local and remote sessions via ControlSource)
 	tracker, err := s.session.GetTracker(sessionID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("session tracker not available: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("session tracker not available: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -362,7 +362,7 @@ func (s *Server) handleAskNudgenik(w http.ResponseWriter, r *http.Request) {
 	content, err := tracker.CaptureLastLines(captureCtx, 100)
 	cancel()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to capture session output: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("failed to capture session output: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -373,19 +373,19 @@ func (s *Server) handleAskNudgenik(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, nudgenik.ErrDisabled):
 			nudgenikLog.Info("nudgenik is disabled")
-			http.Error(w, "Nudgenik is disabled. Configure a target in settings.", http.StatusServiceUnavailable)
+			writeJSONError(w, "Nudgenik is disabled. Configure a target in settings.", http.StatusServiceUnavailable)
 		case errors.Is(err, nudgenik.ErrNoResponse):
 			nudgenikLog.Info("no response extracted", "session_id", sessionID)
-			http.Error(w, "No response found in session output", http.StatusBadRequest)
+			writeJSONError(w, "No response found in session output", http.StatusBadRequest)
 		case errors.Is(err, nudgenik.ErrTargetNotFound):
 			nudgenikLog.Warn("target not found in config")
-			http.Error(w, "Nudgenik target not found", http.StatusServiceUnavailable)
+			writeJSONError(w, "Nudgenik target not found", http.StatusServiceUnavailable)
 		case errors.Is(err, nudgenik.ErrTargetNoSecrets):
 			nudgenikLog.Warn("target missing required secrets")
-			http.Error(w, "Nudgenik target missing required secrets", http.StatusServiceUnavailable)
+			writeJSONError(w, "Nudgenik target missing required secrets", http.StatusServiceUnavailable)
 		default:
 			nudgenikLog.Error("failed to ask", "session_id", sessionID, "err", err)
-			http.Error(w, fmt.Sprintf("Failed to ask nudgenik: %v", err), http.StatusInternalServerError)
+			writeJSONError(w, fmt.Sprintf("Failed to ask nudgenik: %v", err), http.StatusInternalServerError)
 		}
 		return
 	}

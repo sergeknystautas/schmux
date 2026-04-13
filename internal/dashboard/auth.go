@@ -69,7 +69,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		if _, err := s.authenticateRequest(r); err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			writeJSONError(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -83,7 +83,7 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
 			if !s.isTrustedRequest(r) && !s.validateCSRF(r) {
-				http.Error(w, "Forbidden", http.StatusForbidden)
+				writeJSONError(w, "Forbidden", http.StatusForbidden)
 				return
 			}
 		}

@@ -41,7 +41,7 @@ func (s *Server) handleDetectTools(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(Response{Tools: toolResp}); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
 		return
 	}
 }
@@ -85,7 +85,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	// Build models list with full metadata
 	catalog, err := s.models.GetCatalog()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to read models: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("Failed to read models: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -256,14 +256,14 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	var req contracts.ConfigUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.logger.Error("invalid JSON payload", "err", err)
-		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		writeJSONError(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	// Reload config from disk to get all current values (including tools, etc.)
 	if err := s.config.Reload(); err != nil {
 		s.logger.Error("failed to reload config", "err", err)
-		http.Error(w, fmt.Sprintf("Failed to reload config: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("Failed to reload config: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -295,7 +295,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	if req.SourceCodeManagement != nil {
 		scm := *req.SourceCodeManagement
 		if scm != "" && scm != config.SourceCodeManagementGit && scm != config.SourceCodeManagementGitWorktree {
-			http.Error(w, fmt.Sprintf("invalid source_code_management: %q (must be %q or %q)",
+			writeJSONError(w, fmt.Sprintf("invalid source_code_management: %q (must be %q or %q)",
 				scm, config.SourceCodeManagementGit, config.SourceCodeManagementGitWorktree), http.StatusBadRequest)
 			return
 		}
@@ -306,11 +306,11 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		// Validate repos
 		for _, repo := range req.Repos {
 			if repo.Name == "" {
-				http.Error(w, "repo name is required", http.StatusBadRequest)
+				writeJSONError(w, "repo name is required", http.StatusBadRequest)
 				return
 			}
 			if repo.URL == "" {
-				http.Error(w, fmt.Sprintf("repo URL is required for %s", repo.Name), http.StatusBadRequest)
+				writeJSONError(w, fmt.Sprintf("repo URL is required for %s", repo.Name), http.StatusBadRequest)
 				return
 			}
 		}
@@ -318,7 +318,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		seenNames := make(map[string]bool, len(req.Repos))
 		for _, repo := range req.Repos {
 			if seenNames[repo.Name] {
-				http.Error(w, fmt.Sprintf("duplicate repo name: %q", repo.Name), http.StatusBadRequest)
+				writeJSONError(w, fmt.Sprintf("duplicate repo name: %q", repo.Name), http.StatusBadRequest)
 				return
 			}
 			seenNames[repo.Name] = true
@@ -358,11 +358,11 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		userTargets := make([]config.RunTarget, len(req.RunTargets))
 		for i, t := range req.RunTargets {
 			if t.Name == "" {
-				http.Error(w, "run target name is required", http.StatusBadRequest)
+				writeJSONError(w, "run target name is required", http.StatusBadRequest)
 				return
 			}
 			if t.Command == "" {
-				http.Error(w, fmt.Sprintf("run target command is required for %s", t.Name), http.StatusBadRequest)
+				writeJSONError(w, fmt.Sprintf("run target command is required for %s", t.Name), http.StatusBadRequest)
 				return
 			}
 			userTargets[i] = config.RunTarget{Name: t.Name, Command: t.Command}
@@ -391,7 +391,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 
 	if req.ExternalDiffCleanupAfterMs != nil {
 		if *req.ExternalDiffCleanupAfterMs <= 0 {
-			http.Error(w, "external diff cleanup delay must be > 0", http.StatusBadRequest)
+			writeJSONError(w, "external diff cleanup delay must be > 0", http.StatusBadRequest)
 			return
 		}
 		cfg.ExternalDiffCleanupAfterMs = *req.ExternalDiffCleanupAfterMs
@@ -746,7 +746,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		} else {
 			path = expandHome(path)
 			if _, err := tmux.ValidateBinary(path); err != nil {
-				http.Error(w, fmt.Sprintf("Invalid tmux binary: %v", err), http.StatusBadRequest)
+				writeJSONError(w, fmt.Sprintf("Invalid tmux binary: %v", err), http.StatusBadRequest)
 				return
 			}
 			cfg.TmuxBinary = path
@@ -756,7 +756,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	if req.TmuxSocketName != nil {
 		name := strings.TrimSpace(*req.TmuxSocketName)
 		if name != "" && !isValidSocketName(name) {
-			http.Error(w, "Invalid socket name: must contain only alphanumeric characters, hyphens, and underscores", http.StatusBadRequest)
+			writeJSONError(w, "Invalid socket name: must contain only alphanumeric characters, hyphens, and underscores", http.StatusBadRequest)
 			return
 		}
 		cfg.TmuxSocketName = name
@@ -789,7 +789,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	warnings, err := cfg.ValidateForSave()
 	if err != nil {
 		s.logger.Error("validation error", "err", err)
-		http.Error(w, fmt.Sprintf("Invalid config: %v", err), http.StatusBadRequest)
+		writeJSONError(w, fmt.Sprintf("Invalid config: %v", err), http.StatusBadRequest)
 		return
 	}
 
@@ -803,7 +803,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	// Save config
 	if err := cfg.Save(); err != nil {
 		s.logger.Error("failed to save config", "err", err)
-		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -928,7 +928,7 @@ func reposEqual(a, b []config.Repo) bool {
 func (s *Server) handleAuthSecretsGet(w http.ResponseWriter, r *http.Request) {
 	secrets, err := config.GetAuthSecrets()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to read secrets: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("Failed to read secrets: %v", err), http.StatusInternalServerError)
 		return
 	}
 	clientID := ""
@@ -952,17 +952,17 @@ func (s *Server) handleAuthSecretsUpdate(w http.ResponseWriter, r *http.Request)
 	var req SecretsRequest
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		writeJSONError(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
 		return
 	}
 	if strings.TrimSpace(req.ClientID) == "" {
-		http.Error(w, "client_id is required", http.StatusBadRequest)
+		writeJSONError(w, "client_id is required", http.StatusBadRequest)
 		return
 	}
 	// Check if a secret already exists
 	existingSecrets, err := config.GetAuthSecrets()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to read existing secrets: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("Failed to read existing secrets: %v", err), http.StatusInternalServerError)
 		return
 	}
 	existingSecret := ""
@@ -971,7 +971,7 @@ func (s *Server) handleAuthSecretsUpdate(w http.ResponseWriter, r *http.Request)
 	}
 	// If no new secret provided and no existing secret, error
 	if strings.TrimSpace(req.ClientSecret) == "" && strings.TrimSpace(existingSecret) == "" {
-		http.Error(w, "client_secret is required for initial setup", http.StatusBadRequest)
+		writeJSONError(w, "client_secret is required for initial setup", http.StatusBadRequest)
 		return
 	}
 	// Use existing secret if new one not provided
@@ -980,7 +980,7 @@ func (s *Server) handleAuthSecretsUpdate(w http.ResponseWriter, r *http.Request)
 		secretToSave = existingSecret
 	}
 	if err := config.SaveGitHubAuthSecrets(req.ClientID, secretToSave); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to save secrets: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("Failed to save secrets: %v", err), http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, map[string]string{"status": "ok"})

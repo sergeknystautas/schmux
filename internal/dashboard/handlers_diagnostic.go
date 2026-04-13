@@ -25,11 +25,11 @@ func (s *Server) handleDiagnosticAppend(w http.ResponseWriter, r *http.Request) 
 		SlowReactRenders   string `json:"slowReactRenders"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.DiagDir == "" {
-		http.Error(w, "diagDir is required", http.StatusBadRequest)
+		writeJSONError(w, "diagDir is required", http.StatusBadRequest)
 		return
 	}
 	// Write the frontend files to the diagnostic directory

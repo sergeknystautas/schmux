@@ -146,20 +146,20 @@ func (s *Server) handleGetEnvironment(w http.ResponseWriter, r *http.Request) {
 	system, err := getSystemEnvironment(r.Context())
 	if err != nil {
 		s.logger.Error("failed to get system environment", "err", err)
-		http.Error(w, "Failed to read system environment", http.StatusInternalServerError)
+		writeJSONError(w, "Failed to read system environment", http.StatusInternalServerError)
 		return
 	}
 
 	if s.tmuxServer == nil {
 		s.logger.Error("tmux server not initialized")
-		http.Error(w, "tmux server not initialized", http.StatusInternalServerError)
+		writeJSONError(w, "tmux server not initialized", http.StatusInternalServerError)
 		return
 	}
 
 	tmuxEnv, err := s.tmuxServer.ShowEnvironment(r.Context())
 	if err != nil {
 		s.logger.Error("failed to get tmux environment", "err", err)
-		http.Error(w, "Failed to read tmux environment", http.StatusInternalServerError)
+		writeJSONError(w, "Failed to read tmux environment", http.StatusInternalServerError)
 		return
 	}
 
@@ -177,41 +177,41 @@ func (s *Server) handleSyncEnvironment(w http.ResponseWriter, r *http.Request) {
 
 	var req envSyncRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if req.Key == "" {
-		http.Error(w, "key is required", http.StatusBadRequest)
+		writeJSONError(w, "key is required", http.StatusBadRequest)
 		return
 	}
 
 	if isBlocked(req.Key) {
-		http.Error(w, "Cannot sync blocked key", http.StatusBadRequest)
+		writeJSONError(w, "Cannot sync blocked key", http.StatusBadRequest)
 		return
 	}
 
 	system, err := getSystemEnvironment(r.Context())
 	if err != nil {
 		s.logger.Error("failed to get system environment for sync", "err", err)
-		http.Error(w, "Failed to read system environment", http.StatusInternalServerError)
+		writeJSONError(w, "Failed to read system environment", http.StatusInternalServerError)
 		return
 	}
 
 	value, ok := system[req.Key]
 	if !ok {
-		http.Error(w, "Key not found in system environment (tmux-only keys cannot be synced)", http.StatusBadRequest)
+		writeJSONError(w, "Key not found in system environment (tmux-only keys cannot be synced)", http.StatusBadRequest)
 		return
 	}
 
 	if s.tmuxServer == nil {
 		s.logger.Error("tmux server not initialized")
-		http.Error(w, "tmux server not initialized", http.StatusInternalServerError)
+		writeJSONError(w, "tmux server not initialized", http.StatusInternalServerError)
 		return
 	}
 	if err := s.tmuxServer.SetEnvironment(r.Context(), req.Key, value); err != nil {
 		s.logger.Error("failed to set tmux environment", "key", req.Key, "err", err)
-		http.Error(w, "Failed to set tmux environment variable", http.StatusInternalServerError)
+		writeJSONError(w, "Failed to set tmux environment variable", http.StatusInternalServerError)
 		return
 	}
 

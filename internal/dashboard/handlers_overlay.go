@@ -127,7 +127,7 @@ func (s *Server) handleRefreshOverlay(w http.ResponseWriter, r *http.Request) {
 	// Extract workspace ID from chi URL param
 	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
-		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
 		return
 	}
 
@@ -157,13 +157,13 @@ func (s *Server) handleOverlayScan(w http.ResponseWriter, r *http.Request) {
 		RepoName    string `json:"repo_name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		writeJSONError(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
 	ws, found := s.state.GetWorkspace(req.WorkspaceID)
 	if !found {
-		http.Error(w, "Workspace not found", http.StatusNotFound)
+		writeJSONError(w, "Workspace not found", http.StatusNotFound)
 		return
 	}
 
@@ -177,7 +177,7 @@ func (s *Server) handleOverlayScan(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !repoFound {
-			http.Error(w, "Unknown repo", http.StatusBadRequest)
+			writeJSONError(w, "Unknown repo", http.StatusBadRequest)
 			return
 		}
 	}
@@ -187,7 +187,7 @@ func (s *Server) handleOverlayScan(w http.ResponseWriter, r *http.Request) {
 	cmd.Dir = ws.Path
 	output, err := cmd.Output()
 	if err != nil {
-		http.Error(w, "Failed to scan workspace", http.StatusInternalServerError)
+		writeJSONError(w, "Failed to scan workspace", http.StatusInternalServerError)
 		return
 	}
 
@@ -237,18 +237,18 @@ func (s *Server) handleOverlayAdd(w http.ResponseWriter, r *http.Request) {
 		CustomPaths []string `json:"custom_paths"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		writeJSONError(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
 	if len(req.Paths)+len(req.CustomPaths) > 100 {
-		http.Error(w, "Too many paths (max 100)", http.StatusBadRequest)
+		writeJSONError(w, "Too many paths (max 100)", http.StatusBadRequest)
 		return
 	}
 
 	ws, found := s.state.GetWorkspace(req.WorkspaceID)
 	if !found {
-		http.Error(w, "Workspace not found", http.StatusNotFound)
+		writeJSONError(w, "Workspace not found", http.StatusNotFound)
 		return
 	}
 
@@ -262,19 +262,19 @@ func (s *Server) handleOverlayAdd(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if matchedRepo == nil {
-		http.Error(w, "Unknown repo", http.StatusBadRequest)
+		writeJSONError(w, "Unknown repo", http.StatusBadRequest)
 		return
 	}
 
 	// Verify that the workspace belongs to the specified repo
 	if ws.Repo != matchedRepo.URL {
-		http.Error(w, "Workspace does not belong to this repo", http.StatusBadRequest)
+		writeJSONError(w, "Workspace does not belong to this repo", http.StatusBadRequest)
 		return
 	}
 
 	overlayDir, err := workspace.OverlayDir(req.RepoName)
 	if err != nil {
-		http.Error(w, "Failed to resolve overlay dir", http.StatusInternalServerError)
+		writeJSONError(w, "Failed to resolve overlay dir", http.StatusInternalServerError)
 		return
 	}
 
@@ -345,11 +345,11 @@ func (s *Server) handleDismissNudge(w http.ResponseWriter, r *http.Request) {
 		RepoName string `json:"repo_name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		writeJSONError(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 	if req.RepoName == "" {
-		http.Error(w, "repo_name is required", http.StatusBadRequest)
+		writeJSONError(w, "repo_name is required", http.StatusBadRequest)
 		return
 	}
 
@@ -370,13 +370,13 @@ func (s *Server) handleDismissNudge(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !found {
-		http.Error(w, "Unknown repo", http.StatusBadRequest)
+		writeJSONError(w, "Unknown repo", http.StatusBadRequest)
 		return
 	}
 
 	if err := s.config.Save(); err != nil {
 		s.logger.Error("failed to save config after dismiss-nudge", "err", err)
-		http.Error(w, "Failed to save config", http.StatusInternalServerError)
+		writeJSONError(w, "Failed to save config", http.StatusInternalServerError)
 		return
 	}
 

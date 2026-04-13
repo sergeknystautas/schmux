@@ -18,7 +18,7 @@ var validPersonaID = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$
 func (s *Server) handleListPersonas(w http.ResponseWriter, r *http.Request) {
 	personas, err := s.personaManager.List()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to list personas: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("failed to list personas: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -40,7 +40,7 @@ func (s *Server) handleGetPersona(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	p, err := s.personaManager.Get(id)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("persona not found: %s", id), http.StatusNotFound)
+		writeJSONError(w, fmt.Sprintf("persona not found: %s", id), http.StatusNotFound)
 		return
 	}
 
@@ -56,25 +56,25 @@ func (s *Server) handleCreatePersona(w http.ResponseWriter, r *http.Request) {
 
 	var req contracts.PersonaCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	// Validate required fields
 	if req.ID == "" || req.Name == "" || req.Icon == "" || req.Color == "" || req.Prompt == "" {
-		http.Error(w, "id, name, icon, color, and prompt are required", http.StatusBadRequest)
+		writeJSONError(w, "id, name, icon, color, and prompt are required", http.StatusBadRequest)
 		return
 	}
 
 	// Validate ID format (prevent path traversal)
 	if !validPersonaID.MatchString(req.ID) {
-		http.Error(w, "id must be a URL-safe slug (lowercase alphanumeric + hyphens)", http.StatusBadRequest)
+		writeJSONError(w, "id must be a URL-safe slug (lowercase alphanumeric + hyphens)", http.StatusBadRequest)
 		return
 	}
 
 	// "create" is reserved for the dashboard route (/personas/create)
 	if req.ID == "create" {
-		http.Error(w, `"create" is a reserved ID`, http.StatusBadRequest)
+		writeJSONError(w, `"create" is a reserved ID`, http.StatusBadRequest)
 		return
 	}
 
@@ -89,7 +89,7 @@ func (s *Server) handleCreatePersona(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.personaManager.Create(p); err != nil {
-		http.Error(w, fmt.Sprintf("failed to create persona: %v", err), http.StatusConflict)
+		writeJSONError(w, fmt.Sprintf("failed to create persona: %v", err), http.StatusConflict)
 		return
 	}
 
@@ -107,13 +107,13 @@ func (s *Server) handleUpdatePersona(w http.ResponseWriter, r *http.Request) {
 
 	existing, err := s.personaManager.Get(id)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("persona not found: %s", id), http.StatusNotFound)
+		writeJSONError(w, fmt.Sprintf("persona not found: %s", id), http.StatusNotFound)
 		return
 	}
 
 	var req contracts.PersonaUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -135,7 +135,7 @@ func (s *Server) handleUpdatePersona(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.personaManager.Update(existing); err != nil {
-		http.Error(w, fmt.Sprintf("failed to update persona: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("failed to update persona: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -151,19 +151,19 @@ func (s *Server) handleDeletePersona(w http.ResponseWriter, r *http.Request) {
 
 	existing, err := s.personaManager.Get(id)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("persona not found: %s", id), http.StatusNotFound)
+		writeJSONError(w, fmt.Sprintf("persona not found: %s", id), http.StatusNotFound)
 		return
 	}
 
 	if existing.BuiltIn {
 		// Reset built-in to default
 		if err := s.personaManager.ResetBuiltIn(id); err != nil {
-			http.Error(w, fmt.Sprintf("failed to reset persona: %v", err), http.StatusInternalServerError)
+			writeJSONError(w, fmt.Sprintf("failed to reset persona: %v", err), http.StatusInternalServerError)
 			return
 		}
 	} else {
 		if err := s.personaManager.Delete(id); err != nil {
-			http.Error(w, fmt.Sprintf("failed to delete persona: %v", err), http.StatusInternalServerError)
+			writeJSONError(w, fmt.Sprintf("failed to delete persona: %v", err), http.StatusInternalServerError)
 			return
 		}
 	}

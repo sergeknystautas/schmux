@@ -80,7 +80,7 @@ func (s *Server) handleRepofeedList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRepofeedRepo(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
 	if slug == "" {
-		http.Error(w, "missing slug", http.StatusBadRequest)
+		writeJSONError(w, "missing slug", http.StatusBadRequest)
 		return
 	}
 

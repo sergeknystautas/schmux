@@ -9,11 +9,11 @@ import (
 )
 
 func (s *Server) handleRepofeedList(w http.ResponseWriter, _ *http.Request) {
-	http.Error(w, "Repofeed is not available in this build", http.StatusServiceUnavailable)
+	writeJSONError(w, "Repofeed is not available in this build", http.StatusServiceUnavailable)
 }
 
 func (s *Server) handleRepofeedRepo(w http.ResponseWriter, _ *http.Request) {
-	http.Error(w, "Repofeed is not available in this build", http.StatusServiceUnavailable)
+	writeJSONError(w, "Repofeed is not available in this build", http.StatusServiceUnavailable)
 }
 
 func (s *Server) SetRepofeedPublisher(_ *repofeed.Publisher) {}

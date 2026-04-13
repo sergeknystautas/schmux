@@ -1037,7 +1037,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 		// Validate origin
 		if origin != "" && !s.isAllowedOrigin(origin) {
 			logging.Sub(s.logger, "daemon").Info("rejected origin", "origin", origin, "method", r.Method, "path", r.URL.Path)
-			http.Error(w, "Forbidden", http.StatusForbidden)
+			writeJSONError(w, "Forbidden", http.StatusForbidden)
 			return
 		}
 
@@ -1188,7 +1188,7 @@ func createDevProxyHandler(targetURL string) http.Handler {
 	if err != nil {
 		// Fallback: return a handler that returns 502
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			http.Error(w, "Dev proxy misconfigured", http.StatusBadGateway)
+			writeJSONError(w, "Dev proxy misconfigured", http.StatusBadGateway)
 		})
 	}
 
@@ -1580,7 +1580,7 @@ func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request
 		// Local requests bypass tunnel-only auth (consistent with authMiddleware)
 		if s.authEnabled() || !s.isTrustedRequest(r) {
 			if _, err := s.authenticateRequest(r); err != nil {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				writeJSONError(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
 		}

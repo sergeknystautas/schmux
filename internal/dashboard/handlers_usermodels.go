@@ -21,20 +21,20 @@ func (s *Server) handleSetUserModels(w http.ResponseWriter, r *http.Request) {
 		Models []models.UserModel `json:"models"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	toolNames := s.models.DetectedToolNames()
 	if err := models.ValidateUserModels(req.Models, toolNames); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	// Save to disk
 	userModelsPath := filepath.Join(schmuxdir.Get(), "user-models.json")
 	if err := models.SaveUserModels(userModelsPath, req.Models); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 

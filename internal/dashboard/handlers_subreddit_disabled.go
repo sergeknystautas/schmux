@@ -18,7 +18,7 @@ type subredditPostEntry struct {
 }
 
 func (s *Server) handleSubreddit(w http.ResponseWriter, _ *http.Request) {
-	http.Error(w, "Subreddit feature is not available in this build", http.StatusServiceUnavailable)
+	writeJSONError(w, "Subreddit feature is not available in this build", http.StatusServiceUnavailable)
 }
 
 func (s *Server) TriggerSubredditGeneration() {}

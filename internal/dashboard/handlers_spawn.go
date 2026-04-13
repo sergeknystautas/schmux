@@ -260,7 +260,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(results); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
+			writeJSONError(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
 		}
 		return
 	}
@@ -692,7 +692,7 @@ func (s *Server) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request
 		}
 		if readErr != nil {
 			sessionLog.Error("builtin-quick-launch: failed to read file", "err", readErr)
-			http.Error(w, "Failed to load built-in quick launch cookbooks", http.StatusInternalServerError)
+			writeJSONError(w, "Failed to load built-in quick launch cookbooks", http.StatusInternalServerError)
 			return
 		}
 	}
@@ -700,7 +700,7 @@ func (s *Server) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request
 	var cookbooks []BuiltinQuickLaunchCookbook
 	if err := json.Unmarshal(data, &cookbooks); err != nil {
 		sessionLog.Error("builtin-quick-launch: failed to parse", "err", err)
-		http.Error(w, "Failed to parse built-in quick launch cookbooks", http.StatusInternalServerError)
+		writeJSONError(w, "Failed to parse built-in quick launch cookbooks", http.StatusInternalServerError)
 		return
 	}
 
@@ -739,12 +739,12 @@ func (s *Server) handleCheckBranchConflict(w http.ResponseWriter, r *http.Reques
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		writeJSONError(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	if req.Repo == "" || req.Branch == "" {
-		http.Error(w, "repo and branch are required", http.StatusBadRequest)
+		writeJSONError(w, "repo and branch are required", http.StatusBadRequest)
 		return
 	}
 
@@ -804,7 +804,7 @@ func (s *Server) handleRecentBranches(w http.ResponseWriter, r *http.Request) {
 
 	branches, err := s.workspace.GetRecentBranches(ctx, limit)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get recent branches: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("Failed to get recent branches: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -825,7 +825,7 @@ func (s *Server) handleRecentBranchesRefresh(w http.ResponseWriter, r *http.Requ
 	// Return fresh branches
 	branches, err := s.workspace.GetRecentBranches(ctx, 10)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get recent branches: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("Failed to get recent branches: %v", err), http.StatusInternalServerError)
 		return
 	}
 

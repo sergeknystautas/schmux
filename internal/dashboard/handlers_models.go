@@ -14,7 +14,7 @@ import (
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	catalog, err := s.models.GetCatalog()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to read models: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("Failed to read models: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -40,19 +40,19 @@ func buildTLS(cfg *config.Config) *contracts.TLS {
 func (s *Server) handleModelConfigured(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	if name == "" {
-		http.Error(w, "model name required", http.StatusBadRequest)
+		writeJSONError(w, "model name required", http.StatusBadRequest)
 		return
 	}
 
 	model, ok := s.models.FindModel(name)
 	if !ok {
-		http.Error(w, "model not found", http.StatusNotFound)
+		writeJSONError(w, "model not found", http.StatusNotFound)
 		return
 	}
 
 	configured, err := s.models.IsConfigured(model)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to read secrets: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("Failed to read secrets: %v", err), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -63,13 +63,13 @@ func (s *Server) handleModelConfigured(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleModelSecretsPost(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	if name == "" {
-		http.Error(w, "model name required", http.StatusBadRequest)
+		writeJSONError(w, "model name required", http.StatusBadRequest)
 		return
 	}
 
 	model, ok := s.models.FindModel(name)
 	if !ok {
-		http.Error(w, "model not found", http.StatusNotFound)
+		writeJSONError(w, "model not found", http.StatusNotFound)
 		return
 	}
 
@@ -79,15 +79,15 @@ func (s *Server) handleModelSecretsPost(w http.ResponseWriter, r *http.Request) 
 	var req SecretsRequest
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		writeJSONError(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
 		return
 	}
 	if err := s.models.ValidateSecrets(model, req.Secrets); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if err := config.SaveModelSecrets(model.ID, model.Provider, req.Secrets); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to save secrets: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("Failed to save secrets: %v", err), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -98,28 +98,28 @@ func (s *Server) handleModelSecretsPost(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleModelSecretsDelete(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	if name == "" {
-		http.Error(w, "model name required", http.StatusBadRequest)
+		writeJSONError(w, "model name required", http.StatusBadRequest)
 		return
 	}
 
 	model, ok := s.models.FindModel(name)
 	if !ok {
-		http.Error(w, "model not found", http.StatusNotFound)
+		writeJSONError(w, "model not found", http.StatusNotFound)
 		return
 	}
 
 	if s.models.IsTargetInUse(model.ID) {
-		http.Error(w, "model is in use by nudgenik or quick launch", http.StatusBadRequest)
+		writeJSONError(w, "model is in use by nudgenik or quick launch", http.StatusBadRequest)
 		return
 	}
 	if model.Provider != "" && model.Provider != "anthropic" {
 		if err := config.DeleteProviderSecrets(model.Provider); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to delete secrets: %v", err), http.StatusInternalServerError)
+			writeJSONError(w, fmt.Sprintf("Failed to delete secrets: %v", err), http.StatusInternalServerError)
 			return
 		}
 	} else {
 		if err := config.DeleteModelSecrets(model.ID); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to delete secrets: %v", err), http.StatusInternalServerError)
+			writeJSONError(w, fmt.Sprintf("Failed to delete secrets: %v", err), http.StatusInternalServerError)
 			return
 		}
 	}

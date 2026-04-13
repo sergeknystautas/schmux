@@ -325,27 +325,27 @@ func (s *Server) handleRemoteAccessSetPassword(w http.ResponseWriter, r *http.Re
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if len(req.Password) < minPasswordLength {
-		http.Error(w, fmt.Sprintf("Password must be at least %d characters", minPasswordLength), http.StatusBadRequest)
+		writeJSONError(w, fmt.Sprintf("Password must be at least %d characters", minPasswordLength), http.StatusBadRequest)
 		return
 	}
 	if len(req.Password) > 72 {
-		http.Error(w, "Password must be 72 characters or fewer (bcrypt limitation)", http.StatusBadRequest)
+		writeJSONError(w, "Password must be 72 characters or fewer (bcrypt limitation)", http.StatusBadRequest)
 		return
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		http.Error(w, "Failed to hash password", http.StatusInternalServerError)
+		writeJSONError(w, "Failed to hash password", http.StatusInternalServerError)
 		return
 	}
 
 	s.config.SetRemoteAccessPasswordHash(string(hash))
 	if err := s.config.Save(); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
 		return
 	}
 

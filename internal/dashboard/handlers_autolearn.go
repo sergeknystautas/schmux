@@ -29,7 +29,7 @@ func validateAutolearnRepo(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		repo := chi.URLParam(r, "repo")
 		if repo == "" || strings.ContainsAny(repo, "/\\.\x00") || len(repo) > 128 {
-			http.Error(w, "invalid repo name", http.StatusBadRequest)
+			writeJSONError(w, "invalid repo name", http.StatusBadRequest)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -115,19 +115,19 @@ func (s *Server) readAutolearnEntries(repoName string, filter autolearn.EntryFil
 func (s *Server) handleAutolearnBatches(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
 	if repoName == "" {
-		http.Error(w, "missing repo name", http.StatusBadRequest)
+		writeJSONError(w, "missing repo name", http.StatusBadRequest)
 		return
 	}
 
 	if s.autolearnStore == nil {
-		http.Error(w, "autolearn system not enabled", http.StatusServiceUnavailable)
+		writeJSONError(w, "autolearn system not enabled", http.StatusServiceUnavailable)
 		return
 	}
 
 	batches, err := s.autolearnStore.List(repoName)
 	if err != nil {
 		s.logger.Error("list batches error", "err", err)
-		http.Error(w, "failed to list batches", http.StatusInternalServerError)
+		writeJSONError(w, "failed to list batches", http.StatusInternalServerError)
 		return
 	}
 
@@ -144,18 +144,18 @@ func (s *Server) handleAutolearnBatchGet(w http.ResponseWriter, r *http.Request)
 	repoName := chi.URLParam(r, "repo")
 	batchID := chi.URLParam(r, "batchID")
 	if repoName == "" || batchID == "" {
-		http.Error(w, "missing repo name or batch id", http.StatusBadRequest)
+		writeJSONError(w, "missing repo name or batch id", http.StatusBadRequest)
 		return
 	}
 
 	if s.autolearnStore == nil {
-		http.Error(w, "autolearn system not enabled", http.StatusServiceUnavailable)
+		writeJSONError(w, "autolearn system not enabled", http.StatusServiceUnavailable)
 		return
 	}
 
 	batch, err := s.autolearnStore.Get(repoName, batchID)
 	if err != nil {
-		http.Error(w, "batch not found", http.StatusNotFound)
+		writeJSONError(w, "batch not found", http.StatusNotFound)
 		return
 	}
 
@@ -170,30 +170,30 @@ func (s *Server) handleAutolearnBatchDismiss(w http.ResponseWriter, r *http.Requ
 	repoName := chi.URLParam(r, "repo")
 	batchID := chi.URLParam(r, "batchID")
 	if repoName == "" || batchID == "" {
-		http.Error(w, "invalid path", http.StatusBadRequest)
+		writeJSONError(w, "invalid path", http.StatusBadRequest)
 		return
 	}
 
 	if s.autolearnStore == nil {
-		http.Error(w, "autolearn system not enabled", http.StatusServiceUnavailable)
+		writeJSONError(w, "autolearn system not enabled", http.StatusServiceUnavailable)
 		return
 	}
 
 	// Load the batch first to get EntriesUsed for marking
 	batch, err := s.autolearnStore.Get(repoName, batchID)
 	if err != nil {
-		http.Error(w, "batch not found", http.StatusNotFound)
+		writeJSONError(w, "batch not found", http.StatusNotFound)
 		return
 	}
 
 	if batch.Status == autolearn.BatchApplied {
-		http.Error(w, "batch is already applied", http.StatusConflict)
+		writeJSONError(w, "batch is already applied", http.StatusConflict)
 		return
 	}
 
 	if err := s.autolearnStore.UpdateStatus(repoName, batchID, autolearn.BatchDismissed); err != nil {
 		s.logger.Error("update batch status error", "err", err)
-		http.Error(w, "failed to update batch status", http.StatusInternalServerError)
+		writeJSONError(w, "failed to update batch status", http.StatusInternalServerError)
 		return
 	}
 
@@ -226,12 +226,12 @@ func (s *Server) handleAutolearnLearningUpdate(w http.ResponseWriter, r *http.Re
 	batchID := chi.URLParam(r, "batchID")
 	learningID := chi.URLParam(r, "learningID")
 	if repoName == "" || batchID == "" || learningID == "" {
-		http.Error(w, "missing path parameters", http.StatusBadRequest)
+		writeJSONError(w, "missing path parameters", http.StatusBadRequest)
 		return
 	}
 
 	if s.autolearnStore == nil {
-		http.Error(w, "autolearn system not enabled", http.StatusServiceUnavailable)
+		writeJSONError(w, "autolearn system not enabled", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -242,7 +242,7 @@ func (s *Server) handleAutolearnLearningUpdate(w http.ResponseWriter, r *http.Re
 		ChosenLayer *string `json:"chosen_layer"` // layer override (optional)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -260,7 +260,7 @@ func (s *Server) handleAutolearnLearningUpdate(w http.ResponseWriter, r *http.Re
 		case "pending":
 			status = autolearn.StatusPending
 		default:
-			http.Error(w, "status must be 'approved', 'dismissed', or 'pending'", http.StatusBadRequest)
+			writeJSONError(w, "status must be 'approved', 'dismissed', or 'pending'", http.StatusBadRequest)
 			return
 		}
 		update.Status = &status
@@ -273,7 +273,7 @@ func (s *Server) handleAutolearnLearningUpdate(w http.ResponseWriter, r *http.Re
 		case autolearn.LayerRepoPublic, autolearn.LayerRepoPrivate, autolearn.LayerCrossRepoPrivate:
 			update.ChosenLayer = &l
 		default:
-			http.Error(w, "chosen_layer must be 'repo_public', 'repo_private', or 'cross_repo_private'", http.StatusBadRequest)
+			writeJSONError(w, "chosen_layer must be 'repo_public', 'repo_private', or 'cross_repo_private'", http.StatusBadRequest)
 			return
 		}
 	}
@@ -287,7 +287,7 @@ func (s *Server) handleAutolearnLearningUpdate(w http.ResponseWriter, r *http.Re
 
 	if err := s.autolearnStore.UpdateLearning(repoName, batchID, learningID, update); err != nil {
 		s.logger.Error("update learning error", "repo", repoName, "batch", batchID, "learning", learningID, "err", err)
-		http.Error(w, err.Error(), http.StatusNotFound)
+		writeJSONError(w, err.Error(), http.StatusNotFound)
 		return
 	}
 
@@ -299,7 +299,7 @@ func (s *Server) handleAutolearnLearningUpdate(w http.ResponseWriter, r *http.Re
 	// Return the updated batch
 	batch, err := s.autolearnStore.Get(repoName, batchID)
 	if err != nil {
-		http.Error(w, "failed to reload batch", http.StatusInternalServerError)
+		writeJSONError(w, "failed to reload batch", http.StatusInternalServerError)
 		return
 	}
 
@@ -311,7 +311,7 @@ func (s *Server) handleAutolearnLearningUpdate(w http.ResponseWriter, r *http.Re
 
 // handleAutolearnForget is a stub for the forget endpoint (not yet implemented).
 func (s *Server) handleAutolearnForget(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "forget is not yet implemented", http.StatusNotImplemented)
+	writeJSONError(w, "forget is not yet implemented", http.StatusNotImplemented)
 }
 
 // handleAutolearnEntries returns the autolearn JSONL entries for a repo, aggregated from
@@ -319,7 +319,7 @@ func (s *Server) handleAutolearnForget(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAutolearnEntries(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
 	if repoName == "" {
-		http.Error(w, "missing repo name", http.StatusBadRequest)
+		writeJSONError(w, "missing repo name", http.StatusBadRequest)
 		return
 	}
 
@@ -341,7 +341,7 @@ func (s *Server) handleAutolearnEntries(w http.ResponseWriter, r *http.Request) 
 	entries, err := s.readAutolearnEntries(repoName, filter)
 	if err != nil {
 		s.logger.Error("read entries error", "err", err)
-		http.Error(w, "failed to read autolearn entries", http.StatusInternalServerError)
+		writeJSONError(w, "failed to read autolearn entries", http.StatusInternalServerError)
 		return
 	}
 
@@ -358,7 +358,7 @@ func (s *Server) handleAutolearnEntries(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleAutolearnEntriesClear(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
 	if repoName == "" {
-		http.Error(w, "missing repo name", http.StatusBadRequest)
+		writeJSONError(w, "missing repo name", http.StatusBadRequest)
 		return
 	}
 
@@ -394,23 +394,23 @@ func (s *Server) handleAutolearnCurate(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB limit
 	repoName := chi.URLParam(r, "repo")
 	if repoName == "" {
-		http.Error(w, "missing repo name", http.StatusBadRequest)
+		writeJSONError(w, "missing repo name", http.StatusBadRequest)
 		return
 	}
 
 	if s.autolearnExecutor == nil {
-		http.Error(w, "autolearn curator not configured (no LLM target)", http.StatusServiceUnavailable)
+		writeJSONError(w, "autolearn curator not configured (no LLM target)", http.StatusServiceUnavailable)
 		return
 	}
 
 	if s.autolearnStore == nil {
-		http.Error(w, "autolearn system not enabled", http.StatusServiceUnavailable)
+		writeJSONError(w, "autolearn system not enabled", http.StatusServiceUnavailable)
 		return
 	}
 
 	// Guard: only one curation per repo at a time
 	if s.curationTracker.IsRunning(repoName) {
-		http.Error(w, "curation already in progress", http.StatusConflict)
+		writeJSONError(w, "curation already in progress", http.StatusConflict)
 		return
 	}
 
@@ -418,7 +418,7 @@ func (s *Server) handleAutolearnCurate(w http.ResponseWriter, r *http.Request) {
 	rawEntries, err := s.readAutolearnEntries(repoName, autolearn.FilterRaw())
 	if err != nil {
 		s.logger.Error("read entries error", "err", err)
-		http.Error(w, fmt.Sprintf("failed to read autolearn entries: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("failed to read autolearn entries: %v", err), http.StatusInternalServerError)
 		return
 	}
 	if len(rawEntries) == 0 {
@@ -436,7 +436,7 @@ func (s *Server) handleAutolearnCurate(w http.ResponseWriter, r *http.Request) {
 	// Start curation tracking
 	curationID := fmt.Sprintf("cur-%s-%s", repoName, time.Now().UTC().Format("20060102-150405"))
 	if _, err := s.curationTracker.Start(repoName, curationID); err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
+		writeJSONError(w, err.Error(), http.StatusConflict)
 		return
 	}
 
@@ -651,7 +651,7 @@ func (s *Server) handleAutolearnCurationsActive(w http.ResponseWriter, r *http.R
 func (s *Server) handleAutolearnCurationsList(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
 	if repoName == "" {
-		http.Error(w, "missing repo name", http.StatusBadRequest)
+		writeJSONError(w, "missing repo name", http.StatusBadRequest)
 		return
 	}
 
@@ -710,20 +710,20 @@ func (s *Server) handleAutolearnCurationLog(w http.ResponseWriter, r *http.Reque
 	repoName := chi.URLParam(r, "repo")
 	curationID := chi.URLParam(r, "curationID")
 	if repoName == "" || curationID == "" {
-		http.Error(w, "invalid path", http.StatusBadRequest)
+		writeJSONError(w, "invalid path", http.StatusBadRequest)
 		return
 	}
 
 	// Validate curation ID — no path separators allowed
 	if strings.ContainsAny(curationID, "/\\") || curationID == ".." || curationID == "." {
-		http.Error(w, "invalid curation ID", http.StatusBadRequest)
+		writeJSONError(w, "invalid curation ID", http.StatusBadRequest)
 		return
 	}
 
 	logPath := filepath.Join(schmuxdir.Get(), "autolearn-curator-runs", repoName, curationID, "events.jsonl")
 	data, err := os.ReadFile(logPath)
 	if err != nil {
-		http.Error(w, "log file not found", http.StatusNotFound)
+		writeJSONError(w, "log file not found", http.StatusNotFound)
 		return
 	}
 
@@ -752,17 +752,17 @@ func (s *Server) handleAutolearnMerge(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
 
 	if s.autolearnStore == nil || s.autolearnPendingMergeStore == nil {
-		http.Error(w, "autolearn system not enabled", http.StatusServiceUnavailable)
+		writeJSONError(w, "autolearn system not enabled", http.StatusServiceUnavailable)
 		return
 	}
 	if s.autolearnExecutor == nil {
-		http.Error(w, "autolearn curator not configured (no LLM target)", http.StatusServiceUnavailable)
+		writeJSONError(w, "autolearn curator not configured (no LLM target)", http.StatusServiceUnavailable)
 		return
 	}
 
 	// Check for existing merging state
 	if existing, err := s.autolearnPendingMergeStore.Get(repoName); err == nil && existing.Status == autolearn.PendingMergeStatusMerging {
-		http.Error(w, "merge already in progress", http.StatusConflict)
+		writeJSONError(w, "merge already in progress", http.StatusConflict)
 		return
 	}
 
@@ -773,11 +773,11 @@ func (s *Server) handleAutolearnMerge(w http.ResponseWriter, r *http.Request) {
 		} `json:"batches"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if len(body.Batches) == 0 {
-		http.Error(w, "no batches provided", http.StatusBadRequest)
+		writeJSONError(w, "no batches provided", http.StatusBadRequest)
 		return
 	}
 
@@ -787,7 +787,7 @@ func (s *Server) handleAutolearnMerge(w http.ResponseWriter, r *http.Request) {
 	for _, bg := range body.Batches {
 		batch, err := s.autolearnStore.Get(repoName, bg.BatchID)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("batch %s not found", bg.BatchID), http.StatusNotFound)
+			writeJSONError(w, fmt.Sprintf("batch %s not found", bg.BatchID), http.StatusNotFound)
 			return
 		}
 		allBatchIDs = append(allBatchIDs, bg.BatchID)
@@ -799,7 +799,7 @@ func (s *Server) handleAutolearnMerge(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(allLearnings) == 0 {
-		http.Error(w, "no approved public learnings to merge", http.StatusBadRequest)
+		writeJSONError(w, "no approved public learnings to merge", http.StatusBadRequest)
 		return
 	}
 
@@ -812,7 +812,7 @@ func (s *Server) handleAutolearnMerge(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if bareDir == "" {
-		http.Error(w, "repo bare directory not found", http.StatusNotFound)
+		writeJSONError(w, "repo bare directory not found", http.StatusNotFound)
 		return
 	}
 
@@ -825,7 +825,7 @@ func (s *Server) handleAutolearnMerge(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:   time.Now().UTC(),
 	}
 	if err := s.autolearnPendingMergeStore.Save(pm); err != nil {
-		http.Error(w, "failed to create pending merge", http.StatusInternalServerError)
+		writeJSONError(w, "failed to create pending merge", http.StatusInternalServerError)
 		return
 	}
 
@@ -913,7 +913,7 @@ func (s *Server) handleAutolearnMerge(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAutolearnPendingMergeGet(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
 	if s.autolearnPendingMergeStore == nil {
-		http.Error(w, "pending merge store not configured", http.StatusServiceUnavailable)
+		writeJSONError(w, "pending merge store not configured", http.StatusServiceUnavailable)
 		return
 	}
 	pm, err := s.autolearnPendingMergeStore.Get(repoName)
@@ -929,11 +929,11 @@ func (s *Server) handleAutolearnPendingMergeGet(w http.ResponseWriter, r *http.R
 func (s *Server) handleAutolearnPendingMergeDelete(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
 	if s.autolearnPendingMergeStore == nil {
-		http.Error(w, "pending merge store not configured", http.StatusServiceUnavailable)
+		writeJSONError(w, "pending merge store not configured", http.StatusServiceUnavailable)
 		return
 	}
 	if err := s.autolearnPendingMergeStore.Delete(repoName); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -945,22 +945,22 @@ func (s *Server) handleAutolearnPendingMergePatch(w http.ResponseWriter, r *http
 	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
 	repoName := chi.URLParam(r, "repo")
 	if s.autolearnPendingMergeStore == nil {
-		http.Error(w, "pending merge store not configured", http.StatusServiceUnavailable)
+		writeJSONError(w, "pending merge store not configured", http.StatusServiceUnavailable)
 		return
 	}
 	var body struct {
 		EditedContent *string `json:"edited_content"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if body.EditedContent == nil {
-		http.Error(w, "edited_content is required", http.StatusBadRequest)
+		writeJSONError(w, "edited_content is required", http.StatusBadRequest)
 		return
 	}
 	if err := s.autolearnPendingMergeStore.UpdateEditedContent(repoName, *body.EditedContent); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		writeJSONError(w, err.Error(), http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -974,22 +974,22 @@ func (s *Server) handleAutolearnPush(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
 
 	if s.autolearnStore == nil || s.autolearnPendingMergeStore == nil {
-		http.Error(w, "autolearn system not enabled", http.StatusServiceUnavailable)
+		writeJSONError(w, "autolearn system not enabled", http.StatusServiceUnavailable)
 		return
 	}
 
 	// 1. Get and validate PendingMerge
 	pm, err := s.autolearnPendingMergeStore.Get(repoName)
 	if err != nil {
-		http.Error(w, "no pending merge found", http.StatusNotFound)
+		writeJSONError(w, "no pending merge found", http.StatusNotFound)
 		return
 	}
 	if pm.Status != autolearn.PendingMergeStatusReady {
-		http.Error(w, fmt.Sprintf("pending merge is not ready (status: %s)", pm.Status), http.StatusConflict)
+		writeJSONError(w, fmt.Sprintf("pending merge is not ready (status: %s)", pm.Status), http.StatusConflict)
 		return
 	}
 	if pm.IsExpired() {
-		http.Error(w, "pending merge has expired", http.StatusGone)
+		writeJSONError(w, "pending merge has expired", http.StatusGone)
 		return
 	}
 
@@ -997,13 +997,13 @@ func (s *Server) handleAutolearnPush(w http.ResponseWriter, r *http.Request) {
 	for _, batchID := range pm.BatchIDs {
 		batch, err := s.autolearnStore.Get(repoName, batchID)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("batch %s not found", batchID), http.StatusNotFound)
+			writeJSONError(w, fmt.Sprintf("batch %s not found", batchID), http.StatusNotFound)
 			return
 		}
 		for _, learningID := range pm.LearningIDs {
 			for _, learning := range batch.Learnings {
 				if learning.ID == learningID && learning.Status != autolearn.StatusApproved {
-					http.Error(w, fmt.Sprintf("learning %s is no longer approved", learningID), http.StatusConflict)
+					writeJSONError(w, fmt.Sprintf("learning %s is no longer approved", learningID), http.StatusConflict)
 					return
 				}
 			}
@@ -1026,7 +1026,7 @@ func (s *Server) handleAutolearnPush(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if bareDir == "" {
-		http.Error(w, "repo bare directory not found", http.StatusNotFound)
+		writeJSONError(w, "repo bare directory not found", http.StatusNotFound)
 		return
 	}
 
@@ -1037,7 +1037,7 @@ func (s *Server) handleAutolearnPush(w http.ResponseWriter, r *http.Request) {
 	shaCmd := exec.CommandContext(r.Context(), "git", "-C", bareDir, "rev-parse", "HEAD")
 	shaOut, err := shaCmd.Output()
 	if err != nil {
-		http.Error(w, "failed to read current HEAD from bare repo", http.StatusInternalServerError)
+		writeJSONError(w, "failed to read current HEAD from bare repo", http.StatusInternalServerError)
 		return
 	}
 	currentSHA := strings.TrimSpace(string(shaOut))
@@ -1065,7 +1065,7 @@ func (s *Server) handleAutolearnPush(w http.ResponseWriter, r *http.Request) {
 	refCmd := exec.CommandContext(r.Context(), "git", "-C", bareDir, "symbolic-ref", "HEAD")
 	refOut, err := refCmd.Output()
 	if err != nil {
-		http.Error(w, "failed to determine default branch", http.StatusInternalServerError)
+		writeJSONError(w, "failed to determine default branch", http.StatusInternalServerError)
 		return
 	}
 	defaultBranch := strings.TrimSpace(string(refOut))
@@ -1077,25 +1077,25 @@ func (s *Server) handleAutolearnPush(w http.ResponseWriter, r *http.Request) {
 
 	cloneCmd := exec.CommandContext(r.Context(), "git", "clone", bareDir, worktreeDir)
 	if out, err := cloneCmd.CombinedOutput(); err != nil {
-		http.Error(w, fmt.Sprintf("failed to clone: %s: %s", err, out), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("failed to clone: %s: %s", err, out), http.StatusInternalServerError)
 		return
 	}
 
 	// 8. Write merged content (instruction file)
 	fullPath := filepath.Join(worktreeDir, filepath.Clean(targetFile))
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-		http.Error(w, fmt.Sprintf("failed to create directory: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("failed to create directory: %v", err), http.StatusInternalServerError)
 		return
 	}
 	if err := os.WriteFile(fullPath, []byte(pm.EffectiveContent()), 0644); err != nil {
-		http.Error(w, fmt.Sprintf("failed to write file: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("failed to write file: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	// Stage instruction file
 	stageCmd := exec.CommandContext(r.Context(), "git", "-C", worktreeDir, "add", targetFile)
 	if out, err := stageCmd.CombinedOutput(); err != nil {
-		http.Error(w, fmt.Sprintf("failed to stage: %s: %s", err, out), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("failed to stage: %s: %s", err, out), http.StatusInternalServerError)
 		return
 	}
 
@@ -1103,16 +1103,16 @@ func (s *Server) handleAutolearnPush(w http.ResponseWriter, r *http.Request) {
 	for relPath, content := range pm.SkillFiles {
 		skillPath := filepath.Join(worktreeDir, filepath.Clean(relPath))
 		if err := os.MkdirAll(filepath.Dir(skillPath), 0755); err != nil {
-			http.Error(w, fmt.Sprintf("failed to create skill dir: %v", err), http.StatusInternalServerError)
+			writeJSONError(w, fmt.Sprintf("failed to create skill dir: %v", err), http.StatusInternalServerError)
 			return
 		}
 		if err := os.WriteFile(skillPath, []byte(content), 0644); err != nil {
-			http.Error(w, fmt.Sprintf("failed to write skill file: %v", err), http.StatusInternalServerError)
+			writeJSONError(w, fmt.Sprintf("failed to write skill file: %v", err), http.StatusInternalServerError)
 			return
 		}
 		skillStageCmd := exec.CommandContext(r.Context(), "git", "-C", worktreeDir, "add", relPath)
 		if out, err := skillStageCmd.CombinedOutput(); err != nil {
-			http.Error(w, fmt.Sprintf("failed to stage skill file: %s: %s", err, out), http.StatusInternalServerError)
+			writeJSONError(w, fmt.Sprintf("failed to stage skill file: %s: %s", err, out), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -1133,7 +1133,7 @@ func (s *Server) handleAutolearnPush(w http.ResponseWriter, r *http.Request) {
 		"GIT_COMMITTER_EMAIL=schmux@localhost",
 	)
 	if out, err := commitCmd.CombinedOutput(); err != nil {
-		http.Error(w, fmt.Sprintf("failed to commit: %s: %s", err, out), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("failed to commit: %s: %s", err, out), http.StatusInternalServerError)
 		return
 	}
 
@@ -1141,7 +1141,7 @@ func (s *Server) handleAutolearnPush(w http.ResponseWriter, r *http.Request) {
 	commitSHACmd := exec.CommandContext(r.Context(), "git", "-C", worktreeDir, "rev-parse", "HEAD")
 	commitSHAOut, err := commitSHACmd.Output()
 	if err != nil {
-		http.Error(w, "failed to read commit SHA", http.StatusInternalServerError)
+		writeJSONError(w, "failed to read commit SHA", http.StatusInternalServerError)
 		return
 	}
 	commitSHA := strings.TrimSpace(string(commitSHAOut))
@@ -1156,13 +1156,13 @@ func (s *Server) handleAutolearnPush(w http.ResponseWriter, r *http.Request) {
 		exec.CommandContext(r.Context(), "git", "-C", worktreeDir, "checkout", "-b", branch).Run()
 		pushCmd := exec.CommandContext(r.Context(), "git", "-C", worktreeDir, "push", "-u", "origin", branch)
 		if out, err := pushCmd.CombinedOutput(); err != nil {
-			http.Error(w, fmt.Sprintf("push to branch failed: %s: %s", err, out), http.StatusInternalServerError)
+			writeJSONError(w, fmt.Sprintf("push to branch failed: %s: %s", err, out), http.StatusInternalServerError)
 			return
 		}
 	} else {
 		pushCmd := exec.CommandContext(r.Context(), "git", "-C", worktreeDir, "push", "origin", "HEAD:"+defaultBranch)
 		if out, err := pushCmd.CombinedOutput(); err != nil {
-			http.Error(w, fmt.Sprintf("push failed: %s: %s", err, out), http.StatusInternalServerError)
+			writeJSONError(w, fmt.Sprintf("push failed: %s: %s", err, out), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -1207,19 +1207,19 @@ func (s *Server) handleAutolearnPush(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAutolearnHistory(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
 	if repoName == "" {
-		http.Error(w, "missing repo name", http.StatusBadRequest)
+		writeJSONError(w, "missing repo name", http.StatusBadRequest)
 		return
 	}
 
 	if s.autolearnStore == nil {
-		http.Error(w, "autolearn system not enabled", http.StatusServiceUnavailable)
+		writeJSONError(w, "autolearn system not enabled", http.StatusServiceUnavailable)
 		return
 	}
 
 	batches, err := s.autolearnStore.List(repoName)
 	if err != nil {
 		s.logger.Error("list batches error", "err", err)
-		http.Error(w, "failed to list batches", http.StatusInternalServerError)
+		writeJSONError(w, "failed to list batches", http.StatusInternalServerError)
 		return
 	}
 
@@ -1255,7 +1255,7 @@ func (s *Server) handleAutolearnHistory(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleAutolearnPromptHistory(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
 	if repoName == "" {
-		http.Error(w, "missing repo name", http.StatusBadRequest)
+		writeJSONError(w, "missing repo name", http.StatusBadRequest)
 		return
 	}
 
@@ -1268,7 +1268,7 @@ func (s *Server) handleAutolearnPromptHistory(w http.ResponseWriter, r *http.Req
 	signals, err := autolearn.CollectIntentSignals(wsPaths)
 	if err != nil {
 		s.logger.Error("collect intent signals error", "err", err)
-		http.Error(w, "failed to collect intent signals", http.StatusInternalServerError)
+		writeJSONError(w, "failed to collect intent signals", http.StatusInternalServerError)
 		return
 	}
 

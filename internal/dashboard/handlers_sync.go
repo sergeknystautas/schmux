@@ -37,7 +37,7 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 	// Extract workspace ID from chi URL param
 	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
-		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
 		return
 	}
 
@@ -46,7 +46,7 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	req.Hash = strings.TrimSpace(req.Hash)
@@ -202,7 +202,7 @@ func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) 
 	// Extract workspace ID from chi URL param
 	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
-		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
 		return
 	}
 
@@ -267,7 +267,7 @@ func (s *Server) handlePushToBranch(w http.ResponseWriter, r *http.Request) {
 	// Extract workspace ID from chi URL param
 	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
-		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
 		return
 	}
 
@@ -277,7 +277,7 @@ func (s *Server) handlePushToBranch(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -343,7 +343,7 @@ func (s *Server) handlePushToBranch(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
-		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
 		return
 	}
 

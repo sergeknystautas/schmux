@@ -51,24 +51,24 @@ func (s *Server) authRedirectURI() (string, error) {
 
 func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	if !s.authEnabled() {
-		http.Error(w, "Auth disabled", http.StatusNotFound)
+		writeJSONError(w, "Auth disabled", http.StatusNotFound)
 		return
 	}
 	secrets, err := config.GetAuthSecrets()
 	if err != nil || secrets.GitHub == nil || strings.TrimSpace(secrets.GitHub.ClientID) == "" {
-		http.Error(w, "GitHub auth not configured", http.StatusInternalServerError)
+		writeJSONError(w, "GitHub auth not configured", http.StatusInternalServerError)
 		return
 	}
 
 	state, err := randomToken(32)
 	if err != nil {
-		http.Error(w, "Failed to generate auth state", http.StatusInternalServerError)
+		writeJSONError(w, "Failed to generate auth state", http.StatusInternalServerError)
 		return
 	}
 
 	redirectURI, err := s.authRedirectURI()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -94,37 +94,37 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	if !s.authEnabled() {
-		http.Error(w, "Auth disabled", http.StatusNotFound)
+		writeJSONError(w, "Auth disabled", http.StatusNotFound)
 		return
 	}
 
 	state := r.URL.Query().Get("state")
 	code := r.URL.Query().Get("code")
 	if state == "" || code == "" {
-		http.Error(w, "Missing OAuth parameters", http.StatusBadRequest)
+		writeJSONError(w, "Missing OAuth parameters", http.StatusBadRequest)
 		return
 	}
 
 	stateCookie, err := r.Cookie(oauthStateCookie)
 	if err != nil || stateCookie.Value == "" || subtle.ConstantTimeCompare([]byte(stateCookie.Value), []byte(state)) != 1 {
-		http.Error(w, "Invalid OAuth state", http.StatusBadRequest)
+		writeJSONError(w, "Invalid OAuth state", http.StatusBadRequest)
 		return
 	}
 
 	token, err := s.exchangeGitHubToken(code, state)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("OAuth exchange failed: %v", err), http.StatusBadRequest)
+		writeJSONError(w, fmt.Sprintf("OAuth exchange failed: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	user, err := s.fetchGitHubUser(token)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to fetch GitHub user: %v", err), http.StatusBadRequest)
+		writeJSONError(w, fmt.Sprintf("Failed to fetch GitHub user: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	if err := s.setSessionCookie(w, user); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to set session: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("Failed to set session: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -144,11 +144,11 @@ func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if !s.validateCSRF(r) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		writeJSONError(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -178,13 +178,13 @@ func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 	if !s.authEnabled() {
-		http.Error(w, "Auth disabled", http.StatusNotFound)
+		writeJSONError(w, "Auth disabled", http.StatusNotFound)
 		return
 	}
 
 	session, err := s.authenticateRequest(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 

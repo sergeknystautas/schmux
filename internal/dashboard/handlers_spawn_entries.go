@@ -36,7 +36,7 @@ func validateSpawnRepo(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		repo := chi.URLParam(r, "repo")
 		if repo == "" || strings.ContainsAny(repo, "/\\.\x00") || len(repo) > 128 {
-			http.Error(w, "invalid repo name", http.StatusBadRequest)
+			writeJSONError(w, "invalid repo name", http.StatusBadRequest)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -47,13 +47,13 @@ func validateSpawnRepo(next http.Handler) http.Handler {
 func (s *Server) handleListSpawnEntries(w http.ResponseWriter, r *http.Request) {
 	repo := chi.URLParam(r, "repo")
 	if s.spawnStore == nil {
-		http.Error(w, "emergence system not initialized", http.StatusServiceUnavailable)
+		writeJSONError(w, "emergence system not initialized", http.StatusServiceUnavailable)
 		return
 	}
 
 	entries, err := s.spawnStore.List(repo)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if entries == nil {
@@ -68,13 +68,13 @@ func (s *Server) handleListSpawnEntries(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleListAllSpawnEntries(w http.ResponseWriter, r *http.Request) {
 	repo := chi.URLParam(r, "repo")
 	if s.spawnStore == nil {
-		http.Error(w, "emergence system not initialized", http.StatusServiceUnavailable)
+		writeJSONError(w, "emergence system not initialized", http.StatusServiceUnavailable)
 		return
 	}
 
 	entries, err := s.spawnStore.ListAll(repo)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if entries == nil {
@@ -103,27 +103,27 @@ func (s *Server) handleListAllSpawnEntries(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleCreateSpawnEntry(w http.ResponseWriter, r *http.Request) {
 	repo := chi.URLParam(r, "repo")
 	if s.spawnStore == nil {
-		http.Error(w, "emergence system not initialized", http.StatusServiceUnavailable)
+		writeJSONError(w, "emergence system not initialized", http.StatusServiceUnavailable)
 		return
 	}
 
 	var req contracts.CreateSpawnEntryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" {
-		http.Error(w, "name is required", http.StatusBadRequest)
+		writeJSONError(w, "name is required", http.StatusBadRequest)
 		return
 	}
 	if req.Type == "" {
-		http.Error(w, "type is required", http.StatusBadRequest)
+		writeJSONError(w, "type is required", http.StatusBadRequest)
 		return
 	}
 
 	entry, err := s.spawnStore.Create(repo, req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -137,21 +137,21 @@ func (s *Server) handleUpdateSpawnEntry(w http.ResponseWriter, r *http.Request) 
 	repo := chi.URLParam(r, "repo")
 	id := chi.URLParam(r, "id")
 	if s.spawnStore == nil {
-		http.Error(w, "emergence system not initialized", http.StatusServiceUnavailable)
+		writeJSONError(w, "emergence system not initialized", http.StatusServiceUnavailable)
 		return
 	}
 
 	var req contracts.UpdateSpawnEntryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if err := s.spawnStore.Update(repo, id, req); err != nil {
 		if errors.Is(err, spawn.ErrNotFound) {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			writeJSONError(w, err.Error(), http.StatusNotFound)
 		} else {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
 	}
@@ -166,15 +166,15 @@ func (s *Server) handleDeleteSpawnEntry(w http.ResponseWriter, r *http.Request) 
 	repo := chi.URLParam(r, "repo")
 	id := chi.URLParam(r, "id")
 	if s.spawnStore == nil {
-		http.Error(w, "emergence system not initialized", http.StatusServiceUnavailable)
+		writeJSONError(w, "emergence system not initialized", http.StatusServiceUnavailable)
 		return
 	}
 
 	if err := s.spawnStore.Delete(repo, id); err != nil {
 		if errors.Is(err, spawn.ErrNotFound) {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			writeJSONError(w, err.Error(), http.StatusNotFound)
 		} else {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
 	}
@@ -188,22 +188,22 @@ func (s *Server) handlePinSpawnEntry(w http.ResponseWriter, r *http.Request) {
 	repo := chi.URLParam(r, "repo")
 	id := chi.URLParam(r, "id")
 	if s.spawnStore == nil {
-		http.Error(w, "emergence system not initialized", http.StatusServiceUnavailable)
+		writeJSONError(w, "emergence system not initialized", http.StatusServiceUnavailable)
 		return
 	}
 
 	// Get entry before pinning to check type
 	entry, found, _ := s.spawnStore.Get(repo, id)
 	if !found {
-		http.Error(w, "spawn entry not found", http.StatusNotFound)
+		writeJSONError(w, "spawn entry not found", http.StatusNotFound)
 		return
 	}
 
 	if err := s.spawnStore.Pin(repo, id); err != nil {
 		if errors.Is(err, spawn.ErrNotFound) {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			writeJSONError(w, err.Error(), http.StatusNotFound)
 		} else {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			writeJSONError(w, err.Error(), http.StatusBadRequest)
 		}
 		return
 	}
@@ -236,15 +236,15 @@ func (s *Server) handleDismissSpawnEntry(w http.ResponseWriter, r *http.Request)
 	repo := chi.URLParam(r, "repo")
 	id := chi.URLParam(r, "id")
 	if s.spawnStore == nil {
-		http.Error(w, "emergence system not initialized", http.StatusServiceUnavailable)
+		writeJSONError(w, "emergence system not initialized", http.StatusServiceUnavailable)
 		return
 	}
 
 	if err := s.spawnStore.Dismiss(repo, id); err != nil {
 		if errors.Is(err, spawn.ErrNotFound) {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			writeJSONError(w, err.Error(), http.StatusNotFound)
 		} else {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
 	}
@@ -258,15 +258,15 @@ func (s *Server) handleRecordSpawnEntryUse(w http.ResponseWriter, r *http.Reques
 	repo := chi.URLParam(r, "repo")
 	id := chi.URLParam(r, "id")
 	if s.spawnStore == nil {
-		http.Error(w, "emergence system not initialized", http.StatusServiceUnavailable)
+		writeJSONError(w, "emergence system not initialized", http.StatusServiceUnavailable)
 		return
 	}
 
 	if err := s.spawnStore.RecordUse(repo, id); err != nil {
 		if errors.Is(err, spawn.ErrNotFound) {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			writeJSONError(w, err.Error(), http.StatusNotFound)
 		} else {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
 	}
@@ -280,7 +280,7 @@ func (s *Server) handleRecordSpawnEntryUse(w http.ResponseWriter, r *http.Reques
 func (s *Server) handlePromptHistory(w http.ResponseWriter, r *http.Request) {
 	repo := chi.URLParam(r, "repo")
 	if s.spawnStore == nil {
-		http.Error(w, "emergence system not initialized", http.StatusServiceUnavailable)
+		writeJSONError(w, "emergence system not initialized", http.StatusServiceUnavailable)
 		return
 	}
 

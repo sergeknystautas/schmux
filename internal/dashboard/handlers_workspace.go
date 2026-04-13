@@ -34,7 +34,7 @@ func validateWorkspaceID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		workspaceID := chi.URLParam(r, "workspaceID")
 		if !isValidResourceID(workspaceID) {
-			http.Error(w, "invalid workspace ID", http.StatusBadRequest)
+			writeJSONError(w, "invalid workspace ID", http.StatusBadRequest)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -58,24 +58,24 @@ func isValidResourceID(id string) bool {
 func (s *Server) previewsWorkspaceCheck(w http.ResponseWriter, r *http.Request) (string, state.Workspace, bool) {
 	workspaceID := chi.URLParam(r, "workspaceID")
 	if !isValidResourceID(workspaceID) {
-		http.Error(w, "invalid workspace ID", http.StatusBadRequest)
+		writeJSONError(w, "invalid workspace ID", http.StatusBadRequest)
 		return "", state.Workspace{}, false
 	}
 
 	if s.previewManager == nil {
-		http.Error(w, "preview manager not available", http.StatusServiceUnavailable)
+		writeJSONError(w, "preview manager not available", http.StatusServiceUnavailable)
 		return "", state.Workspace{}, false
 	}
 
 	ws, found := s.state.GetWorkspace(workspaceID)
 	if !found {
-		http.Error(w, "workspace not found", http.StatusNotFound)
+		writeJSONError(w, "workspace not found", http.StatusNotFound)
 		return "", state.Workspace{}, false
 	}
 
 	// In network access mode, preview URLs only work for local clients.
 	if s.config.GetNetworkAccess() && !s.isTrustedRequest(r) {
-		http.Error(w, "preview is only available to local clients in network-access mode", http.StatusForbidden)
+		writeJSONError(w, "preview is only available to local clients in network-access mode", http.StatusForbidden)
 		return "", state.Workspace{}, false
 	}
 
@@ -93,7 +93,7 @@ func (s *Server) handlePreviewsList(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	previews, err := s.previewManager.List(ctx, workspaceID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to list previews: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("failed to list previews: %v", err), http.StatusInternalServerError)
 		return
 	}
 	resp := make([]previewResponse, 0, len(previews))
@@ -113,12 +113,12 @@ func (s *Server) handlePreviewsDelete(w http.ResponseWriter, r *http.Request) {
 
 	previewID := chi.URLParam(r, "previewID")
 	if previewID == "" {
-		http.Error(w, "preview ID is required", http.StatusBadRequest)
+		writeJSONError(w, "preview ID is required", http.StatusBadRequest)
 		return
 	}
 
 	if err := s.previewManager.Delete(workspaceID, previewID); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -155,12 +155,12 @@ func (s *Server) handlePreviewsCreate(w http.ResponseWriter, r *http.Request) {
 
 	var req createPreviewRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if req.TargetPort <= 0 || req.TargetPort > 65535 {
-		http.Error(w, "target_port must be between 1 and 65535", http.StatusBadRequest)
+		writeJSONError(w, "target_port must be between 1 and 65535", http.StatusBadRequest)
 		return
 	}
 
@@ -170,13 +170,13 @@ func (s *Server) handlePreviewsCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	host, err := preview.NormalizeTargetHost(host)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	if req.SourceSessionID != "" {
 		if _, found := s.state.GetSession(req.SourceSessionID); !found {
-			http.Error(w, "source session not found", http.StatusBadRequest)
+			writeJSONError(w, "source session not found", http.StatusBadRequest)
 			return
 		}
 	}
@@ -187,7 +187,7 @@ func (s *Server) handlePreviewsCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	ownerPID, err := lookupFn(req.TargetPort)
 	if err != nil {
-		http.Error(w, "nothing is listening on that port", http.StatusUnprocessableEntity)
+		writeJSONError(w, "nothing is listening on that port", http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -196,10 +196,10 @@ func (s *Server) handlePreviewsCreate(w http.ResponseWriter, r *http.Request) {
 	result, created, err := s.previewManager.CreateOrGet(ctx, ws, host, req.TargetPort, req.SourceSessionID, ownerPID)
 	if err != nil {
 		if errors.Is(err, preview.ErrLimitReached) {
-			http.Error(w, err.Error(), http.StatusConflict)
+			writeJSONError(w, err.Error(), http.StatusConflict)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 

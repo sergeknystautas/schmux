@@ -103,26 +103,26 @@ func (s *Server) handleDevRebuild(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if req.WorkspaceID == "" {
-		http.Error(w, "workspace_id is required", http.StatusBadRequest)
+		writeJSONError(w, "workspace_id is required", http.StatusBadRequest)
 		return
 	}
 	if req.Type == "" {
 		req.Type = "both"
 	}
 	if req.Type != "frontend" && req.Type != "backend" && req.Type != "both" {
-		http.Error(w, "type must be frontend, backend, or both", http.StatusBadRequest)
+		writeJSONError(w, "type must be frontend, backend, or both", http.StatusBadRequest)
 		return
 	}
 
 	// Validate workspace exists
 	ws, ok := s.state.GetWorkspace(req.WorkspaceID)
 	if !ok {
-		http.Error(w, "Workspace not found", http.StatusNotFound)
+		writeJSONError(w, "Workspace not found", http.StatusNotFound)
 		return
 	}
 
@@ -136,13 +136,13 @@ func (s *Server) handleDevRebuild(w http.ResponseWriter, r *http.Request) {
 
 	data, err := json.Marshal(manifest)
 	if err != nil {
-		http.Error(w, "Internal error", http.StatusInternalServerError)
+		writeJSONError(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
 
 	manifestPath := filepath.Join(schmuxdir.Get(), "dev-restart.json")
 	if err := os.WriteFile(manifestPath, data, 0644); err != nil {
-		http.Error(w, "Failed to write restart manifest", http.StatusInternalServerError)
+		writeJSONError(w, "Failed to write restart manifest", http.StatusInternalServerError)
 		return
 	}
 
@@ -229,13 +229,13 @@ func (s *Server) handleDevLogLevel(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	parsed, err := log.ParseLevel(strings.ToLower(req.Level))
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Invalid log level %q: valid levels are debug, info, warn, error", req.Level), http.StatusBadRequest)
+		writeJSONError(w, fmt.Sprintf("Invalid log level %q: valid levels are debug, info, warn, error", req.Level), http.StatusBadRequest)
 		return
 	}
 
@@ -252,7 +252,7 @@ func (s *Server) handleDevLogLevel(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDevClearPassword(w http.ResponseWriter, r *http.Request) {
 	s.config.SetRemoteAccessPasswordHash("")
 	if err := s.config.Save(); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
 		return
 	}
 

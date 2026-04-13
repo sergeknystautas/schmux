@@ -11,7 +11,7 @@ import (
 
 func (s *Server) handleRemoteAccessStatus(w http.ResponseWriter, r *http.Request) {
 	if s.tunnelManager == nil {
-		http.Error(w, "Remote access not available", http.StatusServiceUnavailable)
+		writeJSONError(w, "Remote access not available", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -24,15 +24,15 @@ func (s *Server) handleRemoteAccessStatus(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleRemoteAccessOn(w http.ResponseWriter, r *http.Request) {
 	if s.tunnelManager == nil {
-		http.Error(w, "Remote access not available", http.StatusServiceUnavailable)
+		writeJSONError(w, "Remote access not available", http.StatusServiceUnavailable)
 		return
 	}
 
 	if err := s.tunnelManager.Start(); err != nil {
 		if !s.config.GetRemoteAccessEnabled() {
-			http.Error(w, err.Error(), http.StatusForbidden)
+			writeJSONError(w, err.Error(), http.StatusForbidden)
 		} else {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			writeJSONError(w, err.Error(), http.StatusBadRequest)
 		}
 		return
 	}
@@ -46,7 +46,7 @@ func (s *Server) handleRemoteAccessOn(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRemoteAccessOff(w http.ResponseWriter, r *http.Request) {
 	if s.tunnelManager == nil {
-		http.Error(w, "Remote access not available", http.StatusServiceUnavailable)
+		writeJSONError(w, "Remote access not available", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -65,7 +65,7 @@ func (s *Server) handleRemoteAccessTestNotification(w http.ResponseWriter, r *ht
 		ntfyTopic = s.config.GetRemoteAccessNtfyTopic()
 	}
 	if ntfyTopic == "" {
-		http.Error(w, "ntfy topic not configured", http.StatusBadRequest)
+		writeJSONError(w, "ntfy topic not configured", http.StatusBadRequest)
 		return
 	}
 
@@ -73,7 +73,7 @@ func (s *Server) handleRemoteAccessTestNotification(w http.ResponseWriter, r *ht
 		NtfyURL: "https://ntfy.sh/" + ntfyTopic,
 	}
 	if err := nc.Send("", "Hi from schmux! 👋"); err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeJSONError(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 

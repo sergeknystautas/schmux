@@ -16,7 +16,7 @@ var validStyleID = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$`)
 func (s *Server) handleListStyles(w http.ResponseWriter, r *http.Request) {
 	styles, err := s.styleManager.List()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to list styles: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("failed to list styles: %v", err), http.StatusInternalServerError)
 		return
 	}
 	response := contracts.StyleListResponse{
@@ -35,7 +35,7 @@ func (s *Server) handleGetStyle(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	st, err := s.styleManager.Get(id)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("style not found: %s", id), http.StatusNotFound)
+		writeJSONError(w, fmt.Sprintf("style not found: %s", id), http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -48,19 +48,19 @@ func (s *Server) handleCreateStyle(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req contracts.StyleCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ID == "" || req.Name == "" || req.Icon == "" || req.Prompt == "" {
-		http.Error(w, "id, name, icon, and prompt are required", http.StatusBadRequest)
+		writeJSONError(w, "id, name, icon, and prompt are required", http.StatusBadRequest)
 		return
 	}
 	if !validStyleID.MatchString(req.ID) {
-		http.Error(w, "id must be a URL-safe slug (lowercase alphanumeric + hyphens)", http.StatusBadRequest)
+		writeJSONError(w, "id must be a URL-safe slug (lowercase alphanumeric + hyphens)", http.StatusBadRequest)
 		return
 	}
 	if req.ID == "create" || req.ID == "none" {
-		http.Error(w, fmt.Sprintf("%q is a reserved ID", req.ID), http.StatusBadRequest)
+		writeJSONError(w, fmt.Sprintf("%q is a reserved ID", req.ID), http.StatusBadRequest)
 		return
 	}
 	st := &style.Style{
@@ -68,7 +68,7 @@ func (s *Server) handleCreateStyle(w http.ResponseWriter, r *http.Request) {
 		Tagline: req.Tagline, Prompt: req.Prompt, BuiltIn: false,
 	}
 	if err := s.styleManager.Create(st); err != nil {
-		http.Error(w, fmt.Sprintf("failed to create style: %v", err), http.StatusConflict)
+		writeJSONError(w, fmt.Sprintf("failed to create style: %v", err), http.StatusConflict)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -83,12 +83,12 @@ func (s *Server) handleUpdateStyle(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	existing, err := s.styleManager.Get(id)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("style not found: %s", id), http.StatusNotFound)
+		writeJSONError(w, fmt.Sprintf("style not found: %s", id), http.StatusNotFound)
 		return
 	}
 	var req contracts.StyleUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name != nil {
@@ -104,7 +104,7 @@ func (s *Server) handleUpdateStyle(w http.ResponseWriter, r *http.Request) {
 		existing.Prompt = *req.Prompt
 	}
 	if err := s.styleManager.Update(existing); err != nil {
-		http.Error(w, fmt.Sprintf("failed to update style: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("failed to update style: %v", err), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -117,17 +117,17 @@ func (s *Server) handleDeleteStyle(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	existing, err := s.styleManager.Get(id)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("style not found: %s", id), http.StatusNotFound)
+		writeJSONError(w, fmt.Sprintf("style not found: %s", id), http.StatusNotFound)
 		return
 	}
 	if existing.BuiltIn {
 		if err := s.styleManager.ResetBuiltIn(id); err != nil {
-			http.Error(w, fmt.Sprintf("failed to reset style: %v", err), http.StatusInternalServerError)
+			writeJSONError(w, fmt.Sprintf("failed to reset style: %v", err), http.StatusInternalServerError)
 			return
 		}
 	} else {
 		if err := s.styleManager.Delete(id); err != nil {
-			http.Error(w, fmt.Sprintf("failed to delete style: %v", err), http.StatusInternalServerError)
+			writeJSONError(w, fmt.Sprintf("failed to delete style: %v", err), http.StatusInternalServerError)
 			return
 		}
 	}

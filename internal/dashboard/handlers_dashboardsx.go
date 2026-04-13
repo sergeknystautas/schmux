@@ -28,7 +28,7 @@ func (s *Server) setDSXProvisionStatus(status, domain, message string) {
 // GET /api/dashboardsx/provision-status
 func (s *Server) handleDashboardSXProvisionStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -49,13 +49,13 @@ func (s *Server) handleDashboardSXProvisionStatus(w http.ResponseWriter, r *http
 // GET /api/dashboardsx/callback?callback_token=<token>
 func (s *Server) handleDashboardSXCallback(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	callbackToken := strings.TrimSpace(r.URL.Query().Get("callback_token"))
 	if callbackToken == "" {
-		http.Error(w, "missing callback_token parameter", http.StatusBadRequest)
+		writeJSONError(w, "missing callback_token parameter", http.StatusBadRequest)
 		return
 	}
 
@@ -69,7 +69,7 @@ func (s *Server) handleDashboardSXCallback(w http.ResponseWriter, r *http.Reques
 	instanceKey, err := dashboardsx.EnsureInstanceKey()
 	if err != nil {
 		s.setDSXProvisionStatus("error", "", fmt.Sprintf("Failed to read instance key: %v", err))
-		http.Error(w, "Failed to read instance key", http.StatusInternalServerError)
+		writeJSONError(w, "Failed to read instance key", http.StatusInternalServerError)
 		return
 	}
 
@@ -87,14 +87,14 @@ func (s *Server) handleDashboardSXCallback(w http.ResponseWriter, r *http.Reques
 	resp, err := client.CallbackExchange(callbackToken)
 	if err != nil {
 		s.setDSXProvisionStatus("error", "", fmt.Sprintf("Token exchange failed: %v", err))
-		http.Error(w, "Token exchange failed: "+err.Error(), http.StatusBadGateway)
+		writeJSONError(w, "Token exchange failed: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 
 	// Validate returned instance key matches ours
 	if resp.InstanceKey != instanceKey {
 		s.setDSXProvisionStatus("error", "", "Instance key mismatch after token exchange")
-		http.Error(w, "Instance key mismatch", http.StatusForbidden)
+		writeJSONError(w, "Instance key mismatch", http.StatusForbidden)
 		return
 	}
 

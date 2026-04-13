@@ -140,13 +140,13 @@ func (s *Server) checkWSOrigin(r *http.Request) bool {
 func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "id")
 	if sessionID == "" {
-		http.Error(w, "session ID is required", http.StatusBadRequest)
+		writeJSONError(w, "session ID is required", http.StatusBadRequest)
 		return
 	}
 	if s.requiresAuth() {
 		if s.authEnabled() || !s.isTrustedRequest(r) {
 			if _, err := s.authenticateRequest(r); err != nil {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				writeJSONError(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
 		}
@@ -170,19 +170,19 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermQueryTimeoutMs())*time.Millisecond)
 	if !s.session.IsRunning(ctx, sessionID) {
 		cancel()
-		http.Error(w, "session not running", http.StatusGone)
+		writeJSONError(w, "session not running", http.StatusGone)
 		return
 	}
 	cancel()
 
 	sess, err := s.session.GetSession(sessionID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("session not found: %v", err), http.StatusNotFound)
+		writeJSONError(w, fmt.Sprintf("session not found: %v", err), http.StatusNotFound)
 		return
 	}
 	tracker, err := s.session.GetTracker(sessionID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to get tracker: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("failed to get tracker: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -1129,7 +1129,7 @@ func nudgeStateTier(displayState string) int {
 func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request) {
 	provisionID := chi.URLParam(r, "id")
 	if provisionID == "" {
-		http.Error(w, "provision ID is required", http.StatusBadRequest)
+		writeJSONError(w, "provision ID is required", http.StatusBadRequest)
 		return
 	}
 
@@ -1137,21 +1137,21 @@ func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request
 		// Local requests bypass tunnel-only auth (consistent with authMiddleware)
 		if s.authEnabled() || !s.isTrustedRequest(r) {
 			if _, err := s.authenticateRequest(r); err != nil {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				writeJSONError(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
 		}
 	}
 
 	if s.remoteManager == nil {
-		http.Error(w, "remote workspace support not enabled", http.StatusServiceUnavailable)
+		writeJSONError(w, "remote workspace support not enabled", http.StatusServiceUnavailable)
 		return
 	}
 
 	// Parse provision ID to get host ID: "provision-remote-XXXXXXXX" -> "remote-XXXXXXXX"
 	hostID := strings.TrimPrefix(provisionID, "provision-")
 	if hostID == provisionID {
-		http.Error(w, "invalid provision ID format", http.StatusBadRequest)
+		writeJSONError(w, "invalid provision ID format", http.StatusBadRequest)
 		return
 	}
 
@@ -1159,7 +1159,7 @@ func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request
 	conn := s.remoteManager.GetConnection(hostID)
 	if conn == nil {
 		logging.Sub(s.logger, "ws").Error("connection not found", "host_id", hostID, "provision_id", provisionID)
-		http.Error(w, "remote host connection not found", http.StatusNotFound)
+		writeJSONError(w, "remote host connection not found", http.StatusNotFound)
 		return
 	}
 
@@ -1178,7 +1178,7 @@ func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request
 		}
 		if ptmx == nil {
 			logging.Sub(s.logger, "ws").Error("PTY not available after timeout", "host_id", hostID[:8])
-			http.Error(w, "provisioning terminal not available", http.StatusServiceUnavailable)
+			writeJSONError(w, "provisioning terminal not available", http.StatusServiceUnavailable)
 			return
 		}
 	}

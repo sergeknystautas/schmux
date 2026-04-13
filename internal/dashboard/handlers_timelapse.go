@@ -17,7 +17,7 @@ func (s *Server) handleTimelapseList(w http.ResponseWriter, r *http.Request) {
 	dir := s.recordingsDir()
 	recordings, err := timelapse.ListRecordings(dir)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if recordings == nil {
@@ -35,7 +35,7 @@ func (s *Server) handleTimelapseExport(w http.ResponseWriter, r *http.Request) {
 	compressedPath := filepath.Join(dir, recordingID+".timelapse.cast")
 
 	if _, err := os.Stat(recordingPath); os.IsNotExist(err) {
-		http.Error(w, "recording not found", http.StatusNotFound)
+		writeJSONError(w, "recording not found", http.StatusNotFound)
 		return
 	}
 
@@ -59,7 +59,7 @@ func (s *Server) handleTimelapseExport(w http.ResponseWriter, r *http.Request) {
 	exp := timelapse.NewExporter(recordingPath, compressedPath, nil)
 	if err := exp.Export(); err != nil {
 		s.logger.Error("timelapse compression failed", "recording", recordingID, "err", err)
-		http.Error(w, "compression failed: "+err.Error(), http.StatusInternalServerError)
+		writeJSONError(w, "compression failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -87,7 +87,7 @@ func (s *Server) handleTimelapseDownload(w http.ResponseWriter, r *http.Request)
 	}
 
 	if _, err := os.Stat(castPath); os.IsNotExist(err) {
-		http.Error(w, "file not found", http.StatusNotFound)
+		writeJSONError(w, "file not found", http.StatusNotFound)
 		return
 	}
 
@@ -104,7 +104,7 @@ func (s *Server) handleTimelapseDelete(w http.ResponseWriter, r *http.Request) {
 	compressedPath := filepath.Join(dir, recordingID+".timelapse.cast")
 
 	if _, err := os.Stat(castPath); os.IsNotExist(err) {
-		http.Error(w, "recording not found", http.StatusNotFound)
+		writeJSONError(w, "recording not found", http.StatusNotFound)
 		return
 	}
 

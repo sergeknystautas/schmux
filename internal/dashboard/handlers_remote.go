@@ -109,7 +109,7 @@ func (s *Server) handleCreateRemoteProfile(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -126,12 +126,12 @@ func (s *Server) handleCreateRemoteProfile(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := s.config.AddRemoteProfile(rp); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	if err := s.config.Save(); err != nil {
-		http.Error(w, "Failed to save config", http.StatusInternalServerError)
+		writeJSONError(w, "Failed to save config", http.StatusInternalServerError)
 		return
 	}
 
@@ -161,13 +161,13 @@ func (s *Server) handleCreateRemoteProfile(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleRemoteProfileGet(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		http.Error(w, "Profile ID required", http.StatusBadRequest)
+		writeJSONError(w, "Profile ID required", http.StatusBadRequest)
 		return
 	}
 
 	profile, found := s.config.GetRemoteProfile(id)
 	if !found {
-		http.Error(w, "Profile not found", http.StatusNotFound)
+		writeJSONError(w, "Profile not found", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -178,13 +178,13 @@ func (s *Server) handleRemoteProfileGet(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleRemoteProfileUpdate(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		http.Error(w, "Profile ID required", http.StatusBadRequest)
+		writeJSONError(w, "Profile ID required", http.StatusBadRequest)
 		return
 	}
 
 	_, found := s.config.GetRemoteProfile(id)
 	if !found {
-		http.Error(w, "Profile not found", http.StatusNotFound)
+		writeJSONError(w, "Profile not found", http.StatusNotFound)
 		return
 	}
 
@@ -201,7 +201,7 @@ func (s *Server) handleRemoteProfileUpdate(w http.ResponseWriter, r *http.Reques
 		Flavors               []config.RemoteProfileFlavor `json:"flavors"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -219,12 +219,12 @@ func (s *Server) handleRemoteProfileUpdate(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := s.config.UpdateRemoteProfile(rp); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	if err := s.config.Save(); err != nil {
-		http.Error(w, "Failed to save config", http.StatusInternalServerError)
+		writeJSONError(w, "Failed to save config", http.StatusInternalServerError)
 		return
 	}
 
@@ -236,17 +236,17 @@ func (s *Server) handleRemoteProfileUpdate(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleRemoteProfileDelete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		http.Error(w, "Profile ID required", http.StatusBadRequest)
+		writeJSONError(w, "Profile ID required", http.StatusBadRequest)
 		return
 	}
 
 	if err := s.config.RemoveRemoteProfile(id); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		writeJSONError(w, err.Error(), http.StatusNotFound)
 		return
 	}
 
 	if err := s.config.Save(); err != nil {
-		http.Error(w, "Failed to save config", http.StatusInternalServerError)
+		writeJSONError(w, "Failed to save config", http.StatusInternalServerError)
 		return
 	}
 
@@ -315,7 +315,7 @@ func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request)
 	}
 
 	if !s.connectLimiter.Allow(rateLimitKey) {
-		http.Error(w, "Rate limit exceeded. Max 3 connection attempts per minute.",
+		writeJSONError(w, "Rate limit exceeded. Max 3 connection attempts per minute.",
 			http.StatusTooManyRequests)
 		return
 	}
@@ -327,40 +327,40 @@ func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if req.ProfileID == "" {
-		http.Error(w, "profile_id is required", http.StatusBadRequest)
+		writeJSONError(w, "profile_id is required", http.StatusBadRequest)
 		return
 	}
 	if req.Flavor == "" {
-		http.Error(w, "flavor is required", http.StatusBadRequest)
+		writeJSONError(w, "flavor is required", http.StatusBadRequest)
 		return
 	}
 
 	if s.remoteManager == nil {
-		http.Error(w, "Remote workspace support not enabled", http.StatusServiceUnavailable)
+		writeJSONError(w, "Remote workspace support not enabled", http.StatusServiceUnavailable)
 		return
 	}
 
 	// Check if profile exists and resolve flavor
 	profile, found := s.config.GetRemoteProfile(req.ProfileID)
 	if !found {
-		http.Error(w, fmt.Sprintf("Profile not found: %s", req.ProfileID), http.StatusNotFound)
+		writeJSONError(w, fmt.Sprintf("Profile not found: %s", req.ProfileID), http.StatusNotFound)
 		return
 	}
 	resolved, err := config.ResolveProfileFlavor(profile, req.Flavor)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	// Start connection (returns immediately with provisioning session ID)
 	provisioningSessionID, err := s.remoteManager.StartConnect(req.ProfileID, req.Flavor)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to start connection: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("Failed to start connection: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -385,18 +385,18 @@ func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Request) {
 	hostID := chi.URLParam(r, "hostID")
 	if hostID == "" {
-		http.Error(w, "Host ID required", http.StatusBadRequest)
+		writeJSONError(w, "Host ID required", http.StatusBadRequest)
 		return
 	}
 
 	if s.remoteManager == nil {
-		http.Error(w, "Remote workspace support not enabled", http.StatusServiceUnavailable)
+		writeJSONError(w, "Remote workspace support not enabled", http.StatusServiceUnavailable)
 		return
 	}
 
 	host, found := s.state.GetRemoteHost(hostID)
 	if !found {
-		http.Error(w, "Host not found", http.StatusNotFound)
+		writeJSONError(w, "Host not found", http.StatusNotFound)
 		return
 	}
 
@@ -436,7 +436,7 @@ func (s *Server) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Reques
 		s.BroadcastSessions()
 	})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to start reconnection: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("Failed to start reconnection: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -460,7 +460,7 @@ func (s *Server) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleRemoteHostDisconnect(w http.ResponseWriter, r *http.Request) {
 	hostID := chi.URLParam(r, "hostID")
 	if hostID == "" {
-		http.Error(w, "Host ID required", http.StatusBadRequest)
+		writeJSONError(w, "Host ID required", http.StatusBadRequest)
 		return
 	}
 
@@ -479,7 +479,7 @@ func (s *Server) handleRemoteHostDisconnect(w http.ResponseWriter, r *http.Reque
 			s.remoteManager.Disconnect(hostID)
 		}
 		if err := s.state.Save(); err != nil {
-			http.Error(w, "Failed to save state", http.StatusInternalServerError)
+			writeJSONError(w, "Failed to save state", http.StatusInternalServerError)
 			return
 		}
 	} else {
@@ -492,11 +492,11 @@ func (s *Server) handleRemoteHostDisconnect(w http.ResponseWriter, r *http.Reque
 		} else {
 			// Fallback: just update state
 			if err := s.state.UpdateRemoteHostStatus(hostID, state.RemoteHostStatusDisconnected); err != nil {
-				http.Error(w, fmt.Sprintf("Failed to update host: %v", err), http.StatusInternalServerError)
+				writeJSONError(w, fmt.Sprintf("Failed to update host: %v", err), http.StatusInternalServerError)
 				return
 			}
 			if err := s.state.Save(); err != nil {
-				http.Error(w, "Failed to save state", http.StatusInternalServerError)
+				writeJSONError(w, "Failed to save state", http.StatusInternalServerError)
 				return
 			}
 		}
@@ -617,12 +617,12 @@ func (s *Server) handleRemoteConnectStream(w http.ResponseWriter, r *http.Reques
 	profileID := r.URL.Query().Get("profile_id")
 	flavorStr := r.URL.Query().Get("flavor")
 	if profileID == "" || flavorStr == "" {
-		http.Error(w, "profile_id and flavor required", http.StatusBadRequest)
+		writeJSONError(w, "profile_id and flavor required", http.StatusBadRequest)
 		return
 	}
 
 	if s.remoteManager == nil {
-		http.Error(w, "Remote workspace support not enabled", http.StatusServiceUnavailable)
+		writeJSONError(w, "Remote workspace support not enabled", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -633,7 +633,7 @@ func (s *Server) handleRemoteConnectStream(w http.ResponseWriter, r *http.Reques
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		writeJSONError(w, "Streaming not supported", http.StatusInternalServerError)
 		return
 	}
 
