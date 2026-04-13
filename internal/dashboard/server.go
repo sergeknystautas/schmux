@@ -814,17 +814,23 @@ func (s *Server) Start() error {
 			})
 
 			// Spawn entry routes
+			spawnEntryH := &SpawnEntryHandlers{
+				spawnStore:             s.spawnStore,
+				spawnMetadataStore:     s.spawnMetadataStore,
+				logger:                 s.logger,
+				getAutolearnWorkspaces: s.getAutolearnWorkspaces,
+			}
 			r.Route("/spawn/{repo}", func(r chi.Router) {
 				r.Use(validateSpawnRepo)
-				r.Get("/entries", s.handleListSpawnEntries)
-				r.Get("/entries/all", s.handleListAllSpawnEntries)
-				r.Post("/entries", s.handleCreateSpawnEntry)
-				r.Put("/entries/{id}", s.handleUpdateSpawnEntry)
-				r.Delete("/entries/{id}", s.handleDeleteSpawnEntry)
-				r.Post("/entries/{id}/pin", s.handlePinSpawnEntry)
-				r.Post("/entries/{id}/dismiss", s.handleDismissSpawnEntry)
-				r.Post("/entries/{id}/use", s.handleRecordSpawnEntryUse)
-				r.Get("/prompt-history", s.handlePromptHistory)
+				r.Get("/entries", spawnEntryH.handleListSpawnEntries)
+				r.Get("/entries/all", spawnEntryH.handleListAllSpawnEntries)
+				r.Post("/entries", spawnEntryH.handleCreateSpawnEntry)
+				r.Put("/entries/{id}", spawnEntryH.handleUpdateSpawnEntry)
+				r.Delete("/entries/{id}", spawnEntryH.handleDeleteSpawnEntry)
+				r.Post("/entries/{id}/pin", spawnEntryH.handlePinSpawnEntry)
+				r.Post("/entries/{id}/dismiss", spawnEntryH.handleDismissSpawnEntry)
+				r.Post("/entries/{id}/use", spawnEntryH.handleRecordSpawnEntryUse)
+				r.Get("/prompt-history", spawnEntryH.handlePromptHistory)
 			})
 		})
 
