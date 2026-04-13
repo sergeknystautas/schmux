@@ -6,17 +6,24 @@ import (
 	"net/http"
 	"regexp"
 
+	"github.com/charmbracelet/log"
 	"github.com/go-chi/chi/v5"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/persona"
 )
 
+// PersonaHandlers groups HTTP handlers for persona CRUD operations.
+type PersonaHandlers struct {
+	personaManager *persona.Manager
+	logger         *log.Logger
+}
+
 // validPersonaID matches URL-safe slugs: lowercase alphanumeric + hyphens.
 var validPersonaID = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$`)
 
 // handleListPersonas returns all personas.
-func (s *Server) handleListPersonas(w http.ResponseWriter, r *http.Request) {
-	personas, err := s.personaManager.List()
+func (h *PersonaHandlers) handleListPersonas(w http.ResponseWriter, r *http.Request) {
+	personas, err := h.personaManager.List()
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("failed to list personas: %v", err), http.StatusInternalServerError)
 		return
@@ -31,14 +38,14 @@ func (s *Server) handleListPersonas(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		s.logger.Error("failed to encode response", "handler", "list-personas", "err", err)
+		h.logger.Error("failed to encode response", "handler", "list-personas", "err", err)
 	}
 }
 
 // handleGetPersona returns a single persona by ID.
-func (s *Server) handleGetPersona(w http.ResponseWriter, r *http.Request) {
+func (h *PersonaHandlers) handleGetPersona(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	p, err := s.personaManager.Get(id)
+	p, err := h.personaManager.Get(id)
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("persona not found: %s", id), http.StatusNotFound)
 		return
@@ -46,12 +53,12 @@ func (s *Server) handleGetPersona(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(personaToContract(p)); err != nil {
-		s.logger.Error("failed to encode response", "handler", "get-persona", "err", err)
+		h.logger.Error("failed to encode response", "handler", "get-persona", "err", err)
 	}
 }
 
 // handleCreatePersona creates a new persona.
-func (s *Server) handleCreatePersona(w http.ResponseWriter, r *http.Request) {
+func (h *PersonaHandlers) handleCreatePersona(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 
 	var req contracts.PersonaCreateRequest
@@ -88,7 +95,7 @@ func (s *Server) handleCreatePersona(w http.ResponseWriter, r *http.Request) {
 		BuiltIn:      false,
 	}
 
-	if err := s.personaManager.Create(p); err != nil {
+	if err := h.personaManager.Create(p); err != nil {
 		writeJSONError(w, fmt.Sprintf("failed to create persona: %v", err), http.StatusConflict)
 		return
 	}
@@ -96,16 +103,16 @@ func (s *Server) handleCreatePersona(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(personaToContract(p)); err != nil {
-		s.logger.Error("failed to encode response", "handler", "create-persona", "err", err)
+		h.logger.Error("failed to encode response", "handler", "create-persona", "err", err)
 	}
 }
 
 // handleUpdatePersona updates an existing persona.
-func (s *Server) handleUpdatePersona(w http.ResponseWriter, r *http.Request) {
+func (h *PersonaHandlers) handleUpdatePersona(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	id := chi.URLParam(r, "id")
 
-	existing, err := s.personaManager.Get(id)
+	existing, err := h.personaManager.Get(id)
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("persona not found: %s", id), http.StatusNotFound)
 		return
@@ -134,22 +141,22 @@ func (s *Server) handleUpdatePersona(w http.ResponseWriter, r *http.Request) {
 		existing.Expectations = *req.Expectations
 	}
 
-	if err := s.personaManager.Update(existing); err != nil {
+	if err := h.personaManager.Update(existing); err != nil {
 		writeJSONError(w, fmt.Sprintf("failed to update persona: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(personaToContract(existing)); err != nil {
-		s.logger.Error("failed to encode response", "handler", "update-persona", "err", err)
+		h.logger.Error("failed to encode response", "handler", "update-persona", "err", err)
 	}
 }
 
 // handleDeletePersona deletes a persona or resets a built-in to default.
-func (s *Server) handleDeletePersona(w http.ResponseWriter, r *http.Request) {
+func (h *PersonaHandlers) handleDeletePersona(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	existing, err := s.personaManager.Get(id)
+	existing, err := h.personaManager.Get(id)
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("persona not found: %s", id), http.StatusNotFound)
 		return
@@ -157,12 +164,12 @@ func (s *Server) handleDeletePersona(w http.ResponseWriter, r *http.Request) {
 
 	if existing.BuiltIn {
 		// Reset built-in to default
-		if err := s.personaManager.ResetBuiltIn(id); err != nil {
+		if err := h.personaManager.ResetBuiltIn(id); err != nil {
 			writeJSONError(w, fmt.Sprintf("failed to reset persona: %v", err), http.StatusInternalServerError)
 			return
 		}
 	} else {
-		if err := s.personaManager.Delete(id); err != nil {
+		if err := h.personaManager.Delete(id); err != nil {
 			writeJSONError(w, fmt.Sprintf("failed to delete persona: %v", err), http.StatusInternalServerError)
 			return
 		}

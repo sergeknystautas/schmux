@@ -12,6 +12,14 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 )
 
+// newTestStyleHandlers creates a StyleHandlers from a test Server.
+func newTestStyleHandlers(s *Server) *StyleHandlers {
+	return &StyleHandlers{
+		styleManager: s.styleManager,
+		logger:       s.logger,
+	}
+}
+
 func styleRequest(method, url string, body interface{}) *http.Request {
 	var req *http.Request
 	if body != nil {
@@ -34,10 +42,11 @@ func styleRequestWithID(method, url, id string, body interface{}) *http.Request 
 
 func TestHandleListStyles_ReturnsBuiltins(t *testing.T) {
 	server, _, _ := newTestServer(t)
+	h := newTestStyleHandlers(server)
 
 	req := styleRequest("GET", "/api/styles", nil)
 	rr := httptest.NewRecorder()
-	server.handleListStyles(rr, req)
+	h.handleListStyles(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
@@ -128,9 +137,10 @@ func TestHandleCreateStyle_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server, _, _ := newTestServer(t)
+			h := newTestStyleHandlers(server)
 			req := styleRequest("POST", "/api/styles", tt.body)
 			rr := httptest.NewRecorder()
-			server.handleCreateStyle(rr, req)
+			h.handleCreateStyle(rr, req)
 
 			if rr.Code != tt.wantCode {
 				t.Errorf("got status %d, want %d; body: %s", rr.Code, tt.wantCode, rr.Body.String())
@@ -144,6 +154,7 @@ func TestHandleCreateStyle_Validation(t *testing.T) {
 
 func TestHandleCreateStyle_SuccessAndDuplicate(t *testing.T) {
 	server, _, _ := newTestServer(t)
+	h := newTestStyleHandlers(server)
 
 	body := contracts.StyleCreateRequest{
 		ID:      "my-style",
@@ -156,7 +167,7 @@ func TestHandleCreateStyle_SuccessAndDuplicate(t *testing.T) {
 	// First create should succeed
 	req := styleRequest("POST", "/api/styles", body)
 	rr := httptest.NewRecorder()
-	server.handleCreateStyle(rr, req)
+	h.handleCreateStyle(rr, req)
 
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
@@ -176,7 +187,7 @@ func TestHandleCreateStyle_SuccessAndDuplicate(t *testing.T) {
 	// Duplicate create should return 409
 	req = styleRequest("POST", "/api/styles", body)
 	rr = httptest.NewRecorder()
-	server.handleCreateStyle(rr, req)
+	h.handleCreateStyle(rr, req)
 
 	if rr.Code != http.StatusConflict {
 		t.Errorf("expected 409 for duplicate, got %d: %s", rr.Code, rr.Body.String())
@@ -185,11 +196,12 @@ func TestHandleCreateStyle_SuccessAndDuplicate(t *testing.T) {
 
 func TestHandleDeleteStyle_BuiltInResets(t *testing.T) {
 	server, _, _ := newTestServer(t)
+	h := newTestStyleHandlers(server)
 
 	// Delete a built-in style (pirate) — should reset, not remove
 	req := styleRequestWithID("DELETE", "/api/styles/pirate", "pirate", nil)
 	rr := httptest.NewRecorder()
-	server.handleDeleteStyle(rr, req)
+	h.handleDeleteStyle(rr, req)
 
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d: %s", rr.Code, rr.Body.String())
@@ -198,7 +210,7 @@ func TestHandleDeleteStyle_BuiltInResets(t *testing.T) {
 	// Verify it still exists after "delete" (reset)
 	req = styleRequestWithID("GET", "/api/styles/pirate", "pirate", nil)
 	rr = httptest.NewRecorder()
-	server.handleGetStyle(rr, req)
+	h.handleGetStyle(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("built-in style should still exist after delete (reset), got %d", rr.Code)
@@ -215,6 +227,7 @@ func TestHandleDeleteStyle_BuiltInResets(t *testing.T) {
 
 func TestHandleDeleteStyle_CustomRemoves(t *testing.T) {
 	server, _, _ := newTestServer(t)
+	h := newTestStyleHandlers(server)
 
 	// Create a custom style first
 	createBody := contracts.StyleCreateRequest{
@@ -222,7 +235,7 @@ func TestHandleDeleteStyle_CustomRemoves(t *testing.T) {
 	}
 	req := styleRequest("POST", "/api/styles", createBody)
 	rr := httptest.NewRecorder()
-	server.handleCreateStyle(rr, req)
+	h.handleCreateStyle(rr, req)
 
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
@@ -231,7 +244,7 @@ func TestHandleDeleteStyle_CustomRemoves(t *testing.T) {
 	// Delete the custom style
 	req = styleRequestWithID("DELETE", "/api/styles/ephemeral", "ephemeral", nil)
 	rr = httptest.NewRecorder()
-	server.handleDeleteStyle(rr, req)
+	h.handleDeleteStyle(rr, req)
 
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d: %s", rr.Code, rr.Body.String())
@@ -240,7 +253,7 @@ func TestHandleDeleteStyle_CustomRemoves(t *testing.T) {
 	// Verify it's gone (404)
 	req = styleRequestWithID("GET", "/api/styles/ephemeral", "ephemeral", nil)
 	rr = httptest.NewRecorder()
-	server.handleGetStyle(rr, req)
+	h.handleGetStyle(rr, req)
 
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("expected 404 after deleting custom style, got %d", rr.Code)
@@ -249,10 +262,11 @@ func TestHandleDeleteStyle_CustomRemoves(t *testing.T) {
 
 func TestHandleDeleteStyle_NotFound(t *testing.T) {
 	server, _, _ := newTestServer(t)
+	h := newTestStyleHandlers(server)
 
 	req := styleRequestWithID("DELETE", "/api/styles/nonexistent", "nonexistent", nil)
 	rr := httptest.NewRecorder()
-	server.handleDeleteStyle(rr, req)
+	h.handleDeleteStyle(rr, req)
 
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d: %s", rr.Code, rr.Body.String())

@@ -733,18 +733,26 @@ func (s *Server) Start() error {
 			r.Delete("/config/remote-profiles/{id}", s.handleRemoteProfileDelete)
 
 			// Persona routes
-			r.Get("/personas", s.handleListPersonas)
-			r.Post("/personas", s.handleCreatePersona)
-			r.Get("/personas/{id}", s.handleGetPersona)
-			r.Put("/personas/{id}", s.handleUpdatePersona)
-			r.Delete("/personas/{id}", s.handleDeletePersona)
+			personaH := &PersonaHandlers{
+				personaManager: s.personaManager,
+				logger:         s.logger,
+			}
+			r.Get("/personas", personaH.handleListPersonas)
+			r.Post("/personas", personaH.handleCreatePersona)
+			r.Get("/personas/{id}", personaH.handleGetPersona)
+			r.Put("/personas/{id}", personaH.handleUpdatePersona)
+			r.Delete("/personas/{id}", personaH.handleDeletePersona)
 
 			// Style routes
-			r.Get("/styles", s.handleListStyles)
-			r.Post("/styles", s.handleCreateStyle)
-			r.Get("/styles/{id}", s.handleGetStyle)
-			r.Put("/styles/{id}", s.handleUpdateStyle)
-			r.Delete("/styles/{id}", s.handleDeleteStyle)
+			styleH := &StyleHandlers{
+				styleManager: s.styleManager,
+				logger:       s.logger,
+			}
+			r.Get("/styles", styleH.handleListStyles)
+			r.Post("/styles", styleH.handleCreateStyle)
+			r.Get("/styles/{id}", styleH.handleGetStyle)
+			r.Put("/styles/{id}", styleH.handleUpdateStyle)
+			r.Delete("/styles/{id}", styleH.handleDeleteStyle)
 
 			// Remote host routes
 			r.Post("/remote/hosts/{hostID}/reconnect", s.handleRemoteHostReconnect)
