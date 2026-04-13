@@ -22,8 +22,8 @@ import (
 )
 
 // handleWorkspaceCommitGraph handles GET /api/workspaces/{id}/commit-graph.
-func (s *Server) handleWorkspaceCommitGraph(w http.ResponseWriter, r *http.Request) {
-	ws, ok := s.requireWorkspace(w, r)
+func (h *GitHandlers) handleWorkspaceCommitGraph(w http.ResponseWriter, r *http.Request) {
+	ws, ok := h.requireWorkspace(w, r)
 	if !ok {
 		return
 	}
@@ -74,14 +74,14 @@ func (s *Server) handleWorkspaceCommitGraph(w http.ResponseWriter, r *http.Reque
 		if maxTotal > 10 {
 			maxTotal = 10
 		}
-		s.handleRemoteCommitGraph(w, r, ws, maxTotal, mainContext)
+		h.handleRemoteCommitGraph(w, r, ws, maxTotal, mainContext)
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	resp, err := s.workspace.GetGitGraph(ctx, ws.ID, maxTotal, mainContext)
+	resp, err := h.workspace.GetGitGraph(ctx, ws.ID, maxTotal, mainContext)
 	if err != nil {
 		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -98,26 +98,26 @@ func (s *Server) handleWorkspaceCommitGraph(w http.ResponseWriter, r *http.Reque
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		s.logger.Error("failed to encode response", "handler", "commit-graph", "err", err)
+		h.logger.Error("failed to encode response", "handler", "commit-graph", "err", err)
 	}
 }
 
 // handleRemoteCommitGraph handles git graph requests for remote workspaces.
 // Uses a single batched RunCommand to resolve HEAD and fetch the log in one
 // tmux window — minimizes control mode channel contention.
-func (s *Server) handleRemoteCommitGraph(w http.ResponseWriter, r *http.Request, ws state.Workspace, maxTotal int, mainContext int) {
-	if s.remoteManager == nil {
+func (h *GitHandlers) handleRemoteCommitGraph(w http.ResponseWriter, r *http.Request, ws state.Workspace, maxTotal int, mainContext int) {
+	if h.remoteManager == nil {
 		writeJSONError(w, "remote manager not available", http.StatusServiceUnavailable)
 		return
 	}
 
-	conn := s.remoteManager.GetConnection(ws.RemoteHostID)
+	conn := h.remoteManager.GetConnection(ws.RemoteHostID)
 	if conn == nil || !conn.IsConnected() {
 		writeJSONError(w, "remote host not connected", http.StatusServiceUnavailable)
 		return
 	}
 
-	cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
+	cb := vcs.NewCommandBuilder(h.vcsTypeForWorkspace(ws))
 
 	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
@@ -141,7 +141,7 @@ func (s *Server) handleRemoteCommitGraph(w http.ResponseWriter, r *http.Request,
 
 	out, err := conn.RunCommand(ctx, workdir, batchCmd)
 	if err != nil {
-		s.logger.Error("remote commit graph failed", "err", err)
+		h.logger.Error("remote commit graph failed", "err", err)
 		writeJSONError(w, fmt.Sprintf("commit graph failed: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -171,13 +171,13 @@ func (s *Server) handleRemoteCommitGraph(w http.ResponseWriter, r *http.Request,
 		logOutput = strings.TrimSpace(sections[2])
 	}
 
-	if s.logger != nil {
+	if h.logger != nil {
 		lines := strings.Split(logOutput, "\n")
 		firstLine := ""
 		if len(lines) > 0 {
 			firstLine = lines[0]
 		}
-		s.logger.Debug("remote commit graph: raw output",
+		h.logger.Debug("remote commit graph: raw output",
 			"head", localHead,
 			"log_len", len(logOutput),
 			"line_count", len(lines),
@@ -191,7 +191,7 @@ func (s *Server) handleRemoteCommitGraph(w http.ResponseWriter, r *http.Request,
 	// Build workspace ID mapping for annotations.
 	// Truncate hash-only branch names to match the localBranch truncation above.
 	branchWorkspaces := make(map[string][]string)
-	for _, ws2 := range s.state.GetWorkspaces() {
+	for _, ws2 := range h.state.GetWorkspaces() {
 		if ws2.Repo == ws.Repo {
 			bName := ws2.Branch
 			if isValidVCSHash(bName) && len(bName) >= 12 {
@@ -217,7 +217,7 @@ func (s *Server) handleRemoteCommitGraph(w http.ResponseWriter, r *http.Request,
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		s.logger.Error("failed to encode response", "handler", "remote-commit-graph", "err", err)
+		h.logger.Error("failed to encode response", "handler", "remote-commit-graph", "err", err)
 	}
 }
 
@@ -235,7 +235,7 @@ func isValidVCSHash(s string) bool {
 }
 
 // handleWorkspaceCommitDetail handles GET /api/workspaces/{id}/commit-detail/{hash}.
-func (s *Server) handleWorkspaceCommitDetail(w http.ResponseWriter, r *http.Request) {
+func (h *GitHandlers) handleWorkspaceCommitDetail(w http.ResponseWriter, r *http.Request) {
 	// Extract workspace ID and commit hash from chi URL params
 	workspaceID := chi.URLParam(r, "workspaceID")
 	commitHash := chi.URLParam(r, "hash")
@@ -245,7 +245,7 @@ func (s *Server) handleWorkspaceCommitDetail(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Verify workspace exists
-	ws, ok := s.state.GetWorkspace(workspaceID)
+	ws, ok := h.state.GetWorkspace(workspaceID)
 	if !ok {
 		writeJSONError(w, "workspace not found: "+workspaceID, http.StatusNotFound)
 		return
@@ -265,7 +265,7 @@ func (s *Server) handleWorkspaceCommitDetail(w http.ResponseWriter, r *http.Requ
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	resp, err := s.workspace.GetCommitDetail(ctx, workspaceID, commitHash)
+	resp, err := h.workspace.GetCommitDetail(ctx, workspaceID, commitHash)
 	if err != nil {
 		// Determine appropriate status code based on error
 		statusCode := http.StatusInternalServerError
@@ -280,14 +280,14 @@ func (s *Server) handleWorkspaceCommitDetail(w http.ResponseWriter, r *http.Requ
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		s.logger.Error("failed to encode response", "handler", "commit-detail", "err", err)
+		h.logger.Error("failed to encode response", "handler", "commit-detail", "err", err)
 	}
 }
 
 // handleStage handles POST /api/workspaces/{id}/stage.
 // Stages the specified files for commit.
-func (s *Server) handleStage(w http.ResponseWriter, r *http.Request) {
-	ws, ok := s.requireWorkspace(w, r)
+func (h *GitHandlers) handleStage(w http.ResponseWriter, r *http.Request) {
+	ws, ok := h.requireWorkspace(w, r)
 	if !ok {
 		return
 	}
@@ -306,7 +306,7 @@ func (s *Server) handleStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
+	cb := vcs.NewCommandBuilder(h.vcsTypeForWorkspace(ws))
 	ctx := r.Context()
 	run := localShellRun(ctx, ws.Path)
 
@@ -315,21 +315,21 @@ func (s *Server) handleStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.workspace.UpdateVCSStatus(ctx, ws.ID); err != nil {
-		s.logger.Warn("failed to update VCS status after stage", "err", err)
+	if _, err := h.workspace.UpdateVCSStatus(ctx, ws.ID); err != nil {
+		h.logger.Warn("failed to update VCS status after stage", "err", err)
 	}
-	s.BroadcastSessions()
+	h.broadcastSessions()
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Files staged"}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "stage", "err", err)
+		h.logger.Error("failed to encode response", "handler", "stage", "err", err)
 	}
 }
 
 // handleAmend handles POST /api/workspaces/{id}/amend.
 // Stages the specified files and amends the last commit.
-func (s *Server) handleAmend(w http.ResponseWriter, r *http.Request) {
-	ws, ok := s.requireWorkspace(w, r)
+func (h *GitHandlers) handleAmend(w http.ResponseWriter, r *http.Request) {
+	ws, ok := h.requireWorkspace(w, r)
 	if !ok {
 		return
 	}
@@ -358,7 +358,7 @@ func (s *Server) handleAmend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
+	cb := vcs.NewCommandBuilder(h.vcsTypeForWorkspace(ws))
 	ctx := r.Context()
 	run := localShellRun(ctx, ws.Path)
 
@@ -372,21 +372,21 @@ func (s *Server) handleAmend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.workspace.UpdateVCSStatus(ctx, ws.ID); err != nil {
-		s.logger.Warn("failed to update VCS status after amend", "err", err)
+	if _, err := h.workspace.UpdateVCSStatus(ctx, ws.ID); err != nil {
+		h.logger.Warn("failed to update VCS status after amend", "err", err)
 	}
-	s.BroadcastSessions()
+	h.broadcastSessions()
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Commit amended"}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "amend", "err", err)
+		h.logger.Error("failed to encode response", "handler", "amend", "err", err)
 	}
 }
 
 // handleDiscard handles POST /api/workspaces/{id}/discard.
 // Discards local changes. If files are specified, only those files are discarded.
-func (s *Server) handleDiscard(w http.ResponseWriter, r *http.Request) {
-	ws, ok := s.requireWorkspace(w, r)
+func (h *GitHandlers) handleDiscard(w http.ResponseWriter, r *http.Request) {
+	ws, ok := h.requireWorkspace(w, r)
 	if !ok {
 		return
 	}
@@ -411,12 +411,12 @@ func (s *Server) handleDiscard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
+	cb := vcs.NewCommandBuilder(h.vcsTypeForWorkspace(ws))
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	run := localShellRun(ctx, ws.Path)
 
-	s.logger.Info("discard", "workspace", ws.ID, "path", ws.Path, "files", req.Files)
+	h.logger.Info("discard", "workspace", ws.ID, "path", ws.Path, "files", req.Files)
 
 	if len(req.Files) > 0 {
 		// Discard specific files
@@ -430,9 +430,9 @@ func (s *Server) handleDiscard(w http.ResponseWriter, r *http.Request) {
 			if isTracked {
 				// Tracked file: restore from HEAD
 				if _, err := run(cb.DiscardFile(file)); err != nil {
-					s.logger.Debug("discard tracked failed", "file", file, "err", err)
+					h.logger.Debug("discard tracked failed", "file", file, "err", err)
 				} else {
-					s.logger.Debug("restored from HEAD", "file", file)
+					h.logger.Debug("restored from HEAD", "file", file)
 				}
 			} else {
 				// Untracked or staged-new: unstage then remove
@@ -442,12 +442,12 @@ func (s *Server) handleDiscard(w http.ResponseWriter, r *http.Request) {
 				if err := os.Remove(filePath); err != nil {
 					// Fallback: use VCS clean command
 					if _, err2 := run(cb.CleanUntrackedFile(file)); err2 != nil {
-						s.logger.Debug("clean failed", "file", file, "err", err2)
+						h.logger.Debug("clean failed", "file", file, "err", err2)
 					} else {
-						s.logger.Debug("cleaned untracked file", "file", file)
+						h.logger.Debug("cleaned untracked file", "file", file)
 					}
 				} else {
-					s.logger.Debug("removed untracked file", "file", file)
+					h.logger.Debug("removed untracked file", "file", file)
 				}
 			}
 		}
@@ -464,22 +464,22 @@ func (s *Server) handleDiscard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if _, err := s.workspace.UpdateVCSStatus(ctx, ws.ID); err != nil {
-		s.logger.Warn("failed to update VCS status after discard", "err", err)
+	if _, err := h.workspace.UpdateVCSStatus(ctx, ws.ID); err != nil {
+		h.logger.Warn("failed to update VCS status after discard", "err", err)
 	}
-	s.BroadcastSessions()
+	h.broadcastSessions()
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Changes discarded"}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "discard", "err", err)
+		h.logger.Error("failed to encode response", "handler", "discard", "err", err)
 	}
 }
 
 // handleUncommit handles POST /api/workspaces/{id}/uncommit.
 // Resets the HEAD commit, keeping changes as unstaged.
 // Requires hash parameter to verify we're uncommitting the expected commit.
-func (s *Server) handleUncommit(w http.ResponseWriter, r *http.Request) {
-	ws, ok := s.requireWorkspace(w, r)
+func (h *GitHandlers) handleUncommit(w http.ResponseWriter, r *http.Request) {
+	ws, ok := h.requireWorkspace(w, r)
 	if !ok {
 		return
 	}
@@ -503,7 +503,7 @@ func (s *Server) handleUncommit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
+	cb := vcs.NewCommandBuilder(h.vcsTypeForWorkspace(ws))
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	run := localShellRun(ctx, ws.Path)
@@ -526,13 +526,13 @@ func (s *Server) handleUncommit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.workspace.UpdateVCSStatus(ctx, ws.ID); err != nil {
-		s.logger.Warn("failed to update VCS status after uncommit", "err", err)
+	if _, err := h.workspace.UpdateVCSStatus(ctx, ws.ID); err != nil {
+		h.logger.Warn("failed to update VCS status after uncommit", "err", err)
 	}
-	s.BroadcastSessions()
+	h.broadcastSessions()
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Commit undone, changes are now unstaged"}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "uncommit", "err", err)
+		h.logger.Error("failed to encode response", "handler", "uncommit", "err", err)
 	}
 }

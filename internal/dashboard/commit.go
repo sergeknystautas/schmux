@@ -48,16 +48,16 @@ func BuildOneshotCommitPrompt(diff string) string {
 
 // handleCommitPrompt handles GET /api/commit/prompt.
 // Returns the prompt template for generating commit messages.
-func (s *Server) handleCommitPrompt(w http.ResponseWriter, r *http.Request) {
+func (h *GitHandlers) handleCommitPrompt(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]string{"prompt": CommitPrompt()}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "commit-prompt", "err", err)
+		h.logger.Error("failed to encode response", "handler", "commit-prompt", "err", err)
 	}
 }
 
 // handleCommitGenerate handles POST /api/commit/generate.
 // Generates a commit message by running oneshot with the commit prompt.
-func (s *Server) handleCommitGenerate(w http.ResponseWriter, r *http.Request) {
+func (h *GitHandlers) handleCommitGenerate(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req CommitMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -70,20 +70,20 @@ func (s *Server) handleCommitGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ws, ok := s.state.GetWorkspace(req.WorkspaceID)
+	ws, ok := h.state.GetWorkspace(req.WorkspaceID)
 	if !ok {
 		writeJSONError(w, "workspace not found", http.StatusNotFound)
 		return
 	}
 
-	cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
+	cb := vcs.NewCommandBuilder(h.vcsTypeForWorkspace(ws))
 	ctx := r.Context()
 	run := localShellRun(ctx, ws.Path)
 
 	// Get file stats (staged + unstaged)
 	numstatOutput, err := run(cb.DiffNumstat())
 	if err != nil {
-		s.logger.Error("diff numstat failed", "err", err)
+		h.logger.Error("diff numstat failed", "err", err)
 		writeJSONError(w, "VCS operation failed", http.StatusInternalServerError)
 		return
 	}
@@ -92,7 +92,7 @@ func (s *Server) handleCommitGenerate(w http.ResponseWriter, r *http.Request) {
 	// Get actual diff for prompt (staged + unstaged)
 	diffOutputStr, err := run(cb.DiffUnified())
 	if err != nil {
-		s.logger.Error("diff failed", "err", err)
+		h.logger.Error("diff failed", "err", err)
 		writeJSONError(w, "VCS operation failed", http.StatusInternalServerError)
 		return
 	}
@@ -109,39 +109,39 @@ func (s *Server) handleCommitGenerate(w http.ResponseWriter, r *http.Request) {
 	prompt := BuildOneshotCommitPrompt(diffStr)
 
 	// Check if commit message target is configured
-	targetName := s.config.GetCommitMessageTarget()
+	targetName := h.config.GetCommitMessageTarget()
 	if targetName == "" {
-		s.logger.Info("commit-generate: not configured", "workspace", req.WorkspaceID)
+		h.logger.Info("commit-generate: not configured", "workspace", req.WorkspaceID)
 		writeJSONError(w, "No commit_message target configured. Select a model in Settings > Code Review.", http.StatusBadRequest)
 		return
 	}
 
-	s.logger.Info("commit-generate: asking target", "workspace", req.WorkspaceID, "target", targetName)
+	h.logger.Info("commit-generate: asking target", "workspace", req.WorkspaceID, "target", targetName)
 	start := time.Now()
 
 	timeout := 60 * time.Second
-	rawResult, err := oneshot.ExecuteTarget(ctx, s.config, targetName, prompt, schema.LabelCommitMessage, timeout, ws.Path)
+	rawResult, err := oneshot.ExecuteTarget(ctx, h.config, targetName, prompt, schema.LabelCommitMessage, timeout, ws.Path)
 	if err != nil {
-		s.logger.Error("commit-generate: failed", "workspace", req.WorkspaceID, "err", err)
+		h.logger.Error("commit-generate: failed", "workspace", req.WorkspaceID, "err", err)
 		writeJSONError(w, fmt.Sprintf("oneshot failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	var result commitmessage.Result
 	if err := json.Unmarshal([]byte(rawResult), &result); err != nil {
-		s.logger.Error("commit-generate: failed to parse response", "workspace", req.WorkspaceID, "err", err)
+		h.logger.Error("commit-generate: failed to parse response", "workspace", req.WorkspaceID, "err", err)
 		writeJSONError(w, fmt.Sprintf("failed to parse response: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	s.logger.Info("commit-generate: completed", "workspace", req.WorkspaceID, "elapsed", time.Since(start))
+	h.logger.Info("commit-generate: completed", "workspace", req.WorkspaceID, "elapsed", time.Since(start))
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(CommitMessageResponse{
 		Message: strings.TrimSpace(result.Message),
 		Files:   files,
 	}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "commit-generate", "err", err)
+		h.logger.Error("failed to encode response", "handler", "commit-generate", "err", err)
 	}
 }
 

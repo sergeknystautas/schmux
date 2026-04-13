@@ -51,6 +51,34 @@ func newTestServer(t *testing.T) (*Server, *config.Config, *state.State) {
 	return server, cfg, st
 }
 
+// newTestGitHandlers builds a GitHandlers from a Server for tests.
+func newTestGitHandlers(s *Server) *GitHandlers {
+	return &GitHandlers{
+		config:        s.config,
+		state:         s.state,
+		workspace:     s.workspace,
+		remoteManager: s.remoteManager,
+		tmuxServer:    s.tmuxServer,
+		logger:        s.logger,
+		shutdownCtx:   s.shutdownCtx,
+
+		broadcastSessions:                        s.BroadcastSessions,
+		broadcastWorkspaceUnlockedWithSyncResult: s.BroadcastWorkspaceUnlockedWithSyncResult,
+		pauseViteWatch:                           s.pauseViteWatch,
+		resumeViteWatch:                          s.resumeViteWatch,
+		requireWorkspace:                         s.requireWorkspace,
+		vcsTypeForWorkspace:                      s.vcsTypeForWorkspace,
+
+		getLinearSyncResolveConflictState:    s.getLinearSyncResolveConflictState,
+		setLinearSyncResolveConflictState:    s.setLinearSyncResolveConflictState,
+		deleteLinearSyncResolveConflictState: s.deleteLinearSyncResolveConflictState,
+		setCRTracker:                         s.setCRTracker,
+		getCRTracker:                         s.getCRTracker,
+		deleteCRTracker:                      s.deleteCRTracker,
+		cleanupCRTrackers:                    s.cleanupCRTrackers,
+	}
+}
+
 // newTestConfigHandlers builds a ConfigHandlers from a Server for tests.
 func newTestConfigHandlers(s *Server) *ConfigHandlers {
 	return &ConfigHandlers{
@@ -512,6 +540,7 @@ func TestAPIContract_SessionsQuickLaunchNamesOnly(t *testing.T) {
 
 func TestAPIContract_MissingIDErrors(t *testing.T) {
 	server, _, _ := newTestServer(t)
+	gitH := newTestGitHandlers(server)
 
 	tests := []struct {
 		name     string
@@ -522,8 +551,8 @@ func TestAPIContract_MissingIDErrors(t *testing.T) {
 	}{
 		{"dispose missing id", http.MethodPost, "/api/sessions//dispose", server.handleDispose, "sessionID"},
 		{"dispose workspace missing id", http.MethodPost, "/api/workspaces//dispose", server.handleDisposeWorkspace, "workspaceID"},
-		{"diff missing id", http.MethodGet, "/api/diff/", server.handleDiff, ""},
-		{"open vscode missing id", http.MethodPost, "/api/open-vscode/", server.handleOpenVSCode, ""},
+		{"diff missing id", http.MethodGet, "/api/diff/", gitH.handleDiff, ""},
+		{"open vscode missing id", http.MethodPost, "/api/open-vscode/", gitH.handleOpenVSCode, ""},
 		{"sessions nickname missing id", http.MethodPut, "/api/sessions-nickname/", server.handleUpdateNickname, "sessionID"},
 		{"sessions xterm-title missing id", http.MethodPut, "/api/sessions-xterm-title/", server.handleUpdateXtermTitle, "sessionID"},
 	}
@@ -629,13 +658,14 @@ func TestAPIContract_WebSocketErrors(t *testing.T) {
 
 func TestGitGraphEndpoint_UnknownWorkspace(t *testing.T) {
 	server, _, _ := newTestServer(t)
+	gitH := newTestGitHandlers(server)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/workspaces/nonexistent/commit-graph", nil)
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("workspaceID", "nonexistent")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 	rr := httptest.NewRecorder()
-	server.handleWorkspaceCommitGraph(rr, req)
+	gitH.handleWorkspaceCommitGraph(rr, req)
 
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("expected status 404, got %d", rr.Code)

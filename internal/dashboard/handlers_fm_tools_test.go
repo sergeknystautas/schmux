@@ -448,12 +448,13 @@ func TestHandleCaptureSession_CustomLines(t *testing.T) {
 
 func TestHandleInspectWorkspace_NotFound(t *testing.T) {
 	server, _, _ := newTestServer(t)
+	gitH := newTestGitHandlers(server)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/workspaces/nonexistent/inspect", nil)
 	req = withWorkspaceID(req, "nonexistent")
 	rr := httptest.NewRecorder()
 
-	server.handleInspectWorkspace(rr, req)
+	gitH.handleInspectWorkspace(rr, req)
 
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", rr.Code)
@@ -462,6 +463,7 @@ func TestHandleInspectWorkspace_NotFound(t *testing.T) {
 
 func TestHandleInspectWorkspace_LocalWorkspace(t *testing.T) {
 	server, cfg, st := newTestServer(t)
+	gitH := newTestGitHandlers(server)
 
 	// Set up a workspace pointing to a real git repo (the test temp dir won't have git,
 	// but the handler should still return 200 with empty/zero fields)
@@ -477,7 +479,7 @@ func TestHandleInspectWorkspace_LocalWorkspace(t *testing.T) {
 	req = withWorkspaceID(req, "ws-inspect")
 	rr := httptest.NewRecorder()
 
-	server.handleInspectWorkspace(rr, req)
+	gitH.handleInspectWorkspace(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d: %s", rr.Code, rr.Body.String())
@@ -497,6 +499,7 @@ func TestHandleInspectWorkspace_LocalWorkspace(t *testing.T) {
 
 func TestHandleInspectWorkspace_RemoteNoManager(t *testing.T) {
 	server, _, st := newTestServer(t)
+	gitH := newTestGitHandlers(server)
 
 	st.AddWorkspace(state.Workspace{
 		ID:           "ws-remote",
@@ -509,7 +512,7 @@ func TestHandleInspectWorkspace_RemoteNoManager(t *testing.T) {
 	req = withWorkspaceID(req, "ws-remote")
 	rr := httptest.NewRecorder()
 
-	server.handleInspectWorkspace(rr, req)
+	gitH.handleInspectWorkspace(rr, req)
 
 	if rr.Code != http.StatusServiceUnavailable {
 		t.Errorf("expected 503, got %d", rr.Code)
@@ -518,6 +521,7 @@ func TestHandleInspectWorkspace_RemoteNoManager(t *testing.T) {
 
 func TestHandleInspectWorkspace_FallbackRepoName(t *testing.T) {
 	server, _, st := newTestServer(t)
+	gitH := newTestGitHandlers(server)
 
 	wsPath := t.TempDir()
 	// Don't add repo to config — should fall back to the raw URL
@@ -531,7 +535,7 @@ func TestHandleInspectWorkspace_FallbackRepoName(t *testing.T) {
 	req = withWorkspaceID(req, "ws-norepo")
 	rr := httptest.NewRecorder()
 
-	server.handleInspectWorkspace(rr, req)
+	gitH.handleInspectWorkspace(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d: %s", rr.Code, rr.Body.String())

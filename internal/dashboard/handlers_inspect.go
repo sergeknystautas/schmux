@@ -24,8 +24,8 @@ type inspectResponse struct {
 	Uncommitted  []string `json:"uncommitted"`
 }
 
-func (s *Server) handleInspectWorkspace(w http.ResponseWriter, r *http.Request) {
-	ws, ok := s.requireWorkspace(w, r)
+func (h *GitHandlers) handleInspectWorkspace(w http.ResponseWriter, r *http.Request) {
+	ws, ok := h.requireWorkspace(w, r)
 	if !ok {
 		return
 	}
@@ -34,21 +34,21 @@ func (s *Server) handleInspectWorkspace(w http.ResponseWriter, r *http.Request) 
 	resp.WorkspaceID = ws.ID
 
 	// Get repo name from config
-	if repo, found := s.config.FindRepoByURL(ws.Repo); found {
+	if repo, found := h.config.FindRepoByURL(ws.Repo); found {
 		resp.Repo = repo.Name
 	} else {
 		resp.Repo = ws.Repo
 	}
 
-	cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
+	cb := vcs.NewCommandBuilder(h.vcsTypeForWorkspace(ws))
 
 	var run runFunc
 	if ws.RemoteHostID != "" {
-		if s.remoteManager == nil {
+		if h.remoteManager == nil {
 			writeJSONError(w, "remote manager not available", http.StatusServiceUnavailable)
 			return
 		}
-		conn := s.remoteManager.GetConnection(ws.RemoteHostID)
+		conn := h.remoteManager.GetConnection(ws.RemoteHostID)
 		if conn == nil {
 			writeJSONError(w, "remote host not connected", http.StatusServiceUnavailable)
 			return
@@ -73,10 +73,10 @@ func (s *Server) handleInspectWorkspace(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	s.inspect(w, run, cb, &resp)
+	h.inspect(w, run, cb, &resp)
 }
 
-func (s *Server) inspect(w http.ResponseWriter, run runFunc, cb vcs.CommandBuilder, resp *inspectResponse) {
+func (h *GitHandlers) inspect(w http.ResponseWriter, run runFunc, cb vcs.CommandBuilder, resp *inspectResponse) {
 	resp.Branch = run(cb.CurrentBranch())
 
 	defaultBranch := run(cb.DetectDefaultBranch())

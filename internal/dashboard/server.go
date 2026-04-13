@@ -228,8 +228,9 @@ type Server struct {
 	// Curation state tracking for WebSocket broadcast
 	curationTracker *CurationTracker
 
-	// Extracted autolearn handler group
+	// Extracted handler groups
 	autolearnHandlers *AutolearnHandlers
+	gitHandlers       *GitHandlers
 
 	// Persona manager
 	personaManager *persona.Manager
@@ -554,7 +555,12 @@ func (s *Server) initEnvironmentBaseline() {}
 // Start starts the HTTP server.
 func (s *Server) Start() error {
 	s.initEnvironmentBaseline()
-	s.recoverStaleConflictRecords()
+	// recoverStaleConflictRecords is called early (before route setup),
+	// so we construct a temporary GitHandlers with the fields it needs.
+	(&GitHandlers{
+		state:  s.state,
+		logger: s.logger,
+	}).recoverStaleConflictRecords()
 
 	// Guarantee exactly one send on BoundAddr regardless of exit path.
 	// Early returns (auth errors) trigger the defer; successful bind
@@ -639,6 +645,33 @@ func (s *Server) Start() error {
 			clearRemoteAuth:            s.ClearRemoteAuth,
 		}
 
+		// Git/VCS handler group
+		gitH := &GitHandlers{
+			config:        s.config,
+			state:         s.state,
+			workspace:     s.workspace,
+			remoteManager: s.remoteManager,
+			tmuxServer:    s.tmuxServer,
+			logger:        s.logger,
+			shutdownCtx:   s.shutdownCtx,
+
+			broadcastSessions:                        s.BroadcastSessions,
+			broadcastWorkspaceUnlockedWithSyncResult: s.BroadcastWorkspaceUnlockedWithSyncResult,
+			pauseViteWatch:                           s.pauseViteWatch,
+			resumeViteWatch:                          s.resumeViteWatch,
+			requireWorkspace:                         s.requireWorkspace,
+			vcsTypeForWorkspace:                      s.vcsTypeForWorkspace,
+
+			getLinearSyncResolveConflictState:    s.getLinearSyncResolveConflictState,
+			setLinearSyncResolveConflictState:    s.setLinearSyncResolveConflictState,
+			deleteLinearSyncResolveConflictState: s.deleteLinearSyncResolveConflictState,
+			setCRTracker:                         s.setCRTracker,
+			getCRTracker:                         s.getCRTracker,
+			deleteCRTracker:                      s.deleteCRTracker,
+			cleanupCRTrackers:                    s.cleanupCRTrackers,
+		}
+		s.gitHandlers = gitH
+
 		// Read-only endpoints (no CSRF needed)
 		r.Get("/healthz", s.handleHealthz)
 		r.Get("/sessions", s.handleSessions)
@@ -649,9 +682,9 @@ func (s *Server) Start() error {
 		r.Get("/user-models", configH.handleGetUserModels)
 		r.Put("/user-models", configH.handleSetUserModels)
 		r.Get("/builtin-quick-launch", s.handleBuiltinQuickLaunch)
-		r.Get("/commit/prompt", s.handleCommitPrompt)
-		r.Get("/diff/*", s.handleDiff)
-		r.Get("/file/*", s.handleFile)
+		r.Get("/commit/prompt", gitH.handleCommitPrompt)
+		r.Get("/diff/*", gitH.handleDiff)
+		r.Get("/file/*", gitH.handleFile)
 		r.Get("/overlays", s.handleOverlays)
 		r.Get("/prs", s.handlePRs)
 		r.Get("/hasNudgenik", s.handleHasNudgenik)
@@ -710,7 +743,7 @@ func (s *Server) Start() error {
 			r.Post("/prepare-branch-spawn", s.handlePrepareBranchSpawn)
 			r.Post("/check-branch-conflict", s.handleCheckBranchConflict)
 			r.Post("/recent-branches/refresh", s.handleRecentBranchesRefresh)
-			r.Post("/commit/generate", s.handleCommitGenerate)
+			r.Post("/commit/generate", gitH.handleCommitGenerate)
 			r.Post("/repos/probe", s.handleProbeRepo)
 			r.Post("/overlays/scan", s.handleOverlayScan)
 			r.Post("/overlays/add", s.handleOverlayAdd)
@@ -751,8 +784,8 @@ func (s *Server) Start() error {
 			r.Delete("/models/{name}/secrets", configH.handleModelSecretsDelete)
 
 			// Diff/VSCode routes
-			r.Post("/diff-external/*", s.handleDiffExternal)
-			r.Post("/open-vscode/*", s.handleOpenVSCode)
+			r.Post("/diff-external/*", gitH.handleDiffExternal)
+			r.Post("/open-vscode/*", gitH.handleOpenVSCode)
 
 			// Remote profile routes
 			r.Get("/config/remote-profiles", remoteH.handleGetRemoteProfiles)
@@ -791,27 +824,27 @@ func (s *Server) Start() error {
 			r.Route("/workspaces/{workspaceID}", func(r chi.Router) {
 				r.Use(validateWorkspaceID)
 				// Inspect route
-				r.Get("/inspect", s.handleInspectWorkspace)
+				r.Get("/inspect", gitH.handleInspectWorkspace)
 				// Preview routes
 				r.Get("/previews", s.handlePreviewsList)
 				r.Post("/previews", s.handlePreviewsCreate)
 				r.Delete("/previews/{previewID}", s.handlePreviewsDelete)
 
 				// Commit graph/detail routes
-				r.Get("/commit-graph", s.handleWorkspaceCommitGraph)
-				r.Get("/commit-detail/{hash}", s.handleWorkspaceCommitDetail)
+				r.Get("/commit-graph", gitH.handleWorkspaceCommitGraph)
+				r.Get("/commit-detail/{hash}", gitH.handleWorkspaceCommitDetail)
 
 				// Linear sync routes
-				r.Post("/linear-sync-from-main", s.handleLinearSyncFromMain)
-				r.Post("/linear-sync-to-main", s.handleLinearSyncToMain)
-				r.Post("/push-to-branch", s.handlePushToBranch)
-				r.Post("/linear-sync-resolve-conflict", s.handleLinearSyncResolveConflict)
+				r.Post("/linear-sync-from-main", gitH.handleLinearSyncFromMain)
+				r.Post("/linear-sync-to-main", gitH.handleLinearSyncToMain)
+				r.Post("/push-to-branch", gitH.handlePushToBranch)
+				r.Post("/linear-sync-resolve-conflict", gitH.handleLinearSyncResolveConflict)
 
 				// VCS operation routes
-				r.Post("/stage", s.handleStage)
-				r.Post("/amend", s.handleAmend)
-				r.Post("/discard", s.handleDiscard)
-				r.Post("/uncommit", s.handleUncommit)
+				r.Post("/stage", gitH.handleStage)
+				r.Post("/amend", gitH.handleAmend)
+				r.Post("/discard", gitH.handleDiscard)
+				r.Post("/uncommit", gitH.handleUncommit)
 				r.Post("/refresh-overlay", s.handleRefreshOverlay)
 
 				// Tab routes
