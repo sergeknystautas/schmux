@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-14T21:57:49Z",
+  "updated": "2026-04-14T21:58:48Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "yes",
+      "intent": "did you add tests for these bugs?",
       "status": "active",
       "last_active_date": "2026-04-14",
       "started": "2026-04-14"
