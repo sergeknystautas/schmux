@@ -2,21 +2,5 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-14T05:51:07Z",
-  "intents": [
-    {
-      "id": "schmux-001",
-      "intent": "start the execution",
-      "status": "active",
-      "last_active_date": "2026-04-13",
-      "started": "2026-04-13"
-    },
-    {
-      "id": "schmux-003",
-      "intent": "/commit",
-      "status": "active",
-      "last_active_date": "2026-04-13",
-      "started": "2026-04-13"
-    }
-  ]
+  "updated": "2026-04-14T05:52:15Z"
 }
