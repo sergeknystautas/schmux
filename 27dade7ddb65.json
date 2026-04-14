@@ -2,12 +2,12 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-14T23:21:47Z",
+  "updated": "2026-04-14T23:22:18Z",
   "intents": [
     {
       "id": "schmux-002",
       "intent": "is there anything in the commits on this branch that touches the way xterm.js works for regular s...",
-      "status": "active",
+      "status": "inactive",
       "last_active_date": "2026-04-14",
       "started": "2026-04-14"
     }
