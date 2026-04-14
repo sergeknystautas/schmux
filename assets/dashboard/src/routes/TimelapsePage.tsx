@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import {
   getTimelapseRecordings,
   exportTimelapseRecording,
@@ -152,6 +153,12 @@ export default function TimelapsePage() {
                   </td>
                   <td className="timelapse__td--center">
                     <div className="timelapse__actions">
+                      <Link
+                        className="btn btn--sm btn--primary"
+                        to={`/timelapse/${encodeURIComponent(rec.RecordingID)}`}
+                      >
+                        Play
+                      </Link>
                       <button
                         className="btn btn--sm btn--secondary"
                         onClick={() => handleDownload(rec.RecordingID)}

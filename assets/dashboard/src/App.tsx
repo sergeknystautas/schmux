@@ -39,6 +39,7 @@ const StyleEditPage = lazy(() => import('./routes/StyleEditPage'));
 const EventsPage = lazy(() => import('./routes/EventsPage'));
 const RepofeedPage = lazy(() => import('./routes/RepofeedPage'));
 const TimelapsePage = lazy(() => import('./routes/TimelapsePage'));
+const TimelapsePlayerPage = lazy(() => import('./routes/TimelapsePlayerPage'));
 const EnvironmentPage = lazy(() => import('./routes/EnvironmentPage'));
 
 export default function App() {
@@ -94,6 +95,10 @@ export default function App() {
                             <Route path="/autolearn" element={<AutolearnPage />} />
                             <Route path="/events" element={<EventsPage />} />
                             <Route path="/timelapse" element={<TimelapsePage />} />
+                            <Route
+                              path="/timelapse/:recordingId"
+                              element={<TimelapsePlayerPage />}
+                            />
                             <Route path="/repofeed" element={<RepofeedPage />} />
                             <Route path="/terminal.html" element={<LegacyTerminalPage />} />
                             <Route path="*" element={<NotFoundPage />} />
