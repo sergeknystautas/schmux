@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-14T21:31:32Z",
+  "updated": "2026-04-14T21:32:05Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "great, that worked, now the timelapse page needs help, first it should be called \"Timelapses\" (pl...",
+      "intent": "no, it looks terrible now, the buttons got squished [Image #3]",
       "status": "active",
       "last_active_date": "2026-04-14",
       "started": "2026-04-14"
