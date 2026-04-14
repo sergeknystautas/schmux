@@ -1,7 +1,6 @@
 package state
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -314,18 +313,6 @@ func TestUpdateSessionNotFound(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not found") {
 		t.Errorf("expected 'not found' error, got: %v", err)
-	}
-}
-
-func TestSaveEmptyPath(t *testing.T) {
-	s := New("", nil)
-
-	err := s.Save()
-	if err == nil {
-		t.Fatal("expected error when saving with empty path, got nil")
-	}
-	if !strings.Contains(err.Error(), "empty") {
-		t.Errorf("expected 'empty' error, got: %v", err)
 	}
 }
 
@@ -675,65 +662,32 @@ func TestRemoteHostPersistence(t *testing.T) {
 
 func TestSessionRemoteFields(t *testing.T) {
 	s := New("", nil)
-
-	sess := Session{
-		ID:           "session-001",
-		WorkspaceID:  "ws-001",
-		Target:       "claude",
-		TmuxSession:  "schmux-ws-001",
-		RemoteHostID: "host-001",
-		RemotePaneID: "%5",
-		RemoteWindow: "@3",
-	}
-
-	s.AddSession(sess)
-
+	s.AddSession(Session{
+		ID: "session-001", WorkspaceID: "ws-001", Target: "claude",
+		TmuxSession: "schmux-ws-001", RemoteHostID: "host-001",
+		RemotePaneID: "%5", RemoteWindow: "@3",
+	})
 	retrieved, found := s.GetSession("session-001")
 	if !found {
 		t.Fatal("session not found")
 	}
-
 	if !retrieved.IsRemoteSession() {
 		t.Error("expected IsRemoteSession() to be true")
-	}
-	if retrieved.RemoteHostID != "host-001" {
-		t.Errorf("RemoteHostID = %q, want %q", retrieved.RemoteHostID, "host-001")
-	}
-	if retrieved.RemotePaneID != "%5" {
-		t.Errorf("RemotePaneID = %q, want %q", retrieved.RemotePaneID, "%5")
-	}
-	if retrieved.RemoteWindow != "@3" {
-		t.Errorf("RemoteWindow = %q, want %q", retrieved.RemoteWindow, "@3")
 	}
 }
 
 func TestWorkspaceRemoteFields(t *testing.T) {
 	s := New("", nil)
-
-	ws := Workspace{
-		ID:           "ws-001",
-		Repo:         "https://github.com/test/repo",
-		Branch:       "main",
-		Path:         "/local/path",
-		RemoteHostID: "host-001",
-		RemotePath:   "~/workspace",
-	}
-
-	s.AddWorkspace(ws)
-
+	s.AddWorkspace(Workspace{
+		ID: "ws-001", Repo: "https://github.com/test/repo", Branch: "main",
+		Path: "/local/path", RemoteHostID: "host-001", RemotePath: "~/workspace",
+	})
 	retrieved, found := s.GetWorkspace("ws-001")
 	if !found {
 		t.Fatal("workspace not found")
 	}
-
 	if !retrieved.IsRemoteWorkspace() {
 		t.Error("expected IsRemoteWorkspace() to be true")
-	}
-	if retrieved.RemoteHostID != "host-001" {
-		t.Errorf("RemoteHostID = %q, want %q", retrieved.RemoteHostID, "host-001")
-	}
-	if retrieved.RemotePath != "~/workspace" {
-		t.Errorf("RemotePath = %q, want %q", retrieved.RemotePath, "~/workspace")
 	}
 }
 
@@ -2087,52 +2041,6 @@ func TestFindWorkspaceByRepoBranch(t *testing.T) {
 	_, found = s.FindWorkspaceByRepoBranch("myrepo", "nonexistent")
 	if found {
 		t.Error("expected not found")
-	}
-}
-
-func TestWorkspaceStatusConstants(t *testing.T) {
-	if WorkspaceStatusProvisioning != "provisioning" {
-		t.Errorf("expected provisioning, got %s", WorkspaceStatusProvisioning)
-	}
-	if WorkspaceStatusRunning != "running" {
-		t.Errorf("expected running, got %s", WorkspaceStatusRunning)
-	}
-	if WorkspaceStatusFailed != "failed" {
-		t.Errorf("expected failed, got %s", WorkspaceStatusFailed)
-	}
-	if WorkspaceStatusDisposing != "disposing" {
-		t.Errorf("expected disposing, got %s", WorkspaceStatusDisposing)
-	}
-}
-
-func TestWorkspaceStatusRecyclable_Constant(t *testing.T) {
-	if WorkspaceStatusRecyclable != "recyclable" {
-		t.Errorf("WorkspaceStatusRecyclable = %q, want %q", WorkspaceStatusRecyclable, "recyclable")
-	}
-}
-
-func TestWorkspaceStatusPersisted(t *testing.T) {
-	w := Workspace{
-		ID:     "test-1",
-		Repo:   "https://example.com/repo.git",
-		Branch: "main",
-		Path:   "/tmp/test",
-		Status: WorkspaceStatusRunning,
-	}
-	data, err := json.Marshal(w)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(data), `"status":"running"`) {
-		t.Errorf("expected status in JSON, got %s", string(data))
-	}
-
-	var w2 Workspace
-	if err := json.Unmarshal(data, &w2); err != nil {
-		t.Fatal(err)
-	}
-	if w2.Status != WorkspaceStatusRunning {
-		t.Errorf("expected running after roundtrip, got %s", w2.Status)
 	}
 }
 

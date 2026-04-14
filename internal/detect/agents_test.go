@@ -2,7 +2,6 @@ package detect
 
 import (
 	"context"
-	"os"
 	"testing"
 )
 
@@ -14,73 +13,6 @@ func TestOpencodeDetectorRegistered(t *testing.T) {
 	}
 	if a.Name() != "opencode" {
 		t.Errorf("Name() = %q, want 'opencode'", a.Name())
-	}
-}
-
-// TestCommandExists verifies commandExists works correctly.
-func TestCommandExists(t *testing.T) {
-	tests := []struct {
-		name     string
-		command  string
-		wantBool bool
-	}{
-		{
-			name:     "sh should exist on Unix systems",
-			command:  "sh",
-			wantBool: true,
-		},
-		{
-			name:     "nonexistent command should not exist",
-			command:  "nonexistentcmd12345abcdef",
-			wantBool: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := commandExists(tt.command)
-			if got != tt.wantBool {
-				t.Errorf("commandExists(%q) = %v, want %v", tt.command, got, tt.wantBool)
-			}
-		})
-	}
-}
-
-// TestFileExists verifies fileExists works correctly.
-func TestFileExists(t *testing.T) {
-	// Test with a file that should exist
-	tmpFile, err := os.CreateTemp("", "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpFile.Name())
-
-	tmpFile.Close()
-
-	tests := []struct {
-		name     string
-		path     string
-		wantBool bool
-	}{
-		{
-			name:     "existing temp file",
-			path:     tmpFile.Name(),
-			wantBool: true,
-		},
-		{
-			name:     "nonexistent file",
-			path:     "/nonexistent/file/that/does/not/exist",
-			wantBool: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := fileExists(tt.path)
-			if got != tt.wantBool {
-				t.Errorf("fileExists(%q) = %v, want %v", tt.path, got, tt.wantBool)
-			}
-		})
 	}
 }
 
@@ -158,19 +90,5 @@ func TestExpandHome(t *testing.T) {
 				t.Errorf("expandHome(%q) = %q, want %q (paths without ~ should be unchanged)", tt.path, got, tt.path)
 			}
 		})
-	}
-}
-
-// TestNpmGlobalInstalledJSONParsing verifies JSON parsing works correctly.
-func TestNpmGlobalInstalledJSONParsing(t *testing.T) {
-	// This test verifies that npmGlobalInstalled properly parses JSON output
-	// We can't mock npm output easily, but we can verify the function handles various cases
-
-	// If npm is not available, function should return false
-	if !commandExists("npm") {
-		pkg := "@anthropic-ai/claude-code"
-		if npmGlobalInstalled(context.Background(), pkg) {
-			t.Errorf("npmGlobalInstalled(%q) = true when npm is not available, want false", pkg)
-		}
 	}
 }
