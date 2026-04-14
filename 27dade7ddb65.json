@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-14T22:17:32Z",
+  "updated": "2026-04-14T22:18:03Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "I like it, commit it",
+      "intent": "now that the recording and the session are the same, the table in the timelapses page doesn't nee...",
       "status": "active",
       "last_active_date": "2026-04-14",
       "started": "2026-04-14"
