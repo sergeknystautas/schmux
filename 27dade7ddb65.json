@@ -2,7 +2,7 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-14T05:00:43Z",
+  "updated": "2026-04-14T05:01:14Z",
   "intents": [
     {
       "id": "schmux-001",
@@ -13,7 +13,7 @@
     },
     {
       "id": "schmux-003",
-      "intent": "explain to me the expected user experience",
+      "intent": "what else was in the plan that you didn't implement?",
       "status": "active",
       "last_active_date": "2026-04-13",
       "started": "2026-04-13"
