@@ -2,7 +2,7 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-14T05:33:44Z",
+  "updated": "2026-04-14T05:34:16Z",
   "intents": [
     {
       "id": "schmux-001",
@@ -13,7 +13,7 @@
     },
     {
       "id": "schmux-003",
-      "intent": "change \"intent\" to \"activity\" (share activity with the team via repofeed)",
+      "intent": "in the \"repofeed\" page instead of \"share\" and \"unshare\" turn them into \"share activity\" and \"stop...",
       "status": "active",
       "last_active_date": "2026-04-13",
       "started": "2026-04-13"
