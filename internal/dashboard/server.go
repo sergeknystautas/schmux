@@ -776,6 +776,7 @@ func (s *Server) Start() error {
 		r.Get("/subreddit", s.handleSubreddit)
 		r.Get("/repofeed", s.handleRepofeedList)
 		r.Get("/repofeed/{slug}", s.handleRepofeedRepo)
+		r.Get("/repofeed/publish/preview", s.handleRepofeedPublishPreview)
 		r.Get("/floor-manager", s.handleGetFloorManager)
 		remoteH := &RemoteHandlers{
 			config:              s.config,
@@ -844,6 +845,7 @@ func (s *Server) Start() error {
 			r.Post("/timelapse/{recordingId}/export", s.handleTimelapseExport)
 			r.Delete("/timelapse/{recordingId}", s.handleTimelapseDelete)
 			r.Post("/environment/sync", s.handleSyncEnvironment)
+			r.Post("/repofeed/publish/push", s.handleRepofeedPublishPush)
 
 			// Session routes
 			r.Post("/sessions/{sessionID}/dispose", wsH.handleDispose)

@@ -5,7 +5,9 @@ package repofeed
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/sergeknystautas/schmux/internal/events"
 )
@@ -78,5 +80,91 @@ func TestPublisher_HandleCompletedEvent(t *testing.T) {
 				t.Errorf("session_count should be 0 after completion, got %d", act.SessionCount)
 			}
 		}
+	}
+}
+
+func TestPublisher_LockForPush_BlocksConcurrent(t *testing.T) {
+	p := NewPublisher(PublisherConfig{
+		DeveloperEmail: "test@example.com",
+		DisplayName:    "Test",
+	})
+
+	// First lock should succeed
+	unlock := p.LockForPush()
+	if unlock == nil {
+		t.Fatal("first LockForPush should succeed")
+	}
+
+	// Second lock should return nil (already locked)
+	unlock2 := p.LockForPush()
+	if unlock2 != nil {
+		t.Fatal("second LockForPush should return nil while first is held")
+		unlock2()
+	}
+
+	// After unlocking, should be able to lock again
+	unlock()
+	unlock3 := p.LockForPush()
+	if unlock3 == nil {
+		t.Fatal("LockForPush should succeed after unlock")
+	}
+	unlock3()
+}
+
+func TestPublisher_LockForPush_ConcurrentSafety(t *testing.T) {
+	p := NewPublisher(PublisherConfig{
+		DeveloperEmail: "test@example.com",
+		DisplayName:    "Test",
+	})
+
+	// Run 10 goroutines trying to lock simultaneously — exactly one should win each round
+	const rounds = 5
+	for round := 0; round < rounds; round++ {
+		var wg sync.WaitGroup
+		winners := make(chan int, 10)
+
+		for i := 0; i < 10; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				unlock := p.LockForPush()
+				if unlock != nil {
+					winners <- id
+					time.Sleep(time.Millisecond) // hold briefly
+					unlock()
+				}
+			}(i)
+		}
+
+		wg.Wait()
+		close(winners)
+
+		count := 0
+		for range winners {
+			count++
+		}
+		if count != 1 {
+			t.Errorf("round %d: expected exactly 1 winner, got %d", round, count)
+		}
+	}
+}
+
+func TestPublisher_LastPushedAt(t *testing.T) {
+	p := NewPublisher(PublisherConfig{
+		DeveloperEmail: "test@example.com",
+		DisplayName:    "Test",
+	})
+
+	// Initially zero
+	if !p.GetLastPushedAt().IsZero() {
+		t.Error("initial lastPushedAt should be zero")
+	}
+
+	// Set and get
+	now := time.Now()
+	p.SetLastPushedAt(now)
+	got := p.GetLastPushedAt()
+	if !got.Equal(now) {
+		t.Errorf("lastPushedAt = %v, want %v", got, now)
 	}
 }

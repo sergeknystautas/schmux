@@ -3253,6 +3253,67 @@ Errors:
 
 - 400: "missing slug"
 
+### GET /api/repofeed/publish/preview
+
+Returns the current in-memory publisher state for user review before pushing. No data is written to git — this is purely a preview of what would be published.
+
+Response:
+
+```json
+{
+  "has_data": true,
+  "last_pushed_at": "2025-01-15T10:30:00Z",
+  "developer_file": {
+    "developer": "user@example.com",
+    "display_name": "User Name",
+    "updated": "2025-01-15T11:00:00Z",
+    "repos": {
+      "myrepo": {
+        "activities": [
+          {
+            "id": "abc123",
+            "intent": "fix login bug",
+            "status": "active",
+            "started": "2025-01-15T09:00:00Z",
+            "branches": ["fix/login"],
+            "session_count": 1,
+            "agents": []
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+### POST /api/repofeed/publish/push
+
+Writes the current publisher state to the `dev-repofeed` orphan branch and pushes to remote for all enabled repos. Requires CSRF token. Returns HTTP 409 if a push is already in flight. Re-checks that repofeed is enabled at push time.
+
+Response:
+
+```json
+{
+  "success": true,
+  "pushed_repos": ["myrepo"],
+  "failed_repos": [],
+  "errors": {}
+}
+```
+
+On partial failure:
+
+```json
+{
+  "success": false,
+  "pushed_repos": ["repo-a"],
+  "failed_repos": ["repo-b"],
+  "errors": {
+    "repo-b": "push failed: remote rejected"
+  }
+}
+```
+
 Configuration is via the config API:
 
 - `repofeed.enabled` - Whether repofeed is enabled (default: false)

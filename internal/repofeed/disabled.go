@@ -4,6 +4,7 @@ package repofeed
 
 import (
 	"context"
+	"time"
 
 	"github.com/sergeknystautas/schmux/internal/events"
 )
@@ -61,6 +62,10 @@ func (p *Publisher) GetCurrentState() *DeveloperFile {
 	return &DeveloperFile{Repos: make(map[string]*RepoActivities)}
 }
 
+func (p *Publisher) GetLastPushedAt() time.Time  { return time.Time{} }
+func (p *Publisher) SetLastPushedAt(_ time.Time) {}
+func (p *Publisher) LockForPush() func()         { return func() {} }
+
 type ConsumerConfig struct {
 	OwnEmail string
 }
@@ -103,5 +108,7 @@ func (g *GitOps) PushToRemote(_ string) error                   { return nil }
 func (g *GitOps) FetchFromRemote(_ string) error                { return nil }
 
 func GitDirFromWorkDir(workDir string) string { return workDir + "/.git" }
+
+func CleanupStaleIndexFiles(_ string) {}
 
 func IsAvailable() bool { return false }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sort"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
@@ -118,6 +119,105 @@ func (s *Server) SetRepofeedPublisher(p *repofeed.Publisher) {
 // SetRepofeedConsumer sets the repofeed consumer reference.
 func (s *Server) SetRepofeedConsumer(c *repofeed.Consumer) {
 	s.repofeedConsumer = c
+}
+
+// handleRepofeedPublishPreview handles GET /api/repofeed/publish/preview — returns in-memory state for user review.
+func (s *Server) handleRepofeedPublishPreview(w http.ResponseWriter, r *http.Request) {
+	if s.repofeedPublisher == nil {
+		writeJSON(w, map[string]interface{}{"has_data": false})
+		return
+	}
+
+	state := s.repofeedPublisher.GetCurrentState()
+	lastPushed := s.repofeedPublisher.GetLastPushedAt()
+
+	hasData := false
+	for _, repo := range state.Repos {
+		if len(repo.Activities) > 0 {
+			hasData = true
+			break
+		}
+	}
+
+	response := map[string]interface{}{
+		"has_data":       hasData,
+		"developer_file": state,
+	}
+	if !lastPushed.IsZero() {
+		response["last_pushed_at"] = lastPushed.Format("2006-01-02T15:04:05Z")
+	}
+
+	writeJSON(w, response)
+}
+
+// handleRepofeedPublishPush handles POST /api/repofeed/publish/push — writes + pushes to all enabled repos.
+func (s *Server) handleRepofeedPublishPush(w http.ResponseWriter, r *http.Request) {
+	logger := logging.Sub(s.logger, "repofeed/push")
+
+	if s.repofeedPublisher == nil {
+		writeJSONError(w, "repofeed publisher not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	if !s.config.GetRepofeedEnabled() {
+		writeJSONError(w, "repofeed is disabled", http.StatusBadRequest)
+		return
+	}
+
+	unlock := s.repofeedPublisher.LockForPush()
+	if unlock == nil {
+		writeJSONError(w, "a push is already in progress", http.StatusConflict)
+		return
+	}
+	defer unlock()
+
+	state := s.repofeedPublisher.GetCurrentState()
+	devEmail := state.Developer
+
+	var pushedRepos []string
+	var failedRepos []string
+	pushErrors := map[string]string{}
+
+	for _, repo := range s.config.GetRepos() {
+		slug := repofeed.RepoSlug(repo.Name)
+		if !s.config.GetRepofeedRepoEnabled(slug) {
+			continue
+		}
+		bareDir := s.config.ResolveBareRepoDir(repo.BarePath)
+		if bareDir == "" {
+			continue
+		}
+
+		gitOps := &repofeed.GitOps{BareDir: bareDir, Branch: "dev-repofeed"}
+
+		if err := gitOps.WriteDevFile(devEmail, state); err != nil {
+			logger.Error("write failed", "repo", repo.Name, "err", err)
+			failedRepos = append(failedRepos, repo.Name)
+			pushErrors[repo.Name] = err.Error()
+			continue
+		}
+
+		if err := gitOps.PushToRemote("origin"); err != nil {
+			logger.Error("push failed", "repo", repo.Name, "err", err)
+			failedRepos = append(failedRepos, repo.Name)
+			pushErrors[repo.Name] = err.Error()
+			continue
+		}
+
+		logger.Info("pushed repofeed", "repo", repo.Name)
+		pushedRepos = append(pushedRepos, repo.Name)
+	}
+
+	if len(pushedRepos) > 0 {
+		s.repofeedPublisher.SetLastPushedAt(time.Now())
+	}
+
+	writeJSON(w, map[string]interface{}{
+		"success":      len(failedRepos) == 0 && len(pushedRepos) > 0,
+		"pushed_repos": pushedRepos,
+		"failed_repos": failedRepos,
+		"errors":       pushErrors,
+	})
 }
 
 // BroadcastRepofeed sends a repofeed_updated message to all WebSocket clients.

@@ -32,6 +32,9 @@ type Publisher struct {
 	activities        map[string]*Activity // activity ID -> activity
 	activityRepo      map[string]string    // activity ID -> repo slug
 	sessionBranches   map[string]string    // session ID -> branch name
+
+	pushMu       sync.Mutex // guards write+push to prevent concurrent pushes
+	lastPushedAt time.Time  // when the user last approved a push
 }
 
 // NewPublisher creates a new Publisher.
@@ -191,6 +194,29 @@ func (p *Publisher) resolveRepo(sessionID string) string {
 func generateActivityID(intent string) string {
 	h := sha256.Sum256([]byte(intent))
 	return fmt.Sprintf("%x", h[:6])
+}
+
+// GetLastPushedAt returns when the user last approved a push.
+func (p *Publisher) GetLastPushedAt() time.Time {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.lastPushedAt
+}
+
+// SetLastPushedAt records the time of a successful push.
+func (p *Publisher) SetLastPushedAt(t time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.lastPushedAt = t
+}
+
+// LockForPush acquires the push mutex to prevent concurrent write+push operations.
+// Returns an unlock function on success, or nil if a push is already in flight.
+func (p *Publisher) LockForPush() func() {
+	if !p.pushMu.TryLock() {
+		return nil
+	}
+	return p.pushMu.Unlock
 }
 
 // containsString checks if a slice contains a string.

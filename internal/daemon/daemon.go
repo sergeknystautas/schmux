@@ -1333,6 +1333,14 @@ func (d *Daemon) startBackgroundJobs(
 		eventHandlers["status"] = append(eventHandlers["status"], repofeedPublisher)
 		sm.SetEventHandlers(eventHandlers)
 		repofeedLog.Info("repofeed publisher registered", "email", devEmail)
+
+		// Clean up stale temp index files from previous crashes
+		for _, repo := range cfg.GetRepos() {
+			bareDir := cfg.ResolveBareRepoDir(repo.BarePath)
+			if bareDir != "" {
+				repofeed.CleanupStaleIndexFiles(bareDir)
+			}
+		}
 	}
 	go startRepofeedConsumer(d.shutdownCtx, cfg, repofeedConsumer, server, repofeedLog)
 
@@ -1819,9 +1827,17 @@ func startRepofeedConsumer(ctx context.Context, cfg *config.Config, consumer *re
 	timer := time.NewTimer(30 * time.Second) // initial delay
 	defer timer.Stop()
 
+	// Per-repo backoff: tracks consecutive fetch failures to avoid hammering
+	// remotes where no one has published yet.
+	failCount := map[string]int{} // slug -> consecutive failures
+	skipUntil := map[string]int{} // slug -> tick count to skip until
+
+	tickCount := 0
+
 	for {
 		select {
 		case <-timer.C:
+			tickCount++
 			logger.Debug("repofeed consumer tick")
 
 			var allFiles []*repofeed.DeveloperFile
@@ -1830,6 +1846,12 @@ func startRepofeedConsumer(ctx context.Context, cfg *config.Config, consumer *re
 				if !cfg.GetRepofeedRepoEnabled(slug) {
 					continue
 				}
+
+				// Backoff: skip this repo if we haven't reached the skip threshold
+				if until, ok := skipUntil[slug]; ok && tickCount < until {
+					continue
+				}
+
 				bareDir := cfg.ResolveBareRepoDir(repo.BarePath)
 				if bareDir == "" {
 					continue
@@ -1837,9 +1859,32 @@ func startRepofeedConsumer(ctx context.Context, cfg *config.Config, consumer *re
 				gitOps := &repofeed.GitOps{BareDir: bareDir, Branch: "dev-repofeed"}
 
 				if err := gitOps.FetchFromRemote("origin"); err != nil {
-					logger.Debug("repofeed fetch failed (branch may not exist yet)", "repo", repo.Name, "err", err)
+					failCount[slug]++
+					fc := failCount[slug]
+					if fc >= 3 {
+						// Exponential backoff: skip 2^(fc-3) ticks, capped at 64
+						skip := 1 << min(fc-3, 6) // 1, 2, 4, 8, 16, 32, 64
+						// Add ±25% jitter
+						jitter := skip / 4
+						if jitter > 0 {
+							skip += int(time.Now().UnixNano()%int64(2*jitter+1)) - jitter
+						}
+						skipUntil[slug] = tickCount + skip
+						logger.Debug("repofeed fetch backoff", "repo", repo.Name, "failures", fc, "skip_ticks", skip)
+					} else {
+						logger.Debug("repofeed fetch failed (branch may not exist yet)", "repo", repo.Name, "err", err)
+					}
+				} else {
+					// Success — reset backoff
+					if failCount[slug] > 0 {
+						logger.Debug("repofeed fetch recovered", "repo", repo.Name, "after_failures", failCount[slug])
+					}
+					delete(failCount, slug)
+					delete(skipUntil, slug)
 				}
 
+				// Read local branch even if fetch failed — serves last-known data
+				// until the remote becomes available again.
 				files, err := gitOps.ReadAllDevFiles()
 				if err != nil {
 					logger.Debug("repofeed read failed", "repo", repo.Name, "err", err)
