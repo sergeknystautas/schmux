@@ -2,7 +2,7 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-14T05:31:38Z",
+  "updated": "2026-04-14T05:32:10Z",
   "intents": [
     {
       "id": "schmux-001",
@@ -13,7 +13,7 @@
     },
     {
       "id": "schmux-003",
-      "intent": "I want you to move the \"share intent with the team\" checkbox on the same line as the \"engage\" but...",
+      "intent": "align it to the left tho",
       "status": "active",
       "last_active_date": "2026-04-13",
       "started": "2026-04-13"
