@@ -436,7 +436,11 @@ function deduplicateTestCounts(r: SuiteResult): { passed: number; failed: number
   };
 }
 
-export function printSummary(results: SuiteResult[], parallel = false, repeat = 1): void {
+export function printSummary(
+  results: SuiteResult[],
+  parallel = false,
+  repeat = 1
+): (FailedTest & { suite: SuiteName })[] {
   console.log('');
 
   // Sort: broken/failures first
@@ -542,15 +546,6 @@ export function printSummary(results: SuiteResult[], parallel = false, repeat = 
         }
       }
     }
-
-    if (allFailed.length > 0) {
-      console.log('');
-      console.log(chalk.red('  Failed tests:'));
-      for (const f of allFailed) {
-        console.log(chalk.dim(`    ${f.suite} > `) + f.name);
-        console.log(chalk.dim(`      rerun: ${f.rerunCommand}`));
-      }
-    }
   }
 
   // Print slowest 20 tests across all suites (only when all passed)
@@ -592,6 +587,19 @@ export function printSummary(results: SuiteResult[], parallel = false, repeat = 
   }
 
   console.log('');
+  return allFailed;
+}
+
+// ─── Failed Tests (printed after final banner) ────────────────────────────
+
+export function printFailedTests(allFailed: (FailedTest & { suite: SuiteName })[]): void {
+  if (allFailed.length === 0) return;
+  console.log('');
+  console.log(chalk.red('  Failed tests:'));
+  for (const f of allFailed) {
+    console.log(chalk.dim(`    ${f.suite} > `) + f.name);
+    console.log(chalk.dim(`      rerun: ${f.rerunCommand}`));
+  }
 }
 
 // ─── Flaky Report ──────────────────────────────────────────────────────────

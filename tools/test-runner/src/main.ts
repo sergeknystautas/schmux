@@ -7,6 +7,7 @@ import {
   printSummary,
   printFlakyReport,
   printFinalBanner,
+  printFailedTests,
   printCoverageReport,
   printFrontendCoverageReport,
   printDualCoverageReport,
@@ -205,7 +206,7 @@ async function main(): Promise<void> {
 
   const { results, flakyResults } = await runSuites(opts);
 
-  printSummary(results, false, opts.repeat);
+  const failedTests = printSummary(results, false, opts.repeat);
 
   // Print coverage reports if available
   for (const r of results) {
@@ -262,6 +263,7 @@ async function main(): Promise<void> {
   const hasBroken = results.some((r) => r.status === 'broken');
   const cachedCount = results.filter((r) => r.cached).length;
   printFinalBanner(allPassed, hasBroken, cachedCount);
+  printFailedTests(failedTests);
 
   process.exit(allPassed ? 0 : 1);
 }
