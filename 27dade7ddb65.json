@@ -2,7 +2,7 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-14T05:35:19Z",
+  "updated": "2026-04-14T05:35:51Z",
   "intents": [
     {
       "id": "schmux-001",
@@ -13,7 +13,7 @@
     },
     {
       "id": "schmux-003",
-      "intent": "in the \"repofeed\" page instead of \"share\" and \"unshare\" turn them into \"share activity\" and \"stop...",
+      "intent": "when a workspace is placed in the backburner, it should also automatically stop sharing activity ...",
       "status": "active",
       "last_active_date": "2026-04-13",
       "started": "2026-04-13"
