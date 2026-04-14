@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-14T21:47:20Z",
+  "updated": "2026-04-14T21:47:51Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "how does the timelapse system distinguish between recordings that are complete vs. recording? the...",
+      "intent": "The \"spawn\" page has two different checkboxes \"create new branch from here\" and \"share activity w...",
       "status": "active",
       "last_active_date": "2026-04-14",
       "started": "2026-04-14"
