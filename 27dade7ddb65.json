@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-14T21:27:20Z",
+  "updated": "2026-04-14T21:27:52Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "there are some parts of the schmux /config UI that look very crappy, specifically the \"add model\"...",
+      "intent": "much better, but the text input fields are white and don't look right [Image #1]",
       "status": "active",
       "last_active_date": "2026-04-14",
       "started": "2026-04-14"
