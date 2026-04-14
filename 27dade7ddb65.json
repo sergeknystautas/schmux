@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-14T21:36:49Z",
+  "updated": "2026-04-14T21:37:20Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "ok, that works, but now \"Status\" and \"Action\" should be centered in their column also, \"Modified\"...",
+      "intent": "it's a little weird that the scroll bar goes all the way to the top, including the table header [...",
       "status": "active",
       "last_active_date": "2026-04-14",
       "started": "2026-04-14"
