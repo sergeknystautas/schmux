@@ -130,6 +130,21 @@ func (s *Server) SetRepofeedSummaryCache(sc *repofeed.SummaryCache) {
 	s.repofeedSummaryCache = sc
 }
 
+// SetRepofeedPublishTrigger sets the channel to trigger immediate publishes.
+func (s *Server) SetRepofeedPublishTrigger(ch chan<- struct{}) {
+	s.repofeedPublishTrigger = ch
+}
+
+// TriggerRepofeedPublish signals the publisher goroutine to publish immediately.
+func (s *Server) TriggerRepofeedPublish() {
+	if s.repofeedPublishTrigger != nil {
+		select {
+		case s.repofeedPublishTrigger <- struct{}{}:
+		default: // non-blocking: if a trigger is already pending, skip
+		}
+	}
+}
+
 // handleRepofeedOutgoing handles GET /api/repofeed/outgoing — returns per-workspace LLM summaries.
 func (s *Server) handleRepofeedOutgoing(w http.ResponseWriter, r *http.Request) {
 	type outgoingEntry struct {

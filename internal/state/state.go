@@ -147,6 +147,7 @@ type Workspace struct {
 	ResolveConflicts        []ResolveConflict `json:"resolve_conflicts,omitempty"`
 	Backburner              bool              `json:"backburner,omitempty"`
 	IntentShared            bool              `json:"intent_shared,omitempty"`
+	CreatedAt               time.Time         `json:"created_at,omitempty"`
 }
 
 // Tab represents an accessory tab in a workspace (diff, git, preview, markdown, etc.).

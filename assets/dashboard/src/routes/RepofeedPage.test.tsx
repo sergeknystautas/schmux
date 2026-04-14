@@ -63,7 +63,7 @@ describe('RepofeedPage', () => {
   it('shows empty state when no incoming intents', async () => {
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText('No incoming intents yet.')).toBeInTheDocument();
+      expect(screen.getByText('No incoming activity yet.')).toBeInTheDocument();
     });
   });
 
@@ -72,7 +72,7 @@ describe('RepofeedPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Outgoing')).toBeInTheDocument();
       expect(screen.getByText('ws-001')).toBeInTheDocument();
-      expect(screen.getByText('Share')).toBeInTheDocument();
+      expect(screen.getByText('Share activity')).toBeInTheDocument();
     });
   });
 
@@ -110,8 +110,8 @@ describe('RepofeedPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Adding user auth')).toBeInTheDocument();
       expect(screen.getByText('Fixing tests')).toBeInTheDocument();
-      expect(screen.getByText(/Alice/)).toBeInTheDocument();
-      expect(screen.getByText(/Bob/)).toBeInTheDocument();
+      expect(screen.getAllByText(/Alice/).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Bob/).length).toBeGreaterThan(0);
     });
   });
 
@@ -167,6 +167,41 @@ describe('RepofeedPage', () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText('Dismiss')).toBeInTheDocument();
+    });
+  });
+
+  it('shows developer group headers in incoming section', async () => {
+    mockGetIncoming.mockResolvedValue({
+      entries: [
+        {
+          developer: 'alice@example.com',
+          display_name: 'Alice',
+          intent: 'Adding auth',
+          status: 'active',
+        },
+        {
+          developer: 'alice@example.com',
+          display_name: 'Alice',
+          intent: 'Fixing tests',
+          status: 'inactive',
+        },
+        {
+          developer: 'bob@example.com',
+          display_name: 'Bob',
+          intent: 'Refactoring',
+          status: 'active',
+        },
+      ],
+    });
+    renderPage();
+    await waitFor(() => {
+      // Developer headers appear as group separators (exact text match)
+      // IncomingCards show "Alice · active" so exact "Alice" only matches the header
+      expect(screen.getByText('Alice')).toBeInTheDocument();
+      expect(screen.getByText('Bob')).toBeInTheDocument();
+      // The intents themselves are also rendered
+      expect(screen.getByText('Adding auth')).toBeInTheDocument();
+      expect(screen.getByText('Refactoring')).toBeInTheDocument();
     });
   });
 });

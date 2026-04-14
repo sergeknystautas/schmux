@@ -99,6 +99,7 @@ func newTestWorkspaceHandlers(s *Server) *WorkspaceHandlers {
 		requireWorkspace:                     s.requireWorkspace,
 		getLinearSyncResolveConflictState:    s.getLinearSyncResolveConflictState,
 		deleteLinearSyncResolveConflictState: s.deleteLinearSyncResolveConflictState,
+		triggerRepofeedPublish:               s.TriggerRepofeedPublish,
 	}
 }
 

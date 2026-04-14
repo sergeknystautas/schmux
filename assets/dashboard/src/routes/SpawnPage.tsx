@@ -177,6 +177,7 @@ export default function SpawnPage() {
   const [styles, setStyles] = useState<Style[]>([]);
   const [selectedStyleId, setSelectedStyleId] = useState('');
   const [imageAttachments, setImageAttachments] = useState<string[]>([]);
+  const [shareIntent, setShareIntent] = useState(false);
   const [tmuxError, setTmuxError] = useState('');
 
   const [searchParams] = useSearchParams();
@@ -707,6 +708,7 @@ export default function SpawnPage() {
             remote_host_id: environment.type === 'remote' ? environment.hostId : undefined,
             persona_id: selectedPersonaId || undefined,
             style_id: selectedStyleId || undefined,
+            intent_shared: shareIntent || undefined,
           });
           if (handleSpawnResult(response)) {
             saveLastRepo(actualRepo);
@@ -1651,6 +1653,27 @@ export default function SpawnPage() {
                 </label>
               )}
             </div>
+          )}
+          {config?.repofeed?.enabled && (
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--spacing-xs)',
+                marginRight: 'auto',
+                fontSize: '0.8125rem',
+                color: 'var(--color-text-secondary)',
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={shareIntent}
+                onChange={(e) => setShareIntent(e.target.checked)}
+                data-testid="share-intent-toggle"
+              />
+              Share activity with team
+            </label>
           )}
           <button
             className="btn btn--primary flex-row gap-sm"

@@ -746,6 +746,7 @@ export interface SpawnRequest {
   persona_id?: string;
   style_id?: string;
   image_attachments?: string[];
+  intent_shared?: boolean;
 }
 
 export interface Style {

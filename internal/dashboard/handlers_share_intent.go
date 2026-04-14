@@ -34,6 +34,11 @@ func (h *WorkspaceHandlers) handleShareIntent(w http.ResponseWriter, r *http.Req
 
 	h.broadcastSessions()
 
+	// Trigger immediate repofeed publish so the change appears right away
+	if h.triggerRepofeedPublish != nil {
+		h.triggerRepofeedPublish()
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }

@@ -254,10 +254,11 @@ type Server struct {
 	nextSubredditGeneration atomic.Pointer[time.Time]
 
 	// Repofeed publisher and consumer
-	repofeedPublisher    *repofeed.Publisher
-	repofeedConsumer     *repofeed.Consumer
-	repofeedDismissed    *repofeed.DismissedStore
-	repofeedSummaryCache *repofeed.SummaryCache
+	repofeedPublisher      *repofeed.Publisher
+	repofeedConsumer       *repofeed.Consumer
+	repofeedDismissed      *repofeed.DismissedStore
+	repofeedSummaryCache   *repofeed.SummaryCache
+	repofeedPublishTrigger chan<- struct{}
 
 	// Tracks fire-and-forget background goroutines so tests can wait for them.
 	backgroundWG sync.WaitGroup
@@ -720,6 +721,7 @@ func (s *Server) Start() error {
 			requireWorkspace:                     s.requireWorkspace,
 			getLinearSyncResolveConflictState:    s.getLinearSyncResolveConflictState,
 			deleteLinearSyncResolveConflictState: s.deleteLinearSyncResolveConflictState,
+			triggerRepofeedPublish:               s.TriggerRepofeedPublish,
 		}
 
 		// Spawn handler group

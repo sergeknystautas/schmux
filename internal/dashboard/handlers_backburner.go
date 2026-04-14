@@ -27,12 +27,19 @@ func (h *WorkspaceHandlers) handleBackburnerWorkspace(w http.ResponseWriter, r *
 	}
 
 	ws.Backburner = req.Backburner
+	if req.Backburner && ws.IntentShared {
+		ws.IntentShared = false
+	}
 	if err := h.state.UpdateWorkspace(ws); err != nil {
 		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	h.broadcastSessions()
+
+	if req.Backburner && h.triggerRepofeedPublish != nil {
+		h.triggerRepofeedPublish()
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})

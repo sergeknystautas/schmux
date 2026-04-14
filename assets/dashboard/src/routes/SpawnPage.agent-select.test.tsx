@@ -326,4 +326,12 @@ describe('SpawnPage unified agent dropdown', () => {
     // Repo should be in a separate row
     expect(screen.getByTestId('spawn-repo-select')).toBeInTheDocument();
   });
+
+  it('hides share intent toggle when repofeed is disabled', async () => {
+    renderSpawnPage();
+    await waitFor(() => {
+      expect(screen.getByTestId('agent-select')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('share-intent-toggle')).not.toBeInTheDocument();
+  });
 });

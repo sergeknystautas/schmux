@@ -79,3 +79,35 @@ func TestSummaryCache_Persistence(t *testing.T) {
 		t.Errorf("summary = %q after reload", got.Summary)
 	}
 }
+
+func TestSummaryCache_AllKeysAndRemove(t *testing.T) {
+	sc := &SummaryCache{
+		entries: make(map[string]*SummaryEntry),
+		path:    filepath.Join(t.TempDir(), "summaries.json"),
+	}
+
+	sc.Set("ws-001", &SummaryEntry{Summary: "first"})
+	sc.Set("ws-002", &SummaryEntry{Summary: "second"})
+	sc.Set("ws-003", &SummaryEntry{Summary: "third"})
+
+	keys := sc.AllKeys()
+	if len(keys) != 3 {
+		t.Fatalf("AllKeys: got %d, want 3", len(keys))
+	}
+
+	// Remove one
+	sc.Remove("ws-002")
+	if sc.Get("ws-002") != nil {
+		t.Error("ws-002 should be nil after Remove")
+	}
+
+	keys = sc.AllKeys()
+	if len(keys) != 2 {
+		t.Fatalf("AllKeys after Remove: got %d, want 2", len(keys))
+	}
+
+	// Others still exist
+	if sc.Get("ws-001") == nil || sc.Get("ws-003") == nil {
+		t.Error("ws-001 and ws-003 should still exist")
+	}
+}

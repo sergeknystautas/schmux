@@ -15,10 +15,10 @@ verify the workspace is now marked as shared via both the UI and API.
 ## Verifications
 
 - The repofeed page loads and shows an "Outgoing" section heading
-- The outgoing section lists the active workspace with a "Share" button
+- The outgoing section lists the active workspace with a "Share activity" button
 - The workspace shows a lock icon indicating it is private
-- Clicking the "Share" button calls POST /api/workspaces/{id}/share-intent with {"share": true}
+- Clicking the "Share activity" button calls POST /api/workspaces/{id}/share-intent with {"share": true}
 - After sharing, GET /api/sessions shows the workspace with intent_shared=true
 - The repofeed page shows an "Incoming" section heading below the outgoing section
-- Clicking "Unshare" calls POST /api/workspaces/{id}/share-intent with {"share": false}
+- Clicking "Stop sharing activity" calls POST /api/workspaces/{id}/share-intent with {"share": false}
 - After unsharing, GET /api/sessions shows the workspace with intent_shared absent or false

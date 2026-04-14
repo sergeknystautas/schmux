@@ -110,4 +110,27 @@ func TestHandleShareIntent(t *testing.T) {
 			t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
 		}
 	})
+
+	t.Run("triggers repofeed publish", func(t *testing.T) {
+		server, _, st := newTestServer(t)
+		server.config.Repofeed = &config.RepofeedConfig{Enabled: true}
+		ws := addWorkspaceToServer(t, st, "ws-si-6")
+
+		triggered := false
+		wsH := newTestWorkspaceHandlers(server)
+		wsH.triggerRepofeedPublish = func() { triggered = true }
+
+		body, _ := json.Marshal(map[string]bool{"share": true})
+		req := makeWorkspaceRequest(t, http.MethodPost,
+			"/api/workspaces/"+ws.ID+"/share-intent", ws.ID, body)
+		rr := httptest.NewRecorder()
+		wsH.handleShareIntent(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+		if !triggered {
+			t.Error("expected triggerRepofeedPublish to be called")
+		}
+	})
 }

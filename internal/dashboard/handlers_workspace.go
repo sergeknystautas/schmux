@@ -44,6 +44,7 @@ type WorkspaceHandlers struct {
 	requireWorkspace                     func(w http.ResponseWriter, r *http.Request) (state.Workspace, bool)
 	getLinearSyncResolveConflictState    func(workspaceID string) *LinearSyncResolveConflictState
 	deleteLinearSyncResolveConflictState func(workspaceID string)
+	triggerRepofeedPublish               func()
 }
 
 // previewResponse is a type alias for contracts.PreviewResponse.

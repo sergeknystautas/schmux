@@ -108,4 +108,34 @@ func TestHandleBackburnerWorkspace(t *testing.T) {
 			t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
 		}
 	})
+
+	t.Run("backburner clears intent sharing", func(t *testing.T) {
+		server, cfg, st := newTestServer(t)
+		cfg.BackburnerEnabled = true
+		ws := addWorkspaceToServer(t, st, "ws-bb-5")
+
+		// Set intent_shared to true first
+		wsState, _ := st.GetWorkspace(ws.ID)
+		wsState.IntentShared = true
+		st.UpdateWorkspace(wsState)
+
+		wsH := newTestWorkspaceHandlers(server)
+		body, _ := json.Marshal(map[string]bool{"backburner": true})
+		req := makeWorkspaceRequest(t, http.MethodPost,
+			"/api/workspaces/"+ws.ID+"/backburner", ws.ID, body)
+		rr := httptest.NewRecorder()
+		wsH.handleBackburnerWorkspace(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+
+		updated, _ := st.GetWorkspace(ws.ID)
+		if !updated.Backburner {
+			t.Error("expected Backburner to be true")
+		}
+		if updated.IntentShared {
+			t.Error("expected IntentShared to be false after backburner")
+		}
+	})
 }

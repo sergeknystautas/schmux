@@ -449,6 +449,20 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	// Set intent sharing on workspace if requested
+	if hasSuccess && req.IntentShared {
+		seen := make(map[string]bool)
+		for _, r := range results {
+			if r.Error == "" && r.WorkspaceID != "" && !seen[r.WorkspaceID] {
+				seen[r.WorkspaceID] = true
+				if ws, ok := h.state.GetWorkspace(r.WorkspaceID); ok {
+					ws.IntentShared = true
+					h.state.UpdateWorkspace(ws)
+				}
+			}
+		}
+	}
+
 	// Broadcast update to WebSocket clients
 	if hasSuccess {
 		go h.broadcastSessions()

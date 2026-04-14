@@ -769,6 +769,7 @@ func (m *Manager) resolveWorkspace(ctx context.Context, opts SpawnOptions) (*sta
 		if err != nil {
 			return nil, fmt.Errorf("failed to create workspace from source: %w", err)
 		}
+		m.setCreatedAtIfMissing(w)
 		return w, nil
 	}
 	if opts.WorkspaceID != "" {
@@ -782,7 +783,16 @@ func (m *Manager) resolveWorkspace(ctx context.Context, opts SpawnOptions) (*sta
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workspace: %w", err)
 	}
+	m.setCreatedAtIfMissing(w)
 	return w, nil
+}
+
+// setCreatedAtIfMissing stamps the workspace with the current time if CreatedAt is zero.
+func (m *Manager) setCreatedAtIfMissing(ws *state.Workspace) {
+	if ws.CreatedAt.IsZero() {
+		ws.CreatedAt = time.Now()
+		m.state.UpdateWorkspace(*ws)
+	}
 }
 
 // writeImageAttachments decodes base64 image data and writes files to the

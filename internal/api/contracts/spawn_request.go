@@ -19,4 +19,5 @@ type SpawnRequest struct {
 	PersonaID        string         `json:"persona_id,omitempty"`        // optional: behavioral persona for the agent
 	StyleID          string         `json:"style_id,omitempty"`          // optional: communication style override ("none" to suppress global default)
 	ImageAttachments []string       `json:"image_attachments,omitempty"` // base64-encoded PNGs, max 5
+	IntentShared     bool           `json:"intent_shared,omitempty"`     // optional: share workspace intent with team via repofeed
 }

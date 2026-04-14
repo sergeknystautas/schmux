@@ -34,6 +34,10 @@ func (s *Server) SetRepofeedDismissed(_ *repofeed.DismissedStore) {}
 
 func (s *Server) SetRepofeedSummaryCache(_ *repofeed.SummaryCache) {}
 
+func (s *Server) SetRepofeedPublishTrigger(_ chan<- struct{}) {}
+
+func (s *Server) TriggerRepofeedPublish() {}
+
 func (s *Server) SetRepofeedConsumer(_ *repofeed.Consumer) {}
 
 func (s *Server) BroadcastRepofeed() {}

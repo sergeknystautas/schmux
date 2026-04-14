@@ -93,9 +93,9 @@ function OutgoingCard({
       <button
         className={styles['repofeed-intent__toggle']}
         onClick={onToggle}
-        title={isShared ? 'Stop sharing' : 'Share with team'}
+        title={isShared ? 'Stop sharing activity' : 'Share activity with team'}
       >
-        {isShared ? 'Unshare' : 'Share'}
+        {isShared ? 'Stop sharing activity' : 'Share activity'}
       </button>
     </div>
   );
@@ -205,26 +205,58 @@ export default function RepofeedPage() {
 
       {/* Outgoing section */}
       <div className={styles['repofeed-page__section']}>
-        <h3 className={styles['repofeed-page__section-title']}>Outgoing</h3>
+        <h3 className={styles['repofeed-page__section-title']}>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M22 2 11 13" />
+            <path d="m22 2-7 20-4-9-9-4z" />
+          </svg>
+          Outgoing
+        </h3>
         {workspaces.length === 0 ? (
           <div className={styles['repofeed-page__empty']}>No workspaces.</div>
         ) : (
           <div className={styles['repofeed-page__list']}>
-            {workspaces.map((ws) => (
-              <OutgoingCard
-                key={ws.id}
-                ws={ws}
-                summary={outgoingSummaries[ws.id]}
-                onToggle={() => handleToggleShare(ws.id, !!ws.intent_shared)}
-              />
-            ))}
+            {[...workspaces]
+              .sort((a, b) => a.id.localeCompare(b.id))
+              .map((ws) => (
+                <OutgoingCard
+                  key={ws.id}
+                  ws={ws}
+                  summary={outgoingSummaries[ws.id]}
+                  onToggle={() => handleToggleShare(ws.id, !!ws.intent_shared)}
+                />
+              ))}
           </div>
         )}
       </div>
 
       {/* Incoming section */}
       <div className={styles['repofeed-page__section']}>
-        <h3 className={styles['repofeed-page__section-title']}>Incoming</h3>
+        <h3 className={styles['repofeed-page__section-title']}>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+            <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+          </svg>
+          Incoming
+        </h3>
 
         {/* Filter chips */}
         <div className={styles['repofeed-page__filters']}>
@@ -241,22 +273,25 @@ export default function RepofeedPage() {
 
         {/* Intent list grouped by developer */}
         {filteredIntents.length === 0 ? (
-          <div className={styles['repofeed-page__empty']}>No incoming intents yet.</div>
+          <div className={styles['repofeed-page__empty']}>No incoming activity yet.</div>
         ) : (
           <div className={styles['repofeed-page__list']}>
-            {Array.from(byDeveloper.entries()).map(([developer, intents]) =>
-              intents.map((intent) => (
-                <IncomingCard
-                  key={`${intent.developer}-${intent.intent}-${intent.workspace_id || ''}`}
-                  intent={intent}
-                  onDismiss={
-                    intent.status === 'completed'
-                      ? () => handleDismiss(intent.developer, intent.workspace_id || '')
-                      : undefined
-                  }
-                />
-              ))
-            )}
+            {Array.from(byDeveloper.entries()).map(([developer, intents]) => (
+              <div key={developer}>
+                <div className={styles['repofeed-page__developer-header']}>{developer}</div>
+                {intents.map((intent) => (
+                  <IncomingCard
+                    key={`${intent.developer}-${intent.intent}-${intent.workspace_id || ''}`}
+                    intent={intent}
+                    onDismiss={
+                      intent.status === 'completed'
+                        ? () => handleDismiss(intent.developer, intent.workspace_id || '')
+                        : undefined
+                    }
+                  />
+                ))}
+              </div>
+            ))}
           </div>
         )}
       </div>

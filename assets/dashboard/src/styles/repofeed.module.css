@@ -14,13 +14,13 @@
 .repofeed-page__title {
   font-size: 1.25rem;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--color-text);
 }
 
 .repofeed-page__tabs {
   display: flex;
   gap: 0.25rem;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--color-border);
   margin-bottom: 1rem;
   padding-bottom: 0;
 }
@@ -29,7 +29,7 @@
   padding: 0.5rem 1rem;
   border: none;
   background: none;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   cursor: pointer;
   border-bottom: 2px solid transparent;
   font-size: 0.875rem;
@@ -39,12 +39,12 @@
 }
 
 .repofeed-page__tab:hover {
-  color: var(--text-primary);
+  color: var(--color-text);
 }
 
 .repofeed-page__tab--active {
-  color: var(--text-primary);
-  border-bottom-color: var(--accent);
+  color: var(--color-text);
+  border-bottom-color: var(--color-accent);
 }
 
 .repofeed-page__badge {
@@ -55,8 +55,8 @@
   height: 1.25rem;
   padding: 0 0.375rem;
   border-radius: 999px;
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
   font-size: 0.75rem;
   font-weight: 500;
   margin-left: 0.375rem;
@@ -71,48 +71,69 @@
 .repofeed-page__chip {
   padding: 0.25rem 0.75rem;
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
   font-size: 0.8125rem;
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .repofeed-page__chip:hover {
-  border-color: var(--text-secondary);
+  border-color: var(--color-text-muted);
 }
 
 .repofeed-page__chip--active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--text-on-accent, #fff);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
 }
 
 .repofeed-page__empty {
   text-align: center;
-  padding: 3rem 1rem;
-  color: var(--text-tertiary);
+  padding: 2.5rem 1rem;
+  color: var(--color-text-faint);
+  font-size: 0.875rem;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg, 0.5rem);
+  background: var(--color-surface);
 }
 
 .repofeed-page__list {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
+
+/* ── Cards ── */
 
 .repofeed-intent {
   display: flex;
+  align-items: center;
   gap: 0.75rem;
   padding: 0.75rem 1rem;
-  border-radius: 0.5rem;
-  border: 1px solid var(--border);
-  background: var(--bg-secondary);
+  border-radius: var(--radius-lg, 0.5rem);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-elevated, var(--color-surface));
+  transition:
+    border-color 0.15s,
+    background-color 0.15s;
+}
+
+.repofeed-intent:hover {
+  border-color: var(--color-text-faint);
+  background: var(--color-surface-alt);
 }
 
 .repofeed-intent__status {
   flex-shrink: 0;
-  margin-top: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--color-surface-alt);
 }
 
 .repofeed-intent__dot {
@@ -120,19 +141,20 @@
   width: 0.5rem;
   height: 0.5rem;
   border-radius: 50%;
-  background: var(--text-tertiary);
+  background: var(--color-text-faint);
 }
 
 .repofeed-intent__dot--active {
-  background: var(--status-active, #22c55e);
+  background: var(--color-success, #22c55e);
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
 }
 
 .repofeed-intent__dot--inactive {
-  background: var(--status-warning, #f59e0b);
+  background: var(--color-warning, #f59e0b);
 }
 
 .repofeed-intent__dot--completed {
-  background: var(--text-tertiary);
+  background: var(--color-text-faint);
 }
 
 .repofeed-intent__body {
@@ -141,14 +163,15 @@
 }
 
 .repofeed-intent__developer {
-  font-size: 0.8125rem;
-  color: var(--text-secondary);
-  margin-bottom: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--color-text-faint);
+  margin-bottom: 0.125rem;
 }
 
 .repofeed-intent__text {
-  font-size: 0.9375rem;
-  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text);
   line-height: 1.4;
 }
 
@@ -156,9 +179,9 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  margin-top: 0.375rem;
+  margin-top: 0.25rem;
   font-size: 0.75rem;
-  color: var(--text-tertiary);
+  color: var(--color-text-faint);
 }
 
 .repofeed-intent__branch {
@@ -166,12 +189,17 @@
   font-size: 0.75rem;
   padding: 0.125rem 0.375rem;
   border-radius: 0.25rem;
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
 }
 
 .repofeed-intent--muted {
-  opacity: 0.5;
+  opacity: 0.4;
+  border-style: dashed;
+}
+
+.repofeed-intent--muted:hover {
+  opacity: 0.7;
 }
 
 .repofeed-intent__lock {
@@ -181,29 +209,60 @@
 .repofeed-intent__toggle {
   flex-shrink: 0;
   align-self: center;
-  padding: 0.25rem 0.625rem;
-  border: 1px solid var(--border);
-  border-radius: 0.25rem;
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
+  padding: 0.3rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 0.375rem);
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
   font-size: 0.75rem;
   cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
 }
 
 .repofeed-intent__toggle:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
 }
+
+/* ── Sections ── */
 
 .repofeed-page__section {
   margin-bottom: 2rem;
 }
 
 .repofeed-page__section-title {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--color-text-faint);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
   margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--color-border-subtle, var(--color-border));
+}
+
+.repofeed-page__developer-header {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  padding: 0.75rem 0 0.25rem;
+  margin-top: 0.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.repofeed-page__developer-header::before {
+  content: '';
+  display: inline-block;
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 50%;
+  background: var(--color-accent);
+  opacity: 0.6;
 }

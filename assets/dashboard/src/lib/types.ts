@@ -152,6 +152,7 @@ export interface SpawnRequest {
   persona_id?: string; // optional: behavioral persona for the agent
   style_id?: string; // optional: communication style for the agent
   image_attachments?: string[]; // base64-encoded PNGs, max 5
+  intent_shared?: boolean; // optional: share workspace intent with team via repofeed
 }
 
 export interface SpawnResult {

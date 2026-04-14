@@ -53,8 +53,8 @@ test.describe.serial('Share workspace intent via repofeed', () => {
     // Verify Incoming section exists
     await expect(page.locator('h3', { hasText: 'Incoming' })).toBeVisible();
 
-    // Verify workspace appears in outgoing with Share button
-    await expect(page.locator('text=Share').first()).toBeVisible();
+    // Verify workspace appears in outgoing with Share activity button
+    await expect(page.locator('text=Share activity').first()).toBeVisible();
   });
 
   test('toggle share intent via API', async () => {
@@ -89,12 +89,12 @@ test.describe.serial('Share workspace intent via repofeed', () => {
     await waitForDashboardLive(page);
 
     // Click Share button for the workspace
-    const shareButton = page.locator('button', { hasText: 'Share' }).first();
+    const shareButton = page.locator('button', { hasText: 'Share activity' }).first();
     await expect(shareButton).toBeVisible();
     await shareButton.click();
 
-    // After clicking, button should change to Unshare
-    await expect(page.locator('button', { hasText: 'Unshare' }).first()).toBeVisible({
+    // After clicking, button should change to Stop sharing activity
+    await expect(page.locator('button', { hasText: 'Stop sharing activity' }).first()).toBeVisible({
       timeout: 5000,
     });
   });

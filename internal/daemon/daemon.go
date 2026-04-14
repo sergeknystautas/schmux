@@ -1350,7 +1350,9 @@ func (d *Daemon) startBackgroundJobs(
 	dismissedStore := repofeed.NewDismissedStore()
 	server.SetRepofeedDismissed(dismissedStore)
 	server.SetRepofeedSummaryCache(summaryCache)
-	go startRepofeedPublisher(d.shutdownCtx, cfg, st, summaryCache, devEmail, devName, repofeedLog)
+	publishTrigger := make(chan struct{}, 1)
+	server.SetRepofeedPublishTrigger(publishTrigger)
+	go startRepofeedPublisher(d.shutdownCtx, cfg, st, summaryCache, devEmail, devName, publishTrigger, repofeedLog)
 
 	// One-time migration: delete old subreddit.json file
 	oldCachePath := filepath.Join(schmuxDir, "subreddit.json")
@@ -1915,7 +1917,7 @@ func startRepofeedConsumer(ctx context.Context, cfg *config.Config, consumer *re
 // uses LLM summarization for intent text, and pushes to the orphan branch.
 // Publishes only when a trigger fires: workspace sharing toggled, workspace disposed,
 // day rollover, or new prompts summarized.
-func startRepofeedPublisher(ctx context.Context, cfg *config.Config, st *state.State, summaryCache *repofeed.SummaryCache, devEmail, devName string, logger *log.Logger) {
+func startRepofeedPublisher(ctx context.Context, cfg *config.Config, st *state.State, summaryCache *repofeed.SummaryCache, devEmail, devName string, triggerCh <-chan struct{}, logger *log.Logger) {
 	if !cfg.GetRepofeedEnabled() {
 		logger.Debug("repofeed publisher disabled")
 		return
@@ -1931,6 +1933,9 @@ func startRepofeedPublisher(ctx context.Context, cfg *config.Config, st *state.S
 
 	for {
 		select {
+		case <-triggerCh:
+			// Immediate publish requested (share toggle, dispose)
+			logger.Debug("repofeed publish triggered")
 		case <-timer.C:
 			devFile := buildV2DeveloperFile(ctx, cfg, st, summaryCache, devEmail, devName, logger)
 
@@ -2016,12 +2021,17 @@ func buildV2DeveloperFile(ctx context.Context, cfg *config.Config, st *state.Sta
 			lastActive = cached.LastSummarized.Format("2006-01-02")
 		}
 
+		started := today
+		if !ws.CreatedAt.IsZero() {
+			started = ws.CreatedAt.Format("2006-01-02")
+		}
+
 		intents = append(intents, repofeed.Intent{
 			ID:             ws.ID,
 			IntentText:     summary,
 			Status:         status,
 			LastActiveDate: lastActive,
-			Started:        today,
+			Started:        started,
 		})
 	}
 
