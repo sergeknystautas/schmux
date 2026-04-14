@@ -185,7 +185,7 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 		}
 
 		// Populate tabs from top-level state — no field rewriting.
-		wsTabs := s.state.GetWorkspaceTabs(ws.ID)
+		wsTabs := h.state.GetWorkspaceTabs(ws.ID)
 		tabItems := make([]contracts.Tab, 0, len(wsTabs))
 		for _, tab := range wsTabs {
 			tabItems = append(tabItems, contracts.Tab{

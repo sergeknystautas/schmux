@@ -18,7 +18,8 @@ func newTestState(t *testing.T) *state.State {
 // newTestManager creates a workspace Manager backed by a real state.State.
 func newTestManager(t *testing.T, st *state.State) *Manager {
 	t.Helper()
-	cfg := &config.Config{WorkspacePath: t.TempDir()}
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
 	return New(cfg, st, t.TempDir()+"/state.json", testLogger())
 }
 
