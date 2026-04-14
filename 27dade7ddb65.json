@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-14T21:34:42Z",
+  "updated": "2026-04-14T21:35:13Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "that didn't help, the buttons are still like before",
+      "intent": "ok, that works, but now \"Status\" and \"Action\" should be centered in their column also, \"Modified\"...",
       "status": "active",
       "last_active_date": "2026-04-14",
       "started": "2026-04-14"
