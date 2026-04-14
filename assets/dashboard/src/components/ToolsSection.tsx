@@ -109,8 +109,15 @@ export default function ToolsSection({
       hidden: !config?.lore?.enabled,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
-          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+          <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"></path>
+          <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"></path>
+          <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"></path>
+          <path d="M17.599 6.5a3 3 0 0 0 .399-1.375"></path>
+          <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"></path>
+          <path d="M3.477 10.896a4 4 0 0 1 .585-.396"></path>
+          <path d="M19.938 10.5a4 4 0 0 1 .585.396"></path>
+          <path d="M6 18a4 4 0 0 1-1.967-.516"></path>
+          <path d="M19.967 17.484A4 4 0 0 1 18 18"></path>
         </svg>
       ),
     },
@@ -131,7 +138,8 @@ export default function ToolsSection({
       hidden: !config?.comm_styles_enabled,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          <path d="m3 11 18-5v12L3 13v-2z"></path>
+          <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"></path>
         </svg>
       ),
     },
@@ -141,9 +149,13 @@ export default function ToolsSection({
       hidden: !features.repofeed || !config?.repofeed?.enabled,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M4 11a9 9 0 0 1 9 9"></path>
-          <path d="M4 4a16 16 0 0 1 16 16"></path>
-          <circle cx="5" cy="19" r="1"></circle>
+          <path d="M4.9 16.1C1 12.2 1 5.8 4.9 1.9"></path>
+          <path d="M7.8 4.7a6.14 6.14 0 0 0-.8 7.5"></path>
+          <circle cx="12" cy="9" r="2"></circle>
+          <path d="M16.2 4.7a6.14 6.14 0 0 1 .8 7.5"></path>
+          <path d="M19.1 1.9a10.14 10.14 0 0 1 0 14.2"></path>
+          <path d="M9.5 18h5"></path>
+          <path d="m8 22 4-11 4 11"></path>
         </svg>
       ),
     },
@@ -153,8 +165,10 @@ export default function ToolsSection({
       hidden: !config?.timelapse?.enabled,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="12" cy="12" r="10"></circle>
-          <polyline points="12 6 12 12 16 14"></polyline>
+          <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+          <path d="m10.5 7.5 4 2.5-4 2.5v-5z"></path>
+          <line x1="8" y1="21" x2="16" y2="21"></line>
+          <line x1="12" y1="17" x2="12" y2="21"></line>
         </svg>
       ),
     },
@@ -162,12 +176,11 @@ export default function ToolsSection({
       to: '/environment',
       label: 'Environment',
       icon: (
-        <svg viewBox="0 0 16 16" fill="currentColor">
-          <path
-            fillRule="evenodd"
-            clipRule="evenodd"
-            d="M9.71.292a1 1 0 00-1.414 0L4.298 4.29a1 1 0 000 1.414L5.59 6.996 4.293 8.292a3 3 0 101.414 1.414L7.005 8.41l1.292 1.292a1 1 0 001.414 0l3.998-3.998a1 1 0 000-1.414L9.71.292zm-.707 2.121L6.419 4.997l2.584 2.584 2.584-2.584-2.584-2.584zM3 12a1 1 0 100-2 1 1 0 000 2z"
-          />
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="m16 3 4 4-4 4"></path>
+          <path d="M20 7H4"></path>
+          <path d="m8 21-4-4 4-4"></path>
+          <path d="M4 17h16"></path>
         </svg>
       ),
     },
@@ -176,9 +189,8 @@ export default function ToolsSection({
       label: 'Tips',
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="12" cy="12" r="10"></circle>
-          <line x1="12" y1="16" x2="12" y2="12"></line>
-          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
         </svg>
       ),
     },
