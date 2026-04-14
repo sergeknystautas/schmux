@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-14T22:11:36Z",
+  "updated": "2026-04-14T22:12:07Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "hold on, why do we need a timestamp to the recording ID? aren't sessionID unique already... could...",
+      "intent": "let's see what the chevron looks like",
       "status": "active",
       "last_active_date": "2026-04-14",
       "started": "2026-04-14"
