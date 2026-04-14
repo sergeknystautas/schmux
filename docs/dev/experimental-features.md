@@ -82,7 +82,7 @@ go build -tags "noposthog noupdate nomodelregistry nodashboardsx norepofeed nosu
 5. If there are dashboard handlers:
    - Add `//go:build !no<feature>` to the handler file
    - Create `handlers_<feature>_disabled.go` returning 503
-   - **Check for cross-references**: search for any methods defined in the handler file that are called from OTHER untagged handler files (e.g., `handlers_config.go`, `handlers_emergence.go`). Those methods MUST be stubbed in the disabled file.
+   - **Check for cross-references**: search for any methods defined in the handler file that are called from OTHER untagged handler files (e.g., `handlers_config.go`, `handlers_spawn_entries.go`). Those methods MUST be stubbed in the disabled file.
 6. If there's a CLI command in `cmd/schmux/`:
    - Add `//go:build !no<feature>` to the command file
    - Create `<feature>_disabled.go` returning an error from `Run()`
@@ -104,7 +104,7 @@ If a feature already has a backend package but no build-tag exclusion:
 
 ## Common Pitfalls
 
-- **Forgetting cross-file method calls**: A handler method defined in `handlers_lore.go` might be called from `handlers_config.go` or `handlers_emergence.go`. If those callers have no build tag, you must stub the method.
+- **Forgetting cross-file method calls**: A handler method defined in `handlers_autolearn.go` might be called from `handlers_config.go` or `handlers_spawn_entries.go`. If those callers have no build tag, you must stub the method.
 - **Test files**: Do NOT add build tags to test files. Tests compile against whichever version (enabled or disabled) is active. Consider adding `//go:build !no<feature>` to test files only if they would produce confusing failures with the disabled stubs.
 - **`init()` functions**: If a source file has `init()` that registers something (e.g., schema registration), the disabled stub won't run it. Make sure nothing crashes when the registration is absent.
 - **Interface compliance**: If a type implements an interface (e.g., `events.EventHandler`), the disabled stub must satisfy it too. Add `var _ events.EventHandler = (*MyType)(nil)` to verify at compile time.

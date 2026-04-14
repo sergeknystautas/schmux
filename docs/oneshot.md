@@ -9,9 +9,9 @@ Oneshot is schmux's prompt-in/result-out execution mode for AI agents. It's used
 | NudgeNik         | `internal/nudgenik`        | `nudgenik`         | Classifies agent terminal state (stuck, waiting, completed, etc.) |
 | Branch Suggest   | `internal/branchsuggest`   | `branch-suggest`   | Generates a git branch name and nickname from a user prompt       |
 | Conflict Resolve | `internal/conflictresolve` | `conflict-resolve` | Resolves git rebase conflicts via LLM, reports actions per file   |
-| Lore             | `internal/lore`            | `lore`             | Curates learning proposals from agent sessions                    |
+| Autolearn        | `internal/autolearn`       | `autolearn`        | Curates learning proposals from agent sessions                    |
 | Subreddit        | `internal/subreddit`       | `subreddit`        | Generates subreddit digest posts                                  |
-| Emergence        | `internal/emergence`       | `emergence`        | Discovers reusable skills from agent behavior                     |
+| Spawn            | `internal/spawn`           | `spawn`            | Discovers reusable skills from agent behavior                     |
 | Commit Message   | `internal/commitmessage`   | `commitmessage`    | Generates commit messages from workspace diffs                    |
 
 ## Execution Flow

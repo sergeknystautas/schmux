@@ -425,7 +425,7 @@ Contract (pre-2093ccf):
 - `persona_id` is optional. When set, the persona's system prompt is injected into the agent at spawn time (e.g., via `--append-system-prompt-file` for Claude). The persona ID is stored on the session and used to display persona badges in the dashboard.
 - `style_id` is optional. Communication style override. When set, composed with persona and injected into the agent. The special value `"none"` suppresses the global default style. When absent, the per-agent-type default from `comm_styles` config is used.
 - `image_attachments` is optional. Array of base64-encoded PNG strings (max 5). Images are decoded and written to the workspace's schmux data directory (`{workspace}/.schmux/attachments/` for git, `{workspace}/.sl/schmux/attachments/` for sapling). Absolute file paths are appended to the prompt so the agent can reference them. Cannot be used with `resume`, `command`, or `remote_profile_id`.
-- `action_id` is optional. When set, usage is recorded against the matching spawn entry in the emergence store. When absent and a prompt exactly matches a pinned spawn entry's prompt, usage is recorded automatically.
+- `action_id` is optional. When set, usage is recorded against the matching spawn entry in the spawn store. When absent and a prompt exactly matches a pinned spawn entry's prompt, usage is recorded automatically.
 - Remote workspace VCS backfill: when spawning into an existing remote workspace, the workspace's `vcs` field is updated to match the flavor's VCS type. This ensures the events file watcher uses the correct data directory (`.schmux/` for git, `.sl/schmux/` for sapling).
 
 Resume mode (`resume: true`):
@@ -2592,13 +2592,13 @@ Private instruction layers are stored at `~/.schmux/instructions/`:
 
 At agent spawn time, assembled instructions (global + repo-private) are injected into the workspace instruction file within the `<!-- SCHMUX:BEGIN/END -->` markers alongside signaling instructions. These are never committed to the repo.
 
-## Emergence API
+## Spawn Entries API
 
-Emergence is the skill discovery system that replaces the Actions registry. Spawn entries represent reusable task templates with lifecycle tracking (proposed → pinned or dismissed). Repo names are validated (no path separators, dots, null bytes, max 128 chars).
+Spawn entries are the skill discovery system that replaces the Actions registry. Spawn entries represent reusable task templates with lifecycle tracking (proposed → pinned or dismissed). Repo names are validated (no path separators, dots, null bytes, max 128 chars).
 
 Pinned skill entries are automatically injected into workspaces at spawn time via the ensure package, in addition to being injected when the pin action is triggered.
 
-### GET /api/emergence/{repo}/entries
+### GET /api/spawn/{repo}/entries
 
 Returns pinned spawn entries for a repo (used by the spawn dropdown).
 
@@ -2621,13 +2621,13 @@ Response:
 }
 ```
 
-### GET /api/emergence/{repo}/entries/all
+### GET /api/spawn/{repo}/entries/all
 
 Returns all spawn entries for a repo (proposed, pinned, and dismissed).
 
-Response: same shape as `GET /api/emergence/{repo}/entries` with entries in all states. For skill-type entries, the `description` field is enriched from emergence metadata if not already set, and a `metadata` object is included with `skill_content`, `confidence`, `evidence_count`, `evidence`, `emerged_at`, and `last_curated`.
+Response: same shape as `GET /api/spawn/{repo}/entries` with entries in all states. For skill-type entries, the `description` field is enriched from autolearn metadata if not already set, and a `metadata` object is included with `skill_content`, `confidence`, `evidence_count`, `evidence`, `emerged_at`, and `last_curated`.
 
-### POST /api/emergence/{repo}/entries
+### POST /api/spawn/{repo}/entries
 
 Creates a new manual spawn entry (state=pinned, source=manual).
 
@@ -2645,7 +2645,7 @@ Required fields: `name`, `type`. Optional: `command`, `prompt`, `target`, `skill
 
 Response: `201 Created` with the created SpawnEntry object.
 
-### PUT /api/emergence/{repo}/entries/{id}
+### PUT /api/spawn/{repo}/entries/{id}
 
 Updates an existing spawn entry. All fields are optional (patch semantics).
 
@@ -2664,7 +2664,7 @@ Errors:
 
 - 404: entry not found
 
-### DELETE /api/emergence/{repo}/entries/{id}
+### DELETE /api/spawn/{repo}/entries/{id}
 
 Hard-deletes a spawn entry.
 
@@ -2678,9 +2678,9 @@ Errors:
 
 - 404: entry not found
 
-### POST /api/emergence/{repo}/entries/{id}/pin
+### POST /api/spawn/{repo}/entries/{id}/pin
 
-Transitions a proposed entry to pinned state. If the entry has a skill reference with emergence metadata, the skill is injected into all workspaces for the repo.
+Transitions a proposed entry to pinned state. If the entry has a skill reference with autolearn metadata, the skill is injected into all workspaces for the repo.
 
 Response:
 
@@ -2692,7 +2692,7 @@ Errors:
 
 - 404: entry not found
 
-### POST /api/emergence/{repo}/entries/{id}/dismiss
+### POST /api/spawn/{repo}/entries/{id}/dismiss
 
 Transitions an entry to dismissed state.
 
@@ -2706,7 +2706,7 @@ Errors:
 
 - 404: entry not found
 
-### POST /api/emergence/{repo}/entries/{id}/use
+### POST /api/spawn/{repo}/entries/{id}/use
 
 Records a usage of a spawn entry (increments use_count).
 
@@ -2720,9 +2720,9 @@ Errors:
 
 - 404: entry not found
 
-### POST /api/emergence/{repo}/curate
+### POST /api/spawn/{repo}/curate
 
-Triggers emergence curation: collects intent signals from workspace event files, sends them to the LLM, and creates proposed spawn entries for discovered skills. Skills that match already-proposed or pinned entries are deduplicated and not re-proposed.
+Triggers autolearn curation: collects intent signals from workspace event files, sends them to the LLM, and creates proposed spawn entries for discovered skills. Skills that match already-proposed or pinned entries are deduplicated and not re-proposed.
 
 Response: `202 Accepted`
 
@@ -2734,9 +2734,9 @@ Returns `{ "status": "no_signals" }` with 200 if no intent signals are found.
 
 Errors:
 
-- 503: emergence system or LLM target not configured
+- 503: autolearn system or LLM target not configured
 
-### GET /api/emergence/{repo}/prompt-history
+### GET /api/spawn/{repo}/prompt-history
 
 Returns prompt autocomplete data from workspace event files. Extracts unique prompts from status events with non-empty intent fields, deduplicated and sorted by last_seen descending.
 
