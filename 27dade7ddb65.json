@@ -2,5 +2,21 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-14T04:59:40Z"
+  "updated": "2026-04-14T05:00:11Z",
+  "intents": [
+    {
+      "id": "schmux-001",
+      "intent": "yes, revise",
+      "status": "active",
+      "last_active_date": "2026-04-13",
+      "started": "2026-04-13"
+    },
+    {
+      "id": "schmux-003",
+      "intent": "explain to me the expected user experience",
+      "status": "active",
+      "last_active_date": "2026-04-13",
+      "started": "2026-04-13"
+    }
+  ]
 }
