@@ -169,3 +169,41 @@
   background: var(--bg-tertiary);
   color: var(--text-secondary);
 }
+
+.repofeed-intent--muted {
+  opacity: 0.5;
+}
+
+.repofeed-intent__lock {
+  font-size: 0.75rem;
+}
+
+.repofeed-intent__toggle {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 0.25rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.repofeed-intent__toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.repofeed-page__section {
+  margin-bottom: 2rem;
+}
+
+.repofeed-page__section-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.75rem;
+}

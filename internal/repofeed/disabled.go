@@ -20,10 +20,20 @@ const (
 func (s ActivityStatus) Valid() bool { return false }
 
 type DeveloperFile struct {
+	Version     int                        `json:"version,omitempty"`
 	Developer   string                     `json:"developer"`
 	DisplayName string                     `json:"display_name"`
 	Updated     string                     `json:"updated"`
-	Repos       map[string]*RepoActivities `json:"repos"`
+	Repos       map[string]*RepoActivities `json:"repos,omitempty"`
+	Intents     []Intent                   `json:"intents,omitempty"`
+}
+
+type Intent struct {
+	ID             string         `json:"id"`
+	IntentText     string         `json:"intent"`
+	Status         ActivityStatus `json:"status"`
+	LastActiveDate string         `json:"last_active_date"`
+	Started        string         `json:"started"`
 }
 
 type RepoActivities struct {
@@ -71,14 +81,16 @@ type ConsumerConfig struct {
 }
 
 type IntentEntry struct {
-	Developer    string
-	DisplayName  string
-	Intent       string
-	Status       ActivityStatus
-	Started      string
-	Branches     []string
-	SessionCount int
-	Agents       []string
+	Developer      string
+	DisplayName    string
+	Intent         string
+	Status         ActivityStatus
+	Started        string
+	Branches       []string
+	SessionCount   int
+	Agents         []string
+	LastActiveDate string
+	WorkspaceID    string
 }
 
 type Consumer struct{}
@@ -97,6 +109,10 @@ func (c *Consumer) GetAllRepoSlugs() []string {
 	return nil
 }
 
+func (c *Consumer) GetAllIntents() []IntentEntry {
+	return nil
+}
+
 type GitOps struct {
 	BareDir string
 	Branch  string
@@ -106,8 +122,6 @@ func (g *GitOps) WriteDevFile(_ string, _ *DeveloperFile) error { return nil }
 func (g *GitOps) ReadAllDevFiles() ([]*DeveloperFile, error)    { return nil, nil }
 func (g *GitOps) PushToRemote(_ string) error                   { return nil }
 func (g *GitOps) FetchFromRemote(_ string) error                { return nil }
-
-func GitDirFromWorkDir(workDir string) string { return workDir + "/.git" }
 
 func CleanupStaleIndexFiles(_ string) {}
 

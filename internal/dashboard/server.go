@@ -254,8 +254,10 @@ type Server struct {
 	nextSubredditGeneration atomic.Pointer[time.Time]
 
 	// Repofeed publisher and consumer
-	repofeedPublisher *repofeed.Publisher
-	repofeedConsumer  *repofeed.Consumer
+	repofeedPublisher    *repofeed.Publisher
+	repofeedConsumer     *repofeed.Consumer
+	repofeedDismissed    *repofeed.DismissedStore
+	repofeedSummaryCache *repofeed.SummaryCache
 
 	// Tracks fire-and-forget background goroutines so tests can wait for them.
 	backgroundWG sync.WaitGroup
@@ -776,7 +778,8 @@ func (s *Server) Start() error {
 		r.Get("/subreddit", s.handleSubreddit)
 		r.Get("/repofeed", s.handleRepofeedList)
 		r.Get("/repofeed/{slug}", s.handleRepofeedRepo)
-		r.Get("/repofeed/publish/preview", s.handleRepofeedPublishPreview)
+		r.Get("/repofeed/outgoing", s.handleRepofeedOutgoing)
+		r.Get("/repofeed/incoming", s.handleRepofeedIncoming)
 		r.Get("/floor-manager", s.handleGetFloorManager)
 		remoteH := &RemoteHandlers{
 			config:              s.config,
@@ -845,7 +848,7 @@ func (s *Server) Start() error {
 			r.Post("/timelapse/{recordingId}/export", s.handleTimelapseExport)
 			r.Delete("/timelapse/{recordingId}", s.handleTimelapseDelete)
 			r.Post("/environment/sync", s.handleSyncEnvironment)
-			r.Post("/repofeed/publish/push", s.handleRepofeedPublishPush)
+			r.Post("/repofeed/dismiss", s.handleRepofeedDismiss)
 
 			// Session routes
 			r.Post("/sessions/{sessionID}/dispose", wsH.handleDispose)
@@ -944,6 +947,9 @@ func (s *Server) Start() error {
 
 				// Backburner route
 				r.Post("/backburner", wsH.handleBackburnerWorkspace)
+
+				// Share intent route (repofeed)
+				r.Post("/share-intent", wsH.handleShareIntent)
 			})
 
 			// Autolearn routes

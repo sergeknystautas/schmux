@@ -21,11 +21,24 @@ func (s ActivityStatus) Valid() bool {
 }
 
 // DeveloperFile is the per-developer JSON file stored on the dev-repofeed branch.
+// Version 1 (default): uses Repos map for repo-keyed activities.
+// Version 2: uses flat Intents array for workspace-level intent broadcasting.
 type DeveloperFile struct {
+	Version     int                        `json:"version,omitempty"`
 	Developer   string                     `json:"developer"`
 	DisplayName string                     `json:"display_name"`
 	Updated     string                     `json:"updated"`
-	Repos       map[string]*RepoActivities `json:"repos"`
+	Repos       map[string]*RepoActivities `json:"repos,omitempty"`
+	Intents     []Intent                   `json:"intents,omitempty"`
+}
+
+// Intent represents a workspace-level development intent (v2 format).
+type Intent struct {
+	ID             string         `json:"id"`
+	IntentText     string         `json:"intent"`
+	Status         ActivityStatus `json:"status"`
+	LastActiveDate string         `json:"last_active_date"`
+	Started        string         `json:"started"`
 }
 
 // RepoActivities holds the activities for a single repo.

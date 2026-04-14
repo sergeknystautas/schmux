@@ -58,6 +58,7 @@ export interface WorkspaceResponse {
   resolve_conflicts?: ResolveConflictRecordPayload[];
   status?: string;
   backburner?: boolean;
+  intent_shared?: boolean;
 }
 
 export interface WorkspacePreview {

@@ -259,6 +259,39 @@ export async function setBackburner(
   return response.json();
 }
 
+export async function setIntentShared(
+  workspaceId: string,
+  share: boolean
+): Promise<{ status: string }> {
+  const response = await apiFetch(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/share-intent`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+      body: JSON.stringify({ share }),
+    }
+  );
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to update intent sharing');
+  }
+  return response.json();
+}
+
+export async function dismissRepofeedIntent(
+  developer: string,
+  workspaceId: string
+): Promise<{ status: string }> {
+  const response = await apiFetch('/api/repofeed/dismiss', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify({ developer, workspace_id: workspaceId }),
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to dismiss intent');
+  }
+  return response.json();
+}
+
 export async function disposeWorkspaceAll(
   workspaceId: string
 ): Promise<{ status: string; sessions_disposed: number }> {
@@ -1278,9 +1311,30 @@ export async function getRepofeedList(): Promise<RepofeedListResponse> {
   return response.json();
 }
 
-export async function getRepofeedRepo(slug: string): Promise<RepofeedRepoResponse> {
-  const response = await apiFetch(`/api/repofeed/${encodeURIComponent(slug)}`);
-  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch repofeed for repo');
+export interface RepofeedOutgoingEntry {
+  workspace_id: string;
+  summary?: string;
+}
+
+export async function getRepofeedOutgoing(): Promise<{ entries: RepofeedOutgoingEntry[] }> {
+  const response = await apiFetch('/api/repofeed/outgoing');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch repofeed outgoing');
+  return response.json();
+}
+
+export interface RepofeedIncomingEntry {
+  developer: string;
+  display_name: string;
+  intent: string;
+  status: string;
+  started?: string;
+  last_active_date?: string;
+  workspace_id?: string;
+}
+
+export async function getRepofeedIncoming(): Promise<{ entries: RepofeedIncomingEntry[] }> {
+  const response = await apiFetch('/api/repofeed/incoming');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch repofeed incoming');
   return response.json();
 }
 

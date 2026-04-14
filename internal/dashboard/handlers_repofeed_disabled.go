@@ -16,15 +16,23 @@ func (s *Server) handleRepofeedRepo(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Repofeed is not available in this build", http.StatusServiceUnavailable)
 }
 
-func (s *Server) handleRepofeedPublishPreview(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleRepofeedDismiss(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Repofeed is not available in this build", http.StatusServiceUnavailable)
 }
 
-func (s *Server) handleRepofeedPublishPush(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleRepofeedOutgoing(w http.ResponseWriter, _ *http.Request) {
+	writeJSONError(w, "Repofeed is not available in this build", http.StatusServiceUnavailable)
+}
+
+func (s *Server) handleRepofeedIncoming(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Repofeed is not available in this build", http.StatusServiceUnavailable)
 }
 
 func (s *Server) SetRepofeedPublisher(_ *repofeed.Publisher) {}
+
+func (s *Server) SetRepofeedDismissed(_ *repofeed.DismissedStore) {}
+
+func (s *Server) SetRepofeedSummaryCache(_ *repofeed.SummaryCache) {}
 
 func (s *Server) SetRepofeedConsumer(_ *repofeed.Consumer) {}
 

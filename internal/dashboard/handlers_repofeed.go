@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"sort"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
@@ -121,103 +120,98 @@ func (s *Server) SetRepofeedConsumer(c *repofeed.Consumer) {
 	s.repofeedConsumer = c
 }
 
-// handleRepofeedPublishPreview handles GET /api/repofeed/publish/preview — returns in-memory state for user review.
-func (s *Server) handleRepofeedPublishPreview(w http.ResponseWriter, r *http.Request) {
-	if s.repofeedPublisher == nil {
-		writeJSON(w, map[string]interface{}{"has_data": false})
-		return
-	}
-
-	state := s.repofeedPublisher.GetCurrentState()
-	lastPushed := s.repofeedPublisher.GetLastPushedAt()
-
-	hasData := false
-	for _, repo := range state.Repos {
-		if len(repo.Activities) > 0 {
-			hasData = true
-			break
-		}
-	}
-
-	response := map[string]interface{}{
-		"has_data":       hasData,
-		"developer_file": state,
-	}
-	if !lastPushed.IsZero() {
-		response["last_pushed_at"] = lastPushed.Format("2006-01-02T15:04:05Z")
-	}
-
-	writeJSON(w, response)
+// SetRepofeedDismissed sets the repofeed dismissed store reference.
+func (s *Server) SetRepofeedDismissed(d *repofeed.DismissedStore) {
+	s.repofeedDismissed = d
 }
 
-// handleRepofeedPublishPush handles POST /api/repofeed/publish/push — writes + pushes to all enabled repos.
-func (s *Server) handleRepofeedPublishPush(w http.ResponseWriter, r *http.Request) {
-	logger := logging.Sub(s.logger, "repofeed/push")
+// SetRepofeedSummaryCache sets the repofeed summary cache reference.
+func (s *Server) SetRepofeedSummaryCache(sc *repofeed.SummaryCache) {
+	s.repofeedSummaryCache = sc
+}
 
-	if s.repofeedPublisher == nil {
-		writeJSONError(w, "repofeed publisher not available", http.StatusServiceUnavailable)
+// handleRepofeedOutgoing handles GET /api/repofeed/outgoing — returns per-workspace LLM summaries.
+func (s *Server) handleRepofeedOutgoing(w http.ResponseWriter, r *http.Request) {
+	type outgoingEntry struct {
+		WorkspaceID string `json:"workspace_id"`
+		Summary     string `json:"summary,omitempty"`
+	}
+
+	var entries []outgoingEntry
+	if s.repofeedSummaryCache != nil {
+		for _, wsID := range s.repofeedSummaryCache.AllKeys() {
+			entry := s.repofeedSummaryCache.Get(wsID)
+			if entry != nil {
+				entries = append(entries, outgoingEntry{
+					WorkspaceID: wsID,
+					Summary:     entry.Summary,
+				})
+			}
+		}
+	}
+	if entries == nil {
+		entries = []outgoingEntry{}
+	}
+	writeJSON(w, map[string]interface{}{"entries": entries})
+}
+
+// handleRepofeedIncoming handles GET /api/repofeed/incoming — returns all intents from other developers (v1+v2 normalized).
+func (s *Server) handleRepofeedIncoming(w http.ResponseWriter, r *http.Request) {
+	type incomingEntry struct {
+		Developer      string `json:"developer"`
+		DisplayName    string `json:"display_name"`
+		Intent         string `json:"intent"`
+		Status         string `json:"status"`
+		Started        string `json:"started,omitempty"`
+		LastActiveDate string `json:"last_active_date,omitempty"`
+		WorkspaceID    string `json:"workspace_id,omitempty"`
+	}
+
+	var entries []incomingEntry
+	if s.repofeedConsumer != nil {
+		for _, intent := range s.repofeedConsumer.GetAllIntents() {
+			entries = append(entries, incomingEntry{
+				Developer:      intent.Developer,
+				DisplayName:    intent.DisplayName,
+				Intent:         intent.Intent,
+				Status:         string(intent.Status),
+				Started:        intent.Started,
+				LastActiveDate: intent.LastActiveDate,
+				WorkspaceID:    intent.WorkspaceID,
+			})
+		}
+	}
+	if entries == nil {
+		entries = []incomingEntry{}
+	}
+	writeJSON(w, map[string]interface{}{"entries": entries})
+}
+
+// handleRepofeedDismiss handles POST /api/repofeed/dismiss — marks a completed intent as dismissed.
+func (s *Server) handleRepofeedDismiss(w http.ResponseWriter, r *http.Request) {
+	if s.repofeedDismissed == nil {
+		writeJSONError(w, "repofeed dismissed store not available", http.StatusServiceUnavailable)
 		return
 	}
 
-	if !s.config.GetRepofeedEnabled() {
-		writeJSONError(w, "repofeed is disabled", http.StatusBadRequest)
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	var req struct {
+		Developer   string `json:"developer"`
+		WorkspaceID string `json:"workspace_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.Developer == "" || req.WorkspaceID == "" {
+		writeJSONError(w, "developer and workspace_id are required", http.StatusBadRequest)
 		return
 	}
 
-	unlock := s.repofeedPublisher.LockForPush()
-	if unlock == nil {
-		writeJSONError(w, "a push is already in progress", http.StatusConflict)
-		return
-	}
-	defer unlock()
+	s.repofeedDismissed.Dismiss(req.Developer, req.WorkspaceID)
 
-	state := s.repofeedPublisher.GetCurrentState()
-	devEmail := state.Developer
-
-	var pushedRepos []string
-	var failedRepos []string
-	pushErrors := map[string]string{}
-
-	for _, repo := range s.config.GetRepos() {
-		slug := repofeed.RepoSlug(repo.Name)
-		if !s.config.GetRepofeedRepoEnabled(slug) {
-			continue
-		}
-		bareDir := s.config.ResolveBareRepoDir(repo.BarePath)
-		if bareDir == "" {
-			continue
-		}
-
-		gitOps := &repofeed.GitOps{BareDir: bareDir, Branch: "dev-repofeed"}
-
-		if err := gitOps.WriteDevFile(devEmail, state); err != nil {
-			logger.Error("write failed", "repo", repo.Name, "err", err)
-			failedRepos = append(failedRepos, repo.Name)
-			pushErrors[repo.Name] = err.Error()
-			continue
-		}
-
-		if err := gitOps.PushToRemote("origin"); err != nil {
-			logger.Error("push failed", "repo", repo.Name, "err", err)
-			failedRepos = append(failedRepos, repo.Name)
-			pushErrors[repo.Name] = err.Error()
-			continue
-		}
-
-		logger.Info("pushed repofeed", "repo", repo.Name)
-		pushedRepos = append(pushedRepos, repo.Name)
-	}
-
-	if len(pushedRepos) > 0 {
-		s.repofeedPublisher.SetLastPushedAt(time.Now())
-	}
-
-	writeJSON(w, map[string]interface{}{
-		"success":      len(failedRepos) == 0 && len(pushedRepos) > 0,
-		"pushed_repos": pushedRepos,
-		"failed_repos": failedRepos,
-		"errors":       pushErrors,
-	})
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 // BroadcastRepofeed sends a repofeed_updated message to all WebSocket clients.

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1344,6 +1345,13 @@ func (d *Daemon) startBackgroundJobs(
 	}
 	go startRepofeedConsumer(d.shutdownCtx, cfg, repofeedConsumer, server, repofeedLog)
 
+	// Start repofeed publisher (auto-publishes intents from shared workspaces)
+	summaryCache := repofeed.NewSummaryCache()
+	dismissedStore := repofeed.NewDismissedStore()
+	server.SetRepofeedDismissed(dismissedStore)
+	server.SetRepofeedSummaryCache(summaryCache)
+	go startRepofeedPublisher(d.shutdownCtx, cfg, st, summaryCache, devEmail, devName, repofeedLog)
+
 	// One-time migration: delete old subreddit.json file
 	oldCachePath := filepath.Join(schmuxDir, "subreddit.json")
 	if _, err := os.Stat(oldCachePath); err == nil {
@@ -1900,6 +1908,223 @@ func startRepofeedConsumer(ctx context.Context, cfg *config.Config, consumer *re
 			return
 		}
 	}
+}
+
+// startRepofeedPublisher runs the background publish loop for repofeed intent broadcasting.
+// It builds a v2 DeveloperFile from workspace state (only IntentShared workspaces),
+// uses LLM summarization for intent text, and pushes to the orphan branch.
+// Publishes only when a trigger fires: workspace sharing toggled, workspace disposed,
+// day rollover, or new prompts summarized.
+func startRepofeedPublisher(ctx context.Context, cfg *config.Config, st *state.State, summaryCache *repofeed.SummaryCache, devEmail, devName string, logger *log.Logger) {
+	if !cfg.GetRepofeedEnabled() {
+		logger.Debug("repofeed publisher disabled")
+		return
+	}
+
+	interval := time.Duration(cfg.GetRepofeedPublishInterval()) * time.Second
+	logger.Info("repofeed publisher started", "interval", interval)
+
+	timer := time.NewTimer(30 * time.Second) // initial delay
+	defer timer.Stop()
+
+	var lastPublished string // JSON of last published DeveloperFile for change detection
+
+	for {
+		select {
+		case <-timer.C:
+			devFile := buildV2DeveloperFile(ctx, cfg, st, summaryCache, devEmail, devName, logger)
+
+			// Check if anything changed since last publish
+			data, _ := json.Marshal(devFile)
+			current := string(data)
+			if current == lastPublished {
+				timer.Reset(interval)
+				continue
+			}
+
+			// Push to all enabled repos
+			pushed := false
+			for _, repo := range cfg.GetRepos() {
+				slug := repofeed.RepoSlug(repo.Name)
+				if !cfg.GetRepofeedRepoEnabled(slug) {
+					continue
+				}
+				bareDir := cfg.ResolveBareRepoDir(repo.BarePath)
+				if bareDir == "" {
+					continue
+				}
+				gitOps := &repofeed.GitOps{BareDir: bareDir, Branch: "dev-repofeed"}
+
+				if err := gitOps.WriteDevFile(devEmail, devFile); err != nil {
+					logger.Error("repofeed publish write failed", "repo", repo.Name, "err", err)
+					continue
+				}
+				if err := gitOps.PushToRemote("origin"); err != nil {
+					logger.Debug("repofeed publish push failed", "repo", repo.Name, "err", err)
+					continue
+				}
+				pushed = true
+				logger.Debug("repofeed published", "repo", repo.Name)
+			}
+
+			if pushed {
+				lastPublished = current
+			}
+			timer.Reset(interval)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// buildV2DeveloperFile constructs a v2 DeveloperFile from workspace state.
+func buildV2DeveloperFile(ctx context.Context, cfg *config.Config, st *state.State, summaryCache *repofeed.SummaryCache, devEmail, devName string, logger *log.Logger) *repofeed.DeveloperFile {
+	today := time.Now().Format("2006-01-02")
+	workspaces := st.GetWorkspaces()
+	sessions := st.GetSessions()
+
+	// Build set of workspace IDs with active sessions
+	activeToday := make(map[string]bool)
+	for _, s := range sessions {
+		activeToday[s.WorkspaceID] = true
+	}
+
+	// Build set of live workspace IDs for disposal detection
+	liveWorkspaces := make(map[string]bool)
+	for _, ws := range workspaces {
+		liveWorkspaces[ws.ID] = true
+	}
+
+	var intents []repofeed.Intent
+	for _, ws := range workspaces {
+		if !ws.IntentShared {
+			continue
+		}
+
+		// Determine status
+		status := repofeed.StatusActive
+		if ws.Backburner || !activeToday[ws.ID] {
+			status = repofeed.StatusInactive
+		}
+
+		// Get or generate summary
+		summary := getOrSummarizeIntent(ctx, cfg, ws, summaryCache, logger)
+
+		lastActive := today
+		cached := summaryCache.Get(ws.ID)
+		if cached != nil && cached.LastSummarized.Format("2006-01-02") != today && !activeToday[ws.ID] {
+			lastActive = cached.LastSummarized.Format("2006-01-02")
+		}
+
+		intents = append(intents, repofeed.Intent{
+			ID:             ws.ID,
+			IntentText:     summary,
+			Status:         status,
+			LastActiveDate: lastActive,
+			Started:        today,
+		})
+	}
+
+	// Emit "completed" for workspaces that have cached summaries but no longer exist in state
+	// (disposed since last publish tick). These linger for one publish cycle then get cleaned up.
+	allCached := summaryCache.AllKeys()
+	for _, wsID := range allCached {
+		if liveWorkspaces[wsID] {
+			continue // still alive, handled above
+		}
+		cached := summaryCache.Get(wsID)
+		if cached == nil {
+			continue
+		}
+		intents = append(intents, repofeed.Intent{
+			ID:             wsID,
+			IntentText:     cached.Summary,
+			Status:         repofeed.StatusCompleted,
+			LastActiveDate: today,
+			Started:        today,
+		})
+		// Clean up — this workspace is gone, publish completed once then forget
+		summaryCache.Remove(wsID)
+	}
+
+	return &repofeed.DeveloperFile{
+		Version:     2,
+		Developer:   devEmail,
+		DisplayName: devName,
+		Updated:     time.Now().UTC().Format(time.RFC3339),
+		Intents:     intents,
+	}
+}
+
+// getOrSummarizeIntent returns a cached summary or generates one via LLM.
+func getOrSummarizeIntent(ctx context.Context, cfg *config.Config, ws state.Workspace, summaryCache *repofeed.SummaryCache, logger *log.Logger) string {
+	// Collect prompts from workspace
+	prompts := spawn.CollectPromptHistory([]string{ws.Path}, 20)
+	if len(prompts) == 0 {
+		return "working"
+	}
+
+	// Build prompt text and hash
+	var promptTexts []string
+	for _, p := range prompts {
+		promptTexts = append(promptTexts, p.Text)
+	}
+	promptsHash := hashStrings(promptTexts)
+
+	// Check cache
+	cached := summaryCache.Get(ws.ID)
+	if cached != nil && cached.PromptsHash == promptsHash {
+		return cached.Summary
+	}
+
+	// Rate limit: at most once per hour per workspace
+	if cached != nil && time.Since(cached.LastSummarized) < time.Hour {
+		return cached.Summary
+	}
+
+	// Generate summary via LLM
+	input := strings.Join(promptTexts, "\n---\n")
+	systemPrompt := "Summarize what this developer is working on in one sentence (max 100 characters). " +
+		"Focus on the goal, not implementation details. If the focus shifted over time, note the evolution. " +
+		"Do not include file paths, variable names, internal system names, API keys, or any credentials."
+
+	fullPrompt := systemPrompt + "\n\nSession prompts:\n" + input
+
+	result, err := oneshot.ExecuteTarget(ctx, cfg, "", fullPrompt, "", 30*time.Second, "")
+	if err != nil {
+		logger.Debug("repofeed LLM summarization failed", "workspace", ws.ID, "err", err)
+		if cached != nil {
+			return cached.Summary
+		}
+		// Fallback: use first prompt truncated
+		fallback := prompts[0].Text
+		if len(fallback) > 100 {
+			fallback = fallback[:97] + "..."
+		}
+		return fallback
+	}
+
+	// Truncate to 100 chars
+	summary := strings.TrimSpace(result)
+	if len(summary) > 100 {
+		summary = summary[:97] + "..."
+	}
+
+	// Cache the result
+	summaryCache.Set(ws.ID, &repofeed.SummaryEntry{
+		Summary:        summary,
+		PromptsHash:    promptsHash,
+		LastSummarized: time.Now(),
+	})
+
+	logger.Debug("repofeed intent summarized", "workspace", ws.ID, "summary", summary)
+	return summary
+}
+
+// hashStrings returns a short hex hash of the concatenated strings.
+func hashStrings(ss []string) string {
+	h := sha256.Sum256([]byte(strings.Join(ss, "\x00")))
+	return fmt.Sprintf("%x", h[:8])
 }
 
 // getGitConfigValue reads a global git config value.

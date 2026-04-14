@@ -884,6 +884,8 @@ export interface WorkspaceResponseItem {
   tabs: Tab[];
   resolve_conflicts?: ResolveConflict[];
   status?: string;
+  backburner?: boolean;
+  intent_shared?: boolean;
 }
 
 export interface Xterm {

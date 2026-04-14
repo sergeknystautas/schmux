@@ -104,7 +104,7 @@ test.describe.serial('Bootstrap scroll position', () => {
         ws.on('framereceived', (frame) => {
           if (typeof frame.payload !== 'string') {
             // Binary frame — extract sequence number from 8-byte header
-            const buf = Buffer.from(frame.payload as ArrayBuffer);
+            const buf = Buffer.from(frame.payload as unknown as ArrayBuffer);
             if (buf.length >= 8) {
               const seq = Number(buf.readBigUInt64BE(0));
               binaryFrameSeqs.push(seq);

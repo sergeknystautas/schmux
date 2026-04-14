@@ -166,11 +166,6 @@ func (g *GitOps) PushToRemote(remote string) error {
 	return g.gitRun("push", remote, g.refName())
 }
 
-// GitDirFromWorkDir returns the .git directory for a working directory.
-func GitDirFromWorkDir(workDir string) string {
-	return workDir + "/.git"
-}
-
 // CleanupStaleIndexFiles removes leftover repofeed-idx-* temp files from a previous crash.
 func CleanupStaleIndexFiles(bareDir string) {
 	matches, err := filepath.Glob(filepath.Join(bareDir, "repofeed-idx-*"))

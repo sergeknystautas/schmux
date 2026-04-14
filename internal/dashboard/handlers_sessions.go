@@ -168,6 +168,7 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 			ResolveConflicts:        ws.ResolveConflicts,
 			Status:                  ws.Status,
 			Backburner:              ws.Backburner,
+			IntentShared:            ws.IntentShared,
 		}
 		if h.previewManager != nil {
 			previews := h.state.GetWorkspacePreviews(ws.ID)
@@ -522,14 +523,6 @@ func parseNudgeSummary(nudge string) (string, string) {
 	}
 
 	return strings.TrimSpace(result.State), strings.TrimSpace(result.Summary)
-}
-
-// pluralS returns "s" if n != 1, otherwise "".
-func pluralS(n int) string {
-	if n == 1 {
-		return ""
-	}
-	return "s"
 }
 
 // cachedDefaultBranch returns the default branch for a repo URL, using a

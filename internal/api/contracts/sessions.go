@@ -74,4 +74,5 @@ type WorkspaceResponseItem struct {
 	ResolveConflicts        []ResolveConflict     `json:"resolve_conflicts,omitempty"`
 	Status                  string                `json:"status,omitempty"`
 	Backburner              bool                  `json:"backburner,omitempty"`
+	IntentShared            bool                  `json:"intent_shared,omitempty"`
 }

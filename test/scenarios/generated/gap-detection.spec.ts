@@ -58,7 +58,7 @@ test.describe.serial('Gap detection: sequenced frame protocol', () => {
       if (ws.url().includes('/ws/terminal/')) {
         ws.on('framereceived', (frame) => {
           if (typeof frame.payload !== 'string') {
-            const buf = Buffer.from(frame.payload as ArrayBuffer);
+            const buf = Buffer.from(frame.payload as unknown as ArrayBuffer);
             if (buf.length >= 8) {
               seqs.push(Number(buf.readBigUInt64BE(0)));
             }
@@ -96,7 +96,7 @@ test.describe.serial('Gap detection: sequenced frame protocol', () => {
       if (ws.url().includes('/ws/terminal/')) {
         ws.on('framereceived', (frame) => {
           if (typeof frame.payload !== 'string') {
-            const buf = Buffer.from(frame.payload as ArrayBuffer);
+            const buf = Buffer.from(frame.payload as unknown as ArrayBuffer);
             if (buf.length >= 8) {
               if (firstBinarySeq === null) {
                 firstBinarySeq = Number(buf.readBigUInt64BE(0));

@@ -120,7 +120,7 @@ fi
 
 section "TypeScript type errors (tsc)"
 TSC_FAILED=0
-for ts_dir in assets/dashboard tools/test-runner tools/dev-runner; do
+for ts_dir in assets/dashboard tools/test-runner tools/dev-runner test/scenarios/generated; do
     if [ -f "$ts_dir/tsconfig.json" ]; then
         TSC_OUT=$(cd "$ts_dir" && npx tsc --noEmit 2>&1) || true
         if [ -n "$TSC_OUT" ]; then

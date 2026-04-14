@@ -1,4 +1,4 @@
-import { test, expect } from './coverage-fixture';
+import { test, expect, type Page } from './coverage-fixture';
 import {
   seedConfig,
   createTestRepo,
@@ -110,7 +110,7 @@ test.describe.serial('Escbuf holdback & gap replay fixes', () => {
       if (ws.url().includes('/ws/terminal/')) {
         ws.on('framereceived', (frame) => {
           if (typeof frame.payload !== 'string') {
-            const buf = Buffer.from(frame.payload as ArrayBuffer);
+            const buf = Buffer.from(frame.payload as unknown as ArrayBuffer);
             if (buf.length >= 8) {
               seqs.push(Number(buf.readBigUInt64BE(0)));
               if (bootstrapCompleteReceived && liveStartIndex === -1) {

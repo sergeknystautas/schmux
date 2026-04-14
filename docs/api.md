@@ -878,6 +878,27 @@ Errors:
 - 404 if feature is disabled or workspace not found
 - 400 if request body is invalid
 
+### POST /api/workspaces/{workspaceId}/share-intent
+
+Toggle intent sharing for a workspace. Requires `repofeed` feature enabled. Shared workspaces have their intent published to the `dev-repofeed` orphan branch via LLM summarization. Workspaces are private by default.
+
+Request body:
+
+```json
+{ "share": true }
+```
+
+Response:
+
+```json
+{ "status": "ok" }
+```
+
+Errors:
+
+- 404 if repofeed is disabled or workspace not found
+- 400 if request body is invalid
+
 ### GET /api/workspaces/recyclable
 
 Get counts of recyclable workspaces, broken down by repo.
@@ -3312,6 +3333,25 @@ On partial failure:
     "repo-b": "push failed: remote rejected"
   }
 }
+```
+
+### POST /api/repofeed/dismiss
+
+Marks a completed intent from another developer as dismissed in the local feed. Recipient-side only — does not affect the sender's published data. Dismissed entries are identified by a hash of developer+workspace_id to avoid leaking identifiers.
+
+Request body:
+
+```json
+{
+  "developer": "alice@example.com",
+  "workspace_id": "ws-003"
+}
+```
+
+Response:
+
+```json
+{ "status": "ok" }
 ```
 
 Configuration is via the config API:
