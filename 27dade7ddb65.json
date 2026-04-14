@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-14T21:50:29Z",
+  "updated": "2026-04-14T21:51:01Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "The \"spawn\" page has two different checkboxes \"create new branch from here\" and \"share activity w...",
+      "intent": "let's think of an icon we can add to the Engage button",
       "status": "active",
       "last_active_date": "2026-04-14",
       "started": "2026-04-14"
