@@ -2622,6 +2622,42 @@ body {
   white-space: nowrap;
 }
 
+/* Spawn page checkbox options */
+.spawn-option {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.spawn-option:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.spawn-option input[type='checkbox'] {
+  accent-color: var(--color-accent);
+}
+
+/* Spawn page bottom action bar */
+.spawn-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  justify-content: flex-end;
+  margin-top: var(--spacing-lg);
+}
+
+.spawn-actions__options {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-lg);
+  margin-right: auto;
+}
+
 /* Diff page */
 .diff-page {
   display: flex;
