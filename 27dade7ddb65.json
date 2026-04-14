@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-14T21:46:17Z",
+  "updated": "2026-04-14T21:46:48Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "run the scenario tests",
+      "intent": "how does the timelapse system distinguish between recordings that are complete vs. recording? the...",
       "status": "active",
       "last_active_date": "2026-04-14",
       "started": "2026-04-14"
