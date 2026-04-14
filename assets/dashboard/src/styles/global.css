@@ -6605,3 +6605,276 @@ body.keyboard-mode-active::after {
   border-top: 1px solid var(--color-border);
   padding-top: 6px;
 }
+
+/* ============================================================================
+ * USER MODELS EDITOR
+ * Custom model definitions in the Agents tab
+ * ============================================================================ */
+
+.user-models-editor {
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-lg);
+  border-top: 1px solid var(--color-border);
+}
+
+.user-models-editor__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-md);
+}
+
+.user-models-editor__header h3 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.user-models-editor__empty {
+  padding: var(--spacing-lg);
+  text-align: center;
+  color: var(--color-text-muted);
+  background-color: var(--color-surface-alt);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.user-models-editor__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.user-models-editor__model {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+  transition: border-color var(--duration-fast) var(--easing);
+}
+
+.user-models-editor__model:hover {
+  border-color: var(--color-text-muted);
+}
+
+.user-models-editor__model-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xxs);
+  flex: 1;
+  min-width: 0;
+}
+
+.user-models-editor__model-info strong {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.user-models-editor__model-meta {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+}
+
+.user-models-editor__model-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  flex-shrink: 0;
+}
+
+.user-models-editor__form {
+  margin-top: var(--spacing-md);
+  padding: var(--spacing-lg);
+  background-color: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.user-models-editor__form h4 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 var(--spacing-md) 0;
+}
+
+.user-models-editor__form .form-group {
+  padding-bottom: var(--spacing-md);
+}
+
+.user-models-editor__form .form-group:last-of-type {
+  padding-bottom: 0;
+}
+
+.user-models-editor__form .form-group > label {
+  display: block;
+  margin-bottom: var(--spacing-sm);
+  font-weight: 500;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.user-models-editor__form .form-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  justify-content: flex-end;
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--color-border);
+}
+
+/* Runner checkbox grid */
+.runner-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm) var(--spacing-lg);
+}
+
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: 0.875rem;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.checkbox-label input[type='checkbox'] {
+  accent-color: var(--color-accent);
+}
+
+/* ============================================================================
+ * TIMELAPSE PAGE
+ * Terminal recording management
+ * ============================================================================ */
+
+.timelapse {
+  padding: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.timelapse__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-sm);
+}
+
+.timelapse__header h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.timelapse__description {
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  margin: 0 0 var(--spacing-lg) 0;
+  line-height: 1.5;
+}
+
+.timelapse__description a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.timelapse__description a:hover {
+  text-decoration: underline;
+}
+
+.timelapse__empty {
+  padding: var(--spacing-2xl) var(--spacing-lg);
+  text-align: center;
+  color: var(--color-text-muted);
+  background-color: var(--color-surface-alt);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+}
+
+.timelapse__table-wrapper {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.timelapse__table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.timelapse__table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-surface-alt);
+}
+
+.timelapse__table th {
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.timelapse__table th.timelapse__th--sorted {
+  color: var(--color-text);
+}
+
+.timelapse__table th.timelapse__th--center,
+.timelapse__table td.timelapse__td--center {
+  text-align: center;
+}
+
+.timelapse__table td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: 0.875rem;
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.timelapse__table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.timelapse__table tbody tr:hover {
+  background-color: var(--color-surface-alt);
+}
+
+.timelapse__recording-id {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.timelapse__session-id {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.timelapse__meta {
+  color: var(--color-text-muted);
+}
+
+.timelapse__actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+}

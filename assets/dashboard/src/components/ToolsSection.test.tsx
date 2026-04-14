@@ -97,7 +97,7 @@ describe('ToolsSection', () => {
     expect(screen.getByText('Personas')).toBeInTheDocument();
     expect(screen.getByText('Comm Styles')).toBeInTheDocument();
     expect(screen.getByText('Repofeed')).toBeInTheDocument();
-    expect(screen.getByText('Timelapse')).toBeInTheDocument();
+    expect(screen.getByText('Timelapses')).toBeInTheDocument();
     expect(screen.getByText('Environment')).toBeInTheDocument();
     expect(screen.getByText('Tips')).toBeInTheDocument();
     expect(screen.getByText('Config')).toBeInTheDocument();

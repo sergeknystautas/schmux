@@ -161,28 +161,32 @@ export default function UserModelsEditor({
 
       {models.length === 0 && !editingId && (
         <p className="user-models-editor__empty">
-          No user-defined models. Click "Add Model" to create one.
+          No user-defined models. Click &ldquo;Add Model&rdquo; to create one.
         </p>
       )}
 
-      {models.map((model) => (
-        <div key={model.id} className="user-models-editor__model">
-          <div className="user-models-editor__model-info">
-            <strong>{model.display_name}</strong>
-            <span className="user-models-editor__model-meta">
-              {model.provider} | {model.runners.join(', ')}
-            </span>
-          </div>
-          <div className="user-models-editor__model-actions">
-            <button className="btn btn--sm" onClick={() => handleEdit(model)}>
-              Edit
-            </button>
-            <button className="btn btn--sm btn--danger" onClick={() => handleDelete(model.id)}>
-              Delete
-            </button>
-          </div>
+      {models.length > 0 && (
+        <div className="user-models-editor__list">
+          {models.map((model) => (
+            <div key={model.id} className="user-models-editor__model">
+              <div className="user-models-editor__model-info">
+                <strong>{model.display_name}</strong>
+                <span className="user-models-editor__model-meta">
+                  {model.provider} | {model.runners.join(', ')}
+                </span>
+              </div>
+              <div className="user-models-editor__model-actions">
+                <button className="btn btn--sm" onClick={() => handleEdit(model)}>
+                  Edit
+                </button>
+                <button className="btn btn--sm btn--danger" onClick={() => handleDelete(model.id)}>
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
 
       {editingId && (
         <div className="user-models-editor__form">
@@ -191,6 +195,7 @@ export default function UserModelsEditor({
             <div className="form-group">
               <label>Display Name</label>
               <input
+                className="input"
                 type="text"
                 value={formData.display_name}
                 onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
@@ -202,6 +207,7 @@ export default function UserModelsEditor({
             <div className="form-group">
               <label>Provider</label>
               <input
+                className="input"
                 type="text"
                 value={formData.provider}
                 onChange={(e) => setFormData({ ...formData, provider: e.target.value })}
@@ -212,6 +218,7 @@ export default function UserModelsEditor({
             <div className="form-group">
               <label>Command</label>
               <input
+                className="input"
                 type="text"
                 value={formData.command}
                 onChange={(e) => setFormData({ ...formData, command: e.target.value })}
@@ -239,6 +246,7 @@ export default function UserModelsEditor({
             <div className="form-group">
               <label>Required Environment Variables (comma-separated)</label>
               <input
+                className="input"
                 type="text"
                 value={formData.required_env}
                 onChange={(e) => setFormData({ ...formData, required_env: e.target.value })}

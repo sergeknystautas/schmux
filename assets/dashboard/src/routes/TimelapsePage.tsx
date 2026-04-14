@@ -85,99 +85,105 @@ export default function TimelapsePage() {
 
   if (loading) {
     return (
-      <div className="page-content" style={{ padding: 'var(--spacing-lg)' }}>
-        <h1>Timelapse Recordings</h1>
-        <p>Loading...</p>
+      <div className="page-content timelapse">
+        <div className="timelapse__header">
+          <h1>Timelapses</h1>
+        </div>
+        <p className="timelapse__description">Loading...</p>
       </div>
     );
   }
 
   return (
-    <div className="page-content" style={{ padding: 'var(--spacing-lg)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h1>Timelapse Recordings</h1>
+    <div className="page-content timelapse">
+      <div className="timelapse__header">
+        <h1>Timelapses</h1>
         {recordings.length > 0 && (
           <button className="btn btn--sm btn--danger" onClick={handleDeleteAll}>
             Delete all
           </button>
         )}
       </div>
-      <p style={{ color: 'var(--text-secondary)', marginBottom: 'var(--spacing-md)' }}>
+      <p className="timelapse__description">
         Terminal sessions are recorded as .cast files, playable with{' '}
         <a href="https://asciinema.org/" target="_blank" rel="noopener noreferrer">
           asciinema
         </a>
-        . Compress creates a timelapse with idle time removed.
+        . &ldquo;Timelapse&rdquo; compresses the recording with idle time removed.
       </p>
 
       {recordings.length === 0 ? (
-        <p>No recordings found. Recordings appear after sessions produce output.</p>
+        <p className="timelapse__empty">
+          No recordings found. Recordings appear after sessions produce output.
+        </p>
       ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
-              <th style={{ padding: 'var(--spacing-sm)' }}>Recording</th>
-              <th style={{ padding: 'var(--spacing-sm)' }}>Session</th>
-              <th style={{ padding: 'var(--spacing-sm)' }}>Last Modified</th>
-              <th style={{ padding: 'var(--spacing-sm)' }}>Duration</th>
-              <th style={{ padding: 'var(--spacing-sm)' }}>Size</th>
-              <th style={{ padding: 'var(--spacing-sm)' }}>Status</th>
-              <th style={{ padding: 'var(--spacing-sm)' }}>Download</th>
-            </tr>
-          </thead>
-          <tbody>
-            {recordings.map((rec) => (
-              <tr key={rec.RecordingID} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                <td style={{ padding: 'var(--spacing-sm)', fontFamily: 'var(--font-mono)' }}>
-                  {rec.RecordingID}
-                </td>
-                <td style={{ padding: 'var(--spacing-sm)' }}>
-                  {rec.SessionID?.slice(0, 12) || '\u2014'}
-                </td>
-                <td
-                  style={{ padding: 'var(--spacing-sm)', color: 'var(--text-secondary)' }}
-                  title={rec.ModTime ? new Date(rec.ModTime).toLocaleString() : ''}
-                >
-                  {rec.ModTime ? formatRelativeTime(rec.ModTime) : '\u2014'}
-                </td>
-                <td style={{ padding: 'var(--spacing-sm)' }}>{formatDuration(rec.Duration)}</td>
-                <td style={{ padding: 'var(--spacing-sm)' }}>{formatSize(rec.FileSize)}</td>
-                <td style={{ padding: 'var(--spacing-sm)' }}>
-                  <span
-                    style={{
-                      color: rec.InProgress ? 'var(--status-running)' : 'var(--text-secondary)',
-                    }}
-                  >
-                    {rec.InProgress ? 'recording' : 'complete'}
-                  </span>
-                </td>
-                <td style={{ padding: 'var(--spacing-sm)' }}>
-                  <div style={{ display: 'flex', gap: 'var(--spacing-xs)', flexWrap: 'wrap' }}>
-                    <button
-                      className="btn btn--sm btn--secondary"
-                      onClick={() => handleDownload(rec.RecordingID)}
-                    >
-                      Original
-                    </button>
-                    <button
-                      className="btn btn--sm btn--secondary"
-                      onClick={() => handleExport(rec.RecordingID)}
-                      disabled={exporting.has(rec.RecordingID)}
-                    >
-                      {exporting.has(rec.RecordingID) ? 'Creating...' : 'Timelapse'}
-                    </button>
-                    <button
-                      className="btn btn--sm btn--danger"
-                      onClick={() => handleDelete(rec.RecordingID)}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </td>
+        <div className="timelapse__table-wrapper">
+          <table className="timelapse__table">
+            <thead>
+              <tr>
+                <th>Recording</th>
+                <th>Session</th>
+                <th className="timelapse__th--sorted">Modified &#x25BE;</th>
+                <th>Duration</th>
+                <th>Size</th>
+                <th className="timelapse__th--center">Status</th>
+                <th className="timelapse__th--center">Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {recordings.map((rec) => (
+                <tr key={rec.RecordingID}>
+                  <td>
+                    <span className="timelapse__recording-id">{rec.RecordingID}</span>
+                  </td>
+                  <td>
+                    <span className="timelapse__session-id">
+                      {rec.SessionID?.slice(0, 12) || '\u2014'}
+                    </span>
+                  </td>
+                  <td
+                    className="timelapse__meta"
+                    title={rec.ModTime ? new Date(rec.ModTime).toLocaleString() : ''}
+                  >
+                    {rec.ModTime ? formatRelativeTime(rec.ModTime) : '\u2014'}
+                  </td>
+                  <td>{formatDuration(rec.Duration)}</td>
+                  <td className="timelapse__meta">{formatSize(rec.FileSize)}</td>
+                  <td className="timelapse__td--center">
+                    <span
+                      className={`badge ${rec.InProgress ? 'badge--success' : 'badge--neutral'}`}
+                    >
+                      {rec.InProgress ? 'recording' : 'complete'}
+                    </span>
+                  </td>
+                  <td className="timelapse__td--center">
+                    <div className="timelapse__actions">
+                      <button
+                        className="btn btn--sm btn--secondary"
+                        onClick={() => handleDownload(rec.RecordingID)}
+                      >
+                        Original
+                      </button>
+                      <button
+                        className="btn btn--sm btn--secondary"
+                        onClick={() => handleExport(rec.RecordingID)}
+                        disabled={exporting.has(rec.RecordingID)}
+                      >
+                        {exporting.has(rec.RecordingID) ? 'Creating...' : 'Timelapse'}
+                      </button>
+                      <button
+                        className="btn btn--sm btn--danger"
+                        onClick={() => handleDelete(rec.RecordingID)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

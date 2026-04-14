@@ -161,7 +161,7 @@ export default function ToolsSection({
     },
     {
       to: '/timelapse',
-      label: 'Timelapse',
+      label: 'Timelapses',
       hidden: !config?.timelapse?.enabled,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
