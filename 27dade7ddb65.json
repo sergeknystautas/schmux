@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-14T21:30:29Z",
+  "updated": "2026-04-14T21:31:01Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "much better, but the text input fields are white and don't look right [Image #1]",
+      "intent": "great, that worked, now the timelapse page needs help, first it should be called \"Timelapses\" (pl...",
       "status": "active",
       "last_active_date": "2026-04-14",
       "started": "2026-04-14"
