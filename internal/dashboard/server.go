@@ -176,8 +176,6 @@ type Server struct {
 
 	// Workspace preview proxy manager
 	previewManager           *preview.Manager
-	previewDetect            map[string]time.Time // workspaceID:host:port -> last successful detect time
-	previewDetectMu          sync.Mutex
 	previewStreamBuffers     map[string]string
 	previewStreamBuffersMu   sync.Mutex
 	previewCandidates        map[string]*previewCandidate
@@ -330,7 +328,6 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		broadcastExited:      make(chan struct{}),
 		broadcastReady:       make(chan struct{}),
 		connectLimiter:       NewRateLimiter(3, 1*time.Minute), // 3 connects per minute
-		previewDetect:        make(map[string]time.Time),
 		previewStreamBuffers: make(map[string]string),
 		previewCandidates:    make(map[string]*previewCandidate),
 		defaultBranchCache:   make(map[string]defaultBranchEntry),

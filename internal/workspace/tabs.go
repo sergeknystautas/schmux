@@ -29,9 +29,6 @@ func (m *Manager) RegisterTabCloseHook(kind string, hook TabCloseHook) {
 // AddWorkspaceWithTabs creates a workspace in state and seeds its system tabs.
 // All workspace creation — internal and external — flows through this method.
 func (m *Manager) AddWorkspaceWithTabs(ws state.Workspace) error {
-	if ws.Tabs == nil {
-		ws.Tabs = []state.Tab{}
-	}
 	return m.mutateTabsAndSave(func() error {
 		if err := m.state.AddWorkspace(ws); err != nil {
 			return err
@@ -77,7 +74,7 @@ func (m *Manager) seedSystemTabsLocked(wsID, vcs string) error {
 		return nil
 	}
 	now := time.Now()
-	// Reverse order: addTabLocked prepends, so git first → diff second → [diff, git]
+	// Reverse order: AddTab prepends, so git first → diff second → [diff, git]
 	if err := m.state.AddTab(wsID, state.Tab{
 		ID: "sys-git-" + wsID, Kind: "git", Label: "commit graph",
 		Route: "/commits/" + wsID, Closable: false, CreatedAt: now,

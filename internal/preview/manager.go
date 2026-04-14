@@ -187,7 +187,11 @@ func (m *Manager) CreateOrGet(ctx context.Context, ws state.Workspace, targetHos
 	}
 
 	// Create a corresponding accessory tab for this preview.
-	_, _ = m.workspaceMgr.OpenPreviewTab(ws.ID, preview.ID, preview.TargetPort)
+	if _, err := m.workspaceMgr.OpenPreviewTab(ws.ID, preview.ID, preview.TargetPort); err != nil {
+		if m.logger != nil {
+			m.logger.Warn("failed to create preview tab", "workspace", ws.ID, "preview", preview.ID, "err", err)
+		}
+	}
 
 	return result, true, nil
 }

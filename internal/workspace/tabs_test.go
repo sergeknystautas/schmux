@@ -82,7 +82,7 @@ func TestSeedSystemTabs_GitWorkspace(t *testing.T) {
 	if len(tabs) != 2 {
 		t.Fatalf("expected 2 tabs, got %d", len(tabs))
 	}
-	// addTabLocked prepends, so last seeded is first
+	// AddTab prepends, so last seeded is first
 	if tabs[0].Kind != "diff" {
 		t.Errorf("expected first tab to be diff, got %s", tabs[0].Kind)
 	}

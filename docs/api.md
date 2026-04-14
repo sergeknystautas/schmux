@@ -267,7 +267,7 @@ Notes:
 - `tmux_socket` (string, optional): the tmux socket name this session was created on. Omitted when empty (pre-isolation sessions).
 - `tmux_session` (string, optional): the tmux session name used by this session.
 - Session `status` field includes `disposing` during teardown. Dispose endpoints return 200 OK if the item is already in `disposing` status (idempotent).
-- Workspace `tabs` array contains Tab objects with fields: `id`, `kind` (tab type), `label`, `route`, `closable`, `meta` (type-specific metadata), and `created_at`. The `diff` and `resolve-conflict` tabs have no server-side label — the frontend derives their display from workspace data (`files_changed` for diff, `resolve_conflicts` records for conflict tabs). The broadcaster serves tabs as persisted with no field rewriting.
+- Workspace `tabs` array contains Tab objects with fields: `id`, `kind` (tab type), `label`, `route`, `closable`, `meta` (type-specific metadata), and `created_at`. Tabs are stored independently from workspaces and associated by workspace ID; the broadcast groups them under their workspace. The `diff` and `resolve-conflict` tabs have no server-side label — the frontend derives their display from workspace data (`files_changed` for diff, `resolve_conflicts` records for conflict tabs). The broadcaster serves tabs as persisted with no field rewriting.
 - Workspace `resolve_conflicts` contains persisted conflict-process records keyed by the 7-character short hash; resolve-conflict tabs point at these records via `tabs[].meta.hash`.
 - Unrecognized workspace sub-routes return 404.
 

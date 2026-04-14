@@ -223,9 +223,10 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			workspaceMap[ws.ID].Previews = items
 		}
 
-		// Populate tabs from workspace state — no field rewriting.
-		tabItems := make([]contracts.Tab, 0, len(ws.Tabs))
-		for _, tab := range ws.Tabs {
+		// Populate tabs from top-level state — no field rewriting.
+		wsTabs := s.state.GetWorkspaceTabs(ws.ID)
+		tabItems := make([]contracts.Tab, 0, len(wsTabs))
+		for _, tab := range wsTabs {
 			tabItems = append(tabItems, contracts.Tab{
 				ID:        tab.ID,
 				Kind:      tab.Kind,

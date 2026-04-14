@@ -274,17 +274,6 @@ func TestBroadcast_ResolveConflictTabUsesPersistedTab(t *testing.T) {
 		Repo:   "https://example.com/repo.git",
 		Branch: "main",
 		Path:   t.TempDir(),
-		Tabs: []state.Tab{
-			{
-				ID:        "sys-resolve-conflict-abcdef1",
-				Kind:      "resolve-conflict",
-				Label:     "Conflict abcdef1",
-				Route:     "/resolve-conflict/ws-conflict/sys-resolve-conflict-abcdef1",
-				Closable:  true,
-				Meta:      map[string]string{"hash": "abcdef1"},
-				CreatedAt: time.Now(),
-			},
-		},
 		ResolveConflicts: []state.ResolveConflict{
 			{
 				Type:        "linear_sync_resolve_conflict",
@@ -295,6 +284,15 @@ func TestBroadcast_ResolveConflictTabUsesPersistedTab(t *testing.T) {
 				Steps:       []state.ResolveConflictStep{},
 			},
 		},
+	})
+	st.AddTab("ws-conflict", state.Tab{
+		ID:        "sys-resolve-conflict-abcdef1",
+		Kind:      "resolve-conflict",
+		Label:     "Conflict abcdef1",
+		Route:     "/resolve-conflict/ws-conflict/sys-resolve-conflict-abcdef1",
+		Closable:  true,
+		Meta:      map[string]string{"hash": "abcdef1"},
+		CreatedAt: time.Now(),
 	})
 
 	// Set in-memory state to simulate a genuinely running resolution.
@@ -367,35 +365,6 @@ func TestBroadcast_ResolveConflictTabsUseMatchingPersistedRecords(t *testing.T) 
 		Repo:   "https://example.com/repo.git",
 		Branch: "main",
 		Path:   t.TempDir(),
-		Tabs: []state.Tab{
-			{
-				ID:        "sys-resolve-conflict-abcdef1",
-				Kind:      "resolve-conflict",
-				Label:     "Conflict abcdef1",
-				Route:     "/resolve-conflict/ws-conflicts/sys-resolve-conflict-abcdef1",
-				Closable:  true,
-				Meta:      map[string]string{"hash": "abcdef1"},
-				CreatedAt: time.Now(),
-			},
-			{
-				ID:        "sys-resolve-conflict-1234567",
-				Kind:      "resolve-conflict",
-				Label:     "Conflict 1234567",
-				Route:     "/resolve-conflict/ws-conflicts/sys-resolve-conflict-1234567",
-				Closable:  true,
-				Meta:      map[string]string{"hash": "1234567"},
-				CreatedAt: time.Now(),
-			},
-			{
-				ID:        "sys-resolve-conflict-running1",
-				Kind:      "resolve-conflict",
-				Label:     "Conflict running1",
-				Route:     "/resolve-conflict/ws-conflicts/sys-resolve-conflict-running1",
-				Closable:  true,
-				Meta:      map[string]string{"hash": "running1"},
-				CreatedAt: time.Now(),
-			},
-		},
 		ResolveConflicts: []state.ResolveConflict{
 			{
 				Type:        "linear_sync_resolve_conflict",
@@ -422,6 +391,33 @@ func TestBroadcast_ResolveConflictTabsUseMatchingPersistedRecords(t *testing.T) 
 				Steps:       []state.ResolveConflictStep{},
 			},
 		},
+	})
+	st.AddTab("ws-conflicts", state.Tab{
+		ID:        "sys-resolve-conflict-abcdef1",
+		Kind:      "resolve-conflict",
+		Label:     "Conflict abcdef1",
+		Route:     "/resolve-conflict/ws-conflicts/sys-resolve-conflict-abcdef1",
+		Closable:  true,
+		Meta:      map[string]string{"hash": "abcdef1"},
+		CreatedAt: time.Now(),
+	})
+	st.AddTab("ws-conflicts", state.Tab{
+		ID:        "sys-resolve-conflict-1234567",
+		Kind:      "resolve-conflict",
+		Label:     "Conflict 1234567",
+		Route:     "/resolve-conflict/ws-conflicts/sys-resolve-conflict-1234567",
+		Closable:  true,
+		Meta:      map[string]string{"hash": "1234567"},
+		CreatedAt: time.Now(),
+	})
+	st.AddTab("ws-conflicts", state.Tab{
+		ID:        "sys-resolve-conflict-running1",
+		Kind:      "resolve-conflict",
+		Label:     "Conflict running1",
+		Route:     "/resolve-conflict/ws-conflicts/sys-resolve-conflict-running1",
+		Closable:  true,
+		Meta:      map[string]string{"hash": "running1"},
+		CreatedAt: time.Now(),
 	})
 
 	// Simulate a genuinely running resolution: set in-memory state for "running1".

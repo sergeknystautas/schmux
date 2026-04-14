@@ -38,6 +38,123 @@ func TestLoad(t *testing.T) {
 	}
 }
 
+func TestLoadMigratesLegacyNestedTabs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+
+	// Old format: tabs nested on workspace
+	data := []byte(`{
+		"workspaces": [{
+			"id": "ws-1",
+			"repo": "repo",
+			"branch": "main",
+			"path": "/tmp/ws-1",
+			"tabs": [
+				{"id": "sys-diff-ws-1", "kind": "diff", "route": "/diff/ws-1", "closable": false, "created_at": "2026-01-01T00:00:00Z"},
+				{"id": "sys-git-ws-1", "kind": "git", "label": "commit graph", "route": "/commits/ws-1", "closable": false, "created_at": "2026-01-01T00:00:00Z"}
+			]
+		}],
+		"sessions": []
+	}`)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := Load(path, nil)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	// Tabs should be at top level
+	tabs := st.GetWorkspaceTabs("ws-1")
+	if len(tabs) != 2 {
+		t.Fatalf("expected 2 tabs, got %d", len(tabs))
+	}
+
+	// WorkspaceID should be stamped
+	st.mu.RLock()
+	for _, tab := range st.Tabs {
+		if tab.WorkspaceID != "ws-1" {
+			t.Errorf("tab %s WorkspaceID = %q, want ws-1", tab.ID, tab.WorkspaceID)
+		}
+	}
+	st.mu.RUnlock()
+}
+
+func TestLoadNewFormatTabs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+
+	// New format: tabs at top level
+	data := []byte(`{
+		"workspaces": [{
+			"id": "ws-1",
+			"repo": "repo",
+			"branch": "main",
+			"path": "/tmp/ws-1"
+		}],
+		"sessions": [],
+		"tabs": [
+			{"id": "sys-diff-ws-1", "workspace_id": "ws-1", "kind": "diff", "route": "/diff/ws-1", "closable": false, "created_at": "2026-01-01T00:00:00Z"}
+		]
+	}`)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := Load(path, nil)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	tabs := st.GetWorkspaceTabs("ws-1")
+	if len(tabs) != 1 {
+		t.Fatalf("expected 1 tab, got %d", len(tabs))
+	}
+	if tabs[0].ID != "sys-diff-ws-1" {
+		t.Errorf("tab ID = %q, want sys-diff-ws-1", tabs[0].ID)
+	}
+}
+
+func TestLoadMixedFormatDedup(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+
+	// Mixed format: same tab in both locations (crash scenario)
+	data := []byte(`{
+		"workspaces": [{
+			"id": "ws-1",
+			"repo": "repo",
+			"branch": "main",
+			"path": "/tmp/ws-1",
+			"tabs": [
+				{"id": "sys-diff-ws-1", "kind": "diff", "label": "stale", "route": "/diff/ws-1", "closable": false, "created_at": "2026-01-01T00:00:00Z"}
+			]
+		}],
+		"sessions": [],
+		"tabs": [
+			{"id": "sys-diff-ws-1", "workspace_id": "ws-1", "kind": "diff", "label": "fresh", "route": "/diff/ws-1", "closable": false, "created_at": "2026-01-01T00:00:00Z"}
+		]
+	}`)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := Load(path, nil)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	tabs := st.GetWorkspaceTabs("ws-1")
+	if len(tabs) != 1 {
+		t.Fatalf("expected 1 tab after dedup, got %d", len(tabs))
+	}
+	// Top-level (new format) wins
+	if tabs[0].Label != "fresh" {
+		t.Errorf("Label = %q, want 'fresh' (top-level should win)", tabs[0].Label)
+	}
+}
+
 func TestAddAndGetWorkspace(t *testing.T) {
 	s := New("", nil)
 
@@ -1206,6 +1323,27 @@ func TestRemoveWorkspaceRemovesPreviews(t *testing.T) {
 	}
 }
 
+func TestRemoveWorkspaceRemovesTabs(t *testing.T) {
+	s := New("", nil)
+	s.AddWorkspace(Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: "/tmp/ws-1"})
+	s.AddWorkspace(Workspace{ID: "ws-2", Repo: "repo", Branch: "dev", Path: "/tmp/ws-2"})
+
+	_ = s.AddTab("ws-1", Tab{ID: "tab-a", Kind: "diff", Route: "/diff/ws-1", CreatedAt: time.Now()})
+	_ = s.AddTab("ws-1", Tab{ID: "tab-b", Kind: "git", Route: "/commits/ws-1", CreatedAt: time.Now()})
+	_ = s.AddTab("ws-2", Tab{ID: "tab-c", Kind: "diff", Route: "/diff/ws-2", CreatedAt: time.Now()})
+
+	if err := s.RemoveWorkspace("ws-1"); err != nil {
+		t.Fatalf("RemoveWorkspace() failed: %v", err)
+	}
+
+	if tabs := s.GetWorkspaceTabs("ws-1"); len(tabs) != 0 {
+		t.Errorf("expected 0 tabs for removed workspace, got %d", len(tabs))
+	}
+	if tabs := s.GetWorkspaceTabs("ws-2"); len(tabs) != 1 {
+		t.Errorf("expected 1 tab for remaining workspace, got %d", len(tabs))
+	}
+}
+
 func TestUpdateSessionFunc(t *testing.T) {
 	s := New("", nil)
 	s.AddSession(Session{ID: "sess-1", TmuxSession: "test", Target: "claude"})
@@ -1538,8 +1676,7 @@ func TestUpdateOverlayManifestEntry(t *testing.T) {
 
 func TestTabCRUD(t *testing.T) {
 	s := New("", nil)
-	// Use explicit Tabs=[]Tab{} to bypass seeding so we start with zero tabs
-	s.AddWorkspace(Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir(), Tabs: []Tab{}})
+	s.AddWorkspace(Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir()})
 
 	tab := Tab{
 		ID:        "tab-1",
@@ -1608,7 +1745,7 @@ func TestTabCRUD(t *testing.T) {
 
 func TestTabIdempotency(t *testing.T) {
 	s := New("", nil)
-	s.AddWorkspace(Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir(), Tabs: []Tab{}})
+	s.AddWorkspace(Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir()})
 
 	tab := Tab{
 		ID:        "tab-a",
@@ -1675,65 +1812,64 @@ func TestTabIdempotency(t *testing.T) {
 	}
 }
 
-func TestRemoveTabDoesNotAliasStaleWorkspaceCopy(t *testing.T) {
+func TestTabWorkspaceIsolation(t *testing.T) {
 	s := New("", nil)
-	if err := s.AddWorkspace(Workspace{
-		ID:     "ws-stale",
-		Repo:   "repo",
-		Branch: "main",
-		Path:   t.TempDir(),
-		Tabs: []Tab{
-			{ID: "tab-markdown", Kind: "markdown", Label: "README", Route: "/readme", Closable: true},
-			{ID: "sys-diff-ws-stale", Kind: "diff", Label: "Diff", Route: "/diff/ws-stale", Closable: false},
-			{ID: "sys-git-ws-stale", Kind: "git", Label: "commit graph", Route: "/commits/ws-stale", Closable: false},
-		},
-	}); err != nil {
-		t.Fatalf("AddWorkspace() failed: %v", err)
+	s.AddWorkspace(Workspace{ID: "ws-a", Repo: "repo", Branch: "main", Path: t.TempDir()})
+	s.AddWorkspace(Workspace{ID: "ws-b", Repo: "repo", Branch: "dev", Path: t.TempDir()})
+
+	tabA := Tab{
+		ID: "tab-1", Kind: "markdown", Label: "README",
+		Route: "/diff/ws-a/md/README.md", Closable: true,
+		Meta: map[string]string{"filepath": "README.md"}, CreatedAt: time.Now(),
+	}
+	tabB := Tab{
+		ID: "tab-2", Kind: "markdown", Label: "CHANGELOG",
+		Route: "/diff/ws-b/md/CHANGELOG.md", Closable: true,
+		Meta: map[string]string{"filepath": "CHANGELOG.md"}, CreatedAt: time.Now(),
 	}
 
-	stale, found := s.GetWorkspace("ws-stale")
-	if !found {
-		t.Fatal("workspace not found")
+	if err := s.AddTab("ws-a", tabA); err != nil {
+		t.Fatalf("AddTab ws-a: %v", err)
+	}
+	if err := s.AddTab("ws-b", tabB); err != nil {
+		t.Fatalf("AddTab ws-b: %v", err)
 	}
 
-	if err := s.RemoveTab("ws-stale", "tab-markdown"); err != nil {
-		t.Fatalf("RemoveTab() failed: %v", err)
-	}
-	afterRemove, found := s.GetWorkspace("ws-stale")
-	if !found {
-		t.Fatal("workspace not found after remove")
-	}
-	if got := len(afterRemove.Tabs); got != 2 {
-		t.Fatalf("expected 2 tabs immediately after remove, got %d", got)
-	}
-	if afterRemove.Tabs[0].ID != "sys-diff-ws-stale" || afterRemove.Tabs[1].ID != "sys-git-ws-stale" {
-		t.Fatalf("expected diff/git tabs immediately after remove, got %+v", afterRemove.Tabs)
-	}
+	t.Run("tabs are isolated by workspace", func(t *testing.T) {
+		aTabs := s.GetWorkspaceTabs("ws-a")
+		if len(aTabs) != 1 || aTabs[0].ID != "tab-1" {
+			t.Errorf("ws-a tabs = %+v, want [tab-1]", aTabs)
+		}
+		bTabs := s.GetWorkspaceTabs("ws-b")
+		if len(bTabs) != 1 || bTabs[0].ID != "tab-2" {
+			t.Errorf("ws-b tabs = %+v, want [tab-2]", bTabs)
+		}
+	})
 
-	// A stale Get-modify-Update write still overwrites newer workspace fields.
-	// This regression test is specifically guarding against slice aliasing corruption:
-	// after the stale write restores the old 3-tab slice header, the third slot must
-	// still contain the original markdown tab rather than an orphaned duplicate caused
-	// by RemoveTab reusing the old backing array in place.
-	stale.LinesAdded = 7
-	if err := s.UpdateWorkspace(stale); err != nil {
-		t.Fatalf("UpdateWorkspace() failed: %v", err)
-	}
+	t.Run("WorkspaceID is set on stored tabs", func(t *testing.T) {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		for _, tab := range s.Tabs {
+			if tab.ID == "tab-1" && tab.WorkspaceID != "ws-a" {
+				t.Errorf("tab-1 WorkspaceID = %q, want ws-a", tab.WorkspaceID)
+			}
+			if tab.ID == "tab-2" && tab.WorkspaceID != "ws-b" {
+				t.Errorf("tab-2 WorkspaceID = %q, want ws-b", tab.WorkspaceID)
+			}
+		}
+	})
 
-	updated, found := s.GetWorkspace("ws-stale")
-	if !found {
-		t.Fatal("workspace not found after update")
-	}
-
-	if got := len(updated.Tabs); got != 3 {
-		t.Fatalf("expected stale workspace write to preserve original tab count, got %d", got)
-	}
-	if updated.Tabs[0].ID != "tab-markdown" {
-		t.Fatalf("expected first tab to remain markdown from stale copy, got %q", updated.Tabs[0].ID)
-	}
-	if updated.Tabs[1].ID != "sys-diff-ws-stale" || updated.Tabs[2].ID != "sys-git-ws-stale" {
-		t.Fatalf("expected diff/git tabs to remain intact, got %+v", updated.Tabs)
-	}
+	t.Run("RemoveTab only affects target workspace", func(t *testing.T) {
+		if err := s.RemoveTab("ws-a", "tab-1"); err != nil {
+			t.Fatalf("RemoveTab: %v", err)
+		}
+		if len(s.GetWorkspaceTabs("ws-a")) != 0 {
+			t.Error("ws-a should have 0 tabs after remove")
+		}
+		if len(s.GetWorkspaceTabs("ws-b")) != 1 {
+			t.Error("ws-b should still have 1 tab")
+		}
+	})
 }
 
 func TestGetSessionsByRemoteHostID(t *testing.T) {

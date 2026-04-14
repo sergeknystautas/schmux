@@ -28,6 +28,7 @@ type DashboardSXStatus struct {
 type State struct {
 	Workspaces   []Workspace                 `json:"workspaces"`
 	Sessions     []Session                   `json:"sessions"`
+	Tabs         []Tab                       `json:"tabs,omitempty"`
 	RepoBases    []RepoBase                  `json:"base_repos,omitempty"`
 	PullRequests []contracts.PullRequest     `json:"pull_requests,omitempty"` // cached GitHub PRs
 	PublicRepos  []string                    `json:"public_repos,omitempty"`  // repo URLs confirmed public on GitHub
@@ -143,20 +144,20 @@ type Workspace struct {
 	OverlayManifest         map[string]string `json:"overlay_manifest,omitempty"`   // relPath → SHA-256 hash at copy time
 	PortBlock               int               `json:"port_block,omitempty"`         // 0 = unassigned; 1-indexed block for stable preview ports
 	Status                  string            `json:"status,omitempty"`
-	Tabs                    []Tab             `json:"tabs,omitempty"`
 	ResolveConflicts        []ResolveConflict `json:"resolve_conflicts,omitempty"`
 	Backburner              bool              `json:"backburner,omitempty"`
 }
 
 // Tab represents an accessory tab in a workspace (diff, git, preview, markdown, etc.).
 type Tab struct {
-	ID        string            `json:"id"`
-	Kind      string            `json:"kind"`
-	Label     string            `json:"label"`
-	Route     string            `json:"route"`
-	Closable  bool              `json:"closable"`
-	Meta      map[string]string `json:"meta,omitempty"`
-	CreatedAt time.Time         `json:"created_at"`
+	ID          string            `json:"id"`
+	WorkspaceID string            `json:"workspace_id"`
+	Kind        string            `json:"kind"`
+	Label       string            `json:"label"`
+	Route       string            `json:"route"`
+	Closable    bool              `json:"closable"`
+	Meta        map[string]string `json:"meta,omitempty"`
+	CreatedAt   time.Time         `json:"created_at"`
 }
 
 type ResolveConflictStep struct {
@@ -273,7 +274,6 @@ func CopyResolveConflicts(src []ResolveConflict) []ResolveConflict {
 
 func copyWorkspace(w Workspace) Workspace {
 	w.OverlayManifest = copyStringMap(w.OverlayManifest)
-	w.Tabs = copyTabs(w.Tabs)
 	w.ResolveConflicts = copyResolveConflicts(w.ResolveConflicts)
 	return w
 }
@@ -350,6 +350,7 @@ func New(path string, logger *log.Logger) *State {
 	return &State{
 		Workspaces:  []Workspace{},
 		Sessions:    []Session{},
+		Tabs:        []Tab{},
 		RepoBases:   []RepoBase{},
 		RemoteHosts: []RemoteHost{},
 		Previews:    map[string]WorkspacePreview{},
@@ -374,6 +375,40 @@ func Load(path string, logger *log.Logger) (*State, error) {
 	st.logger = logger
 	if err := json.Unmarshal(data, &st); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal state: %w", err)
+	}
+
+	// Migrate legacy nested tabs: unmarshal workspace tabs from old format
+	// and lift them to top-level State.Tabs with dedup.
+	type workspaceWithTabs struct {
+		ID   string `json:"id"`
+		Tabs []Tab  `json:"tabs,omitempty"`
+	}
+	var legacy struct {
+		Workspaces []workspaceWithTabs `json:"workspaces"`
+	}
+	// Best-effort: if this fails, we just skip migration (no legacy tabs)
+	if json.Unmarshal(data, &legacy) == nil {
+		// Build dedup index from top-level tabs (new format wins)
+		seen := make(map[string]bool, len(st.Tabs))
+		for _, t := range st.Tabs {
+			seen[t.WorkspaceID+"\x00"+tabDedupKey(t)] = true
+		}
+		// Sweep nested tabs, skipping any already present at top level
+		for _, ws := range legacy.Workspaces {
+			for _, tab := range ws.Tabs {
+				tab.WorkspaceID = ws.ID
+				key := tab.WorkspaceID + "\x00" + tabDedupKey(tab)
+				if !seen[key] {
+					st.Tabs = append(st.Tabs, tab)
+					seen[key] = true
+				}
+			}
+		}
+	}
+
+	// Initialize Tabs if nil (new state files without tabs)
+	if st.Tabs == nil {
+		st.Tabs = []Tab{}
 	}
 
 	// Initialize RepoBases if nil (existing state files)
@@ -533,9 +568,6 @@ func (s *State) AddWorkspace(w Workspace) error {
 			return nil
 		}
 	}
-	if w.Tabs == nil {
-		w.Tabs = []Tab{}
-	}
 	s.Workspaces = append(s.Workspaces, w)
 	return nil
 }
@@ -594,10 +626,14 @@ func (s *State) UpdateWorkspace(w Workspace) error {
 func (s *State) GetWorkspaceTabs(workspaceID string) []Tab {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	for _, w := range s.Workspaces {
-		if w.ID == workspaceID {
-			return copyTabs(w.Tabs)
+	var matched []Tab
+	for _, t := range s.Tabs {
+		if t.WorkspaceID == workspaceID {
+			matched = append(matched, t)
 		}
+	}
+	if result := copyTabs(matched); result != nil {
+		return result
 	}
 	return []Tab{}
 }
@@ -676,26 +712,36 @@ func (s *State) RemoveResolveConflict(workspaceID, hash string) error {
 func (s *State) AddTab(workspaceID string, tab Tab) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.addTabLocked(workspaceID, tab)
-}
-
-// addTabLocked is the lock-free core of AddTab. Caller must hold s.mu.
-func (s *State) addTabLocked(workspaceID string, tab Tab) error {
-	for i, w := range s.Workspaces {
-		if w.ID != workspaceID {
-			continue
+	// Validate workspace exists
+	found := false
+	for _, w := range s.Workspaces {
+		if w.ID == workspaceID {
+			found = true
+			break
 		}
-		key := tabDedupKey(tab)
-		for j, existing := range w.Tabs {
-			if tabDedupKey(existing) == key {
-				s.Workspaces[i].Tabs[j] = tab
-				return nil
-			}
-		}
-		s.Workspaces[i].Tabs = append([]Tab{tab}, s.Workspaces[i].Tabs...)
-		return nil
 	}
-	return fmt.Errorf("workspace not found: %s", workspaceID)
+	if !found {
+		if s.logger != nil {
+			s.logger.Warn("AddTab: workspace not found", "workspace", workspaceID, "tab", tab.ID, "kind", tab.Kind)
+		}
+		return fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+	tab.WorkspaceID = workspaceID
+	key := tabDedupKey(tab)
+	for i, existing := range s.Tabs {
+		if existing.WorkspaceID == workspaceID && tabDedupKey(existing) == key {
+			if s.logger != nil {
+				s.logger.Info("AddTab: updated existing", "workspace", workspaceID, "tab", tab.ID, "kind", tab.Kind, "dedup_key", key)
+			}
+			s.Tabs[i] = tab
+			return nil
+		}
+	}
+	if s.logger != nil {
+		s.logger.Info("AddTab: created", "workspace", workspaceID, "tab", tab.ID, "kind", tab.Kind)
+	}
+	s.Tabs = append([]Tab{tab}, s.Tabs...)
+	return nil
 }
 
 // RemoveTab removes a tab by ID from a workspace.
@@ -703,22 +749,29 @@ func (s *State) addTabLocked(workspaceID string, tab Tab) error {
 func (s *State) RemoveTab(workspaceID, tabID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for i, w := range s.Workspaces {
-		if w.ID != workspaceID {
-			continue
+	found := false
+	for _, w := range s.Workspaces {
+		if w.ID == workspaceID {
+			found = true
+			break
 		}
-		for j, existing := range w.Tabs {
-			if existing.ID == tabID {
-				next := make([]Tab, 0, len(w.Tabs)-1)
-				next = append(next, w.Tabs[:j]...)
-				next = append(next, w.Tabs[j+1:]...)
-				s.Workspaces[i].Tabs = next
-				return nil
-			}
-		}
-		return nil
 	}
-	return fmt.Errorf("workspace not found: %s", workspaceID)
+	if !found {
+		if s.logger != nil {
+			s.logger.Warn("RemoveTab: workspace not found", "workspace", workspaceID, "tab", tabID)
+		}
+		return fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+	for i, t := range s.Tabs {
+		if t.WorkspaceID == workspaceID && t.ID == tabID {
+			if s.logger != nil {
+				s.logger.Info("RemoveTab: removed", "workspace", workspaceID, "tab", tabID, "kind", t.Kind)
+			}
+			s.Tabs = append(s.Tabs[:i], s.Tabs[i+1:]...)
+			return nil
+		}
+	}
+	return nil
 }
 
 // AddSession adds a session to the state.
@@ -911,6 +964,14 @@ func (s *State) RemoveWorkspace(id string) error {
 					delete(s.Previews, previewID)
 				}
 			}
+			// Cascade: remove tabs belonging to this workspace
+			filtered := s.Tabs[:0]
+			for _, t := range s.Tabs {
+				if t.WorkspaceID != id {
+					filtered = append(filtered, t)
+				}
+			}
+			s.Tabs = filtered
 			return nil
 		}
 	}

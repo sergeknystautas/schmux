@@ -19,7 +19,6 @@ import (
 	"github.com/sergeknystautas/schmux/internal/preview"
 )
 
-const previewAutoDetectCooldown = 45 * time.Second
 const previewStreamBufferLimit = 4096
 const previewCandidateTTL = 8 * time.Second
 const defaultPreviewCandidateInterval = 350 * time.Millisecond
@@ -243,16 +242,6 @@ func (s *Server) processPreviewCandidate(key string, now time.Time) {
 		return
 	}
 
-	s.previewDetectMu.Lock()
-	last, hasLast := s.previewDetect[key]
-	if hasLast && now.Sub(last) < previewAutoDetectCooldown {
-		s.previewDetectMu.Unlock()
-		previewLog.Debug("candidate suppressed by cooldown", "host", candidate.Host, "port", candidate.Port, "session", candidate.SessionID)
-		s.dropPreviewCandidate(key, "cooldown", candidate, previewLog)
-		return
-	}
-	s.previewDetectMu.Unlock()
-
 	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	result, wasCreated, err := s.previewManager.CreateOrGet(ctx, ws, candidate.Host, candidate.Port, sess.ID, ownerPID)
 	cancel()
@@ -261,9 +250,6 @@ func (s *Server) processPreviewCandidate(key string, now time.Time) {
 		return
 	}
 
-	s.previewDetectMu.Lock()
-	s.previewDetect[key] = now
-	s.previewDetectMu.Unlock()
 	s.dropPreviewCandidate(key, "created", candidate, previewLog)
 
 	if wasCreated {
