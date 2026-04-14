@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-14T21:38:23Z",
+  "updated": "2026-04-14T21:38:55Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "it's a little weird that the scroll bar goes all the way to the top, including the table header [...",
+      "intent": "the problem now is that the columns in the header and the body are not longer aligned [Image #5]",
       "status": "active",
       "last_active_date": "2026-04-14",
       "started": "2026-04-14"
