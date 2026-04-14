@@ -1,10 +1,8 @@
 package detect
 
-import (
-	"fmt"
-	"os"
-	"path/filepath"
-)
+// This file contains the OpenCode commit command template. The constant is
+// referenced by setup_templates.go which registers it for use by the YAML
+// descriptor's setup_files mechanism.
 
 // opencodeCommitCommand is the definition-of-done commit workflow for OpenCode.
 // Written to .opencode/commands/commit.md in each workspace.
@@ -104,18 +102,3 @@ Commit message format:
 - **Do NOT add "generated" markers** — no "AI-generated" or similar disclaimers
 - **Focus on features, not code changes** — describe what the commit accomplishes, not just which files or functions were modified
 `
-
-// SetupCommands writes tool-specific command files into the workspace.
-// For OpenCode, this creates .opencode/commands/commit.md.
-func (a *OpencodeAdapter) SetupCommands(workspacePath string) error {
-	commandsDir := filepath.Join(workspacePath, ".opencode", "commands")
-	commitPath := filepath.Join(commandsDir, "commit.md")
-
-	if err := os.MkdirAll(commandsDir, 0755); err != nil {
-		return fmt.Errorf("failed to create .opencode/commands directory: %w", err)
-	}
-	if err := os.WriteFile(commitPath, []byte(opencodeCommitCommand), 0644); err != nil {
-		return fmt.Errorf("failed to write commit command: %w", err)
-	}
-	return nil
-}

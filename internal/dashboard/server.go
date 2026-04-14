@@ -32,7 +32,6 @@ import (
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/models"
-	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/persona"
 	"github.com/sergeknystautas/schmux/internal/preview"
 	"github.com/sergeknystautas/schmux/internal/remote"
@@ -224,9 +223,6 @@ type Server struct {
 	// Dashboard.sx provision status (in-memory, resets on restart)
 	dsxProvision   dsxProvisionStatus
 	dsxProvisionMu sync.Mutex
-
-	// Streaming executor for observable curation
-	streamingExecutor StreamingExecutorFunc
 
 	// Curation state tracking for WebSocket broadcast
 	curationTracker *CurationTracker
@@ -480,9 +476,6 @@ func (s *Server) SetAutolearnPendingMergeStore(store *autolearn.PendingMergeStor
 func (s *Server) SetAutolearnExecutor(exec func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error)) {
 	s.autolearnExecutor = exec
 }
-
-// StreamingExecutorFunc is a function that runs a streaming one-shot execution.
-type StreamingExecutorFunc func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration, dir string, onEvent func(oneshot.StreamEvent)) (string, error)
 
 // SetTunnelManager sets the tunnel manager for remote access.
 func (s *Server) SetTunnelManager(tm *tunnel.Manager) {

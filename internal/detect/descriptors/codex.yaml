@@ -1,0 +1,24 @@
+name: codex
+detect:
+  - type: path_lookup
+    command: codex
+  - type: npm_global
+    package: '@openai/codex'
+  - type: homebrew_formula
+    name: codex
+capabilities: [interactive, oneshot]
+model_flag: '-m'
+instruction:
+  dir: '.codex'
+  file: 'AGENTS.md'
+interactive:
+  resume_args: ['resume', '--last']
+oneshot:
+  base_args: ['exec', '--json', '-m', '{model}']
+  schema_flag: '--output-schema'
+signaling:
+  strategy: cli_flag
+  flag: '-c'
+  value_template: 'model_instructions_file={path}'
+persona:
+  strategy: instruction_file

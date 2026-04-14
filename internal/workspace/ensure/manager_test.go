@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sergeknystautas/schmux/internal/detect"
 )
 
 func TestAgentInstructions_CreatesNewFile(t *testing.T) {
@@ -196,9 +198,14 @@ func TestEnsureExcludeEntries_CreatesNewFile(t *testing.T) {
 	if !strings.Contains(contentStr, excludeMarkerEnd) {
 		t.Error("should contain SCHMUX:END marker")
 	}
-	for _, pattern := range excludePatterns {
+	for _, pattern := range staticExcludePatterns {
 		if !strings.Contains(contentStr, pattern) {
-			t.Errorf("should contain pattern %q", pattern)
+			t.Errorf("should contain static pattern %q", pattern)
+		}
+	}
+	for _, pattern := range detect.AllGitExcludePatterns() {
+		if !strings.Contains(contentStr, pattern) {
+			t.Errorf("should contain adapter pattern %q", pattern)
 		}
 	}
 }

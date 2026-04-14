@@ -7,9 +7,20 @@ import (
 	"testing"
 )
 
+// getOpencodeAdapter loads the opencode descriptor adapter for testing.
+func getOpencodeAdapter(t *testing.T) ToolAdapter {
+	t.Helper()
+	loadDescriptorAdapter(t, "opencode")
+	a := GetAdapter("opencode")
+	if a == nil {
+		t.Fatal("opencode adapter not registered")
+	}
+	return a
+}
+
 func TestOpencodeSetupHooks(t *testing.T) {
 	dir := t.TempDir()
-	adapter := &OpencodeAdapter{}
+	adapter := getOpencodeAdapter(t)
 	err := adapter.SetupHooks(HookContext{WorkspacePath: dir})
 	if err != nil {
 		t.Fatalf("SetupHooks error: %v", err)
@@ -54,7 +65,7 @@ func TestOpencodeSetupHooks(t *testing.T) {
 
 func TestOpencodeCleanupHooks(t *testing.T) {
 	dir := t.TempDir()
-	adapter := &OpencodeAdapter{}
+	adapter := getOpencodeAdapter(t)
 
 	// Setup then cleanup
 	if err := adapter.SetupHooks(HookContext{WorkspacePath: dir}); err != nil {
@@ -74,7 +85,7 @@ func TestOpencodeCleanupHooks(t *testing.T) {
 
 func TestOpencodeCleanupHooks_NoFile(t *testing.T) {
 	dir := t.TempDir()
-	adapter := &OpencodeAdapter{}
+	adapter := getOpencodeAdapter(t)
 
 	// Should not error when there's no plugin file
 	if err := adapter.CleanupHooks(dir); err != nil {
@@ -84,7 +95,7 @@ func TestOpencodeCleanupHooks_NoFile(t *testing.T) {
 
 func TestOpencodeSetupHooksIdempotent(t *testing.T) {
 	dir := t.TempDir()
-	adapter := &OpencodeAdapter{}
+	adapter := getOpencodeAdapter(t)
 
 	if err := adapter.SetupHooks(HookContext{WorkspacePath: dir}); err != nil {
 		t.Fatal(err)
@@ -103,7 +114,7 @@ func TestOpencodeSetupHooksIdempotent(t *testing.T) {
 }
 
 func TestOpencodeWrapRemoteCommand(t *testing.T) {
-	adapter := &OpencodeAdapter{}
+	adapter := getOpencodeAdapter(t)
 
 	wrapped, err := adapter.WrapRemoteCommand(`opencode "hello world"`)
 	if err != nil {

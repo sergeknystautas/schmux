@@ -978,7 +978,7 @@ Response:
   ],
   "pastebin": ["text to paste 1", "text to paste 2"],
   "runners": {
-    "claude": { "available": true, "capabilities": ["interactive", "oneshot", "streaming"] },
+    "claude": { "available": true, "capabilities": ["interactive", "oneshot"] },
     "opencode": { "available": true, "capabilities": ["interactive", "oneshot"] }
   },
   "models": [
@@ -3515,7 +3515,7 @@ Notes:
 
 - Sessions updates use trailing debounce (100ms) to coalesce rapid changes into single broadcasts
 
-Curator event (sent per streaming event during lore curation):
+Curator event (sent during autolearn curation):
 
 ```json
 {

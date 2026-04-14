@@ -478,6 +478,11 @@ func (d *Daemon) initConfigAndState(devMode bool) (*daemonInit, error) {
 		logger.Warn("failed to write global hook scripts", "err", err)
 	}
 
+	// Load external adapter descriptors from embedded contrib/ and ~/.schmux/adapters/
+	if err := detect.LoadAndRegisterDescriptors(schmuxdir.AdaptersDir()); err != nil {
+		logger.Warn("failed to load adapter descriptors", "err", err)
+	}
+
 	// Dev mode: backup config files before loading
 	if devMode {
 		if err := createDevConfigBackup(schmuxDir); err != nil {

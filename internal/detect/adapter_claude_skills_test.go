@@ -7,8 +7,12 @@ import (
 )
 
 func TestClaudeInjectSkill(t *testing.T) {
+	loadDescriptorAdapter(t, "claude")
+	adapter := GetAdapter("claude")
+	if adapter == nil {
+		t.Fatal("claude adapter not registered")
+	}
 	dir := t.TempDir()
-	adapter := &ClaudeAdapter{}
 	skill := SkillModule{
 		Name:    "code-review",
 		Content: "---\nname: code-review\n---\n\n## Procedure\n1. Read the PR\n",
@@ -28,8 +32,12 @@ func TestClaudeInjectSkill(t *testing.T) {
 }
 
 func TestClaudeRemoveSkill(t *testing.T) {
+	loadDescriptorAdapter(t, "claude")
+	adapter := GetAdapter("claude")
+	if adapter == nil {
+		t.Fatal("claude adapter not registered")
+	}
 	dir := t.TempDir()
-	adapter := &ClaudeAdapter{}
 	skill := SkillModule{Name: "code-review", Content: "test"}
 	adapter.InjectSkill(dir, skill)
 	if err := adapter.RemoveSkill(dir, "code-review"); err != nil {
@@ -42,8 +50,12 @@ func TestClaudeRemoveSkill(t *testing.T) {
 }
 
 func TestClaudeRemoveSkill_NonExistent(t *testing.T) {
+	loadDescriptorAdapter(t, "claude")
+	adapter := GetAdapter("claude")
+	if adapter == nil {
+		t.Fatal("claude adapter not registered")
+	}
 	dir := t.TempDir()
-	adapter := &ClaudeAdapter{}
 	// Removing a non-existent skill should not error
 	if err := adapter.RemoveSkill(dir, "nonexistent"); err != nil {
 		t.Errorf("expected no error for non-existent skill, got %v", err)

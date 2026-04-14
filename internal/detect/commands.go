@@ -9,10 +9,9 @@ import (
 type ToolMode string
 
 const (
-	ToolModeInteractive      ToolMode = "interactive"
-	ToolModeOneshot          ToolMode = "oneshot"
-	ToolModeOneshotStreaming ToolMode = "oneshot-streaming"
-	ToolModeResume           ToolMode = "resume"
+	ToolModeInteractive ToolMode = "interactive"
+	ToolModeOneshot     ToolMode = "oneshot"
+	ToolModeResume      ToolMode = "resume"
 )
 
 // BuildCommandParts builds command parts for the given detected tool.
@@ -38,8 +37,6 @@ func BuildCommandParts(toolName, detectedCommand string, mode ToolMode, jsonSche
 		modeArgs = adapter.InteractiveArgs(model, false)
 	case ToolModeOneshot:
 		modeArgs, err = adapter.OneshotArgs(model, jsonSchema)
-	case ToolModeOneshotStreaming:
-		modeArgs, err = adapter.StreamingArgs(model, jsonSchema)
 	case ToolModeResume:
 		modeArgs = adapter.InteractiveArgs(nil, true)
 	default:

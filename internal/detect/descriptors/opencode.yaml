@@ -1,0 +1,36 @@
+name: opencode
+detect:
+  - type: path_lookup
+    command: opencode
+  - type: file_exists
+    path: '~/.local/bin/opencode'
+  - type: homebrew_formula
+    name: opencode
+  - type: npm_global
+    package: opencode-ai
+capabilities: [interactive, oneshot]
+model_flag: '--model'
+prompt_flag: '--prompt'
+instruction:
+  dir: '.opencode'
+  file: 'AGENTS.md'
+interactive:
+  resume_args: ['--continue']
+oneshot:
+  base_args: ['run']
+  schema_args: ['--format', 'json']
+signaling:
+  strategy: instruction_file
+persona:
+  strategy: config_overlay
+  env_var: 'OPENCODE_CONFIG_CONTENT'
+  value_template: '{"instructions":["{path}"]}'
+hooks:
+  strategy: plugin-file
+  plugin_dir: '.opencode/plugins'
+  plugin_file: 'schmux.ts'
+skills:
+  file_pattern: '.opencode/commands/schmux-{name}.md'
+setup_files:
+  - target: '.opencode/commands/commit.md'
+    source: commit-command

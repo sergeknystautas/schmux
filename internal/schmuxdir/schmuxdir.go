@@ -29,3 +29,4 @@ func StatePath() string     { return filepath.Join(Get(), "state.json") }
 func PIDPath() string       { return filepath.Join(Get(), "daemon.pid") }
 func RecordingsDir() string { return filepath.Join(Get(), "recordings") }
 func BackupsDir() string    { return filepath.Join(Get(), "backups") }
+func AdaptersDir() string   { return filepath.Join(Get(), "adapters") }

@@ -452,23 +452,23 @@ const (
 	excludeMarkerEnd   = "# SCHMUX:END"
 )
 
-// excludePatterns are the gitignore patterns managed by schmux.
-// These cover daemon-written files that should not appear in git status.
-var excludePatterns = []string{
+// staticExcludePatterns are schmux-internal paths that are always excluded.
+var staticExcludePatterns = []string{
 	".schmux/hooks/",
 	".schmux/events/",
-	".opencode/plugins/schmux.ts",
-	".opencode/commands/schmux-*.md",
-	".opencode/commands/commit.md",
-	".claude/skills/schmux-*/",
 }
 
 // buildExcludeBlock builds the full schmux exclude block with markers.
+// Combines static schmux patterns with adapter-derived patterns.
 func buildExcludeBlock() string {
 	var b strings.Builder
 	b.WriteString(excludeMarkerStart)
 	b.WriteByte('\n')
-	for _, p := range excludePatterns {
+	for _, p := range staticExcludePatterns {
+		b.WriteString(p)
+		b.WriteByte('\n')
+	}
+	for _, p := range detect.AllGitExcludePatterns() {
 		b.WriteString(p)
 		b.WriteByte('\n')
 	}

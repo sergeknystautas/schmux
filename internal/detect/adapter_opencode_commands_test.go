@@ -10,7 +10,11 @@ import (
 func TestOpencodeSetupCommands(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	adapter := &OpencodeAdapter{}
+	loadDescriptorAdapter(t, "opencode")
+	adapter := GetAdapter("opencode")
+	if adapter == nil {
+		t.Fatal("opencode adapter not registered")
+	}
 	err := adapter.SetupCommands(dir)
 	if err != nil {
 		t.Fatalf("SetupCommands error: %v", err)
@@ -42,7 +46,11 @@ func TestOpencodeSetupCommands(t *testing.T) {
 func TestOpencodeSetupCommandsIdempotent(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	adapter := &OpencodeAdapter{}
+	loadDescriptorAdapter(t, "opencode")
+	adapter := GetAdapter("opencode")
+	if adapter == nil {
+		t.Fatal("opencode adapter not registered")
+	}
 	_ = adapter.SetupCommands(dir)
 	_ = adapter.SetupCommands(dir)
 
@@ -58,7 +66,11 @@ func TestOpencodeSetupCommandsIdempotent(t *testing.T) {
 
 func TestOpencodeInjectSkill(t *testing.T) {
 	dir := t.TempDir()
-	adapter := &OpencodeAdapter{}
+	loadDescriptorAdapter(t, "opencode")
+	adapter := GetAdapter("opencode")
+	if adapter == nil {
+		t.Fatal("opencode adapter not registered")
+	}
 	skill := SkillModule{
 		Name:    "code-review",
 		Content: "---\nname: code-review\n---\n\n## Procedure\n1. Read the PR\n",
@@ -78,7 +90,11 @@ func TestOpencodeInjectSkill(t *testing.T) {
 
 func TestOpencodeRemoveSkill(t *testing.T) {
 	dir := t.TempDir()
-	adapter := &OpencodeAdapter{}
+	loadDescriptorAdapter(t, "opencode")
+	adapter := GetAdapter("opencode")
+	if adapter == nil {
+		t.Fatal("opencode adapter not registered")
+	}
 	skill := SkillModule{Name: "code-review", Content: "test"}
 	adapter.InjectSkill(dir, skill)
 	if err := adapter.RemoveSkill(dir, "code-review"); err != nil {
@@ -92,7 +108,11 @@ func TestOpencodeRemoveSkill(t *testing.T) {
 
 func TestOpencodeRemoveSkill_NonExistent(t *testing.T) {
 	dir := t.TempDir()
-	adapter := &OpencodeAdapter{}
+	loadDescriptorAdapter(t, "opencode")
+	adapter := GetAdapter("opencode")
+	if adapter == nil {
+		t.Fatal("opencode adapter not registered")
+	}
 	if err := adapter.RemoveSkill(dir, "nonexistent"); err != nil {
 		t.Errorf("expected no error for non-existent skill, got %v", err)
 	}

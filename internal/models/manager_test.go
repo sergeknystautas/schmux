@@ -133,7 +133,7 @@ func TestGetCatalogStructure(t *testing.T) {
 	if !ri.Available {
 		t.Error("claude runner should be available")
 	}
-	want := map[string]bool{"interactive": true, "oneshot": true, "streaming": true}
+	want := map[string]bool{"interactive": true, "oneshot": true}
 	got := make(map[string]bool, len(ri.Capabilities))
 	for _, c := range ri.Capabilities {
 		got[c] = true

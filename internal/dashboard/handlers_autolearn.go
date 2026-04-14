@@ -31,7 +31,6 @@ type AutolearnHandlers struct {
 	autolearnStore             *autolearn.BatchStore
 	autolearnExecutor          func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error)
 	autolearnPendingMergeStore *autolearn.PendingMergeStore
-	streamingExecutor          StreamingExecutorFunc
 	curationTracker            *CurationTracker
 	logger                     *log.Logger
 	shutdownCtx                context.Context
@@ -47,7 +46,6 @@ func newAutolearnHandlers(s *Server) *AutolearnHandlers {
 		autolearnStore:             s.autolearnStore,
 		autolearnExecutor:          s.autolearnExecutor,
 		autolearnPendingMergeStore: s.autolearnPendingMergeStore,
-		streamingExecutor:          s.streamingExecutor,
 		curationTracker:            s.curationTracker,
 		logger:                     s.logger,
 		shutdownCtx:                s.shutdownCtx,
@@ -504,8 +502,7 @@ func (h *AutolearnHandlers) runAutolearnCuration(repoName, curationID, prompt st
 
 		// Write run.sh
 		target := h.config.GetLoreTarget()
-		streaming := h.streamingExecutor != nil
-		runScript := curationGenerateRunScript(h.config, target, schema.LabelAutolearnFriction, streaming)
+		runScript := curationGenerateRunScript(h.config, target, schema.LabelAutolearnFriction)
 		os.WriteFile(filepath.Join(runDir, "run.sh"), []byte(runScript), 0755)
 
 		// Create events.jsonl
@@ -515,53 +512,11 @@ func (h *AutolearnHandlers) runAutolearnCuration(repoName, curationID, prompt st
 		}
 	}
 
-	// Choose executor: streaming if available, otherwise fallback to non-streaming
-	if h.streamingExecutor != nil {
-		h.runAutolearnWithStreamingExecutor(ctx, repoName, curationID, prompt, entries, runDir, logFile, start)
-	} else {
-		h.runAutolearnWithLegacyExecutor(ctx, repoName, curationID, prompt, entries, runDir, logFile, start)
-	}
+	h.runAutolearnExecutor(ctx, repoName, curationID, prompt, entries, runDir, logFile, start)
 }
 
-// runAutolearnWithStreamingExecutor runs curation using the streaming executor with event callbacks.
-func (h *AutolearnHandlers) runAutolearnWithStreamingExecutor(ctx context.Context, repoName, curationID, prompt string, entries []autolearn.Entry, runDir string, logFile *os.File, start time.Time) {
-	onEvent := func(ev oneshot.StreamEvent) {
-		curatorEvent := CuratorEvent{
-			Repo:      repoName,
-			Timestamp: time.Now().UTC(),
-			EventType: ev.Type,
-			Subtype:   ev.Subtype,
-			Raw:       ev.Raw,
-		}
-		h.curationTracker.AddEvent(repoName, curatorEvent)
-		h.broadcastCuratorEvent(curatorEvent)
-
-		if ev.Type == "error" || strings.HasSuffix(ev.Type, "_error") || len(ev.Error) > 0 {
-			h.logger.Error("curator stream error", "repo", repoName, "curation_id", curationID, "raw", string(ev.Raw))
-		}
-
-		// Append to JSONL file
-		if logFile != nil {
-			logFile.Write(ev.Raw)
-			logFile.Write([]byte("\n"))
-		}
-	}
-
-	rawResponse, err := h.streamingExecutor(ctx, prompt, "", 10*time.Minute, "", onEvent)
-	if err != nil {
-		errRaw := json.RawMessage(fmt.Sprintf(`{"type":"curator_error","error":%q}`, err.Error()))
-		curationWriteLogEvent(logFile, errRaw)
-		curationWriteDebugFile(runDir, "error.txt", err.Error())
-		h.curationComplete(repoName, fmt.Errorf("streaming executor failed: %w", err))
-		return
-	}
-
-	curationWriteDebugFile(runDir, "output.txt", rawResponse)
-	h.finalizeAutolearnCuration(repoName, curationID, rawResponse, entries, start, logFile)
-}
-
-// runAutolearnWithLegacyExecutor runs curation using the non-streaming executor (fallback).
-func (h *AutolearnHandlers) runAutolearnWithLegacyExecutor(ctx context.Context, repoName, curationID, prompt string, entries []autolearn.Entry, runDir string, logFile *os.File, start time.Time) {
+// runAutolearnExecutor runs curation using the oneshot executor.
+func (h *AutolearnHandlers) runAutolearnExecutor(ctx context.Context, repoName, curationID, prompt string, entries []autolearn.Entry, runDir string, logFile *os.File, start time.Time) {
 	response, err := h.autolearnExecutor(ctx, prompt, schema.LabelAutolearnFriction, 10*time.Minute)
 	if err != nil {
 		errRaw := json.RawMessage(fmt.Sprintf(`{"type":"curator_error","error":%q}`, err.Error()))

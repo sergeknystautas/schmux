@@ -1140,10 +1140,11 @@ func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedT
 		}, nil
 	}
 
-	// Fallback: builtin tool names (e.g., "claude", "codex") can be resolved
-	// directly using the tool name as the command. This handles remote sessions
-	// where the tool isn't detected locally but is expected on the remote host.
-	if detect.IsBuiltinToolName(targetName) {
+	// Fallback: registered tool names (e.g., "claude", "codex", or any
+	// descriptor-defined tool) can be resolved directly using the tool name
+	// as the command. This handles remote sessions where the tool isn't
+	// detected locally but is expected on the remote host.
+	if detect.IsToolName(targetName) {
 		return ResolvedTarget{
 			Name:       targetName,
 			Kind:       TargetKindModel,
@@ -1209,7 +1210,18 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 	if target.Promptable {
 		command := baseCommand
 		if trimmedPrompt != "" {
-			command = fmt.Sprintf("%s %s", baseCommand, shellutil.Quote(prompt))
+			// Use the adapter's prompt flag if available, otherwise positional arg
+			promptFlag := ""
+			if baseTool != "" {
+				if adapter := detect.GetAdapter(baseTool); adapter != nil {
+					promptFlag = adapter.PromptFlag()
+				}
+			}
+			if promptFlag != "" {
+				command = fmt.Sprintf("%s %s %s", baseCommand, promptFlag, shellutil.Quote(prompt))
+			} else {
+				command = fmt.Sprintf("%s %s", baseCommand, shellutil.Quote(prompt))
+			}
 		}
 		if len(target.Env) > 0 {
 			return fmt.Sprintf("%s %s", buildEnvPrefix(target.Env), command), nil

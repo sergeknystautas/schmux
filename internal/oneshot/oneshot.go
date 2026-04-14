@@ -38,9 +38,8 @@ type CommandInfo struct {
 }
 
 // ResolveTargetCommand resolves a target name to its full command and env
-// without executing it. The streaming parameter controls whether to resolve
-// for streaming mode (oneshot-streaming) or regular oneshot mode.
-func ResolveTargetCommand(cfg *config.Config, targetName, schemaLabel string, streaming bool) (*CommandInfo, error) {
+// without executing it.
+func ResolveTargetCommand(cfg *config.Config, targetName, schemaLabel string) (*CommandInfo, error) {
 	target, err := resolveTarget(cfg, targetName)
 	if err != nil {
 		return nil, err
@@ -73,12 +72,7 @@ func ResolveTargetCommand(cfg *config.Config, targetName, schemaLabel string, st
 		}
 	}
 
-	mode := detect.ToolModeOneshot
-	if streaming {
-		mode = detect.ToolModeOneshotStreaming
-	}
-
-	cmdParts, err := detect.BuildCommandParts(target.ToolName, target.Command, mode, schemaArg, target.Model)
+	cmdParts, err := detect.BuildCommandParts(target.ToolName, target.Command, detect.ToolModeOneshot, schemaArg, target.Model)
 	if err != nil {
 		return nil, err
 	}
@@ -226,24 +220,6 @@ func ExecuteTarget(ctx context.Context, cfg *config.Config, targetName, prompt, 
 		return ExecuteCommand(timeoutCtx, target.Command, prompt, target.Env, dir)
 	}
 	return Execute(timeoutCtx, target.ToolName, target.Command, prompt, schemaLabel, target.Env, dir, target.Model)
-}
-
-// StreamEvent represents a single JSON event from claude's stream-json output.
-type StreamEvent struct {
-	Type    string          `json:"type"`            // "system", "assistant", "user", "result"
-	Subtype string          `json:"subtype"`         // for system events: "init", "hook_started", etc.
-	Error   json.RawMessage `json:"error,omitempty"` // present when the event carries an error (API failures, etc.)
-	Raw     json.RawMessage `json:"-"`               // the full raw JSON line
-}
-
-// ResultEvent is the final event in a stream-json output, containing structured output.
-type ResultEvent struct {
-	Type             string          `json:"type"`
-	Subtype          string          `json:"subtype"`
-	IsError          bool            `json:"is_error"`
-	DurationMs       int64           `json:"duration_ms"`
-	Result           string          `json:"result"`
-	StructuredOutput json.RawMessage `json:"structured_output"`
 }
 
 func mergeEnv(extra map[string]string) []string {

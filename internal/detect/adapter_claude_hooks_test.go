@@ -370,8 +370,12 @@ func TestClaudeWrapRemoteCommand(t *testing.T) {
 }
 
 func TestClaudeAdapterSetupHooks(t *testing.T) {
+	loadDescriptorAdapter(t, "claude")
+	adapter := GetAdapter("claude")
+	if adapter == nil {
+		t.Fatal("claude adapter not registered")
+	}
 	tmpDir := t.TempDir()
-	adapter := &ClaudeAdapter{}
 
 	ctx := HookContext{
 		WorkspacePath: tmpDir,
@@ -389,8 +393,12 @@ func TestClaudeAdapterSetupHooks(t *testing.T) {
 }
 
 func TestClaudeAdapterCleanupHooks(t *testing.T) {
+	loadDescriptorAdapter(t, "claude")
+	adapter := GetAdapter("claude")
+	if adapter == nil {
+		t.Fatal("claude adapter not registered")
+	}
 	tmpDir := t.TempDir()
-	adapter := &ClaudeAdapter{}
 
 	// Setup first
 	ctx := HookContext{WorkspacePath: tmpDir}
@@ -409,7 +417,11 @@ func TestClaudeAdapterCleanupHooks(t *testing.T) {
 }
 
 func TestClaudeAdapterWrapRemoteCommand(t *testing.T) {
-	adapter := &ClaudeAdapter{}
+	loadDescriptorAdapter(t, "claude")
+	adapter := GetAdapter("claude")
+	if adapter == nil {
+		t.Fatal("claude adapter not registered")
+	}
 
 	wrapped, err := adapter.WrapRemoteCommand("claude test")
 	if err != nil {

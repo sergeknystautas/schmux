@@ -30,8 +30,8 @@ func curationWriteDebugFile(runDir, filename, content string) {
 }
 
 // curationGenerateRunScript creates a shell script that reproduces the curator call.
-func curationGenerateRunScript(cfg *config.Config, targetName, schemaLabel string, streaming bool) string {
-	cmdInfo, err := oneshot.ResolveTargetCommand(cfg, targetName, schemaLabel, streaming)
+func curationGenerateRunScript(cfg *config.Config, targetName, schemaLabel string) string {
+	cmdInfo, err := oneshot.ResolveTargetCommand(cfg, targetName, schemaLabel)
 	if err != nil {
 		return fmt.Sprintf("#!/bin/sh\n# Could not resolve target command: %s\nexit 1\n", err)
 	}

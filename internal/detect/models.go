@@ -42,54 +42,29 @@ func SortedRunnerKeys(runners map[string]RunnerSpec) []string {
 	return keys
 }
 
-// defaultModels are synthetic models that use each runner's built-in default.
-// They pass no --model flag, letting the harness use whatever it defaults to.
-var defaultModels = []Model{
-	{
-		ID:          "claude",
-		DisplayName: "Claude (default)",
-		Provider:    "anthropic",
-		Category:    "native",
-		Runners:     map[string]RunnerSpec{"claude": {ModelValue: ""}},
-	},
-	{
-		ID:          "codex",
-		DisplayName: "Codex (default)",
-		Provider:    "openai",
-		Category:    "native",
-		Runners:     map[string]RunnerSpec{"codex": {ModelValue: ""}},
-	},
-	{
-		ID:          "gemini",
-		DisplayName: "Gemini (default)",
-		Provider:    "google",
-		Category:    "native",
-		Runners:     map[string]RunnerSpec{"gemini": {ModelValue: ""}},
-	},
-	{
-		ID:          "opencode",
-		DisplayName: "OpenCode (default)",
-		Provider:    "opencode",
-		Category:    "native",
-		Runners:     map[string]RunnerSpec{"opencode": {ModelValue: ""}},
-	},
-}
-
-// GetDefaultModels returns the synthetic default models.
+// GetDefaultModels returns synthetic default models for all registered adapters.
+// Each model uses the adapter's built-in default (no --model flag).
 func GetDefaultModels() []Model {
-	out := make([]Model, len(defaultModels))
-	copy(out, defaultModels)
+	var out []Model
+	for _, a := range AllAdapters() {
+		name := a.Name()
+		displayName := name + " (default)"
+		if ga, ok := a.(*GenericAdapter); ok && ga.desc.DisplayName != "" {
+			displayName = ga.desc.DisplayName + " (default)"
+		}
+		out = append(out, Model{
+			ID:          name,
+			DisplayName: displayName,
+			Category:    "native",
+			Runners:     map[string]RunnerSpec{name: {ModelValue: ""}},
+		})
+	}
 	return out
 }
 
-// IsDefaultModel returns true if the model ID is a default_* model.
+// IsDefaultModel returns true if the model ID matches a registered adapter name.
 func IsDefaultModel(id string) bool {
-	for _, m := range defaultModels {
-		if m.ID == id {
-			return true
-		}
-	}
-	return false
+	return GetAdapter(id) != nil
 }
 
 // MigrateModelID converts a legacy model ID to the current vendor-defined ID.

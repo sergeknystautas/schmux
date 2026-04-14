@@ -36,8 +36,8 @@ func TestGetAdapter(t *testing.T) {
 func TestAllAdaptersRegistered(t *testing.T) {
 	t.Parallel()
 	adapters := AllAdapters()
-	if len(adapters) != 4 {
-		t.Fatalf("AllAdapters() returned %d, want 4", len(adapters))
+	if len(adapters) < 4 {
+		t.Fatalf("AllAdapters() returned %d, want at least 4", len(adapters))
 	}
 	names := map[string]bool{}
 	for _, a := range adapters {
@@ -145,31 +145,13 @@ func TestAdapterOneshotArgs(t *testing.T) {
 	assertContains(t, args, "run")
 }
 
-func TestAdapterStreamingArgs(t *testing.T) {
-	t.Parallel()
-	// Claude streaming should work
-	a := GetAdapter("claude")
-	args, err := a.StreamingArgs(nil, "")
-	if err != nil {
-		t.Fatalf("claude StreamingArgs error: %v", err)
-	}
-	assertContains(t, args, "stream-json")
-
-	// Codex streaming should error
-	a = GetAdapter("codex")
-	_, err = a.StreamingArgs(nil, "")
-	if err == nil {
-		t.Error("codex StreamingArgs should return error")
-	}
-}
-
 func TestAdapterCapabilities(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		tool string
 		want []string
 	}{
-		{"claude", []string{"interactive", "oneshot", "streaming"}},
+		{"claude", []string{"interactive", "oneshot"}},
 		{"codex", []string{"interactive", "oneshot"}},
 		{"gemini", []string{"interactive"}},
 		{"opencode", []string{"interactive", "oneshot"}},

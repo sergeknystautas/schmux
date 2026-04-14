@@ -12,6 +12,8 @@ const (
 	SignalingCLIFlag
 	// SignalingInstructionFile means signaling is appended to the tool's instruction file.
 	SignalingInstructionFile
+	// SignalingNone means the tool does not support schmux signaling.
+	SignalingNone
 )
 
 // PersonaInjection defines how a tool receives persona/system-prompt overrides.
@@ -24,6 +26,8 @@ const (
 	PersonaInstructionFile
 	// PersonaConfigOverlay means the persona is injected via a config env var (OpenCode's OPENCODE_CONFIG_CONTENT).
 	PersonaConfigOverlay
+	// PersonaNone means the tool does not support persona injection.
+	PersonaNone
 )
 
 // HookContext provides context for setting up tool-specific lifecycle hooks.
@@ -59,10 +63,6 @@ type ToolAdapter interface {
 	// OneshotArgs returns extra CLI args for non-interactive oneshot mode.
 	// jsonSchema is the inline schema string (may be empty).
 	OneshotArgs(model *Model, jsonSchema string) ([]string, error)
-
-	// StreamingArgs returns extra CLI args for streaming oneshot mode.
-	// jsonSchema is the inline schema string (may be empty).
-	StreamingArgs(model *Model, jsonSchema string) ([]string, error)
 
 	// InstructionConfig returns the instruction file location for this tool.
 	InstructionConfig() AgentInstructionConfig
@@ -114,9 +114,18 @@ type ToolAdapter interface {
 	// Returns empty string if the tool doesn't use a CLI flag.
 	ModelFlag() string
 
+	// PromptFlag returns the CLI flag this tool uses to receive a prompt.
+	// Returns empty string if the tool accepts prompts as positional args.
+	PromptFlag() string
+
 	// Capabilities returns the tool modes this adapter supports.
-	// Valid values: "interactive", "oneshot", "streaming".
+	// Valid values: "interactive", "oneshot".
 	Capabilities() []string
+
+	// GitExcludePatterns returns gitignore patterns for files this adapter
+	// injects into workspaces (hooks, skills, setup files). Used by the
+	// workspace ensurer to write .git/info/exclude entries.
+	GitExcludePatterns() []string
 }
 
 // SkillModule is the data needed to inject a skill into an agent's native format.
@@ -146,4 +155,20 @@ func AllAdapters() []ToolAdapter {
 		out = append(out, a)
 	}
 	return out
+}
+
+// AllGitExcludePatterns collects git exclude patterns from all registered
+// adapters. Used by the workspace ensurer to write .git/info/exclude.
+func AllGitExcludePatterns() []string {
+	seen := map[string]bool{}
+	var patterns []string
+	for _, a := range adapters {
+		for _, p := range a.GitExcludePatterns() {
+			if !seen[p] {
+				seen[p] = true
+				patterns = append(patterns, p)
+			}
+		}
+	}
+	return patterns
 }

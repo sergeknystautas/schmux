@@ -526,9 +526,22 @@ func (m *Manager) ValidateSecrets(model detect.Model, secrets map[string]string)
 	return nil
 }
 
-// GetEnabledModels returns the enabled models map from config.
+// GetEnabledModels returns the enabled models map. Default models for detected
+// tools are implicitly enabled — a freshly detected tool should be spawnable
+// without requiring manual enablement in the Agents config tab.
 func (m *Manager) GetEnabledModels() map[string]string {
-	return m.config.GetEnabledModels()
+	explicit := m.config.GetEnabledModels()
+	result := make(map[string]string, len(explicit))
+	for k, v := range explicit {
+		result[k] = v
+	}
+	// Auto-enable default models for detected tools
+	for _, tool := range m.detectedTools {
+		if _, already := result[tool.Name]; !already {
+			result[tool.Name] = tool.Name
+		}
+	}
+	return result
 }
 
 // IsTargetInUse returns true if the target (by name or model ID) is referenced

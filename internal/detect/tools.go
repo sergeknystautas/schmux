@@ -16,16 +16,37 @@ type AgentInstructionConfig struct {
 }
 
 // agentInstructionConfigs maps tool names to their instruction file configuration.
-var agentInstructionConfigs = map[string]AgentInstructionConfig{
-	"claude":   {InstructionDir: ".claude", InstructionFile: "CLAUDE.md"},
-	"codex":    {InstructionDir: ".codex", InstructionFile: "AGENTS.md"},
-	"gemini":   {InstructionDir: ".gemini", InstructionFile: "GEMINI.md"},
-	"opencode": {InstructionDir: ".opencode", InstructionFile: "AGENTS.md"},
-}
+var agentInstructionConfigs = map[string]AgentInstructionConfig{}
 
 // GetAgentInstructionConfig returns the instruction configuration for a tool.
 // Returns the config and true if found, empty config and false otherwise.
 func GetAgentInstructionConfig(toolName string) (AgentInstructionConfig, bool) {
 	config, ok := agentInstructionConfigs[toolName]
 	return config, ok
+}
+
+// descriptorToolNames tracks tool names registered from YAML descriptors.
+var descriptorToolNames []string
+
+// IsToolName returns true if the name is any registered tool (builtin or descriptor).
+func IsToolName(name string) bool {
+	if IsBuiltinToolName(name) {
+		return true
+	}
+	for _, n := range descriptorToolNames {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
+func registerToolName(name string) {
+	if !IsToolName(name) {
+		descriptorToolNames = append(descriptorToolNames, name)
+	}
+}
+
+func registerInstructionConfig(name string, cfg AgentInstructionConfig) {
+	agentInstructionConfigs[name] = cfg
 }

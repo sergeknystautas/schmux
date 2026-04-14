@@ -1,0 +1,38 @@
+name: claude
+display_name: Claude Code
+detect:
+  - type: path_lookup
+    command: claude
+  - type: file_exists
+    path: '~/.local/bin/claude'
+    verify: '-v'
+  - type: file_exists
+    path: '~/.claude/local/claude'
+    verify: '-v'
+  - type: homebrew_cask
+    name: claude-code
+  - type: npm_global
+    package: '@anthropic-ai/claude-code'
+capabilities: [interactive, oneshot]
+model_flag: '--model'
+instruction:
+  dir: '.claude'
+  file: 'CLAUDE.md'
+interactive:
+  resume_args: ['--continue']
+oneshot:
+  model_flag: '-'
+  base_args: ['-p', '--dangerously-skip-permissions', '--output-format', 'json']
+  schema_flag: '--json-schema'
+signaling:
+  strategy: hooks
+persona:
+  strategy: cli_flag
+  flag: '--append-system-prompt-file'
+hooks:
+  strategy: json-settings-merge
+  settings_file: '.claude/settings.local.json'
+  ownership_prefix: 'schmux:'
+skills:
+  dir_pattern: '.claude/skills/schmux-{name}'
+  file_name: 'SKILL.md'

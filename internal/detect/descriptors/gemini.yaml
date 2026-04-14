@@ -1,0 +1,20 @@
+name: gemini
+detect:
+  - type: path_lookup
+    command: gemini
+  - type: homebrew_formula
+    name: gemini-cli
+  - type: npm_global
+    package: '@google/gemini-cli'
+capabilities: [interactive]
+model_flag: '--model'
+command_args: ['-i']
+instruction:
+  dir: '.gemini'
+  file: 'GEMINI.md'
+interactive:
+  resume_args: ['-r', 'latest']
+signaling:
+  strategy: instruction_file
+persona:
+  strategy: instruction_file
