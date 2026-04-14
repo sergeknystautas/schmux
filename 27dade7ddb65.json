@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-14T22:04:34Z",
+  "updated": "2026-04-14T22:05:06Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "when schmux restarts even the same session with the same tmux window gets sent to a different rec...",
+      "intent": "hold on, why do we need a timestamp to the recording ID? aren't sessionID unique already... could...",
       "status": "active",
       "last_active_date": "2026-04-14",
       "started": "2026-04-14"
