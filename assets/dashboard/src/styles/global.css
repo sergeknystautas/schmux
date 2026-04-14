@@ -6894,11 +6894,6 @@ body.keyboard-mode-active::after {
   background-color: var(--color-surface-alt);
 }
 
-.timelapse__recording-id {
-  font-family: var(--font-mono);
-  font-size: 0.8125rem;
-}
-
 .timelapse__session-id {
   font-family: var(--font-mono);
   font-size: 0.8125rem;

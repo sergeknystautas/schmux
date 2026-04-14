@@ -201,6 +201,125 @@ func TestRecorder_ResizeEvents(t *testing.T) {
 	}
 }
 
+func TestRecorder_FileNamedBySessionID(t *testing.T) {
+	dir := t.TempDir()
+	ol := session.NewOutputLog(1000)
+
+	rec, err := NewRecorder("my-session-abc", ol, nil, dir, 0, 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	go rec.Run()
+	ol.Append([]byte("hello"))
+	time.Sleep(50 * time.Millisecond)
+	rec.Stop()
+
+	// File should be named exactly <sessionID>.cast — no timestamp suffix.
+	expected := filepath.Join(dir, "my-session-abc.cast")
+	if _, err := os.Stat(expected); os.IsNotExist(err) {
+		t.Fatalf("expected file %s to exist", expected)
+	}
+	if rec.RecordingID() != "my-session-abc" {
+		t.Errorf("RecordingID = %q, want %q", rec.RecordingID(), "my-session-abc")
+	}
+}
+
+func TestRecorder_ResumesExistingRecording(t *testing.T) {
+	dir := t.TempDir()
+	ol := session.NewOutputLog(1000)
+
+	// Create initial recording.
+	rec1, err := NewRecorder("sess-resume", ol, nil, dir, 0, 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go rec1.Run()
+	ol.Append([]byte("part1"))
+	time.Sleep(50 * time.Millisecond)
+	rec1.Stop()
+
+	// Read initial file content.
+	castFile := filepath.Join(dir, "sess-resume.cast")
+	data1, _ := os.ReadFile(castFile)
+	lines1 := strings.Split(strings.TrimSpace(string(data1)), "\n")
+
+	// Create a new recorder for the same session — should resume.
+	ol2 := session.NewOutputLog(1000)
+	rec2, err := NewRecorder("sess-resume", ol2, nil, dir, 0, 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec2.RecordingID() != "sess-resume" {
+		t.Errorf("resumed RecordingID = %q, want %q", rec2.RecordingID(), "sess-resume")
+	}
+
+	go rec2.Run()
+	ol2.Append([]byte("part2"))
+	time.Sleep(50 * time.Millisecond)
+	rec2.Stop()
+
+	// Should still be one file.
+	files, _ := filepath.Glob(filepath.Join(dir, "*.cast"))
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file after resume, got %d", len(files))
+	}
+
+	// File should have exactly one header and events from both recordings.
+	data2, _ := os.ReadFile(castFile)
+	lines2 := strings.Split(strings.TrimSpace(string(data2)), "\n")
+
+	// The resumed file should have more lines but still only one header.
+	if len(lines2) <= len(lines1) {
+		t.Fatalf("resumed file should have more lines: before=%d, after=%d", len(lines1), len(lines2))
+	}
+
+	// Count headers — should be exactly one.
+	headerCount := 0
+	for _, line := range lines2 {
+		var obj map[string]interface{}
+		if json.Unmarshal([]byte(line), &obj) == nil {
+			if _, ok := obj["version"]; ok {
+				headerCount++
+			}
+		}
+	}
+	if headerCount != 1 {
+		t.Errorf("expected 1 header in resumed file, got %d", headerCount)
+	}
+}
+
+func TestRecorder_ResumesLegacyTimestampedFile(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a legacy-format recording: <sessionID>-<timestamp>.cast
+	startTime := time.Now().Add(-1 * time.Hour)
+	createTestRecording(t, dir, "sess-legacy-1700000000", "sess-legacy", startTime, 5.0)
+
+	// NewRecorder should find and resume the legacy file.
+	ol := session.NewOutputLog(1000)
+	rec, err := NewRecorder("sess-legacy", ol, nil, dir, 0, 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should have resumed the legacy file, not created a new one.
+	if rec.RecordingID() != "sess-legacy-1700000000" {
+		t.Errorf("RecordingID = %q, want legacy %q", rec.RecordingID(), "sess-legacy-1700000000")
+	}
+
+	go rec.Run()
+	ol.Append([]byte("new data"))
+	time.Sleep(50 * time.Millisecond)
+	rec.Stop()
+
+	// Should still be one .cast file (the legacy one, now with appended data).
+	files, _ := filepath.Glob(filepath.Join(dir, "*.cast"))
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d: %v", len(files), files)
+	}
+}
+
 func TestRecorder_BufferOverrun(t *testing.T) {
 	dir := t.TempDir()
 	// Very small output log — entries will be evicted quickly

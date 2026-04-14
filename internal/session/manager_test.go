@@ -1442,6 +1442,55 @@ func TestDispose_NotLastSessionSkipsCompound(t *testing.T) {
 	}
 }
 
+func TestDisposeRemote_CleansUpTracker(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.WorkspacePath = "/tmp/workspaces"
+	statePath := t.TempDir() + "/state.json"
+	st := state.New(statePath, nil)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	m := New(cfg, st, statePath, wm, nil, nil)
+
+	st.AddWorkspace(state.Workspace{ID: "ws-rd1", Repo: "https://example.com/r.git", Branch: "main", Path: t.TempDir()})
+	st.AddSession(state.Session{
+		ID:           "sess-rd1",
+		WorkspaceID:  "ws-rd1",
+		Target:       "claude",
+		TmuxSession:  "schmux-nonexistent-rd1",
+		Status:       "stopped",
+		RemoteHostID: "remote-host-1", // makes IsRemoteSession() true
+	})
+
+	// Create a tracker for this session
+	tracker, err := m.GetTracker("sess-rd1")
+	if err != nil {
+		t.Fatalf("GetTracker: %v", err)
+	}
+	if tracker == nil {
+		t.Fatal("tracker should not be nil")
+	}
+
+	// Verify tracker exists before dispose
+	m.mu.RLock()
+	_, trackerExists := m.trackers["sess-rd1"]
+	m.mu.RUnlock()
+	if !trackerExists {
+		t.Fatal("tracker should exist before dispose")
+	}
+
+	// Dispose remote session should clean up the tracker
+	err = m.Dispose(context.Background(), "sess-rd1")
+	if err != nil {
+		t.Fatalf("Dispose() error: %v", err)
+	}
+
+	m.mu.RLock()
+	_, trackerExists = m.trackers["sess-rd1"]
+	m.mu.RUnlock()
+	if trackerExists {
+		t.Error("tracker should have been removed after remote dispose")
+	}
+}
+
 func TestRevertSessionStatus(t *testing.T) {
 	t.Run("restores original status", func(t *testing.T) {
 		cfg := &config.Config{}

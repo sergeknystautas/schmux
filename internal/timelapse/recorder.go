@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -22,6 +23,7 @@ type Recorder struct {
 	gapCh        <-chan session.SourceEvent
 	file         *os.File
 	startTime    time.Time
+	resumed      bool   // true when appending to an existing recording
 	startWaitSeq uint64 // captured at construction to avoid missing entries
 	lastSeq      uint64
 	seenFirst    bool   // true after processing at least one entry
@@ -32,8 +34,13 @@ type Recorder struct {
 	doneCh       chan struct{}
 }
 
-// NewRecorder creates a new recorder for a session.
-// The recording file is created in recordingDir with permissions 0600.
+// NewRecorder creates a new recorder for a session. The recording file is
+// named <sessionID>.cast — one file per session. If the file already exists
+// (e.g. after a daemon restart), it is opened in append mode and the original
+// start time is preserved so elapsed offsets stay continuous.
+//
+// Legacy recordings named <sessionID>-<timestamp>.cast are also detected and
+// resumed if present.
 func NewRecorder(
 	sessionID string,
 	outputLog *session.OutputLog,
@@ -46,13 +53,94 @@ func NewRecorder(
 		return nil, fmt.Errorf("create recording dir: %w", err)
 	}
 
-	recordingID := fmt.Sprintf("%s-%d", sessionID, time.Now().Unix())
-	filename := filepath.Join(recordingDir, recordingID+".cast")
+	// Check for an existing recording to resume.
+	// Try the canonical path first, then legacy <sessionID>-<timestamp>.cast files.
+	if rec, err := resumeRecording(sessionID, outputLog, gapCh, recordingDir, maxBytes); err == nil {
+		return rec, nil
+	}
 
+	// No existing recording — create a new one.
+	filename := filepath.Join(recordingDir, sessionID+".cast")
 	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("create recording file: %w", err)
 	}
+
+	return &Recorder{
+		recordingID:  sessionID,
+		sessionID:    sessionID,
+		outputLog:    outputLog,
+		gapCh:        gapCh,
+		file:         file,
+		startTime:    time.Now(),
+		startWaitSeq: 0,
+		maxBytes:     maxBytes,
+		stopCh:       make(chan struct{}),
+		doneCh:       make(chan struct{}),
+	}, nil
+}
+
+// resumeRecording looks for an existing recording file for sessionID.
+// It checks the canonical name (<sessionID>.cast) first, then falls back
+// to legacy timestamped names (<sessionID>-<timestamp>.cast).
+func resumeRecording(
+	sessionID string,
+	outputLog *session.OutputLog,
+	gapCh <-chan session.SourceEvent,
+	recordingDir string,
+	maxBytes int64,
+) (*Recorder, error) {
+	// Canonical path: <sessionID>.cast
+	canonical := filepath.Join(recordingDir, sessionID+".cast")
+	if rec, err := openForResume(canonical, sessionID, outputLog, gapCh, maxBytes); err == nil {
+		return rec, nil
+	}
+
+	// Legacy: <sessionID>-<timestamp>.cast (find newest)
+	matches, _ := filepath.Glob(filepath.Join(recordingDir, sessionID+"-*.cast"))
+	var best string
+	var bestMod time.Time
+	for _, m := range matches {
+		if strings.HasSuffix(m, ".timelapse.cast") {
+			continue
+		}
+		if info, err := os.Stat(m); err == nil && info.ModTime().After(bestMod) {
+			best = m
+			bestMod = info.ModTime()
+		}
+	}
+	if best == "" {
+		return nil, fmt.Errorf("no existing recording")
+	}
+	return openForResume(best, sessionID, outputLog, gapCh, maxBytes)
+}
+
+// openForResume opens an existing .cast file for appending and recovers
+// the original start time from the header.
+func openForResume(
+	path string,
+	sessionID string,
+	outputLog *session.OutputLog,
+	gapCh <-chan session.SourceEvent,
+	maxBytes int64,
+) (*Recorder, error) {
+	info, err := parseRecordingInfo(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.StartTime.IsZero() {
+		return nil, fmt.Errorf("no start time in header")
+	}
+	if maxBytes > 0 && info.FileSize >= maxBytes {
+		return nil, fmt.Errorf("size cap exceeded")
+	}
+
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return nil, err
+	}
+
+	recordingID := strings.TrimSuffix(filepath.Base(path), ".cast")
 
 	return &Recorder{
 		recordingID:  recordingID,
@@ -60,8 +148,10 @@ func NewRecorder(
 		outputLog:    outputLog,
 		gapCh:        gapCh,
 		file:         file,
-		startTime:    time.Now(),
-		startWaitSeq: 0, // start from beginning to capture events that arrived before Run()
+		startTime:    info.StartTime,
+		resumed:      true,
+		startWaitSeq: 0,
+		bytesWritten: info.FileSize,
 		maxBytes:     maxBytes,
 		stopCh:       make(chan struct{}),
 		doneCh:       make(chan struct{}),
@@ -77,10 +167,13 @@ func (r *Recorder) Run() {
 	defer close(r.doneCh)
 	defer r.file.Close()
 
-	// Write asciicast v2 header (includes sessionId as custom field for querying)
-	header := fmt.Sprintf(`{"version":2,"width":80,"height":24,"timestamp":%d,"title":"%s","env":{"TERM":"xterm-256color"}}`,
-		r.startTime.Unix(), r.sessionID)
-	r.writeLine(header)
+	// Write asciicast v2 header only for new recordings — resumed files
+	// already have one.
+	if !r.resumed {
+		header := fmt.Sprintf(`{"version":2,"width":80,"height":24,"timestamp":%d,"title":"%s","env":{"TERM":"xterm-256color"}}`,
+			r.startTime.Unix(), r.sessionID)
+		r.writeLine(header)
+	}
 
 	waitSeq := r.startWaitSeq
 

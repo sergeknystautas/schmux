@@ -121,7 +121,6 @@ export default function TimelapsePage() {
           <table className="timelapse__table">
             <thead>
               <tr>
-                <th>Recording</th>
                 <th>Session</th>
                 <th className="timelapse__th--sorted">Modified &#x25BE;</th>
                 <th>Duration</th>
@@ -134,12 +133,7 @@ export default function TimelapsePage() {
               {recordings.map((rec) => (
                 <tr key={rec.RecordingID}>
                   <td>
-                    <span className="timelapse__recording-id">{rec.RecordingID}</span>
-                  </td>
-                  <td>
-                    <span className="timelapse__session-id">
-                      {rec.SessionID?.slice(0, 12) || '\u2014'}
-                    </span>
+                    <span className="timelapse__session-id">{rec.SessionID}</span>
                   </td>
                   <td
                     className="timelapse__meta"

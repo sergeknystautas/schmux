@@ -104,6 +104,52 @@ func TestListRecordings_HasCompressed(t *testing.T) {
 	}
 }
 
+func TestListRecordings_HeaderOnlyIsInProgress(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write a .cast file with only the header line (no output events).
+	// This simulates a session that was disposed before producing output.
+	headerOnly := filepath.Join(dir, "s1-1001.cast")
+	os.WriteFile(headerOnly, []byte(
+		fmt.Sprintf(`{"version":2,"width":80,"height":24,"timestamp":%d,"env":{"TERM":"xterm-256color"}}`, time.Now().Unix())+"\n",
+	), 0600)
+
+	recordings, err := ListRecordings(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recordings) != 1 {
+		t.Fatalf("expected 1 recording, got %d", len(recordings))
+	}
+	if !recordings[0].InProgress {
+		t.Error("header-only recording should be marked InProgress (no output events yet)")
+	}
+}
+
+func TestParseRecordingInfo_SessionIDDerivation(t *testing.T) {
+	dir := t.TempDir()
+
+	// New format: recording ID == session ID (no timestamp suffix).
+	createTestRecording(t, dir, "schmux-002-abc12345", "", time.Now(), 10.0)
+	info, err := parseRecordingInfo(filepath.Join(dir, "schmux-002-abc12345.cast"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.SessionID != "schmux-002-abc12345" {
+		t.Errorf("new format: SessionID = %q, want %q", info.SessionID, "schmux-002-abc12345")
+	}
+
+	// Legacy format: <sessionID>-<unixTimestamp> (10+ digit suffix).
+	createTestRecording(t, dir, "schmux-002-abc12345-1776201947", "", time.Now(), 10.0)
+	info, err = parseRecordingInfo(filepath.Join(dir, "schmux-002-abc12345-1776201947.cast"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.SessionID != "schmux-002-abc12345" {
+		t.Errorf("legacy format: SessionID = %q, want %q", info.SessionID, "schmux-002-abc12345")
+	}
+}
+
 func TestFilePermissions(t *testing.T) {
 	dir := t.TempDir()
 	path := createTestRecording(t, dir, "perm-test", "s1", time.Now(), 10.0)

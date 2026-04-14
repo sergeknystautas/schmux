@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -75,10 +76,16 @@ func parseRecordingInfo(path string) (RecordingInfo, error) {
 	compressedPath := strings.TrimSuffix(path, ".cast") + ".timelapse.cast"
 	_, compressedErr := os.Stat(compressedPath)
 
-	// Derive SessionID from recording ID: "<sessionID>-<unixTimestamp>"
+	// Derive SessionID from recording ID.
+	// New format: recordingID == sessionID (e.g. "schmux-002-abc12345")
+	// Legacy format: "<sessionID>-<unixTimestamp>" — strip the numeric suffix.
 	sessionID := recordingID
 	if lastDash := strings.LastIndex(recordingID, "-"); lastDash > 0 {
-		sessionID = recordingID[:lastDash]
+		suffix := recordingID[lastDash+1:]
+		if _, err := strconv.ParseInt(suffix, 10, 64); err == nil && len(suffix) >= 10 {
+			// Looks like a unix timestamp — strip it to recover the session ID.
+			sessionID = recordingID[:lastDash]
+		}
 	}
 
 	info := RecordingInfo{

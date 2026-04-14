@@ -1519,6 +1519,9 @@ func (m *Manager) disposeRemoteSession(ctx context.Context, sess state.Session) 
 		}
 	}
 
+	// Stop tracker (and its recorder) for remote session
+	m.stopTracker(sess.ID)
+
 	// Stop signal monitor for remote session
 	m.StopRemoteSignalMonitor(sess.ID)
 

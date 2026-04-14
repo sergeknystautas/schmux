@@ -24,6 +24,19 @@ func (s *Server) handleTimelapseList(w http.ResponseWriter, r *http.Request) {
 		recordings = []timelapse.RecordingInfo{}
 	}
 
+	// Cross-reference against active sessions: if the session no longer
+	// exists, the recording cannot be in progress regardless of what the
+	// file-based heuristic thinks.
+	activeSessions := make(map[string]bool)
+	for _, sess := range s.state.GetSessions() {
+		activeSessions[sess.ID] = true
+	}
+	for i := range recordings {
+		if recordings[i].InProgress && !activeSessions[recordings[i].SessionID] {
+			recordings[i].InProgress = false
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(recordings)
 }
