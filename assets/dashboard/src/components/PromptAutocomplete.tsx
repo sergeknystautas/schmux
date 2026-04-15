@@ -18,6 +18,7 @@ interface PromptAutocompleteProps {
   selectedIndex: number;
   onSelect: (item: AutocompleteItem) => void;
   onHover: (index: number) => void;
+  onDismiss?: () => void;
   style?: React.CSSProperties;
   items?: AutocompleteItem[];
 }
@@ -81,6 +82,7 @@ export default function PromptAutocomplete({
   selectedIndex,
   onSelect,
   onHover,
+  onDismiss,
   style,
   items: externalItems,
 }: PromptAutocompleteProps) {
@@ -94,6 +96,17 @@ export default function PromptAutocomplete({
 
   return (
     <div className={styles.overlay} style={style} data-testid="prompt-autocomplete">
+      {onDismiss && (
+        <button
+          type="button"
+          className={styles.dismiss}
+          onClick={onDismiss}
+          aria-label="Dismiss suggestions"
+          data-testid="prompt-autocomplete-dismiss"
+        >
+          &times;
+        </button>
+      )}
       {items.map((item, i) => (
         <button
           key={`${item.source}-${item.text}`}

@@ -126,6 +126,7 @@ export default function PromptTextarea({
 }: PromptTextareaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const acRef = useRef<HTMLDivElement>(null);
   const cursorPosRef = useRef(0);
   const slashStartRef = useRef(0);
   const [dismissed, setDismissed] = useState(false);
@@ -287,16 +288,19 @@ export default function PromptTextarea({
     [value, onChange, onSelectCommand]
   );
 
-  // Handle clicking outside
+  // Handle clicking outside — dismiss both slash menu and autocomplete
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (
-        menuRef.current &&
-        !menuRef.current.contains(e.target as Node) &&
-        textareaRef.current &&
-        !textareaRef.current.contains(e.target as Node)
-      ) {
+      const target = e.target as Node;
+      const insideTextarea = textareaRef.current?.contains(target);
+      const insideSlashMenu = menuRef.current?.contains(target);
+      const insideAutocomplete = acRef.current?.contains(target);
+
+      if (!insideTextarea && !insideSlashMenu) {
         setDismissed(true);
+      }
+      if (!insideTextarea && !insideAutocomplete) {
+        setAcDismissed(true);
       }
     };
 
@@ -364,16 +368,19 @@ export default function PromptTextarea({
         </div>
       )}
       {showAutocomplete && !showMenu && (
-        <PromptAutocomplete
-          query={acQuery}
-          entries={autocompleteEntries || []}
-          history={autocompleteHistory || []}
-          items={acItems}
-          selectedIndex={acSelectedIndex}
-          onSelect={handleAcSelect}
-          onHover={setAcSelectedIndex}
-          style={{ top: '100%', marginTop: '4px' }}
-        />
+        <div ref={acRef}>
+          <PromptAutocomplete
+            query={acQuery}
+            entries={autocompleteEntries || []}
+            history={autocompleteHistory || []}
+            items={acItems}
+            selectedIndex={acSelectedIndex}
+            onSelect={handleAcSelect}
+            onHover={setAcSelectedIndex}
+            onDismiss={() => setAcDismissed(true)}
+            style={{ top: '100%', marginTop: '4px' }}
+          />
+        </div>
       )}
     </div>
   );
