@@ -346,10 +346,6 @@ func (h *RemoteHandlers) handleRemoteHostConnect(w http.ResponseWriter, r *http.
 		writeJSONError(w, "profile_id is required", http.StatusBadRequest)
 		return
 	}
-	if req.Flavor == "" {
-		writeJSONError(w, "flavor is required", http.StatusBadRequest)
-		return
-	}
 
 	if h.remoteManager == nil {
 		writeJSONError(w, "Remote workspace support not enabled", http.StatusServiceUnavailable)
@@ -360,6 +356,12 @@ func (h *RemoteHandlers) handleRemoteHostConnect(w http.ResponseWriter, r *http.
 	profile, found := h.config.GetRemoteProfile(req.ProfileID)
 	if !found {
 		writeJSONError(w, fmt.Sprintf("Profile not found: %s", req.ProfileID), http.StatusNotFound)
+		return
+	}
+
+	// Persistent hosts don't use flavors; ephemeral hosts require one.
+	if !profile.IsPersistent() && req.Flavor == "" {
+		writeJSONError(w, "flavor is required", http.StatusBadRequest)
 		return
 	}
 	resolved, err := config.ResolveProfileFlavor(profile, req.Flavor)
@@ -573,12 +575,14 @@ func (h *RemoteHandlers) handleRemoteProfileStatuses(w http.ResponseWriter, r *h
 			Profile:     toProfileResponse(p),
 			FlavorHosts: []RemoteFlavorHostGroup{},
 		}
-		for _, pf := range p.Flavors {
+
+		if p.IsPersistent() {
+			// Persistent hosts have no flavors — create a single group with empty flavor.
 			group := RemoteFlavorHostGroup{
-				Flavor: pf.Flavor,
+				Flavor: "",
 				Hosts:  []RemoteHostStatusItem{},
 			}
-			key := profileFlavorKey{p.ID, pf.Flavor}
+			key := profileFlavorKey{p.ID, ""}
 			for _, host := range pfToHosts[key] {
 				group.Hosts = append(group.Hosts, RemoteHostStatusItem{
 					HostID:    host.ID,
@@ -588,6 +592,23 @@ func (h *RemoteHandlers) handleRemoteProfileStatuses(w http.ResponseWriter, r *h
 				})
 			}
 			resp.FlavorHosts = append(resp.FlavorHosts, group)
+		} else {
+			for _, pf := range p.Flavors {
+				group := RemoteFlavorHostGroup{
+					Flavor: pf.Flavor,
+					Hosts:  []RemoteHostStatusItem{},
+				}
+				key := profileFlavorKey{p.ID, pf.Flavor}
+				for _, host := range pfToHosts[key] {
+					group.Hosts = append(group.Hosts, RemoteHostStatusItem{
+						HostID:    host.ID,
+						Hostname:  host.Hostname,
+						Status:    host.Status,
+						Connected: host.Status == state.RemoteHostStatusConnected,
+					})
+				}
+				resp.FlavorHosts = append(resp.FlavorHosts, group)
+			}
 		}
 		response[i] = resp
 	}
@@ -603,14 +624,23 @@ func (h *RemoteHandlers) handleRemoteProfileStatuses(w http.ResponseWriter, r *h
 func (h *RemoteHandlers) handleRemoteConnectStream(w http.ResponseWriter, r *http.Request) {
 	profileID := r.URL.Query().Get("profile_id")
 	flavorStr := r.URL.Query().Get("flavor")
-	if profileID == "" || flavorStr == "" {
-		writeJSONError(w, "profile_id and flavor required", http.StatusBadRequest)
+	if profileID == "" {
+		writeJSONError(w, "profile_id is required", http.StatusBadRequest)
 		return
 	}
 
 	if h.remoteManager == nil {
 		writeJSONError(w, "Remote workspace support not enabled", http.StatusServiceUnavailable)
 		return
+	}
+
+	// Persistent hosts don't use flavors; ephemeral hosts require one.
+	if flavorStr == "" {
+		profile, found := h.config.GetRemoteProfile(profileID)
+		if !found || !profile.IsPersistent() {
+			writeJSONError(w, "flavor is required", http.StatusBadRequest)
+			return
+		}
 	}
 
 	// Set SSE headers (CORS is handled by corsMiddleware)

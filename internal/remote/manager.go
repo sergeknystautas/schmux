@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
-	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -256,6 +255,20 @@ func (m *Manager) connectInternal(ctx context.Context, profileID, flavorStr stri
 	// Create new connection
 	if onProgress != nil {
 		onProgress("provisioning new host")
+	}
+
+	// For persistent hosts, clean up stale disconnected host entries for this profile.
+	// There should only be one host entry per persistent profile — old entries from
+	// previous connections are no longer useful.
+	if resolved.HostType == config.HostTypePersistent {
+		for _, staleHost := range m.state.GetRemoteHosts() {
+			if staleHost.ProfileID == profileID && staleHost.Status == state.RemoteHostStatusDisconnected {
+				if m.logger != nil {
+					m.logger.Info("removing stale persistent host entry", "host", staleHost.ID)
+				}
+				m.state.RemoveRemoteHost(staleHost.ID)
+			}
+		}
 	}
 
 	cfg := ConnectionConfigFromResolved(resolved)
@@ -646,8 +659,13 @@ func (m *Manager) findOrCreateWorkspaceWith(
 	}
 
 	// No reusable workspace — create a new one.
-	workspaceID := fmt.Sprintf("%s-ws-%s", host.ID, uuid.New().String()[:6])
-	destPath, err := resolveWorkspacePathTemplate(resolved.WorkspacePathTemplate, workspaceID)
+	// Sequential numbering keeps folder names short and predictable on disk.
+	wsNumber := len(workspaces) + 1
+	workspaceID := fmt.Sprintf("%s-ws-%03d", host.ID, wsNumber)
+	destPath, err := resolveWorkspacePathTemplate(resolved.WorkspacePathTemplate, workspacePathTemplateData{
+		WorkspaceID:     workspaceID,
+		WorkspaceNumber: wsNumber,
+	})
 	if err != nil {
 		return state.Workspace{}, fmt.Errorf("resolve workspace path template: %w", err)
 	}
@@ -660,10 +678,17 @@ func (m *Manager) findOrCreateWorkspaceWith(
 		return state.Workspace{}, fmt.Errorf("create remote worktree: %w", err)
 	}
 
+	// Label the workspace so multiple worktrees on the same host are distinguishable.
+	// Use "hostname #N" — identifies both which host and which worktree.
+	branch := fmt.Sprintf("%s #%d", host.Hostname, wsNumber)
+	if host.Hostname == "" {
+		branch = fmt.Sprintf("%s #%d", resolved.ProfileDisplayName, wsNumber)
+	}
+
 	ws := state.Workspace{
 		ID:           workspaceID,
 		Repo:         resolved.ProfileDisplayName,
-		Branch:       host.Hostname,
+		Branch:       branch,
 		Path:         destPath,
 		VCS:          resolved.VCS,
 		RemoteHostID: host.ID,
@@ -796,14 +821,20 @@ func (m *Manager) refreshPersistentHostWorkspaces(ctx context.Context, conn *Con
 	}
 }
 
-// resolveWorkspacePathTemplate resolves the workspace path template with the given workspace ID.
-func resolveWorkspacePathTemplate(tmplStr, workspaceID string) (string, error) {
+// workspacePathTemplateData holds the variables available to workspace path templates.
+type workspacePathTemplateData struct {
+	WorkspaceID     string // Full unique ID (e.g., "remote-737fb25e-ws-001")
+	WorkspaceNumber int    // Sequential number (e.g., 1, 2, 3)
+}
+
+// resolveWorkspacePathTemplate resolves the workspace path template with the given data.
+func resolveWorkspacePathTemplate(tmplStr string, data workspacePathTemplateData) (string, error) {
 	t, err := template.New("wspath").Parse(tmplStr)
 	if err != nil {
 		return "", err
 	}
 	var buf bytes.Buffer
-	if err := t.Execute(&buf, struct{ WorkspaceID string }{workspaceID}); err != nil {
+	if err := t.Execute(&buf, data); err != nil {
 		return "", err
 	}
 	return buf.String(), nil
@@ -1106,14 +1137,14 @@ func (m *Manager) GetProfileStatuses() []ProfileStatus {
 			FlavorHosts: []FlavorHostGroup{},
 		}
 
-		// Collect hosts for each flavor in this profile
-		for _, pf := range profile.Flavors {
+		if profile.IsPersistent() {
+			// Persistent hosts have no flavors — single group with empty flavor.
 			group := FlavorHostGroup{
-				Flavor: pf.Flavor,
+				Flavor: "",
 				Hosts:  []HostStatus{},
 			}
 			for _, conn := range m.connections {
-				if conn.host.ProfileID == profile.ID && conn.flavorStr == pf.Flavor {
+				if conn.host.ProfileID == profile.ID {
 					group.Hosts = append(group.Hosts, HostStatus{
 						HostID:   conn.host.ID,
 						Hostname: conn.Hostname(),
@@ -1122,6 +1153,24 @@ func (m *Manager) GetProfileStatuses() []ProfileStatus {
 				}
 			}
 			status.FlavorHosts = append(status.FlavorHosts, group)
+		} else {
+			// Collect hosts for each flavor in this profile
+			for _, pf := range profile.Flavors {
+				group := FlavorHostGroup{
+					Flavor: pf.Flavor,
+					Hosts:  []HostStatus{},
+				}
+				for _, conn := range m.connections {
+					if conn.host.ProfileID == profile.ID && conn.flavorStr == pf.Flavor {
+						group.Hosts = append(group.Hosts, HostStatus{
+							HostID:   conn.host.ID,
+							Hostname: conn.Hostname(),
+							Status:   conn.Status(),
+						})
+					}
+				}
+				status.FlavorHosts = append(status.FlavorHosts, group)
+			}
 		}
 
 		result[i] = status

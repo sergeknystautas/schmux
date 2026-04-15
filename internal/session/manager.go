@@ -443,12 +443,20 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 	}
 	workspaceID := ws.ID
 
+	// Use the workspace's remote path as the working directory for all remote commands.
+	// For ephemeral hosts this equals flavor.WorkspacePath; for persistent hosts it's
+	// the dynamically-created worktree path (flavor.WorkspacePath is empty).
+	remotePath := ws.RemotePath
+	if remotePath == "" {
+		remotePath = flavor.WorkspacePath
+	}
+
 	// Inject schmux signaling environment variables
 	resolved.Env = mergeEnvMaps(resolved.Env, map[string]string{
 		"SCHMUX_ENABLED":      "1",
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": workspaceID,
-		"SCHMUX_EVENTS_FILE":  filepath.Join(state.SchmuxDataDirForVCS(flavor.WorkspacePath, flavor.VCS), "events", sessionID+".jsonl"),
+		"SCHMUX_EVENTS_FILE":  filepath.Join(state.SchmuxDataDirForVCS(remotePath, flavor.VCS), "events", sessionID+".jsonl"),
 	})
 
 	// Build command with remote mode (uses inline content instead of local file paths)
@@ -516,7 +524,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 	// Check if connection is ready
 	if !conn.IsConnected() {
 		// Queue the session creation (directory will be created when connection is ready)
-		resultCh := conn.QueueSession(ctx, sessionID, windowName, flavor.WorkspacePath, command, preCreateCmd)
+		resultCh := conn.QueueSession(ctx, sessionID, windowName, remotePath, command, preCreateCmd)
 
 		// Create session with status="provisioning"
 		sess := state.Session{
@@ -582,7 +590,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 					if qConn != nil && qConn.IsConnected() {
 						mkCtx, mkCancel := context.WithTimeout(context.Background(), 5*time.Second)
 						mkdirTarget := filepath.Join(state.SchmuxDataDirRelative(flavor.VCS), "events")
-						if _, mkErr := qConn.RunCommand(mkCtx, flavor.WorkspacePath, "mkdir -p "+mkdirTarget); mkErr != nil {
+						if _, mkErr := qConn.RunCommand(mkCtx, remotePath, "mkdir -p "+mkdirTarget); mkErr != nil {
 							m.logger.Warn("failed to create schmux events directory", "session", sessionID, "err", mkErr)
 						}
 						mkCancel()
@@ -627,7 +635,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 	// Ensure schmux events directory exists on remote host
 	mkdirCtx, mkdirCancel := context.WithTimeout(ctx, 5*time.Second)
 	mkdirTarget := filepath.Join(state.SchmuxDataDirRelative(flavor.VCS), "events")
-	if _, err := conn.RunCommand(mkdirCtx, flavor.WorkspacePath, "mkdir -p "+mkdirTarget); err != nil {
+	if _, err := conn.RunCommand(mkdirCtx, remotePath, "mkdir -p "+mkdirTarget); err != nil {
 		m.logger.Warn("failed to create schmux events directory on remote host", "err", err)
 	}
 	mkdirCancel()
@@ -637,13 +645,13 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 	if remotePersonaPath != "" {
 		writeCtx, writeCancel := context.WithTimeout(ctx, 10*time.Second)
 		writeCmd := remotePersonaWriteCommand(opts.PersonaPrompt, remotePersonaPath)
-		if _, err := conn.RunCommand(writeCtx, flavor.WorkspacePath, writeCmd); err != nil {
+		if _, err := conn.RunCommand(writeCtx, remotePath, writeCmd); err != nil {
 			m.logger.Warn("failed to write persona file on remote host", "err", err)
 		}
 		writeCancel()
 	}
 
-	windowID, paneID, err := conn.CreateSession(ctx, windowName, flavor.WorkspacePath, command)
+	windowID, paneID, err := conn.CreateSession(ctx, windowName, remotePath, command)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create remote session: %w", err)
 	}

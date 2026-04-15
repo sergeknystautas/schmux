@@ -1186,8 +1186,20 @@ func (m *Manager) updateRemoteVCSStatus(ctx context.Context, w state.Workspace) 
 	fresh.FilesChanged = w.FilesChanged
 	fresh.LinesAdded = w.LinesAdded
 	fresh.LinesRemoved = w.LinesRemoved
+	// Update branch from VCS, but not for persistent host workspaces where the
+	// branch field is a user-friendly label (e.g., "hostname #1") set at creation.
 	if currentBranch != "" {
-		fresh.Branch = currentBranch
+		isPersistentHost := false
+		if fresh.RemoteHostID != "" {
+			if host, found := m.state.GetRemoteHost(fresh.RemoteHostID); found {
+				isPersistentHost = host.HostType == "persistent"
+			}
+		}
+		if isPersistentHost {
+			m.logger.Debug("preserving persistent host branch label", "ws", fresh.ID, "branch", fresh.Branch, "vcs_branch", currentBranch)
+		} else {
+			fresh.Branch = currentBranch
+		}
 	}
 
 	if err := m.state.UpdateWorkspace(fresh); err != nil {

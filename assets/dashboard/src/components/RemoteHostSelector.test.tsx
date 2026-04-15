@@ -345,7 +345,7 @@ describe('RemoteHostSelector', () => {
       });
     });
 
-    it('shows "Connected" message when host is connected', async () => {
+    it('hides "Spawn on" card and shows connected host when persistent host is connected', async () => {
       mockGetRemoteProfileStatuses.mockResolvedValue([
         {
           profile: persistentProfile,
@@ -367,8 +367,11 @@ describe('RemoteHostSelector', () => {
 
       renderSelector();
       await waitFor(() => {
-        expect(screen.getByText(/Connected.*will create new workspace/)).toBeInTheDocument();
+        // Connected host card should be visible (hostname appears in card title and status)
+        expect(screen.getAllByText('dev.example.com').length).toBeGreaterThan(0);
       });
+      // The dashed "Spawn on" card should be hidden
+      expect(screen.queryByText(/Spawn on Dev Server/)).not.toBeInTheDocument();
     });
 
     it('does not show flavor selector for persistent profiles', async () => {

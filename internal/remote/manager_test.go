@@ -951,33 +951,33 @@ func TestResolveWorkspacePathTemplate(t *testing.T) {
 	tests := []struct {
 		name    string
 		tmpl    string
-		id      string
+		data    workspacePathTemplateData
 		want    string
 		wantErr bool
 	}{
 		{
-			name: "basic",
+			name: "WorkspaceID",
 			tmpl: "/home/user/schmux-ws/{{.WorkspaceID}}",
-			id:   "ws-abc123",
-			want: "/home/user/schmux-ws/ws-abc123",
+			data: workspacePathTemplateData{WorkspaceID: "remote-abc-ws-001", WorkspaceNumber: 1},
+			want: "/home/user/schmux-ws/remote-abc-ws-001",
 		},
 		{
-			name: "nested path",
-			tmpl: "/data/users/{{.WorkspaceID}}/fbsource",
-			id:   "remote-xyz-ws-001",
-			want: "/data/users/remote-xyz-ws-001/fbsource",
+			name: "WorkspaceNumber",
+			tmpl: "/home/user/schmux-ws/ws-{{.WorkspaceNumber}}",
+			data: workspacePathTemplateData{WorkspaceID: "remote-abc-ws-003", WorkspaceNumber: 3},
+			want: "/home/user/schmux-ws/ws-3",
 		},
 		{
 			name:    "invalid template",
 			tmpl:    "/home/{{.WorkspaceID",
-			id:      "ws-001",
+			data:    workspacePathTemplateData{},
 			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := resolveWorkspacePathTemplate(tt.tmpl, tt.id)
+			got, err := resolveWorkspacePathTemplate(tt.tmpl, tt.data)
 			if tt.wantErr {
 				if err == nil {
 					t.Error("expected error")

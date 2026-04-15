@@ -263,160 +263,164 @@ export default function RemoteHostSelector({
           <HostStatusIndicator status="ready" />
         </div>
 
-        {/* Remote profile options */}
+        {/* Remote profile options — connected hosts first, then provision cards */}
         {loading ? (
           <div className="flex-row gap-sm p-md text-muted">
             <span className="spinner spinner--small" />
             <span>Loading remote hosts...</span>
           </div>
         ) : (
-          profileStatuses.map((profileStatus) => {
-            const isConnecting = connecting === profileStatus.profile.id;
-            const isPersistent = profileStatus.profile.host_type === 'persistent';
-            const currentFlavor = getSelectedFlavor(
-              profileStatus.profile.id,
-              profileStatus.profile
-            );
-            // Find the flavor_hosts group matching the selected flavor
-            const currentFlavorGroup = profileStatus.flavor_hosts.find(
-              (fg) => fg.flavor === currentFlavor
-            );
-            const hosts = currentFlavorGroup?.hosts || [];
+          (() => {
+            // Collect all cards into connected vs provision groups so connected
+            // cards render left (immediately usable) and provision cards render right.
+            const connectedCards: React.ReactNode[] = [];
+            const provisionCards: React.ReactNode[] = [];
 
-            // Render existing host cards (if any) + a "New host" card
-            return (
-              <React.Fragment key={profileStatus.profile.id}>
-                {hosts.map((hostStatus) => {
-                  const selected = isSelected(profileStatus.profile.id, hostStatus.host_id);
-                  return (
-                    <div
-                      key={hostStatus.host_id}
-                      style={cardStyle(selected)}
-                      onClick={() =>
-                        !disabled &&
-                        !isConnecting &&
-                        handleSelectExistingHost(profileStatus, currentFlavor, hostStatus)
-                      }
-                      role="button"
-                      tabIndex={disabled || isConnecting ? -1 : 0}
-                      onKeyDown={(e) => {
-                        if (!disabled && !isConnecting && (e.key === 'Enter' || e.key === ' ')) {
-                          e.preventDefault();
-                          handleSelectExistingHost(profileStatus, currentFlavor, hostStatus);
-                        }
-                      }}
-                    >
-                      <div className="flex-row gap-sm">
-                        <svg
-                          width="20"
-                          height="20"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                        >
-                          <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
-                          <line x1="1" y1="10" x2="23" y2="10" />
-                        </svg>
-                        <strong className="truncate">
-                          {hostStatus.hostname || profileStatus.profile.display_name}
-                        </strong>
-                      </div>
-                      <div
-                        style={{
-                          fontSize: '0.75rem',
-                          color: 'var(--color-text-muted)',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                      >
-                        {profileStatus.profile.display_name}
-                      </div>
-                      <HostStatusIndicator
-                        status={hostStatus.status || 'disconnected'}
-                        hostname={hostStatus.hostname}
-                      />
-                    </div>
-                  );
-                })}
+            for (const profileStatus of profileStatuses) {
+              const isConnecting = connecting === profileStatus.profile.id;
+              const isPersistent = profileStatus.profile.host_type === 'persistent';
+              const currentFlavor = getSelectedFlavor(
+                profileStatus.profile.id,
+                profileStatus.profile
+              );
+              const currentFlavorGroup = profileStatus.flavor_hosts.find(
+                (fg) => fg.flavor === currentFlavor
+              );
+              const hosts = currentFlavorGroup?.hosts || [];
 
-                {/* "+ New host" card */}
-                <div
-                  style={{
-                    ...cardStyle(false),
-                    borderStyle: 'dashed',
-                  }}
-                  onClick={() =>
-                    !disabled && !isConnecting && handleSelectNewHost(profileStatus, currentFlavor)
-                  }
-                  role="button"
-                  tabIndex={disabled || isConnecting ? -1 : 0}
-                  onKeyDown={(e) => {
-                    if (!disabled && !isConnecting && (e.key === 'Enter' || e.key === ' ')) {
-                      e.preventDefault();
-                      handleSelectNewHost(profileStatus, currentFlavor);
-                    }
-                  }}
-                >
-                  <div className="flex-row gap-sm">
-                    <svg
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    >
-                      <line x1="12" y1="5" x2="12" y2="19" />
-                      <line x1="5" y1="12" x2="19" y2="12" />
-                    </svg>
-                    <strong className="truncate">
-                      {isPersistent
-                        ? `Spawn on ${profileStatus.profile.display_name}`
-                        : `New ${profileStatus.profile.display_name} host`}
-                    </strong>
-                  </div>
+              // Existing host cards → connectedCards
+              for (const hostStatus of hosts) {
+                const selected = isSelected(profileStatus.profile.id, hostStatus.host_id);
+                connectedCards.push(
                   <div
-                    style={{
-                      fontSize: '0.75rem',
-                      color: 'var(--color-text-muted)',
+                    key={hostStatus.host_id}
+                    style={cardStyle(selected)}
+                    onClick={() =>
+                      !disabled &&
+                      !isConnecting &&
+                      handleSelectExistingHost(profileStatus, currentFlavor, hostStatus)
+                    }
+                    role="button"
+                    tabIndex={disabled || isConnecting ? -1 : 0}
+                    onKeyDown={(e) => {
+                      if (!disabled && !isConnecting && (e.key === 'Enter' || e.key === ' ')) {
+                        e.preventDefault();
+                        handleSelectExistingHost(profileStatus, currentFlavor, hostStatus);
+                      }
                     }}
                   >
-                    {isPersistent ? (
-                      hosts.some((h) => h.connected) ? (
-                        'Connected — will create new workspace'
-                      ) : (
-                        'Connect and create workspace'
-                      )
-                    ) : profileStatus.profile.flavors.length > 1 ? (
-                      <select
-                        className="select"
-                        style={{ fontSize: '0.75rem', padding: '2px 4px' }}
-                        value={currentFlavor}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          setSelectedFlavors((prev) => ({
-                            ...prev,
-                            [profileStatus.profile.id]: e.target.value,
-                          }));
-                        }}
-                        onClick={(e) => e.stopPropagation()}
+                    <div className="flex-row gap-sm">
+                      <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
                       >
-                        {profileStatus.profile.flavors.map((pf) => (
-                          <option key={pf.flavor} value={pf.flavor}>
-                            {pf.display_name || pf.flavor}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      'Provision a new instance'
-                    )}
+                        <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+                        <line x1="1" y1="10" x2="23" y2="10" />
+                      </svg>
+                      <strong className="truncate">
+                        {hostStatus.hostname || profileStatus.profile.display_name}
+                      </strong>
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '0.75rem',
+                        color: 'var(--color-text-muted)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {profileStatus.profile.display_name}
+                    </div>
+                    <HostStatusIndicator
+                      status={hostStatus.status || 'disconnected'}
+                      hostname={hostStatus.hostname}
+                    />
                   </div>
-                </div>
-              </React.Fragment>
+                );
+              }
+
+              // "New host" / "Spawn on" card → provisionCards (hidden for connected persistent hosts)
+              if (!(isPersistent && hosts.some((h) => h.connected))) {
+                provisionCards.push(
+                  <div
+                    key={`new-${profileStatus.profile.id}`}
+                    style={{ ...cardStyle(false), borderStyle: 'dashed' }}
+                    onClick={() =>
+                      !disabled &&
+                      !isConnecting &&
+                      handleSelectNewHost(profileStatus, currentFlavor)
+                    }
+                    role="button"
+                    tabIndex={disabled || isConnecting ? -1 : 0}
+                    onKeyDown={(e) => {
+                      if (!disabled && !isConnecting && (e.key === 'Enter' || e.key === ' ')) {
+                        e.preventDefault();
+                        handleSelectNewHost(profileStatus, currentFlavor);
+                      }
+                    }}
+                  >
+                    <div className="flex-row gap-sm">
+                      <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      >
+                        <line x1="12" y1="5" x2="12" y2="19" />
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                      </svg>
+                      <strong className="truncate">
+                        {isPersistent
+                          ? `Spawn on ${profileStatus.profile.display_name}`
+                          : `New ${profileStatus.profile.display_name} host`}
+                      </strong>
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                      {isPersistent ? (
+                        'Connect and create workspace'
+                      ) : profileStatus.profile.flavors.length > 1 ? (
+                        <select
+                          className="select"
+                          style={{ fontSize: '0.75rem', padding: '2px 4px' }}
+                          value={currentFlavor}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            setSelectedFlavors((prev) => ({
+                              ...prev,
+                              [profileStatus.profile.id]: e.target.value,
+                            }));
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {profileStatus.profile.flavors.map((pf) => (
+                            <option key={pf.flavor} value={pf.flavor}>
+                              {pf.display_name || pf.flavor}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        'Provision a new instance'
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+            } // end for
+
+            return (
+              <>
+                {connectedCards}
+                {provisionCards}
+              </>
             );
-          })
+          })()
         )}
       </div>
 

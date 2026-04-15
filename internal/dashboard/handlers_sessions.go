@@ -84,7 +84,10 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 		if ws.RemoteHostID != "" {
 			remoteHostID = ws.RemoteHostID
 			if host, found := h.state.GetRemoteHost(ws.RemoteHostID); found {
-				if host.Hostname != "" {
+				// For ephemeral hosts, use hostname as branch (single workspace per host).
+				// For persistent hosts, preserve the workspace's own branch label
+				// (e.g., "hostname #1") which distinguishes multiple worktrees.
+				if host.Hostname != "" && host.HostType != config.HostTypePersistent {
 					branch = host.Hostname
 				}
 				// Use live connection status from remote manager if available,
