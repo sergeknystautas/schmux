@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-15T01:32:40Z",
+  "updated": "2026-04-15T01:33:12Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "there is a problem with the timelapse playback system that we introduced... it doesn't take the \"...",
+      "intent": "yes",
       "status": "active",
       "last_active_date": "2026-04-14",
       "started": "2026-04-14"
