@@ -65,3 +65,29 @@ func TestCastWriter_Events(t *testing.T) {
 		t.Errorf("event 0 data = %v, want 'hello'", event[2])
 	}
 }
+
+func TestCastWriter_WriteResize(t *testing.T) {
+	var buf bytes.Buffer
+	cw, err := NewCastWriter(&buf, CastHeader{Width: 80, Height: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cw.WriteResize(1.5, 162, 90)
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 2 { // header + 1 resize event
+		t.Fatalf("expected 2 lines, got %d", len(lines))
+	}
+
+	var event [3]interface{}
+	if err := json.Unmarshal([]byte(lines[1]), &event); err != nil {
+		t.Fatal(err)
+	}
+	if event[1].(string) != "r" {
+		t.Errorf("event type = %v, want 'r'", event[1])
+	}
+	if event[2].(string) != "162x90" {
+		t.Errorf("event data = %v, want '162x90'", event[2])
+	}
+}

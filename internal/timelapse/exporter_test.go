@@ -144,6 +144,44 @@ func TestExporter_CompressedDuration(t *testing.T) {
 	t.Logf("compressed: %.2fs (original: ~6.0s)", compDuration)
 }
 
+func TestExporter_PreservesResizeEvents(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "with-resize.cast")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Header at 80x24
+	fmt.Fprintln(f, `{"version":2,"width":80,"height":24,"timestamp":1711875300,"env":{"TERM":"xterm-256color"}}`)
+	// Some output
+	fmt.Fprintln(f, `[0.100000,"o","hello\r\n"]`)
+	// Resize event
+	fmt.Fprintln(f, `[0.500000,"r","162x90"]`)
+	// More output after resize
+	fmt.Fprintln(f, `[1.000000,"o","world\r\n"]`)
+	f.Close()
+
+	outputPath := filepath.Join(dir, "output.timelapse.cast")
+	if err := NewExporter(path, outputPath, nil).Export(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Read exported events and verify resize is preserved as "r" type
+	outF, _ := os.Open(outputPath)
+	defer outF.Close()
+	var foundResize bool
+	ReadCastEvents(outF, func(rec Record) bool {
+		if rec.Type == RecordResize && rec.Width == 162 && rec.Height == 90 {
+			foundResize = true
+		}
+		return true
+	})
+	if !foundResize {
+		t.Error("exported timelapse should contain resize event as 'r' type with 162x90")
+	}
+}
+
 func TestExporter_PreservesContent(t *testing.T) {
 	dir := t.TempDir()
 	recordingPath := createSyntheticRecording(t, dir)

@@ -133,6 +133,8 @@ export default function CastPlayer({ recordingId }: CastPlayerProps) {
     }
 
     termRef.current = term;
+    // Autoplay once terminal is ready
+    setPlaying(true);
     return () => {
       term.dispose();
       termRef.current = null;

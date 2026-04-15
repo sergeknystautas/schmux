@@ -102,8 +102,8 @@ func (e *Exporter) Export() error {
 				emu.Resize(rec.Width, rec.Height)
 				width, height = rec.Width, rec.Height
 				prevGrid = emu.CellGrid(width, height)
-				// Emit resize event
-				cw.WriteEvent(compressedT, fmt.Sprintf("\033[8;%d;%dt", rec.Height, rec.Width))
+				// Emit resize event as "r" type so the player can call term.resize()
+				cw.WriteResize(compressedT, rec.Width, rec.Height)
 			}
 			continue
 		}

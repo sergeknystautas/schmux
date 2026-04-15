@@ -57,6 +57,13 @@ func (c *CastWriter) WriteEvent(timestamp float64, data string) error {
 	return err
 }
 
+// WriteResize writes a resize event at the given timestamp.
+func (c *CastWriter) WriteResize(timestamp float64, width, height int) error {
+	line := fmt.Sprintf("[%.6f,\"r\",\"%dx%d\"]\n", timestamp, width, height)
+	_, err := c.w.Write([]byte(line))
+	return err
+}
+
 // jsonEscapeBytes produces a JSON string literal from raw bytes,
 // escaping control characters and quotes but preserving all bytes.
 func jsonEscapeBytes(b []byte) string {
