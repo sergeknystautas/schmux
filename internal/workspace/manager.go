@@ -1032,23 +1032,28 @@ func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, worksp
 		if err != nil {
 			return &w, nil
 		}
-		w.Dirty = status.Dirty
-		w.Ahead = status.AheadOfDefault
-		w.Behind = status.BehindDefault
-		w.LinesAdded = status.LinesAdded
-		w.LinesRemoved = status.LinesRemoved
-		w.FilesChanged = status.FilesChanged
-		w.CommitsSyncedWithRemote = status.SyncedWithRemote
-		w.RemoteBranchExists = status.RemoteBranchExists
-		w.LocalUniqueCommits = status.LocalUniqueCommits
-		w.RemoteUniqueCommits = status.RemoteUniqueCommits
-		if status.CurrentBranch != "" {
-			w.Branch = status.CurrentBranch
+		// Re-read workspace to avoid overwriting concurrent changes (e.g., disposal status)
+		fresh, found := m.state.GetWorkspace(workspaceID)
+		if !found {
+			return nil, fmt.Errorf("workspace removed during VCS status update: %s", workspaceID)
 		}
-		if err := m.state.UpdateWorkspace(w); err != nil {
+		fresh.Dirty = status.Dirty
+		fresh.Ahead = status.AheadOfDefault
+		fresh.Behind = status.BehindDefault
+		fresh.LinesAdded = status.LinesAdded
+		fresh.LinesRemoved = status.LinesRemoved
+		fresh.FilesChanged = status.FilesChanged
+		fresh.CommitsSyncedWithRemote = status.SyncedWithRemote
+		fresh.RemoteBranchExists = status.RemoteBranchExists
+		fresh.LocalUniqueCommits = status.LocalUniqueCommits
+		fresh.RemoteUniqueCommits = status.RemoteUniqueCommits
+		if status.CurrentBranch != "" {
+			fresh.Branch = status.CurrentBranch
+		}
+		if err := m.state.UpdateWorkspace(fresh); err != nil {
 			return nil, fmt.Errorf("failed to update workspace in state: %w", err)
 		}
-		return &w, nil
+		return &fresh, nil
 	}
 
 	// Git-specific status path
@@ -1073,26 +1078,32 @@ func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, worksp
 		}
 	}
 
-	// Update workspace in memory
-	w.Dirty = dirty
-	w.Ahead = ahead
-	w.Behind = behind
-	w.LinesAdded = linesAdded
-	w.LinesRemoved = linesRemoved
-	w.FilesChanged = filesChanged
-	w.CommitsSyncedWithRemote = commitsSynced
-	w.DefaultBranchOrphaned = orphaned
-	w.Branch = actualBranch
-	w.RemoteBranchExists = remoteBranchExists
-	w.LocalUniqueCommits = localUnique
-	w.RemoteUniqueCommits = remoteUnique
+	// Re-read workspace to avoid overwriting concurrent changes (e.g., disposal status).
+	// Git operations above can take seconds, during which dispose() may have changed
+	// the workspace status from "disposing" to "recyclable". Writing back the stale
+	// copy would silently revert that transition.
+	fresh, found := m.state.GetWorkspace(workspaceID)
+	if !found {
+		return nil, fmt.Errorf("workspace removed during git status update: %s", workspaceID)
+	}
+	fresh.Dirty = dirty
+	fresh.Ahead = ahead
+	fresh.Behind = behind
+	fresh.LinesAdded = linesAdded
+	fresh.LinesRemoved = linesRemoved
+	fresh.FilesChanged = filesChanged
+	fresh.CommitsSyncedWithRemote = commitsSynced
+	fresh.DefaultBranchOrphaned = orphaned
+	fresh.Branch = actualBranch
+	fresh.RemoteBranchExists = remoteBranchExists
+	fresh.LocalUniqueCommits = localUnique
+	fresh.RemoteUniqueCommits = remoteUnique
 
-	// Update the workspace in state (this updates the in-memory copy)
-	if err := m.state.UpdateWorkspace(w); err != nil {
+	if err := m.state.UpdateWorkspace(fresh); err != nil {
 		return nil, fmt.Errorf("failed to update workspace in state: %w", err)
 	}
 
-	return &w, nil
+	return &fresh, nil
 }
 
 // updateRemoteVCSStatus refreshes VCS status for a remote workspace by executing
@@ -1157,17 +1168,32 @@ func (m *Manager) updateRemoteVCSStatus(ctx context.Context, w state.Workspace) 
 	}
 
 	// Section 2: CurrentBranch → branch name
+	currentBranch := ""
 	if len(sections) > 2 {
 		branch := strings.TrimSpace(sections[2])
 		if branch != "" && branch != "HEAD" {
-			w.Branch = branch
+			currentBranch = branch
 		}
 	}
 
-	if err := m.state.UpdateWorkspace(w); err != nil {
+	// Re-read workspace to avoid overwriting concurrent changes (e.g., disposal status).
+	// Remote operations above can take seconds over SSH.
+	fresh, found := m.state.GetWorkspace(w.ID)
+	if !found {
+		return nil, fmt.Errorf("workspace removed during remote VCS status update: %s", w.ID)
+	}
+	fresh.Dirty = w.Dirty
+	fresh.FilesChanged = w.FilesChanged
+	fresh.LinesAdded = w.LinesAdded
+	fresh.LinesRemoved = w.LinesRemoved
+	if currentBranch != "" {
+		fresh.Branch = currentBranch
+	}
+
+	if err := m.state.UpdateWorkspace(fresh); err != nil {
 		return nil, fmt.Errorf("failed to update workspace in state: %w", err)
 	}
-	return &w, nil
+	return &fresh, nil
 }
 
 // UpdateAllGitStatus refreshes git status for all workspaces.
@@ -1180,7 +1206,7 @@ func (m *Manager) UpdateAllVCSStatus(ctx context.Context) {
 	var localWorkspaces []state.Workspace
 	var remoteWorkspaces []state.Workspace
 	for _, w := range workspaces {
-		if w.Status == state.WorkspaceStatusRecyclable {
+		if w.Status == state.WorkspaceStatusRecyclable || w.Status == state.WorkspaceStatusDisposing {
 			continue
 		}
 		if w.RemoteHostID != "" {

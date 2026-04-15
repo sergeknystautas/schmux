@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1742,5 +1743,250 @@ func TestUpdateAllVCSStatus_SkipsRecyclable(t *testing.T) {
 	w, _ := st.GetWorkspace("recyclable-001")
 	if w.Status != state.WorkspaceStatusRecyclable {
 		t.Errorf("status changed to %q during polling, expected recyclable", w.Status)
+	}
+}
+
+func TestUpdateAllVCSStatus_SkipsDisposing(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	disposingPath := filepath.Join(tmpDir, "disposing-001")
+	os.MkdirAll(disposingPath, 0755)
+	exec.Command("git", "init", "-q", disposingPath).Run()
+
+	st.AddWorkspace(state.Workspace{
+		ID:     "disposing-001",
+		Repo:   "test",
+		Branch: "main",
+		Path:   disposingPath,
+		Status: state.WorkspaceStatusDisposing,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	m.UpdateAllVCSStatus(ctx)
+
+	w, _ := st.GetWorkspace("disposing-001")
+	if w.Status != state.WorkspaceStatusDisposing {
+		t.Errorf("status changed to %q during polling, expected disposing", w.Status)
+	}
+}
+
+func TestUpdateVCSStatus_DoesNotOverwriteStatusChange(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+
+	// Create a real git repo so git status commands succeed
+	wsPath := filepath.Join(tmpDir, "ws-001")
+	exec.Command("git", "init", "-q", wsPath).Run()
+	exec.Command("git", "-C", wsPath, "commit", "--allow-empty", "-m", "init").Run()
+
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	st.AddWorkspace(state.Workspace{
+		ID:     "ws-001",
+		Repo:   wsPath,
+		Branch: "main",
+		Path:   wsPath,
+		Status: state.WorkspaceStatusRunning,
+	})
+
+	// Simulate: git status update reads workspace (status="running")
+	updated, err := m.UpdateVCSStatus(context.Background(), "ws-001")
+	if err != nil {
+		t.Fatalf("UpdateVCSStatus() failed: %v", err)
+	}
+	if updated == nil {
+		t.Fatal("UpdateVCSStatus() returned nil")
+	}
+
+	// The workspace status should still be "running" — not blank or changed
+	w, _ := st.GetWorkspace("ws-001")
+	if w.Status != state.WorkspaceStatusRunning {
+		t.Errorf("status = %q after UpdateVCSStatus, want %q", w.Status, state.WorkspaceStatusRunning)
+	}
+
+	// Now simulate the race: change status to "recyclable" (as dispose() would),
+	// then verify that a subsequent UpdateVCSStatus preserves it.
+	w.Status = state.WorkspaceStatusRecyclable
+	st.UpdateWorkspace(w)
+
+	// UpdateVCSStatus should re-read the workspace and preserve the "recyclable" status
+	updated2, err := m.UpdateVCSStatus(context.Background(), "ws-001")
+	if err != nil {
+		t.Fatalf("UpdateVCSStatus() after status change failed: %v", err)
+	}
+	if updated2 == nil {
+		t.Fatal("UpdateVCSStatus() returned nil after status change")
+	}
+
+	w2, _ := st.GetWorkspace("ws-001")
+	if w2.Status != state.WorkspaceStatusRecyclable {
+		t.Errorf("status = %q after concurrent status change + UpdateVCSStatus, want %q",
+			w2.Status, state.WorkspaceStatusRecyclable)
+	}
+}
+
+func TestUpdateVCSStatus_PreservesAllNonVCSFields(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+
+	wsPath := filepath.Join(tmpDir, "ws-001")
+	exec.Command("git", "init", "-q", wsPath).Run()
+	exec.Command("git", "-C", wsPath, "commit", "--allow-empty", "-m", "init").Run()
+
+	conflictBranch := "review"
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	st.AddWorkspace(state.Workspace{
+		ID:               "ws-001",
+		Repo:             wsPath,
+		Branch:           "main",
+		Path:             wsPath,
+		Status:           state.WorkspaceStatusDisposing,
+		IntentShared:     true,
+		Backburner:       true,
+		ConflictOnBranch: &conflictBranch,
+		OverlayManifest:  map[string]string{"a.json": "abc123"},
+	})
+
+	_, err := m.UpdateVCSStatus(context.Background(), "ws-001")
+	if err != nil {
+		t.Fatalf("UpdateVCSStatus() failed: %v", err)
+	}
+
+	w, _ := st.GetWorkspace("ws-001")
+	if w.Status != state.WorkspaceStatusDisposing {
+		t.Errorf("Status = %q, want %q", w.Status, state.WorkspaceStatusDisposing)
+	}
+	if !w.IntentShared {
+		t.Error("IntentShared was clobbered to false")
+	}
+	if !w.Backburner {
+		t.Error("Backburner was clobbered to false")
+	}
+	if w.ConflictOnBranch == nil || *w.ConflictOnBranch != "review" {
+		t.Errorf("ConflictOnBranch was clobbered, got %v", w.ConflictOnBranch)
+	}
+	if w.OverlayManifest == nil || w.OverlayManifest["a.json"] != "abc123" {
+		t.Errorf("OverlayManifest was clobbered, got %v", w.OverlayManifest)
+	}
+}
+
+func TestUpdateVCSStatus_WorkspaceRemovedDuringUpdate(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	// Workspace exists in state but has no git repo — gitStatusWithRound will
+	// return zeros, but the workspace is still looked up for the re-read.
+	st.AddWorkspace(state.Workspace{
+		ID:     "ephemeral-001",
+		Repo:   "test",
+		Branch: "main",
+		Path:   filepath.Join(tmpDir, "nonexistent"),
+		Status: state.WorkspaceStatusRunning,
+	})
+
+	// Remove from state before calling UpdateVCSStatus
+	st.RemoveWorkspace("ephemeral-001")
+
+	_, err := m.UpdateVCSStatus(context.Background(), "ephemeral-001")
+	if err == nil {
+		t.Fatal("expected error for removed workspace, got nil")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestUpdateVCSStatus_ConcurrentDisposalRace(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+
+	wsPath := filepath.Join(tmpDir, "ws-001")
+	exec.Command("git", "init", "-q", wsPath).Run()
+	exec.Command("git", "-C", wsPath, "commit", "--allow-empty", "-m", "init").Run()
+
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	st.AddWorkspace(state.Workspace{
+		ID:     "ws-001",
+		Repo:   wsPath,
+		Branch: "main",
+		Path:   wsPath,
+		Status: state.WorkspaceStatusRunning,
+	})
+
+	// Run UpdateVCSStatus and a simulated disposal concurrently many times.
+	// Under -race this catches data races; without -race it verifies that the
+	// final status is always "recyclable" (the disposal's write wins because
+	// UpdateVCSStatus re-reads before writing).
+	for i := 0; i < 20; i++ {
+		// Reset to running
+		w, _ := st.GetWorkspace("ws-001")
+		w.Status = state.WorkspaceStatusRunning
+		st.UpdateWorkspace(w)
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		go func() {
+			defer wg.Done()
+			m.UpdateVCSStatus(context.Background(), "ws-001")
+		}()
+
+		go func() {
+			defer wg.Done()
+			// Simulate disposal: mark disposing then recyclable
+			w, _ := st.GetWorkspace("ws-001")
+			w.Status = state.WorkspaceStatusDisposing
+			st.UpdateWorkspace(w)
+
+			w2, _ := st.GetWorkspace("ws-001")
+			w2.Status = state.WorkspaceStatusRecyclable
+			st.UpdateWorkspace(w2)
+		}()
+
+		wg.Wait()
+
+		final, _ := st.GetWorkspace("ws-001")
+		if final.Status != state.WorkspaceStatusRecyclable {
+			t.Errorf("iteration %d: status = %q, want %q (disposal was overwritten)",
+				i, final.Status, state.WorkspaceStatusRecyclable)
+		}
 	}
 }
