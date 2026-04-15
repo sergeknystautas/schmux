@@ -553,11 +553,20 @@ export interface RemoteProfileResponse {
   vscode_command_template?: string;
   flavors: RemoteProfileFlavor[];
   host_type?: string;
+  repo_base_path?: string;
+  workspace_path_template?: string;
+  remote_vcs_commands?: RemoteVCSCommandsResponse;
 }
 
 export interface RemoteProfileStatusResponse {
   profile: RemoteProfileResponse;
   flavor_hosts: RemoteFlavorHostGroup[];
+}
+
+export interface RemoteVCSCommandsResponse {
+  create_worktree?: string;
+  remove_worktree?: string;
+  check_dirty?: string;
 }
 
 export interface Repo {

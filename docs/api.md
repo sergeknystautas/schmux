@@ -3680,9 +3680,20 @@ Request:
       "flavor": "large",
       "display_name": "Large Instance"
     }
-  ]
+  ],
+  "host_type": "persistent",
+  "repo_base_path": "/home/user/myproject",
+  "workspace_path_template": "/home/user/ws/{{.WorkspaceID}}",
+  "remote_vcs_commands": {
+    "create_worktree": "git worktree add {{.DestPath}} -b {{.WorkspaceID}}",
+    "remove_worktree": "git worktree remove --force {{.WorkspacePath}}",
+    "check_dirty": "git -C {{.WorkspacePath}} status --porcelain"
+  }
 }
 ```
+
+- For persistent hosts: `host_type`, `repo_base_path`, and `workspace_path_template` are required; `flavors` and `workspace_path` are omitted. `remote_vcs_commands` is optional (defaults derived from `vcs`).
+- For ephemeral hosts (default): `workspace_path` and `flavors` are required; persistent fields are omitted.
 
 Response: the created `RemoteProfileResponse` object (same shape as GET items).
 

@@ -304,3 +304,109 @@ func TestToProfileResponse_AllFields(t *testing.T) {
 		t.Errorf("Flavors: got %v, want [{Flavor: devvm}]", resp.Flavors)
 	}
 }
+
+func TestToProfileResponse_PersistentHostFields(t *testing.T) {
+	p := config.RemoteProfile{
+		ID:                    "devserver",
+		DisplayName:           "Dev Server",
+		HostType:              config.HostTypePersistent,
+		VCS:                   "git",
+		RepoBasePath:          "/home/user/repo",
+		WorkspacePathTemplate: "/home/user/ws/{{.WorkspaceID}}",
+		ConnectCommand:        "ssh user@host --",
+		RemoteVCSCommands: config.RemoteVCSCommands{
+			CreateWorktree: "custom-clone {{.DestPath}}",
+			RemoveWorktree: "custom-rm {{.WorkspacePath}}",
+			CheckDirty:     "custom-status {{.WorkspacePath}}",
+		},
+	}
+
+	resp := toProfileResponse(p)
+
+	if resp.HostType != config.HostTypePersistent {
+		t.Errorf("HostType: got %q, want %q", resp.HostType, config.HostTypePersistent)
+	}
+	if resp.RepoBasePath != "/home/user/repo" {
+		t.Errorf("RepoBasePath: got %q, want %q", resp.RepoBasePath, "/home/user/repo")
+	}
+	if resp.WorkspacePathTemplate != "/home/user/ws/{{.WorkspaceID}}" {
+		t.Errorf("WorkspacePathTemplate: got %q", resp.WorkspacePathTemplate)
+	}
+	if resp.RemoteVCSCommands == nil {
+		t.Fatal("RemoteVCSCommands should not be nil")
+	}
+	if resp.RemoteVCSCommands.CreateWorktree != "custom-clone {{.DestPath}}" {
+		t.Errorf("CreateWorktree: got %q", resp.RemoteVCSCommands.CreateWorktree)
+	}
+	if resp.RemoteVCSCommands.RemoveWorktree != "custom-rm {{.WorkspacePath}}" {
+		t.Errorf("RemoveWorktree: got %q", resp.RemoteVCSCommands.RemoveWorktree)
+	}
+	if resp.RemoteVCSCommands.CheckDirty != "custom-status {{.WorkspacePath}}" {
+		t.Errorf("CheckDirty: got %q", resp.RemoteVCSCommands.CheckDirty)
+	}
+}
+
+func TestToProfileResponse_EphemeralNoVCSCommands(t *testing.T) {
+	p := config.RemoteProfile{
+		ID:            "od",
+		DisplayName:   "OD",
+		VCS:           "git",
+		WorkspacePath: "/tmp",
+		Flavors:       []config.RemoteProfileFlavor{{Flavor: "gpu"}},
+	}
+
+	resp := toProfileResponse(p)
+
+	if resp.HostType != "" {
+		t.Errorf("HostType: got %q, want empty", resp.HostType)
+	}
+	if resp.RemoteVCSCommands != nil {
+		t.Error("RemoteVCSCommands should be nil for ephemeral profiles with no commands")
+	}
+}
+
+func TestHandleCreateRemoteProfile_Persistent(t *testing.T) {
+	server, _, _ := newTestServer(t)
+	remoteH := newRemoteHandlers(server)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"display_name":            "Dev Server",
+		"host_type":               "persistent",
+		"vcs":                     "git",
+		"repo_base_path":          "/home/user/repo",
+		"workspace_path_template": "/home/user/ws/{{.WorkspaceID}}",
+		"connect_command":         "ssh user@host --",
+		"reconnect_command":       "ssh user@host --",
+		"hostname_regex":          "(host\\.example\\.com)",
+		"remote_vcs_commands": map[string]string{
+			"create_worktree": "git worktree add {{.DestPath}}",
+		},
+	})
+
+	req := httptest.NewRequest("POST", "/api/config/remote-profiles", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	remoteH.handleCreateRemoteProfile(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp RemoteProfileResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if resp.HostType != "persistent" {
+		t.Errorf("HostType: got %q, want persistent", resp.HostType)
+	}
+	if resp.RepoBasePath != "/home/user/repo" {
+		t.Errorf("RepoBasePath: got %q", resp.RepoBasePath)
+	}
+	if resp.WorkspacePathTemplate != "/home/user/ws/{{.WorkspaceID}}" {
+		t.Errorf("WorkspacePathTemplate: got %q", resp.WorkspacePathTemplate)
+	}
+	if resp.RemoteVCSCommands == nil || resp.RemoteVCSCommands.CreateWorktree != "git worktree add {{.DestPath}}" {
+		t.Errorf("RemoteVCSCommands.CreateWorktree not preserved")
+	}
+}

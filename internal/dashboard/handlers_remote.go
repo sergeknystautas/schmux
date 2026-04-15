@@ -41,6 +41,7 @@ type RemoteProfileStatusResponse = contracts.RemoteProfileStatusResponse
 type RemoteFlavorHostGroup = contracts.RemoteFlavorHostGroup
 type RemoteFlavorStatusResponse = contracts.RemoteFlavorStatusResponse
 type RemoteHostStatusItem = contracts.RemoteHostStatusItem
+type RemoteVCSCommandsResponse = contracts.RemoteVCSCommandsResponse
 
 // toProfileResponse converts a config.RemoteProfile to a RemoteProfileResponse.
 func toProfileResponse(p config.RemoteProfile) RemoteProfileResponse {
@@ -48,7 +49,7 @@ func toProfileResponse(p config.RemoteProfile) RemoteProfileResponse {
 	if flavors == nil {
 		flavors = []config.RemoteProfileFlavor{}
 	}
-	return RemoteProfileResponse{
+	resp := RemoteProfileResponse{
 		ID:                    p.ID,
 		DisplayName:           p.DisplayName,
 		VCS:                   p.VCS,
@@ -60,7 +61,17 @@ func toProfileResponse(p config.RemoteProfile) RemoteProfileResponse {
 		VSCodeCommandTemplate: p.VSCodeCommandTemplate,
 		Flavors:               flavors,
 		HostType:              p.HostType,
+		RepoBasePath:          p.RepoBasePath,
+		WorkspacePathTemplate: p.WorkspacePathTemplate,
 	}
+	if p.RemoteVCSCommands.CreateWorktree != "" || p.RemoteVCSCommands.RemoveWorktree != "" || p.RemoteVCSCommands.CheckDirty != "" {
+		resp.RemoteVCSCommands = &RemoteVCSCommandsResponse{
+			CreateWorktree: p.RemoteVCSCommands.CreateWorktree,
+			RemoveWorktree: p.RemoteVCSCommands.RemoveWorktree,
+			CheckDirty:     p.RemoteVCSCommands.CheckDirty,
+		}
+	}
+	return resp
 }
 
 // handleGetRemoteProfiles returns all configured remote profiles.
@@ -89,6 +100,10 @@ func (h *RemoteHandlers) handleCreateRemoteProfile(w http.ResponseWriter, r *htt
 		HostnameRegex         string                       `json:"hostname_regex"`
 		VSCodeCommandTemplate string                       `json:"vscode_command_template"`
 		Flavors               []config.RemoteProfileFlavor `json:"flavors"`
+		HostType              string                       `json:"host_type"`
+		RepoBasePath          string                       `json:"repo_base_path"`
+		WorkspacePathTemplate string                       `json:"workspace_path_template"`
+		RemoteVCSCommands     config.RemoteVCSCommands     `json:"remote_vcs_commands"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -106,6 +121,10 @@ func (h *RemoteHandlers) handleCreateRemoteProfile(w http.ResponseWriter, r *htt
 		HostnameRegex:         req.HostnameRegex,
 		VSCodeCommandTemplate: req.VSCodeCommandTemplate,
 		Flavors:               req.Flavors,
+		HostType:              req.HostType,
+		RepoBasePath:          req.RepoBasePath,
+		WorkspacePathTemplate: req.WorkspacePathTemplate,
+		RemoteVCSCommands:     req.RemoteVCSCommands,
 	}
 
 	if err := h.config.AddRemoteProfile(rp); err != nil {
@@ -182,6 +201,10 @@ func (h *RemoteHandlers) handleRemoteProfileUpdate(w http.ResponseWriter, r *htt
 		HostnameRegex         string                       `json:"hostname_regex"`
 		VSCodeCommandTemplate string                       `json:"vscode_command_template"`
 		Flavors               []config.RemoteProfileFlavor `json:"flavors"`
+		HostType              string                       `json:"host_type"`
+		RepoBasePath          string                       `json:"repo_base_path"`
+		WorkspacePathTemplate string                       `json:"workspace_path_template"`
+		RemoteVCSCommands     config.RemoteVCSCommands     `json:"remote_vcs_commands"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
@@ -199,6 +222,10 @@ func (h *RemoteHandlers) handleRemoteProfileUpdate(w http.ResponseWriter, r *htt
 		HostnameRegex:         req.HostnameRegex,
 		VSCodeCommandTemplate: req.VSCodeCommandTemplate,
 		Flavors:               req.Flavors,
+		HostType:              req.HostType,
+		RepoBasePath:          req.RepoBasePath,
+		WorkspacePathTemplate: req.WorkspacePathTemplate,
+		RemoteVCSCommands:     req.RemoteVCSCommands,
 	}
 
 	if err := h.config.UpdateRemoteProfile(rp); err != nil {

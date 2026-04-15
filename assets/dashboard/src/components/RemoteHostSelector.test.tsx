@@ -306,4 +306,86 @@ describe('RemoteHostSelector', () => {
       );
     });
   });
+
+  describe('persistent host', () => {
+    const persistentProfile = {
+      id: 'profile-persistent',
+      display_name: 'Dev Server',
+      vcs: 'git',
+      workspace_path: '',
+      host_type: 'persistent',
+      flavors: [],
+    };
+
+    it('shows "Spawn on" instead of "New host" for persistent profiles', async () => {
+      mockGetRemoteProfileStatuses.mockResolvedValue([
+        {
+          profile: persistentProfile,
+          flavor_hosts: [{ flavor: '', hosts: [] }],
+        },
+      ]);
+
+      renderSelector();
+      await waitFor(() => {
+        expect(screen.getByText(/Spawn on Dev Server/)).toBeInTheDocument();
+      });
+    });
+
+    it('shows "Connect and create workspace" when not connected', async () => {
+      mockGetRemoteProfileStatuses.mockResolvedValue([
+        {
+          profile: persistentProfile,
+          flavor_hosts: [{ flavor: '', hosts: [] }],
+        },
+      ]);
+
+      renderSelector();
+      await waitFor(() => {
+        expect(screen.getByText('Connect and create workspace')).toBeInTheDocument();
+      });
+    });
+
+    it('shows "Connected" message when host is connected', async () => {
+      mockGetRemoteProfileStatuses.mockResolvedValue([
+        {
+          profile: persistentProfile,
+          flavor_hosts: [
+            {
+              flavor: '',
+              hosts: [
+                {
+                  host_id: 'host-1',
+                  hostname: 'dev.example.com',
+                  status: 'connected',
+                  connected: true,
+                },
+              ],
+            },
+          ],
+        },
+      ]);
+
+      renderSelector();
+      await waitFor(() => {
+        expect(screen.getByText(/Connected.*will create new workspace/)).toBeInTheDocument();
+      });
+    });
+
+    it('does not show flavor selector for persistent profiles', async () => {
+      mockGetRemoteProfileStatuses.mockResolvedValue([
+        {
+          profile: persistentProfile,
+          flavor_hosts: [{ flavor: '', hosts: [] }],
+        },
+      ]);
+
+      renderSelector();
+      await waitFor(() => {
+        expect(screen.getByText(/Spawn on Dev Server/)).toBeInTheDocument();
+      });
+      // No flavor <select> should be present
+      const selects = screen.queryAllByRole('combobox');
+      expect(selects).toHaveLength(0);
+    });
+  });
 });

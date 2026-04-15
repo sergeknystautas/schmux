@@ -1,18 +1,28 @@
 package contracts
 
 // RemoteProfileResponse represents a remote profile in API responses.
+// RemoteVCSCommandsResponse holds per-profile VCS command templates in API responses.
+type RemoteVCSCommandsResponse struct {
+	CreateWorktree string `json:"create_worktree,omitempty"`
+	RemoveWorktree string `json:"remove_worktree,omitempty"`
+	CheckDirty     string `json:"check_dirty,omitempty"`
+}
+
 type RemoteProfileResponse struct {
-	ID                    string                `json:"id"`
-	DisplayName           string                `json:"display_name"`
-	VCS                   string                `json:"vcs"`
-	WorkspacePath         string                `json:"workspace_path"`
-	ConnectCommand        string                `json:"connect_command,omitempty"`
-	ReconnectCommand      string                `json:"reconnect_command,omitempty"`
-	ProvisionCommand      string                `json:"provision_command,omitempty"`
-	HostnameRegex         string                `json:"hostname_regex,omitempty"`
-	VSCodeCommandTemplate string                `json:"vscode_command_template,omitempty"`
-	Flavors               []RemoteProfileFlavor `json:"flavors"`
-	HostType              string                `json:"host_type,omitempty"` // "ephemeral" (default) | "persistent"
+	ID                    string                     `json:"id"`
+	DisplayName           string                     `json:"display_name"`
+	VCS                   string                     `json:"vcs"`
+	WorkspacePath         string                     `json:"workspace_path"`
+	ConnectCommand        string                     `json:"connect_command,omitempty"`
+	ReconnectCommand      string                     `json:"reconnect_command,omitempty"`
+	ProvisionCommand      string                     `json:"provision_command,omitempty"`
+	HostnameRegex         string                     `json:"hostname_regex,omitempty"`
+	VSCodeCommandTemplate string                     `json:"vscode_command_template,omitempty"`
+	Flavors               []RemoteProfileFlavor      `json:"flavors"`
+	HostType              string                     `json:"host_type,omitempty"`               // "ephemeral" (default) | "persistent"
+	RepoBasePath          string                     `json:"repo_base_path,omitempty"`          // Source repo path on remote host
+	WorkspacePathTemplate string                     `json:"workspace_path_template,omitempty"` // Go template with {{.WorkspaceID}}
+	RemoteVCSCommands     *RemoteVCSCommandsResponse `json:"remote_vcs_commands,omitempty"`     // Per-profile VCS command templates
 }
 
 // RemoteFlavorResponse represents a remote flavor in API responses.

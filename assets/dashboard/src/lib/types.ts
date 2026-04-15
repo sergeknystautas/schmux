@@ -406,6 +406,9 @@ export interface RemoteProfile {
   vscode_command_template?: string;
   flavors: RemoteProfileFlavor[];
   host_type?: string; // "ephemeral" (default) | "persistent"
+  repo_base_path?: string;
+  workspace_path_template?: string;
+  remote_vcs_commands?: RemoteVCSCommands;
 }
 
 export interface RemoteProfileFlavor {
@@ -461,16 +464,26 @@ export interface RemoteHost {
   provisioning_session_id?: string; // Local tmux session ID for interactive provisioning terminal
 }
 
+export interface RemoteVCSCommands {
+  create_worktree?: string;
+  remove_worktree?: string;
+  check_dirty?: string;
+}
+
 export interface RemoteProfileCreateRequest {
   display_name: string;
   vcs: string;
-  workspace_path: string;
+  workspace_path?: string;
   connect_command?: string;
   reconnect_command?: string;
   provision_command?: string;
   hostname_regex?: string;
   vscode_command_template?: string;
-  flavors: RemoteProfileFlavor[];
+  flavors?: RemoteProfileFlavor[];
+  host_type?: string;
+  repo_base_path?: string;
+  workspace_path_template?: string;
+  remote_vcs_commands?: RemoteVCSCommands;
 }
 
 export interface RemoteHostConnectRequest {
