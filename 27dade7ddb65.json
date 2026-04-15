@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-15T20:43:31Z",
+  "updated": "2026-04-15T20:44:02Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "is test coverage sufficient to validate these changes",
+      "intent": "/commit",
       "status": "active",
       "last_active_date": "2026-04-15",
       "started": "2026-04-14"
