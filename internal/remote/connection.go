@@ -666,6 +666,7 @@ func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader) e
 	if err := c.client.WaitForReady(ctx, ControlModeReadyTimeout); err != nil {
 		return fmt.Errorf("control mode not ready: %w", err)
 	}
+	c.client.MarkSynced()
 
 	// Update status to connected
 	c.controlModeEstablished.Store(true)

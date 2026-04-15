@@ -18,10 +18,13 @@ import (
 // It sends commands and correlates responses using a FIFO queue since tmux
 // assigns sequential command IDs starting from 0, not using our local IDs.
 //
-// On reconnection, tmux may emit stale responses from the previous control
-// mode session before the client sends any commands. These are discarded:
-// any response arriving while the pending queue is empty (i.e., before the
-// first command has been sent) is treated as stale and dropped.
+// Stale response handling has three phases:
+//  1. Pre-epoch (before firstCommandSent): responses buffered from previous
+//     sessions are discarded by drainBufferedResponses and the pre-epoch check.
+//  2. Pre-sync (after firstCommandSent, before MarkSynced): late stale responses
+//     (e.g., attach-session's own %begin/%end) that arrive after the first
+//     command is sent but before the FIFO queue is aligned are discarded.
+//  3. Post-sync (after MarkSynced): empty-queue responses are real FIFO desyncs.
 type Client struct {
 	stdin   io.Writer
 	stdinMu sync.Mutex // Protects stdin writes to prevent interleaving
@@ -35,8 +38,12 @@ type Client struct {
 
 	// Epoch tracking: responses arriving before the first command is sent
 	// are stale (from a previous control mode session) and are discarded.
+	// After firstCommandSent but before synced, responses arriving with an
+	// empty queue are late stale responses (e.g., from the attach-session
+	// command) rather than real FIFO desyncs.
 	// Protected by pendingMu to ensure atomicity with queue state checks.
 	firstCommandSent bool
+	synced           bool
 	discardedStale   atomic.Int64
 
 	// Response channel registry to prevent leaks on timeout
@@ -122,6 +129,15 @@ func (c *Client) drainBufferedResponses() {
 			return
 		}
 	}
+}
+
+// MarkSynced signals that the caller's sync protocol has completed and the
+// FIFO queue is now aligned. After this, any response arriving with an empty
+// queue is a real FIFO desync (not a late stale response from attach-session).
+func (c *Client) MarkSynced() {
+	c.pendingMu.Lock()
+	c.synced = true
+	c.pendingMu.Unlock()
 }
 
 // Close shuts down the client. Safe to call multiple times.
@@ -278,6 +294,16 @@ func (c *Client) processResponses() {
 				c.discardedStale.Add(1)
 				if c.logger != nil {
 					c.logger.Debug("discarded stale response (pre-epoch)", "cmd_id", resp.CommandID)
+				}
+			} else if !c.synced {
+				// Between first command sent and sync completion. This is a
+				// late stale response (typically the attach-session response)
+				// that arrived after the sync command was already queued.
+				// The sync loop handles the misdelivery by retrying.
+				c.pendingMu.Unlock()
+				c.discardedStale.Add(1)
+				if c.logger != nil {
+					c.logger.Debug("discarded late stale response (pre-sync)", "cmd_id", resp.CommandID, "content_len", len(resp.Content))
 				}
 			} else {
 				c.pendingMu.Unlock()

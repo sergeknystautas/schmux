@@ -253,6 +253,7 @@ func (s *LocalSource) attach() error {
 		}
 	}
 	syncCancel()
+	client.MarkSynced()
 
 	// Discover pane ID
 	paneID, err := s.discoverPaneID(ctx, client)

@@ -789,6 +789,108 @@ func TestStaleResponsesCountedAsDiscarded(t *testing.T) {
 	client.Close()
 }
 
+// TestLateStaleResponseDiscardedPreSync verifies that a stale response
+// arriving after firstCommandSent but before MarkSynced is discarded rather
+// than logged as a FIFO desync. This reproduces the race where the
+// attach-session response arrives after the sync command is already queued.
+func TestLateStaleResponseDiscardedPreSync(t *testing.T) {
+	pr, pw := io.Pipe()
+	parser := NewParser(pr, nil)
+
+	// Use signalWriter to know when the command has been sent to stdin.
+	stdin := &signalWriter{written: make(chan struct{})}
+	client := NewClient(stdin, parser, nil)
+
+	go parser.Run()
+	client.Start()
+
+	// Simulate the race:
+	// 1. Execute sends a command (firstCommandSent becomes true)
+	// 2. A stale attach-session response arrives first (delivered to the command)
+	// 3. The real response arrives with an empty queue (should be discarded, not error)
+	go func() {
+		<-stdin.written
+		// Stale attach response arrives first — gets delivered to the waiting command
+		pw.Write([]byte("%begin 1000 33201 0\nattach-session ok\n%end 1000 33201 0\n"))
+		// Real display-message response arrives — queue is now empty
+		pw.Write([]byte("%begin 1000 33202 0\n__SCHMUX_SYNC__\n%end 1000 33202 0\n"))
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	result, _, err := client.Execute(ctx, "display-message -p '__SCHMUX_SYNC__'")
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	// The command gets the stale attach response (wrong content).
+	// This is expected — the sync loop in localsource.go handles this by retrying.
+	if result != "attach-session ok" {
+		t.Errorf("expected stale content 'attach-session ok', got %q", result)
+	}
+
+	// Give processResponses time to handle the orphaned real response
+	time.Sleep(50 * time.Millisecond)
+
+	// The late stale response should be counted as discarded, not logged as FIFO desync
+	discarded := client.DiscardedStale()
+	if discarded != 1 {
+		t.Errorf("expected 1 discarded late stale response, got %d", discarded)
+	}
+
+	// After MarkSynced, a genuinely orphaned response would be a real FIFO desync
+	client.MarkSynced()
+
+	pw.Close()
+	client.Close()
+}
+
+// TestFIFODesyncStillErrorsPostSync verifies that after MarkSynced, a response
+// arriving with an empty queue is still logged as a real FIFO desync error
+// (not silently discarded). This ensures the pre-sync grace period doesn't
+// mask genuine protocol violations during normal operation.
+func TestFIFODesyncStillErrorsPostSync(t *testing.T) {
+	pr, pw := io.Pipe()
+	parser := NewParser(pr, nil)
+
+	stdin := &signalWriter{written: make(chan struct{})}
+	client := NewClient(stdin, parser, nil)
+
+	go parser.Run()
+	client.Start()
+
+	// Send a command and get its response normally to set firstCommandSent
+	go func() {
+		<-stdin.written
+		pw.Write([]byte("%begin 1000 0 0\nok\n%end 1000 0 0\n"))
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, _, err := client.Execute(ctx, "display-message -p ok")
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	// Mark synced — after this, orphan responses should NOT be discarded as stale
+	client.MarkSynced()
+
+	// Inject an orphan response with no command waiting
+	pw.Write([]byte("%begin 1000 999 0\norphan\n%end 1000 999 0\n"))
+	time.Sleep(50 * time.Millisecond)
+
+	// This should NOT be counted as discarded stale — it's a real desync
+	discarded := client.DiscardedStale()
+	if discarded != 0 {
+		t.Errorf("expected 0 discarded stale (post-sync orphan is a desync, not stale), got %d", discarded)
+	}
+
+	pw.Close()
+	client.Close()
+}
+
 // TestResponsesAfterEpochDeliveredNormally verifies that once the epoch is
 // established, subsequent commands work correctly via FIFO ordering.
 func TestResponsesAfterEpochDeliveredNormally(t *testing.T) {
@@ -820,6 +922,7 @@ func TestResponsesAfterEpochDeliveredNormally(t *testing.T) {
 
 	go parser.Run()
 	client.Start()
+	client.MarkSynced() // Simulate completed sync protocol
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
