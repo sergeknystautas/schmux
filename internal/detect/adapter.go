@@ -1,6 +1,9 @@
 package detect
 
-import "context"
+import (
+	"context"
+	"sort"
+)
 
 // SignalingStrategy defines how a tool receives schmux signaling instructions.
 type SignalingStrategy int
@@ -170,5 +173,6 @@ func AllGitExcludePatterns() []string {
 			}
 		}
 	}
+	sort.Strings(patterns)
 	return patterns
 }
