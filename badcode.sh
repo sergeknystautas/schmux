@@ -37,7 +37,7 @@ if ! (cd assets/dashboard && npm list knip >/dev/null 2>&1); then
     (cd assets/dashboard && npm install --save-dev knip --silent)
 fi
 
-for ts_dir in tools/test-runner tools/dev-runner; do
+for ts_dir in tools/test-runner tools/dev-runner test/scenarios/generated; do
     if [ -f "$ts_dir/package.json" ] && [ ! -d "$ts_dir/node_modules" ]; then
         echo "Installing $ts_dir dependencies..."
         (cd "$ts_dir" && npm install --silent)
