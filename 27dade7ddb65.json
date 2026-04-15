@@ -2,12 +2,12 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-15T20:25:15Z",
+  "updated": "2026-04-15T20:26:02Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "/pull",
-      "status": "inactive",
+      "intent": "in dev mode, when I hit \"p\" to pull and recompile with the latest changes, I also see this error ...",
+      "status": "active",
       "last_active_date": "2026-04-15",
       "started": "2026-04-14"
     }
