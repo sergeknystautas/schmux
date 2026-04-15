@@ -247,10 +247,10 @@ describe('HomePage with workspaces (active user)', () => {
     expect(screen.queryByTestId('recent-branches')).not.toBeInTheDocument();
   });
 
-  it('does NOT render EnvironmentSummary when workspaces exist', () => {
+  it('renders EnvironmentSummary even when workspaces exist', () => {
     currentWorkspaces = [mockWorkspace];
     renderPage();
-    expect(screen.queryByTestId('env-summary')).not.toBeInTheDocument();
+    expect(screen.getByTestId('env-summary')).toBeInTheDocument();
   });
 
   it('hides add-repo CTA when repos are configured', () => {

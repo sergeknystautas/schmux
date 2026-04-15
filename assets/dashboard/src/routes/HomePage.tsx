@@ -977,8 +977,8 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* FTUE: show environment summary when no workspaces */}
-        {workspaces.length === 0 && !loading && <EnvironmentSummary />}
+        {/* Environment summary: always show detected tools */}
+        {!loading && <EnvironmentSummary />}
 
         {/* Add Repository CTA — hidden once a repo is configured */}
         {!loading && (!config.repos || config.repos.length === 0) && (
