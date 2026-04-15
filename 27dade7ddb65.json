@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-15T04:12:47Z",
+  "updated": "2026-04-15T04:13:19Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "the sizing is still wrong and it all looks screwed up [Image #1]",
+      "intent": "I don't understand, what do you mean that CreateSession creates a tmux session detached... where ...",
       "status": "active",
       "last_active_date": "2026-04-14",
       "started": "2026-04-14"
