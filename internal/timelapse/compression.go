@@ -26,3 +26,16 @@ func rowBlank(row []rune) bool {
 	}
 	return true
 }
+
+// countChangedCells returns the number of cells that differ between two grids.
+func countChangedCells(prev, curr [][]rune, width, height int) int {
+	changed := 0
+	for y := 0; y < height && y < len(prev) && y < len(curr); y++ {
+		for x := 0; x < width && x < len(prev[y]) && x < len(curr[y]); x++ {
+			if prev[y][x] != curr[y][x] {
+				changed++
+			}
+		}
+	}
+	return changed
+}
