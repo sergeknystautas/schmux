@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-15T22:44:05Z",
+  "updated": "2026-04-15T22:44:37Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "there is something else that's really bad, when the history thing comes up the user doesn't know ...",
+      "intent": "also add a [x] button to the top right of the history panel so the user can dismiss it that way i...",
       "status": "active",
       "last_active_date": "2026-04-15",
       "started": "2026-04-14"
