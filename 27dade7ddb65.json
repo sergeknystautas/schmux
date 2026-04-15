@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-15T03:40:10Z",
+  "updated": "2026-04-15T03:40:42Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "Claude needs your permission to use Bash",
+      "intent": "the sizing is still wrong and it all looks screwed up [Image #1]",
       "status": "active",
       "last_active_date": "2026-04-14",
       "started": "2026-04-14"
