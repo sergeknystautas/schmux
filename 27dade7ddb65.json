@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-15T22:34:39Z",
+  "updated": "2026-04-15T22:35:10Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "the spawn page has something that suggests prompts based on the history of prompts the user added...",
+      "intent": "there is something else that's really bad, when the history thing comes up the user doesn't know ...",
       "status": "active",
       "last_active_date": "2026-04-15",
       "started": "2026-04-14"
