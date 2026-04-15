@@ -290,6 +290,225 @@ func TestMigrateRemoteFlavorsToProfiles(t *testing.T) {
 	}
 }
 
+func TestResolveProfileFlavor_PersistentNoFlavors(t *testing.T) {
+	profile := RemoteProfile{
+		ID:                    "devserver",
+		DisplayName:           "Dev Server",
+		HostType:              HostTypePersistent,
+		VCS:                   "git",
+		RepoBasePath:          "/home/user/myproject",
+		WorkspacePathTemplate: "/home/user/schmux-ws/{{.WorkspaceID}}",
+		ConnectCommand:        "ssh user@host --",
+		ReconnectCommand:      "ssh user@host --",
+		HostnameRegex:         `(host\.example\.com)`,
+	}
+
+	resolved, err := ResolveProfileFlavor(profile, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resolved.ProfileID != "devserver" {
+		t.Errorf("ProfileID: got %q, want %q", resolved.ProfileID, "devserver")
+	}
+	if resolved.HostType != HostTypePersistent {
+		t.Errorf("HostType: got %q, want %q", resolved.HostType, HostTypePersistent)
+	}
+	if resolved.RepoBasePath != "/home/user/myproject" {
+		t.Errorf("RepoBasePath: got %q, want %q", resolved.RepoBasePath, "/home/user/myproject")
+	}
+	if resolved.WorkspacePathTemplate != "/home/user/schmux-ws/{{.WorkspaceID}}" {
+		t.Errorf("WorkspacePathTemplate: got %q, want %q", resolved.WorkspacePathTemplate, "/home/user/schmux-ws/{{.WorkspaceID}}")
+	}
+	if resolved.Flavor != "" {
+		t.Errorf("Flavor: got %q, want empty", resolved.Flavor)
+	}
+	if resolved.FlavorDisplayName != "" {
+		t.Errorf("FlavorDisplayName: got %q, want empty", resolved.FlavorDisplayName)
+	}
+	if resolved.ConnectCommand != "ssh user@host --" {
+		t.Errorf("ConnectCommand: got %q, want %q", resolved.ConnectCommand, "ssh user@host --")
+	}
+}
+
+func TestResolveProfileFlavor_PropagatesPersistentFields(t *testing.T) {
+	profile := RemoteProfile{
+		ID:                    "devserver",
+		DisplayName:           "Dev Server",
+		HostType:              HostTypePersistent,
+		VCS:                   "sapling",
+		RepoBasePath:          "/home/user/repo",
+		WorkspacePathTemplate: "/home/user/ws/{{.WorkspaceID}}",
+		ConnectCommand:        "ssh user@host --",
+		ReconnectCommand:      "ssh user@host --",
+		RemoteVCSCommands: RemoteVCSCommands{
+			CreateWorktree: "custom-clone {{.RepoBasePath}} {{.DestPath}}",
+		},
+		Flavors: []RemoteProfileFlavor{
+			{Flavor: "default", DisplayName: "Default"},
+		},
+	}
+
+	resolved, err := ResolveProfileFlavor(profile, "default")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resolved.HostType != HostTypePersistent {
+		t.Errorf("HostType: got %q, want %q", resolved.HostType, HostTypePersistent)
+	}
+	if resolved.RepoBasePath != "/home/user/repo" {
+		t.Errorf("RepoBasePath: got %q, want %q", resolved.RepoBasePath, "/home/user/repo")
+	}
+	if resolved.WorkspacePathTemplate != "/home/user/ws/{{.WorkspaceID}}" {
+		t.Errorf("WorkspacePathTemplate: got %q, want %q", resolved.WorkspacePathTemplate, "/home/user/ws/{{.WorkspaceID}}")
+	}
+	if resolved.RemoteVCSCommands.CreateWorktree != "custom-clone {{.RepoBasePath}} {{.DestPath}}" {
+		t.Errorf("RemoteVCSCommands.CreateWorktree: got %q, want custom-clone", resolved.RemoteVCSCommands.CreateWorktree)
+	}
+}
+
+func TestRemoteVCSCommands_Defaults(t *testing.T) {
+	empty := RemoteVCSCommands{}
+
+	// Git defaults
+	if got := empty.GetCreateWorktree("git"); got != "git worktree add {{.DestPath}} -b schmux-{{.WorkspaceID}} origin/main" {
+		t.Errorf("git create default: got %q", got)
+	}
+	if got := empty.GetRemoveWorktree("git"); got != "git worktree remove --force {{.WorkspacePath}}" {
+		t.Errorf("git remove default: got %q", got)
+	}
+	if got := empty.GetCheckDirty("git"); got != "git -C {{.WorkspacePath}} status --porcelain" {
+		t.Errorf("git dirty default: got %q", got)
+	}
+
+	// Sapling defaults
+	if got := empty.GetCreateWorktree("sapling"); got != "sl clone {{.RepoBasePath}} {{.DestPath}}" {
+		t.Errorf("sapling create default: got %q", got)
+	}
+	if got := empty.GetRemoveWorktree("sapling"); got != "rm -rf {{.WorkspacePath}}" {
+		t.Errorf("sapling remove default: got %q", got)
+	}
+	if got := empty.GetCheckDirty("sapling"); got != "sl status --cwd {{.WorkspacePath}}" {
+		t.Errorf("sapling dirty default: got %q", got)
+	}
+
+	// Custom overrides
+	custom := RemoteVCSCommands{
+		CreateWorktree: "my-create {{.DestPath}}",
+		RemoveWorktree: "my-remove {{.WorkspacePath}}",
+		CheckDirty:     "my-dirty {{.WorkspacePath}}",
+	}
+	if got := custom.GetCreateWorktree("git"); got != "my-create {{.DestPath}}" {
+		t.Errorf("custom create: got %q", got)
+	}
+	if got := custom.GetRemoveWorktree("sapling"); got != "my-remove {{.WorkspacePath}}" {
+		t.Errorf("custom remove: got %q", got)
+	}
+	if got := custom.GetCheckDirty("git"); got != "my-dirty {{.WorkspacePath}}" {
+		t.Errorf("custom dirty: got %q", got)
+	}
+}
+
+func TestValidateRemoteProfile_Persistent(t *testing.T) {
+	// Valid persistent profile
+	valid := RemoteProfile{
+		ID:                    "devserver",
+		DisplayName:           "Dev Server",
+		HostType:              HostTypePersistent,
+		VCS:                   "git",
+		RepoBasePath:          "/home/user/repo",
+		WorkspacePathTemplate: "/home/user/ws/{{.WorkspaceID}}",
+		ConnectCommand:        "ssh user@host --",
+	}
+	cfg := &Config{}
+	if err := cfg.AddRemoteProfile(valid); err != nil {
+		t.Fatalf("valid persistent profile rejected: %v", err)
+	}
+
+	// Missing workspace_path_template
+	bad := valid
+	bad.WorkspacePathTemplate = ""
+	bad.ID = "bad1"
+	cfg2 := &Config{}
+	if err := cfg2.AddRemoteProfile(bad); err == nil {
+		t.Error("expected error for persistent without workspace_path_template")
+	}
+
+	// Missing repo_base_path
+	bad2 := valid
+	bad2.RepoBasePath = ""
+	bad2.ID = "bad2"
+	cfg3 := &Config{}
+	if err := cfg3.AddRemoteProfile(bad2); err == nil {
+		t.Error("expected error for persistent without repo_base_path")
+	}
+
+	// Template missing {{.WorkspaceID}}
+	bad3 := valid
+	bad3.WorkspacePathTemplate = "/home/user/ws/fixed-path"
+	bad3.ID = "bad3"
+	cfg4 := &Config{}
+	if err := cfg4.AddRemoteProfile(bad3); err == nil {
+		t.Error("expected error for template without {{.WorkspaceID}}")
+	}
+
+	// Invalid template syntax
+	bad4 := valid
+	bad4.WorkspacePathTemplate = "/home/user/ws/{{.WorkspaceID"
+	bad4.ID = "bad4"
+	cfg5 := &Config{}
+	if err := cfg5.AddRemoteProfile(bad4); err == nil {
+		t.Error("expected error for invalid template syntax")
+	}
+
+	// Invalid host_type
+	bad5 := valid
+	bad5.HostType = "invalid"
+	bad5.ID = "bad5"
+	cfg6 := &Config{}
+	if err := cfg6.AddRemoteProfile(bad5); err == nil {
+		t.Error("expected error for invalid host_type")
+	}
+
+	// Persistent profiles don't need flavors or workspace_path
+	noFlavors := valid
+	noFlavors.ID = "noflavors"
+	cfg7 := &Config{}
+	if err := cfg7.AddRemoteProfile(noFlavors); err != nil {
+		t.Fatalf("persistent profile without flavors should be valid: %v", err)
+	}
+}
+
+func TestValidateRemoteProfile_EphemeralRegression(t *testing.T) {
+	// Ephemeral (default) still requires flavors and workspace_path
+	ephemeral := RemoteProfile{
+		ID:            "eph",
+		DisplayName:   "Ephemeral",
+		VCS:           "git",
+		WorkspacePath: "~/workspace",
+		Flavors: []RemoteProfileFlavor{
+			{Flavor: "gpu-large"},
+		},
+	}
+	cfg := &Config{}
+	if err := cfg.AddRemoteProfile(ephemeral); err != nil {
+		t.Fatalf("valid ephemeral profile rejected: %v", err)
+	}
+
+	// Ephemeral without flavors should fail
+	noFlavor := RemoteProfile{
+		ID:            "bad",
+		DisplayName:   "Bad",
+		VCS:           "git",
+		WorkspacePath: "~/workspace",
+	}
+	cfg2 := &Config{}
+	if err := cfg2.AddRemoteProfile(noFlavor); err == nil {
+		t.Error("expected error for ephemeral without flavors")
+	}
+}
+
 func TestMigrateRemoteFlavorsToProfiles_Idempotent(t *testing.T) {
 	cfg := &Config{ConfigData: ConfigData{
 		RemoteFlavors: []RemoteFlavor{

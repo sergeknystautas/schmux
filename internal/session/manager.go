@@ -436,45 +436,12 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 	// Create session ID
 	sessionID := fmt.Sprintf("remote-%s-%s", opts.FlavorStr, uuid.New().String()[:8])
 
-	// Get or create a workspace for this remote host+flavor
-	// Use deterministic ID so all sessions on same host+flavor share a workspace
-	workspaceID := host.ID
-	ws, found := m.state.GetWorkspace(workspaceID)
-	if !found {
-		// Use hostname as the branch name (shown in sidebar/header)
-		branch := host.Hostname
-		if branch == "" {
-			branch = flavor.DisplayName
-		}
-		// Create new workspace for this remote host
-		ws = state.Workspace{
-			ID:           workspaceID,
-			Repo:         flavor.DisplayName,
-			Branch:       branch,
-			Path:         flavor.WorkspacePath,
-			VCS:          flavor.VCS,
-			RemoteHostID: host.ID,
-			RemotePath:   flavor.WorkspacePath,
-		}
-		if err := m.workspace.AddWorkspaceWithTabs(ws); err != nil {
-			return nil, fmt.Errorf("failed to add workspace to state: %w", err)
-		}
-	} else {
-		needsUpdate := false
-		if ws.Branch == "remote" && host.Hostname != "" {
-			// Update existing workspace that still has the old "remote" branch name
-			ws.Branch = host.Hostname
-			needsUpdate = true
-		}
-		if ws.VCS != flavor.VCS && flavor.VCS != "" {
-			// Backfill VCS for workspaces pre-dating VCS-aware data directories
-			ws.VCS = flavor.VCS
-			needsUpdate = true
-		}
-		if needsUpdate {
-			m.state.UpdateWorkspace(ws)
-		}
+	// Resolve workspace for this host.
+	ws, err := m.resolveWorkspaceForSpawn(ctx, conn, host, flavor)
+	if err != nil {
+		return nil, err
 	}
+	workspaceID := ws.ID
 
 	// Inject schmux signaling environment variables
 	resolved.Env = mergeEnvMaps(resolved.Env, map[string]string{
@@ -728,6 +695,79 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 	m.trackSessionCreated(sess.ID, sess.WorkspaceID, sess.Target)
 
 	return &sess, nil
+}
+
+// resolveWorkspaceForSpawn resolves (or creates) the workspace for a remote spawn.
+// For persistent hosts, finds an idle+clean workspace or creates a new worktree.
+// For ephemeral hosts, gets or creates the single workspace tied to the host ID.
+func (m *Manager) resolveWorkspaceForSpawn(
+	ctx context.Context,
+	conn *remote.Connection,
+	host state.RemoteHost,
+	flavor config.RemoteFlavor,
+) (state.Workspace, error) {
+	if host.HostType == config.HostTypePersistent {
+		profile, found := m.config.GetRemoteProfile(host.ProfileID)
+		if !found {
+			return state.Workspace{}, fmt.Errorf("remote profile %s not found", host.ProfileID)
+		}
+		resolved, err := config.ResolveProfileFlavor(profile, host.Flavor)
+		if err != nil {
+			return state.Workspace{}, fmt.Errorf("resolve profile flavor: %w", err)
+		}
+		client := conn.Client()
+		if client == nil {
+			return state.Workspace{}, fmt.Errorf("remote host %s has no control mode client", host.ID)
+		}
+		hasActive := m.hasActiveSessionsOn
+		return m.remoteManager.FindOrCreateWorkspace(ctx, host, resolved, client, hasActive)
+	}
+
+	// Ephemeral: get or create workspace keyed by host ID.
+	workspaceID := host.ID
+	ws, found := m.state.GetWorkspace(workspaceID)
+	if !found {
+		branch := host.Hostname
+		if branch == "" {
+			branch = flavor.DisplayName
+		}
+		ws = state.Workspace{
+			ID:           workspaceID,
+			Repo:         flavor.DisplayName,
+			Branch:       branch,
+			Path:         flavor.WorkspacePath,
+			VCS:          flavor.VCS,
+			RemoteHostID: host.ID,
+			RemotePath:   flavor.WorkspacePath,
+		}
+		if err := m.workspace.AddWorkspaceWithTabs(ws); err != nil {
+			return state.Workspace{}, fmt.Errorf("failed to add workspace to state: %w", err)
+		}
+	} else {
+		needsUpdate := false
+		if ws.Branch == "remote" && host.Hostname != "" {
+			ws.Branch = host.Hostname
+			needsUpdate = true
+		}
+		if ws.VCS != flavor.VCS && flavor.VCS != "" {
+			ws.VCS = flavor.VCS
+			needsUpdate = true
+		}
+		if needsUpdate {
+			m.state.UpdateWorkspace(ws)
+		}
+	}
+	return ws, nil
+}
+
+// hasActiveSessionsOn returns true if the given workspace has any running sessions.
+func (m *Manager) hasActiveSessionsOn(workspaceID string) bool {
+	for _, s := range m.state.GetSessions() {
+		if s.WorkspaceID == workspaceID && s.Status == state.SessionStatusRunning {
+			return true
+		}
+	}
+	return false
 }
 
 // RemoteSpawnOptions holds parameters for SpawnRemote.
@@ -1526,13 +1566,34 @@ func (m *Manager) disposeRemoteSession(ctx context.Context, sess state.Session) 
 	// Stop signal monitor for remote session
 	m.StopRemoteSignalMonitor(sess.ID)
 
-	// DO NOT remove the workspace for remote sessions - it's shared across all
-	// sessions on the same remote host. The workspace persists until the host
-	// is disconnected or expired.
+	// For ephemeral hosts: DO NOT remove the workspace — it's shared across all
+	// sessions on the same remote host, and persists until the host expires.
+	// For persistent hosts: conditionally clean up idle+clean worktrees.
 
-	// Remove session from state
+	// Remove session from state first (so the workspace is no longer "active").
 	if err := m.state.RemoveSession(sess.ID); err != nil {
 		return fmt.Errorf("failed to remove session from state: %w", err)
+	}
+
+	// Persistent host worktree cleanup (runs after session removal).
+	// Uses m.hasActiveSessionsOn which queries state under the per-host mutex
+	// inside CleanupWorkspaceAfterDispose, so the session check is atomic
+	// with the cleanup decision.
+	if m.remoteManager != nil {
+		host, hostFound := m.state.GetRemoteHost(sess.RemoteHostID)
+		if hostFound && host.HostType == config.HostTypePersistent {
+			ws, wsFound := m.state.GetWorkspace(sess.WorkspaceID)
+			if wsFound {
+				profile, profileFound := m.config.GetRemoteProfile(host.ProfileID)
+				if profileFound {
+					if resolved, err := config.ResolveProfileFlavor(profile, host.Flavor); err == nil {
+						go m.remoteManager.CleanupWorkspaceAfterDispose(
+							context.Background(), host, ws, resolved, m.hasActiveSessionsOn,
+						)
+					}
+				}
+			}
+		}
 	}
 	if err := m.state.Save(); err != nil {
 		return fmt.Errorf("failed to save state: %w", err)

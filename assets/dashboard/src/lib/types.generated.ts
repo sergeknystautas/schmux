@@ -524,6 +524,7 @@ export interface RemoteHostResponse {
   connected_at?: string;
   expires_at?: string;
   provisioning_session_id?: string;
+  host_type?: string;
 }
 
 export interface RemoteHostStatusItem {
@@ -551,6 +552,7 @@ export interface RemoteProfileResponse {
   hostname_regex?: string;
   vscode_command_template?: string;
   flavors: RemoteProfileFlavor[];
+  host_type?: string;
 }
 
 export interface RemoteProfileStatusResponse {

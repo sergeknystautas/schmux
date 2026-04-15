@@ -405,6 +405,7 @@ export interface RemoteProfile {
   hostname_regex?: string;
   vscode_command_template?: string;
   flavors: RemoteProfileFlavor[];
+  host_type?: string; // "ephemeral" (default) | "persistent"
 }
 
 export interface RemoteProfileFlavor {

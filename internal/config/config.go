@@ -233,6 +233,8 @@ type RemoteFlavor struct {
 
 // RemoteProfile represents a remote host profile configuration.
 // A profile groups shared connection settings with one or more flavors (machine types).
+// Persistent hosts (host_type: "persistent") do not use flavors — they support
+// multiple workspaces per host, created on demand at spawn time.
 type RemoteProfile struct {
 	ID                    string                `json:"id"`
 	DisplayName           string                `json:"display_name"`
@@ -244,6 +246,10 @@ type RemoteProfile struct {
 	HostnameRegex         string                `json:"hostname_regex,omitempty"`
 	VSCodeCommandTemplate string                `json:"vscode_command_template,omitempty"`
 	Flavors               []RemoteProfileFlavor `json:"flavors"`
+	HostType              string                `json:"host_type,omitempty"`               // "ephemeral" (default) | "persistent"
+	RepoBasePath          string                `json:"repo_base_path,omitempty"`          // Source repo path on the remote host
+	WorkspacePathTemplate string                `json:"workspace_path_template,omitempty"` // Go template, e.g. "/home/user/schmux-ws/{{.WorkspaceID}}"
+	RemoteVCSCommands     RemoteVCSCommands     `json:"remote_vcs_commands,omitempty"`     // Per-profile VCS command templates for remote execution
 }
 
 // RemoteProfileFlavor is a type alias for contracts.RemoteProfileFlavor.
@@ -264,6 +270,10 @@ type ResolvedFlavor struct {
 	ProvisionCommand      string
 	HostnameRegex         string
 	VSCodeCommandTemplate string
+	HostType              string
+	RepoBasePath          string
+	WorkspacePathTemplate string
+	RemoteVCSCommands     RemoteVCSCommands
 }
 
 // PrReviewConfig holds configuration for GitHub PR review sessions.
@@ -561,6 +571,59 @@ type Repo struct {
 	VCS                   string   `json:"vcs,omitempty"`
 	OverlayPaths          []string `json:"overlay_paths,omitempty"`
 	OverlayNudgeDismissed bool     `json:"overlay_nudge_dismissed,omitempty"`
+}
+
+// RemoteVCSCommands provides per-profile VCS command templates for remote execution.
+// These are separate from the global SaplingCommands (which control local VCS operations).
+// When fields are empty, defaults are derived from the profile's VCS field.
+type RemoteVCSCommands struct {
+	CreateWorktree string `json:"create_worktree,omitempty"`
+	RemoveWorktree string `json:"remove_worktree,omitempty"`
+	CheckDirty     string `json:"check_dirty,omitempty"`
+}
+
+// GetCreateWorktree returns the create worktree command template,
+// falling back to a default based on the VCS type.
+func (r RemoteVCSCommands) GetCreateWorktree(vcs string) string {
+	if r.CreateWorktree != "" {
+		return r.CreateWorktree
+	}
+	if vcs == "sapling" {
+		return "sl clone {{.RepoBasePath}} {{.DestPath}}"
+	}
+	return "git worktree add {{.DestPath}} -b schmux-{{.WorkspaceID}} origin/main"
+}
+
+// GetRemoveWorktree returns the remove worktree command template,
+// falling back to a default based on the VCS type.
+func (r RemoteVCSCommands) GetRemoveWorktree(vcs string) string {
+	if r.RemoveWorktree != "" {
+		return r.RemoveWorktree
+	}
+	if vcs == "sapling" {
+		return "rm -rf {{.WorkspacePath}}"
+	}
+	return "git worktree remove --force {{.WorkspacePath}}"
+}
+
+// GetCheckDirty returns the dirty check command template,
+// falling back to a default based on the VCS type.
+func (r RemoteVCSCommands) GetCheckDirty(vcs string) string {
+	if r.CheckDirty != "" {
+		return r.CheckDirty
+	}
+	if vcs == "sapling" {
+		return "sl status --cwd {{.WorkspacePath}}"
+	}
+	return "git -C {{.WorkspacePath}} status --porcelain"
+}
+
+// HostTypePersistent is the value for RemoteProfile.HostType for persistent hosts.
+const HostTypePersistent = "persistent"
+
+// IsPersistent returns true if the profile is configured for a persistent host.
+func (p *RemoteProfile) IsPersistent() bool {
+	return p.HostType == HostTypePersistent
 }
 
 type SaplingCommands struct {
@@ -3108,8 +3171,28 @@ func generateRemoteFlavorID(flavor string) string {
 }
 
 // ResolveProfileFlavor merges a profile's defaults with a specific flavor's overrides.
+// For persistent hosts with no flavors, returns a ResolvedFlavor built directly from profile fields.
 // Returns an error if the flavor string is not found in the profile's Flavors list.
 func ResolveProfileFlavor(profile RemoteProfile, flavorStr string) (ResolvedFlavor, error) {
+	// Persistent hosts may have no flavors — build ResolvedFlavor from profile-level fields.
+	if profile.IsPersistent() && len(profile.Flavors) == 0 {
+		return ResolvedFlavor{
+			ProfileID:             profile.ID,
+			ProfileDisplayName:    profile.DisplayName,
+			VCS:                   profile.VCS,
+			WorkspacePath:         profile.WorkspacePath,
+			ConnectCommand:        profile.ConnectCommand,
+			ReconnectCommand:      profile.ReconnectCommand,
+			ProvisionCommand:      profile.ProvisionCommand,
+			HostnameRegex:         profile.HostnameRegex,
+			VSCodeCommandTemplate: profile.VSCodeCommandTemplate,
+			HostType:              profile.HostType,
+			RepoBasePath:          profile.RepoBasePath,
+			WorkspacePathTemplate: profile.WorkspacePathTemplate,
+			RemoteVCSCommands:     profile.RemoteVCSCommands,
+		}, nil
+	}
+
 	for _, f := range profile.Flavors {
 		if f.Flavor == flavorStr {
 			resolved := ResolvedFlavor{
@@ -3121,6 +3204,10 @@ func ResolveProfileFlavor(profile RemoteProfile, flavorStr string) (ResolvedFlav
 				ReconnectCommand:      profile.ReconnectCommand,
 				HostnameRegex:         profile.HostnameRegex,
 				VSCodeCommandTemplate: profile.VSCodeCommandTemplate,
+				HostType:              profile.HostType,
+				RepoBasePath:          profile.RepoBasePath,
+				WorkspacePathTemplate: profile.WorkspacePathTemplate,
+				RemoteVCSCommands:     profile.RemoteVCSCommands,
 			}
 
 			// FlavorDisplayName: flavor's DisplayName if non-empty, else the flavor string itself
@@ -3261,17 +3348,52 @@ func (c *Config) RemoveRemoteProfile(id string) error {
 
 // validateRemoteProfile validates a remote profile configuration.
 func validateRemoteProfile(p RemoteProfile) error {
-	if len(p.Flavors) == 0 {
-		return fmt.Errorf("%w: profile must have at least one flavor", ErrInvalidConfig)
-	}
 	if p.DisplayName == "" {
 		return fmt.Errorf("%w: display_name is required", ErrInvalidConfig)
 	}
-	if p.WorkspacePath == "" {
-		return fmt.Errorf("%w: workspace_path is required", ErrInvalidConfig)
-	}
 	if p.VCS != "" && p.VCS != "git" && p.VCS != "sapling" {
 		return fmt.Errorf("%w: vcs must be 'git' or 'sapling'", ErrInvalidConfig)
+	}
+	if p.HostType != "" && p.HostType != "ephemeral" && p.HostType != HostTypePersistent {
+		return fmt.Errorf("%w: host_type must be 'ephemeral' or 'persistent'", ErrInvalidConfig)
+	}
+
+	if p.IsPersistent() {
+		// Persistent hosts require workspace_path_template and repo_base_path.
+		if p.WorkspacePathTemplate == "" {
+			return fmt.Errorf("%w: workspace_path_template is required for persistent hosts", ErrInvalidConfig)
+		}
+		if !strings.Contains(p.WorkspacePathTemplate, "{{.WorkspaceID}}") {
+			return fmt.Errorf("%w: workspace_path_template must contain {{.WorkspaceID}}", ErrInvalidConfig)
+		}
+		if _, err := template.New("wpt").Parse(p.WorkspacePathTemplate); err != nil {
+			return fmt.Errorf("%w: invalid workspace_path_template: %v", ErrInvalidConfig, err)
+		}
+		if p.RepoBasePath == "" {
+			return fmt.Errorf("%w: repo_base_path is required for persistent hosts", ErrInvalidConfig)
+		}
+		// Validate remote VCS command templates if provided.
+		for name, tmpl := range map[string]string{
+			"create_worktree": p.RemoteVCSCommands.CreateWorktree,
+			"remove_worktree": p.RemoteVCSCommands.RemoveWorktree,
+			"check_dirty":     p.RemoteVCSCommands.CheckDirty,
+		} {
+			if tmpl != "" {
+				if _, err := template.New(name).Parse(tmpl); err != nil {
+					return fmt.Errorf("%w: invalid remote_vcs_commands.%s template: %v", ErrInvalidConfig, name, err)
+				}
+			}
+		}
+		// Persistent hosts don't need flavors or workspace_path.
+		return nil
+	}
+
+	// Ephemeral host validation (existing behavior).
+	if len(p.Flavors) == 0 {
+		return fmt.Errorf("%w: profile must have at least one flavor", ErrInvalidConfig)
+	}
+	if p.WorkspacePath == "" {
+		return fmt.Errorf("%w: workspace_path is required", ErrInvalidConfig)
 	}
 
 	// Check for empty and duplicate flavor strings

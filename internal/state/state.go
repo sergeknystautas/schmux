@@ -55,9 +55,10 @@ type RemoteHost struct {
 	Hostname    string    `json:"hostname"`            // e.g., "remote-host-456.example.com"
 	UUID        string    `json:"uuid"`                // Remote session UUID
 	ConnectedAt time.Time `json:"connected_at"`
-	ExpiresAt   time.Time `json:"expires_at"`  // +12h from connected_at
-	Status      string    `json:"status"`      // "provisioning", "connecting", "connected", "disconnected"
-	Provisioned bool      `json:"provisioned"` // Has the workspace been provisioned?
+	ExpiresAt   time.Time `json:"expires_at"`          // +12h from connected_at; zero for persistent hosts
+	Status      string    `json:"status"`              // "provisioning", "connecting", "connected", "disconnected"
+	Provisioned bool      `json:"provisioned"`         // Has the workspace been provisioned?
+	HostType    string    `json:"host_type,omitempty"` // "ephemeral" | "persistent" — copied from profile at connect time
 }
 
 // Remote host status constants

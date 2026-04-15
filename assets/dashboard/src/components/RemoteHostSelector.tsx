@@ -89,7 +89,9 @@ export default function RemoteHostSelector({
     }
   }, [profileStatuses]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const getSelectedFlavor = (profileId: string): string => {
+  const getSelectedFlavor = (profileId: string, profile?: RemoteProfile): string => {
+    // Persistent hosts have no flavors — return empty string.
+    if (profile?.host_type === 'persistent') return '';
     return selectedFlavors[profileId] || '';
   };
 
@@ -155,6 +157,19 @@ export default function RemoteHostSelector({
 
   const handleSelectNewHost = useCallback(
     async (profileStatus: RemoteProfileStatus, flavorStr: string) => {
+      const isPersistentProfile = profileStatus.profile.host_type === 'persistent';
+
+      // For persistent hosts already connected, reuse the existing connection
+      // instead of opening a second SSH session.
+      if (isPersistentProfile) {
+        const allHosts = profileStatus.flavor_hosts.flatMap((fg) => fg.hosts);
+        const connectedHost = allHosts.find((h) => h.connected);
+        if (connectedHost) {
+          handleSelectExistingHost(profileStatus, flavorStr, connectedHost);
+          return;
+        }
+      }
+
       // Start a new connection for this profile+flavor
       setConnecting(profileStatus.profile.id);
       setConnectingProfileId(profileStatus.profile.id);
@@ -175,7 +190,7 @@ export default function RemoteHostSelector({
         setConnectingDisplayName('');
       }
     },
-    [alert]
+    [alert, handleSelectExistingHost]
   );
 
   const isSelected = (type: 'local' | string, hostId?: string) => {
@@ -257,7 +272,11 @@ export default function RemoteHostSelector({
         ) : (
           profileStatuses.map((profileStatus) => {
             const isConnecting = connecting === profileStatus.profile.id;
-            const currentFlavor = getSelectedFlavor(profileStatus.profile.id);
+            const isPersistent = profileStatus.profile.host_type === 'persistent';
+            const currentFlavor = getSelectedFlavor(
+              profileStatus.profile.id,
+              profileStatus.profile
+            );
             // Find the flavor_hosts group matching the selected flavor
             const currentFlavorGroup = profileStatus.flavor_hosts.find(
               (fg) => fg.flavor === currentFlavor
@@ -353,7 +372,9 @@ export default function RemoteHostSelector({
                       <line x1="5" y1="12" x2="19" y2="12" />
                     </svg>
                     <strong className="truncate">
-                      New {profileStatus.profile.display_name} host
+                      {isPersistent
+                        ? `Spawn on ${profileStatus.profile.display_name}`
+                        : `New ${profileStatus.profile.display_name} host`}
                     </strong>
                   </div>
                   <div
@@ -362,7 +383,13 @@ export default function RemoteHostSelector({
                       color: 'var(--color-text-muted)',
                     }}
                   >
-                    {profileStatus.profile.flavors.length > 1 ? (
+                    {isPersistent ? (
+                      hosts.some((h) => h.connected) ? (
+                        'Connected — will create new workspace'
+                      ) : (
+                        'Connect and create workspace'
+                      )
+                    ) : profileStatus.profile.flavors.length > 1 ? (
                       <select
                         className="select"
                         style={{ fontSize: '0.75rem', padding: '2px 4px' }}

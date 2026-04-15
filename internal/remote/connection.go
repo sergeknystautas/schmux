@@ -126,6 +126,7 @@ type ConnectionConfig struct {
 	ProvisionCommand string
 	HostnameRegex    string // Custom regex for hostname extraction (first capture group)
 	TmuxSocketName   string // Socket name for tmux isolation on remote host (default: "schmux")
+	HostType         string // "ephemeral" (default) | "persistent" — controls expiry and workspace creation
 	OnStatusChange   func(hostID, status string)
 	OnProgress       func(message string)
 	Logger           *log.Logger
@@ -145,6 +146,7 @@ func ConnectionConfigFromResolved(r config.ResolvedFlavor) ConnectionConfig {
 		ReconnectCommand: r.ReconnectCommand,
 		ProvisionCommand: r.ProvisionCommand,
 		HostnameRegex:    r.HostnameRegex,
+		HostType:         r.HostType,
 	}
 }
 
@@ -170,6 +172,12 @@ func NewConnection(cfg ConnectionConfig) *Connection {
 	hostID := fmt.Sprintf("remote-%s", uuid.New().String()[:8])
 	now := time.Now()
 
+	// Persistent hosts do not expire — set ExpiresAt to zero.
+	expiresAt := now.Add(DefaultHostExpiry)
+	if cfg.HostType == config.HostTypePersistent {
+		expiresAt = time.Time{}
+	}
+
 	conn := &Connection{
 		host: &state.RemoteHost{
 			ID:          hostID,
@@ -177,7 +185,8 @@ func NewConnection(cfg ConnectionConfig) *Connection {
 			Flavor:      cfg.Flavor,
 			Status:      state.RemoteHostStatusProvisioning,
 			ConnectedAt: now,
-			ExpiresAt:   now.Add(DefaultHostExpiry),
+			ExpiresAt:   expiresAt,
+			HostType:    cfg.HostType,
 		},
 		flavor: &config.RemoteFlavor{
 			ID:               cfg.ProfileID,
@@ -673,7 +682,10 @@ func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader) e
 	c.mu.Lock()
 	c.host.Status = state.RemoteHostStatusConnected
 	c.host.ConnectedAt = time.Now()
-	c.host.ExpiresAt = time.Now().Add(DefaultHostExpiry)
+	// Persistent hosts do not expire — keep ExpiresAt at zero.
+	if c.host.HostType != config.HostTypePersistent {
+		c.host.ExpiresAt = time.Now().Add(DefaultHostExpiry)
+	}
 	c.mu.Unlock()
 
 	c.notifyStatusChange()

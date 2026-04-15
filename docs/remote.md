@@ -165,28 +165,56 @@ Remote sessions support multiple version control systems (Git and Sapling) via t
 - **Why no auto-reconnect on daemon restart:** Reconnection typically requires interactive authentication (e.g., Yubikey touch). `MarkStaleHostsDisconnected()` marks all previously-connected hosts as disconnected at startup; the user explicitly clicks "Reconnect" in the dashboard.
 - **Why session reconciliation uses IDs only:** After reconnection, sessions are matched to remote tmux windows strictly by window ID or pane ID. Name-based matching is deliberately avoided because tmux window names can change and cause wrong matches.
 
-### Multi-instance hosts
+### Host types: ephemeral vs persistent
 
-A flavor is a template (what kind of host to provision). A host is an instance (a specific running machine). Multiple hosts can share the same flavor, so you can run isolated workspaces on separate machines of the same type.
+Remote profiles have a `host_type` field: `"ephemeral"` (default) or `"persistent"`. This controls the host-to-workspace cardinality and lifecycle.
+
+**Ephemeral hosts** (e.g., cloud instances provisioned on demand): each connection creates a new host with one workspace. The host expires after 12 hours.
 
 ```
-Flavor "www"  --->  Host remote-a1b2c3d4 (devvm1234)  --->  Sessions
-              --->  Host remote-e5f6g7h8 (devvm5678)  --->  Sessions
+Profile "cloud"  --->  Host remote-a1b2 (instance-1234)  --->  1 Workspace  --->  Sessions
+                 --->  Host remote-c3d4 (instance-5678)  --->  1 Workspace  --->  Sessions
+```
+
+**Persistent hosts** (e.g., long-lived dev servers): one SSH connection, multiple VCS-managed worktrees. Each agent spawn creates or reuses a worktree. The host never expires.
+
+```
+Profile "devserver"  --->  Host remote-e5f6 (myhost.example.com)
+                            ├── Workspace host-e5f6-ws-a1b2  (/home/user/ws/ws-a1b2)
+                            ├── Workspace host-e5f6-ws-c3d4  (/home/user/ws/ws-c3d4)
+                            └── Workspace host-e5f6-ws-e5f6  (/home/user/ws/ws-e5f6)
 ```
 
 **Architecture decisions:**
 
-- **Why separate flavor from host (1:N):** A 1:1 flavor-to-connection mapping forces all sessions on a flavor to share one machine. This defeats workspace isolation. `Manager.Connect()` always creates a new host, never reuses an existing connection for the flavor.
-- **Why host:workspace is 1:1:** Each remote host provides a single workspace. The host's filesystem is the workspace.
+- **Why explicit `host_type` field:** Inferring from config shape (no flavors? static hostname?) is fragile. An explicit field makes the behavior deterministic.
+- **Why separate flavor from host (1:N) for ephemeral:** A 1:1 flavor-to-connection mapping forces all sessions on a flavor to share one machine. This defeats workspace isolation. `Manager.Connect()` always creates a new host, never reuses an existing connection for the flavor.
+- **Why persistent hosts skip workspace creation on connect:** The connection is transport only. Workspaces are created at spawn time via `FindOrCreateWorkspace`, which supports smart reuse of idle+clean worktrees.
+- **Why smart workspace reuse instead of always-create:** Avoids worktree accumulation on persistent hosts. If an idle worktree has no uncommitted changes, it's safe to recycle (identical to local workspace recycling).
+- **Why per-host mutex for spawn and dispose:** Two concurrent spawns could otherwise both claim the same idle+clean workspace. The mutex covers both `FindOrCreateWorkspace` and `CleanupWorkspaceAfterDispose` to prevent spawn/dispose races.
+- **Why dirty-aware cleanup on dispose:** Dirty worktrees contain irreplaceable uncommitted work. Clean worktrees are reproducible. Auto-removing clean worktrees keeps the host tidy without risking data loss.
+- **Why zero ExpiresAt for persistent hosts:** The `PruneExpiredHosts` logic checks `!host.ExpiresAt.IsZero()` before pruning. Zero means "never expire." `MarkStaleHostsDisconnected` also guards with `IsZero()` to correctly mark persistent hosts as disconnected after daemon restart.
+- **Why HostType is stored in `RemoteHost` state:** Resilient to config changes. If the profile is deleted while workspaces exist, the host state still knows how to behave for dispose/cleanup decisions.
+- **Why `RemoteVCSCommands` is separate from global `SaplingCommands`:** Local and remote VCS commands may differ (different paths, binaries). Per-profile `remote_vcs_commands` avoids scoping confusion.
+- **Why `repo_base_path` is required for persistent hosts:** `git worktree add` must run from inside an existing repo. For sapling, the base repo path is used as the clone source. Without this field, worktree creation would fail silently.
 - **Why UUID identity, not hostname:** The host ID (`remote-{uuid8}`) is generated at provision start, before the hostname is known. Hostname is a display field populated asynchronously.
-- **Why RemoteHost and Workspace stay separate:** Different lifecycle state machines. `RemoteHost` tracks infrastructure (hostname, expiry, connection state). `Workspace` tracks code context (repo, branch, path). The 1:1 relationship is maintained via `Workspace.RemoteHostID`.
-- **Why expired workspaces persist:** When TTL expires, the workspace card stays with an "expired" badge. Session history is preserved until the user dismisses it.
+- **Why RemoteHost and Workspace stay separate:** Different lifecycle state machines. `RemoteHost` tracks infrastructure (hostname, expiry, connection state). `Workspace` tracks code context (repo, branch, path). Ephemeral hosts maintain 1:1 via `Workspace.RemoteHostID`; persistent hosts are 1:N.
+
+**Key files for persistent hosts:**
+
+| File                               | Purpose                                                                     |
+| ---------------------------------- | --------------------------------------------------------------------------- |
+| `internal/remote/workspace_vcs.go` | Remote VCS operations: create/remove worktree, check dirty (via RunCommand) |
+| `internal/remote/manager.go`       | `FindOrCreateWorkspace`, `CleanupWorkspaceAfterDispose`, per-host mutex     |
+| `internal/config/config.go`        | `RemoteVCSCommands` struct, `RemoteProfile.IsPersistent()`, validation      |
 
 **Key data model:**
 
 - `Manager.connections` is `map[string]*Connection` keyed by host ID. `GetConnectionsByFlavorID()` returns all connections for a flavor.
 - `Session.RemoteHostID` -> `remote.Manager.GetConnection(hostID)` -> `*Connection`.
-- `ensureWorkspaceForHost()` creates the workspace immediately when a host is created.
+- `ensureWorkspaceForHost()` creates the workspace immediately when an ephemeral host is created; no-op for persistent hosts.
+- `Manager.hostWorkspaceMu` is `map[string]*sync.Mutex` — per-host mutex for workspace lifecycle operations.
+- `ResolveProfileFlavor()` handles persistent profiles with no flavors by building `ResolvedFlavor` directly from profile-level fields.
 
 ### Typing profiling
 
@@ -217,8 +245,12 @@ sendKeys:  |---mutexWait---|---executeNet (stdin + FIFO)---|---classify overhead
 - After `controlModeEstablished` is set to true, hostname extraction from PTY output stops.
 - `Connection.Close()` uses `sync.Once` so it is safe to call from both `monitorProcess` and explicit disconnect.
 - Pending sessions are queued during connection setup and drained once control mode is ready.
-- Host expiry defaults to 12 hours (`DefaultHostExpiry`). `PruneExpiredHosts()` runs periodically.
-- `Manager.Connect()` always creates a new host. There is no "reuse existing connection for this flavor" path.
+- Host expiry defaults to 12 hours (`DefaultHostExpiry`) for ephemeral hosts. Persistent hosts have zero `ExpiresAt` (no expiry). `PruneExpiredHosts()` runs periodically but skips zero-expiry hosts.
+- `Manager.Connect()` always creates a new host for ephemeral profiles. There is no "reuse existing connection for this flavor" path. Persistent hosts reuse workspaces, not connections.
+- `ExpiresAt` is set in two code locations (`NewConnection` and `waitForControlMode`). Both must check `HostType` before setting the value. Missing either creates a 12h time bomb that silently prunes a persistent host.
+- `MarkStaleHostsDisconnected()` must guard with `!host.ExpiresAt.IsZero()` — without it, persistent hosts (zero time = year 0001) are always `Before(now)` and get skipped, leaving ghost "connected" hosts after daemon restart.
+- `ResolveProfileFlavor()` errors on empty flavors for ephemeral profiles. Persistent profiles with no flavors take a separate early-return path. If you add a new caller, ensure it handles the empty-flavor case.
+- Persistent host workspace IDs are auto-generated (`{hostID}-ws-{uuid6}`), not derived from host ID. Multiple workspaces reference the same `RemoteHostID`.
 - `SetConnectCancel` must be called BEFORE the connect goroutine starts. If `Close()` races, the cancel never fires and the goroutine blocks for the full 5-minute timeout.
 - The `max(0, execDur - mutexWait)` guard in `Client.SendKeys` prevents negative `ExecuteNet` values from macOS clock granularity edge cases.
 - The health probe goroutine in `RemoteSource` subscribes to output BEFORE launching the probe. Reversing this order drops terminal output during the jitter window.
@@ -236,33 +268,67 @@ sendKeys:  |---mutexWait---|---executeNet (stdin + FIFO)---|---classify overhead
 
 ### Configuration
 
-Remote flavors are configured in `~/.schmux/config.json` under `remote_flavors`:
+Remote profiles are configured in `~/.schmux/config.json` under `remote_profiles`:
+
+Ephemeral host (default):
 
 ```json
 {
-  "remote_flavors": [
+  "remote_profiles": [
     {
-      "id": "my-remote",
-      "flavor": "gpu-large",
-      "display_name": "GPU Instance",
-      "connect_command": "ssh -t {{.Flavor}} tmux -CC new-session",
-      "reconnect_command": "ssh -t {{.Hostname}} tmux -CC attach",
-      "provision_command": "cd {{.WorkspacePath}} && git pull",
-      "workspace_path": "/home/user/project",
+      "id": "my-cloud",
+      "display_name": "Cloud Instance",
       "vcs": "git",
-      "hostname_regex": "Connecting to (\\S+)"
+      "workspace_path": "/home/user/project",
+      "connect_command": "ssh -t {{.Flavor}} --",
+      "reconnect_command": "ssh -t {{.Hostname}} --",
+      "hostname_regex": "Connecting to (\\S+)",
+      "flavors": [{ "flavor": "gpu-large", "display_name": "GPU Large" }]
     }
   ]
 }
 ```
 
+Persistent host:
+
+```json
+{
+  "remote_profiles": [
+    {
+      "id": "my-server",
+      "display_name": "Dev Server",
+      "host_type": "persistent",
+      "vcs": "git",
+      "repo_base_path": "/home/user/myproject",
+      "workspace_path_template": "/home/user/schmux-ws/{{.WorkspaceID}}",
+      "connect_command": "ssh user@myhost.example.com --",
+      "reconnect_command": "ssh user@myhost.example.com --",
+      "hostname_regex": "(myhost\\.example\\.com)"
+    }
+  ]
+}
+```
+
+Persistent host fields:
+
+| Field                     | Required | Description                                                             |
+| ------------------------- | -------- | ----------------------------------------------------------------------- |
+| `host_type`               | Yes      | Must be `"persistent"`                                                  |
+| `repo_base_path`          | Yes      | Path to the source repo on the remote host (cwd for `git worktree add`) |
+| `workspace_path_template` | Yes      | Go template with `{{.WorkspaceID}}` for new worktree paths              |
+| `remote_vcs_commands`     | No       | Custom VCS command templates (defaults derived from `vcs` field)        |
+
+The `remote_vcs_commands` object supports three optional fields: `create_worktree`, `remove_worktree`, `check_dirty`. Each is a Go template. See `RemoteVCSCommands.GetCreateWorktree()` in `internal/config/config.go` for defaults.
+
 ### Test coverage
 
-| Test file                                    | Scope                                                                          |
-| -------------------------------------------- | ------------------------------------------------------------------------------ |
-| `internal/remote/manager_test.go`            | Multi-host connection lifecycle, flavor status, reconnection, expiry           |
-| `internal/remote/connection_test.go`         | Connect/reconnect, PTY management, provisioning, health probe                  |
-| `internal/remote/controlmode/parser_test.go` | Protocol parsing, edge cases                                                   |
-| `internal/remote/controlmode/client_test.go` | Command execution, FIFO correlation, stale response handling, SendKeys timings |
-| `internal/session/remotesource_test.go`      | RemoteSource event forwarding, health probe lifecycle                          |
-| `internal/session/controlsource_test.go`     | ControlSource interface compliance                                             |
+| Test file                                    | Scope                                                                                                          |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `internal/remote/manager_test.go`            | Multi-host lifecycle, flavor status, reconnection, expiry, persistent host workspace find/create/cleanup/mutex |
+| `internal/remote/workspace_vcs_test.go`      | Remote VCS template resolution for git, sapling, custom overrides                                              |
+| `internal/remote/connection_test.go`         | Connect/reconnect, PTY management, provisioning, health probe                                                  |
+| `internal/remote/controlmode/parser_test.go` | Protocol parsing, edge cases                                                                                   |
+| `internal/remote/controlmode/client_test.go` | Command execution, FIFO correlation, stale response handling, SendKeys timings                                 |
+| `internal/config/remote_profile_test.go`     | Profile CRUD, flavor resolution, persistent host validation, RemoteVCSCommands defaults                        |
+| `internal/session/remotesource_test.go`      | RemoteSource event forwarding, health probe lifecycle                                                          |
+| `internal/session/controlsource_test.go`     | ControlSource interface compliance                                                                             |

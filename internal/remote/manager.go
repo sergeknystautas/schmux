@@ -1,13 +1,18 @@
 package remote
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"strings"
 	"sync"
+	"text/template"
 	"time"
 
 	"github.com/charmbracelet/log"
+	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
@@ -21,6 +26,12 @@ type Manager struct {
 	connections map[string]*Connection // hostID -> connection
 	mu          sync.RWMutex
 
+	// Per-host mutex for workspace find-or-create and dispose operations.
+	// Prevents concurrent spawns from claiming the same idle workspace,
+	// and prevents dispose from removing a workspace that spawn is evaluating.
+	hostWorkspaceMu   map[string]*sync.Mutex
+	hostWorkspaceMuMu sync.Mutex // protects hostWorkspaceMu map
+
 	// Callback for state updates
 	onStateChange func()
 	// Callback when a remote host connects or reconnects
@@ -32,11 +43,24 @@ type Manager struct {
 // NewManager creates a new remote host manager.
 func NewManager(cfg *config.Config, st state.StateStore, logger *log.Logger) *Manager {
 	return &Manager{
-		config:      cfg,
-		state:       st,
-		logger:      logger,
-		connections: make(map[string]*Connection),
+		config:          cfg,
+		state:           st,
+		logger:          logger,
+		connections:     make(map[string]*Connection),
+		hostWorkspaceMu: make(map[string]*sync.Mutex),
 	}
+}
+
+// getHostMutex returns the per-host mutex for workspace operations, creating it lazily.
+func (m *Manager) getHostMutex(hostID string) *sync.Mutex {
+	m.hostWorkspaceMuMu.Lock()
+	defer m.hostWorkspaceMuMu.Unlock()
+	mu, ok := m.hostWorkspaceMu[hostID]
+	if !ok {
+		mu = &sync.Mutex{}
+		m.hostWorkspaceMu[hostID] = mu
+	}
+	return mu
 }
 
 // SetStateChangeCallback sets a callback for when remote host state changes.
@@ -391,6 +415,12 @@ func (m *Manager) Reconnect(ctx context.Context, hostID string) (*Connection, er
 		// Don't fail reconnection if reconciliation fails
 	}
 
+	// For persistent hosts, refresh VCS state for all workspaces.
+	// Agents may have been running during the disconnect, changing files and commits.
+	if resolved.HostType == config.HostTypePersistent {
+		m.refreshPersistentHostWorkspaces(ctx, conn, hostID)
+	}
+
 	// Update state
 	m.state.UpdateRemoteHost(conn.Host())
 	if err := m.state.Save(); err != nil {
@@ -539,7 +569,13 @@ func (m *Manager) handleStatusChange(hostID, status string) {
 // ensureWorkspaceForHost creates a workspace for a remote host if one doesn't
 // already exist. This is called immediately when a host is created (not deferred
 // to SpawnRemote) so the workspace appears on the home page right away.
+// For persistent hosts, workspace creation is deferred to spawn time — no
+// workspace is created on connect.
 func (m *Manager) ensureWorkspaceForHost(host state.RemoteHost, resolved config.ResolvedFlavor) {
+	if resolved.HostType == config.HostTypePersistent {
+		return // Persistent hosts create workspaces at spawn time, not connect time.
+	}
+
 	workspaceID := host.ID
 	if _, found := m.state.GetWorkspace(workspaceID); found {
 		return // Already exists
@@ -561,6 +597,216 @@ func (m *Manager) ensureWorkspaceForHost(host state.RemoteHost, resolved config.
 	if err := m.workspaceManager.AddWorkspaceWithTabs(ws); err != nil {
 		m.logger.Warn("failed to add workspace for remote host", "host", host.ID, "err", err)
 	}
+}
+
+// FindOrCreateWorkspace finds an idle+clean workspace on a persistent host, or creates a new one.
+// Protected by a per-host mutex to prevent concurrent spawns from claiming the same workspace.
+// hasActiveSessions is a predicate that returns true if the given workspace has running sessions.
+func (m *Manager) FindOrCreateWorkspace(
+	ctx context.Context,
+	host state.RemoteHost,
+	resolved config.ResolvedFlavor,
+	client *controlmode.Client,
+	hasActiveSessions func(workspaceID string) bool,
+) (state.Workspace, error) {
+	return m.findOrCreateWorkspaceWith(ctx, host, resolved, &controlModeVCSExecutor{client: client}, hasActiveSessions)
+}
+
+// findOrCreateWorkspaceWith is the internal implementation, accepting a remoteVCSExecutor for testability.
+func (m *Manager) findOrCreateWorkspaceWith(
+	ctx context.Context,
+	host state.RemoteHost,
+	resolved config.ResolvedFlavor,
+	vcs remoteVCSExecutor,
+	hasActiveSessions func(workspaceID string) bool,
+) (state.Workspace, error) {
+	mu := m.getHostMutex(host.ID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Look for an existing idle+clean workspace to reuse.
+	workspaces := m.state.GetWorkspacesByRemoteHostID(host.ID)
+	for _, ws := range workspaces {
+		if hasActiveSessions(ws.ID) {
+			continue // In use
+		}
+		dirty, err := vcs.checkDirty(ctx, resolved, ws.RemotePath)
+		if err != nil {
+			if m.logger != nil {
+				m.logger.Warn("failed to check dirty state for workspace, skipping", "ws", ws.ID, "err", err)
+			}
+			continue
+		}
+		if !dirty {
+			if m.logger != nil {
+				m.logger.Info("reusing idle+clean workspace", "ws", ws.ID, "host", host.ID)
+			}
+			return ws, nil
+		}
+	}
+
+	// No reusable workspace — create a new one.
+	workspaceID := fmt.Sprintf("%s-ws-%s", host.ID, uuid.New().String()[:6])
+	destPath, err := resolveWorkspacePathTemplate(resolved.WorkspacePathTemplate, workspaceID)
+	if err != nil {
+		return state.Workspace{}, fmt.Errorf("resolve workspace path template: %w", err)
+	}
+
+	if m.logger != nil {
+		m.logger.Info("creating new remote worktree", "ws", workspaceID, "path", destPath, "host", host.ID)
+	}
+
+	if err := vcs.createWorktree(ctx, resolved, workspaceID, destPath); err != nil {
+		return state.Workspace{}, fmt.Errorf("create remote worktree: %w", err)
+	}
+
+	ws := state.Workspace{
+		ID:           workspaceID,
+		Repo:         resolved.ProfileDisplayName,
+		Branch:       host.Hostname,
+		Path:         destPath,
+		VCS:          resolved.VCS,
+		RemoteHostID: host.ID,
+		RemotePath:   destPath,
+	}
+	if err := m.workspaceManager.AddWorkspaceWithTabs(ws); err != nil {
+		return state.Workspace{}, fmt.Errorf("add workspace to state: %w", err)
+	}
+
+	m.notifyStateChange()
+	return ws, nil
+}
+
+// CleanupWorkspaceAfterDispose handles worktree cleanup when a session on a persistent
+// host is disposed. Removes clean worktrees, preserves dirty ones.
+// Uses the same per-host mutex as FindOrCreateWorkspace.
+func (m *Manager) CleanupWorkspaceAfterDispose(
+	ctx context.Context,
+	host state.RemoteHost,
+	ws state.Workspace,
+	resolved config.ResolvedFlavor,
+	hasActiveSessions func(workspaceID string) bool,
+) {
+	if host.HostType != config.HostTypePersistent {
+		return
+	}
+
+	// Check if host is connected — need a live connection for remote commands.
+	conn := m.GetConnection(host.ID)
+	if conn == nil {
+		if m.logger != nil {
+			m.logger.Debug("host disconnected, skipping workspace cleanup", "ws", ws.ID, "host", host.ID)
+		}
+		return
+	}
+
+	client := conn.Client()
+	if client == nil {
+		return
+	}
+
+	m.cleanupWorkspaceWith(ctx, host, ws, resolved, &controlModeVCSExecutor{client: client}, hasActiveSessions)
+}
+
+// cleanupWorkspaceWith is the internal implementation, accepting a remoteVCSExecutor for testability.
+func (m *Manager) cleanupWorkspaceWith(
+	ctx context.Context,
+	host state.RemoteHost,
+	ws state.Workspace,
+	resolved config.ResolvedFlavor,
+	vcs remoteVCSExecutor,
+	hasActiveSessions func(workspaceID string) bool,
+) {
+	mu := m.getHostMutex(host.ID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	if hasActiveSessions(ws.ID) {
+		return // Other sessions still using this workspace
+	}
+
+	// Use a bounded timeout for the dirty check.
+	dirtyCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	dirty, err := vcs.checkDirty(dirtyCtx, resolved, ws.RemotePath)
+	if err != nil {
+		if m.logger != nil {
+			m.logger.Warn("dirty check failed, preserving worktree", "ws", ws.ID, "err", err)
+		}
+		return // Err on the side of preserving work
+	}
+	if dirty {
+		if m.logger != nil {
+			m.logger.Info("worktree has uncommitted changes, preserving", "ws", ws.ID)
+		}
+		return
+	}
+
+	// Clean — safe to remove.
+	if m.logger != nil {
+		m.logger.Info("removing clean worktree", "ws", ws.ID, "path", ws.RemotePath)
+	}
+	if err := vcs.removeWorktree(ctx, resolved, ws.RemotePath); err != nil {
+		if m.logger != nil {
+			m.logger.Warn("failed to remove remote worktree", "ws", ws.ID, "err", err)
+		}
+		return
+	}
+	m.state.RemoveWorkspace(ws.ID)
+	m.notifyStateChange()
+}
+
+// refreshPersistentHostWorkspaces refreshes VCS state for all workspaces on a persistent host
+// after reconnection. Agents keep running in tmux during SSH drops, so workspace state
+// (changed files, branch info) may have changed.
+func (m *Manager) refreshPersistentHostWorkspaces(ctx context.Context, conn *Connection, hostID string) {
+	workspaces := m.state.GetWorkspacesByRemoteHostID(hostID)
+	if len(workspaces) == 0 {
+		return
+	}
+
+	client := conn.Client()
+	if client == nil {
+		return
+	}
+
+	for _, ws := range workspaces {
+		// Check if workspace path still exists on remote.
+		output, err := client.RunCommand(ctx, "/", fmt.Sprintf("test -d %s && echo exists", ws.RemotePath))
+		if err != nil || strings.TrimSpace(output) == "" {
+			if m.logger != nil {
+				m.logger.Info("workspace path no longer exists on remote, cleaning up", "ws", ws.ID, "path", ws.RemotePath)
+			}
+			m.state.RemoveWorkspace(ws.ID)
+			continue
+		}
+
+		// Refresh VCS state (changed files, branch info, diff stats).
+		// This repopulates dashboard tabs that went stale during disconnect.
+		if m.workspaceManager != nil {
+			if _, err := m.workspaceManager.UpdateVCSStatus(ctx, ws.ID); err != nil {
+				if m.logger != nil {
+					m.logger.Warn("failed to refresh VCS status for workspace", "ws", ws.ID, "err", err)
+				}
+			} else if m.logger != nil {
+				m.logger.Debug("refreshed VCS status for persistent workspace", "ws", ws.ID)
+			}
+		}
+	}
+}
+
+// resolveWorkspacePathTemplate resolves the workspace path template with the given workspace ID.
+func resolveWorkspacePathTemplate(tmplStr, workspaceID string) (string, error) {
+	t, err := template.New("wspath").Parse(tmplStr)
+	if err != nil {
+		return "", err
+	}
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, struct{ WorkspaceID string }{workspaceID}); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
 
 // notifyStateChange calls the state change callback if set.
@@ -798,8 +1044,10 @@ func (m *Manager) MarkStaleHostsDisconnected() int {
 			continue
 		}
 
-		// Skip expired hosts (handled separately by PruneExpiredHosts)
-		if host.ExpiresAt.Before(time.Now()) {
+		// Skip expired hosts (handled separately by PruneExpiredHosts).
+		// Persistent hosts have zero ExpiresAt — the IsZero() guard prevents
+		// them from being skipped (time.Time{}.Before(now) is always true).
+		if !host.ExpiresAt.IsZero() && host.ExpiresAt.Before(time.Now()) {
 			if m.logger != nil {
 				m.logger.Debug("skipping expired host", "host_id", host.ID, "hostname", host.Hostname)
 			}

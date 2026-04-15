@@ -59,6 +59,7 @@ func toProfileResponse(p config.RemoteProfile) RemoteProfileResponse {
 		HostnameRegex:         p.HostnameRegex,
 		VSCodeCommandTemplate: p.VSCodeCommandTemplate,
 		Flavors:               flavors,
+		HostType:              p.HostType,
 	}
 }
 
@@ -275,6 +276,7 @@ func (h *RemoteHandlers) handleRemoteHosts(w http.ResponseWriter, r *http.Reques
 			ConnectedAt:           rh.ConnectedAt.Format("2006-01-02T15:04:05Z07:00"),
 			ExpiresAt:             rh.ExpiresAt.Format("2006-01-02T15:04:05Z07:00"),
 			ProvisioningSessionID: provisioningSessionID,
+			HostType:              rh.HostType,
 		}
 	}
 

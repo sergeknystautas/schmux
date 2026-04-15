@@ -12,6 +12,7 @@ type RemoteProfileResponse struct {
 	HostnameRegex         string                `json:"hostname_regex,omitempty"`
 	VSCodeCommandTemplate string                `json:"vscode_command_template,omitempty"`
 	Flavors               []RemoteProfileFlavor `json:"flavors"`
+	HostType              string                `json:"host_type,omitempty"` // "ephemeral" (default) | "persistent"
 }
 
 // RemoteFlavorResponse represents a remote flavor in API responses.
@@ -43,6 +44,7 @@ type RemoteHostResponse struct {
 	ConnectedAt           string `json:"connected_at,omitempty"`
 	ExpiresAt             string `json:"expires_at,omitempty"`
 	ProvisioningSessionID string `json:"provisioning_session_id,omitempty"` // Local tmux session for interactive provisioning terminal
+	HostType              string `json:"host_type,omitempty"`               // "ephemeral" | "persistent"
 }
 
 // RemoteProfileStatusResponse represents a profile with the status of all its hosts.

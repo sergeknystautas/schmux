@@ -3650,10 +3650,14 @@ Response:
         "workspace_path": "/home/user/large-workspaces",
         "provision_command": "setup-large.sh"
       }
-    ]
+    ],
+    "host_type": "ephemeral"
   }
 ]
 ```
+
+- `host_type`: `"ephemeral"` (default, omitted when empty) or `"persistent"`. Persistent hosts support multiple workspaces per connection and do not expire.
+- Persistent profiles include additional fields: `repo_base_path` (source repo path on host), `workspace_path_template` (Go template with `{{.WorkspaceID}}`), and optional `remote_vcs_commands` (custom VCS command templates).
 
 ### POST /api/config/remote-profiles
 
@@ -3764,7 +3768,8 @@ Response:
     "vcs": "git",
     "connected_at": "2025-01-15T10:00:00Z",
     "expires_at": "2025-01-16T10:00:00Z",
-    "provisioning_session_id": ""
+    "provisioning_session_id": "",
+    "host_type": "ephemeral"
   }
 ]
 ```
@@ -3773,6 +3778,7 @@ Notes:
 
 - `display_name` and `vcs` are resolved from the profile and flavor configuration
 - `provisioning_session_id` is set when a provisioning terminal is active (for WebSocket connection)
+- `host_type` is `"ephemeral"` (default) or `"persistent"`. Persistent hosts have zero `expires_at` and support multiple workspaces per connection
 
 ### POST /api/remote/hosts/connect
 

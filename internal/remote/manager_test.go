@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -795,5 +796,590 @@ func TestManager_ConnectMultipleHostsSameFlavor(t *testing.T) {
 	}
 	if hosts[0].ID == hosts[1].ID {
 		t.Fatalf("expected different host IDs")
+	}
+}
+
+func TestNewConnection_PersistentHostNoExpiry(t *testing.T) {
+	conn := NewConnection(ConnectionConfig{
+		ProfileID:     "devserver",
+		DisplayName:   "Dev Server",
+		WorkspacePath: "/home/user/repo",
+		VCS:           "git",
+		HostType:      config.HostTypePersistent,
+	})
+
+	host := conn.Host()
+	if !host.ExpiresAt.IsZero() {
+		t.Errorf("persistent host should have zero ExpiresAt, got %v", host.ExpiresAt)
+	}
+	if host.HostType != config.HostTypePersistent {
+		t.Errorf("HostType: got %q, want %q", host.HostType, config.HostTypePersistent)
+	}
+}
+
+func TestNewConnection_EphemeralHostHasExpiry(t *testing.T) {
+	before := time.Now()
+	conn := NewConnection(ConnectionConfig{
+		ProfileID:     "od",
+		Flavor:        "gpu",
+		DisplayName:   "OD",
+		WorkspacePath: "/tmp",
+		VCS:           "git",
+	})
+	after := time.Now()
+
+	host := conn.Host()
+	if host.ExpiresAt.IsZero() {
+		t.Error("ephemeral host should have non-zero ExpiresAt")
+	}
+	if host.ExpiresAt.Before(before.Add(DefaultHostExpiry)) {
+		t.Error("ExpiresAt too early")
+	}
+	if host.ExpiresAt.After(after.Add(DefaultHostExpiry).Add(time.Second)) {
+		t.Error("ExpiresAt too late")
+	}
+}
+
+func TestEnsureWorkspaceForHost_SkipsPersistent(t *testing.T) {
+	cfg := &config.Config{}
+	st := &state.State{
+		Workspaces:  []state.Workspace{},
+		Sessions:    []state.Session{},
+		RemoteHosts: []state.RemoteHost{},
+	}
+	mgr := NewManager(cfg, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
+
+	host := state.RemoteHost{
+		ID:       "persistent-host",
+		HostType: config.HostTypePersistent,
+	}
+	resolved := config.ResolvedFlavor{
+		HostType:      config.HostTypePersistent,
+		WorkspacePath: "/home/user/ws",
+	}
+
+	mgr.ensureWorkspaceForHost(host, resolved)
+
+	// No workspace should have been created
+	if _, found := st.GetWorkspace("persistent-host"); found {
+		t.Error("persistent host should NOT have a workspace created on connect")
+	}
+}
+
+func TestEnsureWorkspaceForHost_CreatesForEphemeral(t *testing.T) {
+	cfg := &config.Config{}
+	st := &state.State{
+		Workspaces:  []state.Workspace{},
+		Sessions:    []state.Session{},
+		RemoteHosts: []state.RemoteHost{},
+	}
+	mgr := NewManager(cfg, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
+
+	host := state.RemoteHost{
+		ID:       "ephemeral-host",
+		Hostname: "eph.example.com",
+	}
+	resolved := config.ResolvedFlavor{
+		FlavorDisplayName: "GPU Large",
+		WorkspacePath:     "/tmp/workspace",
+	}
+
+	mgr.ensureWorkspaceForHost(host, resolved)
+
+	// Workspace should have been created
+	ws, found := st.GetWorkspace("ephemeral-host")
+	if !found {
+		t.Fatal("ephemeral host should have workspace created on connect")
+	}
+	if ws.Path != "/tmp/workspace" {
+		t.Errorf("workspace path: got %q, want %q", ws.Path, "/tmp/workspace")
+	}
+}
+
+func TestMarkStaleHostsDisconnected_PersistentHosts(t *testing.T) {
+	cfg := &config.Config{}
+	now := time.Now()
+
+	st := &state.State{
+		Workspaces: []state.Workspace{},
+		Sessions:   []state.Session{},
+		RemoteHosts: []state.RemoteHost{
+			{
+				ID:          "persistent-1",
+				ProfileID:   "devserver",
+				Hostname:    "dev.example.com",
+				Status:      state.RemoteHostStatusConnected,
+				ConnectedAt: now.Add(-2 * time.Hour),
+				ExpiresAt:   time.Time{}, // zero — persistent
+				HostType:    config.HostTypePersistent,
+			},
+			{
+				ID:          "ephemeral-1",
+				ProfileID:   "od",
+				Hostname:    "od.example.com",
+				Status:      state.RemoteHostStatusConnected,
+				ConnectedAt: now,
+				ExpiresAt:   now.Add(10 * time.Hour), // still valid
+			},
+		},
+	}
+
+	mgr := NewManager(cfg, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
+
+	count := mgr.MarkStaleHostsDisconnected()
+
+	// Both should be marked disconnected (both are stale after daemon restart)
+	if count != 2 {
+		t.Errorf("expected 2 hosts marked stale, got %d", count)
+	}
+
+	host1, _ := st.GetRemoteHost("persistent-1")
+	if host1.Status != state.RemoteHostStatusDisconnected {
+		t.Errorf("persistent host should be disconnected, got %q", host1.Status)
+	}
+
+	host2, _ := st.GetRemoteHost("ephemeral-1")
+	if host2.Status != state.RemoteHostStatusDisconnected {
+		t.Errorf("ephemeral host should be disconnected, got %q", host2.Status)
+	}
+}
+
+func TestResolveWorkspacePathTemplate(t *testing.T) {
+	tests := []struct {
+		name    string
+		tmpl    string
+		id      string
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "basic",
+			tmpl: "/home/user/schmux-ws/{{.WorkspaceID}}",
+			id:   "ws-abc123",
+			want: "/home/user/schmux-ws/ws-abc123",
+		},
+		{
+			name: "nested path",
+			tmpl: "/data/users/{{.WorkspaceID}}/fbsource",
+			id:   "remote-xyz-ws-001",
+			want: "/data/users/remote-xyz-ws-001/fbsource",
+		},
+		{
+			name:    "invalid template",
+			tmpl:    "/home/{{.WorkspaceID",
+			id:      "ws-001",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolveWorkspacePathTemplate(tt.tmpl, tt.id)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetHostMutex_LazyCreation(t *testing.T) {
+	cfg := &config.Config{}
+	st := &state.State{}
+	mgr := NewManager(cfg, st, nil)
+
+	mu1 := mgr.getHostMutex("host-1")
+	mu2 := mgr.getHostMutex("host-1")
+	mu3 := mgr.getHostMutex("host-2")
+
+	if mu1 != mu2 {
+		t.Error("same host ID should return same mutex")
+	}
+	if mu1 == mu3 {
+		t.Error("different host IDs should return different mutexes")
+	}
+}
+
+func TestPruneExpiredHosts_SkipsPersistent(t *testing.T) {
+	cfg := &config.Config{}
+	now := time.Now()
+
+	st := &state.State{
+		Workspaces: []state.Workspace{},
+		Sessions:   []state.Session{},
+		RemoteHosts: []state.RemoteHost{
+			{
+				ID:          "persistent-1",
+				ProfileID:   "devserver",
+				Hostname:    "dev.example.com",
+				Status:      state.RemoteHostStatusDisconnected,
+				ConnectedAt: now.Add(-24 * time.Hour),
+				ExpiresAt:   time.Time{}, // zero — persistent, should NOT be pruned
+				HostType:    config.HostTypePersistent,
+			},
+			{
+				ID:          "ephemeral-expired",
+				ProfileID:   "od",
+				Hostname:    "expired.example.com",
+				Status:      state.RemoteHostStatusDisconnected,
+				ConnectedAt: now.Add(-24 * time.Hour),
+				ExpiresAt:   now.Add(-1 * time.Hour), // expired
+			},
+		},
+	}
+
+	mgr := NewManager(cfg, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
+
+	mgr.PruneExpiredHosts()
+
+	// Persistent host should still exist
+	if _, found := st.GetRemoteHost("persistent-1"); !found {
+		t.Error("persistent host should NOT be pruned")
+	}
+
+	// Expired ephemeral host should be removed
+	if _, found := st.GetRemoteHost("ephemeral-expired"); found {
+		t.Error("expired ephemeral host should be pruned")
+	}
+}
+
+// mockVCS implements remoteVCSExecutor for testing.
+type mockVCS struct {
+	dirtyPaths  map[string]bool // path -> dirty
+	createCalls []string        // destPaths passed to createWorktree
+	removeCalls []string        // paths passed to removeWorktree
+	checkErr    error           // error to return from checkDirty
+	createErr   error           // error to return from createWorktree
+	mu          sync.Mutex
+}
+
+func (m *mockVCS) checkDirty(_ context.Context, _ config.ResolvedFlavor, workspacePath string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.checkErr != nil {
+		return false, m.checkErr
+	}
+	return m.dirtyPaths[workspacePath], nil
+}
+
+func (m *mockVCS) createWorktree(_ context.Context, _ config.ResolvedFlavor, _ string, destPath string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.createCalls = append(m.createCalls, destPath)
+	return m.createErr
+}
+
+func (m *mockVCS) removeWorktree(_ context.Context, _ config.ResolvedFlavor, workspacePath string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.removeCalls = append(m.removeCalls, workspacePath)
+	return nil
+}
+
+func persistentResolved() config.ResolvedFlavor {
+	return config.ResolvedFlavor{
+		ProfileID:             "devserver",
+		ProfileDisplayName:    "Dev Server",
+		HostType:              config.HostTypePersistent,
+		VCS:                   "git",
+		RepoBasePath:          "/home/user/repo",
+		WorkspacePathTemplate: "/home/user/ws/{{.WorkspaceID}}",
+	}
+}
+
+func TestFindOrCreateWorkspace_CreatesNewWhenNoneExist(t *testing.T) {
+	st := &state.State{
+		Workspaces:  []state.Workspace{},
+		Sessions:    []state.Session{},
+		RemoteHosts: []state.RemoteHost{},
+	}
+	mgr := NewManager(&config.Config{}, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
+
+	vcs := &mockVCS{dirtyPaths: map[string]bool{}}
+	host := state.RemoteHost{ID: "host-1", Hostname: "dev.example.com", HostType: config.HostTypePersistent}
+	noActive := func(string) bool { return false }
+
+	ws, err := mgr.findOrCreateWorkspaceWith(context.Background(), host, persistentResolved(), vcs, noActive)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ws.RemoteHostID != "host-1" {
+		t.Errorf("RemoteHostID: got %q, want %q", ws.RemoteHostID, "host-1")
+	}
+	if len(vcs.createCalls) != 1 {
+		t.Errorf("expected 1 create call, got %d", len(vcs.createCalls))
+	}
+	// Workspace should be in state
+	if _, found := st.GetWorkspace(ws.ID); !found {
+		t.Error("workspace should be in state after creation")
+	}
+}
+
+func TestFindOrCreateWorkspace_ReusesIdleClean(t *testing.T) {
+	st := &state.State{
+		Workspaces: []state.Workspace{
+			{ID: "ws-idle", RemoteHostID: "host-1", RemotePath: "/home/user/ws/ws-idle"},
+		},
+		Sessions:    []state.Session{},
+		RemoteHosts: []state.RemoteHost{},
+	}
+	mgr := NewManager(&config.Config{}, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
+
+	vcs := &mockVCS{dirtyPaths: map[string]bool{"/home/user/ws/ws-idle": false}}
+	host := state.RemoteHost{ID: "host-1", HostType: config.HostTypePersistent}
+	noActive := func(string) bool { return false }
+
+	ws, err := mgr.findOrCreateWorkspaceWith(context.Background(), host, persistentResolved(), vcs, noActive)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ws.ID != "ws-idle" {
+		t.Errorf("expected reuse of ws-idle, got %q", ws.ID)
+	}
+	if len(vcs.createCalls) != 0 {
+		t.Errorf("should not create new worktree when reusing, got %d creates", len(vcs.createCalls))
+	}
+}
+
+func TestFindOrCreateWorkspace_SkipsDirtyCreatesNew(t *testing.T) {
+	st := &state.State{
+		Workspaces: []state.Workspace{
+			{ID: "ws-dirty", RemoteHostID: "host-1", RemotePath: "/home/user/ws/ws-dirty"},
+		},
+		Sessions:    []state.Session{},
+		RemoteHosts: []state.RemoteHost{},
+	}
+	mgr := NewManager(&config.Config{}, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
+
+	vcs := &mockVCS{dirtyPaths: map[string]bool{"/home/user/ws/ws-dirty": true}}
+	host := state.RemoteHost{ID: "host-1", HostType: config.HostTypePersistent}
+	noActive := func(string) bool { return false }
+
+	ws, err := mgr.findOrCreateWorkspaceWith(context.Background(), host, persistentResolved(), vcs, noActive)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ws.ID == "ws-dirty" {
+		t.Error("should NOT reuse dirty workspace")
+	}
+	if len(vcs.createCalls) != 1 {
+		t.Errorf("expected 1 create call for new worktree, got %d", len(vcs.createCalls))
+	}
+}
+
+func TestFindOrCreateWorkspace_SkipsActiveSession(t *testing.T) {
+	st := &state.State{
+		Workspaces: []state.Workspace{
+			{ID: "ws-active", RemoteHostID: "host-1", RemotePath: "/home/user/ws/ws-active"},
+		},
+		Sessions:    []state.Session{},
+		RemoteHosts: []state.RemoteHost{},
+	}
+	mgr := NewManager(&config.Config{}, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
+
+	vcs := &mockVCS{dirtyPaths: map[string]bool{"/home/user/ws/ws-active": false}}
+	host := state.RemoteHost{ID: "host-1", HostType: config.HostTypePersistent}
+	// This workspace has an active session
+	hasActive := func(wsID string) bool { return wsID == "ws-active" }
+
+	ws, err := mgr.findOrCreateWorkspaceWith(context.Background(), host, persistentResolved(), vcs, hasActive)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ws.ID == "ws-active" {
+		t.Error("should NOT reuse workspace with active session")
+	}
+	if len(vcs.createCalls) != 1 {
+		t.Errorf("expected 1 create call, got %d", len(vcs.createCalls))
+	}
+}
+
+func TestFindOrCreateWorkspace_ConcurrentSpawnsGetDifferentWorkspaces(t *testing.T) {
+	st := &state.State{
+		Workspaces:  []state.Workspace{},
+		Sessions:    []state.Session{},
+		RemoteHosts: []state.RemoteHost{},
+	}
+	mgr := NewManager(&config.Config{}, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
+
+	// All worktrees report as dirty so none can be reused — each spawn must create a new one.
+	vcs := &mockVCS{dirtyPaths: map[string]bool{}}
+	host := state.RemoteHost{ID: "host-1", HostType: config.HostTypePersistent}
+
+	// Track claimed workspace IDs so subsequent calls see prior workspaces as "active".
+	var claimedMu sync.Mutex
+	claimed := map[string]bool{}
+	hasActive := func(wsID string) bool {
+		claimedMu.Lock()
+		defer claimedMu.Unlock()
+		return claimed[wsID]
+	}
+
+	var wg sync.WaitGroup
+	results := make([]state.Workspace, 3)
+	errs := make([]error, 3)
+
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			ws, err := mgr.findOrCreateWorkspaceWith(
+				context.Background(), host, persistentResolved(), vcs, hasActive,
+			)
+			if err == nil {
+				// Mark this workspace as claimed so the next goroutine won't reuse it.
+				claimedMu.Lock()
+				claimed[ws.ID] = true
+				claimedMu.Unlock()
+			}
+			results[idx] = ws
+			errs[idx] = err
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("goroutine %d error: %v", i, err)
+		}
+	}
+
+	// All workspace IDs must be unique (mutex ensures serialization).
+	ids := map[string]bool{}
+	for _, ws := range results {
+		if ids[ws.ID] {
+			t.Errorf("duplicate workspace ID: %s", ws.ID)
+		}
+		ids[ws.ID] = true
+	}
+	if len(ids) != 3 {
+		t.Errorf("expected 3 unique workspaces, got %d", len(ids))
+	}
+}
+
+func TestCleanupWorkspace_RemovesClean(t *testing.T) {
+	st := &state.State{
+		Workspaces: []state.Workspace{
+			{ID: "ws-clean", RemoteHostID: "host-1", RemotePath: "/home/user/ws/ws-clean"},
+		},
+		Sessions:    []state.Session{},
+		RemoteHosts: []state.RemoteHost{},
+	}
+	mgr := NewManager(&config.Config{}, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
+
+	vcs := &mockVCS{dirtyPaths: map[string]bool{"/home/user/ws/ws-clean": false}}
+	host := state.RemoteHost{ID: "host-1", HostType: config.HostTypePersistent}
+	ws := st.Workspaces[0]
+	noActive := func(string) bool { return false }
+
+	mgr.cleanupWorkspaceWith(context.Background(), host, ws, persistentResolved(), vcs, noActive)
+
+	// Workspace should be removed from state
+	if _, found := st.GetWorkspace("ws-clean"); found {
+		t.Error("clean workspace should be removed after dispose")
+	}
+	if len(vcs.removeCalls) != 1 {
+		t.Errorf("expected 1 remove call, got %d", len(vcs.removeCalls))
+	}
+}
+
+func TestCleanupWorkspace_PreservesDirty(t *testing.T) {
+	st := &state.State{
+		Workspaces: []state.Workspace{
+			{ID: "ws-dirty", RemoteHostID: "host-1", RemotePath: "/home/user/ws/ws-dirty"},
+		},
+		Sessions:    []state.Session{},
+		RemoteHosts: []state.RemoteHost{},
+	}
+	mgr := NewManager(&config.Config{}, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
+
+	vcs := &mockVCS{dirtyPaths: map[string]bool{"/home/user/ws/ws-dirty": true}}
+	host := state.RemoteHost{ID: "host-1", HostType: config.HostTypePersistent}
+	ws := st.Workspaces[0]
+	noActive := func(string) bool { return false }
+
+	mgr.cleanupWorkspaceWith(context.Background(), host, ws, persistentResolved(), vcs, noActive)
+
+	// Workspace should still exist
+	if _, found := st.GetWorkspace("ws-dirty"); !found {
+		t.Error("dirty workspace should be preserved after dispose")
+	}
+	if len(vcs.removeCalls) != 0 {
+		t.Errorf("should not remove dirty worktree, got %d remove calls", len(vcs.removeCalls))
+	}
+}
+
+func TestCleanupWorkspace_PreservesOnDirtyCheckError(t *testing.T) {
+	st := &state.State{
+		Workspaces: []state.Workspace{
+			{ID: "ws-err", RemoteHostID: "host-1", RemotePath: "/home/user/ws/ws-err"},
+		},
+		Sessions:    []state.Session{},
+		RemoteHosts: []state.RemoteHost{},
+	}
+	mgr := NewManager(&config.Config{}, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
+
+	vcs := &mockVCS{checkErr: fmt.Errorf("connection lost")}
+	host := state.RemoteHost{ID: "host-1", HostType: config.HostTypePersistent}
+	ws := st.Workspaces[0]
+	noActive := func(string) bool { return false }
+
+	mgr.cleanupWorkspaceWith(context.Background(), host, ws, persistentResolved(), vcs, noActive)
+
+	// Should preserve on error (err on the side of safety)
+	if _, found := st.GetWorkspace("ws-err"); !found {
+		t.Error("workspace should be preserved when dirty check fails")
+	}
+}
+
+func TestCleanupWorkspace_SkipsActiveSession(t *testing.T) {
+	st := &state.State{
+		Workspaces: []state.Workspace{
+			{ID: "ws-shared", RemoteHostID: "host-1", RemotePath: "/home/user/ws/ws-shared"},
+		},
+		Sessions:    []state.Session{},
+		RemoteHosts: []state.RemoteHost{},
+	}
+	mgr := NewManager(&config.Config{}, st, nil)
+	mgr.SetWorkspaceManager(&noopWM{st: st})
+
+	vcs := &mockVCS{dirtyPaths: map[string]bool{"/home/user/ws/ws-shared": false}}
+	host := state.RemoteHost{ID: "host-1", HostType: config.HostTypePersistent}
+	ws := st.Workspaces[0]
+	// Another session is using this workspace
+	hasActive := func(wsID string) bool { return wsID == "ws-shared" }
+
+	mgr.cleanupWorkspaceWith(context.Background(), host, ws, persistentResolved(), vcs, hasActive)
+
+	// Should NOT remove — other session is active
+	if _, found := st.GetWorkspace("ws-shared"); !found {
+		t.Error("workspace should be preserved when other sessions are active")
+	}
+	if len(vcs.removeCalls) != 0 {
+		t.Errorf("should not remove worktree with active sessions, got %d removes", len(vcs.removeCalls))
 	}
 }
