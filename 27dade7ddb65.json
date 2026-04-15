@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-15T15:21:43Z",
+  "updated": "2026-04-15T15:22:15Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "I'm honestly not worried about that... if nobody is watching the recording is sized properly at t...",
+      "intent": "what happens with other players? will they be able to act on these resize events?",
       "status": "active",
       "last_active_date": "2026-04-15",
       "started": "2026-04-14"
