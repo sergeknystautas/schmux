@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-15T15:23:50Z",
+  "updated": "2026-04-15T15:24:21Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "what happens with other players? will they be able to act on these resize events?",
+      "intent": "/commit",
       "status": "active",
       "last_active_date": "2026-04-15",
       "started": "2026-04-14"
