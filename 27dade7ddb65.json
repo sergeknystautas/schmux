@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-15T20:10:55Z",
+  "updated": "2026-04-15T20:11:26Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "the timelapse system has a way to \"compress\" the terminal recording so that it focuses only on im...",
+      "intent": "Claude needs your permission to use Bash",
       "status": "active",
       "last_active_date": "2026-04-15",
       "started": "2026-04-14"
