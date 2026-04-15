@@ -198,10 +198,12 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Server-side branch conflict check for worktree mode
-	// This catches race conditions where UI check passed but another spawn claimed the branch
+	// This catches race conditions where UI check passed but another spawn claimed the branch.
+	// Recyclable workspaces are excluded — they are available for reuse and GetOrCreate
+	// will reclaim the branch via Tier 0 recycling.
 	if req.WorkspaceID == "" && h.config.UseWorktrees() {
 		for _, ws := range h.state.GetWorkspaces() {
-			if ws.Repo == req.Repo && ws.Branch == req.Branch {
+			if ws.Repo == req.Repo && ws.Branch == req.Branch && ws.Status != state.WorkspaceStatusRecyclable {
 				writeJSONError(w, fmt.Sprintf("branch_conflict: branch %q is already in use by workspace %q", req.Branch, ws.ID), http.StatusConflict)
 				return
 			}
@@ -784,9 +786,10 @@ func (h *SpawnHandlers) handleCheckBranchConflict(w http.ResponseWriter, r *http
 	}
 
 	// Check if any existing workspace has this repo+branch combination
-	// (which means the branch is already checked out in a worktree)
+	// (which means the branch is already checked out in a worktree).
+	// Recyclable workspaces are excluded — they are available for reuse.
 	for _, ws := range h.state.GetWorkspaces() {
-		if ws.Repo == req.Repo && ws.Branch == req.Branch {
+		if ws.Repo == req.Repo && ws.Branch == req.Branch && ws.Status != state.WorkspaceStatusRecyclable {
 			w.Header().Set("Content-Type", "application/json")
 			if err := json.NewEncoder(w).Encode(BranchConflictResponse{
 				Conflict:    true,
