@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-15T15:34:35Z",
+  "updated": "2026-04-15T15:35:06Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "/commit",
+      "intent": "ok, now it works... when I click \"play\" in the timelapse page, the player should autoplay",
       "status": "active",
       "last_active_date": "2026-04-15",
       "started": "2026-04-14"
