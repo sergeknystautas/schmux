@@ -56,7 +56,7 @@ type Manager struct {
 	autolearnCallback       func(repoName, repoURL string, isLastSession bool) // notify autolearn curator on session dispose
 	terminalCaptureCallback func(sessionID, workspaceID, output string)        // notify on terminal capture before dispose
 	telemetry               telemetry.Telemetry                                // optional, for usage tracking
-	recorderFactory         func(sessionID string, outputLog *OutputLog, gapCh <-chan SourceEvent) Runnable
+	recorderFactory         func(sessionID string, outputLog *OutputLog, gapCh <-chan SourceEvent, width, height int) Runnable
 	queueTimeout            time.Duration // timeout for queued remote sessions; 0 = default (5m)
 }
 
@@ -146,9 +146,10 @@ func (m *Manager) SetRemoteManager(rm *remote.Manager) {
 }
 
 // SetRecorderFactory sets a factory for creating timelapse recorders.
-// The factory receives the sessionID, OutputLog, and gap channel, and returns
-// a Runnable that will be started in a goroutine when the tracker starts.
-func (m *Manager) SetRecorderFactory(fn func(sessionID string, outputLog *OutputLog, gapCh <-chan SourceEvent) Runnable) {
+// The factory receives the sessionID, OutputLog, gap channel, and initial
+// terminal dimensions, and returns a Runnable that will be started in a
+// goroutine when the tracker starts.
+func (m *Manager) SetRecorderFactory(fn func(sessionID string, outputLog *OutputLog, gapCh <-chan SourceEvent, width, height int) Runnable) {
 	m.recorderFactory = fn
 }
 
@@ -1850,8 +1851,16 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionRuntime {
 	if m.recorderFactory != nil {
 		factory := m.recorderFactory
 		sid := sess.ID
+		// Query actual tmux pane size for accurate recording dimensions
+		paneWidth, paneHeight := 80, 24
+		if srv := m.serverForSocket(sess.TmuxSocket); srv != nil {
+			ctx := context.Background()
+			if w, h, err := srv.GetPaneSize(ctx, sess.TmuxSession); err == nil {
+				paneWidth, paneHeight = w, h
+			}
+		}
 		tracker.RecorderFactory = func(ol *OutputLog, gapCh <-chan SourceEvent) Runnable {
-			return factory(sid, ol, gapCh)
+			return factory(sid, ol, gapCh, paneWidth, paneHeight)
 		}
 	}
 

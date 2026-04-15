@@ -471,3 +471,61 @@ func TestTrackerRunDrainsSourceEvents(t *testing.T) {
 	mock.Close()
 	tracker.Stop()
 }
+
+// TestTrackerResizeForwardsToGapCh verifies that calling Resize() on the
+// tracker sends a SourceResize event to the gapCh used by the timelapse recorder.
+func TestTrackerResizeForwardsToGapCh(t *testing.T) {
+	mock := NewMockControlSource(100)
+	st := state.New("", nil)
+	tracker := NewSessionRuntime("s1", mock, st, "", nil, nil, nil)
+
+	// Set up a recorder factory that captures the gapCh
+	var capturedGapCh <-chan SourceEvent
+	started := make(chan struct{})
+	stopped := make(chan struct{})
+
+	tracker.RecorderFactory = func(ol *OutputLog, gapCh <-chan SourceEvent) Runnable {
+		capturedGapCh = gapCh
+		return &testRunnable{started: started, stopped: stopped}
+	}
+
+	tracker.Start()
+
+	// Emit an event to trigger the run loop and recorder creation
+	mock.Emit(SourceEvent{Type: SourceOutput, Data: "init"})
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("recorder was not started")
+	}
+
+	// Now call Resize — it should forward to gapCh
+	if err := tracker.Resize(160, 48); err != nil {
+		t.Fatalf("Resize failed: %v", err)
+	}
+
+	select {
+	case event := <-capturedGapCh:
+		if event.Type != SourceResize {
+			t.Errorf("event type = %v, want SourceResize", event.Type)
+		}
+		if event.Width != 160 {
+			t.Errorf("event width = %d, want 160", event.Width)
+		}
+		if event.Height != 48 {
+			t.Errorf("event height = %d, want 48", event.Height)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("resize event was not forwarded to gapCh")
+	}
+
+	mock.Close()
+	tracker.Stop()
+
+	select {
+	case <-stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("recorder was not stopped")
+	}
+}

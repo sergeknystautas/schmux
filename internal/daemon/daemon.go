@@ -651,8 +651,8 @@ func (d *Daemon) initManagers(
 			sessionLog.Info(notice)
 		}
 
-		sm.SetRecorderFactory(func(sessionID string, outputLog *session.OutputLog, gapCh <-chan session.SourceEvent) session.Runnable {
-			rec, err := timelapse.NewRecorder(sessionID, outputLog, gapCh, recordingsDir, maxBytes, 80, 24)
+		sm.SetRecorderFactory(func(sessionID string, outputLog *session.OutputLog, gapCh <-chan session.SourceEvent, width, height int) session.Runnable {
+			rec, err := timelapse.NewRecorder(sessionID, outputLog, gapCh, recordingsDir, maxBytes, width, height)
 			if err != nil {
 				sessionLog.Warn("failed to create timelapse recorder", "session", sessionID, "err", err)
 				return nil

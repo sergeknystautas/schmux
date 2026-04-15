@@ -4135,7 +4135,7 @@ Testing helper: clears the remote access password hash from config.
 
 ### GET /api/timelapse
 
-List all timelapse recordings in `~/.schmux/recordings/`. Returns `RecordingInfo[]` sorted newest-first. The `InProgress` field is cross-referenced against active sessions — recordings for disposed sessions are always marked `false`. Recording files use `<sessionID>.cast` naming (one file per session); legacy `<sessionID>-<timestamp>.cast` files are also recognized.
+List all timelapse recordings in `~/.schmux/recordings/`. Returns `RecordingInfo[]` sorted newest-first. The `InProgress` field is cross-referenced against active sessions — recordings for disposed sessions are always marked `false`. Recording files use `<sessionID>.cast` naming (one file per session); legacy `<sessionID>-<timestamp>.cast` files are also recognized. Recordings capture actual tmux pane dimensions in the asciicast header and include resize events (`"r"` type) when the terminal is resized during the session.
 
 ### POST /api/timelapse/{recordingId}/export
 

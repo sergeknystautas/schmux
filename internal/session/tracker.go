@@ -262,6 +262,15 @@ func (t *SessionRuntime) Resize(cols, rows int) error {
 	}
 	t.LastTerminalCols.Store(int32(cols))
 	t.LastTerminalRows.Store(int32(rows))
+
+	// Forward resize to timelapse recorder if active
+	if t.gapCh != nil {
+		select {
+		case t.gapCh <- SourceEvent{Type: SourceResize, Width: cols, Height: rows}:
+		default:
+		}
+	}
+
 	return t.source.Resize(cols, rows)
 }
 

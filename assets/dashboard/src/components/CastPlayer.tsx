@@ -154,6 +154,11 @@ export default function CastPlayer({ recordingId }: CastPlayerProps) {
     const event = evts[idx];
     if (event.type === 'o') {
       term.write(event.data);
+    } else if (event.type === 'r') {
+      const [cols, rows] = event.data.split('x').map(Number);
+      if (cols > 0 && rows > 0) {
+        term.resize(cols, rows);
+      }
     }
 
     const nextIdx = idx + 1;
@@ -192,7 +197,13 @@ export default function CastPlayer({ recordingId }: CastPlayerProps) {
 
   const handleRestart = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    termRef.current?.reset();
+    const term = termRef.current;
+    if (term) {
+      term.reset();
+      if (header) {
+        term.resize(header.width || 80, header.height || 24);
+      }
+    }
     setCursor(0);
     cursorRef.current = 0;
     setPlaying(false);
@@ -206,9 +217,17 @@ export default function CastPlayer({ recordingId }: CastPlayerProps) {
 
     // Replay from start up to the target position
     term.reset();
+    if (header) {
+      term.resize(header.width || 80, header.height || 24);
+    }
     for (let i = 0; i < target && i < events.length; i++) {
       if (events[i].type === 'o') {
         term.write(events[i].data);
+      } else if (events[i].type === 'r') {
+        const [cols, rows] = events[i].data.split('x').map(Number);
+        if (cols > 0 && rows > 0) {
+          term.resize(cols, rows);
+        }
       }
     }
     setCursor(target);

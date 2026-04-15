@@ -115,6 +115,13 @@ func TestContextCancellation(t *testing.T) {
 			t.Error("expected error from cancelled context, got nil")
 		}
 	})
+
+	t.Run("GetPaneSize rejects cancelled context", func(t *testing.T) {
+		_, _, err := testServer.GetPaneSize(expiredCtx, "test")
+		if err == nil {
+			t.Error("expected error from cancelled context, got nil")
+		}
+	})
 }
 
 func TestExtractLatestResponseCapsContent(t *testing.T) {

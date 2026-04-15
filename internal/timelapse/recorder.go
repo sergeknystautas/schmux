@@ -30,6 +30,8 @@ type Recorder struct {
 	utf8Pending  []byte // buffered incomplete UTF-8 sequence from previous chunk
 	bytesWritten int64
 	maxBytes     int64
+	width        int
+	height       int
 	stopCh       chan struct{}
 	doneCh       chan struct{}
 }
@@ -75,6 +77,8 @@ func NewRecorder(
 		startTime:    time.Now(),
 		startWaitSeq: 0,
 		maxBytes:     maxBytes,
+		width:        width,
+		height:       height,
 		stopCh:       make(chan struct{}),
 		doneCh:       make(chan struct{}),
 	}, nil
@@ -170,8 +174,8 @@ func (r *Recorder) Run() {
 	// Write asciicast v2 header only for new recordings — resumed files
 	// already have one.
 	if !r.resumed {
-		header := fmt.Sprintf(`{"version":2,"width":80,"height":24,"timestamp":%d,"title":"%s","env":{"TERM":"xterm-256color"}}`,
-			r.startTime.Unix(), r.sessionID)
+		header := fmt.Sprintf(`{"version":2,"width":%d,"height":%d,"timestamp":%d,"title":"%s","env":{"TERM":"xterm-256color"}}`,
+			r.width, r.height, r.startTime.Unix(), r.sessionID)
 		r.writeLine(header)
 	}
 

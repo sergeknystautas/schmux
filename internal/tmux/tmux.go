@@ -238,6 +238,23 @@ func (s *TmuxServer) GetPanePID(ctx context.Context, name string) (int, error) {
 	return pid, nil
 }
 
+// GetPaneSize returns the width and height of the first pane in the given tmux session.
+func (s *TmuxServer) GetPaneSize(ctx context.Context, name string) (width, height int, err error) {
+	if err := ValidateSessionName(name); err != nil {
+		return 0, 0, fmt.Errorf("invalid session name: %w", err)
+	}
+	cmd := s.cmd(ctx, "display-message", "-p", "-t", name, "#{pane_width} #{pane_height}")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return 0, 0, fmt.Errorf("failed to get pane size: %w", err)
+	}
+	if _, err := fmt.Sscanf(strings.TrimSpace(stdout.String()), "%d %d", &width, &height); err != nil {
+		return 0, 0, fmt.Errorf("failed to parse pane size: %w", err)
+	}
+	return width, height, nil
+}
+
 // GetAttachCommand returns the command to attach to a tmux session on this server's socket.
 func (s *TmuxServer) GetAttachCommand(name string) string {
 	// Validate session name to prevent command injection

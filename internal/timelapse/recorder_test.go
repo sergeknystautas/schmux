@@ -201,6 +201,39 @@ func TestRecorder_ResizeEvents(t *testing.T) {
 	}
 }
 
+func TestRecorder_HeaderUsesProvidedDimensions(t *testing.T) {
+	dir := t.TempDir()
+	ol := session.NewOutputLog(1000)
+
+	// Use non-default dimensions to verify they're written to the header
+	rec, err := NewRecorder("test-dims", ol, nil, dir, 0, 200, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	go rec.Run()
+	ol.Append([]byte("hello"))
+	time.Sleep(50 * time.Millisecond)
+	rec.Stop()
+
+	data, _ := os.ReadFile(filepath.Join(dir, "test-dims.cast"))
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) < 1 {
+		t.Fatal("expected at least a header line")
+	}
+
+	var header map[string]interface{}
+	if err := json.Unmarshal([]byte(lines[0]), &header); err != nil {
+		t.Fatalf("invalid header JSON: %v", err)
+	}
+	if w := int(header["width"].(float64)); w != 200 {
+		t.Errorf("header width = %d, want 200", w)
+	}
+	if h := int(header["height"].(float64)); h != 50 {
+		t.Errorf("header height = %d, want 50", h)
+	}
+}
+
 func TestRecorder_FileNamedBySessionID(t *testing.T) {
 	dir := t.TempDir()
 	ol := session.NewOutputLog(1000)
