@@ -263,4 +263,28 @@ describe('useSessionsWebSocket', () => {
     // First event should be msg-1 (msg-0 was dropped)
     expect(result.current.monitorEvents[0].event.message).toBe('msg-1');
   });
+
+  it('calls onConfigUpdated when config_updated message received', () => {
+    const onConfigUpdated = vi.fn();
+    renderHook(() => useSessionsWebSocket({ onConfigUpdated }));
+    const ws = lastWS();
+    openWS(ws);
+
+    act(() => {
+      sendMsg(ws, { type: 'config_updated' });
+    });
+
+    expect(onConfigUpdated).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not crash when config_updated received without callback', () => {
+    renderHook(() => useSessionsWebSocket());
+    const ws = lastWS();
+    openWS(ws);
+
+    // Should not throw
+    act(() => {
+      sendMsg(ws, { type: 'config_updated' });
+    });
+  });
 });

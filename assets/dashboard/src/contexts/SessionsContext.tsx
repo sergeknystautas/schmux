@@ -48,7 +48,7 @@ const SessionsContext = createContext<SessionsContextValue | null>(null);
 
 export function SessionsProvider({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
-  const { config } = useConfig();
+  const { config, reloadConfig } = useConfig();
   const [pendingNavigation, setPendingNavigationState] = useState<PendingNavigation | null>(null);
   const {
     workspaces,
@@ -68,6 +68,9 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     subredditUpdateCount,
     repofeedUpdateCount,
   } = useSessionsWebSocket({
+    onConfigUpdated: () => {
+      reloadConfig();
+    },
     onPreviewDetected: (workspaceId, previewId) => {
       setPendingNavigationState({
         type: 'tab',

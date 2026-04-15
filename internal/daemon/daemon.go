@@ -86,6 +86,7 @@ type shutdownHandles struct {
 	remoteManager      *remote.Manager
 	tunnelMgr          *tunnel.Manager
 	gitWatcher         *workspace.GitWatcher
+	configWatcher      *config.ConfigWatcher
 	compounder         *compound.Compounder
 	detachFloorManager func()
 	server             *dashboard.Server
@@ -396,6 +397,19 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	gitWatcher := d.restoreSessions(cfg, st, sm, wm, remoteManager, tmuxServer, tmuxBin, server, logger, sessionLog, gitWatcherLog)
 
+	// Watch config file for external edits (e.g., hand-editing in a text editor).
+	// On change: reload config, broadcast to dashboard so the UI updates.
+	configWatcherLog := logging.Sub(logger, "config-watcher")
+	var configWatcher *config.ConfigWatcher
+	{
+		cw := config.NewConfigWatcher(cfg, configWatcherLog, server.BroadcastConfigUpdated)
+		if err := cw.Start(); err != nil {
+			logger.Warn("failed to start config file watcher", "err", err)
+		} else {
+			configWatcher = cw
+		}
+	}
+
 	compounder := d.initCompound(cfg, st, sm, wm, server, compoundLog, overlayLog)
 
 	d.initAutolearn(cfg, st, server, schmuxDir, autolearnInstructionsDir, autolearnLog, logger)
@@ -415,6 +429,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		remoteManager:      remoteManager,
 		tunnelMgr:          tunnelMgr,
 		gitWatcher:         gitWatcher,
+		configWatcher:      configWatcher,
 		compounder:         compounder,
 		detachFloorManager: detachFloorManager,
 		server:             server,
@@ -1635,6 +1650,11 @@ func (d *Daemon) shutdown(h shutdownHandles) error {
 	// Stop git watcher
 	if h.gitWatcher != nil {
 		h.gitWatcher.Stop()
+	}
+
+	// Stop config watcher
+	if h.configWatcher != nil {
+		h.configWatcher.Stop()
 	}
 
 	// Stop compounder

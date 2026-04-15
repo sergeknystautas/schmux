@@ -437,6 +437,16 @@ func (s *Server) BroadcastCatalogUpdated() {
 	s.broadcastToAllDashboardConns(data)
 }
 
+// BroadcastConfigUpdated sends a config_updated event to all connected
+// dashboard WebSocket clients, telling them to re-fetch config via the API.
+func (s *Server) BroadcastConfigUpdated() {
+	type configUpdate struct {
+		Type string `json:"type"`
+	}
+	data, _ := json.Marshal(configUpdate{Type: "config_updated"})
+	s.broadcastToAllDashboardConns(data)
+}
+
 // SetRemoteManager sets the remote manager for remote workspace support.
 func (s *Server) SetRemoteManager(rm *remote.Manager) {
 	s.remoteManager = rm

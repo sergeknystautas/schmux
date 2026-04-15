@@ -138,6 +138,11 @@ type Config struct {
 	// Protected by repoURLMu for concurrent access safety.
 	repoURLCache map[string]Repo `json:"-"`
 	repoURLMu    sync.RWMutex    `json:"-"`
+
+	// lastSaveCompletedAt records when the last Save() completed, so the
+	// config file watcher can ignore fsnotify events caused by our own writes.
+	// Protected by mu.
+	lastSaveCompletedAt time.Time `json:"-"`
 }
 
 // RemoteFlavor represents a remote host flavor configuration.
@@ -2255,7 +2260,29 @@ func (c *Config) Save() error {
 	c.repoURLCache = nil
 	c.repoURLMu.Unlock()
 
+	c.mu.Lock()
+	c.lastSaveCompletedAt = time.Now()
+	c.mu.Unlock()
+
 	return nil
+}
+
+// TimeSinceLastSave returns the duration since the last Save() completed.
+// Used by the config watcher to suppress fsnotify events from self-writes.
+func (c *Config) TimeSinceLastSave() time.Duration {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.lastSaveCompletedAt.IsZero() {
+		return time.Hour // never saved — treat as very old
+	}
+	return time.Since(c.lastSaveCompletedAt)
+}
+
+// FilePath returns the config file path.
+func (c *Config) FilePath() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.path
 }
 
 // ConfigExists checks if the config file exists.

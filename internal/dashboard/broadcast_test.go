@@ -485,3 +485,22 @@ func TestBroadcastIncludesWorkspaceStatus(t *testing.T) {
 		t.Errorf("expected status=running, got %v", ws["status"])
 	}
 }
+
+func TestBroadcastConfigUpdated(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+
+	conn, cleanup := dialTestDashboardWS(t, srv)
+	defer cleanup()
+
+	// Consume initial state messages
+	readDashboardMsg(t, conn, 2*time.Second)
+
+	// Broadcast config update
+	srv.BroadcastConfigUpdated()
+
+	// Should receive immediately (not debounced)
+	msg := readDashboardMsg(t, conn, 3*time.Second)
+	if msg["type"] != "config_updated" {
+		t.Errorf("message type = %q, want config_updated", msg["type"])
+	}
+}

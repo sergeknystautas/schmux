@@ -159,6 +159,7 @@ type SessionsWebSocketState = {
 
 export default function useSessionsWebSocket(opts?: {
   onPreviewDetected?: (workspaceId: string, previewId: string) => void;
+  onConfigUpdated?: () => void;
 }): SessionsWebSocketState {
   const [workspaces, setWorkspaces] = useState<WorkspaceResponse[]>([]);
   const [connected, setConnected] = useState(false);
@@ -181,6 +182,8 @@ export default function useSessionsWebSocket(opts?: {
   const [repofeedUpdateCount, setRepofeedUpdateCount] = useState(0);
   const onPreviewDetectedRef = useRef(opts?.onPreviewDetected);
   onPreviewDetectedRef.current = opts?.onPreviewDetected;
+  const onConfigUpdatedRef = useRef(opts?.onConfigUpdated);
+  onConfigUpdatedRef.current = opts?.onConfigUpdated;
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const reconnectDelayRef = useRef(RECONNECT_DELAY_MS);
@@ -330,6 +333,8 @@ export default function useSessionsWebSocket(opts?: {
           setSubredditUpdateCount((prev) => prev + 1);
         } else if (data.type === 'repofeed_updated') {
           setRepofeedUpdateCount((prev) => prev + 1);
+        } else if (data.type === 'config_updated') {
+          onConfigUpdatedRef.current?.();
         }
       } catch (e) {
         console.error('[ws/dashboard] failed to parse message:', e);
