@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-15T15:14:22Z",
+  "updated": "2026-04-15T15:14:53Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "what's weird about this is that I don't see this problem in the xterm.js terminal... the size is ...",
+      "intent": "I'm honestly not worried about that... if nobody is watching the recording is sized properly at t...",
       "status": "active",
       "last_active_date": "2026-04-15",
       "started": "2026-04-14"
