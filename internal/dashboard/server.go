@@ -641,8 +641,7 @@ func (s *Server) Start() error {
 
 	// App shell + static assets
 	if s.devProxy {
-		vitePort := readDevVitePort()
-		viteTarget := fmt.Sprintf("http://localhost:%d", vitePort)
+		viteTarget := fmt.Sprintf("http://localhost:%d", devViteProxyPort)
 		viteProxy := createDevProxyHandler(viteTarget)
 		r.Handle("/*", viteProxy)
 		s.logger.Info("dev-proxy enabled: proxying to Vite", "target", viteTarget)

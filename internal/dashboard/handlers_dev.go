@@ -37,24 +37,14 @@ type devRestartManifest struct {
 // script on each daemon start.
 type devStateInfo struct {
 	SourceWorkspace string `json:"source_workspace"`
-	VitePort        int    `json:"vite_port"`
 }
 
-const defaultVitePort = 5173
-
-// readDevVitePort returns the Vite dev server port from dev-state.json,
-// falling back to defaultVitePort if the file is missing or invalid.
-func readDevVitePort() int {
-	data, err := os.ReadFile(filepath.Join(schmuxdir.Get(), "dev-state.json"))
-	if err != nil {
-		return defaultVitePort
-	}
-	var ds devStateInfo
-	if json.Unmarshal(data, &ds) != nil || ds.VitePort <= 0 {
-		return defaultVitePort
-	}
-	return ds.VitePort
-}
+// devViteProxyPort is the port the dev-runner spawns Vite on (`vite --port N
+// --strictPort`). Hardcoded here and in tools/dev-runner/src/App.tsx as
+// VITE_PORT; the two must change together in the same commit. Drift is only
+// possible during a mid-session backend/both workspace switch to a branch
+// with a different constant, and is recoverable by restarting ./dev.sh.
+const devViteProxyPort = 7338
 
 // devBuildStatus is read from ~/.schmux/dev-build-status.json, written by
 // the wrapper script after each build attempt.
@@ -183,7 +173,7 @@ func (s *Server) pauseViteWatch() {
 	if !s.devMode {
 		return
 	}
-	resp, err := viteClient.Post(fmt.Sprintf("http://localhost:%d/__dev/pause-watch", readDevVitePort()), "", strings.NewReader(""))
+	resp, err := viteClient.Post(fmt.Sprintf("http://localhost:%d/__dev/pause-watch", devViteProxyPort), "", strings.NewReader(""))
 	if err != nil {
 		s.logger.Warn("failed to pause Vite watch", "err", err)
 		return
@@ -197,7 +187,7 @@ func (s *Server) resumeViteWatch() {
 	if !s.devMode {
 		return
 	}
-	resp, err := viteClient.Post(fmt.Sprintf("http://localhost:%d/__dev/resume-watch", readDevVitePort()), "", strings.NewReader(""))
+	resp, err := viteClient.Post(fmt.Sprintf("http://localhost:%d/__dev/resume-watch", devViteProxyPort), "", strings.NewReader(""))
 	if err != nil {
 		s.logger.Warn("failed to resume Vite watch", "err", err)
 		return

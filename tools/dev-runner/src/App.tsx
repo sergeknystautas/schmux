@@ -127,31 +127,31 @@ export function App({ devRoot, plain }: AppProps) {
       const newWorkspace = manifest.workspace_path;
       addBackendLine(`Switching to workspace: ${newWorkspace} (type: ${manifest.type})`);
 
+      let target = workspaceRef.current;
+
       if (manifest.type === 'backend' || manifest.type === 'both') {
         setBackendStatusOverride('building');
         addBackendLine('Rebuilding...');
         const result = await build(newWorkspace, binaryPath, addBackendLine);
+        setBackendStatusOverride(null);
         if (result.success) {
-          setWorkspace(newWorkspace);
-          await writeDevState({ source_workspace: newWorkspace, vite_port: VITE_PORT });
+          target = newWorkspace;
           addBackendLine('Build succeeded');
         } else {
           addBackendLine('Build failed, restarting with previous binary');
         }
-        setBackendStatusOverride(null);
       }
 
       if (manifest.type === 'frontend' || manifest.type === 'both') {
-        setWorkspace(newWorkspace);
-        await writeDevState({ source_workspace: newWorkspace });
-        // Vite restart is handled by the workspace-change useEffect above
+        target = newWorkspace;
       }
 
-      // Clean up manifest
+      setWorkspace(target);
+      await writeDevState({ source_workspace: target });
+
       const { rm } = await import('node:fs/promises');
       await rm(paths.devRestart, { force: true });
 
-      // Restart daemon
       backend.start();
     },
     [addBackendLine, binaryPath]
@@ -275,7 +275,7 @@ export function App({ devRoot, plain }: AppProps) {
         if (cancelled) return;
 
         // Write initial dev state
-        await writeDevState({ source_workspace: devRoot, vite_port: VITE_PORT });
+        await writeDevState({ source_workspace: devRoot });
 
         // Start both processes
         frontend.start();

@@ -770,7 +770,7 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 	}
 
 	// Write dev-state.json pointing to this workspace's path
-	devState, _ := json.Marshal(devStateInfo{SourceWorkspace: wsPath, VitePort: 5173})
+	devState, _ := json.Marshal(devStateInfo{SourceWorkspace: wsPath})
 	if err := os.WriteFile(filepath.Join(schmuxDir, "dev-state.json"), devState, 0644); err != nil {
 		t.Fatalf("failed to write dev-state.json: %v", err)
 	}
