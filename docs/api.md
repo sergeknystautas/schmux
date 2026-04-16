@@ -4168,4 +4168,4 @@ Download exported .cast file. Returns `404` if not yet exported.
 
 Delete recording and cached export. Returns `204`.
 
-<!-- Test coverage: config getters, dashboard dispose/nickname guards, compound suppression, injector HandleEvent, secrets file migration, nudge summary parsing, curator response parsing, shell argument splitting, conflict state management, persona ID validation, model secrets validation, target-in-use checks, session manager initialization, tracker counters concurrency, embedded dashboard asset serving, timelapse recording, export, storage -->
+<!-- Test coverage: config getters, dashboard dispose/nickname guards, compound suppression, injector HandleEvent, secrets file migration, nudge summary parsing, nudge clear background save, curator response parsing, shell argument splitting, conflict state management, persona ID validation, model secrets validation, target-in-use checks, session manager initialization, tracker counters concurrency, embedded dashboard asset serving, timelapse recording, export, storage -->

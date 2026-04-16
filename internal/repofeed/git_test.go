@@ -12,6 +12,11 @@ import (
 // initBareRepo creates a bare git repo for testing.
 func initBareRepo(t *testing.T) string {
 	t.Helper()
+	// Set git identity for CI runners that have no global config.
+	t.Setenv("GIT_AUTHOR_NAME", "Test")
+	t.Setenv("GIT_AUTHOR_EMAIL", "test@test.com")
+	t.Setenv("GIT_COMMITTER_NAME", "Test")
+	t.Setenv("GIT_COMMITTER_EMAIL", "test@test.com")
 	dir := t.TempDir()
 	cmd := exec.Command("git", "init", "--bare", dir)
 	if out, err := cmd.CombinedOutput(); err != nil {
