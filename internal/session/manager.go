@@ -607,6 +607,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 							}
 						}
 						qTracker := NewSessionRuntime(sessionID, qSource, m.state, "", nil, qOutputCb, m.logger)
+						m.wireRecorder(qTracker, sessionID)
 						m.mu.Lock()
 						m.trackers[sessionID] = qTracker
 						m.mu.Unlock()
@@ -694,6 +695,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 		}
 	}
 	tracker := NewSessionRuntime(sess.ID, source, m.state, "", nil, outputCb, m.logger)
+	m.wireRecorder(tracker, sess.ID)
 	m.mu.Lock()
 	m.trackers[sess.ID] = tracker
 	m.mu.Unlock()
@@ -1872,6 +1874,22 @@ func (m *Manager) GetCursorState(ctx context.Context, sessionID string) (x, y in
 	return cliState.X, cliState.Y, cliState.Visible, nil
 }
 
+// wireRecorder sets up the timelapse recorder factory on a tracker if recording is enabled.
+// Optional width/height override the default 80x24 (e.g. when the local tmux pane size is known).
+func (m *Manager) wireRecorder(tracker *SessionRuntime, sessionID string, dims ...int) {
+	if m.recorderFactory == nil {
+		return
+	}
+	factory := m.recorderFactory
+	paneWidth, paneHeight := 80, 24
+	if len(dims) >= 2 {
+		paneWidth, paneHeight = dims[0], dims[1]
+	}
+	tracker.RecorderFactory = func(ol *OutputLog, gapCh <-chan SourceEvent) Runnable {
+		return factory(sessionID, ol, gapCh, paneWidth, paneHeight)
+	}
+}
+
 func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionRuntime {
 	m.mu.Lock()
 	if existing := m.trackers[sess.ID]; existing != nil {
@@ -1916,21 +1934,16 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionRuntime {
 
 	tracker := NewSessionRuntime(sess.ID, source, m.state, eventFilePath, m.eventHandlers, outputCb, m.logger)
 
-	// Wire timelapse recorder if factory is set
-	if m.recorderFactory != nil {
-		factory := m.recorderFactory
-		sid := sess.ID
-		// Query actual tmux pane size for accurate recording dimensions
-		paneWidth, paneHeight := 80, 24
-		if srv := m.serverForSocket(sess.TmuxSocket); srv != nil {
-			ctx := context.Background()
-			if w, h, err := srv.GetPaneSize(ctx, sess.TmuxSession); err == nil {
-				paneWidth, paneHeight = w, h
-			}
+	// Query actual tmux pane size for accurate recording dimensions (local sessions only)
+	if srv := m.serverForSocket(sess.TmuxSocket); srv != nil {
+		ctx := context.Background()
+		if w, h, err := srv.GetPaneSize(ctx, sess.TmuxSession); err == nil {
+			m.wireRecorder(tracker, sess.ID, w, h)
+		} else {
+			m.wireRecorder(tracker, sess.ID)
 		}
-		tracker.RecorderFactory = func(ol *OutputLog, gapCh <-chan SourceEvent) Runnable {
-			return factory(sid, ol, gapCh, paneWidth, paneHeight)
-		}
+	} else {
+		m.wireRecorder(tracker, sess.ID)
 	}
 
 	m.trackers[sess.ID] = tracker
