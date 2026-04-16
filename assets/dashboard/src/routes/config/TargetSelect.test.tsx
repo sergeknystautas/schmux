@@ -65,4 +65,18 @@ describe('TargetSelect', () => {
     render(<TargetSelect value="" onChange={() => {}} disabled={true} models={[]} />);
     expect(screen.getByRole('combobox')).toBeDisabled();
   });
+
+  it('renders the current value as a disabled unavailable option when it is not in models', () => {
+    render(<TargetSelect value="stale-model" onChange={() => {}} models={models} />);
+    const option = screen.getByText('stale-model (unavailable)') as HTMLOptionElement;
+    expect(option).toBeInTheDocument();
+    expect(option.value).toBe('stale-model');
+    expect(option.disabled).toBe(true);
+    expect(screen.getByRole('combobox')).toHaveValue('stale-model');
+  });
+
+  it('does not render an unavailable option when the current value is in models', () => {
+    render(<TargetSelect value="gpt-4" onChange={() => {}} models={models} />);
+    expect(screen.queryByText(/unavailable/)).not.toBeInTheDocument();
+  });
 });

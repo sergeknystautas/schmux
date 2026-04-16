@@ -22,6 +22,7 @@ export default function TargetSelect({
   className = 'input',
   id,
 }: TargetSelectProps) {
+  const valueMissing = value !== '' && !models.some((m) => m.id === value);
   return (
     <select
       id={id}
@@ -37,6 +38,11 @@ export default function TargetSelect({
           {model.display_name}
         </option>
       ))}
+      {valueMissing && (
+        <option value={value} disabled>
+          {value} (unavailable)
+        </option>
+      )}
     </select>
   );
 }

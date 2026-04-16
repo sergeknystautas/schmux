@@ -15,6 +15,8 @@ type AgentsTabProps = {
   };
   dispatch: React.Dispatch<ConfigFormAction>;
   models: Model[];
+  oneshotModels: Model[];
+  modelCatalog: Model[];
   runners: Record<string, RunnerInfo>;
   onModelAction: (model: Model, mode: 'add' | 'remove' | 'update') => void;
   onOpenRunTargetEditModal: (target: import('../../lib/types').RunTargetResponse) => void;
@@ -28,6 +30,8 @@ export default function AgentsTab({
   state,
   dispatch,
   models,
+  oneshotModels,
+  modelCatalog,
   runners,
   onModelAction,
   commitMessageTargetMissing,
@@ -70,7 +74,7 @@ export default function AgentsTab({
               onChange={(v) =>
                 dispatch({ type: 'SET_FIELD', field: 'commitMessageTarget', value: v })
               }
-              models={models}
+              models={oneshotModels}
             />
             <p className="form-group__hint">
               Select a model for generating commit messages from the Git History DAG.
@@ -102,7 +106,7 @@ export default function AgentsTab({
               onChange={(v) =>
                 dispatch({ type: 'SET_FIELD', field: 'branchSuggestTarget', value: v })
               }
-              models={models}
+              models={oneshotModels}
             />
             <p className="form-group__hint">
               Select a model for branch name suggestion, or leave disabled.
@@ -119,7 +123,7 @@ export default function AgentsTab({
               onChange={(v) =>
                 dispatch({ type: 'SET_FIELD', field: 'conflictResolveTarget', value: v })
               }
-              models={models}
+              models={oneshotModels}
             />
             <p className="form-group__hint">
               Select a model for merge conflict resolution. When &quot;sync from main conflict&quot;
@@ -143,7 +147,7 @@ export default function AgentsTab({
             spawn wizard.
           </p>
           <ModelCatalog
-            models={models}
+            models={modelCatalog}
             runners={runners}
             enabledModels={state.enabledModels}
             onToggleModel={handleToggleModel}

@@ -57,6 +57,30 @@ The `/config` route provides a 7-tab settings page for configuring schmux. Featu
 | Experimental + build-gated | Build-time flag AND `enabled` bool       | Repofeed, Subreddit                                   |
 | Dev-only                   | `debug_ui` bool                          | Desync Diagnostics, IO Workspace Telemetry            |
 
+## Agent target dropdowns
+
+Multiple config dropdowns let the user pick an agent/model for a job (commit message, PR review, NudgeNik, desync, etc.). Three derived lists in `useConfigForm.ts` back these selectors:
+
+| List            | Contents                                                                | Use for                                                                        |
+| --------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `modelCatalog`  | Full catalog (`data.models`) — every model known to the daemon          | Enable/disable UI only (`<ModelCatalog>`). Never use for a selection dropdown. |
+| `models`        | Enabled models (or `configured: true` fallback when nothing is enabled) | Targets invoked via `session.Spawn` / `spawnSessions` (interactive).           |
+| `oneshotModels` | `models` filtered to those whose selected runner declares `oneshot`     | Targets invoked via `oneshot.ExecuteTarget` (non-interactive LLM call).        |
+
+**Choose by invocation, not by tab.** The right list for a dropdown is dictated by how the Go backend actually runs the target, not by where the dropdown lives in the UI. A dropdown in the Advanced tab that spawns an interactive diagnostic session uses `models`; a dropdown in the Experimental tab that makes a oneshot LLM call uses `oneshotModels`.
+
+`models` and `oneshotModels` are sorted via `sortModels` (`lib/modelSort.ts`) — tier (Haiku/Sonnet/Opus) then version — so order is consistent across every dropdown and matches the Model Catalog UI.
+
+### Stale selection fallback — intentional
+
+When a saved target is no longer in the filtered list (model disabled, runner removed, etc.), `TargetSelect` renders the stored value as a **disabled `"<id> (unavailable)"` option** that remains the select's current value. This is deliberate: the config file is not silently rewritten on load, the user sees exactly what's broken, and they can pick a replacement or re-enable the old model. A visible "Selected target is not available." hint accompanies the select where the `*TargetMissing` flag is wired.
+
+### When adding a new target dropdown
+
+1. Trace the runtime call site and pick the list by invocation type (above).
+2. Use `<TargetSelect>` — don't reinvent the `<select>`. You get sort, the "(unavailable)" fallback, and Disabled/None options for free.
+3. Add a `fooTargetMissing` derived flag in `useConfigForm.ts` if you want the "Selected target is not available." hint below the select.
+
 ## Auto-save system
 
 The auto-save hook (`useAutoSave`) wraps the raw `useReducer` dispatch. It intercepts actions and decides whether to trigger a save:

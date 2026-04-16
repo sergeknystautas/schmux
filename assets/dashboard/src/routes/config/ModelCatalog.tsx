@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import type { Model, RunnerInfo } from '../../lib/types';
+import { sortModels } from '../../lib/modelSort';
 
 type ModelCatalogProps = {
   models: Model[];
@@ -103,33 +104,6 @@ function groupByProvider(
 
 function getDetectedRunners(model: Model, runners: Record<string, RunnerInfo>): string[] {
   return model.runners.filter((r) => runners[r]?.available).sort();
-}
-
-// Sort models by tier (haiku < sonnet < opus < other) then by version ascending.
-// This produces: Haiku 3.5, Haiku 4.5, Sonnet 3.5, Sonnet 4, ..., Opus 4, Opus 4.6
-const TIER_ORDER: Record<string, number> = { haiku: 0, sonnet: 1, opus: 2, flash: 0, pro: 1 };
-
-function modelSortKey(model: Model): [number, number] {
-  const name = model.display_name.toLowerCase();
-  // Extract tier: last word before version number (e.g. "Claude Sonnet 4.6" → "sonnet")
-  const parts = name.split(/\s+/);
-  let tier = 99;
-  let version = 0;
-  for (const part of parts) {
-    if (part in TIER_ORDER) tier = TIER_ORDER[part];
-    const v = parseFloat(part);
-    if (!isNaN(v) && v > 0) version = v;
-  }
-  return [tier, version];
-}
-
-function sortModels(models: Model[]): Model[] {
-  return [...models].sort((a, b) => {
-    const [aTier, aVer] = modelSortKey(a);
-    const [bTier, bVer] = modelSortKey(b);
-    if (aTier !== bTier) return aTier - bTier;
-    return aVer - bVer;
-  });
 }
 
 function getProviderHint(group: ProviderGroup & { isDefaults?: boolean }): string | null {

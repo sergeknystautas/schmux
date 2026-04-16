@@ -1026,7 +1026,7 @@ export default function ConfigPage() {
             <SessionsTab
               state={state}
               dispatch={dispatch}
-              models={models}
+              models={oneshotModels}
               personas={personas}
               builtinQuickLaunch={state.builtinQuickLaunch}
               onEditQuickLaunch={openEditQuickLaunchDialog}
@@ -1056,7 +1056,9 @@ export default function ConfigPage() {
             <AgentsTab
               state={state}
               dispatch={dispatch}
-              models={state.modelCatalog}
+              models={models}
+              oneshotModels={oneshotModels}
+              modelCatalog={state.modelCatalog}
               runners={state.runners}
               onModelAction={handleModelAction}
               onOpenRunTargetEditModal={openRunTargetEditModal}
@@ -1139,7 +1141,7 @@ export default function ConfigPage() {
               newDiffName={state.newDiffName}
               newDiffCommand={state.newDiffCommand}
               onAddDiffCommand={addDiffCommand}
-              models={oneshotModels}
+              models={models}
               dispatch={dispatch}
             />
           )}

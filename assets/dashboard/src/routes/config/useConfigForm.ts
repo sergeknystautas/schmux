@@ -8,6 +8,7 @@ import type {
   RunnerInfo,
   RunTargetResponse,
 } from '../../lib/types';
+import { sortModels } from '../../lib/modelSort';
 
 export type RunTargetEditModalState = {
   target: RunTargetResponse;
@@ -508,11 +509,14 @@ export function useConfigForm(initialStep: number = 1) {
   const models = useMemo(() => {
     const enabled = state.enabledModels;
     const hasExplicit = Object.keys(enabled).length > 0;
-    return state.modelCatalog.filter((m) => (hasExplicit ? m.id in enabled : m.configured));
+    const filtered = state.modelCatalog.filter((m) =>
+      hasExplicit ? m.id in enabled : m.configured
+    );
+    return sortModels(filtered);
   }, [state.modelCatalog, state.enabledModels]);
 
   const oneshotModels = useMemo(() => {
-    return models.filter((m) => {
+    const filtered = models.filter((m) => {
       const preferredRunner = state.enabledModels[m.id];
       if (preferredRunner) {
         const runner = state.runners[preferredRunner];
@@ -524,6 +528,7 @@ export function useConfigForm(initialStep: number = 1) {
         return runner?.capabilities?.includes('oneshot') ?? false;
       });
     });
+    return sortModels(filtered);
   }, [models, state.enabledModels, state.runners]);
 
   const commandTargetNames = new Set(state.commandTargets.map((target) => target.name));

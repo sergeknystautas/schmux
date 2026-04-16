@@ -31,6 +31,8 @@ const defaultProps = {
   },
   dispatch,
   models,
+  oneshotModels: models,
+  modelCatalog: models,
   runners: {} as Record<string, import('../../lib/types').RunnerInfo>,
   onModelAction: vi.fn(),
   onOpenRunTargetEditModal: vi.fn(),
@@ -72,5 +74,62 @@ describe('AgentsTab', () => {
     expect(screen.getByText('PR Review')).toBeInTheDocument();
     expect(screen.getByText('Branch Suggestion')).toBeInTheDocument();
     expect(screen.getByText('Conflict Resolution')).toBeInTheDocument();
+  });
+
+  it('restricts task-assignment dropdowns by capability and shows full catalog in Model Catalog', () => {
+    const alpha: Model = {
+      id: 'alpha',
+      display_name: 'Alpha',
+      provider: 'anthropic',
+      configured: true,
+      runners: ['claude'],
+    };
+    const beta: Model = {
+      id: 'beta',
+      display_name: 'Beta',
+      provider: 'google',
+      configured: true,
+      runners: ['gemini'],
+    };
+    const gamma: Model = {
+      id: 'gamma',
+      display_name: 'Gamma',
+      provider: 'x',
+      configured: false,
+      runners: ['x'],
+    };
+
+    render(
+      <AgentsTab
+        {...defaultProps}
+        models={[alpha, beta]}
+        oneshotModels={[alpha]}
+        modelCatalog={[alpha, beta, gamma]}
+        runners={{
+          claude: { available: true, capabilities: ['interactive', 'oneshot'] },
+          gemini: { available: true, capabilities: ['interactive'] },
+          x: { available: true, capabilities: ['interactive'] },
+        }}
+      />
+    );
+
+    const findSelect = (label: string) =>
+      screen.getByText(label).closest('.form-group')?.querySelector('select') as HTMLSelectElement;
+
+    const optionIds = (select: HTMLSelectElement) =>
+      Array.from(select.options)
+        .map((o) => o.value)
+        .filter((v) => v !== '');
+
+    // Oneshot-restricted dropdowns: only alpha.
+    expect(optionIds(findSelect('Commit Message'))).toEqual(['alpha']);
+    expect(optionIds(findSelect('Branch Suggestion'))).toEqual(['alpha']);
+    expect(optionIds(findSelect('Conflict Resolution'))).toEqual(['alpha']);
+
+    // PR Review uses enabled models: alpha and beta.
+    expect(optionIds(findSelect('PR Review'))).toEqual(['alpha', 'beta']);
+
+    // Model Catalog section shows the full catalog including gamma.
+    expect(screen.getByText('Gamma')).toBeInTheDocument();
   });
 });
