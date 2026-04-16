@@ -253,6 +253,8 @@ POST /api/spawn
 
 Path helpers in `internal/schmuxdir/` centralize `~/.schmux/` path construction (`schmuxdir.ConfigPath()`, `schmuxdir.StatePath()`, etc.).
 
+**Build defaults and env var expansion.** `internal/config/defaults.go` supports embedding a `build_defaults.json` file that seeds new configs via `CreateDefault()`. The `resolveConfigTemplates()` function runs `os.ExpandEnv()` on the serialized JSON, expanding `${USER}`, `$HOME`, etc. from the user's environment. This only runs during `CreateDefault()` — not during `Load()` or `Reload()` — because user configs may contain intentional `$VAR` references in shell command fields (e.g., `$SCHMUX_REMOTE_URL` in notify commands) that must not be expanded at config parse time.
+
 ## Design patterns
 
 - **Lifecycle methods on Daemon** -- `Run()` delegates to named methods (`initConfigAndState`, `initManagers`, etc.) rather than inline logic

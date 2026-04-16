@@ -142,6 +142,69 @@ func TestTemplateResolution_GoTemplatesUntouched(t *testing.T) {
 	}
 }
 
+func TestTemplateResolution_GeneralEnvVars(t *testing.T) {
+	t.Setenv("SCHMUX_TEST_HOST", "myhost.example.com")
+
+	cfg := &Config{ConfigData: ConfigData{
+		Network: &NetworkConfig{
+			DashboardHostname: "${SCHMUX_TEST_HOST}",
+		},
+	}}
+	cfgJSON, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	resolved := resolveConfigTemplates(cfgJSON)
+	var result Config
+	if err := json.Unmarshal(resolved, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if result.Network.DashboardHostname != "myhost.example.com" {
+		t.Errorf("got %q, want %q", result.Network.DashboardHostname, "myhost.example.com")
+	}
+}
+
+func TestTemplateResolution_EmptyUserWarnsButExpands(t *testing.T) {
+	t.Setenv("USER", "")
+
+	input := []byte(`{"path":"/home/${USER}/ws"}`)
+	resolved := resolveConfigTemplates(input)
+
+	want := `{"path":"/home//ws"}`
+	if string(resolved) != want {
+		t.Errorf("got %s, want %s", resolved, want)
+	}
+}
+
+func TestTemplateResolution_UnsetVarBecomesEmpty(t *testing.T) {
+	t.Setenv("SCHMUX_NONEXISTENT_VAR_12345", "")
+	os.Unsetenv("SCHMUX_NONEXISTENT_VAR_12345")
+
+	input := []byte(`{"workspace_path":"/home/${SCHMUX_NONEXISTENT_VAR_12345}/ws"}`)
+	resolved := resolveConfigTemplates(input)
+
+	want := `{"workspace_path":"/home//ws"}`
+	if string(resolved) != want {
+		t.Errorf("got %s, want %s", resolved, want)
+	}
+}
+
+func TestTemplateResolution_EmptyUserNoWarningWithoutUserTemplate(t *testing.T) {
+	t.Setenv("USER", "")
+	t.Setenv("SCHMUX_TEST_VAR", "expanded")
+
+	// Input has env vars but NOT ${USER} — should expand normally without warning.
+	input := []byte(`{"path":"/home/${SCHMUX_TEST_VAR}/ws"}`)
+	resolved := resolveConfigTemplates(input)
+
+	want := `{"path":"/home/expanded/ws"}`
+	if string(resolved) != want {
+		t.Errorf("got %s, want %s", resolved, want)
+	}
+}
+
 func TestTemplateResolution_NoTemplatesUnchanged(t *testing.T) {
 	input := []byte(`{"network":{"port":7337,"dashboard_hostname":"static.example.com"}}`)
 	resolved := resolveConfigTemplates(input)

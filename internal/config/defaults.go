@@ -69,10 +69,13 @@ func overlayDefaults(cfg *Config, defaults map[string]json.RawMessage) error {
 	return nil
 }
 
-// resolveConfigTemplates replaces template variables in serialized config JSON.
-// Currently supports ${USER} → current OS user.
+// resolveConfigTemplates expands environment variables in serialized config JSON.
+// Uses os.ExpandEnv which handles ${VAR} and $VAR syntax for any env var.
 func resolveConfigTemplates(configJSON []byte) []byte {
-	s := string(configJSON)
-	s = strings.ReplaceAll(s, "${USER}", os.Getenv("USER"))
-	return []byte(s)
+	if strings.Contains(string(configJSON), "${USER}") && os.Getenv("USER") == "" {
+		if pkgLogger != nil {
+			pkgLogger.Warn("USER environment variable is empty; build default paths containing ${USER} will not expand correctly")
+		}
+	}
+	return []byte(os.ExpandEnv(string(configJSON)))
 }
