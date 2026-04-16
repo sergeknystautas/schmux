@@ -36,11 +36,11 @@ Dev mode has three layers: a bash setup script, a TypeScript dev-runner TUI, and
   └─ Delegate to tools/dev-runner/src/main.tsx (via exec npx)
        ├─ Kill existing daemon (if running)
        ├─ Build Go binary → tmp/schmux
-       ├─ Kill orphaned Vite processes on port 5173
+       ├─ Kill orphaned Vite processes on port 7338
        ├─ Install dashboard npm deps
        ├─ Write dev-state.json (source workspace)
        ├─ Build cleaned env via cleanEnv() (strips npx pollution)
-       ├─ Start Vite dev server (port 5173)
+       ├─ Start Vite dev server (port 7338)
        └─ Start daemon: schmux daemon-run --dev-mode --dev-proxy (with cleaned env)
 ```
 
@@ -49,7 +49,7 @@ Dev mode has three layers: a bash setup script, a TypeScript dev-runner TUI, and
 The dev-runner starts the daemon with two special flags:
 
 - **`--dev-mode`** — Enables dev-only API endpoints (`/api/dev/*`), event broadcasting to the dashboard, and the ability to exit with code 42 for workspace switching.
-- **`--dev-proxy`** — Routes all non-API HTTP requests to the Vite dev server at `http://localhost:5173` instead of serving the embedded static dashboard assets. This enables Vite HMR in the browser.
+- **`--dev-proxy`** — Routes all non-API HTTP requests to the Vite dev server at `http://localhost:7338` instead of serving the embedded static dashboard assets. This enables Vite HMR in the browser.
 
 ### Hot-reload behavior
 
@@ -151,14 +151,14 @@ Any other exit code is treated as a crash. The dev-runner does not automatically
 
 ### Dev proxy
 
-When `--dev-proxy` is set, the Go HTTP server routes all non-API requests through a reverse proxy to `http://localhost:5173` (Vite). API routes (`/api/*`, `/ws/*`) are handled by Go directly. This means the browser loads the React app from Vite (with HMR) while API calls go to the Go backend.
+When `--dev-proxy` is set, the Go HTTP server routes all non-API requests through a reverse proxy to `http://localhost:7338` (Vite). API routes (`/api/*`, `/ws/*`) are handled by Go directly. This means the browser loads the React app from Vite (with HMR) while API calls go to the Go backend.
 
 ### Watch pause/resume
 
 During git operations (rebase, merge), source files can temporarily contain conflict markers that cause Vite transform errors. The daemon pauses Vite's file watcher before git operations and resumes it after:
 
-- `POST http://localhost:5173/__dev/pause-watch` — Suppresses HMR updates and blocks Vite server restarts
-- `POST http://localhost:5173/__dev/resume-watch` — Resumes watching; HMR updates suppressed while paused are not replayed
+- `POST http://localhost:7338/__dev/pause-watch` — Suppresses HMR updates and blocks Vite server restarts
+- `POST http://localhost:7338/__dev/resume-watch` — Resumes watching; HMR updates suppressed while paused are not replayed
 
 This is implemented as a custom Vite plugin in `assets/dashboard/vite.config.js`.
 
@@ -372,9 +372,9 @@ Syncing calls `tmux set-environment -g KEY VALUE`. Only new sessions inherit the
 
 ## Troubleshooting
 
-### Port 5173 already in use
+### Port 7338 already in use
 
-Vite runs with `--strictPort`, so it fails if port 5173 is occupied. The dev-runner tries to kill orphaned Vite processes on startup, but if another application uses this port, you need to free it manually.
+Vite runs with `--strictPort`, so it fails if port 7338 is occupied. The dev-runner tries to kill orphaned Vite processes on startup, but if another application uses this port, you need to free it manually.
 
 ### Build fails after workspace switch
 

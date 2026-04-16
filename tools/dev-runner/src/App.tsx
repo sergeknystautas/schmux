@@ -33,7 +33,7 @@ interface PlainLine {
 }
 
 const MAX_LOG_LINES = 500;
-const VITE_PORT = 5173;
+const VITE_PORT = 7338;
 const FLUSH_INTERVAL_MS = 19; // ~90fps — batches log lines to reduce Ink re-renders
 
 export function App({ devRoot, plain }: AppProps) {
@@ -133,7 +133,7 @@ export function App({ devRoot, plain }: AppProps) {
         const result = await build(newWorkspace, binaryPath, addBackendLine);
         if (result.success) {
           setWorkspace(newWorkspace);
-          await writeDevState({ source_workspace: newWorkspace });
+          await writeDevState({ source_workspace: newWorkspace, vite_port: VITE_PORT });
           addBackendLine('Build succeeded');
         } else {
           addBackendLine('Build failed, restarting with previous binary');
@@ -275,7 +275,7 @@ export function App({ devRoot, plain }: AppProps) {
         if (cancelled) return;
 
         // Write initial dev state
-        await writeDevState({ source_workspace: devRoot });
+        await writeDevState({ source_workspace: devRoot, vite_port: VITE_PORT });
 
         // Start both processes
         frontend.start();

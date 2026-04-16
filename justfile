@@ -144,7 +144,7 @@ gen-types:
 
 # Start Vite dev server standalone (frontend-only work)
 vite:
-    cd assets/dashboard && npx vite --port 5173 --strictPort
+    cd assets/dashboard && npx vite --port 7338 --strictPort
 
 # Start website dev server
 website:

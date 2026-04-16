@@ -21,4 +21,5 @@ export interface BuildStatus {
 
 export interface DevState {
   source_workspace: string;
+  vite_port: number;
 }

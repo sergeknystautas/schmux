@@ -53,7 +53,7 @@ This starts both servers with automatic rebuilding:
 
 ### How it works
 
-The Go daemon runs with `--dev-mode` flag, which reverse-proxies non-API requests to the Vite dev server (port 5173). This gives you:
+The Go daemon runs with `--dev-mode` flag, which reverse-proxies non-API requests to the Vite dev server (port 7338). This gives you:
 
 - React HMR without page refresh
 - Working API endpoints and WebSockets
