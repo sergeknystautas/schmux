@@ -539,15 +539,29 @@ func TestClaudeParity(t *testing.T) {
 		t.Error("skill directory should be removed after RemoveSkill")
 	}
 
-	// --- BuildRunnerEnv: returns nil/empty ---
-	// TODO: The endpoint-conditional env var logic (setting ANTHROPIC_* vars when
-	// endpoint is present) needs to move to internal/models/manager.go. For now,
-	// GenericAdapter returns nil from BuildRunnerEnv.
+	// --- BuildRunnerEnv: expands runner_env.when_endpoint when Endpoint is set ---
 	if benv := a.BuildRunnerEnv(RunnerSpec{}); len(benv) != 0 {
 		t.Errorf("BuildRunnerEnv(empty) = %v, want nil/empty", benv)
 	}
-	if benv := a.BuildRunnerEnv(RunnerSpec{ModelValue: "test", Endpoint: "http://example.com"}); len(benv) != 0 {
-		t.Errorf("BuildRunnerEnv(with endpoint) = %v, want nil/empty (env vars move to models layer)", benv)
+	if benv := a.BuildRunnerEnv(RunnerSpec{ModelValue: "native"}); len(benv) != 0 {
+		t.Errorf("BuildRunnerEnv(no endpoint) = %v, want nil/empty for native claude", benv)
+	}
+	benv := a.BuildRunnerEnv(RunnerSpec{ModelValue: "test", Endpoint: "http://example.com"})
+	wantBEnv := map[string]string{
+		"ANTHROPIC_BASE_URL":             "http://example.com",
+		"ANTHROPIC_MODEL":                "test",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL":   "test",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL": "test",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL":  "test",
+		"CLAUDE_CODE_SUBAGENT_MODEL":     "test",
+	}
+	for k, want := range wantBEnv {
+		if got := benv[k]; got != want {
+			t.Errorf("BuildRunnerEnv(endpoint)[%q] = %q, want %q", k, got, want)
+		}
+	}
+	if len(benv) != len(wantBEnv) {
+		t.Errorf("BuildRunnerEnv(endpoint) has %d entries, want %d: %v", len(benv), len(wantBEnv), benv)
 	}
 }
 

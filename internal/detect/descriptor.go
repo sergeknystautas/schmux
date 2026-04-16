@@ -26,6 +26,15 @@ type Descriptor struct {
 	Skills       *SkillsDesc       `yaml:"skills"`
 	SetupFiles   []SetupFileDesc   `yaml:"setup_files"`
 	SpawnEnv     map[string]string `yaml:"spawn_env"`
+	RunnerEnv    *RunnerEnvDesc    `yaml:"runner_env"`
+}
+
+// RunnerEnvDesc describes env vars the adapter emits when spawning a runner.
+// WhenEndpoint is applied only when the resolved RunnerSpec has a non-empty
+// Endpoint (third-party providers proxied through this tool). Values may use
+// the placeholders {endpoint} and {model}.
+type RunnerEnvDesc struct {
+	WhenEndpoint map[string]string `yaml:"when_endpoint"`
 }
 
 // DetectEntry describes one method for detecting whether an agent is installed.

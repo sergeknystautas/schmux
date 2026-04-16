@@ -26,17 +26,29 @@ func TestRunnerSpec(t *testing.T) {
 }
 
 func TestBuildRunnerEnv(t *testing.T) {
-	// TODO: The endpoint-conditional env var logic (setting ANTHROPIC_* vars when
-	// endpoint is present) needs to move to internal/models/manager.go. For now,
-	// all descriptor-based adapters return nil from BuildRunnerEnv.
+	// Third-party claude routing: endpoint triggers ANTHROPIC_* env injection
+	// via the descriptor's runner_env.when_endpoint block.
 	adapter := GetAdapter("claude")
 	spec := RunnerSpec{
 		ModelValue: "kimi-thinking",
 		Endpoint:   "https://api.moonshot.ai/anthropic",
 	}
 	env := adapter.BuildRunnerEnv(spec)
-	if len(env) != 0 {
-		t.Errorf("expected empty env from descriptor adapter, got %v", env)
+	wantEnv := map[string]string{
+		"ANTHROPIC_BASE_URL":             "https://api.moonshot.ai/anthropic",
+		"ANTHROPIC_MODEL":                "kimi-thinking",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL":   "kimi-thinking",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL": "kimi-thinking",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL":  "kimi-thinking",
+		"CLAUDE_CODE_SUBAGENT_MODEL":     "kimi-thinking",
+	}
+	if len(env) != len(wantEnv) {
+		t.Errorf("env has %d entries, want %d: got %v", len(env), len(wantEnv), env)
+	}
+	for k, want := range wantEnv {
+		if got := env[k]; got != want {
+			t.Errorf("env[%q] = %q, want %q", k, got, want)
+		}
 	}
 
 	// Native model (no endpoint) should return empty env

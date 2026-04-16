@@ -134,6 +134,32 @@ bogus_field: true
 	}
 }
 
+func TestParseDescriptor_RunnerEnv(t *testing.T) {
+	yaml := `
+name: claude
+detect:
+  - type: path_lookup
+    command: claude
+runner_env:
+  when_endpoint:
+    ANTHROPIC_BASE_URL: "{endpoint}"
+    ANTHROPIC_MODEL: "{model}"
+`
+	d, err := ParseDescriptor([]byte(yaml))
+	if err != nil {
+		t.Fatalf("ParseDescriptor: %v", err)
+	}
+	if d.RunnerEnv == nil {
+		t.Fatal("RunnerEnv is nil")
+	}
+	if d.RunnerEnv.WhenEndpoint["ANTHROPIC_BASE_URL"] != "{endpoint}" {
+		t.Errorf("WhenEndpoint[ANTHROPIC_BASE_URL] = %q", d.RunnerEnv.WhenEndpoint["ANTHROPIC_BASE_URL"])
+	}
+	if d.RunnerEnv.WhenEndpoint["ANTHROPIC_MODEL"] != "{model}" {
+		t.Errorf("WhenEndpoint[ANTHROPIC_MODEL] = %q", d.RunnerEnv.WhenEndpoint["ANTHROPIC_MODEL"])
+	}
+}
+
 func TestParseDescriptor_InvalidStrategy(t *testing.T) {
 	yaml := `
 name: test

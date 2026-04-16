@@ -36,3 +36,11 @@ hooks:
 skills:
   dir_pattern: '.claude/skills/schmux-{name}'
   file_name: 'SKILL.md'
+runner_env:
+  when_endpoint:
+    ANTHROPIC_BASE_URL: '{endpoint}'
+    ANTHROPIC_MODEL: '{model}'
+    ANTHROPIC_DEFAULT_OPUS_MODEL: '{model}'
+    ANTHROPIC_DEFAULT_SONNET_MODEL: '{model}'
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: '{model}'
+    CLAUDE_CODE_SUBAGENT_MODEL: '{model}'

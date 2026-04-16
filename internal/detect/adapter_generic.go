@@ -322,9 +322,24 @@ func (a *GenericAdapter) RemoveSkill(workspacePath string, skillName string) err
 	return fmt.Errorf("%s: no skill pattern configured", a.desc.Name)
 }
 
-// BuildRunnerEnv returns nil (model routing is handled in the models layer).
-func (a *GenericAdapter) BuildRunnerEnv(_ RunnerSpec) map[string]string {
-	return nil
+// BuildRunnerEnv expands the descriptor's runner_env.when_endpoint block
+// against the given RunnerSpec. The block is applied only when spec.Endpoint
+// is non-empty — i.e., the model is routed through this tool to a third-party
+// provider. Values may use {endpoint} and {model} placeholders.
+func (a *GenericAdapter) BuildRunnerEnv(spec RunnerSpec) map[string]string {
+	if a.desc.RunnerEnv == nil || len(a.desc.RunnerEnv.WhenEndpoint) == 0 {
+		return nil
+	}
+	if spec.Endpoint == "" {
+		return nil
+	}
+	out := make(map[string]string, len(a.desc.RunnerEnv.WhenEndpoint))
+	for k, v := range a.desc.RunnerEnv.WhenEndpoint {
+		v = strings.ReplaceAll(v, "{endpoint}", spec.Endpoint)
+		v = strings.ReplaceAll(v, "{model}", spec.ModelValue)
+		out[k] = v
+	}
+	return out
 }
 
 // ModelFlag returns the CLI flag for model selection.
