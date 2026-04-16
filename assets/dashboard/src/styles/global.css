@@ -4464,10 +4464,18 @@ a:hover {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
+  padding: var(--spacing-xs) var(--spacing-md);
   background: var(--color-border-subtle);
+}
+
+.model-catalog__provider-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex: 1;
+  padding: var(--spacing-xs) 0;
+  background: transparent;
   border: none;
-  width: 100%;
   cursor: pointer;
   font-size: 0.875rem;
   font-weight: 600;
@@ -4475,8 +4483,19 @@ a:hover {
   text-align: left;
 }
 
-.model-catalog__provider-header:hover {
-  background: var(--color-border);
+.model-catalog__provider-toggle:disabled {
+  cursor: default;
+}
+
+.model-catalog__provider-toggle:not(:disabled):hover {
+  color: var(--color-text);
+  opacity: 0.85;
+}
+
+.model-catalog__provider-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
 }
 
 .model-catalog__provider-chevron {
@@ -4584,11 +4603,6 @@ a:hover {
 .runner-picker--disabled {
   opacity: 0.4;
   pointer-events: none;
-}
-
-/* Secrets button in model row */
-.model-catalog__secrets-btn {
-  flex-shrink: 0;
 }
 
 /* Add item form */

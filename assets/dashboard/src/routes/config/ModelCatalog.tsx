@@ -16,22 +16,12 @@ type ProviderGroup = {
   models: Model[];
   hasDetectedRunner: boolean;
   needsSecrets: boolean;
+  secretsModel: Model | null;
+  isConfigured: boolean;
   isDefaults?: boolean;
 };
 
-function groupByProvider(
-  models: Model[],
-  runners: Record<string, RunnerInfo>
-): (
-  | ProviderGroup
-  | {
-      provider: string;
-      models: Model[];
-      hasDetectedRunner: boolean;
-      needsSecrets: boolean;
-      isDefaults: boolean;
-    }
-)[] {
+function groupByProvider(models: Model[], runners: Record<string, RunnerInfo>): ProviderGroup[] {
   // Separate default models
   const defaults: Model[] = [];
   const nonDefaults: Model[] = [];
@@ -50,16 +40,7 @@ function groupByProvider(
     groups.set(model.provider, existing);
   }
 
-  const result: (
-    | ProviderGroup
-    | {
-        provider: string;
-        models: Model[];
-        hasDetectedRunner: boolean;
-        needsSecrets: boolean;
-        isDefaults: boolean;
-      }
-  )[] = [];
+  const result: ProviderGroup[] = [];
 
   // Add defaults group first if there are any
   if (defaults.length > 0) {
@@ -69,6 +50,8 @@ function groupByProvider(
       models: sortModels(defaults),
       hasDetectedRunner,
       needsSecrets: false,
+      secretsModel: null,
+      isConfigured: false,
       isDefaults: true,
     });
   }
@@ -77,14 +60,17 @@ function groupByProvider(
     const hasDetectedRunner = providerModels.some((m) =>
       m.runners.some((r) => runners[r]?.available)
     );
-    const needsSecrets = providerModels.some(
-      (m) => m.required_secrets && m.required_secrets.length > 0 && !m.configured
-    );
+    const secretsModel =
+      providerModels.find((m) => m.required_secrets && m.required_secrets.length > 0) || null;
+    const isConfigured = !!secretsModel && providerModels.some((m) => m.configured);
+    const needsSecrets = !!secretsModel && !isConfigured;
     result.push({
       provider,
       models: sortModels(providerModels),
       hasDetectedRunner,
       needsSecrets,
+      secretsModel,
+      isConfigured,
       isDefaults: false,
     });
   }
@@ -106,7 +92,7 @@ function getDetectedRunners(model: Model, runners: Record<string, RunnerInfo>): 
   return model.runners.filter((r) => runners[r]?.available).sort();
 }
 
-function getProviderHint(group: ProviderGroup & { isDefaults?: boolean }): string | null {
+function getProviderHint(group: ProviderGroup): string | null {
   if (group.isDefaults) return 'quick launch targets';
   if (!group.hasDetectedRunner) return 'no tools detected';
   if (group.needsSecrets) return 'requires secrets';
@@ -130,29 +116,41 @@ function ProviderSection({
 }) {
   const [expanded, setExpanded] = useState(group.hasDetectedRunner || group.isDefaults);
   const hint = getProviderHint(group);
+  const canExpand = group.hasDetectedRunner || group.isDefaults;
 
   return (
     <div
       className={`model-catalog__provider${!group.hasDetectedRunner ? ' model-catalog__provider--disabled' : ''}`}
       data-disabled={!group.hasDetectedRunner}
     >
-      <button
-        className="model-catalog__provider-header"
-        onClick={() => (group.hasDetectedRunner || group.isDefaults) && setExpanded(!expanded)}
-        aria-expanded={expanded}
-      >
-        <svg
-          className={`model-catalog__provider-chevron${!expanded ? ' model-catalog__provider-chevron--collapsed' : ''}`}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
+      <div className="model-catalog__provider-header">
+        <button
+          type="button"
+          className="model-catalog__provider-toggle"
+          onClick={() => canExpand && setExpanded(!expanded)}
+          aria-expanded={expanded}
+          disabled={!canExpand}
         >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
-        {group.provider}
-        {hint && <span className="model-catalog__provider-hint">{hint}</span>}
-      </button>
+          <svg
+            className={`model-catalog__provider-chevron${!expanded ? ' model-catalog__provider-chevron--collapsed' : ''}`}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+          {group.provider}
+          {hint && <span className="model-catalog__provider-hint">{hint}</span>}
+        </button>
+        {group.secretsModel && (
+          <ProviderSecretsActions
+            secretsModel={group.secretsModel}
+            isConfigured={group.isConfigured}
+            onModelAction={onModelAction}
+          />
+        )}
+      </div>
       {expanded && (
         <div className="model-catalog__models">
           {group.models.map((model) => (
@@ -163,11 +161,49 @@ function ProviderSection({
               enabledModels={enabledModels}
               onToggleModel={onToggleModel}
               onChangeRunner={onChangeRunner}
-              onModelAction={onModelAction}
             />
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function ProviderSecretsActions({
+  secretsModel,
+  isConfigured,
+  onModelAction,
+}: {
+  secretsModel: Model;
+  isConfigured: boolean;
+  onModelAction: (model: Model, mode: 'add' | 'remove' | 'update') => void;
+}) {
+  if (isConfigured) {
+    return (
+      <div className="model-catalog__provider-actions">
+        <button
+          className="btn btn--sm btn--primary"
+          onClick={() => onModelAction(secretsModel, 'update')}
+        >
+          Update Secrets
+        </button>
+        <button
+          className="btn btn--sm btn--danger"
+          onClick={() => onModelAction(secretsModel, 'remove')}
+        >
+          Remove
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="model-catalog__provider-actions">
+      <button
+        className="btn btn--sm btn--primary"
+        onClick={() => onModelAction(secretsModel, 'add')}
+      >
+        Add Secrets
+      </button>
     </div>
   );
 }
@@ -178,14 +214,12 @@ function ModelRow({
   enabledModels,
   onToggleModel,
   onChangeRunner,
-  onModelAction,
 }: {
   model: Model;
   runners: Record<string, RunnerInfo>;
   enabledModels: Record<string, string>;
   onToggleModel: (modelId: string, enabled: boolean, defaultRunner: string) => void;
   onChangeRunner: (modelId: string, runner: string) => void;
-  onModelAction: (model: Model, mode: 'add' | 'remove' | 'update') => void;
 }) {
   const detectedRunners = useMemo(() => getDetectedRunners(model, runners), [model, runners]);
   const isEnabled = model.id in enabledModels;
@@ -193,18 +227,15 @@ function ModelRow({
 
   if (detectedRunners.length === 0) return null;
 
-  const needsSecrets =
-    model.required_secrets && model.required_secrets.length > 0 && !model.configured;
-
   // Format context window
   const contextWindowStr = model.context_window
     ? `${(model.context_window / 1000).toFixed(0)}K`
     : null;
 
   const handleRowClick = (e: React.MouseEvent) => {
-    // Don't toggle when clicking runner picker buttons or secrets button
+    // Don't toggle when clicking the runner picker
     const target = e.target as HTMLElement;
-    if (target.closest('.runner-picker') || target.closest('.model-catalog__secrets-btn')) return;
+    if (target.closest('.runner-picker')) return;
     onToggleModel(model.id, !isEnabled, detectedRunners[0]);
   };
 
@@ -233,15 +264,6 @@ function ModelRow({
         disabled={!isEnabled}
         onSelect={(runner) => onChangeRunner(model.id, runner)}
       />
-
-      {needsSecrets && (
-        <button
-          className="btn btn--sm btn--primary model-catalog__secrets-btn"
-          onClick={() => onModelAction(model, model.configured ? 'update' : 'add')}
-        >
-          {model.configured ? 'Update' : 'Add'} Secrets
-        </button>
-      )}
     </div>
   );
 }

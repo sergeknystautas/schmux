@@ -193,4 +193,149 @@ describe('ModelCatalog', () => {
     if (opencodeBtn) fireEvent.click(opencodeBtn);
     expect(onChangeRunner).toHaveBeenCalledWith('claude-opus-4-6', 'opencode');
   });
+
+  describe('secrets management', () => {
+    const moonshotUnconfigured = makeModel({
+      id: 'kimi-k2',
+      display_name: 'Kimi K2',
+      provider: 'moonshot',
+      runners: ['claude'],
+      required_secrets: ['MOONSHOT_API_KEY'],
+      configured: false,
+    });
+
+    const moonshotConfigured = makeModel({
+      id: 'kimi-k2',
+      display_name: 'Kimi K2',
+      provider: 'moonshot',
+      runners: ['claude'],
+      required_secrets: ['MOONSHOT_API_KEY'],
+      configured: true,
+    });
+
+    it('shows Add Secrets button when required and not configured', () => {
+      render(<ModelCatalog {...defaultProps} models={[moonshotUnconfigured]} />);
+      expect(screen.getByRole('button', { name: 'Add Secrets' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Update Secrets' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument();
+    });
+
+    it('shows Update Secrets and Remove buttons when required and configured', () => {
+      render(<ModelCatalog {...defaultProps} models={[moonshotConfigured]} />);
+      expect(screen.getByRole('button', { name: 'Update Secrets' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Remove' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Add Secrets' })).not.toBeInTheDocument();
+    });
+
+    it('calls onModelAction with add when Add Secrets is clicked', () => {
+      const onModelAction = vi.fn();
+      render(
+        <ModelCatalog
+          {...defaultProps}
+          models={[moonshotUnconfigured]}
+          onModelAction={onModelAction}
+        />
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Add Secrets' }));
+      expect(onModelAction).toHaveBeenCalledWith(moonshotUnconfigured, 'add');
+    });
+
+    it('calls onModelAction with update when Update Secrets is clicked', () => {
+      const onModelAction = vi.fn();
+      render(
+        <ModelCatalog
+          {...defaultProps}
+          models={[moonshotConfigured]}
+          onModelAction={onModelAction}
+        />
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Update Secrets' }));
+      expect(onModelAction).toHaveBeenCalledWith(moonshotConfigured, 'update');
+    });
+
+    it('calls onModelAction with remove when Remove is clicked', () => {
+      const onModelAction = vi.fn();
+      render(
+        <ModelCatalog
+          {...defaultProps}
+          models={[moonshotConfigured]}
+          onModelAction={onModelAction}
+        />
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+      expect(onModelAction).toHaveBeenCalledWith(moonshotConfigured, 'remove');
+    });
+
+    it('does not toggle the model when clicking secrets buttons', () => {
+      const onToggleModel = vi.fn();
+      render(
+        <ModelCatalog
+          {...defaultProps}
+          models={[moonshotConfigured]}
+          onToggleModel={onToggleModel}
+        />
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Update Secrets' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+      expect(onToggleModel).not.toHaveBeenCalled();
+    });
+
+    it('renders one set of secrets buttons per provider, not per model', () => {
+      // Provider-level secrets: backend stores one set per provider, so all
+      // models in a configured provider report configured=true. The UI must
+      // not multiply the buttons per-row.
+      const zaiModels: Model[] = [
+        makeModel({
+          id: 'glm-4.5',
+          display_name: 'GLM-4.5',
+          provider: 'zai',
+          runners: ['claude'],
+          required_secrets: ['ZAI_API_KEY'],
+          configured: true,
+        }),
+        makeModel({
+          id: 'glm-4.6',
+          display_name: 'GLM-4.6',
+          provider: 'zai',
+          runners: ['claude'],
+          required_secrets: ['ZAI_API_KEY'],
+          configured: true,
+        }),
+        makeModel({
+          id: 'glm-5',
+          display_name: 'GLM-5',
+          provider: 'zai',
+          runners: ['claude'],
+          required_secrets: ['ZAI_API_KEY'],
+          configured: true,
+        }),
+      ];
+      render(<ModelCatalog {...defaultProps} models={zaiModels} />);
+      expect(screen.getAllByRole('button', { name: 'Update Secrets' })).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: 'Remove' })).toHaveLength(1);
+    });
+
+    it('shows provider-level Add Secrets even when only some models in the provider need them', () => {
+      const mixed: Model[] = [
+        makeModel({
+          id: 'glm-4.5',
+          display_name: 'GLM-4.5',
+          provider: 'zai',
+          runners: ['claude'],
+          required_secrets: ['ZAI_API_KEY'],
+          configured: false,
+        }),
+        makeModel({
+          id: 'glm-4.6',
+          display_name: 'GLM-4.6',
+          provider: 'zai',
+          runners: ['claude'],
+          required_secrets: ['ZAI_API_KEY'],
+          configured: false,
+        }),
+      ];
+      render(<ModelCatalog {...defaultProps} models={mixed} />);
+      expect(screen.getAllByRole('button', { name: 'Add Secrets' })).toHaveLength(1);
+    });
+  });
 });
