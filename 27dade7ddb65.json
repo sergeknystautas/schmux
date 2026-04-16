@@ -2,11 +2,11 @@
   "version": 2,
   "developer": "stefano.mazzocchi@gmail.com",
   "display_name": "Stefano Mazzocchi",
-  "updated": "2026-04-16T05:50:41Z",
+  "updated": "2026-04-16T05:51:13Z",
   "intents": [
     {
       "id": "schmux-002",
-      "intent": "/commit",
+      "intent": "the schmux Github CI has problems, I want you to understand what tests are failing and fix them",
       "status": "active",
       "last_active_date": "2026-04-15",
       "started": "2026-04-14"
