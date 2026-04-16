@@ -147,7 +147,17 @@ func (g *GitOps) WriteDevFile(email string, devFile *DeveloperFile) error {
 		commitArgs = append(commitArgs, "-p", strings.TrimSpace(parentSHA))
 	}
 
-	commitSHA, err := g.git(commitArgs...)
+	authorName := devFile.DisplayName
+	if authorName == "" {
+		authorName = email
+	}
+	authorEnv := []string{
+		"GIT_AUTHOR_NAME=" + authorName,
+		"GIT_AUTHOR_EMAIL=" + email,
+		"GIT_COMMITTER_NAME=" + authorName,
+		"GIT_COMMITTER_EMAIL=" + email,
+	}
+	commitSHA, err := g.gitEnv(authorEnv, commitArgs...)
 	if err != nil {
 		return fmt.Errorf("commit-tree: %w", err)
 	}

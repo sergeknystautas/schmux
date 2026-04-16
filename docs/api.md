@@ -3377,6 +3377,8 @@ Input is sent as **binary WebSocket frames** (raw keystroke bytes, no JSON wrapp
 Binary frame: raw keystroke bytes (e.g., "ls -la\r", arrow keys as ANSI escapes)
 ```
 
+When input contains an interactive key (Enter `\r`, Tab `\t`, backtab `\x1b[Z`, or bare Escape `\x1b`), the server clears any pending nudge on the session and broadcasts the updated state to `/ws/dashboard` subscribers. The state persist and broadcast are performed in a tracked background goroutine so that graceful shutdown waits for them to complete.
+
 ```json
 {"type":"resize","data":"{\"cols\":120,\"rows\":30}"}
 {"type":"diagnostic"}

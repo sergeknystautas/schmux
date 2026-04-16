@@ -26,7 +26,9 @@ const (
 func (s *Server) clearNudgeOnInput(sessionID, data string) {
 	if strings.Contains(data, "\r") || strings.Contains(data, "\t") || strings.Contains(data, "\x1b[Z") || data == "\x1b" {
 		if s.state.ClearSessionNudge(sessionID) {
+			s.backgroundWG.Add(1)
 			go func() {
+				defer s.backgroundWG.Done()
 				if err := s.state.Save(); err != nil {
 					logging.Sub(s.logger, "nudgenik").Error("failed to save nudge clear", "err", err)
 				} else {

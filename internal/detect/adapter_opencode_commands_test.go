@@ -8,7 +8,6 @@ import (
 )
 
 func TestOpencodeSetupCommands(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	loadDescriptorAdapter(t, "opencode")
 	adapter := GetAdapter("opencode")
@@ -44,7 +43,6 @@ func TestOpencodeSetupCommands(t *testing.T) {
 }
 
 func TestOpencodeSetupCommandsIdempotent(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	loadDescriptorAdapter(t, "opencode")
 	adapter := GetAdapter("opencode")

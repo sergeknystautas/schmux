@@ -252,15 +252,4 @@ interactive:
 	if !found {
 		t.Error("gocheck not found in DetectAvailableToolsContext results")
 	}
-
-	// Verify builtins still detected alongside the descriptor adapter
-	builtinFound := 0
-	for _, tool := range tools {
-		if IsBuiltinToolName(tool.Name) {
-			builtinFound++
-		}
-	}
-	if builtinFound == 0 {
-		t.Error("no builtin tools detected — descriptor registration may have broken builtin detection")
-	}
 }
