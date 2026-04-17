@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(git *), Bash(go build *), Bash(go run *), Bash(./format.sh*), Bash(./test.sh*)
+allowed-tools: Bash(git *), Bash(go build *), Bash(go run *), Bash(./format.sh*), Bash(./test.sh*), Bash(./badcode.sh*)
 description: Rebase current branch onto origin/main and resolve conflicts
 ---
 
@@ -49,9 +49,10 @@ After the rebase completes successfully:
 
 1. Run `./format.sh` to ensure all files are properly formatted.
 2. Run `go build ./cmd/schmux` to confirm the project compiles.
-3. Run `./test.sh --quick` to confirm tests pass.
+3. Run `./test.sh` to confirm tests pass.
+4. Run `./badcode.sh` to confirm static analysis passes.
 
-**If build or tests fail:** investigate and fix the issue, then amend the current HEAD commit with the fix (`git add <files> && git commit --amend --no-edit`).
+**If build, tests, or badcode fail:** investigate and fix the issue, then amend the current HEAD commit with the fix (`git add <files> && git commit --amend --no-edit`).
 
 ### Step 5: Report
 

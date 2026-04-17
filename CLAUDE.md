@@ -115,6 +115,7 @@ docker run --rm schmux-e2e
 The `/commit` command enforces the definition of done before every commit:
 
 - Runs `./test.sh` and aborts if tests fail
+- Runs `./badcode.sh` (static analysis: deadcode, staticcheck, govulncheck, knip, npm audit, tsc) and aborts if it fails
 - Checks that `docs/api.md` is updated when API-related packages change
 - Requires a structured self-assessment (tests written, no architecture drift, docs current)
 

@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(git *)
+allowed-tools: Bash(git *), Bash(go build *), Bash(./test.sh*), Bash(./badcode.sh*)
 description: Squash all feature branch commits into a single comprehensive commit
 ---
 
@@ -47,10 +47,21 @@ git reset --soft origin/main
 git commit -m "<composed message>"
 ```
 
-### Step 6: Report
+### Step 6: Verify
+
+After squashing, verify the result compiles and passes tests:
+
+1. Run `go build ./cmd/schmux` to confirm compilation.
+2. Run `./test.sh` to confirm tests pass.
+3. Run `./badcode.sh` to confirm static analysis passes.
+
+**If any check fails:** the squash may have produced a broken state. Investigate and fix, then amend with `git commit --amend --no-edit`.
+
+### Step 7: Report
 
 Show:
 
 - The number of commits that were squashed
 - The new commit message
 - `git log --oneline -1` to confirm the result
+- Build and test results

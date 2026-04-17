@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(git *), Bash(./format.sh*)
+allowed-tools: Bash(git *), Bash(./format.sh*), Bash(go build *), Bash(./test.sh*), Bash(./badcode.sh*)
 description: Pull remote changes and rebase local commits on top
 ---
 
@@ -55,10 +55,20 @@ If new conflicts appear in subsequent commits, repeat this process.
 - NEVER run `git rebase --abort` unless the user explicitly asks to abort.
 - NEVER run `git rebase --skip` — every commit should be preserved.
 
-### Step 5: Report
+### Step 5: Verify
+
+After pulling, verify the result builds and passes tests:
+
+1. Run `go build ./cmd/schmux` to confirm compilation.
+2. Run `./test.sh` to confirm tests pass.
+
+**If any check fails:** the pulled changes may have introduced a breakage. Report the failure to the user.
+
+### Step 6: Report
 
 Show:
 
 - `git log --oneline -5` to show the current state
 - Whether it was a fast-forward or a rebase
 - Whether any conflicts were resolved (and in which files)
+- Build and test results

@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git add:*), Bash(git commit:*), Bash(./test.sh*), Bash(go vet:*), Bash(go build:*)
+allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git add:*), Bash(git commit:*), Bash(./test.sh*), Bash(./badcode.sh*), Bash(go vet:*), Bash(go build:*), Bash(ls docs/specs*), Bash(head *), Glob, Read, Skill
 description: Create a git commit with definition-of-done enforcement
 ---
 
@@ -80,11 +80,13 @@ Using the categorization from Step 1:
 
 - Run `go vet ./...`. If it fails, STOP.
 - **Logger lint**: Check that no staged `internal/` Go file imports the standard `"log"` package. Run: `git diff --cached --name-only -- 'internal/*.go' | xargs grep -l '^\t"log"$' 2>/dev/null`. If any files are printed, STOP — they must use `charmbracelet/log` (via `internal/logging`) instead of stdlib `log`. Packages with a `*Server` receiver should use `s.logger`; standalone packages should accept a `*log.Logger` in their constructor or use the `SetLogger` pattern.
-- Run `./test.sh --quick`. If it fails, STOP.
+- Run `./test.sh`. If it fails, STOP.
+- Run `./badcode.sh`. If it fails, STOP.
 
 **If behavioral files are staged but none are Go files** (frontend-only changes):
 
-- Run `./test.sh --quick`. If it fails, STOP.
+- Run `./test.sh`. If it fails, STOP.
+- Run `./badcode.sh`. If it fails, STOP.
 
 Continue to Step 4.
 
@@ -188,3 +190,14 @@ Commit message format:
 - **Do NOT add a Co-Authored-By line** — agents should not attribute commits to themselves
 - **Do NOT add "generated" markers** — no "AI-generated" or similar disclaimers
 - **Focus on features, not code changes** — describe what the commit accomplishes, not just which files or functions were modified
+
+---
+
+### Step 7: Spec and Plan Consolidation (optional)
+
+After the commit succeeds, check if any files exist in `docs/specs/` or `docs/plans/`. If so, scan their first 10 lines and cross-reference with the committed changes to identify specs or plans that describe features now fully implemented.
+
+If candidates are found, ask the user: "This commit appears to complete [feature]. Want me to run `/finalize` to consolidate these docs into a subsystem guide?"
+
+- If yes: invoke `/finalize` with the candidate file path(s).
+- If no or no candidates found: skip silently.

@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git add:*), Bash(git rm:*), Bash(git commit:*), Bash(git branch:*), Bash(mv *), Read, Glob, Grep, Edit, Write, Task, AskUserQuestion
+allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git add:*), Bash(git rm:*), Bash(git branch:*), Bash(mv *), Read, Glob, Grep, Edit, Write, Task, AskUserQuestion, Skill
 description: Consolidate design specs into subsystem guides after a feature is implemented
 ---
 
@@ -20,8 +20,8 @@ After a feature is fully implemented, this command consolidates its design spec(
 **If no arguments:** Discover candidates:
 
 1. Check the current branch name and recent commits (`git log --oneline -20`) to understand what was recently implemented.
-2. List all files in `docs/specs/` and read the first 10 lines of each to understand what they describe.
-3. Cross-reference: which specs describe features that appear in recent commits or exist in the codebase as implemented code?
+2. List all files in `docs/specs/` and `docs/plans/` and read the first 10 lines of each to understand what they describe.
+3. Cross-reference: which specs or plans describe features that appear in recent commits or exist in the codebase as implemented code?
 4. Present the candidates to the user:
    - "These specs appear to be fully implemented: [list]. Which should I consolidate?"
    - Also flag any docs in `docs/` that look like one-time migration guides or historical reports (e.g., migration guides for completed migrations, coverage reports). Ask: "These docs appear to be historical artifacts. Delete them?"
@@ -39,7 +39,7 @@ For each spec to consolidate:
    - **Key files** — which files are central to this subsystem
    - **Gotchas** — non-obvious pitfalls, things that look like they should work one way but don't, common mistakes
    - **Common modification patterns** — how a developer would extend or modify this area
-5. Check if other specs in `docs/specs/` relate to the same subsystem. If so, ask the user: "These specs also relate to this area: [list]. Include them in this consolidation?"
+5. Check if other specs in `docs/specs/` or plans in `docs/plans/` relate to the same subsystem. If so, ask the user: "These docs also relate to this area: [list]. Include them in this consolidation?"
 
 ### Step 3: Find or Create the Subsystem Guide
 
@@ -95,13 +95,13 @@ Write or update the subsystem guide following this template:
 
 ### Step 5: Clean Up
 
-1. Delete the consolidated spec(s) from `docs/specs/` using `git rm`.
+1. Delete the consolidated spec(s) from `docs/specs/` and/or plan(s) from `docs/plans/` using `git rm`.
 2. Delete any historical docs the user approved for removal.
 3. Stage the new/updated guide(s) and the deletions.
 
 ### Step 6: Commit
 
-Create a commit with message format:
+Use `/commit` to create the commit. Suggest this message format:
 
 ```
 docs: consolidate [spec-name] into [guide-name] subsystem guide
