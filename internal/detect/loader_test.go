@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 	"time"
 )
 
@@ -120,6 +121,75 @@ func TestLoadEmbeddedDescriptors(t *testing.T) {
 		if !found {
 			t.Errorf("expected %s descriptor in embedded descriptors", name)
 		}
+	}
+}
+
+// TestLoadDescriptorsFromFS_DuplicateInSameDir guards the invariant that two
+// descriptor files in the same directory cannot share a name.
+func TestLoadDescriptorsFromFS_DuplicateInSameDir(t *testing.T) {
+	yaml := []byte("name: dupe\ndetect:\n  - type: path_lookup\n    command: dupe\ncapabilities: [interactive]\n")
+	fsys := fstest.MapFS{
+		"contrib/a.yaml": &fstest.MapFile{Data: yaml},
+		"contrib/b.yaml": &fstest.MapFile{Data: yaml},
+	}
+	if _, err := loadDescriptorsFromFS(fsys, "contrib"); err == nil {
+		t.Fatal("expected duplicate-name error within same dir, got nil")
+	}
+}
+
+// TestLoadDescriptorsFromFS_MissingDir treats a missing directory as empty,
+// not an error. Mirrors the OSS state where contrib/ has no .yaml files.
+func TestLoadDescriptorsFromFS_MissingDir(t *testing.T) {
+	descs, err := loadDescriptorsFromFS(fstest.MapFS{}, "contrib")
+	if err != nil {
+		t.Fatalf("loadDescriptorsFromFS missing dir: %v", err)
+	}
+	if len(descs) != 0 {
+		t.Errorf("got %d descriptors, want 0", len(descs))
+	}
+}
+
+// TestLoadEmbeddedDescriptorsFrom_ContribOverridesDescriptors reproduces the
+// Meta-build scenario: contrib/claude.yaml and descriptors/claude.yaml coexist
+// after build-schmux.sh copies the Meta override into contrib/. Contrib must
+// win on name collision and additional contrib descriptors must be added.
+// Before the fix this returned a duplicate-name error and init() silently
+// swallowed it, leaving the adapter registry empty (no tools detected).
+func TestLoadEmbeddedDescriptorsFrom_ContribOverridesDescriptors(t *testing.T) {
+	ossClaude := []byte("name: claude\ndisplay_name: Claude (OSS)\ndetect:\n  - type: path_lookup\n    command: claude\ncapabilities: [interactive]\n")
+	metaClaude := []byte("name: claude\ndisplay_name: Claude (Meta)\ndetect:\n  - type: path_lookup\n    command: claude\ncapabilities: [interactive]\nprompt_strategy: send_keys\n")
+	metaOrc := []byte("name: orc\ndisplay_name: Orc\ndetect:\n  - type: path_lookup\n    command: orc\ncapabilities: [interactive]\n")
+
+	descriptorsFS := fstest.MapFS{"descriptors/claude.yaml": &fstest.MapFile{Data: ossClaude}}
+	contribFS := fstest.MapFS{
+		"contrib/claude.yaml": &fstest.MapFile{Data: metaClaude},
+		"contrib/orc.yaml":    &fstest.MapFile{Data: metaOrc},
+	}
+
+	descs, err := loadEmbeddedDescriptorsFrom(descriptorsFS, "descriptors", contribFS, "contrib")
+	if err != nil {
+		t.Fatalf("loadEmbeddedDescriptorsFrom: %v", err)
+	}
+	if len(descs) != 2 {
+		t.Fatalf("got %d descriptors, want 2 (claude override + orc add)", len(descs))
+	}
+
+	byName := map[string]*Descriptor{}
+	for _, d := range descs {
+		byName[d.Name] = d
+	}
+	claude := byName["claude"]
+	if claude == nil {
+		t.Fatal("claude descriptor missing")
+	}
+	if claude.DisplayName != "Claude (Meta)" {
+		t.Errorf("claude DisplayName = %q, want Meta override", claude.DisplayName)
+	}
+	if claude.PromptStrategy != "send_keys" {
+		t.Errorf("claude PromptStrategy = %q, want send_keys (from contrib)", claude.PromptStrategy)
+	}
+	if byName["orc"] == nil {
+		t.Error("orc descriptor missing — contrib should add new adapters too")
 	}
 }
 

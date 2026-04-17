@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/charmbracelet/log"
 )
 
 // Use directory-level embed (not glob) so it compiles even when the
@@ -19,42 +21,70 @@ var embeddedDescriptors embed.FS
 var embeddedContrib embed.FS
 
 // LoadEmbeddedDescriptors loads descriptors from the embedded descriptors/
-// (builtin) and contrib/ (external, populated by CI) directories.
-// Returns them merged with name collision detection.
+// (built-in OSS defaults) and contrib/ (downstream build-time additions and
+// overrides) directories. Contrib descriptors override descriptors with the
+// same name, mirroring the runtime→embedded override pattern in
+// LoadAndRegisterDescriptors. This lets downstream builds (e.g. Meta's
+// internal schmux) customize adapter behavior without forking the OSS source.
 func LoadEmbeddedDescriptors() ([]*Descriptor, error) {
-	var all []*Descriptor
-	seen := map[string]string{}
+	return loadEmbeddedDescriptorsFrom(embeddedDescriptors, "descriptors", embeddedContrib, "contrib")
+}
 
-	for _, src := range []struct {
-		fs    embed.FS
-		dir   string
-		label string
-	}{
-		{embeddedDescriptors, "descriptors", "descriptors"},
-		{embeddedContrib, "contrib", "contrib"},
-	} {
-		entries, err := fs.ReadDir(src.fs, src.dir)
-		if err != nil {
+// loadEmbeddedDescriptorsFrom is the testable core of LoadEmbeddedDescriptors:
+// loads two descriptor directories and merges them with override taking
+// precedence on name collision.
+func loadEmbeddedDescriptorsFrom(baseFS fs.FS, baseDir string, overrideFS fs.FS, overrideDir string) ([]*Descriptor, error) {
+	base, err := loadDescriptorsFromFS(baseFS, baseDir)
+	if err != nil {
+		return nil, err
+	}
+	override, err := loadDescriptorsFromFS(overrideFS, overrideDir)
+	if err != nil {
+		return nil, err
+	}
+
+	overrideNames := map[string]bool{}
+	for _, d := range override {
+		overrideNames[d.Name] = true
+	}
+	all := append([]*Descriptor(nil), override...)
+	for _, d := range base {
+		if overrideNames[d.Name] {
 			continue
 		}
-		for _, e := range entries {
-			if e.IsDir() || !isYAMLFile(e.Name()) {
-				continue
-			}
-			data, err := fs.ReadFile(src.fs, src.dir+"/"+e.Name())
-			if err != nil {
-				return nil, fmt.Errorf("read embedded %s/%s: %w", src.label, e.Name(), err)
-			}
-			d, err := ParseDescriptor(data)
-			if err != nil {
-				return nil, fmt.Errorf("parse embedded %s/%s: %w", src.label, e.Name(), err)
-			}
-			if prev, ok := seen[d.Name]; ok {
-				return nil, fmt.Errorf("duplicate descriptor name %q in %s and %s/%s", d.Name, prev, src.label, e.Name())
-			}
-			seen[d.Name] = src.label + "/" + e.Name()
-			all = append(all, d)
+		all = append(all, d)
+	}
+	return all, nil
+}
+
+// loadDescriptorsFromFS loads all .yaml descriptors from a single directory in
+// a filesystem. Returns an error if two files within the directory declare the
+// same descriptor name. A missing directory is treated as empty (not an error)
+// so the OSS build with an empty contrib/ still works.
+func loadDescriptorsFromFS(fsys fs.FS, dir string) ([]*Descriptor, error) {
+	entries, err := fs.ReadDir(fsys, dir)
+	if err != nil {
+		return nil, nil
+	}
+	var all []*Descriptor
+	seen := map[string]string{}
+	for _, e := range entries {
+		if e.IsDir() || !isYAMLFile(e.Name()) {
+			continue
 		}
+		data, err := fs.ReadFile(fsys, dir+"/"+e.Name())
+		if err != nil {
+			return nil, fmt.Errorf("read embedded %s/%s: %w", dir, e.Name(), err)
+		}
+		d, err := ParseDescriptor(data)
+		if err != nil {
+			return nil, fmt.Errorf("parse embedded %s/%s: %w", dir, e.Name(), err)
+		}
+		if prev, ok := seen[d.Name]; ok {
+			return nil, fmt.Errorf("duplicate descriptor name %q in %s/%s and %s/%s", d.Name, dir, prev, dir, e.Name())
+		}
+		seen[d.Name] = e.Name()
+		all = append(all, d)
 	}
 	return all, nil
 }
@@ -166,6 +196,11 @@ func isYAMLFile(name string) bool {
 func init() {
 	descs, err := LoadEmbeddedDescriptors()
 	if err != nil {
+		// pkgLogger is not yet set at init time, so use a one-off stderr
+		// logger. Without this, a malformed or colliding embedded descriptor
+		// leaves the adapter registry empty and the binary appears to support
+		// no tools — with no signal as to why.
+		log.New(os.Stderr).Warn("failed to load embedded adapter descriptors", "err", err)
 		return
 	}
 	_ = RegisterDescriptorAdapters(descs)

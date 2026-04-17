@@ -57,10 +57,12 @@ implementation handles all agents.
   sets `ANTHROPIC_*` vars for custom endpoints) belongs in the models
   layer, not the tool layer. `GenericAdapter.BuildRunnerEnv` returns nil.
 
-- **Embedded wins over runtime** — descriptors in `descriptors/` and
-  `contrib/` (baked into the binary) take priority over
-  `~/.schmux/adapters/` (runtime). Build-time is an intentional choice;
-  runtime is for development convenience.
+- **Override precedence** — runtime (`~/.schmux/adapters/`) wins over
+  embedded contrib (`internal/detect/contrib/`), which wins over embedded
+  descriptors (`internal/detect/descriptors/`). Each layer can replace the
+  one below it on name collision. Within a single directory, duplicate
+  names are an error. Contrib is the supported hook for downstream builds
+  to override OSS adapters without forking source.
 
 - **Auto-synthesized default models** — `GetDefaultModels()` iterates
   all registered adapters and creates a synthetic default model for each.
@@ -116,6 +118,10 @@ go build ./cmd/schmux
 
 The resulting binary is self-contained. `contrib/*.yaml` is `.gitignored`.
 The OSS codebase reveals only "you can define custom adapters."
+
+A contrib YAML may share a name with one in `descriptors/` — the contrib
+version wins, which lets a downstream build replace an OSS adapter (e.g.
+to swap detection paths or `prompt_strategy`) without editing OSS files.
 
 ## Gotchas
 
