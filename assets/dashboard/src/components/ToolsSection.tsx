@@ -106,7 +106,7 @@ export default function ToolsSection({
       label: 'Autolearn',
       badge: totalLorePending > 0 ? totalLorePending : null,
       badgeVariant: 'default' as const,
-      hidden: !config?.lore?.enabled,
+      hidden: !features.autolearn || !config?.lore?.enabled,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"></path>
@@ -124,7 +124,7 @@ export default function ToolsSection({
     {
       to: '/personas',
       label: 'Personas',
-      hidden: !config?.personas_enabled,
+      hidden: !features.personas || !config?.personas_enabled,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
@@ -135,7 +135,7 @@ export default function ToolsSection({
     {
       to: '/styles',
       label: 'Comm Styles',
-      hidden: !config?.comm_styles_enabled,
+      hidden: !features.comm_styles || !config?.comm_styles_enabled,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="m3 11 18-5v12L3 13v-2z"></path>
@@ -162,7 +162,7 @@ export default function ToolsSection({
     {
       to: '/timelapse',
       label: 'Timelapses',
-      hidden: !config?.timelapse?.enabled,
+      hidden: !features.timelapse || !config?.timelapse?.enabled,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <rect x="2" y="3" width="20" height="14" rx="2"></rect>

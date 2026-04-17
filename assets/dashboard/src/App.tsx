@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
 import AppShell from './components/AppShell';
+import FeatureRoute from './components/FeatureRoute';
 import ToastProvider from './components/ToastProvider';
 import ModalProvider from './components/ModalProvider';
 import HelpModalProvider from './components/KeyboardHelpModal';
@@ -86,20 +87,87 @@ export default function App() {
                             <Route path="/config" element={<ConfigPage />} />
                             <Route path="/environment" element={<EnvironmentPage />} />
                             <Route path="/overlays" element={<OverlayPage />} />
-                            <Route path="/personas" element={<PersonasListPage />} />
-                            <Route path="/personas/create" element={<PersonaCreatePage />} />
-                            <Route path="/personas/:personaId" element={<PersonaEditPage />} />
-                            <Route path="/styles" element={<StylesListPage />} />
-                            <Route path="/styles/create" element={<StyleCreatePage />} />
-                            <Route path="/styles/:styleId" element={<StyleEditPage />} />
-                            <Route path="/autolearn" element={<AutolearnPage />} />
+                            <Route
+                              path="/personas"
+                              element={
+                                <FeatureRoute feature="personas">
+                                  <PersonasListPage />
+                                </FeatureRoute>
+                              }
+                            />
+                            <Route
+                              path="/personas/create"
+                              element={
+                                <FeatureRoute feature="personas">
+                                  <PersonaCreatePage />
+                                </FeatureRoute>
+                              }
+                            />
+                            <Route
+                              path="/personas/:personaId"
+                              element={
+                                <FeatureRoute feature="personas">
+                                  <PersonaEditPage />
+                                </FeatureRoute>
+                              }
+                            />
+                            <Route
+                              path="/styles"
+                              element={
+                                <FeatureRoute feature="comm_styles">
+                                  <StylesListPage />
+                                </FeatureRoute>
+                              }
+                            />
+                            <Route
+                              path="/styles/create"
+                              element={
+                                <FeatureRoute feature="comm_styles">
+                                  <StyleCreatePage />
+                                </FeatureRoute>
+                              }
+                            />
+                            <Route
+                              path="/styles/:styleId"
+                              element={
+                                <FeatureRoute feature="comm_styles">
+                                  <StyleEditPage />
+                                </FeatureRoute>
+                              }
+                            />
+                            <Route
+                              path="/autolearn"
+                              element={
+                                <FeatureRoute feature="autolearn">
+                                  <AutolearnPage />
+                                </FeatureRoute>
+                              }
+                            />
                             <Route path="/events" element={<EventsPage />} />
-                            <Route path="/timelapse" element={<TimelapsePage />} />
+                            <Route
+                              path="/timelapse"
+                              element={
+                                <FeatureRoute feature="timelapse">
+                                  <TimelapsePage />
+                                </FeatureRoute>
+                              }
+                            />
                             <Route
                               path="/timelapse/:recordingId"
-                              element={<TimelapsePlayerPage />}
+                              element={
+                                <FeatureRoute feature="timelapse">
+                                  <TimelapsePlayerPage />
+                                </FeatureRoute>
+                              }
                             />
-                            <Route path="/repofeed" element={<RepofeedPage />} />
+                            <Route
+                              path="/repofeed"
+                              element={
+                                <FeatureRoute feature="repofeed">
+                                  <RepofeedPage />
+                                </FeatureRoute>
+                              }
+                            />
                             <Route path="/terminal.html" element={<LegacyTerminalPage />} />
                             <Route path="*" element={<NotFoundPage />} />
                           </Route>

@@ -106,20 +106,24 @@ vi.mock('../contexts/SessionsContext', () => ({
   }),
 }));
 
+const mockFeatures: Record<string, boolean> = {
+  tunnel: true,
+  github: true,
+  telemetry: true,
+  update: true,
+  dashboardsx: true,
+  model_registry: true,
+  repofeed: false,
+  subreddit: false,
+  personas: true,
+  comm_styles: true,
+  autolearn: true,
+  floor_manager: true,
+  timelapse: true,
+};
+
 vi.mock('../contexts/FeaturesContext', () => ({
-  useFeatures: () => ({
-    features: {
-      tunnel: true,
-      github: true,
-      telemetry: true,
-      update: true,
-      dashboardsx: true,
-      model_registry: true,
-      repofeed: false,
-      subreddit: false,
-    },
-    loading: false,
-  }),
+  useFeatures: () => ({ features: mockFeatures, loading: false }),
 }));
 
 vi.mock('../components/ToastProvider', () => ({
@@ -186,6 +190,7 @@ function renderPage() {
 beforeEach(() => {
   vi.clearAllMocks();
   currentConfig = { ...baseConfig };
+  mockFeatures.dashboardsx = true;
 });
 
 describe('HomePage dashboard.sx alerts', () => {
@@ -264,5 +269,22 @@ describe('HomePage dashboard.sx alerts', () => {
     expect(alerts).toHaveTextContent('500');
     expect(alerts).toHaveTextContent('Internal Server Error');
     expect(alerts).toHaveTextContent('certificate: prod.dashboard.sx expires in');
+  });
+
+  it('hides alerts when dashboardsx is compiled out, even with alert-worthy status', () => {
+    mockFeatures.dashboardsx = false;
+    const soon = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString();
+    currentConfig = {
+      ...baseConfig,
+      dashboard_sx_status: {
+        last_heartbeat_status: 500,
+        last_heartbeat_time: '2026-03-20T12:00:00Z',
+        last_heartbeat_error: 'Internal Server Error',
+        cert_domain: 'prod.dashboard.sx',
+        cert_expires_at: soon,
+      },
+    };
+    renderPage();
+    expect(screen.queryByTestId('dashboardsx-alerts')).not.toBeInTheDocument();
   });
 });

@@ -760,7 +760,7 @@ export default function HomePage() {
 
         {/* Sidebar */}
         <div className={styles.fmSideColumn}>
-          {dxAlerts.length > 0 && (
+          {features.dashboardsx && dxAlerts.length > 0 && (
             <div
               className="banner banner--warning mb-md"
               data-testid="dashboardsx-alerts"
@@ -922,7 +922,7 @@ export default function HomePage() {
     <div className={styles.homePage}>
       {/* Left Column - Quick Actions */}
       <div className={styles.leftColumn}>
-        {dxAlerts.length > 0 && (
+        {features.dashboardsx && dxAlerts.length > 0 && (
           <div
             className="banner banner--warning mb-md"
             data-testid="dashboardsx-alerts"

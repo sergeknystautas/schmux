@@ -33,20 +33,24 @@ vi.mock('../contexts/OverlayContext', () => ({
   }),
 }));
 
+const mockFeatures: Record<string, boolean> = {
+  tunnel: true,
+  github: true,
+  telemetry: true,
+  update: true,
+  dashboardsx: true,
+  model_registry: true,
+  repofeed: true,
+  subreddit: true,
+  personas: true,
+  comm_styles: true,
+  autolearn: true,
+  floor_manager: true,
+  timelapse: true,
+};
+
 vi.mock('../contexts/FeaturesContext', () => ({
-  useFeatures: () => ({
-    features: {
-      tunnel: true,
-      github: true,
-      telemetry: true,
-      update: true,
-      dashboardsx: true,
-      model_registry: true,
-      repofeed: true,
-      subreddit: true,
-    },
-    loading: false,
-  }),
+  useFeatures: () => ({ features: mockFeatures, loading: false }),
 }));
 
 // Mock the API
@@ -80,6 +84,10 @@ describe('ToolsSection', () => {
     vi.clearAllMocks();
     localStorage.clear();
     mockProposalVersion = 0;
+    // Restore all features to true between tests
+    for (const k of Object.keys(mockFeatures)) {
+      mockFeatures[k] = true;
+    }
   });
 
   it('renders expanded by default with Tools header', async () => {
@@ -199,6 +207,30 @@ describe('ToolsSection', () => {
 
     // Should have fetched again due to proposalVersion change
     expect(mockGetAutolearnBatches).toHaveBeenCalledTimes(2);
+  });
+
+  it('hides Autolearn nav when features.autolearn is false (compiled out)', async () => {
+    mockFeatures.autolearn = false;
+    await renderWithAct(<ToolsSection />);
+    expect(screen.queryByText('Autolearn')).not.toBeInTheDocument();
+  });
+
+  it('hides Personas nav when features.personas is false (compiled out)', async () => {
+    mockFeatures.personas = false;
+    await renderWithAct(<ToolsSection />);
+    expect(screen.queryByText('Personas')).not.toBeInTheDocument();
+  });
+
+  it('hides Comm Styles nav when features.comm_styles is false (compiled out)', async () => {
+    mockFeatures.comm_styles = false;
+    await renderWithAct(<ToolsSection />);
+    expect(screen.queryByText('Comm Styles')).not.toBeInTheDocument();
+  });
+
+  it('hides Timelapses nav when features.timelapse is false (compiled out)', async () => {
+    mockFeatures.timelapse = false;
+    await renderWithAct(<ToolsSection />);
+    expect(screen.queryByText('Timelapses')).not.toBeInTheDocument();
   });
 
   it('removes lore badge when proposals are all dismissed', async () => {

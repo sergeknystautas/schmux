@@ -34,9 +34,26 @@ The backend reports which features are compiled in via `GET /api/features`:
 contracts/features.go  →  Features struct (bool per feature)
 handlers_features.go   →  calls <package>.IsAvailable() for each
 gen-types              →  generates TypeScript Features type
-experimentalRegistry.ts → buildFeatureKey maps to Features field
-ExperimentalTab.tsx    →  hides cards where buildFeatureKey is false
+FeaturesContext.tsx    →  fetches /api/features, exposes useFeatures()
 ```
+
+## Frontend Surfaces That Must Be Gated
+
+When a feature is compiled out, every UI element that depends on it should be
+hidden. The dashboard has four surfaces where this applies:
+
+| Surface                          | How to gate                                                                                       |
+| -------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `ExperimentalTab` cards          | Add `buildFeatureKey: '<name>'` to the row in `experimentalRegistry.ts`                           |
+| Sidebar nav (`ToolsSection.tsx`) | Add `!features.<name>` to the `hidden` check on the menu item                                     |
+| Top-level routes (`App.tsx`)     | Wrap the `<Route element={...}>` in `<FeatureRoute feature="<name>">` (redirects to `/` when off) |
+| Sections inside other pages      | `{features.<name> && <SectionJSX />}` (e.g. `AccessTab` GitHub Auth + Remote Access)              |
+
+Pages whose entire purpose is one feature (Autolearn, Personas, Comm Styles,
+Repofeed, Timelapse) should be wrapped in `FeatureRoute`. Sections that only
+belong to a feature (a settings group, a banner) should use the inline
+`features.X &&` check. Avoid relying on "the API will return 404" to hide UI —
+that produces broken pages for direct URL navigation.
 
 ## Current Exclusion Tags
 
@@ -89,7 +106,11 @@ go build -tags "noposthog noupdate nomodelregistry nodashboardsx norepofeed nosu
 7. Add a field to `contracts.Features` struct
 8. Add `<package>.IsAvailable()` call to `handlers_features.go`
 9. Run `go run ./cmd/gen-types` to regenerate TypeScript types
-10. Add `buildFeatureKey` to the feature's entry in `experimentalRegistry.ts`
+10. Wire the frontend surfaces (see "Frontend Surfaces That Must Be Gated"):
+    - `experimentalRegistry.ts` `buildFeatureKey` for the Experimental tab card
+    - `ToolsSection.tsx` `!features.<name>` if the feature has a sidebar nav item
+    - `App.tsx` `<FeatureRoute feature="<name>">` if the feature owns a route
+    - Inline `features.<name> &&` for any section that lives inside another page
 11. Add rows to the exclusion tag table in `.claude/commands/commit.md`
 12. Verify: `go build -tags no<feature> ./cmd/schmux`
 
