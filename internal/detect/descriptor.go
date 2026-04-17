@@ -10,23 +10,24 @@ import (
 // Descriptor represents a YAML adapter descriptor that defines how to detect,
 // configure, and interact with an AI coding agent.
 type Descriptor struct {
-	Name         string            `yaml:"name"`
-	DisplayName  string            `yaml:"display_name"`
-	Detect       []DetectEntry     `yaml:"detect"`
-	Capabilities []string          `yaml:"capabilities"`
-	ModelFlag    string            `yaml:"model_flag"`
-	PromptFlag   string            `yaml:"prompt_flag"`
-	CommandArgs  []string          `yaml:"command_args"`
-	Instruction  *InstructionDesc  `yaml:"instruction"`
-	Interactive  *ModeDesc         `yaml:"interactive"`
-	Oneshot      *ModeDesc         `yaml:"oneshot"`
-	Signaling    *SignalingDesc    `yaml:"signaling"`
-	Persona      *PersonaDesc      `yaml:"persona"`
-	Hooks        *HooksDesc        `yaml:"hooks"`
-	Skills       *SkillsDesc       `yaml:"skills"`
-	SetupFiles   []SetupFileDesc   `yaml:"setup_files"`
-	SpawnEnv     map[string]string `yaml:"spawn_env"`
-	RunnerEnv    *RunnerEnvDesc    `yaml:"runner_env"`
+	Name           string            `yaml:"name"`
+	DisplayName    string            `yaml:"display_name"`
+	Detect         []DetectEntry     `yaml:"detect"`
+	Capabilities   []string          `yaml:"capabilities"`
+	ModelFlag      string            `yaml:"model_flag"`
+	PromptFlag     string            `yaml:"prompt_flag"`
+	PromptStrategy string            `yaml:"prompt_strategy"`
+	CommandArgs    []string          `yaml:"command_args"`
+	Instruction    *InstructionDesc  `yaml:"instruction"`
+	Interactive    *ModeDesc         `yaml:"interactive"`
+	Oneshot        *ModeDesc         `yaml:"oneshot"`
+	Signaling      *SignalingDesc    `yaml:"signaling"`
+	Persona        *PersonaDesc      `yaml:"persona"`
+	Hooks          *HooksDesc        `yaml:"hooks"`
+	Skills         *SkillsDesc       `yaml:"skills"`
+	SetupFiles     []SetupFileDesc   `yaml:"setup_files"`
+	SpawnEnv       map[string]string `yaml:"spawn_env"`
+	RunnerEnv      *RunnerEnvDesc    `yaml:"runner_env"`
 }
 
 // RunnerEnvDesc describes env vars the adapter emits when spawning a runner.
@@ -106,6 +107,7 @@ var (
 	validSignalingStrategies = map[string]bool{"hooks": true, "cli_flag": true, "instruction_file": true, "none": true, "": true}
 	validPersonaStrategies   = map[string]bool{"cli_flag": true, "instruction_file": true, "config_overlay": true, "none": true, "": true}
 	validHooksStrategies     = map[string]bool{"json-settings-merge": true, "plugin-file": true, "none": true, "": true}
+	validPromptStrategies    = map[string]bool{"send_keys": true, "": true}
 )
 
 // ParseDescriptor parses and validates a YAML adapter descriptor.
@@ -168,6 +170,10 @@ func parseDescriptor(data []byte, strict bool) (*Descriptor, error) {
 		if !validHooksStrategies[d.Hooks.Strategy] {
 			return nil, fmt.Errorf("descriptor: hooks.strategy %q is not valid (must be one of: json-settings-merge, plugin-file, none)", d.Hooks.Strategy)
 		}
+	}
+
+	if !validPromptStrategies[d.PromptStrategy] {
+		return nil, fmt.Errorf("descriptor: prompt_strategy %q is not valid (must be one of: send_keys)", d.PromptStrategy)
 	}
 
 	return &d, nil

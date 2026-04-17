@@ -113,9 +113,6 @@ func LoadRuntimeDescriptors(dir string) ([]*Descriptor, error) {
 // registration of the remaining descriptors.
 func RegisterDescriptorAdapters(descs []*Descriptor) error {
 	for _, d := range descs {
-		if existing := GetAdapter(d.Name); existing != nil {
-			continue
-		}
 		a, err := NewGenericAdapter(d)
 		if err != nil {
 			if pkgLogger != nil {
@@ -136,7 +133,9 @@ func RegisterDescriptorAdapters(descs []*Descriptor) error {
 }
 
 // LoadAndRegisterDescriptors loads descriptors from embedded and runtime
-// sources, merges them (embedded wins on collision), and registers as adapters.
+// sources, merges them (runtime wins on collision), and registers as adapters.
+// User descriptors in ~/.schmux/adapters/ override built-in ones with the
+// same name, allowing per-installation customization (e.g. prompt_strategy).
 func LoadAndRegisterDescriptors(runtimeDir string) error {
 	embedded, err := LoadEmbeddedDescriptors()
 	if err != nil {
@@ -146,14 +145,14 @@ func LoadAndRegisterDescriptors(runtimeDir string) error {
 	if err != nil {
 		return fmt.Errorf("load runtime descriptors: %w", err)
 	}
-	embeddedNames := map[string]bool{}
-	for _, d := range embedded {
-		embeddedNames[d.Name] = true
-	}
-	all := embedded
+	runtimeNames := map[string]bool{}
 	for _, d := range runtime {
-		if embeddedNames[d.Name] {
-			continue
+		runtimeNames[d.Name] = true
+	}
+	all := runtime
+	for _, d := range embedded {
+		if runtimeNames[d.Name] {
+			continue // user override takes precedence
 		}
 		all = append(all, d)
 	}

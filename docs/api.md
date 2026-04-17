@@ -428,6 +428,7 @@ Contract (pre-2093ccf):
 - `intent_shared` is optional (default `false`). When `true`, the workspace is marked as sharing its intent with the team via repofeed. Requires `repofeed.enabled` in config.
 - `action_id` is optional. When set, usage is recorded against the matching spawn entry in the spawn store. When absent and a prompt exactly matches a pinned spawn entry's prompt, usage is recorded automatically.
 - Remote workspace VCS backfill: when spawning into an existing remote workspace, the workspace's `vcs` field is updated to match the flavor's VCS type. This ensures the events file watcher uses the correct data directory (`.schmux/` for git, `.sl/schmux/` for sapling).
+- Prompt delivery: by default, the prompt is passed as a CLI positional argument. Adapter descriptors may set `prompt_strategy: send_keys` to instead type the prompt into the terminal via tmux after the tool starts. This is used when a tool ignores positional prompt args in interactive mode. The prompt is injected asynchronously: the daemon polls for the tool's input prompt indicator, then pastes the text and sends Enter.
 
 Resume mode (`resume: true`):
 

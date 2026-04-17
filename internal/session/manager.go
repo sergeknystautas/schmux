@@ -983,7 +983,20 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		}
 	}
 
-	command, err := buildCommand(resolved, opts.Prompt, model, opts.Resume, false)
+	// Determine prompt delivery strategy: tools can set prompt_strategy: send_keys
+	// in their descriptor when they ignore positional prompt CLI args in
+	// interactive mode. In that case the prompt is typed via tmux send-keys
+	// after the tool starts up instead.
+	sendKeysPrompt := ""
+	commandPrompt := opts.Prompt
+	if baseTool != "" && strings.TrimSpace(opts.Prompt) != "" && !opts.Resume {
+		if adapter := detect.GetAdapter(baseTool); adapter != nil && adapter.PromptDelivery() == detect.PromptSendKeys {
+			sendKeysPrompt = opts.Prompt
+			commandPrompt = "" // omit from CLI args; will be injected after startup
+		}
+	}
+
+	command, err := buildCommand(resolved, commandPrompt, model, opts.Resume, false)
 	if err != nil {
 		return nil, err
 	}
@@ -1032,6 +1045,14 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	err = m.server.CreateSession(ctx, tmuxSession, w.Path, command)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tmux session: %w", err)
+	}
+
+	// Inject prompt via send-keys for tools that need it (runs async).
+	// Some tools (e.g. Claude Code v2+) ignore positional prompt args in
+	// interactive mode. For these, we wait for the tool's input prompt to
+	// appear and then type the prompt via tmux send-keys.
+	if sendKeysPrompt != "" {
+		go m.sendPromptWhenReady(tmuxSession, sendKeysPrompt)
 	}
 
 	// Configure status bar: process on left, time on right, clear center
@@ -1353,6 +1374,45 @@ func appendPersonaFlags(cmd, baseTool, personaFilePath string) string {
 		// PersonaInstructionFile: handled by ensure package (instruction file append)
 		// PersonaConfigOverlay: handled by SpawnEnv (environment variable)
 		return cmd
+	}
+}
+
+// sendPromptWhenReady polls the tmux pane until the tool's input prompt appears,
+// then types the user prompt via send-keys. Used for tools that ignore positional
+// prompt args in interactive mode (e.g. Claude Code v2+).
+func (m *Manager) sendPromptWhenReady(session, prompt string) {
+	pollCtx, pollCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer pollCancel()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-pollCtx.Done():
+			m.logger.Warn("send-keys prompt: timed out waiting for input prompt", "session", session)
+			// Fall through to send anyway as best-effort
+		case <-ticker.C:
+			output, err := m.server.CaptureLastLines(pollCtx, session, 5, false)
+			if err != nil {
+				continue
+			}
+			// Look for common CLI input indicators (❯ is Claude Code's prompt)
+			if !strings.Contains(output, "❯") && !strings.Contains(output, "> ") {
+				continue
+			}
+		}
+		break
+	}
+
+	// Use a fresh context — pollCtx may already be canceled from timeout.
+	sendCtx, sendCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer sendCancel()
+
+	if err := m.server.SendText(sendCtx, session, prompt); err != nil {
+		m.logger.Warn("send-keys prompt: failed to send", "session", session, "err", err)
+	} else {
+		m.logger.Info("send-keys prompt: injected", "session", session, "prompt_len", len(prompt))
 	}
 }
 

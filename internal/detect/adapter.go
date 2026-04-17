@@ -33,6 +33,17 @@ const (
 	PersonaNone
 )
 
+// PromptDelivery defines how a tool receives its initial user prompt.
+type PromptDelivery int
+
+const (
+	// PromptPositional means the prompt is passed as a CLI positional argument (default).
+	PromptPositional PromptDelivery = iota
+	// PromptSendKeys means the prompt is typed into the terminal after the tool starts.
+	// Used when the tool ignores positional prompt arguments in interactive mode.
+	PromptSendKeys
+)
+
 // HookContext provides context for setting up tool-specific lifecycle hooks.
 type HookContext struct {
 	WorkspacePath string
@@ -120,6 +131,11 @@ type ToolAdapter interface {
 	// PromptFlag returns the CLI flag this tool uses to receive a prompt.
 	// Returns empty string if the tool accepts prompts as positional args.
 	PromptFlag() string
+
+	// PromptDelivery returns how this tool receives its initial user prompt.
+	// PromptPositional (default) passes the prompt as a CLI arg or flag.
+	// PromptSendKeys types the prompt into the terminal after the tool starts.
+	PromptDelivery() PromptDelivery
 
 	// Capabilities returns the tool modes this adapter supports.
 	// Valid values: "interactive", "oneshot".

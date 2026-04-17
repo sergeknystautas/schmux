@@ -404,6 +404,44 @@ func (s *TmuxServer) SetEnvironment(ctx context.Context, key, value string) erro
 	return nil
 }
 
+// SendText types text into a tmux session and presses Enter to submit.
+// Uses load-buffer + paste-buffer to handle multi-line text and special characters.
+func (s *TmuxServer) SendText(ctx context.Context, session, text string) error {
+	tmpFile, err := os.CreateTemp("", "schmux-prompt-*.txt")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.WriteString(text); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("failed to write prompt: %w", err)
+	}
+	tmpFile.Close()
+
+	bufName := "schmux-prompt"
+
+	// Load text into a named tmux buffer
+	if output, err := s.cmd(ctx, "load-buffer", "-b", bufName, tmpFile.Name()).CombinedOutput(); err != nil {
+		return fmt.Errorf("load-buffer failed: %w: %s", err, string(output))
+	}
+
+	// Paste the buffer into the target session
+	if output, err := s.cmd(ctx, "paste-buffer", "-b", bufName, "-t", session).CombinedOutput(); err != nil {
+		return fmt.Errorf("paste-buffer failed: %w: %s", err, string(output))
+	}
+
+	// Clean up the buffer (best-effort)
+	_ = s.cmd(ctx, "delete-buffer", "-b", bufName).Run()
+
+	// Press Enter to submit
+	if output, err := s.cmd(ctx, "send-keys", "-t", session, "Enter").CombinedOutput(); err != nil {
+		return fmt.Errorf("send-keys Enter failed: %w: %s", err, string(output))
+	}
+
+	return nil
+}
+
 // CursorState holds the cursor position, visibility, and terminal mode state for a session.
 type CursorState struct {
 	X             int

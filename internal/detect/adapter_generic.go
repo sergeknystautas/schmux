@@ -352,6 +352,14 @@ func (a *GenericAdapter) PromptFlag() string {
 	return a.desc.PromptFlag
 }
 
+// PromptDelivery returns how this tool receives its initial user prompt.
+func (a *GenericAdapter) PromptDelivery() PromptDelivery {
+	if a.desc.PromptStrategy == "send_keys" {
+		return PromptSendKeys
+	}
+	return PromptPositional
+}
+
 // Capabilities returns the tool modes this adapter supports.
 // Defaults to ["interactive"] if none specified.
 func (a *GenericAdapter) Capabilities() []string {
