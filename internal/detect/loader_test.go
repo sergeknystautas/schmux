@@ -58,13 +58,16 @@ func TestLoadRuntimeDescriptors_MissingDir(t *testing.T) {
 
 func TestLoadRuntimeDescriptors_InvalidYAML(t *testing.T) {
 	dir := t.TempDir()
-	yaml := []byte(`name: [invalid`)
-	if err := os.WriteFile(filepath.Join(dir, "bad.yaml"), yaml, 0644); err != nil {
+	yamlData := []byte(`name: [invalid`)
+	if err := os.WriteFile(filepath.Join(dir, "bad.yaml"), yamlData, 0644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := LoadRuntimeDescriptors(dir)
-	if err == nil {
-		t.Fatal("expected error for invalid YAML")
+	descs, err := LoadRuntimeDescriptors(dir)
+	if err != nil {
+		t.Fatalf("LoadRuntimeDescriptors should skip bad files, got error: %v", err)
+	}
+	if len(descs) != 0 {
+		t.Errorf("got %d descriptors, want 0 (bad file should be skipped)", len(descs))
 	}
 }
 
@@ -74,9 +77,27 @@ func TestLoadRuntimeDescriptors_NameCollision(t *testing.T) {
 	yaml2 := []byte("name: dupe\ndetect:\n  - type: path_lookup\n    command: dupe2\n")
 	os.WriteFile(filepath.Join(dir, "a.yaml"), yaml1, 0644)
 	os.WriteFile(filepath.Join(dir, "b.yaml"), yaml2, 0644)
-	_, err := LoadRuntimeDescriptors(dir)
-	if err == nil {
-		t.Fatal("expected error for name collision")
+	descs, err := LoadRuntimeDescriptors(dir)
+	if err != nil {
+		t.Fatalf("LoadRuntimeDescriptors should skip duplicates, got error: %v", err)
+	}
+	if len(descs) != 1 {
+		t.Errorf("got %d descriptors, want 1 (duplicate should be skipped)", len(descs))
+	}
+}
+
+func TestLoadRuntimeDescriptors_UnknownFields(t *testing.T) {
+	dir := t.TempDir()
+	yamlData := []byte("name: lenient\ndetect:\n  - type: path_lookup\n    command: go\nfuture_field: some_value\n")
+	if err := os.WriteFile(filepath.Join(dir, "lenient.yaml"), yamlData, 0644); err != nil {
+		t.Fatal(err)
+	}
+	descs, err := LoadRuntimeDescriptors(dir)
+	if err != nil {
+		t.Fatalf("LoadRuntimeDescriptors: %v", err)
+	}
+	if len(descs) != 1 || descs[0].Name != "lenient" {
+		t.Errorf("got %d descriptors, want 1 named 'lenient'", len(descs))
 	}
 }
 

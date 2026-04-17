@@ -111,10 +111,23 @@ var (
 // ParseDescriptor parses and validates a YAML adapter descriptor.
 // It uses strict mode to reject unknown fields and validates all enum values.
 func ParseDescriptor(data []byte) (*Descriptor, error) {
+	return parseDescriptor(data, true)
+}
+
+// ParseDescriptorLenient parses a YAML adapter descriptor, ignoring unknown
+// fields. Used for runtime descriptors (e.g. ~/.schmux/adapters/) which may
+// contain fields added by a newer version or a different workspace.
+func ParseDescriptorLenient(data []byte) (*Descriptor, error) {
+	return parseDescriptor(data, false)
+}
+
+func parseDescriptor(data []byte, strict bool) (*Descriptor, error) {
 	var d Descriptor
 
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
+	if strict {
+		decoder.KnownFields(true)
+	}
 
 	if err := decoder.Decode(&d); err != nil {
 		return nil, fmt.Errorf("parsing descriptor YAML: %w", err)

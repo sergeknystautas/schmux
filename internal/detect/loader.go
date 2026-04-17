@@ -61,6 +61,8 @@ func LoadEmbeddedDescriptors() ([]*Descriptor, error) {
 
 // LoadRuntimeDescriptors loads descriptors from a directory on disk
 // (typically ~/.schmux/adapters/). Returns empty slice if dir doesn't exist.
+// Individual files that fail to read or parse are skipped with a warning so
+// that one bad YAML file does not prevent all other adapters from loading.
 func LoadRuntimeDescriptors(dir string) ([]*Descriptor, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -79,14 +81,23 @@ func LoadRuntimeDescriptors(dir string) ([]*Descriptor, error) {
 		}
 		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
 		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", e.Name(), err)
+			if pkgLogger != nil {
+				pkgLogger.Warn("skipping runtime descriptor", "file", e.Name(), "err", err)
+			}
+			continue
 		}
-		d, err := ParseDescriptor(data)
+		d, err := ParseDescriptorLenient(data)
 		if err != nil {
-			return nil, fmt.Errorf("parse %s: %w", e.Name(), err)
+			if pkgLogger != nil {
+				pkgLogger.Warn("skipping runtime descriptor", "file", e.Name(), "err", err)
+			}
+			continue
 		}
 		if prev, ok := seen[d.Name]; ok {
-			return nil, fmt.Errorf("duplicate descriptor name %q in %s and %s", d.Name, prev, e.Name())
+			if pkgLogger != nil {
+				pkgLogger.Warn("skipping duplicate runtime descriptor", "name", d.Name, "file", e.Name(), "first", prev)
+			}
+			continue
 		}
 		seen[d.Name] = e.Name()
 		all = append(all, d)
