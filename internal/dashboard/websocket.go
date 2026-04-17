@@ -318,6 +318,12 @@ resizeWaitLoop:
 	}
 	capCancel()
 
+	// Query pane state (cursor, alternate screen, mouse modes) before sending
+	// bootstrap so we can restore terminal modes that capture-pane doesn't preserve.
+	curCtx, curCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	paneState, paneStateErr := s.session.GetCursorState(curCtx, sessionID)
+	curCancel()
+
 	// Reserve a sequence number for the bootstrap frame. This ensures the
 	// bootstrap frame's seq is strictly less than the first live event's seq,
 	// preventing the frontend's dedup logic from dropping the first keystroke echo.
@@ -325,6 +331,17 @@ resizeWaitLoop:
 	// are already reflected in the capture-pane snapshot.
 	bootstrapSeq := bootstrapFrameSeq(outputLog)
 	drainBoundary := outputLog.CurrentSeq()
+
+	// If the pane is in alternate screen mode (TUI apps), switch xterm.js
+	// to the alternate buffer BEFORE sending bootstrap content, so the
+	// capture-pane data is written into the alternate buffer (not normal).
+	if paneStateErr == nil && paneState.AlternateOn {
+		frameBuf = appendSequencedFrame(frameBuf, bootstrapSeq, []byte("\033[?1049h"))
+		if err := conn.WriteMessage(websocket.BinaryMessage, frameBuf); err != nil {
+			return
+		}
+	}
+
 	if bootstrap != "" {
 		frameBuf = appendSequencedFrame(frameBuf, bootstrapSeq, []byte(bootstrap))
 		if err := conn.WriteMessage(websocket.BinaryMessage, frameBuf); err != nil {
@@ -332,23 +349,11 @@ resizeWaitLoop:
 		}
 	}
 
-	// Restore cursor state (position + visibility) so xterm.js matches tmux.
-	// capture-pane doesn't preserve terminal modes like cursor visibility,
-	// so without this: (1) the cursor sits at column 0 of the last non-empty
-	// line, and (2) a hidden cursor (e.g. Claude Code's TUI) shows as visible.
-	curCtx, curCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	curX, curY, curVisible, curErr := s.session.GetCursorState(curCtx, sessionID)
-	curCancel()
-	if curErr == nil {
-		// Cursor restoration is ephemeral (not logged), sent as a separate unsequenced frame
-		cursorRestore := fmt.Sprintf("\033[%d;%dH", curY+1, curX+1)
-		if curVisible {
-			cursorRestore += "\033[?25h"
-		} else {
-			cursorRestore += "\033[?25l"
-		}
-		// Use bootstrap seq for the cursor restore frame
-		frameBuf = appendSequencedFrame(frameBuf, bootstrapSeq, []byte(cursorRestore))
+	// Restore terminal modes that capture-pane doesn't preserve:
+	// cursor position/visibility, and mouse tracking modes.
+	if paneStateErr == nil {
+		modeRestore := buildModeRestoreSequence(paneState)
+		frameBuf = appendSequencedFrame(frameBuf, bootstrapSeq, []byte(modeRestore))
 		if err := conn.WriteMessage(websocket.BinaryMessage, frameBuf); err != nil {
 			return
 		}
@@ -390,6 +395,20 @@ drainBootstrap:
 	bootstrapMsg, _ := json.Marshal(map[string]string{"type": "bootstrapComplete"})
 	if err := conn.WriteMessage(websocket.TextMessage, bootstrapMsg); err != nil {
 		return
+	}
+
+	// Send pane state so the frontend can handle TUI-specific behavior
+	// (e.g., forwarding wheel events as mouse input in alternate screen mode).
+	if paneStateErr == nil && (paneState.AlternateOn || paneState.MouseAny || paneState.MouseStandard || paneState.MouseButton) {
+		paneMsg, _ := json.Marshal(map[string]interface{}{
+			"type":          "paneState",
+			"alternateOn":   paneState.AlternateOn,
+			"mouseTracking": paneState.MouseStandard || paneState.MouseButton || paneState.MouseAny,
+			"mouseSGR":      paneState.MouseSGR,
+		})
+		if err := conn.WriteMessage(websocket.TextMessage, paneMsg); err != nil {
+			return
+		}
 	}
 
 	// Dev mode diagnostics: ring buffer and stats ticker

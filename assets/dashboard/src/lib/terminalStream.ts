@@ -190,6 +190,12 @@ export default class TerminalStream {
   private wheelCooldownTimer: ReturnType<typeof setTimeout> | null = null;
   private scrollViewport: Element | null = null;
 
+  // TUI pane state — set by the backend's paneState control message during bootstrap.
+  // When mouseTracking is true in alternate buffer, wheel events are forwarded
+  // as SGR mouse scroll sequences instead of scrolling the viewport.
+  private paneMouseTracking = false;
+  private paneMouseSGR = false;
+
   // Multi-line selection state
   selectionMode: boolean;
   selectedLines: Map<number, SelectedLine>;
@@ -612,6 +618,36 @@ export default class TerminalStream {
         // reach the viewport. A short cooldown prevents the subsequent DOM
         // scroll event from immediately re-enabling followTail.
         this.wheelHandler = (e: WheelEvent) => {
+          // In alternate buffer mode with mouse tracking (TUI apps), forward
+          // wheel events as SGR mouse scroll input directly. We bypass xterm.js's
+          // internal mouse mode because terminal.reset() during bootstrap clears
+          // it and the restore via escape sequences may not reliably re-enable
+          // the internal wheel event listener.
+          if (this.isAlternateBuffer() && this.paneMouseTracking) {
+            if (e.deltaY === 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+            // Compute cell coordinates from mouse position so the TUI can
+            // hit-test the scroll target (title bar vs scrollable content).
+            const termEl = this.terminal?.element;
+            const rect = termEl?.getBoundingClientRect();
+            let col = 1,
+              row = 1;
+            if (rect) {
+              const dims = this.measureTerminal();
+              if (dims) {
+                col = Math.max(1, Math.floor((e.clientX - rect.left) / dims.cellWidth) + 1);
+                row = Math.max(1, Math.floor((e.clientY - rect.top) / dims.cellHeight) + 1);
+              }
+            }
+            // SGR mouse scroll: button 64 = scroll up, 65 = scroll down
+            const button = e.deltaY < 0 ? 64 : 65;
+            this.sendRawInput(`\x1b[<${button};${col};${row}M`);
+            return;
+          }
+          // Alternate buffer without mouse tracking — suppress scroll handling
+          // (no scrollback to scroll through in alternate mode).
+          if (this.isAlternateBuffer()) return;
           if (e.deltaY < 0 && this.followTail) {
             // Native typing: flush before disabling follow mode
             if (this.localBuffer.length > 0) {
@@ -1611,6 +1647,14 @@ export default class TerminalStream {
         this.tsLog('controlMode', { attached: msg.attached });
         this.onControlModeChange?.(msg.attached as boolean);
         break;
+      case 'paneState':
+        this.paneMouseTracking = msg.mouseTracking as boolean;
+        this.paneMouseSGR = msg.mouseSGR as boolean;
+        this.tsLog('paneState', {
+          mouseTracking: this.paneMouseTracking,
+          mouseSGR: this.paneMouseSGR,
+        });
+        break;
       default:
         if (msg.content) {
           // Remote sessions send output as text frames ("append").
@@ -1662,6 +1706,11 @@ export default class TerminalStream {
         lastReceivedSeq: this.lastReceivedSeq.toString(),
       });
     }
+  }
+
+  isAlternateBuffer(): boolean {
+    if (!this.terminal) return false;
+    return this.terminal.buffer.active !== this.terminal.buffer.normal;
   }
 
   isAtBottom(threshold = 0): boolean {
@@ -1744,6 +1793,7 @@ export default class TerminalStream {
 
   handleUserScroll() {
     if (!this.terminal) return;
+    if (this.isAlternateBuffer()) return;
     if (this.wheelCooldown) return;
     if (this.writingToTerminal || this.scrollRAFPending || this.writeRAFPending) {
       if (this.diagnostics) this.diagnostics.scrollSuppressedCount++;

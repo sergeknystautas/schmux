@@ -321,7 +321,8 @@ func (s *TmuxServer) GetCursorState(ctx context.Context, sessionName string) (Cu
 	if err := ValidateSessionName(sessionName); err != nil {
 		return CursorState{}, fmt.Errorf("invalid session name: %w", err)
 	}
-	cmd := s.cmd(ctx, "display-message", "-p", "-t", sessionName, "#{cursor_x} #{cursor_y} #{cursor_flag}")
+	cmd := s.cmd(ctx, "display-message", "-p", "-t", sessionName,
+		"#{cursor_x} #{cursor_y} #{cursor_flag} #{alternate_on} #{mouse_standard_flag} #{mouse_button_flag} #{mouse_any_flag} #{mouse_sgr_flag}")
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err != nil {
@@ -329,7 +330,7 @@ func (s *TmuxServer) GetCursorState(ctx context.Context, sessionName string) (Cu
 	}
 
 	parts := strings.Fields(strings.TrimSpace(stdout.String()))
-	if len(parts) != 3 {
+	if len(parts) < 3 {
 		return CursorState{}, fmt.Errorf("unexpected cursor state format: %q", stdout.String())
 	}
 
@@ -343,6 +344,15 @@ func (s *TmuxServer) GetCursorState(ctx context.Context, sessionName string) (Cu
 		return CursorState{}, fmt.Errorf("failed to parse cursor_y: %w", err)
 	}
 	cs.Visible = parts[2] == "1"
+	if len(parts) >= 4 {
+		cs.AlternateOn = parts[3] == "1"
+	}
+	if len(parts) >= 8 {
+		cs.MouseStandard = parts[4] == "1"
+		cs.MouseButton = parts[5] == "1"
+		cs.MouseAny = parts[6] == "1"
+		cs.MouseSGR = parts[7] == "1"
+	}
 	return cs, nil
 }
 
@@ -394,11 +404,16 @@ func (s *TmuxServer) SetEnvironment(ctx context.Context, key, value string) erro
 	return nil
 }
 
-// CursorState holds the cursor position and visibility for a session.
+// CursorState holds the cursor position, visibility, and terminal mode state for a session.
 type CursorState struct {
-	X       int
-	Y       int
-	Visible bool
+	X             int
+	Y             int
+	Visible       bool
+	AlternateOn   bool // true when the pane is in alternate screen mode (TUI apps)
+	MouseStandard bool // mode 1000
+	MouseButton   bool // mode 1002
+	MouseAny      bool // mode 1003
+	MouseSGR      bool // mode 1006
 }
 
 const (

@@ -3,12 +3,14 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/logging"
+	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/session"
 )
 
@@ -88,6 +90,33 @@ func startWSMessageReader(conn wsReader) chan WSMessage {
 // *websocket.Conn and *wsConn satisfy it.
 type wsReader interface {
 	ReadMessage() (messageType int, p []byte, err error)
+}
+
+// buildModeRestoreSequence constructs the ANSI escape sequences needed to
+// restore terminal modes that capture-pane doesn't preserve: cursor position,
+// cursor visibility, and mouse tracking modes.
+func buildModeRestoreSequence(cs controlmode.CursorState) string {
+	s := fmt.Sprintf("\033[%d;%dH", cs.Y+1, cs.X+1)
+	if cs.Visible {
+		s += "\033[?25h"
+	} else {
+		s += "\033[?25l"
+	}
+	// Restore mouse tracking modes so xterm.js forwards wheel events
+	// as mouse sequences instead of converting them to arrow keys.
+	if cs.MouseStandard {
+		s += "\033[?1000h"
+	}
+	if cs.MouseButton {
+		s += "\033[?1002h"
+	}
+	if cs.MouseAny {
+		s += "\033[?1003h"
+	}
+	if cs.MouseSGR {
+		s += "\033[?1006h"
+	}
+	return s
 }
 
 // waitForTrackerAttach waits up to the given timeout for the session

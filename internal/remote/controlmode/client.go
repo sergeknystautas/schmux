@@ -483,7 +483,9 @@ func (c *Client) SendKeys(ctx context.Context, paneID, keys string) (SendKeysTim
 	timings.ExecuteCount = len(runs)
 	for _, run := range runs {
 		var cmd string
-		if run.Literal {
+		if run.Hex {
+			cmd = fmt.Sprintf("send-keys -H -t %s %s", paneID, run.Text)
+		} else if run.Literal {
 			cmd = fmt.Sprintf("send-keys -t %s -l %s", paneID, shellutil.Quote(run.Text))
 		} else {
 			cmd = fmt.Sprintf("send-keys -t %s %s", paneID, run.Text)
@@ -584,21 +586,31 @@ func (c *Client) CapturePaneVisible(ctx context.Context, paneID string) (string,
 	return output, err
 }
 
-// CursorState holds the cursor position and visibility for a pane.
+// CursorState holds the cursor position, visibility, and terminal mode state for a pane.
 type CursorState struct {
-	X       int
-	Y       int
-	Visible bool
+	X           int
+	Y           int
+	Visible     bool
+	AlternateOn bool // true when the pane is in alternate screen mode (TUI apps)
+	// Mouse tracking modes — set when the application running in the pane has
+	// enabled mouse reporting via escape sequences.
+	MouseStandard bool // mode 1000: basic press/release tracking
+	MouseButton   bool // mode 1002: button-event tracking (press/release + drag)
+	MouseAny      bool // mode 1003: any-event tracking (all motion)
+	MouseSGR      bool // mode 1006: SGR extended encoding
 }
 
 // GetCursorState returns the cursor position and visibility for a pane.
 func (c *Client) GetCursorState(ctx context.Context, paneID string) (CursorState, error) {
-	output, _, err := c.Execute(ctx, fmt.Sprintf("display-message -p -t %s '#{cursor_x} #{cursor_y} #{cursor_flag}'", paneID))
+	output, _, err := c.Execute(ctx, fmt.Sprintf(
+		"display-message -p -t %s '#{cursor_x} #{cursor_y} #{cursor_flag} #{alternate_on} #{mouse_standard_flag} #{mouse_button_flag} #{mouse_any_flag} #{mouse_sgr_flag}'",
+		paneID,
+	))
 	if err != nil {
 		return CursorState{}, fmt.Errorf("failed to get cursor state: %w", err)
 	}
 	parts := strings.Split(strings.TrimSpace(output), " ")
-	if len(parts) != 3 {
+	if len(parts) < 3 {
 		return CursorState{}, fmt.Errorf("unexpected cursor state format: %q", output)
 	}
 	var cs CursorState
@@ -610,6 +622,17 @@ func (c *Client) GetCursorState(ctx context.Context, paneID string) (CursorState
 	}
 	// cursor_flag: 0 = hidden, 1 = visible
 	cs.Visible = parts[2] == "1"
+	// Extended fields — parsed tolerantly for backward compatibility with
+	// older tmux versions that may not support all format variables.
+	if len(parts) >= 4 {
+		cs.AlternateOn = parts[3] == "1"
+	}
+	if len(parts) >= 8 {
+		cs.MouseStandard = parts[4] == "1"
+		cs.MouseButton = parts[5] == "1"
+		cs.MouseAny = parts[6] == "1"
+		cs.MouseSGR = parts[7] == "1"
+	}
 	return cs, nil
 }
 

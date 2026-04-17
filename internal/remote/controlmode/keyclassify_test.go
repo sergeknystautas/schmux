@@ -302,11 +302,22 @@ func TestClassifyKeyRuns(t *testing.T) {
 			},
 		},
 
-		// Unknown CSI sequence is skipped silently
+		// Unknown CSI sequence passed through as hex bytes
 		{
-			name:     "unknown CSI sequence skipped",
-			input:    "\x1b[99~",
-			expected: nil,
+			name:  "unknown CSI sequence passed through",
+			input: "\x1b[99~",
+			expected: []KeyRun{
+				{Text: "1b 5b 39 39 7e", Hex: true},
+			},
+		},
+
+		// SGR mouse scroll event passed through as hex bytes
+		{
+			name:  "SGR mouse scroll up",
+			input: "\x1b[<64;1;1M",
+			expected: []KeyRun{
+				{Text: "1b 5b 3c 36 34 3b 31 3b 31 4d", Hex: true},
+			},
 		},
 
 		// Bare escape at end of input
@@ -357,12 +368,13 @@ func TestClassifyKeyRuns(t *testing.T) {
 			},
 		},
 
-		// Unknown CSI between text - text on both sides preserved
+		// Unknown CSI between text - all parts preserved
 		{
 			name:  "unknown CSI between text",
 			input: "abc\x1b[99~def",
 			expected: []KeyRun{
 				{Text: "abc", Literal: true},
+				{Text: "1b 5b 39 39 7e", Hex: true},
 				{Text: "def", Literal: true},
 			},
 		},

@@ -542,41 +542,71 @@ func TestExecuteCollapsesNewlines(t *testing.T) {
 // TestGetCursorState verifies the parsing logic of GetCursorState.
 func TestGetCursorState(t *testing.T) {
 	tests := []struct {
-		name        string
-		response    string // What tmux returns from display-message
-		wantX       int
-		wantY       int
-		wantVisible bool
-		wantErr     bool
-		errSubstr   string
+		name              string
+		response          string // What tmux returns from display-message
+		wantX             int
+		wantY             int
+		wantVisible       bool
+		wantAlternate     bool
+		wantMouseStandard bool
+		wantMouseButton   bool
+		wantMouseAny      bool
+		wantMouseSGR      bool
+		wantErr           bool
+		errSubstr         string
 	}{
 		{
-			name:        "cursor at origin, visible",
-			response:    "0 0 1",
+			name:        "cursor at origin, visible, normal screen",
+			response:    "0 0 1 0 0 0 0 0",
 			wantX:       0,
 			wantY:       0,
 			wantVisible: true,
 		},
 		{
 			name:        "cursor at prompt position, visible",
-			response:    "2 23 1",
+			response:    "2 23 1 0 0 0 0 0",
 			wantX:       2,
 			wantY:       23,
 			wantVisible: true,
 		},
 		{
 			name:        "cursor hidden (Claude Code TUI)",
-			response:    "0 52 0",
+			response:    "0 52 0 0 0 0 0 0",
 			wantX:       0,
 			wantY:       52,
 			wantVisible: false,
 		},
 		{
+			name:              "alternate screen with mouse tracking (TUI app)",
+			response:          "5 10 0 1 1 0 1 1",
+			wantX:             5,
+			wantY:             10,
+			wantVisible:       false,
+			wantAlternate:     true,
+			wantMouseStandard: true,
+			wantMouseAny:      true,
+			wantMouseSGR:      true,
+		},
+		{
 			name:        "large cursor position, hidden",
-			response:    "119 49 0",
+			response:    "119 49 0 0 0 0 0 0",
 			wantX:       119,
 			wantY:       49,
 			wantVisible: false,
+		},
+		{
+			name:        "three values (backward compat, no extended fields)",
+			response:    "1 2 1",
+			wantX:       1,
+			wantY:       2,
+			wantVisible: true,
+		},
+		{
+			name:          "four values (alternate_on, no mouse fields)",
+			response:      "1 2 0 1",
+			wantX:         1,
+			wantY:         2,
+			wantAlternate: true,
 		},
 		{
 			name:      "empty response",
@@ -587,12 +617,6 @@ func TestGetCursorState(t *testing.T) {
 		{
 			name:      "two values (missing flag)",
 			response:  "5 10",
-			wantErr:   true,
-			errSubstr: "unexpected cursor state format",
-		},
-		{
-			name:      "four values",
-			response:  "1 2 3 4",
 			wantErr:   true,
 			errSubstr: "unexpected cursor state format",
 		},
@@ -660,6 +684,21 @@ func TestGetCursorState(t *testing.T) {
 			}
 			if cs.Visible != tt.wantVisible {
 				t.Errorf("Visible = %v, want %v", cs.Visible, tt.wantVisible)
+			}
+			if cs.AlternateOn != tt.wantAlternate {
+				t.Errorf("AlternateOn = %v, want %v", cs.AlternateOn, tt.wantAlternate)
+			}
+			if cs.MouseStandard != tt.wantMouseStandard {
+				t.Errorf("MouseStandard = %v, want %v", cs.MouseStandard, tt.wantMouseStandard)
+			}
+			if cs.MouseButton != tt.wantMouseButton {
+				t.Errorf("MouseButton = %v, want %v", cs.MouseButton, tt.wantMouseButton)
+			}
+			if cs.MouseAny != tt.wantMouseAny {
+				t.Errorf("MouseAny = %v, want %v", cs.MouseAny, tt.wantMouseAny)
+			}
+			if cs.MouseSGR != tt.wantMouseSGR {
+				t.Errorf("MouseSGR = %v, want %v", cs.MouseSGR, tt.wantMouseSGR)
 			}
 		})
 	}

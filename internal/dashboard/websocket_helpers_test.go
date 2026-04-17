@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -369,5 +370,52 @@ func TestStartWSMessageReader_BinaryAndTextInterleaved(t *testing.T) {
 	msg = <-controlChan
 	if msg.Type != "input" || msg.Data != "\x1b[A" {
 		t.Errorf("msg 3: expected input/ESC[A, got %s/%q", msg.Type, msg.Data)
+	}
+}
+
+func TestBuildModeRestoreSequence(t *testing.T) {
+	tests := []struct {
+		name string
+		cs   controlmode.CursorState
+		want string
+	}{
+		{
+			name: "normal mode, cursor visible at origin",
+			cs:   controlmode.CursorState{X: 0, Y: 0, Visible: true},
+			want: "\033[1;1H\033[?25h",
+		},
+		{
+			name: "cursor hidden at position",
+			cs:   controlmode.CursorState{X: 10, Y: 23, Visible: false},
+			want: "\033[24;11H\033[?25l",
+		},
+		{
+			name: "alternate screen with full mouse tracking",
+			cs: controlmode.CursorState{
+				X: 5, Y: 10, Visible: false, AlternateOn: true,
+				MouseStandard: true, MouseButton: true, MouseAny: true, MouseSGR: true,
+			},
+			// buildModeRestoreSequence does NOT include ESC[?1049h (that's sent separately before bootstrap)
+			want: "\033[11;6H\033[?25l\033[?1000h\033[?1002h\033[?1003h\033[?1006h",
+		},
+		{
+			name: "mouse SGR only (no tracking mode)",
+			cs:   controlmode.CursorState{X: 0, Y: 0, Visible: true, MouseSGR: true},
+			want: "\033[1;1H\033[?25h\033[?1006h",
+		},
+		{
+			name: "standard mouse without SGR",
+			cs:   controlmode.CursorState{X: 0, Y: 0, Visible: true, MouseStandard: true},
+			want: "\033[1;1H\033[?25h\033[?1000h",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildModeRestoreSequence(tt.cs)
+			if got != tt.want {
+				t.Errorf("buildModeRestoreSequence() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

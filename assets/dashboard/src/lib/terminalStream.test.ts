@@ -17,7 +17,8 @@ vi.mock('@xterm/xterm', () => {
     scrollToBottom = vi.fn();
     dispose = vi.fn();
     element = null;
-    buffer = { active: { viewportY: 0, baseY: 0, cursorY: 0, cursorX: 0, length: 0 } };
+    _normalBuffer = { viewportY: 0, baseY: 0, cursorY: 0, cursorX: 0, length: 0 };
+    buffer = { active: this._normalBuffer, normal: this._normalBuffer };
     rows = 24;
     cols = 80;
     markers = [];
@@ -2214,5 +2215,81 @@ describe('native typing flush at right edge', () => {
     stream.sendInput('x');
     expect(stream.localBuffer).toBe('x');
     expect(wsSendSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('TerminalStream alternate buffer scroll suppression', () => {
+  let stream: TerminalStream;
+
+  beforeEach(() => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    stream = new TerminalStream('test-session', container);
+  });
+
+  it('isAlternateBuffer returns false in normal mode', async () => {
+    await stream.initialized;
+    expect(stream.isAlternateBuffer()).toBe(false);
+  });
+
+  it('isAlternateBuffer returns true when active buffer differs from normal', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+    // Simulate alternate screen: active points to a different object than normal
+    const altBuffer = { viewportY: 0, baseY: 0, cursorY: 0, cursorX: 0, length: 0 };
+    (terminal.buffer as any).active = altBuffer;
+    expect(stream.isAlternateBuffer()).toBe(true);
+  });
+
+  it('handleUserScroll is suppressed in alternate buffer mode', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+
+    // Clear write guards so handleUserScroll isn't suppressed by the init write
+    (stream as any).writingToTerminal = false;
+    (stream as any).scrollRAFPending = false;
+    (stream as any).writeRAFPending = false;
+
+    // Start following
+    expect((stream as any).followTail).toBe(true);
+
+    // Switch to alternate buffer
+    const altBuffer = { viewportY: 0, baseY: 0, cursorY: 0, cursorX: 0, length: 0 };
+    (terminal.buffer as any).active = altBuffer;
+
+    // Simulate user scrolling away from bottom
+    (terminal.buffer.active as any).viewportY = 0;
+    (terminal.buffer.active as any).baseY = 10;
+    stream.handleUserScroll();
+
+    // followTail should remain true — scroll events are suppressed in alternate buffer
+    expect((stream as any).followTail).toBe(true);
+  });
+
+  it('handleUserScroll works normally when back in normal buffer', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+
+    // Clear write guards so handleUserScroll isn't suppressed by the init write
+    (stream as any).writingToTerminal = false;
+    (stream as any).scrollRAFPending = false;
+    (stream as any).writeRAFPending = false;
+
+    // Switch to alternate, then back to normal
+    const altBuffer = { viewportY: 0, baseY: 0, cursorY: 0, cursorX: 0, length: 0 };
+    (terminal.buffer as any).active = altBuffer;
+    expect(stream.isAlternateBuffer()).toBe(true);
+
+    // Back to normal
+    (terminal.buffer as any).active = (terminal.buffer as any).normal;
+    expect(stream.isAlternateBuffer()).toBe(false);
+
+    // Now scroll events should work as usual
+    (terminal.buffer.active as any).viewportY = 0;
+    (terminal.buffer.active as any).baseY = 10;
+    stream.handleUserScroll();
+    expect((stream as any).followTail).toBe(false);
   });
 });

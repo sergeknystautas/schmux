@@ -1,13 +1,20 @@
 package controlmode
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 // KeyRun represents a contiguous run of keys that can be sent to tmux in a
 // single send-keys command. Literal runs contain printable text sent with -l;
 // non-literal runs contain a single tmux key name (e.g., "Enter", "Up").
+// Hex runs contain space-separated hex bytes sent with -H (for raw byte
+// sequences like mouse events that can't be split across commands).
 type KeyRun struct {
-	Text    string // The text to send (printable characters or a tmux key name)
+	Text    string // The text to send (printable characters, tmux key name, or hex bytes)
 	Literal bool   // If true, send with -l (literal mode)
+	Hex     bool   // If true, send with -H (hex byte mode)
 }
 
 // ctrlKeyNames maps control characters (0x01–0x1a) to pre-computed tmux key
@@ -131,8 +138,12 @@ func ClassifyKeyRuns(dst []KeyRun, keys string) []KeyRun {
 					case "\x1b[Z":
 						keyName = "BTab"
 					default:
-						// Unknown CSI — skip
-						i += end + 1 - i
+						// Unknown CSI (e.g., SGR mouse events) — send as hex
+						// bytes in a single atomic command. Splitting across
+						// multiple send-keys commands would introduce timing
+						// gaps that cause the TUI to misparse the sequence.
+						runs = append(runs, KeyRun{Text: toHexBytes(keys[i : end+1]), Hex: true})
+						i = end + 1
 						continue
 					}
 					advance = end + 1 - i
@@ -172,6 +183,19 @@ func ClassifyKeyRuns(dst []KeyRun, keys string) []KeyRun {
 		i += advance
 	}
 	return runs
+}
+
+// toHexBytes converts a string of raw bytes to tmux send-keys -H format
+// (space-separated hex pairs, e.g., "1b 5b 3c 36 34 3b 31 3b 31 4d").
+func toHexBytes(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		fmt.Fprintf(&b, "%02x", s[i])
+	}
+	return b.String()
 }
 
 // SendKeysTimings records per-keystroke timing breakdown from Client.SendKeys.

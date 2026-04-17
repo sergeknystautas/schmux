@@ -1847,31 +1847,41 @@ func (m *Manager) CaptureLastLines(ctx context.Context, sessionID string, lines 
 	return server.CaptureLastLines(ctx, sess.TmuxSession, lines, true)
 }
 
-// GetCursorState returns the cursor position and visibility for a session.
+// GetCursorState returns the cursor position, visibility, and terminal mode state for a session.
 // It tries the session tracker first, then falls back to direct tmux CLI.
-func (m *Manager) GetCursorState(ctx context.Context, sessionID string) (x, y int, visible bool, err error) {
+func (m *Manager) GetCursorState(ctx context.Context, sessionID string) (controlmode.CursorState, error) {
 	tracker, trackerErr := m.GetTracker(sessionID)
 	if trackerErr != nil {
-		return 0, 0, false, trackerErr
+		return controlmode.CursorState{}, trackerErr
 	}
 	curState, trackerErr := tracker.GetCursorState(ctx)
 	if trackerErr == nil {
-		return curState.X, curState.Y, curState.Visible, nil
+		return curState, nil
 	}
 	// Fallback to direct tmux CLI
 	sess, ok := m.state.GetSession(sessionID)
 	if !ok {
-		return 0, 0, false, trackerErr
+		return controlmode.CursorState{}, trackerErr
 	}
 	server := m.ServerForSocket(sess.TmuxSocket)
 	if server == nil {
-		return 0, 0, false, trackerErr
+		return controlmode.CursorState{}, trackerErr
 	}
 	cliState, cliErr := server.GetCursorState(ctx, sess.TmuxSession)
 	if cliErr != nil {
-		return 0, 0, false, cliErr
+		// tmux.CursorState and controlmode.CursorState have the same fields
+		return controlmode.CursorState{}, cliErr
 	}
-	return cliState.X, cliState.Y, cliState.Visible, nil
+	return controlmode.CursorState{
+		X:             cliState.X,
+		Y:             cliState.Y,
+		Visible:       cliState.Visible,
+		AlternateOn:   cliState.AlternateOn,
+		MouseStandard: cliState.MouseStandard,
+		MouseButton:   cliState.MouseButton,
+		MouseAny:      cliState.MouseAny,
+		MouseSGR:      cliState.MouseSGR,
+	}, nil
 }
 
 // wireRecorder sets up the timelapse recorder factory on a tracker if recording is enabled.
