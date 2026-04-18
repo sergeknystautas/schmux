@@ -486,7 +486,12 @@ func (c *Client) SendKeys(ctx context.Context, paneID, keys string) (SendKeysTim
 		if run.Hex {
 			cmd = fmt.Sprintf("send-keys -H -t %s %s", paneID, run.Text)
 		} else if run.Literal {
-			cmd = fmt.Sprintf("send-keys -t %s -l %s", paneID, shellutil.Quote(run.Text))
+			// `--` terminates option parsing so a run.Text starting with `-`
+			// (e.g. a pasted line like "-world") is treated as the key
+			// argument rather than a flag cluster. Without it, tmux rejects
+			// the command with "unknown flag -w" and Client.SendKeys aborts
+			// the remainder of the paste.
+			cmd = fmt.Sprintf("send-keys -t %s -l -- %s", paneID, shellutil.Quote(run.Text))
 		} else {
 			cmd = fmt.Sprintf("send-keys -t %s %s", paneID, run.Text)
 		}

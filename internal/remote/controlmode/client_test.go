@@ -353,9 +353,9 @@ func TestClientSendKeys_LiteralAndMetaEnterSequence(t *testing.T) {
 
 	got := buf.String()
 	expectedParts := []string{
-		"send-keys -t %7 -l 'abc'\n",
+		"send-keys -t %7 -l -- 'abc'\n",
 		"send-keys -t %7 M-Enter\n",
-		"send-keys -t %7 -l 'd'\n",
+		"send-keys -t %7 -l -- 'd'\n",
 	}
 	for _, part := range expectedParts {
 		if !strings.Contains(got, part) {
@@ -371,6 +371,72 @@ func TestClientSendKeys_LiteralAndMetaEnterSequence(t *testing.T) {
 			t.Fatalf("unexpected order in %q", got)
 		}
 		last = idx
+	}
+}
+
+// Regression: a literal run whose text starts with `-` (e.g. a pasted line
+// like "-world") must be sent with `--` terminating option parsing, otherwise
+// tmux reads the leading `-` as a flag cluster, errors with "unknown flag -w",
+// and Client.SendKeys aborts the rest of the paste.
+func TestClientSendKeys_LiteralLeadingDashUsesDashDash(t *testing.T) {
+	parser := NewParser(strings.NewReader(""), nil)
+	var buf strings.Builder
+	w := &ackWriter{
+		sb: &buf,
+		ackFn: func() {
+			parser.responses <- CommandResponse{Success: true}
+		},
+	}
+	client := NewClient(w, parser, nil)
+	client.Start()
+	defer client.Close()
+
+	if _, err := client.SendKeys(context.Background(), "%1", "-bar"); err != nil {
+		t.Fatalf("SendKeys returned error: %v", err)
+	}
+
+	got := buf.String()
+	want := "send-keys -t %1 -l -- '-bar'\n"
+	if !strings.Contains(got, want) {
+		t.Fatalf("expected %q in %q", want, got)
+	}
+}
+
+// Regression: a paste like "hello\n-world\ngoodbye" must reach the pane in
+// full. Before the `--` fix, the middle run errored and `Client.SendKeys`
+// returned early, dropping the trailing Enter and "goodbye" runs.
+func TestClientSendKeys_MultilinePasteWithLeadingDashSendsAllRuns(t *testing.T) {
+	parser := NewParser(strings.NewReader(""), nil)
+	var buf strings.Builder
+	w := &ackWriter{
+		sb: &buf,
+		ackFn: func() {
+			parser.responses <- CommandResponse{Success: true}
+		},
+	}
+	client := NewClient(w, parser, nil)
+	client.Start()
+	defer client.Close()
+
+	if _, err := client.SendKeys(context.Background(), "%1", "hello\n-world\ngoodbye"); err != nil {
+		t.Fatalf("SendKeys returned error: %v", err)
+	}
+
+	got := buf.String()
+	expectedParts := []string{
+		"send-keys -t %1 -l -- 'hello'\n",
+		"send-keys -t %1 Enter\n",
+		"send-keys -t %1 -l -- '-world'\n",
+		"send-keys -t %1 Enter\n",
+		"send-keys -t %1 -l -- 'goodbye'\n",
+	}
+	cursor := 0
+	for _, part := range expectedParts {
+		idx := strings.Index(got[cursor:], part)
+		if idx == -1 {
+			t.Fatalf("missing %q after offset %d in %q", part, cursor, got)
+		}
+		cursor += idx + len(part)
 	}
 }
 
