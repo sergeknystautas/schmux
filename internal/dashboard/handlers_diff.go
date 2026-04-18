@@ -21,6 +21,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/cmdtemplate"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/difftool"
@@ -29,11 +30,56 @@ import (
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
+// renderDiffCommand renders an external-diff argv-array template with the
+// {{.OldFile}}, {{.NewFile}}, {{.MergedFile}}, and {{.File}} slots filled in.
+// Empty file paths render as empty slots, which the template renderer rejects
+// to surface misconfiguration; callers ensure the relevant slots are non-empty
+// for the diff scenario they handle.
+func renderDiffCommand(tmpl config.ShellCommand, oldFile, newFile, mergedFile, file string) ([]string, error) {
+	vars := map[string]string{}
+	if oldFile != "" {
+		vars["OldFile"] = oldFile
+	}
+	if newFile != "" {
+		vars["NewFile"] = newFile
+	}
+	if mergedFile != "" {
+		vars["MergedFile"] = mergedFile
+	}
+	if file != "" {
+		vars["File"] = file
+	}
+	return cmdtemplate.Template(tmpl).Render(vars)
+}
+
+// diffToolEnv builds the environment for an external diff tool, preserving the
+// existing LOCAL/REMOTE/MERGED/BASE convention so tools that read paths from
+// env (meld, kdiff3, vimdiff, etc.) continue to work alongside argv-templated
+// tools.
+func diffToolEnv(localPath, remotePath, mergedPath string) []string {
+	env := append([]string{}, os.Environ()...)
+	env = append(env, fmt.Sprintf("LOCAL=%s", localPath))
+	if remotePath == "" {
+		env = append(env, "REMOTE=")
+	} else {
+		env = append(env, fmt.Sprintf("REMOTE=%s", remotePath))
+	}
+	env = append(env, fmt.Sprintf("MERGED=%s", mergedPath))
+	env = append(env, fmt.Sprintf("BASE=%s", mergedPath))
+	return env
+}
+
 // builtinDiffCommands defines diff commands that are always available,
 // matching the BUILTIN_DIFF_COMMANDS constant in the React frontend.
 // The backend MUST be the source of truth for what commands can execute.
+//
+// Each command is an argv-array template rendered by cmdtemplate.Render with
+// {{.OldFile}}, {{.NewFile}}, and {{.MergedFile}} slots for file paths. The
+// argv form prevents the shell-injection bug class because templated values
+// become exactly one argv element (spec §2.1). Tools that prefer env vars can
+// also read LOCAL/REMOTE/MERGED which are still set on the process env.
 var builtinDiffCommands = []config.ExternalDiffCommand{
-	{Name: "VS Code", Command: `code --diff "$LOCAL" "$REMOTE"`},
+	{Name: "VS Code", Command: config.ShellCommand{"code", "--diff", "{{.OldFile}}", "{{.NewFile}}"}},
 }
 
 func (h *GitHandlers) handleDiff(w http.ResponseWriter, r *http.Request) {
@@ -1096,7 +1142,7 @@ func (h *GitHandlers) handleDiffExternal(w http.ResponseWriter, r *http.Request)
 
 	// Find the command to use — only allow commands from config or built-in list.
 	// req.Command is a command NAME (not a raw shell string).
-	var selectedCommand string
+	var selectedCommand config.ShellCommand
 	if req.Command != "" {
 		// Search configured commands by name
 		for _, cmd := range externalDiffCommands {
@@ -1106,7 +1152,7 @@ func (h *GitHandlers) handleDiffExternal(w http.ResponseWriter, r *http.Request)
 			}
 		}
 		// Search built-in commands by name
-		if selectedCommand == "" {
+		if len(selectedCommand) == 0 {
 			for _, cmd := range builtinDiffCommands {
 				if cmd.Name == req.Command {
 					selectedCommand = cmd.Command
@@ -1115,7 +1161,7 @@ func (h *GitHandlers) handleDiffExternal(w http.ResponseWriter, r *http.Request)
 			}
 		}
 		// Reject unknown command names — never use req.Command as a raw shell string
-		if selectedCommand == "" {
+		if len(selectedCommand) == 0 {
 			h.logger.Warn("diff-external: unknown command name", "name", req.Command)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
@@ -1220,20 +1266,13 @@ func (h *GitHandlers) handleDiffExternal(w http.ResponseWriter, r *http.Request)
 
 	h.logger.Info("diff-external: launching", "command", selectedCommand, "files", len(files), "workspace", workspaceID)
 
-	// Parse the base command (before file paths)
-	if strings.TrimSpace(selectedCommand) == "" {
+	// Reject configurations whose argv array is empty.
+	if len(selectedCommand) == 0 {
 		writeJSON(w, DiffExternalResponse{
 			Success: false,
 			Message: "Invalid command",
 		})
 		return
-	}
-
-	replacePlaceholders := func(cmd, oldPath, newPath, filePath string) string {
-		cmd = strings.ReplaceAll(cmd, "{old_file}", oldPath)
-		cmd = strings.ReplaceAll(cmd, "{new_file}", newPath)
-		cmd = strings.ReplaceAll(cmd, "{file}", filePath)
-		return cmd
 	}
 
 	tempRoot, err := difftool.TempDirForWorkspace(workspaceID)
@@ -1282,15 +1321,14 @@ func (h *GitHandlers) handleDiffExternal(w http.ResponseWriter, r *http.Request)
 			}
 			tmpFile.Close()
 
-			cmdString := replacePlaceholders(selectedCommand, tmpPath, newPath, newPath)
-			execCmd := exec.Command("sh", "-c", cmdString)
+			argv, err := renderDiffCommand(selectedCommand, tmpPath, newPath, mergedPath, file.path)
+			if err != nil {
+				h.logger.Error("diff-external: render command failed", "err", err)
+				continue
+			}
+			execCmd := exec.Command(argv[0], argv[1:]...)
 			execCmd.Dir = ws.Path
-			execCmd.Env = append(os.Environ(),
-				fmt.Sprintf("LOCAL=%s", tmpPath),
-				fmt.Sprintf("REMOTE=%s", newPath),
-				fmt.Sprintf("MERGED=%s", mergedPath),
-				fmt.Sprintf("BASE=%s", mergedPath),
-			)
+			execCmd.Env = diffToolEnv(tmpPath, newPath, mergedPath)
 			if err := execCmd.Start(); err != nil {
 				h.logger.Error("diff-external: diff tool exited with error", "err", err)
 			} else {
@@ -1327,15 +1365,14 @@ func (h *GitHandlers) handleDiffExternal(w http.ResponseWriter, r *http.Request)
 			}
 			tmpFile.Close()
 
-			cmdString := replacePlaceholders(selectedCommand, tmpPath, "", mergedPath)
-			execCmd := exec.Command("sh", "-c", cmdString)
+			argv, err := renderDiffCommand(selectedCommand, tmpPath, "", mergedPath, file.path)
+			if err != nil {
+				h.logger.Error("diff-external: render command failed", "err", err)
+				continue
+			}
+			execCmd := exec.Command(argv[0], argv[1:]...)
 			execCmd.Dir = ws.Path
-			execCmd.Env = append(os.Environ(),
-				fmt.Sprintf("LOCAL=%s", tmpPath),
-				"REMOTE=",
-				fmt.Sprintf("MERGED=%s", mergedPath),
-				fmt.Sprintf("BASE=%s", mergedPath),
-			)
+			execCmd.Env = diffToolEnv(tmpPath, "", mergedPath)
 			if err := execCmd.Start(); err != nil {
 				h.logger.Error("diff-external: diff tool exited with error", "err", err)
 			} else {
@@ -1376,7 +1413,7 @@ func (h *GitHandlers) handleDiffExternal(w http.ResponseWriter, r *http.Request)
 // handleRemoteDiffExternal handles external diff tool requests for remote workspaces.
 // It fetches file contents from the remote host, writes them to local temp files,
 // and launches the diff tool with those temp files.
-func (h *GitHandlers) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request, ws state.Workspace, selectedCommand string) {
+func (h *GitHandlers) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request, ws state.Workspace, selectedCommand config.ShellCommand) {
 	type DiffExternalResponse struct {
 		Success bool   `json:"success"`
 		Message string `json:"message"`
@@ -1459,11 +1496,12 @@ func (h *GitHandlers) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Re
 
 	h.logger.Info("diff-external (remote): launching", "command", selectedCommand, "files", len(files), "workspace", ws.ID)
 
-	replacePlaceholders := func(cmd, oldPath, newPath, filePath string) string {
-		cmd = strings.ReplaceAll(cmd, "{old_file}", oldPath)
-		cmd = strings.ReplaceAll(cmd, "{new_file}", newPath)
-		cmd = strings.ReplaceAll(cmd, "{file}", filePath)
-		return cmd
+	if len(selectedCommand) == 0 {
+		writeJSON(w, DiffExternalResponse{
+			Success: false,
+			Message: "Invalid command",
+		})
+		return
 	}
 
 	tempRoot, err := difftool.TempDirForWorkspace(ws.ID)
@@ -1507,14 +1545,13 @@ func (h *GitHandlers) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Re
 				continue
 			}
 
-			cmdString := replacePlaceholders(selectedCommand, oldPath, newPath, newPath)
-			execCmd := exec.Command("sh", "-c", cmdString)
-			execCmd.Env = append(os.Environ(),
-				fmt.Sprintf("LOCAL=%s", oldPath),
-				fmt.Sprintf("REMOTE=%s", newPath),
-				fmt.Sprintf("MERGED=%s", newPath),
-				fmt.Sprintf("BASE=%s", newPath),
-			)
+			argv, err := renderDiffCommand(selectedCommand, oldPath, newPath, newPath, file.path)
+			if err != nil {
+				h.logger.Error("diff-external (remote): render command failed", "err", err)
+				continue
+			}
+			execCmd := exec.Command(argv[0], argv[1:]...)
+			execCmd.Env = diffToolEnv(oldPath, newPath, newPath)
 			if err := execCmd.Start(); err != nil {
 				h.logger.Error("diff-external (remote): diff tool error", "err", err)
 			} else {
@@ -1536,14 +1573,14 @@ func (h *GitHandlers) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Re
 				continue
 			}
 
-			cmdString := replacePlaceholders(selectedCommand, oldPath, "", filepath.Join(workdir, file.path))
-			execCmd := exec.Command("sh", "-c", cmdString)
-			execCmd.Env = append(os.Environ(),
-				fmt.Sprintf("LOCAL=%s", oldPath),
-				"REMOTE=",
-				fmt.Sprintf("MERGED=%s", filepath.Join(workdir, file.path)),
-				fmt.Sprintf("BASE=%s", filepath.Join(workdir, file.path)),
-			)
+			mergedRemote := filepath.Join(workdir, file.path)
+			argv, err := renderDiffCommand(selectedCommand, oldPath, "", mergedRemote, file.path)
+			if err != nil {
+				h.logger.Error("diff-external (remote): render command failed", "err", err)
+				continue
+			}
+			execCmd := exec.Command(argv[0], argv[1:]...)
+			execCmd.Env = diffToolEnv(oldPath, "", mergedRemote)
 			if err := execCmd.Start(); err != nil {
 				h.logger.Error("diff-external (remote): diff tool error", "err", err)
 			} else {

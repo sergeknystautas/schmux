@@ -8,12 +8,14 @@ type Repo struct {
 	VCS      string `json:"vcs,omitempty"`
 }
 
+// SaplingCommandsUpdate carries argv-array sapling command templates.
+// Each command is a JSON array of strings; see docs/specs/meta-distribution-hardening-final.md §2.1.
 type SaplingCommandsUpdate struct {
-	CreateWorkspace string `json:"create_workspace,omitempty"`
-	RemoveWorkspace string `json:"remove_workspace,omitempty"`
-	CheckRepoBase   string `json:"check_repo_base,omitempty"`
-	CreateRepoBase  string `json:"create_repo_base,omitempty"`
-	ListWorkspaces  string `json:"list_workspaces,omitempty"`
+	CreateWorkspace []string `json:"create_workspace,omitempty"`
+	RemoveWorkspace []string `json:"remove_workspace,omitempty"`
+	CheckRepoBase   []string `json:"check_repo_base,omitempty"`
+	CreateRepoBase  []string `json:"create_repo_base,omitempty"`
+	ListWorkspaces  []string `json:"list_workspaces,omitempty"`
 }
 
 // RepoConfig represents repository-specific configuration from .schmux/config.json.
@@ -47,9 +49,10 @@ type QuickLaunch struct {
 }
 
 // ExternalDiffCommand represents an external diff tool configuration.
+// Command is an argv-array template; see docs/specs/meta-distribution-hardening-final.md §2.1.
 type ExternalDiffCommand struct {
-	Name    string `json:"name"`
-	Command string `json:"command"`
+	Name    string   `json:"name"`
+	Command []string `json:"command"`
 }
 
 // RunnerInfo describes a tool/runner at the top level of ConfigResponse.

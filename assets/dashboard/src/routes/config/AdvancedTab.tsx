@@ -18,13 +18,9 @@ type AdvancedTabProps = {
   localEchoRemote: boolean;
   debugUI: boolean;
   hasSaplingRepos: boolean;
-  saplingCmdCreateWorkspace: string;
-  saplingCmdRemoveWorkspace: string;
-  saplingCmdCheckRepoBase: string;
-  saplingCmdCreateRepoBase: string;
   tmuxBinary: string;
   tmuxSocketName: string;
-  externalDiffCommands: { name: string; command: string }[];
+  externalDiffCommands: { name: string; command: string[] }[];
   externalDiffCleanupMinutes: number;
   newDiffName: string;
   newDiffCommand: string;
@@ -48,10 +44,6 @@ export default function AdvancedTab({
   localEchoRemote,
   debugUI,
   hasSaplingRepos,
-  saplingCmdCreateWorkspace,
-  saplingCmdRemoveWorkspace,
-  saplingCmdCheckRepoBase,
-  saplingCmdCreateRepoBase,
   tmuxBinary,
   tmuxSocketName,
   externalDiffCommands,
@@ -324,7 +316,7 @@ export default function AdvancedTab({
                   <div className="item-list__item-primary item-list__item-row">
                     <span className="item-list__item-name">{cmd.name}</span>
                     <span className="item-list__item-detail item-list__item-detail--wide mono">
-                      {cmd.command}
+                      {Array.isArray(cmd.command) ? cmd.command.join(' ') : cmd.command}
                     </span>
                   </div>
                   <button
@@ -420,46 +412,11 @@ export default function AdvancedTab({
             <h3 className="settings-section__title">Sapling Commands</h3>
           </div>
           <div className="settings-section__body">
-            <p className="form-group__hint mb-md">
-              Command templates for sapling workspace lifecycle. Uses Go text/template syntax.
+            <p className="form-group__hint">
+              <strong>Advanced:</strong> shell commands are now configured via{' '}
+              <code>~/.schmux/config.json</code> as argv arrays. See{' '}
+              <a href="/docs/api">docs/api.md</a> for the schema.
             </p>
-            {[
-              {
-                field: 'saplingCmdCreateWorkspace' as const,
-                label: 'Create Workspace',
-                placeholder: 'sl clone {{.RepoIdentifier}} {{.DestPath}}',
-                value: saplingCmdCreateWorkspace,
-              },
-              {
-                field: 'saplingCmdRemoveWorkspace' as const,
-                label: 'Remove Workspace',
-                placeholder: 'rm -rf {{.WorkspacePath}}',
-                value: saplingCmdRemoveWorkspace,
-              },
-              {
-                field: 'saplingCmdCreateRepoBase' as const,
-                label: 'Create Repo Base',
-                placeholder: 'sl clone {{.RepoIdentifier}} {{.BasePath}}',
-                value: saplingCmdCreateRepoBase,
-              },
-              {
-                field: 'saplingCmdCheckRepoBase' as const,
-                label: 'Check Repo Base',
-                placeholder: '',
-                value: saplingCmdCheckRepoBase,
-              },
-            ].map(({ field, label, placeholder, value }) => (
-              <div className="form-group" key={field}>
-                <label className="form-group__label">{label}</label>
-                <input
-                  type="text"
-                  className="input"
-                  placeholder={placeholder}
-                  value={value}
-                  onChange={(e) => dispatch({ type: 'SET_FIELD', field, value: e.target.value })}
-                />
-              </div>
-            ))}
           </div>
         </div>
       )}

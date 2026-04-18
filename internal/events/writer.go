@@ -19,7 +19,7 @@ func AppendEvent(path string, event any) error {
 	writeMu.Lock()
 	defer writeMu.Unlock()
 
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}

@@ -45,3 +45,65 @@ func TestCaseSensitiveFileExists(t *testing.T) {
 		}
 	})
 }
+
+func TestIsValidRepoName(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"foo", true},
+		{"foo.bar", true},
+		{"foo-bar_baz", true},
+		{"owner.repo", true},
+		{"corp.org", true},
+		{"", false},
+		{"..", false},
+		{".foo", false},
+		{".", false},
+		{"foo/bar", false},
+		{"foo\\bar", false},
+		{"foo\x00bar", false},
+		{"foo:bar", false}, // colon not allowed (HTTP-perimeter validator only; see spec §2.3)
+		{"foo+bar", false}, // plus not allowed
+		{"foo@bar", false}, // at not allowed
+	}
+	for _, c := range cases {
+		if got := isValidRepoName(c.in); got != c.want {
+			t.Errorf("isValidRepoName(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+
+	// Length cap: 128 chars OK, 129 chars rejected
+	long := make([]byte, 128)
+	for i := range long {
+		long[i] = 'a'
+	}
+	if !isValidRepoName(string(long)) {
+		t.Errorf("128-char name rejected, want accepted")
+	}
+	if isValidRepoName(string(long) + "a") {
+		t.Errorf("129-char name accepted, want rejected")
+	}
+}
+
+func TestIsValidResourceID(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"abc-123", true},
+		{"session_id_42", true},
+		{"", false},
+		{".", false},
+		{"..", false},
+		{"foo.bar", false}, // dots rejected (different from isValidRepoName)
+		{"foo/bar", false},
+		{"foo\\bar", false},
+		{"foo\x00bar", false},
+	}
+	for _, c := range cases {
+		if got := isValidResourceID(c.in); got != c.want {
+			t.Errorf("isValidResourceID(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}

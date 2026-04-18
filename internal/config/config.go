@@ -66,6 +66,10 @@ const (
 
 // ConfigData holds all JSON-serializable fields. Extracted so Reload()
 // can swap all JSON fields atomically without touching runtime fields.
+type SecurityConfig struct {
+	AllowInsecureModes bool `json:"allow_insecure_modes,omitempty"`
+}
+
 type ConfigData struct {
 	ConfigVersion              string                      `json:"config_version,omitempty"`
 	WorkspacePath              string                      `json:"workspace_path"`
@@ -117,6 +121,7 @@ type ConfigData struct {
 	// Telemetry settings
 	Telemetry      *TelemetryConfig `json:"telemetry,omitempty"`
 	InstallationID string           `json:"installation_id,omitempty"` // UUID for anonymous tracking
+	Security       *SecurityConfig  `json:"security,omitempty"`
 }
 
 // Config represents the application configuration.
@@ -299,8 +304,8 @@ type DesyncConfig struct {
 
 // TelemetryConfig holds telemetry settings.
 type TelemetryConfig struct {
-	Enabled *bool  `json:"enabled,omitempty"` // default true
-	Command string `json:"command,omitempty"` // external command for telemetry events
+	Enabled *bool        `json:"enabled,omitempty"` // default true
+	Command ShellCommand `json:"command,omitempty"` // argv-array external command for telemetry events
 }
 
 // IOWorkspaceTelemetryConfig holds configuration for I/O workspace telemetry collection.
@@ -578,49 +583,92 @@ type Repo struct {
 	OverlayNudgeDismissed bool     `json:"overlay_nudge_dismissed,omitempty"`
 }
 
+// ShellCommand is an argv-array config value for shell-executed commands
+// (e.g. sapling_commands.create_workspace, remote VCS commands, telemetry,
+// external diff tools). The value on disk is a JSON array of strings; each
+// element is a text/template slot rendered independently by
+// internal/cmdtemplate.Render so a templated value can never produce more
+// than one argv element regardless of contents. See spec
+// docs/specs/meta-distribution-hardening-final.md §2.1.
+//
+// The custom UnmarshalJSON rejects the legacy string form with a clear
+// error pointing at `schmux config migrate` (spec §2.4). There is
+// intentionally no silent auto-conversion: schmux is not in broad
+// distribution yet, so a hard schema break is the safest option.
+type ShellCommand []string
+
+// UnmarshalJSON accepts the new []string argv form. The legacy string form
+// is rejected with an error that points at the migration CLI; any other
+// JSON shape is rejected as a type error.
+func (s *ShellCommand) UnmarshalJSON(data []byte) error {
+	// New argv-array form.
+	var arr []string
+	if err := json.Unmarshal(data, &arr); err == nil {
+		*s = arr
+		return nil
+	}
+	// Legacy string form — reject with guidance.
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		return fmt.Errorf("legacy string-form command (%q) is no longer supported; run `schmux config migrate` to convert your config to argv-array form (see docs/specs/meta-distribution-hardening-final.md §2.4)", str)
+	}
+	return fmt.Errorf("command must be a JSON array of strings")
+}
+
+// MarshalJSON serialises the argv as a JSON array. A nil ShellCommand is
+// emitted as JSON null (omitempty handles the "field absent" case).
+func (s ShellCommand) MarshalJSON() ([]byte, error) {
+	if s == nil {
+		return []byte("null"), nil
+	}
+	return json.Marshal([]string(s))
+}
+
 // RemoteVCSCommands provides per-profile VCS command templates for remote execution.
 // These are separate from the global SaplingCommands (which control local VCS operations).
-// When fields are empty, defaults are derived from the profile's VCS field.
+// When fields are empty, defaults are derived from the profile's VCS field. Each command
+// is an argv-array template rendered by internal/cmdtemplate.Render so values can never
+// expand into multiple shell tokens.
 type RemoteVCSCommands struct {
-	CreateWorktree string `json:"create_worktree,omitempty"`
-	RemoveWorktree string `json:"remove_worktree,omitempty"`
-	CheckDirty     string `json:"check_dirty,omitempty"`
+	CreateWorktree ShellCommand `json:"create_worktree,omitempty"`
+	RemoveWorktree ShellCommand `json:"remove_worktree,omitempty"`
+	CheckDirty     ShellCommand `json:"check_dirty,omitempty"`
 }
 
 // GetCreateWorktree returns the create worktree command template,
 // falling back to a default based on the VCS type.
-func (r RemoteVCSCommands) GetCreateWorktree(vcs string) string {
-	if r.CreateWorktree != "" {
+func (r RemoteVCSCommands) GetCreateWorktree(vcs string) ShellCommand {
+	if len(r.CreateWorktree) > 0 {
 		return r.CreateWorktree
 	}
 	if vcs == "sapling" {
-		return "sl clone {{.RepoBasePath}} {{.DestPath}}"
+		return ShellCommand{"sl", "clone", "{{.RepoBasePath}}", "{{.DestPath}}"}
 	}
-	return "git worktree add {{.DestPath}} -b schmux-{{.WorkspaceID}} origin/main"
+	return ShellCommand{"git", "worktree", "add", "{{.DestPath}}", "-b", "schmux-{{.WorkspaceID}}", "origin/main"}
 }
 
 // GetRemoveWorktree returns the remove worktree command template,
 // falling back to a default based on the VCS type.
-func (r RemoteVCSCommands) GetRemoveWorktree(vcs string) string {
-	if r.RemoveWorktree != "" {
+func (r RemoteVCSCommands) GetRemoveWorktree(vcs string) ShellCommand {
+	if len(r.RemoveWorktree) > 0 {
 		return r.RemoveWorktree
 	}
 	if vcs == "sapling" {
-		return "rm -rf {{.WorkspacePath}}"
+		return ShellCommand{"rm", "-rf", "{{.WorkspacePath}}"}
 	}
-	return "git worktree remove --force {{.WorkspacePath}}"
+	return ShellCommand{"git", "worktree", "remove", "--force", "{{.WorkspacePath}}"}
 }
 
 // GetCheckDirty returns the dirty check command template,
 // falling back to a default based on the VCS type.
-func (r RemoteVCSCommands) GetCheckDirty(vcs string) string {
-	if r.CheckDirty != "" {
+func (r RemoteVCSCommands) GetCheckDirty(vcs string) ShellCommand {
+	if len(r.CheckDirty) > 0 {
 		return r.CheckDirty
 	}
 	if vcs == "sapling" {
-		return "sl status --cwd {{.WorkspacePath}}"
+		return ShellCommand{"sl", "status", "--cwd", "{{.WorkspacePath}}"}
 	}
-	return "git -C {{.WorkspacePath}} status --porcelain"
+	return ShellCommand{"git", "-C", "{{.WorkspacePath}}", "status", "--porcelain"}
 }
 
 // HostTypePersistent is the value for RemoteProfile.HostType for persistent hosts.
@@ -631,33 +679,36 @@ func (p *RemoteProfile) IsPersistent() bool {
 	return p.HostType == HostTypePersistent
 }
 
+// SaplingCommands holds the shell commands used to manage sapling workspaces.
+// Each command is an argv-array template rendered by internal/cmdtemplate.Render
+// so a templated value can never expand into multiple shell tokens.
 type SaplingCommands struct {
-	CreateWorkspace string `json:"create_workspace,omitempty"`
-	RemoveWorkspace string `json:"remove_workspace,omitempty"`
-	CheckRepoBase   string `json:"check_repo_base,omitempty"`
-	CreateRepoBase  string `json:"create_repo_base,omitempty"`
-	ListWorkspaces  string `json:"list_workspaces,omitempty"`
+	CreateWorkspace ShellCommand `json:"create_workspace,omitempty"`
+	RemoveWorkspace ShellCommand `json:"remove_workspace,omitempty"`
+	CheckRepoBase   ShellCommand `json:"check_repo_base,omitempty"`
+	CreateRepoBase  ShellCommand `json:"create_repo_base,omitempty"`
+	ListWorkspaces  ShellCommand `json:"list_workspaces,omitempty"`
 }
 
-func (sc SaplingCommands) GetCreateWorkspace() string {
-	if sc.CreateWorkspace != "" {
+func (sc SaplingCommands) GetCreateWorkspace() ShellCommand {
+	if len(sc.CreateWorkspace) > 0 {
 		return sc.CreateWorkspace
 	}
-	return "sl clone {{.RepoIdentifier}} {{.DestPath}}"
+	return ShellCommand{"sl", "clone", "{{.RepoIdentifier}}", "{{.DestPath}}"}
 }
 
-func (sc SaplingCommands) GetRemoveWorkspace() string {
-	if sc.RemoveWorkspace != "" {
+func (sc SaplingCommands) GetRemoveWorkspace() ShellCommand {
+	if len(sc.RemoveWorkspace) > 0 {
 		return sc.RemoveWorkspace
 	}
-	return "rm -rf {{.WorkspacePath}}"
+	return ShellCommand{"rm", "-rf", "{{.WorkspacePath}}"}
 }
 
-func (sc SaplingCommands) GetCreateRepoBase() string {
-	if sc.CreateRepoBase != "" {
+func (sc SaplingCommands) GetCreateRepoBase() ShellCommand {
+	if len(sc.CreateRepoBase) > 0 {
 		return sc.CreateRepoBase
 	}
-	return "sl clone {{.RepoIdentifier}} {{.BasePath}}"
+	return ShellCommand{"sl", "clone", "{{.RepoIdentifier}}", "{{.BasePath}}"}
 }
 
 // RunTarget represents a user-supplied run target.
@@ -676,9 +727,12 @@ type QuickLaunch struct {
 }
 
 // ExternalDiffCommand represents an external diff tool configuration.
+// The Command field is an argv-array template rendered by
+// internal/cmdtemplate.Render. Tools that need file paths read them from
+// LOCAL/REMOTE/MERGED env vars rather than templated argv slots.
 type ExternalDiffCommand struct {
-	Name    string `json:"name"`
-	Command string `json:"command"`
+	Name    string       `json:"name"`
+	Command ShellCommand `json:"command"`
 }
 
 // ModelsConfig holds model-related configuration.
@@ -1261,6 +1315,17 @@ func (c *Config) GetPersonasEnabled() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.PersonasEnabled
+}
+
+// GetAllowInsecureModes returns whether insecure file modes are allowed.
+// When false (the default), the daemon refuses to start if chmod fails.
+func (c *Config) GetAllowInsecureModes() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Security == nil {
+		return false
+	}
+	return c.Security.AllowInsecureModes
 }
 
 // GetCommStylesEnabled returns whether the comm styles feature is enabled.
@@ -3399,15 +3464,21 @@ func validateRemoteProfile(p RemoteProfile) error {
 		if p.RepoBasePath == "" {
 			return fmt.Errorf("%w: repo_base_path is required for persistent hosts", ErrInvalidConfig)
 		}
-		// Validate remote VCS command templates if provided.
-		for name, tmpl := range map[string]string{
+		// Validate remote VCS command argv templates if provided.
+		// Each slot of the argv array is its own text/template; we parse-check
+		// each non-empty slot to surface invalid template syntax at config-load
+		// time rather than at command execution.
+		for name, argv := range map[string]ShellCommand{
 			"create_worktree": p.RemoteVCSCommands.CreateWorktree,
 			"remove_worktree": p.RemoteVCSCommands.RemoveWorktree,
 			"check_dirty":     p.RemoteVCSCommands.CheckDirty,
 		} {
-			if tmpl != "" {
-				if _, err := template.New(name).Parse(tmpl); err != nil {
-					return fmt.Errorf("%w: invalid remote_vcs_commands.%s template: %v", ErrInvalidConfig, name, err)
+			for i, slot := range argv {
+				if slot == "" {
+					continue
+				}
+				if _, err := template.New(name).Parse(slot); err != nil {
+					return fmt.Errorf("%w: invalid remote_vcs_commands.%s[%d] template: %v", ErrInvalidConfig, name, i, err)
 				}
 			}
 		}
@@ -3483,15 +3554,16 @@ func (c *Config) GetTelemetryEnabled() bool {
 }
 
 // GetTelemetryCommand returns the external command for telemetry events.
-// Returns empty string if not configured.
-func (c *Config) GetTelemetryCommand() string {
+// Returns nil if not configured. The argv-array form prevents the templated
+// shell injection bug class (spec §2.1).
+func (c *Config) GetTelemetryCommand() ShellCommand {
 	if c == nil {
-		return ""
+		return nil
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if c.Telemetry == nil {
-		return ""
+		return nil
 	}
 	return c.Telemetry.Command
 }

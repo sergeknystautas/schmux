@@ -59,7 +59,7 @@ func newAutolearnHandlers(s *Server) *AutolearnHandlers {
 func validateAutolearnRepo(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		repo := chi.URLParam(r, "repo")
-		if repo == "" || strings.ContainsAny(repo, "/\\.\x00") || len(repo) > 128 {
+		if !isValidRepoName(repo) {
 			writeJSONError(w, "invalid repo name", http.StatusBadRequest)
 			return
 		}
@@ -495,18 +495,18 @@ func (h *AutolearnHandlers) runAutolearnCuration(repoName, curationID, prompt st
 	var logFile *os.File
 	if sd := schmuxdir.Get(); sd != "" {
 		runDir = filepath.Join(sd, "autolearn-curator-runs", repoName, curationID)
-		os.MkdirAll(runDir, 0755)
+		os.MkdirAll(runDir, 0700)
 
 		// Write prompt.txt
-		os.WriteFile(filepath.Join(runDir, "prompt.txt"), []byte(prompt), 0644)
+		os.WriteFile(filepath.Join(runDir, "prompt.txt"), []byte(prompt), 0600)
 
 		// Write run.sh
 		target := h.config.GetLoreTarget()
 		runScript := curationGenerateRunScript(h.config, target, schema.LabelAutolearnFriction)
-		os.WriteFile(filepath.Join(runDir, "run.sh"), []byte(runScript), 0755)
+		os.WriteFile(filepath.Join(runDir, "run.sh"), []byte(runScript), 0700)
 
 		// Create events.jsonl
-		logFile, _ = os.Create(filepath.Join(runDir, "events.jsonl"))
+		logFile, _ = os.OpenFile(filepath.Join(runDir, "events.jsonl"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 		if logFile != nil {
 			defer logFile.Close()
 		}
@@ -673,13 +673,7 @@ func (h *AutolearnHandlers) handleAutolearnCurationsList(w http.ResponseWriter, 
 func (h *AutolearnHandlers) handleAutolearnCurationLog(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
 	curationID := chi.URLParam(r, "curationID")
-	if repoName == "" || curationID == "" {
-		writeJSONError(w, "invalid path", http.StatusBadRequest)
-		return
-	}
-
-	// Validate curation ID — no path separators allowed
-	if strings.ContainsAny(curationID, "/\\") || curationID == ".." || curationID == "." {
+	if !isValidResourceID(curationID) {
 		writeJSONError(w, "invalid curation ID", http.StatusBadRequest)
 		return
 	}

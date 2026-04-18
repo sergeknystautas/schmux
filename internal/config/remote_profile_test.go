@@ -342,7 +342,7 @@ func TestResolveProfileFlavor_PropagatesPersistentFields(t *testing.T) {
 		ConnectCommand:        "ssh user@host --",
 		ReconnectCommand:      "ssh user@host --",
 		RemoteVCSCommands: RemoteVCSCommands{
-			CreateWorktree: "custom-clone {{.RepoBasePath}} {{.DestPath}}",
+			CreateWorktree: ShellCommand{"custom-clone", "{{.RepoBasePath}}", "{{.DestPath}}"},
 		},
 		Flavors: []RemoteProfileFlavor{
 			{Flavor: "default", DisplayName: "Default"},
@@ -363,50 +363,63 @@ func TestResolveProfileFlavor_PropagatesPersistentFields(t *testing.T) {
 	if resolved.WorkspacePathTemplate != "/home/user/ws/{{.WorkspaceID}}" {
 		t.Errorf("WorkspacePathTemplate: got %q, want %q", resolved.WorkspacePathTemplate, "/home/user/ws/{{.WorkspaceID}}")
 	}
-	if resolved.RemoteVCSCommands.CreateWorktree != "custom-clone {{.RepoBasePath}} {{.DestPath}}" {
-		t.Errorf("RemoteVCSCommands.CreateWorktree: got %q, want custom-clone", resolved.RemoteVCSCommands.CreateWorktree)
+	wantCreate := ShellCommand{"custom-clone", "{{.RepoBasePath}}", "{{.DestPath}}"}
+	if !shellCommandEqual(resolved.RemoteVCSCommands.CreateWorktree, wantCreate) {
+		t.Errorf("RemoteVCSCommands.CreateWorktree: got %v, want %v", resolved.RemoteVCSCommands.CreateWorktree, wantCreate)
 	}
+}
+
+func shellCommandEqual(a, b ShellCommand) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestRemoteVCSCommands_Defaults(t *testing.T) {
 	empty := RemoteVCSCommands{}
 
 	// Git defaults
-	if got := empty.GetCreateWorktree("git"); got != "git worktree add {{.DestPath}} -b schmux-{{.WorkspaceID}} origin/main" {
-		t.Errorf("git create default: got %q", got)
+	if got, want := empty.GetCreateWorktree("git"), (ShellCommand{"git", "worktree", "add", "{{.DestPath}}", "-b", "schmux-{{.WorkspaceID}}", "origin/main"}); !shellCommandEqual(got, want) {
+		t.Errorf("git create default: got %v", got)
 	}
-	if got := empty.GetRemoveWorktree("git"); got != "git worktree remove --force {{.WorkspacePath}}" {
-		t.Errorf("git remove default: got %q", got)
+	if got, want := empty.GetRemoveWorktree("git"), (ShellCommand{"git", "worktree", "remove", "--force", "{{.WorkspacePath}}"}); !shellCommandEqual(got, want) {
+		t.Errorf("git remove default: got %v", got)
 	}
-	if got := empty.GetCheckDirty("git"); got != "git -C {{.WorkspacePath}} status --porcelain" {
-		t.Errorf("git dirty default: got %q", got)
+	if got, want := empty.GetCheckDirty("git"), (ShellCommand{"git", "-C", "{{.WorkspacePath}}", "status", "--porcelain"}); !shellCommandEqual(got, want) {
+		t.Errorf("git dirty default: got %v", got)
 	}
 
 	// Sapling defaults
-	if got := empty.GetCreateWorktree("sapling"); got != "sl clone {{.RepoBasePath}} {{.DestPath}}" {
-		t.Errorf("sapling create default: got %q", got)
+	if got, want := empty.GetCreateWorktree("sapling"), (ShellCommand{"sl", "clone", "{{.RepoBasePath}}", "{{.DestPath}}"}); !shellCommandEqual(got, want) {
+		t.Errorf("sapling create default: got %v", got)
 	}
-	if got := empty.GetRemoveWorktree("sapling"); got != "rm -rf {{.WorkspacePath}}" {
-		t.Errorf("sapling remove default: got %q", got)
+	if got, want := empty.GetRemoveWorktree("sapling"), (ShellCommand{"rm", "-rf", "{{.WorkspacePath}}"}); !shellCommandEqual(got, want) {
+		t.Errorf("sapling remove default: got %v", got)
 	}
-	if got := empty.GetCheckDirty("sapling"); got != "sl status --cwd {{.WorkspacePath}}" {
-		t.Errorf("sapling dirty default: got %q", got)
+	if got, want := empty.GetCheckDirty("sapling"), (ShellCommand{"sl", "status", "--cwd", "{{.WorkspacePath}}"}); !shellCommandEqual(got, want) {
+		t.Errorf("sapling dirty default: got %v", got)
 	}
 
 	// Custom overrides
 	custom := RemoteVCSCommands{
-		CreateWorktree: "my-create {{.DestPath}}",
-		RemoveWorktree: "my-remove {{.WorkspacePath}}",
-		CheckDirty:     "my-dirty {{.WorkspacePath}}",
+		CreateWorktree: ShellCommand{"my-create", "{{.DestPath}}"},
+		RemoveWorktree: ShellCommand{"my-remove", "{{.WorkspacePath}}"},
+		CheckDirty:     ShellCommand{"my-dirty", "{{.WorkspacePath}}"},
 	}
-	if got := custom.GetCreateWorktree("git"); got != "my-create {{.DestPath}}" {
-		t.Errorf("custom create: got %q", got)
+	if got, want := custom.GetCreateWorktree("git"), (ShellCommand{"my-create", "{{.DestPath}}"}); !shellCommandEqual(got, want) {
+		t.Errorf("custom create: got %v", got)
 	}
-	if got := custom.GetRemoveWorktree("sapling"); got != "my-remove {{.WorkspacePath}}" {
-		t.Errorf("custom remove: got %q", got)
+	if got, want := custom.GetRemoveWorktree("sapling"), (ShellCommand{"my-remove", "{{.WorkspacePath}}"}); !shellCommandEqual(got, want) {
+		t.Errorf("custom remove: got %v", got)
 	}
-	if got := custom.GetCheckDirty("git"); got != "my-dirty {{.WorkspacePath}}" {
-		t.Errorf("custom dirty: got %q", got)
+	if got, want := custom.GetCheckDirty("git"), (ShellCommand{"my-dirty", "{{.WorkspacePath}}"}); !shellCommandEqual(got, want) {
+		t.Errorf("custom dirty: got %v", got)
 	}
 }
 

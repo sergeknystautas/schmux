@@ -145,7 +145,7 @@ func TestReload_CopiesAllFields(t *testing.T) {
 		TmuxBinary:      "/usr/bin/tmux",
 		TmuxSocketName:  "old-socket",
 		Subreddit:       &SubredditConfig{Target: "old-target"},
-		SaplingCommands: SaplingCommands{CreateWorkspace: "old-cmd"},
+		SaplingCommands: SaplingCommands{CreateWorkspace: ShellCommand{"old-cmd"}},
 		BuiltInSkills:   map[string]bool{"skill1": true},
 		Timelapse:       &TimelapseConfig{Enabled: boolPtr(true)},
 	}}
@@ -176,7 +176,7 @@ func TestReload_CopiesAllFields(t *testing.T) {
 		TmuxBinary:      "/usr/local/bin/tmux",
 		TmuxSocketName:  "new-socket",
 		Subreddit:       &SubredditConfig{Target: "new-target"},
-		SaplingCommands: SaplingCommands{CreateWorkspace: "new-cmd"},
+		SaplingCommands: SaplingCommands{CreateWorkspace: ShellCommand{"new-cmd"}},
 		BuiltInSkills:   map[string]bool{"skill2": true},
 		Timelapse:       &TimelapseConfig{Enabled: boolPtr(false)},
 	}}
@@ -225,8 +225,9 @@ func TestReload_CopiesAllFields(t *testing.T) {
 	})
 
 	t.Run("SaplingCommands updated", func(t *testing.T) {
-		if cfg.SaplingCommands.CreateWorkspace != "new-cmd" {
-			t.Errorf("SaplingCommands.CreateWorkspace = %q, want %q", cfg.SaplingCommands.CreateWorkspace, "new-cmd")
+		got := cfg.SaplingCommands.CreateWorkspace
+		if len(got) != 1 || got[0] != "new-cmd" {
+			t.Errorf("SaplingCommands.CreateWorkspace = %v, want [new-cmd]", got)
 		}
 	})
 
@@ -3031,7 +3032,9 @@ func TestMigrateTelemetryStanza(t *testing.T) {
 func TestMigrateTelemetryStanza_NoOverwrite(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.json")
-	os.WriteFile(cfgPath, []byte(`{"telemetry_enabled": false, "telemetry": {"enabled": true, "command": "my-cmd"}, "repos": [{"name": "r", "url": "u"}]}`), 0644)
+	// telemetry.command is now a JSON array (argv form); the legacy string form
+	// is rejected by ShellCommand.UnmarshalJSON. See spec §2.1.
+	os.WriteFile(cfgPath, []byte(`{"telemetry_enabled": false, "telemetry": {"enabled": true, "command": ["my-cmd"]}, "repos": [{"name": "r", "url": "u"}]}`), 0644)
 	cfg, err := Load(cfgPath)
 	if err != nil {
 		t.Fatal(err)
@@ -3039,8 +3042,9 @@ func TestMigrateTelemetryStanza_NoOverwrite(t *testing.T) {
 	if !cfg.GetTelemetryEnabled() {
 		t.Error("expected new stanza to take precedence")
 	}
-	if cfg.GetTelemetryCommand() != "my-cmd" {
-		t.Errorf("expected command 'my-cmd', got %q", cfg.GetTelemetryCommand())
+	got := cfg.GetTelemetryCommand()
+	if len(got) != 1 || got[0] != "my-cmd" {
+		t.Errorf("expected command [my-cmd], got %v", got)
 	}
 }
 

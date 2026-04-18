@@ -1,14 +1,14 @@
 package remote
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"strings"
-	"text/template"
 
+	"github.com/sergeknystautas/schmux/internal/cmdtemplate"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
+	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
 
 // remoteVCSExecutor abstracts remote VCS operations for testability.
@@ -36,12 +36,40 @@ func (e *controlModeVCSExecutor) checkDirty(ctx context.Context, profile config.
 	return checkRemoteDirty(ctx, e.client, profile, workspacePath)
 }
 
-// remoteVCSTemplateData holds the variables available to remote VCS command templates.
-type remoteVCSTemplateData struct {
-	DestPath      string
-	WorkspacePath string
-	WorkspaceID   string
-	RepoBasePath  string
+// remoteVCSVars builds the template variables map shared by remote VCS commands.
+// Keys correspond to the {{.X}} slots in argv-array templates.
+func remoteVCSVars(destPath, workspacePath, workspaceID, repoBasePath string) map[string]string {
+	vars := map[string]string{}
+	if destPath != "" {
+		vars["DestPath"] = destPath
+	}
+	if workspacePath != "" {
+		vars["WorkspacePath"] = workspacePath
+	}
+	if workspaceID != "" {
+		vars["WorkspaceID"] = workspaceID
+	}
+	if repoBasePath != "" {
+		vars["RepoBasePath"] = repoBasePath
+	}
+	return vars
+}
+
+// renderRemoteCommand renders an argv-array template via cmdtemplate.Render
+// and converts the resulting argv into a properly shell-quoted string for
+// transport over SSH/tmux control mode (which inherently requires a shell
+// command line on the remote end). Each element is quoted with shellutil.Quote
+// so values containing shell metacharacters cannot expand into extra tokens.
+func renderRemoteCommand(tmpl config.ShellCommand, vars map[string]string) (string, error) {
+	argv, err := cmdtemplate.Template(tmpl).Render(vars)
+	if err != nil {
+		return "", err
+	}
+	parts := make([]string, len(argv))
+	for i, a := range argv {
+		parts[i] = shellutil.Quote(a)
+	}
+	return strings.Join(parts, " "), nil
 }
 
 // createRemoteWorktree creates a new worktree on a remote host by executing
@@ -50,12 +78,7 @@ type remoteVCSTemplateData struct {
 func createRemoteWorktree(ctx context.Context, client *controlmode.Client, profile config.ResolvedFlavor, workspaceID, destPath string) error {
 	tmpl := profile.RemoteVCSCommands.GetCreateWorktree(profile.VCS)
 
-	cmd, err := resolveVCSTemplate(tmpl, remoteVCSTemplateData{
-		DestPath:      destPath,
-		WorkspaceID:   workspaceID,
-		RepoBasePath:  profile.RepoBasePath,
-		WorkspacePath: destPath,
-	})
+	cmd, err := renderRemoteCommand(tmpl, remoteVCSVars(destPath, destPath, workspaceID, profile.RepoBasePath))
 	if err != nil {
 		return fmt.Errorf("resolve create worktree template: %w", err)
 	}
@@ -71,10 +94,7 @@ func createRemoteWorktree(ctx context.Context, client *controlmode.Client, profi
 func removeRemoteWorktree(ctx context.Context, client *controlmode.Client, profile config.ResolvedFlavor, workspacePath string) error {
 	tmpl := profile.RemoteVCSCommands.GetRemoveWorktree(profile.VCS)
 
-	cmd, err := resolveVCSTemplate(tmpl, remoteVCSTemplateData{
-		WorkspacePath: workspacePath,
-		RepoBasePath:  profile.RepoBasePath,
-	})
+	cmd, err := renderRemoteCommand(tmpl, remoteVCSVars("", workspacePath, "", profile.RepoBasePath))
 	if err != nil {
 		return fmt.Errorf("resolve remove worktree template: %w", err)
 	}
@@ -91,10 +111,7 @@ func removeRemoteWorktree(ctx context.Context, client *controlmode.Client, profi
 func checkRemoteDirty(ctx context.Context, client *controlmode.Client, profile config.ResolvedFlavor, workspacePath string) (bool, error) {
 	tmpl := profile.RemoteVCSCommands.GetCheckDirty(profile.VCS)
 
-	cmd, err := resolveVCSTemplate(tmpl, remoteVCSTemplateData{
-		WorkspacePath: workspacePath,
-		RepoBasePath:  profile.RepoBasePath,
-	})
+	cmd, err := renderRemoteCommand(tmpl, remoteVCSVars("", workspacePath, "", profile.RepoBasePath))
 	if err != nil {
 		return false, fmt.Errorf("resolve check dirty template: %w", err)
 	}
@@ -106,17 +123,4 @@ func checkRemoteDirty(ctx context.Context, client *controlmode.Client, profile c
 
 	// Non-empty output means dirty.
 	return strings.TrimSpace(output) != "", nil
-}
-
-// resolveVCSTemplate parses and executes a Go template with the given data.
-func resolveVCSTemplate(tmplStr string, data remoteVCSTemplateData) (string, error) {
-	t, err := template.New("vcs").Parse(tmplStr)
-	if err != nil {
-		return "", fmt.Errorf("parse template %q: %w", tmplStr, err)
-	}
-	var buf bytes.Buffer
-	if err := t.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("execute template %q: %w", tmplStr, err)
-	}
-	return buf.String(), nil
 }

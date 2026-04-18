@@ -122,7 +122,7 @@ func TestTemplateResolution_UserInDashboardHostname(t *testing.T) {
 func TestTemplateResolution_GoTemplatesUntouched(t *testing.T) {
 	cfg := &Config{ConfigData: ConfigData{
 		SaplingCommands: SaplingCommands{
-			CreateWorkspace: "sl clone {{.RepoIdentifier}} {{.DestPath}}",
+			CreateWorkspace: ShellCommand{"sl", "clone", "{{.RepoIdentifier}}", "{{.DestPath}}"},
 		},
 	}}
 	cfgJSON, err := json.Marshal(cfg)
@@ -136,9 +136,15 @@ func TestTemplateResolution_GoTemplatesUntouched(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	want := "sl clone {{.RepoIdentifier}} {{.DestPath}}"
-	if result.SaplingCommands.CreateWorkspace != want {
-		t.Errorf("got %q, want %q", result.SaplingCommands.CreateWorkspace, want)
+	want := ShellCommand{"sl", "clone", "{{.RepoIdentifier}}", "{{.DestPath}}"}
+	got := result.SaplingCommands.CreateWorkspace
+	if len(got) != len(want) {
+		t.Fatalf("len: got %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("slot %d: got %q, want %q", i, got[i], want[i])
+		}
 	}
 }
 

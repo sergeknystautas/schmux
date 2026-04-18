@@ -257,7 +257,7 @@ describe('useConfigForm', () => {
       act(() => {
         result.current.dispatch({
           type: 'ADD_DIFF_COMMAND',
-          command: { name: 'ksdiff', command: 'ksdiff' },
+          command: { name: 'ksdiff', command: ['ksdiff'] },
         });
       });
       expect(result.current.state.externalDiffCommands).toHaveLength(1);

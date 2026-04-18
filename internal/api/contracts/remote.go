@@ -1,11 +1,12 @@
 package contracts
 
 // RemoteProfileResponse represents a remote profile in API responses.
-// RemoteVCSCommandsResponse holds per-profile VCS command templates in API responses.
+// RemoteVCSCommandsResponse holds per-profile VCS argv-array command templates in API responses.
+// See docs/specs/meta-distribution-hardening-final.md §2.1 for the schema rationale.
 type RemoteVCSCommandsResponse struct {
-	CreateWorktree string `json:"create_worktree,omitempty"`
-	RemoveWorktree string `json:"remove_worktree,omitempty"`
-	CheckDirty     string `json:"check_dirty,omitempty"`
+	CreateWorktree []string `json:"create_worktree,omitempty"`
+	RemoveWorktree []string `json:"remove_worktree,omitempty"`
+	CheckDirty     []string `json:"check_dirty,omitempty"`
 }
 
 type RemoteProfileResponse struct {

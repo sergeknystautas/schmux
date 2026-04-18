@@ -464,10 +464,12 @@ export interface RemoteHost {
   provisioning_session_id?: string; // Local tmux session ID for interactive provisioning terminal
 }
 
+// RemoteVCSCommands holds argv-array templates for remote VCS commands.
+// See docs/specs/meta-distribution-hardening-final.md §2.1.
 export interface RemoteVCSCommands {
-  create_worktree?: string;
-  remove_worktree?: string;
-  check_dirty?: string;
+  create_worktree?: string[];
+  remove_worktree?: string[];
+  check_dirty?: string[];
 }
 
 export interface RemoteProfileCreateRequest {

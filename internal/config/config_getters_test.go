@@ -89,16 +89,23 @@ func TestGetTelemetryCommand(t *testing.T) {
 	tests := []struct {
 		name string
 		cfg  *Config
-		want string
+		want ShellCommand
 	}{
-		{name: "nil telemetry config", cfg: &Config{}, want: ""},
-		{name: "empty command", cfg: &Config{ConfigData: ConfigData{Telemetry: &TelemetryConfig{Command: ""}}}, want: ""},
-		{name: "set command", cfg: &Config{ConfigData: ConfigData{Telemetry: &TelemetryConfig{Command: "my-telemetry-sink"}}}, want: "my-telemetry-sink"},
+		{name: "nil telemetry config", cfg: &Config{}, want: nil},
+		{name: "nil command", cfg: &Config{ConfigData: ConfigData{Telemetry: &TelemetryConfig{Command: nil}}}, want: nil},
+		{name: "set command", cfg: &Config{ConfigData: ConfigData{Telemetry: &TelemetryConfig{Command: ShellCommand{"my-telemetry-sink"}}}}, want: ShellCommand{"my-telemetry-sink"}},
+		{name: "argv command", cfg: &Config{ConfigData: ConfigData{Telemetry: &TelemetryConfig{Command: ShellCommand{"jq", "-c", "."}}}}, want: ShellCommand{"jq", "-c", "."}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.cfg.GetTelemetryCommand(); got != tt.want {
-				t.Errorf("GetTelemetryCommand() = %q, want %q", got, tt.want)
+			got := tt.cfg.GetTelemetryCommand()
+			if len(got) != len(tt.want) {
+				t.Fatalf("GetTelemetryCommand() len = %d, want %d", len(got), len(tt.want))
+			}
+			for i := range tt.want {
+				if got[i] != tt.want[i] {
+					t.Errorf("GetTelemetryCommand()[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
 			}
 		})
 	}

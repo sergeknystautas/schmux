@@ -315,9 +315,9 @@ func TestToProfileResponse_PersistentHostFields(t *testing.T) {
 		WorkspacePathTemplate: "/home/user/ws/{{.WorkspaceID}}",
 		ConnectCommand:        "ssh user@host --",
 		RemoteVCSCommands: config.RemoteVCSCommands{
-			CreateWorktree: "custom-clone {{.DestPath}}",
-			RemoveWorktree: "custom-rm {{.WorkspacePath}}",
-			CheckDirty:     "custom-status {{.WorkspacePath}}",
+			CreateWorktree: config.ShellCommand{"custom-clone", "{{.DestPath}}"},
+			RemoveWorktree: config.ShellCommand{"custom-rm", "{{.WorkspacePath}}"},
+			CheckDirty:     config.ShellCommand{"custom-status", "{{.WorkspacePath}}"},
 		},
 	}
 
@@ -335,15 +335,27 @@ func TestToProfileResponse_PersistentHostFields(t *testing.T) {
 	if resp.RemoteVCSCommands == nil {
 		t.Fatal("RemoteVCSCommands should not be nil")
 	}
-	if resp.RemoteVCSCommands.CreateWorktree != "custom-clone {{.DestPath}}" {
-		t.Errorf("CreateWorktree: got %q", resp.RemoteVCSCommands.CreateWorktree)
+	if got, want := resp.RemoteVCSCommands.CreateWorktree, []string{"custom-clone", "{{.DestPath}}"}; !stringsEqual(got, want) {
+		t.Errorf("CreateWorktree: got %v", got)
 	}
-	if resp.RemoteVCSCommands.RemoveWorktree != "custom-rm {{.WorkspacePath}}" {
-		t.Errorf("RemoveWorktree: got %q", resp.RemoteVCSCommands.RemoveWorktree)
+	if got, want := resp.RemoteVCSCommands.RemoveWorktree, []string{"custom-rm", "{{.WorkspacePath}}"}; !stringsEqual(got, want) {
+		t.Errorf("RemoveWorktree: got %v", got)
 	}
-	if resp.RemoteVCSCommands.CheckDirty != "custom-status {{.WorkspacePath}}" {
-		t.Errorf("CheckDirty: got %q", resp.RemoteVCSCommands.CheckDirty)
+	if got, want := resp.RemoteVCSCommands.CheckDirty, []string{"custom-status", "{{.WorkspacePath}}"}; !stringsEqual(got, want) {
+		t.Errorf("CheckDirty: got %v", got)
 	}
+}
+
+func stringsEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestToProfileResponse_EphemeralNoVCSCommands(t *testing.T) {
@@ -378,8 +390,8 @@ func TestHandleCreateRemoteProfile_Persistent(t *testing.T) {
 		"connect_command":         "ssh user@host --",
 		"reconnect_command":       "ssh user@host --",
 		"hostname_regex":          "(host\\.example\\.com)",
-		"remote_vcs_commands": map[string]string{
-			"create_worktree": "git worktree add {{.DestPath}}",
+		"remote_vcs_commands": map[string][]string{
+			"create_worktree": {"git", "worktree", "add", "{{.DestPath}}"},
 		},
 	})
 
@@ -406,7 +418,10 @@ func TestHandleCreateRemoteProfile_Persistent(t *testing.T) {
 	if resp.WorkspacePathTemplate != "/home/user/ws/{{.WorkspaceID}}" {
 		t.Errorf("WorkspacePathTemplate: got %q", resp.WorkspacePathTemplate)
 	}
-	if resp.RemoteVCSCommands == nil || resp.RemoteVCSCommands.CreateWorktree != "git worktree add {{.DestPath}}" {
-		t.Errorf("RemoteVCSCommands.CreateWorktree not preserved")
+	if resp.RemoteVCSCommands == nil {
+		t.Fatal("RemoteVCSCommands not preserved")
+	}
+	if got, want := resp.RemoteVCSCommands.CreateWorktree, []string{"git", "worktree", "add", "{{.DestPath}}"}; !stringsEqual(got, want) {
+		t.Errorf("RemoteVCSCommands.CreateWorktree not preserved: %v", got)
 	}
 }

@@ -186,13 +186,13 @@ func ValidateReadyToRun() error {
 // Start starts the daemon in the background.
 func Start() error {
 	schmuxDir := schmuxdir.Get()
-	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
+	if err := os.MkdirAll(schmuxDir, 0700); err != nil {
 		return fmt.Errorf("failed to create schmux directory: %w", err)
 	}
 
 	// Open log file for daemon stdout/stderr
 	logFile := filepath.Join(schmuxDir, "daemon-startup.log")
-	logF, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND|os.O_TRUNC, 0644)
+	logF, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND|os.O_TRUNC, 0600)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
@@ -384,6 +384,12 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	remoteLog := di.remoteLog
 	remoteAccessLog := di.remoteAccessLog
 
+	// Tighten file modes on $SCHMUXDIR before any listener opens. See spec §2.2.
+	// Refuses to start unless security.allow_insecure_modes is true.
+	if err := MigrateModes(di.schmuxDir, di.cfg.GetAllowInsecureModes(), di.logger); err != nil {
+		return fmt.Errorf("file mode migration failed: %w", err)
+	}
+
 	d.initDashboardSX(cfg, st, logger)
 
 	wm, sm, autolearnInstructionsDir := d.initManagers(cfg, st, tmuxServer, statePath, hooksDir, tel, schmuxDir, workspaceLog, sessionLog)
@@ -568,7 +574,7 @@ func (d *Daemon) initConfigAndState(devMode bool) (*daemonInit, error) {
 			}
 		}
 
-		if cmd := cfg.GetTelemetryCommand(); cmd != "" {
+		if cmd := cfg.GetTelemetryCommand(); len(cmd) > 0 {
 			tel = telemetry.NewCommandTelemetry(cmd, installID, telemetryLog)
 			telemetryLog.Info("telemetry via external command")
 		} else {

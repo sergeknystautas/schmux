@@ -30,7 +30,7 @@ func TestCommandTelemetry_Track(t *testing.T) {
 	script := filepath.Join(dir, "capture.sh")
 	os.WriteFile(script, []byte("#!/bin/sh\ncat > "+outFile+"\n"), 0755)
 
-	ct := NewCommandTelemetry(script, "test-install-id", nil)
+	ct := NewCommandTelemetry([]string{script}, "test-install-id", nil)
 	ct.Track("daemon_started", map[string]any{"version": "1.0.0"})
 
 	data := waitForFile(t, outFile, 5*time.Second)
@@ -62,7 +62,7 @@ func TestCommandTelemetry_TypeBucketing(t *testing.T) {
 	script := filepath.Join(dir, "capture.sh")
 	os.WriteFile(script, []byte("#!/bin/sh\ncat > "+outFile+"\n"), 0755)
 
-	ct := NewCommandTelemetry(script, "test-id", nil)
+	ct := NewCommandTelemetry([]string{script}, "test-id", nil)
 	ct.Track("test", map[string]any{
 		"str_val":   "hello",
 		"int_val":   42,
@@ -90,12 +90,12 @@ func TestCommandTelemetry_TypeBucketing(t *testing.T) {
 }
 
 func TestCommandTelemetry_BadCommand(t *testing.T) {
-	ct := NewCommandTelemetry("/nonexistent/command", "test-id", nil)
+	ct := NewCommandTelemetry([]string{"/nonexistent/command"}, "test-id", nil)
 	ct.Track("test", nil) // should not panic
 }
 
 func TestCommandTelemetry_ShutdownIsNoop(t *testing.T) {
-	ct := NewCommandTelemetry("echo", "test-id", nil)
+	ct := NewCommandTelemetry([]string{"echo"}, "test-id", nil)
 	ct.Shutdown() // should not panic or block
 }
 
@@ -105,7 +105,7 @@ func TestCommandTelemetry_OmitsEmptyBuckets(t *testing.T) {
 	script := filepath.Join(dir, "capture.sh")
 	os.WriteFile(script, []byte("#!/bin/sh\ncat > "+outFile+"\n"), 0755)
 
-	ct := NewCommandTelemetry(script, "test-id", nil)
+	ct := NewCommandTelemetry([]string{script}, "test-id", nil)
 	ct.Track("test", map[string]any{"key": "val"})
 
 	data := waitForFile(t, outFile, 5*time.Second)

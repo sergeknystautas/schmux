@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -61,18 +60,6 @@ func validateWorkspaceID(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-// isValidResourceID checks that an ID extracted from a URL path is safe:
-// non-empty, no path separators, no null bytes, reasonable length.
-func isValidResourceID(id string) bool {
-	if id == "" || len(id) > 128 {
-		return false
-	}
-	if strings.ContainsAny(id, "/\\.\x00") {
-		return false
-	}
-	return true
 }
 
 // previewsWorkspaceCheck validates workspace ID and returns the workspace.

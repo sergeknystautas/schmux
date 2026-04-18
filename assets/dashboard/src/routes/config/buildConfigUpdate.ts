@@ -115,18 +115,9 @@ export function buildConfigUpdate(state: ConfigFormState): ConfigUpdateRequest {
       enabled: state.ioWorkspaceTelemetryEnabled,
       target: state.ioWorkspaceTelemetryTarget || '',
     },
-    sapling_commands:
-      state.saplingCmdCreateWorkspace ||
-      state.saplingCmdRemoveWorkspace ||
-      state.saplingCmdCheckRepoBase ||
-      state.saplingCmdCreateRepoBase
-        ? {
-            create_workspace: state.saplingCmdCreateWorkspace || undefined,
-            remove_workspace: state.saplingCmdRemoveWorkspace || undefined,
-            check_repo_base: state.saplingCmdCheckRepoBase || undefined,
-            create_repo_base: state.saplingCmdCreateRepoBase || undefined,
-          }
-        : undefined,
+    // sapling_commands is intentionally omitted from API updates: shell commands
+    // are configured directly in ~/.schmux/config.json as argv arrays. The
+    // dashboard exposes a hint pointing users at the file (see AdvancedTab).
     tmux_binary: state.tmuxBinary || undefined,
     tmux_socket_name: state.tmuxSocketName || undefined,
     personas_enabled: state.personasEnabled,

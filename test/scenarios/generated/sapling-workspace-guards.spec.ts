@@ -23,9 +23,9 @@ test.describe.serial('Sapling workspace VCS support', () => {
       repoConfigs: [{ name: 'test-sapling-repo', url: repoPath, vcs: 'sapling' }],
       agents: [{ name: 'sleep-agent', command: "sh -c 'sleep 600'" }],
       saplingCommands: {
-        create_workspace: 'cp -r {{.RepoBasePath}} {{.DestPath}}',
-        remove_workspace: 'rm -rf {{.WorkspacePath}}',
-        create_repo_base: 'cp -r {{.RepoIdentifier}} {{.BasePath}}',
+        create_workspace: ['cp', '-r', '{{.RepoBasePath}}', '{{.DestPath}}'],
+        remove_workspace: ['rm', '-rf', '{{.WorkspacePath}}'],
+        create_repo_base: ['cp', '-r', '{{.RepoIdentifier}}', '{{.BasePath}}'],
       },
     });
 

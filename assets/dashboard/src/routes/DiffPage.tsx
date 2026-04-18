@@ -17,12 +17,16 @@ import type { DiffResponse } from '../lib/types';
 
 type ExternalDiffCommand = {
   name: string;
-  command: string;
+  command: string[];
 };
 
-// Built-in diff commands (always available)
+// Built-in diff commands (always available). The backend at
+// internal/dashboard/handlers_diff.go is the source of truth for which builtin
+// commands actually run; this list mirrors the names so the UI shows the same
+// options. The argv form is for display/consistency only — the API request
+// passes the command name, not the argv array.
 const BUILTIN_DIFF_COMMANDS: ExternalDiffCommand[] = [
-  { name: 'VS Code', command: 'code --diff "$LOCAL" "$REMOTE"' },
+  { name: 'VS Code', command: ['code', '--diff', '{{.OldFile}}', '{{.NewFile}}'] },
 ];
 
 const DIFF_SIDEBAR_WIDTH_KEY = 'schmux-diff-sidebar-width';
@@ -96,7 +100,10 @@ export default function DiffPage() {
     if (!workspaceId) return;
     setExecutingDiff(cmd.name);
     try {
-      const response = await diffExternal(workspaceId, cmd.command);
+      // The /api/diff-external endpoint expects a command NAME, not the argv
+      // array. The server resolves the name against configured + builtin
+      // commands and only executes argv it owns.
+      const response = await diffExternal(workspaceId, cmd.name);
       if (response.success) {
         toastSuccess(response.message);
       } else {

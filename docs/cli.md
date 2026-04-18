@@ -33,6 +33,9 @@ schmux branches                          # Bird's-eye view of all workspaces
 # Workspace Management
 schmux refresh-overlay <workspace-id>     # Refresh overlay files for a workspace
 
+# Configuration
+schmux config migrate [--dry-run]         # Convert legacy string-form shell commands to argv arrays
+
 # Help
 schmux help                               # Show help message
 ```
@@ -513,6 +516,49 @@ Overlay refreshed successfully for workspace myproject-001
 - After updating files in an overlay directory
 - After adding new files to an overlay directory
 - After a workspace was created before overlays were set up
+
+---
+
+## Configuration Commands
+
+### `schmux config migrate`
+
+Convert legacy string-form shell commands in `~/.schmux/config.json` to the argv-array schema.
+
+**Syntax:**
+
+```bash
+schmux config migrate [--dry-run]
+```
+
+The schmux daemon refuses to start when it sees legacy string-form values for `sapling_commands.*`, `remote_profiles[].remote_vcs_commands.*`, `telemetry.command`, or `external_diff_commands[*].command`. Run this command to convert them in-place.
+
+The migrator reads the config file directly (it does NOT talk to the daemon), so it works even when `schmux start` is failing because of legacy values.
+
+**Flags:**
+
+- `--dry-run` - Print the diff without writing the file or backup. Use this first to preview the change.
+
+**Behavior:**
+
+- String-form values are split with the project's shell tokenizer (`pkg/shellutil`).
+- Already-argv-form values are left alone (idempotent).
+- The original file is backed up to `config.json.bak` before writing.
+- Both files are written at mode `0600` to align with the file-mode tightening in §2.2.
+- A unified-diff-style summary is printed to stdout.
+
+**Exit codes:**
+
+- `0` - Success or no changes needed.
+- `1` - Parse error or write failure.
+- `2` - The input contains shell features (`|`, `>`, `<`, `&&`, `||`, `;`, `` ` ``, `$(`) that don't translate to a flat argv. Convert the value manually using the `sh -c` escape hatch (see [api.md](api.md)), then re-run the migrator.
+
+**Example:**
+
+```bash
+schmux config migrate --dry-run    # preview
+schmux config migrate              # apply
+```
 
 ---
 

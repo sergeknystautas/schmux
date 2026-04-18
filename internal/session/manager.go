@@ -863,7 +863,7 @@ func writeImageAttachments(workspacePath string, images []string) ([]string, err
 		}
 		filename := fmt.Sprintf("img-%s.png", uuid.New().String()[:8])
 		filePath := filepath.Join(dir, filename)
-		if err := os.WriteFile(filePath, data, 0644); err != nil {
+		if err := os.WriteFile(filePath, data, 0600); err != nil {
 			continue
 		}
 		paths = append(paths, filePath)
@@ -1004,7 +1004,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	// Inject persona prompt if provided
 	if opts.PersonaPrompt != "" {
 		personaFilePath := filepath.Join(state.SchmuxDataDir(w.Path), fmt.Sprintf("system-prompt-%s.md", sessionID))
-		if err := os.WriteFile(personaFilePath, []byte(opts.PersonaPrompt), 0644); err != nil {
+		if err := os.WriteFile(personaFilePath, []byte(opts.PersonaPrompt), 0600); err != nil {
 			m.logger.Warn("failed to write persona file", "err", err)
 		} else {
 			command = appendPersonaFlags(command, baseTool, personaFilePath)

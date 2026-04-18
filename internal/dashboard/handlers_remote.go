@@ -64,7 +64,7 @@ func toProfileResponse(p config.RemoteProfile) RemoteProfileResponse {
 		RepoBasePath:          p.RepoBasePath,
 		WorkspacePathTemplate: p.WorkspacePathTemplate,
 	}
-	if p.RemoteVCSCommands.CreateWorktree != "" || p.RemoteVCSCommands.RemoveWorktree != "" || p.RemoteVCSCommands.CheckDirty != "" {
+	if len(p.RemoteVCSCommands.CreateWorktree) > 0 || len(p.RemoteVCSCommands.RemoveWorktree) > 0 || len(p.RemoteVCSCommands.CheckDirty) > 0 {
 		resp.RemoteVCSCommands = &RemoteVCSCommandsResponse{
 			CreateWorktree: p.RemoteVCSCommands.CreateWorktree,
 			RemoveWorktree: p.RemoteVCSCommands.RemoveWorktree,

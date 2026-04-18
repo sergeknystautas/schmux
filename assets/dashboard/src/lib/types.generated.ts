@@ -249,7 +249,7 @@ export interface EnvironmentVar {
 
 export interface ExternalDiffCommand {
   name: string;
-  command: string;
+  command: string[];
 }
 
 export interface Features {
@@ -564,9 +564,9 @@ export interface RemoteProfileStatusResponse {
 }
 
 export interface RemoteVCSCommandsResponse {
-  create_worktree?: string;
-  remove_worktree?: string;
-  check_dirty?: string;
+  create_worktree?: string[];
+  remove_worktree?: string[];
+  check_dirty?: string[];
 }
 
 export interface Repo {
@@ -653,11 +653,11 @@ export interface RunnerInfo {
 }
 
 export interface SaplingCommandsUpdate {
-  create_workspace?: string;
-  remove_workspace?: string;
-  check_repo_base?: string;
-  create_repo_base?: string;
-  list_workspaces?: string;
+  create_workspace?: string[];
+  remove_workspace?: string[];
+  check_repo_base?: string[];
+  create_repo_base?: string[];
+  list_workspaces?: string[];
 }
 
 export interface SessionModelInfo {

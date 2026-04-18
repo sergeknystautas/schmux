@@ -60,7 +60,7 @@ func (s *SaplingCommandBuilder) Log(refs []string, maxCount int) string {
 	// Fast path: single-HEAD log. `sl log --limit N` without a revset walks
 	// backwards from `.` efficiently — O(N), not O(total_commits).
 	// The slow `last(ancestors(.), N)` revset computes the full ancestor set
-	// first, which is catastrophic on large monorepos (fbsource, etc.).
+	// first, which is catastrophic on large monorepos.
 	if len(refs) <= 1 && (len(refs) == 0 || refs[0] == "HEAD") {
 		return fmt.Sprintf("sl log --pager never -T %s --limit %d", tmpl, maxCount)
 	}
@@ -117,7 +117,7 @@ func (s *SaplingCommandBuilder) DefaultBranchRef(branch string) string {
 
 func (s *SaplingCommandBuilder) DetectDefaultBranch() string {
 	// Sapling: get the default remote bookmark name (e.g., "main"), fall back to "main".
-	// selectivepulldefault can be a comma-separated list (e.g., "master, fbcode/warm") —
+	// selectivepulldefault can be a comma-separated list (e.g., "master, stable/warm") —
 	// take only the first entry and trim whitespace.
 	return "sl config remotenames.selectivepulldefault 2>/dev/null | cut -d',' -f1 | tr -d ' ' || echo main"
 }

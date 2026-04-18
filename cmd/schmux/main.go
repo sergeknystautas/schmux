@@ -305,6 +305,49 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "config":
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "Usage: schmux config migrate [--dry-run]")
+			os.Exit(1)
+		}
+		switch os.Args[2] {
+		case "migrate":
+			dryRun := false
+			for _, a := range os.Args[3:] {
+				switch a {
+				case "--dry-run":
+					dryRun = true
+				case "-h", "--help":
+					fmt.Println("Usage: schmux config migrate [--dry-run]")
+					fmt.Println()
+					fmt.Println("Convert legacy string-form shell commands in ~/.schmux/config.json")
+					fmt.Println("to the argv-array schema. Reads the config file directly (does not")
+					fmt.Println("talk to the daemon, so works even when the daemon refuses to start).")
+					fmt.Println()
+					fmt.Println("Flags:")
+					fmt.Println("  --dry-run   Print the diff without writing the file or backup.")
+					fmt.Println()
+					fmt.Println("Exit codes:")
+					fmt.Println("  0  success or no changes needed")
+					fmt.Println("  1  parse error or write failure")
+					fmt.Println("  2  ambiguous shell-feature input that needs manual resolution")
+					return
+				default:
+					fmt.Fprintf(os.Stderr, "Unknown flag for `config migrate`: %s\n", a)
+					os.Exit(1)
+				}
+			}
+			path := filepath.Join(schmuxdir.Get(), "config.json")
+			if err := runConfigMigrate(path, dryRun); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(errExitCode(err))
+			}
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown config subcommand: %s\n", os.Args[2])
+			fmt.Fprintln(os.Stderr, "Usage: schmux config migrate [--dry-run]")
+			os.Exit(1)
+		}
+
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", command)
 		printUsage()
@@ -361,6 +404,7 @@ func printUsage() {
 	if github.IsAvailable() {
 		fmt.Println("  auth github  Configure GitHub auth")
 	}
+	fmt.Println("  config migrate  Convert legacy string-form shell commands to argv arrays")
 	fmt.Println("  version     Show version")
 	if update.IsAvailable() {
 		fmt.Println("  update      Update schmux to the latest version")

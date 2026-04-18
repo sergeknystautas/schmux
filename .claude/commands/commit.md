@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git add:*), Bash(git commit:*), Bash(./test.sh*), Bash(./badcode.sh*), Bash(go vet:*), Bash(go build:*), Bash(ls docs/specs*), Bash(head *), Glob, Read, Skill
+allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git add:*), Bash(git commit:*), Bash(./test.sh*), Bash(./badcode.sh*), Bash(./scripts/check-protected-words.sh*), Bash(go vet:*), Bash(go build:*), Bash(ls docs/specs*), Bash(head *), Glob, Read, Skill
 description: Create a git commit with definition-of-done enforcement
 ---
 
@@ -45,13 +45,44 @@ Run `git diff --cached --name-only` to list all staged files. Categorize them:
 - `assets/dashboard/public/**` (static assets)
 - `LICENSE`, `CODEOWNERS`, `.gitignore`, `.editorconfig`
 
-Record which categories are present — you'll use this in Steps 2 and 3.
+Record which categories are present — you'll use this in Steps 3 and 4.
 
 Continue to Step 2.
 
 ---
 
-### Step 2: API Documentation Check
+### Step 2: Protected Words Check
+
+The schmux repository is open source. Anything committed (code, tests, comments, docs, specs, plans) is published. Forks operated inside a vendor environment may accumulate references to internal infrastructure — internal repo names, tool names, hostnames, telemetry sinks, employee identifiers, package manager names, and similar — that may legitimately exist on the local machine but must not land upstream.
+
+This step delegates to `scripts/check-protected-words.sh`, which scans staged ADDITIONS against two optional per-user pattern files (both outside the repo, both ERE regex one-per-line):
+
+- `${SCHMUX_PROTECTED_WORDS:-$HOME/.schmux/protected-words}` — case-INSENSITIVE patterns. For tool names, hostnames, table prefixes, etc.
+- `${SCHMUX_PROTECTED_WORDS_CS:-$HOME/.schmux/protected-words-cs}` — case-SENSITIVE patterns. For proper nouns (company names, product names) where matching lowercase forms would cause false positives in generic English text.
+
+Either or both files can exist. The patterns are **deliberately not enumerated in this skill or in the script** — they live outside the repository so the check can detect leaks without itself revealing what to look for.
+
+Run:
+
+```bash
+./scripts/check-protected-words.sh
+```
+
+**Exit codes:**
+
+- `0` — patterns file missing (skipped) OR no matches found. Continue to Step 3.
+- `1` — matches found. The script prints `file:line: content` for each match. STOP.
+
+**If matches were found**, the user must either:
+
+- Sanitize the staged content (replace the term with a generic placeholder), re-stage, and re-invoke `/commit`, or
+- Confirm the match is a false positive (e.g., a string in a public test fixture that coincidentally matches a pattern), tighten the pattern in their local file, and re-invoke `/commit`.
+
+**If the script exited 0:** continue to Step 3.
+
+---
+
+### Step 3: API Documentation Check
 
 If any staged file path starts with any of these prefixes:
 
@@ -66,15 +97,15 @@ Then `docs/api.md` MUST also appear in the staged changes.
 
 **If API-related files are staged but `docs/api.md` is not:** STOP. Update `docs/api.md` to reflect your API changes, stage it with `git add docs/api.md`, then re-invoke `/commit` from the beginning.
 
-**If no API-related files are staged, or `docs/api.md` is already staged:** Continue to Step 3.
+**If no API-related files are staged, or `docs/api.md` is already staged:** Continue to Step 4.
 
 ---
 
-### Step 3: Run Tests and Checks (conditional)
+### Step 4: Run Tests and Checks (conditional)
 
 Using the categorization from Step 1:
 
-**If no behavioral files are staged** (all changes are non-behavioral): print "Skipping tests — no behavioral changes staged" and continue to Step 4.
+**If no behavioral files are staged** (all changes are non-behavioral): print "Skipping tests — no behavioral changes staged" and continue to Step 5.
 
 **If any Go files (`.go`) are staged:**
 
@@ -88,11 +119,11 @@ Using the categorization from Step 1:
 - Run `./test.sh`. If it fails, STOP.
 - Run `./badcode.sh`. If it fails, STOP.
 
-Continue to Step 4.
+Continue to Step 5.
 
 ---
 
-### Step 4: Module Exclusion Build Check (conditional)
+### Step 5: Module Exclusion Build Check (conditional)
 
 **Skip this step if no Go files are staged.**
 
@@ -152,11 +183,11 @@ go build -tags nocommstyles ./cmd/schmux
 
 **If any exclusion build fails:** STOP. Update the corresponding `_disabled.go` stub to match your changes, then re-invoke `/commit` from the beginning.
 
-**If all exclusion builds pass (or no excludable modules are staged):** Continue to Step 5.
+**If all exclusion builds pass (or no excludable modules are staged):** Continue to Step 6.
 
 ---
 
-### Step 5: Self-Assessment Checklist
+### Step 6: Self-Assessment Checklist
 
 Answer each item with YES or NO based on the actual state of your changes. A rationalized YES is a NO.
 
@@ -171,15 +202,15 @@ Answer each item with YES or NO based on the actual state of your changes. A rat
    - Used `sleep()`, `time.Sleep()`, `setTimeout` as a fixed delay in test code instead of waiting for a state transition (e.g., poll for a condition, wait for a WebSocket message, check a DOM element, use Playwright's auto-retry assertions). Fixed sleeps make tests both slow and flaky. The only acceptable exception is negative assertions where you must wait to verify something does NOT happen.
    - **Notification UX violations** in frontend code (`assets/dashboard/`): Informational-only messages (e.g., "action succeeded") must use toasts (`useToast().success()`), which are non-blocking and auto-dismiss. Error messages from operation failures (e.g., API errors, spawn failures, dispose failures) must use dialogs (`useModal().alert()`), which are blocking, readable, and allow the user to copy the error text. Showing operation errors as toasts is always NO — the user cannot read or copy a 3-second auto-dismissing message. Validation errors for user input (e.g., "field is required") may use toasts since the fix is immediately obvious. Never use native `window.confirm()` or `window.alert()` — always use `useModal().confirm()` / `useModal().alert()` from `ModalProvider`.
 
-3. **Docs current**: Are all relevant docs updated? `docs/api.md` is covered by Step 2. Consider: does this change affect `docs/web.md`, `docs/cli.md`, `CLAUDE.md`, `AGENTS.md`, or any spec in `docs/specs/` or plan in `docs/plans/`?
+3. **Docs current**: Are all relevant docs updated? `docs/api.md` is covered by Step 3. Consider: does this change affect `docs/web.md`, `docs/cli.md`, `CLAUDE.md`, `AGENTS.md`, or any spec in `docs/specs/` or plan in `docs/plans/`?
 
 **If any item is NO:** STOP. Fix the gap, then re-invoke `/commit` from the beginning.
 
-**If all items are YES:** Continue to Step 6.
+**If all items are YES:** Continue to Step 7.
 
 ---
 
-### Step 6: Create the Commit
+### Step 7: Create the Commit
 
 All checks passed. Stage all relevant files and create a single commit.
 
@@ -193,7 +224,7 @@ Commit message format:
 
 ---
 
-### Step 7: Spec and Plan Consolidation (optional)
+### Step 8: Spec and Plan Consolidation (optional)
 
 After the commit succeeds, check if any files exist in `docs/specs/` or `docs/plans/`. If so, scan their first 10 lines and cross-reference with the committed changes to identify specs or plans that describe features now fully implemented.
 

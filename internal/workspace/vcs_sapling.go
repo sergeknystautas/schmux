@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -9,8 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"text/template"
 
+	"github.com/sergeknystautas/schmux/internal/cmdtemplate"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
@@ -31,25 +30,17 @@ func (s *SaplingBackend) commands() config.SaplingCommands {
 	return s.manager.config.SaplingCommands
 }
 
-func renderCommandTemplate(tmpl string, vars map[string]string) (string, error) {
-	t, err := template.New("cmd").Option("missingkey=error").Parse(tmpl)
+// runTemplateCommand renders an argv-array command template via
+// cmdtemplate.Render and execs it directly (no shell). The argv form prevents
+// the shell-injection bug class because templated values become exactly one
+// argv element regardless of contents (spec §2.1).
+func (s *SaplingBackend) runTemplateCommand(ctx context.Context, tmpl config.ShellCommand, vars map[string]string) ([]byte, error) {
+	argv, err := cmdtemplate.Template(tmpl).Render(vars)
 	if err != nil {
-		return "", fmt.Errorf("invalid command template: %w", err)
+		return nil, fmt.Errorf("invalid command template: %w", err)
 	}
-	var buf bytes.Buffer
-	if err := t.Execute(&buf, vars); err != nil {
-		return "", fmt.Errorf("template execution failed: %w", err)
-	}
-	return buf.String(), nil
-}
-
-func (s *SaplingBackend) runTemplateCommand(ctx context.Context, tmpl string, vars map[string]string) ([]byte, error) {
-	rendered, err := renderCommandTemplate(tmpl, vars)
-	if err != nil {
-		return nil, err
-	}
-	s.manager.logger.Info("running sapling command", "cmd", rendered)
-	cmd := exec.CommandContext(ctx, "sh", "-c", rendered)
+	s.manager.logger.Info("running sapling command", "argv", argv)
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return output, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
@@ -63,7 +54,7 @@ func (s *SaplingBackend) EnsureRepoBase(ctx context.Context, repoIdentifier, bas
 	}
 
 	checkCmd := s.commands().CheckRepoBase
-	if checkCmd != "" {
+	if len(checkCmd) > 0 {
 		output, err := s.runTemplateCommand(ctx, checkCmd, vars)
 		if err == nil {
 			path := strings.TrimSpace(string(output))

@@ -58,7 +58,7 @@ export type ConfigFormState = {
   commandTargets: RunTargetResponse[];
   quickLaunch: QuickLaunchPreset[];
   builtinQuickLaunch: BuiltinQuickLaunchCookbook[];
-  externalDiffCommands: { name: string; command: string }[];
+  externalDiffCommands: { name: string; command: string[] }[];
   externalDiffCleanupMinutes: number;
   pastebin: string[];
   modelCatalog: Model[];
@@ -165,11 +165,6 @@ export type ConfigFormState = {
   ioWorkspaceTelemetryEnabled: boolean;
   ioWorkspaceTelemetryTarget: string;
 
-  saplingCmdCreateWorkspace: string;
-  saplingCmdRemoveWorkspace: string;
-  saplingCmdCheckRepoBase: string;
-  saplingCmdCreateRepoBase: string;
-
   personasEnabled: boolean;
   commStylesEnabled: boolean;
   backburnerEnabled: boolean;
@@ -210,7 +205,7 @@ export type ConfigFormAction =
   | { type: 'ADD_QUICK_LAUNCH'; item: QuickLaunchPreset }
   | { type: 'REMOVE_QUICK_LAUNCH'; name: string }
   | { type: 'UPDATE_QUICK_LAUNCH'; name: string; updates: Partial<QuickLaunchPreset> }
-  | { type: 'ADD_DIFF_COMMAND'; command: { name: string; command: string } }
+  | { type: 'ADD_DIFF_COMMAND'; command: { name: string; command: string[] } }
   | { type: 'REMOVE_DIFF_COMMAND'; name: string }
   | { type: 'ADD_PASTEBIN'; content: string }
   | { type: 'REMOVE_PASTEBIN'; index: number }
@@ -329,11 +324,6 @@ export const initialState: ConfigFormState = {
   timelapseMaxTotalStorageMB: 500,
   ioWorkspaceTelemetryEnabled: false,
   ioWorkspaceTelemetryTarget: '',
-
-  saplingCmdCreateWorkspace: '',
-  saplingCmdRemoveWorkspace: '',
-  saplingCmdCheckRepoBase: '',
-  saplingCmdCreateRepoBase: '',
 
   personasEnabled: false,
   commStylesEnabled: false,

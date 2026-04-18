@@ -1029,6 +1029,9 @@ Response:
     "provider": "github",
     "session_ttl_minutes": 1440
   },
+  "security": {
+    "allow_insecure_modes": false
+  },
   "telemetry_enabled": true,
   "installation_id": "uuid-string",
   "remote_access": {
@@ -1052,10 +1055,10 @@ Response:
     "suggest_dispose_after_push": true
   },
   "sapling_commands": {
-    "create_workspace": "fbclone {{.RepoIdentifier}} {{.DestPath}}",
-    "remove_workspace": "rm -rf {{.WorkspacePath}}",
-    "create_repo_base": "fbclone {{.RepoIdentifier}} {{.BasePath}}",
-    "check_repo_base": ""
+    "create_workspace": ["vcs-clone", "{{.RepoIdentifier}}", "{{.DestPath}}"],
+    "remove_workspace": ["rm", "-rf", "{{.WorkspacePath}}"],
+    "create_repo_base": ["vcs-clone", "{{.RepoIdentifier}}", "{{.BasePath}}"],
+    "check_repo_base": []
   },
   "tmux_binary": "/opt/homebrew/bin/tmux",
   "tmux_socket_name": "schmux",
@@ -1072,7 +1075,20 @@ Response:
 }
 ```
 
-Repos with `"vcs": "sapling"` use the sapling backend instead of git. The `vcs` field can be `""` (default, git worktree), `"git-clone"`, or `"sapling"`. The `sapling_commands` section configures command templates for sapling workspace lifecycle using Go `text/template` syntax.
+Repos with `"vcs": "sapling"` use the sapling backend instead of git. The `vcs` field can be `""` (default, git worktree), `"git-clone"`, or `"sapling"`. The `sapling_commands` section configures argv-array command templates for sapling workspace lifecycle.
+
+**Argv-array command form.** Four shell-executed config sections — `sapling_commands.*`, `remote_vcs_commands.*` (per remote profile), `telemetry.command`, and `external_diff_commands[*].command` — are JSON arrays of strings. Each element is a Go `text/template` rendered independently, so a templated value cannot expand into multiple shell tokens regardless of contents. See `docs/specs/meta-distribution-hardening-final.md` §2.1 for the rationale and `internal/cmdtemplate` for the renderer.
+
+Example schemas:
+
+- `sapling_commands.create_workspace`: `["sl", "clone", "{{.RepoIdentifier}}", "{{.DestPath}}"]`
+- `remote_vcs_commands.create_worktree`: `["git", "worktree", "add", "{{.DestPath}}", "-b", "schmux-{{.WorkspaceID}}", "origin/main"]`
+- `telemetry.command`: `["jq", "-c", "."]`
+- `external_diff_commands[*].command`: `["code", "--diff", "{{.OldFile}}", "{{.NewFile}}"]`
+
+For commands that genuinely need shell features (pipes, redirection, subshells), use the `["sh", "-c", "<literal script>", "_", "{{.X}}", "{{.Y}}"]` escape hatch: argv[2] (the script) must contain no template syntax — only positional arguments after it can be templated. The script reads them as `$1`, `$2`, ...
+
+The legacy string form is rejected at config-load time. If you have an older config, run `schmux config migrate` to convert each command to its argv-array equivalent (see `docs/specs/meta-distribution-hardening-final.md` §2.4).
 
 **`debug_ui`** (boolean, optional, default `false`): Enables debug diagnostic panels and debug API endpoints without running `./dev.sh`. When `true`, the daemon sets `debug_mode` in the healthz response and registers debug routes. Can be toggled from the Settings page in the web dashboard — takes effect immediately without restart.
 
@@ -1089,6 +1105,8 @@ Repos with `"vcs": "sapling"` use the sapling backend instead of git. The `vcs` 
 **`comm_styles`** (object, optional): Per-agent-type default communication style IDs. Keys are base tool names (e.g., `"claude"`, `"codex"`) or command target names (e.g., `"my-command"`). Example: `{"claude": "pirate", "codex": "caveman"}`. When a session is spawned without an explicit `style_id`, the default for that agent type is used. For model targets, the key is resolved via `ResolveTargetToTool`; for command targets, the target name is used directly. An empty map means no default styles.
 
 **TLS behavior**: The server serves HTTPS whenever `network.tls.cert_path` and `network.tls.key_path` are both set, regardless of whether `access_control.enabled` is true. This allows dashboard.sx HTTPS without requiring GitHub auth.
+
+**`security.allow_insecure_modes`** (boolean, optional, default `false`): On every daemon startup — before any listener opens — schmux walks `${schmuxdir}` and tightens file modes to `0600` and directory modes to `0700`. If a `chmod` call fails (NFS without unix permission semantics, immutable bits, SELinux/AppArmor refusal, EPERM on overlayfs, EROFS on SMB, etc.) the daemon refuses to start. Set this field to `true` to log a loud warning and proceed anyway. Documented use cases: WSL2 mounting Windows-formatted drives, Docker overlayfs in restrictive configurations, SMB-mounted home directories, `~/.schmux` symlinked to a network share without unix mode semantics. The warning is repeated on every startup (not silenced) so it stays visible. Symlinks under `${schmuxdir}` are detected via `Lstat` and skipped (never chased).
 
 **`dashboard_sx_status`** (object, optional): Dashboard.sx heartbeat and certificate status. Only present when `network.dashboardsx.enabled` is true and at least one heartbeat has been attempted. All fields are omitted when empty/zero:
 
@@ -1162,6 +1180,9 @@ Request:
     "enabled": false,
     "provider": "github",
     "session_ttl_minutes": 1440
+  },
+  "security": {
+    "allow_insecure_modes": false
   },
   "lore": {
     "enabled": true,
@@ -3690,9 +3711,9 @@ Request:
   "repo_base_path": "/home/user/myproject",
   "workspace_path_template": "/home/user/ws/{{.WorkspaceID}}",
   "remote_vcs_commands": {
-    "create_worktree": "git worktree add {{.DestPath}} -b {{.WorkspaceID}}",
-    "remove_worktree": "git worktree remove --force {{.WorkspacePath}}",
-    "check_dirty": "git -C {{.WorkspacePath}} status --porcelain"
+    "create_worktree": ["git", "worktree", "add", "{{.DestPath}}", "-b", "{{.WorkspaceID}}"],
+    "remove_worktree": ["git", "worktree", "remove", "--force", "{{.WorkspacePath}}"],
+    "check_dirty": ["git", "-C", "{{.WorkspacePath}}", "status", "--porcelain"]
   }
 }
 ```

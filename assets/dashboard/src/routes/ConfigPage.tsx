@@ -198,10 +198,6 @@ export default function ConfigPage() {
           timelapseMaxTotalStorageMB: data.timelapse?.max_total_storage_mb || 500,
           ioWorkspaceTelemetryEnabled: data.io_workspace_telemetry?.enabled || false,
           ioWorkspaceTelemetryTarget: data.io_workspace_telemetry?.target || '',
-          saplingCmdCreateWorkspace: data.sapling_commands?.create_workspace || '',
-          saplingCmdRemoveWorkspace: data.sapling_commands?.remove_workspace || '',
-          saplingCmdCheckRepoBase: data.sapling_commands?.check_repo_base || '',
-          saplingCmdCreateRepoBase: data.sapling_commands?.create_repo_base || '',
           personasEnabled: data.personas_enabled ?? false,
           commStylesEnabled: data.comm_styles_enabled ?? false,
           backburnerEnabled: data.backburner_enabled ?? false,
@@ -912,9 +908,18 @@ export default function ConfigPage() {
 
   const addDiffCommand = () => {
     const name = state.newDiffName.trim();
-    const command = state.newDiffCommand.trim();
+    const raw = state.newDiffCommand.trim();
     if (state.externalDiffCommands.some((c) => c.name === name)) {
       toastError('Diff tool name already exists');
+      return;
+    }
+    // Diff commands are now argv arrays. The Add Diff Tool input accepts a
+    // simple whitespace-separated string and splits it; users who need
+    // quoting/templating should edit ~/.schmux/config.json directly (see the
+    // Sapling Commands hint).
+    const command = raw.split(/\s+/).filter((s) => s.length > 0);
+    if (command.length === 0) {
+      toastError('Diff tool command is required');
       return;
     }
     dispatch({ type: 'ADD_DIFF_COMMAND', command: { name, command } });
@@ -1130,10 +1135,6 @@ export default function ConfigPage() {
               localEchoRemote={state.localEchoRemote}
               debugUI={state.debugUI}
               hasSaplingRepos={state.repos.some((r) => r.vcs === 'sapling')}
-              saplingCmdCreateWorkspace={state.saplingCmdCreateWorkspace}
-              saplingCmdRemoveWorkspace={state.saplingCmdRemoveWorkspace}
-              saplingCmdCheckRepoBase={state.saplingCmdCheckRepoBase}
-              saplingCmdCreateRepoBase={state.saplingCmdCreateRepoBase}
               tmuxBinary={state.tmuxBinary}
               tmuxSocketName={state.tmuxSocketName}
               externalDiffCommands={state.externalDiffCommands}

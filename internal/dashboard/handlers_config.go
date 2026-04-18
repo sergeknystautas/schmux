@@ -184,7 +184,7 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 		LocalEchoRemote:   h.config.LocalEchoRemote,
 		SaplingCommands: func() *contracts.SaplingCommandsUpdate {
 			sc := h.config.SaplingCommands
-			if sc.CreateWorkspace == "" && sc.RemoveWorkspace == "" && sc.CheckRepoBase == "" && sc.CreateRepoBase == "" {
+			if len(sc.CreateWorkspace) == 0 && len(sc.RemoveWorkspace) == 0 && len(sc.CheckRepoBase) == 0 && len(sc.CreateRepoBase) == 0 {
 				return nil
 			}
 			return &contracts.SaplingCommandsUpdate{

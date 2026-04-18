@@ -42,7 +42,7 @@ func New(forceColor ...bool) *log.Logger {
 	// all output (kernel page cache truncation on SIGKILL).
 	var output io.Writer = os.Stderr
 	if logPath := os.Getenv("SCHMUX_LOG_FILE"); logPath != "" {
-		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644); err == nil {
+		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600); err == nil {
 			output = io.MultiWriter(os.Stderr, f)
 		}
 	}
@@ -67,7 +67,7 @@ func New(forceColor ...bool) *log.Logger {
 		// running in tmux sessions can see daemon output.
 		{
 			logPath := filepath.Join(schmuxdir.Get(), "daemon-startup.log")
-			if logF, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
+			if logF, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600); err == nil {
 				output = io.MultiWriter(output, logF)
 			}
 		}

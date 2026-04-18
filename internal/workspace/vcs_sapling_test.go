@@ -10,55 +10,11 @@ import (
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
-func TestRenderCommandTemplate(t *testing.T) {
-	tests := []struct {
-		name     string
-		template string
-		vars     map[string]string
-		want     string
-		wantErr  bool
-	}{
-		{
-			"simple substitution",
-			"sl clone {{.RepoIdentifier}} {{.DestPath}}",
-			map[string]string{"RepoIdentifier": "myrepo", "DestPath": "/tmp/ws1"},
-			"sl clone myrepo /tmp/ws1",
-			false,
-		},
-		{
-			"no variables",
-			"echo hello",
-			map[string]string{},
-			"echo hello",
-			false,
-		},
-		{
-			"missing variable errors",
-			"sl clone {{.Missing}}",
-			map[string]string{},
-			"",
-			true,
-		},
-		{
-			"special characters in paths",
-			"rm -rf {{.WorkspacePath}}",
-			map[string]string{"WorkspacePath": "/home/user/my workspace/test"},
-			"rm -rf /home/user/my workspace/test",
-			false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := renderCommandTemplate(tt.template, tt.vars)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("renderCommandTemplate() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if !tt.wantErr && got != tt.want {
-				t.Errorf("got %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
+// Argv-array sapling commands are rendered by internal/cmdtemplate; this
+// package no longer owns its own template helper. The renderer is exercised
+// directly by internal/cmdtemplate tests; what we verify here is that
+// SaplingBackend.runTemplateCommand wires argv-array templates to exec
+// correctly via the integration tests below (CreateAndRemoveWorkspace etc).
 
 func TestParseSaplingStatus(t *testing.T) {
 	tests := []struct {
@@ -200,7 +156,7 @@ func TestSaplingBackend_EnsureRepoBase(t *testing.T) {
 		{Name: "myrepo", URL: "myrepo-id", VCS: "sapling", BarePath: "myrepo"},
 	}
 	cfg.SaplingCommands = config.SaplingCommands{
-		CreateRepoBase: "mkdir -p {{.BasePath}}",
+		CreateRepoBase: config.ShellCommand{"mkdir", "-p", "{{.BasePath}}"},
 	}
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
@@ -246,7 +202,7 @@ func TestSaplingBackend_EnsureRepoBase_ReusesExisting(t *testing.T) {
 		{Name: "myrepo", URL: "myrepo-id", VCS: "sapling", BarePath: "myrepo"},
 	}
 	cfg.SaplingCommands = config.SaplingCommands{
-		CreateRepoBase: "false",
+		CreateRepoBase: config.ShellCommand{"false"},
 	}
 	st := state.New(statePath, nil)
 	st.AddRepoBase(state.RepoBase{RepoURL: "myrepo-id", Path: existingPath, VCS: "sapling"})
@@ -274,8 +230,8 @@ func TestSaplingBackend_CreateAndRemoveWorkspace(t *testing.T) {
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
 	cfg.SaplingCommands = config.SaplingCommands{
-		CreateWorkspace: "mkdir -p {{.DestPath}}",
-		RemoveWorkspace: "rm -rf {{.WorkspacePath}}",
+		CreateWorkspace: config.ShellCommand{"mkdir", "-p", "{{.DestPath}}"},
+		RemoveWorkspace: config.ShellCommand{"rm", "-rf", "{{.WorkspacePath}}"},
 	}
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
@@ -312,8 +268,8 @@ func TestSaplingBackend_CheckRepoBaseDiscoversExisting(t *testing.T) {
 		{Name: "myrepo", URL: "myrepo-id", VCS: "sapling"},
 	}
 	cfg.SaplingCommands = config.SaplingCommands{
-		CheckRepoBase:  "echo " + existingPath,
-		CreateRepoBase: "false",
+		CheckRepoBase:  config.ShellCommand{"echo", existingPath},
+		CreateRepoBase: config.ShellCommand{"false"},
 	}
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())
@@ -352,8 +308,18 @@ func TestSaplingBackend_ManagerCreate_UsesSaplingBackend(t *testing.T) {
 		{Name: "sl-project", URL: "sl-project-id", VCS: "sapling", BarePath: "sl-project"},
 	}
 	cfg.SaplingCommands = config.SaplingCommands{
-		CreateRepoBase:  "mkdir -p {{.BasePath}}",
-		CreateWorkspace: "mkdir -p {{.DestPath}} && echo 'sapling workspace' > {{.DestPath}}/.sl-marker",
+		CreateRepoBase: config.ShellCommand{"mkdir", "-p", "{{.BasePath}}"},
+		// Use sh -c via the renderer's escape hatch: argv[0] is `sh`, argv[1]
+		// is `-c`, argv[2] is the literal script. The renderer enforces that
+		// the script slot contains no template syntax (any templated slot must
+		// come after the script as a positional arg). This proves the schema
+		// works end-to-end for tools that genuinely need shell features (chained
+		// commands, pipes, redirection).
+		CreateWorkspace: config.ShellCommand{
+			"sh", "-c",
+			`mkdir -p "$1" && echo 'sapling workspace' > "$1/.sl-marker"`,
+			"_", "{{.DestPath}}",
+		},
 	}
 	st := state.New(statePath, nil)
 	m := New(cfg, st, statePath, testLogger())

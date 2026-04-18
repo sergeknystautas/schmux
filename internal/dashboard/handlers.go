@@ -66,8 +66,18 @@ func (s *Server) vcsTypeForWorkspace(ws state.Workspace) string {
 }
 
 // localShellRun returns a function that executes shell command strings locally
-// in the given directory via sh -c. This correctly handles quoted arguments
-// and shell operators produced by vcs.CommandBuilder.
+// in the given directory via sh -c.
+//
+// Why `sh -c` is acceptable here (spec §2.1, audit review-1): the only callers
+// pass strings produced by internal/vcs/CommandBuilder, which assembles each
+// argv element with shellutil.Quote (see internal/vcs/git.go and sapling.go).
+// Every interpolated value is therefore single-quoted before joining, so the
+// shell cannot expand metacharacters from data into extra tokens. This is the
+// builder pattern equivalent of an argv array — semantically the same as the
+// new cmdtemplate.Render path used elsewhere in the codebase. The argv form
+// is preferred for new code; this site is left as-is because the builder
+// already provides equivalent safety and converting it would require the
+// builder to return [][]string instead of a single shell string.
 func localShellRun(ctx context.Context, dir string) func(string) (string, error) {
 	return func(cmd string) (string, error) {
 		c := exec.CommandContext(ctx, "sh", "-c", cmd)

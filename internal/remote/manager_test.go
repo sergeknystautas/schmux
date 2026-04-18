@@ -727,7 +727,7 @@ func TestManager_StartConnect_CreatesWorkspace(t *testing.T) {
 	cfg.RemoteProfiles = []config.RemoteProfile{{
 		ID:             "www",
 		DisplayName:    "WWW",
-		WorkspacePath:  "~/fbsource",
+		WorkspacePath:  "~/monorepo",
 		ConnectCommand: "echo connected",
 		Flavors:        []config.RemoteProfileFlavor{{Flavor: "www"}},
 	}}
@@ -756,8 +756,8 @@ func TestManager_StartConnect_CreatesWorkspace(t *testing.T) {
 	if ws.RemoteHostID != hosts[0].ID {
 		t.Errorf("workspace.RemoteHostID = %q, want %q", ws.RemoteHostID, hosts[0].ID)
 	}
-	if ws.Path != "~/fbsource" {
-		t.Errorf("workspace.Path = %q, want ~/fbsource", ws.Path)
+	if ws.Path != "~/monorepo" {
+		t.Errorf("workspace.Path = %q, want ~/monorepo", ws.Path)
 	}
 }
 
@@ -766,7 +766,7 @@ func TestManager_ConnectMultipleHostsSameFlavor(t *testing.T) {
 	cfg.RemoteProfiles = []config.RemoteProfile{{
 		ID:             "www",
 		DisplayName:    "WWW",
-		WorkspacePath:  "~/fbsource",
+		WorkspacePath:  "~/monorepo",
 		ConnectCommand: "echo connected",
 		Flavors:        []config.RemoteProfileFlavor{{Flavor: "www"}},
 	}}

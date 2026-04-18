@@ -784,9 +784,9 @@ func TestE2ESaplingDiffAndDiscard(t *testing.T) {
 	// Add sapling repo to config with custom commands (sl clone doesn't work for local sl init repos)
 	env.AddSaplingRepoToConfig("sl-repo", repoPath)
 	env.SetSaplingCommands(config.SaplingCommands{
-		CreateRepoBase:  "cp -r {{.RepoIdentifier}} {{.BasePath}}",
-		CreateWorkspace: "cp -r {{.RepoBasePath}} {{.DestPath}}",
-		RemoveWorkspace: "rm -rf {{.WorkspacePath}}",
+		CreateRepoBase:  config.ShellCommand{"cp", "-r", "{{.RepoIdentifier}}", "{{.BasePath}}"},
+		CreateWorkspace: config.ShellCommand{"cp", "-r", "{{.RepoBasePath}}", "{{.DestPath}}"},
+		RemoveWorkspace: config.ShellCommand{"rm", "-rf", "{{.WorkspacePath}}"},
 	})
 
 	env.DaemonStart()

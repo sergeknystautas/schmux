@@ -124,7 +124,7 @@ func (h *GitHandlers) handleRemoteCommitGraph(w http.ResponseWriter, r *http.Req
 
 	workdir := ws.RemotePath
 	localBranch := ws.Branch
-	// If the "branch" is a raw commit hash (Sapling on fbsource has no
+	// If the "branch" is a raw commit hash (Sapling on large monorepos has no
 	// bookmarks), use the short hash as a label instead of the 40-char blob.
 	if isValidVCSHash(localBranch) && len(localBranch) >= 12 {
 		localBranch = localBranch[:12]

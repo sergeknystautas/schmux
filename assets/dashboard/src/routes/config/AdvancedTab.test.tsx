@@ -31,13 +31,9 @@ const defaultProps = {
   localEchoRemote: false,
   debugUI: false,
   hasSaplingRepos: false,
-  saplingCmdCreateWorkspace: '',
-  saplingCmdRemoveWorkspace: '',
-  saplingCmdCheckRepoBase: '',
-  saplingCmdCreateRepoBase: '',
   tmuxBinary: '',
   tmuxSocketName: '',
-  externalDiffCommands: [] as { name: string; command: string }[],
+  externalDiffCommands: [] as { name: string; command: string[] }[],
   externalDiffCleanupMinutes: 60,
   newDiffName: '',
   newDiffCommand: '',
@@ -101,7 +97,7 @@ describe('AdvancedTab', () => {
     render(
       <AdvancedTab
         {...defaultProps}
-        externalDiffCommands={[{ name: 'Kaleidoscope', command: 'ksdiff' }]}
+        externalDiffCommands={[{ name: 'Kaleidoscope', command: ['ksdiff'] }]}
       />
     );
     expect(screen.getByText('Kaleidoscope')).toBeInTheDocument();

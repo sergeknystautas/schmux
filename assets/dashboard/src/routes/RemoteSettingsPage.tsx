@@ -161,9 +161,14 @@ export default function RemoteSettingsPage() {
     }
 
     const validFlavors = formData.flavors.filter((f) => f.flavor.trim());
+    // Preserve any existing remote_vcs_commands (loaded from the profile and
+    // edited only via ~/.schmux/config.json) — the dashboard no longer offers
+    // an in-page editor for them.
     const vcsCommands = formData.remote_vcs_commands;
     const hasVcsCommands =
-      vcsCommands.create_worktree || vcsCommands.remove_worktree || vcsCommands.check_dirty;
+      (vcsCommands.create_worktree?.length ?? 0) > 0 ||
+      (vcsCommands.remove_worktree?.length ?? 0) > 0 ||
+      (vcsCommands.check_dirty?.length ?? 0) > 0;
 
     const request: RemoteProfileCreateRequest = {
       display_name: formData.display_name.trim(),
@@ -188,9 +193,9 @@ export default function RemoteSettingsPage() {
       remote_vcs_commands:
         isPersistent && hasVcsCommands
           ? {
-              create_worktree: vcsCommands.create_worktree?.trim() || undefined,
-              remove_worktree: vcsCommands.remove_worktree?.trim() || undefined,
-              check_dirty: vcsCommands.check_dirty?.trim() || undefined,
+              create_worktree: vcsCommands.create_worktree,
+              remove_worktree: vcsCommands.remove_worktree,
+              check_dirty: vcsCommands.check_dirty,
             }
           : undefined,
     };
@@ -383,7 +388,9 @@ export default function RemoteSettingsPage() {
                       profile.provision_command ||
                       profile.hostname_regex ||
                       profile.vscode_command_template ||
-                      profile.remote_vcs_commands?.create_worktree) && (
+                      (profile.remote_vcs_commands?.create_worktree?.length ?? 0) > 0 ||
+                      (profile.remote_vcs_commands?.remove_worktree?.length ?? 0) > 0 ||
+                      (profile.remote_vcs_commands?.check_dirty?.length ?? 0) > 0) && (
                       <details style={{ fontSize: '0.8rem' }}>
                         <summary
                           className="text-muted"
@@ -424,22 +431,22 @@ export default function RemoteSettingsPage() {
                               <code>{profile.vscode_command_template}</code>
                             </>
                           )}
-                          {profile.remote_vcs_commands?.create_worktree && (
+                          {(profile.remote_vcs_commands?.create_worktree?.length ?? 0) > 0 && (
                             <>
                               <span className="text-muted">Create Worktree</span>
-                              <code>{profile.remote_vcs_commands.create_worktree}</code>
+                              <code>{profile.remote_vcs_commands!.create_worktree!.join(' ')}</code>
                             </>
                           )}
-                          {profile.remote_vcs_commands?.remove_worktree && (
+                          {(profile.remote_vcs_commands?.remove_worktree?.length ?? 0) > 0 && (
                             <>
                               <span className="text-muted">Remove Worktree</span>
-                              <code>{profile.remote_vcs_commands.remove_worktree}</code>
+                              <code>{profile.remote_vcs_commands!.remove_worktree!.join(' ')}</code>
                             </>
                           )}
-                          {profile.remote_vcs_commands?.check_dirty && (
+                          {(profile.remote_vcs_commands?.check_dirty?.length ?? 0) > 0 && (
                             <>
                               <span className="text-muted">Check Dirty</span>
-                              <code>{profile.remote_vcs_commands.check_dirty}</code>
+                              <code>{profile.remote_vcs_commands!.check_dirty!.join(' ')}</code>
                             </>
                           )}
                         </div>
@@ -681,87 +688,12 @@ export default function RemoteSettingsPage() {
                     </div>
 
                     <div className="form-group mb-md">
-                      <label className="form-group__label">
-                        VCS Commands <span className="font-normal text-muted">(optional)</span>
-                      </label>
-                      <span className="form-group__hint mb-sm">
-                        Custom commands for worktree management. Leave empty to use defaults for the
-                        selected VCS.
-                      </span>
-                      <div className="flex-col gap-sm">
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-group__label" style={{ fontSize: '0.75rem' }}>
-                            Create Worktree
-                          </label>
-                          <input
-                            type="text"
-                            className="input"
-                            value={formData.remote_vcs_commands.create_worktree || ''}
-                            onChange={(e) =>
-                              setFormData({
-                                ...formData,
-                                remote_vcs_commands: {
-                                  ...formData.remote_vcs_commands,
-                                  create_worktree: e.target.value,
-                                },
-                              })
-                            }
-                            placeholder={
-                              formData.vcs === 'sapling'
-                                ? 'sl clone {{.RepoBasePath}} {{.DestPath}}'
-                                : 'git worktree add {{.DestPath}} -b schmux-{{.WorkspaceID}} origin/main'
-                            }
-                          />
-                        </div>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-group__label" style={{ fontSize: '0.75rem' }}>
-                            Remove Worktree
-                          </label>
-                          <input
-                            type="text"
-                            className="input"
-                            value={formData.remote_vcs_commands.remove_worktree || ''}
-                            onChange={(e) =>
-                              setFormData({
-                                ...formData,
-                                remote_vcs_commands: {
-                                  ...formData.remote_vcs_commands,
-                                  remove_worktree: e.target.value,
-                                },
-                              })
-                            }
-                            placeholder={
-                              formData.vcs === 'sapling'
-                                ? 'rm -rf {{.WorkspacePath}}'
-                                : 'git worktree remove --force {{.WorkspacePath}}'
-                            }
-                          />
-                        </div>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-group__label" style={{ fontSize: '0.75rem' }}>
-                            Check Dirty
-                          </label>
-                          <input
-                            type="text"
-                            className="input"
-                            value={formData.remote_vcs_commands.check_dirty || ''}
-                            onChange={(e) =>
-                              setFormData({
-                                ...formData,
-                                remote_vcs_commands: {
-                                  ...formData.remote_vcs_commands,
-                                  check_dirty: e.target.value,
-                                },
-                              })
-                            }
-                            placeholder={
-                              formData.vcs === 'sapling'
-                                ? 'sl status --cwd {{.WorkspacePath}}'
-                                : 'git -C {{.WorkspacePath}} status --porcelain'
-                            }
-                          />
-                        </div>
-                      </div>
+                      <label className="form-group__label">VCS Commands</label>
+                      <p className="form-group__hint">
+                        <strong>Advanced:</strong> remote VCS commands are now configured via{' '}
+                        <code>~/.schmux/config.json</code> as argv arrays. See{' '}
+                        <a href="/docs/api">docs/api.md</a> for the schema.
+                      </p>
                     </div>
                   </>
                 )}

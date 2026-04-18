@@ -72,7 +72,7 @@ func (s *Store) load(repo string) error {
 
 func (s *Store) save(repo string) error {
 	dir := filepath.Dir(s.filePath(repo))
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create emergence dir: %w", err)
 	}
 	data, err := json.MarshalIndent(s.entries[repo], "", "  ")

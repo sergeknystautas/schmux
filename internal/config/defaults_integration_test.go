@@ -32,7 +32,7 @@ func TestIntegrationBuildDefaultsFullPipeline(t *testing.T) {
 			"vcs": "sapling"
 		}]`),
 		"sapling_commands": json.RawMessage(`{
-			"create_workspace": "fbclone {{.RepoIdentifier}} {{.DestPath}}"
+			"create_workspace": ["vcs-clone", "{{.RepoIdentifier}}", "{{.DestPath}}"]
 		}`),
 	}
 
@@ -83,8 +83,16 @@ func TestIntegrationBuildDefaultsFullPipeline(t *testing.T) {
 	}
 
 	// Verify: Go template syntax in sapling_commands is NOT resolved
-	if cfg.SaplingCommands.CreateWorkspace != "fbclone {{.RepoIdentifier}} {{.DestPath}}" {
-		t.Errorf("sapling create_workspace was incorrectly modified: %q", cfg.SaplingCommands.CreateWorkspace)
+	wantArgv := []string{"vcs-clone", "{{.RepoIdentifier}}", "{{.DestPath}}"}
+	gotArgv := cfg.SaplingCommands.CreateWorkspace
+	if len(gotArgv) != len(wantArgv) {
+		t.Errorf("sapling create_workspace len: got %d, want %d", len(gotArgv), len(wantArgv))
+	}
+	for i := range wantArgv {
+		if i >= len(gotArgv) || gotArgv[i] != wantArgv[i] {
+			t.Errorf("sapling create_workspace[%d]: got %v, want %q", i, gotArgv, wantArgv[i])
+			break
+		}
 	}
 
 	// Verify: SCM set from build defaults

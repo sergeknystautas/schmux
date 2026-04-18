@@ -9,21 +9,31 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
+
+	"github.com/sergeknystautas/schmux/internal/cmdtemplate"
 )
 
 // CommandTelemetry sends events to an external command via stdin.
 // Each Track call spawns the command once and writes typed JSON to its stdin.
 // The JSON format uses int/normal/double buckets to categorize properties by type.
+//
+// The command is configured as an argv-array (config.ShellCommand) and execed
+// directly via exec.Command without `sh -c`. This is bug-class removal — the
+// telemetry command never accepted untrusted input that would benefit from a
+// per-call defense, but uniformly using the argv form across all
+// shell-executed config commands keeps the surface consistent (spec §2.1).
 type CommandTelemetry struct {
-	command     string
+	command     []string
 	installID   string
 	logger      *log.Logger
 	lastFailLog time.Time
 	failLogMu   sync.Mutex
 }
 
-// NewCommandTelemetry creates a CommandTelemetry that execs the given shell command.
-func NewCommandTelemetry(command, installID string, logger *log.Logger) *CommandTelemetry {
+// NewCommandTelemetry creates a CommandTelemetry that execs the given argv-array command.
+// The argv slots may contain text/template syntax; they are rendered (with no
+// vars) at each Track call via cmdtemplate.Render.
+func NewCommandTelemetry(command []string, installID string, logger *log.Logger) *CommandTelemetry {
 	return &CommandTelemetry{
 		command:   command,
 		installID: installID,
@@ -77,7 +87,12 @@ func (c *CommandTelemetry) Track(event string, properties map[string]any) {
 		return
 	}
 
-	cmd := exec.Command("sh", "-c", c.command)
+	argv, err := cmdtemplate.Template(c.command).Render(nil)
+	if err != nil {
+		c.logFailure("invalid telemetry command template", "err", err)
+		return
+	}
+	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdin = strings.NewReader(string(data))
 
 	if err := cmd.Start(); err != nil {

@@ -43,6 +43,10 @@ func (s *Server) handleTimelapseList(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTimelapseExport(w http.ResponseWriter, r *http.Request) {
 	recordingID := chi.URLParam(r, "recordingId")
+	if !isValidResourceID(recordingID) {
+		writeJSONError(w, "invalid recording id", http.StatusBadRequest)
+		return
+	}
 	dir := s.recordingsDir()
 	recordingPath := filepath.Join(dir, recordingID+".cast")
 	compressedPath := filepath.Join(dir, recordingID+".timelapse.cast")
@@ -86,6 +90,10 @@ func (s *Server) handleTimelapseExport(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTimelapseDownload(w http.ResponseWriter, r *http.Request) {
 	recordingID := chi.URLParam(r, "recordingId")
+	if !isValidResourceID(recordingID) {
+		writeJSONError(w, "invalid recording id", http.StatusBadRequest)
+		return
+	}
 	dir := s.recordingsDir()
 
 	// ?type=timelapse downloads the compressed version
@@ -111,6 +119,10 @@ func (s *Server) handleTimelapseDownload(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleTimelapseDelete(w http.ResponseWriter, r *http.Request) {
 	recordingID := chi.URLParam(r, "recordingId")
+	if !isValidResourceID(recordingID) {
+		writeJSONError(w, "invalid recording id", http.StatusBadRequest)
+		return
+	}
 	dir := s.recordingsDir()
 
 	castPath := filepath.Join(dir, recordingID+".cast")
