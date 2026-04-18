@@ -377,6 +377,7 @@ export default function AppShell() {
       // Build ordered list of tab routes for cycling: [sessions..., diff, git]
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         if (!context.workspaceId) return;
+        if (workspaceLockStates[context.workspaceId]?.locked) return;
         const workspace = workspaces?.find((ws) => ws.id === context.workspaceId);
         if (!workspace) return;
         const tabs: string[] = sortSessionsByTabOrder(workspace.id, workspace.sessions || []).map(

@@ -135,6 +135,178 @@ describe('navigateToWorkspace', () => {
     navigateToWorkspace(navigate, workspaces, 'ws-1');
     expect(navigate).toHaveBeenCalledWith('/diff/ws-1');
   });
+
+  it('navigates to active resolve-conflict tab when a conflict is in_progress', () => {
+    const navigate = vi.fn();
+    const workspaces = [
+      makeWorkspace({
+        id: 'ws-1',
+        sessions: [
+          {
+            id: 'session-1',
+            target: 'claude',
+            branch: 'main',
+            created_at: '',
+            running: true,
+            attach_cmd: '',
+          },
+        ],
+        session_count: 1,
+        tabs: [
+          {
+            id: 'sys-resolve-conflict-abcdef1',
+            kind: 'resolve-conflict',
+            label: 'Conflict abcdef1',
+            route: '/resolve-conflict/ws-1/sys-resolve-conflict-abcdef1',
+            closable: true,
+            meta: { hash: 'abcdef1' },
+            created_at: '',
+          },
+        ],
+        resolve_conflicts: [
+          {
+            type: 'linear_sync_resolve_conflict',
+            workspace_id: 'ws-1',
+            status: 'in_progress',
+            hash: 'abcdef1',
+            started_at: '',
+            steps: [],
+          },
+        ],
+      }),
+    ];
+
+    navigateToWorkspace(navigate, workspaces, 'ws-1');
+    expect(navigate).toHaveBeenCalledWith('/resolve-conflict/ws-1/sys-resolve-conflict-abcdef1');
+  });
+
+  it('prefers in_progress conflict over other conflicts in the same workspace', () => {
+    const navigate = vi.fn();
+    const workspaces = [
+      makeWorkspace({
+        id: 'ws-1',
+        tabs: [
+          {
+            id: 'sys-resolve-conflict-done001',
+            kind: 'resolve-conflict',
+            label: 'Conflict done001',
+            route: '/resolve-conflict/ws-1/sys-resolve-conflict-done001',
+            closable: true,
+            meta: { hash: 'done001' },
+            created_at: '',
+          },
+          {
+            id: 'sys-resolve-conflict-active1',
+            kind: 'resolve-conflict',
+            label: 'Conflict active1',
+            route: '/resolve-conflict/ws-1/sys-resolve-conflict-active1',
+            closable: true,
+            meta: { hash: 'active1' },
+            created_at: '',
+          },
+        ],
+        resolve_conflicts: [
+          {
+            type: 'linear_sync_resolve_conflict',
+            workspace_id: 'ws-1',
+            status: 'done',
+            hash: 'done001',
+            started_at: '',
+            steps: [],
+          },
+          {
+            type: 'linear_sync_resolve_conflict',
+            workspace_id: 'ws-1',
+            status: 'in_progress',
+            hash: 'active1',
+            started_at: '',
+            steps: [],
+          },
+        ],
+      }),
+    ];
+
+    navigateToWorkspace(navigate, workspaces, 'ws-1');
+    expect(navigate).toHaveBeenCalledWith('/resolve-conflict/ws-1/sys-resolve-conflict-active1');
+  });
+
+  it('falls through to first session when conflict has no matching tab', () => {
+    const navigate = vi.fn();
+    const workspaces = [
+      makeWorkspace({
+        id: 'ws-1',
+        sessions: [
+          {
+            id: 'session-1',
+            target: 'claude',
+            branch: 'main',
+            created_at: '',
+            running: true,
+            attach_cmd: '',
+          },
+        ],
+        session_count: 1,
+        tabs: [],
+        resolve_conflicts: [
+          {
+            type: 'linear_sync_resolve_conflict',
+            workspace_id: 'ws-1',
+            status: 'in_progress',
+            hash: 'orphan1',
+            started_at: '',
+            steps: [],
+          },
+        ],
+      }),
+    ];
+
+    navigateToWorkspace(navigate, workspaces, 'ws-1');
+    expect(navigate).toHaveBeenCalledWith('/sessions/session-1');
+  });
+
+  it('ignores completed/failed conflicts and routes to first session', () => {
+    const navigate = vi.fn();
+    const workspaces = [
+      makeWorkspace({
+        id: 'ws-1',
+        sessions: [
+          {
+            id: 'session-1',
+            target: 'claude',
+            branch: 'main',
+            created_at: '',
+            running: true,
+            attach_cmd: '',
+          },
+        ],
+        session_count: 1,
+        tabs: [
+          {
+            id: 'sys-resolve-conflict-done001',
+            kind: 'resolve-conflict',
+            label: 'Conflict done001',
+            route: '/resolve-conflict/ws-1/sys-resolve-conflict-done001',
+            closable: true,
+            meta: { hash: 'done001' },
+            created_at: '',
+          },
+        ],
+        resolve_conflicts: [
+          {
+            type: 'linear_sync_resolve_conflict',
+            workspace_id: 'ws-1',
+            status: 'done',
+            hash: 'done001',
+            started_at: '',
+            steps: [],
+          },
+        ],
+      }),
+    ];
+
+    navigateToWorkspace(navigate, workspaces, 'ws-1');
+    expect(navigate).toHaveBeenCalledWith('/sessions/session-1');
+  });
 });
 
 describe('findNextWorkspaceWithSessions', () => {

@@ -127,6 +127,7 @@ function SortableSessionTab({
 function SortableAccessoryTab({
   tab,
   isActive,
+  disabled,
   badgeContent,
   displayLabel,
   displayClosable,
@@ -135,6 +136,7 @@ function SortableAccessoryTab({
 }: {
   tab: Tab;
   isActive: boolean;
+  disabled: boolean;
   badgeContent: React.ReactNode;
   displayLabel: string;
   displayClosable: boolean;
@@ -148,6 +150,7 @@ function SortableAccessoryTab({
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
+    ...(disabled ? { opacity: 0.5, cursor: 'not-allowed' } : {}),
   };
 
   return (
@@ -155,12 +158,13 @@ function SortableAccessoryTab({
       ref={setNodeRef}
       {...attributes}
       {...listeners}
-      className={`session-tab session-tab--diff${isActive ? ' session-tab--active' : ''}${isDragging ? ' session-tab--dragging' : ''}`}
-      onClick={onTabClick}
+      className={`session-tab session-tab--diff${isActive ? ' session-tab--active' : ''}${disabled ? ' session-tab--disabled' : ''}${isDragging ? ' session-tab--dragging' : ''}`}
+      onClick={() => !disabled && onTabClick()}
       role="button"
-      tabIndex={0}
+      tabIndex={disabled ? -1 : 0}
       data-tour={`${tab.kind}-tab`}
       onKeyDown={(e) => {
+        if (disabled) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           onTabClick();
@@ -177,8 +181,9 @@ function SortableAccessoryTab({
           <Tooltip content="Close tab" variant="warning">
             <button
               className="btn btn--sm btn--ghost btn--danger session-tab__dispose"
-              onClick={onClose}
+              onClick={(e) => !disabled && onClose(e)}
               aria-label={`Close ${tab.label}`}
+              disabled={disabled}
             >
               <svg
                 width="10"
@@ -727,20 +732,23 @@ export default function SessionTabs({
   const renderAccessoryTab = (tab: Tab) => {
     const { isActive, badgeContent, handleClose, displayLabel, displayClosable, handleClick } =
       getAccessoryTabProps(tab);
+    const disabled = Boolean(isLocked);
     return (
       <div
         key={tab.id}
-        className={`session-tab session-tab--diff${isActive ? ' session-tab--active' : ''}`}
-        onClick={handleClick}
+        className={`session-tab session-tab--diff${isActive ? ' session-tab--active' : ''}${disabled ? ' session-tab--disabled' : ''}`}
+        onClick={() => !disabled && handleClick()}
         role="button"
-        tabIndex={0}
+        tabIndex={disabled ? -1 : 0}
         data-tour={`${tab.kind}-tab`}
         onKeyDown={(e) => {
+          if (disabled) return;
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             handleClick();
           }
         }}
+        style={disabled ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
       >
         <div className="session-tab__row1">
           <span className="session-tab__name">
@@ -751,8 +759,9 @@ export default function SessionTabs({
             <Tooltip content="Close tab" variant="warning">
               <button
                 className="btn btn--sm btn--ghost btn--danger session-tab__dispose"
-                onClick={handleClose}
+                onClick={(e) => !disabled && handleClose(e)}
                 aria-label={`Close ${tab.label}`}
+                disabled={disabled}
               >
                 <svg
                   width="10"
@@ -957,6 +966,7 @@ export default function SessionTabs({
                     key={tab.id}
                     tab={tab}
                     isActive={isActive}
+                    disabled={Boolean(isLocked)}
                     badgeContent={badgeContent}
                     displayLabel={displayLabel}
                     displayClosable={displayClosable}

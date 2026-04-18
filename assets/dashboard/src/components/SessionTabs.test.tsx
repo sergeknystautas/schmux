@@ -323,6 +323,80 @@ describe('SessionTabs', () => {
     });
   });
 
+  describe('Accessory tabs respect workspace lock', () => {
+    function workspaceWithDiffAndConflictTab(): WorkspaceResponse {
+      return makeWorkspace({
+        id: 'ws-1',
+        lines_added: 4,
+        lines_removed: 2,
+        files_changed: 3,
+        tabs: [
+          {
+            id: 'sys-diff',
+            kind: 'diff',
+            label: 'diff',
+            route: '/diff/ws-1',
+            closable: false,
+            created_at: new Date().toISOString(),
+          },
+          {
+            id: 'sys-resolve-conflict-abcdef1',
+            kind: 'resolve-conflict',
+            label: 'Conflict abcdef1',
+            route: '/resolve-conflict/ws-1/sys-resolve-conflict-abcdef1',
+            closable: true,
+            meta: { hash: 'abcdef1' },
+            created_at: new Date().toISOString(),
+          },
+        ],
+      });
+    }
+
+    it('disables accessory tabs via tabIndex=-1 and disabled class when workspace is locked (desktop)', async () => {
+      mockMatchMediaDesktop();
+      mockWorkspaceLockStates = { 'ws-1': { locked: true } };
+      const workspace = workspaceWithDiffAndConflictTab();
+
+      await renderTabs([], workspace);
+
+      const accessoryTabs = document.querySelectorAll('.session-tab--diff');
+      expect(accessoryTabs.length).toBe(2);
+      accessoryTabs.forEach((tab) => {
+        expect(tab.getAttribute('tabindex')).toBe('-1');
+        expect(tab.className).toContain('session-tab--disabled');
+      });
+    });
+
+    it('disables accessory tabs when workspace is locked (mobile)', async () => {
+      mockMatchMediaMobile();
+      mockWorkspaceLockStates = { 'ws-1': { locked: true } };
+      const workspace = workspaceWithDiffAndConflictTab();
+
+      await renderTabs([], workspace);
+
+      const accessoryTabs = document.querySelectorAll('.session-tab--diff');
+      expect(accessoryTabs.length).toBe(2);
+      accessoryTabs.forEach((tab) => {
+        expect(tab.getAttribute('tabindex')).toBe('-1');
+        expect(tab.className).toContain('session-tab--disabled');
+      });
+    });
+
+    it('leaves accessory tabs enabled when workspace is not locked', async () => {
+      mockMatchMediaDesktop();
+      const workspace = workspaceWithDiffAndConflictTab();
+
+      await renderTabs([], workspace);
+
+      const accessoryTabs = document.querySelectorAll('.session-tab--diff');
+      expect(accessoryTabs.length).toBe(2);
+      accessoryTabs.forEach((tab) => {
+        expect(tab.getAttribute('tabindex')).toBe('0');
+        expect(tab.className).not.toContain('session-tab--disabled');
+      });
+    });
+  });
+
   describe('Tab order from localStorage', () => {
     it('renders session tabs in custom order from localStorage', async () => {
       mockMatchMediaDesktop();

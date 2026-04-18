@@ -15,6 +15,21 @@ export function navigateToWorkspace(
   workspaceId: string
 ): void {
   const workspace = workspaces.find((ws) => ws.id === workspaceId);
+
+  // An in-progress sync conflict takes priority: route to its id-named tab.
+  const activeConflict = workspace?.resolve_conflicts?.find(
+    (cr) => cr.status === 'in_progress' && cr.hash
+  );
+  if (activeConflict) {
+    const conflictTab = workspace?.tabs?.find(
+      (tab) => tab.kind === 'resolve-conflict' && tab.meta?.hash === activeConflict.hash
+    );
+    if (conflictTab) {
+      navigate(conflictTab.route);
+      return;
+    }
+  }
+
   if (workspace?.sessions?.length) {
     // Navigate to first session in custom tab order (or server order if no custom order)
     const ordered = sortSessionsByTabOrder(workspace.id, workspace.sessions);
