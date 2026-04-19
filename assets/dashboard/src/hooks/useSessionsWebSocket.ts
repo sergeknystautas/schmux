@@ -256,22 +256,9 @@ export default function useSessionsWebSocket(opts?: {
               ...prev,
               [wsId]: { locked: true, syncProgress: syncProgress ?? prev[wsId]?.syncProgress },
             }));
-            if (syncProgress) {
-              const remaining = syncProgress.total - syncProgress.current;
-              setWorkspaces((prevWs) =>
-                prevWs.map((w) => (w.id === wsId ? { ...w, behind: remaining } : w))
-              );
-            }
           } else {
             setWorkspaceLockStates((prev) => {
-              const prevLock = prev[wsId];
-              if (!prevLock) return prev;
-              if (prevLock.syncProgress) {
-                const remaining = prevLock.syncProgress.total - prevLock.syncProgress.current;
-                setWorkspaces((prevWs) =>
-                  prevWs.map((w) => (w.id === wsId ? { ...w, behind: remaining } : w))
-                );
-              }
+              if (!prev[wsId]) return prev;
               const next = { ...prev };
               delete next[wsId];
               return next;

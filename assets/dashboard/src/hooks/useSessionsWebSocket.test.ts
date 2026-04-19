@@ -287,4 +287,77 @@ describe('useSessionsWebSocket', () => {
       sendMsg(ws, { type: 'config_updated' });
     });
   });
+
+  it('keeps ws.behind backend-authoritative across workspace_locked events', () => {
+    // Regression: workspace_locked messages (sync_progress ticks and unlock)
+    // must not mutate ws.behind. The field is owned by the backend's `sessions`
+    // broadcast. Mutating it locally makes the post-sync sessions message a
+    // no-op diff, which suppresses downstream refresh effects (e.g. the commit
+    // graph's fingerprint-driven refetch).
+    const { result } = renderHook(() => useSessionsWebSocket());
+    const ws = lastWS();
+    openWS(ws);
+
+    // Initial backend broadcast: 3 ahead, 5 behind.
+    act(() => {
+      sendMsg(ws, {
+        type: 'sessions',
+        workspaces: [
+          {
+            id: 'ws-1',
+            repo: 'r',
+            branch: 'feat',
+            path: '/tmp',
+            sessions: [],
+            ahead: 3,
+            behind: 5,
+          },
+        ],
+      });
+    });
+    expect(result.current.workspaces[0].behind).toBe(5);
+
+    // Sync begins. Progress ticks must not touch ws.behind.
+    for (let current = 1; current <= 5; current++) {
+      act(() => {
+        sendMsg(ws, {
+          type: 'workspace_locked',
+          workspace_id: 'ws-1',
+          locked: true,
+          sync_progress: { current, total: 5 },
+        });
+      });
+      expect(result.current.workspaces[0].behind).toBe(5);
+    }
+
+    // Unlock also must not touch ws.behind.
+    act(() => {
+      sendMsg(ws, {
+        type: 'workspace_locked',
+        workspace_id: 'ws-1',
+        locked: false,
+        sync_result: { success: true, success_count: 5, branch: 'main' },
+      });
+    });
+    expect(result.current.workspaces[0].behind).toBe(5);
+
+    // Post-sync sessions broadcast carries the authoritative new value.
+    act(() => {
+      sendMsg(ws, {
+        type: 'sessions',
+        workspaces: [
+          {
+            id: 'ws-1',
+            repo: 'r',
+            branch: 'feat',
+            path: '/tmp',
+            sessions: [],
+            ahead: 3,
+            behind: 0,
+          },
+        ],
+      });
+    });
+    expect(result.current.workspaces[0].behind).toBe(0);
+  });
 });

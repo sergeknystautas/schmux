@@ -168,6 +168,17 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
     }
   }, [gitFingerprint, fetchData]);
 
+  // Animate commits into the graph as each rebase completes during
+  // linear-sync-from-main. The fingerprint above is backend-authoritative and
+  // only changes once (on the post-sync sessions broadcast); this refetches
+  // each sync_progress tick so the graph reflects the in-flight rebase.
+  const syncProgressCurrent = lockState?.syncProgress?.current;
+  useEffect(() => {
+    if (syncProgressCurrent !== undefined) {
+      fetchData();
+    }
+  }, [syncProgressCurrent, fetchData]);
+
   if (!ws) {
     return (
       <div className="commit-dag" ref={containerRef}>
