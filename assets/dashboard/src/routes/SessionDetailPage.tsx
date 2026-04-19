@@ -19,6 +19,7 @@ import { useSessions } from '../contexts/SessionsContext';
 import { useViewedSessions } from '../contexts/ViewedSessionsContext';
 import { useKeyboardMode } from '../contexts/KeyboardContext';
 import Tooltip from '../components/Tooltip';
+import useVersionInfo from '../hooks/useVersionInfo';
 import useLocalStorage, { SESSION_SIDEBAR_COLLAPSED_KEY } from '../hooks/useLocalStorage';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
@@ -33,6 +34,8 @@ import type { SequenceBreakRecord } from '../lib/streamDiagnostics';
 export default function SessionDetailPage() {
   const { sessionId } = useParams();
   const { config, loading: configLoading } = useConfig();
+  const { versionInfo } = useVersionInfo();
+  const isDevMode = !!versionInfo?.dev_mode;
   const {
     sessionsById,
     workspaces,
@@ -848,14 +851,14 @@ export default function SessionDetailPage() {
                         <span>Local echo</span>
                       </button>
                     </Tooltip>
-                    {config.desync?.enabled && (
+                    {isDevMode && config.desync?.enabled && (
                       <StreamMetricsPanel
                         backendStats={backendStats}
                         frontendStats={frontendStats}
                         onDiagnosticCapture={() => terminalStreamRef.current?.sendDiagnostic()}
                       />
                     )}
-                    {config.io_workspace_telemetry?.enabled && (
+                    {isDevMode && config.io_workspace_telemetry?.enabled && (
                       <IOWorkspaceMetricsPanel
                         stats={ioWorkspaceStats}
                         onCapture={() => terminalStreamRef.current?.sendIOWorkspaceDiagnostic()}

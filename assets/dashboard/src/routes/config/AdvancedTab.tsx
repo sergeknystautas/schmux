@@ -17,6 +17,7 @@ type AdvancedTabProps = {
   xtermUseWebGL: boolean;
   localEchoRemote: boolean;
   debugUI: boolean;
+  isDevMode: boolean;
   hasSaplingRepos: boolean;
   tmuxBinary: string;
   tmuxSocketName: string;
@@ -43,6 +44,7 @@ export default function AdvancedTab({
   xtermUseWebGL,
   localEchoRemote,
   debugUI,
+  isDevMode,
   hasSaplingRepos,
   tmuxBinary,
   tmuxSocketName,
@@ -421,8 +423,8 @@ export default function AdvancedTab({
         </div>
       )}
 
-      {/* Dev-only features — only visible when debug_ui is on */}
-      {debugUI && (
+      {/* Dev-only features — only visible in dev mode */}
+      {isDevMode && (
         <>
           <div className="settings-section">
             <div className="settings-section__header">

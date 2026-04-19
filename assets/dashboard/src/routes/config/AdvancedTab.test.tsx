@@ -30,6 +30,7 @@ const defaultProps = {
   xtermUseWebGL: true,
   localEchoRemote: false,
   debugUI: false,
+  isDevMode: false,
   hasSaplingRepos: false,
   tmuxBinary: '',
   tmuxSocketName: '',
@@ -49,13 +50,13 @@ describe('AdvancedTab', () => {
     expect(screen.getByText('Xterm')).toBeInTheDocument();
     expect(screen.getByText('Custom Diff Tools')).toBeInTheDocument();
     expect(screen.getByText('Temp Cleanup')).toBeInTheDocument();
-    // Dev-only sections hidden when debugUI is false
+    // Dev-only sections hidden when isDevMode is false
     expect(screen.queryByText('Terminal Desync Diagnostics')).not.toBeInTheDocument();
     expect(screen.queryByText('IO Workspace Telemetry')).not.toBeInTheDocument();
   });
 
-  it('renders dev-only sections when debugUI is true', () => {
-    render(<AdvancedTab {...defaultProps} debugUI={true} />);
+  it('renders dev-only sections when isDevMode is true', () => {
+    render(<AdvancedTab {...defaultProps} isDevMode={true} />);
     expect(screen.getByText('Terminal Desync Diagnostics')).toBeInTheDocument();
     expect(screen.getByText('IO Workspace Telemetry')).toBeInTheDocument();
   });
@@ -67,13 +68,13 @@ describe('AdvancedTab', () => {
   });
 
   it('renders desync checkbox unchecked by default', () => {
-    render(<AdvancedTab {...defaultProps} debugUI={true} />);
+    render(<AdvancedTab {...defaultProps} isDevMode={true} />);
     expect(screen.getByLabelText('Enable terminal desync diagnostics')).not.toBeChecked();
   });
 
   it('dispatches desyncEnabled toggle', async () => {
     dispatch.mockClear();
-    render(<AdvancedTab {...defaultProps} debugUI={true} desyncEnabled={false} />);
+    render(<AdvancedTab {...defaultProps} isDevMode={true} desyncEnabled={false} />);
     await userEvent.click(screen.getByLabelText('Enable terminal desync diagnostics'));
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'SET_FIELD', field: 'desyncEnabled', value: true })

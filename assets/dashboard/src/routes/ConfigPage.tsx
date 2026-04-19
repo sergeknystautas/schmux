@@ -18,6 +18,7 @@ import { useModal } from '../components/ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
 import { useConfigForm } from './config/useConfigForm';
 import { useAutoSave, type SaveStatus } from './config/useAutoSave';
+import useVersionInfo from '../hooks/useVersionInfo';
 import WorkspacesTab from './config/WorkspacesTab';
 import SessionsTab from './config/SessionsTab';
 import AccessTab from './config/AccessTab';
@@ -71,6 +72,8 @@ export default function ConfigPage() {
   const { reloadConfig } = useConfig();
   const { confirm, prompt, alert } = useModal();
   const { success, error: toastError } = useToast();
+  const { versionInfo } = useVersionInfo();
+  const isDevMode = !!versionInfo?.dev_mode;
   const isTabHidden = (_slug: string) => {
     return false;
   };
@@ -1134,6 +1137,7 @@ export default function ConfigPage() {
               xtermUseWebGL={state.xtermUseWebGL}
               localEchoRemote={state.localEchoRemote}
               debugUI={state.debugUI}
+              isDevMode={isDevMode}
               hasSaplingRepos={state.repos.some((r) => r.vcs === 'sapling')}
               tmuxBinary={state.tmuxBinary}
               tmuxSocketName={state.tmuxSocketName}
