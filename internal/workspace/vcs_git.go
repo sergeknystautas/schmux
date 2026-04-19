@@ -193,7 +193,7 @@ func (g *GitBackend) ensureUniqueBranch(ctx context.Context, worktreeBasePath, b
 func (g *GitBackend) GetStatus(ctx context.Context, workspacePath string) (VCSStatus, error) {
 	var status VCSStatus
 
-	output, err := g.manager.runGit(ctx, "", RefreshTriggerExplicit, workspacePath, "status", "--porcelain")
+	output, err := g.manager.runGit(ctx, "", RefreshTriggerExplicit, workspacePath, "status", "--porcelain", "-u")
 	trimmedOutput := strings.TrimSpace(string(output))
 	status.Dirty = err == nil && len(trimmedOutput) > 0
 	if err == nil && trimmedOutput != "" {

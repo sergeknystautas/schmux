@@ -450,8 +450,10 @@ func (m *Manager) gitStatusWithRound(ctx context.Context, workspaceID string, tr
 		}
 	}
 
-	// Check for dirty state (any changes: modified, added, removed, or untracked)
-	output, err := m.runGit(ctx, workspaceID, trigger, dir, "status", "--porcelain")
+	// Check for dirty state (any changes: modified, added, removed, or untracked).
+	// `-u` expands untracked directories so each new file counts individually;
+	// without it, `git status --porcelain` collapses a new dir to `?? dir/`.
+	output, err := m.runGit(ctx, workspaceID, trigger, dir, "status", "--porcelain", "-u")
 	trimmedOutput := strings.TrimSpace(string(output))
 	dirty = err == nil && len(trimmedOutput) > 0
 
@@ -644,7 +646,7 @@ func (m *Manager) checkGitSafety(ctx context.Context, workspaceID string) (*VCSS
 		return status, nil
 	}
 
-	output, err := m.runGit(ctx, workspaceID, RefreshTriggerExplicit, w.Path, "status", "--porcelain")
+	output, err := m.runGit(ctx, workspaceID, RefreshTriggerExplicit, w.Path, "status", "--porcelain", "-u")
 	if err != nil {
 		// Git command failed - this might mean the repo is corrupt, treat as unsafe
 		status.Safe = false

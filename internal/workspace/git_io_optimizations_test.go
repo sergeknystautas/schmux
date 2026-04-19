@@ -140,6 +140,51 @@ func TestGitStatus_ReturnsCurrentBranch(t *testing.T) {
 	}
 }
 
+// TestGitStatus_FilesChangedCountsUntrackedFilesInNewDirs verifies that
+// filesChanged counts each untracked file individually, including files
+// inside newly-created directories. By default `git status --porcelain`
+// collapses an untracked directory to a single `?? dir/` entry, which
+// would undercount files (e.g. 2 files in a new dir → 1 line).
+func TestGitStatus_FilesChangedCountsUntrackedFilesInNewDirs(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	remoteDir := gitTestWorkTree(t)
+	tmpDir := t.TempDir()
+	cloneDir := filepath.Join(tmpDir, "clone")
+	runGit(t, tmpDir, "clone", remoteDir, "clone")
+
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+	ctx := context.Background()
+
+	// Modify one tracked file.
+	writeFile(t, cloneDir, "README.md", "modified content")
+
+	// Add one untracked file at top level.
+	writeFile(t, cloneDir, "new-top.txt", "new top\n")
+
+	// Add two untracked files inside a brand-new directory.
+	newDir := filepath.Join(cloneDir, "newdir")
+	if err := os.MkdirAll(newDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	writeFile(t, cloneDir, "newdir/a.txt", "a\n")
+	writeFile(t, cloneDir, "newdir/b.txt", "b\n")
+
+	_, _, _, _, _, filesChanged, _, _, _, _, _ := m.gitStatus(ctx, "ws-test", RefreshTriggerExplicit, cloneDir, remoteDir)
+
+	// 1 modified + 1 new top-level + 2 in new dir = 4 files.
+	if filesChanged != 4 {
+		t.Errorf("filesChanged = %d, want 4 (1 modified + 1 new top + 2 in new dir)", filesChanged)
+	}
+}
+
 // TestEnsuredQueryRepos_CachePreventsRevalidation verifies that once a repo URL
 // is cached in ensuredQueryRepos, ensureOriginQueryRepo skips the expensive
 // ensureCorrectOriginURL and originQueryRepoNeedsRepair checks.

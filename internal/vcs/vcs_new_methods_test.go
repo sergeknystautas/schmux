@@ -27,7 +27,7 @@ func TestSaplingCurrentBranch(t *testing.T) {
 func TestGitStatusPorcelain(t *testing.T) {
 	cb := NewCommandBuilder("git")
 	cmd := cb.StatusPorcelain()
-	if cmd != "git status --porcelain" {
+	if cmd != "git status --porcelain -u" {
 		t.Errorf("unexpected command: %s", cmd)
 	}
 }

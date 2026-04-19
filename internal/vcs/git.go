@@ -80,7 +80,9 @@ func (g *GitCommandBuilder) CurrentBranch() string {
 }
 
 func (g *GitCommandBuilder) StatusPorcelain() string {
-	return "git status --porcelain"
+	// `-u` expands untracked directories so each new file counts individually;
+	// without it, `git status --porcelain` collapses a new dir to `?? dir/`.
+	return "git status --porcelain -u"
 }
 
 func (g *GitCommandBuilder) RemoteBranchExists(branch string) string {
