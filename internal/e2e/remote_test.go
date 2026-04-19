@@ -799,9 +799,12 @@ func TestE2ERemoteRunCommand(t *testing.T) {
 		env.WaitForSessionRunning(sessionID, 10*time.Second)
 	})
 
-	// Wait for the onConnect VCS RunCommand to complete (or timeout at 30s)
-	// and release the semaphore before calling the diff API.
-	time.Sleep(35 * time.Second)
+	// The onConnect callback triggers a VCS status update (30s timeout).
+	// Since RunCommand is serialized via a semaphore, we add a small
+	// delay to let the VCS update start first, avoiding head-of-line
+	// blocking. The semaphore ensures the diff API call will wait
+	// for the VCS update to complete rather than timing out.
+	time.Sleep(2 * time.Second)
 
 	// Call the diff API directly (NOT in a subtest — subtest output is swallowed)
 	{
