@@ -7,6 +7,11 @@ import { useSessions } from '../contexts/SessionsContext';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 
+const getMarkdownScrollPositionKey = (
+  workspaceId: string | undefined,
+  filepath: string | undefined
+) => `schmux-markdown-scroll-position-${workspaceId || ''}-${filepath || ''}`;
+
 export default function MarkdownPreviewPage() {
   const { workspaceId, filepath } = useParams();
   const navigate = useNavigate();
@@ -16,6 +21,7 @@ export default function MarkdownPreviewPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const prevGitStatsRef = useRef<{ files: number; added: number; removed: number } | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   const workspace = workspaces?.find((ws) => ws.id === workspaceId);
   const workspaceExists = workspaceId && workspaces?.some((ws) => ws.id === workspaceId);
@@ -66,6 +72,28 @@ export default function MarkdownPreviewPage() {
     }
     prevGitStatsRef.current = currentStats;
   }, [workspace, workspaceId]);
+
+  // Persist and restore scroll position per workspace+file
+  useEffect(() => {
+    if (!contentRef.current || !content) return;
+
+    const scrollEl = contentRef.current;
+    const key = getMarkdownScrollPositionKey(workspaceId, decodedFilepath);
+
+    const handleScroll = () => {
+      localStorage.setItem(key, scrollEl.scrollTop.toString());
+    };
+    scrollEl.addEventListener('scroll', handleScroll);
+
+    const saved = localStorage.getItem(key);
+    if (saved) {
+      requestAnimationFrame(() => {
+        scrollEl.scrollTop = parseInt(saved, 10);
+      });
+    }
+
+    return () => scrollEl.removeEventListener('scroll', handleScroll);
+  }, [workspaceId, decodedFilepath, content]);
 
   if (loading) {
     return (
@@ -131,7 +159,7 @@ export default function MarkdownPreviewPage() {
           <div className="diff-content__header">
             <h2 className="diff-content__title">{decodedFilepath}</h2>
           </div>
-          <div className="diff-viewer-wrapper">
+          <div className="diff-viewer-wrapper" ref={contentRef}>
             <div className="markdown-preview-content">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
             </div>
