@@ -103,12 +103,39 @@ func TestConfigWatcher_IgnoresSelfWrite(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	// Wait long enough for the debounce + event delivery
-	time.Sleep(1500 * time.Millisecond)
+	// Wait for fsnotify events to be delivered and processed.
+	// We need to wait longer than (selfWriteGrace + configDebounce) to ensure
+	// the event would have fired if it weren't suppressed.
+	// selfWriteGrace = 750ms, configDebounce = 500ms, so wait 1.5s total.
+	// Use polling with TimeSinceLastSave() to detect when enough time has passed.
+	deadline := time.After(2 * time.Second)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
 
-	// Broadcast should NOT have fired (suppressed by grace window)
-	if broadcastCalled.Load() > 0 {
-		t.Error("broadcast should not fire for self-writes")
+	for {
+		select {
+		case <-deadline:
+			// Timeout reached — verify no broadcast happened
+			if broadcastCalled.Load() > 0 {
+				t.Error("broadcast should not fire for self-writes")
+			}
+			return
+		case <-ticker.C:
+			// Check if enough time has passed for the event to fire if it were going to
+			if cfg.TimeSinceLastSave() > 1300*time.Millisecond {
+				// We've waited past the grace + debounce window
+				if broadcastCalled.Load() > 0 {
+					t.Error("broadcast should not fire for self-writes")
+					return
+				}
+				// Give a small buffer to ensure event delivery, then exit
+				time.Sleep(100 * time.Millisecond)
+				if broadcastCalled.Load() > 0 {
+					t.Error("broadcast should not fire for self-writes")
+				}
+				return
+			}
+		}
 	}
 }
 

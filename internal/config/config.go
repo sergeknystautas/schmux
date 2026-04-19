@@ -2308,6 +2308,14 @@ func (c *Config) Save() error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
+	// Mark the start of the save to suppress fsnotify events from our own write.
+	// Set this BEFORE the file operation to ensure the grace window covers the
+	// entire duration of the atomic write (including the rename operation that
+	// generates filesystem events).
+	c.mu.Lock()
+	c.lastSaveCompletedAt = time.Now()
+	c.mu.Unlock()
+
 	// Ensure the directory exists
 	schmuxDir := filepath.Dir(configPath)
 	if schmuxDir != "." && schmuxDir != "" {
@@ -2324,10 +2332,6 @@ func (c *Config) Save() error {
 	c.repoURLMu.Lock()
 	c.repoURLCache = nil
 	c.repoURLMu.Unlock()
-
-	c.mu.Lock()
-	c.lastSaveCompletedAt = time.Now()
-	c.mu.Unlock()
 
 	return nil
 }
