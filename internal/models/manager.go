@@ -134,6 +134,10 @@ func (m *Manager) buildRegistryMeta(registryModels []RegistryModel) {
 // It loads cache immediately, then fetches fresh data.
 // Subsequent fetches happen every 24 hours.
 func (m *Manager) StartBackgroundFetch(ctx context.Context) {
+	if !IsAvailable() {
+		m.logger.Info("model registry disabled in this build, skipping fetch")
+		return
+	}
 	if m.schmuxDir == "" {
 		m.logger.Warn("schmuxDir not set, skipping registry fetch")
 		return
