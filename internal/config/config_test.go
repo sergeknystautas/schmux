@@ -1845,56 +1845,6 @@ func TestDefaultOverlayPaths_ExcludesLoreJsonl(t *testing.T) {
 	}
 }
 
-func TestGetRemoteAccessEnabled(t *testing.T) {
-	t.Run("defaults to false when nil", func(t *testing.T) {
-		cfg := &Config{}
-		if cfg.GetRemoteAccessEnabled() {
-			t.Error("expected GetRemoteAccessEnabled() = false when RemoteAccess is nil")
-		}
-	})
-
-	t.Run("returns true when explicitly enabled", func(t *testing.T) {
-		enabled := true
-		cfg := &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{Enabled: &enabled}}}
-		if !cfg.GetRemoteAccessEnabled() {
-			t.Error("expected GetRemoteAccessEnabled() = true")
-		}
-	})
-
-	t.Run("returns false when explicitly disabled", func(t *testing.T) {
-		enabled := false
-		cfg := &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{Enabled: &enabled}}}
-		if cfg.GetRemoteAccessEnabled() {
-			t.Error("expected GetRemoteAccessEnabled() = false when explicitly set to false")
-		}
-	})
-
-	t.Run("backward compat: disabled=true means enabled=false", func(t *testing.T) {
-		disabled := true
-		cfg := &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{Disabled: &disabled}}}
-		if cfg.GetRemoteAccessEnabled() {
-			t.Error("expected GetRemoteAccessEnabled() = false when Disabled=true (backward compat)")
-		}
-	})
-
-	t.Run("backward compat: disabled=false means enabled=true", func(t *testing.T) {
-		disabled := false
-		cfg := &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{Disabled: &disabled}}}
-		if !cfg.GetRemoteAccessEnabled() {
-			t.Error("expected GetRemoteAccessEnabled() = true when Disabled=false (backward compat)")
-		}
-	})
-
-	t.Run("enabled takes precedence over disabled", func(t *testing.T) {
-		enabled := true
-		disabled := true
-		cfg := &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{Enabled: &enabled, Disabled: &disabled}}}
-		if !cfg.GetRemoteAccessEnabled() {
-			t.Error("expected Enabled to take precedence over Disabled")
-		}
-	})
-}
-
 func TestGetRemoteAccessTimeoutMinutes(t *testing.T) {
 	t.Run("defaults to 120 when nil", func(t *testing.T) {
 		cfg := &Config{}
@@ -2291,52 +2241,6 @@ func TestGetRunTarget(t *testing.T) {
 			t.Error("expected found=false")
 		}
 	})
-}
-
-func TestGetBindAddress(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name    string
-		network *NetworkConfig
-		want    string
-	}{
-		{"nil network defaults to localhost", nil, "127.0.0.1"},
-		{"empty bind address defaults to localhost", &NetworkConfig{}, "127.0.0.1"},
-		{"custom bind address", &NetworkConfig{BindAddress: "0.0.0.0"}, "0.0.0.0"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{ConfigData: ConfigData{Network: tt.network}}
-			got := cfg.GetBindAddress()
-			if got != tt.want {
-				t.Errorf("GetBindAddress() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestGetNetworkAccess(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name    string
-		network *NetworkConfig
-		want    bool
-	}{
-		{"nil network is not accessible", nil, false},
-		{"localhost is not accessible", &NetworkConfig{BindAddress: "127.0.0.1"}, false},
-		{"0.0.0.0 is accessible", &NetworkConfig{BindAddress: "0.0.0.0"}, true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{ConfigData: ConfigData{Network: tt.network}}
-			got := cfg.GetNetworkAccess()
-			if got != tt.want {
-				t.Errorf("GetNetworkAccess() = %v, want %v", got, tt.want)
-			}
-		})
-	}
 }
 
 func TestGetPort(t *testing.T) {
@@ -2868,86 +2772,6 @@ func TestRepofeedConfigWithValues(t *testing.T) {
 	}
 }
 
-func TestDashboardHostname(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name    string
-		network *NetworkConfig
-		want    string
-	}{
-		{"nil network returns empty", nil, ""},
-		{"empty hostname returns empty", &NetworkConfig{}, ""},
-		{"returns localhost", &NetworkConfig{DashboardHostname: "localhost"}, "localhost"},
-		{"non-local hostname returns empty", &NetworkConfig{DashboardHostname: "not.a.local.host.example.com"}, ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{ConfigData: ConfigData{Network: tt.network}}
-			if got := cfg.GetDashboardHostname(); got != tt.want {
-				t.Errorf("GetDashboardHostname() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-
-	t.Run("returns machine hostname", func(t *testing.T) {
-		h, err := os.Hostname()
-		if err != nil {
-			t.Skip("cannot get hostname")
-		}
-		cfg := &Config{ConfigData: ConfigData{Network: &NetworkConfig{DashboardHostname: h}}}
-		if got := cfg.GetDashboardHostname(); got != h {
-			t.Errorf("GetDashboardHostname() = %q, want %q", got, h)
-		}
-	})
-}
-
-func TestDashboardURL(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name    string
-		network *NetworkConfig
-		want    string
-	}{
-		{
-			"composes http URL",
-			&NetworkConfig{DashboardHostname: "localhost", Port: 7337},
-			"http://localhost:7337",
-		},
-		{
-			"composes https URL when TLS enabled",
-			&NetworkConfig{
-				DashboardHostname: "localhost",
-				Port:              7337,
-				TLS:               &TLSConfig{CertPath: "/cert.pem", KeyPath: "/key.pem"},
-			},
-			"https://localhost:7337",
-		},
-		{
-			"falls back when hostname is non-local",
-			&NetworkConfig{DashboardHostname: "not.a.local.host.example.com", Port: 7337, PublicBaseURL: "http://fallback.example.com"},
-			"http://fallback.example.com",
-		},
-		{
-			"falls back to public_base_url when hostname empty",
-			&NetworkConfig{PublicBaseURL: "https://public.example.com"},
-			"https://public.example.com",
-		},
-		{
-			"returns empty when both hostname and public_base_url empty",
-			&NetworkConfig{},
-			"",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{ConfigData: ConfigData{Network: tt.network}}
-			if got := cfg.GetDashboardURL(); got != tt.want {
-				t.Errorf("GetDashboardURL() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestTimelapseConfig_Defaults(t *testing.T) {
 	c := &Config{}
 	if !c.GetTimelapseEnabled() {
@@ -3253,4 +3077,185 @@ func TestAutolearnConfig_UnmarshalJSON_BackwardCompat(t *testing.T) {
 			t.Errorf("expected %q, got %q", "workspace", got)
 		}
 	})
+}
+
+func TestGetRemoteAccessEnabled(t *testing.T) {
+	skipUnderVendorlocked(t)
+	t.Run("defaults to false when nil", func(t *testing.T) {
+		cfg := &Config{}
+		if cfg.GetRemoteAccessEnabled() {
+			t.Error("expected GetRemoteAccessEnabled() = false when RemoteAccess is nil")
+		}
+	})
+
+	t.Run("returns true when explicitly enabled", func(t *testing.T) {
+		enabled := true
+		cfg := &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{Enabled: &enabled}}}
+		if !cfg.GetRemoteAccessEnabled() {
+			t.Error("expected GetRemoteAccessEnabled() = true")
+		}
+	})
+
+	t.Run("returns false when explicitly disabled", func(t *testing.T) {
+		enabled := false
+		cfg := &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{Enabled: &enabled}}}
+		if cfg.GetRemoteAccessEnabled() {
+			t.Error("expected GetRemoteAccessEnabled() = false when explicitly set to false")
+		}
+	})
+
+	t.Run("backward compat: disabled=true means enabled=false", func(t *testing.T) {
+		disabled := true
+		cfg := &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{Disabled: &disabled}}}
+		if cfg.GetRemoteAccessEnabled() {
+			t.Error("expected GetRemoteAccessEnabled() = false when Disabled=true (backward compat)")
+		}
+	})
+
+	t.Run("backward compat: disabled=false means enabled=true", func(t *testing.T) {
+		disabled := false
+		cfg := &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{Disabled: &disabled}}}
+		if !cfg.GetRemoteAccessEnabled() {
+			t.Error("expected GetRemoteAccessEnabled() = true when Disabled=false (backward compat)")
+		}
+	})
+
+	t.Run("enabled takes precedence over disabled", func(t *testing.T) {
+		enabled := true
+		disabled := true
+		cfg := &Config{ConfigData: ConfigData{RemoteAccess: &RemoteAccessConfig{Enabled: &enabled, Disabled: &disabled}}}
+		if !cfg.GetRemoteAccessEnabled() {
+			t.Error("expected Enabled to take precedence over Disabled")
+		}
+	})
+}
+
+func TestGetBindAddress(t *testing.T) {
+	skipUnderVendorlocked(t)
+	t.Parallel()
+	tests := []struct {
+		name    string
+		network *NetworkConfig
+		want    string
+	}{
+		{"nil network defaults to localhost", nil, "127.0.0.1"},
+		{"empty bind address defaults to localhost", &NetworkConfig{}, "127.0.0.1"},
+		{"custom bind address", &NetworkConfig{BindAddress: "0.0.0.0"}, "0.0.0.0"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{ConfigData: ConfigData{Network: tt.network}}
+			got := cfg.GetBindAddress()
+			if got != tt.want {
+				t.Errorf("GetBindAddress() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetNetworkAccess(t *testing.T) {
+	skipUnderVendorlocked(t)
+	t.Parallel()
+	tests := []struct {
+		name    string
+		network *NetworkConfig
+		want    bool
+	}{
+		{"nil network is not accessible", nil, false},
+		{"localhost is not accessible", &NetworkConfig{BindAddress: "127.0.0.1"}, false},
+		{"0.0.0.0 is accessible", &NetworkConfig{BindAddress: "0.0.0.0"}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{ConfigData: ConfigData{Network: tt.network}}
+			got := cfg.GetNetworkAccess()
+			if got != tt.want {
+				t.Errorf("GetNetworkAccess() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDashboardHostname(t *testing.T) {
+	skipUnderVendorlocked(t)
+	t.Parallel()
+	tests := []struct {
+		name    string
+		network *NetworkConfig
+		want    string
+	}{
+		{"nil network returns empty", nil, ""},
+		{"empty hostname returns empty", &NetworkConfig{}, ""},
+		{"returns localhost", &NetworkConfig{DashboardHostname: "localhost"}, "localhost"},
+		{"non-local hostname returns empty", &NetworkConfig{DashboardHostname: "not.a.local.host.example.com"}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{ConfigData: ConfigData{Network: tt.network}}
+			if got := cfg.GetDashboardHostname(); got != tt.want {
+				t.Errorf("GetDashboardHostname() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+
+	t.Run("returns machine hostname", func(t *testing.T) {
+		h, err := os.Hostname()
+		if err != nil {
+			t.Skip("cannot get hostname")
+		}
+		cfg := &Config{ConfigData: ConfigData{Network: &NetworkConfig{DashboardHostname: h}}}
+		if got := cfg.GetDashboardHostname(); got != h {
+			t.Errorf("GetDashboardHostname() = %q, want %q", got, h)
+		}
+	})
+}
+
+func TestDashboardURL(t *testing.T) {
+	skipUnderVendorlocked(t)
+	t.Parallel()
+	tests := []struct {
+		name    string
+		network *NetworkConfig
+		want    string
+	}{
+		{
+			"composes http URL",
+			&NetworkConfig{DashboardHostname: "localhost", Port: 7337},
+			"http://localhost:7337",
+		},
+		{
+			"composes https URL when TLS enabled",
+			&NetworkConfig{
+				DashboardHostname: "localhost",
+				Port:              7337,
+				TLS:               &TLSConfig{CertPath: "/cert.pem", KeyPath: "/key.pem"},
+			},
+			"https://localhost:7337",
+		},
+		{
+			"falls back when hostname is non-local",
+			&NetworkConfig{DashboardHostname: "not.a.local.host.example.com", Port: 7337, PublicBaseURL: "http://fallback.example.com"},
+			"http://fallback.example.com",
+		},
+		{
+			"falls back to public_base_url when hostname empty",
+			&NetworkConfig{PublicBaseURL: "https://public.example.com"},
+			"https://public.example.com",
+		},
+		{
+			"returns empty when both hostname and public_base_url empty",
+			&NetworkConfig{},
+			"",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{ConfigData: ConfigData{Network: tt.network}}
+			if got := cfg.GetDashboardURL(); got != tt.want {
+				t.Errorf("GetDashboardURL() = %q, want %q", got, tt.want)
+			}
+		})
+	}
 }

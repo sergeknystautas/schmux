@@ -16,6 +16,7 @@ import {
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
+import { useFeatures } from '../contexts/FeaturesContext';
 import { useConfigForm } from './config/useConfigForm';
 import { useAutoSave, type SaveStatus } from './config/useAutoSave';
 import useVersionInfo from '../hooks/useVersionInfo';
@@ -73,12 +74,20 @@ export default function ConfigPage() {
   const { confirm, prompt, alert } = useModal();
   const { success, error: toastError } = useToast();
   const { versionInfo } = useVersionInfo();
+  const { features } = useFeatures();
   const isDevMode = !!versionInfo?.dev_mode;
-  const isTabHidden = (_slug: string) => {
+  const isTabHidden = (slug: string) => {
+    // Vendor-locked builds have no configurable access settings (network bind,
+    // HTTPS, GitHub auth, remote access are all compiled out or pinned to
+    // loopback). Drop the Access tab from the wizard entirely.
+    if (slug === 'access' && features.vendor_locked) return true;
     return false;
   };
 
-  const initialStep = searchParams.get('tab') ? slugToStep(searchParams.get('tab')) : 1;
+  const requestedStep = searchParams.get('tab') ? slugToStep(searchParams.get('tab')) : 1;
+  // If the URL points at a hidden tab, fall back to step 1 instead of
+  // landing on a tab the user can't see in the wizard nav.
+  const initialStep = isTabHidden(TAB_SLUGS[requestedStep - 1]) ? 1 : requestedStep;
   const {
     state,
     dispatch: rawDispatch,

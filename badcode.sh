@@ -138,6 +138,17 @@ else
     echo "PASS"
 fi
 
+# --- Vendor-locked guards (custom shell scripts) ---
+
+section "Vendor-locked: direct bind-address writes (check-direct-bind-writes.sh)"
+BIND_OUT=$(./scripts/check-direct-bind-writes.sh 2>&1) || {
+    echo "$BIND_OUT"
+    FAILED=1
+}
+if [ -z "${BIND_OUT:-}" ]; then
+    echo "PASS"
+fi
+
 # --- Summary ---
 
 echo ""

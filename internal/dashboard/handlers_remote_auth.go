@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/sergeknystautas/schmux/internal/buildflags"
 )
 
 const maxPasswordAttempts = 5
@@ -320,6 +322,10 @@ func (s *Server) validateRemoteCookie(value string, r *http.Request) bool {
 }
 
 func (s *Server) handleRemoteAccessSetPassword(w http.ResponseWriter, r *http.Request) {
+	if buildflags.VendorLocked {
+		writeJSONError(w, "Remote access is not available in this build", http.StatusServiceUnavailable)
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req struct {
 		Password string `json:"password"`

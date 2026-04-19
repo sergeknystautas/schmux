@@ -237,3 +237,12 @@ typecheck:
 # Start an SSH-enabled Docker container for remote workspace testing
 docker-ssh:
     ./scripts/start-docker.sh
+
+# --- Vendor Build ---
+
+# Build a vendor-locked binary (loopback-only, no GitHub/tunnel/dashboardsx).
+# Tag combo is enforced at compile time via internal/buildflags/vendor_combo_check.go;
+# scripts/check-vendor-binary.sh runs post-build symbol-leak verification.
+build-vendor:
+    go build -tags="nogithub notunnel nodashboardsx vendorlocked" -o schmux ./cmd/schmux
+    @./scripts/check-vendor-binary.sh schmux

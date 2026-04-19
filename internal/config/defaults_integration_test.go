@@ -6,10 +6,29 @@ import (
 	"testing"
 )
 
+// TestIntegrationNoBuildDefaultsPreservesGoDefaults verifies that when no
+// build defaults are provided, the pipeline produces clean Go defaults.
+func TestIntegrationNoBuildDefaultsPreservesGoDefaults(t *testing.T) {
+	cfg := CreateDefault(t.TempDir() + "/config.json")
+
+	// With no embedded build_defaults.json, CreateDefault returns Go defaults.
+	if cfg.Network != nil {
+		t.Errorf("expected nil Network, got %+v", cfg.Network)
+	}
+	if len(cfg.Repos) != 0 {
+		t.Errorf("expected empty Repos, got %d", len(cfg.Repos))
+	}
+	// Default port getter returns 7337
+	if cfg.GetPort() != 7337 {
+		t.Errorf("default port: got %d, want 7337", cfg.GetPort())
+	}
+}
+
 // TestIntegrationBuildDefaultsFullPipeline exercises the complete config seeding
 // flow: Go defaults → build defaults overlay → ${USER} template resolution.
 // This simulates what CreateDefault does when build_defaults.json is embedded.
 func TestIntegrationBuildDefaultsFullPipeline(t *testing.T) {
+	skipUnderVendorlocked(t)
 	user := os.Getenv("USER")
 	if user == "" {
 		t.Skip("USER env var not set")
@@ -98,23 +117,5 @@ func TestIntegrationBuildDefaultsFullPipeline(t *testing.T) {
 	// Verify: SCM set from build defaults
 	if cfg.SourceCodeManagement != "git-worktree" {
 		t.Errorf("source_code_management: got %q, want %q", cfg.SourceCodeManagement, "git-worktree")
-	}
-}
-
-// TestIntegrationNoBuildDefaultsPreservesGoDefaults verifies that when no
-// build defaults are provided, the pipeline produces clean Go defaults.
-func TestIntegrationNoBuildDefaultsPreservesGoDefaults(t *testing.T) {
-	cfg := CreateDefault(t.TempDir() + "/config.json")
-
-	// With no embedded build_defaults.json, CreateDefault returns Go defaults.
-	if cfg.Network != nil {
-		t.Errorf("expected nil Network, got %+v", cfg.Network)
-	}
-	if len(cfg.Repos) != 0 {
-		t.Errorf("expected empty Repos, got %d", len(cfg.Repos))
-	}
-	// Default port getter returns 7337
-	if cfg.GetPort() != 7337 {
-		t.Errorf("default port: got %d, want 7337", cfg.GetPort())
 	}
 }

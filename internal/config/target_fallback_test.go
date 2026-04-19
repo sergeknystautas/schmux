@@ -136,6 +136,7 @@ func TestGetLoreTarget_FallbackChain(t *testing.T) {
 }
 
 func TestGetRemoteAccessEnabled_BackwardCompat(t *testing.T) {
+	skipUnderVendorlocked(t)
 	trueVal := true
 	falseVal := false
 

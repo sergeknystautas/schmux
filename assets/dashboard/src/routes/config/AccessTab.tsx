@@ -43,37 +43,36 @@ type AccessTabProps = {
   toastError: (msg: string) => void;
 };
 
-export default function AccessTab({
-  networkAccess,
-  remoteAccessEnabled,
-  remoteAccessPasswordHashSet,
-  passwordInput,
-  passwordConfirm,
-  passwordSaving,
-  passwordError,
-  passwordSuccess,
-  remoteAccessTimeoutMinutes,
-  remoteAccessNtfyTopic,
-  remoteAccessNotifyCommand,
-  authEnabled,
-  authPublicBaseURL,
-  authTlsCertPath,
-  authTlsKeyPath,
-  authSessionTTLMinutes,
-  authClientIdSet,
-  authClientSecretSet,
-  combinedAuthWarnings,
-  httpsEnabled,
-  tlsHostname,
-  tlsExpires,
-  onOpenTlsModal,
-  success,
-  toastError,
-  dispatch,
-  onSetPassword,
-  onOpenAuthSecretsModal,
-}: AccessTabProps) {
+export default function AccessTab(props: AccessTabProps) {
   const { features } = useFeatures();
+  const {
+    networkAccess,
+    remoteAccessEnabled,
+    remoteAccessPasswordHashSet,
+    passwordInput,
+    passwordConfirm,
+    passwordSaving,
+    passwordError,
+    passwordSuccess,
+    remoteAccessTimeoutMinutes,
+    remoteAccessNtfyTopic,
+    remoteAccessNotifyCommand,
+    authEnabled,
+    authPublicBaseURL,
+    authSessionTTLMinutes,
+    authClientIdSet,
+    authClientSecretSet,
+    combinedAuthWarnings,
+    httpsEnabled,
+    tlsHostname,
+    tlsExpires,
+    onOpenTlsModal,
+    success,
+    toastError,
+    dispatch,
+    onSetPassword,
+    onOpenAuthSecretsModal,
+  } = props;
   return (
     <div className="wizard-step-content" data-step="5" data-testid="config-tab-content-access">
       <h2 className="wizard-step-content__title">Access</h2>

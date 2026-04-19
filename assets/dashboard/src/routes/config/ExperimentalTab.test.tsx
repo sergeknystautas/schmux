@@ -21,6 +21,7 @@ const mockFeatures: Record<string, boolean> = {
   autolearn: true,
   floor_manager: true,
   timelapse: true,
+  vendor_locked: false,
 };
 
 vi.mock('../../contexts/FeaturesContext', () => ({

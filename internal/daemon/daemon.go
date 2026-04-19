@@ -392,6 +392,10 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		return fmt.Errorf("file mode migration failed: %w", err)
 	}
 
+	// Emit one WARN per access-related config key the vendorlocked build
+	// will ignore. No-op in non-vendor builds. Re-emitted on every start.
+	config.WarnVendorLockedIgnoredKeys(di.cfg, di.logger)
+
 	d.initDashboardSX(cfg, st, logger)
 
 	wm, sm, autolearnInstructionsDir := d.initManagers(cfg, st, tmuxServer, statePath, hooksDir, tel, schmuxDir, workspaceLog, sessionLog)

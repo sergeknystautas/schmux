@@ -18,6 +18,7 @@ const mockFeatures: Features = {
   autolearn: true,
   floor_manager: true,
   timelapse: true,
+  vendor_locked: false,
 };
 let mockLoading = false;
 

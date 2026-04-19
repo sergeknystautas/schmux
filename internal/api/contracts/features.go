@@ -15,4 +15,5 @@ type Features struct {
 	Autolearn     bool `json:"autolearn"`
 	FloorManager  bool `json:"floor_manager"`
 	Timelapse     bool `json:"timelapse"`
+	VendorLocked  bool `json:"vendor_locked"`
 }

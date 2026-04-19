@@ -4,37 +4,6 @@ import (
 	"testing"
 )
 
-func TestGetAuthEnabled(t *testing.T) {
-	tests := []struct {
-		name string
-		cfg  *Config
-		want bool
-	}{
-		{
-			name: "nil AccessControl defaults to false",
-			cfg:  &Config{},
-			want: false,
-		},
-		{
-			name: "explicit enabled",
-			cfg:  &Config{ConfigData: ConfigData{AccessControl: &AccessControlConfig{Enabled: true}}},
-			want: true,
-		},
-		{
-			name: "explicit disabled",
-			cfg:  &Config{ConfigData: ConfigData{AccessControl: &AccessControlConfig{Enabled: false}}},
-			want: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.cfg.GetAuthEnabled(); got != tt.want {
-				t.Errorf("GetAuthEnabled() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestGetAuthProvider(t *testing.T) {
 	tests := []struct {
 		name string
@@ -184,26 +153,6 @@ func TestGetPreviewPortBlockSize(t *testing.T) {
 	}
 }
 
-func TestGetPublicBaseURL(t *testing.T) {
-	tests := []struct {
-		name string
-		cfg  *Config
-		want string
-	}{
-		{name: "nil Network", cfg: &Config{}, want: ""},
-		{name: "empty URL", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{PublicBaseURL: ""}}}, want: ""},
-		{name: "whitespace URL trimmed", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{PublicBaseURL: "  https://example.com  "}}}, want: "https://example.com"},
-		{name: "set URL", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{PublicBaseURL: "https://my.domain.com"}}}, want: "https://my.domain.com"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.cfg.GetPublicBaseURL(); got != tt.want {
-				t.Errorf("GetPublicBaseURL() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestGetGitStatusWatchEnabled(t *testing.T) {
 	trueVal := true
 	falseVal := false
@@ -247,7 +196,61 @@ func TestGetGitStatusWatchDebounceMs(t *testing.T) {
 	}
 }
 
+func TestGetAuthEnabled(t *testing.T) {
+	skipUnderVendorlocked(t)
+	tests := []struct {
+		name string
+		cfg  *Config
+		want bool
+	}{
+		{
+			name: "nil AccessControl defaults to false",
+			cfg:  &Config{},
+			want: false,
+		},
+		{
+			name: "explicit enabled",
+			cfg:  &Config{ConfigData: ConfigData{AccessControl: &AccessControlConfig{Enabled: true}}},
+			want: true,
+		},
+		{
+			name: "explicit disabled",
+			cfg:  &Config{ConfigData: ConfigData{AccessControl: &AccessControlConfig{Enabled: false}}},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.GetAuthEnabled(); got != tt.want {
+				t.Errorf("GetAuthEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetPublicBaseURL(t *testing.T) {
+	skipUnderVendorlocked(t)
+	tests := []struct {
+		name string
+		cfg  *Config
+		want string
+	}{
+		{name: "nil Network", cfg: &Config{}, want: ""},
+		{name: "empty URL", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{PublicBaseURL: ""}}}, want: ""},
+		{name: "whitespace URL trimmed", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{PublicBaseURL: "  https://example.com  "}}}, want: "https://example.com"},
+		{name: "set URL", cfg: &Config{ConfigData: ConfigData{Network: &NetworkConfig{PublicBaseURL: "https://my.domain.com"}}}, want: "https://my.domain.com"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.GetPublicBaseURL(); got != tt.want {
+				t.Errorf("GetPublicBaseURL() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetTLSEnabled(t *testing.T) {
+	skipUnderVendorlocked(t)
 	tests := []struct {
 		name string
 		cfg  *Config
@@ -270,6 +273,7 @@ func TestGetTLSEnabled(t *testing.T) {
 }
 
 func TestGetTLSCertPath(t *testing.T) {
+	skipUnderVendorlocked(t)
 	tests := []struct {
 		name string
 		cfg  *Config
@@ -289,6 +293,7 @@ func TestGetTLSCertPath(t *testing.T) {
 }
 
 func TestGetTLSKeyPath(t *testing.T) {
+	skipUnderVendorlocked(t)
 	tests := []struct {
 		name string
 		cfg  *Config

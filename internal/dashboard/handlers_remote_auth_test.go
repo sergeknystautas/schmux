@@ -171,6 +171,7 @@ func TestRequiresAuth_FalseAfterTunnelStops(t *testing.T) {
 }
 
 func TestHandleRemoteAccessSetPassword_RejectsShortPassword(t *testing.T) {
+	skipUnderVendorlocked(t)
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 
@@ -239,6 +240,7 @@ func TestRemoteAuth_RateLimiting(t *testing.T) {
 }
 
 func TestRequireAuthOrRedirect_DoesNotLeakToken(t *testing.T) {
+	skipUnderVendorlocked(t)
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	enabled := true
@@ -461,6 +463,7 @@ func TestRemoteAuthGET_ReplayedTokenRejected(t *testing.T) {
 }
 
 func TestIsAllowedOrigin_RestrictedWhenTunnelActive(t *testing.T) {
+	skipUnderVendorlocked(t)
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 
@@ -524,6 +527,7 @@ func TestIsTrustedRequest_NoTunnel_LoopbackIsLocal(t *testing.T) {
 }
 
 func TestIsTrustedRequest_TunnelActive_LoopbackWithCfHeader_IsNotLocal(t *testing.T) {
+	skipUnderVendorlocked(t)
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	enabled := true
@@ -599,6 +603,7 @@ func TestNormalizeIPForRateLimit_NoTunnel_IgnoresHeaders(t *testing.T) {
 }
 
 func TestRequireAuthOrRedirect_LocalBypassesTunnelAuth(t *testing.T) {
+	skipUnderVendorlocked(t)
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	enabled := true
@@ -627,6 +632,7 @@ func TestRequireAuthOrRedirect_LocalBypassesTunnelAuth(t *testing.T) {
 }
 
 func TestSetPassword_InvalidatesExistingSessions(t *testing.T) {
+	skipUnderVendorlocked(t)
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 

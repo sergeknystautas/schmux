@@ -21,6 +21,7 @@ const DEFAULT_FEATURES: Features = {
   autolearn: true,
   floor_manager: true,
   timelapse: true,
+  vendor_locked: false,
 };
 
 const FeaturesContext = createContext<FeaturesContextValue | null>(null);

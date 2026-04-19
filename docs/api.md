@@ -9,6 +9,50 @@ Doc-gate policy:
 - Any API-affecting code change must update `docs/api.md`. CI enforces this rule.
 - Internal refactorings that touch API packages without changing the API surface still bump this file to satisfy the doc gate.
 - VCS subprocess execution sets `GIT_TERMINAL_PROMPT=0` and uses process-group kill to prevent credential-prompt hangs and orphaned child processes.
+- Vendor-locked builds (compiled with `-tags=vendorlocked`) structurally lock the daemon to loopback and disable operator-managed surfaces. See "Vendor-locked builds" below for the full envelope, and `docs/security.md` for design rationale.
+
+## Vendor-locked builds
+
+Binaries built with `-tags=vendorlocked` (typically combined with `nogithub`, `notunnel`, `nodashboardsx` — see `docs/cli.md` "Build flags") behave as follows at the API surface:
+
+**Config getters short-circuit.** `GetBindAddress`, `GetNetworkAccess`, `GetPublicBaseURL`, `GetTLSCertPath`, `GetTLSKeyPath`, `GetTLSEnabled`, `GetDashboardHostname`, `GetAuthEnabled`, and `GetRemoteAccessEnabled` return safe loopback / disabled values regardless of stored config. `GetDashboardURL` therefore always returns `http://127.0.0.1:<port>` and authentication / remote access features are disabled.
+
+**Load-time validation skips access-control checks.** `validateAccessControl` (run from `config.Load` → `Validate`) short-circuits at the top under `-tags=vendorlocked`. This is required because the validator reads raw struct fields (`AccessControl.Enabled`, `Network.TLS.*`, etc.) rather than the locked getters, so without the short-circuit a hostile stored config that enables auth without certificates would fail load with `auth config invalid` before `WarnVendorLockedIgnoredKeys` could warn about it. Vendor builds ignore those settings at runtime regardless, so silencing the validator and emitting the per-key warnings is the correct behavior.
+
+**Load-time warnings.** On every daemon start, `config.WarnVendorLockedIgnoredKeys` emits one structured `WARN` log line per access-related config key that the vendor build is ignoring (`network.bind_address`, `network.public_base_url`, `network.dashboard_hostname`, `network.tls.cert_path`, `network.tls.key_path`, `access_control.enabled`, `remote_access.enabled`, `remote_access.password_hash`). These warnings are repeated on every startup and are never silenced, matching the existing `security.allow_insecure_modes` pattern.
+
+**Config-save rejects access-related writes.** `POST/PUT /api/config` returns HTTP `400 Bad Request` with a JSON body of the form:
+
+```json
+{
+  "error": "this build is locked to loopback; cannot configure: network.bind_address, access_control.enabled"
+}
+```
+
+The validator rejects writes that would CHANGE a locked field, but accepts round-trips of the values the locked getter currently returns (so the dashboard form can save unrelated fields without stripping its access-tree state). Specifically:
+
+- `network.bind_address` — accepted iff it equals `127.0.0.1` (the locked getter return)
+- `network.public_base_url` — accepted iff empty OR equals `http://127.0.0.1:<port>` (locked getter return)
+- `network.tls.cert_path` / `network.tls.key_path` — accepted iff empty (locked getter return)
+- `access_control.enabled` — accepted iff `false` (or absent)
+- `remote_access.enabled` — accepted iff `false` (or absent)
+- `network.port`, `access_control.provider`, `access_control.session_ttl_minutes`, `remote_access.timeout_minutes`, `remote_access.notify.*` — always accepted (operator-chosen port, or fields that are inert when the parent feature is locked off)
+
+The set of writable fields is enforced by a reflection-based field-coverage test (`TestVendorLocked_ValidatorCoversEveryField` in `internal/dashboard/handlers_config_vendorlocked_test.go`) that walks every exported field on `NetworkUpdate`, `AccessControlUpdate`, `RemoteAccessUpdate`, and their nested `*TLSUpdate` / `*RemoteAccessNotifyUpdate` substructs, and asserts each one is either rejected by `validateVendorLockedWrite` or named in `vendorLockedAllowlist`.
+
+**Auxiliary endpoints under vendorlocked.** Write/mutate handlers short-circuit at the top under `-tags=vendorlocked` and return HTTP `503 Service Unavailable` with a JSON `{"error": "..."}` body:
+
+| Endpoint                          | Method(s) | 503 error message                                 |
+| --------------------------------- | --------- | ------------------------------------------------- |
+| `/api/remote-access/set-password` | POST      | `Remote access is not available in this build`    |
+| `/api/tls/validate`               | POST      | `TLS is not configurable in this build`           |
+| `/api/auth/secrets`               | POST, PUT | `Auth secrets are not configurable in this build` |
+
+The read-only `GET /api/auth/secrets` returns `200` with the empty/"not configured" body (`{"client_id":"","client_secret_set":false}`) so callers like `ConfigPage`'s initial load don't fail. The answer is always "no secrets configured" under vendorlocked since GitHub auth is compiled out anyway.
+
+**`/api/features` reports `vendor_locked`.** The boolean `vendor_locked` field is `true` when the binary was built with `-tags=vendorlocked`. The dashboard uses it to hide vendor-locked UI surfaces (Access tab, remote-access controls, TLS configuration, auth-secret editor).
+
+**Test gating.** Locked behavior is exercised by `*_vendorlocked_test.go` files in `internal/buildflags/`, `internal/config/`, and `internal/dashboard/` (test names start with `TestVendorLocked` or `TestWarnVendorLocked`). The project test runner's `backend` suite runs them automatically: after the untagged invocation, it runs a second `go test -tags="nogithub notunnel nodashboardsx vendorlocked" -short -run '^(TestVendorLocked|TestWarnVendorLocked)' ./internal/{buildflags,config,dashboard}/...` invocation. The `-run` filter keeps the second invocation fast (~1s vs ~9s) by skipping the pre-lock tests entirely; those tests still self-skip via `skipUnderVendorlocked(t)` (a tiny helper in each package's `vendorlocked_skip_test.go`) as defense-in-depth so a developer running raw `go test -tags=vendorlocked ./...` gets clean PASS-with-skips rather than spurious failures.
 
 General conventions:
 
@@ -78,11 +122,12 @@ Response:
   "comm_styles": true,
   "lore": true,
   "floor_manager": true,
-  "timelapse": true
+  "timelapse": true,
+  "vendor_locked": false
 }
 ```
 
-When a module is excluded via build tags (e.g. `-tags noautolearn,nofloormanager,notimelapse`), its field is `false`. The `telemetry` field reflects the `noposthog` build tag (PostHog backend availability). The dashboard uses these flags to hide experimental feature cards and their associated UI panels.
+When a module is excluded via build tags (e.g. `-tags noautolearn,nofloormanager,notimelapse`), its field is `false`. The `telemetry` field reflects the `noposthog` build tag (PostHog backend availability). The `vendor_locked` field is `true` when the binary is built with `-tags vendorlocked` — a hardened distribution mode that disables remote-bind, TLS configuration, auth-secret writes, and other operator-managed surfaces (see "Vendor-locked builds" above for the full envelope). The dashboard uses these flags to hide experimental feature cards and their associated UI panels, and uses `vendor_locked` to hide the Access tab, remote-access controls, TLS configuration, and auth-secret editor.
 
 ### GET /api/healthz
 
@@ -1244,6 +1289,13 @@ Response:
 Errors:
 
 - 400 for validation errors (plain text). Config validation checks structural integrity (non-empty names, no duplicate repo names, non-empty targets) but does not validate whether referenced targets exist at save time — target resolution happens at spawn time.
+- 400 (JSON) under `-tags=vendorlocked` when the request attempts to set any access-related field (`network.bind_address` to a non-loopback value, `network.public_base_url`, `network.tls.*`, `access_control.*`, or `remote_access.*`). The body lists every rejected field:
+  ```json
+  {
+    "error": "this build is locked to loopback; cannot configure: network.bind_address, access_control.enabled"
+  }
+  ```
+  See "Vendor-locked builds" above for the full list of rejected fields.
 - 500 for save/reload errors (plain text)
 
 ### POST /api/tls/validate
@@ -1286,6 +1338,10 @@ Notes:
 - Extracts hostname from Subject Alternative Names (SAN) or falls back to Common Name (CN)
 - Returns expiry date in RFC3339 format
 
+Errors:
+
+- 503 (JSON) under `-tags=vendorlocked`: `{"error": "TLS is not configurable in this build"}` — returned regardless of request body or method.
+
 ### GET /api/dashboardsx/callback
 
 Handles the OAuth callback from dashboard.sx after the user authenticates with GitHub. The browser is redirected here with a one-time `callback_token`. The handler exchanges it for registration info, provisions a TLS certificate via automated DNS-01 challenge, and updates the config.
@@ -1321,6 +1377,10 @@ Notes:
 - `client_id` is the actual value (not a boolean) since it's not a secret - it's visible in GitHub OAuth app settings
 - `client_secret_set` indicates whether a secret has been configured (the actual secret value is never returned)
 
+Errors:
+
+- Under `-tags=vendorlocked`: returns `200` with the empty body `{"client_id":"","client_secret_set":false}` rather than an error, so callers performing initial page loads don't fail. Writes (POST, PUT) still return 503.
+
 ### POST /api/auth/secrets
 
 Saves GitHub auth secrets. Supports partial updates.
@@ -1350,6 +1410,7 @@ Errors:
 
 - 400 for missing client_id, or missing client_secret on initial setup (plain text)
 - 500 for save errors (plain text)
+- 503 (JSON) under `-tags=vendorlocked`: `{"error": "Auth secrets are not configurable in this build"}`. PUT receives the same response.
 
 ### GET /api/detect-tools
 
@@ -3058,6 +3119,7 @@ Errors:
 - 400: "Password cannot be empty" / "Invalid request body"
 - 405: "Method not allowed"
 - 500: "Failed to hash password" / "Failed to save config: ..."
+- 503 (JSON) under `-tags=vendorlocked`: `{"error": "Remote access is not available in this build"}` — returned regardless of request body.
 
 Notes:
 

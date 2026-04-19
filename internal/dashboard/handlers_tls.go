@@ -12,10 +12,15 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/buildflags"
 )
 
 // handleTLSValidate validates TLS certificate and key paths.
 func (s *Server) handleTLSValidate(w http.ResponseWriter, r *http.Request) {
+	if buildflags.VendorLocked {
+		writeJSONError(w, "TLS is not configurable in this build", http.StatusServiceUnavailable)
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return

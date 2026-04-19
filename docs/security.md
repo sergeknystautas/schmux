@@ -11,15 +11,22 @@ Three structural correctness fixes plus one deliberate non-fix that together est
 
 ## Key files
 
-| File                                           | Purpose                                                                                                                   |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `internal/cmdtemplate/cmdtemplate.go`          | `Template`, `Render` — sole renderer for shell-executed configured commands. Enforces literal-script escape hatch.        |
-| `internal/dashboard/validation.go`             | `isValidResourceID`, `isValidRepoName`, `isPathWithinDir`. HTTP-perimeter validators only.                                |
-| `internal/daemon/modes.go`                     | `MigrateModes` — walks `${schmuxdir}` on startup, tightens permissions, refuses to start on chmod failure (default).      |
-| `internal/config/config.go` (`ShellCommand`)   | `[]string` type with `UnmarshalJSON` that rejects legacy string-form values pointing the user at `schmux config migrate`. |
-| `internal/config/config.go` (`SecurityConfig`) | `security.allow_insecure_modes` field — escape valve for filesystems without unix permission semantics.                   |
-| `cmd/schmux/cmd_config_migrate.go`             | `schmux config migrate` CLI — converts legacy string-form configs to argv arrays. Reads JSON directly, no daemon.         |
-| `pkg/shellutil/{quote,split}.go`               | Shell tokenizer + quoting helpers used by the migrate CLI and remote-VCS argv-to-shell conversion.                        |
+| File                                           | Purpose                                                                                                                                                         |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `internal/cmdtemplate/cmdtemplate.go`          | `Template`, `Render` — sole renderer for shell-executed configured commands. Enforces literal-script escape hatch.                                              |
+| `internal/dashboard/validation.go`             | `isValidResourceID`, `isValidRepoName`, `isPathWithinDir`. HTTP-perimeter validators only.                                                                      |
+| `internal/daemon/modes.go`                     | `MigrateModes` — walks `${schmuxdir}` on startup, tightens permissions, refuses to start on chmod failure (default).                                            |
+| `internal/config/config.go` (`ShellCommand`)   | `[]string` type with `UnmarshalJSON` that rejects legacy string-form values pointing the user at `schmux config migrate`.                                       |
+| `internal/config/config.go` (`SecurityConfig`) | `security.allow_insecure_modes` field — escape valve for filesystems without unix permission semantics.                                                         |
+| `cmd/schmux/cmd_config_migrate.go`             | `schmux config migrate` CLI — converts legacy string-form configs to argv arrays. Reads JSON directly, no daemon.                                               |
+| `pkg/shellutil/{quote,split}.go`               | Shell tokenizer + quoting helpers used by the migrate CLI and remote-VCS argv-to-shell conversion.                                                              |
+| `internal/buildflags/vendorlocked_*.go`        | `VendorLocked` typed `const bool` — locks listener to 127.0.0.1; compiler dead-code-eliminates locked branches.                                                 |
+| `internal/buildflags/vendor_combo_check.go`    | Compile-time check that fails the build if `vendorlocked` is set without `nogithub`/`notunnel`/`nodashboardsx`.                                                 |
+| `scripts/check-vendor-binary.sh`               | Post-build `go tool nm` check — fails if real-impl symbols leaked into a vendor binary. Called by `just build-vendor` and the vendor distribution build script. |
+| `internal/config/vendorlocked_warn.go`         | `WarnVendorLockedIgnoredKeys` — load-time warnings for ignored access settings under vendorlocked.                                                              |
+| `internal/dashboard/handlers_config.go`        | `vendorLockedAllowlist` + `validateVendorLockedWrite` — rejects writes to locked fields with HTTP 400.                                                          |
+| `tools/test-runner/src/suites/backend.ts`      | Backend test suite — runs the untagged Go tests, then a second `-tags=vendorlocked` invocation filtered to `TestVendorLocked*`/`TestWarnVendorLocked*` only.    |
+| `scripts/check-direct-bind-writes.sh`          | CI guard — blocks new direct `cfg.Network.BindAddress = "0.0.0.0"` writes outside tag-gated files.                                                              |
 
 Use sites of the argv-array schema:
 
@@ -86,6 +93,139 @@ The opt-out exists because some legitimate environments (WSL2 mounting Windows-f
 
 The walk tightens the `${schmuxdir}/repos/` and `${schmuxdir}/query/` directory entries themselves but does not descend into them. Those subtrees hold bare clones and Sapling/EdenFS working copies, including virtual-mount monorepos whose backing store contains millions of files. Recursing would force materialization of every backing file and rewrite permissions on upstream code (and on git-managed object/pack files under `query/`) that schmux does not own. The configured `workspace_path` is treated the same way when it falls inside `${schmuxdir}` (some installations point it at `${schmuxdir}/workspaces/`): each workspace can itself be a Sapling/EdenFS working copy. Files keep their owner exec bit (`0600 | (existing & 0100)`) so generated hook scripts under `${schmuxdir}/hooks/` stay runnable; group/other bits are always stripped.
 
+### Vendor-locked builds
+
+Binaries built with `-tags=vendorlocked` are structurally incapable of
+binding a non-loopback address. The lock is enforced at multiple layers:
+
+- **Getter layer** (`internal/config/config.go`): nine getters short-circuit
+  to safe values (`GetBindAddress` → `127.0.0.1`, `GetTLSEnabled` → `false`,
+  `GetAuthEnabled` → `false`, `GetRemoteAccessEnabled` → `false`,
+  `GetPublicBaseURL` → `http://127.0.0.1:<port>`, etc.). Every callsite
+  flows through these getters, so the lock cannot be bypassed by future
+  code without touching the getter itself.
+- **API layer** (`internal/dashboard/handlers_config.go`):
+  `validateVendorLockedWrite` rejects `POST/PUT /api/config` writes that
+  would CHANGE a locked field — but accepts round-trips of the values the
+  locked getter currently returns (so the dashboard form can save unrelated
+  fields without stripping its access-tree state). Returns HTTP 400 with
+  the rejected key list. The validator runs inside `handleConfigUpdate`
+  AFTER `Reload()` and BEFORE the merge into `cfg`. Inert fields like
+  `access_control.session_ttl_minutes` and `remote_access.notify.*` are
+  in `vendorLockedAllowlist` and accepted unconditionally because their
+  parent feature (`access_control.enabled`, `remote_access.enabled`) is
+  already locked off — they have no behavioral effect.
+- **Auxiliary handlers**: `handleRemoteAccessSetPassword`,
+  `handleAuthSecretsGet`, `handleAuthSecretsUpdate`, and `handleTLSValidate`
+  return HTTP 503 under vendorlocked via in-handler `if buildflags.VendorLocked`
+  early-returns. Pattern is uniform; messages name the unavailable subsystem.
+- **Load-time warnings** (`internal/config/vendorlocked_warn.go`):
+  `WarnVendorLockedIgnoredKeys` emits one structured `logger.Warn` line per
+  ignored key on every daemon start. Pinned to fire inside `daemon.Run`
+  immediately after `MigrateModes`, before any listener opens. Never silenced.
+- **Validator short-circuit** (`internal/config/config.go:validateAccessControl`):
+  short-circuits to `(nil, nil)` under vendorlocked. Without this, the strict
+  config validator (which reads struct fields directly, NOT via the locked
+  getters) hard-fails `config.Load()` on any inherited config that has
+  `access_control.enabled=true` or `network.tls.*` set, before the load-time
+  warnings can fire.
+
+Vendor builds **must** set all four feature-disable tags together:
+
+    go build -tags="nogithub notunnel nodashboardsx vendorlocked" ./cmd/schmux
+
+This is enforced at TWO layers:
+
+- **Compile-time** (`internal/buildflags/vendor_combo_check.go`): a one-file
+  build-tag trick that adds a colliding `VendorLocked` declaration when
+  `vendorlocked` is set without `nogithub`/`notunnel`/`nodashboardsx`. Any
+  missing tag triggers a "VendorLocked redeclared in this block" compile
+  error and the build fails immediately. This is the structural enforcement
+  — a misconfigured vendor build cannot even produce a binary.
+- **Post-build** (`scripts/check-vendor-binary.sh`): runs `go tool nm`
+  against the produced binary and fails if any real-implementation symbol
+  from the excluded packages (`ProvisionCert`, `LoadOrCreateAccount`,
+  `Manager.setStatus`, `Discovery.poll`, `FetchOpenPRs`, etc.) is present.
+  This is defense-in-depth — catches a real-impl symbol leaking through
+  a stub via accidental import. The pattern targets symbols that exist
+  ONLY in real implementations, NOT stub symbols (`EnsureInstanceKey`,
+  `Manager.Start`, `Discovery.GetPRs`, etc.) which are intentionally
+  exported from `disabled.go` for compile-time interface satisfaction.
+
+Both `just build-vendor` (in this repo) and the vendor distribution build
+script call `scripts/check-vendor-binary.sh`, so the symbol allowlist
+lives in exactly one place.
+
+#### Why this shape
+
+- **Why a typed `const bool`, not a `var`** — Go compiler constant folding
+  collapses `if buildflags.VendorLocked { ... }` to either the body or
+  nothing at compile time. With a `var`, the locked-out code would still
+  exist in the binary; an attacker who could flip the var (memory corruption,
+  process injection) would unlock the listener. The `const` makes that
+  attack impossible.
+- **Why getter-layer locking, not call-site or listener-layer** — locking
+  at every call site is fragile (future call sites would need to know);
+  locking only at the listener call site protects the dashboard but not
+  other listeners (the preview proxy at `internal/preview/manager.go:443`
+  inherits `cfg.GetNetworkAccess()` at construction time, so its bind
+  address is locked by the same getter as the dashboard).
+- **Why all four tags must ship together** — three direct
+  `cfg.Network.BindAddress = "0.0.0.0"` write sites exist (in
+  `cmd/schmux/auth_github.go`, `cmd/schmux/dashboardsx.go`, and
+  `internal/dashboard/handlers_dashboardsx.go`), each gated by a different
+  tag. If `vendorlocked` ships without the others, the runtime lock still
+  holds (the getter overrides), but the on-disk config gets corrupted
+  ("0.0.0.0"), the load-time warning fires endlessly, and the operator sees
+  a confusing mismatch. Hard-requiring all four tags is simpler than gating
+  the direct writes by `!vendorlocked` too.
+- **Why in-handler runtime rejection, not file-split, for auxiliary
+  endpoints** — `internal/dashboard/handlers_remote_auth.go` defines
+  `handleRemoteAccessSetPassword` (the one we want to lock) AND
+  `handleRemoteAuthGET`/`handleRemoteAuthPOST` (wired unconditionally at
+  `server.go:624-625`) AND `validateRemoteCookie` (called from
+  `auth.go:129`). A file-level `!vendorlocked` build tag would break the
+  vendor build by removing those other symbols. Same pattern applies to
+  `handleAuthSecretsUpdate` (large `handlers_config.go`) and
+  `handleTLSValidate`. The const-folded early-return is zero-cost in
+  non-vendor builds.
+
+#### Common modification patterns
+
+- **Adding a new access-affecting config field**: wire it into all three
+  layers — the corresponding getter lock, `validateVendorLockedWrite`
+  (`internal/dashboard/handlers_config.go`), and `WarnVendorLockedIgnoredKeys`
+  (`internal/config/vendorlocked_warn.go`). The reflection test in
+  `handlers_config_vendorlocked_test.go` (`TestVendorLocked_ValidatorCoversEveryField`)
+  will fail if the validator doesn't cover a new field. If the field is
+  intentionally writable, add it to `vendorLockedAllowlist`.
+- **Adding a new direct mutation site `cfg.Network.BindAddress = "0.0.0.0"`**:
+  forbidden. `scripts/check-direct-bind-writes.sh` (wired into `badcode.sh`)
+  trips CI on any non-test `.go` file that does this without a
+  `!vendorlocked`/`!nogithub`/`!nodashboardsx`/`!notunnel` build constraint
+  on the file.
+- **Adding a new config validator that touches access fields**: it must
+  short-circuit on `buildflags.VendorLocked` BEFORE reading the field,
+  because validators run during `config.Load()` and bypass the getter lock.
+  Copy the pattern from `validateAccessControl`.
+- **Adding a vendorlocked-specific test**: put it in a file gated by
+  `//go:build vendorlocked` and name it `TestVendorLocked_*` /
+  `TestWarnVendorLocked_*`. The naming convention is load-bearing — the
+  `backend.ts` test runner runs the second invocation with
+  `-run '^(TestVendorLocked|TestWarnVendorLocked)'` to keep it fast,
+  so a test outside that name pattern won't actually execute under
+  the runner.
+- **Adding a test that asserts pre-lock behavior of a locked getter or
+  handler**: call `skipUnderVendorlocked(t)` as the first statement of
+  the test body. The helper lives in `vendorlocked_skip_test.go` in each
+  affected package and is a no-op in non-vendor builds (compiler folds
+  the typed-const branch). This keeps tests in their original files —
+  no separate `_unlocked_test.go` partition needed.
+- **Adding a new compile-out tag (e.g., `nofoo`)**: if the tag also gates
+  any direct `cfg.Network.BindAddress = "0.0.0.0"` write, add the tag to
+  the exclusion regex in `scripts/check-direct-bind-writes.sh` so guarded
+  files are skipped.
+
 ## Gotchas
 
 - **Sapling/remote-VCS/telemetry/diff commands MUST be JSON arrays.** A single string in `~/.schmux/config.json` for any of these fields makes the daemon refuse to start. The error message points at `schmux config migrate`. Old config snippets in blog posts, AGENTS.md examples, etc. need updating.
@@ -96,6 +236,9 @@ The walk tightens the `${schmuxdir}/repos/` and `${schmuxdir}/query/` directory 
 - **The chmod migration runs before listeners open.** Anything that depends on the daemon being reachable (health checks, supervisor probes) sees a longer startup window when there's lots to chmod. Symlinks under `${schmuxdir}` are detected via `Lstat` and skipped — never chased — so an attacker who plants a symlink can't redirect a chmod onto a system file.
 - **Same-UID processes have full access to schmux.** The threat model accepts this. If you're tempted to add a defense ("X needs to be locked down"), check whether the attacker would already have `os.exec` as the engineer's UID. If yes, the defense is theatre — don't add it.
 - **The auth-token file referenced in some old branches doesn't exist.** A `${schmuxdir}/auth-token` was designed and then dropped. If you find a reference to it, it's stale.
+- **Vendorlocked validators bypass the getter lock.** Functions called during `config.Load()` (e.g., `validateAccessControl`) read struct fields directly, NOT via the locked getters — so they need their own `if buildflags.VendorLocked` short-circuit. Without it, the daemon hard-fails on any inherited config that has access-related fields set, before `WarnVendorLockedIgnoredKeys` can fire.
+- **`/api/tls/validate` is registered as GET-only at `server.go:811` (a pre-existing bug).** Vendorlocked tests for that endpoint use direct handler invocation (`httptest.NewRecorder` + `server.handleTLSValidate(rr, req)`) to bypass chi routing; an end-to-end POST returns 405 from chi before the vendorlocked early-return fires. The `just build-vendor` smoke test uses GET for the same reason.
+- **`scripts/check-vendor-binary.sh` symbol check anchors on real-implementation symbols, not stubs.** The `disabled.go` files in `internal/dashboardsx/`, `internal/tunnel/`, `internal/github/` intentionally export public names like `EnsureInstanceKey`, `Manager.Start`, `Discovery.GetPRs` for compile-time interface satisfaction. The script's pattern targets symbols that exist ONLY in the real implementation files (`ProvisionCert`, `LoadOrCreateAccount`, `Manager.setStatus`, etc.). When refactoring real-impl files, update the pattern in `scripts/check-vendor-binary.sh` to reference new symbols — picking a stub-shared name as a sentinel will produce false positives.
 
 ## Common modification patterns
 

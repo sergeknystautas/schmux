@@ -18,6 +18,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/buildflags"
 	"github.com/sergeknystautas/schmux/internal/fileutil"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/types"
@@ -2533,6 +2534,9 @@ func (c *Config) XtermOperationTimeout() time.Duration {
 // GetBindAddress returns the address to bind the server to.
 // Defaults to "127.0.0.1" (localhost only).
 func (c *Config) GetBindAddress() string {
+	if buildflags.VendorLocked {
+		return "127.0.0.1"
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.getBindAddressLocked()
@@ -2549,6 +2553,9 @@ func (c *Config) getBindAddressLocked() string {
 // GetNetworkAccess returns whether the dashboard should be accessible from the local network.
 // This is a convenience method that checks if bind_address is "0.0.0.0".
 func (c *Config) GetNetworkAccess() bool {
+	if buildflags.VendorLocked {
+		return false
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.getBindAddressLocked() == "0.0.0.0"
@@ -2616,6 +2623,9 @@ func (c *Config) GetPreviewPortBlockSize() int {
 
 // GetPublicBaseURL returns the public base URL for the dashboard.
 func (c *Config) GetPublicBaseURL() string {
+	if buildflags.VendorLocked {
+		return fmt.Sprintf("http://127.0.0.1:%d", c.GetPort())
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if c.Network == nil {
@@ -2626,6 +2636,9 @@ func (c *Config) GetPublicBaseURL() string {
 
 // GetTLSCertPath returns the TLS certificate path.
 func (c *Config) GetTLSCertPath() string {
+	if buildflags.VendorLocked {
+		return ""
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.getTLSCertPathLocked()
@@ -2641,6 +2654,9 @@ func (c *Config) getTLSCertPathLocked() string {
 
 // GetTLSKeyPath returns the TLS key path.
 func (c *Config) GetTLSKeyPath() string {
+	if buildflags.VendorLocked {
+		return ""
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.getTLSKeyPathLocked()
@@ -2656,6 +2672,9 @@ func (c *Config) getTLSKeyPathLocked() string {
 
 // GetTLSEnabled returns whether TLS is configured.
 func (c *Config) GetTLSEnabled() bool {
+	if buildflags.VendorLocked {
+		return false
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.getTLSCertPathLocked() != "" && c.getTLSKeyPathLocked() != ""
@@ -2665,6 +2684,9 @@ func (c *Config) GetTLSEnabled() bool {
 // Returns empty if the hostname doesn't resolve to a local interface,
 // allowing callers to fall back to localhost.
 func (c *Config) GetDashboardHostname() string {
+	if buildflags.VendorLocked {
+		return ""
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if c.Network == nil {
@@ -2770,6 +2792,9 @@ func (c *Config) GetDashboardSXHostname() string {
 
 // GetAuthEnabled returns whether auth is enabled.
 func (c *Config) GetAuthEnabled() bool {
+	if buildflags.VendorLocked {
+		return false
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if c.AccessControl == nil {
@@ -2802,6 +2827,15 @@ func (c *Config) GetAuthSessionTTLMinutes() int {
 }
 
 func (c *Config) validateAccessControl(strict bool) ([]string, error) {
+	// Vendorlocked builds ignore all access-control settings at runtime
+	// (see GetAuthEnabled, GetTLS*, GetPublicBaseURL, etc.). Reading raw
+	// struct fields here would surface "auth config invalid" errors for
+	// configs the binary will silently override anyway. Skip validation
+	// — WarnVendorLockedIgnoredKeys logs each ignored key during daemon
+	// startup so operators are informed.
+	if buildflags.VendorLocked {
+		return nil, nil
+	}
 	if c.AccessControl == nil || !c.AccessControl.Enabled {
 		return nil, nil
 	}
@@ -2900,6 +2934,9 @@ func offsetToLineCol(data []byte, offset int64) (line, col int) {
 // For backward compatibility, "disabled": true in existing configs is respected
 // (inverted to enabled=false). If both fields are set, "enabled" takes precedence.
 func (c *Config) GetRemoteAccessEnabled() bool {
+	if buildflags.VendorLocked {
+		return false
+	}
 	if c == nil {
 		return false
 	}

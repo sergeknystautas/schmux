@@ -44,72 +44,106 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     .map((l) => l.trim())
     .filter((l) => l && !l.match(/\/e2e$/));
 
-  // Build go test args — always use -v to get individual test results for live streaming
-  const args = ['test', '-short', '-v', ...packages];
-
+  // Untagged invocation: full backend test suite.
+  const untaggedArgs = ['test', '-short', '-v', ...packages];
   if (opts.repeat > 1) {
-    args.push(`-count=${opts.repeat}`);
+    untaggedArgs.push(`-count=${opts.repeat}`);
   } else if (opts.noCache) {
-    args.push('-count=1');
+    untaggedArgs.push('-count=1');
   }
-  if (opts.race) args.push('-race');
-  if (opts.coverage) args.push('-coverprofile=coverage.out', '-covermode=atomic');
-  if (opts.runPattern) args.push('-run', opts.runPattern);
+  if (opts.race) untaggedArgs.push('-race');
+  if (opts.coverage) untaggedArgs.push('-coverprofile=coverage.out', '-covermode=atomic');
+  if (opts.runPattern) untaggedArgs.push('-run', opts.runPattern);
 
-  const accumulator = new GoTestOutputAccumulator();
+  // Vendorlocked invocation: only runs the vendorlocked-specific tests
+  // (TestVendorLocked* / TestWarnVendorLocked*) in the three packages that
+  // have them. The -run filter is for SPEED — without it we'd re-execute
+  // ~9 seconds of pre-lock tests that all self-skip. The self-skip helpers
+  // (skipUnderVendorlocked) still exist as defense-in-depth so a developer
+  // running raw `go test -tags=vendorlocked ./...` gets graceful skips
+  // rather than failures. All four tags are required together —
+  // internal/buildflags/vendor_combo_check.go enforces this at compile time.
+  const vendorlockedArgs = [
+    'test',
+    '-tags=nogithub notunnel nodashboardsx vendorlocked',
+    '-short',
+    '-v',
+    '-run',
+    '^(TestVendorLocked|TestWarnVendorLocked)',
+    `${modulePath}/internal/buildflags/...`,
+    `${modulePath}/internal/config/...`,
+    `${modulePath}/internal/dashboard/...`,
+  ];
+  if (opts.repeat > 1) {
+    vendorlockedArgs.push(`-count=${opts.repeat}`);
+  } else if (opts.noCache) {
+    vendorlockedArgs.push('-count=1');
+  }
+  if (opts.race) vendorlockedArgs.push('-race');
+
   const passedTests: string[] = [];
   const failedTests: FailedTest[] = [];
   const skippedTests: string[] = [];
   const testDurations: Record<string, number> = {};
   const outputLines: string[] = [];
 
-  const result = await exec({
-    cmd: 'go',
-    args,
-    cwd: root,
-    onLine: (line) => {
-      outputLines.push(line);
-      accumulator.feedLine(line);
+  const runInvocation = async (args: string[], rerunPrefix: string) => {
+    const accumulator = new GoTestOutputAccumulator();
+    return exec({
+      cmd: 'go',
+      args,
+      cwd: root,
+      onLine: (line) => {
+        outputLines.push(line);
+        accumulator.feedLine(line);
 
-      const event = parseGoTestLine(line, 0);
-      if (!event) {
-        if (opts.verbose) {
-          onEvent('backend', { type: 'output_line', line });
+        const event = parseGoTestLine(line, 0);
+        if (!event) {
+          if (opts.verbose) {
+            onEvent('backend', { type: 'output_line', line });
+          }
+          return;
         }
-        return;
-      }
 
-      switch (event.type) {
-        case 'test_pass':
-          passedTests.push(event.name);
-          testDurations[event.name] = Math.max(testDurations[event.name] ?? 0, event.durationMs);
-          onEvent('backend', event);
-          break;
-        case 'test_fail':
-          // Attach accumulated output to the failure
-          event.output = accumulator.getFailureOutput(event.name);
-          failedTests.push({
-            name: event.name,
-            output: event.output,
-            rerunCommand: `./test.sh --backend --run ${event.name}`,
-          });
-          testDurations[event.name] = Math.max(testDurations[event.name] ?? 0, event.durationMs);
-          onEvent('backend', event);
-          break;
-        case 'test_skip':
-          skippedTests.push(event.name);
-          break;
-        default:
-          onEvent('backend', event);
-      }
-    },
-  });
+        switch (event.type) {
+          case 'test_pass':
+            passedTests.push(event.name);
+            testDurations[event.name] = Math.max(testDurations[event.name] ?? 0, event.durationMs);
+            onEvent('backend', event);
+            break;
+          case 'test_fail':
+            event.output = accumulator.getFailureOutput(event.name);
+            failedTests.push({
+              name: event.name,
+              output: event.output,
+              rerunCommand: `${rerunPrefix} ${event.name}`,
+            });
+            testDurations[event.name] = Math.max(testDurations[event.name] ?? 0, event.durationMs);
+            onEvent('backend', event);
+            break;
+          case 'test_skip':
+            skippedTests.push(event.name);
+            break;
+          default:
+            onEvent('backend', event);
+        }
+      },
+    });
+  };
 
-  const status = result.exitCode === 0 ? 'passed' : 'failed';
+  const untaggedResult = await runInvocation(untaggedArgs, './test.sh --backend --run');
+  const vendorlockedResult = await runInvocation(
+    vendorlockedArgs,
+    `go test -tags=vendorlocked -run`
+  );
 
-  // Coverage analysis
+  const status =
+    untaggedResult.exitCode === 0 && vendorlockedResult.exitCode === 0 ? 'passed' : 'failed';
+  const totalDuration = untaggedResult.durationMs + vendorlockedResult.durationMs;
+
+  // Coverage analysis (untagged invocation only — coverage is not requested for vendorlocked).
   let coverageReport;
-  if (opts.coverage && status === 'passed') {
+  if (opts.coverage && untaggedResult.exitCode === 0) {
     coverageReport = await analyzeGoCoverage(resolve(root, 'coverage.out'), root);
   }
 
@@ -121,7 +155,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
 
   return makeResult(
     status,
-    result.durationMs,
+    totalDuration,
     passedTests,
     failedTests,
     skippedTests,

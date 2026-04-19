@@ -54,20 +54,20 @@ vi.mock('../../contexts/ConfigContext', () => ({
   useConfig: () => mockConfigCtx,
 }));
 
+// Mutable so individual tests can flip flags (e.g. vendor_locked).
+const mockFeatures: Record<string, boolean> = {
+  tunnel: true,
+  github: true,
+  telemetry: true,
+  update: true,
+  dashboardsx: true,
+  model_registry: true,
+  repofeed: true,
+  subreddit: true,
+  vendor_locked: false,
+};
 vi.mock('../../contexts/FeaturesContext', () => ({
-  useFeatures: () => ({
-    features: {
-      tunnel: true,
-      github: true,
-      telemetry: true,
-      update: true,
-      dashboardsx: true,
-      model_registry: true,
-      repofeed: true,
-      subreddit: true,
-    },
-    loading: false,
-  }),
+  useFeatures: () => ({ features: mockFeatures, loading: false }),
 }));
 
 // Minimal full config response fixture
@@ -164,6 +164,7 @@ describe('ConfigPage', () => {
     mockGetAuthSecretsStatus.mockResolvedValue({ client_id_set: false, client_secret_set: false });
     mockGetOverlays.mockResolvedValue({ overlays: [] });
     mockGetBuiltinQuickLaunch.mockResolvedValue([]);
+    mockFeatures.vendor_locked = false;
   });
 
   afterEach(() => {
@@ -259,6 +260,31 @@ describe('ConfigPage', () => {
     await userEvent.click(screen.getByTestId('config-tab-sessions'));
     await waitFor(() => {
       expect(screen.getByText('Command Targets')).toBeInTheDocument();
+    });
+  });
+
+  it('hides the Access tab when features.vendor_locked is true', async () => {
+    mockFeatures.vendor_locked = true;
+    renderConfigPage();
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('/home/user/ws')).toBeInTheDocument();
+    });
+    // The Access tab disappears entirely; the other six tabs remain.
+    expect(screen.queryByTestId('config-tab-access')).not.toBeInTheDocument();
+    for (const slug of ['workspaces', 'sessions', 'agents', 'remote', 'experimental', 'advanced']) {
+      expect(screen.getByTestId(`config-tab-${slug}`)).toBeInTheDocument();
+    }
+  });
+
+  it('falls back to Workspaces when ?tab=access is requested under vendor_locked', async () => {
+    mockFeatures.vendor_locked = true;
+    render(
+      <MemoryRouter initialEntries={['/config?tab=access']}>
+        <ConfigPage />
+      </MemoryRouter>
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('config-tab-workspaces')).toHaveAttribute('aria-selected', 'true');
     });
   });
 

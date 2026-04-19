@@ -639,6 +639,26 @@ Run targets can be referenced by name in the `-t` flag. Detected tools and model
 
 ---
 
+## Build flags
+
+| Tag             | Effect                                                                                                         |
+| --------------- | -------------------------------------------------------------------------------------------------------------- |
+| `nogithub`      | Compiles out GitHub OAuth + auth code paths.                                                                   |
+| `notunnel`      | Compiles out Cloudflare tunnel + remote-access code paths.                                                     |
+| `nodashboardsx` | Compiles out dashboardsx (managed-cert) code paths.                                                            |
+| `vendorlocked`  | Locks listener to 127.0.0.1, rejects all access-config writes. **MUST be combined with the other three tags.** |
+
+Vendor build invocation:
+
+```
+go build -tags="nogithub notunnel nodashboardsx vendorlocked" -o schmux ./cmd/schmux
+```
+
+The `just build-vendor` recipe runs this and verifies no excluded
+symbols leaked via `go tool nm`.
+
+---
+
 ## When to Use CLI vs Web
 
 **Use the CLI when:**

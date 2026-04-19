@@ -12,6 +12,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/buildflags"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/github"
@@ -21,6 +22,95 @@ import (
 	"github.com/sergeknystautas/schmux/internal/tunnel"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
+
+// vendorLockedAllowlist names every field of NetworkUpdate /
+// AccessControlUpdate / RemoteAccessUpdate that is INTENTIONALLY left
+// writable under vendorlocked. Adding a new field to those Update
+// contract types without either rejecting it in
+// validateVendorLockedWrite OR adding it here will fail the
+// reflection-based test in handlers_config_vendorlocked_test.go. Keep
+// this list short.
+//
+// vendorLockedAllowlist names contract fields that vendorlocked builds
+// intentionally accept any value for — typically because the parent feature
+// is disabled by the lock (so the field is inert) or because the field is
+// non-security-relevant (operator-chosen port, etc.). The reflection test
+// in handlers_config_vendorlocked_test.go uses this list to verify every
+// field is either rejected by validateVendorLockedWrite OR explicitly
+// allowlisted here.
+//
+//lint:ignore U1000 consumed reflectively by the vendorlocked field-coverage test under -tags=vendorlocked; unused under untagged builds
+var vendorLockedAllowlist = map[string]bool{
+	"Network.Port":                    true, // operator-chooses port
+	"AccessControl.Provider":          true, // inert when access_control.enabled is locked false
+	"AccessControl.SessionTTLMinutes": true, // inert when access_control.enabled is locked false
+	"RemoteAccess.TimeoutMinutes":     true, // inert when remote_access.enabled is locked false
+	"RemoteAccess.Notify":             true, // inert when remote_access.enabled is locked false
+}
+
+// validateVendorLockedWrite returns an error if the incoming config
+// update tries to CHANGE a locked field. Writes that round-trip the
+// value the locked getter currently returns (e.g., the dashboard form
+// reposting "127.0.0.1" / "http://127.0.0.1:<port>" / "" unchanged) are
+// accepted as no-ops. Inert fields (Provider, SessionTTLMinutes, etc.)
+// are accepted because their parent feature is locked off.
+//
+// REGISTRY: every field of NetworkUpdate/AccessControlUpdate/
+// RemoteAccessUpdate (the *Update contract types decoded by
+// handleConfigUpdate, NOT the persisted *Config types) is either
+// rejected here or in vendorLockedAllowlist above.
+func validateVendorLockedWrite(req *contracts.ConfigUpdateRequest, cfg *config.Config) error {
+	if !buildflags.VendorLocked {
+		return nil
+	}
+	var rejected []string
+
+	if req.Network != nil {
+		n := req.Network
+		// bind_address: only the locked value (127.0.0.1) is accepted.
+		if n.BindAddress != nil && *n.BindAddress != cfg.GetBindAddress() {
+			rejected = append(rejected, "network.bind_address")
+		}
+		// public_base_url: empty or the locked value is accepted (form
+		// round-trip). Anything else is a change attempt.
+		if n.PublicBaseURL != nil && *n.PublicBaseURL != "" && *n.PublicBaseURL != cfg.GetPublicBaseURL() {
+			rejected = append(rejected, "network.public_base_url")
+		}
+		if n.TLS != nil {
+			// tls.cert_path / tls.key_path: must equal the locked value (empty).
+			if n.TLS.CertPath != nil && *n.TLS.CertPath != cfg.GetTLSCertPath() {
+				rejected = append(rejected, "network.tls.cert_path")
+			}
+			if n.TLS.KeyPath != nil && *n.TLS.KeyPath != cfg.GetTLSKeyPath() {
+				rejected = append(rejected, "network.tls.key_path")
+			}
+		}
+	}
+
+	if req.AccessControl != nil {
+		// Cannot turn auth on. Provider/SessionTTLMinutes are inert when
+		// disabled; allow round-tripping (allowlist above).
+		if req.AccessControl.Enabled != nil && *req.AccessControl.Enabled {
+			rejected = append(rejected, "access_control.enabled")
+		}
+	}
+
+	if req.RemoteAccess != nil {
+		// Cannot turn remote access on. Timeout/Notify are inert when
+		// disabled; allow round-tripping (allowlist above).
+		if req.RemoteAccess.Enabled != nil && *req.RemoteAccess.Enabled {
+			rejected = append(rejected, "remote_access.enabled")
+		}
+	}
+
+	if len(rejected) > 0 {
+		return fmt.Errorf(
+			"this build is locked to loopback; cannot configure: %s",
+			strings.Join(rejected, ", "),
+		)
+	}
+	return nil
+}
 
 // ConfigHandlers groups HTTP handlers for configuration, model, detection, and feature endpoints.
 type ConfigHandlers struct {
@@ -288,6 +378,12 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 	if err := h.config.Reload(); err != nil {
 		h.logger.Error("failed to reload config", "err", err)
 		writeJSONError(w, fmt.Sprintf("Failed to reload config: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if err := validateVendorLockedWrite(&req, h.config); err != nil {
+		h.logger.Warn("rejected config write under vendorlocked", "err", err)
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -817,7 +913,19 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if !reflect.DeepEqual(oldNetwork, cfg.Network) || !reflect.DeepEqual(oldAccessControl, cfg.AccessControl) || cfg.TmuxBinary != oldTmuxBinary || cfg.TmuxSocketName != oldTmuxSocketName {
+	// Under vendorlocked, network and access_control are pinned by the
+	// locked getters — restarting would not change behavior. Skip the
+	// network/access_control restart check; only tmux changes remain
+	// restart-relevant. Without this, the dashboard form's auto-include of
+	// network.public_base_url (the locked-getter value) on every save
+	// triggers a spurious "Restart required: Network access setting has
+	// changed" warning whenever any unrelated field is edited.
+	networkOrAuthRestart := false
+	if !buildflags.VendorLocked {
+		networkOrAuthRestart = !reflect.DeepEqual(oldNetwork, cfg.Network) ||
+			!reflect.DeepEqual(oldAccessControl, cfg.AccessControl)
+	}
+	if networkOrAuthRestart || cfg.TmuxBinary != oldTmuxBinary || cfg.TmuxSocketName != oldTmuxSocketName {
 		h.state.SetNeedsRestart(true)
 		if err := h.state.Save(); err != nil {
 			h.logger.Error("failed to save restart-needed state", "err", err)
@@ -950,6 +1058,17 @@ func reposEqual(a, b []config.Repo) bool {
 
 // handleAuthSecretsGet returns GitHub auth secrets status.
 func (h *ConfigHandlers) handleAuthSecretsGet(w http.ResponseWriter, r *http.Request) {
+	if buildflags.VendorLocked {
+		// Vendorlocked builds have no auth secrets and never will. Return the
+		// "not configured" empty success response so callers (especially
+		// ConfigPage's initial load) don't treat the read as an error.
+		// Writes still return 503 (see handleAuthSecretsUpdate below).
+		writeJSON(w, map[string]interface{}{
+			"client_id":         "",
+			"client_secret_set": false,
+		})
+		return
+	}
 	secrets, err := config.GetAuthSecrets()
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("Failed to read secrets: %v", err), http.StatusInternalServerError)
@@ -969,6 +1088,10 @@ func (h *ConfigHandlers) handleAuthSecretsGet(w http.ResponseWriter, r *http.Req
 
 // handleAuthSecretsUpdate saves GitHub auth secrets.
 func (h *ConfigHandlers) handleAuthSecretsUpdate(w http.ResponseWriter, r *http.Request) {
+	if buildflags.VendorLocked {
+		writeJSONError(w, "Auth secrets are not configurable in this build", http.StatusServiceUnavailable)
+		return
+	}
 	type SecretsRequest struct {
 		ClientID     string `json:"client_id"`
 		ClientSecret string `json:"client_secret"`

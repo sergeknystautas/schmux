@@ -361,6 +361,7 @@ func TestTunnelE2E_Attack_RateLimitDifferentIPsNotAffected(t *testing.T) {
 // --- Category 3: WebSocket Auth via Tunnel ---
 
 func TestTunnelE2E_WebSocket_DashboardRejectsUnauthTunneledRequest(t *testing.T) {
+	skipUnderVendorlocked(t)
 	tts := newTunnelTestServer(t, "ws-test-password")
 	tts.simulateTunnelConnect(t)
 

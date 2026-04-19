@@ -266,6 +266,7 @@ export interface Features {
   autolearn: boolean;
   floor_manager: boolean;
   timelapse: boolean;
+  vendor_locked: boolean;
 }
 
 export interface FileDiff {
