@@ -20,7 +20,7 @@ func TestMigrateModesTightensFileMode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := MigrateModes(dir, false /*allowInsecure*/, newTestLogger()); err != nil {
+	if err := MigrateModes(dir, "" /*workspacePath*/, false /*allowInsecure*/, newTestLogger()); err != nil {
 		t.Fatalf("MigrateModes failed: %v", err)
 	}
 
@@ -40,7 +40,7 @@ func TestMigrateModesTightensDirMode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := MigrateModes(dir, false, newTestLogger()); err != nil {
+	if err := MigrateModes(dir, "", false, newTestLogger()); err != nil {
 		t.Fatalf("MigrateModes failed: %v", err)
 	}
 
@@ -66,7 +66,7 @@ func TestMigrateModesSkipsSymlinks(t *testing.T) {
 	// MigrateModes should chmod target (it's a regular file in the dir) but
 	// skip the symlink itself. Verify the symlink's target mode wasn't
 	// changed via the symlink.
-	if err := MigrateModes(dir, false, newTestLogger()); err != nil {
+	if err := MigrateModes(dir, "", false, newTestLogger()); err != nil {
 		t.Fatalf("MigrateModes failed: %v", err)
 	}
 	// Target is a regular file: should have been chmod'd to 0600.
@@ -108,7 +108,7 @@ func TestMigrateModesSkipsReposSubtree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := MigrateModes(dir, false, newTestLogger()); err != nil {
+	if err := MigrateModes(dir, "", false, newTestLogger()); err != nil {
 		t.Fatalf("MigrateModes failed: %v", err)
 	}
 
@@ -123,6 +123,60 @@ func TestMigrateModesSkipsReposSubtree(t *testing.T) {
 	}
 	if info, _ := os.Stat(nestedFile); info.Mode().Perm() != 0644 {
 		t.Errorf("nested file under repos/: got mode %o, want 0644 (untouched)", info.Mode().Perm())
+	}
+}
+
+// Some installations configure cfg.WorkspacePath to a directory inside
+// $SCHMUXDIR (e.g. "/tmp/schmux_test/workspaces"). Workspaces in there can
+// be Sapling/EdenFS working copies — same materialization/ownership problem
+// as repos/. The workspace path must be skipped at its boundary too.
+func TestMigrateModesSkipsConfiguredWorkspacePath(t *testing.T) {
+	dir := t.TempDir()
+	workspacesDir := filepath.Join(dir, "workspaces")
+	if err := os.MkdirAll(workspacesDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	nestedDir := filepath.Join(workspacesDir, "ws-001", "subdir")
+	if err := os.MkdirAll(nestedDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	nestedFile := filepath.Join(nestedDir, "file")
+	if err := os.WriteFile(nestedFile, []byte("y"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := MigrateModes(dir, workspacesDir, false, newTestLogger()); err != nil {
+		t.Fatalf("MigrateModes failed: %v", err)
+	}
+
+	if info, _ := os.Stat(workspacesDir); info.Mode().Perm() != 0700 {
+		t.Errorf("workspaces dir: got mode %o, want 0700 (boundary tightened)", info.Mode().Perm())
+	}
+	if info, _ := os.Stat(nestedDir); info.Mode().Perm() != 0755 {
+		t.Errorf("nested dir under workspaces/: got mode %o, want 0755 (untouched)", info.Mode().Perm())
+	}
+	if info, _ := os.Stat(nestedFile); info.Mode().Perm() != 0644 {
+		t.Errorf("nested file under workspaces/: got mode %o, want 0644 (untouched)", info.Mode().Perm())
+	}
+}
+
+// When cfg.WorkspacePath points outside $SCHMUXDIR (the common case), the
+// walk never reaches it and there is nothing to skip. Verify the empty /
+// out-of-tree case does not break normal tightening.
+func TestMigrateModesIgnoresWorkspacePathOutsideSchmuxDir(t *testing.T) {
+	dir := t.TempDir()
+	outside := t.TempDir() // separate temp dir, not under schmuxDir
+	f := filepath.Join(dir, "events.jsonl")
+	if err := os.WriteFile(f, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := MigrateModes(dir, outside, false, newTestLogger()); err != nil {
+		t.Fatalf("MigrateModes failed: %v", err)
+	}
+
+	if info, _ := os.Stat(f); info.Mode().Perm() != 0600 {
+		t.Errorf("file under schmuxDir: got mode %o, want 0600", info.Mode().Perm())
 	}
 }
 
@@ -141,7 +195,7 @@ func TestMigrateModesPreservesOwnerExecBit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := MigrateModes(dir, false, newTestLogger()); err != nil {
+	if err := MigrateModes(dir, "", false, newTestLogger()); err != nil {
 		t.Fatalf("MigrateModes failed: %v", err)
 	}
 

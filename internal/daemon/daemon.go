@@ -386,7 +386,9 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	// Tighten file modes on $SCHMUXDIR before any listener opens. See spec §2.2.
 	// Refuses to start unless security.allow_insecure_modes is true.
-	if err := MigrateModes(di.schmuxDir, di.cfg.GetAllowInsecureModes(), di.logger); err != nil {
+	// The configured workspace path is treated as a boundary when it lives
+	// inside $SCHMUXDIR — workspaces can be Sapling/EdenFS working copies.
+	if err := MigrateModes(di.schmuxDir, di.cfg.GetWorkspacePath(), di.cfg.GetAllowInsecureModes(), di.logger); err != nil {
 		return fmt.Errorf("file mode migration failed: %w", err)
 	}
 
