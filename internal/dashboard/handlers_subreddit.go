@@ -105,7 +105,7 @@ func (s *Server) GenerateSubredditForAllRepos(ctx context.Context) error {
 	logger := logging.Sub(s.logger, "subreddit")
 
 	// Ensure directory exists
-	if err := os.MkdirAll(subredditDir, 0755); err != nil {
+	if err := os.MkdirAll(subredditDir, 0700); err != nil {
 		return err
 	}
 

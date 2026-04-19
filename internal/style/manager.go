@@ -69,7 +69,7 @@ func (m *Manager) Create(s *Style) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }
 
 func (m *Manager) Update(s *Style) error {
@@ -81,7 +81,7 @@ func (m *Manager) Update(s *Style) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }
 
 func (m *Manager) Delete(id string) error {
@@ -112,7 +112,7 @@ func (m *Manager) EnsureBuiltins() error {
 		if err != nil {
 			return fmt.Errorf("failed to read embedded builtin %s: %w", entry.Name(), err)
 		}
-		if err := os.WriteFile(destPath, data, 0644); err != nil {
+		if err := os.WriteFile(destPath, data, 0600); err != nil {
 			return fmt.Errorf("failed to write builtin %s: %w", entry.Name(), err)
 		}
 	}
@@ -126,7 +126,7 @@ func (m *Manager) ResetBuiltIn(id string) error {
 		return fmt.Errorf("not a built-in style: %s", id)
 	}
 	destPath := filepath.Join(m.dir, filename)
-	if err := os.WriteFile(destPath, data, 0644); err != nil {
+	if err := os.WriteFile(destPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write builtin %s: %w", filename, err)
 	}
 	return nil

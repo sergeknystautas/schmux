@@ -45,7 +45,7 @@ func NewIOWorkspaceDiagnosticCapture(snap IOWorkspaceTelemetrySnapshot, ts time.
 
 // WriteToDir writes all diagnostic files to the given directory.
 func (d *IOWorkspaceDiagnosticCapture) WriteToDir(dir string) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 
@@ -66,22 +66,22 @@ func (d *IOWorkspaceDiagnosticCapture) WriteToDir(dir string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(dir, "meta.json"), metaJSON, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "meta.json"), metaJSON, 0o600); err != nil {
 		return err
 	}
 
 	// commands-ringbuffer.txt — human-readable dump of AllCommands ring
-	if err := os.WriteFile(filepath.Join(dir, "commands-ringbuffer.txt"), []byte(formatCommandEntries(d.Snapshot.AllCommands)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "commands-ringbuffer.txt"), []byte(formatCommandEntries(d.Snapshot.AllCommands)), 0o600); err != nil {
 		return err
 	}
 
 	// slow-commands.txt — same format but from SlowCommands ring
-	if err := os.WriteFile(filepath.Join(dir, "slow-commands.txt"), []byte(formatCommandEntries(d.Snapshot.SlowCommands)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "slow-commands.txt"), []byte(formatCommandEntries(d.Snapshot.SlowCommands)), 0o600); err != nil {
 		return err
 	}
 
 	// by-workspace.txt — per-workspace summary
-	if err := os.WriteFile(filepath.Join(dir, "by-workspace.txt"), []byte(formatByWorkspace(d.Snapshot)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "by-workspace.txt"), []byte(formatByWorkspace(d.Snapshot)), 0o600); err != nil {
 		return err
 	}
 

@@ -76,7 +76,7 @@ func EnsureCloudflared(schmuxBinDir string) (string, error) {
 	if pkgLogger != nil {
 		pkgLogger.Info("falling back to auto-download")
 	}
-	if err := os.MkdirAll(schmuxBinDir, 0755); err != nil {
+	if err := os.MkdirAll(schmuxBinDir, 0700); err != nil {
 		return "", fmt.Errorf("failed to create bin dir: %w", err)
 	}
 

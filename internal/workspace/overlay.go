@@ -37,7 +37,7 @@ func EnsureOverlayDir(repoName string) error {
 	}
 
 	// Create the directory
-	if err := os.MkdirAll(overlayDir, 0755); err != nil {
+	if err := os.MkdirAll(overlayDir, 0700); err != nil {
 		return fmt.Errorf("failed to create overlay directory: %w", err)
 	}
 

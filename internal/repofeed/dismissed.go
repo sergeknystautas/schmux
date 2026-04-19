@@ -84,5 +84,5 @@ func (ds *DismissedStore) save() {
 	if err != nil {
 		return
 	}
-	os.WriteFile(ds.path, data, 0644)
+	os.WriteFile(ds.path, data, 0600)
 }

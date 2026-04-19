@@ -44,7 +44,7 @@ func ExtractTarGzToDir(tarGzPath, destDir string) error {
 	}
 
 	// Ensure parent directory exists
-	if err := os.MkdirAll(filepath.Dir(destDir), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(destDir), 0700); err != nil {
 		return fmt.Errorf("failed to create parent dir: %w", err)
 	}
 
@@ -101,14 +101,14 @@ func extractTarGz(tarGzPath, destDir string) error {
 
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0755); err != nil {
+			if err := os.MkdirAll(target, 0700); err != nil {
 				return err
 			}
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
 				return err
 			}
-			outFile, err := os.Create(target)
+			outFile, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 			if err != nil {
 				return err
 			}
@@ -139,7 +139,7 @@ func copyDir(src, dst string) error {
 		dstPath := filepath.Join(dst, relPath)
 
 		if info.IsDir() {
-			return os.MkdirAll(dstPath, info.Mode())
+			return os.MkdirAll(dstPath, 0700)
 		}
 
 		srcFile, err := os.Open(path)
@@ -148,11 +148,11 @@ func copyDir(src, dst string) error {
 		}
 		defer srcFile.Close()
 
-		if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0700); err != nil {
 			return err
 		}
 
-		dstFile, err := os.Create(dstPath)
+		dstFile, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 		if err != nil {
 			return err
 		}

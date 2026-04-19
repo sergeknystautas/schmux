@@ -46,7 +46,7 @@ func (s *BatchStore) Save(b *Batch) error {
 
 func (s *BatchStore) save(b *Batch) error {
 	dir := s.batchDir(b.Repo)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create batch dir: %w", err)
 	}
 	data, err := json.MarshalIndent(b, "", "  ")

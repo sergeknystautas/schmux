@@ -79,7 +79,7 @@ func (m *Manager) Create(p *Persona) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }
 
 // Update overwrites an existing persona file. Fails if the ID doesn't exist.
@@ -93,7 +93,7 @@ func (m *Manager) Update(p *Persona) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }
 
 // Delete removes a persona file.
@@ -132,7 +132,7 @@ func (m *Manager) EnsureBuiltins() error {
 		if err != nil {
 			return fmt.Errorf("failed to read embedded builtin %s: %w", entry.Name(), err)
 		}
-		if err := os.WriteFile(destPath, data, 0644); err != nil {
+		if err := os.WriteFile(destPath, data, 0600); err != nil {
 			return fmt.Errorf("failed to write builtin %s: %w", entry.Name(), err)
 		}
 	}
@@ -149,7 +149,7 @@ func (m *Manager) ResetBuiltIn(id string) error {
 	}
 
 	destPath := filepath.Join(m.dir, filename)
-	if err := os.WriteFile(destPath, data, 0644); err != nil {
+	if err := os.WriteFile(destPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write builtin %s: %w", filename, err)
 	}
 	return nil

@@ -380,9 +380,11 @@ var claudeStopAutolearnCheckScript []byte
 
 // EnsureGlobalHookScripts writes hook scripts to ~/.schmux/hooks/.
 // Called once at daemon startup. Returns the hooks directory path.
+// Modes are 0700 (owner-only) so MigrateModes does not need to tighten
+// them on every subsequent startup.
 func EnsureGlobalHookScripts(homeDir string) (string, error) {
 	hooksDir := filepath.Join(schmuxdir.Get(), "hooks")
-	if err := os.MkdirAll(hooksDir, 0755); err != nil {
+	if err := os.MkdirAll(hooksDir, 0700); err != nil {
 		return "", err
 	}
 	scripts := map[string][]byte{
@@ -392,12 +394,12 @@ func EnsureGlobalHookScripts(homeDir string) (string, error) {
 	}
 	for name, content := range scripts {
 		path := filepath.Join(hooksDir, name)
-		if err := os.WriteFile(path, content, 0755); err != nil {
+		if err := os.WriteFile(path, content, 0700); err != nil {
 			return "", fmt.Errorf("write %s: %w", name, err)
 		}
 		// os.WriteFile only sets perm on first creation; chmod explicitly
 		// so we self-heal if a previous startup stripped the exec bit.
-		if err := os.Chmod(path, 0755); err != nil {
+		if err := os.Chmod(path, 0700); err != nil {
 			return "", fmt.Errorf("chmod %s: %w", name, err)
 		}
 	}

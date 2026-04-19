@@ -38,7 +38,7 @@ func (m *Manager) EnsureOriginQueries(ctx context.Context) error {
 	}
 
 	// Ensure directory exists
-	if err := os.MkdirAll(queryRepoPath, 0755); err != nil {
+	if err := os.MkdirAll(queryRepoPath, 0700); err != nil {
 		return fmt.Errorf("failed to create query repo directory: %w", err)
 	}
 
@@ -76,7 +76,7 @@ func (m *Manager) ensureOriginQueryRepo(ctx context.Context, repoURL string) (st
 		return "", fmt.Errorf("query repo path not configured")
 	}
 
-	if err := os.MkdirAll(queryRepoDir, 0755); err != nil {
+	if err := os.MkdirAll(queryRepoDir, 0700); err != nil {
 		return "", fmt.Errorf("failed to create query repo directory: %w", err)
 	}
 
@@ -94,7 +94,7 @@ func (m *Manager) ensureOriginQueryRepo(ctx context.Context, repoURL string) (st
 	if _, err := os.Stat(queryRepoPath); os.IsNotExist(err) {
 		m.logger.Debug("creating origin query repo", "barePath", repo.BarePath)
 		// Create parent directory (e.g., ~/.schmux/query/facebook/)
-		if err := os.MkdirAll(filepath.Dir(queryRepoPath), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(queryRepoPath), 0700); err != nil {
 			return "", fmt.Errorf("failed to create query repo directory: %w", err)
 		}
 		if err := m.cloneOriginQueryRepo(ctx, repoURL, queryRepoPath); err != nil {

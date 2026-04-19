@@ -193,7 +193,7 @@ func (m *Manager) EndShift() {
 
 func (m *Manager) spawn(ctx context.Context) error {
 	// Create working directory
-	if err := os.MkdirAll(m.workDir, 0755); err != nil {
+	if err := os.MkdirAll(m.workDir, 0700); err != nil {
 		return fmt.Errorf("failed to create work dir: %w", err)
 	}
 
@@ -413,28 +413,28 @@ func (m *Manager) writeInstructionFiles() error {
 	settings := GenerateSettings(m.schmuxBin)
 
 	// Write CLAUDE.md
-	if err := os.WriteFile(filepath.Join(m.workDir, "CLAUDE.md"), []byte(instructions), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(m.workDir, "CLAUDE.md"), []byte(instructions), 0600); err != nil {
 		return err
 	}
 
 	// Write AGENTS.md (identical)
-	if err := os.WriteFile(filepath.Join(m.workDir, "AGENTS.md"), []byte(instructions), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(m.workDir, "AGENTS.md"), []byte(instructions), 0600); err != nil {
 		return err
 	}
 
 	// Write .claude/settings.json
 	claudeDir := filepath.Join(m.workDir, ".claude")
-	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+	if err := os.MkdirAll(claudeDir, 0700); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte(settings), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte(settings), 0600); err != nil {
 		return err
 	}
 
 	// Create empty memory.md only if it doesn't exist
 	memPath := filepath.Join(m.workDir, "memory.md")
 	if _, err := os.Stat(memPath); os.IsNotExist(err) {
-		if err := os.WriteFile(memPath, []byte("# Floor Manager Memory\n\nNo previous session context.\n"), 0644); err != nil {
+		if err := os.WriteFile(memPath, []byte("# Floor Manager Memory\n\nNo previous session context.\n"), 0600); err != nil {
 			return err
 		}
 	}

@@ -148,7 +148,7 @@ func (s *Server) handleDevRebuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	manifestPath := filepath.Join(schmuxdir.Get(), "dev-restart.json")
-	if err := os.WriteFile(manifestPath, data, 0644); err != nil {
+	if err := os.WriteFile(manifestPath, data, 0600); err != nil {
 		writeJSONError(w, "Failed to write restart manifest", http.StatusInternalServerError)
 		return
 	}

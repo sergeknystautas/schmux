@@ -374,7 +374,7 @@ func resolveSchema(label string) (string, error) {
 // on daemon startup to ensure schemas are always up to date.
 func WriteAllSchemas() error {
 	dir := filepath.Join(schmuxdir.Get(), "schemas")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("failed to create schema directory: %w", err)
 	}
 
@@ -384,7 +384,7 @@ func WriteAllSchemas() error {
 			return fmt.Errorf("failed to get schema %s: %w", label, err)
 		}
 		path := filepath.Join(dir, label+".json")
-		if err := os.WriteFile(path, []byte(schemaJSON), 0644); err != nil {
+		if err := os.WriteFile(path, []byte(schemaJSON), 0600); err != nil {
 			return fmt.Errorf("failed to write schema file %s: %w", label, err)
 		}
 	}

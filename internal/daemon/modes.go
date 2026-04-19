@@ -12,12 +12,13 @@ import (
 
 // MigrateModes walks schmuxDir and tightens file/dir modes to 0600/0700.
 // Symlinks are detected via Lstat and skipped (with warning logged).
-// The repos/ subtree (bare clones and Sapling/EdenFS working copies) is
-// crossed only at its top entry — descending would force materialization of
-// virtual monorepo mounts and rewrite permissions on upstream code that
-// schmux does not own. workspacePath, when non-empty and located inside
-// schmuxDir, is treated the same way: workspaces can themselves be VCS
-// working copies (including EdenFS mounts) and must not be recursed into.
+// The repos/ and query/ subtrees (bare clones and Sapling/EdenFS working
+// copies) are crossed only at their top entry — descending would force
+// materialization of virtual monorepo mounts and rewrite permissions on
+// upstream code (and on git-managed object/pack files) that schmux does
+// not own. workspacePath, when non-empty and located inside schmuxDir,
+// is treated the same way: workspaces can themselves be VCS working
+// copies (including EdenFS mounts) and must not be recursed into.
 // Files keep their owner exec bit so generated hook scripts stay executable;
 // group/other bits are always stripped.
 // If chmod fails on any entry and allowInsecure is false, returns the error
@@ -28,6 +29,7 @@ import (
 func MigrateModes(schmuxDir string, workspacePath string, allowInsecure bool, parentLogger *log.Logger) error {
 	logger := logging.Sub(parentLogger, "modes-migration")
 	reposDir := filepath.Join(schmuxDir, "repos")
+	queryDir := filepath.Join(schmuxDir, "query")
 	workspacesBoundary := resolveBoundary(schmuxDir, workspacePath)
 
 	return filepath.WalkDir(schmuxDir, func(path string, d fs.DirEntry, err error) error {
@@ -66,9 +68,9 @@ func MigrateModes(schmuxDir string, workspacePath string, allowInsecure bool, pa
 			}
 		}
 
-		// Stop at boundaries (repos/ and the configured workspace path)
-		// after tightening the entry itself.
-		if d.IsDir() && (path == reposDir || (workspacesBoundary != "" && path == workspacesBoundary)) {
+		// Stop at boundaries (repos/, query/, and the configured workspace
+		// path) after tightening the entry itself.
+		if d.IsDir() && (path == reposDir || path == queryDir || (workspacesBoundary != "" && path == workspacesBoundary)) {
 			return filepath.SkipDir
 		}
 		return nil

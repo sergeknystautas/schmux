@@ -50,7 +50,7 @@ type diagnosticMeta struct {
 
 // WriteToDir writes all diagnostic files to the given directory.
 func (d *DiagnosticCapture) WriteToDir(dir string) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	// meta.json
@@ -79,15 +79,15 @@ func (d *DiagnosticCapture) WriteToDir(dir string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(dir, "meta.json"), metaJSON, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "meta.json"), metaJSON, 0o600); err != nil {
 		return err
 	}
 	// ringbuffer-backend.txt — raw bytes, not base64
-	if err := os.WriteFile(filepath.Join(dir, "ringbuffer-backend.txt"), d.RingBuffer, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "ringbuffer-backend.txt"), d.RingBuffer, 0o600); err != nil {
 		return err
 	}
 	// screen-tmux.txt
-	if err := os.WriteFile(filepath.Join(dir, "screen-tmux.txt"), []byte(d.TmuxScreen), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "screen-tmux.txt"), []byte(d.TmuxScreen), 0o600); err != nil {
 		return err
 	}
 	// tmux-health.json — probe RTT samples for performance trending
@@ -96,7 +96,7 @@ func (d *DiagnosticCapture) WriteToDir(dir string) error {
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(dir, "tmux-health.json"), healthJSON, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "tmux-health.json"), healthJSON, 0o600); err != nil {
 			return err
 		}
 	}

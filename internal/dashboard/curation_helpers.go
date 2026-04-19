@@ -26,7 +26,7 @@ func curationWriteDebugFile(runDir, filename, content string) {
 	if runDir == "" {
 		return
 	}
-	os.WriteFile(filepath.Join(runDir, filename), []byte(content), 0644)
+	os.WriteFile(filepath.Join(runDir, filename), []byte(content), 0600)
 }
 
 // curationGenerateRunScript creates a shell script that reproduces the curator call.

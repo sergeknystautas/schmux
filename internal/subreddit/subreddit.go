@@ -87,14 +87,14 @@ func ReadRepoFile(path string) (*RepoFile, error) {
 
 // WriteRepoFile writes a repo's subreddit posts to disk atomically.
 func WriteRepoFile(path string, rf *RepoFile) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(rf, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }
 
 func newPostID() string {

@@ -152,7 +152,7 @@ func NewDaemon() *Daemon {
 // is checked at session spawn time, not at startup.
 func ValidateReadyToRun() error {
 	schmuxDir := schmuxdir.Get()
-	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
+	if err := os.MkdirAll(schmuxDir, 0700); err != nil {
 		return fmt.Errorf("failed to create schmux directory: %w", err)
 	}
 
@@ -489,7 +489,7 @@ func (d *Daemon) initConfigAndState(devMode bool) (*daemonInit, error) {
 	}
 
 	schmuxDir := schmuxdir.Get()
-	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
+	if err := os.MkdirAll(schmuxDir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create schmux directory: %w", err)
 	}
 
@@ -521,13 +521,13 @@ func (d *Daemon) initConfigAndState(devMode bool) (*daemonInit, error) {
 
 	// Write PID file
 	pid := os.Getpid()
-	if err := os.WriteFile(pidFile, []byte(fmt.Sprintf("%d\n", pid)), 0644); err != nil {
+	if err := os.WriteFile(pidFile, []byte(fmt.Sprintf("%d\n", pid)), 0600); err != nil {
 		return nil, fmt.Errorf("failed to write PID file: %w", err)
 	}
 
 	// Record daemon start time
 	startedAt := time.Now().UTC().Format(time.RFC3339Nano)
-	if err := os.WriteFile(startedFile, []byte(startedAt+"\n"), 0644); err != nil {
+	if err := os.WriteFile(startedFile, []byte(startedAt+"\n"), 0600); err != nil {
 		return nil, fmt.Errorf("failed to write daemon start time: %w", err)
 	}
 
@@ -1231,7 +1231,7 @@ func (d *Daemon) startAndWait(
 		}
 		urlFile = filepath.Join(schmuxDir, "daemon.url")
 		daemonURL := fmt.Sprintf("%s://%s", scheme, boundAddr.String())
-		if err := os.WriteFile(urlFile, []byte(daemonURL+"\n"), 0644); err != nil {
+		if err := os.WriteFile(urlFile, []byte(daemonURL+"\n"), 0600); err != nil {
 			return false, fmt.Errorf("failed to write daemon URL file: %w", err)
 		}
 		defer os.Remove(urlFile)
@@ -2271,7 +2271,7 @@ func findOtherTmuxServerOwners(currentUID int) []string {
 func createDevConfigBackup(schmuxDir string) error {
 	// Create backups directory
 	backupDir := schmuxdir.BackupsDir()
-	if err := os.MkdirAll(backupDir, 0755); err != nil {
+	if err := os.MkdirAll(backupDir, 0700); err != nil {
 		return fmt.Errorf("failed to create backup directory: %w", err)
 	}
 
@@ -2289,8 +2289,9 @@ func createDevConfigBackup(schmuxDir string) error {
 	backupFilename := fmt.Sprintf("config-%s_%s.tar.gz", timestamp, dirName)
 	backupPath := filepath.Join(backupDir, backupFilename)
 
-	// Create the tar.gz file
-	backupFile, err := os.Create(backupPath)
+	// Create the tar.gz file with 0600 so MigrateModes does not need to
+	// tighten it on the next daemon start.
+	backupFile, err := os.OpenFile(backupPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return fmt.Errorf("failed to create backup file: %w", err)
 	}

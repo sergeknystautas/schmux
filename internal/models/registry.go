@@ -137,7 +137,7 @@ func CachePath(schmuxDir string) string {
 // SaveCache writes registry data to cache file.
 func SaveCache(schmuxDir string, data []byte) error {
 	cachePath := CachePath(schmuxDir)
-	if err := os.MkdirAll(filepath.Dir(cachePath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0700); err != nil {
 		return err
 	}
 
@@ -150,7 +150,7 @@ func SaveCache(schmuxDir string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(cachePath, encoded, 0644)
+	return os.WriteFile(cachePath, encoded, 0600)
 }
 
 // LoadCache reads registry data from cache file.

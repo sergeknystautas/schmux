@@ -91,5 +91,5 @@ func (sc *SummaryCache) save() {
 	if err != nil {
 		return
 	}
-	os.WriteFile(sc.path, data, 0644)
+	os.WriteFile(sc.path, data, 0600)
 }

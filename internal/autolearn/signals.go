@@ -144,10 +144,10 @@ func ReadEntries(path string, filter EntryFilter) ([]Entry, error) {
 // appendEntryToFile performs the file I/O for appending an entry.
 // Callers must hold signalsMu.
 func appendEntryToFile(path string, entry Entry) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}
@@ -347,7 +347,7 @@ func StateDir(repoName string) (string, error) {
 		return "", fmt.Errorf("invalid repo name: %s", repoName)
 	}
 	dir := filepath.Join(schmuxdir.Get(), "lore", repoName)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", fmt.Errorf("failed to create state dir: %w", err)
 	}
 	return dir, nil

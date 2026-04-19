@@ -126,6 +126,39 @@ func TestMigrateModesSkipsReposSubtree(t *testing.T) {
 	}
 }
 
+// query/ holds bare git clones used for branch/commit lookups. Same
+// reasoning as repos/: descending would rewrite git-managed mode bits on
+// objects/refs and trigger noisy chmod on every restart.
+func TestMigrateModesSkipsQuerySubtree(t *testing.T) {
+	dir := t.TempDir()
+	queryDir := filepath.Join(dir, "query")
+	if err := os.MkdirAll(queryDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	objectsDir := filepath.Join(queryDir, "schmux.git", "objects", "ab")
+	if err := os.MkdirAll(objectsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	objectFile := filepath.Join(objectsDir, "cdef")
+	if err := os.WriteFile(objectFile, []byte("git-object"), 0444); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := MigrateModes(dir, "", false, newTestLogger()); err != nil {
+		t.Fatalf("MigrateModes failed: %v", err)
+	}
+
+	if info, _ := os.Stat(queryDir); info.Mode().Perm() != 0700 {
+		t.Errorf("query dir: got mode %o, want 0700 (boundary tightened)", info.Mode().Perm())
+	}
+	if info, _ := os.Stat(objectsDir); info.Mode().Perm() != 0755 {
+		t.Errorf("nested dir under query/: got mode %o, want 0755 (untouched)", info.Mode().Perm())
+	}
+	if info, _ := os.Stat(objectFile); info.Mode().Perm() != 0444 {
+		t.Errorf("git object under query/: got mode %o, want 0444 (untouched)", info.Mode().Perm())
+	}
+}
+
 // Some installations configure cfg.WorkspacePath to a directory inside
 // $SCHMUXDIR (e.g. "/tmp/schmux_test/workspaces"). Workspaces in there can
 // be Sapling/EdenFS working copies — same materialization/ownership problem

@@ -293,14 +293,14 @@ func (h *WorkspaceHandlers) handleOverlayAdd(w http.ResponseWriter, r *http.Requ
 		}
 		srcPath := filepath.Join(ws.Path, relPath)
 		dstPath := filepath.Join(overlayDir, relPath)
-		os.MkdirAll(filepath.Dir(dstPath), 0755)
+		os.MkdirAll(filepath.Dir(dstPath), 0700)
 
 		content, err := os.ReadFile(srcPath)
 		if err != nil {
 			errors = append(errors, pathError{Path: relPath, Error: fmt.Sprintf("failed to read: %v", err)})
 			continue
 		}
-		if err := os.WriteFile(dstPath, content, 0644); err != nil {
+		if err := os.WriteFile(dstPath, content, 0600); err != nil {
 			errors = append(errors, pathError{Path: relPath, Error: fmt.Sprintf("failed to write: %v", err)})
 			continue
 		}
