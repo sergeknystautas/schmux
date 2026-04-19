@@ -32,6 +32,7 @@ const defaultProps = {
   debugUI: false,
   isDevMode: false,
   hasSaplingRepos: false,
+  saplingCommands: {},
   tmuxBinary: '',
   tmuxSocketName: '',
   externalDiffCommands: [] as { name: string; command: string[] }[],
@@ -103,5 +104,35 @@ describe('AdvancedTab', () => {
     );
     expect(screen.getByText('Kaleidoscope')).toBeInTheDocument();
     expect(screen.getByText('ksdiff')).toBeInTheDocument();
+  });
+
+  it('hides Sapling Commands when no sapling repos and no commands configured', () => {
+    render(<AdvancedTab {...defaultProps} />);
+    expect(screen.queryByText('Sapling Commands')).not.toBeInTheDocument();
+  });
+
+  it('renders Sapling Commands when sapling commands are configured', () => {
+    render(
+      <AdvancedTab
+        {...defaultProps}
+        saplingCommands={{
+          create_workspace: ['sl', 'clone', '{{.RepoIdentifier}}', '{{.DestPath}}'],
+          remove_workspace: ['rm', '-rf', '{{.WorkspacePath}}'],
+        }}
+      />
+    );
+    expect(screen.getByText('Sapling Commands')).toBeInTheDocument();
+    expect(screen.getByText('Create Workspace')).toBeInTheDocument();
+    expect(screen.getByText('sl clone {{.RepoIdentifier}} {{.DestPath}}')).toBeInTheDocument();
+    expect(screen.getByText('Remove Workspace')).toBeInTheDocument();
+    expect(screen.getByText('rm -rf {{.WorkspacePath}}')).toBeInTheDocument();
+  });
+
+  it('renders Sapling Commands with empty hint when sapling repo exists but no commands configured', () => {
+    render(<AdvancedTab {...defaultProps} hasSaplingRepos={true} />);
+    expect(screen.getByText('Sapling Commands')).toBeInTheDocument();
+    expect(
+      screen.getByText('No custom sapling commands configured (using built-in defaults).')
+    ).toBeInTheDocument();
   });
 });

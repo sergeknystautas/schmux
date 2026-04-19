@@ -208,6 +208,7 @@ export default function ConfigPage() {
           debugUI: data.debug_ui ?? false,
           tmuxBinary: data.tmux_binary || '',
           tmuxSocketName: data.tmux_socket_name || '',
+          saplingCommands: data.sapling_commands || {},
           modelCatalog: data.models || [],
           runners: data.runners || {},
         };
@@ -1139,6 +1140,7 @@ export default function ConfigPage() {
               debugUI={state.debugUI}
               isDevMode={isDevMode}
               hasSaplingRepos={state.repos.some((r) => r.vcs === 'sapling')}
+              saplingCommands={state.saplingCommands}
               tmuxBinary={state.tmuxBinary}
               tmuxSocketName={state.tmuxSocketName}
               externalDiffCommands={state.externalDiffCommands}

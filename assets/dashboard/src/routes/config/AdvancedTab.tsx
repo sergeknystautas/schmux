@@ -2,6 +2,7 @@ import React from 'react';
 import TargetSelect from './TargetSelect';
 import type { ConfigFormAction } from './useConfigForm';
 import type { Model } from '../../lib/types';
+import type { SaplingCommandsUpdate } from '../../lib/types.generated';
 
 type AdvancedTabProps = {
   desyncEnabled: boolean;
@@ -19,6 +20,7 @@ type AdvancedTabProps = {
   debugUI: boolean;
   isDevMode: boolean;
   hasSaplingRepos: boolean;
+  saplingCommands: SaplingCommandsUpdate;
   tmuxBinary: string;
   tmuxSocketName: string;
   externalDiffCommands: { name: string; command: string[] }[];
@@ -46,6 +48,7 @@ export default function AdvancedTab({
   debugUI,
   isDevMode,
   hasSaplingRepos,
+  saplingCommands,
   tmuxBinary,
   tmuxSocketName,
   externalDiffCommands,
@@ -408,20 +411,48 @@ export default function AdvancedTab({
         </div>
       </div>
 
-      {hasSaplingRepos && (
-        <div className="settings-section">
-          <div className="settings-section__header">
-            <h3 className="settings-section__title">Sapling Commands</h3>
+      {(() => {
+        const saplingRows: { label: string; argv: string[] }[] = [
+          { label: 'Create Workspace', argv: saplingCommands.create_workspace || [] },
+          { label: 'Remove Workspace', argv: saplingCommands.remove_workspace || [] },
+          { label: 'Create Repo Base', argv: saplingCommands.create_repo_base || [] },
+          { label: 'Check Repo Base', argv: saplingCommands.check_repo_base || [] },
+          { label: 'List Workspaces', argv: saplingCommands.list_workspaces || [] },
+        ].filter((row) => row.argv.length > 0);
+        if (!hasSaplingRepos && saplingRows.length === 0) return null;
+        return (
+          <div className="settings-section">
+            <div className="settings-section__header">
+              <h3 className="settings-section__title">Sapling Commands</h3>
+            </div>
+            <div className="settings-section__body">
+              <p className="form-group__hint mb-md">
+                <strong>Advanced:</strong> shell commands are configured via{' '}
+                <code>~/.schmux/config.json</code> as argv arrays. See{' '}
+                <a href="/docs/api">docs/api.md</a> for the schema.
+              </p>
+              {saplingRows.length > 0 ? (
+                <div className="item-list item-list--two-col">
+                  {saplingRows.map((row) => (
+                    <div className="item-list__item" key={row.label}>
+                      <div className="item-list__item-primary item-list__item-row">
+                        <span className="item-list__item-name">{row.label}</span>
+                        <span className="item-list__item-detail item-list__item-detail--wide mono">
+                          {row.argv.join(' ')}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state-hint">
+                  No custom sapling commands configured (using built-in defaults).
+                </div>
+              )}
+            </div>
           </div>
-          <div className="settings-section__body">
-            <p className="form-group__hint">
-              <strong>Advanced:</strong> shell commands are now configured via{' '}
-              <code>~/.schmux/config.json</code> as argv arrays. See{' '}
-              <a href="/docs/api">docs/api.md</a> for the schema.
-            </p>
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Dev-only features — only visible in dev mode */}
       {isDevMode && (

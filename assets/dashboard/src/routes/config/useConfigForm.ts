@@ -8,6 +8,7 @@ import type {
   RunnerInfo,
   RunTargetResponse,
 } from '../../lib/types';
+import type { SaplingCommandsUpdate } from '../../lib/types.generated';
 import { sortModels } from '../../lib/modelSort';
 
 export type RunTargetEditModalState = {
@@ -172,6 +173,7 @@ export type ConfigFormState = {
   debugUI: boolean;
   tmuxBinary: string;
   tmuxSocketName: string;
+  saplingCommands: SaplingCommandsUpdate;
 
   // Overlays
   overlays: OverlayInfo[];
@@ -332,6 +334,7 @@ export const initialState: ConfigFormState = {
   debugUI: false,
   tmuxBinary: '',
   tmuxSocketName: '',
+  saplingCommands: {},
 
   overlays: [],
   loadingOverlays: true,
