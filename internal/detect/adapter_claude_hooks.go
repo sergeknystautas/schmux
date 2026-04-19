@@ -395,6 +395,11 @@ func EnsureGlobalHookScripts(homeDir string) (string, error) {
 		if err := os.WriteFile(path, content, 0755); err != nil {
 			return "", fmt.Errorf("write %s: %w", name, err)
 		}
+		// os.WriteFile only sets perm on first creation; chmod explicitly
+		// so we self-heal if a previous startup stripped the exec bit.
+		if err := os.Chmod(path, 0755); err != nil {
+			return "", fmt.Errorf("chmod %s: %w", name, err)
+		}
 	}
 	return hooksDir, nil
 }

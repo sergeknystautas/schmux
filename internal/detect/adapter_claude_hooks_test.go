@@ -470,6 +470,38 @@ func TestEnsureGlobalHookScripts(t *testing.T) {
 	}
 }
 
+// os.WriteFile only honors its perm argument when creating a new file —
+// existing files keep their old mode. Earlier versions of MigrateModes
+// stripped the exec bit on these scripts; EnsureGlobalHookScripts must
+// re-establish exec permission on every startup so the daemon recovers
+// without manual intervention.
+func TestEnsureGlobalHookScriptsRestoresExecBit(t *testing.T) {
+	tmpHome := t.TempDir()
+	schmuxdir.Set(filepath.Join(tmpHome, ".schmux"))
+	t.Cleanup(func() { schmuxdir.Set("") })
+
+	hooksDir := filepath.Join(tmpHome, ".schmux", "hooks")
+	if err := os.MkdirAll(hooksDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(hooksDir, "capture-failure.sh")
+	if err := os.WriteFile(stale, []byte("stale"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := EnsureGlobalHookScripts(tmpHome); err != nil {
+		t.Fatalf("EnsureGlobalHookScripts failed: %v", err)
+	}
+
+	info, err := os.Stat(stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&0100 == 0 {
+		t.Errorf("got mode %o, want owner exec bit set", info.Mode().Perm())
+	}
+}
+
 func TestBuildClaudeHooksMap_AllEvents(t *testing.T) {
 	hooks := buildClaudeHooksMap("")
 

@@ -84,6 +84,8 @@ On every daemon start, `MigrateModes` walks `${schmuxdir}` and tightens modes to
 
 The opt-out exists because some legitimate environments (WSL2 mounting Windows-formatted drives, certain Docker overlay configurations, SMB-mounted home directories) cannot satisfy the chmod call but are still safe enough to use schmux on. With `security.allow_insecure_modes: true`, the daemon logs a loud warning at every startup and proceeds. The warning is repeated — never silenced — so it stays visible.
 
+The walk tightens the `${schmuxdir}/repos/` directory entry itself but does not descend into it. That subtree holds bare clones and Sapling/EdenFS working copies, including virtual-mount monorepos whose backing store contains millions of files. Recursing would force materialization of every backing file and rewrite permissions on upstream code that schmux does not own. Files keep their owner exec bit (`0600 | (existing & 0100)`) so generated hook scripts under `${schmuxdir}/hooks/` stay runnable; group/other bits are always stripped.
+
 ## Gotchas
 
 - **Sapling/remote-VCS/telemetry/diff commands MUST be JSON arrays.** A single string in `~/.schmux/config.json` for any of these fields makes the daemon refuse to start. The error message points at `schmux config migrate`. Old config snippets in blog posts, AGENTS.md examples, etc. need updating.

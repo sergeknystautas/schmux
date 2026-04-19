@@ -83,3 +83,72 @@ func TestMigrateModesRespectsAllowInsecure(t *testing.T) {
 	// production code uses, swappable in tests).
 	t.Skip("chmod failure simulation requires test seam; covered by manual test in Step 36")
 }
+
+// repos/ holds bare clones and Sapling/EdenFS working copies that may be
+// virtual mounts of multi-million-file monorepos. Walking it would force
+// materialization of every backing file and rewrite permissions on upstream
+// code that schmux does not own. MigrateModes must tighten the repos/
+// directory entry itself but stop at its boundary.
+func TestMigrateModesSkipsReposSubtree(t *testing.T) {
+	dir := t.TempDir()
+	reposDir := filepath.Join(dir, "repos")
+	if err := os.MkdirAll(reposDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	topFile := filepath.Join(reposDir, "config")
+	if err := os.WriteFile(topFile, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	nestedDir := filepath.Join(reposDir, "monorepo", "subdir")
+	if err := os.MkdirAll(nestedDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	nestedFile := filepath.Join(nestedDir, "file")
+	if err := os.WriteFile(nestedFile, []byte("y"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := MigrateModes(dir, false, newTestLogger()); err != nil {
+		t.Fatalf("MigrateModes failed: %v", err)
+	}
+
+	if info, _ := os.Stat(reposDir); info.Mode().Perm() != 0700 {
+		t.Errorf("repos dir: got mode %o, want 0700 (boundary tightened)", info.Mode().Perm())
+	}
+	if info, _ := os.Stat(topFile); info.Mode().Perm() != 0644 {
+		t.Errorf("file under repos/: got mode %o, want 0644 (untouched)", info.Mode().Perm())
+	}
+	if info, _ := os.Stat(nestedDir); info.Mode().Perm() != 0755 {
+		t.Errorf("nested dir under repos/: got mode %o, want 0755 (untouched)", info.Mode().Perm())
+	}
+	if info, _ := os.Stat(nestedFile); info.Mode().Perm() != 0644 {
+		t.Errorf("nested file under repos/: got mode %o, want 0644 (untouched)", info.Mode().Perm())
+	}
+}
+
+// Hook scripts and other generated executables under $SCHMUXDIR are 0755 on
+// disk. Naively forcing 0600 strips the executable bit and breaks anything
+// that exec(2)s them. Preserve the owner's exec bit while still stripping
+// group/other access.
+func TestMigrateModesPreservesOwnerExecBit(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "hook.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	plain := filepath.Join(dir, "data.json")
+	if err := os.WriteFile(plain, []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := MigrateModes(dir, false, newTestLogger()); err != nil {
+		t.Fatalf("MigrateModes failed: %v", err)
+	}
+
+	if info, _ := os.Stat(script); info.Mode().Perm() != 0700 {
+		t.Errorf("script: got mode %o, want 0700 (owner +x preserved, group/other stripped)", info.Mode().Perm())
+	}
+	if info, _ := os.Stat(plain); info.Mode().Perm() != 0600 {
+		t.Errorf("plain file: got mode %o, want 0600 (no exec to preserve)", info.Mode().Perm())
+	}
+}
