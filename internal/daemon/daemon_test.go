@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/sergeknystautas/schmux/internal/state"
 )
@@ -364,3 +366,63 @@ func TestStop_MalformedPidFile(t *testing.T) {
 
 // Silence unused import warning for syscall — used by ValidateReadyToRun tests
 var _ = syscall.Signal(0)
+
+func TestWaitForDaemonExit_PIDFileRemoved(t *testing.T) {
+	// Simulate the clean-shutdown path: the daemon process is still alive
+	// (zombie or otherwise unreachable), but its PID file has been deleted.
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Skipf("could not spawn sleep: %v", err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() })
+
+	pidFile := filepath.Join(t.TempDir(), "daemon.pid")
+	// Intentionally do NOT create pidFile — Stat returns ENOENT immediately.
+	if !waitForDaemonExit(cmd.Process, pidFile, 2*time.Second) {
+		t.Error("expected waitForDaemonExit to return true when PID file is gone")
+	}
+}
+
+func TestWaitForDaemonExit_ProcessDies(t *testing.T) {
+	// Process exits and is reaped → signal 0 returns ESRCH → return true,
+	// even when the PID file is still present (crashed before defer ran).
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Skipf("could not spawn sleep: %v", err)
+	}
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatalf("kill: %v", err)
+	}
+	_, _ = cmd.Process.Wait()
+
+	pidFile := filepath.Join(t.TempDir(), "daemon.pid")
+	if err := os.WriteFile(pidFile, []byte("123\n"), 0644); err != nil {
+		t.Fatalf("write pid file: %v", err)
+	}
+
+	if !waitForDaemonExit(cmd.Process, pidFile, 2*time.Second) {
+		t.Error("expected waitForDaemonExit to return true after process death")
+	}
+}
+
+func TestWaitForDaemonExit_TimesOut(t *testing.T) {
+	// Process is alive AND PID file exists → should poll until deadline.
+	cmd := exec.Command("sleep", "10")
+	if err := cmd.Start(); err != nil {
+		t.Skipf("could not spawn sleep: %v", err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() })
+
+	pidFile := filepath.Join(t.TempDir(), "daemon.pid")
+	if err := os.WriteFile(pidFile, []byte("123\n"), 0644); err != nil {
+		t.Fatalf("write pid file: %v", err)
+	}
+
+	start := time.Now()
+	if waitForDaemonExit(cmd.Process, pidFile, 250*time.Millisecond) {
+		t.Error("expected waitForDaemonExit to return false for live daemon")
+	}
+	if elapsed := time.Since(start); elapsed < 200*time.Millisecond {
+		t.Errorf("returned too early: %v < 200ms", elapsed)
+	}
+}

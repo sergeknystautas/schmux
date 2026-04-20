@@ -274,28 +274,48 @@ func Stop() error {
 		return fmt.Errorf("failed to find process: %w", err)
 	}
 
-	// Send SIGTERM
+	// Send SIGTERM for graceful shutdown.
 	if err := process.Signal(syscall.SIGTERM); err != nil {
 		return fmt.Errorf("failed to send SIGTERM: %w", err)
 	}
 
-	// Wait for process to exit by polling (process.Wait() doesn't work for non-child processes)
-	// Check every 100ms, up to 10 seconds. The shutdown sequence includes remote host
-	// disconnection, session manager stop, and HTTP server shutdown, which can take
-	// several seconds under CPU contention (e.g., Docker containers).
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		<-ticker.C
-		// Check if process still exists by sending signal 0
-		if err := process.Signal(syscall.Signal(0)); err != nil {
-			// Process has exited
-			return nil
-		}
+	// Wait for graceful exit. We can't rely on signal 0 alone: when a non-child
+	// process exits, it can sit in zombie state until the original parent reaps
+	// it (Docker containers in particular leave orphans pending). The daemon's
+	// `defer os.Remove(pidFile)` is the only signal that always fires, and only
+	// on a clean shutdown — so we poll both. 15s accommodates the shutdown chain
+	// (remote disconnect, session/tunnel/git/config stop, server.Stop) under
+	// heavy CPU contention (parallel Docker test containers).
+	if waitForDaemonExit(process, pidFile, 15*time.Second) {
+		return nil
 	}
 
-	return fmt.Errorf("timeout waiting for daemon to stop")
+	// Graceful shutdown stalled — escalate to SIGKILL and clear the PID file
+	// ourselves (the daemon's defer never ran). Without the manual cleanup the
+	// next `schmux start` would refuse to launch ("daemon already running").
+	_ = process.Signal(syscall.SIGKILL)
+	_ = waitForDaemonExit(process, pidFile, 2*time.Second)
+	_ = os.Remove(pidFile)
+	return fmt.Errorf("daemon did not respond to SIGTERM within 15s; killed with SIGKILL")
+}
+
+// waitForDaemonExit polls every 100ms until either the daemon's PID file has
+// been removed (clean shutdown) or the process is no longer reachable via
+// signal 0. Returns true if either condition triggers before the timeout.
+func waitForDaemonExit(p *os.Process, pidFile string, timeout time.Duration) bool {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		<-ticker.C
+		if _, err := os.Stat(pidFile); os.IsNotExist(err) {
+			return true
+		}
+		if err := p.Signal(syscall.Signal(0)); err != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // Status returns the status of the daemon.

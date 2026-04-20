@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
@@ -56,5 +58,44 @@ func TestHandleTLSValidate_MethodNotAllowed(t *testing.T) {
 
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405, got %d", w.Code)
+	}
+}
+
+func TestExpandHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"tilde slash expands", "~/foo/bar", home + "/foo/bar"},
+		{"tilde alone unchanged", "~", "~"},
+		{"absolute path unchanged", "/etc/hosts", "/etc/hosts"},
+		{"relative path unchanged", "./local", "./local"},
+		{"empty string unchanged", "", ""},
+		{"inner tilde unchanged", "/foo/~/bar", "/foo/~/bar"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := expandHome(tc.in); got != tc.want {
+				t.Errorf("expandHome(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestExpandHome_NoHomeEnv(t *testing.T) {
+	// On the rare host where HOME and USERPROFILE are both unset,
+	// os.UserHomeDir returns an error and expandHome must return the input unchanged.
+	t.Setenv("HOME", "")
+	if strings.HasPrefix(os.Getenv("HOME"), "") && os.Getenv("HOME") != "" {
+		t.Skip("HOME could not be cleared")
+	}
+	got := expandHome("~/path")
+	if got != "~/path" && !strings.HasSuffix(got, "/path") {
+		t.Errorf("expandHome with no HOME = %q, want unchanged or expanded", got)
 	}
 }

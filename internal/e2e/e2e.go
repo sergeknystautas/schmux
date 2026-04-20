@@ -231,7 +231,9 @@ func (e *Env) DaemonStop() {
 
 	// Use a generous timeout — under CPU contention (parallel Docker
 	// containers) the stop command can take much longer than expected.
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	// Must exceed daemon.Stop()'s ceiling (15s SIGTERM + 2s SIGKILL = 17s)
+	// so the CLI process isn't killed mid-shutdown.
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	cmd := exec.CommandContext(ctx, e.SchmuxBin, "stop")
 	cmd.Env = append(os.Environ(), "HOME="+e.HomeDir, "TMUX_TMPDIR="+e.HomeDir)
 	out, err := cmd.CombinedOutput()

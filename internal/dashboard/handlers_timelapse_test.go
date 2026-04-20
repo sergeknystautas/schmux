@@ -24,10 +24,12 @@ func TestHandleTimelapseList_InProgressClearedForDisposedSessions(t *testing.T) 
 	server, _, st := newTestServer(t)
 
 	// Point schmuxdir at a temp dir so recordingsDir() resolves there.
+	// Always restore to "" (not the resolved path) so subsequent tests in this
+	// package that rely on HOME-based fallback resolve fresh, not against the
+	// previously resolved path.
 	tmpHome := t.TempDir()
-	oldDir := schmuxdir.Get()
 	schmuxdir.Set(tmpHome)
-	t.Cleanup(func() { schmuxdir.Set(oldDir) })
+	t.Cleanup(func() { schmuxdir.Set("") })
 
 	recDir := filepath.Join(tmpHome, "recordings")
 	os.MkdirAll(recDir, 0755)

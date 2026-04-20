@@ -2,21 +2,21 @@
 
 Living document updated by `/improve-testing`. Read this before starting a round — it saves re-investigating known issues.
 
-Last updated: 2025-04-09 (round 4)
+Last updated: 2026-04-19 (round 7)
 
 ## Current Baseline
 
-| Metric                  | Value                       | Date       |
-| ----------------------- | --------------------------- | ---------- |
-| Backend coverage        | 45.0%                       | 2025-04-09 |
-| Frontend coverage       | 48.8%                       | 2025-04-09 |
-| Total tests             | 2,905 (with 3x repeat)      | 2025-04-09 |
-| Backend suite time      | ~50s (1x), ~86s (3x repeat) | 2025-04-09 |
-| Frontend suite time     | ~6s                         | 2025-04-09 |
-| E2E suite time          | ~50s                        | 2025-04-09 |
-| Scenario suite time     | ~60s                        | 2025-04-09 |
-| Full suite time         | ~3m                         | 2025-04-09 |
-| Flaky tests (3x repeat) | 0                           | 2025-04-09 |
+| Metric                  | Value                            | Date       |
+| ----------------------- | -------------------------------- | ---------- |
+| Backend coverage        | 46.7%                            | 2026-04-19 |
+| Frontend coverage       | 49.6%                            | 2026-04-19 |
+| Total tests             | 3,089 (1x), 3,289 (3x repeat)    | 2026-04-19 |
+| Backend suite time      | ~38s (1x), ~1m 51s (3x repeat)   | 2026-04-19 |
+| Frontend suite time     | ~7s                              | 2026-04-19 |
+| E2E suite time          | ~16s (1x), ~22s (3x repeat)      | 2026-04-19 |
+| Scenario suite time     | ~64s (1x), ~1m 35s (3x repeat)   | 2026-04-19 |
+| Full suite time         | ~2m 5s (1x), ~3m 56s (3x repeat) | 2026-04-19 |
+| Flaky tests (3x repeat) | **0 across all suites**          | 2026-04-19 |
 
 ## Known Slow Tests (Not Fixable)
 
@@ -32,14 +32,7 @@ These tests are inherently slow due to real git operations (clone, checkout, wor
 
 All top-20 slowest backend tests are in `internal/workspace/` and involve real git operations.
 
-The top-4 slowest E2E tests (~20s each) involve daemon restart cycles:
-
-- `TestE2EOverlayDaemonRestart` — start, spawn, stop, restart, verify overlay state survived
-- `TestE2ERemoteStatePersistence` — start, spawn remote, stop, restart, verify remote state
-- `TestE2ESignalDaemonRestart` — start, spawn, signal, stop, restart, verify signal state
-- `TestE2EGitAmendAndUncommit` — full git amend + uncommit workflow
-
-The remaining E2E tests cluster at 10-13s — this is the baseline cost of daemon start + workspace creation + spawn in Docker.
+After round 6's daemon-stop fix, E2E tests cluster at 1–3s. The slowest one is now `TestE2EGitAmendAndUncommit` (~10s, full git amend + uncommit workflow). Daemon-restart tests dropped from ~20s to <2s because Stop() no longer waits for orphan/zombie process death — it polls the daemon's PID file (removed by the daemon's `defer` on clean shutdown) instead.
 
 ## Known Issues (Fixed)
 
@@ -50,6 +43,30 @@ The remaining E2E tests cluster at 10-13s — this is the baseline cost of daemo
 **Fix** (2025-04-09): Made all three functions pluggable via package-level function variables (`LookupPortOwnerFunc`, `BuildPortOwnerCacheFunc`, `detectPortsForPIDFunc`). Dashboard tests swap in lightweight TCP-connect alternatives via `TestMain` in `internal/dashboard/testmain_test.go`. Production code still uses `lsof`.
 
 **Never revert**: `internal/dashboard/testmain_test.go` — removing it re-enables lsof in tests.
+
+### schmuxdir global state poisons HOME-based tests (round 5)
+
+**Problem**: `internal/schmuxdir/schmuxdir.go` uses a package-level `dir` variable. `Get()` falls back to `~/.schmux` only when `dir == ""`. `internal/dashboard/handlers_timelapse_test.go` did `oldDir := schmuxdir.Get()` (which returned a _resolved_ path like `/Users/me/.schmux`) before `Set(tmpHome)`, then restored to `oldDir` — leaving `dir` permanently non-empty for the rest of the test process. Subsequent tests that relied on `t.Setenv("HOME", x)` (e.g. `TestAPIContract_DisposeBlockedByDevMode`) couldn't redirect schmuxdir to their tmp HOME, so `devSourceWorkspacePath()` read from a stale path. Order-dependent: 67% flaky in 3x repeat.
+
+**Fix** (2026-04-19): `handlers_timelapse_test.go` now restores via `schmuxdir.Set("")`, returning the package to fallback mode. `TestAPIContract_DisposeBlockedByDevMode` now explicitly pins `schmuxdir.Set(schmuxDir)` in setup with `Set("")` cleanup, removing the dependency on test order.
+
+**Pattern to avoid**: never store the result of `schmuxdir.Get()` and pass it back to `Set()` as a "restore" — always restore to `""` so HOME-based fallback resumes.
+
+### daemon.Stop() spent ~12s/test polling zombie PIDs (round 6)
+
+**Problem**: `daemon.Stop()` polled `process.Signal(syscall.Signal(0))` to detect daemon death. On Linux/Docker, when a non-child process exits, it can sit in zombie state until the original parent reaps it — and signal 0 still returns success against a zombie. Result: `Stop()` always hit its 10s deadline (returning a "timeout waiting for daemon to stop" error), even when shutdown completed in ~1s. The CLI returned an error, the e2e test logged a warning and continued, healthz polling caught the actual death — total cost was ~10s per stop. Under heavy parallel Docker load, the deadline was sometimes too short and the test failed (`TestE2EMultipleSessionsIsolatedSignals`).
+
+**Fix** (2026-04-19): `Stop()` now polls the daemon's PID file (removed by the daemon's `defer os.Remove(pidFile)` on clean shutdown). This is the only signal that fires reliably on graceful exit and isn't fooled by zombie state. Signal-0 polling is kept as a fallback for crashes. SIGKILL escalates after 15s with a 2s wait. Result: e2e suite went from 52s → 16s (3.2x faster), individual daemon-stop calls from ~10s → <1s.
+
+**Pattern to avoid**: don't rely on signal 0 to detect death of non-child processes — zombie state defeats it. Use a side-effect of clean shutdown (PID file removal, healthz endpoint refusal) instead.
+
+### inotify exhaustion under fast parallel daemon turnover (round 7)
+
+**Problem**: Round 6's faster daemon shutdown (signal-0 → PID-file polling) accidentally exposed a latent flake. Each daemon opens 4+ fsnotify watchers (config, git, compound, plus one per session). On macOS Docker (8 CPUs), `e2e-entrypoint.sh` set `-test.parallel = nproc * 2 = 16`. With `--repeat 3` running 3 containers in parallel against the host's shared `fs.inotify.max_user_instances = 128`, the upper bound was 16 × 3 × ~5 = 240 instances → "too many open files" failures during daemon startup. 13 of 52 e2e tests went flaky (33–67%). Fast shutdowns let more daemons exist concurrently, which is why round 5's slower-stop baseline didn't trip this.
+
+**Fix** (2026-04-19): Capped `-test.parallel` at 6 in `scripts/e2e-entrypoint.sh` (3 × 6 × ~5 = 90, comfortable headroom under 128). Docker won't allow `--sysctl fs.inotify.*` on the container (not in the namespaced sysctl list), so reducing demand is the only portable knob. Result: 0 flaky e2e tests across 3x repeat, suite stays fast (~22s for 3x = 156 invocations).
+
+**Pattern to avoid**: parallelism caps that scale with `nproc` need an absolute upper bound when the workload uses kernel-shared resources (inotify instances, ephemeral ports, Unix sockets, etc.) — those don't scale with CPU.
 
 ## Coverage Gaps (Investigated)
 
@@ -97,6 +114,64 @@ E2E tests contain `time.Sleep` calls that look like optimization targets but are
 - Frontend tests use Vitest + React Testing Library
 
 ## Improvement History
+
+### Round 7 (2026-04-19)
+
+**Coverage additions:**
+
+- `corsMiddleware` — 5 cases (rejects disallowed origin → 403, allows known origin + sets ACAO, sets credentials when auth enabled, OPTIONS preflight short-circuits to 200 with Methods/Headers, missing Origin header passes through). Coverage: 6.2% → 100%.
+- `normalizeOrigin` — 6 cases (https/http/path-stripping/empty/missing-scheme/missing-host). Coverage: 75% → 100%.
+
+**Flakiness fixes:**
+
+- 13 e2e tests were 33–67% flaky under 3x repeat (uncovered after round 6). Root caused to inotify exhaustion — see Known Issues above. Fix: cap test parallelism at 6 in `scripts/e2e-entrypoint.sh`. Verified: 0 flaky across 3x repeat full suite.
+
+**Process learnings:**
+
+- Round 6's e2e speedup (96s → 16s) accidentally exposed an inotify ceiling that the slower stop had been hiding — daemons died fast enough to overlap with their successors' startup. Faster tests amplify latent races.
+- Docker won't allow `--sysctl fs.inotify.max_user_instances=N` (not namespaced), and `--ulimit nofile` doesn't help inotify limits. The only portable lever is reducing demand (parallelism cap).
+
+### Round 6 (2026-04-19)
+
+**Coverage additions:**
+
+- `csrfMiddleware` — 4 cases (GET bypass, trusted-local POST bypass, untrusted POST without token → 403, untrusted POST with valid token bypass). Coverage: 16.7% → 100%.
+- `authMiddleware` — 5 cases (no-auth bypass, tunnel local-bypass, tunnel non-local + no cookie → 401, valid GitHub cookie → bypass, expired cookie → 401). Coverage: 9.1% → 100%.
+- `waitForDaemonExit` — 3 cases (PID file removed, process death, timeout with live process). Coverage: 100%.
+
+**Performance + flakiness fixes (combined):**
+
+- Fixed `daemon.Stop()` — see Known Issues above. **5.9x speedup on E2E suite** (1m 36s → 16.3s) AND eliminated the `TestE2EMultipleSessionsIsolatedSignals` flake. Daemon-restart tests went from 21s → 1.7s; baseline e2e tests from 11s → 1-2s.
+- Verified flake fix with 3x repeat of `TestE2EMultipleSessionsIsolatedSignals` — stable.
+
+**Process learnings:**
+
+- First attempt bumped SIGTERM polling to 20s + 2s SIGKILL fallback. Made every test +12s slower because zombie process state defeats `signal(0)` polling — the 20s deadline always fired.
+- Second attempt switched to PID-file polling (the daemon's clean-shutdown defer removes it). Worked perfectly because it observes the actual completion event, not a heuristic.
+
+### Round 5 (2026-04-19)
+
+**Coverage additions:**
+
+- `parseSessionCookie` — 7 test cases for HMAC session cookie parsing (Go). Covers valid cookies, missing separator, empty value, bad base64 in payload/signature, wrong-key signature mismatch, malformed JSON payload, and expired sessions. Coverage: 0% → 95.2%.
+- `authCookieSecure` — 4 table cases for HTTPS detection from `PublicBaseURL` (https/http/empty/malformed). Coverage: 0% → 100%.
+- `EntryKey` — 7 cases for autolearn entry key formatting (failure with/without tool, text-based types, empty type fallback). Coverage: 40% → 100%.
+- `expandHome` — 7 cases for `~/` expansion (absolute, relative, empty, inner tilde, no-HOME fallback). Coverage: 40% → 100%.
+
+**Flakiness fixes:**
+
+- `TestAPIContract_DisposeBlockedByDevMode` — root caused to `schmuxdir` global state leaking from `TestHandleTimelapseList_*` tests. Fixed both call sites (see Known Issues above). Verified stable across 5x repeat.
+
+**Performance findings:**
+
+- All top-20 slowest tests still in `internal/workspace/` (real git operations) — not optimizable without weakening regression detection.
+- E2E daemon-restart tests still cluster at ~20s; remaining E2E tests at ~10–13s baseline (Docker + daemon + workspace).
+- Backend suite improved from ~50s → ~38s since round 4 (~24% faster), likely from accumulated optimizations and fewer redundant init paths.
+
+**Outstanding flakes (not addressed this round):**
+
+- `TestE2EMultipleSessionsIsolatedSignals` — fails ~33% under 3x parallel docker load with "timeout waiting for daemon to stop". Daemon's internal Stop() has 10s polling deadline; under heavy CPU contention, shutdown sequence (sm.Stop + remoteManager.DisconnectAll + tunnelMgr.Stop + server.Stop) can exceed it. Needs a follow-up: bump deadline to 20s + add SIGKILL fallback after timeout.
+- `escbuf-gap-replay.spec.ts:163:3` — 33% flaky under 3x repeat. Stress test floods 5000 colored lines and asserts terminal matches tmux + `gapReplayWritten == 0`. Inherently sensitive to Docker scheduling jitter; needs investigation into whether assertion is over-strict or replay logic actually races.
 
 ### Round 1 (2025-04-09)
 

@@ -20,6 +20,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/models"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -735,6 +736,11 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
 		t.Fatalf("failed to create .schmux dir: %v", err)
 	}
+	// Pin schmuxdir explicitly: another test in this package may have left
+	// schmuxdir.dir cached from a previous run, in which case t.Setenv("HOME")
+	// has no effect on schmuxdir.Get().
+	schmuxdir.Set(schmuxDir)
+	t.Cleanup(func() { schmuxdir.Set("") })
 
 	// Create server with dev mode enabled
 	configPath := filepath.Join(t.TempDir(), "config.json")

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/log"
 	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/config"
 )
@@ -257,6 +258,154 @@ func TestIsAllowedOrigin(t *testing.T) {
 			t.Error("non-local dashboard_hostname origin should not be allowed")
 		}
 	})
+}
+
+func TestCorsMiddleware(t *testing.T) {
+	skipUnderVendorlocked(t)
+	newServer := func() *Server {
+		cfg := &config.Config{}
+		cfg.Network = &config.NetworkConfig{Port: 7337}
+		return &Server{
+			config: cfg,
+			logger: log.NewWithOptions(io.Discard, log.Options{}),
+		}
+	}
+
+	t.Run("rejects disallowed origin with 403", func(t *testing.T) {
+		s := newServer()
+		called := false
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true })
+
+		req := httptest.NewRequest(http.MethodGet, "/api/x", nil)
+		req.Header.Set("Origin", "https://evil.com")
+		rr := httptest.NewRecorder()
+		s.corsMiddleware(next).ServeHTTP(rr, req)
+
+		if called {
+			t.Error("next handler should not run for disallowed origin")
+		}
+		if rr.Code != http.StatusForbidden {
+			t.Errorf("expected 403, got %d", rr.Code)
+		}
+	})
+
+	t.Run("allows known origin and sets ACAO header", func(t *testing.T) {
+		s := newServer()
+		called := false
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true })
+
+		req := httptest.NewRequest(http.MethodGet, "/api/x", nil)
+		req.Header.Set("Origin", "http://localhost:7337")
+		rr := httptest.NewRecorder()
+		s.corsMiddleware(next).ServeHTTP(rr, req)
+
+		if !called {
+			t.Error("next handler should run for allowed origin")
+		}
+		if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:7337" {
+			t.Errorf("ACAO = %q, want %q", got, "http://localhost:7337")
+		}
+		// Auth disabled → no credentials header.
+		if got := rr.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+			t.Errorf("ACAC should be empty when auth disabled, got %q", got)
+		}
+	})
+
+	t.Run("sets credentials header when auth enabled", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Network = &config.NetworkConfig{Port: 7337}
+		cfg.AccessControl = &config.AccessControlConfig{Enabled: true}
+		s := &Server{
+			config: cfg,
+			logger: log.NewWithOptions(io.Discard, log.Options{}),
+		}
+
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+		req := httptest.NewRequest(http.MethodGet, "/api/x", nil)
+		req.Header.Set("Origin", "http://localhost:7337")
+		rr := httptest.NewRecorder()
+		s.corsMiddleware(next).ServeHTTP(rr, req)
+
+		if got := rr.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+			t.Errorf("ACAC = %q, want true", got)
+		}
+	})
+
+	t.Run("OPTIONS preflight short-circuits to 200", func(t *testing.T) {
+		s := newServer()
+		called := false
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true })
+
+		req := httptest.NewRequest(http.MethodOptions, "/api/x", nil)
+		req.Header.Set("Origin", "http://localhost:7337")
+		rr := httptest.NewRecorder()
+		s.corsMiddleware(next).ServeHTTP(rr, req)
+
+		if called {
+			t.Error("next handler should NOT run for OPTIONS preflight")
+		}
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", rr.Code)
+		}
+		// Methods/Headers must still be present so the browser can read them.
+		if got := rr.Header().Get("Access-Control-Allow-Methods"); !strings.Contains(got, "POST") {
+			t.Errorf("ACAM should list POST, got %q", got)
+		}
+		if got := rr.Header().Get("Access-Control-Allow-Headers"); !strings.Contains(got, "X-CSRF-Token") {
+			t.Errorf("ACAH should list X-CSRF-Token, got %q", got)
+		}
+	})
+
+	t.Run("missing origin header passes through without ACAO", func(t *testing.T) {
+		s := newServer()
+		called := false
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true })
+
+		req := httptest.NewRequest(http.MethodGet, "/api/x", nil)
+		// No Origin header — same-origin request.
+		rr := httptest.NewRecorder()
+		s.corsMiddleware(next).ServeHTTP(rr, req)
+
+		if !called {
+			t.Error("next should run for same-origin request")
+		}
+		if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("ACAO should be empty for missing origin, got %q", got)
+		}
+	})
+}
+
+func TestNormalizeOrigin(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{"https with host", "https://example.com:8080", "https://example.com:8080", false},
+		{"http with host", "http://localhost:7337", "http://localhost:7337", false},
+		{"with path is stripped", "https://example.com/path?q=1", "https://example.com", false},
+		{"empty string errors", "", "", true},
+		{"missing scheme errors", "example.com", "", true},
+		{"missing host errors", "http://", "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := normalizeOrigin(tc.in)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("normalizeOrigin(%q) = %q, want error", tc.in, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("normalizeOrigin(%q) returned error: %v", tc.in, err)
+			}
+			if got != tc.want {
+				t.Errorf("normalizeOrigin(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestRegisterUnregisterWebSocket(t *testing.T) {

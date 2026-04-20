@@ -476,3 +476,54 @@ func TestStateDir_InvalidRepoName(t *testing.T) {
 func containsPath(path, suffix string) bool {
 	return len(path) >= len(suffix) && path[len(path)-len(suffix):] == suffix
 }
+
+func TestEntryKey(t *testing.T) {
+	cases := []struct {
+		name  string
+		entry Entry
+		want  string
+	}{
+		{
+			name:  "failure with tool",
+			entry: Entry{Type: "failure", Tool: "Bash", InputSummary: "rm -rf /"},
+			want:  "Bash: rm -rf /",
+		},
+		{
+			name:  "failure without tool",
+			entry: Entry{Type: "failure", InputSummary: "open /missing"},
+			want:  "open /missing",
+		},
+		{
+			name:  "failure with empty input",
+			entry: Entry{Type: "failure", Tool: "Read"},
+			want:  "Read: ",
+		},
+		{
+			name:  "operational uses text",
+			entry: Entry{Type: "operational", Text: "tests pass"},
+			want:  "tests pass",
+		},
+		{
+			name:  "reflection uses text",
+			entry: Entry{Type: "reflection", Text: "mocking is risky"},
+			want:  "mocking is risky",
+		},
+		{
+			name:  "non-failure ignores tool/input",
+			entry: Entry{Type: "codebase", Tool: "Bash", InputSummary: "ignored", Text: "code fact"},
+			want:  "code fact",
+		},
+		{
+			name:  "empty type uses text",
+			entry: Entry{Text: "untyped"},
+			want:  "untyped",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.entry.EntryKey(); got != tc.want {
+				t.Errorf("EntryKey() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
