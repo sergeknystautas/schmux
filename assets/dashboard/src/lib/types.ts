@@ -153,6 +153,7 @@ export interface SpawnRequest {
   style_id?: string; // optional: communication style for the agent
   image_attachments?: string[]; // base64-encoded PNGs, max 5
   intent_shared?: boolean; // optional: share workspace intent with team via repofeed
+  separate_workspaces?: boolean; // when multi-agent + fresh, give each spawn its own branch+workspace
 }
 
 export interface SpawnResult {

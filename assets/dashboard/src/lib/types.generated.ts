@@ -759,6 +759,7 @@ export interface SpawnRequest {
   style_id?: string;
   image_attachments?: string[];
   intent_shared?: boolean;
+  separate_workspaces?: boolean;
 }
 
 export interface Style {

@@ -37,6 +37,7 @@ interface SpawnDraft {
   // Only for fresh spawns (no workspace_id)
   repo?: string;
   newRepoName?: string;
+  separateWorkspaces?: boolean;
   // Only for workspace mode
   createBranch?: boolean;
   imageAttachments?: string[]; // base64-encoded PNGs
@@ -166,6 +167,7 @@ export default function SpawnPage() {
   );
   const [showBranchInput, setShowBranchInput] = useState(false);
   const [createBranch, setCreateBranch] = useState(false);
+  const [separateWorkspaces, setSeparateWorkspaces] = useState(false);
   const [prefillWorkspaceId, setPrefillWorkspaceId] = useState('');
   const [resolvedWorkspaceId, setResolvedWorkspaceId] = useState('');
   const [environment, setEnvironment] = useState<EnvironmentSelection>({ type: 'local' });
@@ -378,6 +380,8 @@ export default function SpawnPage() {
       } else if (lastTargetCounts) {
         setTargetCounts(lastTargetCounts);
       }
+      // separateWorkspaces: draft → default
+      setSeparateWorkspaces(draft?.separateWorkspaces || false);
 
       // Override with location.state if navigating from Add Repository flow
       if (location.state?.repo) setRepo(location.state.repo);
@@ -467,6 +471,7 @@ export default function SpawnPage() {
     if (!urlWorkspaceId) {
       draft.repo = repo;
       draft.newRepoName = newRepoName;
+      draft.separateWorkspaces = separateWorkspaces;
     }
     // Only save createBranch for workspace mode
     if (urlWorkspaceId) {
@@ -483,6 +488,7 @@ export default function SpawnPage() {
     repo,
     newRepoName,
     createBranch,
+    separateWorkspaces,
     imageAttachments,
     urlWorkspaceId,
     engagePhase,
@@ -890,6 +896,13 @@ export default function SpawnPage() {
         persona_id: selectedPersonaId || undefined,
         style_id: selectedStyleId || undefined,
         image_attachments: imageAttachments.length > 0 ? imageAttachments : undefined,
+        separate_workspaces:
+          mode === 'fresh' &&
+          environment.type !== 'remote' &&
+          modelSelectionMode !== 'single' &&
+          separateWorkspaces
+            ? true
+            : undefined,
       });
       if (handleSpawnResult(response)) {
         saveLastRepo(actualRepo);
@@ -926,6 +939,7 @@ export default function SpawnPage() {
     selectedPersonaId,
     selectedStyleId,
     imageAttachments,
+    separateWorkspaces,
   ]);
 
   // Global Cmd+Enter handler to submit form from any input on the spawn page
@@ -1531,40 +1545,40 @@ export default function SpawnPage() {
                       </div>
                     )}
 
-                    {/* Persona + style selector for multiple/advanced modes */}
-                    {(personas.length > 0 || styles.length > 0) && (
-                      <div
-                        className="form-row"
-                        data-testid="persona-style-row"
-                        style={{
-                          display: 'flex',
-                          gap: 'var(--spacing-md)',
-                          marginTop: 'var(--spacing-md)',
-                        }}
-                      >
-                        {personas.length > 0 && (
+                    {/* Persona + Style + Branch + Separate-workspaces toggle on a single row */}
+                    <div
+                      className="spawn-selectors"
+                      data-testid="persona-style-row"
+                      style={{ marginTop: 'var(--spacing-md)' }}
+                    >
+                      {personas.length > 0 && (
+                        <div className="spawn-selector">
+                          <span className="spawn-selector__label">Persona</span>
                           <select
                             data-testid="persona-select"
-                            className="select flex-1"
+                            className="select"
                             value={selectedPersonaId}
                             onChange={(e) => setSelectedPersonaId(e.target.value)}
                           >
-                            <option value="">No Persona</option>
+                            <option value="">None</option>
                             {personas.map((p) => (
                               <option key={p.id} value={p.id}>
                                 {p.icon} {p.name}
                               </option>
                             ))}
                           </select>
-                        )}
-                        {styles.length > 0 && (
+                        </div>
+                      )}
+                      {styles.length > 0 && (
+                        <div className="spawn-selector">
+                          <span className="spawn-selector__label">Style</span>
                           <select
                             data-testid="style-select"
-                            className="select flex-1"
+                            className="select"
                             value={selectedStyleId}
                             onChange={(e) => setSelectedStyleId(e.target.value)}
                           >
-                            <option value="">Global Default</option>
+                            <option value="">Default</option>
                             <option value="none">None</option>
                             {styles.map((s) => (
                               <option key={s.id} value={s.id}>
@@ -1572,31 +1586,27 @@ export default function SpawnPage() {
                               </option>
                             ))}
                           </select>
-                        )}
-                      </div>
-                    )}
+                        </div>
+                      )}
+                      {mode === 'fresh' && !isRemoteSpawn && showBranchInput && (
+                        <div className="spawn-selector">
+                          <span className="spawn-selector__label">Branch</span>
+                          <input
+                            type="text"
+                            id="branch"
+                            className="input"
+                            value={branch}
+                            onChange={(event) => setBranch(event.target.value)}
+                            placeholder="e.g. feature/my-branch"
+                          />
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </>
               )}
             </>
           )}
-
-          {/* Branch (shown on suggestion failure or when suggestion is disabled, multi/advanced only) */}
-          {mode === 'fresh' &&
-            !isRemoteSpawn &&
-            showBranchInput &&
-            modelSelectionMode !== 'single' && (
-              <div className="grid-full">
-                <input
-                  type="text"
-                  id="branch"
-                  className="input w-full"
-                  value={branch}
-                  onChange={(event) => setBranch(event.target.value)}
-                  placeholder="Branch (e.g. feature/my-branch)"
-                />
-              </div>
-            )}
         </div>
 
         {tmuxError && (
@@ -1622,50 +1632,68 @@ export default function SpawnPage() {
 
         <div className="spawn-actions">
           {/* Options checkboxes (left side) */}
-          {(mode === 'workspace' && currentWorkspace) || config?.repofeed?.enabled ? (
-            <div className="spawn-actions__options">
-              {mode === 'workspace' && currentWorkspace && (
-                <>
-                  {!currentWorkspace.commits_synced_with_remote ? (
-                    <Tooltip content="Branch must be pushed to origin first" variant="warning">
-                      <span style={{ display: 'inline-block' }}>
-                        <label className="spawn-option">
-                          <input
-                            type="checkbox"
-                            checked={createBranch}
-                            onChange={() => {}}
-                            disabled
-                          />
-                          Create new branch from here
-                        </label>
-                      </span>
-                    </Tooltip>
-                  ) : (
-                    <label className="spawn-option">
-                      <input
-                        type="checkbox"
-                        checked={createBranch}
-                        onChange={(e) => setCreateBranch(e.target.checked)}
-                        disabled={engagePhase !== 'idle'}
-                      />
-                      Create new branch from here
-                    </label>
-                  )}
-                </>
-              )}
-              {config?.repofeed?.enabled && (
-                <label className="spawn-option">
-                  <input
-                    type="checkbox"
-                    checked={shareIntent}
-                    onChange={(e) => setShareIntent(e.target.checked)}
-                    data-testid="share-intent-toggle"
-                  />
-                  Share activity with team
-                </label>
-              )}
-            </div>
-          ) : null}
+          {(() => {
+            const showSeparate =
+              mode === 'fresh' && !isRemoteSpawn && modelSelectionMode !== 'single';
+            const showCreateBranch = mode === 'workspace' && !!currentWorkspace;
+            const showShareIntent = !!config?.repofeed?.enabled;
+            if (!showSeparate && !showCreateBranch && !showShareIntent) return null;
+            return (
+              <div className="spawn-actions__options">
+                {showCreateBranch && (
+                  <>
+                    {!currentWorkspace.commits_synced_with_remote ? (
+                      <Tooltip content="Branch must be pushed to origin first" variant="warning">
+                        <span style={{ display: 'inline-block' }}>
+                          <label className="spawn-option">
+                            <input
+                              type="checkbox"
+                              checked={createBranch}
+                              onChange={() => {}}
+                              disabled
+                            />
+                            Create new branch from here
+                          </label>
+                        </span>
+                      </Tooltip>
+                    ) : (
+                      <label className="spawn-option">
+                        <input
+                          type="checkbox"
+                          checked={createBranch}
+                          onChange={(e) => setCreateBranch(e.target.checked)}
+                          disabled={engagePhase !== 'idle'}
+                        />
+                        Create new branch from here
+                      </label>
+                    )}
+                  </>
+                )}
+                {showSeparate && (
+                  <label className="spawn-option" data-testid="separate-workspaces-toggle">
+                    <input
+                      type="checkbox"
+                      checked={separateWorkspaces}
+                      onChange={(e) => setSeparateWorkspaces(e.target.checked)}
+                      disabled={engagePhase !== 'idle'}
+                    />
+                    Spawn each agent in its own workspace
+                  </label>
+                )}
+                {showShareIntent && (
+                  <label className="spawn-option">
+                    <input
+                      type="checkbox"
+                      checked={shareIntent}
+                      onChange={(e) => setShareIntent(e.target.checked)}
+                      data-testid="share-intent-toggle"
+                    />
+                    Share activity with team
+                  </label>
+                )}
+              </div>
+            );
+          })()}
           <button
             className="btn btn--primary flex-row gap-sm"
             onClick={handleEngage}

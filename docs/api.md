@@ -453,7 +453,8 @@ Request:
   "action_id": "optional",
   "image_attachments": ["base64-encoded-png", "..."],
   "remote_profile_id": "optional",
-  "remote_flavor": "optional"
+  "remote_flavor": "optional",
+  "separate_workspaces": false
 }
 ```
 
@@ -472,6 +473,7 @@ Contract (pre-2093ccf):
 - `style_id` is optional. Communication style override. When set, composed with persona and injected into the agent. The special value `"none"` suppresses the global default style. When absent, the per-agent-type default from `comm_styles` config is used.
 - `image_attachments` is optional. Array of base64-encoded PNG strings (max 5). Images are decoded and written to the workspace's schmux data directory (`{workspace}/.schmux/attachments/` for git, `{workspace}/.sl/schmux/attachments/` for sapling). Absolute file paths are appended to the prompt so the agent can reference them. Cannot be used with `resume`, `command`, or `remote_profile_id`.
 - `intent_shared` is optional (default `false`). When `true`, the workspace is marked as sharing its intent with the team via repofeed. Requires `repofeed.enabled` in config.
+- `separate_workspaces` is optional (default `false`). Only applies to local fresh spawns (no `workspace_id`, no `remote_profile_id`). When `true`, each spawned agent gets its own branch + worktree: the per-spawn branch is `<branch>-<sanitized-target>` (or `<branch>-<sanitized-target>-N` for advanced counts). The up-front branch-conflict guard is skipped for the base branch since no spawn lands on it.
 - `action_id` is optional. When set, usage is recorded against the matching spawn entry in the spawn store. When absent and a prompt exactly matches a pinned spawn entry's prompt, usage is recorded automatically.
 - Remote workspace VCS backfill: when spawning into an existing remote workspace, the workspace's `vcs` field is updated to match the flavor's VCS type. This ensures the events file watcher uses the correct data directory (`.schmux/` for git, `.sl/schmux/` for sapling).
 - Prompt delivery: by default, the prompt is passed as a CLI positional argument. Adapter descriptors may set `prompt_strategy: send_keys` to instead type the prompt into the terminal via tmux after the tool starts. This is used when a tool ignores positional prompt args in interactive mode. The prompt is injected asynchronously: the daemon polls for the tool's input prompt indicator, then pastes the text and sends Enter.

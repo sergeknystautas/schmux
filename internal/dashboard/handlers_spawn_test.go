@@ -473,3 +473,69 @@ func TestResolveQuickLaunchFromPresets_PersonaID(t *testing.T) {
 		t.Errorf("got persona_id %q, want %q", resolved.PersonaID, "builder")
 	}
 }
+
+func TestBranchForSpawn(t *testing.T) {
+	tests := []struct {
+		name     string
+		base     string
+		target   string
+		index    int
+		count    int
+		separate bool
+		want     string
+	}{
+		{name: "shared branch when separate=false", base: "feature-x", target: "claude", index: 0, count: 1, separate: false, want: "feature-x"},
+		{name: "shared branch ignores other args", base: "main", target: "codex", index: 3, count: 5, separate: false, want: "main"},
+		{name: "single agent suffix", base: "feature-x", target: "claude", index: 0, count: 1, separate: true, want: "feature-x-claude"},
+		{name: "advanced count adds index", base: "feature-x", target: "claude", index: 0, count: 2, separate: true, want: "feature-x-claude-1"},
+		{name: "advanced count second", base: "feature-x", target: "claude", index: 1, count: 2, separate: true, want: "feature-x-claude-2"},
+		{name: "uppercase + special chars sanitized", base: "feat", target: "Claude/Opus 4.6", index: 0, count: 1, separate: true, want: "feat-claude-opus-4-6"},
+		{name: "empty base falls back to suffix", base: "", target: "codex", index: 0, count: 1, separate: true, want: "codex"},
+		{name: "blank target sanitizes to agent", base: "feat", target: "///", index: 0, count: 1, separate: true, want: "feat-agent"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := branchForSpawn(tt.base, tt.target, tt.index, tt.count, tt.separate)
+			if got != tt.want {
+				t.Errorf("branchForSpawn(%q,%q,%d,%d,%v) = %q, want %q",
+					tt.base, tt.target, tt.index, tt.count, tt.separate, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestHandleSpawnPost_SeparateWorkspacesBypassesBranchConflict verifies that
+// when SeparateWorkspaces is set, the up-front branch conflict guard does NOT
+// reject the spawn even though a running workspace already holds the base
+// branch — because each agent will land on its own derived branch instead.
+func TestHandleSpawnPost_SeparateWorkspacesBypassesBranchConflict(t *testing.T) {
+	server, cfg, st := newTestServer(t)
+	cfg.SourceCodeManagement = config.SourceCodeManagementGitWorktree
+	cfg.Repos = append(cfg.Repos, config.Repo{
+		Name:     "repo",
+		URL:      "https://github.com/example/repo.git",
+		BarePath: "repo.git",
+	})
+	spawnH := newTestSpawnHandlers(server)
+
+	st.AddWorkspace(state.Workspace{
+		ID:     "repo-001",
+		Repo:   "https://github.com/example/repo.git",
+		Branch: "feature-x",
+		Path:   t.TempDir(),
+		Status: state.WorkspaceStatusRunning,
+	})
+
+	body := SpawnRequest{
+		Repo:               "https://github.com/example/repo.git",
+		Branch:             "feature-x",
+		Targets:            map[string]int{"claude": 1, "codex": 1},
+		Prompt:             "hello",
+		SeparateWorkspaces: true,
+	}
+	rr := postSpawnJSON(t, spawnH.handleSpawnPost, body)
+
+	if rr.Code == http.StatusConflict {
+		t.Errorf("separate_workspaces should bypass conflict guard; got 409: %s", rr.Body.String())
+	}
+}
