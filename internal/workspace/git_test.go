@@ -24,6 +24,18 @@ func runGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
+// runGitOut executes a git command and returns its stdout. Fails the test on error.
+func runGitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, output)
+	}
+	return string(output)
+}
+
 // copyDir recursively copies src into dst (which must already exist).
 func copyDir(t *testing.T, src, dst string) {
 	t.Helper()

@@ -746,6 +746,68 @@ func TestGetOrCreate_RecycleSameDivergedBranch(t *testing.T) {
 	}
 }
 
+// TestGetOrCreate_RecycleAutoSyncsFromDefault verifies that when a recyclable
+// workspace is reused, the branch is rebased onto the latest origin/<default>
+// so the user starts work on top of the most recent default-branch commits.
+// Without this, a feature branch left behind main would be served stale.
+func TestGetOrCreate_RecycleAutoSyncsFromDefault(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath, nil)
+
+	repoDir := gitTestWorkTree(t)
+	gitTestBranch(t, repoDir, "feature-1") // creates feature-1, returns to main
+
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
+	cfg.WorktreeBasePath = t.TempDir()
+	cfg.RecycleWorkspaces = true
+	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
+	manager := New(cfg, st, statePath, testLogger())
+
+	// First run: create + dispose to leave a recyclable workspace on feature-1.
+	ws1, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
+	if err != nil {
+		t.Fatalf("GetOrCreate failed: %v", err)
+	}
+	workspacePath := ws1.Path
+	if err := manager.Dispose(context.Background(), ws1.ID); err != nil {
+		t.Fatalf("Dispose failed: %v", err)
+	}
+
+	// Land a new commit on main in the "remote" (the test repoDir acts as origin).
+	writeFile(t, repoDir, "main-new.txt", "landed after dispose")
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "main: post-dispose commit")
+	mainTip := strings.TrimSpace(runGitOut(t, repoDir, "rev-parse", "HEAD"))
+
+	// Recycle for feature-1. Auto-sync from default should bring main's new
+	// commit into feature-1's history.
+	ws2, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
+	if err != nil {
+		t.Fatalf("GetOrCreate (second) failed: %v", err)
+	}
+	if ws2.ID != ws1.ID {
+		t.Fatalf("expected recycle of same workspace, got %s vs %s", ws2.ID, ws1.ID)
+	}
+
+	// Assert the new main commit is reachable from HEAD (via rebase or merge).
+	if err := exec.Command("git", "-C", workspacePath, "merge-base", "--is-ancestor", mainTip, "HEAD").Run(); err != nil {
+		log := runGitOut(t, workspacePath, "log", "--oneline", "-10")
+		t.Errorf("expected main commit %s to be ancestor of HEAD after recycle auto-sync; git log:\n%s", mainTip[:8], log)
+	}
+
+	// Assert behind-default count is zero.
+	behind := strings.TrimSpace(runGitOut(t, workspacePath, "rev-list", "--count", "HEAD..origin/main"))
+	if behind != "0" {
+		t.Errorf("expected 0 commits behind origin/main, got %s", behind)
+	}
+}
+
 // TestGetOrCreate_BranchReuse_SkipsRunningWorkspaces verifies that a workspace
 // with status "running" is NOT reused for a different branch, even when it has
 // no active sessions and its branch is up-to-date with the default branch.

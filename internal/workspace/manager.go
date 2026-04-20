@@ -479,6 +479,8 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 			if m.gitWatcher != nil {
 				m.gitWatcher.AddWorkspace(w.ID, w.Path)
 			}
+			// Auto-sync from default branch so the recycled workspace starts at latest main.
+			m.autoSyncFromDefault(ctx, w.ID)
 			return &w, nil
 		}
 	}
@@ -518,6 +520,8 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 					w.Status = state.WorkspaceStatusRunning
 					m.state.UpdateWorkspace(w)
 				}
+				// Auto-sync from default branch so the reused workspace starts at latest main.
+				m.autoSyncFromDefault(ctx, w.ID)
 				return &w, nil
 			}
 		}
@@ -583,6 +587,8 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 				if err := m.state.UpdateWorkspace(w); err != nil {
 					return nil, fmt.Errorf("failed to update workspace in state: %w", err)
 				}
+				// Auto-sync from default branch so the reused workspace starts at latest main.
+				m.autoSyncFromDefault(ctx, w.ID)
 				return &w, nil
 			}
 		}
@@ -616,6 +622,9 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 	w.Status = state.WorkspaceStatusRunning
 	m.state.UpdateWorkspace(*w)
 	m.state.Save()
+
+	// Auto-sync from default branch so the new workspace starts at latest main.
+	m.autoSyncFromDefault(ctx, w.ID)
 
 	return w, nil
 }
@@ -892,6 +901,41 @@ func (m *Manager) prepare(ctx context.Context, workspaceID, branch string) error
 
 	m.logger.Info("prepared", "id", workspaceID, "branch", branch)
 	return nil
+}
+
+// autoSyncFromDefault rebases the workspace's branch onto origin/<defaultBranch>
+// so freshly created or recycled workspaces start at the latest default-branch tip.
+// Skips when the workspace is on the default branch, when there's no remote, or for
+// non-git/local-only repos. Conflicts and other failures are logged but do not fail
+// workspace setup — the user can resolve them later via the Sync UI.
+func (m *Manager) autoSyncFromDefault(ctx context.Context, workspaceID string) {
+	w, found := m.state.GetWorkspace(workspaceID)
+	if !found {
+		return
+	}
+	if !IsGitVCS(w.VCS) {
+		return
+	}
+	if strings.HasPrefix(w.Repo, "local:") {
+		return
+	}
+	defaultBranch, err := m.GetDefaultBranch(ctx, w.Repo)
+	if err != nil || defaultBranch == "" || w.Branch == defaultBranch {
+		return
+	}
+	result, err := m.LinearSyncFromDefault(ctx, workspaceID)
+	if err != nil {
+		m.logger.Warn("auto-sync from default failed", "id", workspaceID, "branch", w.Branch, "err", err)
+		return
+	}
+	if result == nil {
+		return
+	}
+	if result.Success && result.SuccessCount > 0 {
+		m.logger.Info("auto-synced from default", "id", workspaceID, "branch", w.Branch, "commits", result.SuccessCount)
+	} else if !result.Success {
+		m.logger.Info("auto-sync from default incomplete (conflicts)", "id", workspaceID, "branch", w.Branch, "completed", result.SuccessCount, "conflicting", result.ConflictingHash)
+	}
 }
 
 // Cleanup cleans up a workspace by resetting git state.

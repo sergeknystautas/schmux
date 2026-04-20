@@ -511,6 +511,8 @@ Both target-based and command-based spawns trigger an immediate WebSocket broadc
 
 Workspace preparation: when reusing an existing workspace for a new spawn, the server runs `git checkout -- .` and `git clean -fd` to discard local changes before switching branches. If the checkout fails due to a stale `index.lock` (common when a previous git process was killed), the lock is automatically removed and the operation is retried. Workspaces with an empty tree (e.g. local repos with only an `--allow-empty` initial commit) skip the checkout step.
 
+Auto-sync from default branch: after preparing a freshly created or recycled workspace, the server runs `LinearSyncFromDefault` so the branch starts at the latest `origin/<defaultBranch>` tip. This is skipped for the default branch itself, `local:` repos, and non-git VCS. Conflicts and errors are logged but do not fail the spawn — the user can resolve them later via the existing Sync from Main UI.
+
 Environment cleanup: before creating a tmux session, the server removes pollution from the tmux server's global environment. This includes agent nesting-detection variables (e.g., `CLAUDECODE`) and any variable not present in the system baseline — a snapshot of the fresh login shell environment captured at daemon startup (and refreshed on `GET /api/environment`). Variables like `npm_config_prefix` that leak into the tmux server from processes like `npx`/`dev.sh` are stripped so new sessions inherit clean state. Keys managed by tmux itself (`TMUX`, `TMUX_PANE`) are preserved.
 
 Global errors (HTTP status codes):
