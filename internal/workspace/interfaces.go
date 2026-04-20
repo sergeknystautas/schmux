@@ -91,6 +91,7 @@ type VCSSafetyStatus struct {
 type WorkspaceCRUD interface {
 	GetByID(workspaceID string) (*state.Workspace, bool)
 	GetOrCreate(ctx context.Context, repoURL, branch string) (*state.Workspace, error)
+	GetOrCreateWithLabel(ctx context.Context, repoURL, branch, label string) (*state.Workspace, error)
 	Dispose(ctx context.Context, workspaceID string) error
 	DisposeForce(ctx context.Context, workspaceID string) error
 	Purge(ctx context.Context, workspaceID string) error

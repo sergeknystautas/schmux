@@ -745,6 +745,7 @@ export interface SpawnRequest {
   branch: string;
   prompt: string;
   nickname?: string;
+  workspace_label?: string;
   targets: Record<string, number>;
   workspace_id?: string;
   command?: string;
@@ -759,7 +760,6 @@ export interface SpawnRequest {
   style_id?: string;
   image_attachments?: string[];
   intent_shared?: boolean;
-  separate_workspaces?: boolean;
 }
 
 export interface Style {
@@ -888,6 +888,7 @@ export interface WorkspaceResponseItem {
   remote_flavor_name?: string;
   remote_flavor?: string;
   vcs?: string;
+  label?: string;
   conflict_on_branch?: string;
   commits_synced_with_remote: boolean;
   default_branch_orphaned: boolean;

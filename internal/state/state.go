@@ -128,6 +128,7 @@ type Workspace struct {
 	Branch                  string            `json:"branch"`
 	Path                    string            `json:"path"`
 	VCS                     string            `json:"vcs,omitempty"`
+	Label                   string            `json:"label,omitempty"` // Optional human-friendly display label (used by sapling workspaces today)
 	Dirty                   bool              `json:"-"`
 	Ahead                   int               `json:"-"`
 	Behind                  int               `json:"-"`

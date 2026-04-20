@@ -162,6 +162,7 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 			RemoteFlavorName:        remoteFlavorName,
 			RemoteFlavor:            remoteFlavor,
 			VCS:                     vcs,
+			Label:                   ws.Label,
 			ConflictOnBranch:        conflictOnBranch,
 			CommitsSyncedWithRemote: ws.CommitsSyncedWithRemote,
 			DefaultBranchOrphaned:   ws.DefaultBranchOrphaned,

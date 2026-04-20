@@ -129,3 +129,48 @@ describe('WorkspaceHeader backburner button', () => {
     expect(screen.queryByLabelText('Wake up')).not.toBeInTheDocument();
   });
 });
+
+describe('WorkspaceHeader branch display (workspaceDisplayLabel wiring)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockConfig = {};
+    mockWorkspaceLockStates = {};
+  });
+
+  it('renders the branch when set (git workspace, no label)', async () => {
+    await renderHeader(makeWorkspace({ id: 'myrepo-001', branch: 'feature/login', vcs: 'git' }));
+
+    expect(screen.getByText('feature/login')).toBeInTheDocument();
+  });
+
+  it('renders the workspace ID for sapling workspace with empty branch and empty label', async () => {
+    await renderHeader(
+      makeWorkspace({
+        id: 'myrepo-008',
+        branch: '',
+        vcs: 'sapling',
+        sessions: [],
+      })
+    );
+
+    // The workspace ID appears in both the branch slot (via the helper
+    // fallback) and the workspace-name slot. We assert specifically on
+    // the branch slot to verify the helper wired through.
+    const branchEl = document.querySelector('.app-header__branch');
+    expect(branchEl).not.toBeNull();
+    expect(branchEl?.textContent).toBe('myrepo-008');
+  });
+
+  it('renders the label when set (preferred over branch)', async () => {
+    await renderHeader(
+      makeWorkspace({
+        id: 'myrepo-009',
+        branch: '',
+        vcs: 'sapling',
+        label: 'My Custom Label',
+      })
+    );
+
+    expect(screen.getByText('My Custom Label')).toBeInTheDocument();
+  });
+});

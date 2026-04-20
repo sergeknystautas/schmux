@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -2091,5 +2092,37 @@ func TestSchmuxDataDirRelative(t *testing.T) {
 	}
 	if got := SchmuxDataDirRelative("git"); got != ".schmux" {
 		t.Errorf("git: got %s", got)
+	}
+}
+
+func TestWorkspace_LabelRoundTrip(t *testing.T) {
+	ws := Workspace{
+		ID:     "myrepo-007",
+		Repo:   "git@github.com:foo/myrepo",
+		Branch: "",
+		Path:   "/tmp/myrepo-007",
+		VCS:    "sapling",
+		Label:  "Login bug fix",
+	}
+	data, err := json.Marshal(ws)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(data), `"label":"Login bug fix"`) {
+		t.Fatalf("label not serialized: %s", data)
+	}
+	var got Workspace
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Label != "Login bug fix" {
+		t.Fatalf("expected Label=%q, got %q", "Login bug fix", got.Label)
+	}
+
+	// Empty Label must omit from JSON
+	wsEmpty := Workspace{ID: "x", Repo: "r", Path: "/p"}
+	data2, _ := json.Marshal(wsEmpty)
+	if strings.Contains(string(data2), `"label"`) {
+		t.Fatalf("empty label should be omitted: %s", data2)
 	}
 }

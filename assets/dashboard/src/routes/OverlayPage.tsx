@@ -18,6 +18,7 @@ import type {
   OverlayChangeEvent,
   WorkspaceResponse,
 } from '../lib/types';
+import { workspaceDisplayLabel } from '../lib/workspace-display';
 
 type AddFlowState =
   | { step: 'closed' }
@@ -583,7 +584,7 @@ function WorkspacePicker({
         >
           {workspaces.map((ws) => (
             <option key={ws.id} value={ws.id}>
-              {ws.branch} ({ws.id.slice(0, 8)})
+              {workspaceDisplayLabel(ws)} ({ws.id.slice(0, 8)})
             </option>
           ))}
         </select>

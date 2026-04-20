@@ -26,6 +26,7 @@ import {
   getRepofeedList,
 } from '../lib/api';
 import { navigateToWorkspace, usePendingNavigation } from '../lib/navigation';
+import { workspaceDisplayLabel } from '../lib/workspace-display';
 import { useFloorManager } from '../hooks/useFloorManager';
 import useVersionInfo from '../hooks/useVersionInfo';
 import { useTerminalStream } from '../hooks/useTerminalStream';
@@ -653,7 +654,7 @@ export default function HomePage() {
                       }
                     >
                       <div className={styles.workspaceInfo}>
-                        <span className={styles.workspaceBranch}>{ws.branch}</span>
+                        <span className={styles.workspaceBranch}>{workspaceDisplayLabel(ws)}</span>
                         <span className={styles.workspaceRepo}>{getRepoName(ws.repo)}</span>
                       </div>
                       <div className={styles.workspaceStats}>
@@ -1202,7 +1203,9 @@ export default function HomePage() {
                         }
                       >
                         <div className={styles.workspaceInfo}>
-                          <span className={styles.workspaceBranch}>{ws.branch}</span>
+                          <span className={styles.workspaceBranch}>
+                            {workspaceDisplayLabel(ws)}
+                          </span>
                           <span className={styles.workspaceRepo}>{getRepoName(ws.repo)}</span>
                         </div>
                         <div className={styles.workspaceStats}>

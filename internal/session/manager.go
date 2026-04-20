@@ -802,6 +802,7 @@ type SpawnOptions struct {
 	Command          string
 	Nickname         string
 	WorkspaceID      string
+	WorkspaceLabel   string // Optional human-friendly label persisted on newly created workspaces (sapling-only today; ignored when WorkspaceID is set or when reusing an existing workspace)
 	Resume           bool
 	NewBranch        string
 	PersonaID        string
@@ -830,7 +831,7 @@ func (m *Manager) resolveWorkspace(ctx context.Context, opts SpawnOptions) (*sta
 		}
 		return ws, nil
 	}
-	w, err := m.workspace.GetOrCreate(ctx, opts.RepoURL, opts.Branch)
+	w, err := m.workspace.GetOrCreateWithLabel(ctx, opts.RepoURL, opts.Branch, opts.WorkspaceLabel)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workspace: %w", err)
 	}

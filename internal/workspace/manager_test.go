@@ -916,7 +916,7 @@ func TestCreateCleanupOnStateSaveFailure(t *testing.T) {
 	ctx := context.Background()
 
 	// Attempt to create a workspace - should fail during state.Save
-	_, err := mgr.create(ctx, repoDir, "main")
+	_, err := mgr.create(ctx, repoDir, "main", "")
 	if err == nil {
 		t.Fatal("expected error from create, got nil")
 	}
@@ -969,7 +969,7 @@ func TestCreateNoCleanupOnSuccess(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a workspace - should succeed
-	w, err := mgr.create(ctx, repoDir, "main")
+	w, err := mgr.create(ctx, repoDir, "main", "")
 	if err != nil {
 		t.Fatalf("create failed: %v", err)
 	}

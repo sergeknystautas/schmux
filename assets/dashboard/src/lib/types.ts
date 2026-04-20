@@ -48,6 +48,7 @@ export interface WorkspaceResponse {
   remote_flavor_name?: string;
   remote_flavor?: string;
   vcs?: string; // "git", "sapling", etc. Omitted defaults to "git".
+  label?: string; // Optional human-friendly display label (sapling-only today)
   conflict_on_branch?: string; // Branch where sync conflict was detected
   commits_synced_with_remote?: boolean; // true if local HEAD matches origin/{branch}
   remote_branch_exists?: boolean; // true if origin/{branch} exists
@@ -153,7 +154,7 @@ export interface SpawnRequest {
   style_id?: string; // optional: communication style for the agent
   image_attachments?: string[]; // base64-encoded PNGs, max 5
   intent_shared?: boolean; // optional: share workspace intent with team via repofeed
-  separate_workspaces?: boolean; // when multi-agent + fresh, give each spawn its own branch+workspace
+  workspace_label?: string; // optional: human-friendly workspace display label (sapling-only today; ignored in workspace mode)
 }
 
 export interface SpawnResult {

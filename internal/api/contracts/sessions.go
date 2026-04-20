@@ -63,6 +63,7 @@ type WorkspaceResponseItem struct {
 	RemoteFlavorName        string                `json:"remote_flavor_name,omitempty"`
 	RemoteFlavor            string                `json:"remote_flavor,omitempty"`
 	VCS                     string                `json:"vcs,omitempty"`                // "git", "sapling", etc. Omitted defaults to "git".
+	Label                   string                `json:"label,omitempty"`              // Optional workspace display label
 	ConflictOnBranch        string                `json:"conflict_on_branch,omitempty"` // Branch where sync conflict was detected
 	CommitsSyncedWithRemote bool                  `json:"commits_synced_with_remote"`   // true if local HEAD matches origin/{branch}
 	DefaultBranchOrphaned   bool                  `json:"default_branch_orphaned"`      // true if origin/default has no common ancestor with HEAD

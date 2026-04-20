@@ -37,7 +37,6 @@ interface SpawnDraft {
   // Only for fresh spawns (no workspace_id)
   repo?: string;
   newRepoName?: string;
-  separateWorkspaces?: boolean;
   // Only for workspace mode
   createBranch?: boolean;
   imageAttachments?: string[]; // base64-encoded PNGs
@@ -159,6 +158,7 @@ export default function SpawnPage() {
   const [models, setModels] = useState<Model[]>([]);
   const [repo, setRepo] = useState('');
   const [branch, setBranch] = useState('');
+  const [workspaceLabel, setWorkspaceLabel] = useState('');
   const [newRepoName, setNewRepoName] = useState('');
   const [prompt, setPrompt] = useState('');
   const [nickname, setNickname] = useState('');
@@ -167,7 +167,6 @@ export default function SpawnPage() {
   );
   const [showBranchInput, setShowBranchInput] = useState(false);
   const [createBranch, setCreateBranch] = useState(false);
-  const [separateWorkspaces, setSeparateWorkspaces] = useState(false);
   const [prefillWorkspaceId, setPrefillWorkspaceId] = useState('');
   const [resolvedWorkspaceId, setResolvedWorkspaceId] = useState('');
   const [environment, setEnvironment] = useState<EnvironmentSelection>({ type: 'local' });
@@ -240,6 +239,29 @@ export default function SpawnPage() {
   const workspaceExists =
     resolvedWorkspaceId && workspaces?.some((ws) => ws.id === resolvedWorkspaceId);
 
+  // Sapling repos have no branch concept — used to hide branch UI on the spawn page.
+  const isSapling = useMemo(
+    () => repos.find((r) => r.url === repo)?.vcs === 'sapling',
+    [repos, repo]
+  );
+  const isSaplingWorkspace = currentWorkspace?.vcs === 'sapling';
+
+  // Best-effort prospective workspace ID for the label input placeholder.
+  // The daemon's findNextWorkspaceNumber actually fills gaps, so this hint
+  // can be off by 1–2 in the presence of concurrent spawns or gaps.
+  // Spec accepts this caveat — the placeholder is purely a hint; the real ID
+  // is arbitrated server-side at spawn time.
+  const prospectiveWorkspaceId = useMemo(() => {
+    if (!isSapling) return '';
+    const repoName = repos.find((r) => r.url === repo)?.name || '';
+    if (!repoName) return '';
+    const count = (workspaces || []).filter((w) => {
+      const r = repos.find((rr) => rr.url === w.repo);
+      return r?.name === repoName;
+    }).length;
+    return `${repoName}-${String(count + 1).padStart(3, '0')}`;
+  }, [isSapling, repos, repo, workspaces]);
+
   // Navigate home if workspace was disposed while on this page (in workspace mode)
   useEffect(() => {
     if (inExistingWorkspace && resolvedWorkspaceId && !workspaceExists && !sessionsLoading) {
@@ -256,10 +278,10 @@ export default function SpawnPage() {
 
   // Show branch input immediately when suggestion is disabled
   useEffect(() => {
-    if (mode === 'fresh' && !branchSuggestTarget && config) {
+    if (mode === 'fresh' && !branchSuggestTarget && config && !isSapling) {
       setShowBranchInput(true);
     }
-  }, [mode, branchSuggestTarget, config]);
+  }, [mode, branchSuggestTarget, config, isSapling]);
 
   useEffect(() => {
     return () => {
@@ -380,8 +402,6 @@ export default function SpawnPage() {
       } else if (lastTargetCounts) {
         setTargetCounts(lastTargetCounts);
       }
-      // separateWorkspaces: draft → default
-      setSeparateWorkspaces(draft?.separateWorkspaces || false);
 
       // Override with location.state if navigating from Add Repository flow
       if (location.state?.repo) setRepo(location.state.repo);
@@ -471,7 +491,6 @@ export default function SpawnPage() {
     if (!urlWorkspaceId) {
       draft.repo = repo;
       draft.newRepoName = newRepoName;
-      draft.separateWorkspaces = separateWorkspaces;
     }
     // Only save createBranch for workspace mode
     if (urlWorkspaceId) {
@@ -488,7 +507,6 @@ export default function SpawnPage() {
     repo,
     newRepoName,
     createBranch,
-    separateWorkspaces,
     imageAttachments,
     urlWorkspaceId,
     engagePhase,
@@ -587,7 +605,7 @@ export default function SpawnPage() {
           return false;
         }
       }
-      if (mode === 'fresh' && !branchSuggestTarget && !branch.trim()) {
+      if (mode === 'fresh' && !isSapling && !branchSuggestTarget && !branch.trim()) {
         toastError('Please enter a branch name');
         return false;
       }
@@ -609,6 +627,7 @@ export default function SpawnPage() {
     prompt,
     environment.type,
     toastError,
+    isSapling,
   ]);
 
   // Handle spawn result: check for errors, navigate on success, return true if successful
@@ -700,7 +719,11 @@ export default function SpawnPage() {
                 : `local:${newRepoName.trim()}`
               : repo;
           const actualBranch =
-            mode === 'fresh' ? branch.trim() || getDefaultBranch(actualRepo) : '';
+            mode === 'fresh'
+              ? isSapling
+                ? ''
+                : branch.trim() || getDefaultBranch(actualRepo)
+              : '';
           const response = await spawnSessions({
             repo: mode === 'fresh' ? actualRepo : '',
             branch: actualBranch,
@@ -769,7 +792,11 @@ export default function SpawnPage() {
               : `local:${newRepoName.trim()}`
             : repo;
         const actualBranch =
-          mode === 'fresh' ? branch.trim() || getDefaultBranch(actualRepo) : branch;
+          mode === 'fresh'
+            ? isSapling
+              ? ''
+              : branch.trim() || getDefaultBranch(actualRepo)
+            : branch;
         const response = await spawnSessions({
           repo: actualRepo,
           branch: actualBranch,
@@ -810,6 +837,7 @@ export default function SpawnPage() {
       toastError,
       selectedPersonaId,
       selectedStyleId,
+      isSapling,
     ]
   );
 
@@ -834,7 +862,12 @@ export default function SpawnPage() {
 
     // Fresh mode: need to determine branch
     if (mode === 'fresh') {
-      if (branch.trim()) {
+      if (isSapling) {
+        // Sapling repos have no branch concept — backend substitutes "main"
+        // only at the sapling backend boundary; persist empty branch.
+        actualBranch = '';
+        actualNickname = nickname;
+      } else if (branch.trim()) {
         // User provided a branch name — use it directly, skip suggestion
         actualBranch = branch.trim();
         actualNickname = nickname;
@@ -864,7 +897,15 @@ export default function SpawnPage() {
     }
 
     // Workspace mode with "Create new branch" checked
-    if (mode === 'workspace' && createBranch && prompt.trim() && branchSuggestTarget) {
+    // Defensive: createBranch checkbox is hidden for sapling workspaces, but
+    // guard explicitly against future code changes that might decouple them.
+    if (
+      mode === 'workspace' &&
+      createBranch &&
+      prompt.trim() &&
+      branchSuggestTarget &&
+      !isSaplingWorkspace
+    ) {
       // Call branch suggest API to get new branch name
       setEngagePhase('naming');
       const { result, error } = await generateBranchName(prompt);
@@ -896,13 +937,7 @@ export default function SpawnPage() {
         persona_id: selectedPersonaId || undefined,
         style_id: selectedStyleId || undefined,
         image_attachments: imageAttachments.length > 0 ? imageAttachments : undefined,
-        separate_workspaces:
-          mode === 'fresh' &&
-          environment.type !== 'remote' &&
-          modelSelectionMode !== 'single' &&
-          separateWorkspaces
-            ? true
-            : undefined,
+        workspace_label: isSapling ? workspaceLabel.trim() : undefined,
       });
       if (handleSpawnResult(response)) {
         saveLastRepo(actualRepo);
@@ -939,7 +974,9 @@ export default function SpawnPage() {
     selectedPersonaId,
     selectedStyleId,
     imageAttachments,
-    separateWorkspaces,
+    isSapling,
+    isSaplingWorkspace,
+    workspaceLabel,
   ]);
 
   // Global Cmd+Enter handler to submit form from any input on the spawn page
@@ -1237,7 +1274,7 @@ export default function SpawnPage() {
                             <option value="__new__">+ Add Repository</option>
                           </select>
                         </div>
-                        {showBranchInput && (
+                        {showBranchInput && !isSapling && (
                           <div className="spawn-selector">
                             <span className="spawn-selector__label">Branch</span>
                             <input
@@ -1247,6 +1284,19 @@ export default function SpawnPage() {
                               value={branch}
                               onChange={(event) => setBranch(event.target.value)}
                               placeholder="e.g. feature/my-branch"
+                            />
+                          </div>
+                        )}
+                        {isSapling && (
+                          <div className="spawn-selector">
+                            <span className="spawn-selector__label">Label</span>
+                            <input
+                              type="text"
+                              className="input"
+                              value={workspaceLabel}
+                              onChange={(event) => setWorkspaceLabel(event.target.value)}
+                              placeholder={prospectiveWorkspaceId}
+                              data-testid="workspace-label-input"
                             />
                           </div>
                         )}
@@ -1545,40 +1595,40 @@ export default function SpawnPage() {
                       </div>
                     )}
 
-                    {/* Persona + Style + Branch + Separate-workspaces toggle on a single row */}
-                    <div
-                      className="spawn-selectors"
-                      data-testid="persona-style-row"
-                      style={{ marginTop: 'var(--spacing-md)' }}
-                    >
-                      {personas.length > 0 && (
-                        <div className="spawn-selector">
-                          <span className="spawn-selector__label">Persona</span>
+                    {/* Persona + style selector for multiple/advanced modes */}
+                    {(personas.length > 0 || styles.length > 0) && (
+                      <div
+                        className="form-row"
+                        data-testid="persona-style-row"
+                        style={{
+                          display: 'flex',
+                          gap: 'var(--spacing-md)',
+                          marginTop: 'var(--spacing-md)',
+                        }}
+                      >
+                        {personas.length > 0 && (
                           <select
                             data-testid="persona-select"
-                            className="select"
+                            className="select flex-1"
                             value={selectedPersonaId}
                             onChange={(e) => setSelectedPersonaId(e.target.value)}
                           >
-                            <option value="">None</option>
+                            <option value="">No Persona</option>
                             {personas.map((p) => (
                               <option key={p.id} value={p.id}>
                                 {p.icon} {p.name}
                               </option>
                             ))}
                           </select>
-                        </div>
-                      )}
-                      {styles.length > 0 && (
-                        <div className="spawn-selector">
-                          <span className="spawn-selector__label">Style</span>
+                        )}
+                        {styles.length > 0 && (
                           <select
                             data-testid="style-select"
-                            className="select"
+                            className="select flex-1"
                             value={selectedStyleId}
                             onChange={(e) => setSelectedStyleId(e.target.value)}
                           >
-                            <option value="">Default</option>
+                            <option value="">Global Default</option>
                             <option value="none">None</option>
                             {styles.map((s) => (
                               <option key={s.id} value={s.id}>
@@ -1586,26 +1636,44 @@ export default function SpawnPage() {
                               </option>
                             ))}
                           </select>
-                        </div>
-                      )}
-                      {mode === 'fresh' && !isRemoteSpawn && showBranchInput && (
-                        <div className="spawn-selector">
-                          <span className="spawn-selector__label">Branch</span>
-                          <input
-                            type="text"
-                            id="branch"
-                            className="input"
-                            value={branch}
-                            onChange={(event) => setBranch(event.target.value)}
-                            placeholder="e.g. feature/my-branch"
-                          />
-                        </div>
-                      )}
-                    </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </>
               )}
             </>
+          )}
+
+          {/* Branch (shown on suggestion failure or when suggestion is disabled, multi/advanced only) */}
+          {mode === 'fresh' &&
+            !isRemoteSpawn &&
+            showBranchInput &&
+            modelSelectionMode !== 'single' &&
+            !isSapling && (
+              <div className="grid-full">
+                <input
+                  type="text"
+                  id="branch"
+                  className="input w-full"
+                  value={branch}
+                  onChange={(event) => setBranch(event.target.value)}
+                  placeholder="Branch (e.g. feature/my-branch)"
+                />
+              </div>
+            )}
+          {/* Sapling label input mirror for multi/advanced fresh mode */}
+          {mode === 'fresh' && !isRemoteSpawn && modelSelectionMode !== 'single' && isSapling && (
+            <div className="grid-full">
+              <input
+                type="text"
+                className="input w-full"
+                value={workspaceLabel}
+                onChange={(event) => setWorkspaceLabel(event.target.value)}
+                placeholder={prospectiveWorkspaceId}
+                data-testid="workspace-label-input"
+              />
+            </div>
           )}
         </div>
 
@@ -1632,68 +1700,50 @@ export default function SpawnPage() {
 
         <div className="spawn-actions">
           {/* Options checkboxes (left side) */}
-          {(() => {
-            const showSeparate =
-              mode === 'fresh' && !isRemoteSpawn && modelSelectionMode !== 'single';
-            const showCreateBranch = mode === 'workspace' && !!currentWorkspace;
-            const showShareIntent = !!config?.repofeed?.enabled;
-            if (!showSeparate && !showCreateBranch && !showShareIntent) return null;
-            return (
-              <div className="spawn-actions__options">
-                {showCreateBranch && (
-                  <>
-                    {!currentWorkspace.commits_synced_with_remote ? (
-                      <Tooltip content="Branch must be pushed to origin first" variant="warning">
-                        <span style={{ display: 'inline-block' }}>
-                          <label className="spawn-option">
-                            <input
-                              type="checkbox"
-                              checked={createBranch}
-                              onChange={() => {}}
-                              disabled
-                            />
-                            Create new branch from here
-                          </label>
-                        </span>
-                      </Tooltip>
-                    ) : (
-                      <label className="spawn-option">
-                        <input
-                          type="checkbox"
-                          checked={createBranch}
-                          onChange={(e) => setCreateBranch(e.target.checked)}
-                          disabled={engagePhase !== 'idle'}
-                        />
-                        Create new branch from here
-                      </label>
-                    )}
-                  </>
-                )}
-                {showSeparate && (
-                  <label className="spawn-option" data-testid="separate-workspaces-toggle">
-                    <input
-                      type="checkbox"
-                      checked={separateWorkspaces}
-                      onChange={(e) => setSeparateWorkspaces(e.target.checked)}
-                      disabled={engagePhase !== 'idle'}
-                    />
-                    Spawn each agent in its own workspace
-                  </label>
-                )}
-                {showShareIntent && (
-                  <label className="spawn-option">
-                    <input
-                      type="checkbox"
-                      checked={shareIntent}
-                      onChange={(e) => setShareIntent(e.target.checked)}
-                      data-testid="share-intent-toggle"
-                    />
-                    Share activity with team
-                  </label>
-                )}
-              </div>
-            );
-          })()}
+          {(mode === 'workspace' && currentWorkspace) || config?.repofeed?.enabled ? (
+            <div className="spawn-actions__options">
+              {mode === 'workspace' && currentWorkspace && !isSaplingWorkspace && (
+                <>
+                  {!currentWorkspace.commits_synced_with_remote ? (
+                    <Tooltip content="Branch must be pushed to origin first" variant="warning">
+                      <span style={{ display: 'inline-block' }}>
+                        <label className="spawn-option">
+                          <input
+                            type="checkbox"
+                            checked={createBranch}
+                            onChange={() => {}}
+                            disabled
+                          />
+                          Create new branch from here
+                        </label>
+                      </span>
+                    </Tooltip>
+                  ) : (
+                    <label className="spawn-option">
+                      <input
+                        type="checkbox"
+                        checked={createBranch}
+                        onChange={(e) => setCreateBranch(e.target.checked)}
+                        disabled={engagePhase !== 'idle'}
+                      />
+                      Create new branch from here
+                    </label>
+                  )}
+                </>
+              )}
+              {config?.repofeed?.enabled && (
+                <label className="spawn-option">
+                  <input
+                    type="checkbox"
+                    checked={shareIntent}
+                    onChange={(e) => setShareIntent(e.target.checked)}
+                    data-testid="share-intent-toggle"
+                  />
+                  Share activity with team
+                </label>
+              )}
+            </div>
+          ) : null}
           <button
             className="btn btn--primary flex-row gap-sm"
             onClick={handleEngage}

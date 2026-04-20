@@ -2,14 +2,26 @@ package dashboard
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/charmbracelet/log"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/github"
+	"github.com/sergeknystautas/schmux/internal/models"
+	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/tmux"
+	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
 func postSpawnJSON(t *testing.T, handler http.HandlerFunc, body interface{}) *httptest.ResponseRecorder {
@@ -474,68 +486,285 @@ func TestResolveQuickLaunchFromPresets_PersonaID(t *testing.T) {
 	}
 }
 
-func TestBranchForSpawn(t *testing.T) {
-	tests := []struct {
-		name     string
-		base     string
-		target   string
-		index    int
-		count    int
-		separate bool
-		want     string
-	}{
-		{name: "shared branch when separate=false", base: "feature-x", target: "claude", index: 0, count: 1, separate: false, want: "feature-x"},
-		{name: "shared branch ignores other args", base: "main", target: "codex", index: 3, count: 5, separate: false, want: "main"},
-		{name: "single agent suffix", base: "feature-x", target: "claude", index: 0, count: 1, separate: true, want: "feature-x-claude"},
-		{name: "advanced count adds index", base: "feature-x", target: "claude", index: 0, count: 2, separate: true, want: "feature-x-claude-1"},
-		{name: "advanced count second", base: "feature-x", target: "claude", index: 1, count: 2, separate: true, want: "feature-x-claude-2"},
-		{name: "uppercase + special chars sanitized", base: "feat", target: "Claude/Opus 4.6", index: 0, count: 1, separate: true, want: "feat-claude-opus-4-6"},
-		{name: "empty base falls back to suffix", base: "", target: "codex", index: 0, count: 1, separate: true, want: "codex"},
-		{name: "blank target sanitizes to agent", base: "feat", target: "///", index: 0, count: 1, separate: true, want: "feat-agent"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := branchForSpawn(tt.base, tt.target, tt.index, tt.count, tt.separate)
-			if got != tt.want {
-				t.Errorf("branchForSpawn(%q,%q,%d,%d,%v) = %q, want %q",
-					tt.base, tt.target, tt.index, tt.count, tt.separate, got, tt.want)
-			}
-		})
+// configureSaplingRepo registers a sapling repo in the test config and wires
+// up sufficient sapling commands for the workspace manager to actually create
+// a workspace via SpawnCommand (which exercises resolveWorkspace before any
+// tmux interaction).
+func configureSaplingRepo(t *testing.T, cfg *config.Config, repoName, repoURL string) {
+	t.Helper()
+	cfg.Repos = append(cfg.Repos, config.Repo{
+		Name:     repoName,
+		URL:      repoURL,
+		VCS:      "sapling",
+		BarePath: repoName,
+	})
+	cfg.SaplingCommands = config.SaplingCommands{
+		CreateRepoBase:  config.ShellCommand{"mkdir", "-p", "{{.BasePath}}"},
+		CreateWorkspace: config.ShellCommand{"sh", "-c", `mkdir -p "$1"`, "_", "{{.DestPath}}"},
+		RemoveWorkspace: config.ShellCommand{"rm", "-rf", "{{.WorkspacePath}}"},
 	}
 }
 
-// TestHandleSpawnPost_SeparateWorkspacesBypassesBranchConflict verifies that
-// when SeparateWorkspaces is set, the up-front branch conflict guard does NOT
-// reject the spawn even though a running workspace already holds the base
-// branch — because each agent will land on its own derived branch instead.
-func TestHandleSpawnPost_SeparateWorkspacesBypassesBranchConflict(t *testing.T) {
-	server, cfg, st := newTestServer(t)
-	cfg.SourceCodeManagement = config.SourceCodeManagementGitWorktree
-	cfg.Repos = append(cfg.Repos, config.Repo{
-		Name:     "repo",
-		URL:      "https://github.com/example/repo.git",
-		BarePath: "repo.git",
-	})
+// TestSpawn_SaplingAcceptsEmptyBranch verifies that the spawn handler does
+// not reject sapling-repo spawns with an empty branch.
+//
+// Spawn-time tmux interaction is unavailable in unit tests, so this test
+// verifies validation only — the per-request label persistence path is
+// exercised by TestCreate_SaplingPersistsLabel in the workspace package
+// (which is what actually does the persistence work).
+func TestSpawn_SaplingAcceptsEmptyBranch(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+	configureSaplingRepo(t, cfg, "saplingrepo", "sl:saplingrepo")
 	spawnH := newTestSpawnHandlers(server)
 
-	st.AddWorkspace(state.Workspace{
-		ID:     "repo-001",
-		Repo:   "https://github.com/example/repo.git",
-		Branch: "feature-x",
-		Path:   t.TempDir(),
-		Status: state.WorkspaceStatusRunning,
-	})
-
 	body := SpawnRequest{
-		Repo:               "https://github.com/example/repo.git",
-		Branch:             "feature-x",
-		Targets:            map[string]int{"claude": 1, "codex": 1},
-		Prompt:             "hello",
-		SeparateWorkspaces: true,
+		Repo:           "sl:saplingrepo",
+		Branch:         "",
+		Targets:        map[string]int{"command": 1},
+		WorkspaceLabel: "Login bug fix",
 	}
 	rr := postSpawnJSON(t, spawnH.handleSpawnPost, body)
 
+	if rr.Code == http.StatusBadRequest {
+		t.Fatalf("expected sapling+empty branch to pass validation; got 400: %s", rr.Body.String())
+	}
+	// The downstream spawn fails because tmux is not wired up in unit tests,
+	// but the handler must report 200 with a per-result error rather than
+	// rejecting the request at validation.
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Sanity-check: the failure is reported as a per-result tmux error,
+	// not a validation failure.
+	body2 := rr.Body.String()
+	if bytes.Contains([]byte(body2), []byte("branch is required")) {
+		t.Errorf("response should not mention 'branch is required' for sapling spawn: %s", body2)
+	}
+}
+
+// TestSpawn_SaplingLabelFlowsToWorkspaceManager verifies that fresh spawns
+// for sapling repos pass the supplied workspace_label to the workspace
+// manager. This is the unit-test equivalent of the e2e flow: we exercise
+// the manager directly with the same inputs the handler would produce.
+func TestSpawn_SaplingLabelFlowsToWorkspaceManager(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+	configureSaplingRepo(t, cfg, "saplingrepo", "sl:saplingrepo")
+
+	// Mirror what the handler would do for a fresh sapling spawn:
+	// req.WorkspaceID == "" → call GetOrCreateWithLabel with the supplied label.
+	w, err := server.workspace.GetOrCreateWithLabel(context.Background(), "sl:saplingrepo", "", "Login bug fix")
+	if err != nil {
+		t.Fatalf("GetOrCreateWithLabel failed: %v", err)
+	}
+	if w.Branch != "" {
+		t.Errorf("expected persisted Workspace.Branch=\"\", got %q", w.Branch)
+	}
+	if w.Label != "Login bug fix" {
+		t.Errorf("expected persisted Workspace.Label=%q, got %q", "Login bug fix", w.Label)
+	}
+}
+
+// TestSpawn_GitStillRejectsEmptyBranch verifies the sapling exemption does
+// not bleed into git repos: a git repo with empty branch is still a 400.
+func TestSpawn_GitStillRejectsEmptyBranch(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+	cfg.Repos = append(cfg.Repos, config.Repo{
+		Name:     "gitrepo",
+		URL:      "git@github.com:foo/gitrepo",
+		BarePath: "gitrepo.git",
+	})
+	spawnH := newTestSpawnHandlers(server)
+
+	body := SpawnRequest{
+		Repo:    "git@github.com:foo/gitrepo",
+		Branch:  "",
+		Targets: map[string]int{"command": 1},
+	}
+	rr := postSpawnJSON(t, spawnH.handleSpawnPost, body)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for git+empty branch, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !bytes.Contains(rr.Body.Bytes(), []byte("branch is required")) {
+		t.Errorf("expected error to mention 'branch is required', got %q", rr.Body.String())
+	}
+}
+
+// TestSpawn_WorkspaceModeIgnoresWorkspaceLabel verifies that workspace_label
+// is silently ignored when WorkspaceID is set — we never rename existing
+// workspaces at session-spawn time.
+func TestSpawn_WorkspaceModeIgnoresWorkspaceLabel(t *testing.T) {
+	server, cfg, st := newTestServer(t)
+	configureSaplingRepo(t, cfg, "saplingrepo", "sl:saplingrepo")
+	spawnH := newTestSpawnHandlers(server)
+
+	// Pre-create a sapling workspace with an existing label.
+	existing := state.Workspace{
+		ID:     "saplingrepo-001",
+		Repo:   "sl:saplingrepo",
+		Branch: "",
+		Path:   t.TempDir(),
+		VCS:    "sapling",
+		Label:  "Original",
+		Status: state.WorkspaceStatusRunning,
+	}
+	if err := st.AddWorkspace(existing); err != nil {
+		t.Fatalf("AddWorkspace: %v", err)
+	}
+
+	body := SpawnRequest{
+		WorkspaceID:    "saplingrepo-001",
+		WorkspaceLabel: "Renamed",
+		Targets:        map[string]int{"command": 1},
+	}
+	rr := postSpawnJSON(t, spawnH.handleSpawnPost, body)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	w, found := st.GetWorkspace("saplingrepo-001")
+	if !found {
+		t.Fatal("workspace disappeared")
+	}
+	if w.Label != "Original" {
+		t.Errorf("expected Label unchanged (%q), got %q", "Original", w.Label)
+	}
+}
+
+// TestSpawn_SaplingSecondWorkspaceNoConflict verifies that the server-side
+// branch conflict guard does not fire when spawning a second sapling
+// workspace in the same repo. Both the persisted workspace and the incoming
+// request have Branch="" — sapling has no branch concept, so two empty-branch
+// workspaces are not in conflict. Without this skip, the guard returns 409
+// and the entire sapling feature breaks after the first spawn.
+func TestSpawn_SaplingSecondWorkspaceNoConflict(t *testing.T) {
+	server, cfg, st := newTestServer(t)
+	configureSaplingRepo(t, cfg, "saplingrepo", "sl:saplingrepo")
+	spawnH := newTestSpawnHandlers(server)
+
+	// Pre-create a sapling workspace with an empty branch.
+	if err := st.AddWorkspace(state.Workspace{
+		ID:     "saplingrepo-001",
+		Repo:   "sl:saplingrepo",
+		Branch: "",
+		Path:   t.TempDir(),
+		VCS:    "sapling",
+		Status: state.WorkspaceStatusRunning,
+	}); err != nil {
+		t.Fatalf("AddWorkspace: %v", err)
+	}
+
+	body := SpawnRequest{
+		Repo:    "sl:saplingrepo",
+		Branch:  "",
+		Targets: map[string]int{"command": 1},
+	}
+	rr := postSpawnJSON(t, spawnH.handleSpawnPost, body)
+
+	// Must NOT be rejected as a branch conflict.
 	if rr.Code == http.StatusConflict {
-		t.Errorf("separate_workspaces should bypass conflict guard; got 409: %s", rr.Body.String())
+		t.Fatalf("second sapling spawn must not return 409 branch_conflict; body: %s", rr.Body.String())
+	}
+	if bytes.Contains(rr.Body.Bytes(), []byte("branch_conflict")) {
+		t.Errorf("response body must not mention branch_conflict for sapling spawn: %s", rr.Body.String())
+	}
+	// Tmux is not wired in unit tests, so the request flows through to the
+	// per-result tmux failure (200 OK with an inline error). The important
+	// thing is that the validation/conflict guard did not block it.
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// newTestServerWithTmux is a variant of newTestServer that wires a real tmux
+// server into the session manager. The caller is responsible for calling
+// t.Skip() if tmux is unavailable. The returned shutdown is registered with
+// t.Cleanup; callers do not need to manage it.
+func newTestServerWithTmux(t *testing.T, tmuxServer *tmux.TmuxServer) (*Server, *config.Config, *state.State) {
+	t.Helper()
+
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = t.TempDir()
+	cfg.RunTargets = []config.RunTarget{
+		{Name: "command", Command: "echo command"},
+	}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath, nil)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, statePath, wm, tmuxServer, log.NewWithOptions(io.Discard, log.Options{}))
+	mm := models.New(cfg, nil, "", log.NewWithOptions(io.Discard, log.Options{}))
+	sm.SetModelManager(mm)
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{
+		ShutdownCtx: shutdownCtx,
+	})
+	server.SetModelManager(mm)
+	t.Cleanup(server.CloseForTest)
+	t.Cleanup(shutdownCancel)
+	return server, cfg, st
+}
+
+// TestSpawn_SaplingLabelLandsOnWorkspaceViaHandler exercises the
+// handler-to-manager wiring for WorkspaceLabel: when the handler runs an
+// end-to-end spawn for a sapling repo, the WorkspaceLabel from the request
+// must be persisted on the resulting workspace. This is the missing test
+// coverage for the `WorkspaceLabel: workspaceLabel` line in handleSpawnPost
+// — without it, the assignment can be silently removed.
+//
+// Requires a real tmux binary so resolveWorkspace executes (the upstream
+// nil-server check otherwise short-circuits before workspace creation). The
+// spawned tmux session is allowed to fail; we only assert state populated by
+// resolveWorkspace, which runs before any tmux interaction.
+func TestSpawn_SaplingLabelLandsOnWorkspaceViaHandler(t *testing.T) {
+	socketName := fmt.Sprintf("schmux-test-label-%d", time.Now().UnixNano())
+	tmuxServer := tmux.NewTmuxServer("tmux", socketName, nil)
+	if err := tmuxServer.Check(); err != nil {
+		t.Skip("tmux not available")
+	}
+	t.Cleanup(func() {
+		// Best-effort: kill any tmux sessions left on this isolated socket.
+		ctx := context.Background()
+		if names, err := tmuxServer.ListSessions(ctx); err == nil {
+			for _, n := range names {
+				_ = tmuxServer.KillSession(ctx, n)
+			}
+		}
+	})
+
+	server, cfg, st := newTestServerWithTmux(t, tmuxServer)
+	configureSaplingRepo(t, cfg, "saplingrepo", "sl:saplingrepo")
+	spawnH := newTestSpawnHandlers(server)
+
+	body := SpawnRequest{
+		Repo:           "sl:saplingrepo",
+		Branch:         "",
+		Targets:        map[string]int{"command": 1},
+		WorkspaceLabel: "Login bug fix",
+	}
+	rr := postSpawnJSON(t, spawnH.handleSpawnPost, body)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var saplingWS *state.Workspace
+	for _, w := range st.GetWorkspaces() {
+		w := w
+		if w.Repo == "sl:saplingrepo" {
+			saplingWS = &w
+			break
+		}
+	}
+	if saplingWS == nil {
+		t.Fatal("workspace was not created")
+	}
+	if saplingWS.Label != "Login bug fix" {
+		t.Errorf("expected Label=%q, got %q", "Login bug fix", saplingWS.Label)
 	}
 }

@@ -17,6 +17,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { sortSessionsByTabOrder, TAB_ORDER_KEY_PREFIX } from '../lib/tabOrder';
 import { sortWorkspaces } from '../lib/workspaceSort';
+import { workspaceDisplayLabel } from '../lib/workspace-display';
 import type { SessionResponse, WorkspaceResponse } from '../lib/types';
 
 function makeSession(id: string): SessionResponse {
@@ -161,5 +162,41 @@ describe('backburner sorting', () => {
     // alpha and bravo have no sessions (tied) so sorted alphabetically,
     // charlie has recent activity but is backburnered so goes last
     expect(sorted.map((w) => w.id)).toEqual(['ws-alpha', 'ws-bravo', 'ws-charlie']);
+  });
+});
+
+// --- Sidebar branch display via workspaceDisplayLabel ---
+//
+// AppShell's sidebar renders nav-workspace__name with the result of
+// workspaceDisplayLabel(workspace, displayBranch) where displayBranch is
+// the remote-aware computed branch. We mirror that wiring here against
+// representative fixtures rather than full-render the AppShell.
+
+describe('AppShell sidebar — workspace name display via workspaceDisplayLabel', () => {
+  it('renders workspace ID for sapling workspace with empty branch and no label', () => {
+    const ws = makeWorkspace('myrepo-008', '');
+    // For a non-remote sapling workspace with empty branch, the
+    // remote-aware computation in AppShell collapses to ws.branch (''),
+    // so the helper should fall through to the workspace ID.
+    expect(workspaceDisplayLabel(ws, ws.branch)).toBe('myrepo-008');
+  });
+
+  it('renders the label when set (sapling workspace with custom name)', () => {
+    const ws = makeWorkspace('myrepo-009', '');
+    ws.label = 'My Sapling Workspace';
+    expect(workspaceDisplayLabel(ws, ws.branch)).toBe('My Sapling Workspace');
+  });
+
+  it('renders the branch for a git workspace with no label (existing behavior)', () => {
+    const ws = makeWorkspace('myrepo-010', 'feature/xyz');
+    expect(workspaceDisplayLabel(ws, ws.branch)).toBe('feature/xyz');
+  });
+
+  it('preserves remote-aware computed branch when label is empty', () => {
+    // AppShell substitutes hostname for branch when branch === repo for
+    // remote workspaces. The helper should pass that precomputed branch
+    // through unchanged when label is empty.
+    const ws = makeWorkspace('myrepo-011', 'remote-host.example.com');
+    expect(workspaceDisplayLabel(ws, 'remote-host.example.com')).toBe('remote-host.example.com');
   });
 });

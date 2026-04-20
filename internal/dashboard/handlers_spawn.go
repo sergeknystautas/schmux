@@ -132,8 +132,15 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		if req.Branch == "" {
-			writeJSONError(w, "branch is required (when not using --workspace or remote)", http.StatusBadRequest)
-			return
+			// Sapling repos have no branch concept; allow empty branch when the
+			// resolved repo is sapling. The substitution to a concrete branch
+			// happens only at the sapling backend boundary inside the workspace
+			// manager.
+			repoCfg, found := h.config.FindRepoByURL(req.Repo)
+			if !found || repoCfg.VCS != "sapling" {
+				writeJSONError(w, "branch is required (when not using --workspace or remote)", http.StatusBadRequest)
+				return
+			}
 		}
 	}
 	// Either command or targets must be provided
@@ -202,8 +209,16 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 	// This catches race conditions where UI check passed but another spawn claimed the branch.
 	// Recyclable workspaces are excluded — they are available for reuse and GetOrCreate
 	// will reclaim the branch via Tier 0 recycling.
-	// Skip when SeparateWorkspaces is set: per-spawn branches are derived below.
-	if req.WorkspaceID == "" && h.config.UseWorktrees() && !req.SeparateWorkspaces {
+	// Sapling repos with empty branch are skipped: sapling has no branch concept,
+	// so two sapling workspaces that both persist Branch="" are not in conflict —
+	// they're distinct workspaces with no branch identity to collide on.
+	skipBranchConflictCheck := false
+	if req.Branch == "" {
+		if repoCfg, found := h.config.FindRepoByURL(req.Repo); found && repoCfg.VCS == "sapling" {
+			skipBranchConflictCheck = true
+		}
+	}
+	if !skipBranchConflictCheck && req.WorkspaceID == "" && h.config.UseWorktrees() {
 		for _, ws := range h.state.GetWorkspaces() {
 			if ws.Repo == req.Repo && ws.Branch == req.Branch && ws.Status != state.WorkspaceStatusRecyclable {
 				writeJSONError(w, fmt.Sprintf("branch_conflict: branch %q is already in use by workspace %q", req.Branch, ws.ID), http.StatusConflict)
@@ -237,13 +252,20 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 		sessionLog.Info("spawn request", "repo", req.Repo, "branch", req.Branch, "workspace_id", req.WorkspaceID, "command", req.Command, "nickname", req.Nickname)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(h.config.GetGitCloneTimeoutMs())*time.Millisecond)
+		// WorkspaceLabel is honored only on fresh spawns (WorkspaceID == "");
+		// in workspace-mode the existing workspace's label is preserved.
+		workspaceLabelCmd := ""
+		if req.WorkspaceID == "" {
+			workspaceLabelCmd = req.WorkspaceLabel
+		}
 		sess, err := h.session.SpawnCommand(ctx, session.SpawnOptions{
-			RepoURL:     req.Repo,
-			Branch:      req.Branch,
-			Command:     req.Command,
-			Nickname:    req.Nickname,
-			WorkspaceID: req.WorkspaceID,
-			NewBranch:   req.NewBranch,
+			RepoURL:        req.Repo,
+			Branch:         req.Branch,
+			Command:        req.Command,
+			Nickname:       req.Nickname,
+			WorkspaceID:    req.WorkspaceID,
+			WorkspaceLabel: workspaceLabelCmd,
+			NewBranch:      req.NewBranch,
 		})
 		cancel()
 
@@ -330,9 +352,6 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 		explicitStyleObj = st
 	}
 
-	// Per-spawn branch derivation only applies to local fresh spawns with multiple agents.
-	useSeparateWorkspaces := req.SeparateWorkspaces && req.WorkspaceID == "" && req.RemoteProfileID == ""
-
 	for targetName, count := range req.Targets {
 		promptable, found := h.models.IsModel(targetName)
 		if !found {
@@ -408,15 +427,23 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 					StyleID:       resolvedStyleID,
 				})
 			} else {
-				// Local spawn - use existing Spawn()
-				spawnBranch := branchForSpawn(req.Branch, targetName, i, spawnCount, useSeparateWorkspaces)
+				// Local spawn - use existing Spawn().
+				// WorkspaceLabel is only honored on fresh spawns (WorkspaceID == "");
+				// in workspace-mode the existing workspace's label is preserved
+				// — the manager never reaches create() and silently ignores the
+				// label, matching the spec.
+				workspaceLabel := ""
+				if req.WorkspaceID == "" {
+					workspaceLabel = req.WorkspaceLabel
+				}
 				sess, err = h.session.Spawn(ctx, session.SpawnOptions{
 					RepoURL:          req.Repo,
-					Branch:           spawnBranch,
+					Branch:           req.Branch,
 					TargetName:       targetName,
 					Prompt:           req.Prompt,
 					Nickname:         nickname,
 					WorkspaceID:      req.WorkspaceID,
+					WorkspaceLabel:   workspaceLabel,
 					Resume:           req.Resume,
 					NewBranch:        req.NewBranch,
 					PersonaID:        req.PersonaID,
@@ -889,44 +916,4 @@ func formatAgentSystemPrompt(p *persona.Persona, st *style.Style) string {
 		fmt.Fprintf(&b, "## Communication Style: %s\n\n%s\n", st.Name, strings.TrimSpace(st.Prompt))
 	}
 	return b.String()
-}
-
-// branchForSpawn returns the branch each individual agent should land on.
-// When separate is false, all spawns share the base branch. When true, the
-// target name is appended (and an index when count > 1) so each agent gets
-// its own worktree.
-func branchForSpawn(base, target string, index, count int, separate bool) string {
-	if !separate {
-		return base
-	}
-	suffix := sanitizeBranchSegment(target)
-	if count > 1 {
-		suffix = fmt.Sprintf("%s-%d", suffix, index+1)
-	}
-	if base == "" {
-		return suffix
-	}
-	return fmt.Sprintf("%s-%s", base, suffix)
-}
-
-// sanitizeBranchSegment lowercases and replaces unsafe characters so that the
-// result is a valid git branch fragment.
-func sanitizeBranchSegment(s string) string {
-	s = strings.ToLower(s)
-	var b strings.Builder
-	b.Grow(len(s))
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_':
-			b.WriteRune(r)
-		default:
-			b.WriteRune('-')
-		}
-	}
-	out := b.String()
-	out = strings.Trim(out, "-")
-	if out == "" {
-		out = "agent"
-	}
-	return out
 }

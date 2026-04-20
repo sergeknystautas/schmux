@@ -8,6 +8,7 @@ import {
 } from '../lib/api';
 import type { RepofeedOutgoingEntry, RepofeedIncomingEntry } from '../lib/api';
 import type { WorkspaceResponse } from '../lib/types';
+import { workspaceDisplayLabel } from '../lib/workspace-display';
 import styles from '../styles/repofeed.module.css';
 
 type FilterKind = 'all' | 'active' | 'completed';
@@ -87,7 +88,7 @@ function OutgoingCard({
           {isShared && ` · ${statusText}`}
         </div>
         <div className={styles['repofeed-intent__text']}>
-          {isShared && summary ? summary : ws.branch}
+          {isShared && summary ? summary : workspaceDisplayLabel(ws)}
         </div>
       </div>
       <button

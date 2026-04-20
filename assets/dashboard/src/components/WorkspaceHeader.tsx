@@ -17,6 +17,7 @@ import useDevStatus from '../hooks/useDevStatus';
 import Tooltip from './Tooltip';
 import { ArrowDownIcon, ArrowUpIcon } from './Icons';
 import type { WorkspaceResponse } from '../lib/types';
+import { workspaceDisplayLabel } from '../lib/workspace-display';
 
 type WorkspaceHeaderProps = {
   workspace: WorkspaceResponse;
@@ -174,10 +175,12 @@ export default function WorkspaceHeader({
   // For remote workspaces, use hostname from sessions if branch matches repo (fallback case)
   const isRemote = workspace.sessions?.some((s) => s.remote_host_id);
   const remoteHostname = workspace.sessions?.find((s) => s.remote_hostname)?.remote_hostname;
-  const displayBranch =
+  const remoteAwareBranch =
     isRemote && remoteHostname && workspace.branch === workspace.repo
       ? remoteHostname
       : workspace.branch;
+  // Compose label-aware fallback on top of remote-aware branch
+  const displayBranch = workspaceDisplayLabel(workspace, remoteAwareBranch);
 
   // Build the workspace name line: include flavor for remote workspaces
   const remoteFlavorName = workspace.remote_flavor_name;

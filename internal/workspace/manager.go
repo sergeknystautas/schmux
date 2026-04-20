@@ -413,8 +413,32 @@ func (m *Manager) hasActiveSessions(workspaceID string) bool {
 // Returns a workspace ready for use (fetch/pull/clean already done).
 // For local repositories (URL format "local:{name}"), always creates a fresh workspace.
 func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*state.Workspace, error) {
-	if err := ValidateBranchName(branch); err != nil {
-		return nil, fmt.Errorf("failed to get workspace: %w", err)
+	return m.GetOrCreateWithLabel(ctx, repoURL, branch, "")
+}
+
+// GetOrCreateWithLabel is the label-aware variant of GetOrCreate.
+// The label is persisted on newly created workspaces. When an existing
+// workspace is reused (any tier), the supplied label is ignored — workspaces
+// are not renamed at session-spawn time.
+//
+// For sapling repos with an empty branch, ValidateBranchName is skipped and
+// the empty value is threaded through to create(); the substitution to a
+// concrete value (e.g. "main") happens only at the sapling backend boundary.
+func (m *Manager) GetOrCreateWithLabel(ctx context.Context, repoURL, branch, label string) (*state.Workspace, error) {
+	// Sapling workspaces have no branch concept — accept an empty branch
+	// when the resolved repo is sapling. The empty value is intentional and
+	// will be substituted only at the sapling backend boundary inside
+	// create(); state.Workspace.Branch stays empty.
+	skipBranchValidation := false
+	if branch == "" {
+		if repo, found := m.findRepoByURL(repoURL); found && repo.VCS == "sapling" {
+			skipBranchValidation = true
+		}
+	}
+	if !skipBranchValidation {
+		if err := ValidateBranchName(branch); err != nil {
+			return nil, fmt.Errorf("failed to get workspace: %w", err)
+		}
 	}
 
 	// Acquire per-repo lock. Both local and remote repos go through this now,
@@ -595,14 +619,14 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 	}
 
 	// Create a new workspace
-	w, err := m.create(ctx, repoURL, branch)
+	w, err := m.create(ctx, repoURL, branch, label)
 	if err != nil {
 		// If create failed because a recyclable worktree holds the branch,
 		// purge the conflicting workspace and retry.
 		if m.config.RecycleWorkspaces && strings.Contains(err.Error(), "already checked out") {
 			if purged := m.purgeRecyclableWithBranch(ctx, repoURL, branch); purged {
 				m.logger.Info("purged conflicting recyclable workspace, retrying create", "branch", branch)
-				w, err = m.create(ctx, repoURL, branch)
+				w, err = m.create(ctx, repoURL, branch, label)
 			}
 		}
 		if err != nil {
@@ -630,7 +654,9 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 }
 
 // create creates a new workspace directory for the given repoURL using git worktrees.
-func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Workspace, error) {
+// The label parameter is persisted on the resulting workspace as a human-friendly
+// display label (used by sapling workspaces today; empty for git workspaces).
+func (m *Manager) create(ctx context.Context, repoURL, branch, label string) (*state.Workspace, error) {
 	// Find repo config by URL
 	repoConfig, found := m.findRepoByURL(repoURL)
 	if !found {
@@ -700,8 +726,16 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 		}
 	}()
 
+	// Substitute a concrete branch only at the sapling backend boundary —
+	// state.Workspace.Branch must remain empty for sapling workspaces with
+	// no user-supplied branch so the display fallback chain works.
+	backendBranch := branch
+	if backendBranch == "" && repoConfig.VCS == "sapling" {
+		backendBranch = "main"
+	}
+
 	if useWorktrees {
-		if err := backend.CreateWorkspace(ctx, worktreeBasePath, branch, workspacePath); err != nil {
+		if err := backend.CreateWorkspace(ctx, worktreeBasePath, backendBranch, workspacePath); err != nil {
 			return nil, fmt.Errorf("failed to add worktree: %w", err)
 		}
 	} else if repoConfig.VCS == "git-clone" || (repoConfig.VCS == "" && !m.config.UseWorktrees()) {
@@ -710,7 +744,7 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 			return nil, fmt.Errorf("failed to clone repo: %w", err)
 		}
 	} else {
-		if err := backend.CreateWorkspace(ctx, worktreeBasePath, branch, workspacePath); err != nil {
+		if err := backend.CreateWorkspace(ctx, worktreeBasePath, backendBranch, workspacePath); err != nil {
 			return nil, fmt.Errorf("failed to create workspace: %w", err)
 		}
 	}
@@ -728,6 +762,7 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 		Branch: branch,
 		Path:   workspacePath,
 		VCS:    repoConfig.VCS,
+		Label:  label,
 		Status: state.WorkspaceStatusProvisioning,
 	}
 

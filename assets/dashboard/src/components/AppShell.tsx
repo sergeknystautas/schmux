@@ -28,6 +28,7 @@ import {
 import { sortSessionsByTabOrder, TAB_ORDER_CHANGED_EVENT } from '../lib/tabOrder';
 import { sortTabsByOrder } from '../lib/accessoryTabOrder';
 import { sortWorkspaces } from '../lib/workspaceSort';
+import { workspaceDisplayLabel } from '../lib/workspace-display';
 import { navigateToWorkspace, findNextWorkspaceWithSessions } from '../lib/navigation';
 import { useModal } from './ModalProvider';
 import { useToast } from './ToastProvider';
@@ -781,7 +782,7 @@ export default function AppShell() {
                             title={remoteDisconnected ? 'Disconnected' : 'Connected'}
                           />
                         )}
-                        {displayBranch}
+                        {workspaceDisplayLabel(workspace, displayBranch)}
                       </span>
                       {wsLocked ? (
                         <span className="nav-workspace__changes">
