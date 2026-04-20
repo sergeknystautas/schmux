@@ -1978,6 +1978,48 @@ Notes:
 - File content is truncated at 1MB per file
 - Commit hash is validated for security (hex chars only, 4-40 characters)
 
+### GET /api/commit/prompt
+
+Returns the base prompt template used for AI-generated commit messages. The frontend reuses this template both for the oneshot path (`/api/commit/generate`) and when spawning an interactive commit session.
+
+Response:
+
+```json
+{ "prompt": "Please create a thorough git commit message for these files...\n\n..." }
+```
+
+### POST /api/commit/generate
+
+Generates a commit message via a oneshot LLM call against the configured `commit_message` target. The handler captures the workspace's current diff (staged + unstaged) and per-file numstat, then asks the target to produce a structured commit message. Diff input is capped at 100 KB.
+
+Request:
+
+```json
+{ "workspace_id": "ws-abc123" }
+```
+
+Response:
+
+```json
+{
+  "message": "feat(thing): one-line subject\n\nbody...",
+  "files": [{ "path": "internal/foo.go", "added": 12, "deleted": 4 }]
+}
+```
+
+Errors:
+
+- 400 with JSON: `{"error":"invalid request body"}` / `{"error":"workspace_id is required"}` / `{"error":"No commit_message target configured. Select a model in Settings > Code Review."}` (no target) / `{"error":"commit_message target not found: ..."}` (configured target missing from config)
+- 404 with JSON: `{"error":"workspace not found"}`
+- 500 with JSON: `{"error":"VCS operation failed"}` / `{"error":"failed to parse response: ..."}` (LLM produced unparseable output) / `{"error":"oneshot failed: ..."}` (timeout, network, etc.)
+
+Notes:
+
+- Requires `commit_message.target` to be configured (check `oneshotModels` in `/api/config` for valid choices)
+- Diff is truncated above 100 KB; the LLM still receives a meaningful prompt but with `... (diff truncated)` appended
+- Returned `message` is whitespace-trimmed; the frontend should not re-trim
+- Same package owns the underlying `commitmessage.Result` schema (`internal/commitmessage`); response field names are stable
+
 ### POST /api/workspaces/{workspaceId}/stage
 
 Stages the specified files (runs `git add` for each file).

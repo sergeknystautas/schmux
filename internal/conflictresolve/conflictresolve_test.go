@@ -21,13 +21,13 @@ func TestParseResult(t *testing.T) {
 		{
 			name: "valid JSON with actions",
 			input: `{
-				"all_resolved": true,
-				"confidence": "high",
-				"summary": "Merged both changes",
-				"files": {
-					"foo.go": {"action": "modified", "description": "merged imports"}
-				}
-			}`,
+					"all_resolved": true,
+					"confidence": "high",
+					"summary": "Merged both changes",
+					"files": {
+						"foo.go": {"action": "modified", "description": "merged imports"}
+					}
+				}`,
 			wantResult: OneshotResult{
 				AllResolved: true,
 				Confidence:  "high",
@@ -38,13 +38,13 @@ func TestParseResult(t *testing.T) {
 		{
 			name: "deleted file action",
 			input: `{
-				"all_resolved": true,
-				"confidence": "high",
-				"summary": "Removed obsolete file",
-				"files": {
-					"old.go": {"action": "deleted", "description": "removed by incoming commit"}
-				}
-			}`,
+					"all_resolved": true,
+					"confidence": "high",
+					"summary": "Removed obsolete file",
+					"files": {
+						"old.go": {"action": "deleted", "description": "removed by incoming commit"}
+					}
+				}`,
 			wantResult: OneshotResult{
 				AllResolved: true,
 				Confidence:  "high",
@@ -53,54 +53,19 @@ func TestParseResult(t *testing.T) {
 			},
 		},
 		{
-			name: "Claude Code envelope with structured_output",
-			input: `{
-				"type": "result",
-				"subtype": "success",
-				"is_error": false,
-				"duration_ms": 224676,
-				"result": "{\"all_resolved\": true, \"confidence\": \"high\", \"summary\": \"Merged\", \"files\": {\"foo.go\": {\"action\": \"modified\", \"description\": \"merged\"}}}",
-				"structured_output": {
-					"all_resolved": true,
-					"confidence": "high",
-					"summary": "Merged",
-					"files": {"foo.go": {"action": "modified", "description": "merged"}}
-				}
-			}`,
-			wantResult: OneshotResult{
-				AllResolved: true,
-				Confidence:  "high",
-				Summary:     "Merged",
-				Files:       map[string]FileAction{"foo.go": {Action: "modified", Description: "merged"}},
-			},
+			name:    "Claude Code envelope not handled by ParseJSON",
+			input:   `{"type": "result", "structured_output": {"all_resolved": true, "confidence": "high", "summary": "Merged", "files": {"foo.go": {"action": "modified", "description": "merged"}}}}`,
+			wantErr: true,
 		},
 		{
-			name: "Claude Code envelope with result string only",
-			input: `{
-				"type": "result",
-				"subtype": "success",
-				"result": "{\"all_resolved\": true, \"confidence\": \"high\", \"summary\": \"Done\", \"files\": {\"bar.go\": {\"action\": \"deleted\", \"description\": \"removed\"}}}"
-			}`,
-			wantResult: OneshotResult{
-				AllResolved: true,
-				Confidence:  "high",
-				Summary:     "Done",
-				Files:       map[string]FileAction{"bar.go": {Action: "deleted", Description: "removed"}},
-			},
+			name:    "Claude Code envelope with result string only not handled",
+			input:   `{"type": "result", "result": "{\"all_resolved\": true, \"confidence\": \"high\"}"}`,
+			wantErr: true,
 		},
 		{
-			name: "Claude Code envelope with null structured_output falls back to result",
-			input: `{
-				"type": "result",
-				"structured_output": null,
-				"result": "{\"all_resolved\": false, \"confidence\": \"low\", \"summary\": \"Partial\", \"files\": {\"x.go\": {\"action\": \"modified\", \"description\": \"tried\"}}}"
-			}`,
-			wantResult: OneshotResult{
-				AllResolved: false,
-				Confidence:  "low",
-				Summary:     "Partial",
-				Files:       map[string]FileAction{"x.go": {Action: "modified", Description: "tried"}},
-			},
+			name:    "Claude Code envelope with null structured_output not handled",
+			input:   `{"type": "result", "structured_output": null, "result": "{\"all_resolved\": false}"}`,
+			wantErr: true,
 		},
 		{
 			name:    "envelope with invalid structured_output and no result",
@@ -118,14 +83,9 @@ func TestParseResult(t *testing.T) {
 			},
 		},
 		{
-			name:  "spurious text before envelope JSON",
-			input: `some output prefix{"type": "result", "structured_output": {"all_resolved": true, "confidence": "high", "summary": "Done", "files": {"a.go": {"action": "modified", "description": "fixed"}}}}`,
-			wantResult: OneshotResult{
-				AllResolved: true,
-				Confidence:  "high",
-				Summary:     "Done",
-				Files:       map[string]FileAction{"a.go": {Action: "modified", Description: "fixed"}},
-			},
+			name:    "spurious text before envelope JSON",
+			input:   `some output prefix{"type": "result", "structured_output": {"all_resolved": true, "confidence": "high", "summary": "Done", "files": {"a.go": {"action": "modified", "description": "fixed"}}}}`,
+			wantErr: true,
 		},
 		{
 			name:  "spurious text before and after JSON payload",
@@ -166,7 +126,7 @@ func TestParseResult(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := ParseResult(tt.input)
+			result, err := parseResultViaExecute(t, tt.input)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -234,6 +194,21 @@ func TestBuildPrompt(t *testing.T) {
 	}
 }
 
+// parseResultViaExecute drives Execute with a stubbed executorFunc that returns
+// raw, exercising the production parse + validation tail (oneshot.ParseJSON +
+// Confidence check + normalizeSummary) end-to-end. If Execute's tail logic
+// drifts, these tests catch it — unlike a test-only re-implementation.
+func parseResultViaExecute(t *testing.T, raw string) (OneshotResult, error) {
+	t.Helper()
+	original := executorFunc
+	defer func() { executorFunc = original }()
+	executorFunc = func(_ context.Context, _ *config.Config, _, _, _ string, _ time.Duration, _ string) (string, error) {
+		return raw, nil
+	}
+	result, _, err := Execute(context.Background(), testConfig("claude"), "ignored", "/tmp")
+	return result, err
+}
+
 // testConfig returns a minimal config with conflict resolution enabled.
 func testConfig(target string) *config.Config {
 	cfg := &config.Config{}
@@ -260,82 +235,94 @@ func TestExecute_RawResponseOnParseError(t *testing.T) {
 		{
 			name:            "disabled when no target configured",
 			cfg:             &config.Config{},
+			mockErr:         oneshot.ErrDisabled,
 			wantRawResponse: "",
-			wantErr:         ErrDisabled,
+			wantErr:         oneshot.ErrDisabled,
 		},
 		{
 			name:            "target not found from oneshot",
 			cfg:             testConfig("nonexistent"),
 			mockErr:         oneshot.ErrTargetNotFound,
 			wantRawResponse: "",
-			wantErr:         ErrTargetNotFound,
+			wantErr:         oneshot.ErrTargetNotFound,
 		},
 		{
 			name:            "execution failure returns empty raw response",
 			cfg:             testConfig("claude"),
 			mockErr:         errors.New("process exited with code 1"),
 			wantRawResponse: "",
-			wantErrContains: "oneshot execute",
+			wantErrContains: "process exited with code 1",
 		},
 		{
 			name:            "invalid JSON returns raw response",
 			cfg:             testConfig("claude"),
 			mockResponse:    "Certainly! I'd be happy to help resolve these conflicts.",
 			wantRawResponse: "Certainly! I'd be happy to help resolve these conflicts.",
-			wantErr:         ErrInvalidResponse,
+			wantErr:         oneshot.ErrInvalidResponse,
 		},
 		{
 			name:            "markdown-wrapped JSON returns raw response",
 			cfg:             testConfig("claude"),
 			mockResponse:    "```json\n{\"all_resolved\": true}\n```",
 			wantRawResponse: "```json\n{\"all_resolved\": true}\n```",
-			wantErr:         ErrInvalidResponse,
+			wantErr:         oneshot.ErrInvalidResponse,
 		},
 		{
 			name:            "empty response returns empty raw response",
 			cfg:             testConfig("claude"),
 			mockResponse:    "",
 			wantRawResponse: "",
-			wantErr:         ErrInvalidResponse,
+			wantErr:         oneshot.ErrInvalidResponse,
 		},
 		{
 			name:            "whitespace-only response returns empty raw response",
 			cfg:             testConfig("claude"),
 			mockResponse:    "   \n\t  ",
 			wantRawResponse: "   \n\t  ",
-			wantErr:         ErrInvalidResponse,
+			wantErr:         oneshot.ErrInvalidResponse,
 		},
 		{
 			name: "valid JSON returns empty raw response",
 			cfg:  testConfig("claude"),
 			mockResponse: `{
-				"all_resolved": true,
-				"confidence": "high",
-				"summary": "Resolved",
-				"files": {"foo.go": {"action": "modified", "description": "merged"}}
-			}`,
-			wantRawResponse: "",
-		},
-		{
-			name: "Claude Code envelope is unwrapped successfully",
-			cfg:  testConfig("claude"),
-			mockResponse: `{
-				"type": "result",
-				"subtype": "success",
-				"structured_output": {
 					"all_resolved": true,
 					"confidence": "high",
-					"summary": "Resolved via envelope",
+					"summary": "Resolved",
 					"files": {"foo.go": {"action": "modified", "description": "merged"}}
-				}
-			}`,
+				}`,
 			wantRawResponse: "",
 		},
 		{
-			name:            "spurious prefix before envelope is unwrapped successfully",
+			name: "Claude Code envelope not handled returns raw response",
+			cfg:  testConfig("claude"),
+			mockResponse: `{
+					"type": "result",
+					"subtype": "success",
+					"structured_output": {
+						"all_resolved": true,
+						"confidence": "high",
+						"summary": "Resolved via envelope",
+						"files": {"foo.go": {"action": "modified", "description": "merged"}}
+					}
+				}`,
+			wantRawResponse: `{
+					"type": "result",
+					"subtype": "success",
+					"structured_output": {
+						"all_resolved": true,
+						"confidence": "high",
+						"summary": "Resolved via envelope",
+						"files": {"foo.go": {"action": "modified", "description": "merged"}}
+					}
+				}`,
+			wantErr: oneshot.ErrInvalidResponse,
+		},
+		{
+			name:            "spurious prefix before envelope returns raw response",
 			cfg:             testConfig("claude"),
 			mockResponse:    `blah{"type": "result", "structured_output": {"all_resolved": true, "confidence": "high", "summary": "Resolved", "files": {"foo.go": {"action": "modified", "description": "merged"}}}}`,
-			wantRawResponse: "",
+			wantRawResponse: `blah{"type": "result", "structured_output": {"all_resolved": true, "confidence": "high", "summary": "Resolved", "files": {"foo.go": {"action": "modified", "description": "merged"}}}}`,
+			wantErr:         oneshot.ErrInvalidResponse,
 		},
 	}
 

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/oneshot"
 )
 
 func branchSuggestCfg(bs *config.BranchSuggestConfig) *config.Config {
@@ -59,19 +60,19 @@ func TestAskForPrompt_Validation(t *testing.T) {
 			name:    "nil config",
 			cfg:     nil,
 			prompt:  "add dark mode",
-			wantErr: ErrDisabled,
+			wantErr: oneshot.ErrDisabled,
 		},
 		{
 			name:    "empty config (no target)",
 			cfg:     &config.Config{},
 			prompt:  "add dark mode",
-			wantErr: ErrDisabled,
+			wantErr: oneshot.ErrDisabled,
 		},
 		{
 			name:    "empty target string",
 			cfg:     branchSuggestCfg(&config.BranchSuggestConfig{Target: ""}),
 			prompt:  "add dark mode",
-			wantErr: ErrDisabled,
+			wantErr: oneshot.ErrDisabled,
 		},
 	}
 	for _, tt := range tests {

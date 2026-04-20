@@ -200,6 +200,9 @@ func ExecuteCommand(ctx context.Context, command, prompt string, env map[string]
 // The schemaLabel parameter is optional; if empty, no JSON schema constraint is applied
 // (the CLI will still use JSON output format, but without constrained decoding).
 func ExecuteTarget(ctx context.Context, cfg *config.Config, targetName, prompt, schemaLabel string, timeout time.Duration, dir string) (string, error) {
+	if targetName == "" {
+		return "", ErrDisabled
+	}
 	if prompt == "" {
 		return "", fmt.Errorf("prompt cannot be empty")
 	}

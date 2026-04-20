@@ -2,9 +2,7 @@ package nudgenik
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -25,7 +23,7 @@ const (
 	Prompt = `
 You are analyzing the last response from a coding agent.
 
-Your task is to determine the agent’s current operational state based ONLY on that response.
+Your task is to determine the agent's current operational state based ONLY on that response.
 
 Do NOT:
 - continue development
@@ -51,7 +49,7 @@ Stylistic rules for "summary":
 - Do NOT anthropomorphize
 - Begin directly with the situation or state (e.g., "Implementation is complete…" not "The agent has completed…")
 
-Here is the agent’s last response:
+Here is the agent's last response:
 <<<
 {{AGENT_LAST_RESPONSE}}
 >>>
@@ -61,11 +59,8 @@ Here is the agent’s last response:
 )
 
 var (
-	ErrDisabled        = errors.New("nudgenik is disabled")
 	ErrNoResponse      = errors.New("no response extracted")
-	ErrTargetNotFound  = errors.New("nudgenik target not found")
 	ErrTargetNoSecrets = errors.New("nudgenik target missing required secrets")
-	ErrInvalidResponse = errors.New("invalid nudgenik response")
 )
 
 // IsEnabled returns true if nudgenik is enabled (has a configured target).
@@ -94,23 +89,23 @@ func AskForCapture(ctx context.Context, cfg *config.Config, capture string) (Res
 	if err != nil {
 		return Result{}, err
 	}
-
 	return AskForExtracted(ctx, cfg, extracted)
 }
 
 // AskForExtracted asks NudgeNik using a pre-extracted agent response.
+// Errors surfaced:
+//   - ErrNoResponse                (empty extracted text)
+//   - oneshot.ErrDisabled          (no target configured)
+//   - oneshot.ErrTargetNotFound    (configured target missing)
+//   - oneshot.ErrInvalidResponse   (LLM output not parseable)
 func AskForExtracted(ctx context.Context, cfg *config.Config, extracted string) (Result, error) {
 	if strings.TrimSpace(extracted) == "" {
 		return Result{}, ErrNoResponse
 	}
 
-	// Check if nudgenik is disabled (empty target)
 	targetName := ""
 	if cfg != nil {
 		targetName = cfg.GetNudgenikTarget()
-	}
-	if targetName == "" {
-		return Result{}, ErrDisabled
 	}
 
 	input := strings.Replace(Prompt, "{{AGENT_LAST_RESPONSE}}", extracted, 1)
@@ -118,19 +113,10 @@ func AskForExtracted(ctx context.Context, cfg *config.Config, extracted string) 
 	timeoutCtx, cancel := context.WithTimeout(ctx, nudgenikTimeout)
 	defer cancel()
 
-	response, err := oneshot.ExecuteTarget(timeoutCtx, cfg, targetName, input, schema.LabelNudgeNik, nudgenikTimeout, "")
-	if err != nil {
-		if errors.Is(err, oneshot.ErrTargetNotFound) {
-			return Result{}, ErrTargetNotFound
-		}
-		return Result{}, fmt.Errorf("oneshot execute: %w", err)
-	}
-
-	result, err := ParseResult(response)
+	result, _, err := oneshot.ExecuteTargetJSON[Result](timeoutCtx, cfg, targetName, input, schema.LabelNudgeNik, nudgenikTimeout, "")
 	if err != nil {
 		return Result{}, err
 	}
-
 	return result, nil
 }
 
@@ -142,50 +128,4 @@ func ExtractLatestFromCapture(capture string) (string, error) {
 		return "", ErrNoResponse
 	}
 	return extracted, nil
-}
-
-// ParseResult extracts the first JSON object from a raw LLM response and parses it.
-func ParseResult(raw string) (Result, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return Result{}, fmt.Errorf("%w: empty response", ErrInvalidResponse)
-	}
-
-	if strings.HasPrefix(trimmed, "```") {
-		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "```json"))
-		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "```"))
-		trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, "```"))
-	}
-
-	start := strings.Index(trimmed, "{")
-	end := strings.LastIndex(trimmed, "}")
-	if start == -1 || end == -1 || end <= start {
-		return Result{}, fmt.Errorf("%w: no JSON object found in: %s", ErrInvalidResponse, truncateForError(trimmed))
-	}
-
-	payload := trimmed[start : end+1]
-	var result Result
-	if err := json.Unmarshal([]byte(payload), &result); err != nil {
-		payload = normalizeJSONPayload(payload)
-		if payload == "" {
-			return Result{}, fmt.Errorf("%w: %v", ErrInvalidResponse, err)
-		}
-		if err := json.Unmarshal([]byte(payload), &result); err != nil {
-			return Result{}, fmt.Errorf("%w: %v", ErrInvalidResponse, err)
-		}
-	}
-
-	return result, nil
-}
-
-func normalizeJSONPayload(payload string) string {
-	return oneshot.NormalizeJSONPayload(payload)
-}
-
-func truncateForError(s string) string {
-	const maxLen = 200
-	if len(s) <= maxLen {
-		return fmt.Sprintf("%q", s)
-	}
-	return fmt.Sprintf("%q...[%d bytes total]", s[:maxLen], len(s))
 }

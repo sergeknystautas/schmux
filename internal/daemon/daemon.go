@@ -1802,11 +1802,11 @@ func askNudgeNikForSession(ctx context.Context, cfg *config.Config, sess state.S
 	result, err := nudgenik.AskForCapture(ctx, cfg, content)
 	if err != nil {
 		switch {
-		case errors.Is(err, nudgenik.ErrDisabled):
+		case errors.Is(err, oneshot.ErrDisabled):
 			// Silently skip - nudgenik is disabled
 		case errors.Is(err, nudgenik.ErrNoResponse):
 			logger.Info("no response extracted", "session_id", sess.ID)
-		case errors.Is(err, nudgenik.ErrTargetNotFound):
+		case errors.Is(err, oneshot.ErrTargetNotFound):
 			logger.Warn("target not found in config")
 		case errors.Is(err, nudgenik.ErrTargetNoSecrets):
 			logger.Warn("target missing required secrets")

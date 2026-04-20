@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -108,29 +109,35 @@ func (h *GitHandlers) handleCommitGenerate(w http.ResponseWriter, r *http.Reques
 	// Build the prompt
 	prompt := BuildOneshotCommitPrompt(diffStr)
 
-	// Check if commit message target is configured
 	targetName := h.config.GetCommitMessageTarget()
-	if targetName == "" {
-		h.logger.Info("commit-generate: not configured", "workspace", req.WorkspaceID)
-		writeJSONError(w, "No commit_message target configured. Select a model in Settings > Code Review.", http.StatusBadRequest)
-		return
-	}
-
 	h.logger.Info("commit-generate: asking target", "workspace", req.WorkspaceID, "target", targetName)
 	start := time.Now()
 
 	timeout := 60 * time.Second
-	rawResult, err := oneshot.ExecuteTarget(ctx, h.config, targetName, prompt, schema.LabelCommitMessage, timeout, ws.Path)
+	result, raw, err := oneshot.ExecuteTargetJSON[commitmessage.Result](
+		ctx,
+		h.config,
+		targetName,
+		prompt,
+		schema.LabelCommitMessage,
+		timeout,
+		ws.Path,
+	)
 	if err != nil {
-		h.logger.Error("commit-generate: failed", "workspace", req.WorkspaceID, "err", err)
-		writeJSONError(w, fmt.Sprintf("oneshot failed: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	var result commitmessage.Result
-	if err := json.Unmarshal([]byte(rawResult), &result); err != nil {
-		h.logger.Error("commit-generate: failed to parse response", "workspace", req.WorkspaceID, "err", err)
-		writeJSONError(w, fmt.Sprintf("failed to parse response: %v", err), http.StatusInternalServerError)
+		switch {
+		case errors.Is(err, oneshot.ErrDisabled):
+			h.logger.Info("commit-generate: not configured", "workspace", req.WorkspaceID)
+			writeJSONError(w, "No commit_message target configured. Select a model in Settings > Code Review.", http.StatusBadRequest)
+		case errors.Is(err, oneshot.ErrTargetNotFound):
+			h.logger.Warn("commit-generate: target missing", "workspace", req.WorkspaceID, "err", err)
+			writeJSONError(w, fmt.Sprintf("commit_message target not found: %v", err), http.StatusBadRequest)
+		case errors.Is(err, oneshot.ErrInvalidResponse):
+			h.logger.Error("commit-generate: failed to parse response", "workspace", req.WorkspaceID, "err", err, "raw", raw)
+			writeJSONError(w, fmt.Sprintf("failed to parse response: %v", err), http.StatusInternalServerError)
+		default:
+			h.logger.Error("commit-generate: failed", "workspace", req.WorkspaceID, "err", err)
+			writeJSONError(w, fmt.Sprintf("oneshot failed: %v", err), http.StatusInternalServerError)
+		}
 		return
 	}
 

@@ -20,6 +20,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
+	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/persona"
 	"github.com/sergeknystautas/schmux/internal/preview"
 	"github.com/sergeknystautas/schmux/internal/remote"
@@ -479,13 +480,13 @@ func (h *SessionHandlers) handleAskNudgenik(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		nudgenikLog := logging.Sub(h.logger, "nudgenik")
 		switch {
-		case errors.Is(err, nudgenik.ErrDisabled):
+		case errors.Is(err, oneshot.ErrDisabled):
 			nudgenikLog.Info("nudgenik is disabled")
 			writeJSONError(w, "Nudgenik is disabled. Configure a target in settings.", http.StatusServiceUnavailable)
 		case errors.Is(err, nudgenik.ErrNoResponse):
 			nudgenikLog.Info("no response extracted", "session_id", sessionID)
 			writeJSONError(w, "No response found in session output", http.StatusBadRequest)
-		case errors.Is(err, nudgenik.ErrTargetNotFound):
+		case errors.Is(err, oneshot.ErrTargetNotFound):
 			nudgenikLog.Warn("target not found in config")
 			writeJSONError(w, "Nudgenik target not found", http.StatusServiceUnavailable)
 		case errors.Is(err, nudgenik.ErrTargetNoSecrets):
@@ -520,7 +521,7 @@ func parseNudgeSummary(nudge string) (string, string) {
 		return "", ""
 	}
 
-	result, err := nudgenik.ParseResult(trimmed)
+	result, err := oneshot.ParseJSON[nudgenik.Result](trimmed)
 	if err != nil {
 		return "", ""
 	}

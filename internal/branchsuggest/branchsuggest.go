@@ -2,9 +2,7 @@ package branchsuggest
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -52,11 +50,8 @@ Here is the user's prompt:
 )
 
 var (
-	ErrDisabled        = errors.New("branch suggestion is disabled")
-	ErrNoPrompt        = errors.New("empty prompt provided")
-	ErrTargetNotFound  = errors.New("branch suggestion target not found")
-	ErrInvalidResponse = errors.New("invalid branch suggestion response")
-	ErrInvalidBranch   = errors.New("invalid branch name")
+	ErrNoPrompt      = errors.New("empty prompt provided")
+	ErrInvalidBranch = errors.New("invalid branch name")
 )
 
 // IsEnabled returns true if branch suggestion is enabled (has a configured target).
@@ -75,82 +70,41 @@ type Result struct {
 }
 
 // AskForPrompt generates a branch name from a user prompt.
+// Errors surfaced:
+//   - ErrNoPrompt                  (empty user prompt)
+//   - oneshot.ErrDisabled          (no target configured)
+//   - oneshot.ErrTargetNotFound    (configured target missing)
+//   - oneshot.ErrInvalidResponse   (LLM output not parseable)
+//   - ErrInvalidBranch             (LLM returned an invalid branch name)
 func AskForPrompt(ctx context.Context, cfg *config.Config, userPrompt string) (Result, error) {
 	userPrompt = strings.TrimSpace(userPrompt)
 	if userPrompt == "" {
 		return Result{}, ErrNoPrompt
 	}
 
-	// Check if branch suggestion is disabled (empty target)
 	targetName := ""
 	if cfg != nil {
 		targetName = cfg.GetBranchSuggestTarget()
 	}
-	if targetName == "" {
-		return Result{}, ErrDisabled
-	}
 
 	input := strings.ReplaceAll(Prompt, "{{USER_PROMPT}}", userPrompt)
 
-	response, err := oneshot.ExecuteTarget(ctx, cfg, targetName, input, schema.LabelBranchSuggest, branchSuggestTimeout, "")
-	if err != nil {
-		if errors.Is(err, oneshot.ErrTargetNotFound) {
-			return Result{}, ErrTargetNotFound
-		}
-		return Result{}, fmt.Errorf("oneshot execute: %w", err)
-	}
-
-	result, err := ParseResult(response)
+	result, _, err := oneshot.ExecuteTargetJSON[Result](ctx, cfg, targetName, input, schema.LabelBranchSuggest, branchSuggestTimeout, "")
 	if err != nil {
 		return Result{}, err
 	}
 
-	return result, nil
-}
-
-// ParseResult extracts the first JSON object from a raw LLM response and parses it.
-func ParseResult(raw string) (Result, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return Result{}, ErrInvalidResponse
-	}
-
-	if strings.HasPrefix(trimmed, "```") {
-		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "```json"))
-		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "```"))
-		trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, "```"))
-	}
-
-	start := strings.Index(trimmed, "{")
-	end := strings.LastIndex(trimmed, "}")
-	if start == -1 || end == -1 || end <= start {
-		return Result{}, ErrInvalidResponse
-	}
-
-	payload := trimmed[start : end+1]
-	var result Result
-	if err := json.Unmarshal([]byte(payload), &result); err != nil {
-		payload = normalizeJSONPayload(payload)
-		if payload == "" {
-			return Result{}, fmt.Errorf("%w: %v", ErrInvalidResponse, err)
-		}
-		if err := json.Unmarshal([]byte(payload), &result); err != nil {
-			return Result{}, fmt.Errorf("%w: %v", ErrInvalidResponse, err)
-		}
-	}
-
-	// Validate the result has non-empty branch
+	// Empty Branch is treated as ErrInvalidBranch (not ErrInvalidResponse) because
+	// the JSON parsed cleanly — the LLM produced a structurally valid Result with a
+	// blank value, which is a content failure, not a transport failure. Both errors
+	// map to HTTP 400 in handlers_spawn.go, so external behavior is unchanged.
 	branch := strings.TrimSpace(result.Branch)
 	if branch == "" {
-		return Result{}, ErrInvalidResponse
+		return Result{}, ErrInvalidBranch
 	}
 	if err := workspace.ValidateBranchName(branch); err != nil {
 		return Result{}, ErrInvalidBranch
 	}
-
+	result.Branch = branch
 	return result, nil
-}
-
-func normalizeJSONPayload(payload string) string {
-	return oneshot.NormalizeJSONPayload(payload)
 }

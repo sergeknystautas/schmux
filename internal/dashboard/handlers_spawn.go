@@ -20,6 +20,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/models"
+	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/persona"
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/session"
@@ -528,11 +529,11 @@ func (h *SpawnHandlers) handleSuggestBranch(w http.ResponseWriter, r *http.Reque
 		switch {
 		case errors.Is(err, branchsuggest.ErrNoPrompt):
 			status = http.StatusBadRequest
-		case errors.Is(err, branchsuggest.ErrTargetNotFound):
+		case errors.Is(err, oneshot.ErrTargetNotFound):
 			status = http.StatusNotFound
-		case errors.Is(err, branchsuggest.ErrDisabled):
+		case errors.Is(err, oneshot.ErrDisabled):
 			status = http.StatusServiceUnavailable
-		case errors.Is(err, branchsuggest.ErrInvalidBranch), errors.Is(err, branchsuggest.ErrInvalidResponse):
+		case errors.Is(err, branchsuggest.ErrInvalidBranch), errors.Is(err, oneshot.ErrInvalidResponse):
 			status = http.StatusBadRequest
 		}
 		workspaceLog.Error("suggest-branch failed", "duration", time.Since(start).Truncate(time.Millisecond), "status", status, "err", err)
