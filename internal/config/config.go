@@ -57,6 +57,14 @@ const (
 
 	// Default auth session TTL in minutes
 	DefaultAuthSessionTTLMinutes = 1440
+
+	// DefaultAuthProvider is the default access-control provider written by
+	// CreateDefault and returned by GetAuthProvider when AccessControl is
+	// non-nil with an empty Provider field. The dashboard form roundtrips
+	// this exact string back through the API on every save, so any change
+	// here must be reflected in CreateDefault — see the round-trip test in
+	// internal/dashboard/handlers_config_test.go.
+	DefaultAuthProvider = "github"
 )
 
 // Source code management constants
@@ -2807,11 +2815,8 @@ func (c *Config) GetAuthEnabled() bool {
 func (c *Config) GetAuthProvider() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c.AccessControl == nil {
-		return ""
-	}
-	if strings.TrimSpace(c.AccessControl.Provider) == "" {
-		return "github"
+	if c.AccessControl == nil || strings.TrimSpace(c.AccessControl.Provider) == "" {
+		return DefaultAuthProvider
 	}
 	return c.AccessControl.Provider
 }

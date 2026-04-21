@@ -11,9 +11,9 @@ func TestGetAuthProvider(t *testing.T) {
 		want string
 	}{
 		{
-			name: "nil AccessControl returns empty",
+			name: "nil AccessControl defaults to github",
 			cfg:  &Config{},
-			want: "",
+			want: "github",
 		},
 		{
 			name: "empty provider defaults to github",

@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"time"
 
@@ -388,10 +387,7 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 	}
 
 	cfg := h.config
-	oldNetwork := cloneNetwork(cfg.Network)
-	oldAccessControl := cloneAccessControl(cfg.AccessControl)
-	oldTmuxBinary := cfg.TmuxBinary
-	oldTmuxSocketName := cfg.TmuxSocketName
+	oldRestartSnap := snapshotRestartRelevant(cfg)
 	oldRepos := cfg.GetRepos()
 
 	// Check for workspace path change (for warning after save)
@@ -913,19 +909,20 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Under vendorlocked, network and access_control are pinned by the
-	// locked getters — restarting would not change behavior. Skip the
-	// network/access_control restart check; only tmux changes remain
-	// restart-relevant. Without this, the dashboard form's auto-include of
-	// network.public_base_url (the locked-getter value) on every save
-	// triggers a spurious "Restart required: Network access setting has
-	// changed" warning whenever any unrelated field is edited.
-	networkOrAuthRestart := false
-	if !buildflags.VendorLocked {
-		networkOrAuthRestart = !reflect.DeepEqual(oldNetwork, cfg.Network) ||
-			!reflect.DeepEqual(oldAccessControl, cfg.AccessControl)
-	}
-	if networkOrAuthRestart || cfg.TmuxBinary != oldTmuxBinary || cfg.TmuxSocketName != oldTmuxSocketName {
+	// Compare runtime-effective values via getters, not raw fields. The
+	// dashboard form roundtrips getter-defaulted values (provider="github",
+	// bind_address="127.0.0.1", tmux_socket_name="schmux", etc.) on every
+	// save, mutating previously-nil-or-empty fields into populated ones
+	// holding the same effective value. A field-level reflect.DeepEqual
+	// would trip on those mutations even though the daemon's behavior is
+	// unchanged. The getter snapshot collapses nil/empty/explicit-default
+	// to the same value, so the comparison reflects what restarting would
+	// actually change. Vendorlock-aware getters (GetBindAddress,
+	// GetPublicBaseURL, GetTLSCertPath, GetTLSKeyPath, GetAuthEnabled)
+	// return locked values regardless of input, so vendorlocked builds
+	// naturally short-circuit without a separate skip-check.
+	newRestartSnap := snapshotRestartRelevant(cfg)
+	if oldRestartSnap != newRestartSnap {
 		h.state.SetNeedsRestart(true)
 		if err := h.state.Save(); err != nil {
 			h.logger.Error("failed to save restart-needed state", "err", err)
@@ -1023,24 +1020,37 @@ func isValidSocketName(name string) bool {
 	return len(name) > 0
 }
 
-func cloneNetwork(src *config.NetworkConfig) *config.NetworkConfig {
-	if src == nil {
-		return nil
-	}
-	cpy := *src
-	if src.TLS != nil {
-		tlsCopy := *src.TLS
-		cpy.TLS = &tlsCopy
-	}
-	return &cpy
+// restartRelevantSnapshot captures every config value whose change would
+// require restarting the daemon. All fields are primitives so the struct
+// is comparable with `==`. snapshotRestartRelevant populates it via
+// getters, not raw struct fields, so nil/empty/explicit-default collapse
+// to the same value (see comment in handleConfigUpdate).
+type restartRelevantSnapshot struct {
+	bindAddress    string
+	port           int
+	publicBaseURL  string
+	tlsCertPath    string
+	tlsKeyPath     string
+	authEnabled    bool
+	authProvider   string
+	authSessionTTL int
+	tmuxBinary     string
+	tmuxSocketName string
 }
 
-func cloneAccessControl(src *config.AccessControlConfig) *config.AccessControlConfig {
-	if src == nil {
-		return nil
+func snapshotRestartRelevant(cfg *config.Config) restartRelevantSnapshot {
+	return restartRelevantSnapshot{
+		bindAddress:    cfg.GetBindAddress(),
+		port:           cfg.GetPort(),
+		publicBaseURL:  cfg.GetPublicBaseURL(),
+		tlsCertPath:    cfg.GetTLSCertPath(),
+		tlsKeyPath:     cfg.GetTLSKeyPath(),
+		authEnabled:    cfg.GetAuthEnabled(),
+		authProvider:   cfg.GetAuthProvider(),
+		authSessionTTL: cfg.GetAuthSessionTTLMinutes(),
+		tmuxBinary:     cfg.TmuxBinary, // raw field — no getter default
+		tmuxSocketName: cfg.GetTmuxSocketName(),
 	}
-	cpy := *src
-	return &cpy
 }
 
 // reposEqual compares two slices of repos for equality.

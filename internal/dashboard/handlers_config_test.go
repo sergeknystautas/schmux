@@ -1,8 +1,13 @@
 package dashboard
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 )
 
@@ -58,123 +63,144 @@ func TestReposEqual(t *testing.T) {
 	}
 }
 
-func TestCloneNetwork(t *testing.T) {
-	t.Run("nil input", func(t *testing.T) {
-		if got := cloneNetwork(nil); got != nil {
-			t.Errorf("expected nil, got %+v", got)
-		}
-	})
+// TestSnapshotRestartRelevant_StableUnderRoundtrip pins the architectural
+// invariant: snapshotRestartRelevant uses getters, so nil-section /
+// empty-field / explicit-default-value all collapse to the same snapshot
+// value. The lazy-init mutation that handleConfigUpdate performs when the
+// dashboard form posts back getter-defaulted values must NOT change the
+// snapshot — otherwise the form's auto-save would spuriously trip the
+// restart-needed flag.
+func TestSnapshotRestartRelevant_StableUnderRoundtrip(t *testing.T) {
+	// Empty config (everything nil/zero) — like a fresh install.
+	empty := &config.Config{}
+	emptySnap := snapshotRestartRelevant(empty)
 
-	t.Run("without TLS", func(t *testing.T) {
-		src := &config.NetworkConfig{
-			BindAddress:            "0.0.0.0",
-			Port:                   8080,
-			PublicBaseURL:          "https://example.com",
-			PreviewMaxPerWorkspace: 3,
-			PreviewMaxGlobal:       10,
-			PreviewPortBase:        9000,
-			PreviewPortBlockSize:   100,
-			DashboardHostname:      "dash.local",
-		}
-		dst := cloneNetwork(src)
+	// Same config but with Network and AccessControl explicitly populated to
+	// the values the getters synthesize from nil. This is what the backend
+	// produces after applying the dashboard form's roundtrip POST.
+	populated := &config.Config{ConfigData: config.ConfigData{
+		Network: &config.NetworkConfig{
+			BindAddress: "127.0.0.1",
+			Port:        7337,
+			TLS:         &config.TLSConfig{},
+		},
+		AccessControl: &config.AccessControlConfig{
+			Enabled:           false,
+			Provider:          config.DefaultAuthProvider,
+			SessionTTLMinutes: config.DefaultAuthSessionTTLMinutes,
+		},
+		TmuxSocketName: "schmux",
+	}}
+	populatedSnap := snapshotRestartRelevant(populated)
 
-		if dst == src {
-			t.Error("clone returned same pointer")
-		}
-		if dst.BindAddress != src.BindAddress {
-			t.Errorf("BindAddress: got %q, want %q", dst.BindAddress, src.BindAddress)
-		}
-		if dst.Port != src.Port {
-			t.Errorf("Port: got %d, want %d", dst.Port, src.Port)
-		}
-
-		// Mutate source, verify copy unaffected
-		src.Port = 9999
-		src.BindAddress = "MUTATED"
-		if dst.Port == 9999 {
-			t.Error("mutating source Port affected copy")
-		}
-		if dst.BindAddress == "MUTATED" {
-			t.Error("mutating source BindAddress affected copy")
-		}
-	})
-
-	t.Run("with TLS", func(t *testing.T) {
-		src := &config.NetworkConfig{
-			Port: 443,
-			TLS: &config.TLSConfig{
-				CertPath: "/etc/ssl/cert.pem",
-				KeyPath:  "/etc/ssl/key.pem",
-			},
-		}
-		dst := cloneNetwork(src)
-
-		if dst.TLS == nil {
-			t.Fatal("TLS is nil in copy")
-		}
-		if dst.TLS == src.TLS {
-			t.Error("TLS pointer not deep-copied")
-		}
-		if dst.TLS.CertPath != "/etc/ssl/cert.pem" {
-			t.Errorf("CertPath: got %q, want %q", dst.TLS.CertPath, "/etc/ssl/cert.pem")
-		}
-
-		// Mutate source TLS, verify copy unaffected
-		src.TLS.CertPath = "MUTATED"
-		if dst.TLS.CertPath == "MUTATED" {
-			t.Error("mutating source TLS CertPath affected copy")
-		}
-	})
-
-	t.Run("nil TLS", func(t *testing.T) {
-		src := &config.NetworkConfig{Port: 8080, TLS: nil}
-		dst := cloneNetwork(src)
-		if dst.TLS != nil {
-			t.Error("expected nil TLS in copy")
-		}
-	})
+	if emptySnap != populatedSnap {
+		t.Errorf("snapshot of empty config != snapshot of populated-with-defaults config\n  empty     = %+v\n  populated = %+v",
+			emptySnap, populatedSnap)
+	}
 }
 
-func TestCloneAccessControl(t *testing.T) {
-	t.Run("nil input", func(t *testing.T) {
-		if got := cloneAccessControl(nil); got != nil {
-			t.Errorf("expected nil, got %+v", got)
-		}
-	})
+// TestRestartFlag_NotSetOnFirstSaveWithUnchangedFields pins the FTUE
+// invariant from the user's perspective: on a fresh install, an API write
+// that posts unchanged network/access_control/tmux values back — exactly
+// as the dashboard form does on every save — MUST NOT set NeedsRestart.
+//
+// If a future change adds a getter that participates in the restart check
+// without snapshotRestartRelevant being updated to include it, this test
+// will fail. That is the test's purpose; do not weaken it.
+//
+// Vendorlocked: under -tags=vendorlocked, GetPublicBaseURL synthesizes a
+// value from the port; the form mirrors that value back into the field.
+// The snapshot is still stable (same value before and after), so this test
+// passes under both build tags. Run with both to verify.
+func TestRestartFlag_NotSetOnFirstSaveWithUnchangedFields(t *testing.T) {
+	server, cfg, st := newTestServer(t)
+	handlers := newTestConfigHandlers(server)
 
-	t.Run("populated struct", func(t *testing.T) {
-		src := &config.AccessControlConfig{
-			Enabled:           true,
-			Provider:          "oauth",
-			SessionTTLMinutes: 60,
-		}
-		dst := cloneAccessControl(src)
+	// 1. Read the API GET response, mirroring what the dashboard does on
+	//    page load.
+	getReq := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	getRR := httptest.NewRecorder()
+	handlers.handleConfigGet(getRR, getReq)
+	if getRR.Code != http.StatusOK {
+		t.Fatalf("GET: status = %d, body = %s", getRR.Code, getRR.Body.String())
+	}
+	var apiResp contracts.ConfigResponse
+	if err := json.NewDecoder(getRR.Body).Decode(&apiResp); err != nil {
+		t.Fatalf("GET decode: %v", err)
+	}
 
-		if dst == src {
-			t.Error("clone returned same pointer")
-		}
-		if dst.Enabled != true {
-			t.Error("Enabled: got false, want true")
-		}
-		if dst.Provider != "oauth" {
-			t.Errorf("Provider: got %q, want %q", dst.Provider, "oauth")
-		}
-		if dst.SessionTTLMinutes != 60 {
-			t.Errorf("SessionTTLMinutes: got %d, want %d", dst.SessionTTLMinutes, 60)
-		}
+	// 2. Build the POST body the dashboard form would build (modeled after
+	//    assets/dashboard/src/routes/config/buildConfigUpdate.ts).
+	//    Network, access_control, and tmux fields all echo the GET response —
+	//    the user has not touched them. The only "user change" is the
+	//    non-restart field recycle_workspaces.
+	bindAddr := apiResp.Network.BindAddress
+	pubURL := apiResp.Network.PublicBaseURL
+	// On a fresh install apiResp.Network.TLS is nil because buildTLS returns
+	// nil when both paths are empty. The form posts tls: {cert_path: "",
+	// key_path: ""} regardless, so mirror that.
+	var tlsCert, tlsKey string
+	if apiResp.Network.TLS != nil {
+		tlsCert = apiResp.Network.TLS.CertPath
+		tlsKey = apiResp.Network.TLS.KeyPath
+	}
+	recycle := true
+	tmuxBin := apiResp.TmuxBinary
+	tmuxSock := apiResp.TmuxSocketName
+	body := contracts.ConfigUpdateRequest{
+		RecycleWorkspaces: &recycle,
+		Network: &contracts.NetworkUpdate{
+			BindAddress:   &bindAddr,
+			PublicBaseURL: &pubURL,
+			TLS: &contracts.TLSUpdate{
+				CertPath: &tlsCert,
+				KeyPath:  &tlsKey,
+			},
+		},
+		AccessControl: &contracts.AccessControlUpdate{
+			Enabled:           &apiResp.AccessControl.Enabled,
+			Provider:          &apiResp.AccessControl.Provider,
+			SessionTTLMinutes: &apiResp.AccessControl.SessionTTLMinutes,
+		},
+		TmuxBinary:     &tmuxBin,
+		TmuxSocketName: &tmuxSock,
+	}
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
 
-		// Mutate source, verify copy unaffected
-		src.Enabled = false
-		src.Provider = "MUTATED"
-		src.SessionTTLMinutes = 999
-		if !dst.Enabled {
-			t.Error("mutating source Enabled affected copy")
-		}
-		if dst.Provider == "MUTATED" {
-			t.Error("mutating source Provider affected copy")
-		}
-		if dst.SessionTTLMinutes == 999 {
-			t.Error("mutating source SessionTTLMinutes affected copy")
-		}
-	})
+	// Snapshot the runtime-effective config BEFORE the POST. After the POST,
+	// even if the lazy-init populates fields, the snapshot must be unchanged
+	// (because the snapshot reads via getters that handle nil/empty/explicit
+	// uniformly).
+	preSnap := snapshotRestartRelevant(cfg)
+
+	// 3. POST.
+	postReq := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(bodyBytes))
+	postRR := httptest.NewRecorder()
+	handlers.handleConfigUpdate(postRR, postReq)
+	if postRR.Code != http.StatusOK {
+		t.Fatalf("POST: status = %d, body = %s", postRR.Code, postRR.Body.String())
+	}
+
+	// 4. Sanity: the POST actually applied something. Catches a silent
+	//    pass where the handler rejected the body.
+	if !cfg.RecycleWorkspaces {
+		t.Fatalf("POST did not apply RecycleWorkspaces; test setup wrong")
+	}
+
+	// 5. Snapshot equality is the load-bearing invariant — if this fails,
+	//    the failure message tells future-you exactly which field drifted.
+	postSnap := snapshotRestartRelevant(cfg)
+	if preSnap != postSnap {
+		t.Errorf("restart-relevant snapshot mutated by roundtrip:\n  pre  = %+v\n  post = %+v",
+			preSnap, postSnap)
+	}
+
+	// 6. The user-visible symptom: the restart banner must NOT fire.
+	if st.GetNeedsRestart() {
+		t.Errorf("NeedsRestart was set to true after roundtrip-only save; " +
+			"expected false. Indicates a getter/snapshot drift.")
+	}
 }

@@ -1004,7 +1004,7 @@ Response:
 
 ### GET /api/config
 
-Returns the current config. On first run, the daemon creates `~/.schmux/config.json` (or `$SCHMUX_HOME/config.json` if configured) with defaults automatically (no interactive prompt).
+Returns the current config. On first run, the daemon creates `~/.schmux/config.json` (or `$SCHMUX_HOME/config.json` if configured) with defaults automatically (no interactive prompt). Sections like `network`, `access_control`, `sessions`, `xterm`, etc. are absent on disk and rely on getter default-fill at runtime. The `needs_restart` flag is computed by snapshotting runtime-effective getter values before and after each `POST /api/config` and comparing them, so dashboard form auto-saves that round-trip getter-defaulted values back into the field do NOT spuriously flag `needs_restart`.
 
 Response:
 

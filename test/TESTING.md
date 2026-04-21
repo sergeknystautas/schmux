@@ -202,7 +202,7 @@ E2E tests contain `time.Sleep` calls that look like optimization targets but are
 
 - `CopyResolveConflicts`, `copyConflictDiffs`, `copyStringSlice` deep copy tests with mutation isolation — `internal/state/copy_test.go`
 - `HasTextOutput`, `IsAllDigits` model registry helper tests — `internal/models/registry_helpers_test.go`
-- `cloneNetwork`, `cloneAccessControl` deep copy tests with TLS pointer independence — `internal/dashboard/handlers_config_test.go`
+- `snapshotRestartRelevant` getter-based snapshot for restart-needed comparison; round-trip invariant test pinning that the dashboard form's auto-save POST does not mutate the runtime-effective config — `internal/dashboard/handlers_config_test.go`
 
 **Performance findings:**
 

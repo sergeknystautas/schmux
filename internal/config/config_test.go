@@ -3259,3 +3259,21 @@ func TestDashboardURL(t *testing.T) {
 		})
 	}
 }
+
+func TestDefaultAuthProvider_Value(t *testing.T) {
+	// The dashboard form roundtrips this exact string back through the API
+	// (see GetAuthProvider() default-fill behavior). If this constant ever
+	// diverges from the getter default, the round-trip restart-flag test
+	// (TestRestartFlag_NotSetOnFirstSaveWithUnchangedNetwork) will fail.
+	if DefaultAuthProvider != "github" {
+		t.Errorf("DefaultAuthProvider = %q, want %q", DefaultAuthProvider, "github")
+	}
+	// Verify GetAuthProvider() returns the constant when AccessControl is
+	// present but Provider field is empty. (When AccessControl is nil, the
+	// getter returns "" — that's the case Step 3 fixes by pre-populating.)
+	cfg := &Config{ConfigData: ConfigData{AccessControl: &AccessControlConfig{}}}
+	if got := cfg.GetAuthProvider(); got != DefaultAuthProvider {
+		t.Errorf("GetAuthProvider() with empty Provider = %q, want %q",
+			got, DefaultAuthProvider)
+	}
+}
