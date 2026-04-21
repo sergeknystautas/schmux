@@ -697,6 +697,12 @@ func (m *Manager) create(ctx context.Context, repoURL, branch, label string) (*s
 		m.updateLocalDefaultBranch(ctx, "", RefreshTriggerExplicit, worktreeBasePath, repoURL, nil)
 	}
 
+	if IsGitVCS(repoConfig.VCS) && branch != "" {
+		if err := m.checkBranchNamespaceConflict(ctx, worktreeBasePath, branch); err != nil {
+			return nil, err
+		}
+	}
+
 	createdUniqueBranch := false
 	useWorktrees := m.repoUsesWorktrees(repoConfig)
 	if useWorktrees {
@@ -908,6 +914,10 @@ func (m *Manager) prepare(ctx context.Context, workspaceID, branch string) error
 		if err != nil {
 			return fmt.Errorf("git remote branch check failed: %w", err)
 		}
+	}
+
+	if err := m.checkBranchNamespaceConflict(ctx, w.Path, branch); err != nil {
+		return err
 	}
 
 	// Discard any local changes (must happen before pull)
@@ -1738,6 +1748,10 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 
 	if IsGitVCS(repoConfig.VCS) {
 		m.updateLocalDefaultBranch(ctx, "", RefreshTriggerExplicit, worktreeBasePath, source.Repo, nil)
+
+		if err := m.checkBranchNamespaceConflict(ctx, worktreeBasePath, newBranch); err != nil {
+			return nil, err
+		}
 
 		if m.localBranchExists(ctx, worktreeBasePath, newBranch) {
 			uniqueBranch, wasCreated, err := m.gitBackend.ensureUniqueBranch(ctx, worktreeBasePath, newBranch)

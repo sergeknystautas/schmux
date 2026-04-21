@@ -241,6 +241,90 @@ func TestResolveWorktreeBaseFromWorktree(t *testing.T) {
 	})
 }
 
+// TestCheckBranchNamespaceConflict verifies that checkBranchNamespaceConflict
+// detects file-vs-directory ref conflicts up front, instead of letting the
+// downstream `git checkout -B` fail with the cryptic
+// "fatal: 'refs/heads/X' exists; cannot create 'refs/heads/X/Y'".
+func TestCheckBranchNamespaceConflict(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	repoDir := gitTestWorkTree(t)
+	// Existing leaf branch — blocks creating any "review/*" branch.
+	runGit(t, repoDir, "branch", "review")
+	// Existing hierarchical branch — blocks creating leaf "feature".
+	runGit(t, repoDir, "branch", "feature/sub")
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		branch      string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:        "parent prefix conflict",
+			branch:      "review/websocket",
+			wantErr:     true,
+			errContains: `branch "review" already exists`,
+		},
+		{
+			name:        "deep parent prefix conflict",
+			branch:      "review/a/b",
+			wantErr:     true,
+			errContains: `branch "review" already exists`,
+		},
+		{
+			name:        "descendant conflict",
+			branch:      "feature",
+			wantErr:     true,
+			errContains: `feature/sub`,
+		},
+		{
+			name:    "no conflict — flat name",
+			branch:  "wholly-new",
+			wantErr: false,
+		},
+		{
+			name:    "no conflict — hierarchical name",
+			branch:  "fix/login-bug",
+			wantErr: false,
+		},
+		{
+			name:    "no conflict — deep hierarchical name",
+			branch:  "wholly-new/sub/deeper",
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := m.checkBranchNamespaceConflict(ctx, repoDir, tt.branch)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("checkBranchNamespaceConflict(%q) = nil, want error containing %q", tt.branch, tt.errContains)
+				}
+				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("checkBranchNamespaceConflict(%q) error = %v, want error containing %q", tt.branch, err, tt.errContains)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("checkBranchNamespaceConflict(%q) unexpected error: %v", tt.branch, err)
+			}
+		})
+	}
+}
+
 // TestGitPullRebase_MultipleBranchesConfig reproduces "Cannot rebase onto multiple branches"
 // by manually crafting a broken .git/config with multiple merge refs, then verifies
 // that schmux's gitPullRebase with explicit origin/<branch> works around it.

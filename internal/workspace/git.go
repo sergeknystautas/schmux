@@ -178,6 +178,41 @@ func (m *Manager) updateLocalDefaultBranch(ctx context.Context, workspaceID stri
 	}
 }
 
+// checkBranchNamespaceConflict returns a descriptive error when the requested
+// branch name collides with an existing ref's namespace. Git stores branches as
+// files under refs/heads/, so a flat ref and a hierarchical ref cannot coexist
+// at the same path. Two failure modes are detected:
+//
+//  1. Parent prefix conflict: requesting "review/websocket" when "review" exists
+//     as a leaf branch. Git refuses with "'refs/heads/review' exists; cannot
+//     create 'refs/heads/review/websocket'".
+//
+//  2. Descendant conflict: requesting "review" when "review/websocket" exists.
+//     Git refuses with "'refs/heads/review/websocket' exists; cannot create
+//     'refs/heads/review'".
+//
+// dir may be the bare clone path or any worktree of it (worktrees share refs).
+// Returns nil when the requested branch can be created without conflict.
+func (m *Manager) checkBranchNamespaceConflict(ctx context.Context, dir, branch string) error {
+	parts := strings.Split(branch, "/")
+	for i := 1; i < len(parts); i++ {
+		prefix := strings.Join(parts[:i], "/")
+		if m.localBranchExists(ctx, dir, prefix) {
+			return fmt.Errorf("branch %q cannot be created: branch %q already exists and blocks the %q namespace; delete or rename branch %q first", branch, prefix, prefix+"/", prefix)
+		}
+	}
+
+	output, err := m.runGit(ctx, "", RefreshTriggerExplicit, dir, "for-each-ref", "--count", "1", "--format=%(refname:short)", "refs/heads/"+branch+"/")
+	if err == nil {
+		trimmed := strings.TrimSpace(string(output))
+		if trimmed != "" {
+			return fmt.Errorf("branch %q cannot be created: branch %q already exists under that namespace; delete or rename branch %q first", branch, trimmed, trimmed)
+		}
+	}
+
+	return nil
+}
+
 // gitCheckoutBranch runs git checkout -B, optionally resetting to origin/<branch>.
 func (m *Manager) gitCheckoutBranch(ctx context.Context, dir, branch string, remoteBranchExists bool) error {
 	args := []string{"checkout", "-B", branch}
