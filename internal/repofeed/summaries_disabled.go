@@ -8,6 +8,7 @@ type SummaryEntry struct {
 	Summary        string    `json:"summary"`
 	PromptsHash    string    `json:"prompts_hash"`
 	LastSummarized time.Time `json:"last_summarized"`
+	Repo           string    `json:"repo,omitempty"`
 }
 
 type SummaryCache struct{}

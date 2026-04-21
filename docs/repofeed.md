@@ -30,6 +30,8 @@ Cross-developer intent federation — publishes what you're working on and surfa
 - **Workspace-level privacy.** Each workspace has an `IntentShared` flag (default: false). Only explicitly shared workspaces have their intent published. The flag is on `state.Workspace`, following the backburner pattern.
 - **LLM intent summarization.** Instead of publishing raw session prompts, the system uses `oneshot.ExecuteTarget()` to generate a one-sentence summary (max 100 chars). Summaries are cached by prompt hash and rate-limited to at most once per hour per workspace.
 - **v2 data format.** The `DeveloperFile` supports both v1 (repo-keyed activities) and v2 (flat workspace intents). The consumer handles both formats for backward compatibility during rollout.
+- **Per-repo files, no crosspollination.** Each repo's `dev-repofeed` branch only carries intents about workspaces backed by that repo. The publisher builds a separate `DeveloperFile` per repo (filtered by `Workspace.Repo == repo.URL`) and runs change detection per-slug. `SummaryEntry.Repo` is persisted so disposed-workspace "completed" intents are emitted only into the matching repo's feed.
+- **Sapling repos are skipped.** Both publisher and consumer ignore repos with `VCS == "sapling"`; the orphan-branch transport relies on git plumbing (`git hash-object`, `git fetch`), which fails inside an Eden/Sapling-managed directory. Mirrors `handlers_subreddit.go` for the same reason.
 
 ## Gotchas
 

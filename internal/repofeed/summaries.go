@@ -19,6 +19,7 @@ type SummaryEntry struct {
 	Summary        string    `json:"summary"`
 	PromptsHash    string    `json:"prompts_hash"`
 	LastSummarized time.Time `json:"last_summarized"`
+	Repo           string    `json:"repo,omitempty"` // workspace's repo URL/identifier; used to attribute completed intents per repo
 }
 
 // SummaryCache manages per-workspace LLM intent summaries.

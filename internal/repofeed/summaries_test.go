@@ -57,6 +57,7 @@ func TestSummaryCache_Persistence(t *testing.T) {
 		Summary:        "Adding dark mode",
 		PromptsHash:    "def456",
 		LastSummarized: time.Date(2026, 4, 13, 10, 0, 0, 0, time.UTC),
+		Repo:           "https://github.com/example/repo.git",
 	})
 
 	// Verify file exists
@@ -77,6 +78,9 @@ func TestSummaryCache_Persistence(t *testing.T) {
 	}
 	if got.Summary != "Adding dark mode" {
 		t.Errorf("summary = %q after reload", got.Summary)
+	}
+	if got.Repo != "https://github.com/example/repo.git" {
+		t.Errorf("repo = %q after reload, want round-trip preserved for per-repo intent attribution", got.Repo)
 	}
 }
 

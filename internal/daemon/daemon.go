@@ -1909,6 +1909,9 @@ func startRepofeedConsumer(ctx context.Context, cfg *config.Config, consumer *re
 
 			var allFiles []*repofeed.DeveloperFile
 			for _, repo := range cfg.GetRepos() {
+				if repo.VCS == "sapling" {
+					continue
+				}
 				slug := repofeed.RepoSlug(repo.Name)
 				if !cfg.GetRepofeedRepoEnabled(slug) {
 					continue
@@ -1986,7 +1989,7 @@ func startRepofeedPublisher(ctx context.Context, cfg *config.Config, st *state.S
 	timer := time.NewTimer(30 * time.Second) // initial delay
 	defer timer.Stop()
 
-	var lastPublished string // JSON of last published DeveloperFile for change detection
+	lastPublishedPerRepo := map[string]string{} // slug -> JSON of last published DeveloperFile for change detection
 
 	for {
 		select {
@@ -1994,19 +1997,12 @@ func startRepofeedPublisher(ctx context.Context, cfg *config.Config, st *state.S
 			// Immediate publish requested (share toggle, dispose)
 			logger.Debug("repofeed publish triggered")
 		case <-timer.C:
-			devFile := buildV2DeveloperFile(ctx, cfg, st, summaryCache, devEmail, devName, logger)
-
-			// Check if anything changed since last publish
-			data, _ := json.Marshal(devFile)
-			current := string(data)
-			if current == lastPublished {
-				timer.Reset(interval)
-				continue
-			}
-
-			// Push to all enabled repos
-			pushed := false
+			// Build and push a per-repo DeveloperFile so each feed only contains
+			// intents about workspaces backed by that repo (no crosspollination).
 			for _, repo := range cfg.GetRepos() {
+				if repo.VCS == "sapling" {
+					continue
+				}
 				slug := repofeed.RepoSlug(repo.Name)
 				if !cfg.GetRepofeedRepoEnabled(slug) {
 					continue
@@ -2015,8 +2011,17 @@ func startRepofeedPublisher(ctx context.Context, cfg *config.Config, st *state.S
 				if bareDir == "" {
 					continue
 				}
-				gitOps := &repofeed.GitOps{BareDir: bareDir, Branch: "dev-repofeed"}
 
+				devFile := buildV2DeveloperFile(ctx, cfg, st, summaryCache, devEmail, devName, repo.URL, logger)
+
+				// Skip when nothing changed for this repo since the last publish
+				data, _ := json.Marshal(devFile)
+				current := string(data)
+				if current == lastPublishedPerRepo[slug] {
+					continue
+				}
+
+				gitOps := &repofeed.GitOps{BareDir: bareDir, Branch: "dev-repofeed"}
 				if err := gitOps.WriteDevFile(devEmail, devFile); err != nil {
 					logger.Error("repofeed publish write failed", "repo", repo.Name, "err", err)
 					continue
@@ -2025,12 +2030,8 @@ func startRepofeedPublisher(ctx context.Context, cfg *config.Config, st *state.S
 					logger.Debug("repofeed publish push failed", "repo", repo.Name, "err", err)
 					continue
 				}
-				pushed = true
+				lastPublishedPerRepo[slug] = current
 				logger.Debug("repofeed published", "repo", repo.Name)
-			}
-
-			if pushed {
-				lastPublished = current
 			}
 			timer.Reset(interval)
 		case <-ctx.Done():
@@ -2039,8 +2040,10 @@ func startRepofeedPublisher(ctx context.Context, cfg *config.Config, st *state.S
 	}
 }
 
-// buildV2DeveloperFile constructs a v2 DeveloperFile from workspace state.
-func buildV2DeveloperFile(ctx context.Context, cfg *config.Config, st *state.State, summaryCache *repofeed.SummaryCache, devEmail, devName string, logger *log.Logger) *repofeed.DeveloperFile {
+// buildV2DeveloperFile constructs a v2 DeveloperFile from workspace state,
+// scoped to a single repo (matched by workspace's Repo field). Each repo's feed
+// only carries intents for workspaces backed by that repo — no crosspollination.
+func buildV2DeveloperFile(ctx context.Context, cfg *config.Config, st *state.State, summaryCache *repofeed.SummaryCache, devEmail, devName, repoURL string, logger *log.Logger) *repofeed.DeveloperFile {
 	today := time.Now().Format("2006-01-02")
 	workspaces := st.GetWorkspaces()
 	sessions := st.GetSessions()
@@ -2051,7 +2054,8 @@ func buildV2DeveloperFile(ctx context.Context, cfg *config.Config, st *state.Sta
 		activeToday[s.WorkspaceID] = true
 	}
 
-	// Build set of live workspace IDs for disposal detection
+	// Build set of live workspace IDs for disposal detection (across all repos —
+	// used only to skip live workspaces in the disposed-cache loop below).
 	liveWorkspaces := make(map[string]bool)
 	for _, ws := range workspaces {
 		liveWorkspaces[ws.ID] = true
@@ -2060,6 +2064,9 @@ func buildV2DeveloperFile(ctx context.Context, cfg *config.Config, st *state.Sta
 	var intents []repofeed.Intent
 	for _, ws := range workspaces {
 		if !ws.IntentShared {
+			continue
+		}
+		if ws.Repo != repoURL {
 			continue
 		}
 
@@ -2093,7 +2100,9 @@ func buildV2DeveloperFile(ctx context.Context, cfg *config.Config, st *state.Sta
 	}
 
 	// Emit "completed" for workspaces that have cached summaries but no longer exist in state
-	// (disposed since last publish tick). These linger for one publish cycle then get cleaned up.
+	// (disposed since last publish tick). Filter to entries whose cached repo matches this
+	// feed's repo so a disposed sapling workspace doesn't surface in a git repo's feed.
+	// Legacy entries with empty Repo are emitted into every repo (one-time migration cost).
 	allCached := summaryCache.AllKeys()
 	for _, wsID := range allCached {
 		if liveWorkspaces[wsID] {
@@ -2101,6 +2110,9 @@ func buildV2DeveloperFile(ctx context.Context, cfg *config.Config, st *state.Sta
 		}
 		cached := summaryCache.Get(wsID)
 		if cached == nil {
+			continue
+		}
+		if cached.Repo != "" && cached.Repo != repoURL {
 			continue
 		}
 		intents = append(intents, repofeed.Intent{
@@ -2182,6 +2194,7 @@ func getOrSummarizeIntent(ctx context.Context, cfg *config.Config, ws state.Work
 		Summary:        summary,
 		PromptsHash:    promptsHash,
 		LastSummarized: time.Now(),
+		Repo:           ws.Repo,
 	})
 
 	logger.Debug("repofeed intent summarized", "workspace", ws.ID, "summary", summary)
