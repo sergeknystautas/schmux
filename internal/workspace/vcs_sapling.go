@@ -133,6 +133,22 @@ func (s *SaplingBackend) resolveRepoURL(repoBasePath string) string {
 }
 
 func (s *SaplingBackend) CreateWorkspace(ctx context.Context, repoBasePath, branch, destPath string) error {
+	// `sl clone` refuses to clone over an existing working copy: a .sl/-based
+	// repo errors with "destination already exists", and an Eden mount errors
+	// with "destination already exists and is an Eden mount; nothing to do".
+	// Both are a no-op success from our perspective — the working copy is
+	// already there and ready to use. Skip the clone in that case.
+	//
+	// If destPath exists but has neither .sl/ nor .hg/, surface a clear error
+	// rather than letting `sl clone` fail with a confusing message.
+	if info, err := os.Stat(destPath); err == nil && info.IsDir() {
+		if hasVCSMetadata(destPath, "sapling") {
+			s.manager.logger.Info("sapling working copy already present, skipping clone", "dest", destPath)
+			return nil
+		}
+		return fmt.Errorf("create workspace failed: destination %s already exists but is not a sapling working copy", destPath)
+	}
+
 	repoID := s.resolveRepoURL(repoBasePath)
 	vars := map[string]string{
 		"RepoIdentifier": repoID,

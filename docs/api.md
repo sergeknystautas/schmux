@@ -1140,6 +1140,8 @@ Example schemas:
 
 For commands that genuinely need shell features (pipes, redirection, subshells), use the `["sh", "-c", "<literal script>", "_", "{{.X}}", "{{.Y}}"]` escape hatch: argv[2] (the script) must contain no template syntax — only positional arguments after it can be templated. The script reads them as `$1`, `$2`, ...
 
+**`create_workspace` skip-when-present semantics.** Before invoking `sapling_commands.create_workspace`, the backend checks the destination path. If it already exists with a `.sl/` or `.hg/` control directory (an Eden-backed sapling working copy), the template is skipped and the call returns success — `sl clone` and Eden-aware clone wrappers refuse to clone over an existing working copy ("destination already exists ... nothing to do", exit 1), and treating that as fatal would block recycling of pre-existing mounts. If the destination exists but lacks sapling metadata, the call returns a clear error mentioning the path rather than letting the template fail with a less-actionable message.
+
 The legacy string form is rejected at config-load time. If you have an older config, run `schmux config migrate` to convert each command to its argv-array equivalent (see `docs/specs/meta-distribution-hardening-final.md` §2.4).
 
 **`debug_ui`** (boolean, optional, default `false`): Enables debug diagnostic panels and debug API endpoints without running `./dev.sh`. When `true`, the daemon sets `debug_mode` in the healthz response and registers debug routes. Can be toggled from the Settings page in the web dashboard — takes effect immediately without restart.

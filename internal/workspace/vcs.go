@@ -69,12 +69,18 @@ func IsGitVCS(vcs string) bool {
 
 // hasVCSMetadata checks if a directory contains valid VCS metadata for the given VCS type.
 // For git variants (git, git-worktree, git-clone, empty): checks .git file or directory exists.
-// For sapling: checks .sl directory exists.
+// For sapling: checks .sl/ or .hg/ directory exists. Eden-backed sapling
+// checkouts use the mercurial-compat .hg/ control dir; matches
+// internal/state/state.go isSaplingWorkspace.
 func hasVCSMetadata(path, vcs string) bool {
 	switch vcs {
 	case "sapling":
-		info, err := os.Stat(filepath.Join(path, ".sl"))
-		return err == nil && info.IsDir()
+		for _, name := range []string{".sl", ".hg"} {
+			if info, err := os.Stat(filepath.Join(path, name)); err == nil && info.IsDir() {
+				return true
+			}
+		}
+		return false
 	default:
 		// git, git-worktree, git-clone, or empty (default to git)
 		_, err := os.Stat(filepath.Join(path, ".git"))

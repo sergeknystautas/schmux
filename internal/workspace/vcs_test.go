@@ -94,4 +94,13 @@ func TestHasVCSMetadata(t *testing.T) {
 	if hasVCSMetadata(slDir, "git") {
 		t.Error("sapling directory should not have git metadata")
 	}
+
+	// Directory with .hg directory (Eden-backed sapling — uses mercurial-compat
+	// control dir). Mirrors internal/state/state.go isSaplingWorkspace which
+	// already accepts both .sl/ and .hg/.
+	hgDir := filepath.Join(tmpDir, "hg-ws")
+	os.MkdirAll(filepath.Join(hgDir, ".hg"), 0755)
+	if !hasVCSMetadata(hgDir, "sapling") {
+		t.Error("directory with .hg dir should have sapling metadata (Eden-backed)")
+	}
 }

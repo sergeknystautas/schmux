@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
@@ -251,6 +252,107 @@ func TestSaplingBackend_CreateAndRemoveWorkspace(t *testing.T) {
 	}
 	if _, err := os.Stat(wsPath); !os.IsNotExist(err) {
 		t.Error("workspace directory should be removed")
+	}
+}
+
+// TestSaplingBackend_CreateWorkspace_SkipsCloneWhenSlAlreadyPresent covers the
+// recycling-friendly path: if the destination already exists with a .sl/
+// control directory, sapling's own `sl clone` would refuse with "destination
+// already exists ... nothing to do" (exit 1). The backend should detect this
+// and treat it as a no-op success — the working copy is already there.
+func TestSaplingBackend_CreateWorkspace_SkipsCloneWhenSlAlreadyPresent(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	wsPath := filepath.Join(tmpDir, "workspace-001")
+	if err := os.MkdirAll(filepath.Join(wsPath, ".sl"), 0755); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	cfg := &config.Config{}
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	// `false` always exits 1. If the backend invokes the template, the test
+	// fails — proving the skip-clone branch is what made it succeed.
+	cfg.SaplingCommands = config.SaplingCommands{
+		CreateWorkspace: config.ShellCommand{"false"},
+	}
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	sb := NewSaplingBackend(m, cfg.SaplingCommands)
+	ctx := context.Background()
+
+	if err := sb.CreateWorkspace(ctx, tmpDir, "main", wsPath); err != nil {
+		t.Fatalf("CreateWorkspace() should skip clone for existing sapling working copy, got: %v", err)
+	}
+}
+
+// TestSaplingBackend_CreateWorkspace_SkipsCloneWhenHgAlreadyPresent is the
+// Eden-backed variant — Eden mounts use .hg/ rather than .sl/. This is the
+// exact failure mode reported in practice: "destination ... already exists
+// and is an Eden mount; nothing to do".
+func TestSaplingBackend_CreateWorkspace_SkipsCloneWhenHgAlreadyPresent(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	wsPath := filepath.Join(tmpDir, "workspace-001")
+	if err := os.MkdirAll(filepath.Join(wsPath, ".hg"), 0755); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	cfg := &config.Config{}
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	cfg.SaplingCommands = config.SaplingCommands{
+		CreateWorkspace: config.ShellCommand{"false"},
+	}
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	sb := NewSaplingBackend(m, cfg.SaplingCommands)
+	ctx := context.Background()
+
+	if err := sb.CreateWorkspace(ctx, tmpDir, "main", wsPath); err != nil {
+		t.Fatalf("CreateWorkspace() should skip clone for existing Eden mount, got: %v", err)
+	}
+}
+
+// TestSaplingBackend_CreateWorkspace_ErrorsWhenDestExistsWithoutVCS covers the
+// safety case: the destination directory exists but has no sapling control
+// dir. We must NOT fall through to `sl clone` (which would produce a confusing
+// error) and we must NOT silently succeed (which would let the caller proceed
+// with a non-sapling directory). Surface a clear error instead.
+func TestSaplingBackend_CreateWorkspace_ErrorsWhenDestExistsWithoutVCS(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	wsPath := filepath.Join(tmpDir, "workspace-001")
+	if err := os.MkdirAll(wsPath, 0755); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(wsPath, "stray.txt"), []byte("hi"), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	cfg := &config.Config{}
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	cfg.SaplingCommands = config.SaplingCommands{
+		CreateWorkspace: config.ShellCommand{"false"},
+	}
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	sb := NewSaplingBackend(m, cfg.SaplingCommands)
+	ctx := context.Background()
+
+	err := sb.CreateWorkspace(ctx, tmpDir, "main", wsPath)
+	if err == nil {
+		t.Fatalf("CreateWorkspace() should error when dest exists without sapling metadata")
+	}
+	if !strings.Contains(err.Error(), wsPath) {
+		t.Errorf("error should mention destination path %q, got: %v", wsPath, err)
 	}
 }
 
