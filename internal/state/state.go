@@ -92,14 +92,30 @@ const (
 )
 
 // SchmuxDataDir returns the schmux data directory within a workspace.
-// For sapling repos (.sl/ present), uses .sl/schmux/ to avoid working tree pollution.
+// For sapling repos, uses .sl/schmux/ to avoid working tree pollution. Sapling
+// treats the literal name .sl/ as a control-dir name and excludes it from
+// `sl status` even when the actual control dir is .hg/ (mercurial-compat mode).
 // For git repos, uses .schmux/ (hidden via .git/info/exclude).
 // Use this when VCS type is unknown and the path is local (can be stat'd).
 func SchmuxDataDir(workspacePath string) string {
-	if info, err := os.Stat(filepath.Join(workspacePath, ".sl")); err == nil && info.IsDir() {
+	if isSaplingWorkspace(workspacePath) {
 		return filepath.Join(workspacePath, ".sl", "schmux")
 	}
 	return filepath.Join(workspacePath, ".schmux")
+}
+
+// isSaplingWorkspace reports whether workspacePath is a sapling working copy.
+// Sapling repos may use either .sl/ (sapling-native) or .hg/ (mercurial-compat
+// mode, used when sapling is configured to share storage with mercurial-style
+// tooling) as the control directory. Either may be a regular directory or a
+// symlink (e.g. when the working copy is backed by a virtual filesystem).
+func isSaplingWorkspace(workspacePath string) bool {
+	for _, name := range []string{".sl", ".hg"} {
+		if info, err := os.Stat(filepath.Join(workspacePath, name)); err == nil && info.IsDir() {
+			return true
+		}
+	}
+	return false
 }
 
 // SchmuxDataDirForVCS returns the schmux data directory for a known VCS type.

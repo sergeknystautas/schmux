@@ -2065,6 +2065,30 @@ func TestSchmuxDataDir(t *testing.T) {
 			t.Errorf("got %s, want %s", got, want)
 		}
 	})
+
+	t.Run("sapling repo with .hg control dir (mercurial-compat mode) uses .sl/schmux", func(t *testing.T) {
+		dir := t.TempDir()
+		os.MkdirAll(filepath.Join(dir, ".hg"), 0755)
+		got := SchmuxDataDir(dir)
+		want := filepath.Join(dir, ".sl", "schmux")
+		if got != want {
+			t.Errorf("got %s, want %s", got, want)
+		}
+	})
+
+	t.Run("sapling repo with .hg as a symlink (virtual-filesystem-backed) uses .sl/schmux", func(t *testing.T) {
+		dir := t.TempDir()
+		target := filepath.Join(dir, "hg-target")
+		os.MkdirAll(target, 0755)
+		if err := os.Symlink(target, filepath.Join(dir, ".hg")); err != nil {
+			t.Fatalf("symlink: %v", err)
+		}
+		got := SchmuxDataDir(dir)
+		want := filepath.Join(dir, ".sl", "schmux")
+		if got != want {
+			t.Errorf("got %s, want %s", got, want)
+		}
+	})
 }
 
 func TestSchmuxDataDirForVCS(t *testing.T) {

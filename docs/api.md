@@ -4267,7 +4267,7 @@ Response:
 ]
 ```
 
-- Scans `<workspace>/.schmux/events/*.jsonl` across all active workspaces
+- Scans `<workspace>/.schmux/events/*.jsonl` (or `<workspace>/.sl/schmux/events/*.jsonl` for sapling workspaces, including those using the `.hg/` mercurial-compat control dir) across all active workspaces
 - Session ID is derived from the filename (without `.jsonl` extension)
 - Returns at most 200 events, sorted oldest-first
 
