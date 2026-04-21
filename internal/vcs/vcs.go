@@ -17,6 +17,15 @@ type CommandBuilder interface {
 	// Log returns the command for commit log output in a parseable format.
 	// Format: hash|short_hash|message|author|timestamp|parents
 	Log(refs []string, maxCount int) string
+	// LogParseable returns the command for commit log output in a parseable format
+	// optimized for **local** execution. For Git this uses NUL-byte field
+	// separators (safe against pipe characters in commit subjects). For Sapling
+	// this is identical to Log() because Sapling templates cannot emit raw NULs.
+	//
+	// IMPORTANT: Do NOT use this for output captured via tmux/SSH — tmux's
+	// capture-pane reads the terminal display buffer and strips non-printable
+	// bytes including NUL. Remote handlers must continue to use Log().
+	LogParseable(refs []string, maxCount int) string
 	// LogRange returns the command for log between forkPoint and refs.
 	LogRange(refs []string, forkPoint string) string
 	// ResolveRef returns the command to resolve a ref to a hash.
@@ -41,6 +50,11 @@ type CommandBuilder interface {
 	// NewestTimestamp returns a command that outputs the ISO timestamp of the
 	// newest commit in the given range (e.g., "HEAD..origin/main").
 	NewestTimestamp(rangeSpec string) string
+
+	// OldestHash returns a command that outputs the hash of the OLDEST commit
+	// in the given range (e.g., "HEAD..origin/main"). Used to identify the
+	// next commit to merge from the upstream branch.
+	OldestHash(rangeSpec string) string
 
 	// --- Working-copy mutation commands ---
 

@@ -31,7 +31,20 @@ func (g *GitCommandBuilder) UntrackedFiles() string {
 func (g *GitCommandBuilder) Log(refs []string, maxCount int) string {
 	args := []string{
 		"git", "log",
-		"--format=%H|%h|%s|%an|%aI|%P",
+		"--format=" + shellutil.Quote("%H|%h|%s|%an|%aI|%P"),
+		"--topo-order",
+		fmt.Sprintf("--max-count=%d", maxCount),
+	}
+	for _, ref := range refs {
+		args = append(args, shellutil.Quote(ref))
+	}
+	return strings.Join(args, " ")
+}
+
+func (g *GitCommandBuilder) LogParseable(refs []string, maxCount int) string {
+	args := []string{
+		"git", "log",
+		"--format=" + shellutil.Quote("%H%x00%h%x00%s%x00%an%x00%aI%x00%P"),
 		"--topo-order",
 		fmt.Sprintf("--max-count=%d", maxCount),
 	}
@@ -44,7 +57,7 @@ func (g *GitCommandBuilder) Log(refs []string, maxCount int) string {
 func (g *GitCommandBuilder) LogRange(refs []string, forkPoint string) string {
 	args := []string{
 		"git", "log",
-		"--format=%H|%h|%s|%an|%aI|%P",
+		"--format=" + shellutil.Quote("%H|%h|%s|%an|%aI|%P"),
 		"--topo-order",
 	}
 	for _, ref := range refs {
@@ -91,6 +104,10 @@ func (g *GitCommandBuilder) RemoteBranchExists(branch string) string {
 
 func (g *GitCommandBuilder) NewestTimestamp(rangeSpec string) string {
 	return fmt.Sprintf("git log --format=%%aI -1 %s", shellutil.Quote(rangeSpec))
+}
+
+func (g *GitCommandBuilder) OldestHash(rangeSpec string) string {
+	return fmt.Sprintf("git log --format=%%H --reverse %s | head -1", shellutil.Quote(rangeSpec))
 }
 
 func (g *GitCommandBuilder) AddFiles(files []string) string {

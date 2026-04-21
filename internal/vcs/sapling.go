@@ -78,6 +78,12 @@ func (s *SaplingCommandBuilder) Log(refs []string, maxCount int) string {
 	return fmt.Sprintf("sl log --pager never -T %s -r %s", tmpl, shellutil.Quote(limitedRevset))
 }
 
+func (s *SaplingCommandBuilder) LogParseable(refs []string, maxCount int) string {
+	// Sapling templates cannot emit raw NUL bytes, so this matches Log() —
+	// ParseGitLogOutput's auto-detect handles the pipe-delimited path.
+	return s.Log(refs, maxCount)
+}
+
 func (s *SaplingCommandBuilder) LogRange(refs []string, forkPoint string) string {
 	// Commits reachable from refs but not before forkPoint's parents.
 	// Use {p1node} {p2node} instead of {parents} — see Log() for explanation.
@@ -150,6 +156,19 @@ func (s *SaplingCommandBuilder) NewestTimestamp(rangeSpec string) string {
 		return fmt.Sprintf("sl log --pager never -T '{date|isodate}\\n' -r %s --limit 1", shellutil.Quote(revset))
 	}
 	return fmt.Sprintf("sl log --pager never -T '{date|isodate}\\n' -r %s --limit 1", shellutil.Quote(rangeSpec))
+}
+
+func (s *SaplingCommandBuilder) OldestHash(rangeSpec string) string {
+	exclude, include := parseRangeToRevset(rangeSpec)
+	if exclude != "" {
+		// Sapling first(set) defaults to n=1. Ancestor-set order is ascending
+		// (oldest first), so first() of only(include, exclude) yields the
+		// chronologically oldest commit reachable from include but not exclude.
+		revset := fmt.Sprintf("first(only(%s, %s))", include, exclude)
+		return fmt.Sprintf("sl log --pager never -T '{node}' -r %s", shellutil.Quote(revset))
+	}
+	revset := fmt.Sprintf("first(%s)", rangeSpec)
+	return fmt.Sprintf("sl log --pager never -T '{node}' -r %s", shellutil.Quote(revset))
 }
 
 func (s *SaplingCommandBuilder) AddFiles(files []string) string {

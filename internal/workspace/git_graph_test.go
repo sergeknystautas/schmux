@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/vcs"
 )
 
 // setupWorkspaceGraphTest creates a "remote" repo, clones it into a workspace directory,
@@ -760,6 +762,57 @@ func TestGitGraph_ManyAheadBranchMembership(t *testing.T) {
 		len(resp.Nodes), featureOnlyCount, bothBranchesCount, emptyBranchesCount)
 	for i, n := range resp.Nodes {
 		t.Logf("  [%d] %s %s branches=%v", i, n.ShortHash, n.Message, n.Branches)
+	}
+}
+
+func TestSaplingCommandBuilderUsesRemoteRefNotOriginRef(t *testing.T) {
+	t.Parallel()
+	// Regression test for the bug where GetGitGraph hardcoded "origin/" + branch.
+	// Sapling has no `origin/<branch>` ref; its upstream bookmark is `remote/<branch>`.
+	// GetGitGraph must use cb.DefaultBranchRef so the divergence path resolves.
+	cb := vcs.NewCommandBuilder("sapling")
+
+	if got := cb.DefaultBranchRef("main"); got != "remote/main" {
+		t.Fatalf("Sapling DefaultBranchRef = %q, want %q", got, "remote/main")
+	}
+
+	resolveCmd := cb.ResolveRef("remote/main")
+	if !strings.Contains(resolveCmd, "remote/main") {
+		t.Errorf("ResolveRef(remote/main) should contain 'remote/main': %q", resolveCmd)
+	}
+	if strings.Contains(resolveCmd, "origin/") {
+		t.Errorf("Sapling ResolveRef must NOT contain 'origin/': %q", resolveCmd)
+	}
+
+	oldestCmd := cb.OldestHash("HEAD..remote/main")
+	if !strings.Contains(oldestCmd, "remote/main") {
+		t.Errorf("OldestHash should reference remote/main: %q", oldestCmd)
+	}
+	if strings.Contains(oldestCmd, "origin/") {
+		t.Errorf("Sapling OldestHash must NOT contain 'origin/': %q", oldestCmd)
+	}
+}
+
+func TestParseGitLogOutput_PipeInSubjectWithNULDelimiter(t *testing.T) {
+	t.Parallel()
+	// A commit subject containing '|' must not corrupt other fields when the
+	// delimiter is NUL. Pins LogParseable's contract for Git.
+	line := "abc1234567\x00abc1234\x00feat: add | filter | options\x00alice\x002024-01-01T00:00:00Z\x00deadbeef"
+	nodes := ParseGitLogOutput(line)
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 node, got %d", len(nodes))
+	}
+	if nodes[0].Message != "feat: add | filter | options" {
+		t.Errorf("subject corrupted: %q", nodes[0].Message)
+	}
+	if nodes[0].Author != "alice" {
+		t.Errorf("author corrupted: %q", nodes[0].Author)
+	}
+	if nodes[0].Timestamp != "2024-01-01T00:00:00Z" {
+		t.Errorf("timestamp corrupted: %q", nodes[0].Timestamp)
+	}
+	if len(nodes[0].Parents) != 1 || nodes[0].Parents[0] != "deadbeef" {
+		t.Errorf("parents corrupted: %v", nodes[0].Parents)
 	}
 }
 

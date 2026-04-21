@@ -134,21 +134,21 @@ func TestGitLog(t *testing.T) {
 			name:     "single HEAD ref",
 			refs:     []string{"HEAD"},
 			maxCount: 50,
-			wantPfx:  "git log --format=%H|%h|%s|%an|%aI|%P --topo-order --max-count=50",
+			wantPfx:  "git log --format='%H|%h|%s|%an|%aI|%P' --topo-order --max-count=50",
 			wantRefs: []string{"'HEAD'"},
 		},
 		{
 			name:     "multiple refs",
 			refs:     []string{"HEAD", "origin/main"},
 			maxCount: 100,
-			wantPfx:  "git log --format=%H|%h|%s|%an|%aI|%P --topo-order --max-count=100",
+			wantPfx:  "git log --format='%H|%h|%s|%an|%aI|%P' --topo-order --max-count=100",
 			wantRefs: []string{"'HEAD'", "'origin/main'"},
 		},
 		{
 			name:     "no refs",
 			refs:     nil,
 			maxCount: 10,
-			wantPfx:  "git log --format=%H|%h|%s|%an|%aI|%P --topo-order --max-count=10",
+			wantPfx:  "git log --format='%H|%h|%s|%an|%aI|%P' --topo-order --max-count=10",
 			wantRefs: nil,
 		},
 	}
@@ -223,6 +223,34 @@ func TestSaplingLog(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestGitLogParseable(t *testing.T) {
+	cb := &GitCommandBuilder{}
+	got := cb.LogParseable([]string{"HEAD"}, 50)
+	// Format string contains the literal text "%x00" (4 chars: %, x, 0, 0) —
+	// git interprets that as "emit a NUL byte" at execution time, producing
+	// NUL-separated output that is safe against pipes/whitespace in subjects.
+	if !strings.Contains(got, "'%H%x00%h%x00%s%x00%an%x00%aI%x00%P'") {
+		t.Errorf("LogParseable() should use %%x00 (NUL-delimited) format, got %q", got)
+	}
+	if !strings.Contains(got, "--max-count=50") {
+		t.Errorf("LogParseable() missing --max-count=50, got %q", got)
+	}
+	if !strings.Contains(got, "'HEAD'") {
+		t.Errorf("LogParseable() should include quoted ref, got %q", got)
+	}
+}
+
+func TestSaplingLogParseable(t *testing.T) {
+	cb := &SaplingCommandBuilder{}
+	got := cb.LogParseable([]string{"HEAD"}, 50)
+	if !strings.Contains(got, "{p1node} {p2node}") {
+		t.Errorf("LogParseable() should use {p1node} {p2node}, got %q", got)
+	}
+	if !strings.Contains(got, "--limit 50") {
+		t.Errorf("LogParseable() missing --limit, got %q", got)
+	}
 }
 
 func TestGitLogRange(t *testing.T) {
@@ -470,6 +498,26 @@ func TestGitNewestTimestamp(t *testing.T) {
 	want := "git log --format=%aI -1 'HEAD..origin/main'"
 	if got != want {
 		t.Errorf("NewestTimestamp() = %q, want %q", got, want)
+	}
+}
+
+func TestGitOldestHash(t *testing.T) {
+	cb := &GitCommandBuilder{}
+	got := cb.OldestHash("HEAD..origin/main")
+	want := "git log --format=%H --reverse 'HEAD..origin/main' | head -1"
+	if got != want {
+		t.Errorf("OldestHash() = %q, want %q", got, want)
+	}
+}
+
+func TestSaplingOldestHash(t *testing.T) {
+	cb := &SaplingCommandBuilder{}
+	got := cb.OldestHash("HEAD..remote/main")
+	if !strings.Contains(got, "first(only(remote/main, .))") {
+		t.Errorf("OldestHash() should wrap only() in first(): got %q", got)
+	}
+	if !strings.Contains(got, "{node}") {
+		t.Errorf("OldestHash() should output {node}, got %q", got)
 	}
 }
 

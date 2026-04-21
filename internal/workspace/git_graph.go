@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/vcs"
 )
 
 const (
@@ -41,16 +42,27 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxTotal 
 	gitDir := ws.Path
 	localBranch := ws.Branch
 
+	// Create command builder for this workspace's VCS type
+	cb := vcs.NewCommandBuilder(ws.VCS)
+
 	// Detect default branch (use cached version keyed by repo URL)
 	defaultBranch, err := m.GetDefaultBranch(ctx, ws.Repo)
 	if err != nil {
 		defaultBranch = "main" // fallback if detection fails
 	}
-	originMain := "origin/" + defaultBranch
+	// Use VCS-aware ref naming: "origin/main" for git, "remote/main" for sapling.
+	defaultRef := cb.DefaultBranchRef(defaultBranch)
 
-	// Resolve local HEAD and origin/main
-	localHead := resolveRef(ctx, gitDir, "HEAD")
-	originMainHead := resolveRef(ctx, gitDir, originMain)
+	// Resolve local HEAD and the upstream ref. Errors are logged but not fatal —
+	// missing upstream simply yields the no-divergence path.
+	localHead, lhErr := runShellInDir(ctx, gitDir, cb.ResolveRef("HEAD"))
+	if lhErr != nil {
+		m.logger.Debug("ResolveRef HEAD failed", "workspace", workspaceID, "vcs", ws.VCS, "err", lhErr)
+	}
+	defaultRefHead, drhErr := runShellInDir(ctx, gitDir, cb.ResolveRef(defaultRef))
+	if drhErr != nil {
+		m.logger.Debug("ResolveRef upstream failed", "workspace", workspaceID, "vcs", ws.VCS, "ref", defaultRef, "err", drhErr)
+	}
 
 	if localHead == "" {
 		return nil, fmt.Errorf("cannot resolve HEAD in workspace %s", workspaceID)
@@ -66,47 +78,72 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxTotal 
 
 	// Find fork point
 	var forkPoint string
-	if originMainHead != "" && localHead != originMainHead {
-		forkPoint = findMergeBase(ctx, gitDir, "HEAD", originMain)
+	if defaultRefHead != "" && localHead != defaultRefHead {
+		var fpErr error
+		forkPoint, fpErr = runShellInDir(ctx, gitDir, cb.MergeBase("HEAD", defaultRef))
+		if fpErr != nil {
+			m.logger.Debug("MergeBase failed", "workspace", workspaceID, "vcs", ws.VCS, "err", fpErr)
+		}
 	}
 
-	// Get main-ahead count (commits on origin/main that aren't on HEAD)
+	// Get main-ahead count (commits on the upstream ref that aren't on HEAD)
 	mainAheadCount := 0
-	if originMainHead != "" && localHead != originMainHead {
-		mainAheadCount = getCommitCount(ctx, gitDir, "HEAD.."+originMain)
+	if defaultRefHead != "" && localHead != defaultRefHead {
+		countStr, countErr := runShellInDir(ctx, gitDir, cb.RevListCount("HEAD.."+defaultRef))
+		if countErr != nil {
+			m.logger.Debug("RevListCount failed", "workspace", workspaceID, "vcs", ws.VCS, "err", countErr)
+		}
+		fmt.Sscanf(countStr, "%d", &mainAheadCount)
 	}
 
-	// Get newest timestamp of commits ahead on main
+	// Get newest timestamp + oldest hash of commits ahead on main.
 	var mainAheadNewestTimestamp string
 	var mainAheadNextHash string
 	if mainAheadCount > 0 {
-		mainAheadNewestTimestamp = getNewestTimestamp(ctx, gitDir, "HEAD.."+originMain)
-		mainAheadNextHash = getOldestHash(ctx, gitDir, "HEAD.."+originMain)
+		var ntErr, ohErr error
+		mainAheadNewestTimestamp, ntErr = runShellInDir(ctx, gitDir, cb.NewestTimestamp("HEAD.."+defaultRef))
+		if ntErr != nil {
+			m.logger.Debug("NewestTimestamp failed", "workspace", workspaceID, "vcs", ws.VCS, "err", ntErr)
+		}
+		mainAheadNextHash, ohErr = runShellInDir(ctx, gitDir, cb.OldestHash("HEAD.."+defaultRef))
+		if ohErr != nil {
+			m.logger.Debug("OldestHash failed", "workspace", workspaceID, "vcs", ws.VCS, "err", ohErr)
+		}
 	}
 
 	// Determine what to log
 	var rawNodes []RawNode
 	var localTruncated bool
 
-	if originMainHead == "" || localHead == originMainHead {
-		// No divergence or no origin — just show recent commits from HEAD
-		rawNodes, err = runGitLog(ctx, gitDir, []string{"HEAD"}, mainContext+1)
+	if defaultRefHead == "" || localHead == defaultRefHead {
+		// No divergence or no upstream — just show recent commits from HEAD
+		logCmd := cb.LogParseable([]string{"HEAD"}, mainContext+1)
+		logOutput, err := runShellInDir(ctx, gitDir, logCmd)
+		if err != nil {
+			return nil, fmt.Errorf("git log failed: %w", err)
+		}
+		rawNodes = ParseGitLogOutput(logOutput)
 	} else if forkPoint == "" {
 		// No common ancestor — show both independently
-		rawNodes, err = runGitLog(ctx, gitDir, []string{"HEAD", originMain}, maxTotal)
+		logCmd := cb.LogParseable([]string{"HEAD", defaultRef}, maxTotal)
+		logOutput, err := runShellInDir(ctx, gitDir, logCmd)
+		if err != nil {
+			return nil, fmt.Errorf("git log failed: %w", err)
+		}
+		rawNodes = ParseGitLogOutput(logOutput)
 	} else {
 		// Normal divergence — get local commits + context (no main-ahead data)
 		maxLocal := maxTotal - mainContext
 		if maxLocal < 5 {
 			maxLocal = 5
 		}
-		rawNodes, localTruncated, err = m.getGraphNodes(ctx, gitDir, forkPoint, mainContext, maxLocal)
+		rawNodes, localTruncated, err = m.getGraphNodesWithCB(ctx, gitDir, cb, forkPoint, mainContext, maxLocal)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("git log failed: %w", err)
 	}
 
-	resp := BuildGraphResponse(rawNodes, localBranch, defaultBranch, localHead, originMainHead, forkPoint, branchWorkspaces, ws.Repo, maxTotal, mainAheadCount)
+	resp := BuildGraphResponse(rawNodes, localBranch, defaultBranch, localHead, defaultRefHead, forkPoint, branchWorkspaces, ws.Repo, maxTotal, mainAheadCount)
 	resp.LocalTruncated = localTruncated
 	resp.MainAheadNewestTimestamp = mainAheadNewestTimestamp
 	resp.MainAheadNextHash = mainAheadNextHash
@@ -362,25 +399,18 @@ func BuildGraphResponse(nodes []RawNode, localBranch, defaultBranch, localHead, 
 	}
 }
 
-// getGraphNodes fetches commits for the graph: local commits + context (historical).
+// getGraphNodesWithCB fetches commits for the graph using a command builder.
 // Main-ahead commits are NOT included - only their count is returned separately.
-func (m *Manager) getGraphNodes(ctx context.Context, gitDir, forkPoint string, mainContext int, maxLocal int) ([]RawNode, bool, error) {
+func (m *Manager) getGraphNodesWithCB(ctx context.Context, gitDir string, cb vcs.CommandBuilder, forkPoint string, mainContext int, maxLocal int) ([]RawNode, bool, error) {
 	var allNodes []RawNode
 	seen := make(map[string]bool)
 
 	// 1. Fetch context commits: commits from forkPoint going back (historical context)
 	if mainContext > 0 {
-		contextArgs := []string{"log",
-			"--format=%H%x00%h%x00%s%x00%an%x00%aI%x00%P",
-			"--topo-order",
-			fmt.Sprintf("--max-count=%d", mainContext),
-			forkPoint,
-		}
-		contextCmd := exec.CommandContext(ctx, "git", contextArgs...)
-		contextCmd.Dir = gitDir
-		contextOutput, contextErr := contextCmd.Output()
+		logCmd := cb.LogParseable([]string{forkPoint}, mainContext)
+		contextOutput, contextErr := runShellInDir(ctx, gitDir, logCmd)
 		if contextErr == nil {
-			contextNodes := ParseGitLogOutput(string(contextOutput))
+			contextNodes := ParseGitLogOutput(contextOutput)
 			for _, n := range contextNodes {
 				if !seen[n.Hash] {
 					seen[n.Hash] = true
@@ -391,17 +421,10 @@ func (m *Manager) getGraphNodes(ctx context.Context, gitDir, forkPoint string, m
 	}
 
 	// 2. Fetch local commits: all commits from HEAD that haven't been seen yet
-	localArgs := []string{"log",
-		"--format=%H%x00%h%x00%s%x00%an%x00%aI%x00%P",
-		"--topo-order",
-		fmt.Sprintf("--max-count=%d", maxLocal),
-		"HEAD",
-	}
-	localCmd := exec.CommandContext(ctx, "git", localArgs...)
-	localCmd.Dir = gitDir
-	localOutput, localErr := localCmd.Output()
+	logCmd := cb.LogParseable([]string{"HEAD"}, maxLocal)
+	localOutput, localErr := runShellInDir(ctx, gitDir, logCmd)
 	if localErr == nil {
-		localNodes := ParseGitLogOutput(string(localOutput))
+		localNodes := ParseGitLogOutput(localOutput)
 		localTruncated := len(localNodes) >= maxLocal
 		for _, n := range localNodes {
 			if !seen[n.Hash] {
@@ -415,16 +438,10 @@ func (m *Manager) getGraphNodes(ctx context.Context, gitDir, forkPoint string, m
 
 	// Ensure fork point is always included to keep graph connected
 	if forkPoint != "" && !seen[forkPoint] {
-		fpArgs := []string{"log",
-			"--format=%H%x00%h%x00%s%x00%an%x00%aI%x00%P",
-			"--max-count=1",
-			forkPoint,
-		}
-		fpCmd := exec.CommandContext(ctx, "git", fpArgs...)
-		fpCmd.Dir = gitDir
-		fpOutput, fpErr := fpCmd.Output()
+		logCmd := cb.LogParseable([]string{forkPoint}, 1)
+		fpOutput, fpErr := runShellInDir(ctx, gitDir, logCmd)
 		if fpErr == nil {
-			fpNodes := ParseGitLogOutput(string(fpOutput))
+			fpNodes := ParseGitLogOutput(fpOutput)
 			for _, n := range fpNodes {
 				if !seen[n.Hash] {
 					seen[n.Hash] = true
@@ -447,89 +464,18 @@ type RawNode struct {
 	Parents   []string
 }
 
-// resolveRef resolves a git ref to its commit hash.
-func resolveRef(ctx context.Context, repoPath, ref string) string {
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--verify", ref)
-	cmd.Dir = repoPath
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(output))
-}
-
-// findMergeBase returns the merge base between two refs.
-func findMergeBase(ctx context.Context, repoPath, ref1, ref2 string) string {
-	cmd := exec.CommandContext(ctx, "git", "merge-base", ref1, ref2)
-	cmd.Dir = repoPath
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(output))
-}
-
-// getCommitCount returns the number of commits in a range (e.g., "HEAD..origin/main").
-func getCommitCount(ctx context.Context, repoPath, rangeSpec string) int {
-	cmd := exec.CommandContext(ctx, "git", "rev-list", "--count", rangeSpec)
-	cmd.Dir = repoPath
-	output, err := cmd.Output()
-	if err != nil {
-		return 0
-	}
-	count := 0
-	fmt.Sscanf(strings.TrimSpace(string(output)), "%d", &count)
-	return count
-}
-
-// getNewestTimestamp returns the timestamp of the newest commit in a range.
-func getNewestTimestamp(ctx context.Context, repoPath, rangeSpec string) string {
-	cmd := exec.CommandContext(ctx, "git", "log", "--format=%aI", "-1", rangeSpec)
-	cmd.Dir = repoPath
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(output))
-}
-
-// getOldestHash returns the oldest commit hash in the given range.
-// Example range: "HEAD..origin/main"
-func getOldestHash(ctx context.Context, repoPath, rangeSpec string) string {
-	cmd := exec.CommandContext(ctx, "git", "log", "--format=%H", "--reverse", rangeSpec)
-	cmd.Dir = repoPath
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	if len(lines) == 0 {
-		return ""
-	}
-	return strings.TrimSpace(lines[0])
-}
-
-// runGitLog runs git log and parses the output into RawNode structs.
-func runGitLog(ctx context.Context, repoPath string, refs []string, maxCommits int) ([]RawNode, error) {
-	args := []string{"log",
-		"--format=%H%x00%h%x00%s%x00%an%x00%aI%x00%P",
-		"--topo-order",
-		fmt.Sprintf("--max-count=%d", maxCommits),
-	}
-	args = append(args, refs...)
-
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = repoPath
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("git log: %w", err)
-	}
-
-	return ParseGitLogOutput(string(output)), nil
-}
-
 // nullHash is the all-zeros hash used by Sapling for absent parents (e.g., p2node on non-merge commits).
 const nullHash = "0000000000000000000000000000000000000000"
+
+// runShellInDir executes cmd through `sh -c` from dir and returns trimmed stdout.
+// Errors are returned to the caller verbatim. Trimming is safe because
+// ParseGitLogOutput trims its input as well.
+func runShellInDir(ctx context.Context, dir, cmd string) (string, error) {
+	c := exec.CommandContext(ctx, "sh", "-c", cmd)
+	c.Dir = dir
+	out, err := c.Output()
+	return strings.TrimSpace(string(out)), err
+}
 
 // ParseGitLogOutput parses git log output into RawNode structs.
 // Supports both null-byte (\x00) and pipe (|) field delimiters:

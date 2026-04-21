@@ -1884,6 +1884,12 @@ Notes:
 Returns the commit graph for a workspace, including branch topology and dirty state.
 Supports both git and sapling workspaces. Returns 400 for unsupported VCS types.
 
+Internal: the upstream ref is resolved via `vcs.CommandBuilder.DefaultBranchRef`
+(`origin/<branch>` for git, `remote/<branch>` for sapling). Local commit-log
+queries use the NUL-byte field separator on git (safe against `|` characters in
+commit subjects); sapling continues to use pipe delimiters since templates can't
+emit raw NULs. Response schema is unchanged.
+
 Query Parameters:
 
 - `max_total` (optional): Maximum total commits to display (default: 200). Also accepts `max_commits` for backward compatibility.
