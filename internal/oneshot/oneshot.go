@@ -30,6 +30,41 @@ func SetModelManager(mm *models.Manager) {
 // ErrTargetNotFound is returned when a target name cannot be resolved.
 var ErrTargetNotFound = errors.New("target not found")
 
+// ErrDisabled is returned when a oneshot call is invoked with an empty target
+// name. Callers use it to distinguish "feature turned off" from
+// ErrTargetNotFound ("configured target does not exist").
+var ErrDisabled = errors.New("oneshot target is disabled")
+
+// ErrInvalidResponse is returned when an LLM response cannot be decoded into
+// the expected struct, even after fence-stripping and NormalizeJSONPayload
+// recovery. It is wrapped by *InvalidResponseError which also carries the raw
+// response for logging.
+var ErrInvalidResponse = errors.New("invalid oneshot response")
+
+// ErrNoSchemaLabel is returned when ExecuteTarget is called with an empty
+// schemaLabel. Every oneshot call must name a registered schema; schemaless
+// calls are structurally rejected.
+var ErrNoSchemaLabel = errors.New("oneshot call requires a registered schema label")
+
+// InvalidResponseError carries the raw LLM response alongside the decode
+// failure. Extract via errors.As; errors.Is against ErrInvalidResponse still
+// succeeds via the Is method below.
+type InvalidResponseError struct {
+	Raw string
+	Err error
+}
+
+func (e *InvalidResponseError) Error() string {
+	return fmt.Sprintf("invalid oneshot response: %v", e.Err)
+}
+
+func (e *InvalidResponseError) Unwrap() error { return e.Err }
+
+// Is implements errors.Is matching for the sentinel.
+func (e *InvalidResponseError) Is(target error) bool {
+	return target == ErrInvalidResponse
+}
+
 // CommandInfo describes the resolved command and environment for a oneshot target,
 // without executing it. Useful for generating reproducible run scripts.
 type CommandInfo struct {
@@ -54,22 +89,20 @@ func ResolveTargetCommand(cfg *config.Config, targetName, schemaLabel string) (*
 		return &CommandInfo{Args: parts, Env: target.Env}, nil
 	}
 
-	// Resolve schema
-	schemaArg := ""
-	if schemaLabel != "" {
-		schemaPath, err := resolveSchema(schemaLabel)
+	// Resolve schema (always required per oneshot contract)
+	schemaPath, err := resolveSchema(schemaLabel)
+	if err != nil {
+		return nil, err
+	}
+	var schemaArg string
+	if target.ToolName == "claude" {
+		content, err := os.ReadFile(schemaPath)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to read schema file %s: %w", schemaPath, err)
 		}
-		if target.ToolName == "claude" {
-			content, err := os.ReadFile(schemaPath)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read schema file %s: %w", schemaPath, err)
-			}
-			schemaArg = string(content)
-		} else {
-			schemaArg = schemaPath
-		}
+		schemaArg = string(content)
+	} else {
+		schemaArg = schemaPath
 	}
 
 	cmdParts, err := detect.BuildCommandParts(target.ToolName, target.Command, detect.ToolModeOneshot, schemaArg, target.Model)
@@ -104,22 +137,20 @@ func Execute(ctx context.Context, agentName, agentCommand, prompt, schemaLabel s
 		return "", fmt.Errorf("prompt cannot be empty")
 	}
 
-	// Resolve schema label to a file path, then read inline for Claude
-	schemaArg := ""
-	if schemaLabel != "" {
-		schemaPath, err := resolveSchema(schemaLabel)
+	// Resolve schema (always required per oneshot contract)
+	schemaPath, err := resolveSchema(schemaLabel)
+	if err != nil {
+		return "", err
+	}
+	var schemaArg string
+	if agentName == "claude" {
+		content, err := os.ReadFile(schemaPath)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("failed to read schema file %s: %w", schemaPath, err)
 		}
-		if agentName == "claude" {
-			content, err := os.ReadFile(schemaPath)
-			if err != nil {
-				return "", fmt.Errorf("failed to read schema file %s: %w", schemaPath, err)
-			}
-			schemaArg = string(content)
-		} else {
-			schemaArg = schemaPath
-		}
+		schemaArg = string(content)
+	} else {
+		schemaArg = schemaPath
 	}
 
 	// Build command parts safely
@@ -193,13 +224,10 @@ func ExecuteCommand(ctx context.Context, command, prompt string, env map[string]
 	return string(rawOutput), nil
 }
 
-// ExecuteTarget runs a one-shot execution for a named target from config.
-// It resolves models, loads secrets, and merges env vars automatically.
-// This is the preferred way to execute oneshot commands for promptable targets.
-// The timeout parameter controls how long to wait for the one-shot execution to complete.
-// The schemaLabel parameter is optional; if empty, no JSON schema constraint is applied
-// (the CLI will still use JSON output format, but without constrained decoding).
-func ExecuteTarget(ctx context.Context, cfg *config.Config, targetName, prompt, schemaLabel string, timeout time.Duration, dir string) (string, error) {
+// executeTargetRaw is the transport-level oneshot call. It returns the raw LLM
+// response string. Only ExecuteTarget[T] (the public generic) calls it.
+// Package-private to prevent features from bypassing schema enforcement.
+func executeTargetRaw(ctx context.Context, cfg *config.Config, targetName, prompt, schemaLabel string, timeout time.Duration, dir string) (string, error) {
 	if targetName == "" {
 		return "", ErrDisabled
 	}
@@ -223,6 +251,85 @@ func ExecuteTarget(ctx context.Context, cfg *config.Config, targetName, prompt, 
 		return ExecuteCommand(timeoutCtx, target.Command, prompt, target.Env, dir)
 	}
 	return Execute(timeoutCtx, target.ToolName, target.Command, prompt, schemaLabel, target.Env, dir, target.Model)
+}
+
+// ExecuteTarget runs the configured oneshot target with prompt and decodes the
+// response into T using the schema registered under schemaLabel.
+//
+// Errors (precedence order):
+//   - ErrNoSchemaLabel   when schemaLabel is empty
+//   - ErrDisabled        when targetName is empty
+//   - ErrTargetNotFound  when targetName is not in config
+//   - ErrInvalidResponse (wrapped in *InvalidResponseError) when decode fails
+//
+// The raw response on decode failure is accessible via errors.As:
+//
+//	var ire *oneshot.InvalidResponseError
+//	if errors.As(err, &ire) { log("raw:", ire.Raw) }
+func ExecuteTarget[T any](
+	ctx context.Context,
+	cfg *config.Config,
+	targetName, prompt, schemaLabel string,
+	timeout time.Duration,
+	dir string,
+) (T, error) {
+	var zero T
+	if schemaLabel == "" {
+		return zero, ErrNoSchemaLabel
+	}
+	if targetName == "" {
+		return zero, ErrDisabled
+	}
+
+	raw, err := executeTargetRaw(ctx, cfg, targetName, prompt, schemaLabel, timeout, dir)
+	if err != nil {
+		return zero, err
+	}
+
+	result, err := decodeResponse[T](raw)
+	if err != nil {
+		return zero, &InvalidResponseError{Raw: raw, Err: err}
+	}
+	return result, nil
+}
+
+// decodeResponse strips ```json code fences, locates the JSON object in raw,
+// and decodes it into T. On unmarshal failure it retries once with
+// NormalizeJSONPayload applied. Returns the underlying decode error on failure
+// (callers wrap it with InvalidResponseError).
+//
+// Package-private; use ExecuteTarget[T] instead.
+func decodeResponse[T any](raw string) (T, error) {
+	var zero T
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return zero, fmt.Errorf("empty response")
+	}
+
+	if strings.HasPrefix(trimmed, "```") {
+		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "```json"))
+		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "```"))
+		trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, "```"))
+	}
+
+	start := strings.Index(trimmed, "{")
+	end := strings.LastIndex(trimmed, "}")
+	if start == -1 || end == -1 || end <= start {
+		return zero, fmt.Errorf("no JSON object found")
+	}
+
+	payload := trimmed[start : end+1]
+	var result T
+	if err := json.Unmarshal([]byte(payload), &result); err != nil {
+		normalized := NormalizeJSONPayload(payload)
+		if normalized == "" {
+			return zero, err
+		}
+		if err2 := json.Unmarshal([]byte(normalized), &result); err2 != nil {
+			return zero, err2
+		}
+	}
+	return result, nil
 }
 
 func mergeEnv(extra map[string]string) []string {

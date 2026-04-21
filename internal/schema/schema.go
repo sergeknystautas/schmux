@@ -13,13 +13,17 @@ import (
 
 // Schema labels for registered schemas.
 const (
-	LabelCommitMessage     = "commit-message"
-	LabelConflictResolve   = "conflict-resolve"
-	LabelNudgeNik          = "nudgenik"
-	LabelBranchSuggest     = "branch-suggest"
-	LabelSubreddit         = "subreddit"
-	LabelAutolearnIntent   = "autolearn-intent"
-	LabelAutolearnFriction = "autolearn-friction"
+	LabelCommitMessage        = "commit-message"
+	LabelConflictResolve      = "conflict-resolve"
+	LabelNudgeNik             = "nudgenik"
+	LabelBranchSuggest        = "branch-suggest"
+	LabelSubredditBootstrap   = "subreddit-bootstrap"
+	LabelSubredditIncremental = "subreddit-incremental"
+	LabelAutolearnIntent      = "autolearn-intent"
+	LabelAutolearnFriction    = "autolearn-friction"
+	LabelAutolearnMerge       = "autolearn-merge"
+	LabelRepofeedIntent       = "repofeed-intent"
+	LabelCompoundMerge        = "compound-merge"
 )
 
 // schemaEntry holds a type and optional skip fields for schema generation.

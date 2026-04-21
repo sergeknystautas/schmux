@@ -40,6 +40,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/repofeed"
+	"github.com/sergeknystautas/schmux/internal/schema"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/spawn"
@@ -1195,13 +1196,6 @@ func (d *Daemon) initAutolearn(
 
 		server.SetAutolearnInstructionStore(autolearn.NewInstructionStore(autolearnInstructionsDir))
 
-		if target := cfg.GetAutolearnTarget(); target != "" {
-			autolearnExecutor := func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error) {
-				return oneshot.ExecuteTarget(ctx, cfg, target, prompt, schemaLabel, timeout, "")
-			}
-			server.SetAutolearnExecutor(autolearnExecutor)
-		}
-
 		autolearnLog.Info("autolearn system enabled")
 	}
 }
@@ -1433,12 +1427,9 @@ func (d *Daemon) initCompound(
 	// Create and start overlay compounder for bidirectional overlay sync
 	var compounder *compound.Compounder
 	if cfg.GetCompoundEnabled() {
-		// Build LLM executor for conflict merges
-		var llmExecutor compound.LLMExecutor
-		if target := cfg.GetCompoundTarget(); target != "" {
-			llmExecutor = func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
-				return oneshot.ExecuteTarget(ctx, cfg, target, prompt, "", timeout, "")
-			}
+		// Resolve config + target for oneshot-based LLM merges
+		resolveTarget := func() (*config.Config, string) {
+			return cfg, cfg.GetCompoundTarget()
 		}
 
 		// Build propagator that pushes overlay changes to sibling workspaces
@@ -1536,7 +1527,7 @@ func (d *Daemon) initCompound(
 		}
 
 		var err error
-		compounder, err = compound.NewCompounder(cfg.GetCompoundDebounceMs(), time.Duration(cfg.GetCompoundSuppressionTTLMs())*time.Millisecond, llmExecutor, propagator, func(workspaceID, relPath, hash string) {
+		compounder, err = compound.NewCompounder(cfg.GetCompoundDebounceMs(), time.Duration(cfg.GetCompoundSuppressionTTLMs())*time.Millisecond, resolveTarget, propagator, func(workspaceID, relPath, hash string) {
 			st.UpdateOverlayManifestEntry(workspaceID, relPath, hash)
 		}, compoundLog)
 		if err != nil {
@@ -2165,17 +2156,18 @@ func getOrSummarizeIntent(ctx context.Context, cfg *config.Config, ws state.Work
 	input := strings.Join(promptTexts, "\n---\n")
 	systemPrompt := "Summarize what this developer is working on in one sentence (max 100 characters). " +
 		"Focus on the goal, not implementation details. If the focus shifted over time, note the evolution. " +
-		"Do not include file paths, variable names, internal system names, API keys, or any credentials."
+		"Do not include file paths, variable names, internal system names, API keys, or any credentials. " +
+		"Return ONLY a JSON object of the form {\"summary\": \"one sentence here\"}. No fencing. No commentary."
 
 	fullPrompt := systemPrompt + "\n\nSession prompts:\n" + input
 
-	result, err := oneshot.ExecuteTarget(ctx, cfg, "", fullPrompt, "", 30*time.Second, "")
+	result, err := oneshot.ExecuteTarget[repofeed.IntentSummary](ctx, cfg, cfg.GetRepofeedIntentTarget(),
+		fullPrompt, schema.LabelRepofeedIntent, 30*time.Second, "")
 	if err != nil {
 		logger.Debug("repofeed LLM summarization failed", "workspace", ws.ID, "err", err)
 		if cached != nil {
 			return cached.Summary
 		}
-		// Fallback: use first prompt truncated
 		fallback := prompts[0].Text
 		if len(fallback) > 100 {
 			fallback = fallback[:97] + "..."
@@ -2183,8 +2175,7 @@ func getOrSummarizeIntent(ctx context.Context, cfg *config.Config, ws state.Work
 		return fallback
 	}
 
-	// Truncate to 100 chars
-	summary := strings.TrimSpace(result)
+	summary := strings.TrimSpace(result.Summary)
 	if len(summary) > 100 {
 		summary = summary[:97] + "..."
 	}

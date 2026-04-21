@@ -16,6 +16,7 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
+	"github.com/sergeknystautas/schmux/internal/schema"
 )
 
 const (
@@ -26,11 +27,14 @@ const (
 var (
 	// ErrDisabled is returned when the subreddit feature is not configured.
 	ErrDisabled = errors.New("subreddit digest is disabled")
-	// ErrInvalidResponse is returned when the LLM response cannot be parsed.
-	ErrInvalidResponse = errors.New("invalid subreddit response")
 
 	postIDCounter atomic.Uint64
 )
+
+func init() {
+	schema.Register(schema.LabelSubredditBootstrap, BootstrapResult{})
+	schema.Register(schema.LabelSubredditIncremental, IncrementalResult{})
+}
 
 // IsAvailable reports whether the subreddit module is included in this build.
 func IsAvailable() bool { return true }
@@ -141,11 +145,12 @@ When updating, rewrite the entire post to incorporate both old and new changes s
 
 // IncrementalResult represents the parsed result of incremental generation.
 type IncrementalResult struct {
-	Action  string `json:"action"`
-	PostID  string `json:"post_id,omitempty"`
-	Title   string `json:"title"`
-	Content string `json:"content"`
-	Upvotes int    `json:"upvotes"`
+	Action  string   `json:"action" required:"true"`
+	PostID  string   `json:"post_id,omitempty"`
+	Title   string   `json:"title" required:"true"`
+	Content string   `json:"content" required:"true"`
+	Upvotes int      `json:"upvotes" required:"true"`
+	_       struct{} `additionalProperties:"false"`
 }
 
 // BuildIncrementalPrompt constructs the user prompt for incremental generation.
@@ -164,24 +169,20 @@ func BuildIncrementalPrompt(newCommits []PostCommit, existingPosts []Post) strin
 	return b.String()
 }
 
-// ParseIncrementalResult parses the LLM response for incremental generation.
-func ParseIncrementalResult(raw string) (*IncrementalResult, error) {
-	cleaned := stripMarkdownCodeBlock(raw)
-	cleaned = extractJSONObject(cleaned)
-	var result IncrementalResult
-	if err := json.Unmarshal([]byte(cleaned), &result); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidResponse, err)
+// validateIncrementalResult applies post-decode invariants that the JSON schema
+// cannot express (action must be create|update; update requires post_id;
+// title/content non-empty). Pure function — unit-testable without LLM.
+func validateIncrementalResult(r *IncrementalResult) error {
+	if r.Action != "create" && r.Action != "update" {
+		return fmt.Errorf("%w: invalid action %q", oneshot.ErrInvalidResponse, r.Action)
 	}
-	if result.Action != "create" && result.Action != "update" {
-		return nil, fmt.Errorf("%w: invalid action %q", ErrInvalidResponse, result.Action)
+	if r.Action == "update" && r.PostID == "" {
+		return fmt.Errorf("%w: update action requires post_id", oneshot.ErrInvalidResponse)
 	}
-	if result.Action == "update" && result.PostID == "" {
-		return nil, fmt.Errorf("%w: update action requires post_id", ErrInvalidResponse)
+	if r.Title == "" || r.Content == "" {
+		return fmt.Errorf("%w: title and content required", oneshot.ErrInvalidResponse)
 	}
-	if result.Title == "" || result.Content == "" {
-		return nil, fmt.Errorf("%w: title and content required", ErrInvalidResponse)
-	}
-	return &result, nil
+	return nil
 }
 
 // BootstrapSystemPrompt is the system prompt for bootstrap generation.
@@ -191,18 +192,20 @@ Do not mention authors or implementation details. Focus on what changed and why 
 
 You will receive a batch of commits from the past several days.
 Group them into distinct posts by topic — related changes should be in the same post.
-Return a JSON array of posts.
 
 CRITICAL: Synthesize commits into concise summaries. Do NOT describe each commit separately.
 Combine related changes into a single narrative. Be brief.
 
+Return a JSON object with a single field "posts" whose value is an array of post objects.
 Each post must have:
 - "title": short headline (max ~80 chars)
 - "content": markdown body (1-2 short paragraphs max, 3-5 sentences total)
 - "upvotes": importance score 0-5 (logarithmic: 0=trivial, 1=minor, 2=moderate, 3=significant, 4=major, 5=landmark)
 - "commit_shas": array of SHA strings that belong to this post
 
-Order posts from most recent topic to oldest.`
+Order posts from most recent topic to oldest.
+
+Output ONLY the JSON object. No markdown fencing. No commentary.`
 
 // BootstrapPost represents a post returned from bootstrap generation.
 type BootstrapPost struct {
@@ -210,6 +213,12 @@ type BootstrapPost struct {
 	Content    string   `json:"content"`
 	Upvotes    int      `json:"upvotes"`
 	CommitSHAs []string `json:"commit_shas"`
+}
+
+// BootstrapResult wraps a list of posts for schema-compliant JSON output.
+type BootstrapResult struct {
+	Posts []BootstrapPost `json:"posts" required:"true" nullable:"false"`
+	_     struct{}        `additionalProperties:"false"`
 }
 
 // BuildBootstrapPrompt constructs the user prompt for bootstrap generation.
@@ -220,27 +229,6 @@ func BuildBootstrapPrompt(commits []PostCommit, maxAgeDays int) string {
 		fmt.Fprintf(&b, "- [%s] %s\n", c.SHA[:min(7, len(c.SHA))], c.Subject)
 	}
 	return b.String()
-}
-
-// ParseBootstrapResult parses the LLM response for bootstrap generation.
-func ParseBootstrapResult(raw string) ([]BootstrapPost, error) {
-	cleaned := stripMarkdownCodeBlock(raw)
-	cleaned = strings.TrimSpace(cleaned)
-	// Find the JSON array
-	start := strings.Index(cleaned, "[")
-	end := strings.LastIndex(cleaned, "]")
-	if start == -1 || end == -1 || end <= start {
-		return nil, fmt.Errorf("%w: no JSON array found", ErrInvalidResponse)
-	}
-	cleaned = cleaned[start : end+1]
-	var posts []BootstrapPost
-	if err := json.Unmarshal([]byte(cleaned), &posts); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidResponse, err)
-	}
-	if len(posts) == 0 {
-		return nil, fmt.Errorf("%w: empty post array", ErrInvalidResponse)
-	}
-	return posts, nil
 }
 
 // ApplyIncrementalResult applies an incremental LLM result to a repo file.
@@ -281,27 +269,6 @@ func ApplyIncrementalResult(rf *RepoFile, result *IncrementalResult, newCommits 
 	}
 
 	return rf
-}
-
-// stripMarkdownCodeBlock removes markdown code block wrappers.
-func stripMarkdownCodeBlock(s string) string {
-	s = strings.TrimSpace(s)
-	if strings.HasPrefix(s, "```") {
-		s = strings.TrimSpace(strings.TrimPrefix(s, "```json"))
-		s = strings.TrimSpace(strings.TrimPrefix(s, "```"))
-		s = strings.TrimSpace(strings.TrimSuffix(s, "```"))
-	}
-	return s
-}
-
-// extractJSONObject finds and extracts a JSON object from a string.
-func extractJSONObject(s string) string {
-	start := strings.Index(s, "{")
-	end := strings.LastIndex(s, "}")
-	if start == -1 || end == -1 || end <= start {
-		return s
-	}
-	return s[start : end+1]
 }
 
 // truncate truncates a string to maxLen characters.
@@ -409,14 +376,15 @@ func generateBootstrap(ctx context.Context, cfg FullConfig, target, repoName str
 	}
 
 	fullPrompt := BootstrapSystemPrompt + "\n\n" + prompt
-	response, err := oneshot.ExecuteTarget(ctx, cfgPtr, target, fullPrompt, "", DefaultTimeout, "")
+	result, err := oneshot.ExecuteTarget[BootstrapResult](ctx, cfgPtr, target, fullPrompt,
+		schema.LabelSubredditBootstrap, DefaultTimeout, "")
 	if err != nil {
-		return nil, fmt.Errorf("LLM call failed: %w", err)
+		return nil, fmt.Errorf("bootstrap LLM call failed: %w", err)
 	}
 
-	bootstrapPosts, err := ParseBootstrapResult(response)
-	if err != nil {
-		return nil, fmt.Errorf("parse bootstrap response: %w", err)
+	bootstrapPosts := result.Posts
+	if len(bootstrapPosts) == 0 {
+		return nil, fmt.Errorf("%w: bootstrap response has empty posts array", oneshot.ErrInvalidResponse)
 	}
 
 	now := time.Now().UTC()
@@ -493,18 +461,18 @@ func generateIncremental(ctx context.Context, cfg FullConfig, target, repoName s
 	}
 
 	fullPrompt := IncrementalSystemPrompt + "\n\n" + prompt
-	response, err := oneshot.ExecuteTarget(ctx, cfgPtr, target, fullPrompt, "", DefaultTimeout, "")
+	result, err := oneshot.ExecuteTarget[IncrementalResult](ctx, cfgPtr, target, fullPrompt,
+		schema.LabelSubredditIncremental, DefaultTimeout, "")
 	if err != nil {
-		return nil, fmt.Errorf("LLM call failed: %w", err)
+		return nil, fmt.Errorf("incremental LLM call failed: %w", err)
 	}
 
-	result, err := ParseIncrementalResult(response)
-	if err != nil {
-		return nil, fmt.Errorf("parse incremental response: %w", err)
+	if err := validateIncrementalResult(&result); err != nil {
+		return nil, err
 	}
 
 	// Apply result to existing file
-	updated := ApplyIncrementalResult(existing, result, newCommits)
+	updated := ApplyIncrementalResult(existing, &result, newCommits)
 	updated.Posts = CleanupPosts(updated.Posts, maxPosts, maxAge)
 
 	return updated, nil

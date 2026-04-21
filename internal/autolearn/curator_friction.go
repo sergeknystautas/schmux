@@ -4,7 +4,6 @@ package autolearn
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -157,52 +156,6 @@ Output schema:
 	}
 
 	return sb.String()
-}
-
-// ParseFrictionResponse parses the LLM JSON response into a FrictionCuratorResponse.
-func ParseFrictionResponse(response string) (*FrictionCuratorResponse, error) {
-	response = strings.TrimSpace(response)
-	// Try parsing directly first — avoids corrupting JSON that contains
-	// backticks in string values (e.g., code snippets in sources).
-	var result FrictionCuratorResponse
-	if err := json.Unmarshal([]byte(response), &result); err == nil {
-		return &result, nil
-	}
-	// Fallback: strip markdown code fences and retry.
-	stripped := stripFencing(response)
-	if err := json.Unmarshal([]byte(stripped), &result); err == nil {
-		return &result, nil
-	}
-	// Fallback: extract outermost JSON object from prose-wrapped response.
-	if start := strings.Index(response, "{"); start >= 0 {
-		if end := strings.LastIndex(response, "}"); end > start {
-			if err := json.Unmarshal([]byte(response[start:end+1]), &result); err == nil {
-				return &result, nil
-			}
-		}
-	}
-	return nil, fmt.Errorf("invalid friction JSON: no valid JSON object found in response")
-}
-
-// stripFencing removes markdown code fences from an LLM response, handling
-// both leading and embedded fences.
-func stripFencing(response string) string {
-	response = strings.TrimSpace(response)
-	fenceStart := strings.Index(response, "```")
-	if fenceStart >= 0 {
-		afterFence := response[fenceStart:]
-		firstNewline := strings.Index(afterFence, "\n")
-		if firstNewline >= 0 {
-			afterFence = afterFence[firstNewline+1:]
-		}
-		lastFence := strings.LastIndex(afterFence, "\n```")
-		if lastFence >= 0 {
-			response = afterFence[:lastFence]
-		} else {
-			response = afterFence
-		}
-	}
-	return response
 }
 
 // ReadFileFromRepo reads a file from HEAD in a git repo (works with bare repos).

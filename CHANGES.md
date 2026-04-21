@@ -2,6 +2,13 @@
 
 This file tracks high-level changes between releases of schmux.
 
+## Unreleased
+
+**Behavior changes (from the oneshot-unified-schema refactor):**
+
+- `repofeed.intent_target` is now an explicit, top-level config field (default empty). If you were relying on implicit LLM-summarized repofeed intents, intents will now show the first-prompt truncated fallback until you set `repofeed.intent_target` in your config.
+- Session nudge summaries stored with surrounding ` ```json ` code fences no longer parse. Legacy fenced nudges render as empty state/summary; new nudges are unaffected.
+
 ## Version 1.2.1 (2026-04-01)
 
 **Critical fix:**

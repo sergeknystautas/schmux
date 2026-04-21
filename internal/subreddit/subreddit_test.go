@@ -4,10 +4,13 @@ package subreddit
 
 import (
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sergeknystautas/schmux/internal/oneshot"
 )
 
 func TestIsEnabled(t *testing.T) {
@@ -99,53 +102,6 @@ func TestBuildIncrementalPrompt(t *testing.T) {
 	}
 }
 
-func TestParseIncrementalResult(t *testing.T) {
-	tests := []struct {
-		name   string
-		input  string
-		action string
-		postID string
-		title  string
-	}{
-		{
-			name:   "create action",
-			input:  `{"action":"create","title":"New feature","content":"Body text","upvotes":3}`,
-			action: "create",
-			title:  "New feature",
-		},
-		{
-			name:   "update action",
-			input:  `{"action":"update","post_id":"post-1","title":"Updated title","content":"New body","upvotes":4}`,
-			action: "update",
-			postID: "post-1",
-			title:  "Updated title",
-		},
-		{
-			name:   "wrapped in markdown",
-			input:  "```json\n{\"action\":\"create\",\"title\":\"Test\",\"content\":\"Body\",\"upvotes\":1}\n```",
-			action: "create",
-			title:  "Test",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := ParseIncrementalResult(tt.input)
-			if err != nil {
-				t.Fatalf("parse error: %v", err)
-			}
-			if result.Action != tt.action {
-				t.Errorf("action: got %q, want %q", result.Action, tt.action)
-			}
-			if result.PostID != tt.postID {
-				t.Errorf("post_id: got %q, want %q", result.PostID, tt.postID)
-			}
-			if result.Title != tt.title {
-				t.Errorf("title: got %q, want %q", result.Title, tt.title)
-			}
-		})
-	}
-}
-
 func TestBuildBootstrapPrompt(t *testing.T) {
 	commits := []PostCommit{
 		{SHA: "aaa1111", Subject: "feat: initial workspace support"},
@@ -158,26 +114,6 @@ func TestBuildBootstrapPrompt(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "aaa1111") {
 		t.Error("should contain commits")
-	}
-}
-
-func TestParseBootstrapResult(t *testing.T) {
-	input := `[
-		{"title":"Workspace support","content":"Big changes...","upvotes":3,"commit_shas":["aaa1111","bbb2222"]},
-		{"title":"Preview manager","content":"New preview...","upvotes":2,"commit_shas":["ccc3333"]}
-	]`
-	posts, err := ParseBootstrapResult(input)
-	if err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-	if len(posts) != 2 {
-		t.Fatalf("expected 2 posts, got %d", len(posts))
-	}
-	if posts[0].Title != "Workspace support" {
-		t.Errorf("title: got %q", posts[0].Title)
-	}
-	if len(posts[0].CommitSHAs) != 2 {
-		t.Errorf("commit count: got %d", len(posts[0].CommitSHAs))
 	}
 }
 
@@ -358,5 +294,37 @@ func TestCleanupPosts(t *testing.T) {
 	result = CleanupPosts(posts[:2], 1, 14)
 	if len(result) != 1 || result[0].ID != "new1" {
 		t.Fatalf("expected newest post, got %+v", result)
+	}
+}
+
+func TestValidateIncrementalResult_RejectsInvalidAction(t *testing.T) {
+	r := &IncrementalResult{Action: "delete", Title: "t", Content: "c"}
+	err := validateIncrementalResult(r)
+	if err == nil {
+		t.Fatal("expected error for invalid action")
+	}
+	if !errors.Is(err, oneshot.ErrInvalidResponse) {
+		t.Fatalf("want ErrInvalidResponse, got %v", err)
+	}
+}
+
+func TestValidateIncrementalResult_UpdateRequiresPostID(t *testing.T) {
+	r := &IncrementalResult{Action: "update", PostID: "", Title: "t", Content: "c"}
+	if err := validateIncrementalResult(r); err == nil {
+		t.Fatal("expected error when update has empty post_id")
+	}
+}
+
+func TestValidateIncrementalResult_EmptyTitleRejected(t *testing.T) {
+	r := &IncrementalResult{Action: "create", Title: "", Content: "c"}
+	if err := validateIncrementalResult(r); err == nil {
+		t.Fatal("expected error when title empty")
+	}
+}
+
+func TestValidateIncrementalResult_Valid(t *testing.T) {
+	r := &IncrementalResult{Action: "create", Title: "t", Content: "c"}
+	if err := validateIncrementalResult(r); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

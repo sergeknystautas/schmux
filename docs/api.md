@@ -3504,6 +3504,15 @@ Configuration is via the config API:
 - `repofeed.completed_retention_hours` - How long to keep completed activities (default: 48)
 - `repofeed.repos` - Map of repo slugs to enabled/disabled status
 
+### repofeed.intent_target
+
+Type: string (optional)
+Default: `""`
+
+When set, the repofeed system uses this oneshot target to summarize each workspace's current intent (what the agent is working on) for display on the repo feed. Summaries are one sentence, ≤100 chars, cached per workspace.
+
+Empty means disabled — summaries fall back to the first session prompt truncated to 100 chars.
+
 ## WebSocket
 
 ### WS /ws/terminal/{sessionId}

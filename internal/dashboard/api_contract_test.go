@@ -135,7 +135,6 @@ func newTestConfigHandlers(s *Server) *ConfigHandlers {
 		detectedTmux:               s.detectedTmux,
 		tunnelManager:              s.tunnelManager,
 		prDiscovery:                s.prDiscovery,
-		refreshAutolearnExecutor:   s.refreshAutolearnExecutor,
 		triggerSubredditGeneration: s.TriggerSubredditGeneration,
 		clearRemoteAuth:            s.ClearRemoteAuth,
 	}

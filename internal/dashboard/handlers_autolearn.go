@@ -5,6 +5,7 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -29,7 +30,6 @@ type AutolearnHandlers struct {
 	config                     *config.Config
 	state                      state.WorkspaceStore
 	autolearnStore             *autolearn.BatchStore
-	autolearnExecutor          func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error)
 	autolearnPendingMergeStore *autolearn.PendingMergeStore
 	curationTracker            *CurationTracker
 	logger                     *log.Logger
@@ -44,7 +44,6 @@ func newAutolearnHandlers(s *Server) *AutolearnHandlers {
 		config:                     s.config,
 		state:                      s.state,
 		autolearnStore:             s.autolearnStore,
-		autolearnExecutor:          s.autolearnExecutor,
 		autolearnPendingMergeStore: s.autolearnPendingMergeStore,
 		curationTracker:            s.curationTracker,
 		logger:                     s.logger,
@@ -71,12 +70,12 @@ func validateAutolearnRepo(next http.Handler) http.Handler {
 func (h *AutolearnHandlers) handleAutolearnStatus(w http.ResponseWriter, r *http.Request) {
 	enabled := h.config.GetLoreEnabled()
 	curateOnDispose := h.config.GetLoreCurateOnDispose()
-	llmTarget := h.config.GetLoreTarget()
-	curatorConfigured := h.autolearnExecutor != nil
+	llmTarget := h.config.GetAutolearnTarget()
+	curatorConfigured := h.config.GetAutolearnTarget() != ""
 
 	var issues []string
 	if enabled && !curatorConfigured {
-		issues = append(issues, "No LLM target configured — curator cannot run. Set lore.llm_target in config.")
+		issues = append(issues, "No LLM target configured — curator cannot run. Set autolearn.llm_target in config.")
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -429,7 +428,7 @@ func (h *AutolearnHandlers) handleAutolearnCurate(w http.ResponseWriter, r *http
 		return
 	}
 
-	if h.autolearnExecutor == nil {
+	if h.config.GetAutolearnTarget() == "" {
 		writeJSONError(w, "autolearn curator not configured (no LLM target)", http.StatusServiceUnavailable)
 		return
 	}
@@ -501,7 +500,7 @@ func (h *AutolearnHandlers) runAutolearnCuration(repoName, curationID, prompt st
 		os.WriteFile(filepath.Join(runDir, "prompt.txt"), []byte(prompt), 0600)
 
 		// Write run.sh
-		target := h.config.GetLoreTarget()
+		target := h.config.GetAutolearnTarget()
 		runScript := curationGenerateRunScript(h.config, target, schema.LabelAutolearnFriction)
 		os.WriteFile(filepath.Join(runDir, "run.sh"), []byte(runScript), 0700)
 
@@ -517,30 +516,33 @@ func (h *AutolearnHandlers) runAutolearnCuration(repoName, curationID, prompt st
 
 // runAutolearnExecutor runs curation using the oneshot executor.
 func (h *AutolearnHandlers) runAutolearnExecutor(ctx context.Context, repoName, curationID, prompt string, entries []autolearn.Entry, runDir string, logFile *os.File, start time.Time) {
-	response, err := h.autolearnExecutor(ctx, prompt, schema.LabelAutolearnFriction, 10*time.Minute)
+	result, err := oneshot.ExecuteTarget[autolearn.FrictionCuratorResponse](
+		ctx, h.config, h.config.GetAutolearnTarget(), prompt,
+		schema.LabelAutolearnFriction, 10*time.Minute, "")
 	if err != nil {
+		var ire *oneshot.InvalidResponseError
+		rawOut := ""
+		if errors.As(err, &ire) {
+			rawOut = ire.Raw
+		}
 		errRaw := json.RawMessage(fmt.Sprintf(`{"type":"curator_error","error":%q}`, err.Error()))
 		curationWriteLogEvent(logFile, errRaw)
 		curationWriteDebugFile(runDir, "error.txt", err.Error())
+		if rawOut != "" {
+			curationWriteDebugFile(runDir, "raw_output.txt", rawOut)
+		}
 		h.curationComplete(repoName, fmt.Errorf("curator LLM call failed: %w", err))
 		return
 	}
 
-	curationWriteDebugFile(runDir, "output.txt", response)
-	h.finalizeAutolearnCuration(repoName, curationID, response, entries, start, logFile)
+	prettyBytes, _ := json.MarshalIndent(result, "", "  ")
+	curationWriteDebugFile(runDir, "output.txt", string(prettyBytes))
+	h.finalizeAutolearnCuration(repoName, curationID, &result, entries, start, logFile)
 }
 
-// finalizeAutolearnCuration parses the friction response, builds a batch with per-learning model, saves it, and marks entries.
-func (h *AutolearnHandlers) finalizeAutolearnCuration(repoName, curationID, rawResponse string, entries []autolearn.Entry, start time.Time, logFile *os.File) {
+// finalizeAutolearnCuration builds a batch from the parsed friction response, saves it, and marks entries.
+func (h *AutolearnHandlers) finalizeAutolearnCuration(repoName, curationID string, result *autolearn.FrictionCuratorResponse, entries []autolearn.Entry, start time.Time, logFile *os.File) {
 	elapsed := time.Since(start)
-
-	result, err := autolearn.ParseFrictionResponse(rawResponse)
-	if err != nil {
-		errRaw := json.RawMessage(fmt.Sprintf(`{"type":"curator_error","error":%q}`, err.Error()))
-		curationWriteLogEvent(logFile, errRaw)
-		h.curationComplete(repoName, fmt.Errorf("failed to parse friction response: %w", err))
-		return
-	}
 
 	// Build batch from friction result
 	now := time.Now().UTC()
@@ -713,7 +715,7 @@ func (h *AutolearnHandlers) handleAutolearnMerge(w http.ResponseWriter, r *http.
 		writeJSONError(w, "autolearn system not enabled", http.StatusServiceUnavailable)
 		return
 	}
-	if h.autolearnExecutor == nil {
+	if h.config.GetAutolearnTarget() == "" {
 		writeJSONError(w, "autolearn curator not configured (no LLM target)", http.StatusServiceUnavailable)
 		return
 	}
@@ -792,7 +794,6 @@ func (h *AutolearnHandlers) handleAutolearnMerge(w http.ResponseWriter, r *http.
 	json.NewEncoder(w).Encode(map[string]string{"status": "merging"})
 
 	// Run merge in background
-	executor := h.autolearnExecutor
 	pendingStore := h.autolearnPendingMergeStore
 	instrFiles := h.config.GetLoreInstructionFiles()
 	logger := h.logger
@@ -822,25 +823,14 @@ func (h *AutolearnHandlers) handleAutolearnMerge(w http.ResponseWriter, r *http.
 		shaOut, _ := shaCmd.Output()
 		baseSHA := strings.TrimSpace(string(shaOut))
 
-		// Run LLM merge
+		// Run LLM merge via oneshot with typed response
 		prompt := autolearn.BuildMergePrompt(currentContent, allLearnings)
-		response, err := executor(ctx, prompt, "", 5*time.Minute)
+		result, err := oneshot.ExecuteTarget[autolearn.MergeCuratorResponse](
+			ctx, h.config, h.config.GetAutolearnTarget(), prompt,
+			schema.LabelAutolearnMerge, 5*time.Minute, "")
 		if err != nil {
 			pm.Status = autolearn.PendingMergeStatusError
 			pm.Error = fmt.Sprintf("Merge failed: %v", err)
-			pendingStore.Save(pm)
-			broadcastCuratorEvent(CuratorEvent{
-				Repo: repoName, Timestamp: time.Now().UTC(),
-				EventType: "autolearn_merge_complete",
-				Raw:       json.RawMessage(fmt.Sprintf(`{"status":"error","error":%q}`, pm.Error)),
-			})
-			return
-		}
-
-		result, err := autolearn.ParseMergeResponse(response)
-		if err != nil {
-			pm.Status = autolearn.PendingMergeStatusError
-			pm.Error = fmt.Sprintf("Failed to parse merge result: %v", err)
 			pendingStore.Save(pm)
 			broadcastCuratorEvent(CuratorEvent{
 				Repo: repoName, Timestamp: time.Now().UTC(),
@@ -1236,27 +1226,5 @@ func (h *AutolearnHandlers) handleAutolearnPromptHistory(w http.ResponseWriter, 
 		"signals": signals,
 	}); err != nil {
 		h.logger.Error("failed to encode response", "handler", "autolearn-prompt-history", "err", err)
-	}
-}
-
-// refreshAutolearnExecutor updates the autolearn LLM executor based on the current
-// config. Called after config save so the runtime executor stays in sync with
-// the persisted lore.llm_target value.
-func (s *Server) refreshAutolearnExecutor(cfg *config.Config) {
-	target := cfg.GetLoreTargetRaw()
-
-	if target != "" {
-		executor := func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error) {
-			return oneshot.ExecuteTarget(ctx, cfg, target, prompt, schemaLabel, timeout, "")
-		}
-		s.autolearnExecutor = executor
-		if s.autolearnHandlers != nil {
-			s.autolearnHandlers.autolearnExecutor = executor
-		}
-	} else {
-		s.autolearnExecutor = nil
-		if s.autolearnHandlers != nil {
-			s.autolearnHandlers.autolearnExecutor = nil
-		}
 	}
 }

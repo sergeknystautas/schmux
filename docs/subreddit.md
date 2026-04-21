@@ -20,7 +20,7 @@ Generates a per-repository news feed of commit summaries written in a casual Red
 - **Importance scoring via upvotes.** Each post gets a 0-5 upvote score (logarithmic scale: 0=trivial, 3=significant, 5=landmark). LLM-assigned at creation and revisable on update.
 - **Feature is opt-in via config.** `subreddit.target` must be set in config. Empty or missing disables generation. Per-repo opt-in via `subreddit.repos` map (default: all enabled).
 - **Uses existing bare clones.** Commits are gathered from `~/.schmux/query/<bare_path>` -- the same infrastructure as `GetRecentBranches`.
-- **LLM generation via the oneshot system.** Uses `oneshot.ExecuteTarget()` with a registered schema (`schema.LabelSubreddit`).
+- **LLM generation via the oneshot system.** Uses `oneshot.ExecuteTarget[T]` with two registered schemas — `schema.LabelSubredditBootstrap` for initial batch creation, `schema.LabelSubredditIncremental` for updates.
 - **Incremental with dedup.** Commits already incorporated into existing posts are tracked via the `commits` field. Only new commits trigger generation.
 - **Lifecycle cleanup.** Each generation cycle prunes posts older than `max_age` (default 14 days) and caps per-repo posts at `max_posts` (default 30).
 

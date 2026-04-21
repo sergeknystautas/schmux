@@ -2,6 +2,8 @@ package conflictresolve
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -16,9 +18,6 @@ func init() {
 	// Register the OneshotResult type for JSON schema generation.
 	schema.Register(schema.LabelConflictResolve, OneshotResult{})
 }
-
-// executorFunc is the function used to run a oneshot target. Package-level var for testability.
-var executorFunc = oneshot.ExecuteTarget
 
 // FileAction describes what the LLM did to resolve a single conflicted file.
 // Struct tags control JSON schema generation via swaggest/jsonschema-go.
@@ -105,13 +104,6 @@ Rules:
 // so callers can surface it to the user. It is empty when the error is pre-parse
 // (e.g. disabled, target not found, execution failure) or on success.
 //
-// Envelope handling note: oneshot.Execute already strips the Claude
-// `structured_output` / `result` envelope before returning, so oneshot.ParseJSON
-// only ever sees the inner payload. If a non-Claude tool ever produces a
-// Claude-shaped envelope, parsing would fail here — the upstream stripper
-// (internal/oneshot/oneshot.go parseClaudeStructuredOutput) is the single
-// source of truth.
-//
 // Error sentinels surfaced (all from internal/oneshot):
 //   - oneshot.ErrDisabled          (no conflict_resolve target configured)
 //   - oneshot.ErrTargetNotFound    (configured target missing)
@@ -120,31 +112,35 @@ func Execute(ctx context.Context, cfg *config.Config, prompt string, workspacePa
 	targetName := cfg.GetConflictResolveTarget()
 	timeout := time.Duration(cfg.GetConflictResolveTimeoutMs()) * time.Millisecond
 
-	response, err := executorFunc(ctx, cfg, targetName, prompt, schema.LabelConflictResolve, timeout, workspacePath)
+	result, err := oneshot.ExecuteTarget[OneshotResult](ctx, cfg, targetName, prompt,
+		schema.LabelConflictResolve, timeout, workspacePath)
 	if err != nil {
+		var ire *oneshot.InvalidResponseError
+		if errors.As(err, &ire) {
+			return OneshotResult{}, ire.Raw, err
+		}
 		return OneshotResult{}, "", err
 	}
 
-	result, err := oneshot.ParseJSON[OneshotResult](response)
+	normalized, err := validateAndNormalize(result)
 	if err != nil {
-		return OneshotResult{}, response, err
+		rawJSON, _ := json.Marshal(result)
+		return OneshotResult{}, string(rawJSON), err
 	}
-
-	// Validate required fields beyond JSON structure: confidence must be populated.
-	if result.Confidence == "" {
-		return OneshotResult{}, response, fmt.Errorf("%w: response JSON does not contain expected fields", oneshot.ErrInvalidResponse)
-	}
-
-	normalizeSummary(&result)
-	return result, "", nil
+	return normalized, "", nil
 }
 
-// normalizeSummary replaces literal "\n" text (which LLMs often produce in JSON
-// strings instead of actual newlines) with real newlines.
-func normalizeSummary(r *OneshotResult) {
+// validateAndNormalize checks that required fields are present and replaces
+// literal "\n" text (which LLMs often produce in JSON strings instead of
+// actual newlines) with real newlines.
+func validateAndNormalize(r OneshotResult) (OneshotResult, error) {
+	if r.Confidence == "" {
+		return OneshotResult{}, fmt.Errorf("%w: response JSON does not contain expected fields", oneshot.ErrInvalidResponse)
+	}
 	r.Summary = strings.ReplaceAll(r.Summary, `\n`, "\n")
 	for k, f := range r.Files {
 		f.Description = strings.ReplaceAll(f.Description, `\n`, "\n")
 		r.Files[k] = f
 	}
+	return r, nil
 }

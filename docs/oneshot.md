@@ -4,25 +4,31 @@ Oneshot is schmux's prompt-in/result-out execution mode for AI agents. It's used
 
 ## Consumers
 
-| Consumer         | Package                    | Schema             | What it does                                                      |
-| ---------------- | -------------------------- | ------------------ | ----------------------------------------------------------------- |
-| NudgeNik         | `internal/nudgenik`        | `nudgenik`         | Classifies agent terminal state (stuck, waiting, completed, etc.) |
-| Branch Suggest   | `internal/branchsuggest`   | `branch-suggest`   | Generates a git branch name and nickname from a user prompt       |
-| Conflict Resolve | `internal/conflictresolve` | `conflict-resolve` | Resolves git rebase conflicts via LLM, reports actions per file   |
-| Autolearn        | `internal/autolearn`       | `autolearn`        | Curates learning proposals from agent sessions                    |
-| Subreddit        | `internal/subreddit`       | `subreddit`        | Generates subreddit digest posts                                  |
-| Spawn            | `internal/spawn`           | `spawn`            | Discovers reusable skills from agent behavior                     |
-| Commit Message   | `internal/commitmessage`   | `commitmessage`    | Generates commit messages from workspace diffs                    |
+Each schema label is declared in `internal/schema/schema.go` and registered via `schema.Register(label, StructType{})` in the consumer package's `init()`. The authoritative list lives in `schema.go`; the table below mirrors it.
+
+| Consumer                | Package                                  | Schema label            | Response struct           | What it does                                                                        |
+| ----------------------- | ---------------------------------------- | ----------------------- | ------------------------- | ----------------------------------------------------------------------------------- |
+| NudgeNik                | `internal/nudgenik`                      | `nudgenik`              | `Result`                  | Classifies agent terminal state (stuck, waiting, completed, etc.)                   |
+| Branch Suggest          | `internal/branchsuggest`                 | `branch-suggest`        | `Result`                  | Generates a git branch name from a user prompt                                      |
+| Commit Message          | `internal/dashboard/commit.go`           | `commit-message`        | `commitmessage.Result`    | Generates commit messages from workspace diffs                                      |
+| Conflict Resolve        | `internal/conflictresolve`               | `conflict-resolve`      | `OneshotResult`           | Resolves git rebase conflicts via LLM, reports actions per file                     |
+| Subreddit (bootstrap)   | `internal/subreddit`                     | `subreddit-bootstrap`   | `BootstrapResult`         | Generates initial subreddit digest posts from a commit batch                        |
+| Subreddit (incremental) | `internal/subreddit`                     | `subreddit-incremental` | `IncrementalResult`       | Updates subreddit digest posts as new commits arrive                                |
+| Repofeed intent         | `internal/repofeed` (called from daemon) | `repofeed-intent`       | `IntentSummary`           | Summarizes a workspace's current intent in one sentence                             |
+| Autolearn (intent)      | `internal/autolearn`                     | `autolearn-intent`      | `IntentCuratorResponse`   | Classifies session intent for autolearn curation                                    |
+| Autolearn (friction)    | `internal/autolearn`                     | `autolearn-friction`    | `FrictionCuratorResponse` | Extracts learnings from friction data in agent sessions                             |
+| Autolearn (merge)       | `internal/autolearn`                     | `autolearn-merge`       | `MergeCuratorResponse`    | Merges approved rules into an existing instruction file (e.g. CLAUDE.md)            |
+| Compound merge          | `internal/compound`                      | `compound-merge`        | `MergeResult`             | LLM-merges two divergent overlay-file versions (e.g. `.claude/settings.local.json`) |
 
 ## Execution Flow
 
 ```
 Caller (e.g. nudgenik.AskForExtracted)
   │
-  ├─ passes schema label (e.g. oneshot.SchemaNudgeNik)
+  ├─ passes schema label (e.g. schema.LabelNudgeNik)
   │
   ▼
-oneshot.ExecuteTarget(ctx, cfg, targetName, prompt, schemaLabel, timeout, dir)
+oneshot.ExecuteTarget[T any](ctx, cfg, targetName, prompt, schemaLabel, timeout, dir) (T, error)
   │
   ├─ resolveTarget: looks up config target, resolves model/secrets/env
   ├─ user-defined targets → ExecuteCommand (no schema support)
@@ -57,36 +63,75 @@ Schemas are generated at runtime from Go struct definitions using `github.com/sw
 
 ## Schema Registry
 
-All schemas live in `oneshot.go` in a central registry:
+Schemas are generated at runtime from Go struct definitions. There is no hand-written JSON anywhere — struct tags drive the shape, and `github.com/swaggest/jsonschema-go` produces OpenAI-compatible JSON schema at first access.
+
+**Labels** are string constants in `internal/schema/schema.go`:
 
 ```go
 const (
-    SchemaConflictResolve = "conflict-resolve"
-    SchemaNudgeNik        = "nudgenik"
-    SchemaBranchSuggest   = "branch-suggest"
+    LabelCommitMessage        = "commit-message"
+    LabelConflictResolve      = "conflict-resolve"
+    LabelNudgeNik             = "nudgenik"
+    LabelBranchSuggest        = "branch-suggest"
+    LabelSubredditBootstrap   = "subreddit-bootstrap"
+    LabelSubredditIncremental = "subreddit-incremental"
+    LabelAutolearnIntent      = "autolearn-intent"
+    LabelAutolearnFriction    = "autolearn-friction"
+    LabelAutolearnMerge       = "autolearn-merge"
+    LabelRepofeedIntent       = "repofeed-intent"
+    LabelCompoundMerge        = "compound-merge"
 )
+```
 
-var schemaRegistry = map[string]string{
-    SchemaConflictResolve: `{...}`,
-    SchemaNudgeNik:        `{...}`,
-    SchemaBranchSuggest:   `{...}`,
+**Registration** happens in each consumer package's `init()`:
+
+```go
+// internal/branchsuggest/branchsuggest.go
+func init() {
+    schema.Register(schema.LabelBranchSuggest, Result{})
 }
 ```
 
-Callers reference labels, never raw JSON.
+`schema.Register(label, v, skipFields...)` stores the type; `schema.Get(label)` generates and caches the JSON schema on first call. `WriteAllSchemas()` runs on daemon startup to write every registered schema to `~/.schmux/schemas/<label>.json`.
 
-### Adding a New Schema
+**Struct tags** control schema shape:
 
-1. Add a label constant and JSON string to `schemaRegistry` in `oneshot.go`
-2. `TestSchemaRegistry` will automatically validate it (required fields, OpenAI structured output constraints)
-3. Use the label in your consumer's `ExecuteTarget` call
+| Tag                            | Effect                                                   |
+| ------------------------------ | -------------------------------------------------------- |
+| `json:"field_name"`            | JSON property name                                       |
+| `required:"true"`              | Marks the field as required in the schema                |
+| `nullable:"false"`             | Forbids null for array/map fields                        |
+| `additionalProperties:"false"` | On an unnamed `struct{}` field, forbids extra properties |
+
+Example from `internal/conflictresolve/conflictresolve.go`:
+
+```go
+type OneshotResult struct {
+    AllResolved bool                  `json:"all_resolved" required:"true"`
+    Confidence  string                `json:"confidence" required:"true"`
+    Summary     string                `json:"summary" required:"true"`
+    Files       map[string]FileAction `json:"files" required:"true" nullable:"false"`
+    _           struct{}              `additionalProperties:"false"`
+}
+```
+
+Fields can be excluded from the emitted schema via the variadic `skipFields` parameter (e.g., `schema.Register(LabelNudgeNik, Result{}, "source")` for internal-only fields populated by code, not the LLM).
+
+### Adding a new oneshot consumer
+
+1. Add a `LabelXxx` constant to `internal/schema/schema.go`.
+2. In the consumer package, define a response struct with `json` tags + `required:"true"` / `additionalProperties:"false"` as appropriate.
+3. Register it in the package's `init()`: `schema.Register(schema.LabelXxx, MyResult{})`.
+4. Write the prompt so the LLM emits JSON matching the struct shape.
+5. Call `oneshot.ExecuteTarget[MyResult](ctx, cfg, targetName, prompt, schema.LabelXxx, timeout, dir)`.
+6. Put any post-decode validation or normalization in a pure function (unit-testable without the LLM).
 
 ### Validation
 
-`TestSchemaRegistry` walks every registered schema and checks:
+`TestSchemaRegistry` in `internal/oneshot/schema_integration_test.go` walks every registered schema and checks:
 
 - All `required` keys exist in `properties`
-- When `additionalProperties` is a schema object, `properties` is explicitly defined (OpenAI requirement)
+- When `additionalProperties` is a schema object, `properties` is explicitly defined (OpenAI structured-output requirement)
 - Recursive validation of nested objects
 
 ## Integration Testing

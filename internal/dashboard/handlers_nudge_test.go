@@ -47,12 +47,6 @@ func TestParseNudgeSummary(t *testing.T) {
 			wantState: "",
 			wantSumm:  "",
 		},
-		{
-			name:      "fenced JSON",
-			nudge:     "```json\n{\"state\":\"Working\",\"confidence\":\"high\",\"evidence\":[],\"summary\":\"Building\"}\n```",
-			wantState: "Working",
-			wantSumm:  "Building",
-		},
 	}
 
 	for _, tt := range tests {

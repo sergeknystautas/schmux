@@ -123,6 +123,11 @@ func (g *GitOps) ReadAllDevFiles() ([]*DeveloperFile, error)    { return nil, ni
 func (g *GitOps) PushToRemote(_ string) error                   { return nil }
 func (g *GitOps) FetchFromRemote(_ string) error                { return nil }
 
+// IntentSummary is a stub so non-repofeed builds compile.
+type IntentSummary struct {
+	Summary string
+}
+
 func CleanupStaleIndexFiles(_ string) {}
 
 func IsAvailable() bool { return false }

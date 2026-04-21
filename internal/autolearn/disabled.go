@@ -164,9 +164,10 @@ type IntentCuratorResponse struct {
 	DiscardedSignals map[string]string `json:"discarded_signals"`
 }
 
-type MergeResponse struct {
-	MergedContent string
+// MergeCuratorResponse is a stub so non-autolearn builds compile.
+type MergeCuratorResponse struct {
 	Summary       string
+	MergedContent string
 }
 
 type PendingMerge struct {
@@ -252,15 +253,9 @@ func CollectIntentSignals(_ []string) ([]IntentSignal, error) { return nil, nil 
 
 func BuildFrictionPrompt(_ []Entry, _ []string, _ []string) string { return "" }
 
-func ParseFrictionResponse(_ string) (*FrictionCuratorResponse, error) {
-	return &FrictionCuratorResponse{}, nil
-}
-
 func ReadFileFromRepo(_ context.Context, _, _ string) (string, error) { return "", nil }
 
 func BuildMergePrompt(_ string, _ []Learning) string { return "" }
-
-func ParseMergeResponse(_ string) (*MergeResponse, error) { return &MergeResponse{}, nil }
 
 func NormalizeLearningTitle(text string) string { return text }
 

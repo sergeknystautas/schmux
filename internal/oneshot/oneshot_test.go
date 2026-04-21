@@ -2,6 +2,7 @@ package oneshot
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -403,5 +404,218 @@ func TestNormalizeJSONPayload(t *testing.T) {
 				t.Errorf("NormalizeJSONPayload(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+// ===== Tests for unified ExecuteTarget[T] generic (rev 2026-04-20) =====
+
+type unifiedTestResult struct {
+	Name  string `json:"name"`
+	Value int    `json:"value"`
+}
+
+func TestExecuteTarget_RejectsEmptySchemaLabel(t *testing.T) {
+	_, err := ExecuteTarget[unifiedTestResult](context.Background(), nil, "some-target", "some prompt", "", 0, "")
+	if !errors.Is(err, ErrNoSchemaLabel) {
+		t.Fatalf("want ErrNoSchemaLabel, got %v", err)
+	}
+}
+
+func TestExecuteTarget_ErrorPrecedence_SchemaLabelBeforeTarget(t *testing.T) {
+	// Both empty: ErrNoSchemaLabel must win.
+	_, err := ExecuteTarget[unifiedTestResult](context.Background(), nil, "", "some prompt", "", 0, "")
+	if !errors.Is(err, ErrNoSchemaLabel) {
+		t.Fatalf("want ErrNoSchemaLabel (schemaLabel check precedes target check), got %v", err)
+	}
+}
+
+func TestExecuteTarget_EmptyTargetReturnsErrDisabled_WithSchema(t *testing.T) {
+	// Schema present, target empty: ErrDisabled.
+	_, err := ExecuteTarget[unifiedTestResult](context.Background(), nil, "", "some prompt", "test-label", 0, "")
+	if !errors.Is(err, ErrDisabled) {
+		t.Fatalf("want ErrDisabled, got %v", err)
+	}
+}
+
+func TestInvalidResponseError_Unwraps(t *testing.T) {
+	inner := errors.New("json decode boom")
+	ire := &InvalidResponseError{Raw: "raw payload here", Err: inner}
+
+	if !errors.Is(ire, ErrInvalidResponse) {
+		t.Fatalf("errors.Is ErrInvalidResponse should match, got false")
+	}
+	if !errors.Is(ire, inner) {
+		t.Fatalf("errors.Is underlying error should match")
+	}
+
+	var extracted *InvalidResponseError
+	if !errors.As(ire, &extracted) {
+		t.Fatalf("errors.As should extract *InvalidResponseError")
+	}
+	if extracted.Raw != "raw payload here" {
+		t.Fatalf("Raw mismatch: %q", extracted.Raw)
+	}
+}
+
+// ===== Tests for decodeResponse[T] (relocated from oneshot_json_test.go) =====
+
+type decodeTestResult struct {
+	Name  string `json:"name"`
+	Value int    `json:"value"`
+}
+
+func TestDecodeResponse_PlainObject(t *testing.T) {
+	got, err := decodeResponse[decodeTestResult](`{"name":"foo","value":7}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Name != "foo" || got.Value != 7 {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestDecodeResponse_StripsCodeFence(t *testing.T) {
+	raw := "```json\n{\"name\":\"bar\",\"value\":1}\n```"
+	got, err := decodeResponse[decodeTestResult](raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Name != "bar" || got.Value != 1 {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestDecodeResponse_HandlesBannerBeforeAndAfter(t *testing.T) {
+	raw := "blah blah {\"name\":\"baz\",\"value\":42} trailing"
+	got, err := decodeResponse[decodeTestResult](raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Name != "baz" || got.Value != 42 {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestDecodeResponse_CurlyQuotesRecoveredByNormalize(t *testing.T) {
+	raw := "{\u201cname\u201d:\u201chello\u201d,\u201cvalue\u201d:3}"
+	got, err := decodeResponse[decodeTestResult](raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Name != "hello" || got.Value != 3 {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestDecodeResponse_EmptyInput(t *testing.T) {
+	_, err := decodeResponse[decodeTestResult]("")
+	if err == nil || !strings.Contains(err.Error(), "empty response") {
+		t.Fatalf("want empty-response error, got %v", err)
+	}
+}
+
+func TestDecodeResponse_NoBraces(t *testing.T) {
+	_, err := decodeResponse[decodeTestResult]("nothing json-like here")
+	if err == nil || !strings.Contains(err.Error(), "no JSON object") {
+		t.Fatalf("want no-JSON error, got %v", err)
+	}
+}
+
+func TestDecodeResponse_MalformedJSONBeyondRecovery(t *testing.T) {
+	_, err := decodeResponse[decodeTestResult](`{"name": "unterminated`)
+	if err == nil {
+		t.Fatalf("want decode error, got nil")
+	}
+}
+
+func TestExecuteTarget_OldEmptyTargetTest(t *testing.T) {
+	// Legacy test: empty target with empty schema returns ErrNoSchemaLabel now.
+	_, err := ExecuteTarget[unifiedTestResult](context.TODO(), nil, "", "some prompt", "", 0, "")
+	if !errors.Is(err, ErrNoSchemaLabel) {
+		t.Fatalf("want ErrNoSchemaLabel, got %v", err)
+	}
+}
+
+// ===== Tests: additional fence / prefix edge cases (§6.1 backfill) =====
+
+func TestDecodeResponse_MissingClosingFence(t *testing.T) {
+	raw := "```json\n{\"name\":\"foo\",\"value\":1}"
+	got, err := decodeResponse[decodeTestResult](raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Name != "foo" || got.Value != 1 {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestDecodeResponse_FenceWithTrailingText(t *testing.T) {
+	raw := "```json\n{\"name\":\"foo\",\"value\":1}\n```\n\nextra commentary"
+	got, err := decodeResponse[decodeTestResult](raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Name != "foo" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestDecodeResponse_TextBeforeFence(t *testing.T) {
+	raw := "Here is the result:\n```json\n{\"name\":\"foo\",\"value\":1}\n```"
+	got, err := decodeResponse[decodeTestResult](raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Name != "foo" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestDecodeResponse_PlainFencedNoLangTag(t *testing.T) {
+	raw := "```\n{\"name\":\"foo\",\"value\":1}\n```"
+	got, err := decodeResponse[decodeTestResult](raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Name != "foo" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestDecodeResponse_SpuriousPrefix(t *testing.T) {
+	raw := "Of course - here you go. {\"name\":\"foo\",\"value\":1}"
+	got, err := decodeResponse[decodeTestResult](raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Name != "foo" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestDecodeResponse_WhitespaceOnly(t *testing.T) {
+	_, err := decodeResponse[decodeTestResult]("   \n\t  ")
+	if err == nil || !strings.Contains(err.Error(), "empty response") {
+		t.Fatalf("want empty-response, got %v", err)
+	}
+}
+
+// End-to-end: ExecuteTarget wraps decode failure in *InvalidResponseError with raw.
+func TestExecuteTarget_DecodeFailureWrapsRaw(t *testing.T) {
+	raw := "not-json-at-all"
+	_, err := decodeResponse[decodeTestResult](raw)
+	if err == nil {
+		t.Fatal("expected decode error")
+	}
+	wrapped := &InvalidResponseError{Raw: raw, Err: err}
+	if !errors.Is(wrapped, ErrInvalidResponse) {
+		t.Fatalf("errors.Is ErrInvalidResponse should match wrapped error")
+	}
+	var ire *InvalidResponseError
+	if !errors.As(wrapped, &ire) {
+		t.Fatal("errors.As should extract *InvalidResponseError")
+	}
+	if ire.Raw != raw {
+		t.Fatalf("Raw mismatch: %q", ire.Raw)
 	}
 }

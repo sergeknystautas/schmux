@@ -124,7 +124,6 @@ type ConfigHandlers struct {
 	prDiscovery   github.DiscoveryProvider
 
 	// Callbacks into Server methods that cannot be extracted.
-	refreshAutolearnExecutor   func(cfg *config.Config)
 	triggerSubredditGeneration func()
 	clearRemoteAuth            func()
 	onFloorManagerToggle       func(enabled bool)
@@ -953,7 +952,6 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 	h.prDiscovery.SetTarget(cfg.GetPrReviewTarget(), func() []config.Repo { return cfg.GetRepos() })
 
 	// Refresh autolearn executor when target changes
-	h.refreshAutolearnExecutor(cfg)
 
 	// Trigger subreddit generation if newly enabled
 	if req.Subreddit != nil {

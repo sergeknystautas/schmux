@@ -522,8 +522,8 @@ func parseNudgeSummary(nudge string) (string, string) {
 		return "", ""
 	}
 
-	result, err := oneshot.ParseJSON[nudgenik.Result](trimmed)
-	if err != nil {
+	var result nudgenik.Result
+	if err := json.Unmarshal([]byte(trimmed), &result); err != nil {
 		return "", ""
 	}
 

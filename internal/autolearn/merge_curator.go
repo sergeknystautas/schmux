@@ -5,22 +5,27 @@ package autolearn
 import (
 	"fmt"
 	"strings"
+
+	"github.com/sergeknystautas/schmux/internal/schema"
 )
 
-// MergeResponse holds the parsed output from the merge curator LLM.
-type MergeResponse struct {
-	MergedContent string
-	Summary       string
+func init() {
+	schema.Register(schema.LabelAutolearnMerge, MergeCuratorResponse{})
+}
+
+// MergeCuratorResponse is the parsed JSON response from the merge curator LLM.
+// Replaces the former XML-tagged MergeResponse; aligns with the oneshot
+// schema-everywhere rule.
+type MergeCuratorResponse struct {
+	Summary       string   `json:"summary" required:"true"`
+	MergedContent string   `json:"merged_content" required:"true"`
+	_             struct{} `additionalProperties:"false"`
 }
 
 // BuildMergePrompt constructs the LLM prompt for merging approved rules into
 // an existing instruction file. The LLM receives the current file content and
 // the list of learnings (filtered to rules by the caller) to merge, and returns
-// the updated file content.
-//
-// The output uses XML-style delimiters instead of JSON because the merged
-// content is a full markdown file that may contain code blocks, backticks,
-// and other characters that are difficult to escape correctly in JSON.
+// a JSON object with the updated file content and a one-line summary.
 func BuildMergePrompt(currentContent string, learnings []Learning) string {
 	var sb strings.Builder
 	sb.WriteString(`You are a merge curator for a software project's agent instruction files.
@@ -38,12 +43,11 @@ Rules:
 - DEDUPLICATE: If a rule is already covered by existing content, skip it
 - NATURAL: Rules should read as natural parts of the document, not appended items
 
-Output format — use EXACTLY this structure with the XML tags on their own lines:
+Output a JSON object with exactly two fields:
+- "summary": one-line string describing what changed
+- "merged_content": the full updated file content as a string (newlines, backticks, and code blocks are allowed inside the string — the JSON layer handles escaping)
 
-<SUMMARY>one-line summary of what changed</SUMMARY>
-<MERGED>
-full updated file content here
-</MERGED>
+Do not include any fencing or commentary outside the JSON object.
 
 CURRENT FILE CONTENT:
 `)
@@ -53,48 +57,4 @@ CURRENT FILE CONTENT:
 		fmt.Fprintf(&sb, "%d. [%s] %s\n", i+1, l.Category, l.Title)
 	}
 	return sb.String()
-}
-
-// ParseMergeResponse parses the LLM response using XML-style delimiters.
-func ParseMergeResponse(response string) (*MergeResponse, error) {
-	response = strings.TrimSpace(response)
-
-	summary, err := extractTag(response, "SUMMARY")
-	if err != nil {
-		return nil, fmt.Errorf("missing SUMMARY tag: %w", err)
-	}
-
-	merged, err := extractTag(response, "MERGED")
-	if err != nil {
-		return nil, fmt.Errorf("missing MERGED tag: %w", err)
-	}
-
-	return &MergeResponse{
-		MergedContent: merged,
-		Summary:       strings.TrimSpace(summary),
-	}, nil
-}
-
-// extractTag extracts content between <TAG> and </TAG> delimiters.
-func extractTag(s, tag string) (string, error) {
-	open := "<" + tag + ">"
-	close := "</" + tag + ">"
-
-	start := strings.Index(s, open)
-	if start < 0 {
-		return "", fmt.Errorf("opening <%s> not found", tag)
-	}
-	content := s[start+len(open):]
-
-	end := strings.LastIndex(content, close)
-	if end < 0 {
-		return "", fmt.Errorf("closing </%s> not found", tag)
-	}
-
-	result := content[:end]
-	// Trim a single leading newline if present (the tag format puts content on the next line)
-	result = strings.TrimPrefix(result, "\n")
-	// Trim a single trailing newline if present
-	result = strings.TrimSuffix(result, "\n")
-	return result, nil
 }

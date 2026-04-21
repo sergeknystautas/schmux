@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
+
+	"github.com/sergeknystautas/schmux/internal/config"
 )
 
 // PropagateFunc is called to propagate an overlay change to sibling workspaces.
@@ -28,7 +30,7 @@ type workspaceInfo struct {
 // watch → merge → propagate.
 type Compounder struct {
 	watcher        *Watcher
-	executor       LLMExecutor
+	resolveTarget  func() (*config.Config, string)
 	propagate      PropagateFunc
 	manifestUpdate ManifestUpdateFunc
 	logger         *log.Logger
@@ -39,9 +41,9 @@ type Compounder struct {
 }
 
 // NewCompounder creates a new Compounder.
-func NewCompounder(debounceMs int, suppressionTTL time.Duration, executor LLMExecutor, propagate PropagateFunc, manifestUpdate ManifestUpdateFunc, logger *log.Logger) (*Compounder, error) {
+func NewCompounder(debounceMs int, suppressionTTL time.Duration, resolveTarget func() (*config.Config, string), propagate PropagateFunc, manifestUpdate ManifestUpdateFunc, logger *log.Logger) (*Compounder, error) {
 	c := &Compounder{
-		executor:         executor,
+		resolveTarget:    resolveTarget,
 		propagate:        propagate,
 		manifestUpdate:   manifestUpdate,
 		logger:           logger,
@@ -220,7 +222,8 @@ func (c *Compounder) processFileChange(ctx context.Context, workspaceID, relPath
 	}
 
 	// Execute merge
-	mergedContent, err := ExecuteMerge(ctx, action, wsPath, overlayPath, c.executor)
+	cfg, targetName := c.resolveTarget()
+	mergedContent, err := ExecuteMerge(ctx, cfg, targetName, action, wsPath, overlayPath)
 	if err != nil {
 		if c.logger != nil {
 			c.logger.Error("merge failed", "path", relPath, "workspace_id", workspaceID, "err", err)

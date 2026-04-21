@@ -114,7 +114,7 @@ func (h *GitHandlers) handleCommitGenerate(w http.ResponseWriter, r *http.Reques
 	start := time.Now()
 
 	timeout := 60 * time.Second
-	result, raw, err := oneshot.ExecuteTargetJSON[commitmessage.Result](
+	result, err := oneshot.ExecuteTarget[commitmessage.Result](
 		ctx,
 		h.config,
 		targetName,
@@ -132,6 +132,11 @@ func (h *GitHandlers) handleCommitGenerate(w http.ResponseWriter, r *http.Reques
 			h.logger.Warn("commit-generate: target missing", "workspace", req.WorkspaceID, "err", err)
 			writeJSONError(w, fmt.Sprintf("commit_message target not found: %v", err), http.StatusBadRequest)
 		case errors.Is(err, oneshot.ErrInvalidResponse):
+			var ire *oneshot.InvalidResponseError
+			raw := ""
+			if errors.As(err, &ire) {
+				raw = ire.Raw
+			}
 			h.logger.Error("commit-generate: failed to parse response", "workspace", req.WorkspaceID, "err", err, "raw", raw)
 			writeJSONError(w, fmt.Sprintf("failed to parse response: %v", err), http.StatusInternalServerError)
 		default:

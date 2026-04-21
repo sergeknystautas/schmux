@@ -89,7 +89,7 @@ func AskForPrompt(ctx context.Context, cfg *config.Config, userPrompt string) (R
 
 	input := strings.ReplaceAll(Prompt, "{{USER_PROMPT}}", userPrompt)
 
-	result, _, err := oneshot.ExecuteTargetJSON[Result](ctx, cfg, targetName, input, schema.LabelBranchSuggest, branchSuggestTimeout, "")
+	result, err := oneshot.ExecuteTarget[Result](ctx, cfg, targetName, input, schema.LabelBranchSuggest, branchSuggestTimeout, "")
 	if err != nil {
 		return Result{}, err
 	}

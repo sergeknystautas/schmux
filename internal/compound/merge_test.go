@@ -2,12 +2,12 @@ package compound
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
+
+	"github.com/sergeknystautas/schmux/internal/schema"
 )
 
 // --- helpers ---
@@ -26,27 +26,6 @@ func writeFile(t *testing.T, dir, name, content string) string {
 func hashOf(t *testing.T, content string) string {
 	t.Helper()
 	return HashBytes([]byte(content))
-}
-
-// mockExecutor returns an LLMExecutor that returns a canned response.
-func mockExecutor(response string) LLMExecutor {
-	return func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
-		return response, nil
-	}
-}
-
-// failingExecutor returns an LLMExecutor that always fails.
-func failingExecutor(msg string) LLMExecutor {
-	return func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
-		return "", errors.New(msg)
-	}
-}
-
-// emptyExecutor returns an LLMExecutor that returns an empty string.
-func emptyExecutor() LLMExecutor {
-	return func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
-		return "", nil
-	}
 }
 
 // --- DetermineMergeAction tests ---
@@ -147,7 +126,7 @@ func TestDetermineMergeAction_Error_WorkspaceFileMissing(t *testing.T) {
 // --- ExecuteMerge tests ---
 
 func TestExecuteMerge_Skip(t *testing.T) {
-	result, err := ExecuteMerge(context.Background(), MergeActionSkip, "", "", nil)
+	result, err := ExecuteMerge(context.Background(), nil, "", MergeActionSkip, "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -162,7 +141,7 @@ func TestExecuteMerge_FastPath(t *testing.T) {
 	wsPath := writeFile(t, dir, "ws.txt", wsContent)
 	overlayPath := filepath.Join(dir, "overlay.txt")
 
-	result, err := ExecuteMerge(context.Background(), MergeActionFastPath, wsPath, overlayPath, nil)
+	result, err := ExecuteMerge(context.Background(), nil, "", MergeActionFastPath, wsPath, overlayPath)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -185,7 +164,7 @@ func TestExecuteMerge_FastPath_ReadError(t *testing.T) {
 	wsPath := filepath.Join(dir, "nonexistent.txt")
 	overlayPath := filepath.Join(dir, "overlay.txt")
 
-	_, err := ExecuteMerge(context.Background(), MergeActionFastPath, wsPath, overlayPath, nil)
+	_, err := ExecuteMerge(context.Background(), nil, "", MergeActionFastPath, wsPath, overlayPath)
 	if err == nil {
 		t.Fatal("expected error for missing workspace file")
 	}
@@ -194,41 +173,13 @@ func TestExecuteMerge_FastPath_ReadError(t *testing.T) {
 	}
 }
 
-func TestExecuteMerge_LLMMerge_Success(t *testing.T) {
-	dir := t.TempDir()
-	wsPath := writeFile(t, dir, "ws.txt", "workspace version")
-	overlayPath := writeFile(t, dir, "overlay.txt", "overlay version")
-
-	mergedContent := "merged result from LLM"
-	executor := mockExecutor(mergedContent)
-
-	result, err := ExecuteMerge(context.Background(), MergeActionLLMMerge, wsPath, overlayPath, executor)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if string(result) != mergedContent {
-		t.Errorf("expected result %q, got %q", mergedContent, result)
-	}
-
-	// Verify overlay was updated with merged content
-	got, err := os.ReadFile(overlayPath)
-	if err != nil {
-		t.Fatalf("failed to read overlay: %v", err)
-	}
-	if string(got) != mergedContent {
-		t.Errorf("overlay = %q, want %q", got, mergedContent)
-	}
-}
-
-func TestExecuteMerge_LLMMerge_ExecutorFails_FallbackToLWW(t *testing.T) {
+func TestExecuteMerge_LLMMerge_NoTarget_FallbackToLWW(t *testing.T) {
 	dir := t.TempDir()
 	wsContent := "workspace wins"
 	wsPath := writeFile(t, dir, "ws.txt", wsContent)
 	overlayPath := writeFile(t, dir, "overlay.txt", "overlay version")
 
-	executor := failingExecutor("LLM unavailable")
-
-	result, err := ExecuteMerge(context.Background(), MergeActionLLMMerge, wsPath, overlayPath, executor)
+	result, err := ExecuteMerge(context.Background(), nil, "", MergeActionLLMMerge, wsPath, overlayPath)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -246,38 +197,6 @@ func TestExecuteMerge_LLMMerge_ExecutorFails_FallbackToLWW(t *testing.T) {
 	}
 }
 
-func TestExecuteMerge_LLMMerge_EmptyResponse_FallbackToLWW(t *testing.T) {
-	dir := t.TempDir()
-	wsContent := "workspace content"
-	wsPath := writeFile(t, dir, "ws.txt", wsContent)
-	overlayPath := writeFile(t, dir, "overlay.txt", "overlay content")
-
-	executor := emptyExecutor()
-
-	result, err := ExecuteMerge(context.Background(), MergeActionLLMMerge, wsPath, overlayPath, executor)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if string(result) != wsContent {
-		t.Errorf("expected LWW fallback result %q, got %q", wsContent, result)
-	}
-}
-
-func TestExecuteMerge_LLMMerge_NilExecutor_FallbackToLWW(t *testing.T) {
-	dir := t.TempDir()
-	wsContent := "workspace content"
-	wsPath := writeFile(t, dir, "ws.txt", wsContent)
-	overlayPath := writeFile(t, dir, "overlay.txt", "overlay content")
-
-	result, err := ExecuteMerge(context.Background(), MergeActionLLMMerge, wsPath, overlayPath, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if string(result) != wsContent {
-		t.Errorf("expected LWW fallback result %q, got %q", wsContent, result)
-	}
-}
-
 func TestExecuteMerge_LLMMerge_BinaryFile_LWW(t *testing.T) {
 	dir := t.TempDir()
 	// Create a binary file with null bytes
@@ -288,13 +207,7 @@ func TestExecuteMerge_LLMMerge_BinaryFile_LWW(t *testing.T) {
 	}
 	overlayPath := writeFile(t, dir, "overlay.png", "old overlay")
 
-	// Executor should NOT be called for binary files
-	executor := func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
-		t.Error("executor should not be called for binary files")
-		return "", nil
-	}
-
-	result, err := ExecuteMerge(context.Background(), MergeActionLLMMerge, wsPath, overlayPath, executor)
+	result, err := ExecuteMerge(context.Background(), nil, "", MergeActionLLMMerge, wsPath, overlayPath)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -304,7 +217,7 @@ func TestExecuteMerge_LLMMerge_BinaryFile_LWW(t *testing.T) {
 }
 
 func TestExecuteMerge_UnknownAction(t *testing.T) {
-	_, err := ExecuteMerge(context.Background(), MergeAction(99), "", "", nil)
+	_, err := ExecuteMerge(context.Background(), nil, "", MergeAction(99), "", "")
 	if err == nil {
 		t.Fatal("expected error for unknown action")
 	}
@@ -390,7 +303,7 @@ func TestExecuteMerge_JSONLLineUnion(t *testing.T) {
 
 	// Both diverged from manifest, so this is LLMMerge action.
 	// But for .jsonl, it should use line-union instead of LLM.
-	content, err := ExecuteMerge(context.Background(), MergeActionLLMMerge, wsPath, overlayPath, nil)
+	content, err := ExecuteMerge(context.Background(), nil, "", MergeActionLLMMerge, wsPath, overlayPath)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -519,5 +432,15 @@ func TestDetermineMergeAction_TableDriven(t *testing.T) {
 				t.Errorf("DetermineMergeAction() = %d, want %d", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestCompoundMergeSchemaRegistered(t *testing.T) {
+	s, err := schema.Get(schema.LabelCompoundMerge)
+	if err != nil {
+		t.Fatalf("LabelCompoundMerge schema should be registered: %v", err)
+	}
+	if !strings.Contains(s, "merged_content") {
+		t.Fatalf("schema missing merged_content field: %s", s)
 	}
 }

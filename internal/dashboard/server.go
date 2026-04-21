@@ -212,7 +212,6 @@ type Server struct {
 	autolearnStore *autolearn.BatchStore
 
 	// Autolearn LLM executor for curation requests
-	autolearnExecutor func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error)
 
 	// Autolearn instruction store for private layer management
 	autolearnInstructionStore *autolearn.InstructionStore
@@ -482,11 +481,6 @@ func (s *Server) SetAutolearnPendingMergeStore(store *autolearn.PendingMergeStor
 	s.autolearnPendingMergeStore = store
 }
 
-// SetAutolearnExecutor sets the LLM executor for autolearn curation requests.
-func (s *Server) SetAutolearnExecutor(exec func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration) (string, error)) {
-	s.autolearnExecutor = exec
-}
-
 // SetTunnelManager sets the tunnel manager for remote access.
 func (s *Server) SetTunnelManager(tm *tunnel.Manager) {
 	s.tunnelManager = tm
@@ -673,7 +667,6 @@ func (s *Server) Start() error {
 			detectedTmux:               s.detectedTmux,
 			tunnelManager:              s.tunnelManager,
 			prDiscovery:                s.prDiscovery,
-			refreshAutolearnExecutor:   s.refreshAutolearnExecutor,
 			triggerSubredditGeneration: s.TriggerSubredditGeneration,
 			clearRemoteAuth:            s.ClearRemoteAuth,
 			onFloorManagerToggle:       s.onFloorManagerToggle,

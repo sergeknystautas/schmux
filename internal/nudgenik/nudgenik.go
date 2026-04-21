@@ -113,7 +113,7 @@ func AskForExtracted(ctx context.Context, cfg *config.Config, extracted string) 
 	timeoutCtx, cancel := context.WithTimeout(ctx, nudgenikTimeout)
 	defer cancel()
 
-	result, _, err := oneshot.ExecuteTargetJSON[Result](timeoutCtx, cfg, targetName, input, schema.LabelNudgeNik, nudgenikTimeout, "")
+	result, err := oneshot.ExecuteTarget[Result](timeoutCtx, cfg, targetName, input, schema.LabelNudgeNik, nudgenikTimeout, "")
 	if err != nil {
 		return Result{}, err
 	}

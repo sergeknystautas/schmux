@@ -390,6 +390,7 @@ type RepofeedConfig struct {
 	FetchIntervalSeconds    int             `json:"fetch_interval_seconds,omitempty"`
 	CompletedRetentionHours int             `json:"completed_retention_hours,omitempty"`
 	Repos                   map[string]bool `json:"repos,omitempty"`
+	IntentTarget            string          `json:"intent_target,omitempty"`
 }
 
 // FloorManagerConfig configures the floor manager singleton agent.
@@ -1418,6 +1419,19 @@ func (c *Config) GetRepofeedRepos() map[string]bool {
 		result[k] = v
 	}
 	return result
+}
+
+// GetRepofeedIntentTarget returns the configured repofeed intent summarization target name, if any.
+func (c *Config) GetRepofeedIntentTarget() string {
+	if c == nil {
+		return ""
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Repofeed == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.Repofeed.IntentTarget)
 }
 
 // GetFloorManagerEnabled returns whether the floor manager is enabled.

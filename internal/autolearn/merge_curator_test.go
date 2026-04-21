@@ -3,6 +3,8 @@ package autolearn
 import (
 	"strings"
 	"testing"
+
+	"github.com/sergeknystautas/schmux/internal/schema"
 )
 
 func TestBuildMergePrompt(t *testing.T) {
@@ -32,82 +34,21 @@ func TestBuildMergePrompt(t *testing.T) {
 	if !strings.Contains(prompt, "[build]") {
 		t.Error("prompt should contain rule category")
 	}
-	// Should request tagged output format
-	if !strings.Contains(prompt, "<MERGED>") {
-		t.Error("prompt should request MERGED tag in output format")
+	// Should request JSON output format
+	if !strings.Contains(prompt, `"merged_content"`) {
+		t.Error("prompt should request merged_content field in JSON output")
 	}
-	if !strings.Contains(prompt, "<SUMMARY>") {
-		t.Error("prompt should request SUMMARY tag in output format")
+	if !strings.Contains(prompt, `"summary"`) {
+		t.Error("prompt should request summary field in JSON output")
 	}
 }
 
-func TestParseMergeResponse(t *testing.T) {
-	response := "<SUMMARY>Added build dashboard rule</SUMMARY>\n<MERGED>\n# Project\n\n## Build\ngo build\n\nAlways use go run ./cmd/build-dashboard.\n</MERGED>"
-
-	result, err := ParseMergeResponse(response)
+func TestMergeCuratorSchemaRegistered(t *testing.T) {
+	s, err := schema.Get(schema.LabelAutolearnMerge)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("LabelAutolearnMerge schema should be registered: %v", err)
 	}
-	if !strings.Contains(result.MergedContent, "go run ./cmd/build-dashboard") {
-		t.Error("merged content should contain the new rule")
-	}
-	if result.Summary != "Added build dashboard rule" {
-		t.Errorf("unexpected summary: %s", result.Summary)
-	}
-}
-
-func TestParseMergeResponse_WithCodeBlocks(t *testing.T) {
-	// Merged content containing markdown code blocks — backticks must survive parsing
-	response := "<SUMMARY>Added build section</SUMMARY>\n<MERGED>\n# Project\n\n## Build\n\n```bash\ngo build ./cmd/schmux\n```\n\n## Rules\n- Always use X\n</MERGED>"
-
-	result, err := ParseMergeResponse(response)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(result.MergedContent, "```bash") {
-		t.Error("merged content should preserve code block opening")
-	}
-	if !strings.Contains(result.MergedContent, "go build ./cmd/schmux") {
-		t.Error("merged content should preserve code block content")
-	}
-	if !strings.Contains(result.MergedContent, "Always use X") {
-		t.Error("merged content should contain the new rule")
-	}
-}
-
-func TestParseMergeResponse_WithPreamble(t *testing.T) {
-	// LLM adds text before the tags
-	response := "Here is the merged file:\n\n<SUMMARY>Added testing rule</SUMMARY>\n<MERGED>\n# Project\n- Run with --race\n</MERGED>\n\nLet me know if you need changes."
-
-	result, err := ParseMergeResponse(response)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Summary != "Added testing rule" {
-		t.Errorf("unexpected summary: %s", result.Summary)
-	}
-	if !strings.Contains(result.MergedContent, "--race") {
-		t.Error("merged content should contain the rule")
-	}
-}
-
-func TestParseMergeResponse_Invalid(t *testing.T) {
-	_, err := ParseMergeResponse("no tags here")
-	if err == nil {
-		t.Error("expected error for missing tags")
-	}
-}
-
-func TestParseMergeResponse_MissingSummary(t *testing.T) {
-	_, err := ParseMergeResponse("<MERGED>\ncontent\n</MERGED>")
-	if err == nil {
-		t.Error("expected error for missing SUMMARY")
-	}
-}
-
-func TestParseMergeResponse_MissingMerged(t *testing.T) {
-	_, err := ParseMergeResponse("<SUMMARY>test</SUMMARY>")
-	if err == nil {
-		t.Error("expected error for missing MERGED")
+	if !strings.Contains(s, "merged_content") || !strings.Contains(s, "summary") {
+		t.Fatalf("schema missing required fields: %s", s)
 	}
 }

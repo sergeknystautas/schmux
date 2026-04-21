@@ -10,7 +10,21 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
+
+	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/oneshot"
+	"github.com/sergeknystautas/schmux/internal/schema"
 )
+
+func init() {
+	schema.Register(schema.LabelCompoundMerge, MergeResult{})
+}
+
+// MergeResult is the JSON schema for LLM merge responses.
+type MergeResult struct {
+	MergedContent string   `json:"merged_content" required:"true"`
+	_             struct{} `additionalProperties:"false"`
+}
 
 // pkgLogger is the package-level logger for compound merge operations.
 // Set via SetLogger from the daemon initialization.
@@ -46,9 +60,6 @@ func (a MergeAction) String() string {
 
 const maxLLMMergeFileSize = 100 * 1024 // 100KB
 
-// LLMExecutor is a function that sends a prompt to an LLM and returns the response.
-type LLMExecutor func(ctx context.Context, prompt string, timeout time.Duration) (string, error)
-
 // DetermineMergeAction decides which merge path to take based on content hashes.
 func DetermineMergeAction(wsPath, overlayPath, manifestHash string) (MergeAction, error) {
 	wsHash, err := FileHash(wsPath)
@@ -82,7 +93,7 @@ func DetermineMergeAction(wsPath, overlayPath, manifestHash string) (MergeAction
 }
 
 // ExecuteMerge performs the merge and writes the result to the overlay.
-func ExecuteMerge(ctx context.Context, action MergeAction, wsPath, overlayPath string, executor LLMExecutor) ([]byte, error) {
+func ExecuteMerge(ctx context.Context, cfg *config.Config, targetName string, action MergeAction, wsPath, overlayPath string) ([]byte, error) {
 	switch action {
 	case MergeActionSkip:
 		return nil, nil
@@ -96,13 +107,13 @@ func ExecuteMerge(ctx context.Context, action MergeAction, wsPath, overlayPath s
 		}
 		return content, nil
 	case MergeActionLLMMerge:
-		return executeLLMMerge(ctx, wsPath, overlayPath, executor)
+		return executeLLMMerge(ctx, cfg, targetName, wsPath, overlayPath)
 	default:
 		return nil, fmt.Errorf("unknown merge action: %d", action)
 	}
 }
 
-func executeLLMMerge(ctx context.Context, wsPath, overlayPath string, executor LLMExecutor) ([]byte, error) {
+func executeLLMMerge(ctx context.Context, cfg *config.Config, targetName, wsPath, overlayPath string) ([]byte, error) {
 	wsContent, err := os.ReadFile(wsPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read workspace file: %w", err)
@@ -149,12 +160,13 @@ func executeLLMMerge(ctx context.Context, wsPath, overlayPath string, executor L
 		return wsContent, nil
 	}
 
-	// Try LLM merge
-	if executor != nil {
+	// Try LLM merge via oneshot with schema-validated response
+	if targetName != "" {
 		prompt := BuildMergePrompt(string(overlayContent), string(wsContent))
-		response, err := executor(ctx, prompt, 30*time.Second)
-		if err == nil && strings.TrimSpace(response) != "" {
-			merged := []byte(response)
+		result, err := oneshot.ExecuteTarget[MergeResult](ctx, cfg, targetName, prompt,
+			schema.LabelCompoundMerge, 30*time.Second, "")
+		if err == nil && strings.TrimSpace(result.MergedContent) != "" {
+			merged := []byte(result.MergedContent)
 			if err := atomicWriteFile(overlayPath, merged, 0644); err != nil {
 				return nil, fmt.Errorf("failed to write merged overlay file: %w", err)
 			}
@@ -169,7 +181,7 @@ func executeLLMMerge(ctx context.Context, wsPath, overlayPath string, executor L
 			}
 		} else {
 			if pkgLogger != nil {
-				pkgLogger.Warn("LLM returned empty response, falling back to last-write-wins")
+				pkgLogger.Warn("LLM returned empty merged_content, falling back to last-write-wins")
 			}
 		}
 	}
@@ -190,7 +202,8 @@ Rules:
 - For key-value settings: keep entries from both versions
 - Never remove entries that exist in either version
 - If values conflict for the same key, prefer VERSION B (the workspace version)
-- Output ONLY the merged file content, no explanation or markdown fencing
+- Output a JSON object with exactly one field "merged_content" whose value is the full merged file as a string. Newlines, quotes, and special characters inside the merged content are escaped by the JSON layer automatically.
+- Do not include any explanation, fencing, or additional fields.
 
 VERSION A (current overlay):
 %s

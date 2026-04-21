@@ -4,8 +4,6 @@ package dashboard
 
 import (
 	"net/http"
-
-	"github.com/sergeknystautas/schmux/internal/config"
 )
 
 type autolearnWorkspace struct {
@@ -32,8 +30,6 @@ func (h *AutolearnHandlers) getAutolearnWorkspaces(_ string) []autolearnWorkspac
 func (h *AutolearnHandlers) readAutolearnEntries(_ string, _ interface{}) ([]interface{}, error) {
 	return nil, nil
 }
-
-func (s *Server) refreshAutolearnExecutor(_ *config.Config) {}
 
 func (h *AutolearnHandlers) handleAutolearnStatus(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "Autolearn is not available in this build", http.StatusServiceUnavailable)
