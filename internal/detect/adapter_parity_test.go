@@ -353,16 +353,6 @@ func TestOpencodeParity(t *testing.T) {
 		t.Errorf("skill file should be removed")
 	}
 
-	// --- SetupCommands: writes commit.md ---
-	setupDir := t.TempDir()
-	if err := a.SetupCommands(setupDir); err != nil {
-		t.Fatalf("SetupCommands: %v", err)
-	}
-	commitPath := filepath.Join(setupDir, ".opencode", "commands", "commit.md")
-	if _, err := os.Stat(commitPath); os.IsNotExist(err) {
-		t.Errorf("commit.md not created at %s", commitPath)
-	}
-
 	// --- BuildRunnerEnv: nil/empty ---
 	if benv := a.BuildRunnerEnv(RunnerSpec{}); len(benv) != 0 {
 		t.Errorf("BuildRunnerEnv = %v", benv)
@@ -508,11 +498,7 @@ func TestClaudeParity(t *testing.T) {
 		t.Errorf("SpawnEnv = %v, want nil", env)
 	}
 
-	// --- SetupCommands: no-op ---
 	tmpDir := t.TempDir()
-	if err := a.SetupCommands(tmpDir); err != nil {
-		t.Fatalf("SetupCommands: %v", err)
-	}
 
 	// --- Skill injection: dir_pattern ---
 	skill := SkillModule{Name: "code-review", Content: "# Code Review\nReview the PR."}
@@ -572,7 +558,13 @@ func TestGitExcludePatterns(t *testing.T) {
 		".claude/skills/schmux-*/":       false,
 		".opencode/plugins/schmux.ts":    false,
 		".opencode/commands/schmux-*.md": false,
-		".opencode/commands/commit.md":   false,
+	}
+	// .opencode/commands/commit.md must NOT appear — schmux no longer
+	// injects its own /commit slash command into user workspaces.
+	for _, p := range patterns {
+		if p == ".opencode/commands/commit.md" {
+			t.Errorf("AllGitExcludePatterns() must not include %q (the schmux-project commit workflow is no longer injected)", p)
+		}
 	}
 	for _, p := range patterns {
 		if _, ok := expected[p]; ok {

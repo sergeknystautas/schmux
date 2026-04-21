@@ -31,6 +31,3 @@ hooks:
   plugin_file: 'schmux.ts'
 skills:
   file_pattern: '.opencode/commands/schmux-{name}.md'
-setup_files:
-  - target: '.opencode/commands/commit.md'
-    source: commit-command

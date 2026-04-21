@@ -180,16 +180,6 @@ func (e *Ensurer) ensureWorkspace(workspacePath string, hookTools []string, repo
 		}
 	}
 
-	// Setup tool-specific commands (e.g., /commit for OpenCode)
-	for _, toolName := range hookTools {
-		adapter := detect.GetAdapter(toolName)
-		if adapter != nil {
-			if err := adapter.SetupCommands(workspacePath); err != nil {
-				fmt.Printf("[ensure] warning: failed to setup %s commands: %v\n", toolName, err)
-			}
-		}
-	}
-
 	// Inject pinned emerged skills from spawn store
 	if spawnStore != nil && repoNameResolver != nil && repoURL != "" {
 		if repoName, ok := repoNameResolver(repoURL); ok {

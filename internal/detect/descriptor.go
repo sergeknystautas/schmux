@@ -25,7 +25,6 @@ type Descriptor struct {
 	Persona        *PersonaDesc      `yaml:"persona"`
 	Hooks          *HooksDesc        `yaml:"hooks"`
 	Skills         *SkillsDesc       `yaml:"skills"`
-	SetupFiles     []SetupFileDesc   `yaml:"setup_files"`
 	SpawnEnv       map[string]string `yaml:"spawn_env"`
 	RunnerEnv      *RunnerEnvDesc    `yaml:"runner_env"`
 }
@@ -92,12 +91,6 @@ type SkillsDesc struct {
 	DirPattern  string `yaml:"dir_pattern"`
 	FileName    string `yaml:"file_name"`
 	FilePattern string `yaml:"file_pattern"`
-}
-
-// SetupFileDesc describes a file that should be copied into the workspace.
-type SetupFileDesc struct {
-	Target string `yaml:"target"`
-	Source string `yaml:"source"`
 }
 
 // Valid enum sets for validation.

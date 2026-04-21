@@ -8,16 +8,6 @@ import (
 	"strings"
 )
 
-// setupTemplates maps template names to their content. Templates are registered
-// at init time and referenced by SetupFileDesc.Source in YAML descriptors.
-var setupTemplates = map[string][]byte{}
-
-// RegisterSetupTemplate registers a setup file template by name. Called from
-// init functions so templates are available when GenericAdapter.SetupCommands runs.
-func RegisterSetupTemplate(name string, content []byte) {
-	setupTemplates[name] = content
-}
-
 // GenericAdapter implements ToolAdapter by reading all behavior from a parsed
 // Descriptor. This lets new tools be added via YAML files without Go code.
 type GenericAdapter struct {
@@ -255,26 +245,6 @@ func (a *GenericAdapter) SpawnEnv(ctx SpawnContext) map[string]string {
 	return env
 }
 
-// SetupCommands writes template files into the workspace. Each SetupFileDesc
-// references a registered template by name; if the template is found, its
-// content is written to the target path relative to workspacePath.
-func (a *GenericAdapter) SetupCommands(workspacePath string) error {
-	for _, sf := range a.desc.SetupFiles {
-		content, ok := setupTemplates[sf.Source]
-		if !ok {
-			continue
-		}
-		target := filepath.Join(workspacePath, sf.Target)
-		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(target, content, 0644); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // InjectSkill writes a skill into the agent's native skill location.
 func (a *GenericAdapter) InjectSkill(workspacePath string, skill SkillModule) error {
 	if a.desc.Skills == nil {
@@ -370,8 +340,8 @@ func (a *GenericAdapter) Capabilities() []string {
 }
 
 // GitExcludePatterns returns gitignore patterns for files this adapter
-// injects into workspaces, derived from the descriptor's hooks, skills,
-// and setup_files fields.
+// injects into workspaces, derived from the descriptor's hooks and skills
+// fields.
 func (a *GenericAdapter) GitExcludePatterns() []string {
 	var patterns []string
 	// Exclude the agent's config directory (contains instruction file,
@@ -397,9 +367,6 @@ func (a *GenericAdapter) GitExcludePatterns() []string {
 			// .opencode/commands/schmux-{name}.md → .opencode/commands/schmux-*.md
 			patterns = append(patterns, strings.ReplaceAll(a.desc.Skills.FilePattern, "{name}", "*"))
 		}
-	}
-	for _, sf := range a.desc.SetupFiles {
-		patterns = append(patterns, sf.Target)
 	}
 	return patterns
 }

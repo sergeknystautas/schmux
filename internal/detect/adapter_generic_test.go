@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -408,73 +407,5 @@ oneshot:
 		if args[i] != expected[i] {
 			t.Errorf("args[%d] = %q, want %q", i, args[i], expected[i])
 		}
-	}
-}
-
-func TestGenericAdapter_SetupCommands(t *testing.T) {
-	RegisterSetupTemplate("test-command", []byte("# Test Command\nDo the thing"))
-	defer delete(setupTemplates, "test-command")
-
-	yamlData := `
-name: testool
-detect:
-  - type: path_lookup
-    command: testool
-setup_files:
-  - target: ".testool/commands/test.md"
-    source: test-command
-`
-	d, err := ParseDescriptor([]byte(yamlData))
-	if err != nil {
-		t.Fatalf("ParseDescriptor: %v", err)
-	}
-	a, err := NewGenericAdapter(d)
-	if err != nil {
-		t.Fatalf("NewGenericAdapter: %v", err)
-	}
-	dir := t.TempDir()
-	err = a.SetupCommands(dir)
-	if err != nil {
-		t.Fatalf("SetupCommands: %v", err)
-	}
-	content, err := os.ReadFile(filepath.Join(dir, ".testool", "commands", "test.md"))
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if !strings.Contains(string(content), "Test Command") {
-		t.Errorf("content = %q", string(content))
-	}
-}
-
-func TestGenericAdapter_SetupCommands_NoFiles(t *testing.T) {
-	yamlData := `
-name: testool
-detect:
-  - type: path_lookup
-    command: testool
-`
-	d, _ := ParseDescriptor([]byte(yamlData))
-	a, _ := NewGenericAdapter(d)
-	err := a.SetupCommands(t.TempDir())
-	if err != nil {
-		t.Fatalf("SetupCommands with no setup_files should succeed: %v", err)
-	}
-}
-
-func TestGenericAdapter_SetupCommands_UnknownSource(t *testing.T) {
-	yamlData := `
-name: testool
-detect:
-  - type: path_lookup
-    command: testool
-setup_files:
-  - target: ".testool/commands/test.md"
-    source: nonexistent-template
-`
-	d, _ := ParseDescriptor([]byte(yamlData))
-	a, _ := NewGenericAdapter(d)
-	err := a.SetupCommands(t.TempDir())
-	if err != nil {
-		t.Fatalf("SetupCommands with unknown source should skip silently: %v", err)
 	}
 }

@@ -111,10 +111,6 @@ type ToolAdapter interface {
 	// SpawnEnv returns additional environment variables needed when spawning a session.
 	SpawnEnv(ctx SpawnContext) map[string]string
 
-	// SetupCommands runs any tool-specific setup commands in the workspace
-	// before the agent session starts (e.g., writing config files).
-	SetupCommands(workspacePath string) error
-
 	// InjectSkill writes a skill into the agent's native skill location in the workspace.
 	InjectSkill(workspacePath string, skill SkillModule) error
 
