@@ -1,0 +1,37 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "bash": {
+      "*": "ask",
+      "test.sh *": "allow",
+      "format.sh *": "allow",
+      "badcode.sh *": "allow",
+      "scripts/check-api-docs.sh *": "allow",
+      "git *": "allow",
+      "go run *": "allow",
+      "go test *": "allow",
+      "go build *": "allow",
+      "go vet *": "allow",
+      "go fmt *": "allow",
+      "go tool *": "allow",
+      "gofmt *": "allow",
+      "npx tsc *": "allow",
+      "npx vitest *": "allow",
+      "git status*": "allow",
+      "git diff*": "allow",
+      "git log*": "allow",
+      "git show*": "allow",
+      "git branch*": "allow",
+      "git fetch*": "allow",
+      "git stash*": "allow",
+      "git rev-parse*": "allow",
+      "git rev-list*": "allow",
+      "git config --get*": "allow",
+      "git ls-files*": "allow",
+      "git remote*": "allow",
+      "git merge-base*": "allow",
+      "grep *": "allow",
+      "echo *": "allow"
+    }
+  }
+}
