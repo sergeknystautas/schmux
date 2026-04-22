@@ -423,9 +423,6 @@ func (h *GitHandlers) serveWorkspaceFile(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	// Markdown files are text and may change, skip long cache
-	isText := ext == ".md" || ext == ".mdx"
-
 	// Check .gitignore - load gitignore patterns and check if file matches
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -442,9 +439,7 @@ func (h *GitHandlers) serveWorkspaceFile(w http.ResponseWriter, r *http.Request,
 
 	// Serve the file
 	w.Header().Set("Content-Type", contentType)
-	if !isText {
-		w.Header().Set("Cache-Control", "public, max-age=3600")
-	}
+	w.Header().Set("Cache-Control", "no-cache")
 	http.ServeFile(w, r, cleanFullPath)
 }
 
