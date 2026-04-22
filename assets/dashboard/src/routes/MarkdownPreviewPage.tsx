@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ImgHTMLAttributes } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { getFileContent, getErrorMessage } from '../lib/api';
+import { getFileContent, getWorkspaceFileUrl, getErrorMessage } from '../lib/api';
 import { useSessions } from '../contexts/SessionsContext';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
@@ -11,6 +12,21 @@ const getMarkdownScrollPositionKey = (
   workspaceId: string | undefined,
   filepath: string | undefined
 ) => `schmux-markdown-scroll-position-${workspaceId || ''}-${filepath || ''}`;
+
+// Resolve a markdown image/link src against the markdown file's directory.
+// Returns null for external URLs (they pass through unchanged).
+export function resolveMarkdownRelativePath(src: string, mdFilePath: string): string | null {
+  if (/^([a-z][a-z0-9+.-]*:|\/\/)/i.test(src)) return null;
+  const parts = src.startsWith('/')
+    ? src.slice(1).split('/')
+    : [...mdFilePath.split('/').slice(0, -1), ...src.split('/')];
+  const stack: string[] = [];
+  for (const p of parts) {
+    if (p === '..') stack.pop();
+    else if (p !== '.' && p !== '') stack.push(p);
+  }
+  return stack.join('/');
+}
 
 export default function MarkdownPreviewPage() {
   const { workspaceId, filepath } = useParams();
@@ -26,6 +42,20 @@ export default function MarkdownPreviewPage() {
   const workspace = workspaces?.find((ws) => ws.id === workspaceId);
   const workspaceExists = workspaceId && workspaces?.some((ws) => ws.id === workspaceId);
   const decodedFilepath = filepath || '';
+
+  const markdownComponents = useMemo(
+    () => ({
+      img: ({ src, alt, ...rest }: ImgHTMLAttributes<HTMLImageElement>) => {
+        if (typeof src !== 'string' || !workspaceId) {
+          return <img src={src} alt={alt} {...rest} />;
+        }
+        const resolved = resolveMarkdownRelativePath(src, decodedFilepath);
+        const finalSrc = resolved === null ? src : getWorkspaceFileUrl(workspaceId, resolved);
+        return <img src={finalSrc} alt={alt} {...rest} />;
+      },
+    }),
+    [workspaceId, decodedFilepath]
+  );
 
   const loadFile = async () => {
     if (!workspaceId || !decodedFilepath) return;
@@ -161,7 +191,9 @@ export default function MarkdownPreviewPage() {
           </div>
           <div className="diff-viewer-wrapper" ref={contentRef}>
             <div className="markdown-preview-content">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                {content}
+              </ReactMarkdown>
             </div>
           </div>
         </div>
