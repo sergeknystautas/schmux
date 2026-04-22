@@ -3885,6 +3885,7 @@ Response:
 ```
 
 - `host_type`: `"ephemeral"` (default, omitted when empty) or `"persistent"`. Persistent hosts support multiple workspaces per connection and do not expire.
+- `hostname` (persistent only): the stable address of the remote host. Surfaced to `connect_command` and `reconnect_command` as `{{.Hostname}}`. Required for persistent profiles; rejected for ephemeral (which discover hostname at runtime via `hostname_regex`). Build defaults may use `${USER}`-style env-var substitution (e.g. `"${USER}.sb.example.net"`); expansion happens once when the daemon seeds a fresh `~/.schmux/config.json`.
 - Persistent profiles include additional fields: `repo_base_path` (source repo path on host), `workspace_path_template` (Go template with `{{.WorkspaceID}}`), and optional `remote_vcs_commands` (custom VCS command templates).
 
 ### POST /api/config/remote-profiles
@@ -3910,6 +3911,7 @@ Request:
     }
   ],
   "host_type": "persistent",
+  "hostname": "dev.example.com",
   "repo_base_path": "/home/user/myproject",
   "workspace_path_template": "/home/user/ws/{{.WorkspaceID}}",
   "remote_vcs_commands": {
@@ -3920,8 +3922,9 @@ Request:
 }
 ```
 
-- For persistent hosts: `host_type`, `repo_base_path`, and `workspace_path_template` are required; `flavors` and `workspace_path` are omitted. `remote_vcs_commands` is optional (defaults derived from `vcs`).
-- For ephemeral hosts (default): `workspace_path` and `flavors` are required; persistent fields are omitted.
+- For persistent hosts: `host_type`, `hostname`, `repo_base_path`, and `workspace_path_template` are required; `flavors`, `workspace_path`, and `hostname_regex` are rejected. `remote_vcs_commands` is optional (defaults derived from `vcs`).
+- For ephemeral hosts (default): `workspace_path` and `flavors` are required; persistent fields (including `hostname`) are rejected. Hostname is discovered at runtime by parsing the connect command's stdout via `hostname_regex`.
+- `connect_command` and `reconnect_command` are validated at config-load time against the `{{.Hostname}}` and `{{.Flavor}}` template fields. Templates referencing other fields are rejected with `400`.
 
 Response: the created `RemoteProfileResponse` object (same shape as GET items).
 

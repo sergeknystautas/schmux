@@ -578,6 +578,7 @@ export interface RemoteProfileResponse {
   vscode_command_template?: string;
   flavors: RemoteProfileFlavor[];
   host_type?: string;
+  hostname?: string;
   repo_base_path?: string;
   workspace_path_template?: string;
   remote_vcs_commands?: RemoteVCSCommandsResponse;

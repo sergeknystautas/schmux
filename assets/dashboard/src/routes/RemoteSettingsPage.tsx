@@ -18,6 +18,7 @@ import type {
 interface ProfileFormData {
   display_name: string;
   host_type: string;
+  hostname: string;
   workspace_path: string;
   vcs: string;
   connect_command: string;
@@ -34,6 +35,7 @@ interface ProfileFormData {
 const emptyForm: ProfileFormData = {
   display_name: '',
   host_type: '',
+  hostname: '',
   workspace_path: '',
   vcs: 'git',
   connect_command: '',
@@ -84,6 +86,7 @@ export default function RemoteSettingsPage() {
   const profileToFormData = (profile: RemoteProfile, forClone = false): ProfileFormData => ({
     display_name: forClone ? `${profile.display_name} (copy)` : profile.display_name,
     host_type: profile.host_type || '',
+    hostname: profile.hostname || '',
     workspace_path: profile.workspace_path || '',
     vcs: profile.vcs,
     connect_command: profile.connect_command || '',
@@ -140,6 +143,10 @@ export default function RemoteSettingsPage() {
     }
 
     if (isPersistent) {
+      if (!formData.hostname.trim()) {
+        toastError('Hostname is required for persistent hosts');
+        return;
+      }
       if (!formData.repo_base_path.trim()) {
         toastError('Repo base path is required for persistent hosts');
         return;
@@ -176,9 +183,10 @@ export default function RemoteSettingsPage() {
       connect_command: formData.connect_command.trim() || undefined,
       reconnect_command: formData.reconnect_command.trim() || undefined,
       provision_command: formData.provision_command.trim() || undefined,
-      hostname_regex: formData.hostname_regex.trim() || undefined,
+      hostname_regex: isPersistent ? undefined : formData.hostname_regex.trim() || undefined,
       vscode_command_template: formData.vscode_command_template.trim() || undefined,
       host_type: formData.host_type || undefined,
+      hostname: isPersistent ? formData.hostname.trim() : undefined,
       workspace_path: isPersistent ? undefined : formData.workspace_path.trim(),
       flavors: isPersistent
         ? undefined
@@ -359,6 +367,12 @@ export default function RemoteSettingsPage() {
                         <>
                           <span className="text-muted">Workspace</span>
                           <code style={{ fontSize: '0.8rem' }}>{profile.workspace_path}</code>
+                        </>
+                      )}
+                      {profile.host_type === 'persistent' && profile.hostname && (
+                        <>
+                          <span className="text-muted">Hostname</span>
+                          <code style={{ fontSize: '0.8rem' }}>{profile.hostname}</code>
                         </>
                       )}
                       {profile.repo_base_path && (
@@ -646,6 +660,25 @@ export default function RemoteSettingsPage() {
                 {isPersistent && (
                   <>
                     <div className="form-group mb-md">
+                      <label className="form-group__label" htmlFor="hostname">
+                        Hostname *
+                      </label>
+                      <input
+                        type="text"
+                        id="hostname"
+                        className="input"
+                        value={formData.hostname}
+                        onChange={(e) => setFormData({ ...formData, hostname: e.target.value })}
+                        placeholder="e.g., mybox.example.com"
+                        required
+                      />
+                      <span className="form-group__hint">
+                        Stable address of the remote host. Available to <code>connect_command</code>{' '}
+                        and <code>reconnect_command</code> as <code>{'{{.Hostname}}'}</code>.
+                      </span>
+                    </div>
+
+                    <div className="form-group mb-md">
                       <label className="form-group__label" htmlFor="repo_base_path">
                         Repo Base Path *
                       </label>
@@ -718,25 +751,27 @@ export default function RemoteSettingsPage() {
                   </span>
                 </div>
 
-                {/* Hostname Regex */}
-                <div className="form-group mb-md">
-                  <label className="form-group__label" htmlFor="hostname_regex">
-                    Hostname Regex <span className="font-normal text-muted">(optional)</span>
-                  </label>
-                  <input
-                    type="text"
-                    id="hostname_regex"
-                    className="input"
-                    value={formData.hostname_regex}
-                    onChange={(e) => setFormData({ ...formData, hostname_regex: e.target.value })}
-                    placeholder="e.g., Establish ControlMaster connection to (\S+)"
-                  />
-                  <span className="form-group__hint">
-                    Regex to extract hostname from connection STDOUT. First capture group{' '}
-                    <code>()</code> is the hostname. Defaults to{' '}
-                    <code>{'Establish ControlMaster connection to (\\S+)'}</code>.
-                  </span>
-                </div>
+                {/* Hostname Regex — ephemeral only (persistent uses fixed Hostname) */}
+                {!isPersistent && (
+                  <div className="form-group mb-md">
+                    <label className="form-group__label" htmlFor="hostname_regex">
+                      Hostname Regex <span className="font-normal text-muted">(optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      id="hostname_regex"
+                      className="input"
+                      value={formData.hostname_regex}
+                      onChange={(e) => setFormData({ ...formData, hostname_regex: e.target.value })}
+                      placeholder="e.g., Establish ControlMaster connection to (\S+)"
+                    />
+                    <span className="form-group__hint">
+                      Regex to extract hostname from connection STDOUT. First capture group{' '}
+                      <code>()</code> is the hostname. Defaults to{' '}
+                      <code>{'Establish ControlMaster connection to (\\S+)'}</code>.
+                    </span>
+                  </div>
+                )}
 
                 {/* Reconnect Command */}
                 <div className="form-group mb-md">

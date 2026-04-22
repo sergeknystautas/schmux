@@ -61,6 +61,7 @@ func toProfileResponse(p config.RemoteProfile) RemoteProfileResponse {
 		VSCodeCommandTemplate: p.VSCodeCommandTemplate,
 		Flavors:               flavors,
 		HostType:              p.HostType,
+		Hostname:              p.Hostname,
 		RepoBasePath:          p.RepoBasePath,
 		WorkspacePathTemplate: p.WorkspacePathTemplate,
 	}
@@ -101,6 +102,7 @@ func (h *RemoteHandlers) handleCreateRemoteProfile(w http.ResponseWriter, r *htt
 		VSCodeCommandTemplate string                       `json:"vscode_command_template"`
 		Flavors               []config.RemoteProfileFlavor `json:"flavors"`
 		HostType              string                       `json:"host_type"`
+		Hostname              string                       `json:"hostname"`
 		RepoBasePath          string                       `json:"repo_base_path"`
 		WorkspacePathTemplate string                       `json:"workspace_path_template"`
 		RemoteVCSCommands     config.RemoteVCSCommands     `json:"remote_vcs_commands"`
@@ -122,6 +124,7 @@ func (h *RemoteHandlers) handleCreateRemoteProfile(w http.ResponseWriter, r *htt
 		VSCodeCommandTemplate: req.VSCodeCommandTemplate,
 		Flavors:               req.Flavors,
 		HostType:              req.HostType,
+		Hostname:              req.Hostname,
 		RepoBasePath:          req.RepoBasePath,
 		WorkspacePathTemplate: req.WorkspacePathTemplate,
 		RemoteVCSCommands:     req.RemoteVCSCommands,
@@ -202,6 +205,7 @@ func (h *RemoteHandlers) handleRemoteProfileUpdate(w http.ResponseWriter, r *htt
 		VSCodeCommandTemplate string                       `json:"vscode_command_template"`
 		Flavors               []config.RemoteProfileFlavor `json:"flavors"`
 		HostType              string                       `json:"host_type"`
+		Hostname              string                       `json:"hostname"`
 		RepoBasePath          string                       `json:"repo_base_path"`
 		WorkspacePathTemplate string                       `json:"workspace_path_template"`
 		RemoteVCSCommands     config.RemoteVCSCommands     `json:"remote_vcs_commands"`
@@ -223,6 +227,7 @@ func (h *RemoteHandlers) handleRemoteProfileUpdate(w http.ResponseWriter, r *htt
 		VSCodeCommandTemplate: req.VSCodeCommandTemplate,
 		Flavors:               req.Flavors,
 		HostType:              req.HostType,
+		Hostname:              req.Hostname,
 		RepoBasePath:          req.RepoBasePath,
 		WorkspacePathTemplate: req.WorkspacePathTemplate,
 		RemoteVCSCommands:     req.RemoteVCSCommands,

@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -117,5 +118,67 @@ func TestIntegrationBuildDefaultsFullPipeline(t *testing.T) {
 	// Verify: SCM set from build defaults
 	if cfg.SourceCodeManagement != "git-worktree" {
 		t.Errorf("source_code_management: got %q, want %q", cfg.SourceCodeManagement, "git-worktree")
+	}
+}
+
+// TestIntegrationBuildDefaults_PersistentRemoteProfileHostname verifies that
+// ${USER} expansion works for the new RemoteProfile.Hostname field shipped via
+// build_defaults.json (used by vendor presets to bind a persistent host to a
+// user-specific address, e.g. "${USER}.sb.example.net").
+func TestIntegrationBuildDefaults_PersistentRemoteProfileHostname(t *testing.T) {
+	skipUnderVendorlocked(t)
+	user := os.Getenv("USER")
+	if user == "" {
+		t.Skip("USER env var not set")
+	}
+
+	cfg := CreateDefault(t.TempDir() + "/config.json")
+
+	buildDefaults := map[string]json.RawMessage{
+		"remote_profiles": json.RawMessage(`[{
+			"id": "devserver",
+			"display_name": "DevServer",
+			"vcs": "git",
+			"host_type": "persistent",
+			"hostname": "${USER}.sb.example.net",
+			"connect_command": "ssh {{.Hostname}} --",
+			"reconnect_command": "ssh {{.Hostname}} --",
+			"repo_base_path": "/home/${USER}/repo",
+			"workspace_path_template": "/home/${USER}/ws/{{.WorkspaceID}}"
+		}]`),
+	}
+
+	if err := overlayDefaults(cfg, buildDefaults); err != nil {
+		t.Fatalf("overlayDefaults: %v", err)
+	}
+
+	cfgJSON, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	resolved := resolveConfigTemplates(cfgJSON)
+	if err := json.Unmarshal(resolved, cfg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if len(cfg.RemoteProfiles) != 1 {
+		t.Fatalf("remote_profiles: got %d, want 1", len(cfg.RemoteProfiles))
+	}
+	got := cfg.RemoteProfiles[0]
+
+	wantHostname := user + ".sb.example.net"
+	if got.Hostname != wantHostname {
+		t.Errorf("Hostname: got %q, want %q (${USER} should expand)", got.Hostname, wantHostname)
+	}
+	wantRepo := "/home/" + user + "/repo"
+	if got.RepoBasePath != wantRepo {
+		t.Errorf("RepoBasePath: got %q, want %q", got.RepoBasePath, wantRepo)
+	}
+	// Go template syntax {{.Hostname}}, {{.WorkspaceID}} must be preserved.
+	if got.ConnectCommand != "ssh {{.Hostname}} --" {
+		t.Errorf("ConnectCommand: got %q, expected Go template untouched", got.ConnectCommand)
+	}
+	if !strings.Contains(got.WorkspacePathTemplate, "{{.WorkspaceID}}") {
+		t.Errorf("WorkspacePathTemplate: got %q, expected to retain {{.WorkspaceID}}", got.WorkspacePathTemplate)
 	}
 }

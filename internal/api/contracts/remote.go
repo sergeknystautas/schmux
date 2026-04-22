@@ -21,6 +21,7 @@ type RemoteProfileResponse struct {
 	VSCodeCommandTemplate string                     `json:"vscode_command_template,omitempty"`
 	Flavors               []RemoteProfileFlavor      `json:"flavors"`
 	HostType              string                     `json:"host_type,omitempty"`               // "ephemeral" (default) | "persistent"
+	Hostname              string                     `json:"hostname,omitempty"`                // Stable address for persistent hosts (rejected for ephemeral)
 	RepoBasePath          string                     `json:"repo_base_path,omitempty"`          // Source repo path on remote host
 	WorkspacePathTemplate string                     `json:"workspace_path_template,omitempty"` // Go template with {{.WorkspaceID}}
 	RemoteVCSCommands     *RemoteVCSCommandsResponse `json:"remote_vcs_commands,omitempty"`     // Per-profile VCS command templates

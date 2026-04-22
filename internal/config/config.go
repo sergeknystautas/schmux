@@ -266,6 +266,7 @@ type RemoteProfile struct {
 	VSCodeCommandTemplate string                `json:"vscode_command_template,omitempty"`
 	Flavors               []RemoteProfileFlavor `json:"flavors"`
 	HostType              string                `json:"host_type,omitempty"`               // "ephemeral" (default) | "persistent"
+	Hostname              string                `json:"hostname,omitempty"`                // Stable address for persistent hosts; rejected for ephemeral (which discover hostname at runtime). Supports ${USER} expansion via build defaults.
 	RepoBasePath          string                `json:"repo_base_path,omitempty"`          // Source repo path on the remote host
 	WorkspacePathTemplate string                `json:"workspace_path_template,omitempty"` // Go template, e.g. "/home/user/schmux-ws/{{.WorkspaceID}}"
 	RemoteVCSCommands     RemoteVCSCommands     `json:"remote_vcs_commands,omitempty"`     // Per-profile VCS command templates for remote execution
@@ -290,6 +291,7 @@ type ResolvedFlavor struct {
 	HostnameRegex         string
 	VSCodeCommandTemplate string
 	HostType              string
+	Hostname              string // Stable address for persistent hosts; empty for ephemeral
 	RepoBasePath          string
 	WorkspacePathTemplate string
 	RemoteVCSCommands     RemoteVCSCommands
@@ -3339,6 +3341,7 @@ func ResolveProfileFlavor(profile RemoteProfile, flavorStr string) (ResolvedFlav
 			HostnameRegex:         profile.HostnameRegex,
 			VSCodeCommandTemplate: profile.VSCodeCommandTemplate,
 			HostType:              profile.HostType,
+			Hostname:              profile.Hostname,
 			RepoBasePath:          profile.RepoBasePath,
 			WorkspacePathTemplate: profile.WorkspacePathTemplate,
 			RemoteVCSCommands:     profile.RemoteVCSCommands,
@@ -3357,6 +3360,7 @@ func ResolveProfileFlavor(profile RemoteProfile, flavorStr string) (ResolvedFlav
 				HostnameRegex:         profile.HostnameRegex,
 				VSCodeCommandTemplate: profile.VSCodeCommandTemplate,
 				HostType:              profile.HostType,
+				Hostname:              profile.Hostname,
 				RepoBasePath:          profile.RepoBasePath,
 				WorkspacePathTemplate: profile.WorkspacePathTemplate,
 				RemoteVCSCommands:     profile.RemoteVCSCommands,
@@ -3510,7 +3514,38 @@ func validateRemoteProfile(p RemoteProfile) error {
 		return fmt.Errorf("%w: host_type must be 'ephemeral' or 'persistent'", ErrInvalidConfig)
 	}
 
+	// Both Connect and Reconnect templates receive {Hostname, Flavor}. Validate
+	// at config-load time so misconfigured templates fail loudly here instead
+	// of producing the runtime error "can't evaluate field X in type
+	// remote.ConnectTemplateData" on first connection attempt.
+	cmdTestData := map[string]string{"Hostname": "test.example.com", "Flavor": "test-flavor"}
+	if p.ConnectCommand != "" {
+		if err := validateCommandTemplate(p.ConnectCommand, "connect_command", cmdTestData); err != nil {
+			return err
+		}
+	}
+	if p.ReconnectCommand != "" {
+		if err := validateCommandTemplate(p.ReconnectCommand, "reconnect_command", cmdTestData); err != nil {
+			return err
+		}
+	}
+
 	if p.IsPersistent() {
+		// Persistent hosts require a stable hostname (the defining property of
+		// a persistent host). Build defaults may use ${USER}-style env-var
+		// substitution which is expanded by resolveConfigTemplates before
+		// validation runs.
+		if p.Hostname == "" {
+			return fmt.Errorf("%w: hostname is required for persistent hosts", ErrInvalidConfig)
+		}
+		// Persistent hosts have no provisioning step that emits a hostname,
+		// so hostname_regex and flavors are nonsensical here.
+		if p.HostnameRegex != "" {
+			return fmt.Errorf("%w: hostname_regex is not allowed for persistent hosts (set hostname instead)", ErrInvalidConfig)
+		}
+		if len(p.Flavors) > 0 {
+			return fmt.Errorf("%w: flavors are not allowed for persistent hosts", ErrInvalidConfig)
+		}
 		// Persistent hosts require workspace_path_template and repo_base_path.
 		if p.WorkspacePathTemplate == "" {
 			return fmt.Errorf("%w: workspace_path_template is required for persistent hosts", ErrInvalidConfig)
@@ -3546,7 +3581,12 @@ func validateRemoteProfile(p RemoteProfile) error {
 		return nil
 	}
 
-	// Ephemeral host validation (existing behavior).
+	// Ephemeral host validation. Hostname is discovered at runtime via
+	// hostname_regex parsing of the provisioning command output; setting it
+	// statically would be a config error.
+	if p.Hostname != "" {
+		return fmt.Errorf("%w: hostname must not be set for ephemeral hosts (it is discovered via hostname_regex)", ErrInvalidConfig)
+	}
 	if len(p.Flavors) == 0 {
 		return fmt.Errorf("%w: profile must have at least one flavor", ErrInvalidConfig)
 	}

@@ -412,6 +412,7 @@ export interface RemoteProfile {
   vscode_command_template?: string;
   flavors: RemoteProfileFlavor[];
   host_type?: string; // "ephemeral" (default) | "persistent"
+  hostname?: string; // stable address for persistent hosts
   repo_base_path?: string;
   workspace_path_template?: string;
   remote_vcs_commands?: RemoteVCSCommands;
@@ -489,6 +490,7 @@ export interface RemoteProfileCreateRequest {
   vscode_command_template?: string;
   flavors?: RemoteProfileFlavor[];
   host_type?: string;
+  hostname?: string;
   repo_base_path?: string;
   workspace_path_template?: string;
   remote_vcs_commands?: RemoteVCSCommands;

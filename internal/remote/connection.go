@@ -127,6 +127,7 @@ type ConnectionConfig struct {
 	HostnameRegex    string // Custom regex for hostname extraction (first capture group)
 	TmuxSocketName   string // Socket name for tmux isolation on remote host (default: "schmux")
 	HostType         string // "ephemeral" (default) | "persistent" — controls expiry and workspace creation
+	Hostname         string // Stable address for persistent hosts; empty for ephemeral (discovered at runtime)
 	OnStatusChange   func(hostID, status string)
 	OnProgress       func(message string)
 	Logger           *log.Logger
@@ -147,6 +148,7 @@ func ConnectionConfigFromResolved(r config.ResolvedFlavor) ConnectionConfig {
 		ProvisionCommand: r.ProvisionCommand,
 		HostnameRegex:    r.HostnameRegex,
 		HostType:         r.HostType,
+		Hostname:         r.Hostname,
 	}
 }
 
@@ -183,6 +185,7 @@ func NewConnection(cfg ConnectionConfig) *Connection {
 			ID:          hostID,
 			ProfileID:   cfg.ProfileID,
 			Flavor:      cfg.Flavor,
+			Hostname:    cfg.Hostname,
 			Status:      state.RemoteHostStatusProvisioning,
 			ConnectedAt: now,
 			ExpiresAt:   expiresAt,
@@ -204,6 +207,12 @@ func NewConnection(cfg ConnectionConfig) *Connection {
 		onStatusChange:        cfg.OnStatusChange,
 		onProgress:            cfg.OnProgress,
 		provisioningSessionID: fmt.Sprintf("provision-%s", hostID),
+		// Persistent hosts: pre-populate hostname so the dashboard sees the
+		// stable address before control mode is established, and so the
+		// fallback `display-message -p '#{host}'` query in waitForControlMode
+		// is skipped. Empty for ephemeral; the regex parser populates it from
+		// provisioning output.
+		hostname: cfg.Hostname,
 	}
 
 	// Compile custom hostname regex if provided
@@ -271,13 +280,18 @@ func (c *Connection) Connect(ctx context.Context) error {
 		return fmt.Errorf("invalid connect command template: %w", err)
 	}
 
-	// Execute template with flavor data
+	// Execute template with connection data. Hostname is non-empty for
+	// persistent hosts (whose connect_command typically references {{.Hostname}})
+	// and empty for ephemeral hosts (whose connect_command typically references
+	// {{.Flavor}} and discovers the hostname from provisioning output).
 	type ConnectTemplateData struct {
-		Flavor string
+		Hostname string
+		Flavor   string
 	}
 
 	data := ConnectTemplateData{
-		Flavor: c.flavor.Flavor,
+		Hostname: c.hostname,
+		Flavor:   c.flavor.Flavor,
 	}
 
 	var cmdStr strings.Builder
@@ -569,14 +583,22 @@ func (c *Connection) parseProvisioningOutput(r io.Reader) {
 					// data and any regex matches would be false positives from
 					// %output events (e.g., shell prompts containing hostnames).
 					if !c.controlModeEstablished.Load() {
-						// Check for hostname
-						if matches := hnRegex.FindStringSubmatch(line); matches != nil {
-							c.mu.Lock()
-							c.hostname = matches[1]
-							c.host.Hostname = matches[1]
-							c.host.Status = state.RemoteHostStatusConnecting
-							c.mu.Unlock()
-							c.notifyStatusChange()
+						// Check for hostname only if not pre-populated.
+						// Persistent hosts seed hostname from config; the regex
+						// is only meaningful for ephemeral hosts that learn
+						// their hostname from provisioning output.
+						c.mu.RLock()
+						hostnameSeeded := c.hostname != ""
+						c.mu.RUnlock()
+						if !hostnameSeeded {
+							if matches := hnRegex.FindStringSubmatch(line); matches != nil {
+								c.mu.Lock()
+								c.hostname = matches[1]
+								c.host.Hostname = matches[1]
+								c.host.Status = state.RemoteHostStatusConnecting
+								c.mu.Unlock()
+								c.notifyStatusChange()
+							}
 						}
 
 						// Check for session UUID
@@ -611,13 +633,18 @@ func (c *Connection) parseProvisioningOutput(r io.Reader) {
 			c.onProgress(line)
 		}
 		if !c.controlModeEstablished.Load() {
-			if matches := hnRegex.FindStringSubmatch(line); matches != nil {
-				c.mu.Lock()
-				c.hostname = matches[1]
-				c.host.Hostname = matches[1]
-				c.host.Status = state.RemoteHostStatusConnecting
-				c.mu.Unlock()
-				c.notifyStatusChange()
+			c.mu.RLock()
+			hostnameSeeded := c.hostname != ""
+			c.mu.RUnlock()
+			if !hostnameSeeded {
+				if matches := hnRegex.FindStringSubmatch(line); matches != nil {
+					c.mu.Lock()
+					c.hostname = matches[1]
+					c.host.Hostname = matches[1]
+					c.host.Status = state.RemoteHostStatusConnecting
+					c.mu.Unlock()
+					c.notifyStatusChange()
+				}
 			}
 			if matches := uuidRegex.FindStringSubmatch(line); matches != nil {
 				c.mu.Lock()

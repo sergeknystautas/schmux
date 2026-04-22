@@ -429,10 +429,11 @@ func TestValidateRemoteProfile_Persistent(t *testing.T) {
 		ID:                    "devserver",
 		DisplayName:           "Dev Server",
 		HostType:              HostTypePersistent,
+		Hostname:              "dev.example.com",
 		VCS:                   "git",
 		RepoBasePath:          "/home/user/repo",
 		WorkspacePathTemplate: "/home/user/ws/{{.WorkspaceID}}",
-		ConnectCommand:        "ssh user@host --",
+		ConnectCommand:        "ssh {{.Hostname}} --",
 	}
 	cfg := &Config{}
 	if err := cfg.AddRemoteProfile(valid); err != nil {
@@ -520,6 +521,120 @@ func TestValidateRemoteProfile_EphemeralRegression(t *testing.T) {
 	if err := cfg2.AddRemoteProfile(noFlavor); err == nil {
 		t.Error("expected error for ephemeral without flavors")
 	}
+}
+
+// TestValidateRemoteProfile_HostnameRules covers the persistent/ephemeral
+// hostname rules: persistent requires hostname; ephemeral rejects hostname;
+// persistent rejects hostname_regex and flavors.
+func TestValidateRemoteProfile_HostnameRules(t *testing.T) {
+	persistentBase := RemoteProfile{
+		DisplayName:           "Dev",
+		HostType:              HostTypePersistent,
+		Hostname:              "dev.example.com",
+		VCS:                   "git",
+		RepoBasePath:          "/home/user/repo",
+		WorkspacePathTemplate: "/home/user/ws/{{.WorkspaceID}}",
+	}
+	ephemeralBase := RemoteProfile{
+		DisplayName:   "Eph",
+		VCS:           "git",
+		WorkspacePath: "~/workspace",
+		Flavors:       []RemoteProfileFlavor{{Flavor: "gpu"}},
+	}
+
+	t.Run("persistent_missing_hostname", func(t *testing.T) {
+		bad := persistentBase
+		bad.ID = "p-no-hn"
+		bad.Hostname = ""
+		if err := (&Config{}).AddRemoteProfile(bad); err == nil {
+			t.Error("expected error: persistent without hostname")
+		}
+	})
+
+	t.Run("persistent_with_hostname_regex", func(t *testing.T) {
+		bad := persistentBase
+		bad.ID = "p-with-regex"
+		bad.HostnameRegex = `(host\.example\.com)`
+		if err := (&Config{}).AddRemoteProfile(bad); err == nil {
+			t.Error("expected error: persistent with hostname_regex")
+		}
+	})
+
+	t.Run("persistent_with_flavors", func(t *testing.T) {
+		bad := persistentBase
+		bad.ID = "p-with-flavors"
+		bad.Flavors = []RemoteProfileFlavor{{Flavor: "x"}}
+		if err := (&Config{}).AddRemoteProfile(bad); err == nil {
+			t.Error("expected error: persistent with flavors")
+		}
+	})
+
+	t.Run("ephemeral_with_hostname", func(t *testing.T) {
+		bad := ephemeralBase
+		bad.ID = "e-with-hn"
+		bad.Hostname = "fixed.example.com"
+		if err := (&Config{}).AddRemoteProfile(bad); err == nil {
+			t.Error("expected error: ephemeral with hostname")
+		}
+	})
+}
+
+// TestValidateRemoteProfile_CommandTemplates ensures connect_command and
+// reconnect_command are template-checked at config-load time against the
+// {Hostname, Flavor} data set. Regression guard for the original bug where
+// {{.Hostname}} in a persistent connect_command failed only at first connect.
+func TestValidateRemoteProfile_CommandTemplates(t *testing.T) {
+	t.Run("connect_command_unknown_field", func(t *testing.T) {
+		bad := RemoteProfile{
+			DisplayName:    "Bad",
+			VCS:            "git",
+			WorkspacePath:  "~/workspace",
+			Flavors:        []RemoteProfileFlavor{{Flavor: "gpu"}},
+			ConnectCommand: "ssh {{.NotARealField}} --",
+		}
+		if err := (&Config{}).AddRemoteProfile(bad); err == nil {
+			t.Error("expected error: unknown template field in connect_command")
+		}
+	})
+	t.Run("reconnect_command_unknown_field", func(t *testing.T) {
+		bad := RemoteProfile{
+			DisplayName:      "Bad",
+			VCS:              "git",
+			WorkspacePath:    "~/workspace",
+			Flavors:          []RemoteProfileFlavor{{Flavor: "gpu"}},
+			ReconnectCommand: "ssh {{.NotARealField}} --",
+		}
+		if err := (&Config{}).AddRemoteProfile(bad); err == nil {
+			t.Error("expected error: unknown template field in reconnect_command")
+		}
+	})
+	t.Run("hostname_in_connect_command_accepted", func(t *testing.T) {
+		ok := RemoteProfile{
+			DisplayName:           "Dev",
+			HostType:              HostTypePersistent,
+			Hostname:              "dev.example.com",
+			VCS:                   "git",
+			RepoBasePath:          "/home/user/repo",
+			WorkspacePathTemplate: "/home/user/ws/{{.WorkspaceID}}",
+			ConnectCommand:        "ssh {{.Hostname}} --",
+			ReconnectCommand:      "ssh {{.Hostname}} --",
+		}
+		if err := (&Config{}).AddRemoteProfile(ok); err != nil {
+			t.Errorf("expected accept: persistent connect using {{.Hostname}}: %v", err)
+		}
+	})
+	t.Run("flavor_in_connect_command_accepted", func(t *testing.T) {
+		ok := RemoteProfile{
+			DisplayName:    "Eph",
+			VCS:            "git",
+			WorkspacePath:  "~/workspace",
+			Flavors:        []RemoteProfileFlavor{{Flavor: "gpu"}},
+			ConnectCommand: "ssh -tt {{.Flavor}} --",
+		}
+		if err := (&Config{}).AddRemoteProfile(ok); err != nil {
+			t.Errorf("expected accept: ephemeral connect using {{.Flavor}}: %v", err)
+		}
+	})
 }
 
 func TestMigrateRemoteFlavorsToProfiles_Idempotent(t *testing.T) {

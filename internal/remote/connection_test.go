@@ -462,3 +462,74 @@ func TestConnectionConfigFromResolved(t *testing.T) {
 		t.Error("Logger should be nil")
 	}
 }
+
+func TestConnectionConfigFromResolved_PropagatesHostname(t *testing.T) {
+	r := config.ResolvedFlavor{
+		ProfileID:             "devserver",
+		ProfileDisplayName:    "Dev Server",
+		HostType:              config.HostTypePersistent,
+		Hostname:              "stefanomaz.sb.example.net",
+		VCS:                   "git",
+		RepoBasePath:          "/home/user/repo",
+		WorkspacePathTemplate: "/home/user/ws/{{.WorkspaceID}}",
+	}
+	cc := ConnectionConfigFromResolved(r)
+	if cc.Hostname != r.Hostname {
+		t.Errorf("Hostname: got %q, want %q", cc.Hostname, r.Hostname)
+	}
+	if cc.HostType != config.HostTypePersistent {
+		t.Errorf("HostType: got %q, want %q", cc.HostType, config.HostTypePersistent)
+	}
+}
+
+// TestNewConnection_PrePopulatesHostnameForPersistent guards the Connect()-time
+// regression where persistent profiles whose connect_command references
+// {{.Hostname}} failed because the template data only carried .Flavor. The
+// hostname must now be visible on the host record from connection creation,
+// before any PTY work or control-mode handshake.
+func TestNewConnection_PrePopulatesHostnameForPersistent(t *testing.T) {
+	cfg := ConnectionConfig{
+		ProfileID:   "devserver",
+		DisplayName: "Dev Server",
+		HostType:    config.HostTypePersistent,
+		Hostname:    "stefanomaz.sb.example.net",
+		VCS:         "git",
+	}
+	conn := NewConnection(cfg)
+
+	if got := conn.Hostname(); got != cfg.Hostname {
+		t.Errorf("Connection.Hostname(): got %q, want %q", got, cfg.Hostname)
+	}
+	host := conn.Host()
+	if host.Hostname != cfg.Hostname {
+		t.Errorf("RemoteHost.Hostname: got %q, want %q", host.Hostname, cfg.Hostname)
+	}
+	if host.HostType != config.HostTypePersistent {
+		t.Errorf("RemoteHost.HostType: got %q, want %q", host.HostType, config.HostTypePersistent)
+	}
+	// Persistent hosts never expire.
+	if !host.ExpiresAt.IsZero() {
+		t.Errorf("ExpiresAt: got %v, want zero (persistent host)", host.ExpiresAt)
+	}
+}
+
+// TestNewConnection_EmptyHostnameForEphemeral asserts that ephemeral
+// connections start with no hostname — it is discovered at runtime by
+// parseProvisioningOutput via hostname_regex.
+func TestNewConnection_EmptyHostnameForEphemeral(t *testing.T) {
+	cfg := ConnectionConfig{
+		ProfileID:     "od",
+		Flavor:        "gpu",
+		DisplayName:   "gpu",
+		WorkspacePath: "/tmp",
+		VCS:           "git",
+		// HostType empty defaults to ephemeral; Hostname empty.
+	}
+	conn := NewConnection(cfg)
+	if got := conn.Hostname(); got != "" {
+		t.Errorf("ephemeral Connection.Hostname(): got %q, want empty", got)
+	}
+	if got := conn.Host().Hostname; got != "" {
+		t.Errorf("ephemeral RemoteHost.Hostname: got %q, want empty", got)
+	}
+}

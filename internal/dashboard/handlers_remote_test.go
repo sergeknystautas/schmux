@@ -384,12 +384,12 @@ func TestHandleCreateRemoteProfile_Persistent(t *testing.T) {
 	body, _ := json.Marshal(map[string]interface{}{
 		"display_name":            "Dev Server",
 		"host_type":               "persistent",
+		"hostname":                "dev.example.com",
 		"vcs":                     "git",
 		"repo_base_path":          "/home/user/repo",
 		"workspace_path_template": "/home/user/ws/{{.WorkspaceID}}",
-		"connect_command":         "ssh user@host --",
-		"reconnect_command":       "ssh user@host --",
-		"hostname_regex":          "(host\\.example\\.com)",
+		"connect_command":         "ssh {{.Hostname}} --",
+		"reconnect_command":       "ssh {{.Hostname}} --",
 		"remote_vcs_commands": map[string][]string{
 			"create_worktree": {"git", "worktree", "add", "{{.DestPath}}"},
 		},
