@@ -6,14 +6,23 @@
 
 FROM node:20-bookworm
 
-# Install runtime dependencies required by schmux
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    tmux \
-    git \
-    bash \
-    curl \
-    xclip \
-    xvfb \
+# Install runtime dependencies required by schmux. tmux is pulled from
+# bookworm-backports because the default bookworm release ships tmux 3.3a
+# (June 2022), which predates the %paste-buffer-changed control-mode
+# notification (added Aug 2022, renamed in tmux 3.4 Feb 2024). The clipboard
+# fallback path the daemon listens for requires tmux >= 3.4 — backports
+# provides 3.5a.
+RUN echo "deb http://deb.debian.org/debian bookworm-backports main" \
+        > /etc/apt/sources.list.d/backports.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        -t bookworm-backports tmux && \
+    apt-get install -y --no-install-recommends \
+        git \
+        bash \
+        curl \
+        xclip \
+        xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 # Install sapling (sl) from latest GitHub release

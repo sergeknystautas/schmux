@@ -15,6 +15,7 @@ import { useSessions } from '../contexts/SessionsContext';
 import { useSyncState } from '../contexts/SyncContext';
 import { useOverlay } from '../contexts/OverlayContext';
 import { useRemoteAccess } from '../contexts/RemoteAccessContext';
+import { useClipboard } from '../contexts/ClipboardContext';
 import { useKeyboardMode } from '../contexts/KeyboardContext';
 import { useHelpModal } from './KeyboardHelpModal';
 import { useSync } from '../hooks/useSync';
@@ -66,6 +67,7 @@ export default function AppShell() {
   const { overlayUnreadCount, markOverlaysRead } = useOverlay();
   const { features } = useFeatures();
   const { remoteAccessStatus, simulateRemote } = useRemoteAccess();
+  const { pendingClipboard } = useClipboard();
   const navigate = useNavigate();
   const location = useLocation();
   const { sessionId } = useParams();
@@ -896,6 +898,8 @@ export default function AppShell() {
 
                         const isIdleState = sess.nudge_state === 'Idle';
 
+                        const hasPendingClipboard = !!pendingClipboard[sess.id];
+
                         // Determine what to show in row2
                         // Show nudge indicators if there's a nudge_state (from signals or nudgenik)
                         // Suppress for the currently focused session — the user is already looking at it
@@ -966,6 +970,26 @@ export default function AppShell() {
                                   style={{ color: sess.persona_color }}
                                 >
                                   {sess.persona_icon}
+                                </span>
+                              )}
+                              {hasPendingClipboard && (
+                                <span
+                                  className="nav-session__clipboard-badge"
+                                  title="TUI is asking to copy to your clipboard"
+                                  aria-label="Pending clipboard request"
+                                  data-testid="clipboard-badge"
+                                >
+                                  <span
+                                    style={{
+                                      display: 'inline-block',
+                                      width: '8px',
+                                      height: '8px',
+                                      borderRadius: '50%',
+                                      backgroundColor: 'var(--color-warning, #ffc107)',
+                                      marginLeft: '4px',
+                                      verticalAlign: 'middle',
+                                    }}
+                                  />
                                 </span>
                               )}
                               <span

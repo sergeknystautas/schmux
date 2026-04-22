@@ -228,6 +228,16 @@ func TestTmuxServerSetOptionArgs(t *testing.T) {
 	}
 }
 
+func TestTmuxServerSetServerOptionArgs(t *testing.T) {
+	srv := NewTmuxServer("/usr/bin/tmux", "test-sock", nil)
+	// Mirror the SetServerOption implementation: set-option -s <opt> <val>
+	cmd := srv.cmd(context.Background(), "set-option", "-s", "set-clipboard", "external")
+	want := []string{"-L", "test-sock", "set-option", "-s", "set-clipboard", "external"}
+	if got := cmd.Args[1:]; !reflect.DeepEqual(got, want) {
+		t.Errorf("args = %v, want %v", got, want)
+	}
+}
+
 func TestTmuxServerCaptureLastLinesValidation(t *testing.T) {
 	srv := NewTmuxServer("tmux", "test-sock", nil)
 	ctx := context.Background()

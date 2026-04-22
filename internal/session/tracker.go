@@ -46,12 +46,14 @@ func isPermanentError(err error) bool {
 
 // TrackerCounters holds atomic pipeline counters for diagnostics.
 type TrackerCounters struct {
-	EventsDelivered atomic.Int64
-	BytesDelivered  atomic.Int64
-	Reconnects      atomic.Int64
-	FanOutDrops     atomic.Int64 // Events dropped because a subscriber channel was full
-	WsConnections   atomic.Int64 // total WS terminal connections opened for this session
-	WsWriteErrors   atomic.Int64 // WS write failures that caused disconnect
+	EventsDelivered           atomic.Int64
+	BytesDelivered            atomic.Int64
+	Reconnects                atomic.Int64
+	FanOutDrops               atomic.Int64 // Events dropped because a subscriber channel was full
+	WsConnections             atomic.Int64 // total WS terminal connections opened for this session
+	WsWriteErrors             atomic.Int64 // WS write failures that caused disconnect
+	ClipboardDrops            atomic.Int64 // OSC 52 ClipboardRequests dropped because clipboardCh was full
+	ClipboardSuppressedAsEcho atomic.Int64 // ClipboardRequests dropped because content matched recently-sent input (TUI echo)
 }
 
 // SessionRuntime drains events from a ControlSource, maintains a sequenced
@@ -95,6 +97,43 @@ type SessionRuntime struct {
 	// RecorderFactory, if set, is called from run() to create a recorder.
 	// The returned Runnable is started in a goroutine and stopped on exit.
 	RecorderFactory func(outputLog *OutputLog, gapCh <-chan SourceEvent) Runnable
+
+	// clipboardCh is the per-session OSC 52 ClipboardRequest channel. fanOut
+	// pushes ClipboardRequests here (drop-on-overflow with capacity 1); the
+	// dashboard server's clipboard subscriber goroutine drains it. Closed by
+	// Stop() after run() exits so subscribers see channel-closed.
+	clipboardCh chan ClipboardRequest
+
+	// extractor parses OSC 52 escape sequences out of the session byte stream.
+	// Lives only on the fanOut goroutine, so no lock is required.
+	extractor *osc52Extractor
+
+	// echo records bytes recently sent to the pane via SendInput so that
+	// fanOut and the SourcePasteBuffer handler can suppress ClipboardRequests
+	// whose content matches what the user just typed. The Claude-Code argv
+	// round-trip is the canonical case: schmux types the prompt into the
+	// pane, Claude Code reads its own argv and OSC 52s the same string back
+	// within milliseconds. Without this check the user has to ack a banner
+	// for every Claude startup. inputEchoBuffer is internally locked.
+	//
+	// Note: this mechanism handles long typed input that wasn't a structured
+	// spawn prompt. Spawn prompts (which schmux knows verbatim) are
+	// suppressed at a higher layer via the dashboard's workspace-scoped
+	// clipboardState.RegisterSpawnPrompt registry, which catches every
+	// session that receives tmux's shared %paste-buffer-changed
+	// notification — not just the source session.
+	echo inputEchoBuffer
+}
+
+// ID returns the session ID this runtime is tracking.
+func (t *SessionRuntime) ID() string {
+	return t.sessionID
+}
+
+// ClipboardCh returns a receive-only view of the OSC 52 ClipboardRequest channel.
+// Used by the dashboard server's clipboard subscriber goroutine.
+func (t *SessionRuntime) ClipboardCh() <-chan ClipboardRequest {
+	return t.clipboardCh
 }
 
 // Source returns the underlying ControlSource.
@@ -142,6 +181,11 @@ func NewSessionRuntime(sessionID string, source ControlSource, st state.StateSto
 		stopCh:         make(chan struct{}),
 		doneCh:         make(chan struct{}),
 		HealthProbe:    healthProbe,
+		// Capacity 1: single ClipboardRequest can sit between fanOut and the
+		// dashboard subscriber. Anything more is dropped (ClipboardDrops++) —
+		// users only care about the most recent OSC 52 emit.
+		clipboardCh: make(chan ClipboardRequest, 1),
+		extractor:   newOSC52Extractor(sessionID),
 	}
 	if eventFilePath != "" && eventHandlers != nil && len(eventHandlers) > 0 {
 		ew, err := events.NewEventWatcher(eventFilePath, sessionID, eventHandlers)
@@ -181,6 +225,12 @@ func (t *SessionRuntime) Stop() {
 		case <-t.doneCh:
 		case <-time.After(5 * time.Second):
 		}
+		// Close clipboardCh after run() has exited so any in-flight fanOut
+		// goroutine is no longer sending. We inherit the same race class as
+		// the subscriber-channel close pattern above: if the timeout fires
+		// before run() exits, a concurrent fanOut may still try to send and
+		// panic. The 5s window is generous enough in practice.
+		close(t.clipboardCh)
 	})
 }
 
@@ -219,16 +269,57 @@ func (t *SessionRuntime) UnsubscribeOutput(ch <-chan SequencedOutput) {
 
 // fanOut sends an output event to all subscribers. Slow consumers are skipped
 // (non-blocking send) to avoid one client blocking others.
+//
+// Server-side OSC 52 extraction also runs here: the extractor strips OSC 52
+// "set clipboard" sequences from the byte stream before they reach the output
+// log or terminal subscribers, and emits ClipboardRequests on clipboardCh for
+// the dashboard to surface as approve/reject banners. The extractor lives
+// only on this goroutine so no lock is required.
 func (t *SessionRuntime) fanOut(event controlmode.OutputEvent) {
 	t.Counters.EventsDelivered.Add(1)
 	t.Counters.BytesDelivered.Add(int64(len(event.Data)))
 
+	// Server-side OSC 52 extraction. Strip out the escape sequences before
+	// they hit the output log / terminal subscribers, and queue any extracted
+	// ClipboardRequests for the dashboard server.
+	stripped, reqs := t.extractor.process([]byte(event.Data))
+	for _, req := range reqs {
+		// Suppress banners for content that matches input the user just
+		// typed (e.g. Claude Code's argv-prompt round-trip when the typed
+		// chunk is contiguous and at least inputEchoMinLen bytes). The
+		// min-len check inside matchesRecent guards against false positives
+		// on tiny payloads. Spawn-time prompts the user typed into the
+		// schmux spawn form (rather than into the pane) are suppressed at
+		// the dashboard layer via the workspace-scoped
+		// clipboardState.RegisterSpawnPrompt registry, which also catches
+		// echoes received by sessions OTHER than the source session due to
+		// tmux's server-scoped %paste-buffer-changed notification.
+		if t.echo.matchesRecent(req.Text, time.Now(), inputEchoWindow) {
+			t.Counters.ClipboardSuppressedAsEcho.Add(1)
+			continue
+		}
+		select {
+		case t.clipboardCh <- req:
+		default:
+			// Drop-on-overflow: capacity is 1 because users only care about
+			// the most recent OSC 52 emit. Earlier ones are subsumed by the
+			// debounce window in the dashboard's clipboard state.
+			t.Counters.ClipboardDrops.Add(1)
+		}
+	}
+
 	// Record in sequenced log (before fan-out, so replay is authoritative).
 	// Capture the returned seq so subscribers get the correct sequence number
 	// (using CurrentSeq()-1 after the fact is racy when multiple events arrive).
-	seq := t.outputLog.Append([]byte(event.Data))
+	// Note: stripped may be empty when the event was entirely OSC 52. We still
+	// Append() to consume a seq so subscribers' gap detection stays contiguous
+	// (the CR/FM zero-length frame fix in Group B handles empty-data forwarding).
+	seq := t.outputLog.Append(stripped)
 
-	seqEvent := SequencedOutput{OutputEvent: event, Seq: seq}
+	seqEvent := SequencedOutput{
+		OutputEvent: controlmode.OutputEvent{PaneID: event.PaneID, Data: string(stripped)},
+		Seq:         seq,
+	}
 
 	t.subsMu.Lock()
 	subs := make([]chan SequencedOutput, len(t.subs))
@@ -246,7 +337,15 @@ func (t *SessionRuntime) fanOut(event controlmode.OutputEvent) {
 }
 
 // SendInput sends terminal input to the session via the source.
+//
+// As a side effect, the bytes are recorded in the per-session input-echo
+// buffer so the OSC 52 / paste-buffer-changed handlers can suppress banners
+// for content the user just typed. Recording happens unconditionally —
+// including on SendKeys errors — because partial sends still reach the pane
+// and can come back as echoes. The cost (one short-lived allocation + a
+// mutex acquire) is dominated by the tmux send-keys round-trip.
 func (t *SessionRuntime) SendInput(data string) (controlmode.SendKeysTimings, error) {
+	t.echo.appendInput([]byte(data), time.Now())
 	return t.source.SendKeys(data)
 }
 
@@ -302,12 +401,14 @@ func (t *SessionRuntime) GetCursorPosition(ctx context.Context) (x, y int, err e
 // at all fan-out layers.
 func (t *SessionRuntime) DiagnosticCounters() map[string]int64 {
 	result := map[string]int64{
-		"eventsDelivered":       t.Counters.EventsDelivered.Load(),
-		"bytesDelivered":        t.Counters.BytesDelivered.Load(),
-		"controlModeReconnects": t.Counters.Reconnects.Load(),
-		"fanOutDrops":           t.Counters.FanOutDrops.Load(),
-		"wsConnections":         t.Counters.WsConnections.Load(),
-		"wsWriteErrors":         t.Counters.WsWriteErrors.Load(),
+		"eventsDelivered":           t.Counters.EventsDelivered.Load(),
+		"bytesDelivered":            t.Counters.BytesDelivered.Load(),
+		"controlModeReconnects":     t.Counters.Reconnects.Load(),
+		"fanOutDrops":               t.Counters.FanOutDrops.Load(),
+		"wsConnections":             t.Counters.WsConnections.Load(),
+		"wsWriteErrors":             t.Counters.WsWriteErrors.Load(),
+		"clipboardDrops":            t.Counters.ClipboardDrops.Load(),
+		"clipboardSuppressedAsEcho": t.Counters.ClipboardSuppressedAsEcho.Load(),
 	}
 	// Source-specific diagnostics (e.g. parser/client counters)
 	if dp, ok := t.source.(DiagnosticsProvider); ok {
@@ -365,6 +466,42 @@ func (t *SessionRuntime) run() {
 		case SourceResize:
 			if t.gapCh != nil {
 				t.gapCh <- event
+			}
+
+		case SourcePasteBuffer:
+			// A TUI bypassed OSC 52 by writing to tmux's internal paste
+			// buffer; the source has already fetched + defanged the content.
+			// Push it through the same clipboardCh as the OSC 52 path so the
+			// dashboard surfaces a single approve/reject banner regardless of
+			// transport. Cross-session dedup in clipboardState collapses the
+			// N notifications all schmux clients receive on the shared socket
+			// into a single broadcast.
+			req := ClipboardRequest{
+				SessionID:            t.sessionID,
+				Text:                 event.Data,
+				ByteCount:            event.ByteCount,
+				StrippedControlChars: event.StrippedControlChars,
+				Timestamp:            time.Now(),
+			}
+			// Same input-echo suppression as the OSC 52 path. A TUI may
+			// reach the paste-buffer transport (e.g. tmux load-buffer) and
+			// still be echoing user input — Claude Code does this when it
+			// detects tmux control mode. Drop silently and tick the
+			// counter; the user just typed this content. Spawn-time
+			// prompts are suppressed at the dashboard layer
+			// (clipboardState.RegisterSpawnPrompt) so every session that
+			// receives tmux's server-scoped %paste-buffer-changed
+			// notification has its banner dropped, not just the source.
+			if t.echo.matchesRecent(req.Text, time.Now(), inputEchoWindow) {
+				t.Counters.ClipboardSuppressedAsEcho.Add(1)
+				continue
+			}
+			select {
+			case t.clipboardCh <- req:
+			default:
+				// Drop-on-overflow: same rationale as fanOut's OSC 52 push
+				// (capacity 1; only the latest matters).
+				t.Counters.ClipboardDrops.Add(1)
 			}
 
 		case SourceClosed:

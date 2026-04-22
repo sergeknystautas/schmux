@@ -226,6 +226,10 @@ type Server struct {
 	// Curation state tracking for WebSocket broadcast
 	curationTracker *CurationTracker
 
+	// Pending OSC 52 clipboard requests, keyed by sessionID. Owned entirely
+	// by clipboard_state.go; *Server is the broadcaster sink.
+	clipboardState *clipboardState
+
 	// Extracted handler groups
 	sessionHandlers   *SessionHandlers
 	autolearnHandlers *AutolearnHandlers
@@ -367,6 +371,14 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 	s.previewManager.SetWorkspaceManager(wm)
 	s.RegisterTabCloseHooks(wm, s.previewManager)
 	s.session.SetOutputCallback(s.handleSessionOutputChunk)
+
+	// Pending OSC 52 clipboard state. Server itself satisfies the
+	// clipboardBroadcaster interface (BroadcastClipboardRequest/Cleared).
+	// SetTrackerCallback below wires per-session subscriber goroutines so
+	// every new tracker (spawn or restore) drains its clipboardCh into
+	// s.clipboardState.
+	s.clipboardState = newClipboardState(s, logger)
+	s.session.SetTrackerCallback(s.subscribeClipboard)
 
 	// Initialize persona manager
 	personasDir := filepath.Join(filepath.Dir(statePath), "personas")
@@ -732,6 +744,7 @@ func (s *Server) Start() error {
 			personaManager: s.personaManager,
 			styleManager:   s.styleManager,
 			spawnStore:     s.spawnStore,
+			clipboardState: s.clipboardState,
 			logger:         s.logger,
 
 			broadcastSessions:   s.BroadcastSessions,
@@ -852,6 +865,7 @@ func (s *Server) Start() error {
 			// Session routes
 			r.Post("/sessions/{sessionID}/dispose", wsH.handleDispose)
 			r.Post("/sessions/{sessionID}/tell", s.handleTellSession)
+			r.Post("/sessions/{sessionID}/clipboard", makeClipboardAckHandler(s.clipboardState))
 			r.Put("/sessions-nickname/{sessionID}", sessionH.handleUpdateNickname)
 			r.Patch("/sessions-nickname/{sessionID}", sessionH.handleUpdateNickname)
 			r.Put("/sessions-xterm-title/{sessionID}", sessionH.handleUpdateXtermTitle)
@@ -1712,6 +1726,43 @@ func (s *Server) BroadcastPendingNavigation(navType string, id1, id2 string) {
 	s.broadcastToAllDashboardConns(data)
 }
 
+// BroadcastClipboardRequest sends a pending OSC 52 clipboard request event
+// to all connected dashboard WebSocket clients. Marshalled flat (event types
+// already include a "type" field) per the BroadcastCatalogUpdated precedent.
+func (s *Server) BroadcastClipboardRequest(ev contracts.ClipboardRequestEvent) {
+	payload, err := json.Marshal(ev)
+	if err != nil {
+		s.logger.Error("BroadcastClipboardRequest: marshal", "err", err)
+		return
+	}
+	s.broadcastToAllDashboardConns(payload)
+}
+
+// BroadcastClipboardCleared sends a "request resolved" event to all connected
+// dashboard WebSocket clients (sent on approve/reject/TTL/dispose).
+func (s *Server) BroadcastClipboardCleared(ev contracts.ClipboardClearedEvent) {
+	payload, err := json.Marshal(ev)
+	if err != nil {
+		s.logger.Error("BroadcastClipboardCleared: marshal", "err", err)
+		return
+	}
+	s.broadcastToAllDashboardConns(payload)
+}
+
+// subscribeClipboard is the per-tracker callback registered via
+// session.Manager.SetTrackerCallback. It spawns one goroutine per tracker to
+// drain ClipboardRequests into the dashboard's clipboardState. When the
+// tracker stops (clipboardCh closed), we clear any pending entry for the
+// session so banners disappear with the session.
+func (s *Server) subscribeClipboard(tracker *session.SessionRuntime) {
+	go func() {
+		for req := range tracker.ClipboardCh() {
+			s.clipboardState.onRequest(req)
+		}
+		s.clipboardState.clear(tracker.ID(), "")
+	}()
+}
+
 // BroadcastCuratorEvent sends a curator stream event to all connected dashboard WebSocket clients.
 func (s *Server) BroadcastCuratorEvent(event CuratorEvent) {
 	msg := struct {
@@ -1839,6 +1890,20 @@ func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request
 					return
 				}
 			}
+		}
+	}
+
+	// Send active OSC 52 clipboard requests so reconnecting clients see the
+	// current state instead of waiting for the next emit. The snapshot is the
+	// source of truth — frontend hydrates its banner state from this list.
+	for _, ev := range s.clipboardState.snapshot() {
+		payload, err := json.Marshal(ev)
+		if err != nil {
+			s.logger.Error("snapshot clipboard: marshal", "err", err)
+			continue
+		}
+		if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+			return
 		}
 	}
 

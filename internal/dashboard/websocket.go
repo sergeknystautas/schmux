@@ -917,18 +917,17 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 				}
 				return
 			}
-			if len(event.Data) == 0 {
-				continue
-			}
 			lastSeq = event.Seq
 			send, hb, so := escbuf.SplitClean(escScratch, escHoldback, []byte(event.Data))
 			escHoldback = hb
 			escScratch = so
-			if len(send) > 0 {
-				frameBuf = appendSequencedFrame(frameBuf, event.Seq, send)
-				if err := conn.WriteMessage(websocket.BinaryMessage, frameBuf); err != nil {
-					return
-				}
+			// Always send a frame to preserve sequence continuity, even when escbuf
+			// holds back all bytes or the upstream event was zero-length (e.g. an
+			// OSC 52 sequence the daemon-side extractor consumed in full). Mirrors
+			// the main handler at websocket.go:558-562; see comment there.
+			frameBuf = appendSequencedFrame(frameBuf, event.Seq, send)
+			if err := conn.WriteMessage(websocket.BinaryMessage, frameBuf); err != nil {
+				return
 			}
 		case <-controlChan:
 			return
@@ -1010,18 +1009,17 @@ resizeWait:
 				}
 				return
 			}
-			if len(event.Data) == 0 {
-				continue
-			}
 			lastSeq = event.Seq
 			send, hb, so := escbuf.SplitClean(escScratch, escHoldback, []byte(event.Data))
 			escHoldback = hb
 			escScratch = so
-			if len(send) > 0 {
-				frameBuf = appendSequencedFrame(frameBuf, event.Seq, send)
-				if err := conn.WriteMessage(websocket.BinaryMessage, frameBuf); err != nil {
-					return
-				}
+			// Always send a frame to preserve sequence continuity, even when escbuf
+			// holds back all bytes or the upstream event was zero-length (e.g. an
+			// OSC 52 sequence the daemon-side extractor consumed in full). Mirrors
+			// the main handler at websocket.go:558-562; see comment there.
+			frameBuf = appendSequencedFrame(frameBuf, event.Seq, send)
+			if err := conn.WriteMessage(websocket.BinaryMessage, frameBuf); err != nil {
+				return
 			}
 		case msg, ok := <-controlChan:
 			if !ok {

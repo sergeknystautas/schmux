@@ -1,11 +1,13 @@
 package dashboard
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -1211,5 +1213,24 @@ func TestWaitForTrackerAttach_TimesOut(t *testing.T) {
 	}
 	if elapsed < 40*time.Millisecond {
 		t.Errorf("waitForTrackerAttach returned too quickly: %v (expected ~50ms)", elapsed)
+	}
+}
+
+// TestCRFMHandlersDoNotSkipZeroLengthEvents is a static-text regression guard.
+// The CR and FM websocket handlers used to gate frame emission on
+// `if len(event.Data) == 0 { continue }`, which silently drops zero-length
+// events and leaves a phantom gap on the frontend's sequence continuity
+// detector. The OSC 52 extractor (Group D/E) routinely produces zero-length
+// stripped output for events that were entirely OSC 52, so the handlers must
+// forward those frames. The handlers were rewritten to mirror the main
+// handler's "always emit" pattern (see websocket.go:558-562). If anyone
+// re-introduces the early-skip, this test fails.
+func TestCRFMHandlersDoNotSkipZeroLengthEvents(t *testing.T) {
+	src, err := os.ReadFile("websocket.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(src, []byte("if len(event.Data) == 0 {")) {
+		t.Error("CR/FM handler still contains zero-length skip; this re-introduces the phantom-gap bug")
 	}
 }

@@ -16,7 +16,9 @@ import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
+import { useClipboard } from '../contexts/ClipboardContext';
 import { useViewedSessions } from '../contexts/ViewedSessionsContext';
+import { ClipboardBanner } from '../components/ClipboardBanner';
 import { useKeyboardMode } from '../contexts/KeyboardContext';
 import Tooltip from '../components/Tooltip';
 import useVersionInfo from '../hooks/useVersionInfo';
@@ -44,6 +46,8 @@ export default function SessionDetailPage() {
     ackSession,
     waitForSession,
   } = useSessions();
+  const { pendingClipboard, clearPendingClipboard } = useClipboard();
+  const pendingClipboardRequest = sessionId ? pendingClipboard[sessionId] : undefined;
   const navigate = useNavigate();
   const [wsStatus, setWsStatus] = useState<
     'connecting' | 'connected' | 'disconnected' | 'reconnecting' | 'error'
@@ -995,6 +999,13 @@ export default function SessionDetailPage() {
                     </Tooltip>
                   </div>
                 </div>
+                {pendingClipboardRequest && sessionId && (
+                  <ClipboardBanner
+                    sessionId={sessionId}
+                    request={pendingClipboardRequest}
+                    onCleared={() => clearPendingClipboard(sessionId)}
+                  />
+                )}
                 <div
                   key={sessionData.id}
                   id="terminal"

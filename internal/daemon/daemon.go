@@ -236,6 +236,17 @@ func Start() error {
 		cmd.Env = append(os.Environ(), "SCHMUX_HOME="+d)
 	}
 
+	// Ensure TERM is set so tmux's outer-terminal capability check passes for
+	// OSC 52 forwarding even when the parent (launchd, cron, daemon-run, ...)
+	// has no TERM. Override only if not already set so we don't downgrade a
+	// richer TERM.
+	if os.Getenv("TERM") == "" {
+		if cmd.Env == nil {
+			cmd.Env = os.Environ()
+		}
+		cmd.Env = append(cmd.Env, "TERM=xterm-256color")
+	}
+
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start daemon: %w", err)
 	}
@@ -404,6 +415,24 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	githubLog := di.githubLog
 	remoteLog := di.remoteLog
 	remoteAccessLog := di.remoteAccessLog
+
+	// Ensure TERM is set so tmux's outer-terminal capability check passes for
+	// OSC 52 forwarding even when the parent (launchd, cron, daemon-run, ...)
+	// has no TERM. Override only if not already set so we don't downgrade a
+	// richer TERM. Must happen before any tmux subprocess is spawned so child
+	// tmux servers inherit it.
+	if os.Getenv("TERM") == "" {
+		_ = os.Setenv("TERM", "xterm-256color")
+	}
+
+	// Ensure the default-socket tmux server is running and has our server-scope
+	// option defaults. StartServer is idempotent; under `schmux start` the parent
+	// shim already started it (daemon.go:217), under `daemon-run` (dev mode) it
+	// has not been started yet.
+	if err := tmuxServer.StartServer(d.shutdownCtx); err != nil {
+		logger.Warn("StartServer for default socket failed", "err", err)
+	}
+	tmux.ApplyTmuxServerDefaults(d.shutdownCtx, tmuxServer, logger)
 
 	// Tighten file modes on $SCHMUXDIR before any listener opens. See spec §2.2.
 	// Refuses to start unless security.allow_insecure_modes is true.
@@ -1009,6 +1038,7 @@ func (d *Daemon) restoreSessions(
 		if err := srv.StartServer(d.shutdownCtx); err != nil {
 			logger.Warn("failed to start tmux server for socket", "socket", socket, "err", err)
 		}
+		tmux.ApplyTmuxServerDefaults(d.shutdownCtx, srv, logger)
 	}
 
 	// Start output trackers for running sessions restored from state.

@@ -116,6 +116,7 @@ func newTestSpawnHandlers(s *Server) *SpawnHandlers {
 		personaManager: s.personaManager,
 		styleManager:   s.styleManager,
 		spawnStore:     s.spawnStore,
+		clipboardState: s.clipboardState,
 		logger:         s.logger,
 
 		broadcastSessions:   s.BroadcastSessions,

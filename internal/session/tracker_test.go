@@ -21,6 +21,16 @@ func newTestTracker(sessionID string) (*SessionRuntime, *MockControlSource) {
 	return tracker, mock
 }
 
+// newTestSessionRuntime creates a SessionRuntime suitable for unit-testing
+// fanOut and clipboard wiring. The dashboard subscriber goroutine is NOT
+// wired (that happens in dashboard server startup); tests that interact with
+// sr.clipboardCh directly are safe from races because no consumer is reading.
+func newTestSessionRuntime(t *testing.T) *SessionRuntime {
+	t.Helper()
+	tracker, _ := newTestTracker("test-session")
+	return tracker
+}
+
 func TestSessionRuntimeInputResizeWithoutControlMode(t *testing.T) {
 	tracker, _ := newTestTracker("s1")
 
@@ -470,6 +480,353 @@ func TestTrackerRunDrainsSourceEvents(t *testing.T) {
 	// Close the source, which should cause run() to exit
 	mock.Close()
 	tracker.Stop()
+}
+
+// TestTrackerCountersHasClipboardDrops verifies that the new ClipboardDrops
+// counter is wired in TrackerCounters and behaves like the other atomics.
+func TestTrackerCountersHasClipboardDrops(t *testing.T) {
+	var c TrackerCounters
+	c.ClipboardDrops.Add(1)
+	if c.ClipboardDrops.Load() != 1 {
+		t.Errorf("ClipboardDrops not present or not atomic")
+	}
+}
+
+// TestSessionRuntime_HasClipboardChannel verifies clipboardCh + extractor are
+// initialized in the constructor with the documented capacity-1 drop pattern.
+func TestSessionRuntime_HasClipboardChannel(t *testing.T) {
+	sr := newTestSessionRuntime(t)
+	if sr.clipboardCh == nil {
+		t.Fatal("clipboardCh not initialized")
+	}
+	if cap(sr.clipboardCh) != 1 {
+		t.Errorf("clipboardCh capacity = %d, want 1 (drop-on-overflow pattern)", cap(sr.clipboardCh))
+	}
+	if sr.extractor == nil {
+		t.Fatal("extractor not initialized")
+	}
+	if got := sr.ClipboardCh(); got == nil {
+		t.Fatal("ClipboardCh() returned nil")
+	}
+}
+
+// TestFanOut_StripsOSC52FromOutputLog verifies the extractor removes OSC 52
+// bytes from the output log so terminals never render the escape sequence.
+func TestFanOut_StripsOSC52FromOutputLog(t *testing.T) {
+	sr := newTestSessionRuntime(t)
+	sr.fanOut(controlmode.OutputEvent{Data: "\x1b]52;c;aGVsbG8=\x07"})
+	entries := sr.outputLog.ReplayFrom(0)
+	if len(entries) != 1 || len(entries[0].Data) != 0 {
+		t.Errorf("expected one zero-length entry, got %+v", entries)
+	}
+}
+
+// TestFanOut_EmitsClipboardRequest verifies a ClipboardRequest reaches
+// clipboardCh with the decoded text after OSC 52 extraction.
+func TestFanOut_EmitsClipboardRequest(t *testing.T) {
+	sr := newTestSessionRuntime(t)
+	sr.fanOut(controlmode.OutputEvent{Data: "\x1b]52;c;aGVsbG8=\x07"})
+	select {
+	case req := <-sr.clipboardCh:
+		if req.Text != "hello" {
+			t.Errorf("Text=%q want hello", req.Text)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected ClipboardRequest, got none")
+	}
+}
+
+// TestFanOut_DropsOnFullChannel verifies the drop-on-overflow path increments
+// ClipboardDrops when clipboardCh is already full.
+func TestFanOut_DropsOnFullChannel(t *testing.T) {
+	sr := newTestSessionRuntime(t)
+	sr.clipboardCh <- ClipboardRequest{Text: "first"}
+	sr.fanOut(controlmode.OutputEvent{Data: "\x1b]52;c;Yg==\x07"})
+	if sr.Counters.ClipboardDrops.Load() != 1 {
+		t.Errorf("ClipboardDrops = %d, want 1", sr.Counters.ClipboardDrops.Load())
+	}
+}
+
+// TestStop_ClosesClipboardChannel verifies Stop() closes clipboardCh after
+// run() exits (subscriber-side detect-channel-close pattern).
+func TestStop_ClosesClipboardChannel(t *testing.T) {
+	sr, mock := newTestTracker("s1")
+	sr.Start()
+	mock.Close()
+	sr.Stop()
+	select {
+	case _, ok := <-sr.clipboardCh:
+		if ok {
+			t.Error("clipboardCh delivered after Stop; expected closed")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("clipboardCh not closed within 1s of Stop")
+	}
+}
+
+// TestRun_SourcePasteBufferEmitsClipboardRequest verifies that a
+// SourcePasteBuffer event delivered by the source causes the tracker to push
+// a ClipboardRequest onto clipboardCh — the same downstream pipeline as the
+// OSC 52 byte path. This is the load-buffer / set-buffer fallback that
+// catches TUIs which detect tmux control mode and bypass OSC 52.
+func TestRun_SourcePasteBufferEmitsClipboardRequest(t *testing.T) {
+	mock := NewMockControlSource(10)
+	st := state.New("", nil)
+	tracker := NewSessionRuntime("paste-sess", mock, st, "", nil, nil, nil)
+
+	tracker.Start()
+	defer func() {
+		mock.Close()
+		tracker.Stop()
+	}()
+
+	mock.Emit(SourceEvent{
+		Type:                 SourcePasteBuffer,
+		Data:                 "hello-from-load-buffer",
+		ByteCount:            22,
+		StrippedControlChars: 0,
+	})
+
+	select {
+	case req := <-tracker.ClipboardCh():
+		if req.SessionID != "paste-sess" {
+			t.Errorf("SessionID = %q, want paste-sess", req.SessionID)
+		}
+		if req.Text != "hello-from-load-buffer" {
+			t.Errorf("Text = %q, want hello-from-load-buffer", req.Text)
+		}
+		if req.ByteCount != 22 {
+			t.Errorf("ByteCount = %d, want 22", req.ByteCount)
+		}
+		if req.StrippedControlChars != 0 {
+			t.Errorf("StrippedControlChars = %d, want 0", req.StrippedControlChars)
+		}
+		if req.Timestamp.IsZero() {
+			t.Error("Timestamp should be set")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected ClipboardRequest from SourcePasteBuffer event")
+	}
+}
+
+// TestRun_SourcePasteBufferDropsOnFullChannel verifies the drop-on-overflow
+// path increments ClipboardDrops when clipboardCh is already full. Mirrors
+// the OSC 52 path's TestFanOut_DropsOnFullChannel.
+func TestRun_SourcePasteBufferDropsOnFullChannel(t *testing.T) {
+	mock := NewMockControlSource(10)
+	st := state.New("", nil)
+	tracker := NewSessionRuntime("paste-sess", mock, st, "", nil, nil, nil)
+
+	// Pre-fill clipboardCh so the next push is forced to drop.
+	tracker.clipboardCh <- ClipboardRequest{Text: "first"}
+
+	tracker.Start()
+	defer func() {
+		mock.Close()
+		tracker.Stop()
+	}()
+
+	mock.Emit(SourceEvent{
+		Type:                 SourcePasteBuffer,
+		Data:                 "second",
+		ByteCount:            6,
+		StrippedControlChars: 0,
+	})
+
+	// Wait until the drop counter increments (or fail by timeout).
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if tracker.Counters.ClipboardDrops.Load() == 1 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Errorf("ClipboardDrops = %d, want 1", tracker.Counters.ClipboardDrops.Load())
+}
+
+// TestFanOut_SuppressesOSC52EchoOfRecentInput verifies the headline UX
+// improvement: when a TUI emits OSC 52 with content matching what the user
+// just typed (the Claude-Code-startup case), the ClipboardRequest never
+// reaches clipboardCh and ClipboardSuppressedAsEcho ticks.
+func TestFanOut_SuppressesOSC52EchoOfRecentInput(t *testing.T) {
+	sr := newTestSessionRuntime(t)
+
+	// User typed this prompt as part of a `claude "..."` invocation.
+	const payload = "MARKER-test-12345"
+	sr.echo.appendInput([]byte(payload), time.Now())
+
+	// Same content arrives back as OSC 52 within milliseconds.
+	// base64("MARKER-test-12345") = "TUFSS0VSLXRlc3QtMTIzNDU="
+	sr.fanOut(controlmode.OutputEvent{Data: "\x1b]52;c;TUFSS0VSLXRlc3QtMTIzNDU=\x07"})
+
+	select {
+	case req := <-sr.clipboardCh:
+		t.Fatalf("expected no ClipboardRequest, got %q", req.Text)
+	case <-time.After(50 * time.Millisecond):
+		// Expected — banner suppressed.
+	}
+	if got := sr.Counters.ClipboardSuppressedAsEcho.Load(); got != 1 {
+		t.Errorf("ClipboardSuppressedAsEcho=%d, want 1", got)
+	}
+	if got := sr.Counters.ClipboardDrops.Load(); got != 0 {
+		t.Errorf("ClipboardDrops=%d, want 0 (suppression is not an overflow drop)", got)
+	}
+}
+
+// TestFanOut_DoesNotSuppressWhenInputDoesNotMatch verifies that legitimate
+// yanks of generated content still surface a banner. SendInput "hello-world"
+// then OSC 52 of unrelated text — request must reach clipboardCh.
+func TestFanOut_DoesNotSuppressWhenInputDoesNotMatch(t *testing.T) {
+	sr := newTestSessionRuntime(t)
+
+	sr.echo.appendInput([]byte("hello-world-typed-by-user"), time.Now())
+	// base64("generated-content-not-typed") = "Z2VuZXJhdGVkLWNvbnRlbnQtbm90LXR5cGVk"
+	sr.fanOut(controlmode.OutputEvent{Data: "\x1b]52;c;Z2VuZXJhdGVkLWNvbnRlbnQtbm90LXR5cGVk\x07"})
+
+	select {
+	case req := <-sr.clipboardCh:
+		if req.Text != "generated-content-not-typed" {
+			t.Errorf("Text=%q, want generated-content-not-typed", req.Text)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected ClipboardRequest to reach clipboardCh; banner should fire for non-matching content")
+	}
+	if got := sr.Counters.ClipboardSuppressedAsEcho.Load(); got != 0 {
+		t.Errorf("ClipboardSuppressedAsEcho=%d, want 0", got)
+	}
+}
+
+// TestFanOut_DoesNotSuppressWhenInputIsTooOld verifies that input older than
+// the window is no longer eligible. Override inputEchoWindow to a tiny value
+// so the test runs in milliseconds.
+func TestFanOut_DoesNotSuppressWhenInputIsTooOld(t *testing.T) {
+	original := inputEchoWindow
+	inputEchoWindow = 10 * time.Millisecond
+	defer func() { inputEchoWindow = original }()
+
+	sr := newTestSessionRuntime(t)
+	sr.echo.appendInput([]byte("MARKER-old-input-12345"), time.Now())
+
+	// Wait past the window before the OSC 52 arrives.
+	time.Sleep(50 * time.Millisecond)
+
+	// base64("MARKER-old-input-12345") = "TUFSS0VSLW9sZC1pbnB1dC0xMjM0NQ=="
+	sr.fanOut(controlmode.OutputEvent{Data: "\x1b]52;c;TUFSS0VSLW9sZC1pbnB1dC0xMjM0NQ==\x07"})
+
+	select {
+	case req := <-sr.clipboardCh:
+		if req.Text != "MARKER-old-input-12345" {
+			t.Errorf("Text=%q, want MARKER-old-input-12345", req.Text)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected ClipboardRequest to reach clipboardCh; banner should fire when echo is past window")
+	}
+	if got := sr.Counters.ClipboardSuppressedAsEcho.Load(); got != 0 {
+		t.Errorf("ClipboardSuppressedAsEcho=%d, want 0", got)
+	}
+}
+
+// TestFanOut_DoesNotSuppressShortContent verifies the min-len guard: short
+// content (< inputEchoMinLen) is never suppressed even if it matches input.
+// Protects against accidental matches on tiny payloads.
+func TestFanOut_DoesNotSuppressShortContent(t *testing.T) {
+	sr := newTestSessionRuntime(t)
+	sr.echo.appendInput([]byte("abc"), time.Now())
+
+	// base64("abc") = "YWJj"
+	sr.fanOut(controlmode.OutputEvent{Data: "\x1b]52;c;YWJj\x07"})
+
+	select {
+	case req := <-sr.clipboardCh:
+		if req.Text != "abc" {
+			t.Errorf("Text=%q, want abc", req.Text)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected ClipboardRequest; short content should bypass suppression")
+	}
+	if got := sr.Counters.ClipboardSuppressedAsEcho.Load(); got != 0 {
+		t.Errorf("ClipboardSuppressedAsEcho=%d, want 0 for short content", got)
+	}
+}
+
+// TestRun_SourcePasteBufferSuppressesEchoOfRecentInput is the
+// SourcePasteBuffer equivalent of TestFanOut_SuppressesOSC52EchoOfRecentInput.
+// A TUI bypassing OSC 52 in favor of tmux load-buffer can still echo input —
+// the suppression must apply to that path too.
+func TestRun_SourcePasteBufferSuppressesEchoOfRecentInput(t *testing.T) {
+	mock := NewMockControlSource(10)
+	st := state.New("", nil)
+	tracker := NewSessionRuntime("paste-sess", mock, st, "", nil, nil, nil)
+
+	const payload = "MARKER-paste-buffer-echo-12345"
+	tracker.echo.appendInput([]byte(payload), time.Now())
+
+	tracker.Start()
+	defer func() {
+		mock.Close()
+		tracker.Stop()
+	}()
+
+	mock.Emit(SourceEvent{
+		Type:                 SourcePasteBuffer,
+		Data:                 payload,
+		ByteCount:            len(payload),
+		StrippedControlChars: 0,
+	})
+
+	// Wait until the suppression counter increments (or fail by timeout).
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if tracker.Counters.ClipboardSuppressedAsEcho.Load() == 1 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := tracker.Counters.ClipboardSuppressedAsEcho.Load(); got != 1 {
+		t.Fatalf("ClipboardSuppressedAsEcho=%d, want 1", got)
+	}
+
+	// The suppressed request must NOT have reached clipboardCh.
+	select {
+	case req := <-tracker.ClipboardCh():
+		t.Errorf("expected no ClipboardRequest, got %q", req.Text)
+	case <-time.After(50 * time.Millisecond):
+		// Expected.
+	}
+}
+
+// TestSendInput_RecordsInEchoBuffer verifies the wiring from
+// SessionRuntime.SendInput → echo.appendInput. We use a LocalSource (which
+// errors with "not attached") so we don't need a live tmux, and we assert
+// the buffer state directly afterward.
+func TestSendInput_RecordsInEchoBuffer(t *testing.T) {
+	source := NewLocalSource("s1", "tmux-s1", nil, nil)
+	st := state.New("", nil)
+	sr := NewSessionRuntime("s1", source, st, "", nil, nil, nil)
+
+	// SendInput will error (no tmux) but should still record the bytes —
+	// partial sends can still reach the pane.
+	_, _ = sr.SendInput("MARKER-from-SendInput")
+
+	if !sr.echo.matchesRecent("MARKER-from-SendInput", time.Now(), inputEchoWindow) {
+		t.Error("SendInput did not record bytes in echo buffer")
+	}
+}
+
+// TestDiagnosticCounters_ExposesClipboardSuppressedAsEcho verifies the new
+// counter is surfaced by DiagnosticCounters() so the diagnose UI can show it.
+func TestDiagnosticCounters_ExposesClipboardSuppressedAsEcho(t *testing.T) {
+	sr := newTestSessionRuntime(t)
+	sr.Counters.ClipboardSuppressedAsEcho.Add(7)
+
+	got := sr.DiagnosticCounters()
+	val, ok := got["clipboardSuppressedAsEcho"]
+	if !ok {
+		t.Fatal("clipboardSuppressedAsEcho not present in DiagnosticCounters output")
+	}
+	if val != 7 {
+		t.Errorf("clipboardSuppressedAsEcho=%d, want 7", val)
+	}
 }
 
 // TestTrackerResizeForwardsToGapCh verifies that calling Resize() on the

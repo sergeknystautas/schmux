@@ -33,7 +33,9 @@ fi
 if [ -n "${TEST_REPEAT:-}" ]; then
     PLAYWRIGHT_ARGS+=(--repeat-each "$TEST_REPEAT")
 fi
-npx playwright test "${PLAYWRIGHT_ARGS[@]}"
+# Keep worker tmpdirs around so entrypoint can copy daemon.log to /artifacts
+# even after the worker fixture's teardown runs.
+SCHMUX_KEEP_WORKER_DIRS=1 npx playwright test "${PLAYWRIGHT_ARGS[@]}"
 TEST_EXIT=$?
 set -e
 
@@ -48,6 +50,16 @@ if [ -d /artifacts ]; then
     if [ -d playwright-report ]; then
         cp -r playwright-report /artifacts/playwright-report
     fi
+    # Daemon logs from each worker (if non-empty). Keeps post-mortem
+    # debugging possible after the worker tmpdir is destroyed.
+    for worker_log in /tmp/schmux-worker-*/.schmux/daemon.log; do
+        if [ -s "$worker_log" ]; then
+            mkdir -p /artifacts/daemon-logs
+            worker_dir=$(dirname "$(dirname "$worker_log")")
+            worker_name=$(basename "$worker_dir")
+            cp "$worker_log" "/artifacts/daemon-logs/${worker_name}-daemon.log"
+        fi
+    done
     # Copy terminal fidelity diagnostics if any failures wrote them
     if [ -d /tmp/terminal-diagnostics ] && [ "$(ls -A /tmp/terminal-diagnostics 2>/dev/null)" ]; then
         echo "Copying terminal diagnostics to /artifacts/terminal-diagnostics..."

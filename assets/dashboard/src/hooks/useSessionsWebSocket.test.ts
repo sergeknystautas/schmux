@@ -288,6 +288,240 @@ describe('useSessionsWebSocket', () => {
     });
   });
 
+  // --- pendingClipboard / clipboardRequest / clipboardCleared ---
+
+  it('clipboardRequest event populates pendingClipboard for the session', () => {
+    const { result } = renderHook(() => useSessionsWebSocket());
+    const ws = lastWS();
+    openWS(ws);
+
+    act(() => {
+      sendMsg(ws, {
+        type: 'clipboardRequest',
+        sessionId: 'sess-1',
+        requestId: 'req-1',
+        text: 'hello world',
+        byteCount: 11,
+        strippedControlChars: 0,
+      });
+    });
+
+    expect(result.current.pendingClipboard['sess-1']).toEqual({
+      requestId: 'req-1',
+      text: 'hello world',
+      byteCount: 11,
+      strippedControlChars: 0,
+    });
+  });
+
+  it('clipboardCleared event with matching requestId clears pendingClipboard', () => {
+    const { result } = renderHook(() => useSessionsWebSocket());
+    const ws = lastWS();
+    openWS(ws);
+
+    act(() => {
+      sendMsg(ws, {
+        type: 'clipboardRequest',
+        sessionId: 'sess-1',
+        requestId: 'req-1',
+        text: 'hello',
+        byteCount: 5,
+        strippedControlChars: 0,
+      });
+    });
+    expect(result.current.pendingClipboard['sess-1']).toBeDefined();
+
+    act(() => {
+      sendMsg(ws, { type: 'clipboardCleared', sessionId: 'sess-1', requestId: 'req-1' });
+    });
+
+    expect(result.current.pendingClipboard['sess-1']).toBeUndefined();
+  });
+
+  it('clipboardCleared with stale requestId is ignored (newer request stays)', () => {
+    // Race: a clearedEvent for req-1 arrives after req-2 has replaced it.
+    // Clearing on a stale ID would wipe the user's currently-shown banner.
+    const { result } = renderHook(() => useSessionsWebSocket());
+    const ws = lastWS();
+    openWS(ws);
+
+    act(() => {
+      sendMsg(ws, {
+        type: 'clipboardRequest',
+        sessionId: 'sess-1',
+        requestId: 'req-1',
+        text: 'first',
+        byteCount: 5,
+        strippedControlChars: 0,
+      });
+      sendMsg(ws, {
+        type: 'clipboardRequest',
+        sessionId: 'sess-1',
+        requestId: 'req-2',
+        text: 'second',
+        byteCount: 6,
+        strippedControlChars: 0,
+      });
+    });
+    expect(result.current.pendingClipboard['sess-1']?.requestId).toBe('req-2');
+
+    // Late clear for the superseded req-1
+    act(() => {
+      sendMsg(ws, { type: 'clipboardCleared', sessionId: 'sess-1', requestId: 'req-1' });
+    });
+
+    // req-2 still pending
+    expect(result.current.pendingClipboard['sess-1']?.requestId).toBe('req-2');
+  });
+
+  it('new clipboardRequest for same session replaces previous entry', () => {
+    const { result } = renderHook(() => useSessionsWebSocket());
+    const ws = lastWS();
+    openWS(ws);
+
+    act(() => {
+      sendMsg(ws, {
+        type: 'clipboardRequest',
+        sessionId: 'sess-1',
+        requestId: 'req-1',
+        text: 'first',
+        byteCount: 5,
+        strippedControlChars: 0,
+      });
+    });
+    act(() => {
+      sendMsg(ws, {
+        type: 'clipboardRequest',
+        sessionId: 'sess-1',
+        requestId: 'req-2',
+        text: 'second',
+        byteCount: 6,
+        strippedControlChars: 0,
+      });
+    });
+
+    expect(result.current.pendingClipboard['sess-1']).toEqual({
+      requestId: 'req-2',
+      text: 'second',
+      byteCount: 6,
+      strippedControlChars: 0,
+    });
+  });
+
+  it('clearPendingClipboard removes entry locally', () => {
+    const { result } = renderHook(() => useSessionsWebSocket());
+    const ws = lastWS();
+    openWS(ws);
+
+    act(() => {
+      sendMsg(ws, {
+        type: 'clipboardRequest',
+        sessionId: 'sess-1',
+        requestId: 'req-1',
+        text: 'x',
+        byteCount: 1,
+        strippedControlChars: 0,
+      });
+    });
+    expect(result.current.pendingClipboard['sess-1']).toBeDefined();
+
+    act(() => {
+      result.current.clearPendingClipboard('sess-1');
+    });
+
+    expect(result.current.pendingClipboard['sess-1']).toBeUndefined();
+  });
+
+  it('WS reconnect resets pendingClipboard before snapshot rehydrates', () => {
+    // Snapshot-as-source-of-truth: a banner the user was looking at when
+    // the WS dropped, but which the daemon has since cleared (TTL or
+    // ack from another tab), must not survive the reconnect.
+    const { result } = renderHook(() => useSessionsWebSocket());
+    const ws1 = lastWS();
+    openWS(ws1);
+
+    act(() => {
+      sendMsg(ws1, {
+        type: 'clipboardRequest',
+        sessionId: 'sess-1',
+        requestId: 'req-stale',
+        text: 'old',
+        byteCount: 3,
+        strippedControlChars: 0,
+      });
+    });
+    expect(result.current.pendingClipboard['sess-1']).toBeDefined();
+
+    // Simulate WS drop + reconnect
+    act(() => {
+      ws1.onclose?.({ code: 1000 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    const ws2 = lastWS();
+    expect(ws2).not.toBe(ws1);
+
+    // ws2 opens — open handler must clear pendingClipboard
+    act(() => {
+      openWS(ws2);
+    });
+    expect(result.current.pendingClipboard['sess-1']).toBeUndefined();
+
+    // Snapshot burst now defines truth — daemon does NOT re-broadcast
+    // for sess-1 (TTL fired while disconnected). State stays empty.
+    expect(result.current.pendingClipboard).toEqual({});
+  });
+
+  it('WS reconnect with snapshot rehydrates a still-pending entry', () => {
+    const { result } = renderHook(() => useSessionsWebSocket());
+    const ws1 = lastWS();
+    openWS(ws1);
+
+    act(() => {
+      sendMsg(ws1, {
+        type: 'clipboardRequest',
+        sessionId: 'sess-1',
+        requestId: 'req-1',
+        text: 'before',
+        byteCount: 6,
+        strippedControlChars: 0,
+      });
+    });
+
+    act(() => {
+      ws1.onclose?.({ code: 1000 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    const ws2 = lastWS();
+    act(() => {
+      openWS(ws2);
+    });
+    // Pre-snapshot: empty
+    expect(result.current.pendingClipboard).toEqual({});
+
+    // Snapshot burst from daemon for entries that are still pending
+    act(() => {
+      sendMsg(ws2, {
+        type: 'clipboardRequest',
+        sessionId: 'sess-1',
+        requestId: 'req-1',
+        text: 'before',
+        byteCount: 6,
+        strippedControlChars: 0,
+      });
+    });
+
+    expect(result.current.pendingClipboard['sess-1']).toEqual({
+      requestId: 'req-1',
+      text: 'before',
+      byteCount: 6,
+      strippedControlChars: 0,
+    });
+  });
+
   it('keeps ws.behind backend-authoritative across workspace_locked events', () => {
     // Regression: workspace_locked messages (sync_progress ticks and unlock)
     // must not mutate ws.behind. The field is owned by the backend's `sessions`

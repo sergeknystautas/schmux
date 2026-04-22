@@ -14,6 +14,7 @@ import { SyncContext } from './SyncContext';
 import { OverlayContext } from './OverlayContext';
 import { RemoteAccessContext } from './RemoteAccessContext';
 import { MonitorContext } from './MonitorContext';
+import { ClipboardContext } from './ClipboardContext';
 import {
   soundForState,
   playAttentionSound,
@@ -67,6 +68,8 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     clearMonitorEvents,
     subredditUpdateCount,
     repofeedUpdateCount,
+    pendingClipboard,
+    clearPendingClipboard,
   } = useSessionsWebSocket({
     onConfigUpdated: () => {
       reloadConfig();
@@ -392,12 +395,24 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     [monitorEvents, clearMonitorEvents]
   );
 
+  const clipboardValue = useMemo(
+    () => ({
+      pendingClipboard,
+      clearPendingClipboard,
+    }),
+    [pendingClipboard, clearPendingClipboard]
+  );
+
   return (
     <SessionsContext.Provider value={coreValue}>
       <SyncContext.Provider value={syncValue}>
         <OverlayContext.Provider value={overlayValue}>
           <RemoteAccessContext.Provider value={remoteValue}>
-            <MonitorContext.Provider value={monitorValue}>{children}</MonitorContext.Provider>
+            <MonitorContext.Provider value={monitorValue}>
+              <ClipboardContext.Provider value={clipboardValue}>
+                {children}
+              </ClipboardContext.Provider>
+            </MonitorContext.Provider>
           </RemoteAccessContext.Provider>
         </OverlayContext.Provider>
       </SyncContext.Provider>

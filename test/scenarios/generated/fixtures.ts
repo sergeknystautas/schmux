@@ -14,7 +14,7 @@
 import { test as base } from '@playwright/test';
 import { createServer } from 'net';
 import { execSync, spawn, type ChildProcess } from 'child_process';
-import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'fs';
+import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, createWriteStream } from 'fs';
 import { join } from 'path';
 
 export { expect } from '@playwright/test';
@@ -113,19 +113,16 @@ export const test = base.extend<{}, { daemonURL: string }>({
         detached: false,
       });
 
-      // Capture daemon logs for debugging
+      // Capture daemon logs for debugging — streamed to disk so the file is
+      // useful for post-mortem even if the daemon is killed (e.g. on a test
+      // failure that the entrypoint copies the log out before the worker
+      // teardown gets a chance to flush).
       const logPath = join(schmuxDir, 'daemon.log');
-      const logChunks: Buffer[] = [];
-      daemon.stdout?.on('data', (chunk: Buffer) => logChunks.push(chunk));
-      daemon.stderr?.on('data', (chunk: Buffer) => logChunks.push(chunk));
+      const logStream = createWriteStream(logPath, { flags: 'a' });
+      daemon.stdout?.pipe(logStream);
+      daemon.stderr?.pipe(logStream);
 
       daemon.on('exit', (code) => {
-        // Write collected logs on exit
-        try {
-          writeFileSync(logPath, Buffer.concat(logChunks));
-        } catch {
-          // Best-effort
-        }
         if (code !== null && code !== 0) {
           console.error(`[worker ${idx}] Daemon exited with code ${code}`);
         }
@@ -157,8 +154,11 @@ export const test = base.extend<{}, { daemonURL: string }>({
         // Best-effort: tmux server may already be gone
       }
 
-      // Clean up temp directory
-      rmSync(homeDir, { recursive: true, force: true });
+      // Clean up temp directory unless SCHMUX_KEEP_WORKER_DIRS is set
+      // (used by debugging flows that need to inspect daemon.log post-mortem).
+      if (!process.env.SCHMUX_KEEP_WORKER_DIRS) {
+        rmSync(homeDir, { recursive: true, force: true });
+      }
     },
     { scope: 'worker' },
   ],

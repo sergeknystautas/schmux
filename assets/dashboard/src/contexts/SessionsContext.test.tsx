@@ -36,6 +36,8 @@ vi.mock('../hooks/useSessionsWebSocket', () => ({
     curatorEvents: {},
     monitorEvents: [],
     clearMonitorEvents: vi.fn(),
+    pendingClipboard: {},
+    clearPendingClipboard: vi.fn(),
     ...mockReturnOverrides,
   }),
 }));

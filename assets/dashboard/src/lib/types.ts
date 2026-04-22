@@ -133,6 +133,10 @@ export type {
   RunnerInfo,
   Tab,
   TLSValidateResponse,
+  ClipboardRequestEvent,
+  ClipboardClearedEvent,
+  ClipboardAckRequest,
+  ClipboardAckResponse,
 } from './types.generated';
 
 export interface SpawnRequest {

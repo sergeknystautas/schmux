@@ -205,6 +205,18 @@ func (s *TmuxServer) SetOption(ctx context.Context, sessionName, option, value s
 	return nil
 }
 
+// SetServerOption sets a tmux server-scope option (set-option -s).
+// Server-scope options are global to a tmux server and are not associated
+// with any session. Used for options like set-clipboard and terminal-features
+// that apply to the whole server.
+func (s *TmuxServer) SetServerOption(ctx context.Context, option, value string) error {
+	cmd := s.cmd(ctx, "set-option", "-s", option, value)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to set server option %s: %w: %s", option, err, string(output))
+	}
+	return nil
+}
+
 // ConfigureStatusBar sets the standard schmux status bar on a tmux session:
 // process name on left, empty center, empty right.
 func (s *TmuxServer) ConfigureStatusBar(ctx context.Context, sessionName string) {

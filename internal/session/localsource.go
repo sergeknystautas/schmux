@@ -339,10 +339,63 @@ func (s *LocalSource) attach() error {
 			}
 			contCancel()
 
+		case bufferName := <-client.PasteBuffers():
+			// TUIs that detect tmux control mode bypass OSC 52 and write
+			// directly to tmux's paste buffer via `tmux load-buffer -`. We
+			// listen for %paste-buffer-changed, fetch the content with
+			// show-buffer, defang via the same rules as OSC 52, and emit a
+			// SourcePasteBuffer event for tracker to push through the
+			// clipboardCh pipeline.
+			if event, ok := fetchPasteBufferEvent(ctx, client, bufferName, s.logger); ok {
+				s.emit(event)
+			}
+
 		case <-s.stopCh:
 			return io.EOF
 		}
 	}
+}
+
+// fetchPasteBufferEvent invokes `show-buffer -b <name>` on the supplied client,
+// defangs the result, and returns a SourcePasteBuffer SourceEvent ready to
+// emit. Returns ok=false if the buffer is empty, oversize (> maxOSC52DecodedSize),
+// or the fetch failed (which is logged at warn level when a logger is provided).
+//
+// The fetch is bounded by a 2 s timeout so a stuck show-buffer can't wedge
+// the source's main event loop. Shared between LocalSource and RemoteSource
+// so both transports apply identical limits and security defang.
+func fetchPasteBufferEvent(parent context.Context, client *controlmode.Client, bufferName string, logger *log.Logger) (SourceEvent, bool) {
+	if client == nil || bufferName == "" {
+		return SourceEvent{}, false
+	}
+	fetchCtx, cancel := context.WithTimeout(parent, 2*time.Second)
+	defer cancel()
+	content, _, err := client.Execute(fetchCtx, fmt.Sprintf("show-buffer -b %s", bufferName))
+	if err != nil {
+		if logger != nil {
+			logger.Warn("show-buffer failed", "buffer", bufferName, "err", err)
+		}
+		return SourceEvent{}, false
+	}
+	raw := []byte(content)
+	if len(raw) == 0 {
+		return SourceEvent{}, false
+	}
+	if len(raw) > maxOSC52DecodedSize {
+		// Same 64 KiB cap as OSC 52 — refuse oversized payloads outright
+		// rather than silently truncating, matching extractRequest's policy.
+		return SourceEvent{}, false
+	}
+	text, byteCount, stripped := defangClipboardBytes(raw)
+	if byteCount == 0 {
+		return SourceEvent{}, false
+	}
+	return SourceEvent{
+		Type:                 SourcePasteBuffer,
+		Data:                 text,
+		ByteCount:            byteCount,
+		StrippedControlChars: stripped,
+	}, true
 }
 
 // SetTmuxSession updates the target tmux session name.

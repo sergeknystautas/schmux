@@ -63,6 +63,16 @@ type Client struct {
 	// Pause notifications (pane IDs paused by tmux when output falls behind)
 	pauseCh chan string
 
+	// Paste-buffer-changed notifications (buffer names added/modified). Some
+	// TUIs detect tmux control mode and bypass OSC 52, instead writing
+	// clipboard text to tmux's internal paste buffer via `tmux load-buffer -`
+	// (or set-buffer / copy-mode Enter). The OSC 52 byte path never fires for
+	// these. tmux reports each buffer add/modify via %paste-buffer-changed
+	// <name>, which we surface here so a higher layer can fetch the buffer
+	// with show-buffer and feed it through the same clipboardState pipeline
+	// as OSC 52.
+	pasteBufferCh chan string
+
 	// Lifecycle
 	running   bool
 	closeCh   chan struct{}
@@ -81,15 +91,16 @@ type WindowInfo struct {
 // logger is an optional structured logger; if nil, logging is disabled.
 func NewClient(stdin io.Writer, parser *Parser, logger *log.Logger) *Client {
 	return &Client{
-		stdin:        stdin,
-		parser:       parser,
-		logger:       logger,
-		pendingQueue: make([]chan CommandResponse, 0),
-		respChans:    make(map[chan CommandResponse]bool),
-		outputSubs:   make(map[string][]chan OutputEvent),
-		pauseCh:      make(chan string, 10),
-		closeCh:      make(chan struct{}),
-		runCmdSem:    make(chan struct{}, 1), // max 1 concurrent RunCommand
+		stdin:         stdin,
+		parser:        parser,
+		logger:        logger,
+		pendingQueue:  make([]chan CommandResponse, 0),
+		respChans:     make(map[chan CommandResponse]bool),
+		outputSubs:    make(map[string][]chan OutputEvent),
+		pauseCh:       make(chan string, 10),
+		pasteBufferCh: make(chan string, 32),
+		closeCh:       make(chan struct{}),
+		runCmdSem:     make(chan struct{}, 1), // max 1 concurrent RunCommand
 	}
 }
 
@@ -373,6 +384,29 @@ func (c *Client) processEvents() {
 					default:
 					}
 				}
+			case "paste-buffer-changed", "paste-changed":
+				// tmux fires this whenever a paste buffer is added or modified
+				// (load-buffer, set-buffer, copy-mode Enter). Args[0] is the
+				// buffer name (e.g. "buffer0"). Drop on overflow — same
+				// pattern as pauseCh — since the dashboard can recover the
+				// content via show-buffer on demand.
+				//
+				// Two event names because the notification was renamed in
+				// tmux 3.4 (commit 8edece2c, Oct 2022): older tmux (3.3a and
+				// below, e.g. Debian bookworm) emits %paste-changed; tmux
+				// >= 3.4 emits %paste-buffer-changed. We accept both so the
+				// daemon works on either.
+				if len(event.Args) >= 1 {
+					select {
+					case c.pasteBufferCh <- event.Args[0]:
+					default:
+						if c.logger != nil {
+							c.logger.Debug("paste-buffer-changed dropped (channel full)", "buffer", event.Args[0])
+						}
+					}
+				}
+				// paste-buffer-deleted / paste-deleted is intentionally
+				// ignored: we only act on additions/modifications.
 			}
 		case <-c.closeCh:
 			return
@@ -414,6 +448,14 @@ func (c *Client) DroppedFanOut() int64 {
 // delivery for that pane (because the control mode client fell behind).
 func (c *Client) Pauses() <-chan string {
 	return c.pauseCh
+}
+
+// PasteBuffers returns a channel that receives buffer names when tmux fires
+// %paste-buffer-changed (load-buffer / set-buffer / copy-mode Enter). The
+// receiver should fetch the buffer content via `show-buffer -b <name>` and
+// feed it through the same clipboard pipeline as OSC 52. Drops on overflow.
+func (c *Client) PasteBuffers() <-chan string {
+	return c.pasteBufferCh
 }
 
 // EnablePauseAfter sets the pause-after flag on this control mode client.
@@ -570,6 +612,24 @@ func (c *Client) ResizeWindow(ctx context.Context, windowID string, width, heigh
 // SetOption sets a tmux option.
 func (c *Client) SetOption(ctx context.Context, option, value string) error {
 	_, _, err := c.Execute(ctx, fmt.Sprintf("set-option %s %s", option, value))
+	return err
+}
+
+// cmdExecutor is the minimal interface needed by setServerOptionVia so the
+// helper can be unit-tested with a recording fake without spinning up a
+// real control-mode client.
+type cmdExecutor interface {
+	Execute(ctx context.Context, cmd string) (string, time.Duration, error)
+}
+
+// SetServerOption sets a tmux server-scope option (set-option -s).
+// See *tmux.TmuxServer.SetServerOption for rationale.
+func (c *Client) SetServerOption(ctx context.Context, option, value string) error {
+	return setServerOptionVia(c, ctx, option, value)
+}
+
+func setServerOptionVia(e cmdExecutor, ctx context.Context, option, value string) error {
+	_, _, err := e.Execute(ctx, fmt.Sprintf("set-option -s %s %s", option, value))
 	return err
 }
 

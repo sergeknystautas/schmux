@@ -59,6 +59,10 @@ func main() {
 		reflect.TypeOf(contracts.DiffResponse{}),
 		reflect.TypeOf(contracts.PreviewResponse{}),
 		reflect.TypeOf(contracts.ResolveConflict{}),
+		reflect.TypeOf(contracts.ClipboardRequestEvent{}),
+		reflect.TypeOf(contracts.ClipboardClearedEvent{}),
+		reflect.TypeOf(contracts.ClipboardAckRequest{}),
+		reflect.TypeOf(contracts.ClipboardAckResponse{}),
 	}
 
 	typeMap := collectTypes(rootTypes)

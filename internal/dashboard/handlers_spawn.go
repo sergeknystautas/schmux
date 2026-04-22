@@ -45,6 +45,7 @@ type SpawnHandlers struct {
 	personaManager *persona.Manager
 	styleManager   *style.Manager
 	spawnStore     *spawn.Store
+	clipboardState *clipboardState
 	logger         *log.Logger
 
 	// Callbacks into Server methods that cannot be extracted.
@@ -121,6 +122,19 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 				break
 			}
 		}
+	}
+
+	// Register the spawn-time prompt in the workspace-scoped clipboard
+	// suppression registry. Daemon-wide rather than per-session because
+	// tmux's %paste-buffer-changed notification is server-scoped: when
+	// the agent emits OSC 52 (or `tmux load-buffer`) for its argv prompt,
+	// every control-mode client on the daemon socket receives the
+	// notification, so we'd otherwise see a banner attributed to a
+	// session that did nothing. Empty prompts are a no-op; the registry
+	// entry expires harmlessly after clipboardPromptSuppressionTTL even
+	// if the spawn that follows fails.
+	if h.clipboardState != nil {
+		h.clipboardState.RegisterSpawnPrompt(req.Prompt)
 	}
 
 	// Validate request

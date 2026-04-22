@@ -49,6 +49,7 @@ type Manager struct {
 	remoteManager           *remote.Manager // Optional, for remote sessions
 	eventHandlers           map[string][]events.EventHandler
 	outputCallback          func(sessionID string, chunk []byte)
+	trackerCallback         func(tracker *SessionRuntime) // optional, invoked once per tracker creation (spawn or restore)
 	trackers                map[string]*SessionRuntime
 	remoteDetectors         map[string]*remoteSignalMonitor // signal detectors for remote sessions
 	mu                      sync.RWMutex
@@ -176,6 +177,23 @@ func (m *Manager) SetEventHandlers(handlers map[string][]events.EventHandler) {
 // Must be called before Start() — not safe for concurrent use.
 func (m *Manager) SetOutputCallback(cb func(sessionID string, chunk []byte)) {
 	m.outputCallback = cb
+}
+
+// SetTrackerCallback registers a function that is invoked exactly once per
+// SessionRuntime creation (spawn paths and restore paths). Used by the
+// dashboard server to spawn one OSC 52 clipboard subscriber goroutine per
+// tracker. Must be called before Start() — not safe for concurrent use.
+func (m *Manager) SetTrackerCallback(cb func(tracker *SessionRuntime)) {
+	m.trackerCallback = cb
+}
+
+// notifyTrackerCallback runs the registered tracker callback if any. Safe to
+// call with the manager lock NOT held; the callback is responsible for its
+// own concurrency.
+func (m *Manager) notifyTrackerCallback(tracker *SessionRuntime) {
+	if m.trackerCallback != nil {
+		m.trackerCallback(tracker)
+	}
 }
 
 // SetCompoundCallback sets the callback for notifying the compounder on session lifecycle events.
@@ -597,6 +615,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 
 						// Create RemoteSource + tracker for terminal streaming
 						qSource := NewRemoteSource(qConn, result.PaneID, result.WindowID)
+						qSource.SetLogger(m.logger)
 						qSource.Start()
 						var qOutputCb func([]byte)
 						if m.outputCallback != nil {
@@ -612,6 +631,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 						m.trackers[sessionID] = qTracker
 						m.mu.Unlock()
 						qTracker.Start()
+						m.notifyTrackerCallback(qTracker)
 					}
 					m.StartRemoteSignalMonitor(updatedSess)
 				}
@@ -685,6 +705,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 
 	// Create RemoteSource + tracker for terminal streaming
 	source := NewRemoteSource(conn, paneID, windowID)
+	source.SetLogger(m.logger)
 	source.Start()
 	var outputCb func([]byte)
 	if m.outputCallback != nil {
@@ -700,6 +721,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 	m.trackers[sess.ID] = tracker
 	m.mu.Unlock()
 	tracker.Start()
+	m.notifyTrackerCallback(tracker)
 
 	// Track session creation (immediate)
 	m.trackSessionCreated(sess.ID, sess.WorkspaceID, sess.Target)
@@ -1993,6 +2015,7 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionRuntime {
 		conn := m.remoteManager.GetConnection(sess.RemoteHostID)
 		if conn != nil && conn.IsConnected() {
 			rs := NewRemoteSource(conn, sess.RemotePaneID, sess.RemoteWindow)
+			rs.SetLogger(m.logger)
 			rs.Start()
 			source = rs
 		}
@@ -2022,6 +2045,7 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionRuntime {
 	m.mu.Unlock()
 
 	tracker.Start()
+	m.notifyTrackerCallback(tracker)
 	return tracker
 }
 

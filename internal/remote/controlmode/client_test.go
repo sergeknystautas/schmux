@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -238,6 +239,81 @@ func TestClient_PauseNotification(t *testing.T) {
 	}
 
 	client.Close()
+}
+
+// TestClient_PasteBufferChangedNotification verifies that %paste-buffer-changed
+// notifications are surfaced on PasteBuffers() with the buffer name as the
+// payload. This is the entry point of the load-buffer / set-buffer fallback
+// path for TUIs that detect tmux control mode and bypass OSC 52.
+//
+// Both names are accepted because the event was renamed in tmux 3.4 (commit
+// 8edece2c, Oct 2022): older tmux (3.3a and earlier, e.g. Debian bookworm)
+// emits %paste-changed; tmux >= 3.4 emits %paste-buffer-changed.
+func TestClient_PasteBufferChangedNotification(t *testing.T) {
+	tests := []struct {
+		name      string
+		notifyRaw string
+	}{
+		{name: "tmux 3.4+ paste-buffer-changed", notifyRaw: "%paste-buffer-changed buffer0\n"},
+		{name: "tmux 3.3a paste-changed", notifyRaw: "%paste-changed buffer0\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := strings.NewReader(tt.notifyRaw)
+			parser := NewParser(input, nil)
+
+			var stdin strings.Builder
+			client := NewClient(&stdin, parser, nil)
+			client.Start()
+
+			go parser.Run()
+
+			select {
+			case name := <-client.PasteBuffers():
+				if name != "buffer0" {
+					t.Errorf("expected buffer name 'buffer0', got %q", name)
+				}
+			case <-time.After(1 * time.Second):
+				t.Errorf("timeout waiting for %s", tt.notifyRaw)
+			}
+
+			client.Close()
+		})
+	}
+}
+
+// TestClient_PasteBufferDeletedIgnored verifies that paste-buffer-deleted
+// (and the legacy paste-deleted) notifications are not delivered on
+// PasteBuffers() — we only act on additions/modifications.
+func TestClient_PasteBufferDeletedIgnored(t *testing.T) {
+	tests := []struct {
+		name      string
+		notifyRaw string
+	}{
+		{name: "tmux 3.4+ paste-buffer-deleted", notifyRaw: "%paste-buffer-deleted buffer0\n"},
+		{name: "tmux 3.3a paste-deleted", notifyRaw: "%paste-deleted buffer0\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := strings.NewReader(tt.notifyRaw)
+			parser := NewParser(input, nil)
+
+			var stdin strings.Builder
+			client := NewClient(&stdin, parser, nil)
+			client.Start()
+
+			go parser.Run()
+
+			select {
+			case name := <-client.PasteBuffers():
+				t.Errorf("PasteBuffers should ignore %s, got %q", tt.notifyRaw, name)
+			case <-time.After(50 * time.Millisecond):
+				// expected: nothing arrives.
+			}
+
+			client.Close()
+		})
+	}
 }
 
 func TestParser_DroppedEvents(t *testing.T) {
@@ -1534,4 +1610,22 @@ func (c *commandCapture) Write(p []byte) (int, error) {
 		}
 	}
 	return len(p), nil
+}
+
+type recordingExec struct{ cmds []string }
+
+func (r *recordingExec) Execute(_ context.Context, cmd string) (string, time.Duration, error) {
+	r.cmds = append(r.cmds, cmd)
+	return "", 0, nil
+}
+
+func TestClientSetServerOption(t *testing.T) {
+	rec := &recordingExec{}
+	if err := setServerOptionVia(rec, context.Background(), "set-clipboard", "external"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"set-option -s set-clipboard external"}
+	if !reflect.DeepEqual(rec.cmds, want) {
+		t.Errorf("cmds = %v, want %v", rec.cmds, want)
+	}
 }

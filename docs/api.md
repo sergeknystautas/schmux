@@ -521,6 +521,12 @@ Auto-sync from default branch: after preparing a freshly created or recycled wor
 
 Environment cleanup: before creating a tmux session, the server removes pollution from the tmux server's global environment. This includes agent nesting-detection variables (e.g., `CLAUDECODE`) and any variable not present in the system baseline — a snapshot of the fresh login shell environment captured at daemon startup (and refreshed on `GET /api/environment`). Variables like `npm_config_prefix` that leak into the tmux server from processes like `npx`/`dev.sh` are stripped so new sessions inherit clean state. Keys managed by tmux itself (`TMUX`, `TMUX_PANE`) are preserved.
 
+Server-scope tmux options: both the local tmux wrapper (`*tmux.TmuxServer`) and the remote control-mode client (`*controlmode.Client`) expose a `SetServerOption(option, value)` helper that issues `set-option -s` (server-scope) rather than the session-scope default used by `SetOption`. This is the prerequisite for setting options like `set-clipboard` and `terminal-features` that apply to the whole tmux server and are not associated with any session. No HTTP API surface change — internal helper only.
+
+Tmux server defaults helpers: `tmux.ApplyTmuxServerDefaults` and the package-private `remote.applyRemoteTmuxDefaults` centralize the "every schmux-owned tmux server gets these options" policy. Both apply `set-clipboard external` and `terminal-features '*:clipboard'` (server-scope); the remote variant additionally re-applies the existing `window-size manual` (session-scope) and `setenv -g DISPLAY :99` calls so a single helper covers reconnect-time re-application. Errors are logged and swallowed — these are belt-and-braces options that must not block server startup. Helpers only; not yet wired into daemon startup or the remote connect path. No HTTP API surface change.
+
+WebSocket binary frames (CR + FM streams): the per-session WebSocket loops (`/ws/cr/{name}` and `/ws/fm/{name}`) now forward zero-length output events as zero-length binary frames (8-byte sequence header + empty payload) instead of silently dropping them. This matches the long-standing behavior of the main session WebSocket (`/ws/terminal/{id}`). Wire-protocol implication for clients: a frame with `len(data) == 0` is valid and must be consumed to advance the sequence counter; the existing gap-detection logic on the frontend already treats it as a no-op. Without this fix, an upstream zero-byte event creates a phantom seq gap that would trigger a spurious replay (relevant once OSC 52 stripping starts producing empty post-strip output).
+
 Global errors (HTTP status codes):
 
 - 409 Conflict: Branch already in use by another workspace (worktree mode only). Message: `branch_conflict: branch "X" is already in use by workspace "Y"`
@@ -823,6 +829,36 @@ Response:
   }
 ]
 ```
+
+### POST /api/sessions/{sessionID}/clipboard
+
+Acknowledge a pending OSC 52 clipboard request that was broadcast on `/ws/dashboard`.
+
+When a TUI emits an OSC 52 "set clipboard" escape sequence, the daemon strips it from the terminal stream (so the user never sees the raw bytes), debounces rapid emits over a 200ms window, and broadcasts a `clipboardRequest` event. The frontend renders an approve/reject banner; the user's choice is reported back via this endpoint. Approve and reject are server-side equivalent — both clear the pending entry. The browser writes to the system clipboard locally on approve.
+
+Pending entries auto-expire after 5 minutes. They are also cleared when the underlying session disposes.
+
+Request:
+
+```json
+{
+  "action": "approve",
+  "requestId": "uuid-from-clipboardRequest-event"
+}
+```
+
+`action` must be `"approve"` or `"reject"`. `requestId` must match the most recent broadcast for the session — older requestIds are treated as superseded and the response is `"stale"` (the UI should hide the old banner; the newer one will already be visible).
+
+Response:
+
+```json
+{ "status": "ok" }
+{ "status": "stale" }
+```
+
+Errors:
+
+- 400: `"invalid body"`, `"invalid action"`
 
 ### POST /api/clipboard-paste
 
@@ -3712,6 +3748,42 @@ Curator state (sent on WebSocket connect to recover active and recently complete
 - Recently completed runs (within 60s) are also sent, so reconnecting clients learn about completions/errors that happened while disconnected
 - `completed_at` is set when the run finishes (omitted if still in progress)
 
+OSC 52 clipboard request (sent when a TUI emits OSC 52 "set clipboard"; the raw bytes are stripped from the terminal stream and surfaced as a banner instead):
+
+```json
+{
+  "type": "clipboardRequest",
+  "sessionId": "ws1-abc123",
+  "requestId": "uuid",
+  "text": "decoded clipboard text",
+  "byteCount": 42,
+  "strippedControlChars": 0
+}
+```
+
+- `text` is the post-defang payload (C0 controls except `\n`/`\t` are stripped, plus DEL `0x7f`); `byteCount` is the pre-defang decoded byte length; `strippedControlChars` reports how many control bytes were removed
+- Emits within a 200ms debounce window collapse into a single broadcast carrying the latest text and a fresh `requestId`
+- Active pending requests are also rehydrated on WebSocket reconnect (snapshot is the source of truth — frontend should reset its banner state from the snapshot rather than diff against stale state)
+- Two transport paths feed this event:
+  1. **OSC 52 byte sequence** — extracted from the session's terminal byte stream and stripped before reaching the output log; covers most TUIs (nvim, tmux copy-mode default).
+  2. **tmux paste-buffer fallback** — listens for `%paste-buffer-changed` (and the legacy `%paste-changed` from tmux 3.3a/earlier) on the control-mode pipe and fetches the buffer via `show-buffer`. Catches TUIs that detect tmux control mode and bypass OSC 52 by calling `tmux load-buffer -` / `set-buffer` / copy-mode Enter directly.
+- Both paths share the same byte-level defang and the same 64 KiB cap, so security parity is automatic.
+- A cross-session content+timestamp dedup window (200ms, equal to the per-session debounce) collapses the duplicate notifications all daemon control-mode clients receive on tmux's shared socket, and also coalesces copy-mode emitting both OSC 52 and `set-buffer` for one user action.
+- **Input-echo suppression**: bytes sent into a session via `SendInput` are recorded in a per-session 16 KiB ring buffer (`internal/session/inputecho.go`). Before either transport path emits a `clipboardRequest`, the candidate text is checked against that buffer; if it appears as a substring of input sent within the last 5 seconds and is at least 8 bytes long, the request is dropped silently and `Counters.ClipboardSuppressedAsEcho` ticks. This eliminates the noise from TUIs (notably Claude Code) that use the system clipboard as transport to inject their argv prompt back into their own input area on startup — the user typed the prompt seconds ago and shouldn't have to ack a banner for it. Real yanks of generated content (code, output, paths) are unaffected because their content does not match recently-sent input. The counter is exposed in the diagnostic counters JSON as `clipboardSuppressedAsEcho`.
+- **Spawn-prompt suppression**: a stronger, structurally-grounded version of the input-echo check, scoped at the workspace (daemon) level rather than per-session. The dashboard's spawn handler (`internal/dashboard/handlers_spawn.go`) calls `clipboardState.RegisterSpawnPrompt(req.Prompt)` once per spawn request to record the prompt verbatim in a workspace-scoped registry. Before broadcasting a `clipboardRequest`, `clipboardState.onRequest` exact-matches the candidate text against the registry; on match the request is dropped silently and a separate prompt-suppression counter ticks (exposed via `clipboardState.PromptSuppressionCount()`). Workspace scoping is required because tmux's `%paste-buffer-changed` notification is server-scoped — every control-mode client on the daemon socket receives the notification when the source agent emits OSC 52 (or `tmux load-buffer`) for its argv prompt — so the source session AND any other session that receives the same notification both have their requests dropped (without this, cross-session content+timestamp dedup collapses the duplicate broadcasts onto an arbitrary session that did nothing). Registry entries expire lazily after `clipboardPromptSuppressionTTL` (60 s); re-registering the same prompt refreshes the TTL. Empty prompts are a no-op so we don't accidentally swallow OSC 52 of `""`.
+
+OSC 52 clipboard cleared (sent when a pending request is approved, rejected, superseded by another emit beyond debounce, expired by the 5-minute TTL, or the session disposes):
+
+```json
+{
+  "type": "clipboardCleared",
+  "sessionId": "ws1-abc123",
+  "requestId": "uuid"
+}
+```
+
+- `requestId` matches the most recently broadcast `clipboardRequest`'s `requestId` so clients can ignore mismatched/stale events
+
 - `workspace_locked` messages are sent immediately (not debounced)
 - No client-to-server messages expected; the connection is kept alive by reading
 
@@ -4321,5 +4393,11 @@ Download exported .cast file. Returns `404` if not yet exported.
 ### DELETE /api/timelapse/{recordingId}
 
 Delete recording and cached export. Returns `204`.
+
+---
+
+## TUI Clipboard Bridge (internal scaffolding)
+
+`internal/session/osc52.go` adds an internal `osc52Extractor` helper that scans a session's byte stream for OSC 52 ("set clipboard") escape sequences, strips them from the output forwarded to xterm.js, and validates+decodes the payload into a `ClipboardRequest`. The extractor handles BEL and ST terminators, carries narrow OSC-52-only prefixes across event boundaries (title/CSI/etc. flush through immediately), enforces a 64 KiB decoded-size cap and a 64 KiB carry-buffer failsafe, validates Pc, rejects read-queries, and applies byte-level defang (strips C0 controls except `\n`/`\t`, plus DEL `0x7f`). It is not yet wired into `SessionRuntime.fanOut` and is not exposed via any HTTP/WebSocket endpoint; those land in a follow-up change.
 
 <!-- Test coverage: config getters, dashboard dispose/nickname guards, compound suppression, injector HandleEvent, secrets file migration, nudge summary parsing, nudge clear background save, curator response parsing, shell argument splitting, conflict state management, persona ID validation, model secrets validation, target-in-use checks, session manager initialization, tracker counters concurrency, embedded dashboard asset serving, timelapse recording, export, storage -->

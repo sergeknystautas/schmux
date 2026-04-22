@@ -62,6 +62,9 @@ func TestSourceEventTypes(t *testing.T) {
 	if SourceClosed != 3 {
 		t.Errorf("SourceClosed = %d, want 3", SourceClosed)
 	}
+	if SourcePasteBuffer != 4 {
+		t.Errorf("SourcePasteBuffer = %d, want 4", SourcePasteBuffer)
+	}
 }
 
 func TestSourceEventConstruction(t *testing.T) {

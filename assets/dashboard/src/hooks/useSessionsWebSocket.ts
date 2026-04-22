@@ -10,7 +10,19 @@ import type {
   CuratorStreamEvent,
   CurationRun,
   MonitorEvent,
+  ClipboardRequestEvent,
+  ClipboardClearedEvent,
 } from '../lib/types';
+
+// PendingClipboardRequest is the per-session shape held in the
+// pendingClipboard map. Mirrors ClipboardRequestEvent minus type/sessionId
+// (the latter is the map key, the former is the channel discriminator).
+export type PendingClipboardRequest = {
+  requestId: string;
+  text: string;
+  byteCount: number;
+  strippedControlChars: number;
+};
 
 const RECONNECT_DELAY_MS = 2000;
 const MAX_RECONNECT_DELAY_MS = 30000;
@@ -111,6 +123,25 @@ function isMonitorEventMessage(
   return data.type === 'event' && isString(data.session_id) && isObject(data.event);
 }
 
+function isClipboardRequestMessage(
+  data: Record<string, unknown>
+): data is ClipboardRequestEvent & Record<string, unknown> {
+  return (
+    data.type === 'clipboardRequest' &&
+    isString(data.sessionId) &&
+    isString(data.requestId) &&
+    isString(data.text) &&
+    isNumber(data.byteCount) &&
+    isNumber(data.strippedControlChars)
+  );
+}
+
+function isClipboardClearedMessage(
+  data: Record<string, unknown>
+): data is ClipboardClearedEvent & Record<string, unknown> {
+  return data.type === 'clipboardCleared' && isString(data.sessionId) && isString(data.requestId);
+}
+
 function parseSyncProgress(v: unknown): { current: number; total: number } | undefined {
   if (!isObject(v)) return undefined;
   if (!isNumber(v.current) || !isNumber(v.total)) return undefined;
@@ -155,6 +186,13 @@ type SessionsWebSocketState = {
   clearMonitorEvents: () => void;
   subredditUpdateCount: number;
   repofeedUpdateCount: number;
+  // pendingClipboard: per-session pending OSC 52 paste request awaiting
+  // user approve/reject. Source-of-truth is the daemon snapshot — this
+  // map is reset on every WS (re)connect so any local stale entry that
+  // the daemon has since cleared (TTL, another tab acked) is dropped
+  // before the snapshot burst rehydrates.
+  pendingClipboard: Record<string, PendingClipboardRequest>;
+  clearPendingClipboard: (sessionId: string) => void;
 };
 
 export default function useSessionsWebSocket(opts?: {
@@ -180,6 +218,9 @@ export default function useSessionsWebSocket(opts?: {
   const [monitorEvents, setMonitorEvents] = useState<MonitorEvent[]>([]);
   const [subredditUpdateCount, setSubredditUpdateCount] = useState(0);
   const [repofeedUpdateCount, setRepofeedUpdateCount] = useState(0);
+  const [pendingClipboard, setPendingClipboard] = useState<Record<string, PendingClipboardRequest>>(
+    {}
+  );
   const onPreviewDetectedRef = useRef(opts?.onPreviewDetected);
   onPreviewDetectedRef.current = opts?.onPreviewDetected;
   const onConfigUpdatedRef = useRef(opts?.onConfigUpdated);
@@ -219,6 +260,12 @@ export default function useSessionsWebSocket(opts?: {
       setStale(false);
       // Reset reconnect delay on successful connection
       reconnectDelayRef.current = RECONNECT_DELAY_MS;
+      // Snapshot-as-source-of-truth: drop any locally-held clipboard
+      // requests so the upcoming snapshot burst (clipboardRequest events
+      // for currently-pending entries) is the only source of state. Any
+      // entry the daemon has since cleared (TTL fired, another tab
+      // acked) is correctly forgotten on reconnect.
+      setPendingClipboard({});
     };
 
     ws.onmessage = (event) => {
@@ -322,6 +369,29 @@ export default function useSessionsWebSocket(opts?: {
           setRepofeedUpdateCount((prev) => prev + 1);
         } else if (data.type === 'config_updated') {
           onConfigUpdatedRef.current?.();
+        } else if (isClipboardRequestMessage(data)) {
+          // A new clipboardRequest for the same session replaces the
+          // previous entry — the daemon only ever holds one pending
+          // request per session.
+          setPendingClipboard((prev) => ({
+            ...prev,
+            [data.sessionId]: {
+              requestId: data.requestId,
+              text: data.text,
+              byteCount: data.byteCount,
+              strippedControlChars: data.strippedControlChars,
+            },
+          }));
+        } else if (isClipboardClearedMessage(data)) {
+          setPendingClipboard((prev) => {
+            const existing = prev[data.sessionId];
+            // Ignore clears for stale request IDs — a newer request
+            // arrived and we'd be wiping it.
+            if (!existing || existing.requestId !== data.requestId) return prev;
+            const next = { ...prev };
+            delete next[data.sessionId];
+            return next;
+          });
         }
       } catch (e) {
         console.error('[ws/dashboard] failed to parse message:', e);
@@ -385,6 +455,20 @@ export default function useSessionsWebSocket(opts?: {
     setMonitorEvents([]);
   }, []);
 
+  // clearPendingClipboard removes the entry locally without waiting for
+  // the daemon's clipboardCleared broadcast. Used by the banner after a
+  // successful approve/reject POST so the UI updates immediately; the
+  // matching broadcast (when it arrives) is a no-op due to the
+  // requestId guard in the dispatcher above.
+  const clearPendingClipboard = useCallback((sessionId: string) => {
+    setPendingClipboard((prev) => {
+      if (!prev[sessionId]) return prev;
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
+  }, []);
+
   return {
     workspaces,
     connected,
@@ -403,5 +487,7 @@ export default function useSessionsWebSocket(opts?: {
     clearMonitorEvents,
     subredditUpdateCount,
     repofeedUpdateCount,
+    pendingClipboard,
+    clearPendingClipboard,
   };
 }

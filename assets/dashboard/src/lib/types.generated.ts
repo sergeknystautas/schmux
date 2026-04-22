@@ -20,6 +20,30 @@ export interface BranchSuggestUpdate {
   target?: string;
 }
 
+export interface ClipboardAckRequest {
+  action: string;
+  requestId: string;
+}
+
+export interface ClipboardAckResponse {
+  status: string;
+}
+
+export interface ClipboardClearedEvent {
+  type: string;
+  sessionId: string;
+  requestId: string;
+}
+
+export interface ClipboardRequestEvent {
+  type: string;
+  sessionId: string;
+  requestId: string;
+  text: string;
+  byteCount: number;
+  strippedControlChars: number;
+}
+
 export interface CommitDetailResponse {
   hash: string;
   short_hash: string;

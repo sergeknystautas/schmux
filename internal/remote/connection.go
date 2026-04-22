@@ -730,24 +730,18 @@ func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader) e
 		}
 	}
 
-	// Set window-size to manual so each window can be independently resized.
-	// Without this, tmux constrains all windows to the control mode client's
-	// PTY size (80x24), ignoring per-window resize-window commands.
-	if err := c.client.SetOption(ctx, "window-size", "manual"); err != nil {
-		if c.logger != nil {
-			c.logger.Warn("failed to set window-size manual", "host_id", c.host.ID, "err", err)
-		}
-	}
-
-	// Set DISPLAY in the tmux global environment so all panes (including AI agents)
-	// can access the X11 clipboard via xclip. This must happen BEFORE sessions are
-	// spawned so the agent process inherits DISPLAY at startup.
-	// DISPLAY=:99 is the conventional Xvfb display started during provisioning.
-	if _, _, err := c.client.Execute(ctx, "setenv -g DISPLAY :99"); err != nil {
-		if c.logger != nil {
-			c.logger.Warn("failed to set DISPLAY in tmux environment", "host_id", c.host.ID, "err", err)
-		}
-	}
+	// Apply server-scope and per-session tmux options every remote tmux server
+	// should have. Covers:
+	//   - set-clipboard external + terminal-features '*:clipboard' for OSC 52
+	//     forwarding from inner panes out to the daemon.
+	//   - window-size manual so each window can be independently resized
+	//     (without this tmux constrains all windows to the control mode
+	//     client's PTY size, ignoring per-window resize-window commands).
+	//   - DISPLAY=:99 in the tmux global environment so all panes (including
+	//     AI agents) can access the X11 clipboard via xclip. Must run BEFORE
+	//     sessions are spawned so the agent process inherits DISPLAY at startup.
+	//     :99 is the conventional Xvfb display started during provisioning.
+	applyRemoteTmuxDefaults(ctx, c.client, c.logger)
 
 	// Connection ready - drain pending session queue
 	c.drainPendingQueue(ctx)
