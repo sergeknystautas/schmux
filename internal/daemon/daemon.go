@@ -1117,6 +1117,11 @@ func (d *Daemon) restoreSessions(
 		server.BroadcastSessions()
 	}()
 
+	// Clear orphaned git lock files left behind by prior daemon incarnations
+	// or killed git processes. Runs before the watcher attaches so our own
+	// fds don't count as owners.
+	wm.SweepStaleLocks(context.Background())
+
 	// Create and start git watcher for filesystem-based change detection.
 	// Started after server creation so broadcasts reach WebSocket clients.
 	gitWatcher := workspace.NewGitWatcher(cfg, wm, server.BroadcastSessions, gitWatcherLog)

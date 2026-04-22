@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -341,6 +342,57 @@ func (m *Manager) removeStaleIndexLock(ctx context.Context, dir string, gitErr e
 		return false
 	}
 	return true
+}
+
+// SweepStaleLocks removes orphaned git lock files across all local git
+// workspaces. A lock is orphaned when no process has it open. Intended to run
+// once at daemon startup, before the git watcher attaches (so the daemon's
+// own fds don't appear as owners).
+func (m *Manager) SweepStaleLocks(ctx context.Context) {
+	for _, w := range m.state.GetWorkspaces() {
+		if w.RemoteHostID != "" || !IsGitVCS(w.VCS) {
+			continue
+		}
+		gitDirOut, err := m.runGit(ctx, "", RefreshTriggerExplicit, w.Path, "rev-parse", "--git-dir")
+		if err != nil {
+			continue
+		}
+		gitDir := strings.TrimSpace(string(gitDirOut))
+		if !filepath.IsAbs(gitDir) {
+			gitDir = filepath.Join(w.Path, gitDir)
+		}
+		workspaceID := w.ID
+		filepath.WalkDir(gitDir, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil || d.IsDir() || !strings.HasSuffix(path, ".lock") {
+				return nil
+			}
+			if lockHasOwner(ctx, path) {
+				return nil
+			}
+			m.logger.Warn("removing stale git lock", "workspace_id", workspaceID, "path", path)
+			if rmErr := os.Remove(path); rmErr != nil {
+				m.logger.Error("failed to remove stale git lock", "path", path, "err", rmErr)
+			}
+			return nil
+		})
+	}
+}
+
+// lockHasOwner returns true if any process has the given file open. A non-zero
+// exit from lsof with no other error means "no matches" (safe to remove); any
+// other error means lsof itself failed, in which case we conservatively treat
+// the file as owned.
+func lockHasOwner(ctx context.Context, path string) bool {
+	out, err := exec.CommandContext(ctx, "lsof", "--", path).Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return false
+		}
+		return true
+	}
+	lines := bytes.Split(bytes.TrimSpace(out), []byte("\n"))
+	return len(lines) > 1
 }
 
 // gitCurrentBranch returns the current branch name for a directory.

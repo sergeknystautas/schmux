@@ -1,8 +1,10 @@
 package dashboard
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -83,6 +85,10 @@ func localShellRun(ctx context.Context, dir string) func(string) (string, error)
 		c := exec.CommandContext(ctx, "sh", "-c", cmd)
 		c.Dir = dir
 		out, err := c.Output()
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && len(exitErr.Stderr) > 0 {
+			err = fmt.Errorf("%w: %s", err, bytes.TrimSpace(exitErr.Stderr))
+		}
 		return strings.TrimSpace(string(out)), err
 	}
 }
