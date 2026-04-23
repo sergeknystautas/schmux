@@ -142,6 +142,9 @@ export interface ConfigResponse {
   system_capabilities: SystemCapabilities;
   needs_restart: boolean;
   dashboard_sx_status?: DashboardSXStatus;
+  oneshot_targets: OneshotTarget[];
+  anthropic_oauth_token_set: boolean;
+  ollama: OllamaConfig;
 }
 
 export interface ConfigUpdateRequest {
@@ -182,6 +185,8 @@ export interface ConfigUpdateRequest {
   personas_enabled?: boolean;
   comm_styles_enabled?: boolean;
   backburner_enabled?: boolean;
+  anthropic_oauth_token?: string;
+  ollama?: OllamaConfigUpdate;
 }
 
 export interface ConflictResolve {
@@ -402,6 +407,23 @@ export interface NudgenikUpdate {
   target?: string;
   viewed_buffer_ms?: number;
   seen_interval_ms?: number;
+}
+
+export interface OllamaConfig {
+  endpoint?: string;
+  auto_detected_endpoint?: string;
+  reachable: boolean;
+  models: string[];
+}
+
+export interface OllamaConfigUpdate {
+  endpoint?: string;
+}
+
+export interface OneshotTarget {
+  id: string;
+  label: string;
+  source: string;
 }
 
 export interface PRsResponse {

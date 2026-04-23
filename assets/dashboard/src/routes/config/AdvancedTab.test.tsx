@@ -3,17 +3,15 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AdvancedTab from './AdvancedTab';
 import type { ConfigFormAction } from './useConfigForm';
-import type { Model } from '../../lib/types';
+import type { TargetOption } from './TargetSelect';
 
 const dispatch = vi.fn<(action: ConfigFormAction) => void>();
 
-const models: Model[] = [
+const models: TargetOption[] = [
   {
     id: 'claude-sonnet-4-6',
-    display_name: 'Claude Sonnet 4.6',
-    provider: 'anthropic',
-    configured: true,
-    runners: ['claude'],
+    label: 'Claude Sonnet 4.6',
+    source: 'cli',
   },
 ];
 const defaultProps = {

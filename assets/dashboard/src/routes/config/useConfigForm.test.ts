@@ -401,117 +401,95 @@ describe('useConfigForm', () => {
       expect(result.current.branchSuggestTargetMissing).toBe(false);
     });
 
-    it('target missing flags are false when target exists as model', () => {
+    it('target missing flags are false when target appears in oneshotTargets', () => {
       const { result } = renderHook(() => useConfigForm());
       act(() => {
         result.current.dispatch({
           type: 'LOAD_CONFIG',
           state: {
             nudgenikTarget: 'claude-sonnet',
-            modelCatalog: [
-              {
-                id: 'claude-sonnet',
-                display_name: 'Claude Sonnet',
-                configured: true,
-                provider: 'anthropic',
-                runners: ['claude'],
-              },
-            ],
+            oneshotTargets: [{ id: 'claude-sonnet', label: 'Claude Sonnet (CLI)', source: 'cli' }],
           },
         });
       });
       expect(result.current.nudgenikTargetMissing).toBe(false);
     });
+
+    it('target missing flags are false for ::api selections surfaced by the backend', () => {
+      // Regression: previously *TargetMissing checked modelTargetNames, which
+      // holds bare catalog IDs only, so every "::api" selection was flagged
+      // "Selected target is not available" in the UI.
+      const { result } = renderHook(() => useConfigForm());
+      act(() => {
+        result.current.dispatch({
+          type: 'LOAD_CONFIG',
+          state: {
+            branchSuggestTarget: 'claude-sonnet-4-6::api',
+            commitMessageTarget: 'llama3.2:latest::api',
+            oneshotTargets: [
+              { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (CLI)', source: 'cli' },
+              {
+                id: 'claude-sonnet-4-6::api',
+                label: 'Claude Sonnet 4.6 (API)',
+                source: 'anthropic_api',
+              },
+              {
+                id: 'llama3.2:latest::api',
+                label: 'llama3.2:latest (Ollama API)',
+                source: 'ollama_api',
+              },
+            ],
+          },
+        });
+      });
+      expect(result.current.branchSuggestTargetMissing).toBe(false);
+      expect(result.current.commitMessageTargetMissing).toBe(false);
+    });
   });
 
-  describe('oneshotModels', () => {
-    it('includes models with oneshot-capable runners when enabledModels is empty', () => {
+  describe('oneshotOptions', () => {
+    it('maps oneshotTargets from state to TargetOption array', () => {
       const { result } = renderHook(() => useConfigForm());
       act(() => {
         result.current.dispatch({
           type: 'LOAD_CONFIG',
           state: {
-            modelCatalog: [
-              {
-                id: 'claude-sonnet',
-                display_name: 'Claude Sonnet',
-                configured: true,
-                provider: 'anthropic',
-                runners: ['claude'],
-              },
-              {
-                id: 'gemini-pro',
-                display_name: 'Gemini Pro',
-                configured: true,
-                provider: 'google',
-                runners: ['gemini'],
-              },
+            oneshotTargets: [
+              { id: 'claude-sonnet', label: 'Claude Sonnet', source: 'cli' },
+              { id: 'gpt-4o', label: 'GPT-4o', source: 'third_party_api' },
             ],
-            runners: {
-              claude: { available: true, capabilities: ['interactive', 'oneshot', 'streaming'] },
-              gemini: { available: true, capabilities: ['interactive'] },
-            },
-            enabledModels: {},
           },
         });
       });
-      // Claude has oneshot capability, Gemini does not
-      const ids = result.current.oneshotModels.map((m) => m.id);
+      const ids = result.current.oneshotOptions.map((o) => o.id);
       expect(ids).toContain('claude-sonnet');
-      expect(ids).not.toContain('gemini-pro');
+      expect(ids).toContain('gpt-4o');
     });
 
-    it('uses preferred runner from enabledModels when set', () => {
+    it('returns empty array when no oneshotTargets are loaded', () => {
       const { result } = renderHook(() => useConfigForm());
       act(() => {
         result.current.dispatch({
           type: 'LOAD_CONFIG',
           state: {
-            modelCatalog: [
-              {
-                id: 'claude-sonnet',
-                display_name: 'Claude Sonnet',
-                configured: true,
-                provider: 'anthropic',
-                runners: ['claude', 'opencode'],
-              },
-            ],
-            runners: {
-              claude: { available: true, capabilities: ['interactive', 'oneshot', 'streaming'] },
-              opencode: { available: true, capabilities: ['interactive', 'oneshot'] },
-            },
-            enabledModels: { 'claude-sonnet': 'claude' },
+            oneshotTargets: [],
           },
         });
       });
-      const ids = result.current.oneshotModels.map((m) => m.id);
-      expect(ids).toContain('claude-sonnet');
+      expect(result.current.oneshotOptions).toEqual([]);
     });
 
-    it('excludes models whose preferred runner lacks oneshot', () => {
+    it('preserves source field from backend', () => {
       const { result } = renderHook(() => useConfigForm());
       act(() => {
         result.current.dispatch({
           type: 'LOAD_CONFIG',
           state: {
-            modelCatalog: [
-              {
-                id: 'gemini-pro',
-                display_name: 'Gemini Pro',
-                configured: true,
-                provider: 'google',
-                runners: ['gemini'],
-              },
-            ],
-            runners: {
-              gemini: { available: true, capabilities: ['interactive'] },
-            },
-            enabledModels: { 'gemini-pro': 'gemini' },
+            oneshotTargets: [{ id: 'llama3', label: 'Llama 3 (Ollama)', source: 'ollama_api' }],
           },
         });
       });
-      const ids = result.current.oneshotModels.map((m) => m.id);
-      expect(ids).not.toContain('gemini-pro');
+      expect(result.current.oneshotOptions[0].source).toBe('ollama_api');
     });
   });
 

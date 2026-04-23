@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import TargetSelect from './TargetSelect';
+import type { TargetOption } from './TargetSelect';
 import ModelCatalog from './ModelCatalog';
 import UserModelsEditor from './UserModelsEditor';
 import type { ConfigFormAction } from './useConfigForm';
@@ -12,10 +13,18 @@ type AgentsTabProps = {
     branchSuggestTarget: string;
     conflictResolveTarget: string;
     enabledModels: Record<string, string>;
+    anthropicOAuthTokenInput: string;
+    anthropicOAuthTokenSet: boolean;
+    anthropicOAuthTokenDirty: boolean;
+    ollamaEndpointInput: string;
+    ollamaEndpointDirty: boolean;
+    ollamaReachable: boolean;
+    ollamaModels: string[];
+    ollamaAutoDetectedEndpoint: string;
   };
   dispatch: React.Dispatch<ConfigFormAction>;
-  models: Model[];
-  oneshotModels: Model[];
+  models: TargetOption[];
+  oneshotOptions: TargetOption[];
   modelCatalog: Model[];
   runners: Record<string, RunnerInfo>;
   onModelAction: (model: Model, mode: 'add' | 'remove' | 'update') => void;
@@ -30,7 +39,7 @@ export default function AgentsTab({
   state,
   dispatch,
   models,
-  oneshotModels,
+  oneshotOptions,
   modelCatalog,
   runners,
   onModelAction,
@@ -61,6 +70,73 @@ export default function AgentsTab({
         style defaults.
       </p>
 
+      {/* One-shot Provider Setup */}
+      <div className="settings-section">
+        <div className="settings-section__header">
+          <h3 className="settings-section__title">One-Shot Providers</h3>
+        </div>
+        <div className="settings-section__body">
+          <div className="form-group">
+            <label className="form-group__label" htmlFor="anthropic-oauth-token">
+              Anthropic Token
+            </label>
+            <input
+              id="anthropic-oauth-token"
+              type="password"
+              className="input"
+              placeholder="sk-ant-oat-..."
+              value={state.anthropicOAuthTokenInput}
+              onChange={(e) =>
+                dispatch({
+                  type: 'SET_FIELD',
+                  field: 'anthropicOAuthTokenInput',
+                  value: e.target.value,
+                })
+              }
+            />
+            {state.anthropicOAuthTokenInput.startsWith('sk-ant-oat') && (
+              <p className="form-group__hint">
+                Detected: subscription token from <code>claude setup-token</code>.
+              </p>
+            )}
+            <p className="form-group__hint">
+              {state.anthropicOAuthTokenDirty && state.anthropicOAuthTokenInput === ''
+                ? 'The stored token will be cleared when you save.'
+                : state.anthropicOAuthTokenSet
+                  ? 'Token is set. Enter a new value to replace it, or clear this field and save to remove it.'
+                  : 'No token configured. Enter an Anthropic OAuth token (sk-ant-oat-...) to enable Anthropic API targets.'}
+            </p>
+          </div>
+
+          <div className="form-group">
+            <label className="form-group__label" htmlFor="ollama-endpoint">
+              Ollama Endpoint
+            </label>
+            <input
+              id="ollama-endpoint"
+              type="url"
+              className="input"
+              placeholder="http://localhost:11434"
+              value={state.ollamaEndpointInput}
+              onChange={(e) =>
+                dispatch({ type: 'SET_FIELD', field: 'ollamaEndpointInput', value: e.target.value })
+              }
+            />
+            <p className="form-group__hint">
+              {state.ollamaEndpointDirty && state.ollamaEndpointInput === ''
+                ? 'The saved endpoint will be cleared when you save.'
+                : state.ollamaReachable
+                  ? state.ollamaEndpointInput
+                    ? `Reachable — ${state.ollamaModels.length} model${state.ollamaModels.length === 1 ? '' : 's'} available.`
+                    : `Auto-detected at ${state.ollamaAutoDetectedEndpoint || 'http://localhost:11434'} — ${state.ollamaModels.length} model${state.ollamaModels.length === 1 ? '' : 's'} available. Leave blank to keep auto-detect, or enter a URL to pin it.`
+                  : state.ollamaEndpointInput
+                    ? 'Not reachable at the configured endpoint.'
+                    : 'No Ollama endpoint configured. Leave blank to auto-detect http://localhost:11434, or set a URL explicitly.'}
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* 1. Task Assignments */}
       <div className="settings-section">
         <div className="settings-section__header">
@@ -74,7 +150,7 @@ export default function AgentsTab({
               onChange={(v) =>
                 dispatch({ type: 'SET_FIELD', field: 'commitMessageTarget', value: v })
               }
-              models={oneshotModels}
+              options={oneshotOptions}
             />
             <p className="form-group__hint">
               Select a model for generating commit messages from the Git History DAG.
@@ -89,7 +165,7 @@ export default function AgentsTab({
             <TargetSelect
               value={state.prReviewTarget}
               onChange={(v) => dispatch({ type: 'SET_FIELD', field: 'prReviewTarget', value: v })}
-              models={models}
+              options={models}
             />
             <p className="form-group__hint">
               Select a model for PR review sessions, or leave disabled.
@@ -106,7 +182,7 @@ export default function AgentsTab({
               onChange={(v) =>
                 dispatch({ type: 'SET_FIELD', field: 'branchSuggestTarget', value: v })
               }
-              models={oneshotModels}
+              options={oneshotOptions}
             />
             <p className="form-group__hint">
               Select a model for branch name suggestion, or leave disabled.
@@ -123,7 +199,7 @@ export default function AgentsTab({
               onChange={(v) =>
                 dispatch({ type: 'SET_FIELD', field: 'conflictResolveTarget', value: v })
               }
-              models={oneshotModels}
+              options={oneshotOptions}
             />
             <p className="form-group__hint">
               Select a model for merge conflict resolution. When &quot;sync from main conflict&quot;

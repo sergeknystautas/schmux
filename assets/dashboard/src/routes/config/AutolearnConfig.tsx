@@ -23,7 +23,7 @@ export default function AutolearnConfig({ state, dispatch, models }: ConfigPanel
           onChange={(v) => setField('loreLLMTarget', v)}
           includeDisabledOption={false}
           includeNoneOption="None (curator disabled)"
-          models={models}
+          options={models}
         />
         <p className="form-group__hint">
           Promptable target for curating autolearn entries into documentation proposals.

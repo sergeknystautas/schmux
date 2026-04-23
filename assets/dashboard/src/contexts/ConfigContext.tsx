@@ -116,6 +116,13 @@ const DEFAULT_CONFIG: ConfigResponse = {
     iterm2_available: false,
   },
   needs_restart: false,
+  oneshot_targets: [],
+  anthropic_oauth_token_set: false,
+  ollama: {
+    endpoint: '',
+    reachable: false,
+    models: [],
+  },
 };
 
 export function ConfigProvider({ children }: { children: React.ReactNode }) {

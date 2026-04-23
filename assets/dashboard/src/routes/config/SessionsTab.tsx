@@ -4,16 +4,16 @@ import NotificationsConfig from './NotificationsConfig';
 import type { ConfigFormAction, ConfigFormState } from './useConfigForm';
 import type {
   BuiltinQuickLaunchCookbook,
-  Model,
   QuickLaunchPreset,
   RunTargetResponse,
 } from '../../lib/types';
 import type { Persona } from '../../lib/types.generated';
+import type { TargetOption } from './TargetSelect';
 
 type SessionsTabProps = {
   state: ConfigFormState;
   dispatch: React.Dispatch<ConfigFormAction>;
-  models: Model[];
+  models: TargetOption[];
   personas: Persona[];
   builtinQuickLaunch: BuiltinQuickLaunchCookbook[];
   onEditQuickLaunch: (item: QuickLaunchPreset) => void;

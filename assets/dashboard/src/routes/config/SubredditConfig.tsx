@@ -28,7 +28,7 @@ export default function SubredditConfig({ state, dispatch, models }: ConfigPanel
         <TargetSelect
           value={state.subredditTarget}
           onChange={(v) => setField('subredditTarget', v)}
-          models={models}
+          options={models}
           includeDisabledOption={true}
         />
         <p className="form-group__hint">

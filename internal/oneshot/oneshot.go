@@ -14,7 +14,9 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/directhttp"
 	"github.com/sergeknystautas/schmux/internal/models"
+	"github.com/sergeknystautas/schmux/internal/oneshotdecode"
 	"github.com/sergeknystautas/schmux/internal/schema"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
@@ -35,35 +37,20 @@ var ErrTargetNotFound = errors.New("target not found")
 // ErrTargetNotFound ("configured target does not exist").
 var ErrDisabled = errors.New("oneshot target is disabled")
 
-// ErrInvalidResponse is returned when an LLM response cannot be decoded into
-// the expected struct, even after fence-stripping and NormalizeJSONPayload
-// recovery. It is wrapped by *InvalidResponseError which also carries the raw
-// response for logging.
-var ErrInvalidResponse = errors.New("invalid oneshot response")
+// ErrInvalidResponse is re-exported from internal/oneshotdecode so that
+// external callers keep using oneshot.ErrInvalidResponse while the direct-HTTP
+// package can share the same sentinel without creating an import cycle.
+var ErrInvalidResponse = oneshotdecode.ErrInvalidResponse
 
 // ErrNoSchemaLabel is returned when ExecuteTarget is called with an empty
 // schemaLabel. Every oneshot call must name a registered schema; schemaless
 // calls are structurally rejected.
 var ErrNoSchemaLabel = errors.New("oneshot call requires a registered schema label")
 
-// InvalidResponseError carries the raw LLM response alongside the decode
-// failure. Extract via errors.As; errors.Is against ErrInvalidResponse still
-// succeeds via the Is method below.
-type InvalidResponseError struct {
-	Raw string
-	Err error
-}
-
-func (e *InvalidResponseError) Error() string {
-	return fmt.Sprintf("invalid oneshot response: %v", e.Err)
-}
-
-func (e *InvalidResponseError) Unwrap() error { return e.Err }
-
-// Is implements errors.Is matching for the sentinel.
-func (e *InvalidResponseError) Is(target error) bool {
-	return target == ErrInvalidResponse
-}
+// InvalidResponseError is a type alias for oneshotdecode.InvalidResponseError
+// so that existing callers (errors.As, &oneshot.InvalidResponseError{...})
+// keep compiling without changes.
+type InvalidResponseError = oneshotdecode.InvalidResponseError
 
 // CommandInfo describes the resolved command and environment for a oneshot target,
 // without executing it. Useful for generating reproducible run scripts.
@@ -281,6 +268,10 @@ func ExecuteTarget[T any](
 		return zero, ErrDisabled
 	}
 
+	if _, isAPI := directhttp.StripAPISuffix(targetName); isAPI {
+		return directhttp.ExecuteAPI[T](ctx, cfg, targetName, prompt, schemaLabel, timeout, dir)
+	}
+
 	raw, err := executeTargetRaw(ctx, cfg, targetName, prompt, schemaLabel, timeout, dir)
 	if err != nil {
 		return zero, err
@@ -293,43 +284,10 @@ func ExecuteTarget[T any](
 	return result, nil
 }
 
-// decodeResponse strips ```json code fences, locates the JSON object in raw,
-// and decodes it into T. On unmarshal failure it retries once with
-// NormalizeJSONPayload applied. Returns the underlying decode error on failure
-// (callers wrap it with InvalidResponseError).
-//
-// Package-private; use ExecuteTarget[T] instead.
+// decodeResponse is a thin wrapper over oneshotdecode.Decode so existing
+// call sites inside this package keep compiling.
 func decodeResponse[T any](raw string) (T, error) {
-	var zero T
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return zero, fmt.Errorf("empty response")
-	}
-
-	if strings.HasPrefix(trimmed, "```") {
-		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "```json"))
-		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "```"))
-		trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, "```"))
-	}
-
-	start := strings.Index(trimmed, "{")
-	end := strings.LastIndex(trimmed, "}")
-	if start == -1 || end == -1 || end <= start {
-		return zero, fmt.Errorf("no JSON object found")
-	}
-
-	payload := trimmed[start : end+1]
-	var result T
-	if err := json.Unmarshal([]byte(payload), &result); err != nil {
-		normalized := NormalizeJSONPayload(payload)
-		if normalized == "" {
-			return zero, err
-		}
-		if err2 := json.Unmarshal([]byte(normalized), &result); err2 != nil {
-			return zero, err2
-		}
-	}
-	return result, nil
+	return oneshotdecode.Decode[T](raw)
 }
 
 func mergeEnv(extra map[string]string) []string {
@@ -554,23 +512,4 @@ func resolveTarget(cfg *config.Config, targetName string) (resolvedTarget, error
 	}
 
 	return resolvedTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
-}
-
-// NormalizeJSONPayload normalizes common JSON encoding issues that can occur
-// with LLM outputs, such as fancy quotes, extra whitespace, and tabs.
-// Returns an empty string if the input is empty after trimming.
-func NormalizeJSONPayload(payload string) string {
-	fixed := strings.TrimSpace(payload)
-	if fixed == "" {
-		return ""
-	}
-	fixed = strings.ReplaceAll(fixed, "“", "\"")
-	fixed = strings.ReplaceAll(fixed, "”", "\"")
-	fixed = strings.ReplaceAll(fixed, "'", "'")
-	fixed = strings.ReplaceAll(fixed, "\t", " ")
-	for strings.Contains(fixed, "  ") {
-		fixed = strings.ReplaceAll(fixed, "  ", " ")
-	}
-	fixed = strings.TrimSpace(fixed)
-	return fixed
 }

@@ -92,6 +92,9 @@ const configFixture: ConfigResponse = {
   comm_styles_enabled: true,
   system_capabilities: { iterm2_available: false },
   needs_restart: false,
+  oneshot_targets: [],
+  anthropic_oauth_token_set: false,
+  ollama: { endpoint: '', reachable: false, models: [] },
 };
 
 const mockGetConfig = vi.fn<() => Promise<ConfigResponse>>();

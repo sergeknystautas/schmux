@@ -191,6 +191,30 @@ type ConfigResponse struct {
 	SystemCapabilities         SystemCapabilities     `json:"system_capabilities"`
 	NeedsRestart               bool                   `json:"needs_restart"`
 	DashboardSXStatus          *DashboardSXStatus     `json:"dashboard_sx_status,omitempty"`
+	OneshotTargets             []OneshotTarget        `json:"oneshot_targets"`
+	AnthropicOAuthTokenSet     bool                   `json:"anthropic_oauth_token_set"`
+	Ollama                     OllamaConfig           `json:"ollama"`
+}
+
+type OneshotTarget struct {
+	ID     string `json:"id"`
+	Label  string `json:"label"`
+	Source string `json:"source"`
+}
+
+type OllamaConfig struct {
+	// Endpoint is the user-configured URL. Empty means "not explicitly set";
+	// the daemon probes localhost and, if reachable, reports the auto-detected
+	// URL via AutoDetectedEndpoint so the UI can show it without the value
+	// ever being persisted to config.json.
+	Endpoint             string   `json:"endpoint,omitempty"`
+	AutoDetectedEndpoint string   `json:"auto_detected_endpoint,omitempty"`
+	Reachable            bool     `json:"reachable"`
+	Models               []string `json:"models"`
+}
+
+type OllamaConfigUpdate struct {
+	Endpoint *string `json:"endpoint,omitempty"`
 }
 
 // Desync represents desync diagnostic capture configuration in the API response.
@@ -335,6 +359,8 @@ type ConfigUpdateRequest struct {
 	PersonasEnabled            *bool                       `json:"personas_enabled,omitempty"`
 	CommStylesEnabled          *bool                       `json:"comm_styles_enabled,omitempty"`
 	BackburnerEnabled          *bool                       `json:"backburner_enabled,omitempty"`
+	AnthropicOAuthToken        *string                     `json:"anthropic_oauth_token,omitempty"`
+	Ollama                     *OllamaConfigUpdate         `json:"ollama,omitempty"`
 }
 
 // DesyncUpdate represents partial desync diagnostic config updates.

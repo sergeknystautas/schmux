@@ -14,7 +14,7 @@ export default function FloorManagerConfig({ state, dispatch, models }: ConfigPa
         <TargetSelect
           value={state.fmTarget}
           onChange={(v) => setField('fmTarget', v)}
-          models={models}
+          options={models}
           includeDisabledOption={false}
           includeNoneOption="Select a target..."
         />

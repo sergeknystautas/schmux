@@ -14,6 +14,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/buildflags"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/directhttp"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -332,7 +333,15 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 				Command:   h.config.GetRemoteAccessNotifyCommand(),
 			},
 		},
-		NeedsRestart: h.state.GetNeedsRestart(),
+		NeedsRestart:           h.state.GetNeedsRestart(),
+		OneshotTargets:         h.buildOneshotTargets(catalog),
+		AnthropicOAuthTokenSet: func() bool { t, _ := config.GetAnthropicOAuthToken(); return t != "" }(),
+		Ollama: contracts.OllamaConfig{
+			Endpoint:             h.config.GetOllamaEndpoint(),
+			AutoDetectedEndpoint: directhttp.GetOllamaAutoDetectedEndpoint(),
+			Reachable:            len(directhttp.GetOllamaModels()) > 0,
+			Models:               directhttp.GetOllamaModels(),
+		},
 		DashboardSXStatus: func() *contracts.DashboardSXStatus {
 			st := h.state.GetDashboardSXStatus()
 			if st == nil {
@@ -899,6 +908,10 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 
 	if req.LocalEchoRemote != nil {
 		cfg.LocalEchoRemote = *req.LocalEchoRemote
+	}
+
+	if !h.handleOneshotUpdates(w, req) {
+		return
 	}
 
 	warnings, err := cfg.ValidateForSave()

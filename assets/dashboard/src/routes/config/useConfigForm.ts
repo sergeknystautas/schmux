@@ -8,7 +8,8 @@ import type {
   RunnerInfo,
   RunTargetResponse,
 } from '../../lib/types';
-import type { SaplingCommandsUpdate } from '../../lib/types.generated';
+import type { OneshotTarget, OllamaConfig, SaplingCommandsUpdate } from '../../lib/types.generated';
+import type { TargetOption } from './TargetSelect';
 import { sortModels } from '../../lib/modelSort';
 
 export type RunTargetEditModalState = {
@@ -150,6 +151,23 @@ export type ConfigFormState = {
   // Desync
   desyncEnabled: boolean;
   desyncTarget: string;
+
+  // One-shot targets (sourced from backend)
+  oneshotTargets: OneshotTarget[];
+
+  // Anthropic OAuth token.
+  // `Dirty` is true after any user edit (including clearing). buildConfigUpdate
+  // consults it so an untouched empty input does not wipe a stored token.
+  anthropicOAuthTokenInput: string;
+  anthropicOAuthTokenSet: boolean;
+  anthropicOAuthTokenDirty: boolean;
+
+  // Ollama. Same dirty-flag pattern as the Anthropic token above.
+  ollamaEndpointInput: string;
+  ollamaEndpointDirty: boolean;
+  ollamaReachable: boolean;
+  ollamaModels: string[];
+  ollamaAutoDetectedEndpoint: string;
 
   // Floor Manager
   fmEnabled: boolean;
@@ -316,6 +334,16 @@ export const initialState: ConfigFormState = {
   desyncEnabled: false,
   desyncTarget: '',
 
+  oneshotTargets: [],
+  anthropicOAuthTokenInput: '',
+  anthropicOAuthTokenSet: false,
+  anthropicOAuthTokenDirty: false,
+  ollamaEndpointInput: '',
+  ollamaEndpointDirty: false,
+  ollamaReachable: false,
+  ollamaModels: [],
+  ollamaAutoDetectedEndpoint: '',
+
   fmEnabled: false,
   fmTarget: '',
   fmRotationThreshold: 150,
@@ -355,11 +383,29 @@ export const initialState: ConfigFormState = {
 
 function configFormReducer(state: ConfigFormState, action: ConfigFormAction): ConfigFormState {
   switch (action.type) {
-    case 'SET_FIELD':
-      return { ...state, [action.field]: action.value };
+    case 'SET_FIELD': {
+      // Track user edits to the Anthropic token and Ollama endpoint so
+      // buildConfigUpdate can distinguish "user cleared the field" from
+      // "field was never touched" and send an explicit empty string vs. omit.
+      const next: ConfigFormState = { ...state, [action.field]: action.value };
+      if (action.field === 'anthropicOAuthTokenInput') {
+        next.anthropicOAuthTokenDirty = true;
+      }
+      if (action.field === 'ollamaEndpointInput') {
+        next.ollamaEndpointDirty = true;
+      }
+      return next;
+    }
 
     case 'LOAD_CONFIG':
-      return { ...state, ...action.state };
+      // Reset the dirty flags so an immediately-following save does not
+      // re-send fields that just came from the server as "user edits".
+      return {
+        ...state,
+        ...action.state,
+        anthropicOAuthTokenDirty: false,
+        ollamaEndpointDirty: false,
+      };
 
     case 'ADD_REPO':
       return { ...state, repos: [...state.repos, action.repo] };
@@ -505,40 +551,46 @@ export function useConfigForm(initialStep: number = 1) {
     const filtered = state.modelCatalog.filter((m) =>
       hasExplicit ? m.id in enabled : m.configured
     );
-    return sortModels(filtered);
+    return sortModels(filtered).map(
+      (m): TargetOption => ({
+        id: m.id,
+        label: m.display_name,
+        source: 'cli',
+      })
+    );
   }, [state.modelCatalog, state.enabledModels]);
 
-  const oneshotModels = useMemo(() => {
-    const filtered = models.filter((m) => {
-      const preferredRunner = state.enabledModels[m.id];
-      if (preferredRunner) {
-        const runner = state.runners[preferredRunner];
-        return runner?.capabilities?.includes('oneshot') ?? false;
-      }
-      // No explicit preferred runner — check if any of the model's runners support oneshot
-      return m.runners.some((name) => {
-        const runner = state.runners[name];
-        return runner?.capabilities?.includes('oneshot') ?? false;
-      });
-    });
-    return sortModels(filtered);
-  }, [models, state.enabledModels, state.runners]);
+  const oneshotOptions = useMemo(() => {
+    return state.oneshotTargets.map(
+      (t): TargetOption => ({
+        id: t.id,
+        label: t.label,
+        source: t.source as TargetOption['source'],
+      })
+    );
+  }, [state.oneshotTargets]);
 
   const commandTargetNames = new Set(state.commandTargets.map((target) => target.name));
 
+  // One-shot feature targets (branch-suggest, commit-message, conflict-resolve,
+  // nudgenik, pr-review) are picked from the flat dropdown union — CLI bare
+  // IDs plus "::api" rows. Using modelTargetNames (bare-IDs only) would
+  // flag every ::api selection as "not available".
+  const oneshotTargetIds = new Set(oneshotOptions.map((o) => o.id));
+
   const nudgenikTargetMissing =
-    state.nudgenikTarget.trim() !== '' && !modelTargetNames.has(state.nudgenikTarget.trim());
+    state.nudgenikTarget.trim() !== '' && !oneshotTargetIds.has(state.nudgenikTarget.trim());
   const branchSuggestTargetMissing =
     state.branchSuggestTarget.trim() !== '' &&
-    !modelTargetNames.has(state.branchSuggestTarget.trim());
+    !oneshotTargetIds.has(state.branchSuggestTarget.trim());
   const conflictResolveTargetMissing =
     state.conflictResolveTarget.trim() !== '' &&
-    !modelTargetNames.has(state.conflictResolveTarget.trim());
+    !oneshotTargetIds.has(state.conflictResolveTarget.trim());
   const prReviewTargetMissing =
-    state.prReviewTarget.trim() !== '' && !modelTargetNames.has(state.prReviewTarget.trim());
+    state.prReviewTarget.trim() !== '' && !oneshotTargetIds.has(state.prReviewTarget.trim());
   const commitMessageTargetMissing =
     state.commitMessageTarget.trim() !== '' &&
-    !modelTargetNames.has(state.commitMessageTarget.trim());
+    !oneshotTargetIds.has(state.commitMessageTarget.trim());
 
   const checkTargetUsage = useCallback(
     (targetName: string) => {
@@ -564,7 +616,7 @@ export function useConfigForm(initialStep: number = 1) {
     state,
     dispatch,
     models,
-    oneshotModels,
+    oneshotOptions,
     modelTargetNames,
     commandTargetNames,
     nudgenikTargetMissing,

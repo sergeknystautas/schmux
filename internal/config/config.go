@@ -131,6 +131,11 @@ type ConfigData struct {
 	Telemetry      *TelemetryConfig `json:"telemetry,omitempty"`
 	InstallationID string           `json:"installation_id,omitempty"` // UUID for anonymous tracking
 	Security       *SecurityConfig  `json:"security,omitempty"`
+	Ollama         *OllamaConfig    `json:"ollama,omitempty"`
+}
+
+type OllamaConfig struct {
+	Endpoint string `json:"endpoint,omitempty"`
 }
 
 // Config represents the application configuration.

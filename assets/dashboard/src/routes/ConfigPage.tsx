@@ -92,7 +92,7 @@ export default function ConfigPage() {
     state,
     dispatch: rawDispatch,
     models,
-    oneshotModels,
+    oneshotOptions,
     branchSuggestTargetMissing,
     conflictResolveTargetMissing,
     prReviewTargetMissing,
@@ -220,6 +220,12 @@ export default function ConfigPage() {
           saplingCommands: data.sapling_commands || {},
           modelCatalog: data.models || [],
           runners: data.runners || {},
+          oneshotTargets: data.oneshot_targets || [],
+          anthropicOAuthTokenSet: data.anthropic_oauth_token_set || false,
+          ollamaEndpointInput: data.ollama?.endpoint || '',
+          ollamaReachable: data.ollama?.reachable || false,
+          ollamaModels: data.ollama?.models || [],
+          ollamaAutoDetectedEndpoint: data.ollama?.auto_detected_endpoint || '',
         };
 
         rawDispatch({ type: 'LOAD_CONFIG', state: loadedState });
@@ -1044,7 +1050,7 @@ export default function ConfigPage() {
             <SessionsTab
               state={state}
               dispatch={dispatch}
-              models={oneshotModels}
+              models={oneshotOptions}
               personas={personas}
               builtinQuickLaunch={state.builtinQuickLaunch}
               onEditQuickLaunch={openEditQuickLaunchDialog}
@@ -1075,7 +1081,7 @@ export default function ConfigPage() {
               state={state}
               dispatch={dispatch}
               models={models}
-              oneshotModels={oneshotModels}
+              oneshotOptions={oneshotOptions}
               modelCatalog={state.modelCatalog}
               runners={state.runners}
               onModelAction={handleModelAction}
@@ -1129,7 +1135,7 @@ export default function ConfigPage() {
           {currentTab === 5 && <RemoteSettingsPage />}
 
           {currentTab === 6 && (
-            <ExperimentalTab state={state} dispatch={dispatch} models={oneshotModels} />
+            <ExperimentalTab state={state} dispatch={dispatch} models={oneshotOptions} />
           )}
 
           {currentTab === 7 && (
@@ -1178,7 +1184,7 @@ export default function ConfigPage() {
         onSaveTls={handleTlsModalSave}
         onValidateTls={handleTlsValidate}
         authPublicBaseURL={state.authPublicBaseURL}
-        models={models}
+        models={state.modelCatalog}
         personas={personas}
       />
     </>

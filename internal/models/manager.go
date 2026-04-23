@@ -19,6 +19,17 @@ import (
 	"github.com/sergeknystautas/schmux/internal/detect"
 )
 
+var defaultManager *Manager
+
+func SetDefault(m *Manager) { defaultManager = m }
+
+func LookupForAPI(bareID string) (detect.Model, bool) {
+	if defaultManager == nil {
+		return detect.Model{}, false
+	}
+	return defaultManager.FindModel(bareID)
+}
+
 // Manager owns the model catalog, availability, enablement, and resolution.
 // It merges three sources: registry, user-defined, and default_* models.
 type Manager struct {

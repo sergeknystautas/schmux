@@ -438,6 +438,47 @@ func migrateSecretKeys(secrets *SecretsFile) bool {
 
 // migrateToProviderKeyed converts model-keyed secrets to provider-keyed format.
 // This groups secrets by provider, so "moonshot" provider secrets apply to all moonshot models.
+const anthropicOAuthTokenKey = "oauth_token"
+
+func GetAnthropicOAuthToken() (string, error) {
+	secrets, err := LoadSecretsFile()
+	if err != nil {
+		return "", err
+	}
+	if secrets == nil || secrets.Providers == nil {
+		return "", nil
+	}
+	if p, ok := secrets.Providers["anthropic"]; ok {
+		return p[anthropicOAuthTokenKey], nil
+	}
+	return "", nil
+}
+
+func SaveAnthropicOAuthToken(token string) error {
+	secrets, err := LoadSecretsFile()
+	if err != nil {
+		return err
+	}
+	if secrets == nil {
+		secrets = &SecretsFile{}
+	}
+	if secrets.Providers == nil {
+		secrets.Providers = map[string]map[string]string{}
+	}
+	if secrets.Providers["anthropic"] == nil {
+		secrets.Providers["anthropic"] = map[string]string{}
+	}
+	if token == "" {
+		delete(secrets.Providers["anthropic"], anthropicOAuthTokenKey)
+		if len(secrets.Providers["anthropic"]) == 0 {
+			delete(secrets.Providers, "anthropic")
+		}
+	} else {
+		secrets.Providers["anthropic"][anthropicOAuthTokenKey] = token
+	}
+	return SaveSecretsFile(secrets)
+}
+
 func migrateToProviderKeyed(secrets *SecretsFile) bool {
 	if secrets == nil || secrets.Models == nil || len(secrets.Models) == 0 {
 		return false

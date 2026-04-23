@@ -92,6 +92,9 @@ function makeConfig(overrides: Partial<ConfigResponse> = {}): ConfigResponse {
     comm_styles_enabled: false,
     system_capabilities: { iterm2_available: false },
     needs_restart: false,
+    oneshot_targets: [],
+    anthropic_oauth_token_set: false,
+    ollama: { endpoint: '', reachable: false, models: [] },
     ...overrides,
   };
 }

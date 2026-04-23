@@ -125,5 +125,16 @@ export function buildConfigUpdate(state: ConfigFormState): ConfigUpdateRequest {
     backburner_enabled: state.backburnerEnabled,
     local_echo_remote: state.localEchoRemote,
     debug_ui: state.debugUI,
+    // Send the Anthropic token only when the user has actually edited the
+    // field. That way an untouched empty input (the default on load, because
+    // the saved token is never echoed back) cannot silently clear the stored
+    // token. When the flag is set, the input value flows through as-is —
+    // including "" which is the explicit "clear it" signal.
+    anthropic_oauth_token: state.anthropicOAuthTokenDirty
+      ? state.anthropicOAuthTokenInput
+      : undefined,
+    // Ollama endpoint follows the same dirty-flag pattern so users can
+    // clear a saved URL by emptying the field and saving.
+    ollama: state.ollamaEndpointDirty ? { endpoint: state.ollamaEndpointInput } : undefined,
   };
 }

@@ -1,5 +1,10 @@
 import React from 'react';
-import type { Model } from '../../lib/types';
+
+export type TargetOption = {
+  id: string;
+  label: string;
+  source?: 'cli' | 'anthropic_api' | 'third_party_api' | 'ollama_api';
+};
 
 type TargetSelectProps = {
   value: string;
@@ -7,7 +12,7 @@ type TargetSelectProps = {
   disabled?: boolean;
   includeDisabledOption?: boolean;
   includeNoneOption?: string;
-  models: Model[];
+  options: TargetOption[];
   className?: string;
   id?: string;
 };
@@ -18,11 +23,11 @@ export default function TargetSelect({
   disabled,
   includeDisabledOption = true,
   includeNoneOption,
-  models,
+  options,
   className = 'input',
   id,
 }: TargetSelectProps) {
-  const valueMissing = value !== '' && !models.some((m) => m.id === value);
+  const valueMissing = value !== '' && !options.some((o) => o.id === value);
   return (
     <select
       id={id}
@@ -33,9 +38,9 @@ export default function TargetSelect({
     >
       {includeDisabledOption && <option value="">Disabled</option>}
       {includeNoneOption && <option value="">{includeNoneOption}</option>}
-      {models.map((model) => (
-        <option key={model.id} value={model.id}>
-          {model.display_name}
+      {options.map((o) => (
+        <option key={o.id} value={o.id}>
+          {o.label}
         </option>
       ))}
       {valueMissing && (

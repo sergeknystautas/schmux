@@ -14,7 +14,7 @@ export default function NudgenikConfig({ state, models, dispatch }: ConfigPanelP
   const nudgenikTargetMissing =
     !!state.nudgenikTarget &&
     state.nudgenikTarget !== '__disabled__' &&
-    !models.some((m) => m.id === state.nudgenikTarget);
+    !models.some((o) => o.id === state.nudgenikTarget);
 
   return (
     <div className="settings-section">
@@ -27,7 +27,7 @@ export default function NudgenikConfig({ state, models, dispatch }: ConfigPanelP
           <TargetSelect
             value={state.nudgenikTarget}
             onChange={(v) => setField('nudgenikTarget', v)}
-            models={models}
+            options={models}
           />
           <p className="form-group__hint">
             Select a model for NudgeNik session feedback, or leave disabled.

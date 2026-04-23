@@ -31,6 +31,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/dashboardsx"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/difftool"
+	"github.com/sergeknystautas/schmux/internal/directhttp"
 	"github.com/sergeknystautas/schmux/internal/events"
 	"github.com/sergeknystautas/schmux/internal/floormanager"
 	"github.com/sergeknystautas/schmux/internal/github"
@@ -872,6 +873,38 @@ func (d *Daemon) wireCallbacks(
 	sm.SetModelManager(mm)
 	wm.SetModelManager(mm)
 	oneshot.SetModelManager(mm)
+	models.SetDefault(mm)
+
+	// Ollama probe loop
+	go func() {
+		const probeTimeout = 2 * time.Second
+		const refreshInterval = 90 * time.Second
+		refresh := func() {
+			endpoint := cfg.GetOllamaEndpoint()
+			effective := endpoint
+			autoDetected := false
+			if effective == "" {
+				effective = "http://localhost:11434"
+				autoDetected = true
+			}
+			probedModels, err := directhttp.ProbeOllama(effective, probeTimeout)
+			if err != nil || len(probedModels) == 0 {
+				directhttp.SetOllamaModels(nil)
+				directhttp.SetOllamaAutoDetectedEndpoint("")
+				return
+			}
+			directhttp.SetOllamaModels(probedModels)
+			if autoDetected {
+				// The URL exists only in memory — it is surfaced to the UI via
+				// the config response so users can see what is being used,
+				// but it is never written to config.json without explicit save.
+				directhttp.SetOllamaAutoDetectedEndpoint(effective)
+			} else {
+				directhttp.SetOllamaAutoDetectedEndpoint("")
+			}
+		}
+		directhttp.LoopOllamaProbe(refreshInterval, refresh, d.shutdownChan)
+	}()
 
 	// Create remote manager for remote workspace support
 	remoteManager = remote.NewManager(cfg, st, remoteLog)

@@ -1,7 +1,7 @@
 import React from 'react';
 import TargetSelect from './TargetSelect';
+import type { TargetOption } from './TargetSelect';
 import type { ConfigFormAction } from './useConfigForm';
-import type { Model } from '../../lib/types';
 import type { SaplingCommandsUpdate } from '../../lib/types.generated';
 
 type AdvancedTabProps = {
@@ -28,7 +28,7 @@ type AdvancedTabProps = {
   newDiffName: string;
   newDiffCommand: string;
   onAddDiffCommand: () => void;
-  models: Model[];
+  models: TargetOption[];
   dispatch: React.Dispatch<ConfigFormAction>;
 };
 
@@ -485,7 +485,7 @@ export default function AdvancedTab({
                   disabled={!desyncEnabled}
                   includeDisabledOption={false}
                   includeNoneOption="None (capture only)"
-                  models={models}
+                  options={models}
                 />
                 <p className="form-group__hint">
                   When a target is selected, a diagnostic capture will automatically spawn an agent
@@ -523,7 +523,7 @@ export default function AdvancedTab({
                   disabled={!ioWorkspaceTelemetryEnabled}
                   includeDisabledOption={false}
                   includeNoneOption="None (capture only)"
-                  models={models}
+                  options={models}
                 />
                 <p className="form-group__hint">
                   When a target is selected, a diagnostic capture will automatically spawn an agent

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sergeknystautas/schmux/internal/detect"
 )
@@ -381,32 +382,6 @@ func TestParseResponse(t *testing.T) {
 	}
 }
 
-func TestNormalizeJSONPayload(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{"empty returns empty", "", ""},
-		{"whitespace only returns empty", "   \t  ", ""},
-		{"replaces curly double quotes", "\u201chello\u201d", "\"hello\""},
-		{"collapses multiple spaces", "a  b   c", "a b c"},
-		{"replaces tabs with spaces", "a\tb", "a b"},
-		{"trims surrounding whitespace", "  hello  ", "hello"},
-		{"combined normalization", " \u201ckey\u201d :  \u201cvalue\u201d ", "\"key\" : \"value\""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := NormalizeJSONPayload(tt.input)
-			if got != tt.want {
-				t.Errorf("NormalizeJSONPayload(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
-	}
-}
-
 // ===== Tests for unified ExecuteTarget[T] generic (rev 2026-04-20) =====
 
 type unifiedTestResult struct {
@@ -617,5 +592,28 @@ func TestExecuteTarget_DecodeFailureWrapsRaw(t *testing.T) {
 	}
 	if ire.Raw != raw {
 		t.Fatalf("Raw mismatch: %q", ire.Raw)
+	}
+}
+
+func TestExecuteTarget_APISuffix_RoutesToDirectHTTP(t *testing.T) {
+	_, err := ExecuteTarget[unifiedTestResult](
+		context.Background(), nil, "claude-sonnet-4-6::api",
+		"some prompt", "someLabel", 5*time.Second, "")
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if errors.Is(err, ErrTargetNotFound) {
+		t.Fatal("::api target incorrectly reached the CLI path")
+	}
+}
+
+func TestExecuteTarget_BareID_StaysOnCLIPath(t *testing.T) {
+	_, err := ExecuteTarget[unifiedTestResult](
+		context.Background(), nil, "claude-sonnet-4-6",
+		"some prompt", "someLabel", 5*time.Second, "")
+
+	if !errors.Is(err, ErrTargetNotFound) {
+		t.Fatalf("expected ErrTargetNotFound (CLI path), got: %v", err)
 	}
 }

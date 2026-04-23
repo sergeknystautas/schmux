@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import AgentsTab from './AgentsTab';
 import type { ConfigFormAction } from './useConfigForm';
 import type { Model } from '../../lib/types';
+import type { TargetOption } from './TargetSelect';
 
 // Mock UserModelsEditor — it uses raw fetch internally
 vi.mock('./UserModelsEditor', () => ({
@@ -11,7 +12,11 @@ vi.mock('./UserModelsEditor', () => ({
 
 const dispatch = vi.fn<(action: ConfigFormAction) => void>();
 
-const models: Model[] = [
+const models: TargetOption[] = [
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', source: 'cli' },
+];
+
+const modelCatalog: Model[] = [
   {
     id: 'claude-sonnet-4-6',
     display_name: 'Claude Sonnet 4.6',
@@ -28,11 +33,19 @@ const defaultProps = {
     branchSuggestTarget: '',
     conflictResolveTarget: '',
     enabledModels: {} as Record<string, string>,
+    anthropicOAuthTokenInput: '',
+    anthropicOAuthTokenSet: false,
+    anthropicOAuthTokenDirty: false,
+    ollamaEndpointInput: '',
+    ollamaEndpointDirty: false,
+    ollamaReachable: false,
+    ollamaModels: [] as string[],
+    ollamaAutoDetectedEndpoint: '',
   },
   dispatch,
   models,
-  oneshotModels: models,
-  modelCatalog: models,
+  oneshotOptions: models,
+  modelCatalog,
   runners: {} as Record<string, import('../../lib/types').RunnerInfo>,
   onModelAction: vi.fn(),
   onOpenRunTargetEditModal: vi.fn(),
@@ -77,20 +90,8 @@ describe('AgentsTab', () => {
   });
 
   it('restricts task-assignment dropdowns by capability and shows full catalog in Model Catalog', () => {
-    const alpha: Model = {
-      id: 'alpha',
-      display_name: 'Alpha',
-      provider: 'anthropic',
-      configured: true,
-      runners: ['claude'],
-    };
-    const beta: Model = {
-      id: 'beta',
-      display_name: 'Beta',
-      provider: 'google',
-      configured: true,
-      runners: ['gemini'],
-    };
+    const alpha: TargetOption = { id: 'alpha', label: 'Alpha', source: 'cli' };
+    const beta: TargetOption = { id: 'beta', label: 'Beta', source: 'cli' };
     const gamma: Model = {
       id: 'gamma',
       display_name: 'Gamma',
@@ -103,8 +104,24 @@ describe('AgentsTab', () => {
       <AgentsTab
         {...defaultProps}
         models={[alpha, beta]}
-        oneshotModels={[alpha]}
-        modelCatalog={[alpha, beta, gamma]}
+        oneshotOptions={[alpha]}
+        modelCatalog={[
+          {
+            id: 'alpha',
+            display_name: 'Alpha',
+            provider: 'anthropic',
+            configured: true,
+            runners: ['claude'],
+          },
+          {
+            id: 'beta',
+            display_name: 'Beta',
+            provider: 'google',
+            configured: true,
+            runners: ['gemini'],
+          },
+          gamma,
+        ]}
         runners={{
           claude: { available: true, capabilities: ['interactive', 'oneshot'] },
           gemini: { available: true, capabilities: ['interactive'] },

@@ -145,6 +145,9 @@ const configFixture: ConfigResponse = {
   },
   system_capabilities: { iterm2_available: false },
   needs_restart: false,
+  oneshot_targets: [],
+  anthropic_oauth_token_set: false,
+  ollama: { endpoint: '', reachable: false, models: [] },
 };
 
 function renderConfigPage() {

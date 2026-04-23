@@ -2,13 +2,13 @@ import React from 'react';
 import { EXPERIMENTAL_FEATURES } from './experimentalRegistry';
 import { useFeatures } from '../../contexts/FeaturesContext';
 import type { ConfigFormState, ConfigFormAction } from './useConfigForm';
-import type { Model } from '../../lib/types';
+import type { TargetOption } from './TargetSelect';
 import type { Features } from '../../lib/types.generated';
 
 type ExperimentalTabProps = {
   state: ConfigFormState;
   dispatch: React.Dispatch<ConfigFormAction>;
-  models: Model[];
+  models: TargetOption[];
 };
 
 export default function ExperimentalTab({ state, dispatch, models }: ExperimentalTabProps) {
