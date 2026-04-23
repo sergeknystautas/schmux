@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useId, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 
 /**
  * Tooltip Component
@@ -206,30 +207,32 @@ export default function Tooltip({
   return (
     <>
       {trigger}
-      {isVisible && (
-        <div
-          ref={tooltipRef}
-          role="tooltip"
-          id={tooltipId}
-          className={`tooltip-react ${variantClasses[variant]}`}
-          style={{
-            position: 'fixed',
-            top: position.top,
-            left: position.left,
-            zIndex: 1000,
-          }}
-        >
-          <span className="tooltip-react__content">{content}</span>
-          <span
-            className={`tooltip-react__arrow ${placementArrowClasses[actualPlacement]}`}
-            style={
-              actualPlacement === 'top' || actualPlacement === 'bottom'
-                ? { left: `${position.arrowOffset - 5}px` }
-                : { top: `${position.arrowOffset - 5}px` }
-            }
-          />
-        </div>
-      )}
+      {isVisible &&
+        createPortal(
+          <div
+            ref={tooltipRef}
+            role="tooltip"
+            id={tooltipId}
+            className={`tooltip-react ${variantClasses[variant]}`}
+            style={{
+              position: 'fixed',
+              top: position.top,
+              left: position.left,
+              zIndex: 1000,
+            }}
+          >
+            <span className="tooltip-react__content">{content}</span>
+            <span
+              className={`tooltip-react__arrow ${placementArrowClasses[actualPlacement]}`}
+              style={
+                actualPlacement === 'top' || actualPlacement === 'bottom'
+                  ? { left: `${position.arrowOffset - 5}px` }
+                  : { top: `${position.arrowOffset - 5}px` }
+              }
+            />
+          </div>,
+          document.body
+        )}
     </>
   );
 }

@@ -3684,6 +3684,16 @@ body {
   border-right-color: var(--color-danger);
 }
 
+.workspace-info-tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.workspace-info-tooltip__row {
+  word-break: break-all;
+}
+
 /* Utility */
 .sr-only {
   position: absolute;

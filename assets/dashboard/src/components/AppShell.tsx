@@ -4,6 +4,7 @@ import useTheme from '../hooks/useTheme';
 import useVersionInfo from '../hooks/useVersionInfo';
 import useLocalStorage from '../hooks/useLocalStorage';
 import Tooltip from './Tooltip';
+import WorkspaceInfoTooltip from './WorkspaceInfoTooltip';
 import KeyboardModeIndicator from './KeyboardModeIndicator';
 import TypingPerformance from './TypingPerformance';
 import CurationStatus from './CurationStatus';
@@ -600,18 +601,18 @@ export default function AppShell() {
           <div className="nav-header">
             <div className="nav-header__left">
               <NavLink to="/" className="logo">
-                <span
-                  className={`nav-header__connection-dot ${connected ? 'nav-header__connection-dot--connected' : 'nav-header__connection-dot--offline'}`}
-                  data-testid="connection-status"
-                  data-connected={connected ? 'true' : 'false'}
-                  title={connected ? 'Connected' : 'Offline'}
-                ></span>
+                <Tooltip content={connected ? 'Connected' : 'Offline'}>
+                  <span
+                    className={`nav-header__connection-dot ${connected ? 'nav-header__connection-dot--connected' : 'nav-header__connection-dot--offline'}`}
+                    data-testid="connection-status"
+                    data-connected={connected ? 'true' : 'false'}
+                  ></span>
+                </Tooltip>
                 schmux
                 {showUpdateBadge && (
-                  <span
-                    className="update-badge"
-                    title={`Update available: ${versionInfo.latest_version}`}
-                  ></span>
+                  <Tooltip content={`Update available: ${versionInfo.latest_version}`}>
+                    <span className="update-badge"></span>
+                  </Tooltip>
                 )}
               </NavLink>
               <span className="nav-header__version">
@@ -700,20 +701,22 @@ export default function AppShell() {
             <div className="nav-section-header">
               <span className="nav-section-title">Workspaces ({workspaces?.length ?? 0})</span>
               <div className="nav-sort-toggle">
-                <button
-                  className={`nav-sort-toggle__btn${workspaceSort === 'alpha' ? ' nav-sort-toggle__btn--active' : ''}`}
-                  onClick={() => setWorkspaceSort('alpha')}
-                  title="Sort alphabetically"
-                >
-                  abc
-                </button>
-                <button
-                  className={`nav-sort-toggle__btn${workspaceSort === 'time' ? ' nav-sort-toggle__btn--active' : ''}`}
-                  onClick={() => setWorkspaceSort('time')}
-                  title="Sort by most recent activity"
-                >
-                  12:00
-                </button>
+                <Tooltip content="Sort alphabetically">
+                  <button
+                    className={`nav-sort-toggle__btn${workspaceSort === 'alpha' ? ' nav-sort-toggle__btn--active' : ''}`}
+                    onClick={() => setWorkspaceSort('alpha')}
+                  >
+                    abc
+                  </button>
+                </Tooltip>
+                <Tooltip content="Sort by most recent activity">
+                  <button
+                    className={`nav-sort-toggle__btn${workspaceSort === 'time' ? ' nav-sort-toggle__btn--active' : ''}`}
+                    onClick={() => setWorkspaceSort('time')}
+                  >
+                    12:00
+                  </button>
+                </Tooltip>
               </div>
             </div>
             {(!workspaces || workspaces.length === 0) && (
@@ -767,25 +770,31 @@ export default function AppShell() {
                     }}
                   >
                     <div className="nav-workspace__top-row">
-                      <span className="nav-workspace__name">
-                        {isRemote && (
-                          <span
-                            style={{
-                              width: '8px',
-                              height: '8px',
-                              borderRadius: '50%',
-                              backgroundColor: remoteDisconnected
-                                ? 'var(--color-error)'
-                                : 'var(--color-success)',
-                              display: 'inline-block',
-                              marginRight: '6px',
-                              flexShrink: 0,
-                            }}
-                            title={remoteDisconnected ? 'Disconnected' : 'Connected'}
-                          />
-                        )}
-                        {workspaceDisplayLabel(workspace, displayBranch)}
-                      </span>
+                      <Tooltip
+                        content={<WorkspaceInfoTooltip workspace={workspace} />}
+                        placement="right"
+                        delay={500}
+                      >
+                        <span className="nav-workspace__name">
+                          {isRemote && (
+                            <span
+                              style={{
+                                width: '8px',
+                                height: '8px',
+                                borderRadius: '50%',
+                                backgroundColor: remoteDisconnected
+                                  ? 'var(--color-error)'
+                                  : 'var(--color-success)',
+                                display: 'inline-block',
+                                marginRight: '6px',
+                                flexShrink: 0,
+                              }}
+                              title={remoteDisconnected ? 'Disconnected' : 'Connected'}
+                            />
+                          )}
+                          {workspaceDisplayLabel(workspace, displayBranch)}
+                        </span>
+                      </Tooltip>
                       {wsLocked ? (
                         <span className="nav-workspace__changes">
                           <WorkingSpinner />
@@ -804,21 +813,24 @@ export default function AppShell() {
                         </span>
                       ) : null}
                       {isDevEligible && (
-                        <button
-                          className="nav-workspace__dev-btn"
-                          title={
+                        <Tooltip
+                          content={
                             isDevLive
                               ? 'Rebuild backend and restart Vite'
                               : 'Switch to this workspace (rebuild + restart)'
                           }
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDevRebuild(workspace.id, 'both');
-                          }}
-                          disabled={devRebuilding}
                         >
-                          {isDevLive ? 'Rebuild' : 'Test'}
-                        </button>
+                          <button
+                            className="nav-workspace__dev-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDevRebuild(workspace.id, 'both');
+                            }}
+                            disabled={devRebuilding}
+                          >
+                            {isDevLive ? 'Rebuild' : 'Test'}
+                          </button>
+                        </Tooltip>
                       )}
                     </div>
                     <div
@@ -964,33 +976,35 @@ export default function AppShell() {
                                 {sess.nickname || sess.xterm_title || sess.target}
                               </span>
                               {sess.persona_icon && (
-                                <span
-                                  className="nav-session__persona-badge"
-                                  title={sess.persona_name}
-                                  style={{ color: sess.persona_color }}
-                                >
-                                  {sess.persona_icon}
-                                </span>
+                                <Tooltip content={sess.persona_name || ''}>
+                                  <span
+                                    className="nav-session__persona-badge"
+                                    style={{ color: sess.persona_color }}
+                                  >
+                                    {sess.persona_icon}
+                                  </span>
+                                </Tooltip>
                               )}
                               {hasPendingClipboard && (
-                                <span
-                                  className="nav-session__clipboard-badge"
-                                  title="TUI is asking to copy to your clipboard"
-                                  aria-label="Pending clipboard request"
-                                  data-testid="clipboard-badge"
-                                >
+                                <Tooltip content="TUI is asking to copy to your clipboard">
                                   <span
-                                    style={{
-                                      display: 'inline-block',
-                                      width: '8px',
-                                      height: '8px',
-                                      borderRadius: '50%',
-                                      backgroundColor: 'var(--color-warning, #ffc107)',
-                                      marginLeft: '4px',
-                                      verticalAlign: 'middle',
-                                    }}
-                                  />
-                                </span>
+                                    className="nav-session__clipboard-badge"
+                                    aria-label="Pending clipboard request"
+                                    data-testid="clipboard-badge"
+                                  >
+                                    <span
+                                      style={{
+                                        display: 'inline-block',
+                                        width: '8px',
+                                        height: '8px',
+                                        borderRadius: '50%',
+                                        backgroundColor: 'var(--color-warning, #ffc107)',
+                                        marginLeft: '4px',
+                                        verticalAlign: 'middle',
+                                      }}
+                                    />
+                                  </span>
+                                </Tooltip>
                               )}
                               <span
                                 className="nav-session__activity"
