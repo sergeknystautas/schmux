@@ -103,9 +103,9 @@ func TestAdapterInteractiveArgs(t *testing.T) {
 		})
 	}
 
-	// Resume mode ignores model flags
+	// Resume mode includes model flag
 	args = GetAdapter("claude").InteractiveArgs(model, true)
-	assertSliceEqual(t, args, []string{"--continue"})
+	assertSliceEqual(t, args, []string{"--continue", "--model", "sonnet"})
 }
 
 func TestAdapterOneshotArgs(t *testing.T) {

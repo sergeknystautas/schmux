@@ -110,10 +110,10 @@ func (a *GenericAdapter) InteractiveArgs(model *Model, resume bool) []string {
 	if a.desc.Interactive == nil {
 		return nil
 	}
-	if resume && a.desc.Interactive.ResumeArgs != nil {
-		return a.desc.Interactive.ResumeArgs
-	}
 	mf := a.resolveModelFlag(a.desc.Interactive)
+	if resume && a.desc.Interactive.ResumeArgs != nil {
+		return expandModelPlaceholder(a.desc.Interactive.ResumeArgs, model, a.desc.Name, mf)
+	}
 	return expandModelPlaceholder(a.desc.Interactive.BaseArgs, model, a.desc.Name, mf)
 }
 

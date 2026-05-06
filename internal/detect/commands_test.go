@@ -97,9 +97,9 @@ func TestBuildCommandParts_ResumeWithModel(t *testing.T) {
 		t.Fatalf("BuildCommandParts() unexpected error: %v", err)
 	}
 
-	want := []string{"claude", "--continue"}
+	want := []string{"claude", "--continue", "--model", "custom-model"}
 	if len(got) != len(want) {
-		t.Fatalf("BuildCommandParts() got %d parts, want %d", len(got), len(want))
+		t.Fatalf("BuildCommandParts() got %d parts, want %d\ngot:  %v\nwant: %v", len(got), len(want), got, want)
 	}
 
 	for i, wantPart := range want {
