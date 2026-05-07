@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -292,6 +295,94 @@ func TestHandleGitCommitStage_Guards(t *testing.T) {
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected status 400, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+}
+
+func TestHandleGitCommitStage_AlreadyStagedDeletion(t *testing.T) {
+	server, _, st := newTestServer(t)
+	gitH := newTestGitHandlers(server)
+
+	// Set up a real git repo with a committed file, then stage its deletion.
+	dir := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v failed: %s: %s", args, err, out)
+		}
+	}
+	run("git", "init")
+	run("git", "config", "user.email", "test@test.com")
+	run("git", "config", "user.name", "Test")
+
+	// Create and commit a file, then stage its deletion
+	os.WriteFile(filepath.Join(dir, "deleted.txt"), []byte("content"), 0644)
+	run("git", "add", "deleted.txt")
+	run("git", "commit", "-m", "init")
+	run("git", "rm", "deleted.txt")
+
+	ws := state.Workspace{
+		ID:     "ws-staged-del",
+		Repo:   "https://github.com/test/repo",
+		Branch: "main",
+		Path:   dir,
+	}
+	if err := st.AddWorkspace(ws); err != nil {
+		t.Fatalf("failed to add workspace: %v", err)
+	}
+
+	t.Run("deletion only", func(t *testing.T) {
+		body, _ := json.Marshal(map[string][]string{"files": {"deleted.txt"}})
+		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-staged-del/stage", "ws-staged-del", body)
+		rr := httptest.NewRecorder()
+		gitH.handleStage(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("deletion mixed with modified file", func(t *testing.T) {
+		dir2 := t.TempDir()
+		run2 := func(args ...string) {
+			t.Helper()
+			cmd := exec.Command(args[0], args[1:]...)
+			cmd.Dir = dir2
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("%v failed: %s: %s", args, err, out)
+			}
+		}
+		run2("git", "init")
+		run2("git", "config", "user.email", "test@test.com")
+		run2("git", "config", "user.name", "Test")
+		os.WriteFile(filepath.Join(dir2, "deleted.txt"), []byte("content"), 0644)
+		os.WriteFile(filepath.Join(dir2, "modified.txt"), []byte("original"), 0644)
+		run2("git", "add", ".")
+		run2("git", "commit", "-m", "init")
+		run2("git", "rm", "deleted.txt")
+		os.WriteFile(filepath.Join(dir2, "modified.txt"), []byte("changed"), 0644)
+
+		ws2 := state.Workspace{
+			ID:     "ws-staged-del-mix",
+			Repo:   "https://github.com/test/repo",
+			Branch: "main",
+			Path:   dir2,
+		}
+		if err := st.AddWorkspace(ws2); err != nil {
+			t.Fatalf("failed to add workspace: %v", err)
+		}
+
+		body, _ := json.Marshal(map[string][]string{"files": {"deleted.txt", "modified.txt"}})
+		req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-staged-del-mix/stage", "ws-staged-del-mix", body)
+		rr := httptest.NewRecorder()
+		gitH.handleStage(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
 		}
 	})
 }
