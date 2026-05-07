@@ -534,6 +534,29 @@ func TestParseNumstat(t *testing.T) {
 	})
 }
 
+func TestParseRenamePath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input   string
+		wantOld string
+		wantNew string
+	}{
+		{"vellum/{assets.json => config.json}", "vellum/assets.json", "vellum/config.json"},
+		{"{src/old.go => lib/new.go}", "src/old.go", "lib/new.go"},
+		{"pkg/{v1 => v2}/types.go", "pkg/v1/types.go", "pkg/v2/types.go"},
+		{"regular/file.go", "", ""},
+		{"no-braces => just-arrow", "", ""},
+	}
+
+	for _, tt := range tests {
+		old, new := parseRenamePath(tt.input)
+		if old != tt.wantOld || new != tt.wantNew {
+			t.Errorf("parseRenamePath(%q) = (%q, %q), want (%q, %q)", tt.input, old, new, tt.wantOld, tt.wantNew)
+		}
+	}
+}
+
 func TestFormatAgentSystemPrompt(t *testing.T) {
 	t.Parallel()
 

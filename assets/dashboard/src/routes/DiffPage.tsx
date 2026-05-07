@@ -381,13 +381,17 @@ export default function DiffPage() {
                       ? 'D'
                       : status === 'untracked'
                         ? '?'
-                        : 'M';
+                        : status === 'renamed'
+                          ? 'R'
+                          : 'M';
                 const statusClass =
                   status === 'added' || status === 'untracked'
                     ? 'diff-file-item__status--added'
                     : status === 'deleted'
                       ? 'diff-file-item__status--deleted'
-                      : 'diff-file-item__status--modified';
+                      : status === 'renamed'
+                        ? 'diff-file-item__status--renamed'
+                        : 'diff-file-item__status--modified';
                 return (
                   <button
                     key={file.new_path || file.old_path || index}

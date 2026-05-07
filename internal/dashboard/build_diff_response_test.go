@@ -138,6 +138,7 @@ func TestBuildDiffResponse_DeletedFile(t *testing.T) {
 
 func TestBuildDiffResponse_BinaryFile(t *testing.T) {
 	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "image.png"), []byte("new binary data"), 0644)
 
 	cb := vcs.NewCommandBuilder("git")
 	run := mockRun(map[string]string{
@@ -160,6 +161,40 @@ func TestBuildDiffResponse_BinaryFile(t *testing.T) {
 	}
 	if f.Status != "modified" {
 		t.Errorf("expected 'modified', got %q", f.Status)
+	}
+}
+
+func TestBuildDiffResponse_DeletedBinaryFile(t *testing.T) {
+	dir := t.TempDir()
+	// No file on disk — it's been deleted
+
+	cb := vcs.NewCommandBuilder("git")
+	run := mockRun(map[string]string{
+		cb.DiffNumstat():                   "-\t-\tdeleted.png",
+		cb.ShowFile("deleted.png", "HEAD"): "old binary data",
+		cb.UntrackedFiles():                "",
+	})
+
+	resp, err := buildDiffResponse(run, localReadFile(dir), noBinary(), cb, dir, "ws-1", "repo", "main")
+	if err != nil {
+		t.Fatalf("buildDiffResponse error: %v", err)
+	}
+
+	if len(resp.Files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(resp.Files))
+	}
+	f := resp.Files[0]
+	if !f.IsBinary {
+		t.Error("expected IsBinary=true")
+	}
+	if f.Status != "deleted" {
+		t.Errorf("expected 'deleted', got %q", f.Status)
+	}
+	if f.OldPath != "deleted.png" {
+		t.Errorf("expected OldPath='deleted.png', got %q", f.OldPath)
+	}
+	if f.NewPath != "" {
+		t.Errorf("expected empty NewPath, got %q", f.NewPath)
 	}
 }
 

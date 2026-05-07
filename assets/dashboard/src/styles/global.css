@@ -3892,6 +3892,10 @@ a:hover {
   color: var(--color-error);
 }
 
+.diff-file-item__status--renamed {
+  color: var(--color-info);
+}
+
 .diff-content {
   background-color: var(--color-surface);
   border: 1px solid var(--color-accent);
@@ -5584,6 +5588,11 @@ a:hover {
 .commit-workflow__status--untracked {
   background-color: color-mix(in srgb, var(--color-success) 15%, transparent);
   color: var(--color-success);
+}
+
+.commit-workflow__status--renamed {
+  background-color: color-mix(in srgb, var(--color-info) 15%, transparent);
+  color: var(--color-info);
 }
 
 .commit-workflow__filename {

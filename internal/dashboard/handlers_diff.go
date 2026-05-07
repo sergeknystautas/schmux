@@ -184,6 +184,32 @@ func buildDiffResponse(run vcsRunFunc, readFile readFileFunc, isBinaryCheck isBi
 			linesRemoved, _ = strconv.Atoi(deletedStr)
 		}
 
+		// Check for rename: git numstat outputs "prefix{old => new}suffix"
+		if oldName, newName := parseRenamePath(filePath); oldName != "" {
+			if isBinary {
+				files = append(files, fileDiff{
+					OldPath:  oldName,
+					NewPath:  newName,
+					Status:   "renamed",
+					IsBinary: true,
+				})
+			} else {
+				oldContent, _ := run(cb.ShowFile(oldName, "HEAD"))
+				oldContent = capContent(oldContent)
+				newContent := readFile(newName)
+				files = append(files, fileDiff{
+					OldPath:      oldName,
+					NewPath:      newName,
+					OldContent:   oldContent,
+					NewContent:   newContent,
+					Status:       "renamed",
+					LinesAdded:   linesAdded,
+					LinesRemoved: linesRemoved,
+				})
+			}
+			continue
+		}
+
 		// Get old and new content to determine status
 		oldContent, _ := run(cb.ShowFile(filePath, "HEAD"))
 		oldContent = capContent(oldContent)
@@ -192,12 +218,19 @@ func buildDiffResponse(run vcsRunFunc, readFile readFileFunc, isBinaryCheck isBi
 			status := "modified"
 			if oldContent == "" {
 				status = "added"
+			} else if readFile(filePath) == "" {
+				status = "deleted"
 			}
-			files = append(files, fileDiff{
-				NewPath:  filePath,
+			fd := fileDiff{
 				Status:   status,
 				IsBinary: true,
-			})
+			}
+			if status == "deleted" {
+				fd.OldPath = filePath
+			} else {
+				fd.NewPath = filePath
+			}
+			files = append(files, fd)
 			continue
 		}
 
@@ -269,6 +302,25 @@ func buildDiffResponse(run vcsRunFunc, readFile readFileFunc, isBinaryCheck isBi
 		Branch:      branch,
 		Files:       files,
 	}, nil
+}
+
+// parseRenamePath splits a git numstat rename path like "prefix{old => new}suffix"
+// into (oldPath, newPath). Returns ("", "") if the path is not a rename.
+func parseRenamePath(path string) (string, string) {
+	open := strings.Index(path, "{")
+	close := strings.Index(path, "}")
+	if open < 0 || close < 0 || close <= open {
+		return "", ""
+	}
+	arrow := strings.Index(path[open:close], " => ")
+	if arrow < 0 {
+		return "", ""
+	}
+	prefix := path[:open]
+	suffix := path[close+1:]
+	oldPart := path[open+1 : open+arrow]
+	newPart := path[open+arrow+4 : close]
+	return prefix + oldPart + suffix, prefix + newPart + suffix
 }
 
 // Type aliases for contracts types used throughout this file.
@@ -1238,6 +1290,12 @@ func (h *GitHandlers) handleDiffExternal(w http.ResponseWriter, r *http.Request)
 		deleted := parts[1]
 		filePath := parts[2]
 
+		if oldName, newName := parseRenamePath(filePath); oldName != "" {
+			files = append(files, changedFile{path: newName, status: "renamed"})
+			_ = oldName
+			continue
+		}
+
 		status := "modified"
 		if added == "-" && deleted == "-" {
 			// Binary file or special case
@@ -1466,6 +1524,12 @@ func (h *GitHandlers) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Re
 		addedStr := parts[0]
 		deletedStr := parts[1]
 		filePath := parts[2]
+
+		if oldName, newName := parseRenamePath(filePath); oldName != "" {
+			files = append(files, changedFile{path: newName, status: "renamed"})
+			_ = oldName
+			continue
+		}
 
 		if addedStr == "-" && deletedStr == "-" {
 			continue // Skip binary files

@@ -34,7 +34,7 @@ func TestNewCommandBuilder(t *testing.T) {
 func TestGitDiffNumstat(t *testing.T) {
 	cb := &GitCommandBuilder{}
 	got := cb.DiffNumstat()
-	want := "git diff HEAD --numstat --find-renames --diff-filter=ADM"
+	want := "git diff HEAD --numstat --find-renames --diff-filter=ADMR"
 	if got != want {
 		t.Errorf("DiffNumstat() = %q, want %q", got, want)
 	}

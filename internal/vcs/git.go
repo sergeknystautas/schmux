@@ -11,7 +11,7 @@ import (
 type GitCommandBuilder struct{}
 
 func (g *GitCommandBuilder) DiffNumstat() string {
-	return "git diff HEAD --numstat --find-renames --diff-filter=ADM"
+	return "git diff HEAD --numstat --find-renames --diff-filter=ADMR"
 }
 
 func (g *GitCommandBuilder) ShowFile(path, revision string) string {

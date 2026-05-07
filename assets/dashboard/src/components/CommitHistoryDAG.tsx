@@ -409,7 +409,15 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
       const isSelected = selectedFiles.has(filePath);
       const status = ln.file.status || 'modified';
       const statusLabel =
-        status === 'added' ? 'A' : status === 'deleted' ? 'D' : status === 'untracked' ? '?' : 'M';
+        status === 'added'
+          ? 'A'
+          : status === 'deleted'
+            ? 'D'
+            : status === 'untracked'
+              ? '?'
+              : status === 'renamed'
+                ? 'R'
+                : 'M';
       const statusClass =
         status === 'added'
           ? 'commit-workflow__status--added'
@@ -417,7 +425,9 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
             ? 'commit-workflow__status--deleted'
             : status === 'untracked'
               ? 'commit-workflow__status--untracked'
-              : 'commit-workflow__status--modified';
+              : status === 'renamed'
+                ? 'commit-workflow__status--renamed'
+                : 'commit-workflow__status--modified';
       const toggleFile = () => {
         const newSet = new Set(selectedFiles);
         if (newSet.has(filePath)) newSet.delete(filePath);
@@ -448,7 +458,11 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
             aria-label={`Select ${filePath}`}
           />
           <span className={`commit-workflow__status ${statusClass}`}>{statusLabel}</span>
-          <span className="commit-workflow__filename">{filePath}</span>
+          <span className="commit-workflow__filename">
+            {status === 'renamed' && ln.file.old_path
+              ? `${ln.file.old_path} → ${ln.file.new_path}`
+              : filePath}
+          </span>
         </div>
       );
     }
