@@ -29,6 +29,9 @@ import (
 func newTestServer(t *testing.T) (*Server, *config.Config, *state.State) {
 	t.Helper()
 
+	schmuxdir.Set(t.TempDir())
+	t.Cleanup(func() { schmuxdir.Set("") })
+
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = t.TempDir()
