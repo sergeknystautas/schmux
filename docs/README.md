@@ -10,11 +10,11 @@ When modifying a subsystem, read its guide first. The guide tells you which file
 
 ### Project
 
-| File                                       | Description                         |
-| ------------------------------------------ | ----------------------------------- |
-| [PHILOSOPHY.md](PHILOSOPHY.md)             | Product principles and design goals |
-| [contributing.md](contributing.md)         | Development setup and workflow      |
-| [release-strategy.md](release-strategy.md) | Release process                     |
+| File                                                  | Description                         |
+| ----------------------------------------------------- | ----------------------------------- |
+| [PHILOSOPHY.md](PHILOSOPHY.md)                        | Product principles and design goals |
+| [contributing.md](contributing.md)                    | Development setup and workflow      |
+| [release-strategy.md](../release/release-strategy.md) | Release process                     |
 
 ### Reference (API, CLI, UX)
 

@@ -1,0 +1,21 @@
+name: Verify Release
+
+on:
+  workflow_run:
+    workflows: ['Release']
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+jobs:
+  verify-install:
+    name: Verify Install
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run install test
+        run: ./release/test-install.sh

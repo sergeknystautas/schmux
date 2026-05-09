@@ -1,0 +1,25 @@
+# Install Test Image for schmux
+# Simulates a fresh user machine — no Go, no Node, just standard CLI tools.
+# Verifies the real GitHub installer works end-to-end.
+#
+# Build: docker build -f release/Dockerfile.install-test -t schmux-install-test .
+# Run:   docker run --rm schmux-install-test
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    tar \
+    tmux \
+    bash \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -m -u 1000 testuser
+USER testuser
+ENV PATH="/home/testuser/.local/bin:${PATH}"
+
+COPY release/verify-install.sh /home/testuser/verify-install.sh
+
+ENTRYPOINT ["bash", "/home/testuser/verify-install.sh"]
