@@ -148,7 +148,31 @@ jobs:
 
 **Before tagging**, update documentation:
 
-1. **Update CHANGES.md** - Add a new entry at the top with a high-level description of what changed in this release:
+1. **Update CHANGES.md** - Add a new entry at the top describing what changed in this release. Follow the process below exactly.
+
+   #### How to write the changelog entry
+
+   **Step 1: Study the existing format.** Read every entry in `CHANGES.md`. Your new entry must look like it belongs in this file — same heading style, same level of detail, same tone. Most releases use `**Category:**` bold headers with simple bullet lists. Only use `###` subsections if the release is genuinely as large as v1.2.0.
+
+   **Step 2: Get every commit since the last release.**
+
+   ```bash
+   git log v<previous>..HEAD --oneline --no-merges
+   ```
+
+   **Step 3: Read every commit message.** Read the actual words.
+
+   Do not cluster commits by scope tag and generate a summary of what you think that scope means. That is not reading — that is pattern matching.
+
+   **Step 4: For each commit, answer one question.** "What can the user do now that they couldn't before?" or "What broke before that works now?" Write one sentence per commit answering this. If it is a refactor with no user-facing change, set it aside for an infrastructure section.
+
+   **Step 5: Group by user impact, not by scope tag.** Three commits touching different scopes may all serve the same user-facing capability. Two commits with the same scope tag may be completely unrelated features. Organize around what the user experiences, not around which package was modified.
+
+   **Step 6: Write the entry.** Each item should describe what the user gets, not how it was implemented. Do not skip commits or cap how many you include. Every user-facing change gets represented. Do not write paragraph-long descriptions — match the brevity of existing entries.
+
+   **Step 7: Fold the Unreleased section.** If `CHANGES.md` has an `## Unreleased` section, its contents must be incorporated into the new version entry and the Unreleased heading removed.
+
+   #### Format template
 
    ```markdown
    ## Version 1.2.3 (2025-01-15)
