@@ -2073,12 +2073,14 @@ func startRepofeedPublisher(ctx context.Context, cfg *config.Config, st *state.S
 
 				devFile := buildV2DeveloperFile(ctx, cfg, st, summaryCache, devEmail, devName, repo.URL, logger)
 
-				// Skip when nothing changed for this repo since the last publish
+				// Skip when nothing changed for this repo since the last publish.
+				// Updated is left empty during comparison so timestamps don't defeat change detection.
 				data, _ := json.Marshal(devFile)
 				current := string(data)
 				if current == lastPublishedPerRepo[slug] {
 					continue
 				}
+				devFile.Updated = time.Now().UTC().Format(time.RFC3339)
 
 				gitOps := &repofeed.GitOps{BareDir: bareDir, Branch: "dev-repofeed"}
 				if err := gitOps.WriteDevFile(devEmail, devFile); err != nil {
@@ -2189,7 +2191,6 @@ func buildV2DeveloperFile(ctx context.Context, cfg *config.Config, st *state.Sta
 		Version:     2,
 		Developer:   devEmail,
 		DisplayName: devName,
-		Updated:     time.Now().UTC().Format(time.RFC3339),
 		Intents:     intents,
 	}
 }
