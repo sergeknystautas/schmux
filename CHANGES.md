@@ -2,12 +2,125 @@
 
 This file tracks high-level changes between releases of schmux.
 
-## Unreleased
+## Version 1.3.0 (2026-05-09)
 
-**Behavior changes (from the oneshot-unified-schema refactor):**
+**Direct LLM provider support:**
 
-- `repofeed.intent_target` is now an explicit, top-level config field (default empty). If you were relying on implicit LLM-summarized repofeed intents, intents will now show the first-prompt truncated fallback until you set `repofeed.intent_target` in your config.
-- Session nudge summaries stored with surrounding ` ```json ` code fences no longer parse. Legacy fenced nudges render as empty state/summary; new nudges are unaffected.
+- Built-in AI features (nudges, autolearn, branch suggestions, conflict resolution) call LLM providers directly via API — Anthropic, OpenAI, or Ollama — instead of requiring an agent CLI
+- All LLM consumers use a unified typed SDK with per-feature schema registration
+- Configure provider and API keys in the Agents settings tab
+
+**Session recording and replay:**
+
+- Always-on terminal recording for every session, local and remote
+- In-browser timelapse player with xterm.js
+- Cosmetic events collapse for faster playback
+- Delete recordings individually or in bulk
+
+**Tmux socket isolation:**
+
+- Configurable socket name prevents conflicts with other tmux users
+- Per-session affinity with live migration
+- Remote hosts use isolated sockets automatically
+
+**Workspace management:**
+
+- Recyclable workspaces reuse worktrees to minimize clone churn
+- Auto-sync from default branch on create/recycle
+- Backburner toggle to dim idle workspaces
+- Per-agent workspace option in multi-agent spawns
+- Stale git lock files swept at daemon startup
+- Branch namespace conflicts detected before checkout
+
+**Remote sessions:**
+
+- Persistent hosts survive reconnections with multi-workspace worktrees
+- Multiple host instances per remote flavor
+- VCS status, diffs, and file serving on remote workspaces
+- Global config to auto-enable local echo
+- SSH keepalive, clipboard bridge from TUI to browser
+
+**Local echo and typing diagnostics:**
+
+- Local echo for low-latency remote typing
+- Typing diagnostics redesigned with cohort-median breakdowns and causal flow visualization
+
+**Agent learning (autolearn):**
+
+- Lore and emergence unified into single autolearn system
+- Review flow redesigned as card wall with inline persistence
+- Merge & push for persisting rules to the repository
+- Deduplication across proposals
+
+**Communication styles:**
+
+- Voice/tone system for agents, applied per-session
+- Defaults applied to command targets, clearable from dashboard
+
+**Repofeed:**
+
+- Workspace-level intent broadcasting with LLM summarization
+- Spawn toggle and event-driven publishing
+- `intent_target` promoted to explicit config field
+- Feeds scoped per repo
+
+**VCS improvements:**
+
+- Renamed files in diff view and commit workflow
+- Sapling commit graph and diff correctness fixes
+- VCS-agnostic API routes and component names
+
+**First-time experience:**
+
+- Zero-config onboarding for new users
+
+**Build and distribution:**
+
+- Experimental features compilable-out via build tags
+- Vendor distribution with structural hardening
+- Declarative YAML agent descriptors replace hardcoded adapters
+- Multiple instances via `--config-dir` and `SCHMUX_HOME`
+
+**Dashboard and settings:**
+
+- Settings page with experimental feature tier and auto-save
+- Config auto-reloads on external changes
+- Auto-discover repos via Detect & Add
+- Workspace info tooltips, markdown scroll memory
+- Wheel scroll forwarded to TUI apps in alternate screen
+- Lazy-loaded route pages
+- Home page: PRs and branches in right sidebar, viewport-filling columns
+- Spawn selectors redesigned as compact inline row
+- Prompt optional for interactive sessions
+- Agent dropdowns restricted to selected models
+- Telemetry configurable via external command backend
+- Quick launch uses unified dialog with auto-save
+
+**Bug fixes:**
+
+- Daemon URL resolved dynamically instead of hardcoding port 7337
+- Model flag passed to resumed sessions
+- Markdown images render through workspace file API
+- Stale worktree entries pruned before recycling
+- Preview detection resilient to split output and slow startup
+- Spurious "needs restart" on first config edit eliminated
+- Commit graph refreshes after pull-from-main
+- Pasted lines beginning with '-' preserved in control mode
+- Pre-commit hook re-stages formatted files
+- Concurrent secrets writes protected with file locking
+- ANTHROPIC_BASE_URL restored for third-party providers
+- Prompt autocomplete dismissable by clicking outside
+- Conflict tab closable after failed resolution
+
+**Infrastructure:**
+
+- Daemon `Run()` decomposed from 1,026 lines into named methods
+- Handler monolith split into domain-specific structs
+- `badcode.sh` for static analysis
+- Docker test suite caching
+- 7 rounds of test coverage and flakiness improvements
+- Post-release install verification test
+- Busy-waits replaced with ticker-based polling
 
 ## Version 1.2.1 (2026-04-01)
 
