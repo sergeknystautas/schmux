@@ -386,10 +386,7 @@ func lockHasOwner(ctx context.Context, path string) bool {
 	out, err := exec.CommandContext(ctx, "lsof", "--", path).Output()
 	if err != nil {
 		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			return false
-		}
-		return true
+		return !errors.As(err, &exitErr)
 	}
 	lines := bytes.Split(bytes.TrimSpace(out), []byte("\n"))
 	return len(lines) > 1

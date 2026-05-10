@@ -1,6 +1,6 @@
 import type { WorkspaceResponse } from './types';
 
-export type WorkspaceInfoRow =
+type WorkspaceInfoRow =
   | { kind: 'text'; value: string; small?: boolean }
   | { kind: 'commits'; behind: number; ahead: number };
 
