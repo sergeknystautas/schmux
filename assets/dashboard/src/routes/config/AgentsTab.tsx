@@ -13,9 +13,7 @@ type AgentsTabProps = {
     branchSuggestTarget: string;
     conflictResolveTarget: string;
     enabledModels: Record<string, string>;
-    anthropicOAuthTokenInput: string;
     anthropicOAuthTokenSet: boolean;
-    anthropicOAuthTokenDirty: boolean;
     ollamaEndpointInput: string;
     ollamaEndpointDirty: boolean;
     ollamaReachable: boolean;
@@ -28,6 +26,7 @@ type AgentsTabProps = {
   modelCatalog: Model[];
   runners: Record<string, RunnerInfo>;
   onModelAction: (model: Model, mode: 'add' | 'remove' | 'update') => void;
+  onAnthropicTokenAction: (mode: 'set' | 'update' | 'remove') => void;
   onOpenRunTargetEditModal: (target: import('../../lib/types').RunTargetResponse) => void;
   commitMessageTargetMissing: boolean;
   prReviewTargetMissing: boolean;
@@ -43,6 +42,7 @@ export default function AgentsTab({
   modelCatalog,
   runners,
   onModelAction,
+  onAnthropicTokenAction,
   commitMessageTargetMissing,
   prReviewTargetMissing,
   branchSuggestTargetMissing,
@@ -77,35 +77,40 @@ export default function AgentsTab({
         </div>
         <div className="settings-section__body">
           <div className="form-group">
-            <label className="form-group__label" htmlFor="anthropic-oauth-token">
-              Anthropic Token
-            </label>
-            <input
-              id="anthropic-oauth-token"
-              type="password"
-              className="input"
-              placeholder="sk-ant-oat-..."
-              value={state.anthropicOAuthTokenInput}
-              onChange={(e) =>
-                dispatch({
-                  type: 'SET_FIELD',
-                  field: 'anthropicOAuthTokenInput',
-                  value: e.target.value,
-                })
-              }
-            />
-            {state.anthropicOAuthTokenInput.startsWith('sk-ant-oat') && (
-              <p className="form-group__hint">
-                Detected: subscription token from <code>claude setup-token</code>.
-              </p>
-            )}
-            <p className="form-group__hint">
-              {state.anthropicOAuthTokenDirty && state.anthropicOAuthTokenInput === ''
-                ? 'The stored token will be cleared when you save.'
-                : state.anthropicOAuthTokenSet
-                  ? 'Token is set. Enter a new value to replace it, or clear this field and save to remove it.'
-                  : 'No token configured. Enter an Anthropic OAuth token (sk-ant-oat-...) to enable Anthropic API targets.'}
-            </p>
+            <label className="form-group__label">Anthropic Token</label>
+            <div className="model-catalog__provider-actions">
+              {state.anthropicOAuthTokenSet ? (
+                <>
+                  <span className="form-group__hint" style={{ marginRight: 'auto' }}>
+                    Token is set.
+                  </span>
+                  <button
+                    className="btn btn--sm btn--primary"
+                    onClick={() => onAnthropicTokenAction('update')}
+                  >
+                    Update Token
+                  </button>
+                  <button
+                    className="btn btn--sm btn--danger"
+                    onClick={() => onAnthropicTokenAction('remove')}
+                  >
+                    Remove
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="form-group__hint" style={{ marginRight: 'auto' }}>
+                    No token configured.
+                  </span>
+                  <button
+                    className="btn btn--sm btn--primary"
+                    onClick={() => onAnthropicTokenAction('set')}
+                  >
+                    Set Token
+                  </button>
+                </>
+              )}
+            </div>
           </div>
 
           <div className="form-group">

@@ -155,12 +155,8 @@ export type ConfigFormState = {
   // One-shot targets (sourced from backend)
   oneshotTargets: OneshotTarget[];
 
-  // Anthropic OAuth token.
-  // `Dirty` is true after any user edit (including clearing). buildConfigUpdate
-  // consults it so an untouched empty input does not wipe a stored token.
-  anthropicOAuthTokenInput: string;
+  // Anthropic OAuth token — managed via modal, not inline field.
   anthropicOAuthTokenSet: boolean;
-  anthropicOAuthTokenDirty: boolean;
 
   // Ollama. Same dirty-flag pattern as the Anthropic token above.
   ollamaEndpointInput: string;
@@ -335,9 +331,7 @@ export const initialState: ConfigFormState = {
   desyncTarget: '',
 
   oneshotTargets: [],
-  anthropicOAuthTokenInput: '',
   anthropicOAuthTokenSet: false,
-  anthropicOAuthTokenDirty: false,
   ollamaEndpointInput: '',
   ollamaEndpointDirty: false,
   ollamaReachable: false,
@@ -388,9 +382,6 @@ function configFormReducer(state: ConfigFormState, action: ConfigFormAction): Co
       // buildConfigUpdate can distinguish "user cleared the field" from
       // "field was never touched" and send an explicit empty string vs. omit.
       const next: ConfigFormState = { ...state, [action.field]: action.value };
-      if (action.field === 'anthropicOAuthTokenInput') {
-        next.anthropicOAuthTokenDirty = true;
-      }
       if (action.field === 'ollamaEndpointInput') {
         next.ollamaEndpointDirty = true;
       }
@@ -403,7 +394,6 @@ function configFormReducer(state: ConfigFormState, action: ConfigFormAction): Co
       return {
         ...state,
         ...action.state,
-        anthropicOAuthTokenDirty: false,
         ollamaEndpointDirty: false,
       };
 

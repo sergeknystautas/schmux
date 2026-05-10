@@ -95,13 +95,22 @@ export function useAutoSave(
         rawDispatch({ type: 'SET_FIELD', field: 'warning', value: result.warning });
       }
 
-      // Check if restart needed
+      // Refresh server-computed fields (oneshot targets, catalog, runners)
+      // so dropdowns reflect changes like a newly saved Anthropic token.
       const reloaded = await getConfig();
-      rawDispatch({
-        type: 'SET_FIELD',
-        field: 'apiNeedsRestart',
-        value: reloaded.needs_restart || false,
-      });
+      const serverFields: Partial<ConfigFormState> = {
+        oneshotTargets: reloaded.oneshot_targets || [],
+        modelCatalog: reloaded.models || [],
+        runners: reloaded.runners || {},
+        anthropicOAuthTokenSet: reloaded.anthropic_oauth_token_set || false,
+        ollamaReachable: reloaded.ollama?.reachable || false,
+        ollamaModels: reloaded.ollama?.models || [],
+        ollamaAutoDetectedEndpoint: reloaded.ollama?.auto_detected_endpoint || '',
+        apiNeedsRestart: reloaded.needs_restart || false,
+      };
+      for (const [field, value] of Object.entries(serverFields)) {
+        rawDispatch({ type: 'SET_FIELD', field: field as keyof ConfigFormState, value });
+      }
 
       // Update last saved config
       lastSavedConfigRef.current = { ...stateRef.current };

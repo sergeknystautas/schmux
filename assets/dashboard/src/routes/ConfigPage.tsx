@@ -12,6 +12,7 @@ import {
   setRemoteAccessPassword,
   getErrorMessage,
   validateTLS,
+  updateConfig,
 } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
@@ -19,6 +20,7 @@ import { useConfig } from '../contexts/ConfigContext';
 import { useFeatures } from '../contexts/FeaturesContext';
 import { useConfigForm } from './config/useConfigForm';
 import { useAutoSave, type SaveStatus } from './config/useAutoSave';
+import { CONFIG_UPDATED_KEY } from '../lib/constants';
 import useVersionInfo from '../hooks/useVersionInfo';
 import WorkspacesTab from './config/WorkspacesTab';
 import SessionsTab from './config/SessionsTab';
@@ -472,6 +474,12 @@ export default function ConfigPage() {
       const data = await getConfig();
       dispatch({ type: 'SET_MODELS', models: data.models || [] });
       dispatch({ type: 'SET_FIELD', field: 'runners', value: data.runners || {} });
+      dispatch({ type: 'SET_FIELD', field: 'oneshotTargets', value: data.oneshot_targets || [] });
+      dispatch({
+        type: 'SET_FIELD',
+        field: 'anthropicOAuthTokenSet',
+        value: data.anthropic_oauth_token_set || false,
+      });
     } catch (err) {
       alert('Load Models Failed', getErrorMessage(err, 'Failed to load models'));
     }
@@ -758,6 +766,48 @@ export default function ConfigPage() {
       success(`Saved secrets for ${model.display_name}`);
     } catch (err) {
       alert('Save Secrets Failed', getErrorMessage(err, 'Failed to save model secrets'));
+    }
+  };
+
+  const handleAnthropicTokenAction = async (mode: 'set' | 'update' | 'remove') => {
+    if (mode === 'remove') {
+      const confirmed = await confirm('Remove Anthropic Token?', {
+        confirmText: 'Remove',
+        danger: true,
+        detailedMessage: 'This will remove the stored Anthropic OAuth token.',
+      });
+      if (!confirmed) return;
+      try {
+        await updateConfig({ anthropic_oauth_token: '' });
+        reloadConfig();
+        localStorage.setItem(CONFIG_UPDATED_KEY, Date.now().toString());
+        await reloadModels();
+        success('Anthropic token removed');
+      } catch (err) {
+        alert('Remove Failed', getErrorMessage(err, 'Failed to remove Anthropic token'));
+      }
+      return;
+    }
+
+    const title = mode === 'set' ? 'Set Anthropic Token' : 'Update Anthropic Token';
+    const value = await prompt(title, {
+      placeholder: 'sk-ant-oat-...',
+      confirmText: mode === 'set' ? 'Set' : 'Update',
+      password: true,
+    });
+    if (value === null) return;
+    if (!value.trim()) {
+      toastError('Token cannot be empty');
+      return;
+    }
+    try {
+      await updateConfig({ anthropic_oauth_token: value.trim() });
+      reloadConfig();
+      localStorage.setItem(CONFIG_UPDATED_KEY, Date.now().toString());
+      await reloadModels();
+      success('Anthropic token saved');
+    } catch (err) {
+      alert('Save Failed', getErrorMessage(err, 'Failed to save Anthropic token'));
     }
   };
 
@@ -1085,6 +1135,7 @@ export default function ConfigPage() {
               modelCatalog={state.modelCatalog}
               runners={state.runners}
               onModelAction={handleModelAction}
+              onAnthropicTokenAction={handleAnthropicTokenAction}
               onOpenRunTargetEditModal={openRunTargetEditModal}
               commitMessageTargetMissing={commitMessageTargetMissing}
               prReviewTargetMissing={prReviewTargetMissing}
