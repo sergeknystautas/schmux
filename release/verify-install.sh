@@ -1,6 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
+if [ "${SCHMUX_INSTALL_TEST:-}" != "1" ]; then
+    echo "Error: verify-install.sh must run inside a container." >&2
+    echo "Use ./release/test-install.sh instead." >&2
+    exit 1
+fi
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m'

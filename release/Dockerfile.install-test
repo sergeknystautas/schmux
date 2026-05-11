@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN useradd -m -u 1000 testuser
 USER testuser
 ENV PATH="/home/testuser/.local/bin:${PATH}"
+ENV SCHMUX_INSTALL_TEST=1
 
 COPY release/verify-install.sh /home/testuser/verify-install.sh
 
