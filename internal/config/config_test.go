@@ -2739,8 +2739,8 @@ func TestRepofeedConfigDefaults(t *testing.T) {
 	if cfg.GetRepofeedCompletedRetention() != 48 {
 		t.Errorf("completed retention: got %d, want 48", cfg.GetRepofeedCompletedRetention())
 	}
-	if !cfg.GetRepofeedRepoEnabled("anything") {
-		t.Error("repos should be enabled by default")
+	if cfg.GetRepofeedRepoEnabled("anything") {
+		t.Error("repos should be disabled by default")
 	}
 }
 
@@ -2767,8 +2767,8 @@ func TestRepofeedConfigWithValues(t *testing.T) {
 	if cfg.GetRepofeedRepoEnabled("other") != false {
 		t.Error("other should be disabled")
 	}
-	if cfg.GetRepofeedRepoEnabled("unknown") != true {
-		t.Error("unknown repos should default to enabled")
+	if cfg.GetRepofeedRepoEnabled("unknown") != false {
+		t.Error("unknown repos should default to disabled")
 	}
 }
 

@@ -81,7 +81,7 @@ export default function RepofeedConfig({ state, dispatch }: ConfigPanelProps) {
           <div className="settings-section__body">
             {state.repos.map((repo) => {
               const slug = repoSlug(repo.name);
-              const enabled = state.repofeedRepos[slug] !== false;
+              const enabled = state.repofeedRepos[slug] === true;
               return (
                 <div key={slug} className="form-group">
                   <label className="form-group__label cursor-pointer">

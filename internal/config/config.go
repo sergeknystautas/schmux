@@ -1400,16 +1400,16 @@ func (c *Config) GetRepofeedCompletedRetention() int {
 }
 
 // GetRepofeedRepoEnabled returns whether a specific repo is enabled for repofeed.
-// Returns true by default if the repo is not in the map.
+// Returns false by default if the repo is not in the map.
 func (c *Config) GetRepofeedRepoEnabled(slug string) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if c.Repofeed == nil || c.Repofeed.Repos == nil {
-		return true
+		return false
 	}
 	enabled, ok := c.Repofeed.Repos[slug]
 	if !ok {
-		return true
+		return false
 	}
 	return enabled
 }

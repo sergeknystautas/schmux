@@ -72,11 +72,11 @@ describe('RepofeedConfig', () => {
     });
   });
 
-  it('repos default to enabled when not in repofeedRepos map', () => {
+  it('repos default to disabled when not in repofeedRepos map', () => {
     const repos: RepoResponse[] = [{ name: 'my-repo', url: 'https://example.com/repo' }];
     renderTab({ repos, repofeedRepos: {} });
     const checkbox = screen.getByLabelText('my-repo') as HTMLInputElement;
-    expect(checkbox.checked).toBe(true);
+    expect(checkbox.checked).toBe(false);
   });
 
   it('shows repo as unchecked when explicitly disabled', () => {
