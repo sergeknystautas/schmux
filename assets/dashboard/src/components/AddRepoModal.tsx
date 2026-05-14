@@ -6,7 +6,7 @@ import { useConfig } from '../contexts/ConfigContext';
 import useFocusTrap from '../hooks/useFocusTrap';
 
 interface AddRepoModalProps {
-  onClose: () => void;
+  onClose: (repoAdded?: boolean) => void;
   /** When false, skip the redirect to /spawn after adding. Default: true. */
   navigateToSpawn?: boolean;
 }
@@ -113,6 +113,7 @@ export default function AddRepoModal({ onClose, navigateToSpawn = true }: AddRep
       if (abortRef.current) return;
 
       const alreadyExists = (config.repos || []).some((r) => r.url === resolvedUrl);
+      let added = false;
       if (!alreadyExists) {
         const repoName = deriveRepoName(resolvedUrl);
         const newRepo = {
@@ -130,11 +131,12 @@ export default function AddRepoModal({ onClose, navigateToSpawn = true }: AddRep
           typeof updateConfig
         >[0]);
         await reloadConfig();
+        added = true;
       }
 
       if (abortRef.current) return;
 
-      onClose();
+      onClose(added);
       if (navigateToSpawn) {
         navigate('/spawn', {
           state: { repo: resolvedUrl, branch: result.default_branch },

@@ -416,17 +416,16 @@ func (m *Manager) ensureListener(ctx context.Context, preview state.WorkspacePre
 		return state.WorkspacePreview{}, fmt.Errorf("invalid target URL: %w", err)
 	}
 
-	proxy := httputil.NewSingleHostReverseProxy(targetURL)
-
 	// Strip sensitive headers before forwarding to the upstream service.
 	// Without this, schmux session cookies, CSRF tokens, and any Authorization
 	// headers would leak to the proxied dev server.
-	defaultDirector := proxy.Director
-	proxy.Director = func(r *http.Request) {
-		defaultDirector(r)
-		r.Header.Del("Cookie")
-		r.Header.Del("Authorization")
-		r.Header.Del("X-CSRF-Token")
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(targetURL)
+			pr.Out.Header.Del("Cookie")
+			pr.Out.Header.Del("Authorization")
+			pr.Out.Header.Del("X-CSRF-Token")
+		},
 	}
 
 	proxyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -1380,16 +1380,14 @@ func createDevProxyHandler(targetURL string) http.Handler {
 		})
 	}
 
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	proxy.Transport = &http.Transport{
-		DisableKeepAlives: true,
-	}
-
-	// Customize the director to handle WebSocket upgrade for Vite HMR
-	originalDirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
-		originalDirector(req)
-		req.Host = target.Host
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(target)
+			pr.Out.Host = target.Host
+		},
+		Transport: &http.Transport{
+			DisableKeepAlives: true,
+		},
 	}
 
 	return proxy

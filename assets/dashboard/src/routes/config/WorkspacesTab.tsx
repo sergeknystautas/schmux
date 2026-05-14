@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 import AddRepoModal from '../../components/AddRepoModal';
+import { getConfig } from '../../lib/api';
 import type { ConfigFormAction, ConfigFormState } from './useConfigForm';
 import type { OverlayInfo, RepoResponse } from '../../lib/types';
 
@@ -34,6 +35,18 @@ export default function WorkspacesTab({
   const [showAddModal, setShowAddModal] = useState(false);
   const setField = (field: string, value: unknown) =>
     dispatch({ type: 'SET_FIELD', field: field as keyof ConfigFormState, value });
+
+  const handleModalClose = useCallback(
+    async (repoAdded?: boolean) => {
+      setShowAddModal(false);
+      if (repoAdded) {
+        const cfg = await getConfig();
+        const repos = (cfg.repos || []).sort((a, b) => a.name.localeCompare(b.name));
+        dispatch({ type: 'LOAD_CONFIG', state: { repos } });
+      }
+    },
+    [dispatch]
+  );
   return (
     <div className="wizard-step-content" data-step="1">
       <h2 className="wizard-step-content__title">Workspace Directory</h2>
@@ -203,9 +216,7 @@ export default function WorkspacesTab({
         </div>
       </details>
 
-      {showAddModal && (
-        <AddRepoModal onClose={() => setShowAddModal(false)} navigateToSpawn={false} />
-      )}
+      {showAddModal && <AddRepoModal onClose={handleModalClose} navigateToSpawn={false} />}
     </div>
   );
 }
