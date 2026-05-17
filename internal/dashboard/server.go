@@ -1064,6 +1064,15 @@ func (s *Server) Start() error {
 		s.logger.Info("listening", "addr", fmt.Sprintf("%s://localhost:%d", scheme, port), "network", false)
 	}
 
+	if s.config.GetNetworkAccess() {
+		if !s.config.GetTLSEnabled() {
+			s.logger.Warn("Dashboard is network-accessible without TLS. Traffic including terminal I/O is unencrypted.")
+		}
+		if !s.config.GetAuthEnabled() {
+			s.logger.Warn("Dashboard is network-accessible without authentication. Anyone on your network can access terminal sessions.")
+		}
+	}
+
 	if bindAddr == "127.0.0.1" {
 		ln6, err := net.Listen("tcp6", fmt.Sprintf("[::1]:%d", port))
 		if err == nil {

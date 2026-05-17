@@ -3165,6 +3165,9 @@ func TestGetNetworkAccess(t *testing.T) {
 		{"nil network is not accessible", nil, false},
 		{"localhost is not accessible", &NetworkConfig{BindAddress: "127.0.0.1"}, false},
 		{"0.0.0.0 is accessible", &NetworkConfig{BindAddress: "0.0.0.0"}, true},
+		{"::1 is not accessible", &NetworkConfig{BindAddress: "::1"}, false},
+		{"specific LAN IP is accessible", &NetworkConfig{BindAddress: "192.168.1.5"}, true},
+		{"10.x IP is accessible", &NetworkConfig{BindAddress: "10.0.0.1"}, true},
 	}
 
 	for _, tt := range tests {

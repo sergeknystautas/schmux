@@ -333,7 +333,20 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 				Command:   h.config.GetRemoteAccessNotifyCommand(),
 			},
 		},
-		NeedsRestart:           h.state.GetNeedsRestart(),
+		NeedsRestart: h.state.GetNeedsRestart(),
+		NetworkWarnings: func() []string {
+			if !h.config.GetNetworkAccess() {
+				return nil
+			}
+			var warnings []string
+			if !h.config.GetTLSEnabled() {
+				warnings = append(warnings, "Dashboard is network-accessible without TLS. Traffic including terminal I/O is unencrypted.")
+			}
+			if !h.config.GetAuthEnabled() {
+				warnings = append(warnings, "Dashboard is network-accessible without authentication. Anyone on your network can access terminal sessions.")
+			}
+			return warnings
+		}(),
 		OneshotTargets:         h.buildOneshotTargets(catalog),
 		AnthropicOAuthTokenSet: func() bool { t, _ := config.GetAnthropicOAuthToken(); return t != "" }(),
 		Ollama: contracts.OllamaConfig{

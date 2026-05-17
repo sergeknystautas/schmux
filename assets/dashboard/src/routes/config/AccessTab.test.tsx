@@ -112,6 +112,38 @@ describe('AccessTab feature gating', () => {
   });
 });
 
+describe('AccessTab inline warnings', () => {
+  beforeEach(() => {
+    dispatch.mockClear();
+  });
+
+  it('shows TLS warning when network access enabled without TLS', () => {
+    render(<AccessTab {...baseProps} networkAccess={true} httpsEnabled={false} />);
+    expect(screen.getByText(/without TLS exposes traffic/)).toBeInTheDocument();
+  });
+
+  it('shows auth warning when network access enabled without auth', () => {
+    render(<AccessTab {...baseProps} networkAccess={true} authEnabled={false} />);
+    expect(screen.getByText(/without authentication allows/)).toBeInTheDocument();
+  });
+
+  it('does not show warnings when local access only', () => {
+    render(<AccessTab {...baseProps} networkAccess={false} />);
+    expect(screen.queryByText(/without TLS exposes traffic/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/without authentication allows/)).not.toBeInTheDocument();
+  });
+
+  it('does not show TLS warning when HTTPS is enabled', () => {
+    render(<AccessTab {...baseProps} networkAccess={true} httpsEnabled={true} />);
+    expect(screen.queryByText(/without TLS exposes traffic/)).not.toBeInTheDocument();
+  });
+
+  it('does not show auth warning when auth is enabled', () => {
+    render(<AccessTab {...baseProps} networkAccess={true} authEnabled={true} />);
+    expect(screen.queryByText(/without authentication allows/)).not.toBeInTheDocument();
+  });
+});
+
 // AccessTab vendor-locked behavior is enforced at the wizard level
 // (ConfigPage drops the Access tab from navigation when features.vendor_locked
 // is true, see ConfigPage.test.tsx). AccessTab itself stays vendor-agnostic.

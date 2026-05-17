@@ -117,6 +117,16 @@ export default function AccessTab(props: AccessTabProps) {
                 ? 'Dashboard accessible only from this computer (localhost).'
                 : 'Dashboard accessible from other devices on your local network.'}
             </p>
+            {networkAccess && !httpsEnabled && (
+              <div className="form-group__hint" style={{ marginTop: '0.5rem' }}>
+                Network binding without TLS exposes traffic to eavesdropping.
+              </div>
+            )}
+            {networkAccess && !authEnabled && (
+              <div className="form-group__hint" style={{ marginTop: '0.5rem' }}>
+                Network binding without authentication allows anyone on your network full access.
+              </div>
+            )}
           </div>
         </div>
       </div>

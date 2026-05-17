@@ -190,6 +190,7 @@ type ConfigResponse struct {
 	BackburnerEnabled          bool                   `json:"backburner_enabled,omitempty"`
 	SystemCapabilities         SystemCapabilities     `json:"system_capabilities"`
 	NeedsRestart               bool                   `json:"needs_restart"`
+	NetworkWarnings            []string               `json:"network_warnings,omitempty"`
 	DashboardSXStatus          *DashboardSXStatus     `json:"dashboard_sx_status,omitempty"`
 	OneshotTargets             []OneshotTarget        `json:"oneshot_targets"`
 	AnthropicOAuthTokenSet     bool                   `json:"anthropic_oauth_token_set"`

@@ -141,6 +141,7 @@ export interface ConfigResponse {
   backburner_enabled?: boolean;
   system_capabilities: SystemCapabilities;
   needs_restart: boolean;
+  network_warnings?: string[];
   dashboard_sx_status?: DashboardSXStatus;
   oneshot_targets: OneshotTarget[];
   anthropic_oauth_token_set: boolean;

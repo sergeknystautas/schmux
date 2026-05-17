@@ -298,6 +298,7 @@ export default function HomePage() {
       }
     }
   }
+  const networkWarnings = config.network_warnings || [];
   const { success, error: toastError } = useToast();
   const { alert, confirm } = useModal();
   const { setPendingNavigation } = usePendingNavigation();
@@ -773,6 +774,18 @@ export default function HomePage() {
               ))}
             </div>
           )}
+          {networkWarnings.length > 0 && (
+            <div
+              className="banner banner--warning mb-md"
+              data-testid="network-warnings"
+              style={{ flexDirection: 'column', alignItems: 'flex-start' }}
+            >
+              <strong>Network security</strong>
+              {networkWarnings.map((w) => (
+                <div key={w}>{w}</div>
+              ))}
+            </div>
+          )}
           {socketInfo.isMulti && (
             <div
               className="banner banner--info mb-md"
@@ -932,6 +945,18 @@ export default function HomePage() {
             <strong>dashboard.sx alerts</strong>
             {dxAlerts.map((a) => (
               <div key={a.key}>{a.text}</div>
+            ))}
+          </div>
+        )}
+        {networkWarnings.length > 0 && (
+          <div
+            className="banner banner--warning mb-md"
+            data-testid="network-warnings"
+            style={{ flexDirection: 'column', alignItems: 'flex-start' }}
+          >
+            <strong>Network security</strong>
+            {networkWarnings.map((w) => (
+              <div key={w}>{w}</div>
             ))}
           </div>
         )}

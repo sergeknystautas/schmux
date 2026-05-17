@@ -2580,14 +2580,15 @@ func (c *Config) getBindAddressLocked() string {
 }
 
 // GetNetworkAccess returns whether the dashboard should be accessible from the local network.
-// This is a convenience method that checks if bind_address is "0.0.0.0".
+// Returns true for any non-loopback bind address.
 func (c *Config) GetNetworkAccess() bool {
 	if buildflags.VendorLocked {
 		return false
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.getBindAddressLocked() == "0.0.0.0"
+	addr := c.getBindAddressLocked()
+	return addr != "" && addr != "127.0.0.1" && addr != "::1"
 }
 
 // GetPort returns the dashboard port. Defaults to 7337.
