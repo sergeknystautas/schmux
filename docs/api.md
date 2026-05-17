@@ -239,7 +239,12 @@ Response:
     "lines_added": 0,
     "lines_removed": 0,
     "files_changed": 0,
-    "git_branch_url": "https://github.com/user/repo/tree/branch", // optional, when remote exists
+    "commits_synced_with_remote": true,
+    "remote_branch_exists": true,
+    "remote_branch_is_fork": false,
+    "local_unique_commits": 0,
+    "remote_unique_commits": 0,
+    "git_branch_url": "https://github.com/user/repo/tree/branch", // optional, when branch exists on origin
     "sessions": [
       {
         "id": "session-id",
@@ -316,6 +321,10 @@ Notes:
 - Workspace `tabs` array contains Tab objects with fields: `id`, `kind` (tab type), `label`, `route`, `closable`, `meta` (type-specific metadata), and `created_at`. Tabs are stored independently from workspaces and associated by workspace ID; the broadcast groups them under their workspace. The `diff` and `resolve-conflict` tabs have no server-side label — the frontend derives their display from workspace data (`files_changed` for diff, `resolve_conflicts` records for conflict tabs). The broadcaster serves tabs as persisted with no field rewriting.
 - Workspace `resolve_conflicts` contains persisted conflict-process records keyed by the 7-character short hash; resolve-conflict tabs point at these records via `tabs[].meta.hash`.
 - `files_changed` counts each file with uncommitted changes individually, including untracked files inside newly-created directories (the server passes `-u` to `git status --porcelain` so new dirs are not collapsed to a single entry).
+- `commits_synced_with_remote` is `true` when the local HEAD matches the remote branch (no unique commits on either side). Considers both `origin/<branch>` and the branch's configured tracking remote (fork workflows).
+- `remote_branch_exists` is `true` when the branch exists on any remote (origin or a configured tracking remote such as a fork).
+- `remote_branch_is_fork` is `true` when the remote branch is on a non-origin remote. The dashboard displays "(fork)" instead of "(local only)" in this case.
+- `local_unique_commits` / `remote_unique_commits`: number of commits unique to local/remote respectively (compared against the remote branch, not the default branch).
 - Unrecognized workspace sub-routes return 404.
 
 ### POST /api/workspaces/scan

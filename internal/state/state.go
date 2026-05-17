@@ -153,7 +153,8 @@ type Workspace struct {
 	FilesChanged            int               `json:"-"`
 	CommitsSyncedWithRemote bool              `json:"-"`                            // true if local HEAD matches origin/{branch}
 	DefaultBranchOrphaned   bool              `json:"-"`                            // true if origin/default has no common ancestor with HEAD
-	RemoteBranchExists      bool              `json:"-"`                            // true if origin/<branch> ref exists in origin query repo
+	RemoteBranchExists      bool              `json:"-"`                            // true if branch ref exists on any remote
+	RemoteBranchIsFork      bool              `json:"-"`                            // true if remote branch is on a non-origin remote (fork)
 	LocalUniqueCommits      int               `json:"-"`                            // commits in local not in remote (left count)
 	RemoteUniqueCommits     int               `json:"-"`                            // commits in remote not in local (right count)
 	RemoteHostID            string            `json:"remote_host_id,omitempty"`     // Empty for local workspaces

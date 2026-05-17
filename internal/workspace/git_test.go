@@ -673,6 +673,107 @@ func TestGitRemoteBranchExists(t *testing.T) {
 	}
 }
 
+// TestGitStatus_PushedToFork verifies that when a branch is pushed to a
+// non-origin remote (fork) and tracks it, schmux recognizes the commits as
+// synced and the workspace as safe to close.
+func TestGitStatus_PushedToFork(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	// Create a bare "origin" repo (simulates upstream like godotengine/godot)
+	tmpDir := t.TempDir()
+	originBareDir := filepath.Join(tmpDir, "origin.git")
+	runGit(t, tmpDir, "clone", "--bare", templateRepoDir, "origin.git")
+
+	// Create a bare "fork" repo (simulates user's fork like sergeknystautas/godot)
+	forkBareDir := filepath.Join(tmpDir, "fork.git")
+	runGit(t, tmpDir, "clone", "--bare", templateRepoDir, "fork.git")
+
+	// Create a local clone from origin
+	localDir := filepath.Join(tmpDir, "local")
+	runGit(t, tmpDir, "clone", originBareDir, "local")
+
+	// Add the fork as a second remote
+	runGit(t, localDir, "remote", "add", "fork", forkBareDir)
+	runGit(t, localDir, "fetch", "fork")
+
+	// Create a feature branch and make a commit
+	runGit(t, localDir, "checkout", "-b", "fix/audio-pitching")
+	writeFile(t, localDir, "fix.txt", "audio fix")
+	runGit(t, localDir, "add", ".")
+	runGit(t, localDir, "commit", "-m", "fix audio pitching")
+
+	// Push to the fork remote (not origin) and set up tracking
+	runGit(t, localDir, "push", "-u", "fork", "fix/audio-pitching")
+
+	// Set up the workspace manager
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	// Pre-seed the default branch cache so ahead/behind can be computed
+	// (without this, GetDefaultBranch fails for bare-dir paths)
+	m.setDefaultBranch(originBareDir, "main")
+
+	// Add workspace to state
+	w := state.Workspace{
+		ID:     "fork-test-001",
+		Repo:   originBareDir,
+		Branch: "fix/audio-pitching",
+		Path:   localDir,
+	}
+	st.AddWorkspace(w)
+
+	// Run UpdateVCSStatus to populate state fields
+	ctx := context.Background()
+	updated, err := m.UpdateVCSStatus(ctx, "fork-test-001")
+	if err != nil {
+		t.Fatalf("UpdateVCSStatus() error: %v", err)
+	}
+
+	// The branch is 1 commit ahead of origin/main
+	if updated.Ahead != 1 {
+		t.Errorf("Ahead = %d, want 1 (one commit ahead of origin/main)", updated.Ahead)
+	}
+
+	// The branch IS pushed to a remote (fork), so it should be synced
+	if !updated.CommitsSyncedWithRemote {
+		t.Errorf("CommitsSyncedWithRemote = false, want true (branch is pushed to fork remote)")
+	}
+
+	// The remote branch exists (on fork, not origin)
+	if !updated.RemoteBranchExists {
+		t.Errorf("RemoteBranchExists = false, want true (branch exists on fork remote)")
+	}
+
+	// No unique commits vs the remote branch (we just pushed)
+	if updated.LocalUniqueCommits != 0 {
+		t.Errorf("LocalUniqueCommits = %d, want 0", updated.LocalUniqueCommits)
+	}
+	if updated.RemoteUniqueCommits != 0 {
+		t.Errorf("RemoteUniqueCommits = %d, want 0", updated.RemoteUniqueCommits)
+	}
+
+	// Should indicate the remote branch is on a fork (not origin)
+	if !updated.RemoteBranchIsFork {
+		t.Errorf("RemoteBranchIsFork = false, want true (branch is on fork remote, not origin)")
+	}
+
+	// Safety check: workspace should be safe to close since commits are pushed
+	safety, err := m.checkGitSafety(ctx, "fork-test-001")
+	if err != nil {
+		t.Fatalf("checkGitSafety() error: %v", err)
+	}
+	if !safety.Safe {
+		t.Errorf("checkGitSafety() Safe = false, want true (commits pushed to fork)\n"+
+			"Reason: %s\nAheadCommits: %d", safety.Reason, safety.AheadCommits)
+	}
+}
+
 // gitCommitHash returns the commit hash for a ref in the given directory.
 func gitCommitHash(t *testing.T, dir, ref string) string {
 	t.Helper()

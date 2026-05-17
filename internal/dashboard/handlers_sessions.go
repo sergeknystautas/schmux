@@ -71,7 +71,7 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 
 		// Use cached RemoteBranchExists from UpdateGitStatus (avoids per-broadcast git calls)
 		branchURL := ""
-		if ws.RemoteBranchExists {
+		if ws.RemoteBranchExists && !ws.RemoteBranchIsFork {
 			branchURL = workspace.BuildGitBranchURL(ws.Repo, ws.Branch)
 		}
 
@@ -167,6 +167,7 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 			CommitsSyncedWithRemote: ws.CommitsSyncedWithRemote,
 			DefaultBranchOrphaned:   ws.DefaultBranchOrphaned,
 			RemoteBranchExists:      ws.RemoteBranchExists,
+			RemoteBranchIsFork:      ws.RemoteBranchIsFork,
 			LocalUniqueCommits:      ws.LocalUniqueCommits,
 			RemoteUniqueCommits:     ws.RemoteUniqueCommits,
 			Previews:                []contracts.PreviewResponse{},

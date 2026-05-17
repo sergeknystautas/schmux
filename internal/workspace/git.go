@@ -266,6 +266,16 @@ func (m *Manager) gitHasOriginRemote(ctx context.Context, dir string) bool {
 	return m.runGitErr(ctx, "", RefreshTriggerExplicit, dir, "remote", "get-url", "origin") == nil
 }
 
+// gitBranchTrackingRemote returns the configured remote for a branch
+// (from branch.<name>.remote). Returns empty string if not configured.
+func (m *Manager) gitBranchTrackingRemote(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir, branch string) (string, error) {
+	output, err := m.runGit(ctx, workspaceID, trigger, dir, "config", "branch."+branch+".remote")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
 // gitRemoteBranchExists checks for refs/remotes/origin/<branch>.
 func (m *Manager) gitRemoteBranchExists(ctx context.Context, dir, branch string) (bool, error) {
 	return m.gitRemoteBranchExistsInstrumented(ctx, "", RefreshTriggerExplicit, dir, branch)
@@ -506,11 +516,11 @@ func (m *Manager) hasCommonAncestorInstrumented(ctx context.Context, workspaceID
 
 // gitStatus calculates the git status for a workspace directory.
 // Returns: (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, localUnique int, remoteUnique int, currentBranch string)
-func (m *Manager) gitStatus(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir, repoURL string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, localUnique int, remoteUnique int, currentBranch string) {
+func (m *Manager) gitStatus(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir, repoURL string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, remoteBranchIsFork bool, localUnique int, remoteUnique int, currentBranch string) {
 	return m.gitStatusWithRound(ctx, workspaceID, trigger, dir, repoURL, nil)
 }
 
-func (m *Manager) gitStatusWithRound(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir, repoURL string, round *pollRound) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, localUnique int, remoteUnique int, currentBranch string) {
+func (m *Manager) gitStatusWithRound(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir, repoURL string, round *pollRound) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, remoteBranchIsFork bool, localUnique int, remoteUnique int, currentBranch string) {
 	// Extract sub-caches from the poll round (nil-safe)
 	var fetchRound *gitFetchPollRound
 	var wtCache *worktreeListCache
@@ -566,24 +576,35 @@ func (m *Manager) gitStatusWithRound(ctx context.Context, workspaceID string, tr
 		}
 	}
 
-	// Check if local HEAD matches origin/{branch} (indicates commits are synced to remote branch)
-	// Get current branch name first
+	// Check if local HEAD matches the remote branch (indicates commits are synced).
+	// First check origin/<branch>, then fall back to the branch's configured upstream
+	// (supports fork workflows where the branch is pushed to a non-origin remote).
 	currentBranch, _ = m.gitCurrentBranchInstrumented(ctx, workspaceID, trigger, dir)
 	if currentBranch != "" && currentBranch != "HEAD" {
-		// Check if origin/{branch} exists
 		remoteBranchExists, _ = m.gitRemoteBranchExistsInstrumented(ctx, workspaceID, trigger, dir, currentBranch)
+		remoteRef := ""
 		if remoteBranchExists {
-			remoteRef := "origin/" + currentBranch
-
-			// Calculate unique commits using rev-list --left-right --count.
-			// This also tells us whether commits are synced: if both counts are 0,
-			// HEAD and origin/<branch> point to the same commit.
+			remoteRef = "origin/" + currentBranch
+		} else {
+			// Check if the branch tracks a non-origin remote (fork workflow)
+			trackingRemote, _ := m.gitBranchTrackingRemote(ctx, workspaceID, trigger, dir, currentBranch)
+			if trackingRemote != "" && trackingRemote != "origin" {
+				// Verify the ref exists on the tracking remote
+				forkRef := "refs/remotes/" + trackingRemote + "/" + currentBranch
+				if err := m.runGitErr(ctx, workspaceID, trigger, dir, "show-ref", "--verify", "--quiet", forkRef); err == nil {
+					remoteBranchExists = true
+					remoteBranchIsFork = true
+					remoteRef = trackingRemote + "/" + currentBranch
+				}
+			}
+		}
+		if remoteBranchExists && remoteRef != "" {
 			revOutput, revErr := m.runGit(ctx, workspaceID, trigger, dir, "rev-list", "--left-right", "--count", "HEAD..."+remoteRef)
 			if revErr == nil {
 				parts := strings.Split(strings.TrimSpace(string(revOutput)), "\t")
 				if len(parts) == 2 {
-					localUnique, _ = strconv.Atoi(parts[0])  // commits local has (left)
-					remoteUnique, _ = strconv.Atoi(parts[1]) // commits remote has (right)
+					localUnique, _ = strconv.Atoi(parts[0])
+					remoteUnique, _ = strconv.Atoi(parts[1])
 				}
 			}
 			commitsSyncedWithRemote = (localUnique == 0 && remoteUnique == 0)
@@ -639,7 +660,7 @@ func (m *Manager) gitStatusWithRound(ctx context.Context, workspaceID string, tr
 		}
 	}
 
-	return dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSyncedWithRemote, remoteBranchExists, localUnique, remoteUnique, currentBranch
+	return dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSyncedWithRemote, remoteBranchExists, remoteBranchIsFork, localUnique, remoteUnique, currentBranch
 }
 
 // countLinesCapped counts newlines in a file up to maxBytes.

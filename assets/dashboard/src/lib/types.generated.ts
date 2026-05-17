@@ -940,6 +940,7 @@ export interface WorkspaceResponseItem {
   commits_synced_with_remote: boolean;
   default_branch_orphaned: boolean;
   remote_branch_exists: boolean;
+  remote_branch_is_fork: boolean;
   local_unique_commits: number;
   remote_unique_commits: number;
   previews?: PreviewResponse[];

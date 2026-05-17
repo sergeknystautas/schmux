@@ -67,7 +67,8 @@ type WorkspaceResponseItem struct {
 	ConflictOnBranch        string                `json:"conflict_on_branch,omitempty"` // Branch where sync conflict was detected
 	CommitsSyncedWithRemote bool                  `json:"commits_synced_with_remote"`   // true if local HEAD matches origin/{branch}
 	DefaultBranchOrphaned   bool                  `json:"default_branch_orphaned"`      // true if origin/default has no common ancestor with HEAD
-	RemoteBranchExists      bool                  `json:"remote_branch_exists"`         // true if origin/{branch} exists
+	RemoteBranchExists      bool                  `json:"remote_branch_exists"`         // true if branch exists on any remote
+	RemoteBranchIsFork      bool                  `json:"remote_branch_is_fork"`        // true if remote branch is on a non-origin remote (fork)
 	LocalUniqueCommits      int                   `json:"local_unique_commits"`         // commits in local not in remote
 	RemoteUniqueCommits     int                   `json:"remote_unique_commits"`        // commits in remote not in local
 	Previews                []PreviewResponse     `json:"previews,omitempty"`

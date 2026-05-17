@@ -88,7 +88,7 @@ func TestGitStatus_WatcherStillReturnsAccurateLocalState(t *testing.T) {
 	// Create a dirty file
 	writeFile(t, cloneDir, "dirty.txt", "uncommitted change")
 
-	dirty, _, _, _, _, _, _, _, _, _, currentBranch := m.gitStatus(ctx, "ws-test", RefreshTriggerWatcher, cloneDir, remoteDir)
+	dirty, _, _, _, _, _, _, _, _, _, _, currentBranch := m.gitStatus(ctx, "ws-test", RefreshTriggerWatcher, cloneDir, remoteDir)
 
 	if !dirty {
 		t.Error("watcher trigger: expected dirty=true with uncommitted file")
@@ -127,14 +127,14 @@ func TestGitStatus_ReturnsCurrentBranch(t *testing.T) {
 	ctx := context.Background()
 
 	// On main branch
-	_, _, _, _, _, _, _, _, _, _, branch := m.gitStatus(ctx, "ws-test", RefreshTriggerExplicit, cloneDir, remoteDir)
+	_, _, _, _, _, _, _, _, _, _, _, branch := m.gitStatus(ctx, "ws-test", RefreshTriggerExplicit, cloneDir, remoteDir)
 	if branch != "main" {
 		t.Errorf("expected currentBranch=main, got %q", branch)
 	}
 
 	// Switch to feature branch
 	runGit(t, cloneDir, "checkout", "feature/test")
-	_, _, _, _, _, _, _, _, _, _, branch = m.gitStatus(ctx, "ws-test", RefreshTriggerExplicit, cloneDir, remoteDir)
+	_, _, _, _, _, _, _, _, _, _, _, branch = m.gitStatus(ctx, "ws-test", RefreshTriggerExplicit, cloneDir, remoteDir)
 	if branch != "feature/test" {
 		t.Errorf("expected currentBranch=feature/test, got %q", branch)
 	}
@@ -177,7 +177,7 @@ func TestGitStatus_FilesChangedCountsUntrackedFilesInNewDirs(t *testing.T) {
 	writeFile(t, cloneDir, "newdir/a.txt", "a\n")
 	writeFile(t, cloneDir, "newdir/b.txt", "b\n")
 
-	_, _, _, _, _, filesChanged, _, _, _, _, _ := m.gitStatus(ctx, "ws-test", RefreshTriggerExplicit, cloneDir, remoteDir)
+	_, _, _, _, _, filesChanged, _, _, _, _, _, _ := m.gitStatus(ctx, "ws-test", RefreshTriggerExplicit, cloneDir, remoteDir)
 
 	// 1 modified + 1 new top-level + 2 in new dir = 4 files.
 	if filesChanged != 4 {
@@ -854,7 +854,7 @@ func TestCommitsSyncedWithRemote_DerivedFromRevList(t *testing.T) {
 	ctx := context.Background()
 
 	// When on main and synced with origin/main, commitsSynced should be true
-	_, _, _, _, _, _, commitsSynced, remoteBranchExists, _, _, _ := m.gitStatus(ctx, "ws-test", RefreshTriggerExplicit, cloneDir, remoteDir)
+	_, _, _, _, _, _, commitsSynced, remoteBranchExists, _, _, _, _ := m.gitStatus(ctx, "ws-test", RefreshTriggerExplicit, cloneDir, remoteDir)
 	if !remoteBranchExists {
 		t.Error("expected remoteBranchExists=true for main branch")
 	}
@@ -906,7 +906,7 @@ func TestCommitsSyncedWithRemote_FalseWhenAhead(t *testing.T) {
 
 	ctx := context.Background()
 
-	_, _, _, _, _, _, commitsSynced, _, localUnique, _, _ := m.gitStatus(ctx, "ws-test", RefreshTriggerExplicit, cloneDir, remoteDir)
+	_, _, _, _, _, _, commitsSynced, _, _, localUnique, _, _ := m.gitStatus(ctx, "ws-test", RefreshTriggerExplicit, cloneDir, remoteDir)
 	if commitsSynced {
 		t.Error("expected commitsSyncedWithRemote=false when local has unpushed commits")
 	}

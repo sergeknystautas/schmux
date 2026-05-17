@@ -97,6 +97,7 @@ export default function WorkspaceHeader({
   const behind = workspace.behind ?? 0;
   const ahead = workspace.ahead ?? 0;
   const remoteBranchExists = workspace.remote_branch_exists ?? false;
+  const remoteBranchIsFork = workspace.remote_branch_is_fork ?? false;
   const localUnique = workspace.local_unique_commits ?? 0;
   const remoteUnique = workspace.remote_unique_commits ?? 0;
 
@@ -236,6 +237,21 @@ export default function WorkspaceHeader({
                     <span className="app-header__git-status">
                       {branchIcon}
                       <span style={{ opacity: 0.6 }}>(local only)</span>
+                    </span>
+                  </Tooltip>
+                ) : remoteBranchIsFork ? (
+                  <Tooltip content={`${remoteUnique} behind fork, ${localUnique} ahead of fork`}>
+                    <span className="app-header__git-status">
+                      {branchIcon}
+                      <span className="app-header__git-pair">
+                        {remoteUnique}
+                        {arrowDown}
+                      </span>{' '}
+                      <span className="app-header__git-pair">
+                        {localUnique}
+                        {arrowUp}
+                      </span>{' '}
+                      <span style={{ opacity: 0.6 }}>(fork)</span>
                     </span>
                   </Tooltip>
                 ) : (

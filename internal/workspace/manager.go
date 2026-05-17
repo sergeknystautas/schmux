@@ -1146,7 +1146,7 @@ func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, worksp
 	}
 
 	// Git-specific status path
-	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSynced, remoteBranchExists, localUnique, remoteUnique, currentBranch := m.gitStatusWithRound(ctx, workspaceID, trigger, w.Path, w.Repo, round)
+	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSynced, remoteBranchExists, remoteBranchIsFork, localUnique, remoteUnique, currentBranch := m.gitStatusWithRound(ctx, workspaceID, trigger, w.Path, w.Repo, round)
 
 	// Use branch from gitStatus; fall back to existing state if empty/detached
 	actualBranch := currentBranch
@@ -1185,6 +1185,7 @@ func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, worksp
 	fresh.DefaultBranchOrphaned = orphaned
 	fresh.Branch = actualBranch
 	fresh.RemoteBranchExists = remoteBranchExists
+	fresh.RemoteBranchIsFork = remoteBranchIsFork
 	fresh.LocalUniqueCommits = localUnique
 	fresh.RemoteUniqueCommits = remoteUnique
 
