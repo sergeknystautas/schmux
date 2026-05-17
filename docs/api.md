@@ -529,7 +529,7 @@ WebSocket binary frames (CR + FM streams): the per-session WebSocket loops (`/ws
 
 Global errors (HTTP status codes):
 
-- 409 Conflict: Branch already in use by another workspace (worktree mode only). Message: `branch_conflict: branch "X" is already in use by workspace "Y"`
+- ~~409 Conflict for branch reuse~~: Removed. Duplicate branch names are now handled by the workspace manager via `ensureUniqueBranch`, which appends a random 3-character suffix (e.g., `feature-x` → `feature-x-k7m`) when the requested branch is already checked out in another worktree.
 
 ### POST /api/check-branch-conflict
 

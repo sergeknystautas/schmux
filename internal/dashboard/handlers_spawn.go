@@ -219,28 +219,6 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	// Server-side branch conflict check for worktree mode
-	// This catches race conditions where UI check passed but another spawn claimed the branch.
-	// Recyclable workspaces are excluded — they are available for reuse and GetOrCreate
-	// will reclaim the branch via Tier 0 recycling.
-	// Sapling repos with empty branch are skipped: sapling has no branch concept,
-	// so two sapling workspaces that both persist Branch="" are not in conflict —
-	// they're distinct workspaces with no branch identity to collide on.
-	skipBranchConflictCheck := false
-	if req.Branch == "" {
-		if repoCfg, found := h.config.FindRepoByURL(req.Repo); found && repoCfg.VCS == "sapling" {
-			skipBranchConflictCheck = true
-		}
-	}
-	if !skipBranchConflictCheck && req.WorkspaceID == "" && h.config.UseWorktrees() {
-		for _, ws := range h.state.GetWorkspaces() {
-			if ws.Repo == req.Repo && ws.Branch == req.Branch && ws.Status != state.WorkspaceStatusRecyclable {
-				writeJSONError(w, fmt.Sprintf("branch_conflict: branch %q is already in use by workspace %q", req.Branch, ws.ID), http.StatusConflict)
-				return
-			}
-		}
-	}
-
 	// Spawn sessions
 	type SessionResult struct {
 		SessionID   string `json:"session_id"`

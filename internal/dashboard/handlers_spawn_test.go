@@ -426,7 +426,7 @@ func TestHandleSpawnPost_RecyclableBranchNotBlocked(t *testing.T) {
 // TestHandleSpawnPost_RunningBranchBlocked verifies that the server-side
 // branch conflict guard correctly rejects a spawn when a running workspace
 // holds the branch.
-func TestHandleSpawnPost_RunningBranchBlocked(t *testing.T) {
+func TestHandleSpawnPost_DuplicateBranchPassesThrough(t *testing.T) {
 	server, cfg, st := newTestServer(t)
 	cfg.SourceCodeManagement = config.SourceCodeManagementGitWorktree
 	cfg.Repos = append(cfg.Repos, config.Repo{
@@ -452,9 +452,11 @@ func TestHandleSpawnPost_RunningBranchBlocked(t *testing.T) {
 	}
 	rr := postSpawnJSON(t, spawnH.handleSpawnPost, body)
 
-	if rr.Code != http.StatusConflict {
-		t.Errorf("spawn should be blocked by running workspace; got status %d, want %d; body: %s",
-			rr.Code, http.StatusConflict, rr.Body.String())
+	// Should NOT be blocked with 409 — workspace manager handles deduplication
+	// via ensureUniqueBranch() which adds a random suffix.
+	if rr.Code == http.StatusConflict {
+		t.Errorf("spawn should not be blocked by duplicate branch; workspace manager handles deduplication via ensureUniqueBranch(); got 409 body: %s",
+			rr.Body.String())
 	}
 }
 
