@@ -307,7 +307,10 @@ export async function disposeWorkspaceAll(
 
 export async function createTab(
   workspaceId: string,
-  params: { kind: 'commit'; hash: string } | { kind: 'markdown'; filepath: string }
+  params:
+    | { kind: 'commit'; hash: string }
+    | { kind: 'markdown'; filepath: string }
+    | { kind: 'html'; filepath: string }
 ): Promise<{ id: string; route: string; status: string }> {
   const response = await apiFetch(`/api/workspaces/${workspaceId}/tabs`, {
     method: 'POST',

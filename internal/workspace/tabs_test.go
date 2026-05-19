@@ -186,6 +186,64 @@ func TestOpenMarkdownTab(t *testing.T) {
 	}
 }
 
+func TestOpenHtmlTab(t *testing.T) {
+	st := newTestState(t)
+	m := newTestManager(t, st)
+	m.SetBroadcastFn(func() {})
+
+	ws := state.Workspace{ID: "ws1", Repo: "repo", Branch: "main", Path: "/tmp/ws1"}
+	st.AddWorkspace(ws)
+
+	tab, err := m.OpenHtmlTab("ws1", "reports/coverage.html")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tab.Kind != "html" {
+		t.Errorf("expected kind html, got %s", tab.Kind)
+	}
+	if tab.Route != "/diff/ws1/html/reports%2Fcoverage.html" {
+		t.Errorf("expected encoded route, got %s", tab.Route)
+	}
+	if tab.Label != "coverage.html" {
+		t.Errorf("expected label coverage.html, got %s", tab.Label)
+	}
+	if !tab.Closable {
+		t.Error("html tab should be closable")
+	}
+	if tab.Meta["filepath"] != "reports/coverage.html" {
+		t.Errorf("expected meta filepath, got %s", tab.Meta["filepath"])
+	}
+}
+
+func TestOpenHtmlTab_Dedup(t *testing.T) {
+	st := newTestState(t)
+	m := newTestManager(t, st)
+	m.SetBroadcastFn(func() {})
+
+	ws := state.Workspace{ID: "ws1", Repo: "repo", Branch: "main", Path: "/tmp/ws1"}
+	st.AddWorkspace(ws)
+
+	_, err := m.OpenHtmlTab("ws1", "reports/coverage.html")
+	if err != nil {
+		t.Fatalf("first open: %v", err)
+	}
+	_, err = m.OpenHtmlTab("ws1", "reports/coverage.html")
+	if err != nil {
+		t.Fatalf("second open: %v", err)
+	}
+
+	tabs := st.GetWorkspaceTabs("ws1")
+	htmlCount := 0
+	for _, tab := range tabs {
+		if tab.Kind == "html" {
+			htmlCount++
+		}
+	}
+	if htmlCount != 1 {
+		t.Errorf("expected 1 html tab after dedup, got %d", htmlCount)
+	}
+}
+
 func TestOpenPreviewTab(t *testing.T) {
 	st := newTestState(t)
 	m := newTestManager(t, st)

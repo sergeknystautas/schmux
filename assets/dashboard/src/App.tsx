@@ -23,6 +23,7 @@ const ConfigPage = lazy(() => import('./routes/ConfigPage'));
 const DiffPage = lazy(() => import('./routes/DiffPage'));
 const MarkdownPreviewPage = lazy(() => import('./routes/MarkdownPreviewPage'));
 const ImagePreviewPage = lazy(() => import('./routes/ImagePreviewPage'));
+const HtmlPreviewPage = lazy(() => import('./routes/HtmlPreviewPage'));
 const PreviewPage = lazy(() => import('./routes/PreviewPage'));
 const CommitGraphPage = lazy(() => import('./routes/CommitGraphPage'));
 const CommitDetailPage = lazy(() => import('./routes/CommitDetailPage'));
@@ -67,6 +68,10 @@ export default function App() {
                             <Route
                               path="/diff/:workspaceId/md/:filepath"
                               element={<MarkdownPreviewPage />}
+                            />
+                            <Route
+                              path="/diff/:workspaceId/html/:filepath"
+                              element={<HtmlPreviewPage />}
                             />
                             <Route path="/diff/:workspaceId" element={<DiffPage />} />
                             <Route

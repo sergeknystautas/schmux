@@ -400,7 +400,7 @@ Response:
 
 ### POST /api/workspaces/{workspaceId}/tabs
 
-Create a workspace tab. The client sends only the tab kind and identifying parameters — the server constructs the route, label, ID, and all other fields. Only `markdown` and `commit` kinds are allowed for client creation. Server-managed kinds (`diff`, `git`, `preview`, `resolve-conflict`) are created automatically.
+Create a workspace tab. The client sends only the tab kind and identifying parameters — the server constructs the route, label, ID, and all other fields. Only `markdown`, `html`, and `commit` kinds are allowed for client creation. Server-managed kinds (`diff`, `git`, `preview`, `resolve-conflict`) are created automatically.
 
 Request (commit tab):
 
@@ -414,6 +414,12 @@ Request (markdown tab):
 { "kind": "markdown", "filepath": "docs/README.md" }
 ```
 
+Request (html tab):
+
+```json
+{ "kind": "html", "filepath": "docs/report.html" }
+```
+
 Response: `200 OK`
 
 ```json
@@ -424,7 +430,7 @@ The response includes `route` so the client can navigate to the newly created ta
 
 Errors:
 
-- 400: "invalid request body", "tab kind not supported", "hash is required for commit tabs", "filepath is required for markdown tabs"
+- 400: "invalid request body", "tab kind not supported", "hash is required for commit tabs", "filepath is required for markdown tabs", "filepath is required for html tabs"
 - 500: workspace not found or tab creation failure
 
 ### DELETE /api/workspaces/{workspaceId}/tabs/{tabId}
@@ -1758,7 +1764,7 @@ Errors:
 
 ### GET /api/file/{workspaceId}/{filepath}
 
-Serves a raw file from a workspace directory. Supports image files (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`) and markdown files (`.md`, `.mdx`). Verifies case-sensitive filename match on case-insensitive filesystems (macOS APFS). For remote workspaces, text files are fetched via `cat` and binary files via base64 encoding over SSH.
+Serves a raw file from a workspace directory. Supports image files (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`), markdown files (`.md`, `.mdx`), HTML files (`.html`, served as `text/plain` to prevent XSS), and CSS files (`.css`). All responses include `X-Content-Type-Options: nosniff`. Verifies case-sensitive filename match on case-insensitive filesystems (macOS APFS). For remote workspaces, text files are fetched via `cat` and binary files via base64 encoding over SSH.
 
 Path:
 

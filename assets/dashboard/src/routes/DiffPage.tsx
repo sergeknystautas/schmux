@@ -481,6 +481,33 @@ export default function DiffPage() {
                           Preview
                         </Link>
                       )}
+                    {/* HTML preview: only for non-deleted HTML files */}
+                    {selectedFile.status !== 'deleted' &&
+                      (selectedFile.new_path?.match(/\.html$/i) ||
+                        selectedFile.old_path?.match(/\.html$/i)) && (
+                        <button
+                          className="diff-content__preview-btn"
+                          title="Preview HTML"
+                          disabled={openingPreview}
+                          onClick={async () => {
+                            const filepath = selectedFile.new_path || '';
+                            if (workspaceId) {
+                              setOpeningPreview(true);
+                              try {
+                                const { route } = await createTab(workspaceId, {
+                                  kind: 'html',
+                                  filepath,
+                                });
+                                setPendingNavigation({ type: 'tab', workspaceId, tabRoute: route });
+                              } catch {
+                                setOpeningPreview(false);
+                              }
+                            }
+                          }}
+                        >
+                          {openingPreview ? <span className="spinner spinner--small" /> : 'Preview'}
+                        </button>
+                      )}
                   </h2>
                   <span
                     className={`badge badge--${selectedFile.status === 'added' ? 'success' : selectedFile.status === 'deleted' ? 'danger' : 'neutral'}`}

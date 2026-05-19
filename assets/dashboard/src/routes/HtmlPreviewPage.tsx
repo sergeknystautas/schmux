@@ -1,20 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ImgHTMLAttributes } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { getFileContent, getWorkspaceFileUrl, getErrorMessage } from '../lib/api';
+import { rewriteHtmlRelativePaths } from '../lib/pathUtils';
 import { useSessions } from '../contexts/SessionsContext';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
-import { resolveRelativePath } from '../lib/pathUtils';
 
-const getMarkdownScrollPositionKey = (
-  workspaceId: string | undefined,
-  filepath: string | undefined
-) => `schmux-markdown-scroll-position-${workspaceId || ''}-${filepath || ''}`;
+const getHtmlScrollPositionKey = (workspaceId: string | undefined, filepath: string | undefined) =>
+  `schmux-html-scroll-position-${workspaceId || ''}-${filepath || ''}`;
 
-export default function MarkdownPreviewPage() {
+export default function HtmlPreviewPage() {
   const { workspaceId, filepath } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -23,25 +18,18 @@ export default function MarkdownPreviewPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const prevGitStatsRef = useRef<{ files: number; added: number; removed: number } | null>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const workspace = workspaces?.find((ws) => ws.id === workspaceId);
   const workspaceExists = workspaceId && workspaces?.some((ws) => ws.id === workspaceId);
   const decodedFilepath = filepath || '';
 
-  const markdownComponents = useMemo(
-    () => ({
-      img: ({ src, alt, ...rest }: ImgHTMLAttributes<HTMLImageElement>) => {
-        if (typeof src !== 'string' || !workspaceId) {
-          return <img src={src} alt={alt} {...rest} />;
-        }
-        const resolved = resolveRelativePath(src, decodedFilepath);
-        const finalSrc = resolved === null ? src : getWorkspaceFileUrl(workspaceId, resolved);
-        return <img src={finalSrc} alt={alt} {...rest} />;
-      },
-    }),
-    [workspaceId, decodedFilepath]
-  );
+  const rewrittenHtml = useMemo(() => {
+    if (!content || !workspaceId) return '';
+    return rewriteHtmlRelativePaths(content, workspaceId, decodedFilepath);
+  }, [content, workspaceId, decodedFilepath]);
+
+  const hasScripts = useMemo(() => /<script[\s>]/i.test(content), [content]);
 
   const loadFile = async () => {
     if (!workspaceId || !decodedFilepath) return;
@@ -57,19 +45,37 @@ export default function MarkdownPreviewPage() {
     }
   };
 
-  // Redirect home if workspace no longer exists
   useEffect(() => {
     if (!loading && workspaceId && !workspaceExists) {
       navigate('/');
     }
   }, [loading, workspaceId, workspaceExists, navigate]);
 
-  // Fetch file content on mount / route change / tab re-focus
   useEffect(() => {
     loadFile();
   }, [workspaceId, decodedFilepath, location.key]);
 
-  // Re-fetch when workspace git stats change (file edited on disk)
+  const handleIframeLoad = useCallback(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    try {
+      const iframeWindow = iframe.contentWindow;
+      if (!iframeWindow) return;
+      const key = getHtmlScrollPositionKey(workspaceId, decodedFilepath);
+      iframeWindow.addEventListener('scroll', () => {
+        localStorage.setItem(key, iframeWindow.scrollY.toString());
+      });
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        requestAnimationFrame(() => {
+          iframeWindow.scrollTo(0, parseInt(saved, 10));
+        });
+      }
+    } catch {
+      // sandbox cross-origin access blocked
+    }
+  }, [workspaceId, decodedFilepath]);
+
   useEffect(() => {
     if (!workspace) return;
     const currentStats = {
@@ -88,28 +94,6 @@ export default function MarkdownPreviewPage() {
     }
     prevGitStatsRef.current = currentStats;
   }, [workspace, workspaceId]);
-
-  // Persist and restore scroll position per workspace+file
-  useEffect(() => {
-    if (!contentRef.current || !content) return;
-
-    const scrollEl = contentRef.current;
-    const key = getMarkdownScrollPositionKey(workspaceId, decodedFilepath);
-
-    const handleScroll = () => {
-      localStorage.setItem(key, scrollEl.scrollTop.toString());
-    };
-    scrollEl.addEventListener('scroll', handleScroll);
-
-    const saved = localStorage.getItem(key);
-    if (saved) {
-      requestAnimationFrame(() => {
-        scrollEl.scrollTop = parseInt(saved, 10);
-      });
-    }
-
-    return () => scrollEl.removeEventListener('scroll', handleScroll);
-  }, [workspaceId, decodedFilepath, content]);
 
   if (loading) {
     return (
@@ -173,14 +157,50 @@ export default function MarkdownPreviewPage() {
           }}
         >
           <div className="diff-content__header">
-            <h2 className="diff-content__title">{decodedFilepath}</h2>
+            <h2 className="diff-content__title">
+              {decodedFilepath}
+              <button
+                className="diff-content__preview-btn"
+                data-testid="open-new-window"
+                title="Open in new window"
+                onClick={() => {
+                  const blob = new Blob([rewrittenHtml], { type: 'text/html' });
+                  window.open(URL.createObjectURL(blob), '_blank');
+                }}
+              >
+                Open
+              </button>
+              <a
+                className="diff-content__preview-btn"
+                data-testid="download-html"
+                title="Download HTML file"
+                href={workspaceId ? getWorkspaceFileUrl(workspaceId, decodedFilepath) : '#'}
+                download={decodedFilepath.split('/').pop() || 'file.html'}
+              >
+                Download
+              </a>
+            </h2>
+            {hasScripts && (
+              <span
+                data-testid="script-warning"
+                style={{
+                  color: 'var(--color-warning)',
+                  fontSize: '0.8rem',
+                }}
+              >
+                JavaScript is disabled in preview — page may not render as intended
+              </span>
+            )}
           </div>
-          <div className="diff-viewer-wrapper" ref={contentRef}>
-            <div className="markdown-preview-content">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                {content}
-              </ReactMarkdown>
-            </div>
+          <div className="diff-viewer-wrapper">
+            <iframe
+              ref={iframeRef}
+              srcDoc={rewrittenHtml}
+              sandbox="allow-same-origin"
+              title={`HTML preview: ${decodedFilepath}`}
+              style={{ width: '100%', height: '100%', border: 'none' }}
+              onLoad={handleIframeLoad}
+            />
           </div>
         </div>
       </div>

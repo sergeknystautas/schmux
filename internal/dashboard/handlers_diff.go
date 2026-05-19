@@ -468,6 +468,8 @@ func (h *GitHandlers) serveWorkspaceFile(w http.ResponseWriter, r *http.Request,
 		".gif":  "image/gif",
 		".md":   "text/markdown; charset=utf-8",
 		".mdx":  "text/markdown; charset=utf-8",
+		".html": "text/plain; charset=utf-8",
+		".css":  "text/css; charset=utf-8",
 	}
 	contentType, allowed := allowedExts[ext]
 	if !allowed {
@@ -492,6 +494,7 @@ func (h *GitHandlers) serveWorkspaceFile(w http.ResponseWriter, r *http.Request,
 	// Serve the file
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeFile(w, r, cleanFullPath)
 }
 
@@ -544,6 +547,8 @@ func (h *GitHandlers) handleRemoteFile(w http.ResponseWriter, r *http.Request, w
 		".gif":  "image/gif",
 		".md":   "text/markdown; charset=utf-8",
 		".mdx":  "text/markdown; charset=utf-8",
+		".html": "text/plain; charset=utf-8",
+		".css":  "text/css; charset=utf-8",
 	}
 	contentType, allowed := allowedExts[ext]
 	if !allowed {
@@ -555,7 +560,7 @@ func (h *GitHandlers) handleRemoteFile(w http.ResponseWriter, r *http.Request, w
 	defer cancel()
 
 	workdir := ws.RemotePath
-	isText := ext == ".md" || ext == ".mdx"
+	isText := ext == ".md" || ext == ".mdx" || ext == ".html" || ext == ".css"
 
 	if isText {
 		// Text files: fetch via cat

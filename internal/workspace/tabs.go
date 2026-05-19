@@ -129,6 +129,27 @@ func (m *Manager) OpenMarkdownTab(wsID, path string) (*state.Tab, error) {
 	return &tab, nil
 }
 
+// OpenHtmlTab opens an HTML file preview tab for the given filepath.
+func (m *Manager) OpenHtmlTab(wsID, path string) (*state.Tab, error) {
+	label := filepath.Base(path)
+	tab := state.Tab{
+		ID:        uuid.NewString(),
+		Kind:      "html",
+		Label:     label,
+		Route:     "/diff/" + wsID + "/html/" + url.PathEscape(path),
+		Closable:  true,
+		Meta:      map[string]string{"filepath": path},
+		CreatedAt: time.Now(),
+	}
+	err := m.mutateTabsAndSave(func() error {
+		return m.state.AddTab(wsID, tab)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &tab, nil
+}
+
 // OpenPreviewTab opens a web preview tab.
 func (m *Manager) OpenPreviewTab(wsID, previewID string, port int) (*state.Tab, error) {
 	tab := state.Tab{

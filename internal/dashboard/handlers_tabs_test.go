@@ -81,6 +81,50 @@ func TestHandleTabCreate(t *testing.T) {
 	}
 }
 
+func TestHandleTabCreate_Html(t *testing.T) {
+	srv, _, st := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(srv)
+	if err := st.AddWorkspace(state.Workspace{
+		ID:     "ws-tab-html",
+		Repo:   "https://example.com/repo.git",
+		Branch: "main",
+		Path:   t.TempDir(),
+	}); err != nil {
+		t.Fatalf("failed to add workspace: %v", err)
+	}
+
+	body, _ := json.Marshal(createTabRequest{
+		Kind:     "html",
+		Filepath: "reports/coverage.html",
+	})
+	req := makeTabRequest(t, http.MethodPost, "/api/workspaces/ws-tab-html/tabs", "ws-tab-html", "", body)
+	rr := httptest.NewRecorder()
+	wsH.handleTabCreate(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("POST tabs: status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if result["route"] == "" {
+		t.Fatal("response missing route")
+	}
+
+	tabs := st.GetWorkspaceTabs("ws-tab-html")
+	var htmlCount int
+	for _, tab := range tabs {
+		if tab.Kind == "html" {
+			htmlCount++
+		}
+	}
+	if htmlCount != 1 {
+		t.Fatalf("expected 1 html tab, got %d", htmlCount)
+	}
+}
+
 func TestHandleTabCreate_DisallowedKind(t *testing.T) {
 	srv, _, st := newTestServer(t)
 	wsH := newTestWorkspaceHandlers(srv)

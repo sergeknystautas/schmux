@@ -108,6 +108,7 @@ type WorkspaceCRUD interface {
 	// Tab lifecycle
 	OpenCommitTab(wsID, hash string) (*state.Tab, error)
 	OpenMarkdownTab(wsID, filepath string) (*state.Tab, error)
+	OpenHtmlTab(wsID, filepath string) (*state.Tab, error)
 	OpenPreviewTab(wsID, previewID string, port int) (*state.Tab, error)
 	OpenResolveConflictTab(wsID, hash string) (*state.Tab, error)
 	CloseTab(wsID, tabID string) error

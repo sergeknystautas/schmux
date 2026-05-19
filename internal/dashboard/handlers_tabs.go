@@ -42,6 +42,12 @@ func (h *WorkspaceHandlers) handleTabCreate(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		tab, err = h.workspace.OpenMarkdownTab(workspaceID, req.Filepath)
+	case "html":
+		if req.Filepath == "" {
+			writeJSONError(w, "filepath is required for html tabs", http.StatusBadRequest)
+			return
+		}
+		tab, err = h.workspace.OpenHtmlTab(workspaceID, req.Filepath)
 	default:
 		writeJSONError(w, fmt.Sprintf("tab kind %q not supported", req.Kind), http.StatusBadRequest)
 		return

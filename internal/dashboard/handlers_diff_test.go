@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -41,6 +42,12 @@ func TestServeWorkspaceFile_AlwaysNoCache(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspacePath, "pic.png"), pngBytes, 0644); err != nil {
 		t.Fatalf("write png: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(workspacePath, "page.html"), []byte("<h1>hello</h1>\n"), 0644); err != nil {
+		t.Fatalf("write html: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspacePath, "style.css"), []byte("body { color: red; }\n"), 0644); err != nil {
+		t.Fatalf("write css: %v", err)
+	}
 
 	if err := st.AddWorkspace(state.Workspace{
 		ID:     "ws-cache",
@@ -54,6 +61,8 @@ func TestServeWorkspaceFile_AlwaysNoCache(t *testing.T) {
 	cases := []struct{ name, file string }{
 		{"markdown", "hello.md"},
 		{"image", "pic.png"},
+		{"html", "page.html"},
+		{"css", "style.css"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -72,5 +81,89 @@ func TestServeWorkspaceFile_AlwaysNoCache(t *testing.T) {
 				t.Fatalf("expected Cache-Control=no-cache, got %q", got)
 			}
 		})
+	}
+}
+
+func TestServeWorkspaceFile_HtmlServedAsTextPlain(t *testing.T) {
+	server, _, st := newTestServer(t)
+	gitH := newTestGitHandlers(server)
+
+	workspacePath := filepath.Join(t.TempDir(), "ws-html")
+	if err := os.MkdirAll(workspacePath, 0755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	if err := exec.Command("git", "init", "-q", workspacePath).Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(workspacePath, "page.html"), []byte("<script>alert('xss')</script>"), 0644); err != nil {
+		t.Fatalf("write html: %v", err)
+	}
+
+	if err := st.AddWorkspace(state.Workspace{
+		ID:     "ws-html",
+		Repo:   "test",
+		Branch: "main",
+		Path:   workspacePath,
+	}); err != nil {
+		t.Fatalf("add workspace: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/file/ws-html/page.html", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("*", "ws-html/page.html")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	rr := httptest.NewRecorder()
+	gitH.handleFile(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	ct := rr.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "text/plain") {
+		t.Fatalf("expected Content-Type text/plain, got %q — HTML must not be served as text/html to prevent XSS", ct)
+	}
+}
+
+func TestServeWorkspaceFile_CssServedAsTextCss(t *testing.T) {
+	server, _, st := newTestServer(t)
+	gitH := newTestGitHandlers(server)
+
+	workspacePath := filepath.Join(t.TempDir(), "ws-css")
+	if err := os.MkdirAll(workspacePath, 0755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	if err := exec.Command("git", "init", "-q", workspacePath).Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(workspacePath, "style.css"), []byte("body { color: red; }\n"), 0644); err != nil {
+		t.Fatalf("write css: %v", err)
+	}
+
+	if err := st.AddWorkspace(state.Workspace{
+		ID:     "ws-css",
+		Repo:   "test",
+		Branch: "main",
+		Path:   workspacePath,
+	}); err != nil {
+		t.Fatalf("add workspace: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/file/ws-css/style.css", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("*", "ws-css/style.css")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	rr := httptest.NewRecorder()
+	gitH.handleFile(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	ct := rr.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "text/css") {
+		t.Fatalf("expected Content-Type text/css, got %q", ct)
 	}
 }

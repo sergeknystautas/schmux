@@ -277,7 +277,7 @@ func tabDedupKey(tab Tab) string {
 		return tab.Kind // singleton per workspace
 	case "preview":
 		return tab.Kind + ":" + tab.Meta["preview_id"]
-	case "markdown":
+	case "markdown", "html":
 		return tab.Kind + ":" + tab.Meta["filepath"]
 	case "resolve-conflict":
 		return tab.Kind + ":" + tab.Meta["hash"]
