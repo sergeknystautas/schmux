@@ -61,6 +61,25 @@ export default function ImagePreviewPage() {
               <Link to={`/diff/${workspaceId}`} className="diff-content__preview-btn">
                 Back
               </Link>
+              <a
+                className="diff-content__preview-btn"
+                data-testid="open-new-tab"
+                title="Open image in new tab"
+                href={imageUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open
+              </a>
+              <a
+                className="diff-content__preview-btn"
+                data-testid="download-image"
+                title="Download image"
+                href={imageUrl}
+                download={decodedFilepath.split('/').pop() || 'image'}
+              >
+                Download
+              </a>
             </h2>
           </div>
           <div className="diff-viewer-wrapper" style={{ padding: '20px', overflow: 'auto' }}>

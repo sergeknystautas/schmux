@@ -98,6 +98,17 @@ describe('MarkdownPreviewPage image rewriting', () => {
   });
 });
 
+describe('MarkdownPreviewPage download', () => {
+  it('renders Download link pointing to the file API', async () => {
+    renderAt(`/diff/ws-001/md/${encodeURIComponent('docs/README.md')}`);
+
+    const link = await screen.findByTestId('download-markdown');
+    expect(link.tagName).toBe('A');
+    expect(link).toHaveAttribute('href', '/api/file/ws-001/docs%2FREADME.md');
+    expect(link).toHaveAttribute('download', 'README.md');
+  });
+});
+
 describe('MarkdownPreviewPage scroll memory', () => {
   it('writes scrollTop to localStorage when the content scrolls', async () => {
     renderAt('/diff/ws-001/md/README.md');

@@ -173,7 +173,18 @@ export default function MarkdownPreviewPage() {
           }}
         >
           <div className="diff-content__header">
-            <h2 className="diff-content__title">{decodedFilepath}</h2>
+            <h2 className="diff-content__title">
+              {decodedFilepath}
+              <a
+                className="diff-content__preview-btn"
+                data-testid="download-markdown"
+                title="Download Markdown file"
+                href={workspaceId ? getWorkspaceFileUrl(workspaceId, decodedFilepath) : '#'}
+                download={decodedFilepath.split('/').pop() || 'file.md'}
+              >
+                Download
+              </a>
+            </h2>
           </div>
           <div className="diff-viewer-wrapper" ref={contentRef}>
             <div className="markdown-preview-content">
