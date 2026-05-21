@@ -468,7 +468,7 @@ func (h *GitHandlers) serveWorkspaceFile(w http.ResponseWriter, r *http.Request,
 		".gif":  "image/gif",
 		".md":   "text/markdown; charset=utf-8",
 		".mdx":  "text/markdown; charset=utf-8",
-		".html": "text/plain; charset=utf-8",
+		".html": "text/html; charset=utf-8",
 		".css":  "text/css; charset=utf-8",
 	}
 	contentType, allowed := allowedExts[ext]
@@ -495,6 +495,9 @@ func (h *GitHandlers) serveWorkspaceFile(w http.ResponseWriter, r *http.Request,
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if ext == ".html" {
+		w.Header().Set("Content-Security-Policy", "sandbox")
+	}
 	http.ServeFile(w, r, cleanFullPath)
 }
 
@@ -547,7 +550,7 @@ func (h *GitHandlers) handleRemoteFile(w http.ResponseWriter, r *http.Request, w
 		".gif":  "image/gif",
 		".md":   "text/markdown; charset=utf-8",
 		".mdx":  "text/markdown; charset=utf-8",
-		".html": "text/plain; charset=utf-8",
+		".html": "text/html; charset=utf-8",
 		".css":  "text/css; charset=utf-8",
 	}
 	contentType, allowed := allowedExts[ext]
@@ -571,6 +574,9 @@ func (h *GitHandlers) handleRemoteFile(w http.ResponseWriter, r *http.Request, w
 			return
 		}
 		w.Header().Set("Content-Type", contentType)
+		if ext == ".html" {
+			w.Header().Set("Content-Security-Policy", "sandbox")
+		}
 		io.WriteString(w, out)
 	} else {
 		// Binary files (images): fetch via base64 encoding

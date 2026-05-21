@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
-import { getFileContent, getWorkspaceFileUrl, getErrorMessage } from '../lib/api';
+import { getFileContent, getWorkspaceFileUrl, getHtmlOpenUrl, getErrorMessage } from '../lib/api';
 import { rewriteHtmlRelativePaths } from '../lib/pathUtils';
 import { useSessions } from '../contexts/SessionsContext';
 import WorkspaceHeader from '../components/WorkspaceHeader';
@@ -159,17 +159,16 @@ export default function HtmlPreviewPage() {
           <div className="diff-content__header">
             <h2 className="diff-content__title">
               {decodedFilepath}
-              <button
+              <a
                 className="diff-content__preview-btn"
                 data-testid="open-new-window"
                 title="Open in new window"
-                onClick={() => {
-                  const blob = new Blob([rewrittenHtml], { type: 'text/html' });
-                  window.open(URL.createObjectURL(blob), '_blank');
-                }}
+                href={workspaceId ? getHtmlOpenUrl(workspaceId, decodedFilepath) : '#'}
+                target="_blank"
+                rel="noopener noreferrer"
               >
                 Open
-              </button>
+              </a>
               <a
                 className="diff-content__preview-btn"
                 data-testid="download-html"

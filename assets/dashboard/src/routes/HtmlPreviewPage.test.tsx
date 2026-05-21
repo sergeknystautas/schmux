@@ -7,6 +7,8 @@ vi.mock('../lib/api', () => ({
   getFileContent: vi.fn(),
   getWorkspaceFileUrl: (workspaceId: string, filePath: string) =>
     `/api/file/${workspaceId}/${encodeURIComponent(filePath)}`,
+  getHtmlOpenUrl: (workspaceId: string, filePath: string) =>
+    `/api/file/${workspaceId}/${filePath.split('/').map(encodeURIComponent).join('/')}`,
   getErrorMessage: vi.fn((_err: unknown, fallback: string) => fallback),
 }));
 
@@ -134,23 +136,14 @@ describe('HtmlPreviewPage', () => {
     expect(screen.queryByTestId('script-warning')).toBeNull();
   });
 
-  it('renders Open button that opens rewritten HTML in new window', async () => {
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
-    const createObjectURLSpy = vi
-      .spyOn(URL, 'createObjectURL')
-      .mockReturnValue('blob:http://localhost/fake');
-
+  it('renders Open link pointing to the file API for rendering', async () => {
     renderAt('/diff/ws-001/html/index.html');
 
-    const btn = await screen.findByTestId('open-new-window');
-    expect(btn).toBeInTheDocument();
-    btn.click();
-
-    expect(createObjectURLSpy).toHaveBeenCalledWith(expect.any(Blob));
-    expect(openSpy).toHaveBeenCalledWith('blob:http://localhost/fake', '_blank');
-
-    openSpy.mockRestore();
-    createObjectURLSpy.mockRestore();
+    const link = await screen.findByTestId('open-new-window');
+    expect(link).toBeInTheDocument();
+    expect(link.tagName).toBe('A');
+    expect(link).toHaveAttribute('href', '/api/file/ws-001/index.html');
+    expect(link).toHaveAttribute('target', '_blank');
   });
 
   it('renders Download link pointing to the file API', async () => {

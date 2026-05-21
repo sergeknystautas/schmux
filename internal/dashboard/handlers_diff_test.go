@@ -84,7 +84,7 @@ func TestServeWorkspaceFile_AlwaysNoCache(t *testing.T) {
 	}
 }
 
-func TestServeWorkspaceFile_HtmlServedAsTextPlain(t *testing.T) {
+func TestServeWorkspaceFile_HtmlServedAsTextHtml(t *testing.T) {
 	server, _, st := newTestServer(t)
 	gitH := newTestGitHandlers(server)
 
@@ -121,8 +121,12 @@ func TestServeWorkspaceFile_HtmlServedAsTextPlain(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
 	ct := rr.Header().Get("Content-Type")
-	if !strings.HasPrefix(ct, "text/plain") {
-		t.Fatalf("expected Content-Type text/plain, got %q — HTML must not be served as text/html to prevent XSS", ct)
+	if !strings.HasPrefix(ct, "text/html") {
+		t.Fatalf("expected Content-Type text/html, got %q", ct)
+	}
+	csp := rr.Header().Get("Content-Security-Policy")
+	if csp != "sandbox" {
+		t.Fatalf("expected Content-Security-Policy sandbox, got %q", csp)
 	}
 }
 

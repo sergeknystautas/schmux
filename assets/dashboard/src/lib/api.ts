@@ -346,6 +346,13 @@ export function getWorkspaceFileUrl(workspaceId: string, filePath: string): stri
   return `/api/file/${workspaceId}/${encoded}`;
 }
 
+// Get a URL for opening an HTML file in a new browser tab.
+// Preserves path separators so relative asset references resolve naturally.
+export function getHtmlOpenUrl(workspaceId: string, filePath: string): string {
+  const segments = filePath.split('/').map((s) => encodeURIComponent(s));
+  return `/api/file/${workspaceId}/${segments.join('/')}`;
+}
+
 // Fetch file content as text (for markdown preview)
 export async function getFileContent(workspaceId: string, filePath: string): Promise<string> {
   const url = getWorkspaceFileUrl(workspaceId, filePath);
