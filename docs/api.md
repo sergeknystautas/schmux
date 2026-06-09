@@ -1373,6 +1373,8 @@ Request:
 
 The `tmux_binary` field is validated on save: the path must exist, be executable, and `<path> -V` must output a recognized tmux version string. An empty string clears the override. Invalid paths return 400.
 
+**Enabling authentication.** A request that results in `access_control.enabled=true` and touches an auth-relevant field (`access_control`, `network.tls`, `network.public_base_url`) is strictly validated. If TLS cert/key, `public_base_url`, or the GitHub `client_id`/`client_secret` are missing, the request is rejected with `400` and the live config is left unchanged (no partial in-memory enable). Enabling also ensures a usable `auth.session_secret` exists. Disabling auth is never blocked.
+
 Response:
 
 - 200: `{"status":"ok","message":"Config saved and reloaded. Changes are now in effect.","warnings":["optional warnings"]}`

@@ -166,6 +166,15 @@ Dashboard hostname: schmux.local
 2. Restart daemon: `./schmux stop && ./schmux start`
 3. Open `https://<hostname>:7337` in your browser
 
+### `schmux auth disable`
+
+Disables GitHub authentication when you are locked out of the dashboard (for
+example, OAuth credentials were accepted as present but are wrong, so GitHub
+login fails). It edits `~/.schmux/config.json` directly — without going through
+the auth-gated dashboard API and without config validation — then restarts the
+daemon if it is running. Credentials and the session secret are preserved, so
+re-enabling after fixing the credentials is a single step.
+
 ---
 
 ## Session Commands

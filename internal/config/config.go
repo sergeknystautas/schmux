@@ -1068,6 +1068,16 @@ func (c *Config) ValidateForSave() ([]string, error) {
 	return c.validate(false)
 }
 
+// ValidateAuthEnabled runs strict access-control validation and returns an
+// error if auth is enabled but its prerequisites (TLS cert/key, public_base_url,
+// GitHub client_id/secret) are missing or unreadable. Returns nil when auth is
+// disabled. Used to gate enabling auth so the dashboard can never enter an
+// auth-enabled-but-unworkable state.
+func (c *Config) ValidateAuthEnabled() error {
+	_, err := c.validateAccessControl(true)
+	return err
+}
+
 func (c *Config) validate(strict bool) ([]string, error) {
 	if err := validateRunTargets(c.RunTargets); err != nil {
 		return nil, err
@@ -2363,6 +2373,34 @@ func (c *Config) Save() error {
 	c.repoURLCache = nil
 	c.repoURLMu.Unlock()
 
+	return nil
+}
+
+// DisableAuthRaw sets access_control.enabled=false in the config file at path
+// WITHOUT running validation. It exists for `schmux auth disable` to recover
+// from a lockout where the on-disk config may fail strict validation (Load()
+// would reject it). It round-trips through the Config struct, matching Save's
+// serialization, but deliberately skips Validate().
+func DisableAuthRaw(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read config: %w", err)
+	}
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return fmt.Errorf("failed to parse config: %w", err)
+	}
+	if cfg.AccessControl == nil || !cfg.AccessControl.Enabled {
+		return nil // already disabled
+	}
+	cfg.AccessControl.Enabled = false
+	out, err := json.MarshalIndent(&cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to serialize config: %w", err)
+	}
+	if err := os.WriteFile(path, out, 0o600); err != nil {
+		return fmt.Errorf("failed to write config: %w", err)
+	}
 	return nil
 }
 

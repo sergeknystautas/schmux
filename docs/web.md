@@ -228,7 +228,27 @@ Real-time event monitor for the unified events system. Shows all events (status,
 
 ### Authentication (Optional)
 
-When enabled, the dashboard requires GitHub login and runs over HTTPS. Configure this under **Settings → Advanced → Access Control** or via `schmux auth github`.
+GitHub auth is configured in **Settings → Access**, and is gated on HTTPS — the
+GitHub Authentication section is disabled until TLS is configured, because OAuth
+requires a public HTTPS callback URL.
+
+Turning it on is a single deliberate action, not a checkbox:
+
+- With auth off, click **Set up & enable…**. The modal collects your GitHub
+  OAuth **Client ID** and **Client Secret** (it shows the exact Homepage and
+  Callback URLs to register at github.com/settings/developers). Clicking
+  **Save & enable** stores the credentials, turns auth on, and sends your
+  browser to GitHub to sign in — so you end up logged in, never staring at an
+  "Unauthorized" screen.
+- The backend refuses to enable auth unless TLS, the public base URL, and both
+  credentials are present, so you cannot lock yourself out with an incomplete
+  setup.
+- With auth on, the section shows **Update credentials** and **Disable**.
+  Disabling never requires re-authentication.
+
+**Locked out?** If GitHub login fails (for example the credentials were saved but
+are wrong), run `schmux auth disable` in a terminal to turn auth off and regain
+access, then fix the credentials and re-enable. See the CLI reference.
 
 Notes:
 

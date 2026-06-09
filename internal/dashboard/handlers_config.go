@@ -409,6 +409,10 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 
 	cfg := h.config
 	oldRestartSnap := snapshotRestartRelevant(cfg)
+	oldAuthEnabled := cfg.GetAuthEnabled()
+	oldTLSCert := cfg.GetTLSCertPath()
+	oldTLSKey := cfg.GetTLSKeyPath()
+	oldPublicBaseURL := cfg.GetPublicBaseURL()
 	oldRepos := cfg.GetRepos()
 
 	// Check for workspace path change (for warning after save)
@@ -927,9 +931,40 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Auth-enabled invariant: never persist or run auth-enabled-but-unworkable.
+	// Keyed on effective-value change, NOT field presence: the dashboard posts
+	// the full form (network + access_control always present), so presence-based
+	// detection would strict-validate every save and couple unrelated saves to
+	// TLS-cert file readability. Compare via getters (nil/empty/default collapse
+	// uniformly, like snapshotRestartRelevant) so a full-form re-post of
+	// unchanged values is a no-op. Catches the false→true enable AND the
+	// "clear HTTPS while auth stays on" case (TLS value actually changes).
+	authRelevantChanged := oldAuthEnabled != cfg.GetAuthEnabled() ||
+		oldTLSCert != cfg.GetTLSCertPath() ||
+		oldTLSKey != cfg.GetTLSKeyPath() ||
+		oldPublicBaseURL != cfg.GetPublicBaseURL()
+	if cfg.GetAuthEnabled() && authRelevantChanged {
+		if verr := cfg.ValidateAuthEnabled(); verr != nil {
+			h.config.Reload() // discard in-memory mutations; disk is untouched (no Save yet)
+			writeJSONError(w, fmt.Sprintf("Cannot enable authentication: %v", verr), http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Enabling auth must leave a usable session-signing secret, otherwise
+	// /auth/callback cannot sign cookies and the user is locked out.
+	if !oldAuthEnabled && cfg.GetAuthEnabled() {
+		if _, serr := config.EnsureSessionSecret(); serr != nil {
+			h.config.Reload()
+			writeJSONError(w, fmt.Sprintf("Failed to initialize session secret: %v", serr), http.StatusInternalServerError)
+			return
+		}
+	}
+
 	warnings, err := cfg.ValidateForSave()
 	if err != nil {
 		h.logger.Error("validation error", "err", err)
+		h.config.Reload() // roll back in-memory mutations on reject
 		writeJSONError(w, fmt.Sprintf("Invalid config: %v", err), http.StatusBadRequest)
 		return
 	}
@@ -1055,9 +1090,6 @@ type restartRelevantSnapshot struct {
 	publicBaseURL  string
 	tlsCertPath    string
 	tlsKeyPath     string
-	authEnabled    bool
-	authProvider   string
-	authSessionTTL int
 	tmuxBinary     string
 	tmuxSocketName string
 }
@@ -1069,9 +1101,6 @@ func snapshotRestartRelevant(cfg *config.Config) restartRelevantSnapshot {
 		publicBaseURL:  cfg.GetPublicBaseURL(),
 		tlsCertPath:    cfg.GetTLSCertPath(),
 		tlsKeyPath:     cfg.GetTLSKeyPath(),
-		authEnabled:    cfg.GetAuthEnabled(),
-		authProvider:   cfg.GetAuthProvider(),
-		authSessionTTL: cfg.GetAuthSessionTTLMinutes(),
 		tmuxBinary:     cfg.TmuxBinary, // raw field — no getter default
 		tmuxSocketName: cfg.GetTmuxSocketName(),
 	}

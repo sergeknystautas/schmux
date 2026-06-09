@@ -921,6 +921,19 @@ export default function ConfigPage() {
         value: !!authStatus.client_secret_set,
       });
       rawDispatch({ type: 'SET_AUTH_SECRETS_MODAL', modal: null });
+
+      if (!state.authEnabled) {
+        try {
+          await updateConfig({ access_control: { enabled: true } });
+        } catch (err) {
+          // Backend rejected the enable (missing prereqs). Surface it; do not redirect.
+          toastError(getErrorMessage(err, 'Failed to enable authentication'));
+          return;
+        }
+        // Hand off to GitHub login so this session authenticates immediately.
+        window.location.assign('/auth/login');
+        return;
+      }
       success('Auth credentials saved');
     } catch (err) {
       rawDispatch({
@@ -930,6 +943,18 @@ export default function ConfigPage() {
           error: getErrorMessage(err, 'Failed to save auth credentials'),
         },
       });
+    }
+  };
+
+  const handleDisableAuth = async () => {
+    if (!confirm('Disable GitHub authentication? The dashboard will be accessible without login.'))
+      return;
+    try {
+      await updateConfig({ access_control: { enabled: false } });
+      rawDispatch({ type: 'SET_FIELD', field: 'authEnabled', value: false });
+      success('GitHub authentication disabled');
+    } catch (err) {
+      toastError(getErrorMessage(err, 'Failed to disable authentication'));
     }
   };
 
@@ -1177,6 +1202,7 @@ export default function ConfigPage() {
               dispatch={dispatch}
               onSetPassword={handleSetPassword}
               onOpenAuthSecretsModal={openAuthSecretsModal}
+              onDisableAuth={handleDisableAuth}
               onOpenTlsModal={openTlsModal}
               success={success}
               toastError={toastError}
@@ -1223,6 +1249,7 @@ export default function ConfigPage() {
 
       <ConfigModals
         authSecretsModal={state.authSecretsModal}
+        authEnabled={state.authEnabled}
         runTargetEditModal={state.runTargetEditModal}
         quickLaunchDialogModal={state.quickLaunchDialogModal}
         pastebinEditModal={state.pastebinEditModal}

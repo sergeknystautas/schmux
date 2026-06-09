@@ -11,6 +11,7 @@ import type { Model, Persona } from '../../lib/types.generated';
 
 type ConfigModalsProps = {
   authSecretsModal: AuthSecretsModalState;
+  authEnabled: boolean;
   runTargetEditModal: RunTargetEditModalState;
   quickLaunchDialogModal: QuickLaunchDialogModalState;
   pastebinEditModal: PastebinEditModalState;
@@ -29,6 +30,7 @@ type ConfigModalsProps = {
 
 export default function ConfigModals({
   authSecretsModal,
+  authEnabled,
   runTargetEditModal,
   quickLaunchDialogModal,
   pastebinEditModal,
@@ -274,7 +276,7 @@ export default function ConfigModals({
                 Cancel
               </button>
               <button className="btn btn--primary" onClick={onSaveAuthSecrets}>
-                Save
+                {authEnabled ? 'Save' : 'Save & enable'}
               </button>
             </div>
           </div>

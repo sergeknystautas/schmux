@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import AccessTab from './AccessTab';
 import type { ConfigFormAction } from './useConfigForm';
 
@@ -60,6 +60,7 @@ const baseProps = {
   onSetPassword: noop,
   onOpenAuthSecretsModal: noop,
   onOpenTlsModal: noop,
+  onDisableAuth: noop,
   success: noop,
   toastError: noop,
 };
@@ -147,3 +148,46 @@ describe('AccessTab inline warnings', () => {
 // AccessTab vendor-locked behavior is enforced at the wizard level
 // (ConfigPage drops the Access tab from navigation when features.vendor_locked
 // is true, see ConfigPage.test.tsx). AccessTab itself stays vendor-agnostic.
+
+describe('AccessTab auth enable/disable actions', () => {
+  beforeEach(() => {
+    mockFeatures.github = true;
+    mockFeatures.tunnel = true;
+    mockFeatures.vendor_locked = false;
+    dispatch.mockClear();
+  });
+
+  it('shows "Set up & enable…" and no checkbox when auth is off', () => {
+    render(<AccessTab {...baseProps} authEnabled={false} httpsEnabled={true} />);
+    expect(screen.getByRole('button', { name: /set up & enable/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/enable github authentication/i)).not.toBeInTheDocument();
+  });
+
+  it('shows Disable + Update credentials when auth is on', () => {
+    render(
+      <AccessTab
+        {...baseProps}
+        authEnabled={true}
+        httpsEnabled={true}
+        authClientIdSet={true}
+        authClientSecretSet={true}
+      />
+    );
+    expect(screen.getByRole('button', { name: /disable/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /update credentials/i })).toBeInTheDocument();
+  });
+
+  it('calls onDisableAuth when Disable is clicked', () => {
+    const onDisableAuth = vi.fn();
+    render(
+      <AccessTab
+        {...baseProps}
+        authEnabled={true}
+        httpsEnabled={true}
+        onDisableAuth={onDisableAuth}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /disable/i }));
+    expect(onDisableAuth).toHaveBeenCalledTimes(1);
+  });
+});

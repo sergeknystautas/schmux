@@ -206,7 +206,7 @@ func main() {
 
 	case "auth":
 		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "Usage: schmux auth github")
+			fmt.Fprintln(os.Stderr, "Usage: schmux auth <github|disable>")
 			os.Exit(1)
 		}
 		switch os.Args[2] {
@@ -216,8 +216,13 @@ func main() {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
+		case "disable":
+			if err := runAuthDisable(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 		default:
-			fmt.Fprintf(os.Stderr, "Unknown auth provider: %s\n", os.Args[2])
+			fmt.Fprintf(os.Stderr, "Unknown auth subcommand: %s\n", os.Args[2])
 			os.Exit(1)
 		}
 
@@ -402,7 +407,8 @@ func printUsage() {
 	}
 	fmt.Println("Other:")
 	if github.IsAvailable() {
-		fmt.Println("  auth github  Configure GitHub auth")
+		fmt.Println("  auth github   Configure GitHub auth")
+		fmt.Println("  auth disable  Disable GitHub auth (lockout recovery)")
 	}
 	fmt.Println("  config migrate  Convert legacy string-form shell commands to argv arrays")
 	fmt.Println("  version     Show version")
@@ -421,7 +427,4 @@ func printUsage() {
 	fmt.Println("  schmux list                         # List all sessions")
 	fmt.Println("  schmux attach <session-id>           # Attach to a session")
 	fmt.Println("  schmux refresh-overlay <workspace>   # Refresh overlay files")
-	if github.IsAvailable() {
-		fmt.Println("  schmux auth github                   # Configure GitHub auth")
-	}
 }

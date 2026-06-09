@@ -45,6 +45,7 @@ const TRANSIENT_FIELDS = new Set<string>([
   'error',
   'warning',
   'currentStep',
+  'authEnabled',
 ]);
 
 /**

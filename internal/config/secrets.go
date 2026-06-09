@@ -391,7 +391,13 @@ func EnsureSessionSecret() (string, error) {
 		return "", err
 	}
 	if secrets.Auth.SessionSecret != "" {
-		return secrets.Auth.SessionSecret, nil
+		// Keep an existing secret only if it decodes to a usable key.
+		// A non-empty but corrupt value would otherwise pass here and then
+		// fail later in sessionKey()->decodeSessionSecret during /auth/callback.
+		if _, derr := base64.RawStdEncoding.DecodeString(secrets.Auth.SessionSecret); derr == nil {
+			return secrets.Auth.SessionSecret, nil
+		}
+		// Fall through to regenerate.
 	}
 
 	buf := make([]byte, 32)

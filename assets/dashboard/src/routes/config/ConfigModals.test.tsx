@@ -17,6 +17,7 @@ describe('ConfigModals', () => {
             clientSecretWasSet: false,
             error: '',
           }}
+          authEnabled={true}
           runTargetEditModal={null}
           quickLaunchDialogModal={null}
           tlsModal={null}
@@ -42,6 +43,7 @@ describe('ConfigModals', () => {
       render(
         <ConfigModals
           authSecretsModal={null}
+          authEnabled={true}
           runTargetEditModal={null}
           quickLaunchDialogModal={null}
           tlsModal={null}
@@ -71,6 +73,7 @@ describe('ConfigModals', () => {
             clientSecretWasSet: false,
             error: '',
           }}
+          authEnabled={true}
           runTargetEditModal={null}
           quickLaunchDialogModal={null}
           tlsModal={null}
@@ -100,6 +103,7 @@ describe('ConfigModals', () => {
             clientSecretWasSet: false,
             error: 'Bad creds',
           }}
+          authEnabled={true}
           runTargetEditModal={null}
           quickLaunchDialogModal={null}
           tlsModal={null}
@@ -129,6 +133,7 @@ describe('ConfigModals', () => {
             clientSecretWasSet: false,
             error: '',
           }}
+          authEnabled={true}
           runTargetEditModal={null}
           quickLaunchDialogModal={null}
           tlsModal={null}
@@ -148,6 +153,64 @@ describe('ConfigModals', () => {
       await userEvent.click(screen.getByText('Cancel'));
       expect(dispatch).toHaveBeenCalledWith({ type: 'SET_AUTH_SECRETS_MODAL', modal: null });
     });
+
+    it('labels the primary button "Save & enable" when auth is off', () => {
+      render(
+        <ConfigModals
+          authSecretsModal={{
+            clientId: '',
+            clientSecret: '',
+            clientSecretWasSet: false,
+            error: '',
+          }}
+          authEnabled={false}
+          runTargetEditModal={null}
+          quickLaunchDialogModal={null}
+          tlsModal={null}
+          pastebinEditModal={null}
+          dispatch={dispatch}
+          onSaveAuthSecrets={vi.fn()}
+          onSaveRunTargetEdit={vi.fn()}
+          onSaveQuickLaunchDialog={vi.fn()}
+          onSavePastebinEdit={vi.fn()}
+          onSaveTls={vi.fn()}
+          onValidateTls={vi.fn()}
+          authPublicBaseURL=""
+          models={[]}
+          personas={[]}
+        />
+      );
+      expect(screen.getByRole('button', { name: /save & enable/i })).toBeInTheDocument();
+    });
+
+    it('labels the primary button "Save" when auth is already on', () => {
+      render(
+        <ConfigModals
+          authSecretsModal={{
+            clientId: 'Ov23li',
+            clientSecret: '',
+            clientSecretWasSet: true,
+            error: '',
+          }}
+          authEnabled={true}
+          runTargetEditModal={null}
+          quickLaunchDialogModal={null}
+          tlsModal={null}
+          pastebinEditModal={null}
+          dispatch={dispatch}
+          onSaveAuthSecrets={vi.fn()}
+          onSaveRunTargetEdit={vi.fn()}
+          onSaveQuickLaunchDialog={vi.fn()}
+          onSavePastebinEdit={vi.fn()}
+          onSaveTls={vi.fn()}
+          onValidateTls={vi.fn()}
+          authPublicBaseURL=""
+          models={[]}
+          personas={[]}
+        />
+      );
+      expect(screen.getByRole('button', { name: /^save$/i })).toBeInTheDocument();
+    });
   });
 
   describe('run target edit modal', () => {
@@ -155,6 +218,7 @@ describe('ConfigModals', () => {
       render(
         <ConfigModals
           authSecretsModal={null}
+          authEnabled={true}
           runTargetEditModal={{
             target: { name: 'my-agent', command: 'my-agent --prompt' },
             command: 'my-agent --prompt',
@@ -184,6 +248,7 @@ describe('ConfigModals', () => {
       render(
         <ConfigModals
           authSecretsModal={null}
+          authEnabled={true}
           runTargetEditModal={{
             target: { name: 'x', command: 'x' },
             command: 'x',
@@ -245,6 +310,7 @@ describe('ConfigModals', () => {
       render(
         <ConfigModals
           authSecretsModal={null}
+          authEnabled={true}
           runTargetEditModal={null}
           quickLaunchDialogModal={agentModal}
           tlsModal={null}
@@ -271,6 +337,7 @@ describe('ConfigModals', () => {
       render(
         <ConfigModals
           authSecretsModal={null}
+          authEnabled={true}
           runTargetEditModal={null}
           quickLaunchDialogModal={commandModal}
           tlsModal={null}
@@ -296,6 +363,7 @@ describe('ConfigModals', () => {
       render(
         <ConfigModals
           authSecretsModal={null}
+          authEnabled={true}
           runTargetEditModal={null}
           quickLaunchDialogModal={editAgentModal}
           tlsModal={null}
@@ -322,6 +390,7 @@ describe('ConfigModals', () => {
       render(
         <ConfigModals
           authSecretsModal={null}
+          authEnabled={true}
           runTargetEditModal={null}
           quickLaunchDialogModal={agentModal}
           tlsModal={null}
@@ -348,6 +417,7 @@ describe('ConfigModals', () => {
       render(
         <ConfigModals
           authSecretsModal={null}
+          authEnabled={true}
           runTargetEditModal={null}
           quickLaunchDialogModal={agentModal}
           tlsModal={null}
@@ -385,6 +455,7 @@ describe('ConfigModals', () => {
       render(
         <ConfigModals
           authSecretsModal={null}
+          authEnabled={true}
           runTargetEditModal={null}
           quickLaunchDialogModal={staleModal}
           tlsModal={null}
@@ -409,6 +480,7 @@ describe('ConfigModals', () => {
       render(
         <ConfigModals
           authSecretsModal={null}
+          authEnabled={true}
           runTargetEditModal={null}
           quickLaunchDialogModal={errorModal}
           tlsModal={null}
@@ -434,6 +506,7 @@ describe('ConfigModals', () => {
       render(
         <ConfigModals
           authSecretsModal={null}
+          authEnabled={true}
           runTargetEditModal={null}
           quickLaunchDialogModal={null}
           tlsModal={{
@@ -465,6 +538,7 @@ describe('ConfigModals', () => {
       render(
         <ConfigModals
           authSecretsModal={null}
+          authEnabled={true}
           runTargetEditModal={null}
           quickLaunchDialogModal={null}
           tlsModal={null}
@@ -489,6 +563,7 @@ describe('ConfigModals', () => {
       render(
         <ConfigModals
           authSecretsModal={null}
+          authEnabled={true}
           runTargetEditModal={null}
           quickLaunchDialogModal={null}
           tlsModal={{
@@ -520,6 +595,7 @@ describe('ConfigModals', () => {
       render(
         <ConfigModals
           authSecretsModal={null}
+          authEnabled={true}
           runTargetEditModal={null}
           quickLaunchDialogModal={null}
           tlsModal={{

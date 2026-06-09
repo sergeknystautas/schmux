@@ -38,6 +38,7 @@ type AccessTabProps = {
   dispatch: React.Dispatch<ConfigFormAction>;
   onSetPassword: () => void;
   onOpenAuthSecretsModal: () => void;
+  onDisableAuth: () => void;
   onOpenTlsModal: () => void;
   success: (msg: string) => void;
   toastError: (msg: string) => void;
@@ -72,6 +73,7 @@ export default function AccessTab(props: AccessTabProps) {
     dispatch,
     onSetPassword,
     onOpenAuthSecretsModal,
+    onDisableAuth,
   } = props;
   return (
     <div className="wizard-step-content" data-step="5" data-testid="config-tab-content-access">
@@ -230,25 +232,56 @@ export default function AccessTab(props: AccessTabProps) {
           </div>
           <div className="settings-section__body">
             <div className="form-group">
-              <label
-                className="flex-row gap-xs"
-                style={{ cursor: httpsEnabled ? 'pointer' : 'not-allowed' }}
-              >
-                <input
-                  type="checkbox"
-                  checked={authEnabled}
-                  onChange={(e) =>
-                    dispatch({ type: 'SET_FIELD', field: 'authEnabled', value: e.target.checked })
-                  }
-                  disabled={!httpsEnabled}
-                />
-                <span>Enable GitHub authentication</span>
-              </label>
-              <p className="form-group__hint">
-                {httpsEnabled
-                  ? 'Require GitHub login to access the dashboard.'
-                  : 'Requires HTTPS to be enabled first.'}
-              </p>
+              {!authEnabled ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn--primary btn--sm"
+                    onClick={onOpenAuthSecretsModal}
+                    disabled={!httpsEnabled}
+                  >
+                    Set up &amp; enable…
+                  </button>
+                  <p className="form-group__hint">
+                    {httpsEnabled
+                      ? 'Enter GitHub OAuth credentials and turn on login in one step.'
+                      : 'Requires HTTPS to be enabled first.'}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <span className="text-success">Enabled</span>
+                  <span
+                    style={{
+                      fontSize: '0.9rem',
+                      color: 'var(--color-text-secondary)',
+                      marginLeft: 'var(--spacing-sm)',
+                    }}
+                  >
+                    {authClientIdSet && authClientSecretSet ? (
+                      <span className="text-success">— credentials configured</span>
+                    ) : (
+                      <span className="text-warning">— credentials not configured</span>
+                    )}
+                  </span>
+                  <div className="flex-row gap-md" style={{ marginTop: 'var(--spacing-xs)' }}>
+                    <button
+                      type="button"
+                      className="btn btn--sm btn--primary"
+                      onClick={onOpenAuthSecretsModal}
+                    >
+                      Update credentials
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--sm btn--danger"
+                      onClick={onDisableAuth}
+                    >
+                      Disable
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Auth fields - always visible when auth is checked */}
@@ -276,27 +309,6 @@ export default function AccessTab(props: AccessTabProps) {
                   disabled={!authEnabled}
                 />
                 <p className="form-group__hint">How long before requiring re-authentication.</p>
-              </div>
-
-              <div className="form-group">
-                <label className="form-group__label">GitHub OAuth Credentials</label>
-                <div className="flex-row gap-md">
-                  <span style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)' }}>
-                    {authClientIdSet && authClientSecretSet ? (
-                      <span className="text-success">Configured</span>
-                    ) : (
-                      <span className="text-warning">Not configured</span>
-                    )}
-                  </span>
-                  <button
-                    type="button"
-                    className="btn btn--secondary btn--sm"
-                    onClick={onOpenAuthSecretsModal}
-                    disabled={!authEnabled}
-                  >
-                    {authClientIdSet && authClientSecretSet ? 'Update' : 'Configure'}
-                  </button>
-                </div>
               </div>
 
               {combinedAuthWarnings.length > 0 && (
