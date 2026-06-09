@@ -2293,3 +2293,29 @@ describe('TerminalStream alternate buffer scroll suppression', () => {
     expect((stream as any).followTail).toBe(false);
   });
 });
+
+describe('TerminalStream.getSelectedLines', () => {
+  let stream: TerminalStream;
+
+  beforeEach(() => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    stream = new TerminalStream('test-session', container);
+  });
+
+  it('returns selected lines in screen order, not click order', async () => {
+    await stream.initialized;
+
+    // Simulate clicking lines out of screen order: line 50, then 10, then 30.
+    // The Map records them in insertion (click) order.
+    const selected = (stream as any).selectedLines as Map<number, unknown>;
+    selected.set(50, { bufferLine: 50, markerId: 1, text: 'line-50' });
+    selected.set(10, { bufferLine: 10, markerId: 2, text: 'line-10' });
+    selected.set(30, { bufferLine: 30, markerId: 3, text: 'line-30' });
+
+    // Copy should reflect on-screen order (top to bottom), not click order.
+    expect(stream.getSelectedLines()).toEqual(['line-10', 'line-30', 'line-50']);
+  });
+});

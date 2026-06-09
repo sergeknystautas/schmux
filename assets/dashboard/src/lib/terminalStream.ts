@@ -1865,7 +1865,11 @@ export default class TerminalStream {
   }
 
   getSelectedLines(): string[] {
-    return Array.from(this.selectedLines.values()).map((sl) => sl.text);
+    // Sort by buffer line so copied text follows on-screen order (top to bottom),
+    // not the order lines were clicked. Map iterates in insertion (click) order.
+    return Array.from(this.selectedLines.values())
+      .sort((a, b) => a.bufferLine - b.bufferLine)
+      .map((sl) => sl.text);
   }
 
   clearSelection() {
