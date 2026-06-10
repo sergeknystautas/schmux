@@ -8,7 +8,12 @@ import type {
   RunnerInfo,
   RunTargetResponse,
 } from '../../lib/types';
-import type { OneshotTarget, OllamaConfig, SaplingCommandsUpdate } from '../../lib/types.generated';
+import type {
+  OneshotTarget,
+  OllamaConfig,
+  SaplingCommandsUpdate,
+  BuildMonitorRepoConfig,
+} from '../../lib/types.generated';
 import type { TargetOption } from './TargetSelect';
 import { sortModels } from '../../lib/modelSort';
 
@@ -135,6 +140,10 @@ export type ConfigFormState = {
   repofeedFetchInterval: number;
   repofeedCompletedRetention: number;
   repofeedRepos: Record<string, boolean>;
+
+  // Build Monitor
+  buildMonitorEnabled: boolean;
+  buildMonitorRepos: Record<string, BuildMonitorRepoConfig>;
 
   // Remote access
   remoteAccessEnabled: boolean;
@@ -315,6 +324,9 @@ export const initialState: ConfigFormState = {
   repofeedFetchInterval: 60,
   repofeedCompletedRetention: 48,
   repofeedRepos: {},
+
+  buildMonitorEnabled: false,
+  buildMonitorRepos: {},
 
   remoteAccessEnabled: false,
   remoteAccessTimeoutMinutes: 0,

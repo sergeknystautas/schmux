@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"syscall"
 
 	"github.com/sergeknystautas/schmux/internal/detect"
@@ -29,8 +31,17 @@ type AuthSecrets struct {
 }
 
 type GitHubSecrets struct {
-	ClientID     string `json:"client_id,omitempty"`
-	ClientSecret string `json:"client_secret,omitempty"`
+	ClientID     string                    `json:"client_id,omitempty"`
+	ClientSecret string                    `json:"client_secret,omitempty"`
+	Identities   map[string]GitHubIdentity `json:"identities,omitempty"` // keyed by lowercase login
+}
+
+// GitHubIdentity stores a per-login OAuth token for build access.
+type GitHubIdentity struct {
+	Login     string `json:"login"`
+	Token     string `json:"token"`
+	Scopes    string `json:"scopes,omitempty"`
+	GrantedAt string `json:"granted_at,omitempty"` // RFC3339
 }
 
 func secretsPath() (string, error) {
@@ -382,6 +393,52 @@ func SaveGitHubAuthSecrets(clientID, clientSecret string) error {
 	secrets.Auth.GitHub.ClientID = clientID
 	secrets.Auth.GitHub.ClientSecret = clientSecret
 	return SaveSecretsFile(secrets)
+}
+
+// SaveGitHubIdentity persists a per-login OAuth token for build access.
+func SaveGitHubIdentity(login, token, scopes string) error {
+	key := strings.ToLower(login)
+	secrets, err := LoadSecretsFile()
+	if err != nil {
+		return err
+	}
+	if secrets.Auth.GitHub == nil {
+		secrets.Auth.GitHub = &GitHubSecrets{}
+	}
+	if secrets.Auth.GitHub.Identities == nil {
+		secrets.Auth.GitHub.Identities = map[string]GitHubIdentity{}
+	}
+	secrets.Auth.GitHub.Identities[key] = GitHubIdentity{Login: login, Token: token, Scopes: scopes}
+	return SaveSecretsFile(secrets)
+}
+
+// GetGitHubIdentityLogins returns the logins of all authorized build-access identities, sorted.
+func GetGitHubIdentityLogins() ([]string, error) {
+	secrets, err := LoadSecretsFile()
+	if err != nil {
+		return nil, err
+	}
+	if secrets.Auth.GitHub == nil {
+		return nil, nil
+	}
+	out := make([]string, 0, len(secrets.Auth.GitHub.Identities))
+	for k := range secrets.Auth.GitHub.Identities {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// GetGitHubToken returns the OAuth token for the given login (case-insensitive).
+func GetGitHubToken(login string) (string, error) {
+	secrets, err := LoadSecretsFile()
+	if err != nil {
+		return "", err
+	}
+	if secrets.Auth.GitHub == nil {
+		return "", nil
+	}
+	return secrets.Auth.GitHub.Identities[strings.ToLower(login)].Token, nil
 }
 
 // EnsureSessionSecret returns the session secret, creating one if missing.

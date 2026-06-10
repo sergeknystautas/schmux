@@ -28,3 +28,19 @@ func (s *Server) GenerateSubredditForAllRepos(_ context.Context) error {
 }
 
 func (s *Server) BroadcastSubreddit() {}
+
+// repoSlug creates a URL-safe slug from a repo name.
+func repoSlug(name string) string {
+	result := make([]byte, 0, len(name))
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if c >= 'a' && c <= 'z' || c >= '0' && c <= '9' {
+			result = append(result, c)
+		} else if c >= 'A' && c <= 'Z' {
+			result = append(result, c+32)
+		} else {
+			result = append(result, '-')
+		}
+	}
+	return string(result)
+}

@@ -19,6 +19,7 @@ import (
 
 const (
 	oauthStateCookie    = "schmux_oauth_state"
+	oauthPurposeCookie  = "schmux_oauth_purpose"
 	oauthStateMaxAgeSec = 300
 	oauthHTTPTimeout    = 10 * time.Second
 )
@@ -27,6 +28,7 @@ var oauthClient = &http.Client{Timeout: oauthHTTPTimeout}
 
 type githubTokenResponse struct {
 	AccessToken string `json:"access_token"`
+	Scope       string `json:"scope"`
 	Error       string `json:"error"`
 	ErrorDesc   string `json:"error_description"`
 }
@@ -111,7 +113,7 @@ func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := s.exchangeGitHubToken(code, state)
+	token, scope, err := s.exchangeGitHubToken(code, state)
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("OAuth exchange failed: %v", err), http.StatusBadRequest)
 		return
@@ -120,6 +122,38 @@ func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	user, err := s.fetchGitHubUser(token)
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("Failed to fetch GitHub user: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Check for build-monitor purpose cookie
+	purposeCookie, _ := r.Cookie(oauthPurposeCookie)
+	if purposeCookie != nil && purposeCookie.Value == "build" {
+		if err := config.SaveGitHubIdentity(user.Login, token, scope); err != nil {
+			writeJSONError(w, fmt.Sprintf("Failed to save identity: %v", err), http.StatusInternalServerError)
+			return
+		}
+		// Clear both cookies
+		s.setCookie(w, &http.Cookie{
+			Name:     oauthStateCookie,
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			Secure:   s.authCookieSecure(),
+		})
+		s.setCookie(w, &http.Cookie{
+			Name:     oauthPurposeCookie,
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			Secure:   s.authCookieSecure(),
+		})
+		// Return to the Build Monitor panel the user authorized from, not the
+		// default (Workspaces) tab.
+		http.Redirect(w, r, "/config?tab=experimental", http.StatusFound)
 		return
 	}
 
@@ -194,14 +228,14 @@ func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) exchangeGitHubToken(code, state string) (string, error) {
+func (s *Server) exchangeGitHubToken(code, state string) (string, string, error) {
 	secrets, err := config.GetAuthSecrets()
 	if err != nil || secrets.GitHub == nil {
-		return "", errors.New("GitHub auth not configured")
+		return "", "", errors.New("GitHub auth not configured")
 	}
 	redirectURI, err := s.authRedirectURI()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	payload := url.Values{}
@@ -213,33 +247,33 @@ func (s *Server) exchangeGitHubToken(code, state string) (string, error) {
 
 	req, err := http.NewRequest(http.MethodPost, "https://github.com/login/oauth/access_token", strings.NewReader(payload.Encode()))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := oauthClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	var tokenResp githubTokenResponse
 	if err := json.Unmarshal(body, &tokenResp); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if tokenResp.Error != "" {
-		return "", fmt.Errorf("oauth error: %s", tokenResp.ErrorDesc)
+		return "", "", fmt.Errorf("oauth error: %s", tokenResp.ErrorDesc)
 	}
 	if tokenResp.AccessToken == "" {
-		return "", errors.New("missing access_token")
+		return "", "", errors.New("missing access_token")
 	}
-	return tokenResp.AccessToken, nil
+	return tokenResp.AccessToken, tokenResp.Scope, nil
 }
 
 func (s *Server) fetchGitHubUser(token string) (*githubUserResponse, error) {
@@ -327,4 +361,53 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, user *githubUserRespons
 		Secure:   s.authCookieSecure(),
 	})
 	return nil
+}
+
+// handleBuildMonitorConnect initiates the GitHub OAuth flow for build-monitor access (repo scope).
+func (s *Server) handleBuildMonitorConnect(w http.ResponseWriter, r *http.Request) {
+	secrets, err := config.GetAuthSecrets()
+	if err != nil || secrets.GitHub == nil || strings.TrimSpace(secrets.GitHub.ClientID) == "" {
+		writeJSONError(w, "Configure the GitHub OAuth app in Settings → Access first", http.StatusBadRequest)
+		return
+	}
+
+	state, err := randomToken(32)
+	if err != nil {
+		writeJSONError(w, "Failed to generate auth state", http.StatusInternalServerError)
+		return
+	}
+
+	redirectURI, err := s.authRedirectURI()
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	params := url.Values{}
+	params.Set("client_id", secrets.GitHub.ClientID)
+	params.Set("redirect_uri", redirectURI)
+	params.Set("state", state)
+	params.Set("scope", "repo")
+
+	s.setCookie(w, &http.Cookie{
+		Name:     oauthStateCookie,
+		Value:    state,
+		Path:     "/",
+		MaxAge:   oauthStateMaxAgeSec,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   s.authCookieSecure(),
+	})
+	s.setCookie(w, &http.Cookie{
+		Name:     oauthPurposeCookie,
+		Value:    "build",
+		Path:     "/",
+		MaxAge:   oauthStateMaxAgeSec,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   s.authCookieSecure(),
+	})
+
+	authURL := "https://github.com/login/oauth/authorize?" + params.Encode()
+	http.Redirect(w, r, authURL, http.StatusFound)
 }

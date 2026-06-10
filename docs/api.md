@@ -1361,6 +1361,10 @@ Request:
     "completed_retention_hours": 48,
     "repos": { "my-repo": true }
   },
+  "build_monitor": {
+    "enabled": true,
+    "repos": { "My Repo": { "enabled": true, "github_login": "octocat" } }
+  },
   "notifications": {
     "sound_disabled": false,
     "confirm_before_close": false,
@@ -1379,6 +1383,8 @@ Request:
 **`ollama.endpoint`** (string, optional): Ollama server URL. Blank means auto-detect `http://localhost:11434` on next daemon start. Changing this triggers an immediate probe; reachable models appear in `oneshot_targets` on the next GET.
 
 **`ollama.auto_detected_endpoint`** (string, optional, read-only): URL the daemon probe loop is currently using when `endpoint` is blank. Never persisted to `config.json`; present only so the UI can tell the user what is being auto-detected without implicitly mutating their config.
+
+**`build_monitor.repos`** (object): keyed by repo display name in API requests and responses (stored slug-keyed internally). An enabled repo watches every active GitHub Actions workflow on its default branch, read with the authorized `github_login` identity.
 
 The `tmux_binary` field is validated on save: the path must exist, be executable, and `<path> -V` must output a recognized tmux version string. An empty string clears the override. Invalid paths return 400.
 
@@ -3432,6 +3438,108 @@ Configuration is via the config API:
 - `subreddit.max_posts` - Maximum posts per repo (default: 30)
 - `subreddit.max_age` - Maximum post age in days (default: 14)
 - `subreddit.repos` - Map of repo slugs to enabled/disabled status
+
+### GET /api/build-monitor
+
+Returns the build monitor status for all enabled units. Each unit is one monitored repo; a unit carries the latest run status of every active GitHub Actions workflow on the repo's default branch.
+
+Response (enabled with checked units):
+
+```json
+{
+  "enabled": true,
+  "units": [
+    {
+      "slug": "my-repo",
+      "repo_name": "My Repo",
+      "repo": "owner/repo",
+      "branch": "main",
+      "workflows": [
+        {
+          "name": "CI",
+          "path": ".github/workflows/ci.yml",
+          "run_id": 42,
+          "run_number": 7,
+          "status": "completed",
+          "conclusion": "failure",
+          "html_url": "https://github.com/owner/repo/actions/runs/42",
+          "failed_jobs": [
+            { "name": "test", "html_url": "https://github.com/owner/repo/actions/runs/42/jobs/10" }
+          ]
+        }
+      ],
+      "checked_at": "2026-06-08T12:00:00Z",
+      "configured": true,
+      "github_login": "octocat"
+    }
+  ]
+}
+```
+
+Response (disabled):
+
+```json
+{
+  "enabled": false,
+  "units": []
+}
+```
+
+Fields:
+
+| Field                                        | Type   | Description                                                      |
+| -------------------------------------------- | ------ | ---------------------------------------------------------------- |
+| `enabled`                                    | bool   | Whether build monitor is enabled                                 |
+| `units`                                      | array  | Per-repo status objects (empty if disabled)                      |
+| `units[].slug`                               | string | Repo slug (derived from repo name)                               |
+| `units[].repo_name`                          | string | Display name of the repo                                         |
+| `units[].repo`                               | string | `owner/repo` derived from the repo URL                           |
+| `units[].branch`                             | string | Default branch being monitored (resolved at check time)          |
+| `units[].workflows`                          | array  | Active workflows with their latest run on the branch             |
+| `units[].workflows[].name`                   | string | Workflow name                                                    |
+| `units[].workflows[].path`                   | string | Workflow file path                                               |
+| `units[].workflows[].run_id`                 | int64  | GitHub Actions run ID of the latest completed run                |
+| `units[].workflows[].run_number`             | int    | Run number                                                       |
+| `units[].workflows[].status`                 | string | Run status: `completed`, `in_progress`, `queued`, or empty       |
+| `units[].workflows[].conclusion`             | string | Run conclusion: `success`, `failure`, or empty                   |
+| `units[].workflows[].html_url`               | string | Link to the run on GitHub                                        |
+| `units[].workflows[].failed_jobs`            | array  | Failed jobs (only when conclusion is `failure`)                  |
+| `units[].workflows[].failed_jobs[].name`     | string | Job name                                                         |
+| `units[].workflows[].failed_jobs[].html_url` | string | Link to the job on GitHub                                        |
+| `units[].checked_at`                         | string | RFC3339 timestamp of last check                                  |
+| `units[].last_error`                         | string | Error message if check failed (e.g. `unauthorized`, `not found`) |
+| `units[].configured`                         | bool   | Whether the repo has an identity selected                        |
+| `units[].github_login`                       | string | Authorized identity used for this repo                           |
+
+### POST /api/build-monitor/check
+
+Fetches fresh GitHub Actions status for all enabled units, persists the results, and returns the same shape as `GET /api/build-monitor`.
+
+Requires no request body. The check runs with a 30-second timeout per request.
+
+Response: Same as `GET /api/build-monitor` with updated `checked_at` timestamps.
+
+### GET /api/build-monitor/identities
+
+Returns the list of GitHub logins authorized for build access.
+
+Response:
+
+```json
+{
+  "logins": ["octocat"]
+}
+```
+
+### GET /api/build-monitor/connect
+
+Initiates the GitHub OAuth flow to authorize a GitHub identity for build access (requests `repo` scope). Redirects to GitHub's authorization page. After approval, the token is stored keyed by login and the browser is redirected to `/config`.
+
+Prerequisites: dashboard auth enabled, GitHub OAuth app configured (`client_id`/`client_secret` in secrets), and `public_base_url` set.
+
+Error responses:
+
+- 400 if OAuth app not configured
 
 ### GET /api/repofeed
 

@@ -324,6 +324,10 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 			MaxFileSizeMB:     h.config.GetTimelapseMaxFileSizeMB(),
 			MaxTotalStorageMB: h.config.GetTimelapseMaxTotalStorageMB(),
 		},
+		BuildMonitor: contracts.BuildMonitorConfig{
+			Enabled: h.config.GetBuildMonitorEnabled(),
+			Repos:   h.buildMonitorReposResponse(),
+		},
 		RemoteAccess: contracts.RemoteAccess{
 			Enabled:         h.config.GetRemoteAccessEnabled(),
 			TimeoutMinutes:  h.config.GetRemoteAccessTimeoutMinutes(),
@@ -784,6 +788,10 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
+	if req.BuildMonitor != nil {
+		applyBuildMonitor(cfg, req.BuildMonitor)
+	}
+
 	if req.Repofeed != nil {
 		if cfg.Repofeed == nil {
 			cfg.Repofeed = &config.RepofeedConfig{}
@@ -1194,4 +1202,48 @@ func (h *ConfigHandlers) handleAuthSecretsUpdate(w http.ResponseWriter, r *http.
 		return
 	}
 	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+// applyBuildMonitor applies the build monitor config from a request, converting name-keyed repos to slug-keyed.
+func applyBuildMonitor(cfg *config.Config, in *contracts.BuildMonitorConfig) {
+	if in == nil {
+		return
+	}
+	if cfg.BuildMonitor == nil {
+		cfg.BuildMonitor = &config.BuildMonitorConfig{}
+	}
+	cfg.BuildMonitor.Enabled = in.Enabled
+	out := make(map[string]config.BuildMonitorRepoConfig, len(in.Repos))
+	for name, rc := range in.Repos {
+		out[repoSlug(name)] = config.BuildMonitorRepoConfig{
+			Enabled:     rc.Enabled,
+			GitHubLogin: rc.GitHubLogin,
+		}
+	}
+	cfg.BuildMonitor.Repos = out
+}
+
+// buildMonitorReposResponse converts the slug-keyed config repos to name-keyed for the API response.
+func (h *ConfigHandlers) buildMonitorReposResponse() map[string]contracts.BuildMonitorRepoConfig {
+	repos := h.config.GetBuildMonitorRepos()
+	if repos == nil {
+		return nil
+	}
+	// Build a name→slug lookup from config repos
+	out := make(map[string]contracts.BuildMonitorRepoConfig, len(repos))
+	for slug, rc := range repos {
+		// Try to find the repo name from config by matching slug
+		name := slug
+		for _, repo := range h.config.GetRepos() {
+			if repoSlug(repo.Name) == slug {
+				name = repo.Name
+				break
+			}
+		}
+		out[name] = contracts.BuildMonitorRepoConfig{
+			Enabled:     rc.Enabled,
+			GitHubLogin: rc.GitHubLogin,
+		}
+	}
+	return out
 }

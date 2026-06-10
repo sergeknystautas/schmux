@@ -32,6 +32,7 @@ import RemoteSettingsPage from './RemoteSettingsPage';
 import ConfigModals from './config/ConfigModals';
 import type { ConfigResponse, Model, RunTargetResponse } from '../lib/types';
 import type { Persona } from '../lib/types.generated';
+import { TAB_SLUGS } from './config/tabs';
 
 const TABS = [
   'Workspaces',
@@ -41,15 +42,6 @@ const TABS = [
   'Remote Hosts',
   'Experimental',
   'Advanced',
-];
-const TAB_SLUGS = [
-  'workspaces',
-  'sessions',
-  'agents',
-  'access',
-  'remote',
-  'experimental',
-  'advanced',
 ];
 
 const stepToSlug = (step: number) => TAB_SLUGS[step - 1];
@@ -195,6 +187,8 @@ export default function ConfigPage() {
           repofeedFetchInterval: data.repofeed?.fetch_interval_seconds || 60,
           repofeedCompletedRetention: data.repofeed?.completed_retention_hours || 48,
           repofeedRepos: data.repofeed?.repos || {},
+          buildMonitorEnabled: data.build_monitor?.enabled ?? false,
+          buildMonitorRepos: data.build_monitor?.repos || {},
           remoteAccessEnabled: data.remote_access?.enabled || false,
           remoteAccessTimeoutMinutes: data.remote_access?.timeout_minutes || 0,
           remoteAccessNtfyTopic: data.remote_access?.notify?.ntfy_topic || '',

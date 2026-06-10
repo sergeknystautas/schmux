@@ -20,6 +20,16 @@ export interface BranchSuggestUpdate {
   target?: string;
 }
 
+export interface BuildMonitorConfig {
+  enabled?: boolean;
+  repos?: Record<string, BuildMonitorRepoConfig>;
+}
+
+export interface BuildMonitorRepoConfig {
+  enabled?: boolean;
+  github_login: string;
+}
+
 export interface ClipboardAckRequest {
   action: string;
   requestId: string;
@@ -129,6 +139,7 @@ export interface ConfigResponse {
   repofeed: Repofeed;
   floor_manager: FloorManager;
   timelapse: Timelapse;
+  build_monitor: BuildMonitorConfig;
   remote_access: RemoteAccess;
   sapling_commands?: SaplingCommandsUpdate;
   tmux_binary?: string;
@@ -174,6 +185,7 @@ export interface ConfigUpdateRequest {
   repofeed?: RepofeedUpdate;
   floor_manager?: FloorManagerUpdate;
   timelapse?: TimelapseUpdate;
+  build_monitor?: BuildMonitorConfig;
   remote_access?: RemoteAccessUpdate;
   enabled_models?: Record<string, string>;
   comm_styles?: Record<string, string>;
@@ -296,6 +308,7 @@ export interface Features {
   autolearn: boolean;
   floor_manager: boolean;
   timelapse: boolean;
+  build_monitor: boolean;
   vendor_locked: boolean;
 }
 

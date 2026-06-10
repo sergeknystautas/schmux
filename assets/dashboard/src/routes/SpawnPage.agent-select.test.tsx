@@ -95,6 +95,7 @@ const configFixture: ConfigResponse = {
   oneshot_targets: [],
   anthropic_oauth_token_set: false,
   ollama: { endpoint: '', reachable: false, models: [] },
+  build_monitor: { enabled: false, repos: {} },
 };
 
 const mockGetConfig = vi.fn<() => Promise<ConfigResponse>>();

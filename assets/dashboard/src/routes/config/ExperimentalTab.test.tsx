@@ -21,6 +21,7 @@ const mockFeatures: Record<string, boolean> = {
   autolearn: true,
   floor_manager: true,
   timelapse: true,
+  build_monitor: true,
   vendor_locked: false,
 };
 

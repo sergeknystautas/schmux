@@ -791,6 +791,11 @@ func (s *Server) Start() error {
 		r.Get("/hasNudgenik", sessionH.handleHasNudgenik)
 		r.Get("/askNudgenik/*", sessionH.handleAskNudgenik)
 		r.Get("/subreddit", s.handleSubreddit)
+		// Inside the /api group — paths here are relative (mounted as /api/build-monitor/*).
+		r.Get("/build-monitor", s.handleBuildMonitorGet)
+		r.Post("/build-monitor/check", s.handleBuildMonitorCheck)
+		r.Get("/build-monitor/identities", s.handleBuildMonitorIdentities)
+		r.Get("/build-monitor/connect", s.handleBuildMonitorConnectIdentity)
 		r.Get("/repofeed", s.handleRepofeedList)
 		r.Get("/repofeed/{slug}", s.handleRepofeedRepo)
 		r.Get("/repofeed/outgoing", s.handleRepofeedOutgoing)

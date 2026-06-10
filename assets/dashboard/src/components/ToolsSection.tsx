@@ -122,6 +122,20 @@ export default function ToolsSection({
       ),
     },
     {
+      to: '/build-monitor',
+      label: 'Build Monitor',
+      hidden: !features.build_monitor,
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M2 20h20"></path>
+          <path d="m5 20 3-14h2l3 14"></path>
+          <path d="m14 20 3-14h2l3 14"></path>
+          <path d="M5 12h6"></path>
+          <path d="M14 12h6"></path>
+        </svg>
+      ),
+    },
+    {
       to: '/personas',
       label: 'Personas',
       hidden: !features.personas || !config?.personas_enabled,

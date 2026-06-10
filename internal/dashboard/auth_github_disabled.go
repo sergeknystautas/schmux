@@ -23,3 +23,7 @@ func (s *Server) handleAuthLogout(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleAuthMe(w http.ResponseWriter, _ *http.Request) {
 	writeJSONError(w, "GitHub auth is not available in this build", http.StatusNotFound)
 }
+
+func (s *Server) handleBuildMonitorConnect(w http.ResponseWriter, _ *http.Request) {
+	writeJSONError(w, "GitHub auth is not available in this build", http.StatusNotFound)
+}

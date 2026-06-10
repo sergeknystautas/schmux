@@ -123,6 +123,10 @@ const DEFAULT_CONFIG: ConfigResponse = {
     reachable: false,
     models: [],
   },
+  build_monitor: {
+    enabled: false,
+    repos: {},
+  },
 };
 
 export function ConfigProvider({ children }: { children: React.ReactNode }) {

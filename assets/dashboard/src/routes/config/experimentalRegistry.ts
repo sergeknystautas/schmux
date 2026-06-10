@@ -6,6 +6,7 @@ import RepofeedConfig from './RepofeedConfig';
 import SubredditConfig from './SubredditConfig';
 import TimelapseConfig from './TimelapseConfig';
 import CommStylesConfig from './CommStylesConfig';
+import BuildMonitorConfig from './BuildMonitorConfig';
 
 type ExperimentalFeature = {
   id: string;
@@ -73,6 +74,14 @@ export const EXPERIMENTAL_FEATURES: ExperimentalFeature[] = [
     enabledKey: 'timelapseEnabled',
     configPanel: TimelapseConfig,
     buildFeatureKey: 'timelapse',
+  },
+  {
+    id: 'build-monitor',
+    name: 'Build Monitor',
+    description: 'Watch GitHub Actions workflows for hard failures',
+    enabledKey: 'buildMonitorEnabled',
+    configPanel: BuildMonitorConfig,
+    buildFeatureKey: 'build_monitor',
   },
   {
     id: 'backburner',

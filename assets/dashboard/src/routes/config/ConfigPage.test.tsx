@@ -64,6 +64,7 @@ const mockFeatures: Record<string, boolean> = {
   model_registry: true,
   repofeed: true,
   subreddit: true,
+  build_monitor: false,
   vendor_locked: false,
 };
 vi.mock('../../contexts/FeaturesContext', () => ({
@@ -148,6 +149,7 @@ const configFixture: ConfigResponse = {
   oneshot_targets: [],
   anthropic_oauth_token_set: false,
   ollama: { endpoint: '', reachable: false, models: [] },
+  build_monitor: { enabled: false, repos: {} },
 };
 
 function renderConfigPage() {

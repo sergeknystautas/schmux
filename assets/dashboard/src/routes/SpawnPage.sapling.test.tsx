@@ -95,6 +95,7 @@ function makeConfig(overrides: Partial<ConfigResponse> = {}): ConfigResponse {
     oneshot_targets: [],
     anthropic_oauth_token_set: false,
     ollama: { endpoint: '', reachable: false, models: [] },
+    build_monitor: { enabled: false, repos: {} },
     ...overrides,
   };
 }

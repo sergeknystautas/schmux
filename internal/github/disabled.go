@@ -109,5 +109,55 @@ func FetchOpenPRs(_ RepoInfo, _, _ string) ([]contracts.PullRequest, error) {
 	return nil, fmt.Errorf("GitHub integration is not available in this build")
 }
 
+// Workflow represents a GitHub Actions workflow definition (stub).
+type Workflow struct {
+	ID    int64  `json:"id"`
+	Name  string `json:"name"`
+	Path  string `json:"path"`
+	State string `json:"state"`
+}
+
+// WorkflowRun represents a GitHub Actions workflow run (stub).
+type WorkflowRun struct {
+	ID         int64  `json:"id"`
+	WorkflowID int64  `json:"workflow_id"`
+	RunNumber  int    `json:"run_number"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
+	HeadSHA    string `json:"head_sha"`
+	HTMLURL    string `json:"html_url"`
+	CreatedAt  string `json:"created_at"`
+}
+
+// WorkflowJob represents a GitHub Actions workflow job (stub).
+type WorkflowJob struct {
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
+	HTMLURL    string `json:"html_url"`
+}
+
+var ErrUnauthorized = fmt.Errorf("github: unavailable")
+var ErrNotFound = fmt.Errorf("github: unavailable")
+
+func IsUnauthorized(_ error) bool { return false }
+func IsNotFound(_ error) bool     { return false }
+
+// ListWorkflows returns an error when the GitHub module is excluded.
+func ListWorkflows(_ context.Context, _ string, _ RepoInfo) ([]Workflow, error) {
+	return nil, fmt.Errorf("GitHub integration is not available in this build")
+}
+
+// ListRepoRuns returns an error when the GitHub module is excluded.
+func ListRepoRuns(_ context.Context, _ string, _ RepoInfo, _ string) ([]WorkflowRun, error) {
+	return nil, fmt.Errorf("GitHub integration is not available in this build")
+}
+
+// ListRunJobs returns an error when the GitHub module is excluded.
+func ListRunJobs(_ context.Context, _ string, _ RepoInfo, _ int64) ([]WorkflowJob, error) {
+	return nil, fmt.Errorf("GitHub integration is not available in this build")
+}
+
 // IsAvailable reports whether the GitHub module is included in this build.
 func IsAvailable() bool { return false }

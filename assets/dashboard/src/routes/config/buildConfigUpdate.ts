@@ -85,6 +85,10 @@ export function buildConfigUpdate(state: ConfigFormState): ConfigUpdateRequest {
       completed_retention_hours: state.repofeedCompletedRetention,
       repos: state.repofeedRepos,
     },
+    build_monitor: {
+      enabled: state.buildMonitorEnabled,
+      repos: state.buildMonitorRepos,
+    },
     enabled_models: state.enabledModels,
     comm_styles: state.commStyles,
     remote_access: {

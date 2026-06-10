@@ -114,6 +114,7 @@ type ConfigData struct {
 	CommStyles                 map[string]string           `json:"comm_styles,omitempty"`
 	Subreddit                  *SubredditConfig            `json:"subreddit,omitempty"`
 	Repofeed                   *RepofeedConfig             `json:"repofeed,omitempty"`
+	BuildMonitor               *BuildMonitorConfig         `json:"build_monitor,omitempty"`
 	FloorManager               *FloorManagerConfig         `json:"floor_manager,omitempty"`
 	SaplingCommands            SaplingCommands             `json:"sapling_commands,omitempty"`
 	BuiltInSkills              map[string]bool             `json:"built_in_skills,omitempty"` // Deprecated: no longer used. Kept for config compatibility.
@@ -388,6 +389,19 @@ type SubredditConfig struct {
 	MaxPosts      int             `json:"max_posts,omitempty"`      // Max posts per repo, default 30
 	MaxAge        int             `json:"max_age,omitempty"`        // Max post age in days, default 14
 	Repos         map[string]bool `json:"repos,omitempty"`          // Per-repo enabled/disabled (default true)
+}
+
+// BuildMonitorConfig represents configuration for the build monitor feature.
+type BuildMonitorConfig struct {
+	Enabled bool                              `json:"enabled,omitempty"`
+	Repos   map[string]BuildMonitorRepoConfig `json:"repos,omitempty"`
+}
+
+// BuildMonitorRepoConfig represents per-repo build monitor configuration.
+// An enabled repo watches every active workflow on its default branch.
+type BuildMonitorRepoConfig struct {
+	Enabled     bool   `json:"enabled,omitempty"`
+	GitHubLogin string `json:"github_login"`
 }
 
 // RepofeedConfig controls the cross-developer intent federation system.
@@ -1436,6 +1450,50 @@ func (c *Config) GetRepofeedRepos() map[string]bool {
 		result[k] = v
 	}
 	return result
+}
+
+// GetBuildMonitorEnabled returns whether the build monitor feature is enabled.
+func (c *Config) GetBuildMonitorEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.BuildMonitor != nil && c.BuildMonitor.Enabled
+}
+
+// GetBuildMonitorRepos returns a copy of the build monitor repo configurations.
+func (c *Config) GetBuildMonitorRepos() map[string]BuildMonitorRepoConfig {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.BuildMonitor == nil || c.BuildMonitor.Repos == nil {
+		return nil
+	}
+	out := make(map[string]BuildMonitorRepoConfig, len(c.BuildMonitor.Repos))
+	for k, v := range c.BuildMonitor.Repos {
+		out[k] = v
+	}
+	return out
+}
+
+// GetBuildMonitorRepoEnabled returns whether a specific repo is enabled for build monitoring.
+// Returns false by default if the repo is not in the map.
+func (c *Config) GetBuildMonitorRepoEnabled(slug string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.BuildMonitor == nil || c.BuildMonitor.Repos == nil {
+		return false
+	}
+	r, ok := c.BuildMonitor.Repos[slug]
+	return ok && r.Enabled
+}
+
+// GetBuildMonitorRepo returns the build monitor configuration for a specific repo.
+func (c *Config) GetBuildMonitorRepo(slug string) (BuildMonitorRepoConfig, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.BuildMonitor == nil || c.BuildMonitor.Repos == nil {
+		return BuildMonitorRepoConfig{}, false
+	}
+	r, ok := c.BuildMonitor.Repos[slug]
+	return r, ok
 }
 
 // GetRepofeedIntentTarget returns the configured repofeed intent summarization target name, if any.

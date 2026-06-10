@@ -75,6 +75,7 @@ const baseConfig: ConfigResponse = {
   oneshot_targets: [],
   anthropic_oauth_token_set: false,
   ollama: { endpoint: '', reachable: false, models: [] },
+  build_monitor: { enabled: false, repos: {} },
 };
 
 // --- Mocks ---
@@ -123,6 +124,7 @@ const mockFeatures: Record<string, boolean> = {
   autolearn: true,
   floor_manager: true,
   timelapse: true,
+  build_monitor: false,
   vendor_locked: false,
 };
 

@@ -33,6 +33,7 @@ const LinearSyncResolveConflictPage = lazy(() => import('./routes/LinearSyncReso
 const LegacyTerminalPage = lazy(() => import('./routes/LegacyTerminalPage'));
 const NotFoundPage = lazy(() => import('./routes/NotFoundPage'));
 const OverlayPage = lazy(() => import('./routes/OverlayPage'));
+const BuildMonitorPage = lazy(() => import('./routes/BuildMonitorPage'));
 const AutolearnPage = lazy(() => import('./routes/AutolearnPage'));
 const PersonasListPage = lazy(() => import('./routes/PersonasListPage'));
 const PersonaCreatePage = lazy(() => import('./routes/PersonaCreatePage'));
@@ -99,6 +100,14 @@ export default function App() {
                                 <Route path="/config" element={<ConfigPage />} />
                                 <Route path="/environment" element={<EnvironmentPage />} />
                                 <Route path="/overlays" element={<OverlayPage />} />
+                                <Route
+                                  path="/build-monitor"
+                                  element={
+                                    <FeatureRoute feature="build_monitor">
+                                      <BuildMonitorPage />
+                                    </FeatureRoute>
+                                  }
+                                />
                                 <Route
                                   path="/personas"
                                   element={

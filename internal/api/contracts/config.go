@@ -178,6 +178,7 @@ type ConfigResponse struct {
 	Repofeed                   Repofeed               `json:"repofeed"`
 	FloorManager               FloorManager           `json:"floor_manager"`
 	Timelapse                  Timelapse              `json:"timelapse"`
+	BuildMonitor               BuildMonitorConfig     `json:"build_monitor"`
 	RemoteAccess               RemoteAccess           `json:"remote_access"`
 	SaplingCommands            *SaplingCommandsUpdate `json:"sapling_commands,omitempty"`
 	TmuxBinary                 string                 `json:"tmux_binary,omitempty"`
@@ -348,6 +349,7 @@ type ConfigUpdateRequest struct {
 	Repofeed                   *RepofeedUpdate             `json:"repofeed,omitempty"`
 	FloorManager               *FloorManagerUpdate         `json:"floor_manager,omitempty"`
 	Timelapse                  *TimelapseUpdate            `json:"timelapse,omitempty"`
+	BuildMonitor               *BuildMonitorConfig         `json:"build_monitor,omitempty"`
 	RemoteAccess               *RemoteAccessUpdate         `json:"remote_access,omitempty"`
 	EnabledModels              *map[string]string          `json:"enabled_models,omitempty"`
 	CommStyles                 *map[string]string          `json:"comm_styles,omitempty"`
@@ -483,6 +485,19 @@ type RemoteAccess struct {
 	TimeoutMinutes  int                `json:"timeout_minutes"`
 	PasswordHashSet bool               `json:"password_hash_set"`
 	Notify          RemoteAccessNotify `json:"notify"`
+}
+
+// BuildMonitorConfig represents build monitor configuration.
+type BuildMonitorConfig struct {
+	Enabled bool                              `json:"enabled,omitempty"`
+	Repos   map[string]BuildMonitorRepoConfig `json:"repos,omitempty"` // request: keyed by repo NAME; stored slug-keyed (handler converts)
+}
+
+// BuildMonitorRepoConfig represents per-repo build monitor configuration.
+// An enabled repo watches every active workflow on its default branch.
+type BuildMonitorRepoConfig struct {
+	Enabled     bool   `json:"enabled,omitempty"`
+	GitHubLogin string `json:"github_login"` // REQUIRED — authorized identity that reads this repo
 }
 
 // RemoteAccessNotify represents notification settings.
