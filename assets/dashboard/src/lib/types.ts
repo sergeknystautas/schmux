@@ -132,7 +132,6 @@ export type {
   PRsResponse,
   PullRequest,
   RunnerInfo,
-  Tab,
   TLSValidateResponse,
   ClipboardRequestEvent,
   ClipboardClearedEvent,
@@ -181,7 +180,7 @@ export interface SuggestBranchResponse {
   nickname: string;
 }
 
-export interface DetectTool {
+interface DetectTool {
   name: string;
   command: string;
   source: string;
@@ -265,7 +264,7 @@ export interface CommitDetailResponse {
   files: FileDiff[];
 }
 
-export interface VSCodeServerInfo {
+interface VSCodeServerInfo {
   hostname?: string;
   web_server_url?: string;
   has_vscode_server?: boolean;
@@ -284,14 +283,14 @@ export interface DiffExternalResponse {
   message: string;
 }
 
-export interface ScanWorkspace {
+interface ScanWorkspace {
   id: string;
   repo: string;
   branch: string;
   path: string;
 }
 
-export interface WorkspaceChange {
+interface WorkspaceChange {
   old: ScanWorkspace;
   new: ScanWorkspace;
 }
@@ -320,7 +319,7 @@ export interface LinearSyncResponse {
   pre_commit_error_detail?: string;
 }
 
-export interface ConflictResolution {
+interface ConflictResolution {
   local_commit: string;
   local_commit_message: string;
   all_resolved: boolean;
@@ -440,7 +439,7 @@ export interface RemoteHostStatus {
   connected: boolean;
 }
 
-export interface FlavorHostGroup {
+interface FlavorHostGroup {
   flavor: string;
   hosts: RemoteHostStatus[];
 }
@@ -588,7 +587,7 @@ export interface AutolearnStatusResponse {
   issues: string[];
 }
 
-export interface SubredditPost {
+interface SubredditPost {
   id: string;
   title: string;
   content: string;
@@ -598,7 +597,7 @@ export interface SubredditPost {
   revision: number;
 }
 
-export interface SubredditRepo {
+interface SubredditRepo {
   name: string;
   slug: string;
   posts: SubredditPost[];
@@ -657,7 +656,7 @@ export type MonitorEvent = {
 };
 
 // Repofeed types
-export interface RepofeedIntentEntry {
+interface RepofeedIntentEntry {
   developer: string;
   display_name: string;
   intent: string;
@@ -668,7 +667,7 @@ export interface RepofeedIntentEntry {
   agents: string[];
 }
 
-export interface RepofeedRepoSummary {
+interface RepofeedRepoSummary {
   name: string;
   slug: string;
   active_intents: number;
