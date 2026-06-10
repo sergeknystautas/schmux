@@ -11,6 +11,8 @@ import { FeaturesProvider } from './contexts/FeaturesContext';
 import { SessionsProvider } from './contexts/SessionsContext';
 import { ViewedSessionsProvider } from './contexts/ViewedSessionsContext';
 import { CurationProvider } from './contexts/CurationContext';
+import { AuthProvider } from './contexts/AuthContext';
+import AuthGateBoundary from './components/AuthGateBoundary';
 
 // Eager: primary views that users hit immediately
 import HomePage from './routes/HomePage';
@@ -47,145 +49,152 @@ const EnvironmentPage = lazy(() => import('./routes/EnvironmentPage'));
 export default function App() {
   const location = useLocation();
   return (
-    <ConfigProvider>
-      <FeaturesProvider>
-        <ToastProvider>
-          <ModalProvider>
-            <HelpModalProvider>
-              <SessionsProvider>
-                <ViewedSessionsProvider>
-                  <KeyboardProvider>
-                    <CurationProvider>
-                      <Suspense fallback={null}>
-                        <Routes>
-                          <Route element={<AppShell />}>
-                            <Route path="/" element={<HomePage />} />
-                            <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
-                            <Route
-                              path="/diff/:workspaceId/img/:filepath"
-                              element={<ImagePreviewPage />}
-                            />
-                            <Route
-                              path="/diff/:workspaceId/md/:filepath"
-                              element={<MarkdownPreviewPage />}
-                            />
-                            <Route
-                              path="/diff/:workspaceId/html/:filepath"
-                              element={<HtmlPreviewPage />}
-                            />
-                            <Route path="/diff/:workspaceId" element={<DiffPage />} />
-                            <Route
-                              path="/preview/:workspaceId/:previewId"
-                              element={<PreviewPage />}
-                            />
-                            <Route path="/commits/:workspaceId" element={<CommitGraphPage />} />
-                            <Route
-                              path="/commits/:workspaceId/:commitHash"
-                              element={<CommitDetailPage />}
-                            />
-                            <Route
-                              path="/resolve-conflict/:workspaceId/:tabId"
-                              element={<LinearSyncResolveConflictPage />}
-                            />
-                            <Route path="/spawn" element={<SpawnPage key={location.key} />} />
-                            <Route path="/tips" element={<TipsPage />} />
-                            <Route path="/config" element={<ConfigPage />} />
-                            <Route path="/environment" element={<EnvironmentPage />} />
-                            <Route path="/overlays" element={<OverlayPage />} />
-                            <Route
-                              path="/personas"
-                              element={
-                                <FeatureRoute feature="personas">
-                                  <PersonasListPage />
-                                </FeatureRoute>
-                              }
-                            />
-                            <Route
-                              path="/personas/create"
-                              element={
-                                <FeatureRoute feature="personas">
-                                  <PersonaCreatePage />
-                                </FeatureRoute>
-                              }
-                            />
-                            <Route
-                              path="/personas/:personaId"
-                              element={
-                                <FeatureRoute feature="personas">
-                                  <PersonaEditPage />
-                                </FeatureRoute>
-                              }
-                            />
-                            <Route
-                              path="/styles"
-                              element={
-                                <FeatureRoute feature="comm_styles">
-                                  <StylesListPage />
-                                </FeatureRoute>
-                              }
-                            />
-                            <Route
-                              path="/styles/create"
-                              element={
-                                <FeatureRoute feature="comm_styles">
-                                  <StyleCreatePage />
-                                </FeatureRoute>
-                              }
-                            />
-                            <Route
-                              path="/styles/:styleId"
-                              element={
-                                <FeatureRoute feature="comm_styles">
-                                  <StyleEditPage />
-                                </FeatureRoute>
-                              }
-                            />
-                            <Route
-                              path="/autolearn"
-                              element={
-                                <FeatureRoute feature="autolearn">
-                                  <AutolearnPage />
-                                </FeatureRoute>
-                              }
-                            />
-                            <Route path="/events" element={<EventsPage />} />
-                            <Route
-                              path="/timelapse"
-                              element={
-                                <FeatureRoute feature="timelapse">
-                                  <TimelapsePage />
-                                </FeatureRoute>
-                              }
-                            />
-                            <Route
-                              path="/timelapse/:recordingId"
-                              element={
-                                <FeatureRoute feature="timelapse">
-                                  <TimelapsePlayerPage />
-                                </FeatureRoute>
-                              }
-                            />
-                            <Route
-                              path="/repofeed"
-                              element={
-                                <FeatureRoute feature="repofeed">
-                                  <RepofeedPage />
-                                </FeatureRoute>
-                              }
-                            />
-                            <Route path="/terminal.html" element={<LegacyTerminalPage />} />
-                            <Route path="*" element={<NotFoundPage />} />
-                          </Route>
-                        </Routes>
-                      </Suspense>
-                    </CurationProvider>
-                  </KeyboardProvider>
-                </ViewedSessionsProvider>
-              </SessionsProvider>
-            </HelpModalProvider>
-          </ModalProvider>
-        </ToastProvider>
-      </FeaturesProvider>
-    </ConfigProvider>
+    <AuthProvider>
+      <AuthGateBoundary>
+        <ConfigProvider>
+          <FeaturesProvider>
+            <ToastProvider>
+              <ModalProvider>
+                <HelpModalProvider>
+                  <SessionsProvider>
+                    <ViewedSessionsProvider>
+                      <KeyboardProvider>
+                        <CurationProvider>
+                          <Suspense fallback={null}>
+                            <Routes>
+                              <Route element={<AppShell />}>
+                                <Route path="/" element={<HomePage />} />
+                                <Route
+                                  path="/sessions/:sessionId"
+                                  element={<SessionDetailPage />}
+                                />
+                                <Route
+                                  path="/diff/:workspaceId/img/:filepath"
+                                  element={<ImagePreviewPage />}
+                                />
+                                <Route
+                                  path="/diff/:workspaceId/md/:filepath"
+                                  element={<MarkdownPreviewPage />}
+                                />
+                                <Route
+                                  path="/diff/:workspaceId/html/:filepath"
+                                  element={<HtmlPreviewPage />}
+                                />
+                                <Route path="/diff/:workspaceId" element={<DiffPage />} />
+                                <Route
+                                  path="/preview/:workspaceId/:previewId"
+                                  element={<PreviewPage />}
+                                />
+                                <Route path="/commits/:workspaceId" element={<CommitGraphPage />} />
+                                <Route
+                                  path="/commits/:workspaceId/:commitHash"
+                                  element={<CommitDetailPage />}
+                                />
+                                <Route
+                                  path="/resolve-conflict/:workspaceId/:tabId"
+                                  element={<LinearSyncResolveConflictPage />}
+                                />
+                                <Route path="/spawn" element={<SpawnPage key={location.key} />} />
+                                <Route path="/tips" element={<TipsPage />} />
+                                <Route path="/config" element={<ConfigPage />} />
+                                <Route path="/environment" element={<EnvironmentPage />} />
+                                <Route path="/overlays" element={<OverlayPage />} />
+                                <Route
+                                  path="/personas"
+                                  element={
+                                    <FeatureRoute feature="personas">
+                                      <PersonasListPage />
+                                    </FeatureRoute>
+                                  }
+                                />
+                                <Route
+                                  path="/personas/create"
+                                  element={
+                                    <FeatureRoute feature="personas">
+                                      <PersonaCreatePage />
+                                    </FeatureRoute>
+                                  }
+                                />
+                                <Route
+                                  path="/personas/:personaId"
+                                  element={
+                                    <FeatureRoute feature="personas">
+                                      <PersonaEditPage />
+                                    </FeatureRoute>
+                                  }
+                                />
+                                <Route
+                                  path="/styles"
+                                  element={
+                                    <FeatureRoute feature="comm_styles">
+                                      <StylesListPage />
+                                    </FeatureRoute>
+                                  }
+                                />
+                                <Route
+                                  path="/styles/create"
+                                  element={
+                                    <FeatureRoute feature="comm_styles">
+                                      <StyleCreatePage />
+                                    </FeatureRoute>
+                                  }
+                                />
+                                <Route
+                                  path="/styles/:styleId"
+                                  element={
+                                    <FeatureRoute feature="comm_styles">
+                                      <StyleEditPage />
+                                    </FeatureRoute>
+                                  }
+                                />
+                                <Route
+                                  path="/autolearn"
+                                  element={
+                                    <FeatureRoute feature="autolearn">
+                                      <AutolearnPage />
+                                    </FeatureRoute>
+                                  }
+                                />
+                                <Route path="/events" element={<EventsPage />} />
+                                <Route
+                                  path="/timelapse"
+                                  element={
+                                    <FeatureRoute feature="timelapse">
+                                      <TimelapsePage />
+                                    </FeatureRoute>
+                                  }
+                                />
+                                <Route
+                                  path="/timelapse/:recordingId"
+                                  element={
+                                    <FeatureRoute feature="timelapse">
+                                      <TimelapsePlayerPage />
+                                    </FeatureRoute>
+                                  }
+                                />
+                                <Route
+                                  path="/repofeed"
+                                  element={
+                                    <FeatureRoute feature="repofeed">
+                                      <RepofeedPage />
+                                    </FeatureRoute>
+                                  }
+                                />
+                                <Route path="/terminal.html" element={<LegacyTerminalPage />} />
+                                <Route path="*" element={<NotFoundPage />} />
+                              </Route>
+                            </Routes>
+                          </Suspense>
+                        </CurationProvider>
+                      </KeyboardProvider>
+                    </ViewedSessionsProvider>
+                  </SessionsProvider>
+                </HelpModalProvider>
+              </ModalProvider>
+            </ToastProvider>
+          </FeaturesProvider>
+        </ConfigProvider>
+      </AuthGateBoundary>
+    </AuthProvider>
   );
 }

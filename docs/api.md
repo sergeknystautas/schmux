@@ -100,6 +100,15 @@ Response:
 }
 ```
 
+### Unauthenticated SPA access (GitHub OAuth)
+
+When GitHub OAuth is enabled, unauthenticated requests to the app shell (`GET /`,
+other non-API routes) and to `/assets/*` are served the static SPA (HTTP 200) rather
+than redirected to `/auth/login`. This lets the dashboard render its own
+"Sign in with GitHub" gate. All data APIs (`/api/*`) and `GET /auth/me` remain behind
+auth and return `401` when unauthenticated. The tunnel-only (remote PIN) path is
+unchanged: unauthenticated requests still redirect to `/remote-auth`.
+
 ## Endpoints
 
 ### GET /api/features

@@ -659,7 +659,10 @@ func (s *Server) Start() error {
 		} else {
 			assetHandler = http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(s.getDashboardDistPath(), "assets"))))
 		}
-		r.With(s.authMiddleware).Handle("/assets/*", assetHandler)
+		// The compiled SPA bundle is public client code with no secrets. It must be
+		// reachable unauthenticated so the in-app sign-in gate can load its own
+		// JS/CSS. Data APIs (/api/*) and /auth/me remain behind authMiddleware.
+		r.Handle("/assets/*", assetHandler)
 		r.HandleFunc("/*", s.handleApp)
 	}
 

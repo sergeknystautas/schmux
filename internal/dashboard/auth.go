@@ -99,8 +99,7 @@ func (s *Server) requireAuthOrRedirect(w http.ResponseWriter, r *http.Request) b
 		return true
 	}
 	if _, err := s.authenticateRequest(r); err != nil {
-		// If tunnel is active but GitHub OAuth is not enabled,
-		// redirect to the remote PIN auth page instead of /auth/login.
+		// Tunnel-only (no GitHub OAuth): redirect to the remote PIN auth page.
 		if !s.authEnabled() {
 			s.remoteTokenMu.Lock()
 			hasSecret := len(s.remoteSessionSecret) > 0
@@ -109,9 +108,13 @@ func (s *Server) requireAuthOrRedirect(w http.ResponseWriter, r *http.Request) b
 				http.Redirect(w, r, "/remote-auth", http.StatusFound)
 				return false
 			}
+			http.Redirect(w, r, "/auth/login", http.StatusFound)
+			return false
 		}
-		http.Redirect(w, r, "/auth/login", http.StatusFound)
-		return false
+		// GitHub OAuth enabled but unauthenticated: serve the SPA shell so the
+		// React app can render its own sign-in gate. /api/* and /auth/me stay
+		// behind authMiddleware and return 401.
+		return true
 	}
 	return true
 }

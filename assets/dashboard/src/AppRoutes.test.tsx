@@ -55,6 +55,19 @@ vi.mock('./components/ModalProvider', () => ({
 vi.mock('./components/KeyboardHelpModal', () => ({
   default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
+vi.mock('./contexts/AuthContext', () => ({
+  AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useAuth: () => ({
+    user: null,
+    authenticated: null,
+    loading: false,
+    renewing: false,
+    logout: vi.fn(),
+  }),
+}));
+vi.mock('./components/AuthGateBoundary', () => ({
+  default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
 
 // AppShell becomes a thin Outlet so route content renders without
 // pulling in the heavy sidebar.

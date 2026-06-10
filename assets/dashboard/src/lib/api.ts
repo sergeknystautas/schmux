@@ -41,6 +41,7 @@ import type {
   TLSValidateResponse,
   WorkspaceResponse,
   WorkspacePreview,
+  AuthUser,
 } from './types';
 import type {
   CreateSpawnEntryRequest,
@@ -66,7 +67,16 @@ import { transport } from './transport';
 // All fetch calls in this module route through the active transport.
 // This enables the demo shell to intercept API calls with mock responses.
 function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  return transport.fetch(input, init);
+  return transport.fetch(input, init).then((response) => {
+    // Funnel every 401 into a single app-wide signal. AuthContext decides whether
+    // this is a mid-session expiry (redirect) or the initial unauthenticated load
+    // (show the gate). Returning the response unchanged keeps callers' error
+    // handling intact.
+    if (response.status === 401) {
+      window.dispatchEvent(new Event('schmux:auth-expired'));
+    }
+    return response;
+  });
 }
 
 // Custom error types that preserve API response fields
@@ -364,12 +374,31 @@ export async function getFileContent(workspaceId: string, filePath: string): Pro
   return response.text();
 }
 
-async function getAuthMe(): Promise<{ login: string; avatar_url?: string; name?: string }> {
+type AuthMeResult =
+  | { status: 'authenticated'; user: AuthUser }
+  | { status: 'unauthenticated' }
+  | { status: 'disabled' };
+
+export async function getAuthMe(): Promise<AuthMeResult> {
   const response = await apiFetch('/auth/me');
-  if (!response.ok) {
-    await parseErrorResponse(response, 'Failed to fetch auth user');
-  }
-  return response.json();
+  if (response.status === 404) return { status: 'disabled' };
+  if (!response.ok) return { status: 'unauthenticated' };
+  const data = await response.json();
+  return {
+    status: 'authenticated',
+    user: {
+      login: data.login ?? '',
+      name: data.name ?? '',
+      avatar_url: data.avatar_url ?? '',
+    },
+  };
+}
+
+export async function logoutAuth(): Promise<void> {
+  await apiFetch('/auth/logout', {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
 }
 
 export async function scanWorkspaces(): Promise<ScanResult> {

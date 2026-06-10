@@ -701,3 +701,10 @@ export interface PendingMerge {
   error?: string;
   created_at: string;
 }
+
+/** The signed-in GitHub user surfaced by GET /auth/me. */
+export type AuthUser = {
+  login: string;
+  name: string;
+  avatar_url: string;
+};

@@ -48,6 +48,7 @@ import {
 import type { WorkspaceResponse } from '../lib/types';
 import RemoteAccessPanel from './RemoteAccessPanel';
 import ToolsSection from './ToolsSection';
+import SidebarUser from './SidebarUser';
 import { useFeatures } from '../contexts/FeaturesContext';
 
 const NAV_COLLAPSED_KEY = 'schmux-nav-collapsed';
@@ -1044,6 +1045,7 @@ export default function AppShell() {
           {isDebugMode && <TmuxDiagnostic />}
           {isDebugMode && <TypingPerformance />}
           {features.tunnel && <RemoteAccessPanel />}
+          <SidebarUser navCollapsed={navCollapsed} />
           <ToolsSection navCollapsed={navCollapsed} />
         </div>
       </nav>

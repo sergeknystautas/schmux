@@ -806,3 +806,23 @@ func TestValidateRemoteCookie_EmptyUA(t *testing.T) {
 		t.Error("expected cookie created with empty UA to be rejected when request has a UA")
 	}
 }
+
+func TestRequireAuthOrRedirect_TunnelOnlyUnauthenticated_RedirectsRemoteAuth(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
+	defer server.CloseForTest()
+	enabled := true
+	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
+	server.HandleTunnelConnected("https://test.trycloudflare.com") // generates the remote session secret
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("User-Agent", testUA)
+	req.RemoteAddr = "1.2.3.4:12345" // non-loopback -> not trusted
+	rr := httptest.NewRecorder()
+
+	if server.requireAuthOrRedirect(rr, req) {
+		t.Fatal("expected tunnel-only unauthenticated request to be redirected, not served")
+	}
+	if rr.Code != http.StatusFound || rr.Header().Get("Location") != "/remote-auth" {
+		t.Fatalf("expected 302 -> /remote-auth, got %d -> %q", rr.Code, rr.Header().Get("Location"))
+	}
+}

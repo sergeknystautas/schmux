@@ -4,6 +4,12 @@ import { MemoryRouter } from 'react-router-dom';
 import DemoShell, { createScenarioSetup } from '../../website/src/demo/DemoShell';
 import { transport, setTransport, liveTransport } from '../lib/transport';
 
+// AuthProvider calls getAuthMe on mount; stub it so no real fetch happens.
+vi.mock('../lib/api', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../lib/api')>();
+  return { ...original, getAuthMe: () => Promise.resolve({ status: 'disabled' }) };
+});
+
 // We need to suppress console.error for unrecognized CSS module imports and
 // console.debug for non-critical API calls that may error in test env.
 beforeEach(() => {
