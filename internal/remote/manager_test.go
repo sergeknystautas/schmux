@@ -759,6 +759,12 @@ func TestManager_StartConnect_CreatesWorkspace(t *testing.T) {
 	if ws.Path != "~/monorepo" {
 		t.Errorf("workspace.Path = %q, want ~/monorepo", ws.Path)
 	}
+
+	// Clean up background goroutines spawned by StartConnect (PTY process,
+	// monitorProcess, parseProvisioningOutput) and flush the batched save
+	// timer so it doesn't write to the temp dir after cleanup starts.
+	mgr.DisconnectAll()
+	st.FlushPending()
 }
 
 func TestManager_ConnectMultipleHostsSameFlavor(t *testing.T) {
@@ -797,6 +803,10 @@ func TestManager_ConnectMultipleHostsSameFlavor(t *testing.T) {
 	if hosts[0].ID == hosts[1].ID {
 		t.Fatalf("expected different host IDs")
 	}
+
+	// Clean up background goroutines spawned by StartConnect.
+	mgr.DisconnectAll()
+	st.FlushPending()
 }
 
 func TestNewConnection_PersistentHostNoExpiry(t *testing.T) {
