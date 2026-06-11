@@ -25,12 +25,17 @@ type UnitState struct {
 type WorkflowState struct {
 	Name       string      `json:"name"`
 	Path       string      `json:"path"`
+	WorkflowID int64       `json:"workflow_id,omitempty"`
 	RunID      int64       `json:"run_id,omitempty"`
 	RunNumber  int         `json:"run_number,omitempty"`
 	Status     string      `json:"status,omitempty"`
 	Conclusion string      `json:"conclusion,omitempty"`
 	HTMLURL    string      `json:"html_url,omitempty"`
 	FailedJobs []FailedJob `json:"failed_jobs,omitempty"`
+	// FirstFailureRunID is the run that moved this workflow into the failing
+	// state. Set on non-failure→failure, carried while failing, cleared on
+	// recovery. Phase C reads it to know which run triggered remediation.
+	FirstFailureRunID int64 `json:"first_failure_run_id,omitempty"`
 }
 
 // FailedJob holds the name and link of a failed CI job.

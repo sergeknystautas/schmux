@@ -1363,6 +1363,7 @@ Request:
   },
   "build_monitor": {
     "enabled": true,
+    "interval": 5,
     "repos": { "My Repo": { "enabled": true, "github_login": "octocat" } }
   },
   "notifications": {
@@ -1385,6 +1386,8 @@ Request:
 **`ollama.auto_detected_endpoint`** (string, optional, read-only): URL the daemon probe loop is currently using when `endpoint` is blank. Never persisted to `config.json`; present only so the UI can tell the user what is being auto-detected without implicitly mutating their config.
 
 **`build_monitor.repos`** (object): keyed by repo display name in API requests and responses (stored slug-keyed internally). An enabled repo watches every active GitHub Actions workflow on its default branch, read with the authorized `github_login` identity.
+
+**`build_monitor.interval`** (int, optional): Minutes between scheduled GitHub Actions checks. Values ≤ 0 (or omitted) mean the default of 5. Changes apply on the next scheduler tick — no daemon restart needed.
 
 The `tmux_binary` field is validated on save: the path must exist, be executable, and `<path> -V` must output a recognized tmux version string. An empty string clears the override. Invalid paths return 400.
 
@@ -3458,6 +3461,7 @@ Response (enabled with checked units):
         {
           "name": "CI",
           "path": ".github/workflows/ci.yml",
+          "workflow_id": 1234,
           "run_id": 42,
           "run_number": 7,
           "status": "completed",
@@ -3465,7 +3469,8 @@ Response (enabled with checked units):
           "html_url": "https://github.com/owner/repo/actions/runs/42",
           "failed_jobs": [
             { "name": "test", "html_url": "https://github.com/owner/repo/actions/runs/42/jobs/10" }
-          ]
+          ],
+          "first_failure_run_id": 42
         }
       ],
       "checked_at": "2026-06-08T12:00:00Z",
@@ -3487,29 +3492,31 @@ Response (disabled):
 
 Fields:
 
-| Field                                        | Type   | Description                                                      |
-| -------------------------------------------- | ------ | ---------------------------------------------------------------- |
-| `enabled`                                    | bool   | Whether build monitor is enabled                                 |
-| `units`                                      | array  | Per-repo status objects (empty if disabled)                      |
-| `units[].slug`                               | string | Repo slug (derived from repo name)                               |
-| `units[].repo_name`                          | string | Display name of the repo                                         |
-| `units[].repo`                               | string | `owner/repo` derived from the repo URL                           |
-| `units[].branch`                             | string | Default branch being monitored (resolved at check time)          |
-| `units[].workflows`                          | array  | Active workflows with their latest run on the branch             |
-| `units[].workflows[].name`                   | string | Workflow name                                                    |
-| `units[].workflows[].path`                   | string | Workflow file path                                               |
-| `units[].workflows[].run_id`                 | int64  | GitHub Actions run ID of the latest completed run                |
-| `units[].workflows[].run_number`             | int    | Run number                                                       |
-| `units[].workflows[].status`                 | string | Run status: `completed`, `in_progress`, `queued`, or empty       |
-| `units[].workflows[].conclusion`             | string | Run conclusion: `success`, `failure`, or empty                   |
-| `units[].workflows[].html_url`               | string | Link to the run on GitHub                                        |
-| `units[].workflows[].failed_jobs`            | array  | Failed jobs (only when conclusion is `failure`)                  |
-| `units[].workflows[].failed_jobs[].name`     | string | Job name                                                         |
-| `units[].workflows[].failed_jobs[].html_url` | string | Link to the job on GitHub                                        |
-| `units[].checked_at`                         | string | RFC3339 timestamp of last check                                  |
-| `units[].last_error`                         | string | Error message if check failed (e.g. `unauthorized`, `not found`) |
-| `units[].configured`                         | bool   | Whether the repo has an identity selected                        |
-| `units[].github_login`                       | string | Authorized identity used for this repo                           |
+| Field                                        | Type   | Description                                                             |
+| -------------------------------------------- | ------ | ----------------------------------------------------------------------- |
+| `enabled`                                    | bool   | Whether build monitor is enabled                                        |
+| `units`                                      | array  | Per-repo status objects (empty if disabled)                             |
+| `units[].slug`                               | string | Repo slug (derived from repo name)                                      |
+| `units[].repo_name`                          | string | Display name of the repo                                                |
+| `units[].repo`                               | string | `owner/repo` derived from the repo URL                                  |
+| `units[].branch`                             | string | Default branch being monitored (resolved at check time)                 |
+| `units[].workflows`                          | array  | Active workflows with their latest run on the branch                    |
+| `units[].workflows[].name`                   | string | Workflow name                                                           |
+| `units[].workflows[].path`                   | string | Workflow file path                                                      |
+| `units[].workflows[].run_id`                 | int64  | GitHub Actions run ID of the latest completed run                       |
+| `units[].workflows[].run_number`             | int    | Run number                                                              |
+| `units[].workflows[].workflow_id`            | int64  | GitHub workflow ID (stable across runs)                                 |
+| `units[].workflows[].first_failure_run_id`   | int64  | Run that moved the workflow into the failing state; cleared on recovery |
+| `units[].workflows[].status`                 | string | Run status: `completed`, `in_progress`, `queued`, or empty              |
+| `units[].workflows[].conclusion`             | string | Run conclusion: `success`, `failure`, or empty                          |
+| `units[].workflows[].html_url`               | string | Link to the run on GitHub                                               |
+| `units[].workflows[].failed_jobs`            | array  | Failed jobs (only when conclusion is `failure`)                         |
+| `units[].workflows[].failed_jobs[].name`     | string | Job name                                                                |
+| `units[].workflows[].failed_jobs[].html_url` | string | Link to the job on GitHub                                               |
+| `units[].checked_at`                         | string | RFC3339 timestamp of last check                                         |
+| `units[].last_error`                         | string | Error message if check failed (e.g. `unauthorized`, `not found`)        |
+| `units[].configured`                         | bool   | Whether the repo has an identity selected                               |
+| `units[].github_login`                       | string | Authorized identity used for this repo                                  |
 
 ### POST /api/build-monitor/check
 
@@ -3518,6 +3525,8 @@ Fetches fresh GitHub Actions status for all enabled units, persists the results,
 Requires no request body. The check runs with a 30-second timeout per request.
 
 Response: Same as `GET /api/build-monitor` with updated `checked_at` timestamps.
+
+The daemon runs this same check pass on the configured `build_monitor.interval` (default 5 minutes). Both manual and scheduled checks broadcast `build_monitor_updated` on `/ws/dashboard` when any unit's observable state changed (workflow set, name/path, run/status/conclusion/failed jobs, or unit error — `checked_at` alone does not count). The broadcast fires only for units whose state was successfully persisted.
 
 ### GET /api/build-monitor/identities
 
@@ -4004,6 +4013,17 @@ Repofeed update notification:
 
 - Sent when the repofeed consumer fetches new data from remote developer files
 - Clients should re-fetch `/api/repofeed` to get updated activity data
+
+Build monitor update notification:
+
+```json
+{
+  "type": "build_monitor_updated"
+}
+```
+
+- Sent when a build monitor check pass (scheduled or manual) changed any unit's observable state
+- Clients should re-fetch `/api/build-monitor` to get updated status
 
 ### WS /ws/provision/{provisionId}
 

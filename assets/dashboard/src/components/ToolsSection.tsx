@@ -4,6 +4,7 @@ import { useConfig } from '../contexts/ConfigContext';
 import { useCuration } from '../contexts/CurationContext';
 import { useOverlay } from '../contexts/OverlayContext';
 import { useFeatures } from '../contexts/FeaturesContext';
+import { useSessions } from '../contexts/SessionsContext';
 import { getAutolearnBatches } from '../lib/api';
 import { getAllSpawnEntries } from '../lib/spawn-api';
 import Tooltip from './Tooltip';
@@ -33,6 +34,7 @@ export default function ToolsSection({
   const { proposalVersion } = useCuration();
   const { overlayUnreadCount, markOverlaysRead } = useOverlay();
   const { features } = useFeatures();
+  const { buildMonitorUpdateCount } = useSessions();
 
   // Persist collapsed state
   useEffect(() => {
@@ -85,6 +87,24 @@ export default function ToolsSection({
     [loreCounts]
   );
 
+  // Build monitor: count of repos with at least one failing workflow.
+  // Fetched on mount and whenever the daemon broadcasts build_monitor_updated.
+  const [failingRepoCount, setFailingRepoCount] = useState(0);
+  useEffect(() => {
+    if (!features.build_monitor) return;
+    fetch('/api/build-monitor')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((data) => {
+        const units: Array<{ workflows?: Array<{ conclusion?: string }> }> = data?.units || [];
+        setFailingRepoCount(
+          units.filter((u) => (u.workflows || []).some((w) => w.conclusion === 'failure')).length
+        );
+      })
+      .catch(() => {
+        // Non-critical — leave the previous count in place.
+      });
+  }, [features.build_monitor, buildMonitorUpdateCount]);
+
   const menuItems = [
     {
       to: '/overlays',
@@ -124,6 +144,8 @@ export default function ToolsSection({
     {
       to: '/build-monitor',
       label: 'Build Monitor',
+      badge: failingRepoCount > 0 ? failingRepoCount : null,
+      badgeVariant: 'danger' as const,
       hidden: !features.build_monitor,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

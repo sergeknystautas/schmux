@@ -59,7 +59,7 @@ func TestCheckUnit_OneWorkflowPassingOneFailing(t *testing.T) {
 	if len(got.Workflows) != 2 {
 		t.Fatalf("got=%+v", got)
 	}
-	if got.Workflows[0].Conclusion != "success" || got.Workflows[0].RunID != 8 {
+	if got.Workflows[0].Conclusion != "success" || got.Workflows[0].RunID != 8 || got.Workflows[0].WorkflowID != 1 {
 		t.Fatalf("ci=%+v", got.Workflows[0])
 	}
 	if got.Workflows[1].Conclusion != "failure" {

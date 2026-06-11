@@ -156,6 +156,9 @@ type Server struct {
 	rotationLocks   map[string]*sync.Mutex
 	rotationLocksMu sync.RWMutex
 
+	// Serializes build monitor check passes (scheduler tick vs manual check).
+	buildMonitorCheckMu sync.Mutex
+
 	// Version info: current version and latest available version
 	versionInfo      versionInfo
 	versionInfoMu    sync.RWMutex

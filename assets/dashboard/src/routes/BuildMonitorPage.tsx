@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useFeatures } from '../contexts/FeaturesContext';
+import { useSessions } from '../contexts/SessionsContext';
 
 interface FailedJob {
   name: string;
@@ -60,6 +61,7 @@ function workflowBadge(wf: BuildMonitorWorkflow): { text: string; className: str
 
 export default function BuildMonitorPage() {
   const { features } = useFeatures();
+  const { buildMonitorUpdateCount } = useSessions();
   const [data, setData] = useState<BuildMonitorResponse>({ enabled: false, units: [] });
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState('');
@@ -74,9 +76,10 @@ export default function BuildMonitorPage() {
       .catch((e) => setError(e.message));
   }, []);
 
+  // Initial fetch + live refetch when the daemon broadcasts build_monitor_updated.
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+  }, [fetchData, buildMonitorUpdateCount]);
 
   const handleCheckNow = () => {
     setChecking(true);

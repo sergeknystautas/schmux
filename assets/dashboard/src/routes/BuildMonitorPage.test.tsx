@@ -22,6 +22,11 @@ vi.mock('../contexts/ConfigContext', () => ({
   useConfig: () => ({ config: mockConfig }),
 }));
 
+let mockBuildMonitorUpdateCount = 0;
+vi.mock('../contexts/SessionsContext', () => ({
+  useSessions: () => ({ buildMonitorUpdateCount: mockBuildMonitorUpdateCount }),
+}));
+
 const mockUnits = [
   {
     slug: 'repo-a',
@@ -79,6 +84,7 @@ const mockUnits = [
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  mockBuildMonitorUpdateCount = 0;
 });
 
 function mockFetch(
@@ -164,5 +170,30 @@ describe('BuildMonitorPage', () => {
     mockFetch({ enabled: true, units });
     renderPage();
     expect(await screen.findByText(/no identity selected/i)).toBeInTheDocument();
+  });
+
+  it('refetches when the build monitor update counter bumps', async () => {
+    mockFetch({ enabled: true, units: mockUnits });
+    const { rerender } = renderPage();
+    expect(await screen.findByText('Passing')).toBeInTheDocument();
+
+    const fetchSpy = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const callsBefore = fetchSpy.mock.calls.filter(
+      (call: Array<string | URL | Request>) => call[0].toString() === '/api/build-monitor'
+    ).length;
+
+    mockBuildMonitorUpdateCount = 1;
+    rerender(
+      <MemoryRouter>
+        <BuildMonitorPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      const calls = fetchSpy.mock.calls.filter(
+        (call: Array<string | URL | Request>) => call[0].toString() === '/api/build-monitor'
+      ).length;
+      expect(calls).toBe(callsBefore + 1);
+    });
   });
 });

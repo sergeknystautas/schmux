@@ -22,6 +22,7 @@ export interface BranchSuggestUpdate {
 
 export interface BuildMonitorConfig {
   enabled?: boolean;
+  interval?: number;
   repos?: Record<string, BuildMonitorRepoConfig>;
 }
 

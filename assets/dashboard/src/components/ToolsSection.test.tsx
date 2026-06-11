@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, cleanup, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -47,6 +47,7 @@ const mockFeatures: Record<string, boolean> = {
   autolearn: true,
   floor_manager: true,
   timelapse: true,
+  build_monitor: true,
   vendor_locked: false,
 };
 
@@ -68,6 +69,22 @@ vi.mock('../lib/spawn-api', () => ({
   getAllSpawnEntries: vi.fn().mockResolvedValue([]),
 }));
 
+let mockBuildMonitorUpdateCount = 0;
+vi.mock('../contexts/SessionsContext', () => ({
+  useSessions: () => ({ buildMonitorUpdateCount: mockBuildMonitorUpdateCount }),
+}));
+
+function stubBuildMonitorFetch(
+  units: Array<{ slug: string; workflows: Array<{ conclusion?: string }> }>
+) {
+  return vi.spyOn(globalThis, 'fetch').mockImplementation((url: string | URL | Request) => {
+    if (url.toString() === '/api/build-monitor') {
+      return Promise.resolve(Response.json({ enabled: true, units }));
+    }
+    return Promise.reject(new Error('unknown url: ' + url.toString()));
+  });
+}
+
 // Wrapper component with router
 const TestWrapper = ({ children }: { children: React.ReactNode }) => (
   <MemoryRouter>{children}</MemoryRouter>
@@ -85,6 +102,7 @@ describe('ToolsSection', () => {
     vi.clearAllMocks();
     localStorage.clear();
     mockProposalVersion = 0;
+    mockBuildMonitorUpdateCount = 0;
     // Restore all features to true between tests
     for (const k of Object.keys(mockFeatures)) {
       mockFeatures[k] = true;
@@ -252,6 +270,40 @@ describe('ToolsSection', () => {
     // Badge should be gone
     await waitFor(() => {
       expect(screen.queryByText('2')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('build monitor badge', () => {
+    // vi.clearAllMocks() in the outer beforeEach clears calls but does not
+    // restore the fetch spy installed by stubBuildMonitorFetch — restore it
+    // so the stub cannot leak into tests outside this block.
+    afterEach(() => {
+      vi.mocked(globalThis.fetch).mockRestore();
+    });
+
+    it('shows the failing repo count when repos are failing', async () => {
+      stubBuildMonitorFetch([
+        { slug: 'a', workflows: [{ conclusion: 'failure' }, { conclusion: 'success' }] },
+        { slug: 'b', workflows: [{ conclusion: 'success' }] },
+        { slug: 'c', workflows: [{ conclusion: 'failure' }] },
+      ]);
+      await renderWithAct(<ToolsSection />);
+      const link = await screen.findByRole('link', { name: /build monitor/i });
+      await waitFor(() => expect(link).toHaveTextContent('2'));
+    });
+
+    it('shows no badge when all workflows are healthy', async () => {
+      stubBuildMonitorFetch([{ slug: 'a', workflows: [{ conclusion: 'success' }] }]);
+      await renderWithAct(<ToolsSection />);
+      const link = await screen.findByRole('link', { name: /build monitor/i });
+      await waitFor(() => expect(link).not.toHaveTextContent(/\d/));
+    });
+
+    it('shows no badge when a unit only has an error', async () => {
+      stubBuildMonitorFetch([{ slug: 'a', workflows: [] }]);
+      await renderWithAct(<ToolsSection />);
+      const link = await screen.findByRole('link', { name: /build monitor/i });
+      await waitFor(() => expect(link).not.toHaveTextContent(/\d/));
     });
   });
 });

@@ -186,6 +186,7 @@ type SessionsWebSocketState = {
   clearMonitorEvents: () => void;
   subredditUpdateCount: number;
   repofeedUpdateCount: number;
+  buildMonitorUpdateCount: number;
   // pendingClipboard: per-session pending OSC 52 paste request awaiting
   // user approve/reject. Source-of-truth is the daemon snapshot — this
   // map is reset on every WS (re)connect so any local stale entry that
@@ -218,6 +219,7 @@ export default function useSessionsWebSocket(opts?: {
   const [monitorEvents, setMonitorEvents] = useState<MonitorEvent[]>([]);
   const [subredditUpdateCount, setSubredditUpdateCount] = useState(0);
   const [repofeedUpdateCount, setRepofeedUpdateCount] = useState(0);
+  const [buildMonitorUpdateCount, setBuildMonitorUpdateCount] = useState(0);
   const [pendingClipboard, setPendingClipboard] = useState<Record<string, PendingClipboardRequest>>(
     {}
   );
@@ -367,6 +369,8 @@ export default function useSessionsWebSocket(opts?: {
           setSubredditUpdateCount((prev) => prev + 1);
         } else if (data.type === 'repofeed_updated') {
           setRepofeedUpdateCount((prev) => prev + 1);
+        } else if (data.type === 'build_monitor_updated') {
+          setBuildMonitorUpdateCount((prev) => prev + 1);
         } else if (data.type === 'config_updated') {
           onConfigUpdatedRef.current?.();
         } else if (isClipboardRequestMessage(data)) {
@@ -487,6 +491,7 @@ export default function useSessionsWebSocket(opts?: {
     clearMonitorEvents,
     subredditUpdateCount,
     repofeedUpdateCount,
+    buildMonitorUpdateCount,
     pendingClipboard,
     clearPendingClipboard,
   };

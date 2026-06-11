@@ -29,6 +29,27 @@ func TestGetBuildMonitorRepoEnabled_AbsentIsFalse(t *testing.T) {
 	}
 }
 
+func TestGetBuildMonitorInterval(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *BuildMonitorConfig
+		want int
+	}{
+		{name: "nil config defaults to 5", cfg: nil, want: 5},
+		{name: "zero defaults to 5", cfg: &BuildMonitorConfig{}, want: 5},
+		{name: "negative defaults to 5", cfg: &BuildMonitorConfig{Interval: -1}, want: 5},
+		{name: "explicit value", cfg: &BuildMonitorConfig{Interval: 15}, want: 15},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Config{ConfigData: ConfigData{BuildMonitor: tt.cfg}}
+			if got := c.GetBuildMonitorInterval(); got != tt.want {
+				t.Errorf("GetBuildMonitorInterval() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetBuildMonitorRepo_CarriesLogin(t *testing.T) {
 	c := &Config{ConfigData: ConfigData{BuildMonitor: &BuildMonitorConfig{Repos: map[string]BuildMonitorRepoConfig{
 		"foo": {GitHubLogin: "octocat"},

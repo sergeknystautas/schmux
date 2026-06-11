@@ -393,8 +393,9 @@ type SubredditConfig struct {
 
 // BuildMonitorConfig represents configuration for the build monitor feature.
 type BuildMonitorConfig struct {
-	Enabled bool                              `json:"enabled,omitempty"`
-	Repos   map[string]BuildMonitorRepoConfig `json:"repos,omitempty"`
+	Enabled  bool                              `json:"enabled,omitempty"`
+	Interval int                               `json:"interval,omitempty"` // minutes between scheduled checks; <=0 means default (5)
+	Repos    map[string]BuildMonitorRepoConfig `json:"repos,omitempty"`
 }
 
 // BuildMonitorRepoConfig represents per-repo build monitor configuration.
@@ -1494,6 +1495,17 @@ func (c *Config) GetBuildMonitorRepo(slug string) (BuildMonitorRepoConfig, bool)
 	}
 	r, ok := c.BuildMonitor.Repos[slug]
 	return r, ok
+}
+
+// GetBuildMonitorInterval returns the scheduled check interval in minutes,
+// defaulting to 5.
+func (c *Config) GetBuildMonitorInterval() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.BuildMonitor == nil || c.BuildMonitor.Interval <= 0 {
+		return 5
+	}
+	return c.BuildMonitor.Interval
 }
 
 // GetRepofeedIntentTarget returns the configured repofeed intent summarization target name, if any.

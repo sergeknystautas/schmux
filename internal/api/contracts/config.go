@@ -489,8 +489,9 @@ type RemoteAccess struct {
 
 // BuildMonitorConfig represents build monitor configuration.
 type BuildMonitorConfig struct {
-	Enabled bool                              `json:"enabled,omitempty"`
-	Repos   map[string]BuildMonitorRepoConfig `json:"repos,omitempty"` // request: keyed by repo NAME; stored slug-keyed (handler converts)
+	Enabled  bool                              `json:"enabled,omitempty"`
+	Interval int                               `json:"interval,omitempty"` // minutes between scheduled checks; <=0 means default (5)
+	Repos    map[string]BuildMonitorRepoConfig `json:"repos,omitempty"`    // request: keyed by repo NAME; stored slug-keyed (handler converts)
 }
 
 // BuildMonitorRepoConfig represents per-repo build monitor configuration.

@@ -43,6 +43,7 @@ type SessionsContextValue = {
   curatorEvents: Record<string, CuratorStreamEvent[]>;
   subredditUpdateCount: number;
   repofeedUpdateCount: number;
+  buildMonitorUpdateCount: number;
 };
 
 const SessionsContext = createContext<SessionsContextValue | null>(null);
@@ -68,6 +69,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     clearMonitorEvents,
     subredditUpdateCount,
     repofeedUpdateCount,
+    buildMonitorUpdateCount,
     pendingClipboard,
     clearPendingClipboard,
   } = useSessionsWebSocket({
@@ -334,6 +336,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       curatorEvents,
       subredditUpdateCount,
       repofeedUpdateCount,
+      buildMonitorUpdateCount,
     }),
     [
       workspaces,
@@ -348,6 +351,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       curatorEvents,
       subredditUpdateCount,
       repofeedUpdateCount,
+      buildMonitorUpdateCount,
     ]
   );
 

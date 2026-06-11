@@ -43,7 +43,7 @@ func CheckUnit(ctx context.Context, client Actions, u Unit) *UnitState {
 		if wf.State != "active" {
 			continue
 		}
-		ws := WorkflowState{Name: wf.Name, Path: wf.Path}
+		ws := WorkflowState{Name: wf.Name, Path: wf.Path, WorkflowID: wf.ID}
 		latest := latestCompleted(runs, wf.ID)
 		if latest == nil {
 			// No completed run; report the newest run's status (queued/in

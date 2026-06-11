@@ -189,6 +189,7 @@ export default function ConfigPage() {
           repofeedRepos: data.repofeed?.repos || {},
           buildMonitorEnabled: data.build_monitor?.enabled ?? false,
           buildMonitorRepos: data.build_monitor?.repos || {},
+          buildMonitorInterval: data.build_monitor?.interval ?? 5,
           remoteAccessEnabled: data.remote_access?.enabled || false,
           remoteAccessTimeoutMinutes: data.remote_access?.timeout_minutes || 0,
           remoteAccessNtfyTopic: data.remote_access?.notify?.ntfy_topic || '',

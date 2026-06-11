@@ -10,7 +10,8 @@ import (
 func TestApplyBuildMonitor_ConvertsNameKeysToSlug(t *testing.T) {
 	cfg := &config.Config{}
 	req := &contracts.BuildMonitorConfig{
-		Enabled: true,
+		Enabled:  true,
+		Interval: 10,
 		Repos: map[string]contracts.BuildMonitorRepoConfig{
 			"My Repo": {Enabled: true, GitHubLogin: "octocat"},
 		},
@@ -21,6 +22,9 @@ func TestApplyBuildMonitor_ConvertsNameKeysToSlug(t *testing.T) {
 	}
 	if cfg.BuildMonitor.Repos["my-repo"].GitHubLogin != "octocat" {
 		t.Fatalf("expected GitHubLogin octocat, got %q", cfg.BuildMonitor.Repos["my-repo"].GitHubLogin)
+	}
+	if cfg.BuildMonitor.Interval != 10 {
+		t.Fatalf("expected Interval 10, got %d", cfg.BuildMonitor.Interval)
 	}
 }
 

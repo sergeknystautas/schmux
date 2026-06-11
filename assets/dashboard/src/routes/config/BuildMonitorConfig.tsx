@@ -120,6 +120,38 @@ export default function BuildMonitorConfig({ state, dispatch }: ConfigPanelProps
         </div>
       </div>
 
+      <div className="settings-section" data-testid="build-monitor-section-checking">
+        <div className="settings-section__header">
+          <h3 className="settings-section__title">Checking</h3>
+        </div>
+        <div className="settings-section__body">
+          <div className="form-group">
+            <label className="form-group__label" htmlFor="bm-interval">
+              Check interval (minutes)
+            </label>
+            <input
+              id="bm-interval"
+              type="number"
+              className="input"
+              style={{ maxWidth: '120px' }}
+              min={1}
+              value={state.buildMonitorInterval}
+              onChange={(e) =>
+                dispatch({
+                  type: 'SET_FIELD',
+                  field: 'buildMonitorInterval',
+                  value: Math.max(1, parseInt(e.target.value, 10) || 1),
+                })
+              }
+              data-testid="build-monitor-interval"
+            />
+            <p className="form-group__hint">
+              How often the daemon checks GitHub Actions for the enabled repos.
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div
         className="settings-section"
         data-testid="build-monitor-section-repos"

@@ -4,13 +4,16 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"path/filepath"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/buildmonitor"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
+	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
@@ -115,29 +118,55 @@ func (s *Server) handleBuildMonitorGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, response)
 }
 
-// handleBuildMonitorCheck fetches fresh status for all enabled units and persists the results.
+// handleBuildMonitorCheck fetches fresh status for all enabled units,
+// persists the results, and broadcasts when anything changed.
 func (s *Server) handleBuildMonitorCheck(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	response, changed := s.runBuildMonitorCheckPass(r.Context())
+	if changed {
+		s.BroadcastBuildMonitor()
+	}
+	writeJSON(w, response)
+}
+
+// RunBuildMonitorCheck executes one scheduled check pass and broadcasts
+// build_monitor_updated when anything changed. Called by the daemon scheduler.
+func (s *Server) RunBuildMonitorCheck(ctx context.Context) {
+	if !s.config.GetBuildMonitorEnabled() {
+		return
+	}
+	if _, changed := s.runBuildMonitorCheckPass(ctx); changed {
+		s.BroadcastBuildMonitor()
+	}
+}
+
+// runBuildMonitorCheckPass executes one full check pass over all enabled
+// units, persisting each unit's state with transition data. Returns the API
+// response and whether any unit's observable state changed. Serialized by
+// buildMonitorCheckMu so a scheduler tick and a manual check cannot
+// interleave state-file writes.
+func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (buildMonitorResponse, bool) {
+	s.buildMonitorCheckMu.Lock()
+	defer s.buildMonitorCheckMu.Unlock()
 
 	response := buildMonitorResponse{
 		Enabled: s.config.GetBuildMonitorEnabled(),
 		Units:   []buildMonitorUnitResponse{}, // never nil: JSON must be [], not null
 	}
-
 	if !response.Enabled {
-		writeJSON(w, response)
-		return
+		return response, false
 	}
 
 	repos := s.config.GetRepos()
 	bmRepos := s.config.GetBuildMonitorRepos()
 	client := githubActionsClient{}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
+	changed := false
 	for _, repo := range repos {
 		if !github.IsGitHubURL(repo.URL) {
 			continue
@@ -188,10 +217,28 @@ func (s *Server) handleBuildMonitorCheck(w http.ResponseWriter, r *http.Request)
 		}
 
 		state := buildmonitor.CheckUnit(ctx, client, unit)
+		if ctx.Err() != nil {
+			// The pass was canceled (client disconnect or daemon shutdown);
+			// results are tainted with context errors — do not persist them.
+			break
+		}
 		state.CheckedAt = time.Now().UTC().Format(time.RFC3339)
+
+		prev, readErr := buildmonitor.ReadState(buildMonitorUnitStatePath(slug))
+		if readErr != nil {
+			// Phase C will act on transitions, so a corrupt file silently
+			// re-baselining must at least be visible in the logs.
+			s.logger.Warn("failed to read previous build monitor state; treating as first check", "slug", slug, "err", readErr)
+		}
+		_, unitChanged := buildmonitor.ApplyTransitions(prev, state)
 
 		if writeErr := buildmonitor.WriteState(buildMonitorUnitStatePath(slug), state); writeErr != nil {
 			s.logger.Error("failed to write build monitor state", "slug", slug, "err", writeErr)
+		} else if unitChanged {
+			// Broadcast only what is persisted: clients refetch GET, which
+			// reads from disk, so a failed write would make them refetch
+			// stale state — and re-broadcast on every subsequent tick.
+			changed = true
 		}
 
 		unitResp := buildMonitorUnitResponse{
@@ -207,8 +254,28 @@ func (s *Server) handleBuildMonitorCheck(w http.ResponseWriter, r *http.Request)
 		}
 		response.Units = append(response.Units, unitResp)
 	}
+	return response, changed
+}
 
-	writeJSON(w, response)
+// BroadcastBuildMonitor sends a build_monitor_updated message to all
+// dashboard WebSocket clients. No payload; clients refetch GET /api/build-monitor.
+func (s *Server) BroadcastBuildMonitor() {
+	payload, err := json.Marshal(map[string]interface{}{
+		"type": "build_monitor_updated",
+	})
+	if err != nil {
+		logging.Sub(s.logger, "ws/dashboard").Error("failed to marshal build_monitor_updated message", "err", err)
+		return
+	}
+
+	s.sessionsConnsMu.RLock()
+	defer s.sessionsConnsMu.RUnlock()
+
+	for conn := range s.sessionsConns {
+		if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+			logging.Sub(s.logger, "ws/dashboard").Error("failed to send build_monitor_updated message", "err", err)
+		}
+	}
 }
 
 // handleBuildMonitorIdentities returns the list of authorized GitHub identities for build access.

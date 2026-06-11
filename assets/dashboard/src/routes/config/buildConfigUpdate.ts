@@ -87,6 +87,7 @@ export function buildConfigUpdate(state: ConfigFormState): ConfigUpdateRequest {
     },
     build_monitor: {
       enabled: state.buildMonitorEnabled,
+      interval: state.buildMonitorInterval,
       repos: state.buildMonitorRepos,
     },
     enabled_models: state.enabledModels,

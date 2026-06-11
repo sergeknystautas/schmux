@@ -1430,6 +1430,12 @@ func (d *Daemon) startBackgroundJobs(
 	subredditDir := filepath.Join(schmuxDir, "subreddit")
 	go startSubredditHourlyGenerator(d.shutdownCtx, cfg, subredditDir, server, subredditLog)
 
+	// Start build monitor scheduler unconditionally; each tick checks
+	// config, so this also covers enabling the feature after the daemon
+	// has already started.
+	buildMonitorLog := logging.Sub(logger, "buildmonitor")
+	go startBuildMonitorScheduler(d.shutdownCtx, cfg, server, buildMonitorLog)
+
 	// Start repofeed intent publisher and consumer
 	repofeedLog := logging.Sub(logger, "repofeed")
 	devEmail := getGitConfigValue(d.shutdownCtx, "user.email")
@@ -1937,6 +1943,32 @@ func startSubredditHourlyGenerator(ctx context.Context, cfg *config.Config, subr
 func generateSubredditPosts(ctx context.Context, server *dashboard.Server, logger *log.Logger) {
 	if err := server.GenerateSubredditForAllRepos(ctx); err != nil {
 		logger.Error("subreddit generation failed", "err", err)
+	}
+}
+
+// startBuildMonitorScheduler starts a background goroutine that checks
+// GitHub Actions status for monitored repos on the configured interval.
+// RunBuildMonitorCheck itself skips when the feature is disabled, so the
+// loop runs unconditionally (covers enabling after daemon start).
+func startBuildMonitorScheduler(ctx context.Context, cfg *config.Config, server *dashboard.Server, logger *log.Logger) {
+	// Wait a bit before first check to let daemon start.
+	initialDelay := 30 * time.Second
+	logger.Info("build monitor scheduler started", "initial_delay", initialDelay)
+
+	timer := time.NewTimer(initialDelay)
+	defer timer.Stop()
+	for {
+		select {
+		case <-timer.C:
+			logger.Debug("build monitor scheduler tick")
+			server.RunBuildMonitorCheck(ctx)
+			// Re-read the interval each tick so config changes apply
+			// without a daemon restart.
+			interval := time.Duration(cfg.GetBuildMonitorInterval()) * time.Minute
+			timer.Reset(interval)
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 

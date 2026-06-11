@@ -14,6 +14,7 @@ const baseState = {
     { name: 'Other', url: 'https://gitlab.com/x/y' },
   ],
   buildMonitorRepos: {},
+  buildMonitorInterval: 5,
 } as any;
 
 const baseProps: ConfigPanelProps = {
@@ -156,5 +157,23 @@ describe('BuildMonitorConfig', () => {
       state: { ...baseState, repos: [{ name: 'Other', url: 'https://gitlab.com/x/y' }] },
     });
     expect(await screen.findByText(/No GitHub repositories/i)).toBeInTheDocument();
+  });
+
+  it('renders the check interval input', async () => {
+    mockIdentities(['octocat']);
+    const dispatch = vi.fn();
+    renderPanel({ dispatch });
+    const input = await screen.findByLabelText(/check interval/i);
+    expect(input).toHaveValue(5);
+    // Type into the input — the controlled value won't actually update since
+    // dispatch is a mock, but verify that changes dispatch SET_FIELD actions.
+    const user = userEvent.setup();
+    await user.type(input, '0');
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'SET_FIELD',
+        field: 'buildMonitorInterval',
+      })
+    );
   });
 });
