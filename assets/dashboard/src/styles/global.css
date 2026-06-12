@@ -23,6 +23,7 @@
   --color-warning-subtle: rgba(255, 193, 7, 0.1);
   --color-error: #dc3545;
   --color-info: #17a2b8;
+  --color-info-subtle: rgba(23, 162, 184, 0.1);
 
   /* Spacing Scale */
   --spacing-xxs: 2px;
@@ -190,6 +191,8 @@ body::-webkit-scrollbar-thumb:hover,
     --color-danger-subtle: rgba(255, 107, 107, 0.15);
     --color-warning: #ffd93d;
     --color-warning-subtle: rgba(255, 217, 61, 0.15);
+    --color-info: #4dd0e1;
+    --color-info-subtle: rgba(77, 208, 225, 0.15);
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
     --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.3);
     --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.4);
@@ -225,6 +228,8 @@ body::-webkit-scrollbar-thumb:hover,
   --color-danger-subtle: rgba(255, 107, 107, 0.15);
   --color-warning: #ffd93d;
   --color-warning-subtle: rgba(255, 217, 61, 0.15);
+  --color-info: #4dd0e1;
+  --color-info-subtle: rgba(77, 208, 225, 0.15);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
   --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.4);
@@ -259,6 +264,7 @@ body::-webkit-scrollbar-thumb:hover,
   --color-danger-subtle: rgba(220, 53, 69, 0.1);
   --color-warning: #ffc107;
   --color-warning-subtle: rgba(255, 193, 7, 0.1);
+  --color-info-subtle: rgba(23, 162, 184, 0.1);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
   --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.1);
   --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.15);
@@ -2242,8 +2248,8 @@ body {
 .badge--indicator {
   padding: 2px 6px;
   font-size: 0.65rem;
-  border-radius: 4px;
-  background-color: #f59e0b;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-warning);
   color: white;
   font-weight: 500;
 }
@@ -2792,18 +2798,18 @@ body {
 }
 
 .env-badge--in-sync {
-  background: rgba(13, 188, 121, 0.15);
-  color: #0dbc79;
+  background: var(--color-success-subtle);
+  color: var(--color-success);
 }
 
 .env-badge--differs {
-  background: rgba(229, 164, 69, 0.15);
-  color: #e5a445;
+  background: var(--color-warning-subtle);
+  color: var(--color-warning);
 }
 
 .env-badge--system-only {
-  background: rgba(86, 156, 214, 0.15);
-  color: #569cd6;
+  background: var(--color-info-subtle);
+  color: var(--color-info);
 }
 
 .env-badge--tmux-only {
