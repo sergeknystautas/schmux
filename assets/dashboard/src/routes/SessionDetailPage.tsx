@@ -646,8 +646,24 @@ export default function SessionDetailPage() {
     );
   }
 
-  // At this point sessionData is guaranteed non-null by the early returns above
-  if (!sessionData) return null;
+  if (!sessionData) {
+    // Unknown session that hasn't hit the two-broadcast sessionMissing
+    // threshold yet (e.g. a direct load of a disposed session's URL).
+    // Render something instead of a blank page; once a second broadcast
+    // confirms the session is gone, the effects above navigate away.
+    return (
+      <div className="empty-state">
+        <div className="empty-state__icon">⚠️</div>
+        <h3 className="empty-state__title">Session not found</h3>
+        <p className="empty-state__description">
+          No session with this ID exists. It may have been disposed.
+        </p>
+        <Link to="/" className="btn btn--primary">
+          Back to Home
+        </Link>
+      </div>
+    );
+  }
 
   const statusClass = sessionData.running ? 'status-pill--running' : 'status-pill--stopped';
   const statusText = sessionData.running ? 'Running' : 'Stopped';
