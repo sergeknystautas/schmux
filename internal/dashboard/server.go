@@ -1731,7 +1731,8 @@ func (s *Server) BroadcastTunnelStatus(status tunnel.TunnelStatus) {
 }
 
 // BroadcastPendingNavigation sends a pending navigation event to all dashboard WebSocket clients.
-// navType is "preview", and id1/id2 are workspaceId/previewId for preview navigation.
+// navType "preview": id1/id2 are workspaceId/previewId. navType "session": id1 is the session ID
+// and id2 is empty (sent once per build-monitor failure episode on auto-launch).
 func (s *Server) BroadcastPendingNavigation(navType string, id1, id2 string) {
 	msg := map[string]interface{}{
 		"type":    "pending_navigation",

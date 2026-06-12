@@ -4013,6 +4013,20 @@ Remote access status update:
 }
 ```
 
+Pending navigation (server-initiated focus change):
+
+```json
+{
+  "type": "pending_navigation",
+  "navType": "session",
+  "id1": "ws1-abc123",
+  "id2": ""
+}
+```
+
+- `navType: "preview"`: `id1`/`id2` are the workspace ID and preview ID; sent when a workspace dev server is auto-detected. Clients open the preview tab once it appears.
+- `navType: "session"`: `id1` is a session ID, `id2` is empty; sent once per build-monitor failure episode when auto-launch creates the remediation workspace and spawns its first session. Clients navigate to the session once it appears via the `sessions` broadcast. Manual launches never send this.
+
 Event monitor (dev mode only, broadcasts all unified events):
 
 ```json

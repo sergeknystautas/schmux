@@ -594,4 +594,30 @@ describe('useSessionsWebSocket', () => {
     });
     expect(result.current.workspaces[0].behind).toBe(0);
   });
+
+  it('dispatches pending_navigation session messages to onSessionDetected', () => {
+    const onSessionDetected = vi.fn();
+    renderHook(() => useSessionsWebSocket({ onSessionDetected }));
+    const ws = lastWS();
+    openWS(ws);
+
+    act(() => {
+      sendMsg(ws, { type: 'pending_navigation', navType: 'session', id1: 'sess-9', id2: '' });
+    });
+
+    expect(onSessionDetected).toHaveBeenCalledWith('sess-9');
+  });
+
+  it('still dispatches preview pending_navigation to onPreviewDetected', () => {
+    const onPreviewDetected = vi.fn();
+    renderHook(() => useSessionsWebSocket({ onPreviewDetected }));
+    const ws = lastWS();
+    openWS(ws);
+
+    act(() => {
+      sendMsg(ws, { type: 'pending_navigation', navType: 'preview', id1: 'ws-1', id2: 'prev-1' });
+    });
+
+    expect(onPreviewDetected).toHaveBeenCalledWith('ws-1', 'prev-1');
+  });
 });

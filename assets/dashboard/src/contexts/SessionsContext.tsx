@@ -83,6 +83,9 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
         tabRoute: `/preview/${workspaceId}/${previewId}`,
       });
     },
+    onSessionDetected: (sessionId) => {
+      setPendingNavigationState({ type: 'session', id: sessionId });
+    },
   });
   const [overlayReadCount, setOverlayReadCount] = useState(0);
   const [simulateRemote, setSimulateRemote] = useState(false);

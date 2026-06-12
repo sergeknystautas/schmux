@@ -94,12 +94,15 @@ function isRemoteAccessMessage(
   );
 }
 
-function isPendingNavigationMessage(
-  data: Record<string, unknown>
-): data is { type: 'pending_navigation'; navType: 'preview'; id1: string; id2: string } {
+function isPendingNavigationMessage(data: Record<string, unknown>): data is {
+  type: 'pending_navigation';
+  navType: 'preview' | 'session';
+  id1: string;
+  id2: string;
+} {
   return (
     data.type === 'pending_navigation' &&
-    data.navType === 'preview' &&
+    (data.navType === 'preview' || data.navType === 'session') &&
     isString(data.id1) &&
     isString(data.id2)
   );
@@ -198,6 +201,7 @@ type SessionsWebSocketState = {
 
 export default function useSessionsWebSocket(opts?: {
   onPreviewDetected?: (workspaceId: string, previewId: string) => void;
+  onSessionDetected?: (sessionId: string) => void;
   onConfigUpdated?: () => void;
 }): SessionsWebSocketState {
   const [workspaces, setWorkspaces] = useState<WorkspaceResponse[]>([]);
@@ -225,6 +229,8 @@ export default function useSessionsWebSocket(opts?: {
   );
   const onPreviewDetectedRef = useRef(opts?.onPreviewDetected);
   onPreviewDetectedRef.current = opts?.onPreviewDetected;
+  const onSessionDetectedRef = useRef(opts?.onSessionDetected);
+  onSessionDetectedRef.current = opts?.onSessionDetected;
   const onConfigUpdatedRef = useRef(opts?.onConfigUpdated);
   onConfigUpdatedRef.current = opts?.onConfigUpdated;
   const wsRef = useRef<WebSocket | null>(null);
@@ -334,7 +340,11 @@ export default function useSessionsWebSocket(opts?: {
         } else if (isRemoteAccessMessage(data)) {
           setRemoteAccessStatus(data.data);
         } else if (isPendingNavigationMessage(data)) {
-          onPreviewDetectedRef.current?.(data.id1, data.id2);
+          if (data.navType === 'session') {
+            onSessionDetectedRef.current?.(data.id1);
+          } else {
+            onPreviewDetectedRef.current?.(data.id1, data.id2);
+          }
         } else if (isCuratorEventMessage(data)) {
           const ev = data.event as CuratorStreamEvent;
           setCuratorEvents((prev) => {

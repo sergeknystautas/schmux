@@ -418,6 +418,8 @@ func (s *Server) launchBuildFailureSession(d launchDirective) {
 	}
 	s.buildMonitorCheckMu.Unlock()
 
+	createdWorkspace := recorded == ""
+
 	var wsID, wsPath string
 	if recorded != "" {
 		ws, found := s.workspace.GetByID(recorded)
@@ -445,6 +447,12 @@ func (s *Server) launchBuildFailureSession(d launchDirective) {
 		return
 	}
 	stamp(sessionID, "")
+	if createdWorkspace {
+		// One focus pull per failure episode: every connected dashboard
+		// navigates to the episode's first remediation session so a broken
+		// build is impossible to miss. Joining sessions don't re-yank.
+		s.BroadcastPendingNavigation("session", sessionID, "")
+	}
 	go s.BroadcastSessions()
 }
 

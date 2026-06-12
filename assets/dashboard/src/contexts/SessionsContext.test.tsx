@@ -10,6 +10,7 @@ import type { WorkspaceResponse } from '../lib/types';
 const mockWorkspaces: WorkspaceResponse[] = [];
 let mockReturnOverrides: Record<string, unknown> = {};
 const mockNavigate = vi.fn();
+let capturedHookOpts: { onSessionDetected?: (sessionId: string) => void } | undefined;
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
@@ -20,26 +21,29 @@ vi.mock('react-router-dom', async () => {
 });
 
 vi.mock('../hooks/useSessionsWebSocket', () => ({
-  default: () => ({
-    workspaces: mockWorkspaces,
-    loading: false,
-    connected: true,
-    stale: false,
-    linearSyncResolveConflictStates: {},
-    clearLinearSyncResolveConflictState: vi.fn(),
-    workspaceLockStates: {},
-    syncResultEvents: [],
-    clearSyncResultEvents: vi.fn(),
-    overlayEvents: [],
-    clearOverlayEvents: vi.fn(),
-    remoteAccessStatus: { state: 'off' },
-    curatorEvents: {},
-    monitorEvents: [],
-    clearMonitorEvents: vi.fn(),
-    pendingClipboard: {},
-    clearPendingClipboard: vi.fn(),
-    ...mockReturnOverrides,
-  }),
+  default: (opts?: { onSessionDetected?: (sessionId: string) => void }) => {
+    capturedHookOpts = opts;
+    return {
+      workspaces: mockWorkspaces,
+      loading: false,
+      connected: true,
+      stale: false,
+      linearSyncResolveConflictStates: {},
+      clearLinearSyncResolveConflictState: vi.fn(),
+      workspaceLockStates: {},
+      syncResultEvents: [],
+      clearSyncResultEvents: vi.fn(),
+      overlayEvents: [],
+      clearOverlayEvents: vi.fn(),
+      remoteAccessStatus: { state: 'off' },
+      curatorEvents: {},
+      monitorEvents: [],
+      clearMonitorEvents: vi.fn(),
+      pendingClipboard: {},
+      clearPendingClipboard: vi.fn(),
+      ...mockReturnOverrides,
+    };
+  },
 }));
 
 vi.mock('./ConfigContext', () => ({
@@ -70,6 +74,7 @@ function makeWrapper() {
 beforeEach(() => {
   mockWorkspaces.length = 0;
   mockReturnOverrides = {};
+  capturedHookOpts = undefined;
   mockNavigate.mockReset();
   localStorage.clear();
 });
@@ -235,5 +240,38 @@ describe('SessionsContext', () => {
     expect(mockNavigate).toHaveBeenCalledWith(
       '/resolve-conflict/ws-1/sys-resolve-conflict-abcdef1'
     );
+  });
+
+  it('navigates to an auto-launched session on onSessionDetected', () => {
+    mockWorkspaces.push({
+      id: 'ws-1',
+      repo: 'https://example.com/repo.git',
+      branch: 'fix/canary-809bec69',
+      path: '/tmp/ws-1',
+      session_count: 1,
+      sessions: [
+        {
+          id: 'sess-1',
+          target: 'claude',
+          branch: 'fix/canary-809bec69',
+          created_at: '',
+          running: true,
+          attach_cmd: '',
+        },
+      ],
+      ahead: 0,
+      behind: 0,
+      lines_added: 0,
+      lines_removed: 0,
+      files_changed: 0,
+    });
+
+    renderHook(() => useSessions(), { wrapper: makeWrapper() });
+
+    act(() => {
+      capturedHookOpts?.onSessionDetected?.('sess-1');
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/sessions/sess-1');
   });
 });
