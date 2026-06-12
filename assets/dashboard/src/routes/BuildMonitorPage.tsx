@@ -67,7 +67,7 @@ function workflowBadge(wf: BuildMonitorWorkflow): { text: string; className: str
 
 export default function BuildMonitorPage() {
   const { features } = useFeatures();
-  const { buildMonitorUpdateCount } = useSessions();
+  const { buildMonitorUpdateCount, sessionsById } = useSessions();
   const [data, setData] = useState<BuildMonitorResponse>({ enabled: false, units: [] });
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState('');
@@ -220,23 +220,28 @@ export default function BuildMonitorPage() {
                           {wf.head_sha.slice(0, 8)}
                         </span>
                       )}
-                      {wf.conclusion === 'failure' && wf.session_id && (
-                        <Link to={`/sessions/${wf.session_id}`}>→ fixing session</Link>
-                      )}
-                      {wf.conclusion === 'failure' && !wf.session_id && (
-                        <button
-                          className="btn btn--secondary btn--sm"
-                          disabled={!data.launch_configured || launching === wf.run_id}
-                          title={
-                            data.launch_configured
-                              ? 'Launch a fresh workspace + agent session for this failure'
-                              : 'Configure a remediation target in Settings → Experimental first'
-                          }
-                          onClick={() => wf.run_id && handleLaunch(unit.slug, wf.run_id)}
-                        >
-                          {launching === wf.run_id ? 'Launching…' : 'Launch workspace'}
-                        </button>
-                      )}
+                      {wf.conclusion === 'failure' &&
+                        wf.session_id &&
+                        sessionsById[wf.session_id] && (
+                          <Link to={`/sessions/${wf.session_id}`}>
+                            fixing in {sessionsById[wf.session_id].workspace_id}
+                          </Link>
+                        )}
+                      {wf.conclusion === 'failure' &&
+                        (!wf.session_id || !sessionsById[wf.session_id]) && (
+                          <button
+                            className="btn btn--secondary btn--sm"
+                            disabled={!data.launch_configured || launching === wf.run_id}
+                            title={
+                              data.launch_configured
+                                ? 'Launch a fresh workspace + agent session for this failure'
+                                : 'Configure a remediation target in Settings → Experimental first'
+                            }
+                            onClick={() => wf.run_id && handleLaunch(unit.slug, wf.run_id)}
+                          >
+                            {launching === wf.run_id ? 'Launching…' : 'Launch workspace'}
+                          </button>
+                        )}
                       {wf.launch_error && (
                         <span className="item-list__item-detail text-error">{wf.launch_error}</span>
                       )}

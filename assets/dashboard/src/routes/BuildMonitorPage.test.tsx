@@ -29,8 +29,12 @@ vi.mock('../contexts/ConfigContext', () => ({
 }));
 
 let mockBuildMonitorUpdateCount = 0;
+let mockSessionsById: Record<string, { workspace_id: string }> = {};
 vi.mock('../contexts/SessionsContext', () => ({
-  useSessions: () => ({ buildMonitorUpdateCount: mockBuildMonitorUpdateCount }),
+  useSessions: () => ({
+    buildMonitorUpdateCount: mockBuildMonitorUpdateCount,
+    sessionsById: mockSessionsById,
+  }),
 }));
 
 const mockUnits = [
@@ -96,6 +100,7 @@ beforeEach(() => {
   vi.restoreAllMocks();
   mockBuildMonitorUpdateCount = 0;
   mockNavigate.mockReset();
+  mockSessionsById = {};
 });
 
 function mockFetch(
@@ -223,7 +228,8 @@ describe('BuildMonitorPage', () => {
     expect(await screen.findByText('abc1234d')).toBeInTheDocument();
   });
 
-  it('links a failing row to its remediation session', async () => {
+  it('links a failing row to its live remediation session with the workspace name', async () => {
+    mockSessionsById = { 'sess-1': { workspace_id: 'schmux-005' } };
     const units = [
       {
         ...mockUnits[1],
@@ -232,8 +238,23 @@ describe('BuildMonitorPage', () => {
     ];
     mockFetch({ enabled: true, units, launch_configured: true });
     renderPage();
-    const link = await screen.findByRole('link', { name: /fixing session/i });
+    const link = await screen.findByRole('link', { name: /fixing in schmux-005/i });
     expect(link).toHaveAttribute('href', '/sessions/sess-1');
+  });
+
+  it('falls back to the launch button when the fixing session no longer exists', async () => {
+    // session_id is stamped in state, but the session was disposed —
+    // sessionsById has no entry for it.
+    const units = [
+      {
+        ...mockUnits[1],
+        workflows: [{ ...mockUnits[1].workflows[0], session_id: 'sess-gone' }],
+      },
+    ];
+    mockFetch({ enabled: true, units, launch_configured: true });
+    renderPage();
+    expect(await screen.findByRole('button', { name: /launch workspace/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /fixing in/i })).not.toBeInTheDocument();
   });
 
   it('shows the launch error on a failing row', async () => {
