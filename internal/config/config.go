@@ -393,9 +393,13 @@ type SubredditConfig struct {
 
 // BuildMonitorConfig represents configuration for the build monitor feature.
 type BuildMonitorConfig struct {
-	Enabled  bool                              `json:"enabled,omitempty"`
-	Interval int                               `json:"interval,omitempty"` // minutes between scheduled checks; <=0 means default (5)
-	Repos    map[string]BuildMonitorRepoConfig `json:"repos,omitempty"`
+	Enabled  bool   `json:"enabled,omitempty"`
+	Interval int    `json:"interval,omitempty"` // minutes between scheduled checks; <=0 means default (5)
+	Target   string `json:"target,omitempty"`   // agent target for remediation sessions; empty disables launching
+	// AutoWorkspaceOnFirstFailure launches a remediation workspace + session
+	// automatically when a workflow first enters the failing state.
+	AutoWorkspaceOnFirstFailure bool                              `json:"auto_workspace_on_first_failure,omitempty"`
+	Repos                       map[string]BuildMonitorRepoConfig `json:"repos,omitempty"`
 }
 
 // BuildMonitorRepoConfig represents per-repo build monitor configuration.
@@ -1506,6 +1510,25 @@ func (c *Config) GetBuildMonitorInterval() int {
 		return 5
 	}
 	return c.BuildMonitor.Interval
+}
+
+// GetBuildMonitorTarget returns the agent target for remediation sessions,
+// trimmed. Empty means launching is not configured.
+func (c *Config) GetBuildMonitorTarget() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.BuildMonitor == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.BuildMonitor.Target)
+}
+
+// GetBuildMonitorAutoWorkspace returns whether the first hard failure
+// auto-launches a remediation workspace.
+func (c *Config) GetBuildMonitorAutoWorkspace() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.BuildMonitor != nil && c.BuildMonitor.AutoWorkspaceOnFirstFailure
 }
 
 // GetRepofeedIntentTarget returns the configured repofeed intent summarization target name, if any.

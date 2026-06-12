@@ -145,6 +145,8 @@ export type ConfigFormState = {
   buildMonitorEnabled: boolean;
   buildMonitorRepos: Record<string, BuildMonitorRepoConfig>;
   buildMonitorInterval: number;
+  buildMonitorTarget: string;
+  buildMonitorAutoWorkspace: boolean;
 
   // Remote access
   remoteAccessEnabled: boolean;
@@ -329,6 +331,8 @@ export const initialState: ConfigFormState = {
   buildMonitorEnabled: false,
   buildMonitorRepos: {},
   buildMonitorInterval: 5,
+  buildMonitorTarget: '',
+  buildMonitorAutoWorkspace: false,
 
   remoteAccessEnabled: false,
   remoteAccessTimeoutMinutes: 0,

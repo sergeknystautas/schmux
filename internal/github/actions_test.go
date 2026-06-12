@@ -91,3 +91,94 @@ func TestListRunJobs_DecodesEnvelope(t *testing.T) {
 		t.Fatalf("jobs=%+v", jobs)
 	}
 }
+
+func TestDownloadJobLogs_ReturnsBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer tok" {
+			t.Errorf("auth header = %q", got)
+		}
+		if r.URL.Path != "/repos/o/r/actions/jobs/99/logs" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		w.Write([]byte("line 1\nline 2\n"))
+	}))
+	defer srv.Close()
+	old := apiBaseURL
+	apiBaseURL = srv.URL
+	defer func() { apiBaseURL = old }()
+
+	data, err := DownloadJobLogs(context.Background(), "tok", RepoInfo{Owner: "o", Repo: "r"}, 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "line 1\nline 2\n" {
+		t.Fatalf("data = %q", data)
+	}
+}
+
+func TestDownloadJobLogs_FollowsRedirect(t *testing.T) {
+	// GitHub answers the logs endpoint with a 302 to a signed URL; what our
+	// code owes is following it and returning the redirected body. (Whether
+	// the Authorization header survives the hop is stdlib policy — Go
+	// compares hostnames ignoring ports — and is not asserted here.)
+	logSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte("redirected log"))
+	}))
+	defer logSrv.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, logSrv.URL+"/signed", http.StatusFound)
+	}))
+	defer srv.Close()
+	old := apiBaseURL
+	apiBaseURL = srv.URL
+	defer func() { apiBaseURL = old }()
+
+	data, err := DownloadJobLogs(context.Background(), "tok", RepoInfo{Owner: "o", Repo: "r"}, 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "redirected log" {
+		t.Fatalf("data = %q", data)
+	}
+}
+
+func TestDownloadJobLogs_KeepsTailWhenOversized(t *testing.T) {
+	big := make([]byte, maxJobLogBytes+10)
+	for i := range big {
+		big[i] = 'a'
+	}
+	copy(big[len(big)-4:], "TAIL")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write(big)
+	}))
+	defer srv.Close()
+	old := apiBaseURL
+	apiBaseURL = srv.URL
+	defer func() { apiBaseURL = old }()
+
+	data, err := DownloadJobLogs(context.Background(), "tok", RepoInfo{Owner: "o", Repo: "r"}, 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) != maxJobLogBytes {
+		t.Fatalf("len = %d, want %d", len(data), maxJobLogBytes)
+	}
+	if string(data[len(data)-4:]) != "TAIL" {
+		t.Fatalf("tail = %q, want TAIL", data[len(data)-4:])
+	}
+}
+
+func TestDownloadJobLogs_NotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	old := apiBaseURL
+	apiBaseURL = srv.URL
+	defer func() { apiBaseURL = old }()
+
+	_, err := DownloadJobLogs(context.Background(), "tok", RepoInfo{Owner: "o", Repo: "r"}, 99)
+	if !IsNotFound(err) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}

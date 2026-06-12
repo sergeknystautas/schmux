@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import TargetSelect from './TargetSelect';
 import type { ConfigPanelProps } from './ConfigPanelProps';
 import type { BuildMonitorRepoConfig } from '../../lib/types.generated';
 
@@ -14,7 +15,7 @@ function repoSlug(name: string): string {
     .replace(/^-|-$/g, '');
 }
 
-export default function BuildMonitorConfig({ state, dispatch }: ConfigPanelProps) {
+export default function BuildMonitorConfig({ state, dispatch, models }: ConfigPanelProps) {
   const [identities, setIdentities] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -147,6 +148,56 @@ export default function BuildMonitorConfig({ state, dispatch }: ConfigPanelProps
             />
             <p className="form-group__hint">
               How often the daemon checks GitHub Actions for the enabled repos.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-section" data-testid="build-monitor-section-remediation">
+        <div className="settings-section__header">
+          <h3 className="settings-section__title">Remediation</h3>
+        </div>
+        <div className="settings-section__body">
+          <div className="form-group">
+            <label className="form-group__label" htmlFor="bm-target">
+              Remediation target
+            </label>
+            <TargetSelect
+              id="bm-target"
+              value={state.buildMonitorTarget}
+              onChange={(v) =>
+                dispatch({ type: 'SET_FIELD', field: 'buildMonitorTarget', value: v })
+              }
+              options={models}
+              includeDisabledOption={false}
+              includeNoneOption="Monitor only — no launching"
+            />
+            <p className="form-group__hint">
+              Agent target spawned to fix build failures. Leave on monitor-only to record and show
+              failures without launching.
+            </p>
+          </div>
+          <div className="form-group">
+            <label className="flex-row gap-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={state.buildMonitorAutoWorkspace}
+                disabled={!state.buildMonitorTarget.trim()}
+                onChange={(e) =>
+                  dispatch({
+                    type: 'SET_FIELD',
+                    field: 'buildMonitorAutoWorkspace',
+                    value: e.target.checked,
+                  })
+                }
+                data-testid="build-monitor-auto-workspace"
+              />
+              <span>Auto-launch workspace on first failure</span>
+            </label>
+            <p className="form-group__hint">
+              On the first hard failure, launch a workspace at the failing commit with one agent
+              session per failing workflow. Manual launches from the Build Monitor page work either
+              way.
             </p>
           </div>
         </div>

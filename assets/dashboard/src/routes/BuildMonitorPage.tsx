@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useFeatures } from '../contexts/FeaturesContext';
 import { useSessions } from '../contexts/SessionsContext';
 
@@ -16,6 +16,9 @@ interface BuildMonitorWorkflow {
   status?: string;
   conclusion?: string;
   html_url?: string;
+  head_sha?: string;
+  session_id?: string;
+  launch_error?: string;
   failed_jobs: FailedJob[];
 }
 
@@ -29,10 +32,12 @@ interface BuildMonitorUnit {
   last_error?: string;
   configured: boolean;
   github_login?: string;
+  remediation_workspace_id?: string;
 }
 
 interface BuildMonitorResponse {
   enabled: boolean;
+  launch_configured?: boolean;
   units: BuildMonitorUnit[];
 }
 
@@ -41,6 +46,7 @@ interface BuildMonitorResponse {
 function normalize(d: any): BuildMonitorResponse {
   return {
     enabled: !!d?.enabled,
+    launch_configured: !!d?.launch_configured,
     units: (d?.units || []).map((u: any) => ({
       ...u,
       workflows: (u.workflows || []).map((w: any) => ({
@@ -65,6 +71,26 @@ export default function BuildMonitorPage() {
   const [data, setData] = useState<BuildMonitorResponse>({ enabled: false, units: [] });
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState('');
+  const navigate = useNavigate();
+  const [launching, setLaunching] = useState<number | null>(null); // run_id being launched
+
+  const handleLaunch = (slug: string, runId: number) => {
+    setLaunching(runId);
+    setError('');
+    fetch(`/api/build-monitor/repos/${slug}/failures/${runId}/launch-workspace`, { method: 'POST' })
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((d: { workspace_id: string; session_id: string }) => {
+        setLaunching(null);
+        navigate(`/sessions/${d.session_id}`);
+      })
+      .catch((e) => {
+        setError(e.message);
+        setLaunching(null);
+      });
+  };
 
   const fetchData = useCallback(() => {
     fetch('/api/build-monitor')
@@ -162,6 +188,11 @@ export default function BuildMonitorPage() {
                     <Link to="/config?tab=experimental">Settings → Experimental</Link>.
                   </div>
                 )}
+                {unit.remediation_workspace_id && (
+                  <div className="item-list__item-detail">
+                    <Link to={`/git/${unit.remediation_workspace_id}`}>Remediation workspace</Link>
+                  </div>
+                )}
                 {unit.last_error && (
                   <div className="item-list__item-detail text-error">
                     {unit.last_error}
@@ -183,6 +214,31 @@ export default function BuildMonitorPage() {
                         <a href={wf.html_url} target="_blank" rel="noopener noreferrer">
                           Run #{wf.run_number}
                         </a>
+                      )}
+                      {wf.head_sha && (
+                        <span className="item-list__item-detail" title={wf.head_sha}>
+                          {wf.head_sha.slice(0, 8)}
+                        </span>
+                      )}
+                      {wf.conclusion === 'failure' && wf.session_id && (
+                        <Link to={`/sessions/${wf.session_id}`}>→ fixing session</Link>
+                      )}
+                      {wf.conclusion === 'failure' && !wf.session_id && (
+                        <button
+                          className="btn btn--secondary btn--sm"
+                          disabled={!data.launch_configured || launching === wf.run_id}
+                          title={
+                            data.launch_configured
+                              ? 'Launch a fresh workspace + agent session for this failure'
+                              : 'Configure a remediation target in Settings → Experimental first'
+                          }
+                          onClick={() => wf.run_id && handleLaunch(unit.slug, wf.run_id)}
+                        >
+                          {launching === wf.run_id ? 'Launching…' : 'Launch workspace'}
+                        </button>
+                      )}
+                      {wf.launch_error && (
+                        <span className="item-list__item-detail text-error">{wf.launch_error}</span>
                       )}
                       {wf.failed_jobs.length > 0 && (
                         <span className="item-list__item-detail">

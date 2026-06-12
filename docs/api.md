@@ -1389,6 +1389,10 @@ Request:
 
 **`build_monitor.interval`** (int, optional): Minutes between scheduled GitHub Actions checks. Values ≤ 0 (or omitted) mean the default of 5. Changes apply on the next scheduler tick — no daemon restart needed.
 
+**`build_monitor.target`** (string, optional): Agent target spawned for remediation sessions (same target resolution as session spawn). Empty means the monitor records and shows failures but never launches.
+
+**`build_monitor.auto_workspace_on_first_failure`** (bool, optional): When true (and `target` is set), a workflow's non-failure → failure transition auto-launches remediation: one workspace per failure episode (branch `fix/<workflow-slug>-<short-sha>`, recorded on the unit as `remediation_workspace_id`), one session per failing workflow. A workflow already failing when first observed does not auto-launch.
+
 The `tmux_binary` field is validated on save: the path must exist, be executable, and `<path> -V` must output a recognized tmux version string. An empty string clears the override. Invalid paths return 400.
 
 **Enabling authentication.** A request that results in `access_control.enabled=true` and touches an auth-relevant field (`access_control`, `network.tls`, `network.public_base_url`) is strictly validated. If TLS cert/key, `public_base_url`, or the GitHub `client_id`/`client_secret` are missing, the request is rejected with `400` and the live config is left unchanged (no partial in-memory enable). Enabling also ensures a usable `auth.session_secret` exists. Disabling auth is never blocked.
@@ -3495,11 +3499,13 @@ Fields:
 | Field                                        | Type   | Description                                                             |
 | -------------------------------------------- | ------ | ----------------------------------------------------------------------- |
 | `enabled`                                    | bool   | Whether build monitor is enabled                                        |
+| `launch_configured`                          | bool   | Whether a remediation target is configured (launch buttons enabled)     |
 | `units`                                      | array  | Per-repo status objects (empty if disabled)                             |
 | `units[].slug`                               | string | Repo slug (derived from repo name)                                      |
 | `units[].repo_name`                          | string | Display name of the repo                                                |
 | `units[].repo`                               | string | `owner/repo` derived from the repo URL                                  |
 | `units[].branch`                             | string | Default branch being monitored (resolved at check time)                 |
+| `units[].remediation_workspace_id`           | string | Workspace created for the current failure episode (empty when none)     |
 | `units[].workflows`                          | array  | Active workflows with their latest run on the branch                    |
 | `units[].workflows[].name`                   | string | Workflow name                                                           |
 | `units[].workflows[].path`                   | string | Workflow file path                                                      |
@@ -3510,7 +3516,11 @@ Fields:
 | `units[].workflows[].status`                 | string | Run status: `completed`, `in_progress`, `queued`, or empty              |
 | `units[].workflows[].conclusion`             | string | Run conclusion: `success`, `failure`, or empty                          |
 | `units[].workflows[].html_url`               | string | Link to the run on GitHub                                               |
+| `units[].workflows[].head_sha`               | string | Commit SHA of the workflow's latest completed run                       |
+| `units[].workflows[].session_id`             | string | Session launched to fix this workflow's failure (empty when none)       |
+| `units[].workflows[].launch_error`           | string | Why the last launch attempt failed (empty when none)                    |
 | `units[].workflows[].failed_jobs`            | array  | Failed jobs (only when conclusion is `failure`)                         |
+| `units[].workflows[].failed_jobs[].id`       | int    | Job ID (used to download the job's logs)                                |
 | `units[].workflows[].failed_jobs[].name`     | string | Job name                                                                |
 | `units[].workflows[].failed_jobs[].html_url` | string | Link to the job on GitHub                                               |
 | `units[].checked_at`                         | string | RFC3339 timestamp of last check                                         |
@@ -3527,6 +3537,25 @@ Requires no request body. The check runs with a 30-second timeout per request.
 Response: Same as `GET /api/build-monitor` with updated `checked_at` timestamps.
 
 The daemon runs this same check pass on the configured `build_monitor.interval` (default 5 minutes). Both manual and scheduled checks broadcast `build_monitor_updated` on `/ws/dashboard` when any unit's observable state changed (workflow set, name/path, run/status/conclusion/failed jobs, or unit error — `checked_at` alone does not count). The broadcast fires only for units whose state was successfully persisted.
+
+### POST /api/build-monitor/repos/{slug}/failures/{run_id}/launch-workspace
+
+Manually launches a remediation workspace + agent session for a failing run shown on the build monitor page. Always creates a fresh, unique workspace (branch `fix/<workflow-slug>-<short-sha>-<suffix>`), even for a run that already has one. Requires the feature enabled, the repo monitored with an authorized identity, and `build_monitor.target` configured.
+
+The failed jobs' logs are downloaded and written into the worktree under `.schmux/build-monitor/<workflow-slug>/` (`failure.json`, `logs/<job-id>.log`) before the session spawns; the agent prompt's first instruction is `git reset --hard <failing-sha>` (moves the branch to the failing commit — never a detaching `git checkout`).
+
+Response:
+
+```json
+{
+  "workspace_id": "repo-001",
+  "session_id": "sess-abc123"
+}
+```
+
+Errors: `400` (feature disabled, no target, no identity), `404` (repo not monitored, run not a known failing run), `409` (state predates SHA recording — run a check first), `500` (workspace/session creation failed).
+
+Auto-launch shares this machinery: on a workflow's first hard failure the daemon launches asynchronously after the check pass, records the workspace as the unit's `remediation_workspace_id` (first failure of an episode) and the session as the workflow's `session_id`, then broadcasts `build_monitor_updated`. Additional workflows failing during the same episode get sessions in the recorded workspace. Launch failures land in the workflow's `launch_error`.
 
 ### GET /api/build-monitor/identities
 

@@ -54,8 +54,8 @@ func CheckUnit(ctx context.Context, client Actions, u Unit) *UnitState {
 			s.Workflows = append(s.Workflows, ws)
 			continue
 		}
-		ws.RunID, ws.RunNumber, ws.Status, ws.Conclusion, ws.HTMLURL =
-			latest.ID, latest.RunNumber, latest.Status, latest.Conclusion, latest.HTMLURL
+		ws.RunID, ws.RunNumber, ws.Status, ws.Conclusion, ws.HTMLURL, ws.HeadSHA =
+			latest.ID, latest.RunNumber, latest.Status, latest.Conclusion, latest.HTMLURL, latest.HeadSHA
 		if latest.Conclusion == "failure" {
 			jobs, err := client.ListRunJobs(ctx, u.Token, u.Info, latest.ID)
 			if err != nil {
@@ -63,7 +63,7 @@ func CheckUnit(ctx context.Context, client Actions, u Unit) *UnitState {
 			} else {
 				for _, j := range jobs {
 					if j.Conclusion == "failure" {
-						ws.FailedJobs = append(ws.FailedJobs, FailedJob{Name: j.Name, HTMLURL: j.HTMLURL})
+						ws.FailedJobs = append(ws.FailedJobs, FailedJob{ID: j.ID, Name: j.Name, HTMLURL: j.HTMLURL})
 					}
 				}
 			}

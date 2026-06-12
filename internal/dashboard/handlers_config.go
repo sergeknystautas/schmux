@@ -325,9 +325,11 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 			MaxTotalStorageMB: h.config.GetTimelapseMaxTotalStorageMB(),
 		},
 		BuildMonitor: contracts.BuildMonitorConfig{
-			Enabled:  h.config.GetBuildMonitorEnabled(),
-			Interval: h.config.GetBuildMonitorInterval(),
-			Repos:    h.buildMonitorReposResponse(),
+			Enabled:                     h.config.GetBuildMonitorEnabled(),
+			Interval:                    h.config.GetBuildMonitorInterval(),
+			Target:                      h.config.GetBuildMonitorTarget(),
+			AutoWorkspaceOnFirstFailure: h.config.GetBuildMonitorAutoWorkspace(),
+			Repos:                       h.buildMonitorReposResponse(),
 		},
 		RemoteAccess: contracts.RemoteAccess{
 			Enabled:         h.config.GetRemoteAccessEnabled(),
@@ -1215,6 +1217,8 @@ func applyBuildMonitor(cfg *config.Config, in *contracts.BuildMonitorConfig) {
 	}
 	cfg.BuildMonitor.Enabled = in.Enabled
 	cfg.BuildMonitor.Interval = in.Interval
+	cfg.BuildMonitor.Target = strings.TrimSpace(in.Target)
+	cfg.BuildMonitor.AutoWorkspaceOnFirstFailure = in.AutoWorkspaceOnFirstFailure
 	out := make(map[string]config.BuildMonitorRepoConfig, len(in.Repos))
 	for name, rc := range in.Repos {
 		out[repoSlug(name)] = config.BuildMonitorRepoConfig{

@@ -446,6 +446,7 @@ const (
 var staticExcludePatterns = []string{
 	".schmux/hooks/",
 	".schmux/events/",
+	".schmux/build-monitor/",
 }
 
 // buildExcludeBlock builds the full schmux exclude block with markers.

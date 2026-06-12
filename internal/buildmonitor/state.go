@@ -18,6 +18,12 @@ type UnitState struct {
 	Workflows []WorkflowState `json:"workflows,omitempty"`
 	CheckedAt string          `json:"checked_at,omitempty"`
 	LastError string          `json:"last_error,omitempty"`
+	// RemediationWorkspaceID is the workspace this feature created for the
+	// current failure episode; RemediationSHA is the commit of the failure
+	// that started it. Carried while any workflow is failing, cleared when
+	// none is. Additional workflow failures get sessions in this workspace.
+	RemediationWorkspaceID string `json:"remediation_workspace_id,omitempty"`
+	RemediationSHA         string `json:"remediation_sha,omitempty"`
 }
 
 // WorkflowState is the latest-run snapshot for one active workflow in a
@@ -31,15 +37,22 @@ type WorkflowState struct {
 	Status     string      `json:"status,omitempty"`
 	Conclusion string      `json:"conclusion,omitempty"`
 	HTMLURL    string      `json:"html_url,omitempty"`
+	HeadSHA    string      `json:"head_sha,omitempty"`
 	FailedJobs []FailedJob `json:"failed_jobs,omitempty"`
 	// FirstFailureRunID is the run that moved this workflow into the failing
 	// state. Set on non-failure→failure, carried while failing, cleared on
 	// recovery. Phase C reads it to know which run triggered remediation.
 	FirstFailureRunID int64 `json:"first_failure_run_id,omitempty"`
+	// SessionID is the session launched to fix this workflow's failure;
+	// LaunchError records why a launch failed. Carried while failing,
+	// cleared on recovery.
+	SessionID   string `json:"session_id,omitempty"`
+	LaunchError string `json:"launch_error,omitempty"`
 }
 
-// FailedJob holds the name and link of a failed CI job.
+// FailedJob holds the id, name, and link of a failed CI job.
 type FailedJob struct {
+	ID      int64  `json:"id,omitempty"`
 	Name    string `json:"name"`
 	HTMLURL string `json:"html_url"`
 }

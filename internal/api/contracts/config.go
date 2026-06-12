@@ -489,9 +489,11 @@ type RemoteAccess struct {
 
 // BuildMonitorConfig represents build monitor configuration.
 type BuildMonitorConfig struct {
-	Enabled  bool                              `json:"enabled,omitempty"`
-	Interval int                               `json:"interval,omitempty"` // minutes between scheduled checks; <=0 means default (5)
-	Repos    map[string]BuildMonitorRepoConfig `json:"repos,omitempty"`    // request: keyed by repo NAME; stored slug-keyed (handler converts)
+	Enabled                     bool                              `json:"enabled,omitempty"`
+	Interval                    int                               `json:"interval,omitempty"` // minutes between scheduled checks; <=0 means default (5)
+	Target                      string                            `json:"target,omitempty"`   // agent target for remediation sessions; empty disables launching
+	AutoWorkspaceOnFirstFailure bool                              `json:"auto_workspace_on_first_failure,omitempty"`
+	Repos                       map[string]BuildMonitorRepoConfig `json:"repos,omitempty"` // request: keyed by repo NAME; stored slug-keyed (handler converts)
 }
 
 // BuildMonitorRepoConfig represents per-repo build monitor configuration.
@@ -499,6 +501,12 @@ type BuildMonitorConfig struct {
 type BuildMonitorRepoConfig struct {
 	Enabled     bool   `json:"enabled,omitempty"`
 	GitHubLogin string `json:"github_login"` // REQUIRED — authorized identity that reads this repo
+}
+
+// BuildMonitorLaunchResponse is returned by the manual launch endpoint.
+type BuildMonitorLaunchResponse struct {
+	WorkspaceID string `json:"workspace_id"`
+	SessionID   string `json:"session_id"`
 }
 
 // RemoteAccessNotify represents notification settings.

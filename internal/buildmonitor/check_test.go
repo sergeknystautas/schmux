@@ -31,8 +31,8 @@ var testUnit = Unit{Slug: "r", Repo: "o/r", Branch: "main", Token: "tok"}
 func TestCheckUnit_FailingCollectsFailedJobs(t *testing.T) {
 	f := fakeActions{
 		workflows: []github.Workflow{{ID: 1, Name: "CI", Path: ".github/workflows/ci.yml", State: "active"}},
-		runs:      []github.WorkflowRun{{ID: 7, WorkflowID: 1, Status: "completed", Conclusion: "failure", HTMLURL: "u"}},
-		jobs:      []github.WorkflowJob{{Name: "test", Conclusion: "failure", HTMLURL: "j"}, {Name: "build", Conclusion: "success"}},
+		runs:      []github.WorkflowRun{{ID: 7, WorkflowID: 1, Status: "completed", Conclusion: "failure", HeadSHA: "abc1234def", HTMLURL: "u"}},
+		jobs:      []github.WorkflowJob{{ID: 99, Name: "test", Conclusion: "failure", HTMLURL: "j"}, {ID: 100, Name: "build", Conclusion: "success"}},
 	}
 	got := CheckUnit(context.Background(), f, testUnit)
 	if len(got.Workflows) != 1 {
@@ -41,6 +41,12 @@ func TestCheckUnit_FailingCollectsFailedJobs(t *testing.T) {
 	wf := got.Workflows[0]
 	if wf.Conclusion != "failure" || len(wf.FailedJobs) != 1 || wf.FailedJobs[0].Name != "test" {
 		t.Fatalf("wf=%+v", wf)
+	}
+	if wf.HeadSHA != "abc1234def" {
+		t.Errorf("HeadSHA = %q, want abc1234def", wf.HeadSHA)
+	}
+	if wf.FailedJobs[0].ID != 99 {
+		t.Errorf("FailedJobs[0].ID = %d, want 99", wf.FailedJobs[0].ID)
 	}
 }
 

@@ -23,6 +23,10 @@ func (s *Server) handleBuildMonitorConnectIdentity(w http.ResponseWriter, _ *htt
 	writeJSONError(w, "Build Monitor feature is not available in this build", http.StatusServiceUnavailable)
 }
 
+func (s *Server) handleBuildMonitorLaunch(w http.ResponseWriter, _ *http.Request) {
+	writeJSONError(w, "Build Monitor feature is not available in this build", http.StatusServiceUnavailable)
+}
+
 // RunBuildMonitorCheck is a no-op when the build monitor is excluded from the build.
 func (s *Server) RunBuildMonitorCheck(_ context.Context) {}
 

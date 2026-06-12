@@ -19,6 +19,13 @@ func twfFailing(id, runID, firstFailureRunID int64) WorkflowState {
 	return w
 }
 
+// twfLaunched builds a failing workflow that already has a remediation session.
+func twfLaunched(id, runID, firstFailureRunID int64, sessionID string) WorkflowState {
+	w := twfFailing(id, runID, firstFailureRunID)
+	w.SessionID = sessionID
+	return w
+}
+
 func TestApplyTransitions(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -26,7 +33,9 @@ func TestApplyTransitions(t *testing.T) {
 		next             *UnitState
 		wantEvents       []TransitionEvent
 		wantChanged      bool
-		wantFirstFailure map[int64]int64 // workflow ID → expected FirstFailureRunID on next
+		wantFirstFailure map[int64]int64  // workflow ID → expected FirstFailureRunID on next
+		wantSessionID    map[int64]string // workflow ID → expected SessionID on next
+		wantUnit         *UnitState       // expected unit-level remediation fields on next
 	}{
 		{
 			name:        "first check ever is a change with no failure events",
@@ -45,6 +54,16 @@ func TestApplyTransitions(t *testing.T) {
 		{
 			name:             "success to failure enters failing",
 			prev:             &UnitState{Workflows: []WorkflowState{twf(1, 10, "success")}},
+			next:             &UnitState{Workflows: []WorkflowState{twf(1, 11, "failure")}},
+			wantEvents:       []TransitionEvent{{WorkflowID: 1, Kind: TransitionEnteredFailure, RunID: 11}},
+			wantChanged:      true,
+			wantFirstFailure: map[int64]int64{1: 11},
+		},
+		{
+			// A workflow observed with no runs yet (listed, empty conclusion)
+			// whose first-ever run fails is a real transition, not FromUnknown.
+			name:             "no runs yet to failure enters failing",
+			prev:             &UnitState{Workflows: []WorkflowState{{WorkflowID: 1, Name: "Canary", Path: ".github/workflows/canary.yml"}}},
 			next:             &UnitState{Workflows: []WorkflowState{twf(1, 11, "failure")}},
 			wantEvents:       []TransitionEvent{{WorkflowID: 1, Kind: TransitionEnteredFailure, RunID: 11}},
 			wantChanged:      true,
@@ -131,6 +150,57 @@ func TestApplyTransitions(t *testing.T) {
 			next:        &UnitState{Workflows: []WorkflowState{twf(1, 10, "success")}, CheckedAt: "2026-06-10T10:05:00Z"},
 			wantChanged: false,
 		},
+		{
+			name:             "failure to failure carries SessionID and LaunchError",
+			prev:             &UnitState{Workflows: []WorkflowState{twfLaunched(1, 11, 11, "sess-1")}},
+			next:             &UnitState{Workflows: []WorkflowState{twf(1, 12, "failure")}},
+			wantChanged:      true,
+			wantFirstFailure: map[int64]int64{1: 11},
+			wantSessionID:    map[int64]string{1: "sess-1"},
+		},
+		{
+			name:             "stamped session carried on same run is no change",
+			prev:             &UnitState{Workflows: []WorkflowState{twfLaunched(1, 11, 11, "sess-1")}},
+			next:             &UnitState{Workflows: []WorkflowState{twf(1, 11, "failure")}},
+			wantChanged:      false,
+			wantFirstFailure: map[int64]int64{1: 11},
+			wantSessionID:    map[int64]string{1: "sess-1"},
+		},
+		{
+			name:          "recovery clears SessionID",
+			prev:          &UnitState{Workflows: []WorkflowState{twfLaunched(1, 11, 11, "sess-1")}},
+			next:          &UnitState{Workflows: []WorkflowState{twf(1, 12, "success")}},
+			wantEvents:    []TransitionEvent{{WorkflowID: 1, Kind: TransitionRecovered, RunID: 12}},
+			wantChanged:   true,
+			wantSessionID: map[int64]string{1: ""},
+		},
+		{
+			name: "unit remediation fields carried while any workflow failing",
+			prev: &UnitState{
+				RemediationWorkspaceID: "ws-1", RemediationSHA: "abc",
+				Workflows: []WorkflowState{twfFailing(1, 11, 11), twf(2, 20, "success")},
+			},
+			next:        &UnitState{Workflows: []WorkflowState{twf(1, 11, "failure"), twf(2, 21, "success")}},
+			wantChanged: true, // run 20→21 on workflow 2
+			wantUnit:    &UnitState{RemediationWorkspaceID: "ws-1", RemediationSHA: "abc"},
+		},
+		{
+			name: "unit remediation fields cleared when all workflows recover",
+			prev: &UnitState{
+				RemediationWorkspaceID: "ws-1", RemediationSHA: "abc",
+				Workflows: []WorkflowState{twfFailing(1, 11, 11)},
+			},
+			next:        &UnitState{Workflows: []WorkflowState{twf(1, 12, "success")}},
+			wantEvents:  []TransitionEvent{{WorkflowID: 1, Kind: TransitionRecovered, RunID: 12}},
+			wantChanged: true,
+			wantUnit:    &UnitState{},
+		},
+		{
+			name:        "head sha changing on the same run id is a change",
+			prev:        &UnitState{Workflows: []WorkflowState{{WorkflowID: 1, RunID: 10, Status: "completed", Conclusion: "success", HeadSHA: "aaa"}}},
+			next:        &UnitState{Workflows: []WorkflowState{{WorkflowID: 1, RunID: 10, Status: "completed", Conclusion: "success", HeadSHA: "bbb"}}},
+			wantChanged: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -154,6 +224,23 @@ func TestApplyTransitions(t *testing.T) {
 				}
 				if !found {
 					t.Errorf("workflow %d not present in next", id)
+				}
+			}
+			for id, want := range tt.wantSessionID {
+				for i := range tt.next.Workflows {
+					if tt.next.Workflows[i].WorkflowID == id {
+						if got := tt.next.Workflows[i].SessionID; got != want {
+							t.Errorf("workflow %d SessionID = %q, want %q", id, got, want)
+						}
+					}
+				}
+			}
+			if tt.wantUnit != nil {
+				if tt.next.RemediationWorkspaceID != tt.wantUnit.RemediationWorkspaceID {
+					t.Errorf("RemediationWorkspaceID = %q, want %q", tt.next.RemediationWorkspaceID, tt.wantUnit.RemediationWorkspaceID)
+				}
+				if tt.next.RemediationSHA != tt.wantUnit.RemediationSHA {
+					t.Errorf("RemediationSHA = %q, want %q", tt.next.RemediationSHA, tt.wantUnit.RemediationSHA)
 				}
 			}
 		})

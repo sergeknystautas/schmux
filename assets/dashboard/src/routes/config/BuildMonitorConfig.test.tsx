@@ -15,6 +15,8 @@ const baseState = {
   ],
   buildMonitorRepos: {},
   buildMonitorInterval: 5,
+  buildMonitorTarget: '',
+  buildMonitorAutoWorkspace: false,
 } as any;
 
 const baseProps: ConfigPanelProps = {
@@ -175,5 +177,65 @@ describe('BuildMonitorConfig', () => {
         field: 'buildMonitorInterval',
       })
     );
+  });
+
+  it('renders the remediation target select and dispatches changes', async () => {
+    mockIdentities(['octocat']);
+    const dispatch = vi.fn();
+    renderPanel({
+      state: { ...baseState, buildMonitorTarget: 'claude' },
+      dispatch,
+      models: [
+        { id: 'claude', label: 'Claude' },
+        { id: 'codex', label: 'Codex' },
+      ],
+    });
+    const select = await screen.findByLabelText('Remediation target');
+    expect(select).toHaveValue('claude');
+    await userEvent.setup().selectOptions(select, 'codex');
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'SET_FIELD', field: 'buildMonitorTarget', value: 'codex' })
+    );
+  });
+
+  it('offers a monitor-only option that clears the target', async () => {
+    mockIdentities(['octocat']);
+    const dispatch = vi.fn();
+    renderPanel({
+      state: { ...baseState, buildMonitorTarget: 'claude' },
+      dispatch,
+      models: [{ id: 'claude', label: 'Claude' }],
+    });
+    const select = await screen.findByLabelText('Remediation target');
+    await userEvent.setup().selectOptions(select, 'Monitor only — no launching');
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'SET_FIELD', field: 'buildMonitorTarget', value: '' })
+    );
+  });
+
+  it('renders the auto-launch checkbox and dispatches changes', async () => {
+    mockIdentities(['octocat']);
+    const dispatch = vi.fn();
+    renderPanel({
+      state: { ...baseState, buildMonitorTarget: 'claude', buildMonitorAutoWorkspace: false },
+      dispatch,
+    });
+    const box = await screen.findByTestId('build-monitor-auto-workspace');
+    expect(box).not.toBeChecked();
+    await userEvent.setup().click(box);
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'SET_FIELD',
+        field: 'buildMonitorAutoWorkspace',
+        value: true,
+      })
+    );
+  });
+
+  it('disables the auto-launch checkbox while no target is set', async () => {
+    mockIdentities(['octocat']);
+    renderPanel();
+    const box = await screen.findByTestId('build-monitor-auto-workspace');
+    expect(box).toBeDisabled();
   });
 });

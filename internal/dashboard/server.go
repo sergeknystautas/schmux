@@ -157,7 +157,8 @@ type Server struct {
 	rotationLocksMu sync.RWMutex
 
 	// Serializes build monitor check passes (scheduler tick vs manual check).
-	buildMonitorCheckMu sync.Mutex
+	buildMonitorCheckMu  sync.Mutex
+	buildMonitorLaunchMu sync.Mutex
 
 	// Version info: current version and latest available version
 	versionInfo      versionInfo
@@ -799,6 +800,7 @@ func (s *Server) Start() error {
 		r.Post("/build-monitor/check", s.handleBuildMonitorCheck)
 		r.Get("/build-monitor/identities", s.handleBuildMonitorIdentities)
 		r.Get("/build-monitor/connect", s.handleBuildMonitorConnectIdentity)
+		r.Post("/build-monitor/repos/{slug}/failures/{runID}/launch-workspace", s.handleBuildMonitorLaunch)
 		r.Get("/repofeed", s.handleRepofeedList)
 		r.Get("/repofeed/{slug}", s.handleRepofeedRepo)
 		r.Get("/repofeed/outgoing", s.handleRepofeedOutgoing)

@@ -420,4 +420,7 @@ func TestEnsureWorkspace_RunsGitExcludeForGit(t *testing.T) {
 	if !strings.Contains(string(content), excludeMarkerStart) {
 		t.Error(".git/info/exclude should contain schmux exclude markers")
 	}
+	if !strings.Contains(string(content), ".schmux/build-monitor/") {
+		t.Error(".git/info/exclude should contain .schmux/build-monitor/")
+	}
 }

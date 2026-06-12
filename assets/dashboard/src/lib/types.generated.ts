@@ -23,6 +23,8 @@ export interface BranchSuggestUpdate {
 export interface BuildMonitorConfig {
   enabled?: boolean;
   interval?: number;
+  target?: string;
+  auto_workspace_on_first_failure?: boolean;
   repos?: Record<string, BuildMonitorRepoConfig>;
 }
 

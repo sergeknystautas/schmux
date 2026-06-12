@@ -118,3 +118,47 @@ func ListRunJobs(ctx context.Context, token string, info RepoInfo, runID int64) 
 	}
 	return env.Jobs, nil
 }
+
+// maxJobLogBytes caps a downloaded job log, keeping the tail — failures
+// live at the end of CI logs.
+const maxJobLogBytes = 2 << 20 // 2 MB
+
+// DownloadJobLogs fetches the full plain-text log of a workflow job.
+// GitHub answers with a 302 to a signed URL; the default client follows it
+// and drops the Authorization header on the cross-host hop. Oversized logs
+// are truncated keeping the tail.
+func DownloadJobLogs(ctx context.Context, token string, info RepoInfo, jobID int64) ([]byte, error) {
+	path := fmt.Sprintf("/repos/%s/%s/actions/jobs/%d/logs", info.Owner, info.Repo, jobID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBaseURL+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		if len(data) > maxJobLogBytes {
+			data = data[len(data)-maxJobLogBytes:]
+		}
+		return data, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	case http.StatusForbidden:
+		return nil, &RateLimitError{RetryAfterSec: parseRetryAfter(resp)}
+	case http.StatusNotFound:
+		return nil, ErrNotFound
+	default:
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("github actions: unexpected status %d: %s", resp.StatusCode, string(body))
+	}
+}

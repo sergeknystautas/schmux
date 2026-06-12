@@ -24,6 +24,16 @@ func isFailing(w *WorkflowState) bool {
 	return w.Conclusion == "failure"
 }
 
+// anyFailing reports whether any workflow in the unit is failing.
+func anyFailing(s *UnitState) bool {
+	for i := range s.Workflows {
+		if isFailing(&s.Workflows[i]) {
+			return true
+		}
+	}
+	return false
+}
+
 // ApplyTransitions compares the previous unit state with a fresh snapshot,
 // stamps FirstFailureRunID on next's workflows, and returns the transition
 // events plus whether anything observable changed (CheckedAt excluded).
@@ -45,9 +55,18 @@ func ApplyTransitions(prev, next *UnitState) ([]TransitionEvent, bool) {
 			events = append(events, TransitionEvent{WorkflowID: nw.WorkflowID, Kind: TransitionEnteredFailure, RunID: nw.RunID})
 		case isFailing(nw): // && isFailing(pw)
 			nw.FirstFailureRunID = pw.FirstFailureRunID
+			nw.SessionID = pw.SessionID
+			nw.LaunchError = pw.LaunchError
 		case pw != nil && isFailing(pw):
 			events = append(events, TransitionEvent{WorkflowID: nw.WorkflowID, Kind: TransitionRecovered, RunID: nw.RunID})
 		}
+	}
+
+	// Unit-level episode fields: carried while any workflow is failing,
+	// cleared (left empty on the fresh snapshot) when none is.
+	if prev != nil && anyFailing(next) {
+		next.RemediationWorkspaceID = prev.RemediationWorkspaceID
+		next.RemediationSHA = prev.RemediationSHA
 	}
 
 	return events, unitChanged(prev, next, prevByID)
@@ -77,6 +96,9 @@ func unitChanged(prev, next *UnitState, prevByID map[int64]*WorkflowState) bool 
 	if prev.LastError != next.LastError || prev.Branch != next.Branch {
 		return true
 	}
+	if prev.RemediationWorkspaceID != next.RemediationWorkspaceID || prev.RemediationSHA != next.RemediationSHA {
+		return true
+	}
 	if len(prev.Workflows) != len(next.Workflows) {
 		return true
 	}
@@ -90,6 +112,9 @@ func unitChanged(prev, next *UnitState, prevByID map[int64]*WorkflowState) bool 
 			return true
 		}
 		if pw.RunID != nw.RunID || pw.Status != nw.Status || pw.Conclusion != nw.Conclusion {
+			return true
+		}
+		if pw.HeadSHA != nw.HeadSHA || pw.SessionID != nw.SessionID || pw.LaunchError != nw.LaunchError {
 			return true
 		}
 		if len(pw.FailedJobs) != len(nw.FailedJobs) {

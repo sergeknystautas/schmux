@@ -59,3 +59,25 @@ func TestGetBuildMonitorRepo_CarriesLogin(t *testing.T) {
 		t.Fatalf("got %+v ok=%v", got, ok)
 	}
 }
+
+func TestGetBuildMonitorTarget(t *testing.T) {
+	c := &Config{}
+	if got := c.GetBuildMonitorTarget(); got != "" {
+		t.Errorf("nil section: got %q", got)
+	}
+	c.ConfigData.BuildMonitor = &BuildMonitorConfig{Target: "  claude  "}
+	if got := c.GetBuildMonitorTarget(); got != "claude" {
+		t.Errorf("got %q, want trimmed claude", got)
+	}
+}
+
+func TestGetBuildMonitorAutoWorkspace(t *testing.T) {
+	c := &Config{}
+	if c.GetBuildMonitorAutoWorkspace() {
+		t.Error("nil section: want false")
+	}
+	c.ConfigData.BuildMonitor = &BuildMonitorConfig{AutoWorkspaceOnFirstFailure: true}
+	if !c.GetBuildMonitorAutoWorkspace() {
+		t.Error("want true")
+	}
+}
