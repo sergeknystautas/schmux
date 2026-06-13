@@ -105,7 +105,7 @@ export function AutolearnCard(props: AutolearnCardProps) {
         )}
         {type === 'instruction' && props.onUnapprove && (
           <button
-            className={styles.undoButton}
+            className="btn btn--ghost btn--sm"
             onClick={() => props.onUnapprove!(id)}
             aria-label="Undo approval"
           >
@@ -171,10 +171,10 @@ export function AutolearnCard(props: AutolearnCardProps) {
             rows={3}
           />
           <div className={styles.editActions}>
-            <button className={styles.dismissButton} onClick={handleCancel}>
+            <button className="btn btn--secondary btn--sm" onClick={handleCancel}>
               Cancel
             </button>
-            <button className={styles.approveButton} onClick={handleSave}>
+            <button className="btn btn--primary btn--sm" onClick={handleSave}>
               Save
             </button>
           </div>
@@ -219,13 +219,13 @@ export function AutolearnCard(props: AutolearnCardProps) {
       {/* Action buttons */}
       {!editing && (
         <div className={styles.actions}>
-          <button className={styles.dismissButton} onClick={handleDismiss}>
+          <button className="btn btn--secondary btn--sm" onClick={handleDismiss}>
             Dismiss
           </button>
-          <button className={styles.editButton} onClick={() => setEditing(true)}>
+          <button className="btn btn--secondary btn--sm" onClick={() => setEditing(true)}>
             Edit
           </button>
-          <button className={styles.approveButton} onClick={() => onApprove(id)}>
+          <button className="btn btn--primary btn--sm" onClick={() => onApprove(id)}>
             Approve
           </button>
         </div>

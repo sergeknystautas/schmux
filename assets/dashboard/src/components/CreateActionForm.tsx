@@ -133,10 +133,14 @@ export default function CreateActionForm({ repo, onCreated, onCancel }: CreateAc
       )}
 
       <div className={styles.buttons}>
-        <button type="button" className={styles.cancelButton} onClick={onCancel}>
+        <button type="button" className="btn btn--secondary btn--sm" onClick={onCancel}>
           Cancel
         </button>
-        <button type="submit" className={styles.saveButton} disabled={saving || !name.trim()}>
+        <button
+          type="submit"
+          className="btn btn--primary btn--sm"
+          disabled={saving || !name.trim()}
+        >
           {saving ? 'Saving...' : 'Save'}
         </button>
       </div>

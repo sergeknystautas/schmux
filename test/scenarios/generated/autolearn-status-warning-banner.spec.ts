@@ -55,7 +55,7 @@ test.describe.serial('Autolearn status warning banner', () => {
     await waitForDashboardLive(page);
 
     // Page heading should be visible
-    await expect(page.locator('h2', { hasText: 'Autolearn' })).toBeVisible();
+    await expect(page.locator('h1.app-header__meta', { hasText: 'Autolearn' })).toBeVisible();
 
     // Warning banner should be visible
     const banner = page.locator('[data-testid="autolearn-warning-banner"]');

@@ -49,10 +49,9 @@ test.describe.serial('Autolearn page as flat card wall', () => {
     await waitForDashboardLive(page);
 
     // Page heading
-    await expect(page.locator('h2', { hasText: 'Autolearn' })).toBeVisible();
+    await expect(page.locator('h1.app-header__meta', { hasText: 'Autolearn' })).toBeVisible();
 
-    // Subtitle
-    await expect(page.locator('p', { hasText: 'Schmux continual learning system' })).toBeVisible();
+    // No subtitle (tool-page template has no subtitle slot)
 
     // No repo tab bar
     const tabs = page.locator('[data-testid="repo-tab"]');

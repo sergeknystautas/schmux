@@ -547,9 +547,8 @@ export default function AutolearnPage() {
 
   return (
     <div className={styles.container} data-testid="autolearn-page">
-      <div className={styles.header}>
-        <h2>Autolearn</h2>
-        <p className={styles.headerSubtitle}>Schmux continual learning system</p>
+      <div className="app-header">
+        <h1 className="app-header__meta">Autolearn</h1>
       </div>
 
       {/* Warning banner */}
@@ -578,19 +577,16 @@ export default function AutolearnPage() {
           {errorMerges.map(([repoName, pm]) => (
             <div
               key={`merge-error-${repoName}`}
-              className={styles.mergeError}
-              style={{ marginBottom: '1rem' }}
+              className={`${styles.mergeError} ${styles.cardMargin}`}
             >
               <span>
                 Merge failed for {repoName}: {pm.error || 'Unknown error'}
               </span>
               <button
-                className={styles.applyButton}
+                className="btn btn--secondary btn--sm"
                 onClick={() => {
-                  // Retry: dismiss and let user re-apply
                   handleDismissMergeReview(repoName);
                 }}
-                style={{ marginLeft: 'auto' }}
               >
                 Dismiss
               </button>
@@ -599,7 +595,7 @@ export default function AutolearnPage() {
 
           {/* Merging in progress indicator */}
           {mergingMerges.length > 0 && (
-            <div className={styles.mergingStatus} style={{ marginBottom: '1rem' }}>
+            <div className={`${styles.mergingStatus} ${styles.mergingMargin}`}>
               <span className="spinner spinner--small" />
               Merging rules in the background...
             </div>
@@ -609,26 +605,21 @@ export default function AutolearnPage() {
           {readyMerges.map(([repoName, pm]) => (
             <div
               key={`merge-review-${repoName}`}
-              className={styles.proposalCard}
-              style={{ marginBottom: '1rem' }}
+              className={`${styles.proposalCard} ${styles.cardMargin}`}
             >
               <h3>Review Changes</h3>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.5rem 0' }}>
-                {pm.summary}
-              </p>
+              <p className={styles.mergeSummary}>{pm.summary}</p>
 
               {/* Diff/Edit tab toggle */}
-              <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '0.75rem' }}>
+              <div className="wizard__steps">
                 <button
-                  className={activeTab === 'diff' ? styles.applyButton : styles.dismissButton}
-                  style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}
+                  className={`wizard__step${activeTab === 'diff' ? ' wizard__step--active' : ''}`}
                   onClick={() => setActiveTab('diff')}
                 >
                   Diff
                 </button>
                 <button
-                  className={activeTab === 'edit' ? styles.applyButton : styles.dismissButton}
-                  style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}
+                  className={`wizard__step${activeTab === 'edit' ? ' wizard__step--active' : ''}`}
                   onClick={() => setActiveTab('edit')}
                 >
                   Edit
@@ -652,14 +643,14 @@ export default function AutolearnPage() {
                   </div>
                   <div className={styles.actions}>
                     <button
-                      className={styles.dismissButton}
+                      className="btn btn--secondary btn--sm"
                       onClick={() => handleDismissMergeReview(repoName)}
                       disabled={applying}
                     >
                       Back
                     </button>
                     <button
-                      className={styles.applyButton}
+                      className="btn btn--primary btn--sm"
                       onClick={() => handleCommitAndPush(repoName)}
                       disabled={applying}
                     >
@@ -675,30 +666,20 @@ export default function AutolearnPage() {
                   <textarea
                     value={pm.edited_content ?? pm.merged_content}
                     onChange={(e) => handleEditChange(repoName, e.target.value)}
-                    style={{
-                      width: '100%',
-                      minHeight: '300px',
-                      fontFamily: 'var(--font-mono, monospace)',
-                      fontSize: '0.8rem',
-                      lineHeight: '1.5',
-                      padding: '0.75rem',
-                      background: 'var(--color-surface, #1a1a2e)',
-                      color: 'var(--text-primary, #ddd)',
-                      border: '1px solid var(--color-border, #333)',
-                      borderRadius: '4px',
-                      resize: 'vertical',
-                      marginBottom: '0.75rem',
-                    }}
+                    className={styles.editTextarea}
                   />
                   <div className={styles.actions}>
                     <button
-                      className={styles.dismissButton}
+                      className="btn btn--secondary btn--sm"
                       onClick={() => handleDismissMergeReview(repoName)}
                       disabled={applying}
                     >
                       Back
                     </button>
-                    <button className={styles.applyButton} onClick={() => setActiveTab('diff')}>
+                    <button
+                      className="btn btn--secondary btn--sm"
+                      onClick={() => setActiveTab('diff')}
+                    >
                       Review Diff
                     </button>
                   </div>
@@ -709,9 +690,9 @@ export default function AutolearnPage() {
 
           {/* Summary banner when all cards are triaged */}
           {allTriaged && !hasPendingMerges && (
-            <div className={styles.proposalCard} style={{ marginBottom: '1rem' }}>
+            <div className={`${styles.proposalCard} ${styles.cardMargin}`}>
               <h3>{approvedCards.length} insights approved</h3>
-              <div style={{ margin: '1rem 0', fontSize: '0.875rem' }}>
+              <div className={styles.summaryBody}>
                 {(() => {
                   const priv = approvedCards.filter(
                     (c) => c.kind === 'instruction' && effectiveLayer(c.rule) === 'repo_private'
@@ -739,7 +720,11 @@ export default function AutolearnPage() {
                 })()}
               </div>
               <div className={styles.actions}>
-                <button className={styles.applyButton} onClick={handleApply} disabled={applying}>
+                <button
+                  className="btn btn--primary btn--sm"
+                  onClick={handleApply}
+                  disabled={applying}
+                >
                   {applying && <span className="spinner spinner--small" />}
                   Apply
                 </button>
@@ -749,8 +734,8 @@ export default function AutolearnPage() {
 
           {/* Approve All button */}
           {pendingCards.length >= 2 && (
-            <div className={styles.actions} style={{ marginBottom: '1rem' }}>
-              <button className={styles.applyButton} onClick={handleApproveAll}>
+            <div className={`${styles.actions} ${styles.approveAllRow}`}>
+              <button className="btn btn--primary btn--sm" onClick={handleApproveAll}>
                 Approve All ({pendingCards.length})
               </button>
             </div>
@@ -801,7 +786,7 @@ export default function AutolearnPage() {
       )}
 
       {isDebugMode && (
-        <section style={{ marginTop: '2rem' }}>
+        <section className={styles.debugSection}>
           <button
             className={styles.toggleButton}
             onClick={() => {
@@ -824,13 +809,12 @@ export default function AutolearnPage() {
             {showDebug ? '\u25BC' : '\u25B6'} Debug
           </button>
           {showDebug && (
-            <div style={{ marginTop: '0.75rem' }}>
-              <div style={{ display: 'flex', gap: '0.5rem', margin: '0.5rem 0', flexWrap: 'wrap' }}>
+            <div className={styles.debugContent}>
+              <div className={styles.debugButtonRow}>
                 {repos.map((r) => (
                   <button
                     key={r.name}
-                    className={styles.curateButton}
-                    style={{ marginLeft: 0 }}
+                    className="btn btn--primary btn--sm"
                     onClick={() => startCuration(r.name)}
                     disabled={!!activeCurations[r.name] || pendingCurations.has(r.name)}
                   >
@@ -840,8 +824,7 @@ export default function AutolearnPage() {
                   </button>
                 ))}
                 <button
-                  className={styles.deleteButton}
-                  style={{ marginLeft: 'auto' }}
+                  className={`btn btn--danger btn--sm ${styles.debugDeleteAction}`}
                   onClick={async () => {
                     try {
                       const results = await Promise.all(

@@ -160,10 +160,10 @@ export function ProposedActionCard({
 
       {/* Actions */}
       <div className={styles.actionActions}>
-        <button className={styles.dismissButton} onClick={() => onDismiss(entry)}>
+        <button className="btn btn--secondary btn--sm" onClick={() => onDismiss(entry)}>
           Dismiss
         </button>
-        <button className={styles.pinButton} onClick={() => onPin(entry)}>
+        <button className="btn btn--primary btn--sm" onClick={() => onPin(entry)}>
           Pin
         </button>
       </div>
