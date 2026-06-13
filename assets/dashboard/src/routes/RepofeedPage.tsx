@@ -13,16 +13,16 @@ import styles from '../styles/repofeed.module.css';
 
 type FilterKind = 'all' | 'active' | 'completed';
 
-function statusDotClass(status: string): string {
+function statusPillVariant(status: string): string {
   switch (status) {
     case 'active':
-      return `${styles['repofeed-intent__dot']} ${styles['repofeed-intent__dot--active']}`;
+      return 'status-pill--running';
     case 'inactive':
-      return `${styles['repofeed-intent__dot']} ${styles['repofeed-intent__dot--inactive']}`;
+      return 'status-pill--stopped';
     case 'completed':
-      return `${styles['repofeed-intent__dot']} ${styles['repofeed-intent__dot--completed']}`;
+      return 'status-pill--stopped';
     default:
-      return styles['repofeed-intent__dot'];
+      return 'status-pill--stopped';
   }
 }
 
@@ -70,29 +70,25 @@ function OutgoingCard({
   const statusText = ws.backburner ? 'idle' : sessionCount > 0 ? 'active' : 'idle';
 
   return (
-    <div
-      className={`${styles['repofeed-intent']} ${!isShared ? styles['repofeed-intent--muted'] : ''}`}
-    >
-      <div className={styles['repofeed-intent__status']}>
-        {isShared ? (
-          <span
-            className={statusDotClass(sessionCount > 0 && !ws.backburner ? 'active' : 'inactive')}
-          />
-        ) : (
-          <span className={styles['repofeed-intent__lock']}>🔒</span>
-        )}
-      </div>
-      <div className={styles['repofeed-intent__body']}>
-        <div className={styles['repofeed-intent__developer']}>
-          {ws.id}
-          {isShared && ` · ${statusText}`}
-        </div>
-        <div className={styles['repofeed-intent__text']}>
+    <div className={`${styles.intent} ${!isShared ? styles.intentMuted : ''}`}>
+      {isShared ? (
+        <span
+          className={`status-pill ${statusPillVariant(sessionCount > 0 && !ws.backburner ? 'active' : 'inactive')}`}
+        >
+          <span className="status-pill__dot" />
+          {statusText}
+        </span>
+      ) : (
+        <span className={styles.intentLock}>🔒 Private</span>
+      )}
+      <div className={styles.intentBody}>
+        <div className={styles.intentDeveloper}>{ws.id}</div>
+        <div className={styles.intentText}>
           {isShared && summary ? summary : workspaceDisplayLabel(ws)}
         </div>
       </div>
       <button
-        className={styles['repofeed-intent__toggle']}
+        className="btn btn--sm btn--primary"
         onClick={onToggle}
         title={isShared ? 'Stop sharing activity' : 'Share activity with team'}
       >
@@ -110,22 +106,21 @@ function IncomingCard({
   onDismiss?: () => void;
 }) {
   return (
-    <div className={styles['repofeed-intent']}>
-      <div className={styles['repofeed-intent__status']}>
-        <span className={statusDotClass(intent.status)} />
-      </div>
-      <div className={styles['repofeed-intent__body']}>
-        <div className={styles['repofeed-intent__developer']}>
-          {intent.display_name || intent.developer}
-          {` · ${statusLabel(intent.status)}`}
-        </div>
-        <div className={styles['repofeed-intent__text']}>{intent.intent}</div>
-        <div className={styles['repofeed-intent__meta']}>
-          {intent.started && <span>{timeAgo(intent.started)}</span>}
-        </div>
+    <div className={styles.intent}>
+      <span className={`status-pill ${statusPillVariant(intent.status)}`}>
+        <span className="status-pill__dot" />
+        {statusLabel(intent.status)}
+      </span>
+      <div className={styles.intentBody}>
+        <div className={styles.intentText}>{intent.intent}</div>
+        {intent.started && (
+          <div className={styles.intentMeta}>
+            <span>{timeAgo(intent.started)}</span>
+          </div>
+        )}
       </div>
       {intent.status === 'completed' && onDismiss && (
-        <button className={styles['repofeed-intent__toggle']} onClick={onDismiss} title="Dismiss">
+        <button className="btn btn--sm btn--ghost" onClick={onDismiss} title="Dismiss">
           Dismiss
         </button>
       )}
@@ -192,110 +187,96 @@ export default function RepofeedPage() {
 
   if (loading) {
     return (
-      <div className={styles['repofeed-page']}>
-        <div className={styles['repofeed-page__empty']}>Loading...</div>
+      <div className="loading-state">
+        <div className="spinner"></div>
+        <span>Loading...</span>
       </div>
     );
   }
 
   return (
-    <div className={styles['repofeed-page']}>
-      <div className={styles['repofeed-page__header']}>
-        <h2 className={styles['repofeed-page__title']}>Repofeed</h2>
+    <>
+      <div className="app-header">
+        <div className="app-header__info">
+          <h1 className="app-header__meta">Repofeed</h1>
+        </div>
       </div>
 
-      {/* Outgoing section */}
-      <div className={styles['repofeed-page__section']}>
-        <h3 className={styles['repofeed-page__section-title']}>
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M22 2 11 13" />
-            <path d="m22 2-7 20-4-9-9-4z" />
-          </svg>
-          Outgoing
-        </h3>
-        {workspaces.length === 0 ? (
-          <div className={styles['repofeed-page__empty']}>No workspaces.</div>
-        ) : (
-          <div className={styles['repofeed-page__list']}>
-            {[...workspaces]
-              .sort((a, b) => a.id.localeCompare(b.id))
-              .map((ws) => (
-                <OutgoingCard
-                  key={ws.id}
-                  ws={ws}
-                  summary={outgoingSummaries[ws.id]}
-                  onToggle={() => handleToggleShare(ws.id, !!ws.intent_shared)}
-                />
-              ))}
+      <div className={styles.page}>
+        {/* Outgoing section */}
+        <div className="settings-section">
+          <div className="settings-section__header">
+            <h3 className="settings-section__title">Outgoing</h3>
           </div>
-        )}
-      </div>
-
-      {/* Incoming section */}
-      <div className={styles['repofeed-page__section']}>
-        <h3 className={styles['repofeed-page__section-title']}>
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
-            <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
-          </svg>
-          Incoming
-        </h3>
-
-        {/* Filter chips */}
-        <div className={styles['repofeed-page__filters']}>
-          {(['all', 'active', 'completed'] as FilterKind[]).map((kind) => (
-            <button
-              key={kind}
-              className={`${styles['repofeed-page__chip']} ${filter === kind ? styles['repofeed-page__chip--active'] : ''}`}
-              onClick={() => setFilter(kind)}
-            >
-              {kind === 'all' ? 'All' : kind === 'active' ? 'In Progress' : 'Finished'}
-            </button>
-          ))}
+          <div className="settings-section__body">
+            {workspaces.length === 0 ? (
+              <div className="empty-state">
+                <p className="empty-state__description">No workspaces.</p>
+              </div>
+            ) : (
+              <div className={styles.list}>
+                {[...workspaces]
+                  .sort((a, b) => a.id.localeCompare(b.id))
+                  .map((ws) => (
+                    <OutgoingCard
+                      key={ws.id}
+                      ws={ws}
+                      summary={outgoingSummaries[ws.id]}
+                      onToggle={() => handleToggleShare(ws.id, !!ws.intent_shared)}
+                    />
+                  ))}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Intent list grouped by developer */}
-        {filteredIntents.length === 0 ? (
-          <div className={styles['repofeed-page__empty']}>No incoming activity yet.</div>
-        ) : (
-          <div className={styles['repofeed-page__list']}>
-            {Array.from(byDeveloper.entries()).map(([developer, intents]) => (
-              <div key={developer}>
-                <div className={styles['repofeed-page__developer-header']}>{developer}</div>
-                {intents.map((intent) => (
-                  <IncomingCard
-                    key={`${intent.developer}-${intent.intent}-${intent.workspace_id || ''}`}
-                    intent={intent}
-                    onDismiss={
-                      intent.status === 'completed'
-                        ? () => handleDismiss(intent.developer, intent.workspace_id || '')
-                        : undefined
-                    }
-                  />
+        {/* Incoming section */}
+        <div className="settings-section">
+          <div className="settings-section__header">
+            <h3 className="settings-section__title">Incoming</h3>
+          </div>
+          <div className="settings-section__body">
+            {/* Filter chips */}
+            <div className={styles.filters}>
+              {(['all', 'active', 'completed'] as FilterKind[]).map((kind) => (
+                <button
+                  key={kind}
+                  className={`btn btn--sm ${filter === kind ? 'btn--primary' : 'btn--secondary'}`}
+                  onClick={() => setFilter(kind)}
+                >
+                  {kind === 'all' ? 'All' : kind === 'active' ? 'In Progress' : 'Finished'}
+                </button>
+              ))}
+            </div>
+
+            {/* Intent list grouped by developer */}
+            {filteredIntents.length === 0 ? (
+              <div className="empty-state">
+                <p className="empty-state__description">No incoming activity yet.</p>
+              </div>
+            ) : (
+              <div className={styles.list}>
+                {Array.from(byDeveloper.entries()).map(([developer, intents]) => (
+                  <div key={developer}>
+                    <div className={styles.developerHeader}>{developer}</div>
+                    {intents.map((intent) => (
+                      <IncomingCard
+                        key={`${intent.developer}-${intent.intent}-${intent.workspace_id || ''}`}
+                        intent={intent}
+                        onDismiss={
+                          intent.status === 'completed'
+                            ? () => handleDismiss(intent.developer, intent.workspace_id || '')
+                            : undefined
+                        }
+                      />
+                    ))}
+                  </div>
                 ))}
               </div>
-            ))}
+            )}
           </div>
-        )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
