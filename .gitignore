@@ -6,6 +6,7 @@
 *.dylib
 /schmux
 /gen-types
+/build-desktop-helper
 
 # Test binary, built with `go test -c`
 *.test
@@ -76,3 +77,6 @@ internal/config/defaults/build_defaults.json
 # External adapter descriptors (populated by CI, not committed)
 internal/detect/contrib/*.yaml
 !internal/detect/contrib/.gitkeep
+
+# SwiftPM build artifacts for the desktop-macos helper
+native/desktop-macos/.build/
