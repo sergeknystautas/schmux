@@ -147,6 +147,8 @@ Dashboard POST /api/dev/rebuild
 
 Any other exit code is treated as a crash. The dev-runner does not automatically restart on non-42 exits.
 
+On a crash, the panic/fatal traceback goes to the daemon's stderr — which in dev mode is a pipe to the dev-runner TUI. To persist it, the dev-mode logger registers `~/.schmux/daemon-startup.log` as a runtime crash sink via `debug.SetCrashOutput`, so the traceback is written there as well as shown in the TUI.
+
 ## Vite integration
 
 ### Dev proxy

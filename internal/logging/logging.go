@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 
@@ -65,10 +66,16 @@ func New(forceColor ...bool) *log.Logger {
 
 		// In dev mode, also write to the daemon log file so agents
 		// running in tmux sessions can see daemon output.
+		//
+		// Panic/fatal tracebacks bypass the structured logger and go straight
+		// to stderr, which in dev mode is a pipe to the dev-runner TUI — so a
+		// crash would otherwise never reach disk. SetCrashOutput tells the Go
+		// runtime to also write the traceback to daemon-startup.log.
 		{
 			logPath := filepath.Join(schmuxdir.Get(), "daemon-startup.log")
 			if logF, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600); err == nil {
 				output = io.MultiWriter(output, logF)
+				_ = debug.SetCrashOutput(logF, debug.CrashOptions{})
 			}
 		}
 
