@@ -11,6 +11,7 @@ import {
 import { useToast } from './ToastProvider';
 import { useModal } from './ModalProvider';
 import { useSessions } from '../contexts/SessionsContext';
+import styles from './RemoteHostSelector.module.css';
 import type {
   RemoteProfile,
   RemoteProfileStatus,
@@ -202,19 +203,19 @@ export default function RemoteHostSelector({
     return !value.hostId;
   };
 
-  const cardStyle = (selected: boolean) => ({
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: 'var(--spacing-xs)',
-    padding: 'var(--spacing-md)',
-    border: `2px solid ${selected ? 'var(--color-accent)' : 'var(--color-border)'}`,
-    borderRadius: 'var(--radius-md)',
-    backgroundColor: selected ? 'var(--color-accent-bg)' : 'var(--color-surface)',
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    opacity: disabled ? 0.6 : 1,
-    transition: 'border-color 0.15s, background-color 0.15s',
-    minWidth: '160px',
-  });
+  // selectable-card class pair (RemoteHostSelector.module.css): resting = card
+  // shape; selected = accent border + accent-subtle fill; provision = dashed.
+  const selectableCardClass = (opts: {
+    selected?: boolean;
+    provision?: boolean;
+    disabled?: boolean;
+  }) => {
+    const classes = [styles.selectableCard];
+    if (opts.selected) classes.push(styles.selectableCardSelected);
+    if (opts.provision) classes.push(styles.selectableCardProvision);
+    if (opts.disabled) classes.push(styles.selectableCardDisabled);
+    return classes.join(' ');
+  };
 
   // Don't show the selector if no remote profiles are configured
   if (!loading && profileStatuses.length === 0) {
@@ -224,18 +225,13 @@ export default function RemoteHostSelector({
   return (
     <div className="mb-lg">
       <label className="form-group__label mb-sm">Where do you want to run?</label>
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: 'var(--spacing-md)',
-        }}
-      >
+      <div className={styles.cardGrid}>
         {/* Local option */}
         <div
-          style={cardStyle(isSelected('local'))}
+          className={selectableCardClass({ selected: isSelected('local'), disabled })}
           onClick={() => !disabled && handleSelectLocal()}
           role="button"
+          aria-pressed={isSelected('local')}
           tabIndex={disabled ? -1 : 0}
           onKeyDown={(e) => {
             if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
@@ -259,7 +255,7 @@ export default function RemoteHostSelector({
             </svg>
             <strong>Local</strong>
           </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>Your machine</div>
+          <div className={styles.cardSubtitle}>Your machine</div>
           <HostStatusIndicator status="ready" />
         </div>
 
@@ -294,13 +290,14 @@ export default function RemoteHostSelector({
                 connectedCards.push(
                   <div
                     key={hostStatus.host_id}
-                    style={cardStyle(selected)}
+                    className={selectableCardClass({ selected, disabled })}
                     onClick={() =>
                       !disabled &&
                       !isConnecting &&
                       handleSelectExistingHost(profileStatus, currentFlavor, hostStatus)
                     }
                     role="button"
+                    aria-pressed={selected}
                     tabIndex={disabled || isConnecting ? -1 : 0}
                     onKeyDown={(e) => {
                       if (!disabled && !isConnecting && (e.key === 'Enter' || e.key === ' ')) {
@@ -325,16 +322,7 @@ export default function RemoteHostSelector({
                         {hostStatus.hostname || profileStatus.profile.display_name}
                       </strong>
                     </div>
-                    <div
-                      style={{
-                        fontSize: '0.75rem',
-                        color: 'var(--color-text-muted)',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      {profileStatus.profile.display_name}
-                    </div>
+                    <div className={styles.cardSubtitle}>{profileStatus.profile.display_name}</div>
                     <HostStatusIndicator
                       status={hostStatus.status || 'disconnected'}
                       hostname={hostStatus.hostname}
@@ -348,13 +336,15 @@ export default function RemoteHostSelector({
                 provisionCards.push(
                   <div
                     key={`new-${profileStatus.profile.id}`}
-                    style={{ ...cardStyle(false), borderStyle: 'dashed' }}
+                    className={selectableCardClass({ provision: true, disabled })}
+                    data-variant="provision"
                     onClick={() =>
                       !disabled &&
                       !isConnecting &&
                       handleSelectNewHost(profileStatus, currentFlavor)
                     }
                     role="button"
+                    aria-pressed={false}
                     tabIndex={disabled || isConnecting ? -1 : 0}
                     onKeyDown={(e) => {
                       if (!disabled && !isConnecting && (e.key === 'Enter' || e.key === ' ')) {
@@ -382,13 +372,12 @@ export default function RemoteHostSelector({
                           : `New ${profileStatus.profile.display_name} host`}
                       </strong>
                     </div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                    <div className={styles.cardSubtitle}>
                       {isPersistent ? (
                         'Connect and create workspace'
                       ) : profileStatus.profile.flavors.length > 1 ? (
                         <select
-                          className="select"
-                          style={{ fontSize: '0.75rem', padding: '2px 4px' }}
+                          className={`select ${styles.flavorSelect}`}
                           value={currentFlavor}
                           onChange={(e) => {
                             e.stopPropagation();

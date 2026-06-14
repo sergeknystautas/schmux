@@ -8,6 +8,7 @@ import {
 } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
+import styles from '../styles/RemoteSettings.module.css';
 import type {
   RemoteProfile,
   RemoteProfileCreateRequest,
@@ -271,19 +272,13 @@ export default function RemoteSettingsPage() {
   return (
     <>
       <div className="wizard-step-content">
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: 'var(--spacing-md)',
-          }}
-        >
-          <p className="m-0 text-muted">
+        <h2 className="wizard-step-content__title">Remote Hosts</h2>
+        <div className={styles.headerRow}>
+          <p className={styles.description}>
             Configure remote host profiles for running agents on remote machines via SSH or custom
             connection tools.
           </p>
-          <button className="btn btn--primary" style={{ flexShrink: 0 }} onClick={handleAdd}>
+          <button className="btn btn--primary" onClick={handleAdd}>
             + Add Profile
           </button>
         </div>
@@ -303,58 +298,24 @@ export default function RemoteSettingsPage() {
           <div className="flex-col gap-md">
             {profiles.map((profile) => (
               <div key={profile.id} className="card p-md">
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'flex-start',
-                  }}
-                >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 'var(--spacing-sm)',
-                        marginBottom: 'var(--spacing-sm)',
-                      }}
-                    >
-                      <h3 style={{ margin: 0 }}>{profile.display_name}</h3>
+                <div className={styles.cardTop}>
+                  <div className={styles.cardMain}>
+                    <div className={styles.cardHeading}>
+                      <h3 className={styles.cardTitle}>{profile.display_name}</h3>
                       <span
-                        style={{
-                          fontSize: '0.7rem',
-                          fontWeight: 600,
-                          padding: '2px 8px',
-                          borderRadius: '4px',
-                          background:
-                            profile.host_type === 'persistent'
-                              ? 'color-mix(in srgb, var(--color-info) 15%, transparent)'
-                              : 'var(--color-bg-secondary)',
-                          color:
-                            profile.host_type === 'persistent'
-                              ? 'var(--color-info)'
-                              : 'var(--color-text-muted)',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.05em',
-                        }}
+                        className={`${styles.hostTypeBadge} ${
+                          profile.host_type === 'persistent'
+                            ? styles.hostTypeBadgePersistent
+                            : styles.hostTypeBadgeEphemeral
+                        }`}
                       >
                         {profile.host_type === 'persistent' ? 'persistent' : 'ephemeral'}
                       </span>
-                      <code style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                        {profile.vcs}
-                      </code>
+                      <code className={styles.vcsTag}>{profile.vcs}</code>
                     </div>
 
                     {/* Key info — what makes this profile unique */}
-                    <div
-                      style={{
-                        fontSize: '0.875rem',
-                        display: 'grid',
-                        gridTemplateColumns: 'auto 1fr',
-                        gap: '2px var(--spacing-md)',
-                        marginBottom: 'var(--spacing-xs)',
-                      }}
-                    >
+                    <div className={styles.keyInfoGrid}>
                       {profile.host_type !== 'persistent' && profile.flavors.length > 0 && (
                         <>
                           <span className="text-muted">Flavors</span>
@@ -366,33 +327,31 @@ export default function RemoteSettingsPage() {
                       {profile.host_type !== 'persistent' && profile.workspace_path && (
                         <>
                           <span className="text-muted">Workspace</span>
-                          <code style={{ fontSize: '0.8rem' }}>{profile.workspace_path}</code>
+                          <code>{profile.workspace_path}</code>
                         </>
                       )}
                       {profile.host_type === 'persistent' && profile.hostname && (
                         <>
                           <span className="text-muted">Hostname</span>
-                          <code style={{ fontSize: '0.8rem' }}>{profile.hostname}</code>
+                          <code>{profile.hostname}</code>
                         </>
                       )}
                       {profile.repo_base_path && (
                         <>
                           <span className="text-muted">Repo Base</span>
-                          <code style={{ fontSize: '0.8rem' }}>{profile.repo_base_path}</code>
+                          <code>{profile.repo_base_path}</code>
                         </>
                       )}
                       {profile.workspace_path_template && (
                         <>
                           <span className="text-muted">Workspace Template</span>
-                          <code style={{ fontSize: '0.8rem' }}>
-                            {profile.workspace_path_template}
-                          </code>
+                          <code>{profile.workspace_path_template}</code>
                         </>
                       )}
                       {profile.connect_command && (
                         <>
                           <span className="text-muted">Connect</span>
-                          <code style={{ fontSize: '0.8rem' }}>{profile.connect_command}</code>
+                          <code>{profile.connect_command}</code>
                         </>
                       )}
                     </div>
@@ -405,22 +364,11 @@ export default function RemoteSettingsPage() {
                       (profile.remote_vcs_commands?.create_worktree?.length ?? 0) > 0 ||
                       (profile.remote_vcs_commands?.remove_worktree?.length ?? 0) > 0 ||
                       (profile.remote_vcs_commands?.check_dirty?.length ?? 0) > 0) && (
-                      <details style={{ fontSize: '0.8rem' }}>
-                        <summary
-                          className="text-muted"
-                          style={{ cursor: 'pointer', userSelect: 'none' }}
-                        >
+                      <details className={styles.details}>
+                        <summary className={`text-muted ${styles.detailsSummary}`}>
                           More details
                         </summary>
-                        <div
-                          style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'auto 1fr',
-                            gap: '2px var(--spacing-md)',
-                            marginTop: 'var(--spacing-xs)',
-                            paddingLeft: 'var(--spacing-xs)',
-                          }}
-                        >
+                        <div className={styles.detailsGrid}>
                           {profile.reconnect_command && (
                             <>
                               <span className="text-muted">Reconnect</span>
@@ -490,7 +438,7 @@ export default function RemoteSettingsPage() {
 
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '900px' }}>
+          <div className={`modal ${styles.wideFormModal}`} onClick={(e) => e.stopPropagation()}>
             <div className="modal__header">
               <h2 className="modal__title">
                 {editingProfile ? 'Edit Remote Profile' : 'Add Remote Profile'}
@@ -502,13 +450,7 @@ export default function RemoteSettingsPage() {
             <form onSubmit={handleSubmit}>
               <div className="modal__body">
                 {/* Row 1: Name, Host Type, VCS */}
-                <div
-                  className="gap-md mb-md"
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr auto auto',
-                  }}
-                >
+                <div className={styles.formGrid3}>
                   <div className="form-group">
                     <label className="form-group__label" htmlFor="display_name">
                       Display Name *
@@ -523,7 +465,7 @@ export default function RemoteSettingsPage() {
                       required
                     />
                   </div>
-                  <div className="form-group" style={{ minWidth: '130px' }}>
+                  <div className={`form-group ${styles.fieldHostType}`}>
                     <label className="form-group__label" htmlFor="host_type">
                       Host Type
                     </label>
@@ -537,7 +479,7 @@ export default function RemoteSettingsPage() {
                       <option value="persistent">Persistent</option>
                     </select>
                   </div>
-                  <div className="form-group" style={{ minWidth: '120px' }}>
+                  <div className={`form-group ${styles.fieldVcs}`}>
                     <label className="form-group__label" htmlFor="vcs">
                       VCS
                     </label>
@@ -562,14 +504,10 @@ export default function RemoteSettingsPage() {
                       machine sizes).
                     </span>
                     {formData.flavors.map((f, i) => (
-                      <div
-                        key={i}
-                        className="form-row mb-sm"
-                        style={{ flexWrap: 'nowrap', alignItems: 'end' }}
-                      >
-                        <div className="form-group" style={{ marginBottom: 0, minWidth: 0 }}>
+                      <div key={i} className={`${styles.flavorRow} mb-sm`}>
+                        <div className={`form-group ${styles.flavorField}`}>
                           {i === 0 && (
-                            <label className="form-group__label" style={{ fontSize: '0.75rem' }}>
+                            <label className={`form-group__label ${styles.flavorLabel}`}>
                               Flavor String *
                             </label>
                           )}
@@ -582,9 +520,9 @@ export default function RemoteSettingsPage() {
                             required
                           />
                         </div>
-                        <div className="form-group" style={{ marginBottom: 0, minWidth: 0 }}>
+                        <div className={`form-group ${styles.flavorField}`}>
                           {i === 0 && (
-                            <label className="form-group__label" style={{ fontSize: '0.75rem' }}>
+                            <label className={`form-group__label ${styles.flavorLabel}`}>
                               Display Name
                             </label>
                           )}
@@ -596,9 +534,9 @@ export default function RemoteSettingsPage() {
                             placeholder="Optional label"
                           />
                         </div>
-                        <div className="form-group" style={{ marginBottom: 0, minWidth: 0 }}>
+                        <div className={`form-group ${styles.flavorField}`}>
                           {i === 0 && (
-                            <label className="form-group__label" style={{ fontSize: '0.75rem' }}>
+                            <label className={`form-group__label ${styles.flavorLabel}`}>
                               Workspace Path
                             </label>
                           )}
@@ -612,17 +550,9 @@ export default function RemoteSettingsPage() {
                         </div>
                         <button
                           type="button"
-                          className="btn btn--ghost btn--danger"
+                          className={`btn btn--ghost btn--danger ${styles.removeFlavorBtn}`}
                           onClick={() => removeFlavor(i)}
                           disabled={formData.flavors.length <= 1}
-                          style={{
-                            flex: 'none',
-                            fontSize: '1.25rem',
-                            padding: 0,
-                            width: '36px',
-                            height: '36px',
-                            justifyContent: 'center',
-                          }}
                           title="Remove flavor"
                         >
                           ×

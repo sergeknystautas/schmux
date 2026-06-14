@@ -1,0 +1,34 @@
+/* ConnectionProgressModal.module.css — connection progress + terminal modal.
+ * Tokens only. The terminal canvas background is NOT a design token: it mirrors
+ * the xterm theme (TERMINAL_THEME in the component) and is applied inline so the
+ * wrapper never seams against the terminal — documented P3 exception.
+ */
+
+.noSessionModal {
+  max-width: 500px;
+}
+
+.terminalModal {
+  max-width: 900px;
+  max-height: 80vh;
+}
+
+.statusMessage {
+  margin: var(--spacing-xs) 0 0;
+  font-size: 0.875rem;
+}
+
+.statusSpinner {
+  width: var(--spacing-xl);
+  height: var(--spacing-xl);
+}
+
+.centeredSpinner {
+  margin: 0 auto var(--spacing-md);
+}
+
+.terminal {
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-xs);
+  min-height: 400px;
+}

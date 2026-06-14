@@ -1,0 +1,60 @@
+/* RemoteHostSelector.module.css — selectable environment cards.
+ * card-shape resting (1px border, radius-lg, surface); selected = accent
+ * border + accent-subtle fill. Tokens only. See dashboard-style-guide.md §3/§4.
+ */
+
+.cardGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+}
+
+.selectableCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  cursor: pointer;
+  min-width: 160px;
+  transition:
+    border-color var(--duration-fast) var(--easing),
+    background-color var(--duration-fast) var(--easing);
+}
+
+.selectableCard:not(.selectableCardDisabled):hover {
+  border-color: var(--color-accent);
+}
+
+.selectableCard:not(.selectableCardDisabled):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.selectableCardSelected {
+  border-color: var(--color-accent);
+  background: var(--color-accent-subtle);
+}
+
+.selectableCardProvision {
+  border-style: dashed;
+}
+
+.selectableCardDisabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.cardSubtitle {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.flavorSelect {
+  font-size: 0.75rem;
+  padding: var(--spacing-xxs) var(--spacing-xs);
+}

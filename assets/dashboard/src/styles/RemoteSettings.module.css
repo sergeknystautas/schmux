@@ -1,0 +1,149 @@
+/* RemoteSettings.module.css — page-scoped layout for the Remote Hosts page.
+ * Tokens only (no hardcoded hex/spacing/radius). See dashboard-style-guide.md §5.
+ */
+
+/* Tab header: description + primary action (title is the shared
+ * .wizard-step-content__title, supplied by the ConfigPage tab template). */
+.headerRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+}
+
+.description {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+}
+
+/* Profile card internals -------------------------------------------------- */
+
+.cardTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.cardMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.cardHeading {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.hostTypeBadge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: var(--spacing-xxs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.hostTypeBadgePersistent {
+  background: var(--color-info-subtle);
+  color: var(--color-info);
+}
+
+.hostTypeBadgeEphemeral {
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+}
+
+.vcsTag {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+/* key/value grids (primary fields + collapsible details) ----------------- */
+
+.keyInfoGrid {
+  font-size: 0.875rem;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--spacing-xxs) var(--spacing-md);
+  margin-bottom: var(--spacing-xs);
+}
+
+.keyInfoGrid code,
+.detailsGrid code {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.details {
+  font-size: 0.8rem;
+}
+
+.detailsSummary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.detailsGrid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--spacing-xxs) var(--spacing-md);
+  margin-top: var(--spacing-xs);
+  padding-left: var(--spacing-xs);
+}
+
+/* Add/Edit modal form layout --------------------------------------------- */
+
+.wideFormModal {
+  max-width: 900px;
+}
+
+.formGrid3 {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.fieldHostType {
+  min-width: 130px;
+}
+
+.fieldVcs {
+  min-width: 120px;
+}
+
+.flavorRow {
+  display: flex;
+  gap: var(--spacing-md);
+  align-items: flex-end;
+}
+
+.flavorField {
+  min-width: 0;
+}
+
+.flavorLabel {
+  font-size: 0.75rem;
+}
+
+.removeFlavorBtn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: var(--spacing-sm) var(--spacing-md);
+}

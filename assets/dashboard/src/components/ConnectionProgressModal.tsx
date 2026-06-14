@@ -6,6 +6,16 @@ import '@xterm/xterm/css/xterm.css';
 import { getRemoteHosts } from '../lib/api';
 import type { RemoteHost } from '../lib/types';
 import useFocusTrap from '../hooks/useFocusTrap';
+import styles from './ConnectionProgressModal.module.css';
+
+// xterm terminal theme — the one documented P3 color exception. Terminal
+// emulators are exempt from the token rule (style-guide verification). Kept as a
+// single named constant so the terminal canvas and its wrapper never seam, and
+// never hardcode the literal anywhere else.
+const TERMINAL_THEME = {
+  background: '#1e1e1e',
+  foreground: '#d4d4d4',
+} as const;
 
 interface ConnectionProgressModalProps {
   profileId: string;
@@ -55,10 +65,7 @@ export default function ConnectionProgressModal({
       cursorBlink: true,
       fontSize: 13,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-      theme: {
-        background: '#1e1e1e',
-        foreground: '#d4d4d4',
-      },
+      theme: TERMINAL_THEME,
       rows: 20,
       allowProposedApi: true,
     });
@@ -252,25 +259,9 @@ export default function ConnectionProgressModal({
     const size = 24;
     switch (status) {
       case 'provisioning':
-        return (
-          <div
-            className="spinner mr-sm"
-            style={{
-              width: `${size}px`,
-              height: `${size}px`,
-            }}
-          />
-        );
+        return <div className={`spinner mr-sm ${styles.statusSpinner}`} />;
       case 'connecting':
-        return (
-          <div
-            className="spinner mr-sm"
-            style={{
-              width: `${size}px`,
-              height: `${size}px`,
-            }}
-          />
-        );
+        return <div className={`spinner mr-sm ${styles.statusSpinner}`} />;
       case 'reconnecting':
         return (
           <svg
@@ -308,7 +299,7 @@ export default function ConnectionProgressModal({
             height={size}
             viewBox="0 0 24 24"
             fill="none"
-            stroke="var(--color-error)"
+            stroke="var(--color-danger)"
             strokeWidth="2"
             className="mr-sm"
           >
@@ -325,38 +316,12 @@ export default function ConnectionProgressModal({
       <div className="modal-overlay" onClick={onClose}>
         <div
           ref={noSessionModalRef}
-          className="modal"
+          className={`modal ${styles.noSessionModal}`}
           onClick={(e) => e.stopPropagation()}
-          style={{ maxWidth: '500px' }}
         >
-          <div className="modal__header flex-row" style={{ justifyContent: 'space-between' }}>
+          <div className="modal__header">
             <h2 className="modal__title m-0 flex-1">Connecting to {flavorName}</h2>
-            <button
-              onClick={onClose}
-              aria-label="Close"
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: 'inherit',
-                padding: '4px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: 'var(--radius-sm)',
-                transition: 'background-color 0.2s, opacity 0.2s',
-                opacity: 0.6,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.opacity = '1';
-                e.currentTarget.style.backgroundColor =
-                  'var(--color-bg-hover, rgba(255, 255, 255, 0.1))';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.opacity = '0.6';
-                e.currentTarget.style.backgroundColor = 'transparent';
-              }}
-            >
+            <button onClick={onClose} aria-label="Close" className="modal__close">
               <svg
                 width="20"
                 height="20"
@@ -372,7 +337,7 @@ export default function ConnectionProgressModal({
             </button>
           </div>
           <div className="modal__body p-lg text-center">
-            <div className="spinner" style={{ margin: '0 auto var(--spacing-md)' }} />
+            <div className={`spinner ${styles.centeredSpinner}`} />
             <p>Starting connection...</p>
           </div>
         </div>
@@ -382,53 +347,16 @@ export default function ConnectionProgressModal({
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div
-        className="modal"
-        onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: '900px', maxHeight: '80vh' }}
-      >
-        <div className="modal__header flex-row" style={{ justifyContent: 'space-between' }}>
+      <div className={`modal ${styles.terminalModal}`} onClick={(e) => e.stopPropagation()}>
+        <div className="modal__header">
           <div className="flex-row gap-sm flex-1">
             {getStatusIcon()}
             <div>
               <h2 className="modal__title m-0">{flavorName}</h2>
-              <p
-                className="text-muted"
-                style={{
-                  margin: '4px 0 0 0',
-                  fontSize: '0.875rem',
-                }}
-              >
-                {getStatusMessage()}
-              </p>
+              <p className={`text-muted ${styles.statusMessage}`}>{getStatusMessage()}</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'inherit',
-              padding: '4px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: 'var(--radius-sm)',
-              transition: 'background-color 0.2s, opacity 0.2s',
-              opacity: 0.6,
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.opacity = '1';
-              e.currentTarget.style.backgroundColor =
-                'var(--color-bg-hover, rgba(255, 255, 255, 0.1))';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.opacity = '0.6';
-              e.currentTarget.style.backgroundColor = 'transparent';
-            }}
-          >
+          <button onClick={onClose} aria-label="Close" className="modal__close">
             <svg
               width="20"
               height="20"
@@ -450,12 +378,8 @@ export default function ConnectionProgressModal({
         >
           <div
             ref={terminalRef}
-            style={{
-              backgroundColor: '#1e1e1e',
-              borderRadius: 'var(--radius-sm)',
-              padding: 'var(--spacing-xs)',
-              minHeight: '400px',
-            }}
+            className={styles.terminal}
+            style={{ backgroundColor: TERMINAL_THEME.background }}
           />
         </div>
       </div>

@@ -174,10 +174,11 @@ describe('RemoteHostSelector', () => {
     const newHostCard = screen.getByText(/New OnDemand host/);
     expect(newHostCard).toBeInTheDocument();
 
-    // The card should have a dashed border style
+    // The "+ New host" card is the provision variant (dashed border, now applied
+    // via a CSS module class). data-variant is the stable hook for that.
     const cardElement = newHostCard.closest('[role="button"]');
     expect(cardElement).toBeInTheDocument();
-    expect(cardElement?.getAttribute('style')).toContain('dashed');
+    expect(cardElement?.getAttribute('data-variant')).toBe('provision');
   });
 
   // Bug 6: "+ New host" card shows "Provisioning..." during connection
