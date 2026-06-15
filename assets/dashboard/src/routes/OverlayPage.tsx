@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import {
   getOverlays,
   getSessions,
@@ -35,6 +35,40 @@ type AddFlowState =
   | { step: 'adding' };
 
 type ViewTab = 'paths' | 'activity';
+
+// Standard in-page tab (guide §2). Rendered as an accessible div so it composes
+// with the shared .wizard__step primitive without altering that primitive's
+// resting styles, which Config and the spawn wizard also consume.
+function WizardTab({
+  active,
+  onClick,
+  children,
+  testId,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+  testId?: string;
+}) {
+  return (
+    <div
+      className={`wizard__step cursor-pointer${active ? ' wizard__step--active' : ''}`}
+      role="tab"
+      aria-selected={active}
+      tabIndex={0}
+      data-testid={testId}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+    >
+      {children}
+    </div>
+  );
+}
 
 export default function OverlayPage() {
   const { config } = useConfig();
@@ -242,47 +276,44 @@ export default function OverlayPage() {
         </div>
       </div>
 
-      {/* View tabs: Paths | Activity */}
-      <div className="overlay-tabs">
-        <button
-          className={`overlay-tab${view === 'paths' ? ' overlay-tab--active' : ''}`}
-          onClick={() => handleTabChange('paths')}
-        >
+      {/* View tabs: Paths | Activity — standard strip with a panel attached
+          flush beneath it (guide §2 "In-page tabs"). */}
+      <div className="wizard__steps" role="tablist" aria-label="Overlay views">
+        <WizardTab active={view === 'paths'} onClick={() => handleTabChange('paths')}>
           Paths
-        </button>
-        <button
-          className={`overlay-tab${view === 'activity' ? ' overlay-tab--active' : ''}`}
-          onClick={() => handleTabChange('activity')}
-        >
+        </WizardTab>
+        <WizardTab active={view === 'activity'} onClick={() => handleTabChange('activity')}>
           Activity
           {overlayUnreadCount > 0 && (
-            <span className="nav-badge nav-badge--danger" style={{ marginLeft: 6 }}>
-              {overlayUnreadCount}
-            </span>
+            <span className="nav-badge nav-badge--danger">{overlayUnreadCount}</span>
           )}
-        </button>
+        </WizardTab>
       </div>
 
-      {view === 'paths' && (
-        <>
-          {/* Repo tabs */}
-          {repos.length > 1 && (
-            <div className="repo-tabs">
-              {repos.map((repo) => (
-                <button
-                  key={repo.name}
-                  className={`repo-tab${activeRepo === repo.name ? ' repo-tab--active' : ''}`}
-                  data-testid="repo-tab"
-                  aria-selected={activeRepo === repo.name}
-                  onClick={() => handleRepoTabChange(repo.name)}
-                >
-                  {repo.name}
-                </button>
-              ))}
-            </div>
-          )}
+      <div className="spawn-content">
+        {view === 'paths' && (
+          <>
+            {/* Repo selector — nested sub-tabs as the first row inside the
+                panel (guide §2). Only when more than one repo exists. */}
+            {repos.length > 1 && (
+              <div
+                className="wizard__steps wizard__steps--nested"
+                role="tablist"
+                aria-label="Repositories"
+              >
+                {repos.map((repo) => (
+                  <WizardTab
+                    key={repo.name}
+                    active={activeRepo === repo.name}
+                    testId="repo-tab"
+                    onClick={() => handleRepoTabChange(repo.name)}
+                  >
+                    {repo.name}
+                  </WizardTab>
+                ))}
+              </div>
+            )}
 
-          <div className="spawn-content">
             <p className="mb-lg text-muted">
               Overlay files are shared across all workspaces for this repo. Agent configs, secrets,
               and dotfiles are automatically copied to new workspaces and kept in sync.
@@ -290,15 +321,7 @@ export default function OverlayPage() {
 
             <SectionHeader title="Auto-managed" />
             {builtinPaths.length === 0 ? (
-              <p
-                className="text-faint"
-                style={{
-                  fontSize: '0.875rem',
-                  padding: 'var(--spacing-sm) 0',
-                }}
-              >
-                No auto-managed overlay paths.
-              </p>
+              <p className="overlay-empty-hint">No auto-managed overlay paths.</p>
             ) : (
               <div className="flex-col gap-xs">
                 {builtinPaths.map((p) => (
@@ -309,15 +332,7 @@ export default function OverlayPage() {
 
             <SectionHeader title="Repo-specific" />
             {repoPaths.length === 0 ? (
-              <p
-                className="text-faint"
-                style={{
-                  fontSize: '0.875rem',
-                  padding: 'var(--spacing-sm) 0',
-                }}
-              >
-                No repo-specific overlay files configured.
-              </p>
+              <p className="overlay-empty-hint">No repo-specific overlay files configured.</p>
             ) : (
               <div className="flex-col gap-xs">
                 {repoPaths.map((p) => (
@@ -335,15 +350,13 @@ export default function OverlayPage() {
                 + Add files
               </button>
             </div>
-          </div>
-        </>
-      )}
+          </>
+        )}
 
-      {view === 'activity' && (
-        <div className="spawn-content">
+        {view === 'activity' && (
           <OverlayActivityFeed events={overlayEvents} onClear={clearOverlayEvents} />
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Add flow modal */}
       {addFlow.step !== 'closed' && (
@@ -495,14 +508,7 @@ function OverlayEventCard({ event }: { event: OverlayChangeEvent }) {
       )}
       {expanded && !event.unified_diff && (
         <div className="overlay-event__diff">
-          <pre
-            className="text-faint"
-            style={{
-              padding: 'var(--spacing-sm) var(--spacing-md)',
-            }}
-          >
-            No diff available (new file or binary content)
-          </pre>
+          <pre className="text-faint">No diff available (new file or binary content)</pre>
         </div>
       )}
     </div>
@@ -512,21 +518,7 @@ function OverlayEventCard({ event }: { event: OverlayChangeEvent }) {
 // --- Existing sub-components ---
 
 function SectionHeader({ title }: { title: string }) {
-  return (
-    <div
-      className="flex-row gap-sm text-muted"
-      style={{
-        margin: 'var(--spacing-lg) 0 var(--spacing-sm)',
-        fontSize: '0.75rem',
-        fontWeight: 600,
-        textTransform: 'uppercase',
-        letterSpacing: '0.05em',
-      }}
-    >
-      <span>{title}</span>
-      <div className="flex-1" style={{ height: '1px', background: 'var(--color-border)' }} />
-    </div>
-  );
+  return <h3 className="settings-section__title mt-lg mb-sm">{title}</h3>;
 }
 
 function PathRow({ info, showStatus }: { info: OverlayPathInfo; showStatus?: boolean }) {
@@ -540,20 +532,10 @@ function PathRow({ info, showStatus }: { info: OverlayPathInfo; showStatus?: boo
     ) : null;
 
   return (
-    <div
-      className="flex-row"
-      style={{
-        justifyContent: 'space-between',
-        padding: 'var(--spacing-sm) var(--spacing-md)',
-        borderRadius: 'var(--radius-md)',
-        background: 'var(--color-surface)',
-        border: '1px solid var(--color-border)',
-        fontSize: '0.875rem',
-      }}
-    >
+    <div className="overlay-path-row">
       <div className="flex-row gap-sm">
         {info.source === 'builtin' && <span className="text-success">&#10003;</span>}
-        <code style={{ fontSize: '0.8125rem' }}>{info.path}</code>
+        <code>{info.path}</code>
       </div>
       <div className="flex-row gap-sm">{statusBadge}</div>
     </div>
@@ -626,31 +608,15 @@ function ScanResults({
       ) : (
         <div className="flex-col gap-xs mb-md">
           {candidates.map((c) => (
-            <label
-              key={c.path}
-              className="flex-row gap-sm cursor-pointer"
-              style={{
-                padding: 'var(--spacing-xs) var(--spacing-sm)',
-                borderRadius: 'var(--radius-md)',
-                fontSize: '0.875rem',
-              }}
-            >
+            <label key={c.path} className="overlay-candidate">
               <input
                 type="checkbox"
                 checked={selected.has(c.path)}
                 onChange={() => onToggle(c.path)}
               />
-              <code className="flex-1" style={{ fontSize: '0.8125rem' }}>
-                {c.path}
-              </code>
-              <span className="text-faint" style={{ fontSize: '0.75rem' }}>
-                {formatSize(c.size)}
-              </span>
-              {c.detected && (
-                <span className="badge badge--neutral" style={{ fontSize: '0.65rem' }}>
-                  detected
-                </span>
-              )}
+              <code className="flex-1">{c.path}</code>
+              <span className="text-faint">{formatSize(c.size)}</span>
+              {c.detected && <span className="badge badge--neutral">detected</span>}
             </label>
           ))}
         </div>
@@ -661,22 +627,9 @@ function ScanResults({
           <SectionHeader title="Custom paths" />
           <div className="flex-col gap-xs">
             {customPaths.map((p) => (
-              <div
-                key={p}
-                className="flex-row gap-sm"
-                style={{
-                  padding: 'var(--spacing-xs) var(--spacing-sm)',
-                  fontSize: '0.875rem',
-                }}
-              >
-                <code className="flex-1" style={{ fontSize: '0.8125rem' }}>
-                  {p}
-                </code>
-                <button
-                  className="btn btn--sm btn--danger"
-                  onClick={() => onRemoveCustomPath(p)}
-                  style={{ padding: '2px 8px', fontSize: '0.75rem' }}
-                >
+              <div key={p} className="overlay-custom-path">
+                <code className="flex-1">{p}</code>
+                <button className="btn btn--sm btn--danger" onClick={() => onRemoveCustomPath(p)}>
                   Remove
                 </button>
               </div>
@@ -685,7 +638,7 @@ function ScanResults({
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 'var(--spacing-sm)', alignItems: 'flex-end' }}>
+      <div className="overlay-add-path">
         <div className="form-group flex-1">
           <label className="form-group__label" htmlFor="overlay-custom-path">
             Custom path
