@@ -90,7 +90,7 @@ export default function BuildMonitorConfig({ state, dispatch, models }: ConfigPa
                 <span
                   style={{
                     fontSize: '0.9rem',
-                    color: 'var(--color-text-secondary)',
+                    color: 'var(--color-text-muted)',
                     marginLeft: 'var(--spacing-sm)',
                   }}
                 >

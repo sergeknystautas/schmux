@@ -128,8 +128,10 @@ export default function BuildMonitorPage() {
   if (!features.build_monitor) {
     return (
       <div className="page-content">
-        <div className="page-header">
-          <h1>Build Monitor</h1>
+        <div className="app-header">
+          <div className="app-header__info">
+            <h1 className="app-header__meta">Build Monitor</h1>
+          </div>
         </div>
         <p className="text-muted">Build Monitor is not available in this build.</p>
       </div>
@@ -139,8 +141,10 @@ export default function BuildMonitorPage() {
   if (!data.enabled) {
     return (
       <div className="page-content">
-        <div className="page-header">
-          <h1>Build Monitor</h1>
+        <div className="app-header">
+          <div className="app-header__info">
+            <h1 className="app-header__meta">Build Monitor</h1>
+          </div>
         </div>
         <p className="text-muted">
           Build Monitor is not enabled. Go to{' '}
@@ -152,15 +156,19 @@ export default function BuildMonitorPage() {
 
   return (
     <div className="page-content">
-      <div className="page-header">
-        <h1>Build Monitor</h1>
-        <button
-          className="btn btn--primary"
-          onClick={handleCheckNow}
-          disabled={checking || data.units.length === 0}
-        >
-          {checking ? 'Checking…' : 'Check now'}
-        </button>
+      <div className="app-header">
+        <div className="app-header__info">
+          <h1 className="app-header__meta">Build Monitor</h1>
+        </div>
+        <div className="app-header__actions">
+          <button
+            className="btn btn--primary"
+            onClick={handleCheckNow}
+            disabled={checking || data.units.length === 0}
+          >
+            {checking ? 'Checking…' : 'Check now'}
+          </button>
+        </div>
       </div>
 
       {error && <p className="form-group__error mb-md">Check failed: {error}</p>}
