@@ -163,20 +163,12 @@ export default function MarkdownPreviewPage() {
       )}
 
       <div className="diff-page">
-        <div
-          className="diff-content"
-          style={{
-            flex: 1,
-            borderTop: '1px solid var(--color-border)',
-            borderLeft: '1px solid var(--color-border)',
-            borderRadius: '0 0 var(--radius-lg) 0',
-          }}
-        >
+        <div className="diff-content diff-content--standalone">
           <div className="diff-content__header">
             <h2 className="diff-content__title">
               {decodedFilepath}
               <a
-                className="diff-content__preview-btn"
+                className="btn btn--sm btn--secondary"
                 data-testid="download-markdown"
                 title="Download Markdown file"
                 href={workspaceId ? getWorkspaceFileUrl(workspaceId, decodedFilepath) : '#'}

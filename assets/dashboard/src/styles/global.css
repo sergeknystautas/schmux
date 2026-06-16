@@ -3893,6 +3893,9 @@ a:hover {
 }
 
 .diff-file-item__stats {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--spacing-xs);
   font-size: 0.65rem;
   font-family: var(--font-mono);
   white-space: nowrap;
@@ -3917,7 +3920,7 @@ a:hover {
 }
 
 .diff-file-item__status--deleted {
-  color: var(--color-error);
+  color: var(--color-danger);
 }
 
 .diff-file-item__status--renamed {
@@ -3965,6 +3968,15 @@ a:hover {
   pointer-events: none;
 }
 
+/* Standalone diff-content panel used by the image/markdown/html preview pages.
+   On the diff page .diff-content attaches to the sidebar+resizer (accent border,
+   no left edge); the preview pages render it on its own, so they want the
+   standard hairline border on all four sides. */
+.diff-content--standalone {
+  border-color: var(--color-border);
+  border-left: 1px solid var(--color-border);
+}
+
 .diff-tab-empty {
   border: 1px solid var(--color-border);
 }
@@ -3991,37 +4003,46 @@ a:hover {
   gap: var(--spacing-sm);
 }
 
-.diff-content__preview-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  color: var(--color-text-secondary);
-  font-size: 0.7rem;
-  font-weight: 500;
-  font-family: var(--font-sans);
-  cursor: pointer;
-  transition: all var(--duration-fast) var(--easing);
+/* The per-file "Preview" / "Open" / "Download" controls in diff-content headers
+   are utility actions (guide §3) — render them as .btn .btn--sm .btn--secondary,
+   no bespoke class. */
+
+/* Inline image thumbnail shown in the diff viewer for changed image files. */
+.diff-image-thumb {
+  padding: var(--spacing-lg);
+  text-align: center;
 }
 
-.diff-content__preview-btn:hover {
-  background: var(--color-accent-subtle);
-  border-color: var(--color-accent);
-  color: var(--color-accent);
+.diff-image-thumb img {
+  max-width: 300px;
+  max-height: 300px;
+  object-fit: contain;
 }
 
-.diff-content__preview-btn--active {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  color: white;
+/* Full-size image preview frame (ImagePreviewPage). Composes on .diff-viewer-wrapper,
+   adding document padding; .diff-viewer-wrapper supplies flex/overflow. */
+.diff-image-frame {
+  padding: var(--spacing-lg);
 }
 
-.diff-content__preview-btn--active:hover {
-  background: var(--color-accent);
-  opacity: 0.9;
+.diff-image-frame img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+}
+
+/* Sandboxed HTML preview iframe (HtmlPreviewPage) — fills its wrapper. */
+.diff-html-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* Inline notice that scripts are disabled in the HTML preview. */
+.diff-content__script-warning {
+  color: var(--color-warning);
+  font-size: 0.8rem;
 }
 
 .diff-viewer-wrapper {
@@ -4047,7 +4068,7 @@ a:hover {
   align-items: center;
   justify-content: center;
   padding: 2rem;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
   font-style: italic;
 }
 
@@ -4071,7 +4092,7 @@ a:hover {
 .markdown-preview-title {
   font-size: 1rem;
   font-weight: 500;
-  color: var(--color-text-primary);
+  color: var(--color-text);
   margin: 0;
 }
 
@@ -4079,13 +4100,13 @@ a:hover {
   flex: 1;
   overflow: auto;
   padding: var(--spacing-md);
-  background: var(--color-bg);
+  background: var(--color-surface);
   font-size: 0.875rem;
   line-height: 1.6;
 }
 
 .markdown-preview-content--dark {
-  background: var(--color-bg-subtle);
+  background: var(--color-surface-alt);
 }
 
 /* Markdown content styling */
@@ -4138,7 +4159,7 @@ a:hover {
 
 .markdown-preview-content code {
   padding: 0.2em 0.4em;
-  background: var(--color-bg-subtle);
+  background: var(--color-surface-alt);
   border-radius: var(--radius-sm);
   font-size: 0.875em;
 }
@@ -4146,7 +4167,7 @@ a:hover {
 .markdown-preview-content pre {
   margin-bottom: 1em;
   padding: var(--spacing-md);
-  background: var(--color-bg-subtle);
+  background: var(--color-surface-alt);
   border-radius: var(--radius-md);
   overflow-x: auto;
 }
@@ -4160,7 +4181,7 @@ a:hover {
   margin: 1em 0;
   padding-left: var(--spacing-md);
   border-left: 4px solid var(--color-accent);
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
 }
 
 .markdown-preview-content a {
@@ -4186,7 +4207,7 @@ a:hover {
 }
 
 .markdown-preview-content th {
-  background: var(--color-bg-subtle);
+  background: var(--color-surface-alt);
   font-weight: 600;
 }
 
@@ -4204,8 +4225,56 @@ a:hover {
 .diff-sidebar__help {
   padding: var(--spacing-sm) var(--spacing-md);
   font-size: 0.7rem;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-faint);
   border-top: 1px solid var(--color-border);
+}
+
+/* ============================================================================
+ * PREVIEW PAGE
+ * Full-bleed dev-server preview (PreviewPage): minimal toolbar of icon buttons
+ * over a surface panel that hosts the preview iframe.
+ * ============================================================================ */
+.preview-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.preview-page__toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background-color: var(--color-surface-alt);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.preview-page__url {
+  flex: 1;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--duration-fast) var(--easing);
+}
+
+.preview-page__url:hover {
+  color: var(--color-text);
+}
+
+.preview-page__viewport {
+  flex: 1;
+  min-height: 0;
 }
 
 /* ============================================================================

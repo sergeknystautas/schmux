@@ -411,14 +411,7 @@ export default function DiffPage() {
                         <span className="text-success">+{file.lines_added}</span>
                       )}
                       {file.lines_removed > 0 && (
-                        <span
-                          className="text-error"
-                          style={{
-                            marginLeft: file.lines_added > 0 ? '4px' : '0',
-                          }}
-                        >
-                          -{file.lines_removed}
-                        </span>
+                        <span className="text-error">-{file.lines_removed}</span>
                       )}
                     </span>
                   </button>
@@ -447,7 +440,7 @@ export default function DiffPage() {
                       (selectedFile.new_path?.match(/\.(md|mdx)$/i) ||
                         selectedFile.old_path?.match(/\.(md|mdx)$/i)) && (
                         <button
-                          className="diff-content__preview-btn"
+                          className="btn btn--sm btn--secondary"
                           title="Preview markdown"
                           disabled={openingPreview}
                           onClick={async () => {
@@ -474,7 +467,7 @@ export default function DiffPage() {
                       (selectedFile.new_path?.match(/\.(png|jpg|jpeg|webp|gif)$/i) ||
                         selectedFile.old_path?.match(/\.(png|jpg|jpeg|webp|gif)$/i)) && (
                         <Link
-                          className="diff-content__preview-btn"
+                          className="btn btn--sm btn--secondary"
                           to={`/diff/${workspaceId}/img/${encodeURIComponent(selectedFile.new_path || '')}`}
                           title="Preview image"
                         >
@@ -486,7 +479,7 @@ export default function DiffPage() {
                       (selectedFile.new_path?.match(/\.html$/i) ||
                         selectedFile.old_path?.match(/\.html$/i)) && (
                         <button
-                          className="diff-content__preview-btn"
+                          className="btn btn--sm btn--secondary"
                           title="Preview HTML"
                           disabled={openingPreview}
                           onClick={async () => {
@@ -520,11 +513,10 @@ export default function DiffPage() {
                   {selectedFile.status !== 'deleted' &&
                   (selectedFile.new_path?.match(/\.(png|jpg|jpeg|webp|gif)$/i) ||
                     selectedFile.old_path?.match(/\.(png|jpg|jpeg|webp|gif)$/i)) ? (
-                    <div className="text-center" style={{ padding: '20px' }}>
+                    <div className="diff-image-thumb">
                       <img
                         src={getWorkspaceFileUrl(workspaceId || '', selectedFile.new_path || '')}
                         alt={selectedFile.new_path || ''}
-                        style={{ maxWidth: '300px', maxHeight: '300px', objectFit: 'contain' }}
                       />
                     </div>
                   ) : selectedFile.is_binary ? (

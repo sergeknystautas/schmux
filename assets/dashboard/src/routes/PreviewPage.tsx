@@ -92,28 +92,10 @@ export default function PreviewPage() {
     <>
       <WorkspaceHeader workspace={workspace} />
       <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          backgroundColor: 'var(--color-surface)',
-          border: '1px solid var(--color-border)',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--spacing-sm)',
-            padding: 'var(--spacing-xs) var(--spacing-sm)',
-            background: 'var(--color-surface-alt)',
-            borderBottom: '1px solid var(--color-border-subtle)',
-          }}
-        >
+      <div className="preview-page">
+        <div className="preview-page__toolbar">
           <Tooltip content="Go back">
-            <button onClick={handleBack} className="btn btn--sm">
+            <button onClick={handleBack} className="btn btn--icon">
               <svg
                 width="14"
                 height="14"
@@ -127,7 +109,7 @@ export default function PreviewPage() {
             </button>
           </Tooltip>
           <Tooltip content="Refresh">
-            <button onClick={handleRefresh} className="btn btn--sm">
+            <button onClick={handleRefresh} className="btn btn--icon">
               <svg
                 width="14"
                 height="14"
@@ -144,30 +126,17 @@ export default function PreviewPage() {
           {previewUrl && (
             <Tooltip content="Open in new tab">
               <a
+                className="preview-page__url"
                 href={previewUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{
-                  flex: 1,
-                  padding: 'var(--spacing-xs) var(--spacing-sm)',
-                  background: 'var(--color-surface)',
-                  border: '1px solid var(--color-border-subtle)',
-                  borderRadius: 'var(--radius-sm)',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '12px',
-                  color: 'var(--color-text-muted)',
-                  textDecoration: 'none',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
               >
                 {previewUrl}
               </a>
             </Tooltip>
           )}
         </div>
-        <div ref={mountRef} className="flex-1" style={{ minHeight: 0 }} />
+        <div ref={mountRef} className="preview-page__viewport" />
       </div>
     </>
   );

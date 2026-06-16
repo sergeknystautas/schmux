@@ -46,23 +46,15 @@ export default function ImagePreviewPage() {
       <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
 
       <div className="diff-page">
-        <div
-          className="diff-content"
-          style={{
-            flex: 1,
-            borderTop: '1px solid var(--color-border)',
-            borderLeft: '1px solid var(--color-border)',
-            borderRadius: '0 0 var(--radius-lg) 0',
-          }}
-        >
+        <div className="diff-content diff-content--standalone">
           <div className="diff-content__header">
             <h2 className="diff-content__title">
               {decodedFilepath}
-              <Link to={`/diff/${workspaceId}`} className="diff-content__preview-btn">
+              <Link to={`/diff/${workspaceId}`} className="btn btn--sm btn--secondary">
                 Back
               </Link>
               <a
-                className="diff-content__preview-btn"
+                className="btn btn--sm btn--secondary"
                 data-testid="open-new-tab"
                 title="Open image in new tab"
                 href={imageUrl}
@@ -72,7 +64,7 @@ export default function ImagePreviewPage() {
                 Open
               </a>
               <a
-                className="diff-content__preview-btn"
+                className="btn btn--sm btn--secondary"
                 data-testid="download-image"
                 title="Download image"
                 href={imageUrl}
@@ -82,12 +74,8 @@ export default function ImagePreviewPage() {
               </a>
             </h2>
           </div>
-          <div className="diff-viewer-wrapper" style={{ padding: '20px', overflow: 'auto' }}>
-            <img
-              src={imageUrl}
-              alt={decodedFilepath}
-              style={{ maxWidth: '100%', height: 'auto', display: 'block', margin: '0 auto' }}
-            />
+          <div className="diff-viewer-wrapper diff-image-frame">
+            <img src={imageUrl} alt={decodedFilepath} />
           </div>
         </div>
       </div>

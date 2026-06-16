@@ -147,20 +147,12 @@ export default function HtmlPreviewPage() {
       )}
 
       <div className="diff-page">
-        <div
-          className="diff-content"
-          style={{
-            flex: 1,
-            borderTop: '1px solid var(--color-border)',
-            borderLeft: '1px solid var(--color-border)',
-            borderRadius: '0 0 var(--radius-lg) 0',
-          }}
-        >
+        <div className="diff-content diff-content--standalone">
           <div className="diff-content__header">
             <h2 className="diff-content__title">
               {decodedFilepath}
               <a
-                className="diff-content__preview-btn"
+                className="btn btn--sm btn--secondary"
                 data-testid="open-new-window"
                 title="Open in new window"
                 href={workspaceId ? getHtmlOpenUrl(workspaceId, decodedFilepath) : '#'}
@@ -170,7 +162,7 @@ export default function HtmlPreviewPage() {
                 Open
               </a>
               <a
-                className="diff-content__preview-btn"
+                className="btn btn--sm btn--secondary"
                 data-testid="download-html"
                 title="Download HTML file"
                 href={workspaceId ? getWorkspaceFileUrl(workspaceId, decodedFilepath) : '#'}
@@ -180,13 +172,7 @@ export default function HtmlPreviewPage() {
               </a>
             </h2>
             {hasScripts && (
-              <span
-                data-testid="script-warning"
-                style={{
-                  color: 'var(--color-warning)',
-                  fontSize: '0.8rem',
-                }}
-              >
+              <span className="diff-content__script-warning" data-testid="script-warning">
                 JavaScript is disabled in preview — page may not render as intended
               </span>
             )}
@@ -194,10 +180,10 @@ export default function HtmlPreviewPage() {
           <div className="diff-viewer-wrapper">
             <iframe
               ref={iframeRef}
+              className="diff-html-frame"
               srcDoc={rewrittenHtml}
               sandbox="allow-same-origin"
               title={`HTML preview: ${decodedFilepath}`}
-              style={{ width: '100%', height: '100%', border: 'none' }}
               onLoad={handleIframeLoad}
             />
           </div>
