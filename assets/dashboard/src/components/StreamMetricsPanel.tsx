@@ -77,14 +77,14 @@ export function StreamMetricsPanel({ backendStats, frontendStats, onDiagnosticCa
       <div className="connection-pill cursor-pointer" onClick={() => setExpanded(!expanded)}>
         <span>{formatCount(frames)} frames</span>
         <span
-          className={drops > 0 ? 'warning' : ''}
+          className={drops > 0 ? 'text-warning' : ''}
           data-severity={drops > 0 ? 'warning' : undefined}
         >
           {drops} drops
         </span>
-        <span className={seqBreaks > 0 ? 'warning' : ''}>{seqBreaks} seq breaks</span>
+        <span className={seqBreaks > 0 ? 'text-warning' : ''}>{seqBreaks} seq breaks</span>
         {followLost > 0 && (
-          <span className="warning" data-testid="follow-lost-pill">
+          <span className="text-warning" data-testid="follow-lost-pill">
             {followLost} follow lost
           </span>
         )}
@@ -129,19 +129,19 @@ export function StreamMetricsPanel({ backendStats, frontendStats, onDiagnosticCa
               </tr>
               <tr>
                 <td className="stream-metrics__label">Events dropped (parser)</td>
-                <td className={`stream-metrics__value${parserDrops > 0 ? ' warning' : ''}`}>
+                <td className={`stream-metrics__value${parserDrops > 0 ? ' text-warning' : ''}`}>
                   {parserDrops}
                 </td>
               </tr>
               <tr>
                 <td className="stream-metrics__label">Drops (client fan-out)</td>
-                <td className={`stream-metrics__value${clientDrops > 0 ? ' warning' : ''}`}>
+                <td className={`stream-metrics__value${clientDrops > 0 ? ' text-warning' : ''}`}>
                   {clientDrops}
                 </td>
               </tr>
               <tr>
                 <td className="stream-metrics__label">Drops (tracker fan-out)</td>
-                <td className={`stream-metrics__value${trackerDrops > 0 ? ' warning' : ''}`}>
+                <td className={`stream-metrics__value${trackerDrops > 0 ? ' text-warning' : ''}`}>
                   {trackerDrops}
                 </td>
               </tr>
@@ -163,7 +163,7 @@ export function StreamMetricsPanel({ backendStats, frontendStats, onDiagnosticCa
               </tr>
               <tr>
                 <td className="stream-metrics__label">Sequence breaks</td>
-                <td className={`stream-metrics__value${seqBreaks > 0 ? ' warning' : ''}`}>
+                <td className={`stream-metrics__value${seqBreaks > 0 ? ' text-warning' : ''}`}>
                   {seqBreaks}
                 </td>
               </tr>
@@ -230,7 +230,7 @@ export function StreamMetricsPanel({ backendStats, frontendStats, onDiagnosticCa
               </tr>
               <tr>
                 <td className="stream-metrics__label">Follow lost (true→false)</td>
-                <td className={`stream-metrics__value${followLost > 0 ? ' warning' : ''}`}>
+                <td className={`stream-metrics__value${followLost > 0 ? ' text-warning' : ''}`}>
                   {followLost}
                 </td>
               </tr>
@@ -250,7 +250,7 @@ export function StreamMetricsPanel({ backendStats, frontendStats, onDiagnosticCa
               </tr>
               {frontendStats?.frameSizeDist && frontendStats?.frameSizeStats && (
                 <tr>
-                  <td colSpan={2} style={{ padding: '12px 0 2px 0' }}>
+                  <td colSpan={2} className="stream-metrics__dist-cell">
                     <div className="stream-metrics__dist-header">Frame size distribution</div>
                     <FrameSizeHistogram
                       dist={frontendStats.frameSizeDist}
@@ -268,18 +268,22 @@ export function StreamMetricsPanel({ backendStats, frontendStats, onDiagnosticCa
   );
 }
 
-// Map a bucket's byte range to a bar color
+// Map a bucket's byte range to a bar color. Returns a CSS custom property so the
+// ramp themes correctly (four distinct steps: success → warning → orange → danger).
+// Callers MUST apply these via the CSS `fill`/`stroke` property (inline style or a
+// class), never a presentation attribute — SVG does not substitute var() inside
+// fill=/stroke= and would render the default (black) instead of the token.
 function frameSizeBarColor(bytes: number): string {
-  if (bytes < 1024) return '#0dbc79'; // green: <1KB
-  if (bytes < 4096) return '#e5e510'; // yellow: <4KB
-  if (bytes < 16384) return '#e5a010'; // orange: <16KB
-  return '#f14c4c'; // red: ≥16KB
+  if (bytes < 1024) return 'var(--color-success)'; // green: <1KB
+  if (bytes < 4096) return 'var(--color-warning)'; // yellow: <4KB
+  if (bytes < 16384) return 'var(--color-graph-lane-3)'; // orange: <16KB
+  return 'var(--color-danger)'; // red: ≥16KB
 }
 
 function frameSizeColor(bytes: number): string {
-  if (bytes < 1024) return '#0dbc79';
-  if (bytes < 4096) return '#e5e510';
-  return '#f14c4c';
+  if (bytes < 1024) return 'var(--color-success)';
+  if (bytes < 4096) return 'var(--color-warning)';
+  return 'var(--color-danger)';
 }
 
 function FrameSizeHistogram({
@@ -313,11 +317,7 @@ function FrameSizeHistogram({
 
   return (
     <div data-testid="frame-size-histogram">
-      <svg
-        width="100%"
-        viewBox={`0 0 ${chartW} ${chartH}`}
-        style={{ display: 'block', overflow: 'visible' }}
-      >
+      <svg className="stream-metrics__histogram" width="100%" viewBox={`0 0 ${chartW} ${chartH}`}>
         {/* Bars */}
         {buckets.map((count, i) => {
           if (count === 0) return null;
@@ -331,7 +331,7 @@ function FrameSizeHistogram({
               y={y}
               width={Math.max(barW - 0.5, 0.5)}
               height={h}
-              fill={frameSizeBarColor(i * bucketSize)}
+              style={{ fill: frameSizeBarColor(i * bucketSize) }}
               opacity={0.85}
             />
           );
@@ -343,7 +343,7 @@ function FrameSizeHistogram({
           y1={0}
           x2={medianX}
           y2={plotH}
-          stroke={medianColor}
+          style={{ stroke: medianColor }}
           strokeWidth={1}
           opacity={0.7}
         />
@@ -351,7 +351,7 @@ function FrameSizeHistogram({
           x={medianX}
           y={-3}
           textAnchor="middle"
-          fill={medianColor}
+          style={{ fill: medianColor }}
           fontSize={7}
           fontFamily="Menlo, Monaco, 'Courier New', monospace"
         >
@@ -361,7 +361,7 @@ function FrameSizeHistogram({
           x={medianX}
           y={chartH - 1}
           textAnchor="middle"
-          fill={medianColor}
+          style={{ fill: medianColor }}
           fontSize={7}
           fontFamily="Menlo, Monaco, 'Courier New', monospace"
         >
@@ -374,7 +374,7 @@ function FrameSizeHistogram({
           y1={0}
           x2={p90X}
           y2={plotH}
-          stroke={p90Color}
+          style={{ stroke: p90Color }}
           strokeWidth={1}
           strokeDasharray="2,2"
           opacity={0.7}
@@ -383,7 +383,7 @@ function FrameSizeHistogram({
           x={p90X}
           y={-3}
           textAnchor="middle"
-          fill={p90Color}
+          style={{ fill: p90Color }}
           fontSize={7}
           fontFamily="Menlo, Monaco, 'Courier New', monospace"
         >
@@ -393,7 +393,7 @@ function FrameSizeHistogram({
           x={p90X}
           y={chartH - 1}
           textAnchor="middle"
-          fill={p90Color}
+          style={{ fill: p90Color }}
           fontSize={7}
           fontFamily="Menlo, Monaco, 'Courier New', monospace"
         >
@@ -402,11 +402,11 @@ function FrameSizeHistogram({
 
         {/* X-axis baseline */}
         <line
+          className="stream-metrics__histogram-baseline"
           x1={padL}
           y1={plotH}
           x2={padL + plotW}
           y2={plotH}
-          stroke="rgba(255,255,255,0.15)"
           strokeWidth={0.5}
         />
       </svg>

@@ -6631,14 +6631,14 @@ body.keyboard-mode-active::after {
   top: 100%;
   left: 0;
   z-index: 100;
-  margin-top: 4px;
+  margin-top: var(--spacing-xs);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: var(--spacing-sm);
   font-size: 0.75rem;
   min-width: 280px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-lg);
 }
 
 .stream-metrics__table {
@@ -6647,13 +6647,27 @@ body.keyboard-mode-active::after {
 }
 
 .stream-metrics__label {
-  padding: 2px 8px 2px 0;
+  padding: var(--spacing-xxs) var(--spacing-sm) var(--spacing-xxs) 0;
   color: var(--color-text-muted);
 }
 
+/* Child row under a .stream-metrics__subheader group — indented to read as nested. */
+.stream-metrics__label--indented {
+  padding-left: var(--spacing-sm);
+}
+
 .stream-metrics__value {
-  padding: 2px 0;
+  padding: var(--spacing-xxs) 0;
   text-align: right;
+}
+
+/* In-table section label (e.g. "By trigger" / "By command" group headers). */
+.stream-metrics__subheader {
+  padding: var(--spacing-xs) 0 var(--spacing-xxs) 0;
+  color: var(--color-text-muted);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .stream-metrics__toggle-btn {
@@ -6694,7 +6708,23 @@ body.keyboard-mode-active::after {
 .stream-metrics__dist-header {
   color: var(--color-text-muted);
   font-size: 0.7rem;
-  margin-bottom: 4px;
+  margin-bottom: var(--spacing-xs);
+}
+
+/* Cell spanning both columns that holds the dist header + histogram. */
+.stream-metrics__dist-cell {
+  padding: var(--spacing-md) 0 var(--spacing-xxs) 0;
+}
+
+/* SVG presentation attributes don't substitute var(), so the histogram's
+   fixed axis line reaches its token through this CSS property, not fill=. */
+.stream-metrics__histogram-baseline {
+  stroke: var(--color-border-subtle);
+}
+
+.stream-metrics__histogram {
+  display: block;
+  overflow: visible;
 }
 
 /* ============================================================================

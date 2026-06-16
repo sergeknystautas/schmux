@@ -53,59 +53,30 @@ export function IOWorkspaceMetricsPanel({ stats, onCapture }: Props) {
         </button>
       )}
       {expanded && (
-        <div
-          className="stream-metrics__dropdown"
-          style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            zIndex: 100,
-            marginTop: '4px',
-            background: 'var(--color-surface)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-md)',
-            padding: 'var(--spacing-sm)',
-            fontSize: '0.75rem',
-            minWidth: '240px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-          }}
-        >
-          <table className="w-full" style={{ borderCollapse: 'collapse' }}>
+        <div className="stream-metrics__dropdown">
+          <table className="stream-metrics__table">
             <tbody>
               <tr>
-                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
-                  Total commands
-                </td>
-                <td style={{ padding: '2px 0', textAlign: 'right' }}>{totalCmds}</td>
+                <td className="stream-metrics__label">Total commands</td>
+                <td className="stream-metrics__value">{totalCmds}</td>
               </tr>
               <tr>
-                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
-                  Total duration
-                </td>
-                <td style={{ padding: '2px 0', textAlign: 'right' }}>{formatDuration(totalMs)}</td>
+                <td className="stream-metrics__label">Total duration</td>
+                <td className="stream-metrics__value">{formatDuration(totalMs)}</td>
               </tr>
               {Object.keys(triggerCounts).length > 0 && (
                 <>
                   <tr>
-                    <td
-                      colSpan={2}
-                      style={{
-                        padding: '6px 0 2px 0',
-                        color: 'var(--color-text-muted)',
-                        fontSize: '0.65rem',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
-                      }}
-                    >
+                    <td colSpan={2} className="stream-metrics__subheader">
                       By trigger
                     </td>
                   </tr>
                   {Object.entries(triggerCounts).map(([trigger, count]) => (
                     <tr key={trigger}>
-                      <td style={{ padding: '2px 8px 2px 8px', color: 'var(--color-text-muted)' }}>
+                      <td className="stream-metrics__label stream-metrics__label--indented">
                         {trigger}
                       </td>
-                      <td style={{ padding: '2px 0', textAlign: 'right' }}>{count}</td>
+                      <td className="stream-metrics__value">{count}</td>
                     </tr>
                   ))}
                 </>
@@ -113,25 +84,16 @@ export function IOWorkspaceMetricsPanel({ stats, onCapture }: Props) {
               {Object.keys(counters).length > 0 && (
                 <>
                   <tr>
-                    <td
-                      colSpan={2}
-                      style={{
-                        padding: '6px 0 2px 0',
-                        color: 'var(--color-text-muted)',
-                        fontSize: '0.65rem',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
-                      }}
-                    >
+                    <td colSpan={2} className="stream-metrics__subheader">
                       By command
                     </td>
                   </tr>
                   {Object.entries(counters).map(([cmd, count]) => (
                     <tr key={cmd}>
-                      <td style={{ padding: '2px 8px 2px 8px', color: 'var(--color-text-muted)' }}>
+                      <td className="stream-metrics__label stream-metrics__label--indented">
                         {cmd}
                       </td>
-                      <td style={{ padding: '2px 0', textAlign: 'right' }}>{count}</td>
+                      <td className="stream-metrics__value">{count}</td>
                     </tr>
                   ))}
                 </>
