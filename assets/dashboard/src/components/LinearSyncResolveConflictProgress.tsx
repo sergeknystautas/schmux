@@ -18,7 +18,7 @@ function StepIcon({ status }: { status: string }) {
         height="12"
         viewBox="0 0 16 16"
         fill="none"
-        stroke="var(--color-text-muted)"
+        className="conflict-progress__step-icon--in-progress"
         strokeWidth="2"
       >
         <circle cx="8" cy="8" r="5.5" />
@@ -32,7 +32,7 @@ function StepIcon({ status }: { status: string }) {
         height="12"
         viewBox="0 0 16 16"
         fill="none"
-        stroke="var(--color-success)"
+        className="conflict-progress__step-icon--done"
         strokeWidth="2.5"
       >
         <polyline points="3 8 6.5 11.5 13 4.5" />
@@ -46,7 +46,7 @@ function StepIcon({ status }: { status: string }) {
       height="12"
       viewBox="0 0 16 16"
       fill="none"
-      stroke="var(--color-error)"
+      className="conflict-progress__step-icon--failed"
       strokeWidth="2.5"
     >
       <line x1="4" y1="4" x2="12" y2="12" />
@@ -110,34 +110,33 @@ function StepRow({ step }: { step: LinearSyncResolveConflictStep }) {
 
   return (
     <div
-      className="conflict-progress__step"
-      style={{ opacity: step.status === 'in_progress' ? 1 : 0.8 }}
+      className={`conflict-progress__step${
+        step.status !== 'in_progress' ? ' conflict-progress__step--done' : ''
+      }`}
     >
       <div className="conflict-progress__elapsed">
         {elapsed ? (
           <span className="conflict-progress__elapsed-text">{elapsed}</span>
         ) : (
-          <span style={{ display: 'inline-block', width: 12 }}>
+          <span className="conflict-progress__status-slot">
             <StepIcon status={step.status} />
           </span>
         )}
       </div>
-      <div className="flex-1" style={{ minWidth: 0 }}>
+      <div className="conflict-progress__step-body">
         {step.message.map((line, i) => (
-          <div key={i} style={{ fontSize: '0.85rem' }}>
+          <div key={i} className="conflict-progress__message">
             {line}
           </div>
         ))}
         {step.conflict_diffs && step.files && step.files.length > 0 ? (
-          <div style={{ marginTop: 4 }}>
+          <div className="conflict-progress__files">
             {step.files.map((file) => (
-              <div key={file} style={{ marginBottom: 6 }}>
-                <div className="conflict-progress__file-path mb-0" style={{ marginBottom: 2 }}>
-                  {file}
-                </div>
+              <div key={file} className="conflict-progress__file">
+                <div className="conflict-progress__file-path">{file}</div>
                 {step.conflict_diffs![file]?.map((hunk, i) => (
-                  <div key={i} style={{ marginBottom: 4 }}>
-                    <div style={{ fontSize: '0.85rem', marginBottom: 2 }}>Hunk {i + 1}:</div>
+                  <div key={i} className="conflict-progress__hunk">
+                    <div className="conflict-progress__hunk-label">Hunk {i + 1}:</div>
                     <pre className="conflict-progress__code">{hunk}</pre>
                   </div>
                 ))}
@@ -147,7 +146,7 @@ function StepRow({ step }: { step: LinearSyncResolveConflictStep }) {
         ) : (
           step.files &&
           step.files.length > 0 && (
-            <div style={{ marginTop: 2 }}>
+            <div className="conflict-progress__files">
               {step.files.map((file) => (
                 <div key={file} className="conflict-progress__file-path">
                   {file}
@@ -203,15 +202,10 @@ export default function LinearSyncResolveConflictProgress({
   };
 
   return (
-    <div style={{ fontSize: '0.85rem' }}>
+    <div className="conflict-progress">
       {/* Header */}
-      <div className="flex-row gap-sm" style={{ marginBottom: 6 }}>
-        {isActive && (
-          <div
-            className="spinner spinner--small"
-            style={{ width: 14, height: 14, borderWidth: 2, flexShrink: 0, marginTop: 2 }}
-          />
-        )}
+      <div className="conflict-progress__header">
+        {isActive && <div className="spinner spinner--small conflict-progress__header-spinner" />}
         <div>
           <strong>
             {isActive
@@ -228,14 +222,7 @@ export default function LinearSyncResolveConflictProgress({
                 : 'Conflict resolution failed'}
           </strong>
           {resolveConflict.hash && (
-            <div
-              style={{
-                color: 'var(--color-text-muted)',
-                fontFamily: 'monospace',
-                fontSize: '0.8rem',
-                marginTop: 2,
-              }}
-            >
+            <div className="conflict-progress__hash">
               {displayHash}
               {resolveConflict.hash_message ? ` ${resolveConflict.hash_message}` : ''}
             </div>
@@ -253,23 +240,12 @@ export default function LinearSyncResolveConflictProgress({
       {/* Next steps */}
       {!isActive && isDone && hasMoreCommits && (
         <div className="conflict-progress__next-steps">
-          <strong style={{ marginBottom: 4, display: 'block' }}>Next steps</strong>
-          <div style={{ fontSize: '0.85rem', marginBottom: 8 }}>
+          <strong className="conflict-progress__next-steps-title">Next steps</strong>
+          <div className="conflict-progress__next-steps-body">
             There are {workspace?.behind} commits left to sync.
           </div>
           <button className="btn btn--primary" onClick={handleContinue} disabled={continuing}>
-            {continuing && (
-              <div
-                className="spinner spinner--small"
-                style={{
-                  width: 12,
-                  height: 12,
-                  borderWidth: 2,
-                  display: 'inline-block',
-                  marginRight: 6,
-                }}
-              />
-            )}
+            {continuing && <div className="spinner spinner--small" />}
             {continuing ? 'Starting...' : 'Continue syncing'}
           </button>
         </div>

@@ -6732,15 +6732,43 @@ body.keyboard-mode-active::after {
  * Linear sync resolve conflict step display
  * ============================================================================ */
 
+.conflict-progress {
+  font-size: 0.875rem;
+}
+
 .conflict-progress__step {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 3px 0;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) 0;
+}
+
+/* Completed/failed steps dim slightly so the in-progress step reads as current. */
+.conflict-progress__step--done {
+  opacity: 0.8;
+}
+
+.conflict-progress__status-slot {
+  display: inline-block;
+  width: 12px;
+}
+
+/* Stroke colors are set here (not as SVG presentation attributes) so the tokens
+   actually resolve in every theme — var() inside stroke= does not. */
+.conflict-progress__step-icon--in-progress {
+  stroke: var(--color-text-muted);
+}
+
+.conflict-progress__step-icon--done {
+  stroke: var(--color-success);
+}
+
+.conflict-progress__step-icon--failed {
+  stroke: var(--color-danger);
 }
 
 .conflict-progress__elapsed {
-  margin-top: 2px;
+  margin-top: var(--spacing-xxs);
   flex-shrink: 0;
   min-width: 32px;
   text-align: right;
@@ -6749,27 +6777,59 @@ body.keyboard-mode-active::after {
 .conflict-progress__elapsed-text {
   font-size: 0.7rem;
   color: var(--color-text-muted);
-  font-family: monospace;
+  font-family: var(--font-mono);
+}
+
+.conflict-progress__step-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.conflict-progress__message {
+  color: var(--color-text);
 }
 
 .conflict-progress__thinking {
-  margin-top: 4px;
-  padding: 6px 8px;
-  background: var(--color-surface-alt, rgba(0, 0, 0, 0.15));
-  border-radius: 4px;
+  margin-top: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--color-surface-alt);
+  border-radius: var(--radius-sm);
   font-size: 0.7rem;
   font-family: var(--font-mono);
   color: var(--color-text-muted);
   animation: pulse 2s infinite;
 }
 
+.conflict-progress__files {
+  margin-top: var(--spacing-xs);
+}
+
+.conflict-progress__file {
+  margin-bottom: var(--spacing-xs);
+}
+
+.conflict-progress__file-path {
+  margin-bottom: var(--spacing-xxs);
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+}
+
+.conflict-progress__hunk {
+  margin-bottom: var(--spacing-xs);
+}
+
+.conflict-progress__hunk-label {
+  margin-bottom: var(--spacing-xxs);
+}
+
 .conflict-progress__code {
   margin: 0;
-  margin-top: 2px;
-  margin-bottom: 4px;
-  padding: 6px 8px;
-  background: var(--color-surface-alt, rgba(0, 0, 0, 0.15));
-  border-radius: 4px;
+  margin-top: var(--spacing-xxs);
+  margin-bottom: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--color-surface-alt);
+  border-radius: var(--radius-sm);
   font-size: 0.7rem;
   font-family: var(--font-mono);
   line-height: 1.4;
@@ -6782,10 +6842,10 @@ body.keyboard-mode-active::after {
 
 .conflict-progress__summary {
   margin: 0;
-  margin-top: 4px;
-  padding: 6px 8px;
-  background: var(--color-surface-alt, rgba(0, 0, 0, 0.15));
-  border-radius: 4px;
+  margin-top: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--color-surface-alt);
+  border-radius: var(--radius-sm);
   font-size: 0.7rem;
   font-family: var(--font-mono);
   line-height: 1.4;
@@ -6794,16 +6854,37 @@ body.keyboard-mode-active::after {
   word-break: break-word;
 }
 
-.conflict-progress__file-path {
-  font-size: 0.75rem;
-  font-family: var(--font-mono);
+.conflict-progress__header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
+}
+
+.conflict-progress__header-spinner {
+  flex-shrink: 0;
+}
+
+.conflict-progress__hash {
   color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  margin-top: var(--spacing-xxs);
 }
 
 .conflict-progress__next-steps {
-  margin-top: 8px;
+  margin-top: var(--spacing-sm);
   border-top: 1px solid var(--color-border);
-  padding-top: 6px;
+  padding-top: var(--spacing-xs);
+}
+
+.conflict-progress__next-steps-title {
+  display: block;
+  margin-bottom: var(--spacing-xs);
+}
+
+.conflict-progress__next-steps-body {
+  margin-bottom: var(--spacing-sm);
 }
 
 /* ============================================================================
