@@ -570,9 +570,6 @@ export default function SpawnPage() {
     async (
       promptText: string
     ): Promise<{ result: SuggestBranchResponse | null; error: string | null }> => {
-      if (!promptText.trim()) {
-        return { result: null, error: 'Empty prompt' };
-      }
       try {
         const result = await suggestBranch({ prompt: promptText });
         return { result, error: null };
@@ -871,7 +868,7 @@ export default function SpawnPage() {
         // User provided a branch name — use it directly, skip suggestion
         actualBranch = branch.trim();
         actualNickname = nickname;
-      } else if (prompt.trim() && branchSuggestTarget) {
+      } else if (branchSuggestTarget) {
         // Call branch suggest API
         setEngagePhase('naming');
         const { result, error } = await generateBranchName(prompt);

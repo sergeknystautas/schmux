@@ -263,6 +263,30 @@ describe('SpawnPage sapling flow', () => {
     expect(screen.getByPlaceholderText(/feature\/my-branch/i)).toBeInTheDocument();
   });
 
+  it('calls branch suggestion for blank-prompt git spawns when configured', async () => {
+    const cfg = makeConfig({ branch_suggest: { target: 'opus' } });
+    configContextValue = cfg;
+    mockGetConfig.mockResolvedValue(cfg);
+
+    renderSpawnPage();
+    await waitFor(() => {
+      expect(screen.getByTestId('spawn-repo-select')).toBeInTheDocument();
+    });
+    const repoSelect = screen.getByTestId('spawn-repo-select') as HTMLSelectElement;
+    fireEvent.change(repoSelect, {
+      target: { value: 'https://github.com/user/gitrepo.git' },
+    });
+    await selectClaudeAgent();
+
+    fireEvent.click(screen.getByTestId('spawn-submit'));
+
+    await waitFor(() => expect(mockSuggestBranch).toHaveBeenCalledWith({ prompt: '' }));
+    await waitFor(() => expect(mockSpawnSessions).toHaveBeenCalled());
+    const payload = mockSpawnSessions.mock.calls[0][0];
+    expect(payload.prompt).toBe('');
+    expect(payload.branch).toBe('auto/from-llm');
+  });
+
   it('renders the label input with the prospective workspace ID as placeholder', async () => {
     renderSpawnPage();
     await waitFor(() => {

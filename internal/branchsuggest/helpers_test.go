@@ -3,6 +3,7 @@ package branchsuggest
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
@@ -45,18 +46,6 @@ func TestAskForPrompt_Validation(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name:    "empty prompt",
-			cfg:     branchSuggestCfg(&config.BranchSuggestConfig{Target: "claude"}),
-			prompt:  "",
-			wantErr: ErrNoPrompt,
-		},
-		{
-			name:    "whitespace-only prompt",
-			cfg:     branchSuggestCfg(&config.BranchSuggestConfig{Target: "claude"}),
-			prompt:  "   ",
-			wantErr: ErrNoPrompt,
-		},
-		{
 			name:    "nil config",
 			cfg:     nil,
 			prompt:  "add dark mode",
@@ -80,6 +69,26 @@ func TestAskForPrompt_Validation(t *testing.T) {
 			_, err := AskForPrompt(context.Background(), tt.cfg, tt.prompt)
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("AskForPrompt() error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestBranchSuggestPrompt_AllowsEmptyPrompt(t *testing.T) {
+	input := branchSuggestPrompt("   ")
+	if !strings.Contains(input, blankPromptDescription) {
+		t.Fatalf("branchSuggestPrompt() did not include blank prompt description")
+	}
+	if strings.Contains(input, "{{USER_PROMPT}}") {
+		t.Fatalf("branchSuggestPrompt() left template placeholder unresolved")
+	}
+}
+
+func TestValidateSuggestedBranchRejectsDefaultBranches(t *testing.T) {
+	for _, branch := range []string{"main", "master"} {
+		t.Run(branch, func(t *testing.T) {
+			if err := validateSuggestedBranch(branch); !errors.Is(err, ErrInvalidBranch) {
+				t.Fatalf("validateSuggestedBranch(%q) error = %v, want %v", branch, err, ErrInvalidBranch)
 			}
 		})
 	}

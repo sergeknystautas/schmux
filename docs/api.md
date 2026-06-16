@@ -649,7 +649,8 @@ Notes:
 
 ### POST /api/suggest-branch
 
-AI-powered branch name suggestion from a prompt.
+AI-powered branch name suggestion from a prompt. An empty prompt is accepted
+and treated as an interactive session without an initial task.
 
 Request:
 
@@ -669,7 +670,7 @@ Response:
 
 Errors:
 
-- 400 with JSON: `{"error":"Failed to generate branch suggestion: ..."}` (empty prompt, invalid branch/response)
+- 400 with JSON: `{"error":"Failed to generate branch suggestion: ..."}` (invalid branch/response)
 - 404 with JSON: `{"error":"Failed to generate branch suggestion: ..."}` (target not found)
 - 503 with JSON: `{"error":"Branch suggestion is not configured"}` (disabled)
 - 500 with JSON: `{"error":"Failed to generate branch suggestion: ..."}`

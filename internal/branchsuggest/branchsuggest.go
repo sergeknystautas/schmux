@@ -29,6 +29,8 @@ Rules:
 - Must be kebab-case (lowercase, hyphens only, no spaces)
 - Avoid the words "add", "implement" - focus on what it IS, not what you're DOING
 - If the prompt mentions a specific component/feature, include that in the branch name
+- If no task prompt was provided, generate a neutral scratch branch for an interactive session
+- Never return a default branch name like "main" or "master"
 
 Examples:
 - Prompt: "Add dark mode to the settings panel"
@@ -47,10 +49,11 @@ Here is the user's prompt:
 `
 
 	branchSuggestTimeout = 30 * time.Second
+
+	blankPromptDescription = "No task prompt was provided. The user is starting an interactive agent session without an initial task."
 )
 
 var (
-	ErrNoPrompt      = errors.New("empty prompt provided")
 	ErrInvalidBranch = errors.New("invalid branch name")
 )
 
@@ -69,25 +72,22 @@ type Result struct {
 	_      struct{} `additionalProperties:"false"`
 }
 
-// AskForPrompt generates a branch name from a user prompt.
+// AskForPrompt generates a branch name from a user prompt. Empty prompts are
+// accepted and converted into an explicit "interactive session" description so
+// blank-prompt spawns still use the branch suggestion path instead of falling
+// back to a repository default branch.
 // Errors surfaced:
-//   - ErrNoPrompt                  (empty user prompt)
 //   - oneshot.ErrDisabled          (no target configured)
 //   - oneshot.ErrTargetNotFound    (configured target missing)
 //   - oneshot.ErrInvalidResponse   (LLM output not parseable)
 //   - ErrInvalidBranch             (LLM returned an invalid branch name)
 func AskForPrompt(ctx context.Context, cfg *config.Config, userPrompt string) (Result, error) {
-	userPrompt = strings.TrimSpace(userPrompt)
-	if userPrompt == "" {
-		return Result{}, ErrNoPrompt
-	}
-
 	targetName := ""
 	if cfg != nil {
 		targetName = cfg.GetBranchSuggestTarget()
 	}
 
-	input := strings.ReplaceAll(Prompt, "{{USER_PROMPT}}", userPrompt)
+	input := branchSuggestPrompt(userPrompt)
 
 	result, err := oneshot.ExecuteTarget[Result](ctx, cfg, targetName, input, schema.LabelBranchSuggest, branchSuggestTimeout, "")
 	if err != nil {
@@ -99,12 +99,30 @@ func AskForPrompt(ctx context.Context, cfg *config.Config, userPrompt string) (R
 	// blank value, which is a content failure, not a transport failure. Both errors
 	// map to HTTP 400 in handlers_spawn.go, so external behavior is unchanged.
 	branch := strings.TrimSpace(result.Branch)
-	if branch == "" {
-		return Result{}, ErrInvalidBranch
-	}
-	if err := workspace.ValidateBranchName(branch); err != nil {
+	if err := validateSuggestedBranch(branch); err != nil {
 		return Result{}, ErrInvalidBranch
 	}
 	result.Branch = branch
 	return result, nil
+}
+
+func validateSuggestedBranch(branch string) error {
+	if branch == "" {
+		return ErrInvalidBranch
+	}
+	if branch == "main" || branch == "master" {
+		return ErrInvalidBranch
+	}
+	if err := workspace.ValidateBranchName(branch); err != nil {
+		return ErrInvalidBranch
+	}
+	return nil
+}
+
+func branchSuggestPrompt(userPrompt string) string {
+	userPrompt = strings.TrimSpace(userPrompt)
+	if userPrompt == "" {
+		userPrompt = blankPromptDescription
+	}
+	return strings.ReplaceAll(Prompt, "{{USER_PROMPT}}", userPrompt)
 }

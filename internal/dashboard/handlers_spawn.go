@@ -551,8 +551,6 @@ func (h *SpawnHandlers) handleSuggestBranch(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		status := http.StatusInternalServerError
 		switch {
-		case errors.Is(err, branchsuggest.ErrNoPrompt):
-			status = http.StatusBadRequest
 		case errors.Is(err, oneshot.ErrTargetNotFound):
 			status = http.StatusNotFound
 		case errors.Is(err, oneshot.ErrDisabled):

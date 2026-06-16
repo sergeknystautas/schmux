@@ -411,10 +411,10 @@ Called during the "Engage" flow (inside `handleEngage`) when ALL of these are tr
 
 - Mode is `fresh`
 - `spawnMode` is `'promptable'`
-- `prompt` is not empty
 - `branchSuggestTarget` is configured
 
 The Engage button shows "Naming branch..." during this phase. On success, `branch` is set from the API response and passed directly to spawn.
+Blank prompts still use this path; the branch suggester receives explicit context that the user is starting an interactive session without an initial task.
 
 **Failure handling:** If branch suggestion fails, the UI prompts you to enter a branch name manually instead of silently defaulting to the repository's default branch. This ensures you're always in control of the branch naming.
 
