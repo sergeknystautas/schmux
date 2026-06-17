@@ -207,6 +207,32 @@ func TestGeminiParity(t *testing.T) {
 	}
 }
 
+// TestGeminiPromptDelivery guards against regressing the gemini -i handling.
+// Gemini's -i/--prompt-interactive flag REQUIRES a value, so it must be
+// delivered adjacent to the prompt (prompt_flag), not baked into the detected
+// command via command_args. Baking it in produces a dangling "gemini -i" when
+// the prompt is blank, which gemini rejects with "Not enough arguments
+// following: i".
+func TestGeminiPromptDelivery(t *testing.T) {
+	loadDescriptorAdapter(t, "gemini")
+	a := GetAdapter("gemini")
+	if a == nil {
+		t.Fatal("gemini adapter not registered")
+	}
+
+	if got := a.PromptFlag(); got != "-i" {
+		t.Errorf("PromptFlag = %q, want %q (prompt must be delivered via flag)", got, "-i")
+	}
+
+	ga, ok := a.(*GenericAdapter)
+	if !ok {
+		t.Fatalf("adapter is %T, want *GenericAdapter", a)
+	}
+	if len(ga.desc.CommandArgs) != 0 {
+		t.Errorf("CommandArgs = %v, want empty (must not bake -i into the detected command)", ga.desc.CommandArgs)
+	}
+}
+
 func TestOpencodeParity(t *testing.T) {
 	loadDescriptorAdapter(t, "opencode")
 	a := GetAdapter("opencode")

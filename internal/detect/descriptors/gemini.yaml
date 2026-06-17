@@ -8,7 +8,7 @@ detect:
     package: '@google/gemini-cli'
 capabilities: [interactive]
 model_flag: '--model'
-command_args: ['-i']
+prompt_flag: '-i'
 instruction:
   dir: '.gemini'
   file: 'GEMINI.md'

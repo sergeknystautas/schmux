@@ -37,7 +37,7 @@ Provides a unified interface for detecting, invoking, and configuring the four b
 ## Gotchas
 
 - **`commands.go` still exists as a dispatcher, not as the deleted monolith.** The spec said to delete `commands.go` and move logic into adapters. The file was rewritten, not deleted -- it contains the 20-line `BuildCommandParts()` function and `ToolMode` constants.
-- **Gemini's `Detect()` returns `Command: "gemini -i"` (with `-i` flag baked in).** The `-i` flag forces interactive mode. This is unlike other adapters where the base command is just the binary name. The `-i` flag gets included in `BuildCommandParts` as part of `strings.Fields(detectedCommand)`.
+- **Gemini delivers its prompt via the `-i` flag, not a baked-in command arg.** `-i`/`--prompt-interactive` runs the given prompt and stays interactive, but it requires a value. So Gemini's detected `Command` is just `gemini`, and `-i` is configured as the descriptor's `prompt_flag` — emitted as `gemini -i <prompt>` only when a prompt is supplied, and omitted entirely for blank-prompt interactive spawns. (It was previously baked in as `gemini -i`, which produced a dangling `gemini -i` and the error "Not enough arguments following: i" when spawning without a prompt.)
 - **`SpawnEnv()` is only called for OpenCode.** Claude/Codex/Gemini return nil. If a new tool needs spawn-time env vars, implement `SpawnEnv()` and verify the session manager's env merge logic in `manager.go`.
 - **OpenCode's streaming mode is not supported.** `StreamingArgs()` returns an error. Only Claude supports streaming oneshot (`output-format stream-json`).
 - **Gemini's oneshot mode is not supported.** `OneshotArgs()` returns an error. Gemini is interactive-only.

@@ -133,9 +133,13 @@ to swap detection paths or `prompt_strategy`) without editing OSS files.
   all interactive args, not appends to `base_args`.
 
 - **`command_args` goes into `Tool.Command`** — `BuildCommandParts` calls
-  `strings.Fields(detectedCommand)` to split the command. Gemini's
-  `command_args: ["-i"]` produces `Command: "gemini -i"` which splits
-  correctly.
+  `strings.Fields(detectedCommand)` to split the command. `command_args`
+  are appended unconditionally, so they must not be flags that require a
+  value: a value-taking flag (e.g. gemini's `-i`/`--prompt-interactive`)
+  baked in via `command_args` produces a dangling `tool -i` when no prompt
+  is supplied, which the CLI rejects. Deliver such flags via `prompt_flag`
+  instead — it is emitted adjacent to the prompt value and omitted entirely
+  when the prompt is blank.
 
 - **SpawnEnv returns nil, not empty map** — when there are no env vars to
   set, `SpawnEnv` returns nil to match existing caller expectations.
