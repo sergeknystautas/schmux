@@ -3,6 +3,7 @@ package controlmode
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -245,6 +246,33 @@ func TestParserContinueNotification(t *testing.T) {
 	}
 	if len(event.Args) != 1 || event.Args[0] != "%7" {
 		t.Errorf("Args = %v, want [%%7]", event.Args)
+	}
+}
+
+// TestParserCloseConcurrentWithSends reproduces the "send on closed channel"
+// panic that crashed the daemon: Close() is invoked from the session-dispose
+// goroutine (client.Close -> parser.Close) while the parser goroutine is still
+// delivering events. Close must be safe to call concurrently with the send
+// methods. Run under -race for best coverage; without the fix this panics.
+func TestParserCloseConcurrentWithSends(t *testing.T) {
+	for iter := 0; iter < 100; iter++ {
+		parser := NewParser(strings.NewReader(""), nil)
+
+		var wg sync.WaitGroup
+		for g := 0; g < 4; g++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for i := 0; i < 2000; i++ {
+					parser.sendEvent(Event{Type: "window-add", Args: []string{"@5"}})
+					parser.sendOutput(OutputEvent{PaneID: "%1", Data: "x"})
+				}
+			}()
+		}
+
+		// Close concurrently with the in-flight sends.
+		parser.Close()
+		wg.Wait()
 	}
 }
 

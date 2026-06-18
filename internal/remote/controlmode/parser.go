@@ -67,6 +67,10 @@ type Parser struct {
 	// Synchronization
 	mu     sync.Mutex
 	closed bool
+	// done is closed by Close() to signal in-flight senders to stop. The data
+	// channels themselves are closed only by the Run goroutine (the sole
+	// sender) on exit, so a send can never race with their close.
+	done chan struct{}
 }
 
 // Guard line regex patterns
@@ -97,6 +101,7 @@ func NewParser(r io.Reader, logger *log.Logger, connID ...string) *Parser {
 		responses:        make(chan CommandResponse, 10000), // Large buffer to prevent blocking on slow networks
 		events:           make(chan Event, 100),
 		controlModeReady: make(chan struct{}),
+		done:             make(chan struct{}),
 	}
 }
 
@@ -122,16 +127,31 @@ func (p *Parser) ControlModeReady() <-chan struct{} {
 	return p.controlModeReady
 }
 
-// Close closes the parser and its channels.
+// Close marks the parser closed and signals in-flight senders to stop.
+// Safe to call from any goroutine, any number of times.
+//
+// It deliberately does NOT close the output/responses/events channels: those
+// are closed by the Run goroutine (the sole sender) when it exits, so a send
+// can never race with their close. Closing them here — from a different
+// goroutine than the sender, as the session-dispose path does
+// (client.Close -> parser.Close) — previously caused "send on closed channel"
+// panics.
 func (p *Parser) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if !p.closed {
 		p.closed = true
-		close(p.output)
-		close(p.responses)
-		close(p.events)
+		close(p.done)
 	}
+}
+
+// closeChannels closes the data channels. It is called only by Run (the sole
+// sender) as it exits, guaranteeing no concurrent send is in flight.
+func (p *Parser) closeChannels() {
+	p.Close() // ensure the closed flag and done signal are set
+	close(p.output)
+	close(p.responses)
+	close(p.events)
 }
 
 // DroppedOutputs returns the number of dropped output events.
@@ -146,6 +166,10 @@ func (p *Parser) DroppedEvents() int64 { return p.droppedEvents.Load() }
 // Run starts parsing lines from the reader.
 // Blocks until EOF or error. Call in a goroutine.
 func (p *Parser) Run() error {
+	// The Run goroutine is the sole sender, so it owns closing the data
+	// channels — done here on exit, after the read loop, so no send is ever
+	// in flight when they close.
+	defer p.closeChannels()
 	for {
 		line, err := p.reader.ReadString('\n')
 		if err != nil {
@@ -153,13 +177,11 @@ func (p *Parser) Run() error {
 				if p.logger != nil {
 					p.logger.Debug("parser closing", "conn", p.connectionID, "reason", err)
 				}
-				p.Close()
 				return nil
 			}
 			if p.logger != nil {
 				p.logger.Error("read error", "conn", p.connectionID, "err", err)
 			}
-			p.Close()
 			return fmt.Errorf("read error: %w", err)
 		}
 
@@ -343,6 +365,10 @@ func (p *Parser) sendResponse(r CommandResponse) {
 	select {
 	case p.responses <- r:
 		// Successfully delivered
+	case <-p.done:
+		// Parser is closing — drop rather than block on a channel no one is
+		// draining anymore.
+		return
 	case <-time.After(timeout):
 		// Client isn't draining responses - this is a serious issue
 		// Log loudly but don't block the parser forever

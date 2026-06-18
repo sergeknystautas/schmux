@@ -140,27 +140,32 @@ func TestParser_Close(t *testing.T) {
 	input := strings.NewReader("")
 	parser := NewParser(input, nil)
 
-	// Close should be safe to call multiple times
+	// The Run goroutine (the sole sender) closes the data channels when it
+	// exits. Close() only signals senders to stop and must be safe to call
+	// from any goroutine, any number of times, including concurrently with Run.
+	runExited := make(chan struct{})
+	go func() {
+		parser.Run() // empty reader -> immediate EOF -> channels closed on exit
+		close(runExited)
+	}()
 	parser.Close()
 	parser.Close()
 
-	// Channels should be closed
 	select {
-	case _, ok := <-parser.Output():
-		if ok {
-			t.Error("output channel should be closed")
-		}
-	case <-time.After(100 * time.Millisecond):
-		t.Error("output channel should be readable (closed)")
+	case <-runExited:
+	case <-time.After(time.Second):
+		t.Fatal("Run did not exit")
 	}
 
-	select {
-	case _, ok := <-parser.Responses():
-		if ok {
-			t.Error("responses channel should be closed")
-		}
-	case <-time.After(100 * time.Millisecond):
-		t.Error("responses channel should be readable (closed)")
+	// After Run exited, the data channels are closed.
+	if _, ok := <-parser.Output(); ok {
+		t.Error("output channel should be closed")
+	}
+	if _, ok := <-parser.Responses(); ok {
+		t.Error("responses channel should be closed")
+	}
+	if _, ok := <-parser.Events(); ok {
+		t.Error("events channel should be closed")
 	}
 }
 
