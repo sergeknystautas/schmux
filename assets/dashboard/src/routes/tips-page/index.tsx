@@ -40,7 +40,7 @@ export default function TipsPage() {
         <div className="config-sticky-header__title-row">
           <h1 className="config-sticky-header__title">Tips</h1>
         </div>
-        <div className="config-tabs">
+        <div className="wizard__steps">
           {Array.from({ length: TOTAL_TABS }, (_, i) => i + 1).map((tabNum) => {
             const isCurrent = tabNum === currentTab;
             const tabLabel = TABS[tabNum - 1];
@@ -48,7 +48,7 @@ export default function TipsPage() {
             return (
               <button
                 key={tabNum}
-                className={`config-tab ${isCurrent ? 'config-tab--active' : ''}`}
+                className={`wizard__step ${isCurrent ? 'wizard__step--active' : ''}`}
                 onClick={() => setCurrentTab(tabNum)}
               >
                 {tabLabel}

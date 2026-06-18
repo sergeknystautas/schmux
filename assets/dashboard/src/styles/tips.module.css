@@ -8,8 +8,10 @@
 }
 
 .tipsContent h2 {
-  font-size: 1.25rem;
+  font-size: 0.875rem;
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   margin-top: 0;
   margin-bottom: var(--spacing-sm);
   color: var(--color-text);

@@ -4432,45 +4432,6 @@ a:hover {
   font-weight: 600;
 }
 
-/* Config tabs (post-onboarding mode) */
-.config-tabs {
-  display: flex;
-  gap: var(--spacing-sm);
-  border-bottom: 2px solid var(--color-border);
-  padding-bottom: 0;
-}
-
-.config-tab {
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: none;
-  border: none;
-  border-bottom: 3px solid transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  font-size: 0.875rem;
-  font-weight: 500;
-  transition: all var(--duration-fast) var(--easing);
-  margin-bottom: -2px;
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-}
-
-.config-tab:hover {
-  color: var(--color-text);
-}
-
-.config-tab--active {
-  color: var(--color-accent);
-  border-bottom-color: var(--color-accent);
-}
-
-.config-tab__check {
-  color: var(--color-success);
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-
 /* Wizard step content */
 .wizard-step-content__title {
   font-size: 1.25rem;
