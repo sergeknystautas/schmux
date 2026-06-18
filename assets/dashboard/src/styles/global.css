@@ -2917,6 +2917,13 @@ body {
   font-size: 0.875rem;
   font-weight: 500;
   color: var(--color-text-muted);
+  /* Reset native control chrome so the primitive renders identically whether the
+     host element is a <button> or a <div role="tab"> — the browser-default gray
+     fill and bevel border would otherwise leak through on a <button>. No-op for
+     the <div> consumers; border-bottom is re-declared after the reset so the
+     tab underline survives. */
+  background: none;
+  border: none;
   border-bottom: 2px solid transparent;
 }
 
