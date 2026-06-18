@@ -47,8 +47,10 @@ export default function PersonasListPage() {
   if (loading) {
     return (
       <div className="page-content">
-        <div className="page-header">
-          <h1>Personas</h1>
+        <div className="app-header">
+          <div className="app-header__info">
+            <h1 className="app-header__meta">Personas</h1>
+          </div>
         </div>
         <p className="text-muted">Loading...</p>
       </div>
@@ -58,8 +60,10 @@ export default function PersonasListPage() {
   if (error) {
     return (
       <div className="page-content">
-        <div className="page-header">
-          <h1>Personas</h1>
+        <div className="app-header">
+          <div className="app-header__info">
+            <h1 className="app-header__meta">Personas</h1>
+          </div>
         </div>
         <p className="text-danger">{error}</p>
       </div>
@@ -68,35 +72,39 @@ export default function PersonasListPage() {
 
   return (
     <div className="page-content">
-      <div className="page-header">
-        <h1>Personas</h1>
-        <Link to="/personas/create" className="btn btn--primary">
-          Create Persona
-        </Link>
+      <div className="app-header">
+        <div className="app-header__info">
+          <h1 className="app-header__meta">Personas</h1>
+        </div>
+        <div className="app-header__actions">
+          <Link to="/personas/create" className="btn btn--primary">
+            Create Persona
+          </Link>
+        </div>
       </div>
 
-      <div className="persona-grid" data-testid="persona-grid">
+      <div className="entity-grid" data-testid="persona-grid">
         {personas.map((persona) => (
-          <div key={persona.id} className="persona-card" data-testid={`persona-card-${persona.id}`}>
-            <div className="persona-card__accent" style={{ backgroundColor: persona.color }} />
+          <div key={persona.id} className="entity-card" data-testid={`persona-card-${persona.id}`}>
+            <div className="entity-card__accent" style={{ backgroundColor: persona.color }} />
             <button
-              className="persona-card__close"
+              className="entity-card__close"
               onClick={() => handleDelete(persona)}
               aria-label={`Delete ${persona.name}`}
               title="Delete"
             >
               &times;
             </button>
-            <div className="persona-card__content">
-              <div className="persona-card__header">
-                <span className="persona-card__icon">{persona.icon}</span>
-                <span className="persona-card__name">{persona.name}</span>
+            <div className="entity-card__content">
+              <div className="entity-card__header">
+                <span className="entity-card__icon">{persona.icon}</span>
+                <span className="entity-card__name">{persona.name}</span>
               </div>
-              <p className="persona-card__preview">
+              <p className="entity-card__preview">
                 {persona.prompt.split('\n').slice(0, 2).join(' ').slice(0, 120)}
                 {persona.prompt.length > 120 ? '...' : ''}
               </p>
-              <div className="persona-card__actions">
+              <div className="entity-card__actions">
                 <button
                   className="btn btn--sm btn--primary"
                   onClick={() => navigate(`/personas/${persona.id}`)}
@@ -110,7 +118,10 @@ export default function PersonasListPage() {
       </div>
 
       {personas.length === 0 && (
-        <p className="text-muted">No personas yet. Create one to get started.</p>
+        <div className="empty-state">
+          <h3 className="empty-state__title">No personas yet</h3>
+          <p className="empty-state__description">Create one to get started.</p>
+        </div>
       )}
     </div>
   );

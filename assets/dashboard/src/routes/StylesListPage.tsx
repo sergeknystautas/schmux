@@ -45,8 +45,10 @@ export default function StylesListPage() {
   if (loading) {
     return (
       <div className="page-content">
-        <div className="page-header">
-          <h1>Comm Styles</h1>
+        <div className="app-header">
+          <div className="app-header__info">
+            <h1 className="app-header__meta">Comm Styles</h1>
+          </div>
         </div>
         <p className="text-muted">Loading...</p>
       </div>
@@ -56,8 +58,10 @@ export default function StylesListPage() {
   if (error) {
     return (
       <div className="page-content">
-        <div className="page-header">
-          <h1>Comm Styles</h1>
+        <div className="app-header">
+          <div className="app-header__info">
+            <h1 className="app-header__meta">Comm Styles</h1>
+          </div>
         </div>
         <p className="text-danger">{error}</p>
       </div>
@@ -66,31 +70,35 @@ export default function StylesListPage() {
 
   return (
     <div className="page-content">
-      <div className="page-header">
-        <h1>Comm Styles</h1>
-        <Link to="/styles/create" className="btn btn--primary">
-          Create Style
-        </Link>
+      <div className="app-header">
+        <div className="app-header__info">
+          <h1 className="app-header__meta">Comm Styles</h1>
+        </div>
+        <div className="app-header__actions">
+          <Link to="/styles/create" className="btn btn--primary">
+            Create Style
+          </Link>
+        </div>
       </div>
 
-      <div className="persona-grid" data-testid="style-grid">
+      <div className="entity-grid" data-testid="style-grid">
         {styles.map((style) => (
-          <div key={style.id} className="persona-card" data-testid={`style-card-${style.id}`}>
+          <div key={style.id} className="entity-card" data-testid={`style-card-${style.id}`}>
             <button
-              className="persona-card__close"
+              className="entity-card__close"
               onClick={() => handleDelete(style)}
               aria-label={`Delete ${style.name}`}
               title="Delete"
             >
               &times;
             </button>
-            <div className="persona-card__content">
-              <div className="persona-card__header">
-                <span className="persona-card__icon">{style.icon}</span>
-                <span className="persona-card__name">{style.name}</span>
+            <div className="entity-card__content">
+              <div className="entity-card__header">
+                <span className="entity-card__icon">{style.icon}</span>
+                <span className="entity-card__name">{style.name}</span>
               </div>
-              <p className="persona-card__preview">{style.tagline || ''}</p>
-              <div className="persona-card__actions">
+              <p className="entity-card__preview">{style.tagline || ''}</p>
+              <div className="entity-card__actions">
                 <button
                   className="btn btn--sm btn--primary"
                   onClick={() => navigate(`/styles/${style.id}`)}
@@ -104,7 +112,10 @@ export default function StylesListPage() {
       </div>
 
       {styles.length === 0 && (
-        <p className="text-muted">No styles yet. Create one to get started.</p>
+        <div className="empty-state">
+          <h3 className="empty-state__title">No styles yet</h3>
+          <p className="empty-state__description">Create one to get started.</p>
+        </div>
       )}
     </div>
   );

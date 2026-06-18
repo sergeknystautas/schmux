@@ -44,7 +44,7 @@ export default function StyleForm({ mode, initialData, saving, onSave, onCancel 
   };
 
   return (
-    <div className="persona-form" data-testid="style-form">
+    <div className="entity-form" data-testid="style-form">
       {/* Name + Icon on one row */}
       <div className="form-row">
         <div className="form-group flex-1">
@@ -60,18 +60,17 @@ export default function StyleForm({ mode, initialData, saving, onSave, onCancel 
             placeholder="Concise Engineer"
           />
         </div>
-        <div className="form-group" style={{ flex: '0 0 auto', minWidth: 0 }}>
+        <div className="form-group entity-form__narrow-field">
           <label className="form-group__label" htmlFor="style-icon">
             Icon (emoji)
           </label>
           <input
             id="style-icon"
             type="text"
-            className="input"
+            className="input entity-form__icon-input"
             value={formData.icon}
             onChange={(e) => setFormData((prev) => ({ ...prev, icon: e.target.value }))}
             placeholder="🎯"
-            style={{ width: '5rem', textAlign: 'center', fontSize: '1.2rem' }}
           />
         </div>
       </div>
@@ -94,16 +93,12 @@ export default function StyleForm({ mode, initialData, saving, onSave, onCancel 
         <label className="form-group__label" htmlFor="style-prompt">
           Prompt
         </label>
-        <span
-          className="form-group__hint"
-          style={{ marginTop: 0, marginBottom: '4px', display: 'block' }}
-        >
+        <span className="form-group__hint entity-form__hint">
           Define the communication style — tone, verbosity, formatting preferences
         </span>
         <textarea
           id="style-prompt"
-          className="textarea"
-          style={{ fontFamily: 'var(--font-mono)' }}
+          className="textarea entity-form__textarea--mono"
           value={formData.prompt}
           onChange={(e) => setFormData((prev) => ({ ...prev, prompt: e.target.value }))}
           rows={15}

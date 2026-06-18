@@ -50,11 +50,15 @@ export default function StyleCreatePage() {
 
   return (
     <div className="page-content">
-      <div className="page-header">
-        <h1>Create Style</h1>
-        <Link to="/styles" className="btn">
-          Back to Styles
-        </Link>
+      <div className="app-header">
+        <div className="app-header__info">
+          <h1 className="app-header__meta">Create Style</h1>
+        </div>
+        <div className="app-header__actions">
+          <Link to="/styles" className="btn">
+            Back to Styles
+          </Link>
+        </div>
       </div>
 
       <StyleForm

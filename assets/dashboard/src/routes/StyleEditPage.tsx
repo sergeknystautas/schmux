@@ -66,8 +66,10 @@ export default function StyleEditPage() {
   if (loading || !style) {
     return (
       <div className="page-content">
-        <div className="page-header">
-          <h1>Edit Style</h1>
+        <div className="app-header">
+          <div className="app-header__info">
+            <h1 className="app-header__meta">Edit Style</h1>
+          </div>
         </div>
         {error ? (
           <>
@@ -93,11 +95,15 @@ export default function StyleEditPage() {
 
   return (
     <div className="page-content">
-      <div className="page-header">
-        <h1>{style.name}</h1>
-        <Link to="/styles" className="btn">
-          Back to Styles
-        </Link>
+      <div className="app-header">
+        <div className="app-header__info">
+          <h1 className="app-header__meta">{style.name}</h1>
+        </div>
+        <div className="app-header__actions">
+          <Link to="/styles" className="btn">
+            Back to Styles
+          </Link>
+        </div>
       </div>
 
       <StyleForm

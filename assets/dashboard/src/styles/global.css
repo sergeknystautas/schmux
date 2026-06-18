@@ -2046,24 +2046,6 @@ body {
   outline-offset: 2px;
 }
 
-/* Page Header */
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--spacing-xl);
-}
-
-.page-header__title {
-  font-size: 1.5rem;
-  font-weight: 600;
-}
-
-.page-header__actions {
-  display: flex;
-  gap: var(--spacing-md);
-}
-
 /* Config Sticky Header - matches app-header style exactly */
 .config-sticky-header {
   position: sticky;
@@ -6309,26 +6291,31 @@ body.keyboard-mode-active::after {
 }
 
 /* ========================================
-   Personas Page
+   Entity cards & forms (Personas, Comm Styles)
+   Shared grid/card/form primitives. The Styles pages consume these
+   alongside Personas, so they stay domain-neutral (no .persona-* on
+   Styles surfaces). Cards and the form panel render white-on-gray per
+   the page-anatomy guide (§2): they rest directly on the surface-alt
+   canvas.
    ======================================== */
 
-.persona-grid {
+.entity-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: var(--spacing-md);
   margin-top: var(--spacing-md);
 }
 
-.persona-card {
+.entity-card {
   display: flex;
   position: relative;
-  background: var(--color-surface-alt);
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
-.persona-card__close {
+.entity-card__close {
   position: absolute;
   top: var(--spacing-xs);
   right: var(--spacing-xs);
@@ -6338,87 +6325,103 @@ body.keyboard-mode-active::after {
   cursor: pointer;
   font-size: 1rem;
   line-height: 1;
-  padding: 2px 6px;
+  padding: var(--spacing-xxs) var(--spacing-xs);
   border-radius: var(--radius-sm);
   transition:
-    color 0.15s,
-    background 0.15s;
+    color var(--duration-fast),
+    background var(--duration-fast);
 }
 
-.persona-card__close:hover {
+.entity-card__close:hover {
   color: var(--color-danger);
-  background: var(--color-surface);
+  background: var(--color-surface-alt);
 }
 
-.persona-card__accent {
+.entity-card__accent {
   width: 4px;
   flex-shrink: 0;
 }
 
-.persona-card__content {
+.entity-card__content {
   flex: 1;
   padding: var(--spacing-md);
   min-width: 0;
 }
 
-.persona-card__header {
+.entity-card__header {
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
   margin-bottom: var(--spacing-sm);
 }
 
-.persona-card__icon {
+.entity-card__icon {
   font-size: 1.5rem;
   line-height: 1;
 }
 
-.persona-card__name {
+.entity-card__name {
   font-weight: 600;
-  font-size: 0.95rem;
+  font-size: 0.875rem;
 }
 
-.persona-card__badge {
-  font-size: 0.7rem;
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-secondary);
-}
-
-.persona-card__preview {
+.entity-card__preview {
   font-size: 0.85rem;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
   margin: 0 0 var(--spacing-sm) 0;
   line-height: 1.4;
 }
 
-.persona-card__actions {
+.entity-card__actions {
   display: flex;
   justify-content: flex-end;
   gap: var(--spacing-xs);
 }
 
-.persona-form {
-  background: var(--color-surface-alt);
+.entity-form {
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   padding: var(--spacing-lg);
   margin-bottom: var(--spacing-lg);
 }
 
-.persona-form h3 {
+.entity-form h3 {
   margin-top: 0;
   margin-bottom: var(--spacing-lg);
   font-size: 1.1rem;
 }
 
-.persona-form .form-actions {
+.entity-form .form-actions {
   display: flex;
   gap: var(--spacing-sm);
   justify-content: flex-end;
   margin-top: var(--spacing-md);
+}
+
+/* Narrow inline field (icon, color) that sits beside the Name field. */
+.entity-form__narrow-field {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+/* Emoji icon input — wider glyph, centered. */
+.entity-form__icon-input {
+  width: 5rem;
+  text-align: center;
+  font-size: 1.2rem;
+}
+
+/* Hint rendered as a sub-label block directly beneath the field label. */
+.entity-form__hint {
+  display: block;
+  margin-top: 0;
+  margin-bottom: var(--spacing-xs);
+}
+
+/* Monospace body for prompt / expectations textareas. */
+.entity-form__textarea--mono {
+  font-family: var(--font-mono);
 }
 
 #persona-icon:placeholder-shown {
@@ -6426,17 +6429,17 @@ body.keyboard-mode-active::after {
   opacity: 0.5;
 }
 
-.persona-form__color-wrapper {
+.entity-form__color-wrapper {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  padding: 4px;
+  padding: var(--spacing-xs);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  background: var(--color-surface);
+  background: var(--color-surface-alt);
 }
 
-.persona-form__color-input {
+.entity-form__color-input {
   width: 32px;
   height: 32px;
   padding: 0;
@@ -6446,24 +6449,24 @@ body.keyboard-mode-active::after {
   background: none;
 }
 
-.persona-form__color-input::-webkit-color-swatch-wrapper {
+.entity-form__color-input::-webkit-color-swatch-wrapper {
   padding: 0;
 }
 
-.persona-form__color-input::-webkit-color-swatch {
+.entity-form__color-input::-webkit-color-swatch {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
 }
 
-.persona-form__color-input::-moz-color-swatch {
+.entity-form__color-input::-moz-color-swatch {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
 }
 
-.persona-form__color-value {
+.entity-form__color-value {
   font-size: 0.8rem;
-  font-family: var(--font-mono, monospace);
-  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
   user-select: all;
 }
 

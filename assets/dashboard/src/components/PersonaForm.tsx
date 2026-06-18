@@ -52,7 +52,7 @@ export default function PersonaForm({
   };
 
   return (
-    <div className="persona-form" data-testid="persona-form">
+    <div className="entity-form" data-testid="persona-form">
       {/* Name + Icon + Color on one row */}
       <div className="form-row">
         <div className="form-group flex-1">
@@ -68,33 +68,32 @@ export default function PersonaForm({
             placeholder="Security Auditor"
           />
         </div>
-        <div className="form-group" style={{ flex: '0 0 auto', minWidth: 0 }}>
+        <div className="form-group entity-form__narrow-field">
           <label className="form-group__label" htmlFor="persona-icon">
             Icon (emoji)
           </label>
           <input
             id="persona-icon"
             type="text"
-            className="input"
+            className="input entity-form__icon-input"
             value={formData.icon}
             onChange={(e) => setFormData((prev) => ({ ...prev, icon: e.target.value }))}
             placeholder="🔒"
-            style={{ width: '5rem', textAlign: 'center', fontSize: '1.2rem' }}
           />
         </div>
-        <div className="form-group" style={{ flex: '0 0 auto', minWidth: 0 }}>
+        <div className="form-group entity-form__narrow-field">
           <label className="form-group__label" htmlFor="persona-color">
             Color
           </label>
-          <div className="persona-form__color-wrapper">
+          <div className="entity-form__color-wrapper">
             <input
               id="persona-color"
               type="color"
-              className="persona-form__color-input"
+              className="entity-form__color-input"
               value={formData.color}
               onChange={(e) => setFormData((prev) => ({ ...prev, color: e.target.value }))}
             />
-            <span className="persona-form__color-value">{formData.color}</span>
+            <span className="entity-form__color-value">{formData.color}</span>
           </div>
         </div>
       </div>
@@ -103,16 +102,12 @@ export default function PersonaForm({
         <label className="form-group__label" htmlFor="persona-prompt">
           Personality
         </label>
-        <span
-          className="form-group__hint"
-          style={{ marginTop: 0, marginBottom: '4px', display: 'block' }}
-        >
+        <span className="form-group__hint entity-form__hint">
           Define how this agent should behave — its role, approach, and style
         </span>
         <textarea
           id="persona-prompt"
-          className="textarea"
-          style={{ fontFamily: 'var(--font-mono)' }}
+          className="textarea entity-form__textarea--mono"
           value={formData.prompt}
           onChange={(e) => setFormData((prev) => ({ ...prev, prompt: e.target.value }))}
           rows={25}
@@ -124,16 +119,12 @@ export default function PersonaForm({
         <label className="form-group__label" htmlFor="persona-expectations">
           Expectations
         </label>
-        <span
-          className="form-group__hint"
-          style={{ marginTop: 0, marginBottom: '4px', display: 'block' }}
-        >
+        <span className="form-group__hint entity-form__hint">
           Describe the output format or deliverables expected from this persona
         </span>
         <textarea
           id="persona-expectations"
-          className="textarea"
-          style={{ fontFamily: 'var(--font-mono)' }}
+          className="textarea entity-form__textarea--mono"
           value={formData.expectations}
           onChange={(e) => setFormData((prev) => ({ ...prev, expectations: e.target.value }))}
           rows={3}

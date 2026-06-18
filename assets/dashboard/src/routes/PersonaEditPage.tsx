@@ -67,8 +67,10 @@ export default function PersonaEditPage() {
   if (loading || !persona) {
     return (
       <div className="page-content">
-        <div className="page-header">
-          <h1>Edit Persona</h1>
+        <div className="app-header">
+          <div className="app-header__info">
+            <h1 className="app-header__meta">Edit Persona</h1>
+          </div>
         </div>
         {error ? (
           <>
@@ -95,11 +97,15 @@ export default function PersonaEditPage() {
 
   return (
     <div className="page-content">
-      <div className="page-header">
-        <h1>{persona.name}</h1>
-        <Link to="/personas" className="btn">
-          Back to Personas
-        </Link>
+      <div className="app-header">
+        <div className="app-header__info">
+          <h1 className="app-header__meta">{persona.name}</h1>
+        </div>
+        <div className="app-header__actions">
+          <Link to="/personas" className="btn">
+            Back to Personas
+          </Link>
+        </div>
       </div>
 
       <PersonaForm
