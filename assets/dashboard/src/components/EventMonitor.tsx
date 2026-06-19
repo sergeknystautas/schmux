@@ -3,17 +3,17 @@ import { Link } from 'react-router-dom';
 import { useSessions } from '../contexts/SessionsContext';
 import { useMonitor } from '../contexts/MonitorContext';
 
-function eventDotColor(eventType: string): string {
+function eventDotClass(eventType: string): string {
   switch (eventType) {
     case 'status':
-      return '#0dbc79';
+      return 'event-monitor__dot--status';
     case 'failure':
-      return '#e5a445';
+      return 'event-monitor__dot--failure';
     case 'reflection':
     case 'friction':
-      return '#569cd6';
+      return 'event-monitor__dot--info';
     default:
-      return 'var(--color-text-tertiary)';
+      return 'event-monitor__dot--muted';
   }
 }
 
@@ -62,7 +62,12 @@ export default function EventMonitor() {
 
   return (
     <div className="event-monitor">
-      <button className="diag-pane__toggle" onClick={toggleCollapsed}>
+      <button
+        className="diag-pane__toggle"
+        onClick={toggleCollapsed}
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? 'Expand events panel' : 'Collapse events panel'}
+      >
         <span className={`diag-pane__chevron${collapsed ? '' : ' diag-pane__chevron--open'}`}>
           &#9654;
         </span>
@@ -80,9 +85,10 @@ export default function EventMonitor() {
               className="event-monitor__row"
               title={JSON.stringify(ev.event, null, 2)}
             >
-              <span className="event-monitor__dot" style={{ color: eventDotColor(ev.event.type) }}>
-                &#9679;
-              </span>
+              <span
+                className={`event-monitor__dot ${eventDotClass(ev.event.type)}`}
+                aria-hidden="true"
+              />
               <span className="event-monitor__session">
                 {sessionNickname(ev.session_id, sessionsById)}
               </span>
@@ -95,7 +101,7 @@ export default function EventMonitor() {
               View All
             </Link>
             {monitorEvents.length > 0 && (
-              <button className="event-monitor__clear" onClick={clearMonitorEvents}>
+              <button className="btn btn--sm btn--ghost" onClick={clearMonitorEvents}>
                 Clear
               </button>
             )}

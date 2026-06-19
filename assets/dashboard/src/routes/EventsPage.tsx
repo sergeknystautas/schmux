@@ -122,14 +122,18 @@ export default function EventsPage() {
 
   return (
     <div className="events-page">
-      <h1 className="events-page__title">Event Monitor</h1>
+      <div className="app-header">
+        <div className="app-header__info">
+          <h1 className="app-header__meta">Event Monitor</h1>
+        </div>
+      </div>
 
       <div className="events-page__filters">
         <div className="events-page__type-chips">
           {EVENT_TYPES.map((type) => (
             <button
               key={type}
-              className={`events-chip ${typeFilter.has(type) ? 'events-chip--active' : ''} events-chip--${type}`}
+              className={`btn btn--sm ${typeFilter.has(type) ? 'btn--primary' : 'btn--secondary'}`}
               onClick={() => toggleType(type)}
             >
               {type}
@@ -137,7 +141,7 @@ export default function EventsPage() {
           ))}
         </div>
         <select
-          className="events-page__session-select"
+          className="select events-page__session-select"
           value={sessionFilter}
           onChange={(e) => setSessionFilter(e.target.value)}
         >
