@@ -80,15 +80,16 @@ func TestSortedRunnerKeys(t *testing.T) {
 
 func TestDefaultModels(t *testing.T) {
 	defaults := GetDefaultModels()
-	if len(defaults) != 4 {
-		t.Fatalf("expected 4 default models, got %d", len(defaults))
+	if len(defaults) != 5 {
+		t.Fatalf("expected 5 default models, got %d", len(defaults))
 	}
 
 	expectedIDs := map[string]string{
-		"claude":   "claude",
-		"codex":    "codex",
-		"gemini":   "gemini",
-		"opencode": "opencode",
+		"claude":      "claude",
+		"codex":       "codex",
+		"gemini":      "gemini",
+		"opencode":    "opencode",
+		"antigravity": "antigravity",
 	}
 
 	for _, m := range defaults {

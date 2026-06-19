@@ -489,7 +489,7 @@ Contract (pre-2093ccf):
 - **`repo` must be a repo URL**, not a repo name. If the URL is not yet in config, the server auto-registers it (generates a name, sets `bare_path`, saves config) before proceeding with workspace creation.
 - When `workspace_id` is provided, the spawn is an "existing directory spawn" and **no git operations** are performed.
 - Either `targets` or `command` is required (not both). `targets` maps target name -> quantity. `command` is a raw shell command string (used by quick launch presets like "shell").
-- Target names are resolved in order: (1) model IDs and aliases (e.g., "opus", "claude-sonnet-4-6"), (2) user-defined run targets from config, (3) builtin tool names ("claude", "codex", "gemini", "opencode") as a fallback when the tool binary isn't detected locally (useful for remote sessions where the tool is on the remote host). Default models (selecting an agent with no specific model) use bare tool names as IDs: "claude", "codex", "gemini", "opencode".
+- Target names are resolved in order: (1) model IDs and aliases (e.g., "opus", "claude-sonnet-4-6"), (2) user-defined run targets from config, (3) builtin tool names ("claude", "codex", "gemini", "opencode", "antigravity") as a fallback when the tool binary isn't detected locally (useful for remote sessions where the tool is on the remote host). Default models (selecting an agent with no specific model) use bare tool names as IDs: "claude", "codex", "gemini", "opencode", "antigravity".
 - `prompt` is optional for promptable targets (omit for interactive use). Command targets must not include `prompt`.
 - For non-promptable targets, the server forces `count` to 1.
 - If multiple sessions are spawned and `nickname` is provided, nicknames are auto-suffixed globally:
@@ -1625,7 +1625,7 @@ On failure:
 
 ### GET /api/models
 
-Lists available models and whether they are configured. Each model includes a `runners` list of tool names that can run it; tool-level details (availability, capabilities) are in the top-level `runners` map on the config response. Model catalog, availability, enablement, and resolution are owned by the internal model manager (`internal/models`). Model IDs are vendor-defined (e.g., `claude-sonnet-4-6`). Legacy IDs (`claude-sonnet`, `sonnet`, etc.) are automatically migrated on load.
+Lists available models and whether they are configured. Each model includes a `runners` list of tool names that can run it; tool-level details (availability, capabilities) are in the top-level `runners` map on the config response. Model catalog, availability, enablement, and resolution are owned by the internal model manager (`internal/models`). Model IDs are vendor-defined (e.g., `claude-sonnet-4-6`). Legacy IDs (`claude-sonnet`, `sonnet`, etc.) are automatically migrated on load. Antigravity (`agy`) models are an exception: agy's model list is auth-gated and absent from models.dev, so schmux discovers them at runtime by running `agy models` and surfaces them here (IDs prefixed `antigravity-`) once agy is detected; they refresh on an interval and broadcast via the `catalog_updated` WebSocket event.
 
 Response:
 

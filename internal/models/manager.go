@@ -31,7 +31,8 @@ func LookupForAPI(bareID string) (detect.Model, bool) {
 }
 
 // Manager owns the model catalog, availability, enablement, and resolution.
-// It merges three sources: registry, user-defined, and default_* models.
+// It merges four sources: registry, user-defined, antigravity-discovered, and
+// default_* models.
 type Manager struct {
 	mu            sync.RWMutex
 	logger        *log.Logger
@@ -41,10 +42,11 @@ type Manager struct {
 	// Callback for catalog updates (e.g., to broadcast to WebSocket)
 	onCatalogUpdated func()
 	// Catalog sources
-	registryModels []detect.Model
-	userModels     []detect.Model // stored as detect.Model for catalog
-	userModelsOrig []UserModel    // stored as UserModel for API returns
-	defaultModels  []detect.Model // stored to keep mergedIndex pointers valid
+	registryModels    []detect.Model
+	userModels        []detect.Model // stored as detect.Model for catalog
+	userModelsOrig    []UserModel    // stored as UserModel for API returns
+	defaultModels     []detect.Model // stored to keep mergedIndex pointers valid
+	antigravityModels []detect.Model // runtime-discovered via `agy models`
 	// Registry metadata (ID -> RegistryModel) for cost/context info
 	registryMeta map[string]RegistryModel
 	// Merged catalog (rebuilt on any source change)
@@ -67,8 +69,8 @@ func New(cfg *config.Config, detectedTools []detect.Tool, schmuxDir string, logg
 	return m
 }
 
-// rebuildCatalog merges three sources via index (last write wins on ID collision):
-// registry, then user-defined, then default_* models.
+// rebuildCatalog merges four sources via index (last write wins on ID collision):
+// registry, then user-defined, then antigravity-discovered, then default_* models.
 func (m *Manager) rebuildCatalog() {
 	index := make(map[string]*detect.Model)
 
@@ -82,7 +84,13 @@ func (m *Manager) rebuildCatalog() {
 		index[m.userModels[i].ID] = &m.userModels[i]
 	}
 
-	// Source 3: default_* models (always present, override everything)
+	// Source 3: antigravity-discovered (IDs are antigravity-prefixed, so they
+	// never collide with other sources — merge order is immaterial for them).
+	for i := range m.antigravityModels {
+		index[m.antigravityModels[i].ID] = &m.antigravityModels[i]
+	}
+
+	// Source 4: default_* models (always present, override everything)
 	m.defaultModels = detect.GetDefaultModels()
 	for i := range m.defaultModels {
 		index[m.defaultModels[i].ID] = &m.defaultModels[i]

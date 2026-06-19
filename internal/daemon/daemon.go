@@ -811,6 +811,10 @@ func (d *Daemon) initDashboard(
 	// Start background registry fetch
 	mm.StartBackgroundFetch(d.shutdownCtx)
 
+	// Discover agy (Antigravity) models at runtime — agy's model list is
+	// auth-gated and absent from models.dev. No-op when agy isn't detected.
+	mm.StartAntigravityDiscovery(d.shutdownCtx)
+
 	// Ensure workspace directory exists
 	if err := wm.EnsureWorkspaceDir(); err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to create workspace directory: %w", err)

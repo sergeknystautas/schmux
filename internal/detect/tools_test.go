@@ -13,6 +13,7 @@ func TestIsBuiltinToolName(t *testing.T) {
 		{"claude", true},
 		{"codex", true},
 		{"gemini", true},
+		{"antigravity", true},
 		{"unknown-tool", false},
 		{"", false},
 		{"Claude", false}, // case-sensitive

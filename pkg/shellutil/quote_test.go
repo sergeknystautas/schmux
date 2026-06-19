@@ -79,3 +79,30 @@ func TestQuote(t *testing.T) {
 		})
 	}
 }
+
+func TestQuoteIfNeeded(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"bare command", "agy", "agy"},
+		{"bare flag", "--continue", "--continue"},
+		{"bare short flag", "-c", "-c"},
+		{"safe model id", "claude-opus-4-6", "claude-opus-4-6"},
+		{"safe dotted id", "gemini-2.5-pro", "gemini-2.5-pro"},
+		{"spaces and parens quoted", "Claude Opus 4.6 (Thinking)", "'Claude Opus 4.6 (Thinking)'"},
+		{"spaces quoted", "Gemini 3.5 Flash (Low)", "'Gemini 3.5 Flash (Low)'"},
+		{"empty quoted", "", "''"},
+		{"single quote escaped", "don't", "'don'\\''t'"},
+		{"shell metachar quoted", "a;b", "'a;b'"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := QuoteIfNeeded(tt.input)
+			if got != tt.expected {
+				t.Errorf("QuoteIfNeeded(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}

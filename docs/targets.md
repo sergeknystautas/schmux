@@ -4,7 +4,7 @@
 
 A target is anything schmux can spawn into a tmux session. There are three kinds:
 
-1. **Builtin tools** -- auto-detected CLI tools (claude, codex, gemini, opencode)
+1. **Builtin tools** -- auto-detected CLI tools (claude, codex, gemini, opencode, antigravity)
 2. **Models** -- AI models from the registry, user-defined, or defaults
 3. **User-defined commands** -- arbitrary commands configured in `run_targets`
 
@@ -12,18 +12,21 @@ These three kinds are managed by completely separate subsystems. The `run_target
 
 ## Builtin tools
 
-schmux auto-detects four CLI tools at startup by checking `$PATH`:
+schmux auto-detects five CLI tools at startup by checking `$PATH`:
 
-| Tool       | Instruction File      |
-| ---------- | --------------------- |
-| `claude`   | `.claude/CLAUDE.md`   |
-| `codex`    | `.codex/AGENTS.md`    |
-| `gemini`   | `.gemini/GEMINI.md`   |
-| `opencode` | `.opencode/AGENTS.md` |
+| Tool          | Instruction File      |
+| ------------- | --------------------- |
+| `claude`      | `.claude/CLAUDE.md`   |
+| `codex`       | `.codex/AGENTS.md`    |
+| `gemini`      | `.gemini/GEMINI.md`   |
+| `opencode`    | `.opencode/AGENTS.md` |
+| `antigravity` | `.gemini/GEMINI.md`   |
 
 No configuration needed. If the binary is on `$PATH`, it is available.
 
-Detection is handled by `internal/detect/tools.go`. `IsBuiltinToolName()` returns true for these four names and nothing else.
+Detection is handled by `internal/detect/tools.go`. `IsBuiltinToolName()` returns true for these five names and nothing else.
+
+`antigravity` (Google's `agy` CLI) is a multi-model harness whose model list is auth-gated and absent from models.dev, so schmux discovers its models at runtime by running `agy models` and feeds them into the catalog as a dedicated layer (see [models.md](models.md)). Enablement rides the same path as every other model — no special-casing.
 
 ## Models
 

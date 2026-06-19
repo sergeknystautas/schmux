@@ -341,6 +341,7 @@ When `spawnMode` is `'resume'`, the form simplifies to target + repo selection. 
 | Claude Code | `claude --continue`   | Resumes last conversation in the working directory |
 | Codex       | `codex resume --last` | Resumes last conversation in the working directory |
 | Gemini CLI  | `gemini -r latest`    | Resumes last conversation in the working directory |
+| Antigravity | `agy -c`              | Resumes most recent conversation (`--continue`)    |
 
 The backend builds the resume command via `ToolModeResume` in `internal/detect/commands.go`. Each tool adapter returns its resume command parts in `BuildCommandParts()`.
 

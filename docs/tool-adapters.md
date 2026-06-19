@@ -2,7 +2,7 @@
 
 ## What it does
 
-Provides a unified interface for detecting, invoking, and configuring the four built-in AI coding tools (Claude, Codex, Gemini, OpenCode). Each tool registers an adapter that handles detection, command building, lifecycle hooks, persona injection, and signaling -- replacing the scattered switch statements that previously grew with each new tool.
+Provides a unified interface for detecting, invoking, and configuring the five built-in AI coding tools (Claude, Codex, Gemini, OpenCode, Antigravity). Each tool registers an adapter that handles detection, command building, lifecycle hooks, persona injection, and signaling -- replacing the scattered switch statements that previously grew with each new tool. Adapters are defined declaratively as YAML descriptors handled by a single `GenericAdapter` (see [adapter-descriptors.md](dev/adapter-descriptors.md)); `descriptors/antigravity.yaml` is the Antigravity (`agy`) entry.
 
 ## Key files
 

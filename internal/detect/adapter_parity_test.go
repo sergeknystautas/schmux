@@ -233,6 +233,89 @@ func TestGeminiPromptDelivery(t *testing.T) {
 	}
 }
 
+func TestAntigravityParity(t *testing.T) {
+	loadDescriptorAdapter(t, "antigravity")
+	a := GetAdapter("antigravity")
+	if a == nil {
+		t.Fatal("antigravity adapter not registered")
+	}
+
+	if a.Name() != "antigravity" {
+		t.Errorf("Name = %q", a.Name())
+	}
+	if caps := a.Capabilities(); len(caps) != 1 || caps[0] != "interactive" {
+		t.Errorf("Capabilities = %v, want [interactive]", caps)
+	}
+	if a.ModelFlag() != "--model" {
+		t.Errorf("ModelFlag = %q, want --model", a.ModelFlag())
+	}
+	// PromptFlag is the critical field: -i must be attached only when a prompt
+	// exists (not baked into the command via command_args), so blank launches
+	// as bare `agy` and resume as `agy -c`.
+	if a.PromptFlag() != "-i" {
+		t.Errorf("PromptFlag = %q, want -i", a.PromptFlag())
+	}
+
+	// Instruction targets .gemini/GEMINI.md — agy follows the gemini-cli context
+	// convention. The .gemini/ dir is git-excluded so the schmux block never
+	// lands in a tracked file.
+	cfg := a.InstructionConfig()
+	if cfg.InstructionDir != ".gemini" || cfg.InstructionFile != "GEMINI.md" {
+		t.Errorf("InstructionConfig = %+v, want {Dir:.gemini File:GEMINI.md}", cfg)
+	}
+
+	if a.SignalingStrategy() != SignalingInstructionFile {
+		t.Errorf("SignalingStrategy = %v, want SignalingInstructionFile", a.SignalingStrategy())
+	}
+	if a.PersonaInjection() != PersonaInstructionFile {
+		t.Errorf("PersonaInjection = %v, want PersonaInstructionFile", a.PersonaInjection())
+	}
+	if a.SupportsHooks() {
+		t.Error("SupportsHooks should be false")
+	}
+
+	// InteractiveArgs — no model, no resume: empty (no base_args)
+	if args := a.InteractiveArgs(nil, false); len(args) != 0 {
+		t.Errorf("InteractiveArgs(nil, false) = %v, want empty", args)
+	}
+
+	// InteractiveArgs — resume: -c
+	args := a.InteractiveArgs(nil, true)
+	if len(args) != 1 || args[0] != "-c" {
+		t.Errorf("InteractiveArgs(nil, true) = %v, want [-c]", args)
+	}
+
+	// InteractiveArgs — with model: --model <display string>
+	model := &Model{Runners: map[string]RunnerSpec{
+		"antigravity": {ModelValue: "Claude Opus 4.6 (Thinking)"},
+	}}
+	args = a.InteractiveArgs(model, false)
+	if len(args) != 2 || args[0] != "--model" || args[1] != "Claude Opus 4.6 (Thinking)" {
+		t.Errorf("InteractiveArgs(model, false) = %v, want [--model 'Claude Opus 4.6 (Thinking)']", args)
+	}
+
+	// OneshotArgs — unsupported (no oneshot capability)
+	if _, err := a.OneshotArgs(nil, ""); err == nil {
+		t.Error("OneshotArgs should error (antigravity is interactive-only)")
+	}
+
+	// SpawnEnv — nil
+	if env := a.SpawnEnv(SpawnContext{}); env != nil {
+		t.Errorf("SpawnEnv = %v, want nil", env)
+	}
+
+	// BuildRunnerEnv — empty (no runner_env block)
+	if env := a.BuildRunnerEnv(RunnerSpec{}); len(env) != 0 {
+		t.Errorf("BuildRunnerEnv = %v, want empty", env)
+	}
+
+	// GitExcludePatterns — .gemini/ so the schmux-managed instruction file is
+	// never committed into the worktree.
+	if patterns := a.GitExcludePatterns(); len(patterns) != 1 || patterns[0] != ".gemini/" {
+		t.Errorf("GitExcludePatterns = %v, want [.gemini/]", patterns)
+	}
+}
+
 func TestOpencodeParity(t *testing.T) {
 	loadDescriptorAdapter(t, "opencode")
 	a := GetAdapter("opencode")

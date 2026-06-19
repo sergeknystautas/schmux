@@ -174,6 +174,52 @@ func TestBuildCommand_ModelFlagInjection(t *testing.T) {
 	}
 }
 
+// TestBuildCommand_Antigravity asserts the exact spawn strings agy must receive.
+// -i is the prompt flag (not command_args), so blank launches bare `agy`, and
+// --model is injected before -i for discovered models. Resume uses -c.
+func TestBuildCommand_Antigravity(t *testing.T) {
+	agTarget := ResolvedTarget{
+		Name:       "antigravity",
+		Command:    "agy",
+		ToolName:   "antigravity",
+		Promptable: true,
+	}
+	opusModel := &detect.Model{
+		ID: "antigravity-claude-opus-4-6-thinking",
+		Runners: map[string]detect.RunnerSpec{
+			"antigravity": {ModelValue: "Claude Opus 4.6 (Thinking)"},
+		},
+	}
+
+	tests := []struct {
+		name   string
+		prompt string
+		model  *detect.Model
+		resume bool
+		want   string
+	}{
+		{"default with prompt", "fix the bug", nil, false, "agy -i 'fix the bug'"},
+		{"discovered model with prompt", "fix the bug", opusModel, false, "agy --model 'Claude Opus 4.6 (Thinking)' -i 'fix the bug'"},
+		{"resume default", "", nil, true, "agy -c"},
+		// Resume carries the session's model; the value must stay shell-quoted so
+		// the spaces/parens don't break the command.
+		{"resume with model", "", opusModel, true, "agy -c --model 'Claude Opus 4.6 (Thinking)'"},
+		{"blank interactive", "", nil, false, "agy"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := buildCommand(agTarget, tt.prompt, tt.model, tt.resume, false)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("buildCommand =\n  %q\nwant\n  %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildCommand_ResumeMode(t *testing.T) {
 	target := ResolvedTarget{
 		Name:       "claude",

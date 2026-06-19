@@ -3,9 +3,9 @@
 ## What it does
 
 Defines how schmux detects, spawns, and integrates with AI coding agents
-(Claude, Codex, Gemini, OpenCode, and any custom agents) using declarative
-YAML descriptors instead of hardcoded Go code. A single `GenericAdapter`
-implementation handles all agents.
+(Claude, Codex, Gemini, OpenCode, Antigravity, and any custom agents) using
+declarative YAML descriptors instead of hardcoded Go code. A single
+`GenericAdapter` implementation handles all agents.
 
 ## Key files
 
@@ -140,6 +140,15 @@ to swap detection paths or `prompt_strategy`) without editing OSS files.
   is supplied, which the CLI rejects. Deliver such flags via `prompt_flag`
   instead — it is emitted adjacent to the prompt value and omitted entirely
   when the prompt is blank.
+
+- **`prompt_flag` vs `command_args` for prompts** — `command_args` is baked
+  into `Tool.Command` for _every_ invocation (blank, prompt, and resume).
+  When the prompt flag must appear only when a prompt exists — so a blank
+  launch is the bare binary and resume uses its own args — use `prompt_flag`
+  instead. Antigravity (`descriptors/antigravity.yaml`) sets
+  `prompt_flag: "-i"`: `buildCommand` injects `--model` then `-i`, yielding
+  `agy --model "..." -i "<prompt>"`, bare `agy`, and resume `agy -c`. Using
+  `command_args: ["-i"]` here would wrongly force `-i` onto blank and resume.
 
 - **SpawnEnv returns nil, not empty map** — when there are no env vars to
   set, `SpawnEnv` returns nil to match existing caller expectations.

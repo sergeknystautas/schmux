@@ -8,12 +8,13 @@ Manages the catalog of AI models by merging a remote registry, user-defined mode
 
 | File                                                  | Purpose                                                                                                                                                                                                                     |
 | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `internal/detect/models.go`                           | `Model` and `RunnerSpec` structs, default models (`claude`, `codex`, `gemini`, `opencode`), `legacyIDMigrations` map                                                                                                        |
+| `internal/detect/models.go`                           | `Model` and `RunnerSpec` structs, default models (`claude`, `codex`, `gemini`, `opencode`, `antigravity`), `legacyIDMigrations` map                                                                                         |
 | `internal/models/manager.go`                          | `Manager` owns the merged catalog behind a `sync.RWMutex`. `ResolveModel()` picks tool + env, `GetCatalog()` builds the API response, `FindModel()` resolves IDs with legacy fallback, `IsModel()` determines promptability |
 | `internal/models/registry.go`                         | Fetches and parses `models.dev/api.json`, filters by tool_call/text/recency/provider, deduplicates alias/dated variants, manages the local cache at `~/.schmux/cache/models-dev.json`                                       |
 | `internal/models/registry_disabled.go`                | No-op stubs under `//go:build nomodelregistry` for builds that exclude the registry                                                                                                                                         |
 | `internal/models/profiles.go`                         | `ProviderProfile` entries mapping models.dev providers to schmux runners, endpoints, secrets, and opencode prefixes                                                                                                         |
 | `internal/models/userdefined.go`                      | `UserModel` struct, load/save from `~/.schmux/user-models.json`, validation rules, conversion to `detect.Model`                                                                                                             |
+| `internal/models/antigravity.go`                      | Runtime discovery for `agy` (Antigravity): runs `agy models`, parses into catalog entries, refreshes on a 15-min loop — agy's auth-gated model list is absent from models.dev                                               |
 | `internal/api/contracts/config.go`                    | API-facing `Model` struct (id, display_name, provider, configured, runners, required_secrets, context_window, cost, reasoning, release_date), `RunnerInfo`, `ConfigResponse.Runners`                                        |
 | `internal/detect/adapter.go`                          | `ToolAdapter` interface: `BuildRunnerEnv(RunnerSpec)`, `ModelFlag()`, `Capabilities()`                                                                                                                                      |
 | `internal/detect/adapter_claude.go`                   | Claude adapter: sets proxy env vars when `spec.Endpoint` is non-empty                                                                                                                                                       |
@@ -33,19 +34,26 @@ Manages the catalog of AI models by merging a remote registry, user-defined mode
 
 Models come from the `models.dev` remote registry, not a hardcoded list. The old `builtinModels` variable (~400 lines, 35 models) has been deleted entirely. Every new model required a code change and release, and third-party models routed through `ANTHROPIC_BASE_URL` were especially painful to maintain.
 
-On first startup with no cache and a failed fetch, only the four default models are available. A warning is logged and the dashboard updates automatically once the fetch succeeds via `catalog_updated` WebSocket event.
+On first startup with no cache and a failed fetch, only the five default models are available. A warning is logged and the dashboard updates automatically once the fetch succeeds via `catalog_updated` WebSocket event.
 
 **Rejected alternative: keep builtins as fallback.** The initial implementation kept `builtinModels` as a third layer underneath the registry. This was removed because deprecated models persisted, the registry could never be the sole source of truth, and the hardcoded list still needed manual maintenance -- defeating the purpose.
 
-### Three-layer catalog merge
+### Four-layer catalog merge
 
-`rebuildCatalog()` in `manager.go` merges three sources. On ID collision, later layers win:
+`rebuildCatalog()` in `manager.go` merges four sources. On ID collision, later layers win:
 
 1. **Registry models** (lowest priority) -- from `models.dev/api.json`
 2. **User-defined models** -- from `~/.schmux/user-models.json`
-3. **Default models** (highest priority) -- synthetic `claude`, `codex`, `gemini`, `opencode` entries
+3. **Antigravity-discovered models** -- runtime `agy models` output; IDs are `antigravity-`-prefixed so they never collide with other sources
+4. **Default models** (highest priority) -- synthetic `claude`, `codex`, `gemini`, `opencode`, `antigravity` entries
 
 The merge is a flat map keyed by model ID. No inheritance or partial override -- a collision means the higher-priority entry completely replaces the lower one.
+
+### Antigravity models discovered at runtime
+
+Antigravity (`agy`) is a multi-model harness whose model list is defined by the tool itself, auth-gated, and absent from models.dev — so unlike every other source, schmux discovers its models by running `agy models` at runtime. `internal/models/antigravity.go` parses the plain-text output (one model per line; no `--json` form exists) into catalog entries: a deterministic `antigravity-`-prefixed ID, the exact display string as both `DisplayName` and runner `ModelValue`, a cosmetic provider derived from the name prefix (`Gemini`→google, `Claude`→anthropic, `GPT`→openai), and a single `antigravity` runner with no secrets or endpoint (agy owns auth).
+
+`StartAntigravityDiscovery` runs the parse once at daemon start (only when agy is among the detected tools) and every 15 minutes, firing `catalog_updated` on change. Signing into agy after the daemon starts surfaces models on the next tick without a restart. A failing run (signed out, timeout, transient error) **keeps the previously discovered list** rather than wiping it — mirroring the registry source, which retains stale models on fetch error — so a single transient failure doesn't yank every antigravity model out of the picker mid-session; the layer only empties when a _successful_ run returns no models. This mirrors the registry source's shape (async fetch → parse → set a catalog layer → rebuild → broadcast) but is local and session-scoped, with no disk cache.
 
 ### Provider profiles instead of per-model configuration
 
@@ -55,7 +63,7 @@ Every registry model gets two runner entries: one for its provider's primary run
 
 ### Default models pass no --model flag
 
-The four default models have `ModelValue: ""`. No `--model` flag is passed when spawning. The harness uses its own default, so when a harness promotes a new default, schmux picks it up without knowing the model ID.
+The default models have `ModelValue: ""`. No `--model` flag is passed when spawning. The harness uses its own default, so when a harness promotes a new default, schmux picks it up without knowing the model ID.
 
 ### Models decoupled from runners
 

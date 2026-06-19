@@ -33,6 +33,8 @@ You'll need:
    - [Claude Code](https://claude.ai/code)
    - [Codex](https://openai.com/codex/)
    - [Gemini CLI](https://github.com/google-gemini/gemini-cli)
+   - [Antigravity](https://antigravity.google/) - Google's successor to Gemini CLI; installs as `agy` and needs an interactive sign-in before its models appear
+   - [OpenCode](https://opencode.ai/)
    - Or any CLI you want to add as a run target
 
 ### Installation

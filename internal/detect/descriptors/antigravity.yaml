@@ -1,0 +1,27 @@
+name: antigravity
+display_name: Antigravity
+detect:
+  - type: path_lookup
+    command: agy
+  - type: file_exists
+    path: '~/.local/bin/agy'
+capabilities: [interactive]
+model_flag: '--model'
+# -i is the prompt flag (attached only when a prompt exists), NOT command_args:
+# bare `agy` must launch blank, and resume must be `agy -c`. The buildCommand
+# path injects --model before -i, yielding `agy --model "..." -i "<prompt>"`.
+prompt_flag: '-i'
+instruction:
+  # agy follows the gemini-cli context convention (global rules live in
+  # ~/.gemini/GEMINI.md per antigravity.google/docs/rules-workflows), so the
+  # workspace-local instruction file is .gemini/GEMINI.md — identical to gemini.
+  # The .gemini/ dir is git-excluded (see GitExcludePatterns), so the schmux
+  # signaling/persona block never lands in a tracked file like AGENTS.md.
+  dir: '.gemini'
+  file: 'GEMINI.md'
+interactive:
+  resume_args: ['-c']
+signaling:
+  strategy: instruction_file
+persona:
+  strategy: instruction_file

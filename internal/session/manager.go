@@ -1275,7 +1275,15 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 		if err != nil {
 			return "", err
 		}
-		cmd := strings.Join(parts, " ")
+		// Shell-quote each token before joining. Model values can contain spaces
+		// and parentheses (e.g. antigravity's "Claude Opus 4.6 (Thinking)"), which
+		// the shell would otherwise mangle. QuoteIfNeeded leaves simple commands
+		// and flags untouched, so other tools' resume commands are unchanged.
+		quoted := make([]string, len(parts))
+		for i, p := range parts {
+			quoted[i] = shellutil.QuoteIfNeeded(p)
+		}
+		cmd := strings.Join(quoted, " ")
 
 		// Inject signaling instructions via CLI flag for supported tools
 		cmd = appendSignalingFlags(cmd, baseTool, isRemote)
