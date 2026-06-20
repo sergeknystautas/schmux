@@ -78,7 +78,7 @@ test.describe.serial('Escbuf holdback & gap replay fixes', () => {
       tmuxName,
       "for i in $(seq 1 200); do printf '\\033[38;5;196m\\033[48;5;21mColored %d\\033[0m\\n' $i; done"
     );
-    await waitForSentinel(sessionId, sentinel);
+    await waitForSentinel(sessionId, sentinel, page);
 
     // Sentinel received — all data delivered; gap stats are immediately available
 
@@ -138,7 +138,7 @@ test.describe.serial('Escbuf holdback & gap replay fixes', () => {
       tmuxName,
       "for i in $(seq 1 200); do printf '\\033[38;5;196m\\033[48;5;21mColored %d\\033[0m\\n' $i; done"
     );
-    await waitForSentinel(sessionId, sentinel);
+    await waitForSentinel(sessionId, sentinel, page);
 
     // Should have received binary frames
     expect(seqs.length).toBeGreaterThan(0);
@@ -170,7 +170,7 @@ test.describe.serial('Escbuf holdback & gap replay fixes', () => {
       tmuxName,
       "for i in $(seq 1 5000); do printf '\\033[38;5;%dm flood-line-%d-padding-AAAA\\033[0m\\n' $((i % 256)) $i; done"
     );
-    await waitForSentinel(sessionId, sentinel, 45_000);
+    await waitForSentinel(sessionId, sentinel, page, 45_000);
 
     // Sentinel received — all data delivered; gap stats are immediately available
 
@@ -212,7 +212,7 @@ test.describe.serial('Escbuf holdback & gap replay fixes', () => {
         'wait',
       ].join(' && ')
     );
-    await waitForSentinel(sessionId, sentinel);
+    await waitForSentinel(sessionId, sentinel, page);
 
     // Sentinel received — all data delivered; gap stats are immediately available
 
