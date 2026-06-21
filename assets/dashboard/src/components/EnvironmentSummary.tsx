@@ -1,53 +1,26 @@
-import { useState, useEffect, useRef } from 'react';
-import { getDetectionSummary } from '../lib/api';
-import type { DetectionSummaryResponse } from '../lib/types.generated';
-
-const MAX_RETRIES = 10;
+import { useState, useEffect } from 'react';
+import { getDependencies } from '../lib/api';
+import type { DependenciesResponse } from '../lib/types.generated';
 
 type LoadState =
   | { phase: 'loading' }
-  | { phase: 'ready'; data: DetectionSummaryResponse }
-  | { phase: 'timeout' }
+  | { phase: 'ready'; data: DependenciesResponse }
   | { phase: 'error'; message: string };
 
 export function EnvironmentSummary() {
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
-  const retriesRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    const poll = async () => {
-      try {
-        const data = await getDetectionSummary();
-        if (cancelled) return;
-
-        if (data.status === 'ready') {
-          setState({ phase: 'ready', data });
-          return;
-        }
-
-        // status === "pending" or other non-ready
-        retriesRef.current += 1;
-        if (retriesRef.current >= MAX_RETRIES) {
-          setState({ phase: 'timeout' });
-          return;
-        }
-
-        timer = setTimeout(poll, 1000);
-      } catch {
-        if (!cancelled) {
-          setState({ phase: 'error', message: 'Failed to detect tools' });
-        }
-      }
-    };
-
-    poll();
-
+    getDependencies()
+      .then((data) => {
+        if (!cancelled) setState({ phase: 'ready', data });
+      })
+      .catch(() => {
+        if (!cancelled) setState({ phase: 'error', message: 'Failed to detect tools' });
+      });
     return () => {
       cancelled = true;
-      if (timer) clearTimeout(timer);
     };
   }, []);
 
@@ -56,16 +29,6 @@ export function EnvironmentSummary() {
       <div className="env-summary" data-testid="env-summary">
         <span className="env-summary__loading" data-testid="env-summary-loading">
           Detecting tools...
-        </span>
-      </div>
-    );
-  }
-
-  if (state.phase === 'timeout') {
-    return (
-      <div className="env-summary" data-testid="env-summary">
-        <span className="env-summary__timeout" data-testid="env-summary-timeout">
-          Detection timed out — some tools may not be shown. Refresh the page to retry.
         </span>
       </div>
     );
@@ -80,9 +43,20 @@ export function EnvironmentSummary() {
   }
 
   const { data } = state;
-  const hasAgents = data.agents.length > 0;
-  const hasVcs = data.vcs.length > 0;
-  const hasTmux = data.tmux.available;
+  const detectedIn = (groupId: string) =>
+    data.groups.find((g) => g.id === groupId)?.dependencies.filter((d) => d.detected) ?? [];
+
+  // Agents in their own row; every other detected tool (vcs, tmux, fence,
+  // editors, ...) shares the "Tools" row so nothing the daemon found is dropped.
+  const agents = detectedIn('agents');
+  const tools = data.groups
+    .filter((g) => g.id !== 'agents')
+    .flatMap((g) => g.dependencies.filter((d) => d.detected));
+
+  const hasAgents = agents.length > 0;
+  const hasTools = tools.length > 0;
+  const hasVcs = detectedIn('vcs').length > 0;
+  const hasTmux = detectedIn('terminal').some((d) => d.id === 'tmux');
 
   const warnings: string[] = [];
   if (!hasAgents) {
@@ -124,26 +98,21 @@ export function EnvironmentSummary() {
         {hasAgents && (
           <div style={categoryStyle}>
             <span style={labelStyle}>Agents</span>
-            {data.agents.map((agent) => (
-              <span key={agent.name} className="badge badge--success" data-testid="env-badge-agent">
-                {agent.name}
+            {agents.map((agent) => (
+              <span key={agent.id} className="badge badge--success" data-testid="env-badge-agent">
+                {agent.display_name}
               </span>
             ))}
           </div>
         )}
-        {(hasVcs || hasTmux) && (
+        {hasTools && (
           <div style={categoryStyle}>
             <span style={labelStyle}>Tools</span>
-            {data.vcs.map((v) => (
-              <span key={v.name} className="badge badge--success" data-testid="env-badge-vcs">
-                {v.name}
+            {tools.map((t) => (
+              <span key={t.id} className="badge badge--success" data-testid={`env-badge-${t.id}`}>
+                {t.display_name}
               </span>
             ))}
-            {hasTmux && (
-              <span className="badge badge--success" data-testid="env-badge-tmux">
-                tmux
-              </span>
-            )}
           </div>
         )}
       </div>

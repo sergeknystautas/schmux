@@ -1,5 +1,9 @@
 name: claude
-display_name: Claude Code
+display_name: claude
+description: "Anthropic's Claude Code CLI agent."
+docs_url: 'https://docs.claude.com/claude-code'
+unlocks:
+  - 'Run Claude Code agents (interactive and one-shot)'
 detect:
   - type: path_lookup
     command: claude

@@ -804,9 +804,10 @@ func (d *Daemon) initDashboard(
 	modelsLog := logging.Sub(logger, "models")
 	mm := models.New(cfg, detectedTargets, schmuxDir, modelsLog)
 
-	// Detect VCS and tmux availability
-	detectedVCS := detect.DetectVCS()
-	detectedTmux := detect.DetectTmux()
+	// Build the dependency report (agents from the manager; native detectors here).
+	depCtx, depCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	depReport := detect.DetectDependencies(depCtx, mm.GetDetectedTools())
+	depCancel()
 
 	// Start background registry fetch
 	mm.StartBackgroundFetch(d.shutdownCtx)
@@ -839,13 +840,12 @@ func (d *Daemon) initDashboard(
 
 	// Create dashboard server
 	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, logger, d.githubStatus, tmuxServer, dashboard.ServerOptions{
-		Shutdown:     d.Shutdown,
-		DevRestart:   d.DevRestart,
-		DevProxy:     devProxy,
-		DevMode:      devMode,
-		ShutdownCtx:  d.shutdownCtx,
-		DetectedVCS:  detectedVCS,
-		DetectedTmux: detectedTmux,
+		Shutdown:         d.Shutdown,
+		DevRestart:       d.DevRestart,
+		DevProxy:         devProxy,
+		DevMode:          devMode,
+		ShutdownCtx:      d.shutdownCtx,
+		DependencyReport: depReport,
 	})
 
 	// Wire workspace manager broadcast to trigger dashboard updates after tab mutations

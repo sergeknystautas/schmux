@@ -1,26 +1,18 @@
 import { test, expect } from './coverage-fixture';
-import { apiGet, seedConfig, sleep, waitForHealthy } from './helpers';
+import { apiGet, seedConfig, waitForHealthy, waitForDashboardLive } from './helpers';
 
-interface DetectionSummary {
-  status: string;
-  agents: Array<{ name: string; command: string; source: string }>;
-  vcs: Array<{ name: string; path: string }>;
-  tmux: { available: boolean; path?: string };
+interface Dependency {
+  id: string;
+  detected: boolean;
 }
 
-/** Wait for tool detection to complete before opening the page. */
-async function waitForDetectionReady(timeoutMs = 30_000): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const summary = await apiGet<DetectionSummary>('/api/detection-summary');
-      if (summary.status === 'ready') return;
-    } catch {
-      // endpoint not ready yet
-    }
-    await sleep(500);
-  }
-  throw new Error(`Detection not ready after ${timeoutMs}ms`);
+interface DependencyGroup {
+  id: string;
+  dependencies: Dependency[];
+}
+
+interface DependenciesResponse {
+  groups: DependencyGroup[];
 }
 
 /** Dispose all workspaces (sessions + directories) so the home page is clean. */
@@ -47,7 +39,6 @@ async function disposeAllWorkspaces(): Promise<void> {
 test.describe('First-time home page shows detected environment', () => {
   test.beforeAll(async () => {
     await waitForHealthy();
-    await waitForDetectionReady();
 
     // Seed an empty config: no repos, no run_targets, no workspaces.
     // seedConfig disposes sessions but workspaces created by tests sharing
@@ -61,19 +52,20 @@ test.describe('First-time home page shows detected environment', () => {
 
   test('home page renders environment summary without redirect', async ({ page }) => {
     await page.goto('/');
+    await waitForDashboardLive(page);
 
     // Wait for the environment summary to appear. This implicitly waits for
-    // WebSocket connection + config/session loading + detection fetch, so use
-    // a generous timeout to avoid flaking under parallel load.
+    // WebSocket connection + config/session loading + the dependencies fetch, so
+    // use a generous timeout to avoid flaking under parallel load.
     const envSummary = page.locator('[data-testid="env-summary"]');
     await expect(envSummary).toBeVisible({ timeout: 30_000 });
 
     // Verify: no redirect to /config — still on /
     expect(page.url()).toMatch(/\/$/);
 
-    // Verify: VCS badge is shown (git should be available in test env)
-    const vcsBadges = page.locator('[data-testid="env-badge-vcs"]');
-    await expect(vcsBadges.first()).toBeVisible();
+    // Verify: the git badge is shown (git is available in the test env)
+    const gitBadge = page.locator('[data-testid="env-badge-git"]');
+    await expect(gitBadge.first()).toBeVisible();
 
     // Verify: "+ Add Workspace" CTA is visible
     const addWorkspaceCta = page.locator('[data-testid="add-workspace-cta"]');
@@ -88,13 +80,14 @@ test.describe('First-time home page shows detected environment', () => {
     await expect(tmuxTip).not.toBeVisible();
   });
 
-  test('detection summary API returns ready with VCS', async () => {
-    const summary = await apiGet<DetectionSummary>('/api/detection-summary');
+  test('dependencies API returns the vcs group with git detected', async () => {
+    const deps = await apiGet<DependenciesResponse>('/api/dependencies');
 
-    expect(summary.status).toBe('ready');
+    const vcs = deps.groups.find((g) => g.id === 'vcs');
+    expect(vcs).toBeDefined();
     // git must be available (required for workspace operations)
-    expect(summary.vcs.length).toBeGreaterThan(0);
-    // agents may or may not be in PATH depending on the environment
-    expect(summary.agents).toBeDefined();
+    const git = vcs!.dependencies.find((d) => d.id === 'git');
+    expect(git).toBeDefined();
+    expect(git!.detected).toBe(true);
   });
 });

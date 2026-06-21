@@ -142,12 +142,7 @@ vi.mock('../lib/api', () => ({
   getCommitGraph: vi.fn().mockResolvedValue({ commits: [] }),
   getSubreddit: vi.fn().mockResolvedValue({ repos: [] }),
   getRepofeedList: vi.fn().mockResolvedValue({ repos: [] }),
-  getDetectionSummary: vi.fn().mockResolvedValue({
-    status: 'ready',
-    agents: [{ name: 'claude', version: '1.0' }],
-    vcs: [{ name: 'git', version: '2.40' }],
-    tmux: { available: true, version: '3.4' },
-  }),
+  getDependencies: vi.fn().mockResolvedValue({ os: 'macos', groups: [] }),
   scanLocalRepos: vi.fn().mockResolvedValue([]),
   probeRepo: vi.fn().mockResolvedValue({ accessible: true }),
   getConfig: vi.fn().mockResolvedValue({}),

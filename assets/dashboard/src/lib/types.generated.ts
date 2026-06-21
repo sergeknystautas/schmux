@@ -231,6 +231,38 @@ export interface DashboardSXStatus {
   cert_expires_at?: string;
 }
 
+export interface DependenciesResponse {
+  os: string;
+  groups: DependencyGroup[];
+}
+
+export interface Dependency {
+  id: string;
+  display_name: string;
+  description: string;
+  unlocks?: string[];
+  docs_url?: string;
+  detected: boolean;
+  command?: string;
+  source?: string;
+  install?: DependencyInstallMethod[];
+}
+
+export interface DependencyGroup {
+  id: string;
+  display_name: string;
+  description: string;
+  dependencies: Dependency[];
+}
+
+export interface DependencyInstallMethod {
+  os: string;
+  label: string;
+  command?: string;
+  url?: string;
+  requires?: string;
+}
+
 export interface Desync {
   enabled: boolean;
   target: string;
@@ -239,29 +271,6 @@ export interface Desync {
 export interface DesyncUpdate {
   enabled?: boolean;
   target?: string;
-}
-
-export interface DetectionAgent {
-  name: string;
-  command: string;
-  source: string;
-}
-
-export interface DetectionSummaryResponse {
-  status: string;
-  agents: DetectionAgent[];
-  vcs: DetectionVCS[];
-  tmux: DetectionTmux;
-}
-
-export interface DetectionTmux {
-  available: boolean;
-  path?: string;
-}
-
-export interface DetectionVCS {
-  name: string;
-  path: string;
 }
 
 export interface DiffFileDiff {

@@ -135,8 +135,6 @@ func newTestConfigHandlers(s *Server) *ConfigHandlers {
 		models:                     s.models,
 		workspace:                  s.workspace,
 		logger:                     s.logger,
-		detectedVCS:                s.detectedVCS,
-		detectedTmux:               s.detectedTmux,
 		tunnelManager:              s.tunnelManager,
 		prDiscovery:                s.prDiscovery,
 		triggerSubredditGeneration: s.TriggerSubredditGeneration,

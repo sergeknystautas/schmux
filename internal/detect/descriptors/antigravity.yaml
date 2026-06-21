@@ -1,5 +1,22 @@
 name: antigravity
-display_name: Antigravity
+display_name: antigravity
+description: "Google's Antigravity (agy) terminal coding agent."
+docs_url: 'https://antigravity.google'
+unlocks:
+  - 'Run Antigravity (agy) agents + runtime model discovery'
+install:
+  - {
+      os: macos,
+      label: 'Install script',
+      command: 'curl -fsSL https://antigravity.google/cli/install.sh | bash',
+      requires: '',
+    }
+  - {
+      os: linux,
+      label: 'Install script',
+      command: 'curl -fsSL https://antigravity.google/cli/install.sh | bash',
+      requires: '',
+    }
 detect:
   - type: path_lookup
     command: agy

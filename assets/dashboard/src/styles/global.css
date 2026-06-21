@@ -2725,6 +2725,34 @@ body {
   font-weight: 500;
 }
 
+/* Dependencies table: one table for all groups so every row shares the same
+   column layout. Tool is a short fixed column; Install takes the rest so the
+   install command sits on one line. Group names are full-width section rows. */
+.deps-table th:first-child,
+.deps-table td:first-child {
+  width: 160px;
+}
+
+/* Install column: override session-table's 15% so it takes the rest. Under
+   fixed layout a width:auto column absorbs the space the fixed Tool column
+   leaves — every row stays aligned to the header. */
+.deps-table th:nth-child(2),
+.deps-table td:nth-child(2) {
+  width: auto;
+}
+
+.deps-table td:nth-child(2) code {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.deps-group-row th {
+  padding-top: var(--spacing-lg);
+  background-color: var(--color-surface);
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+
 .env-badge {
   display: inline-flex;
   align-items: center;

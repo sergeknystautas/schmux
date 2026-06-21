@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import EnvironmentPage from './EnvironmentPage';
@@ -8,16 +8,18 @@ vi.mock('../lib/api', () => ({
   getEnvironment: vi.fn(),
   syncEnvironmentVar: vi.fn(),
   getErrorMessage: vi.fn((err: unknown, fallback: string) => fallback),
+  getDependencies: vi.fn(),
 }));
 
 vi.mock('../components/ToastProvider', () => ({
   useToast: () => ({ show: vi.fn(), success: vi.fn(), error: vi.fn() }),
 }));
 
-import { getEnvironment, syncEnvironmentVar } from '../lib/api';
+import { getEnvironment, syncEnvironmentVar, getDependencies } from '../lib/api';
 
 const mockGetEnvironment = vi.mocked(getEnvironment);
 const mockSyncEnvironmentVar = vi.mocked(syncEnvironmentVar);
+const mockGetDependencies = vi.mocked(getDependencies);
 
 function renderPage() {
   return render(
@@ -131,5 +133,16 @@ describe('EnvironmentPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Failed to fetch environment')).toBeInTheDocument();
     });
+  });
+
+  it('switches to the Dependencies tab', async () => {
+    mockGetEnvironment.mockResolvedValue({ vars: [], blocked: [] });
+    mockGetDependencies.mockResolvedValue({ os: 'macos', groups: [] });
+
+    renderPage();
+
+    fireEvent.click(screen.getByTestId('tab-dependencies'));
+
+    await waitFor(() => expect(screen.getByTestId('dependencies-panel')).toBeInTheDocument());
   });
 });

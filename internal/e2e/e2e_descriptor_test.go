@@ -48,38 +48,42 @@ func TestE2EDescriptorAdapterSpawn(t *testing.T) {
 	// Start daemon — it should auto-discover myagent from the descriptor
 	env.DaemonStart()
 
-	// Step 1: Verify myagent appears in detection summary
-	t.Log("Checking detection summary...")
-	type DetectionSummary struct {
-		Agents []struct {
-			Name    string `json:"name"`
-			Command string `json:"command"`
-			Source  string `json:"source"`
-		} `json:"agents"`
+	// Step 1: Verify myagent appears in the dependency report
+	t.Log("Checking dependency report...")
+	type DependenciesResponse struct {
+		Groups []struct {
+			ID           string `json:"id"`
+			Dependencies []struct {
+				ID       string `json:"id"`
+				Detected bool   `json:"detected"`
+			} `json:"dependencies"`
+		} `json:"groups"`
 	}
 
-	resp, err := http.Get(env.DaemonURL + "/api/detection-summary")
+	resp, err := http.Get(env.DaemonURL + "/api/dependencies")
 	if err != nil {
-		t.Fatalf("Failed to get detection summary: %v", err)
+		t.Fatalf("Failed to get dependencies: %v", err)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 
-	var summary DetectionSummary
-	if err := json.Unmarshal(body, &summary); err != nil {
-		t.Fatalf("Failed to parse detection summary: %v\nBody: %s", err, body)
+	var deps DependenciesResponse
+	if err := json.Unmarshal(body, &deps); err != nil {
+		t.Fatalf("Failed to parse dependencies: %v\nBody: %s", err, body)
 	}
 
 	found := false
-	for _, agent := range summary.Agents {
-		if agent.Name == "myagent" {
-			found = true
-			t.Logf("myagent detected: command=%s source=%s", agent.Command, agent.Source)
-			break
+	for _, g := range deps.Groups {
+		for _, d := range g.Dependencies {
+			if d.ID == "myagent" {
+				found = true
+				t.Logf("myagent detected: detected=%v", d.Detected)
+				break
+			}
 		}
 	}
 	if !found {
-		t.Fatalf("myagent not found in detection summary.\nFull response: %s", body)
+		t.Fatalf("myagent not found in dependency report.\nFull response: %s", body)
 	}
 
 	// Step 2: Verify myagent is auto-enabled (no manual enablement needed)

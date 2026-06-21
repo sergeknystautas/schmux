@@ -181,6 +181,7 @@ vi.mock('../lib/api', () => ({
   getCommitGraph: vi.fn().mockResolvedValue({ commits: [] }),
   getSubreddit: vi.fn().mockResolvedValue({ repos: [] }),
   getRepofeedList: vi.fn().mockResolvedValue({ repos: [] }),
+  getDependencies: vi.fn().mockResolvedValue({ os: 'macos', groups: [] }),
 }));
 
 import HomePage from './HomePage';

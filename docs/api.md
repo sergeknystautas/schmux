@@ -1551,24 +1551,44 @@ Response:
 }
 ```
 
-### GET /api/detection-summary
+### GET /api/dependencies
 
-Returns a summary of all tools detected at daemon startup: AI agents, VCS tools, and tmux availability.
+Returns the grouped dependency report: every auto-detected tool (AI agents, VCS, terminal, sandbox, editors), whether each is present, what it unlocks, and how to install it per OS. The report is computed at daemon startup (agents sourced from the model manager's frozen detected-tools list; native detectors run concurrently) and cached on the server, so it is always populated.
 
-Response:
+- `?refresh=1` — re-runs the **native** detectors only (agents still come from the manager) behind a single-flight guard, updates the cache, and returns the fresh report.
+
+`install` methods are already filtered to the request's OS (`runtime.GOOS` → `macos`/`linux`, plus `any`) and ordered so a method whose required package manager is present (or empty) leads.
+
+Response (`DependenciesResponse`):
 
 ```json
 {
-  "status": "ready",
-  "agents": [{ "name": "claude", "command": "claude", "source": "path" }],
-  "vcs": [{ "name": "git", "version": "2.40.0", "path": "/usr/bin/git" }],
-  "tmux": {
-    "available": true,
-    "version": "3.3a",
-    "path": "/usr/bin/tmux"
-  }
+  "os": "macos",
+  "groups": [
+    {
+      "id": "agents",
+      "display_name": "AI agents",
+      "description": "Coding agents schmux orchestrates.",
+      "dependencies": [
+        {
+          "id": "claude",
+          "display_name": "claude",
+          "description": "Anthropic's Claude Code CLI agent.",
+          "unlocks": ["Run Claude Code agents (interactive and one-shot)"],
+          "docs_url": "https://docs.claude.com/claude-code",
+          "detected": true,
+          "command": "claude",
+          "source": "PATH",
+          "install": []
+        }
+      ]
+    }
+  ]
 }
 ```
+
+Each dependency: `{ id, display_name, description, unlocks?, docs_url?, detected, command?, source?, install? }`.
+Each install method: `{ os, label, command?, url?, requires? }` where `requires` names a package manager (`homebrew` | `npm`) the method depends on.
 
 ### GET /api/repos/scan
 

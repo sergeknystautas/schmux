@@ -119,8 +119,6 @@ type ConfigHandlers struct {
 	models        *models.Manager
 	workspace     workspace.WorkspaceManager
 	logger        *log.Logger
-	detectedVCS   []detect.VCSTool
-	detectedTmux  detect.TmuxStatus
 	tunnelManager *tunnel.Manager
 	prDiscovery   github.DiscoveryProvider
 

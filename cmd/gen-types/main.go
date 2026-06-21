@@ -47,7 +47,7 @@ func main() {
 		reflect.TypeOf(contracts.Features{}),
 		reflect.TypeOf(contracts.EnvironmentResponse{}),
 		reflect.TypeOf(contracts.Tab{}),
-		reflect.TypeOf(contracts.DetectionSummaryResponse{}),
+		reflect.TypeOf(contracts.DependenciesResponse{}),
 		reflect.TypeOf(contracts.SessionResponseItem{}),
 		reflect.TypeOf(contracts.WorkspaceResponseItem{}),
 		reflect.TypeOf(contracts.SpawnRequest{}),

@@ -1,4 +1,9 @@
 name: gemini
+display_name: gemini
+description: "Google's Gemini CLI coding agent."
+docs_url: 'https://github.com/google-gemini/gemini-cli'
+unlocks:
+  - 'Run Gemini agents (interactive)'
 detect:
   - type: path_lookup
     command: gemini

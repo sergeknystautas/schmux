@@ -152,6 +152,7 @@ func RegisterDescriptorAdapters(descs []*Descriptor) error {
 		}
 		registerAdapter(a)
 		registerToolName(d.Name)
+		registerAgentDependency(d)
 		if d.Instruction != nil {
 			registerInstructionConfig(d.Name, AgentInstructionConfig{
 				InstructionDir:  d.Instruction.Dir,

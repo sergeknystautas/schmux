@@ -1,4 +1,9 @@
 name: codex
+display_name: codex
+description: "OpenAI's Codex CLI coding agent."
+docs_url: 'https://github.com/openai/codex'
+unlocks:
+  - 'Run OpenAI Codex agents (interactive and one-shot)'
 detect:
   - type: path_lookup
     command: codex

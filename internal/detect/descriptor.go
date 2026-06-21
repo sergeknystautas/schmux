@@ -12,6 +12,10 @@ import (
 type Descriptor struct {
 	Name           string            `yaml:"name"`
 	DisplayName    string            `yaml:"display_name"`
+	Description    string            `yaml:"description"`
+	DocsURL        string            `yaml:"docs_url"`
+	Unlocks        []string          `yaml:"unlocks"`
+	Install        []InstallMethod   `yaml:"install"`
 	Detect         []DetectEntry     `yaml:"detect"`
 	Capabilities   []string          `yaml:"capabilities"`
 	ModelFlag      string            `yaml:"model_flag"`

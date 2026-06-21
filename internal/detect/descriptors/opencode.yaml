@@ -1,4 +1,9 @@
 name: opencode
+display_name: opencode
+description: 'The opencode terminal coding agent.'
+docs_url: 'https://github.com/sst/opencode'
+unlocks:
+  - 'Run OpenCode agents (interactive and one-shot)'
 detect:
   - type: path_lookup
     command: opencode

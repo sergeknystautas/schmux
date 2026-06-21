@@ -113,9 +113,8 @@ type ServerOptions struct {
 	ShutdownCtx       context.Context // Context cancelled on daemon shutdown; defaults to context.Background()
 	DashboardDistPath string          // Optional explicit dashboard dist path override (mainly for tests)
 
-	// Detection results (populated at daemon startup)
-	DetectedVCS  []detect.VCSTool
-	DetectedTmux detect.TmuxStatus
+	// DependencyReport is the dependency detection result computed at startup.
+	DependencyReport detect.DependencyReport
 }
 
 // Server represents the dashboard HTTP server.
@@ -168,9 +167,10 @@ type Server struct {
 
 	authSessionKey []byte
 
-	// Detection results (populated at daemon startup)
-	detectedVCS  []detect.VCSTool
-	detectedTmux detect.TmuxStatus
+	// Dependency report (populated at startup; refreshable via /api/dependencies?refresh=1)
+	depReport    detect.DependencyReport
+	depReportMu  sync.RWMutex
+	depRefreshMu sync.Mutex // single-flight guard for refresh
 
 	// Model manager (catalog, resolution, enablement)
 	models *models.Manager
@@ -355,8 +355,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 			crTrackers:                      make(map[string]*session.SessionRuntime),
 		},
 	}
-	s.detectedVCS = opts.DetectedVCS
-	s.detectedTmux = opts.DetectedTmux
+	s.depReport = opts.DependencyReport
 	s.dashboardFS = dashboardassets.FS()
 
 	s.previewManager = preview.NewManager(
@@ -682,8 +681,6 @@ func (s *Server) Start() error {
 			models:                     s.models,
 			workspace:                  s.workspace,
 			logger:                     s.logger,
-			detectedVCS:                s.detectedVCS,
-			detectedTmux:               s.detectedTmux,
 			tunnelManager:              s.tunnelManager,
 			prDiscovery:                s.prDiscovery,
 			triggerSubredditGeneration: s.TriggerSubredditGeneration,
@@ -782,7 +779,7 @@ func (s *Server) Start() error {
 		r.Get("/sessions", sessionH.handleSessions)
 		r.Get("/recent-branches", spawnH.handleRecentBranches)
 		r.Get("/detect-tools", configH.handleDetectTools)
-		r.Get("/detection-summary", configH.handleDetectionSummary)
+		r.Get("/dependencies", s.handleDependencies)
 		r.Get("/models", configH.handleModels)
 		r.Get("/user-models", configH.handleGetUserModels)
 		r.Put("/user-models", configH.handleSetUserModels)

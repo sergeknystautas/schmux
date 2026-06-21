@@ -45,7 +45,7 @@ import type {
 } from './types';
 import type {
   CreateSpawnEntryRequest,
-  DetectionSummaryResponse,
+  DependenciesResponse,
   Persona,
   PersonaListResponse,
   PersonaCreateRequest,
@@ -1562,9 +1562,10 @@ export async function deleteTimelapseRecording(recordingId: string): Promise<voi
 // Detection Summary & Repo Scanning API
 // ============================================================================
 
-export async function getDetectionSummary(): Promise<DetectionSummaryResponse> {
-  const response = await apiFetch('/api/detection-summary');
-  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch detection summary');
+export async function getDependencies(refresh = false): Promise<DependenciesResponse> {
+  const url = refresh ? '/api/dependencies?refresh=1' : '/api/dependencies';
+  const response = await apiFetch(url);
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch dependencies');
   return response.json();
 }
 

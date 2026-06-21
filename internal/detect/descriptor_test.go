@@ -174,3 +174,23 @@ signaling:
 		t.Fatal("expected error for invalid signaling strategy")
 	}
 }
+
+func TestParseDescriptor_Metadata(t *testing.T) {
+	yaml := []byte(`name: claude
+display_name: Claude Code
+description: "Anthropic's Claude Code CLI agent."
+docs_url: 'https://docs.claude.com/claude-code'
+unlocks:
+  - 'Run Claude Code agents (interactive and one-shot)'
+detect:
+  - type: path_lookup
+    command: claude
+`)
+	d, err := ParseDescriptor(yaml)
+	if err != nil {
+		t.Fatalf("ParseDescriptor: %v", err)
+	}
+	if d.Description == "" || d.DocsURL == "" || len(d.Unlocks) != 1 {
+		t.Fatalf("metadata not parsed: %+v", d)
+	}
+}

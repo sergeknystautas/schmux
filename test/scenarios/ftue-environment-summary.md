@@ -19,4 +19,4 @@ first workspace.
 - The "+ Add Repository" call-to-action button is visible
 - The branches section is NOT shown (hidden when no workspaces)
 - The tmux attach tip is NOT shown (hidden when no workspaces)
-- GET /api/detection-summary returns status "ready" with non-empty vcs array
+- GET /api/dependencies returns the "vcs" group with git marked detected
