@@ -13,13 +13,13 @@ type HealthColor = 'green' | 'yellow' | 'red' | 'neutral';
 function healthDotColor(health: HealthColor): string {
   switch (health) {
     case 'green':
-      return '#0dbc79';
+      return 'var(--color-success)';
     case 'yellow':
-      return '#e5e510';
+      return 'var(--color-warning)';
     case 'red':
-      return '#f14c4c';
+      return 'var(--color-danger)';
     case 'neutral':
-      return 'var(--color-text-tertiary)';
+      return 'var(--color-text-faint)';
   }
 }
 
@@ -154,18 +154,18 @@ export default function TmuxDiagnostic() {
 }
 
 function rttColor(us: number): string {
-  if (us <= 2000) return '#0dbc79'; // ≤2ms green
-  if (us <= 10000) return '#e5e510'; // ≤10ms yellow
-  if (us <= 50000) return '#e5a010'; // ≤50ms orange
-  return '#f14c4c'; // >50ms red
+  if (us <= 2000) return 'var(--color-success)'; // ≤2ms green
+  if (us <= 10000) return 'var(--color-warning)'; // ≤10ms yellow
+  if (us <= 50000) return 'var(--color-graph-lane-3)'; // ≤50ms orange
+  return 'var(--color-danger)'; // >50ms red
 }
 
 function barColorForRtt(us: number): string {
-  if (us < 1000) return '#0dbc79';
-  if (us < 5000) return '#0dbc79';
-  if (us < 10000) return '#e5e510';
-  if (us < 25000) return '#e5a010';
-  return '#f14c4c';
+  if (us < 1000) return 'var(--color-success)';
+  if (us < 5000) return 'var(--color-success)';
+  if (us < 10000) return 'var(--color-warning)';
+  if (us < 25000) return 'var(--color-graph-lane-3)';
+  return 'var(--color-danger)';
 }
 
 function formatRtt(us: number): string {
@@ -188,7 +188,7 @@ function ProbeHistogram() {
       <div
         style={{
           fontSize: '10px',
-          color: 'var(--color-text-tertiary)',
+          color: 'var(--color-text-faint)',
           padding: '4px 8px 2px',
         }}
       >
@@ -269,17 +269,25 @@ function RttHistogram({
               y={y}
               width={Math.max(barW - 0.5, 0.5)}
               height={h}
-              fill={barColorForRtt(i * bucketUs)}
+              style={{ fill: barColorForRtt(i * bucketUs) }}
               opacity={0.85}
             />
           );
         })}
-        <line x1={p50X} y1={0} x2={p50X} y2={plotH} stroke={p50C} strokeWidth={1} opacity={0.7} />
+        <line
+          x1={p50X}
+          y1={0}
+          x2={p50X}
+          y2={plotH}
+          style={{ stroke: p50C }}
+          strokeWidth={1}
+          opacity={0.7}
+        />
         <text
           x={p50X}
           y={-3}
           textAnchor="middle"
-          fill={p50C}
+          style={{ fill: p50C }}
           fontSize={7}
           fontFamily="Menlo, Monaco, 'Courier New', monospace"
         >
@@ -289,7 +297,7 @@ function RttHistogram({
           x={p50X}
           y={chartH - 1}
           textAnchor="middle"
-          fill={p50C}
+          style={{ fill: p50C }}
           fontSize={7}
           fontFamily="Menlo, Monaco, 'Courier New', monospace"
         >
@@ -300,7 +308,7 @@ function RttHistogram({
           y1={0}
           x2={p99X}
           y2={plotH}
-          stroke={p99C}
+          style={{ stroke: p99C }}
           strokeWidth={1}
           strokeDasharray="2,2"
           opacity={0.7}
@@ -309,7 +317,7 @@ function RttHistogram({
           x={p99X}
           y={-3}
           textAnchor="middle"
-          fill={p99C}
+          style={{ fill: p99C }}
           fontSize={7}
           fontFamily="Menlo, Monaco, 'Courier New', monospace"
         >
@@ -319,7 +327,7 @@ function RttHistogram({
           x={p99X}
           y={chartH - 1}
           textAnchor="middle"
-          fill={p99C}
+          style={{ fill: p99C }}
           fontSize={7}
           fontFamily="Menlo, Monaco, 'Courier New', monospace"
         >

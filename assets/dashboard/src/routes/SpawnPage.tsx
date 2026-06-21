@@ -1114,7 +1114,7 @@ export default function SpawnPage() {
                 flexWrap: 'wrap',
                 gap: 'var(--spacing-sm)',
                 fontSize: '0.8125rem',
-                color: 'var(--color-text-secondary)',
+                color: 'var(--color-text-muted)',
               }}
             >
               {imageAttachments.map((_, index) => (
@@ -1125,7 +1125,7 @@ export default function SpawnPage() {
                     alignItems: 'center',
                     gap: 'var(--spacing-xs)',
                     padding: '2px var(--spacing-sm)',
-                    background: 'var(--color-surface-raised)',
+                    background: 'var(--color-surface-alt)',
                     borderRadius: 'var(--radius-sm)',
                   }}
                 >
@@ -1141,7 +1141,7 @@ export default function SpawnPage() {
                       cursor: 'pointer',
                       padding: '0 2px',
                       fontSize: '0.75rem',
-                      color: 'var(--color-text-secondary)',
+                      color: 'var(--color-text-muted)',
                       lineHeight: 1,
                     }}
                     aria-label={`Remove image ${index + 1}`}
@@ -1444,7 +1444,7 @@ export default function SpawnPage() {
                             />
                             <p
                               style={{
-                                color: 'var(--color-text-secondary)',
+                                color: 'var(--color-text-muted)',
                                 fontSize: '0.75rem',
                                 marginTop: 'var(--spacing-xs)',
                               }}
@@ -1681,14 +1681,14 @@ export default function SpawnPage() {
             style={{
               padding: 'var(--spacing-md)',
               borderRadius: 'var(--radius-md)',
-              backgroundColor: 'var(--color-error-bg, rgba(239, 68, 68, 0.1))',
-              border: '1px solid var(--color-error, #ef4444)',
-              color: 'var(--color-error, #ef4444)',
+              backgroundColor: 'var(--color-danger-subtle)',
+              border: '1px solid var(--color-danger)',
+              color: 'var(--color-danger)',
             }}
           >
             <strong>tmux not found</strong>
             <p style={{ margin: 'var(--spacing-xs) 0 0' }}>{tmuxError}</p>
-            <p style={{ margin: 'var(--spacing-xs) 0 0', fontSize: 'var(--font-size-sm)' }}>
+            <p style={{ margin: 'var(--spacing-xs) 0 0', fontSize: '0.75rem' }}>
               Install with: <code>brew install tmux</code> (macOS) or <code>apt install tmux</code>{' '}
               (Linux), then retry.
             </p>

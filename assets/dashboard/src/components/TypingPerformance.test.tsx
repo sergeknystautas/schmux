@@ -42,6 +42,27 @@ describe('TypingPerformance', () => {
     expect(svg).not.toBeNull();
   });
 
+  it('never puts a var() token in an SVG fill=/stroke= presentation attribute', () => {
+    // Guards the guide §3 rule: a token reaches SVG through the CSS fill/stroke
+    // *property* (style={{ fill }}), never the fill=/stroke= presentation attribute —
+    // var() in a presentation attribute is not substituted and renders black.
+    // Reverting style={{ fill: helper() }} back to fill={helper()} would regress this,
+    // because the helpers now return 'var(--color-*)' strings.
+    inputLatency.samples = [5, 10, 15, 20, 25];
+    const { container } = render(<TypingPerformance />);
+    const svg = container.querySelector('svg');
+    expect(svg).not.toBeNull();
+    const colored = Array.from(svg!.querySelectorAll('rect, line, text'));
+    expect(colored.length).toBeGreaterThan(0);
+    for (const el of colored) {
+      expect(el.getAttribute('fill') ?? '').not.toContain('var(');
+      expect(el.getAttribute('stroke') ?? '').not.toContain('var(');
+      // and no raw hex left behind in the presentation attributes either
+      expect(el.getAttribute('fill') ?? '').not.toMatch(/#[0-9a-fA-F]{3,8}/);
+      expect(el.getAttribute('stroke') ?? '').not.toMatch(/#[0-9a-fA-F]{3,8}/);
+    }
+  });
+
   it('hides content when collapsed via toggle', () => {
     inputLatency.samples = [5, 10, 15, 20, 25];
     const { container } = render(<TypingPerformance />);

@@ -671,7 +671,7 @@ export default function HomePage() {
                                 handleDismissRemoteWorkspace(e as unknown as React.MouseEvent, ws);
                               }
                             }}
-                            style={{ fontSize: '0.7rem', color: 'var(--color-error)' }}
+                            style={{ fontSize: '0.7rem', color: 'var(--color-danger)' }}
                             data-testid={`dismiss-workspace-${ws.id}`}
                           >
                             Dismiss
@@ -847,7 +847,7 @@ export default function HomePage() {
                     key={repo.slug}
                     style={{
                       fontSize: '0.875rem',
-                      color: 'var(--text-secondary)',
+                      color: 'var(--color-text-muted)',
                       padding: '0.25rem 0',
                     }}
                   >
@@ -1144,7 +1144,7 @@ export default function HomePage() {
                     key={repo.slug}
                     style={{
                       fontSize: '0.875rem',
-                      color: 'var(--text-secondary)',
+                      color: 'var(--color-text-muted)',
                       padding: '0.25rem 0',
                     }}
                   >
@@ -1249,7 +1249,7 @@ export default function HomePage() {
                                   );
                                 }
                               }}
-                              style={{ fontSize: '0.7rem', color: 'var(--color-error)' }}
+                              style={{ fontSize: '0.7rem', color: 'var(--color-danger)' }}
                               data-testid={`dismiss-workspace-${ws.id}`}
                             >
                               Dismiss

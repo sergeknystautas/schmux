@@ -21,7 +21,6 @@
   --color-danger-subtle: rgba(220, 53, 69, 0.1);
   --color-warning: #ffc107;
   --color-warning-subtle: rgba(255, 193, 7, 0.1);
-  --color-error: #dc3545;
   --color-info: #17a2b8;
   --color-info-subtle: rgba(23, 162, 184, 0.1);
 
@@ -329,7 +328,7 @@ body {
 
 .diag-pane__chevron {
   font-size: 9px;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-faint);
   transition: transform 0.15s ease;
   display: inline-block;
 }
@@ -352,7 +351,7 @@ body {
   gap: 6px;
   padding: 1px 0;
   font-size: 10px;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
 }
 
 .tmux-diag__dot {
@@ -366,7 +365,7 @@ body {
 }
 
 .tmux-diag__value {
-  color: var(--color-text-primary);
+  color: var(--color-text);
   font-variant-numeric: tabular-nums;
 }
 
@@ -392,17 +391,17 @@ body {
 .typing-perf__reset {
   background: none;
   border: none;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-faint);
   cursor: pointer;
   font-size: 10px;
   padding: 0 2px;
 }
 .typing-perf__reset:hover {
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
 }
 
 .typing-perf__empty {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-faint);
   font-size: 10px;
   padding: var(--spacing-xs) 0;
 }
@@ -427,14 +426,14 @@ body {
 .typing-perf__bar-label {
   width: 46px;
   flex-shrink: 0;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-faint);
 }
 
 .typing-perf__bar-total {
   width: 38px;
   flex-shrink: 0;
   text-align: right;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
 }
 
 .typing-perf__bar-track {
@@ -461,7 +460,7 @@ body {
   left: 62px;
   bottom: 100%;
   z-index: 10;
-  background: var(--color-bg-elevated, #2a2a2a);
+  background: var(--color-surface-elevated);
   border: 1px solid var(--color-border);
   border-radius: 4px;
   padding: 4px 6px;
@@ -488,13 +487,13 @@ body {
 }
 
 .typing-perf__tooltip-name {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-faint);
 }
 
 .typing-perf__tooltip-value {
   margin-left: auto;
   padding-left: 8px;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
 }
 
 .app-shell--collapsed .typing-perf {
@@ -721,13 +720,13 @@ body {
   align-items: center;
   gap: 6px;
   padding: var(--spacing-xs) 0;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
 }
 
 .curation-status__spinner {
   width: 8px;
   height: 8px;
-  border: 1.5px solid var(--color-accent, #4fc3f7);
+  border: 1.5px solid var(--color-accent);
   border-top-color: transparent;
   border-radius: 50%;
   animation: curation-spin 0.8s linear infinite;
@@ -742,12 +741,12 @@ body {
 
 .curation-status__repo {
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: var(--color-text);
   flex-shrink: 0;
 }
 
 .curation-status__message {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-faint);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -773,7 +772,7 @@ body {
 .curator-terminal__toggle {
   background: none;
   border: none;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-faint);
   cursor: pointer;
   padding: 2px 0;
   font-size: 10px;
@@ -781,7 +780,7 @@ body {
 }
 
 .curator-terminal__toggle:hover {
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
 }
 
 .curator-terminal__body {
@@ -801,11 +800,11 @@ body {
 }
 
 .curator-terminal__event--text {
-  color: var(--color-text-primary);
+  color: var(--color-text);
 }
 
 .curator-terminal__event--tool {
-  color: var(--color-accent, #4fc3f7);
+  color: var(--color-accent);
 }
 
 .curator-terminal__tool-name {
@@ -817,22 +816,22 @@ body {
 }
 
 .curator-terminal__event--thinking {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-faint);
   font-style: italic;
 }
 
 .curator-terminal__event--result {
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
   font-weight: 600;
 }
 
 .curator-terminal__event--done {
-  color: var(--color-success, #66bb6a);
+  color: var(--color-success);
   font-weight: 600;
 }
 
 .curator-terminal__event--error {
-  color: var(--color-error, #ef5350);
+  color: var(--color-danger);
   font-weight: 600;
 }
 
@@ -1002,7 +1001,7 @@ body {
   font-size: 0.75rem;
   padding: var(--spacing-xs) var(--spacing-md);
   background-color: var(--color-surface-alt);
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
   border-color: transparent;
 }
 
@@ -1066,7 +1065,7 @@ body {
 
 .nav-sort-toggle__btn:hover {
   background: var(--color-text-faint);
-  color: var(--color-bg);
+  color: var(--color-surface);
   border-color: var(--color-text-faint);
 }
 
@@ -1186,7 +1185,7 @@ body {
 
 /* Dev Mode: inline workspace decorations */
 .nav-workspace--dev-live {
-  border-left: 3px solid var(--color-success, #22c55e);
+  border-left: 3px solid var(--color-success);
   background: rgba(34, 197, 94, 0.06);
 }
 
@@ -1215,13 +1214,13 @@ body {
 }
 
 .nav-workspace--disposing .nav-workspace__header {
-  color: var(--color-text-muted, #888);
+  color: var(--color-text-muted);
 }
 
 .nav-session--disposing {
   opacity: 0.5;
   pointer-events: none;
-  color: var(--color-text-muted, #888);
+  color: var(--color-text-muted);
 }
 
 .nav-session__row1 {
@@ -1467,8 +1466,8 @@ body {
   padding: 0 5px;
   margin-left: 6px;
   border-radius: 9px;
-  background: var(--color-accent, #4fc3f7);
-  color: #000;
+  background: var(--color-accent);
+  color: white;
   font-size: 0.65rem;
   font-weight: 700;
   line-height: 1;
@@ -1477,7 +1476,7 @@ body {
 
 .nav-badge--danger {
   background: var(--color-danger);
-  color: #fff;
+  color: white;
 }
 
 /* Tools Section */
@@ -1570,7 +1569,7 @@ body {
 
 .tools-section__item-label {
   flex: 1;
-  font-size: var(--font-size-sm);
+  font-size: 0.75rem;
 }
 
 .tools-section__item-badge {
@@ -1583,8 +1582,8 @@ body {
 }
 
 .tools-section__item-badge--danger {
-  background-color: var(--color-error-subtle, rgba(239, 68, 68, 0.15));
-  color: var(--color-error);
+  background-color: var(--color-danger-subtle);
+  color: var(--color-danger);
 }
 
 /* Collapsed: horizontal icon bar */
@@ -1680,7 +1679,7 @@ body {
 }
 
 .tools-section__icon-badge--danger {
-  background-color: var(--color-error);
+  background-color: var(--color-danger);
 }
 
 /* Remote Access Panel */
@@ -1704,7 +1703,7 @@ body {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
 }
 
 .remote-access-panel__toggle {
@@ -1715,10 +1714,10 @@ body {
   padding: 4px 14px;
   font-size: 12px;
   font-weight: 600;
-  border: 1px solid var(--color-primary, #2196f3);
+  border: 1px solid var(--color-accent);
   border-radius: 4px;
-  background: var(--color-primary, #2196f3);
-  color: #fff;
+  background: var(--color-accent);
+  color: white;
   cursor: pointer;
   transition:
     background 0.15s,
@@ -1756,11 +1755,11 @@ body {
 }
 
 .remote-access-panel__status--starting {
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
 }
 
 .remote-access-panel__status--connected {
-  color: var(--color-success, #4caf50);
+  color: var(--color-success);
 }
 
 .remote-access-panel__status--error {
@@ -1782,7 +1781,7 @@ body {
   width: 100%;
   margin-top: 2px;
   font-size: 11px;
-  color: var(--color-warning, #ff9800);
+  color: var(--color-warning);
 }
 
 /* Tabs */
@@ -1800,7 +1799,7 @@ body {
   border-bottom: 2px solid transparent;
   color: var(--color-text-muted);
   cursor: pointer;
-  font-size: var(--font-size-base);
+  font-size: 0.875rem;
   font-weight: 500;
   transition: all var(--duration-fast) var(--easing);
   margin-bottom: -1px;
@@ -1862,7 +1861,7 @@ body {
   border-radius: var(--radius-sm);
   font-size: 0.75rem;
   font-weight: 500;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
   text-decoration: none;
   background-color: var(--color-surface-alt);
   transition:
@@ -1872,7 +1871,7 @@ body {
 
 .iterm2-link:hover {
   color: var(--color-text);
-  background-color: var(--color-surface-hover);
+  background-color: var(--color-surface-alt);
 }
 
 @keyframes pulse {
@@ -2052,7 +2051,7 @@ body {
 
 .filter-bar__label {
   font-weight: 600;
-  color: var(--color-text-subtle);
+  color: var(--color-text-muted);
   font-size: 0.875rem;
 }
 
@@ -2563,7 +2562,7 @@ body {
 .spawn-selector__label {
   font-size: 0.75rem;
   font-weight: 500;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
   white-space: nowrap;
 }
 
@@ -3075,7 +3074,7 @@ body {
 
 .log-viewer__output {
   flex: 1;
-  color: #e0e0e0;
+  color: var(--color-text);
   padding: var(--spacing-md);
   font-family: var(--font-mono);
   font-size: 0.875rem;
@@ -3146,7 +3145,7 @@ body {
 }
 
 .log-viewer__drop-overlay span {
-  color: #fff;
+  color: white;
   font-size: 0.875rem;
   font-weight: 500;
   letter-spacing: 0.02em;
@@ -4247,7 +4246,7 @@ a:hover {
 }
 
 .commit-header__back {
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
   text-decoration: none;
   font-size: 0.85rem;
 }
@@ -4263,7 +4262,7 @@ a:hover {
 .commit-header__hash {
   font-family: var(--font-mono);
   font-size: 0.85rem;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
 }
 
 .commit-header__merge-badge {
@@ -4283,11 +4282,11 @@ a:hover {
 }
 
 .commit-header__sep {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-faint);
 }
 
 .commit-header__date {
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
 }
 
 .commit-header__message {
@@ -4306,7 +4305,7 @@ a:hover {
   background: none;
   border: none;
   padding: var(--spacing-xs) 0;
-  color: var(--color-primary);
+  color: var(--color-accent);
   font-size: 0.8rem;
   cursor: pointer;
 }
@@ -4958,8 +4957,8 @@ a:hover {
 }
 
 .badge--info {
-  background-color: var(--color-info-subtle, #e0f2fe);
-  color: var(--color-info, #0284c7);
+  background-color: var(--color-info-subtle);
+  color: var(--color-info);
 }
 
 /* ============================================================================
@@ -5590,8 +5589,8 @@ a:hover {
 }
 
 .commit-workflow__status--deleted {
-  background-color: color-mix(in srgb, var(--color-error) 15%, transparent);
-  color: var(--color-error);
+  background-color: color-mix(in srgb, var(--color-danger) 15%, transparent);
+  color: var(--color-danger);
 }
 
 .commit-workflow__status--untracked {
@@ -6218,7 +6217,7 @@ body.keyboard-mode-active::after {
 .ntfy-qr-code {
   display: inline-block;
   padding: 0.75rem;
-  background: #fff;
+  background: white;
   border: 1px solid var(--color-border);
   border-radius: 0.5rem;
 }
@@ -7216,9 +7215,9 @@ body.keyboard-mode-active::after {
   width: 100%;
   text-align: center;
   padding: 32px 28px;
-  border: 1px solid var(--border, #2a2a2a);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: var(--surface, #161616);
+  background: var(--color-surface);
 }
 .auth-gate__title {
   margin: 0 0 8px;
@@ -7226,7 +7225,7 @@ body.keyboard-mode-active::after {
 }
 .auth-gate__text {
   margin: 0 0 20px;
-  color: var(--text-muted, #9aa0a6);
+  color: var(--color-text-faint);
 }
 .auth-gate__btn {
   display: inline-block;
@@ -7238,7 +7237,7 @@ body.keyboard-mode-active::after {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  color: var(--text-muted, #9aa0a6);
+  color: var(--color-text-faint);
 }
 
 /* --- Sidebar signed-in user row --- */
@@ -7247,7 +7246,7 @@ body.keyboard-mode-active::after {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border-top: 1px solid var(--border, #2a2a2a);
+  border-top: 1px solid var(--color-border);
 }
 .sidebar-user--collapsed {
   justify-content: center;

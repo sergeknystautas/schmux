@@ -329,7 +329,7 @@
   font-size: 0.875rem;
 }
 
-/* Merge review summary (was style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.5rem 0' }}) */
+/* Merge review summary */
 .mergeSummary {
   font-size: 0.8125rem;
   color: var(--color-text-muted);

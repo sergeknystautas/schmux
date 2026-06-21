@@ -668,7 +668,7 @@ export default function SessionTabs({
             {linesRemoved > 0 && (
               <span
                 style={{
-                  color: 'var(--color-error)',
+                  color: 'var(--color-danger)',
                   marginLeft: linesAdded > 0 ? '4px' : '0',
                 }}
               >

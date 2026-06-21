@@ -3,9 +3,9 @@
   z-index: 999;
   left: 0;
   right: 0;
-  background: var(--color-surface, #1a1a2e);
-  border: 1px solid var(--color-border, #333);
-  border-radius: var(--radius-md, 6px);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   max-height: 280px;
   overflow-y: auto;
@@ -22,17 +22,17 @@
   justify-content: center;
   border: none;
   background: none;
-  color: var(--color-text-muted, #888);
+  color: var(--color-text-muted);
   font-size: 0.875rem;
   line-height: 1;
   cursor: pointer;
-  border-radius: var(--radius-sm, 3px);
+  border-radius: var(--radius-sm);
   padding: 0;
 }
 
 .dismiss:hover {
-  color: var(--text-primary, #ddd);
-  background: var(--color-surface-raised, rgba(255, 255, 255, 0.05));
+  color: var(--color-text);
+  background: var(--color-surface-alt);
 }
 
 .item {
@@ -46,12 +46,12 @@
   background: none;
   width: 100%;
   text-align: left;
-  color: var(--text-primary, #ddd);
+  color: var(--color-text);
 }
 
 .item:hover,
 .itemSelected {
-  background: var(--color-surface-raised, rgba(255, 255, 255, 0.05));
+  background: var(--color-surface-alt);
 }
 
 .itemText {
@@ -63,7 +63,7 @@
 
 .itemMeta {
   font-size: 0.75rem;
-  color: var(--color-text-muted, #888);
+  color: var(--color-text-muted);
   white-space: nowrap;
 }
 
@@ -73,17 +73,17 @@
   border-radius: 3px;
   text-transform: uppercase;
   font-weight: 500;
-  background: var(--color-accent-subtle, rgba(79, 195, 247, 0.15));
-  color: var(--color-accent, #4fc3f7);
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
 }
 
 .itemSourceHistory {
-  background: var(--color-border-subtle, rgba(255, 255, 255, 0.05));
-  color: var(--color-text-muted, #888);
+  background: var(--color-border-subtle);
+  color: var(--color-text-muted);
 }
 
 .separator {
   height: 1px;
-  background: var(--color-border, #333);
+  background: var(--color-border);
   margin: 0.25rem 0;
 }

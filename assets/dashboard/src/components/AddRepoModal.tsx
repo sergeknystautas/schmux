@@ -229,7 +229,7 @@ export default function AddRepoModal({ onClose, navigateToSpawn = true }: AddRep
                     margin: 0,
                     padding: 0,
                     listStyle: 'none',
-                    backgroundColor: 'var(--color-bg-secondary, #1e1e1e)',
+                    backgroundColor: 'var(--color-surface)',
                     border: '1px solid var(--color-border)',
                     borderRadius: 'var(--radius-sm)',
                     marginTop: '4px',

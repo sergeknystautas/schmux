@@ -228,7 +228,7 @@ export default function ConfigModals({
                 style={{
                   marginTop: 'var(--spacing-md)',
                   padding: 'var(--spacing-sm)',
-                  background: 'var(--color-bg-secondary)',
+                  background: 'var(--color-surface-alt)',
                   borderRadius: 'var(--radius-sm)',
                 }}
               >

@@ -784,7 +784,7 @@ export default function AppShell() {
                                 height: '8px',
                                 borderRadius: '50%',
                                 backgroundColor: remoteDisconnected
-                                  ? 'var(--color-error)'
+                                  ? 'var(--color-danger)'
                                   : 'var(--color-success)',
                                 display: 'inline-block',
                                 marginRight: '6px',
@@ -999,7 +999,7 @@ export default function AppShell() {
                                         width: '8px',
                                         height: '8px',
                                         borderRadius: '50%',
-                                        backgroundColor: 'var(--color-warning, #ffc107)',
+                                        backgroundColor: 'var(--color-warning)',
                                         marginLeft: '4px',
                                         verticalAlign: 'middle',
                                       }}

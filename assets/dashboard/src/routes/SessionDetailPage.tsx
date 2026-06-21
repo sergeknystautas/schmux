@@ -737,7 +737,7 @@ export default function SessionDetailPage() {
                     height="48"
                     viewBox="0 0 24 24"
                     fill="none"
-                    stroke="var(--color-error)"
+                    stroke="var(--color-danger)"
                     strokeWidth="1.5"
                   >
                     <line x1="1" y1="1" x2="23" y2="23" />

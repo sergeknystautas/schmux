@@ -179,7 +179,7 @@ export default function AccessTab(props: AccessTabProps) {
           <div className="form-group">
             <label className="form-group__label">TLS Certificate</label>
             <div className="flex-row gap-md">
-              <span style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)' }}>
+              <span style={{ fontSize: '0.9rem', color: 'var(--color-text-muted)' }}>
                 {httpsEnabled ? (
                   tlsHostname ? (
                     <>
@@ -190,7 +190,7 @@ export default function AccessTab(props: AccessTabProps) {
                     <span className="text-success">Configured</span>
                   )
                 ) : (
-                  <span style={{ color: 'var(--color-text-tertiary)' }}>Not configured</span>
+                  <span style={{ color: 'var(--color-text-faint)' }}>Not configured</span>
                 )}
               </span>
               <button
@@ -254,7 +254,7 @@ export default function AccessTab(props: AccessTabProps) {
                   <span
                     style={{
                       fontSize: '0.9rem',
-                      color: 'var(--color-text-secondary)',
+                      color: 'var(--color-text-muted)',
                       marginLeft: 'var(--spacing-sm)',
                     }}
                   >

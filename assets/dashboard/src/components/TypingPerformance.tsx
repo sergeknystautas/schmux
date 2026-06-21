@@ -3,18 +3,18 @@ import { inputLatency } from '../lib/inputLatency';
 import type { LatencyDistribution, LatencyBreakdown } from '../lib/inputLatency';
 
 function colorForMs(ms: number): string {
-  if (ms <= 10) return '#0dbc79';
-  if (ms <= 50) return '#e5e510';
-  return '#f14c4c';
+  if (ms <= 10) return 'var(--color-success)';
+  if (ms <= 50) return 'var(--color-warning)';
+  return 'var(--color-danger)';
 }
 
 // Map a bucket index (ms) to a bar color
 function barColor(ms: number): string {
-  if (ms < 5) return '#0dbc79';
-  if (ms < 10) return '#0dbc79';
-  if (ms < 25) return '#e5e510';
-  if (ms < 50) return '#e5a010';
-  return '#f14c4c';
+  if (ms < 5) return 'var(--color-success)';
+  if (ms < 10) return 'var(--color-success)';
+  if (ms < 25) return 'var(--color-warning)';
+  if (ms < 50) return 'var(--color-graph-lane-3)';
+  return 'var(--color-danger)';
 }
 
 export default function TypingPerformance() {
@@ -145,7 +145,7 @@ function Histogram({
               y={y}
               width={Math.max(barW - 0.5, 0.5)}
               height={h}
-              fill={barColor(i)}
+              style={{ fill: barColor(i) }}
               opacity={0.85}
             />
           );
@@ -157,7 +157,7 @@ function Histogram({
           y1={0}
           x2={medianX}
           y2={plotH}
-          stroke={medianColor}
+          style={{ stroke: medianColor }}
           strokeWidth={1}
           opacity={0.7}
         />
@@ -165,7 +165,7 @@ function Histogram({
           x={medianX}
           y={-3}
           textAnchor="middle"
-          fill={medianColor}
+          style={{ fill: medianColor }}
           fontSize={7}
           fontFamily="Menlo, Monaco, 'Courier New', monospace"
         >
@@ -175,7 +175,7 @@ function Histogram({
           x={medianX}
           y={chartH - 1}
           textAnchor="middle"
-          fill={medianColor}
+          style={{ fill: medianColor }}
           fontSize={7}
           fontFamily="Menlo, Monaco, 'Courier New', monospace"
         >
@@ -188,7 +188,7 @@ function Histogram({
           y1={0}
           x2={p99X}
           y2={plotH}
-          stroke={p99Color}
+          style={{ stroke: p99Color }}
           strokeWidth={1}
           strokeDasharray="2,2"
           opacity={0.7}
@@ -197,7 +197,7 @@ function Histogram({
           x={p99X}
           y={-3}
           textAnchor="middle"
-          fill={p99Color}
+          style={{ fill: p99Color }}
           fontSize={7}
           fontFamily="Menlo, Monaco, 'Courier New', monospace"
         >
@@ -207,7 +207,7 @@ function Histogram({
           x={p99X}
           y={chartH - 1}
           textAnchor="middle"
-          fill={p99Color}
+          style={{ fill: p99Color }}
           fontSize={7}
           fontFamily="Menlo, Monaco, 'Courier New', monospace"
         >
