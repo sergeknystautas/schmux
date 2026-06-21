@@ -108,7 +108,7 @@ test.describe('Manage communication styles', () => {
 
     // Click the close/delete button on the custom style card
     const card = page.locator(`[data-testid="style-card-${customId}"]`);
-    const deleteBtn = card.locator('.persona-card__close');
+    const deleteBtn = card.locator('.entity-card__close');
     await deleteBtn.click();
 
     // Confirm the deletion modal
@@ -133,7 +133,7 @@ test.describe('Manage communication styles', () => {
 
     // Click delete on pirate
     const card = page.locator('[data-testid="style-card-pirate"]');
-    const deleteBtn = card.locator('.persona-card__close');
+    const deleteBtn = card.locator('.entity-card__close');
     await deleteBtn.click();
 
     // Confirm
