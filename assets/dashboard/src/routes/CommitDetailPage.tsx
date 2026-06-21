@@ -226,14 +226,7 @@ export default function CommitDetailPage() {
                           <span className="text-success">+{file.lines_added}</span>
                         )}
                         {file.lines_removed > 0 && (
-                          <span
-                            className="text-error"
-                            style={{
-                              marginLeft: file.lines_added > 0 ? '4px' : '0',
-                            }}
-                          >
-                            -{file.lines_removed}
-                          </span>
+                          <span className="text-error">-{file.lines_removed}</span>
                         )}
                       </span>
                     </button>

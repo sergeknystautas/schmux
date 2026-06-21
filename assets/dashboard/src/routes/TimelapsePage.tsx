@@ -87,8 +87,10 @@ export default function TimelapsePage() {
   if (loading) {
     return (
       <div className="page-content timelapse">
-        <div className="timelapse__header">
-          <h1>Timelapses</h1>
+        <div className="app-header">
+          <div className="app-header__info">
+            <h1 className="app-header__meta">Timelapses</h1>
+          </div>
         </div>
         <p className="timelapse__description">Loading...</p>
       </div>
@@ -97,12 +99,16 @@ export default function TimelapsePage() {
 
   return (
     <div className="page-content timelapse">
-      <div className="timelapse__header">
-        <h1>Timelapses</h1>
+      <div className="app-header">
+        <div className="app-header__info">
+          <h1 className="app-header__meta">Timelapses</h1>
+        </div>
         {recordings.length > 0 && (
-          <button className="btn btn--sm btn--danger" onClick={handleDeleteAll}>
-            Delete all
-          </button>
+          <div className="app-header__actions">
+            <button className="btn btn--sm btn--danger" onClick={handleDeleteAll}>
+              Delete all
+            </button>
+          </div>
         )}
       </div>
       <p className="timelapse__description">
