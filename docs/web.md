@@ -273,50 +273,14 @@ Always-visible pill: Connected / Reconnecting / Offline
 
 ---
 
-## Design System
+## Design system
 
-### Design Tokens
-
-All styling uses CSS custom properties:
-
-```css
-:root {
-  --color-surface: #ffffff;
-  --color-text: #1a1a1a;
-  --color-accent: #0066cc;
-  --spacing-md: 12px;
-  --radius-md: 6px;
-}
-```
-
-### Dark Mode
-
-First-class support via `[data-theme="dark"]` attribute. Persists to localStorage.
-
-### Accessibility
-
-- Focus states visible
-- Dialogs trap focus; Esc closes
-- ARIA labels for icon-only buttons
-- Color is never the only signal (status includes text)
-
----
-
-## Component Inventory
-
-### Primitives
-
-- Button, IconButton, Badge, StatusPill, Card, Divider, Tabs
-- Table, FormField, TextInput, Textarea, Select, Combobox
-- Dialog, ConfirmDialog, Toast, Toaster, Banner, Tooltip
-- CopyField, Skeleton, Spinner
-
-### Domain Components
-
-- SpawnWizard (multi-step form)
-- SessionDetailView (terminal + metadata)
-- LogViewer (xterm.js wrapper)
-- PastebinDropdown (quick-paste from config entries)
+The dashboard's visual design system — tokens (color, type, spacing, radii), component
+primitives (`.btn`, `.status-pill`, `.card`, tables, forms, modals…), the page
+templates, dark-mode theming, accessibility conventions, and the §6 compliance rubric —
+is specified in **[dashboard-style-guide.md](dashboard-style-guide.md)**. That is the
+canonical reference; don't restate token values or component specs here. (Dark-mode
+preference persists to `localStorage` via the `[data-theme]` attribute.)
 
 ---
 

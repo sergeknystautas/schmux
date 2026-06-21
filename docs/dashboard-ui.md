@@ -4,6 +4,8 @@
 
 The web dashboard provides real-time monitoring, session spawning, and workspace management through a sidebar-driven layout with collapsible tools navigation, action dropdowns for quick/emerged actions, workspace sorting, a dev-mode event monitor, persona selection in the spawn flow, and image attachment support for spawn prompts.
 
+> **Visual conventions live elsewhere.** This guide covers dashboard UI _behaviors_ and architecture. For the design system — tokens, component primitives, page templates, and the compliance rubric every surface is held to — see [`dashboard-style-guide.md`](dashboard-style-guide.md).
+
 ## Key files
 
 | File                                                        | Purpose                                                                                                        |
