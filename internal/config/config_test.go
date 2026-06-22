@@ -3280,3 +3280,22 @@ func TestDefaultAuthProvider_Value(t *testing.T) {
 			got, DefaultAuthProvider)
 	}
 }
+
+func TestGetClipboardSyncEnabled(t *testing.T) {
+	c := &Config{}
+	if !c.GetClipboardSyncEnabled() {
+		t.Errorf("unset: got false, want true (default-on)")
+	}
+
+	f := false
+	c.ClipboardSyncEnabled = &f
+	if c.GetClipboardSyncEnabled() {
+		t.Errorf("explicit false: got true, want false")
+	}
+
+	tr := true
+	c.ClipboardSyncEnabled = &tr
+	if !c.GetClipboardSyncEnabled() {
+		t.Errorf("explicit true: got false, want true")
+	}
+}

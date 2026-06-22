@@ -109,6 +109,12 @@ type Connection struct {
 	// tmux socket name for isolation on the remote host
 	tmuxSocketName string
 
+	// clipboardExternal is the desired set-clipboard value for this connection's
+	// remote tmux server. Guarded by mu so the manager can update it while the
+	// connection is provisioning/reconnecting. waitForControlMode reads it just
+	// before applyRemoteTmuxDefaults.
+	clipboardExternal bool
+
 	// PTY output subscribers for WebSocket terminal streaming
 	ptySubscribers   []chan []byte
 	ptySubscribersMu sync.Mutex
@@ -131,6 +137,11 @@ type ConnectionConfig struct {
 	OnStatusChange   func(hostID, status string)
 	OnProgress       func(message string)
 	Logger           *log.Logger
+	// ClipboardExternal is the desired tmux set-clipboard state for this remote
+	// server: true → "external", false → "off". A nil pointer resolves to true,
+	// so a zero-value ConnectionConfig keeps the default-on behavior — only an
+	// explicit false disables clipboard sync.
+	ClipboardExternal *bool
 }
 
 // ConnectionConfigFromResolved creates a ConnectionConfig from a ResolvedFlavor,
@@ -203,6 +214,7 @@ func NewConnection(cfg ConnectionConfig) *Connection {
 		},
 		flavorStr:             cfg.Flavor,
 		tmuxSocketName:        cfg.TmuxSocketName,
+		clipboardExternal:     cfg.ClipboardExternal == nil || *cfg.ClipboardExternal,
 		logger:                cfg.Logger,
 		onStatusChange:        cfg.OnStatusChange,
 		onProgress:            cfg.OnProgress,
@@ -244,6 +256,22 @@ func (c *Connection) Flavor() config.RemoteFlavor {
 // FlavorStr returns the flavor string (e.g., "www", "gpu").
 func (c *Connection) FlavorStr() string {
 	return c.flavorStr
+}
+
+// SetClipboardExternal updates the desired set-clipboard state. Safe to call
+// while the connection is provisioning/reconnecting; waitForControlMode reads
+// the latest value before applying remote tmux defaults.
+func (c *Connection) SetClipboardExternal(enabled bool) {
+	c.mu.Lock()
+	c.clipboardExternal = enabled
+	c.mu.Unlock()
+}
+
+// ClipboardExternal returns the desired set-clipboard state (true → "external").
+func (c *Connection) ClipboardExternal() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.clipboardExternal
 }
 
 // Client returns the control mode client for this connection.
@@ -759,8 +787,8 @@ func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader) e
 
 	// Apply server-scope and per-session tmux options every remote tmux server
 	// should have. Covers:
-	//   - set-clipboard external + terminal-features '*:clipboard' for OSC 52
-	//     forwarding from inner panes out to the daemon.
+	//   - set-clipboard + terminal-features '*:clipboard' for OSC 52 handling
+	//     according to the configured clipboard-sync state.
 	//   - window-size manual so each window can be independently resized
 	//     (without this tmux constrains all windows to the control mode
 	//     client's PTY size, ignoring per-window resize-window commands).
@@ -768,7 +796,7 @@ func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader) e
 	//     AI agents) can access the X11 clipboard via xclip. Must run BEFORE
 	//     sessions are spawned so the agent process inherits DISPLAY at startup.
 	//     :99 is the conventional Xvfb display started during provisioning.
-	applyRemoteTmuxDefaults(ctx, c.client, c.logger)
+	applyRemoteTmuxDefaults(ctx, c.client, c.ClipboardExternal(), c.logger)
 
 	// Connection ready - drain pending session queue
 	c.drainPendingQueue(ctx)

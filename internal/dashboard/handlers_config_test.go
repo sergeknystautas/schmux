@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
@@ -203,4 +205,136 @@ func TestRestartFlag_NotSetOnFirstSaveWithUnchangedFields(t *testing.T) {
 		t.Errorf("NeedsRestart was set to true after roundtrip-only save; " +
 			"expected false. Indicates a getter/snapshot drift.")
 	}
+}
+
+func clipboardTestBody(t *testing.T, apiResp contracts.ConfigResponse) contracts.ConfigUpdateRequest {
+	t.Helper()
+	bindAddr := apiResp.Network.BindAddress
+	pubURL := apiResp.Network.PublicBaseURL
+	var tlsCert, tlsKey string
+	if apiResp.Network.TLS != nil {
+		tlsCert = apiResp.Network.TLS.CertPath
+		tlsKey = apiResp.Network.TLS.KeyPath
+	}
+	tmuxBin := apiResp.TmuxBinary
+	tmuxSock := apiResp.TmuxSocketName
+	return contracts.ConfigUpdateRequest{
+		Network: &contracts.NetworkUpdate{
+			BindAddress:   &bindAddr,
+			PublicBaseURL: &pubURL,
+			TLS:           &contracts.TLSUpdate{CertPath: &tlsCert, KeyPath: &tlsKey},
+		},
+		AccessControl: &contracts.AccessControlUpdate{
+			Enabled:           &apiResp.AccessControl.Enabled,
+			Provider:          &apiResp.AccessControl.Provider,
+			SessionTTLMinutes: &apiResp.AccessControl.SessionTTLMinutes,
+		},
+		TmuxBinary:     &tmuxBin,
+		TmuxSocketName: &tmuxSock,
+	}
+}
+
+func getConfigResp(t *testing.T, h *ConfigHandlers) contracts.ConfigResponse {
+	t.Helper()
+	rr := httptest.NewRecorder()
+	h.handleConfigGet(rr, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET: status %d, body %s", rr.Code, rr.Body.String())
+	}
+	var resp contracts.ConfigResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("GET decode: %v", err)
+	}
+	return resp
+}
+
+func TestHandleConfigUpdate_ClipboardSyncToggle(t *testing.T) {
+	t.Run("fires on effective change", func(t *testing.T) {
+		server, cfg, _ := newTestServer(t)
+		h := newTestConfigHandlers(server)
+		var fired bool
+		h.onClipboardSyncToggle = func() { fired = true }
+
+		body := clipboardTestBody(t, getConfigResp(t, h))
+		f := false
+		body.ClipboardSyncEnabled = &f
+		if code := postConfig(t, h, body).Code; code != http.StatusOK {
+			t.Fatalf("POST status %d", code)
+		}
+		if !fired {
+			t.Errorf("expected toggle signal to fire on effective change")
+		}
+		// The signal carries no value; the reconcile worker reads config fresh,
+		// so persistence is what it will observe.
+		if cfg.GetClipboardSyncEnabled() {
+			t.Errorf("config not persisted: GetClipboardSyncEnabled() still true")
+		}
+	})
+
+	t.Run("does not fire when field absent", func(t *testing.T) {
+		server, _, _ := newTestServer(t)
+		h := newTestConfigHandlers(server)
+		var fired bool
+		h.onClipboardSyncToggle = func() { fired = true }
+
+		body := clipboardTestBody(t, getConfigResp(t, h)) // no ClipboardSyncEnabled
+		if code := postConfig(t, h, body).Code; code != http.StatusOK {
+			t.Fatalf("POST status %d", code)
+		}
+		if fired {
+			t.Errorf("toggle fired on a save that did not include the field")
+		}
+	})
+
+	t.Run("does not fire when value unchanged", func(t *testing.T) {
+		server, _, _ := newTestServer(t)
+		h := newTestConfigHandlers(server)
+		var fired bool
+		h.onClipboardSyncToggle = func() { fired = true }
+
+		body := clipboardTestBody(t, getConfigResp(t, h))
+		tr := true // already the effective default
+		body.ClipboardSyncEnabled = &tr
+		if code := postConfig(t, h, body).Code; code != http.StatusOK {
+			t.Fatalf("POST status %d", code)
+		}
+		if fired {
+			t.Errorf("toggle fired even though effective value did not change")
+		}
+	})
+
+	t.Run("save failure rolls back in-memory value and does not fire", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root bypasses directory permissions; cannot force a write failure")
+		}
+		server, cfg, _ := newTestServer(t)
+		h := newTestConfigHandlers(server)
+		var fired bool
+		h.onClipboardSyncToggle = func() { fired = true }
+
+		body := clipboardTestBody(t, getConfigResp(t, h))
+		f := false
+		body.ClipboardSyncEnabled = &f
+
+		// Make the config directory read-only so AtomicWriteFile's CreateTemp
+		// fails inside cfg.Save(), while the handler's initial Reload (a read)
+		// still works. This exercises the save-failure rollback path.
+		dir := filepath.Dir(cfg.FilePath())
+		if err := os.Chmod(dir, 0o500); err != nil {
+			t.Fatalf("chmod: %v", err)
+		}
+		t.Cleanup(func() { os.Chmod(dir, 0o700) })
+
+		if code := postConfig(t, h, body).Code; code != http.StatusInternalServerError {
+			t.Fatalf("expected 500 on save failure, got %d", code)
+		}
+		if fired {
+			t.Errorf("toggle fired despite save failure")
+		}
+		// After rollback, live readers must observe the on-disk (default-on) value,
+		// not the unsaved false the request mutated in memory.
+		if !cfg.GetClipboardSyncEnabled() {
+			t.Errorf("save failure did not restore effective value to true")
+		}
+	})
 }

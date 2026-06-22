@@ -132,6 +132,7 @@ export function buildConfigUpdate(state: ConfigFormState): ConfigUpdateRequest {
     backburner_enabled: state.backburnerEnabled,
     local_echo_remote: state.localEchoRemote,
     debug_ui: state.debugUI,
+    clipboard_sync_enabled: state.clipboardSyncEnabled,
     // Anthropic token is managed via modal, not auto-save.
     // Ollama endpoint follows the dirty-flag pattern so users can
     // clear a saved URL by emptying the field and saving.

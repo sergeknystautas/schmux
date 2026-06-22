@@ -197,6 +197,7 @@ export type ConfigFormState = {
   backburnerEnabled: boolean;
   localEchoRemote: boolean;
   debugUI: boolean;
+  clipboardSyncEnabled: boolean;
   tmuxBinary: string;
   tmuxSocketName: string;
   saplingCommands: SaplingCommandsUpdate;
@@ -372,6 +373,7 @@ export const initialState: ConfigFormState = {
   backburnerEnabled: false,
   localEchoRemote: false,
   debugUI: false,
+  clipboardSyncEnabled: true,
   tmuxBinary: '',
   tmuxSocketName: '',
   saplingCommands: {},

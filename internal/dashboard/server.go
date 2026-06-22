@@ -246,8 +246,9 @@ type Server struct {
 	styleManager *style.Manager
 
 	// Floor manager
-	floorManager         *floormanager.Manager
-	onFloorManagerToggle func(enabled bool)
+	floorManager          *floormanager.Manager
+	onFloorManagerToggle  func(enabled bool)
+	onClipboardSyncToggle func()
 
 	// Spawn entry system
 	spawnStore         *spawn.Store
@@ -512,6 +513,15 @@ func (s *Server) SetFloorManagerToggle(fn func(enabled bool)) {
 	s.onFloorManagerToggle = fn
 }
 
+// SetClipboardSyncToggle sets the callback invoked when the effective
+// clipboard_sync_enabled config value changes via the dashboard API. The
+// callback only signals; it must not block, as it runs on the config-save
+// request path (the daemon coalesces signals and applies the change in the
+// background, reading the config fresh).
+func (s *Server) SetClipboardSyncToggle(fn func()) {
+	s.onClipboardSyncToggle = fn
+}
+
 // HandleTunnelConnected handles a newly connected tunnel by generating an auth token and sending notifications.
 func (s *Server) HandleTunnelConnected(tunnelURL string) {
 	// Generate one-time token (32 bytes, hex-encoded)
@@ -686,6 +696,7 @@ func (s *Server) Start() error {
 			triggerSubredditGeneration: s.TriggerSubredditGeneration,
 			clearRemoteAuth:            s.ClearRemoteAuth,
 			onFloorManagerToggle:       s.onFloorManagerToggle,
+			onClipboardSyncToggle:      s.onClipboardSyncToggle,
 		}
 
 		// Git/VCS handler group
@@ -1775,10 +1786,76 @@ func (s *Server) BroadcastClipboardCleared(ev contracts.ClipboardClearedEvent) {
 func (s *Server) subscribeClipboard(tracker *session.SessionRuntime) {
 	go func() {
 		for req := range tracker.ClipboardCh() {
-			s.clipboardState.onRequest(req)
+			s.dispatchClipboardRequest(req)
 		}
 		s.clipboardState.clear(tracker.ID(), "")
 	}()
+}
+
+// dispatchClipboardRequest forwards an OSC 52 clipboard request to clipboardState
+// only when clipboard sync is enabled. The getter is read live per request, so
+// toggling Off stops new banners on the next clipboard event. The drain keeps
+// running (avoiding backpressure / drop-accounting churn); only the banner
+// hand-off is gated. Both outbound detection paths (OSC 52 byte extractor and
+// tmux %paste-buffer-changed) converge here, so this covers both.
+func (s *Server) dispatchClipboardRequest(req session.ClipboardRequest) {
+	if s.config.GetClipboardSyncEnabled() {
+		s.clipboardState.onRequest(req)
+	}
+}
+
+// managedLocalSockets returns the unique set of local tmux socket names schmux
+// is managing: the configured socket plus the sockets of any restored local
+// (non-remote) sessions. "" is normalized to "default", matching the daemon's
+// startup activeSocketSet behavior. Restored local sessions on older sockets are
+// still schmux-managed and must not keep stale clipboard behavior.
+func (s *Server) managedLocalSockets() []string {
+	set := map[string]bool{}
+	add := func(name string) {
+		if name == "" {
+			name = "default"
+		}
+		set[name] = true
+	}
+	add(s.config.GetTmuxSocketName())
+	for _, sess := range s.state.GetSessions() {
+		if sess.IsRemoteSession() {
+			continue
+		}
+		add(sess.TmuxSocket)
+	}
+	out := make([]string, 0, len(set))
+	for name := range set {
+		out = append(out, name)
+	}
+	return out
+}
+
+// ApplyClipboardSyncToLocalTmux applies the set-clipboard option live to every
+// managed local tmux socket and, when disabling, clears already-visible clipboard
+// banners. SetServerOption is the same primitive ApplyTmuxServerDefaults uses, so
+// the change takes effect for all live panes immediately (the option is consulted
+// per OSC 52 event, not cached per pane). Errors are logged and swallowed per
+// socket so one dead socket cannot block the rest.
+func (s *Server) ApplyClipboardSyncToLocalTmux(enabled bool) {
+	value := "off"
+	if enabled {
+		value = "external"
+	}
+	if !enabled {
+		s.clipboardState.clearAll()
+	}
+	for _, socket := range s.managedLocalSockets() {
+		srv := s.session.ServerForSocket(socket)
+		if srv == nil {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(s.shutdownCtx, 5*time.Second)
+		if err := srv.SetServerOption(ctx, "set-clipboard", value); err != nil {
+			s.logger.Warn("ApplyClipboardSyncToLocalTmux: set-clipboard", "socket", socket, "err", err)
+		}
+		cancel()
+	}
 }
 
 // BroadcastCuratorEvent sends a curator stream event to all connected dashboard WebSocket clients.

@@ -26,9 +26,13 @@ type remoteTmuxClient interface {
 //   - window-size manual: session-scope (matches existing SetOption call, no -g).
 //   - DISPLAY :99: raw setenv -g (matches existing Execute).
 //   - set-clipboard / terminal-features: NEW; server-scope via SetServerOption.
-func applyRemoteTmuxDefaults(ctx context.Context, c remoteTmuxClient, logger *log.Logger) {
+func applyRemoteTmuxDefaults(ctx context.Context, c remoteTmuxClient, clipboardExternal bool, logger *log.Logger) {
+	clipboard := "off"
+	if clipboardExternal {
+		clipboard = "external"
+	}
 	serverOpts := [][2]string{
-		{"set-clipboard", "external"},
+		{"set-clipboard", clipboard},
 		{"terminal-features", "*:clipboard"},
 	}
 	for _, o := range serverOpts {

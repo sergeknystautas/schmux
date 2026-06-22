@@ -107,6 +107,8 @@ func (m *Manager) StartConnect(profileID, flavorStr string) (provisioningSession
 	cfg.OnStatusChange = m.handleStatusChange
 	cfg.TmuxSocketName = m.config.GetTmuxSocketName()
 	cfg.Logger = m.logger
+	clip := m.config.GetClipboardSyncEnabled()
+	cfg.ClipboardExternal = &clip
 	conn := NewConnection(cfg)
 
 	// Register in map immediately so WebSocket handler can find it.
@@ -276,6 +278,8 @@ func (m *Manager) connectInternal(ctx context.Context, profileID, flavorStr stri
 	cfg.OnProgress = onProgress
 	cfg.TmuxSocketName = m.config.GetTmuxSocketName()
 	cfg.Logger = m.logger
+	clip := m.config.GetClipboardSyncEnabled()
+	cfg.ClipboardExternal = &clip
 	conn := NewConnection(cfg)
 
 	// Add to state before connecting (shows provisioning status)
@@ -392,6 +396,8 @@ func (m *Manager) Reconnect(ctx context.Context, hostID string) (*Connection, er
 	cfg.OnStatusChange = m.handleStatusChange
 	cfg.TmuxSocketName = m.config.GetTmuxSocketName()
 	cfg.Logger = m.logger
+	clip := m.config.GetClipboardSyncEnabled()
+	cfg.ClipboardExternal = &clip
 	conn := NewConnection(cfg)
 
 	// Use existing host ID
@@ -555,6 +561,42 @@ func (m *Manager) GetActiveConnections() []*Connection {
 		}
 	}
 	return result
+}
+
+// ApplyClipboardSync updates the desired set-clipboard value on every existing
+// connection and pushes it live to connected control-mode clients. Provisioning
+// or reconnecting connections (Client() == nil) pick up the new value when
+// waitForControlMode next runs. Connections are snapshotted under the manager
+// lock; the lock is released before any remote control-mode call so a slow host
+// cannot block the config-save path. Errors are logged and swallowed per host.
+func (m *Manager) ApplyClipboardSync(ctx context.Context, enabled bool) {
+	value := "off"
+	if enabled {
+		value = "external"
+	}
+
+	m.mu.RLock()
+	conns := make([]*Connection, 0, len(m.connections))
+	for _, c := range m.connections {
+		conns = append(conns, c)
+	}
+	m.mu.RUnlock()
+
+	for _, c := range conns {
+		c.SetClipboardExternal(enabled)
+		if !c.IsConnected() {
+			continue // provisioning/reconnecting — applied later via waitForControlMode
+		}
+		client := c.Client()
+		if client == nil {
+			continue
+		}
+		hostCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		if err := client.SetServerOption(hostCtx, "set-clipboard", value); err != nil && m.logger != nil {
+			m.logger.Warn("ApplyClipboardSync: set-clipboard", "host_id", c.Host().ID, "err", err)
+		}
+		cancel()
+	}
 }
 
 // handleStatusChange is called when a connection's status changes.
@@ -967,6 +1009,8 @@ func (m *Manager) StartReconnect(hostID string, onFail func(hostID string)) (pro
 	cfg.OnStatusChange = m.handleStatusChange
 	cfg.TmuxSocketName = m.config.GetTmuxSocketName()
 	cfg.Logger = m.logger
+	clip := m.config.GetClipboardSyncEnabled()
+	cfg.ClipboardExternal = &clip
 	conn := NewConnection(cfg)
 
 	// Use existing host ID and provisioning session ID pattern

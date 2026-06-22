@@ -245,6 +245,35 @@ func TestNewDaemon(t *testing.T) {
 	if d.shutdownCtx.Err() != nil {
 		t.Error("shutdownCtx should not be canceled on creation")
 	}
+	if d.clipboardReconcile == nil {
+		t.Error("clipboardReconcile should be initialized")
+	}
+}
+
+// TestSignalClipboardReconcile_NonBlockingAndCoalesces pins the contract that
+// keeps clipboard propagation off the config-save request path: signaling must
+// never block (even with no worker draining), and bursts must coalesce to a
+// single queued reconcile (the worker reads config fresh, so duplicates are
+// redundant). A regression here would let a slow/dead tmux host stall a save.
+func TestSignalClipboardReconcile_NonBlockingAndCoalesces(t *testing.T) {
+	d := NewDaemon()
+
+	// Many signals with nothing draining must not block.
+	for i := 0; i < 100; i++ {
+		d.signalClipboardReconcile()
+	}
+
+	// Exactly one reconcile is queued; the rest coalesced.
+	select {
+	case <-d.clipboardReconcile:
+	default:
+		t.Fatal("expected one queued reconcile signal")
+	}
+	select {
+	case <-d.clipboardReconcile:
+		t.Fatal("expected duplicate signals to coalesce to a single queued reconcile")
+	default:
+	}
 }
 
 func TestValidateSessionAccess_WithSessions_OurSocketExists(t *testing.T) {

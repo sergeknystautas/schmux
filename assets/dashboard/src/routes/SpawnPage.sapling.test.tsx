@@ -90,6 +90,7 @@ function makeConfig(overrides: Partial<ConfigResponse> = {}): ConfigResponse {
     },
     personas_enabled: false,
     comm_styles_enabled: false,
+    clipboard_sync_enabled: true,
     system_capabilities: { iterm2_available: false },
     needs_restart: false,
     oneshot_targets: [],

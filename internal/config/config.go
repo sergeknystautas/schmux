@@ -126,6 +126,7 @@ type ConfigData struct {
 	PersonasEnabled            bool                        `json:"personas_enabled,omitempty"`
 	CommStylesEnabled          bool                        `json:"comm_styles_enabled,omitempty"`
 	BackburnerEnabled          bool                        `json:"backburner_enabled,omitempty"`
+	ClipboardSyncEnabled       *bool                       `json:"clipboard_sync_enabled,omitempty"`
 	Timelapse                  *TimelapseConfig            `json:"timelapse,omitempty"`
 
 	// Telemetry settings
@@ -1386,6 +1387,18 @@ func (c *Config) GetBackburnerEnabled() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.BackburnerEnabled
+}
+
+// GetClipboardSyncEnabled returns whether terminal clipboard sync is enabled:
+// OSC 52 forwarding via tmux set-clipboard and the dashboard clipboard banner.
+// Defaults to true when unset, so existing configs keep current behavior (opt-out).
+func (c *Config) GetClipboardSyncEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.ClipboardSyncEnabled == nil {
+		return true
+	}
+	return *c.ClipboardSyncEnabled
 }
 
 // GetRepofeedEnabled returns whether the repofeed system is enabled.

@@ -533,3 +533,25 @@ func TestNewConnection_EmptyHostnameForEphemeral(t *testing.T) {
 		t.Errorf("ephemeral RemoteHost.Hostname: got %q, want empty", got)
 	}
 }
+
+func TestConnection_ClipboardExternal_DefaultsAndMutation(t *testing.T) {
+	// nil ConnectionConfig.ClipboardExternal resolves to true (default-on guard
+	// so a zero-value ConnectionConfig never accidentally disables clipboard sync).
+	conn := NewConnection(ConnectionConfig{ProfileID: "p", Flavor: "f"})
+	if !conn.ClipboardExternal() {
+		t.Errorf("nil ClipboardExternal: got false, want true (default-on)")
+	}
+
+	// explicit false resolves to false.
+	f := false
+	conn2 := NewConnection(ConnectionConfig{ProfileID: "p", Flavor: "f", ClipboardExternal: &f})
+	if conn2.ClipboardExternal() {
+		t.Errorf("explicit false: got true, want false")
+	}
+
+	// Provisioning race: desired value can be flipped before control mode runs.
+	conn.SetClipboardExternal(false)
+	if conn.ClipboardExternal() {
+		t.Errorf("after SetClipboardExternal(false): got true, want false")
+	}
+}

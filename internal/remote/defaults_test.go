@@ -27,22 +27,34 @@ func (f *fakeRemoteClient) Execute(_ context.Context, cmd string) (string, time.
 }
 
 func TestApplyRemoteTmuxDefaults(t *testing.T) {
-	f := &fakeRemoteClient{}
-	applyRemoteTmuxDefaults(context.Background(), f, nil)
+	cases := []struct {
+		name              string
+		clipboardExternal bool
+		wantClipboard     string
+	}{
+		{"enabled", true, "external"},
+		{"disabled", false, "off"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeRemoteClient{}
+			applyRemoteTmuxDefaults(context.Background(), f, tc.clipboardExternal, nil)
 
-	wantServer := [][2]string{
-		{"set-clipboard", "external"},
-		{"terminal-features", "*:clipboard"},
-	}
-	if !reflect.DeepEqual(f.setServerOptCalls, wantServer) {
-		t.Errorf("server-option calls = %v, want %v", f.setServerOptCalls, wantServer)
-	}
-	wantSession := [][2]string{{"window-size", "manual"}}
-	if !reflect.DeepEqual(f.setOptCalls, wantSession) {
-		t.Errorf("session-option calls = %v, want %v", f.setOptCalls, wantSession)
-	}
-	wantExec := []string{"setenv -g DISPLAY :99"}
-	if !reflect.DeepEqual(f.execCalls, wantExec) {
-		t.Errorf("execute calls = %v, want %v", f.execCalls, wantExec)
+			wantServer := [][2]string{
+				{"set-clipboard", tc.wantClipboard},
+				{"terminal-features", "*:clipboard"},
+			}
+			if !reflect.DeepEqual(f.setServerOptCalls, wantServer) {
+				t.Errorf("server-option calls = %v, want %v", f.setServerOptCalls, wantServer)
+			}
+			wantSession := [][2]string{{"window-size", "manual"}}
+			if !reflect.DeepEqual(f.setOptCalls, wantSession) {
+				t.Errorf("session-option calls = %v, want %v", f.setOptCalls, wantSession)
+			}
+			wantExec := []string{"setenv -g DISPLAY :99"}
+			if !reflect.DeepEqual(f.execCalls, wantExec) {
+				t.Errorf("execute calls = %v, want %v", f.execCalls, wantExec)
+			}
+		})
 	}
 }

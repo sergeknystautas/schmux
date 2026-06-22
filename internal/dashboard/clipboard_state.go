@@ -286,6 +286,22 @@ func (cs *clipboardState) clear(sessionID, requestID string) bool {
 	return true
 }
 
+// clearAll removes every pending entry and emits clipboardCleared for each.
+// Used when clipboard sync is toggled off so already-visible banners disappear
+// immediately rather than lingering for the TTL. IDs are snapshotted under the
+// lock, then cleared one at a time (clear takes the lock per entry).
+func (cs *clipboardState) clearAll() {
+	cs.mu.Lock()
+	ids := make([]string, 0, len(cs.pending))
+	for sid := range cs.pending {
+		ids = append(ids, sid)
+	}
+	cs.mu.Unlock()
+	for _, sid := range ids {
+		cs.clear(sid, "")
+	}
+}
+
 // snapshot returns the current set of pending clipboard requests as a slice
 // of ClipboardRequestEvents, used by the WS-reconnect rehydration path.
 func (cs *clipboardState) snapshot() []contracts.ClipboardRequestEvent {

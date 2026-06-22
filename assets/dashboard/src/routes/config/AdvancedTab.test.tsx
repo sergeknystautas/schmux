@@ -28,6 +28,7 @@ const defaultProps = {
   xtermUseWebGL: true,
   localEchoRemote: false,
   debugUI: false,
+  clipboardSyncEnabled: true,
   isDevMode: false,
   hasSaplingRepos: false,
   saplingCommands: {},
@@ -132,5 +133,19 @@ describe('AdvancedTab', () => {
     expect(
       screen.getByText('No custom sapling commands configured (using built-in defaults).')
     ).toBeInTheDocument();
+  });
+
+  it('renders the Clipboard Sync toggle bound to clipboardSyncEnabled', () => {
+    render(<AdvancedTab {...defaultProps} />);
+    expect(screen.getByLabelText('Clipboard Sync')).toBeChecked();
+  });
+
+  it('dispatches clipboardSyncEnabled toggle', async () => {
+    dispatch.mockClear();
+    render(<AdvancedTab {...defaultProps} clipboardSyncEnabled={true} />);
+    await userEvent.click(screen.getByLabelText('Clipboard Sync'));
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'SET_FIELD', field: 'clipboardSyncEnabled', value: false })
+    );
   });
 });

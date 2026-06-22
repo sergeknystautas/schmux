@@ -18,6 +18,7 @@ type AdvancedTabProps = {
   xtermUseWebGL: boolean;
   localEchoRemote: boolean;
   debugUI: boolean;
+  clipboardSyncEnabled: boolean;
   isDevMode: boolean;
   hasSaplingRepos: boolean;
   saplingCommands: SaplingCommandsUpdate;
@@ -46,6 +47,7 @@ export default function AdvancedTab({
   xtermUseWebGL,
   localEchoRemote,
   debugUI,
+  clipboardSyncEnabled,
   isDevMode,
   hasSaplingRepos,
   saplingCommands,
@@ -138,6 +140,23 @@ export default function AdvancedTab({
             </p>
             <p className="form-group__hint">
               Takes effect for new sessions. Existing sessions continue on their current socket.
+            </p>
+          </div>
+
+          <div className="form-group">
+            <label className="flex-row gap-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={clipboardSyncEnabled}
+                onChange={(e) => setField('clipboardSyncEnabled', e.target.checked)}
+              />
+              <span>Clipboard Sync</span>
+            </label>
+            <p className="form-group__hint">
+              When on, agent clipboard copies (OSC 52) surface an approve/reject banner and tmux
+              forwards them with <code>set-clipboard external</code>. Turn off to suppress the
+              banner and set tmux <code>set-clipboard off</code> on every managed tmux server.
+              Pasting into a session is unaffected. Takes effect immediately.
             </p>
           </div>
         </div>

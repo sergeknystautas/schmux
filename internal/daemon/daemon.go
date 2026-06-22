@@ -77,6 +77,12 @@ type Daemon struct {
 	shutdownCtx    context.Context
 	cancelFunc     context.CancelFunc
 
+	// clipboardReconcile signals the clipboard reconcile worker to push the
+	// current set-clipboard setting to running tmux servers. Buffered(1) and
+	// fed by non-blocking sends so bursts coalesce; the worker reads config
+	// fresh each pass, keeping propagation off the config-save request path.
+	clipboardReconcile chan struct{}
+
 	githubStatus contracts.GitHubStatus
 }
 
@@ -142,10 +148,11 @@ func (w *heartbeatStateWriter) SetHeartbeatStatus(s *dashboardsx.HeartbeatStatus
 func NewDaemon() *Daemon {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Daemon{
-		shutdownChan:   make(chan struct{}),
-		devRestartChan: make(chan struct{}),
-		shutdownCtx:    ctx,
-		cancelFunc:     cancel,
+		shutdownChan:       make(chan struct{}),
+		devRestartChan:     make(chan struct{}),
+		shutdownCtx:        ctx,
+		cancelFunc:         cancel,
+		clipboardReconcile: make(chan struct{}, 1),
 	}
 }
 
@@ -433,7 +440,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	if err := tmuxServer.StartServer(d.shutdownCtx); err != nil {
 		logger.Warn("StartServer for default socket failed", "err", err)
 	}
-	tmux.ApplyTmuxServerDefaults(d.shutdownCtx, tmuxServer, logger)
+	tmux.ApplyTmuxServerDefaults(d.shutdownCtx, tmuxServer, cfg.GetClipboardSyncEnabled(), logger)
 
 	// Tighten file modes on $SCHMUXDIR before any listener opens. See spec §2.2.
 	// Refuses to start unless security.allow_insecure_modes is true.
@@ -1039,7 +1046,48 @@ func (d *Daemon) wireCallbacks(
 		}
 	})
 
+	// Clipboard-sync propagation runs OFF the config-save request path: pushing
+	// set-clipboard to every managed local socket and remote host is slow I/O
+	// (per-host SSH, 5s timeouts) that must never block a save. The handler
+	// signals on an effective change; a single worker coalesces bursts and reads
+	// the config fresh each pass, so a dead host can't stall the save and rapid
+	// toggles converge to the persisted value. No daemon restart.
+	go d.clipboardReconcileWorker(server, remoteManager, cfg)
+	server.SetClipboardSyncToggle(d.signalClipboardReconcile)
+
 	return
+}
+
+// signalClipboardReconcile asks the reconcile worker to push the current
+// clipboard-sync setting to running tmux servers. Non-blocking by design so it
+// is safe on the config-save request path: if a reconcile is already queued the
+// duplicate is dropped, and the worker reads the config fresh when it runs, so
+// nothing is lost.
+func (d *Daemon) signalClipboardReconcile() {
+	select {
+	case d.clipboardReconcile <- struct{}{}:
+	default:
+	}
+}
+
+// clipboardReconcileWorker pushes the current clipboard-sync setting to every
+// running local + remote tmux server whenever signaled, until the daemon shuts
+// down. It reads the config fresh on each pass so coalesced toggles converge to
+// the persisted value, and runs off the config-save request path so a slow or
+// dead host never blocks a save. Both apply calls are best-effort (errors are
+// logged inside them); a server that misses a pass self-heals on next
+// start/reconnect via ApplyTmuxServerDefaults.
+func (d *Daemon) clipboardReconcileWorker(server *dashboard.Server, remoteManager *remote.Manager, cfg *config.Config) {
+	for {
+		select {
+		case <-d.shutdownCtx.Done():
+			return
+		case <-d.clipboardReconcile:
+			enabled := cfg.GetClipboardSyncEnabled()
+			server.ApplyClipboardSyncToLocalTmux(enabled)
+			remoteManager.ApplyClipboardSync(d.shutdownCtx, enabled)
+		}
+	}
 }
 
 // restoreSessions starts tmux servers for restored sessions, resumes output
@@ -1075,7 +1123,7 @@ func (d *Daemon) restoreSessions(
 		if err := srv.StartServer(d.shutdownCtx); err != nil {
 			logger.Warn("failed to start tmux server for socket", "socket", socket, "err", err)
 		}
-		tmux.ApplyTmuxServerDefaults(d.shutdownCtx, srv, logger)
+		tmux.ApplyTmuxServerDefaults(d.shutdownCtx, srv, cfg.GetClipboardSyncEnabled(), logger)
 	}
 
 	// Start output trackers for running sessions restored from state.

@@ -547,7 +547,7 @@ Environment cleanup: before creating a tmux session, the server removes pollutio
 
 Server-scope tmux options: both the local tmux wrapper (`*tmux.TmuxServer`) and the remote control-mode client (`*controlmode.Client`) expose a `SetServerOption(option, value)` helper that issues `set-option -s` (server-scope) rather than the session-scope default used by `SetOption`. This is the prerequisite for setting options like `set-clipboard` and `terminal-features` that apply to the whole tmux server and are not associated with any session. No HTTP API surface change — internal helper only.
 
-Tmux server defaults helpers: `tmux.ApplyTmuxServerDefaults` and the package-private `remote.applyRemoteTmuxDefaults` centralize the "every schmux-owned tmux server gets these options" policy. Both apply `set-clipboard external` and `terminal-features '*:clipboard'` (server-scope); the remote variant additionally re-applies the existing `window-size manual` (session-scope) and `setenv -g DISPLAY :99` calls so a single helper covers reconnect-time re-application. Errors are logged and swallowed — these are belt-and-braces options that must not block server startup. Helpers only; not yet wired into daemon startup or the remote connect path. No HTTP API surface change.
+Tmux server defaults helpers: `tmux.ApplyTmuxServerDefaults` and the package-private `remote.applyRemoteTmuxDefaults` centralize the "every schmux-owned tmux server gets these options" policy. Both apply `set-clipboard external` when `clipboard_sync_enabled` is true and `set-clipboard off` when it is false, plus `terminal-features '*:clipboard'` (server-scope). The remote variant additionally re-applies the existing `window-size manual` (session-scope) and `setenv -g DISPLAY :99` calls so a single helper covers connect/reconnect-time re-application. The daemon calls these helpers at local tmux startup, restored-socket startup, and remote control-mode readiness. Runtime changes to `clipboard_sync_enabled` enqueue a best-effort background reconcile that pushes the new `set-clipboard` value to managed local sockets and connected remote tmux servers; errors are logged and swallowed so startup, reconnect, and config saves are not blocked by clipboard-option failures.
 
 WebSocket binary frames (CR + FM streams): the per-session WebSocket loops (`/ws/cr/{name}` and `/ws/fm/{name}`) now forward zero-length output events as zero-length binary frames (8-byte sequence header + empty payload) instead of silently dropping them. This matches the long-standing behavior of the main session WebSocket (`/ws/terminal/{id}`). Wire-protocol implication for clients: a frame with `len(data) == 0` is valid and must be consumed to advance the sequence counter; the existing gap-detection logic on the frontend already treats it as a no-op. Without this fix, an upstream zero-byte event creates a phantom seq gap that would trigger a spurious replay (relevant once OSC 52 stripping starts producing empty post-strip output).
 
@@ -1081,6 +1081,7 @@ Response:
   "personas_enabled": false,
   "comm_styles_enabled": false,
   "backburner_enabled": false,
+  "clipboard_sync_enabled": true,
   "repos": [{ "name": "repo", "url": "https://...", "vcs": "sapling" }],
   "run_targets": [{ "name": "target", "type": "promptable", "command": "...", "source": "user" }],
   "quick_launch": [
@@ -1238,6 +1239,8 @@ The legacy string form is rejected at config-load time. If you have an older con
 
 **`backburner_enabled`** (boolean, optional, default `false`): Enables the Backburner experimental feature. When `true`, workspace headers show a backburner toggle button. Backburnered workspaces are dimmed and sorted to the bottom of workspace lists.
 
+**`clipboard_sync_enabled`** (boolean, default `true`): Controls terminal clipboard sync. When `true` (default), an agent's OSC 52 clipboard copy surfaces an approve/reject banner in the dashboard and tmux forwards OSC 52 with `set-clipboard external`. When `false`, the banner is suppressed and `set-clipboard off` is applied to every managed local tmux socket and to remote-host tmux servers, so tmux stops acting on OSC 52. Applied live on toggle with no daemon restart. Paste-into-session (keystroke forwarding) is unaffected in both states, and the OSC 52 extractor keeps stripping the sequence from the dashboard terminal stream regardless. Unlike most response fields this one omits `omitempty`, so an explicit `false` always round-trips.
+
 **`tmux_binary`**: Path to a custom tmux binary. When empty or omitted, the system default from `$PATH` is used. The path is validated on save (must exist, be executable, and output a recognized tmux version string). Changing this field flags `needs_restart`.
 
 **`tmux_socket_name`** (string, optional, default `"schmux"`): The tmux socket name used by the daemon. All sessions are created on this socket. Changing this field flags `needs_restart`.
@@ -1280,6 +1283,7 @@ Request:
   "personas_enabled": false,
   "comm_styles_enabled": false,
   "backburner_enabled": false,
+  "clipboard_sync_enabled": true,
   "repos": [{ "name": "repo", "url": "https://...", "vcs": "sapling" }],
   "run_targets": [{ "name": "target", "type": "promptable", "command": "...", "source": "user" }],
   "quick_launch": [

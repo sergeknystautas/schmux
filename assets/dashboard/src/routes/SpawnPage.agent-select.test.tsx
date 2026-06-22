@@ -90,6 +90,7 @@ const configFixture: ConfigResponse = {
   },
   personas_enabled: true,
   comm_styles_enabled: true,
+  clipboard_sync_enabled: true,
   system_capabilities: { iterm2_available: false },
   needs_restart: false,
   oneshot_targets: [],

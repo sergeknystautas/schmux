@@ -519,3 +519,42 @@ func TestClipboardState_DebounceStaleCallbackDoesNotDoubleBroadcast(t *testing.T
 		t.Errorf("expected the latest text, got %q", last.Text)
 	}
 }
+
+func TestClipboardState_ClearAll(t *testing.T) {
+	withTestDebounce(t, time.Millisecond, time.Minute)
+	cap := &capturingBroadcaster{}
+	cs := newClipboardState(cap, nil)
+
+	cs.onRequest(session.ClipboardRequest{SessionID: "s1", Text: "a"})
+	cs.onRequest(session.ClipboardRequest{SessionID: "s2", Text: "b"})
+
+	cs.clearAll()
+
+	if got := cap.clearedCount(); got != 2 {
+		t.Errorf("clearAll: got %d cleared broadcasts, want 2", got)
+	}
+	if len(cs.snapshot()) != 0 {
+		t.Errorf("clearAll: pending entries remain: %d", len(cs.snapshot()))
+	}
+}
+
+func TestServer_DispatchClipboardRequest_GatedByConfig(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+	cap := &capturingBroadcaster{}
+	server.clipboardState = newClipboardState(cap, server.logger)
+	withTestDebounce(t, time.Millisecond, time.Minute)
+
+	// Enabled (default): request is forwarded and eventually broadcast.
+	server.dispatchClipboardRequest(session.ClipboardRequest{SessionID: "s1", Text: "hi"})
+	if !waitFor(time.Second, func() bool { return cap.requestsCount() == 1 }) {
+		t.Fatalf("enabled: expected 1 broadcast, got %d", cap.requestsCount())
+	}
+
+	// Disabled: request is dropped at the gate — no new broadcast.
+	f := false
+	cfg.ClipboardSyncEnabled = &f
+	server.dispatchClipboardRequest(session.ClipboardRequest{SessionID: "s2", Text: "yo"})
+	if waitFor(300*time.Millisecond, func() bool { return cap.requestsCount() == 2 }) {
+		t.Errorf("disabled: expected request to be gated, but it broadcast")
+	}
+}

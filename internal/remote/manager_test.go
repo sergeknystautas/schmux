@@ -1393,3 +1393,30 @@ func TestCleanupWorkspace_SkipsActiveSession(t *testing.T) {
 		t.Errorf("should not remove worktree with active sessions, got %d removes", len(vcs.removeCalls))
 	}
 }
+
+func TestManager_ApplyClipboardSync_UpdatesDesiredValue(t *testing.T) {
+	cfg := &config.Config{}
+	st := &state.State{
+		Workspaces:  []state.Workspace{},
+		Sessions:    []state.Session{},
+		RemoteHosts: []state.RemoteHost{},
+	}
+	mgr := NewManager(cfg, st, nil)
+
+	tr := true
+	conn := NewConnection(ConnectionConfig{ProfileID: "p", Flavor: "f", ClipboardExternal: &tr})
+	mgr.mu.Lock()
+	mgr.connections[conn.host.ID] = conn
+	mgr.mu.Unlock()
+
+	if !conn.ClipboardExternal() {
+		t.Fatalf("setup: expected desired value true")
+	}
+
+	// conn was never connected, so Client() is nil and the live push is skipped
+	// (no tmux exec). The desired value must still flip for the in-flight path.
+	mgr.ApplyClipboardSync(context.Background(), false)
+	if conn.ClipboardExternal() {
+		t.Errorf("ApplyClipboardSync(false) did not flip the desired value")
+	}
+}

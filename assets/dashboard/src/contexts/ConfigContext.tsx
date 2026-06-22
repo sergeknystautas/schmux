@@ -112,6 +112,7 @@ const DEFAULT_CONFIG: ConfigResponse = {
     },
   },
   local_echo_remote: false,
+  clipboard_sync_enabled: true,
   system_capabilities: {
     iterm2_available: false,
   },

@@ -126,6 +126,7 @@ type ConfigHandlers struct {
 	triggerSubredditGeneration func()
 	clearRemoteAuth            func()
 	onFloorManagerToggle       func(enabled bool)
+	onClipboardSyncToggle      func()
 }
 
 // handleDetectTools returns detected tools (GET only).
@@ -261,14 +262,15 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 			Enabled: h.config.GetIOWorkspaceTelemetryEnabled(),
 			Target:  h.config.GetIOWorkspaceTelemetryTarget(),
 		},
-		TmuxBinary:        h.config.TmuxBinary,
-		TmuxSocketName:    h.config.GetTmuxSocketName(),
-		RecycleWorkspaces: h.config.RecycleWorkspaces,
-		DebugUI:           h.config.GetDebugUI(),
-		PersonasEnabled:   h.config.GetPersonasEnabled(),
-		CommStylesEnabled: h.config.GetCommStylesEnabled(),
-		BackburnerEnabled: h.config.GetBackburnerEnabled(),
-		LocalEchoRemote:   h.config.LocalEchoRemote,
+		TmuxBinary:           h.config.TmuxBinary,
+		TmuxSocketName:       h.config.GetTmuxSocketName(),
+		RecycleWorkspaces:    h.config.RecycleWorkspaces,
+		DebugUI:              h.config.GetDebugUI(),
+		PersonasEnabled:      h.config.GetPersonasEnabled(),
+		CommStylesEnabled:    h.config.GetCommStylesEnabled(),
+		BackburnerEnabled:    h.config.GetBackburnerEnabled(),
+		ClipboardSyncEnabled: h.config.GetClipboardSyncEnabled(),
+		LocalEchoRemote:      h.config.LocalEchoRemote,
 		SaplingCommands: func() *contracts.SaplingCommandsUpdate {
 			sc := h.config.SaplingCommands
 			if len(sc.CreateWorkspace) == 0 && len(sc.RemoveWorkspace) == 0 && len(sc.CheckRepoBase) == 0 && len(sc.CreateRepoBase) == 0 {
@@ -419,6 +421,7 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 	oldTLSKey := cfg.GetTLSKeyPath()
 	oldPublicBaseURL := cfg.GetPublicBaseURL()
 	oldRepos := cfg.GetRepos()
+	oldClipboardSyncEnabled := cfg.GetClipboardSyncEnabled()
 
 	// Check for workspace path change (for warning after save)
 	sessionCount := len(h.state.GetSessions())
@@ -932,6 +935,10 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 		cfg.BackburnerEnabled = *req.BackburnerEnabled
 	}
 
+	if req.ClipboardSyncEnabled != nil {
+		cfg.ClipboardSyncEnabled = req.ClipboardSyncEnabled
+	}
+
 	if req.LocalEchoRemote != nil {
 		cfg.LocalEchoRemote = *req.LocalEchoRemote
 	}
@@ -1001,6 +1008,7 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 	// Save config
 	if err := cfg.Save(); err != nil {
 		h.logger.Error("failed to save config", "err", err)
+		h.config.Reload() // roll back in-memory mutations; disk is untouched
 		writeJSONError(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -1031,6 +1039,15 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 	// Toggle floor manager if enabled changed
 	if req.FloorManager != nil && req.FloorManager.Enabled != nil && h.onFloorManagerToggle != nil {
 		h.onFloorManagerToggle(*req.FloorManager.Enabled)
+	}
+
+	// Signal the clipboard-sync reconcile only when the effective value actually
+	// changed — not merely because the dashboard posted the field as part of a
+	// full-form save. The callback only signals (non-blocking); the daemon
+	// applies set-clipboard to local + remote tmux and clears banners off this
+	// request path. No daemon restart.
+	if h.onClipboardSyncToggle != nil && oldClipboardSyncEnabled != cfg.GetClipboardSyncEnabled() {
+		h.onClipboardSyncToggle()
 	}
 
 	// Ensure overlay directories exist for all repos if repos were actually updated

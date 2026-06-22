@@ -139,6 +139,7 @@ func newTestConfigHandlers(s *Server) *ConfigHandlers {
 		prDiscovery:                s.prDiscovery,
 		triggerSubredditGeneration: s.TriggerSubredditGeneration,
 		clearRemoteAuth:            s.ClearRemoteAuth,
+		onClipboardSyncToggle:      s.onClipboardSyncToggle,
 	}
 }
 
@@ -1162,5 +1163,34 @@ func TestAPIContract_DebugMode_ConfigGetReturnsDebugUI(t *testing.T) {
 	}
 	if !resp.DebugUI {
 		t.Error("debug_ui should be true in GET /api/config after enabling")
+	}
+}
+
+func TestConfigContract_ClipboardSyncRoundTrips(t *testing.T) {
+	// Response: explicit false must survive marshal (no omitempty).
+	b, err := json.Marshal(contracts.ConfigResponse{ClipboardSyncEnabled: false})
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+	if !strings.Contains(string(b), `"clipboard_sync_enabled":false`) {
+		t.Errorf("response dropped explicit false: %s", b)
+	}
+
+	// Request: a posted false unmarshals to a non-nil *bool false.
+	var req contracts.ConfigUpdateRequest
+	if err := json.Unmarshal([]byte(`{"clipboard_sync_enabled":false}`), &req); err != nil {
+		t.Fatalf("unmarshal request: %v", err)
+	}
+	if req.ClipboardSyncEnabled == nil || *req.ClipboardSyncEnabled != false {
+		t.Errorf("request field not parsed as explicit false: %+v", req.ClipboardSyncEnabled)
+	}
+
+	// Request: an absent field unmarshals to nil (no change).
+	var req2 contracts.ConfigUpdateRequest
+	if err := json.Unmarshal([]byte(`{}`), &req2); err != nil {
+		t.Fatalf("unmarshal empty: %v", err)
+	}
+	if req2.ClipboardSyncEnabled != nil {
+		t.Errorf("absent field should be nil, got %+v", req2.ClipboardSyncEnabled)
 	}
 }
