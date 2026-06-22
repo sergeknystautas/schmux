@@ -32,6 +32,8 @@ type SessionResponseItem struct {
 	PersonaName  string `json:"persona_name,omitempty"`
 	// Style ID (from session state)
 	StyleID string `json:"style_id,omitempty"`
+	// Fence is true when the session was spawned inside the fence sandbox.
+	Fence bool `json:"fence,omitempty"`
 }
 
 // SessionModelInfo contains model metadata for a session.

@@ -274,7 +274,8 @@ Response:
         "persona_color": "optional",
         "persona_name": "optional",
         "style_id": "optional",
-        "style_name": "optional"
+        "style_name": "optional",
+        "fence": false
       }
     ],
     "previews": [
@@ -327,6 +328,7 @@ Notes:
 - `tmux_socket` (string, optional): the tmux socket name this session was created on. Omitted when empty (pre-isolation sessions).
 - `tmux_session` (string, optional): the tmux session name used by this session.
 - Session `status` field includes `disposing` during teardown. Dispose endpoints return 200 OK if the item is already in `disposing` status (idempotent).
+- Session `fence` field (boolean, optional): `true` when the session was spawned inside the `fence` OS sandbox. Set once at spawn (local sessions only) and persisted on the session so the dashboard can show which sessions are fenced. Omitted/`false` for unfenced and remote sessions. See the spawn `fence` option for sandbox behavior.
 - Workspace `tabs` array contains Tab objects with fields: `id`, `kind` (tab type), `label`, `route`, `closable`, `meta` (type-specific metadata), and `created_at`. Tabs are stored independently from workspaces and associated by workspace ID; the broadcast groups them under their workspace. The `diff` and `resolve-conflict` tabs have no server-side label — the frontend derives their display from workspace data (`files_changed` for diff, `resolve_conflicts` records for conflict tabs). The broadcaster serves tabs as persisted with no field rewriting.
 - Workspace `resolve_conflicts` contains persisted conflict-process records keyed by the 7-character short hash; resolve-conflict tabs point at these records via `tabs[].meta.hash`.
 - `files_changed` counts each file with uncommitted changes individually, including untracked files inside newly-created directories (the server passes `-u` to `git status --porcelain` so new dirs are not collapsed to a single entry).

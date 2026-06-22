@@ -769,6 +769,7 @@ export interface SessionResponseItem {
   persona_color?: string;
   persona_name?: string;
   style_id?: string;
+  fence?: boolean;
 }
 
 export interface Sessions {

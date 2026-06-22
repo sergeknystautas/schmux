@@ -667,6 +667,8 @@ export default function SessionDetailPage() {
 
   const statusClass = sessionData.running ? 'status-pill--running' : 'status-pill--stopped';
   const statusText = sessionData.running ? 'Running' : 'Stopped';
+  const fenceClass = sessionData.fence ? 'status-pill--fenced' : 'status-pill--not-fenced';
+  const fenceText = sessionData.fence ? 'Fenced' : 'Not fenced';
   const wsPillClass =
     wsStatus === 'connected'
       ? controlModeAttached
@@ -843,6 +845,17 @@ export default function SessionDetailPage() {
                       <div className={`status-pill ${statusClass}`} data-testid="session-status">
                         <span className="status-pill__dot"></span>
                         <span>{statusText}</span>
+                      </div>
+                    </Tooltip>
+                    <Tooltip
+                      content={sessionData.fence ? 'Session is fenced' : 'Session is not fenced'}
+                    >
+                      <div
+                        className={`status-pill ${fenceClass}`}
+                        data-testid="session-fence-status"
+                      >
+                        <span className="status-pill__dot"></span>
+                        <span>{fenceText}</span>
                       </div>
                     </Tooltip>
                     <Tooltip

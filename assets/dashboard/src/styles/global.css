@@ -2236,6 +2236,24 @@ body {
   background-color: var(--color-danger);
 }
 
+.status-pill--fenced {
+  background-color: var(--color-success-subtle);
+  color: var(--color-success);
+}
+
+.status-pill--fenced .status-pill__dot {
+  background-color: var(--color-success);
+}
+
+.status-pill--not-fenced {
+  background-color: var(--color-surface-alt);
+  color: var(--color-text-muted);
+}
+
+.status-pill--not-fenced .status-pill__dot {
+  background-color: var(--color-text-faint);
+}
+
 /* Card */
 .card {
   background-color: var(--color-surface);

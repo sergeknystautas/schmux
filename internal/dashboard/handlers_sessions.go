@@ -341,6 +341,7 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 			PersonaColor:     personaColor,
 			PersonaName:      personaName,
 			StyleID:          sess.StyleID,
+			Fence:            sess.Fence,
 		})
 		wsResp.SessionCount = len(wsResp.Sessions)
 	}

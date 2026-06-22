@@ -1109,6 +1109,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		TmuxSocket:  m.server.SocketName(),
 		CreatedAt:   time.Now(),
 		Pid:         pid,
+		Fence:       opts.Fence,
 	}
 
 	if err := m.state.AddSession(sess); err != nil {
@@ -1202,6 +1203,7 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 		TmuxSocket:  m.server.SocketName(),
 		CreatedAt:   time.Now(),
 		Pid:         pid,
+		Fence:       opts.Fence,
 	}
 
 	if err := m.state.AddSession(sess); err != nil {

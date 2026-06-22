@@ -335,6 +335,7 @@ type Session struct {
 	RemotePaneID string `json:"remote_pane_id,omitempty"` // tmux pane ID on remote (e.g., "%5")
 	RemoteWindow string `json:"remote_window,omitempty"`  // tmux window ID on remote (e.g., "@3")
 	Status       string `json:"status,omitempty"`         // "provisioning", "running", "failed", "disposing" (used for all sessions during disposal, remote sessions during lifecycle)
+	Fence        bool   `json:"fence,omitempty"`          // True if spawned inside the fence sandbox (set once at spawn, local sessions only)
 }
 
 // New creates a new empty State instance.

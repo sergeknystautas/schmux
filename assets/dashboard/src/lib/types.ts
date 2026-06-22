@@ -25,6 +25,8 @@ export interface SessionResponse {
   persona_icon?: string;
   persona_color?: string;
   persona_name?: string;
+  // True when the session was spawned inside the fence sandbox
+  fence?: boolean;
 }
 
 export interface WorkspaceResponse {
