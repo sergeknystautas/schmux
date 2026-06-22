@@ -50,6 +50,19 @@ var knownAllowedDomains = []string{
 	"mcp.posthog.com",
 }
 
+// fenceCacheRel is the workspace-relative directory where fence redirects
+// build-tool caches (npm, go-build, etc.) so they never touch the user's home
+// dir while fenced. It is the single source of truth for both the cache layout
+// (workspaceLocalEnv) and the git-exclude pattern (WorkspaceExcludePatterns).
+const fenceCacheRel = ".cache/schmux-fence"
+
+// WorkspaceExcludePatterns returns the gitignore patterns for files fence writes
+// inside a workspace. The workspace ensurer adds these to .git/info/exclude so a
+// workspace fenced after creation does not leak fence's caches into git status.
+func WorkspaceExcludePatterns() []string {
+	return []string{fenceCacheRel + "/"}
+}
+
 // Wrap writes <DataDir>/settings.json and <DataDir>/cmd.sh, then returns the
 // tmux-level command string. The generated shell script exports workspace-local
 // cache paths before the caller's verbatim command so common build tools do not
@@ -67,7 +80,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 	settingsPath := filepath.Join(c.DataDir, "settings.json")
 	monitorLogPath := filepath.Join(c.DataDir, "monitor.log")
 
-	script := exportLines(localEnv) + command
+	script := exportLines(localEnv) + `export GOFLAGS="${GOFLAGS:+$GOFLAGS }-modcacherw"` + "\n" + command
 	if err := os.WriteFile(cmdPath, []byte(script), 0o600); err != nil {
 		return "", fmt.Errorf("fence: writing cmd.sh: %w", err)
 	}
@@ -115,7 +128,7 @@ func mergedAllowedDomains(spawnDomains []string) []string {
 }
 
 func workspaceLocalEnv(workspacePath string) (map[string]string, error) {
-	cacheRoot := filepath.Join(workspacePath, ".cache", "schmux-fence")
+	cacheRoot := filepath.Join(workspacePath, filepath.FromSlash(fenceCacheRel))
 	dirs := map[string]string{
 		"BUN_INSTALL_CACHE_DIR": filepath.Join(cacheRoot, "bun"),
 		"GIT_TEMPLATE_DIR":      filepath.Join(cacheRoot, "git-template"),

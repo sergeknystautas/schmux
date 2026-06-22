@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/autolearn"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/fence"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/spawn"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -455,6 +456,10 @@ func buildExcludeBlock() string {
 	b.WriteString(excludeMarkerStart)
 	b.WriteByte('\n')
 	for _, p := range staticExcludePatterns {
+		b.WriteString(p)
+		b.WriteByte('\n')
+	}
+	for _, p := range fence.WorkspaceExcludePatterns() {
 		b.WriteString(p)
 		b.WriteByte('\n')
 	}

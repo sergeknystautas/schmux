@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/fence"
 )
 
 func TestAgentInstructions_CreatesNewFile(t *testing.T) {
@@ -206,6 +207,15 @@ func TestEnsureExcludeEntries_CreatesNewFile(t *testing.T) {
 	for _, pattern := range detect.AllGitExcludePatterns() {
 		if !strings.Contains(contentStr, pattern) {
 			t.Errorf("should contain adapter pattern %q", pattern)
+		}
+	}
+}
+
+func TestEnsureExcludeEntries_IncludesFencePatterns(t *testing.T) {
+	block := buildExcludeBlock()
+	for _, pattern := range fence.WorkspaceExcludePatterns() {
+		if !strings.Contains(block, pattern) {
+			t.Errorf("exclude block should contain fence pattern %q", pattern)
 		}
 	}
 }

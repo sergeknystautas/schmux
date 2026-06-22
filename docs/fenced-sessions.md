@@ -154,7 +154,9 @@ Fenced launch scripts export local cache paths under:
 <workspace>/.cache/schmux-fence/
 ```
 
-This includes Go build cache (`GOCACHE`), Staticcheck cache (`STATICCHECK_CACHE`), XDG cache, an empty Git template directory (`GIT_TEMPLATE_DIR`) so `git init` does not write default hooks, and common package-manager cache variables for npm, Yarn, Bun, pip, and uv. Schmux does not redirect `TMPDIR`/`TMP`/`TEMP`: tests often create git repos under temporary directories, and moving those directories into the writable workspace makes Fence block `.git/config` writes. Schmux also does not redirect `GOMODCACHE`: downloaded modules can legitimately contain fixture names such as `cert.pem`, which the Fence credential-write policy blocks inside writable workspaces. These are environment defaults for fenced sessions, not Fence policy exceptions.
+This path is git-excluded via `fence.WorkspaceExcludePatterns()`, which the workspace ensurer folds into `.git/info/exclude` — so a workspace first fenced after creation stops leaking these caches into `git status` on its next spawn or daemon restart.
+
+This includes Go build cache (`GOCACHE`), `GOFLAGS=-modcacherw` so any Go module cache remains user-cleanable, Staticcheck cache (`STATICCHECK_CACHE`), XDG cache, an empty Git template directory (`GIT_TEMPLATE_DIR`) so `git init` does not write default hooks, and common package-manager cache variables for npm, Yarn, Bun, pip, and uv. Schmux does not redirect `TMPDIR`/`TMP`/`TEMP`: tests often create git repos under temporary directories, and moving those directories into the writable workspace makes Fence block `.git/config` writes. Schmux also does not redirect `GOMODCACHE`: downloaded modules can legitimately contain fixture names such as `cert.pem`, which the Fence credential-write policy blocks inside writable workspaces. These are environment defaults for fenced sessions, not Fence policy exceptions.
 
 ### Network policy
 

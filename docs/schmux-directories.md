@@ -83,6 +83,7 @@ Schmux writes specific exclude patterns to `.git/info/exclude` using managed mar
 # SCHMUX:BEGIN - managed by schmux, do not edit
 .schmux/hooks/
 .schmux/events/
+.cache/schmux-fence/
 .opencode/plugins/schmux.ts
 .opencode/commands/schmux-*.md
 .opencode/commands/commit.md
@@ -90,7 +91,7 @@ Schmux writes specific exclude patterns to `.git/info/exclude` using managed mar
 # SCHMUX:END
 ```
 
-Only daemon-written paths are excluded. User-managed files like `.schmux/config.json` remain visible in `git status`.
+`.cache/schmux-fence/` holds the build-tool caches fenced sessions redirect out of the user's home directory; the pattern is contributed by `fence.WorkspaceExcludePatterns()` so a workspace fenced after creation gets it on the next spawn or daemon restart. Only daemon-written paths are excluded. User-managed files like `.schmux/config.json` remain visible in `git status`.
 
 **Implementation**: `internal/workspace/ensure/manager.go` — `GitExclude()` and `ensureExcludeEntries()`
 

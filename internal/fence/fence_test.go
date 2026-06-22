@@ -49,6 +49,9 @@ func TestWrapWritesArtifactsAndCommand(t *testing.T) {
 	if !strings.Contains(string(gotCmd), "export STATICCHECK_CACHE='"+filepath.Join(ws, ".cache", "schmux-fence", "staticcheck")+"'") {
 		t.Errorf("cmd.sh = %q, want workspace-local STATICCHECK_CACHE export", gotCmd)
 	}
+	if !strings.Contains(string(gotCmd), `export GOFLAGS="${GOFLAGS:+$GOFLAGS }-modcacherw"`) {
+		t.Errorf("cmd.sh = %q, want GOFLAGS to keep module cache writable", gotCmd)
+	}
 	if strings.Contains(string(gotCmd), "GOTELEMETRY") {
 		t.Errorf("cmd.sh = %q, should not export non-settable GOTELEMETRY", gotCmd)
 	}
@@ -141,4 +144,17 @@ func TestWrapFileModes(t *testing.T) {
 	assertMode(dir, 0o700)
 	assertMode(filepath.Join(dir, "cmd.sh"), 0o600)
 	assertMode(filepath.Join(dir, "settings.json"), 0o600)
+}
+
+func TestWorkspaceExcludePatterns(t *testing.T) {
+	got := WorkspaceExcludePatterns()
+	want := []string{".cache/schmux-fence/"}
+	if len(got) != len(want) {
+		t.Fatalf("WorkspaceExcludePatterns() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("WorkspaceExcludePatterns()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
 }
