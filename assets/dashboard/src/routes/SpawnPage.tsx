@@ -167,6 +167,7 @@ export default function SpawnPage() {
   );
   const [showBranchInput, setShowBranchInput] = useState(false);
   const [createBranch, setCreateBranch] = useState(false);
+  const [fenceEnabled, setFenceEnabled] = useState(false);
   const [prefillWorkspaceId, setPrefillWorkspaceId] = useState('');
   const [resolvedWorkspaceId, setResolvedWorkspaceId] = useState('');
   const [environment, setEnvironment] = useState<EnvironmentSelection>({ type: 'local' });
@@ -275,6 +276,8 @@ export default function SpawnPage() {
   // Remote spawns don't need repo/branch selection — the workspace is determined
   // by the flavor's workspace_path on the remote host, not by a git clone.
   const isRemoteSpawn = environment.type === 'remote';
+  const fenceAvailable = (config?.system_capabilities?.fence_available ?? false) && !isRemoteSpawn;
+  const fenceForRequest = fenceAvailable && fenceEnabled;
 
   // Show branch input immediately when suggestion is disabled
   useEffect(() => {
@@ -729,6 +732,7 @@ export default function SpawnPage() {
             targets: selectedTargets,
             workspace_id: prefillWorkspaceId || '',
             resume: true,
+            fence: fenceForRequest,
             remote_profile_id: environment.type === 'remote' ? environment.profileId : undefined,
             remote_flavor: environment.type === 'remote' ? environment.flavor : undefined,
             remote_host_id: environment.type === 'remote' ? environment.hostId : undefined,
@@ -765,6 +769,7 @@ export default function SpawnPage() {
             targets: {},
             workspace_id: prefillWorkspaceId || '',
             quick_launch_name: quickName,
+            fence: fenceForRequest,
           });
           handleSpawnResult(response);
         } catch (err) {
@@ -801,6 +806,7 @@ export default function SpawnPage() {
           nickname: '',
           targets: { [command]: 1 },
           workspace_id: prefillWorkspaceId || '',
+          fence: fenceForRequest,
           remote_profile_id: environment.type === 'remote' ? environment.profileId : undefined,
           remote_flavor: environment.type === 'remote' ? environment.flavor : undefined,
           remote_host_id: environment.type === 'remote' ? environment.hostId : undefined,
@@ -935,6 +941,7 @@ export default function SpawnPage() {
         style_id: selectedStyleId || undefined,
         image_attachments: imageAttachments.length > 0 ? imageAttachments : undefined,
         workspace_label: isSapling ? workspaceLabel.trim() : undefined,
+        fence: fenceForRequest,
       });
       if (handleSpawnResult(response)) {
         saveLastRepo(actualRepo);
@@ -1697,7 +1704,9 @@ export default function SpawnPage() {
 
         <div className="spawn-actions">
           {/* Options checkboxes (left side) */}
-          {(mode === 'workspace' && currentWorkspace) || config?.repofeed?.enabled ? (
+          {(mode === 'workspace' && currentWorkspace) ||
+          config?.repofeed?.enabled ||
+          fenceAvailable ? (
             <div className="spawn-actions__options">
               {mode === 'workspace' && currentWorkspace && !isSaplingWorkspace && (
                 <>
@@ -1737,6 +1746,18 @@ export default function SpawnPage() {
                     data-testid="share-intent-toggle"
                   />
                   Share activity with team
+                </label>
+              )}
+              {fenceAvailable && (
+                <label className="spawn-option">
+                  <input
+                    type="checkbox"
+                    checked={fenceEnabled}
+                    onChange={(e) => setFenceEnabled(e.target.checked)}
+                    disabled={engagePhase !== 'idle'}
+                    data-testid="fence-toggle"
+                  />
+                  Fence (sandbox + skip approvals)
                 </label>
               )}
             </div>

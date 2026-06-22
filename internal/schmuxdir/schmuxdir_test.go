@@ -28,3 +28,13 @@ func TestSetOverrides(t *testing.T) {
 		t.Errorf("Get() = %q, want /tmp/my-schmux", got)
 	}
 }
+
+func TestFenceLaunchDir(t *testing.T) {
+	Set("/tmp/schmux-home")
+	t.Cleanup(func() { Set("") })
+	got := FenceLaunchDir("repo-001-ab12cd34")
+	want := filepath.Join("/tmp/schmux-home", "fence", "repo-001-ab12cd34")
+	if got != want {
+		t.Errorf("FenceLaunchDir = %q, want %q", got, want)
+	}
+}

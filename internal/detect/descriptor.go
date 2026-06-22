@@ -10,27 +10,31 @@ import (
 // Descriptor represents a YAML adapter descriptor that defines how to detect,
 // configure, and interact with an AI coding agent.
 type Descriptor struct {
-	Name           string            `yaml:"name"`
-	DisplayName    string            `yaml:"display_name"`
-	Description    string            `yaml:"description"`
-	DocsURL        string            `yaml:"docs_url"`
-	Unlocks        []string          `yaml:"unlocks"`
-	Install        []InstallMethod   `yaml:"install"`
-	Detect         []DetectEntry     `yaml:"detect"`
-	Capabilities   []string          `yaml:"capabilities"`
-	ModelFlag      string            `yaml:"model_flag"`
-	PromptFlag     string            `yaml:"prompt_flag"`
-	PromptStrategy string            `yaml:"prompt_strategy"`
-	CommandArgs    []string          `yaml:"command_args"`
-	Instruction    *InstructionDesc  `yaml:"instruction"`
-	Interactive    *ModeDesc         `yaml:"interactive"`
-	Oneshot        *ModeDesc         `yaml:"oneshot"`
-	Signaling      *SignalingDesc    `yaml:"signaling"`
-	Persona        *PersonaDesc      `yaml:"persona"`
-	Hooks          *HooksDesc        `yaml:"hooks"`
-	Skills         *SkillsDesc       `yaml:"skills"`
-	SpawnEnv       map[string]string `yaml:"spawn_env"`
-	RunnerEnv      *RunnerEnvDesc    `yaml:"runner_env"`
+	Name           string          `yaml:"name"`
+	DisplayName    string          `yaml:"display_name"`
+	Description    string          `yaml:"description"`
+	DocsURL        string          `yaml:"docs_url"`
+	Unlocks        []string        `yaml:"unlocks"`
+	Install        []InstallMethod `yaml:"install"`
+	Detect         []DetectEntry   `yaml:"detect"`
+	Capabilities   []string        `yaml:"capabilities"`
+	ModelFlag      string          `yaml:"model_flag"`
+	PromptFlag     string          `yaml:"prompt_flag"`
+	PromptStrategy string          `yaml:"prompt_strategy"`
+	CommandArgs    []string        `yaml:"command_args"`
+	// AutoApproveArgs are appended to the agent's command (interactive or
+	// resume) when the spawn is fenced — the agent's own "skip approvals"
+	// flags. Empty = the agent has no such mode (it simply runs fenced).
+	AutoApproveArgs []string          `yaml:"auto_approve_args"`
+	Instruction     *InstructionDesc  `yaml:"instruction"`
+	Interactive     *ModeDesc         `yaml:"interactive"`
+	Oneshot         *ModeDesc         `yaml:"oneshot"`
+	Signaling       *SignalingDesc    `yaml:"signaling"`
+	Persona         *PersonaDesc      `yaml:"persona"`
+	Hooks           *HooksDesc        `yaml:"hooks"`
+	Skills          *SkillsDesc       `yaml:"skills"`
+	SpawnEnv        map[string]string `yaml:"spawn_env"`
+	RunnerEnv       *RunnerEnvDesc    `yaml:"runner_env"`
 }
 
 // RunnerEnvDesc describes env vars the adapter emits when spawning a runner.

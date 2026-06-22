@@ -67,6 +67,16 @@ type DependencyReport struct {
 	PackageManagers map[string]bool // "homebrew","npm" -> present
 }
 
+// Status returns the dependency status with the given ID.
+func (r DependencyReport) Status(id string) (DependencyStatus, bool) {
+	for _, s := range r.Statuses {
+		if s.ID == id {
+			return s, true
+		}
+	}
+	return DependencyStatus{}, false
+}
+
 // normalizeOS maps runtime.GOOS to an install-method OS tag.
 func normalizeOS(goos string) string {
 	if goos == "darwin" {

@@ -158,6 +158,7 @@ export interface SpawnRequest {
   style_id?: string; // optional: communication style for the agent
   image_attachments?: string[]; // base64-encoded PNGs, max 5
   intent_shared?: boolean; // optional: share workspace intent with team via repofeed
+  fence?: boolean; // optional: OS-level fence sandbox for this spawn (local only; enables skip-approvals for descriptor-backed harnesses)
   workspace_label?: string; // optional: human-friendly workspace display label (sapling-only today; ignored in workspace mode)
 }
 

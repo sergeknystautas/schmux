@@ -24,6 +24,7 @@ detect:
     path: '~/.local/bin/agy'
 capabilities: [interactive]
 model_flag: '--model'
+auto_approve_args: ['--dangerously-skip-permissions']
 # -i is the prompt flag (attached only when a prompt exists), NOT command_args:
 # bare `agy` must launch blank, and resume must be `agy -c`. The buildCommand
 # path injects --model before -i, yielding `agy --model "..." -i "<prompt>"`.

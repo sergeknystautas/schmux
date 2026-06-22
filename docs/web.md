@@ -166,6 +166,10 @@ The repo dropdown includes `+ Add Repository`. It accepts either a plain project
 - Quick launch presets for one-click spawning
 - "Custom..." option opens full spawn wizard
 
+**Fence (sandbox + skip approvals):**
+
+The spawn page shows a "Fence (sandbox + skip approvals)" toggle only when `system_capabilities.fence_available` is true and the target is local. It defaults off, is not persisted, and is hidden for remote targets. Runtime behavior is documented in [Sessions: Fenced Local Spawns](sessions.md#fenced-local-spawns).
+
 **Results panel:**
 
 - Created sessions (with links)

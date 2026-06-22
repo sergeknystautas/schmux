@@ -15,6 +15,7 @@ func TestBuildCommand_PromptableTarget(t *testing.T) {
 		model      *detect.Model
 		resume     bool
 		remoteMode bool
+		fence      bool
 		wantErr    string
 		wantSub    []string // substrings that must appear
 		wantNot    []string // substrings that must NOT appear
@@ -72,7 +73,7 @@ func TestBuildCommand_PromptableTarget(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := buildCommand(tt.target, tt.prompt, tt.model, tt.resume, tt.remoteMode)
+			got, err := buildCommand(tt.target, tt.prompt, tt.model, tt.resume, tt.remoteMode, tt.fence)
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Fatalf("expected error containing %q, got nil", tt.wantErr)
@@ -109,7 +110,7 @@ func TestBuildCommand_EnvPrefix(t *testing.T) {
 			"API_MODEL": "gpt-4",
 		},
 	}
-	got, err := buildCommand(target, "", nil, false, false)
+	got, err := buildCommand(target, "", nil, false, false, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -140,7 +141,7 @@ func TestBuildCommand_EnvPrefixWithPromptable(t *testing.T) {
 			"TOKEN": "abc",
 		},
 	}
-	got, err := buildCommand(target, "do something", nil, false, false)
+	got, err := buildCommand(target, "do something", nil, false, false, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -165,7 +166,7 @@ func TestBuildCommand_ModelFlagInjection(t *testing.T) {
 			"codex": {ModelValue: "codex-mini-latest"},
 		},
 	}
-	got, err := buildCommand(target, "", model, false, false)
+	got, err := buildCommand(target, "", model, false, false, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -209,7 +210,7 @@ func TestBuildCommand_Antigravity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := buildCommand(agTarget, tt.prompt, tt.model, tt.resume, false)
+			got, err := buildCommand(agTarget, tt.prompt, tt.model, tt.resume, false, false)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -224,9 +225,10 @@ func TestBuildCommand_ResumeMode(t *testing.T) {
 	target := ResolvedTarget{
 		Name:       "claude",
 		Command:    "claude",
+		ToolName:   "claude",
 		Promptable: true,
 	}
-	got, err := buildCommand(target, "", nil, true, false)
+	got, err := buildCommand(target, "", nil, true, false, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -239,12 +241,13 @@ func TestBuildCommand_ResumeModeWithEnv(t *testing.T) {
 	target := ResolvedTarget{
 		Name:       "claude",
 		Command:    "claude",
+		ToolName:   "claude",
 		Promptable: true,
 		Env: map[string]string{
 			"ANTHROPIC_API_KEY": "sk-test",
 		},
 	}
-	got, err := buildCommand(target, "", nil, true, false)
+	got, err := buildCommand(target, "", nil, true, false, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -253,6 +256,63 @@ func TestBuildCommand_ResumeModeWithEnv(t *testing.T) {
 	}
 	if !strings.Contains(got, "ANTHROPIC_API_KEY='sk-test'") {
 		t.Errorf("resume mode should preserve env vars: %q", got)
+	}
+}
+
+func TestBuildCommandFenceAppendsAutoApproveInteractive(t *testing.T) {
+	target := ResolvedTarget{Name: "claude", ToolName: "claude", Command: "claude", Promptable: true}
+	got, err := buildCommand(target, "do something", nil, false, false, true)
+	if err != nil {
+		t.Fatalf("buildCommand: %v", err)
+	}
+	if !strings.Contains(got, "--dangerously-skip-permissions") {
+		t.Errorf("fenced interactive command = %q, want it to contain --dangerously-skip-permissions", got)
+	}
+}
+
+func TestBuildCommandFenceOffOmitsAutoApprove(t *testing.T) {
+	target := ResolvedTarget{Name: "claude", ToolName: "claude", Command: "claude", Promptable: true}
+	got, err := buildCommand(target, "do something", nil, false, false, false)
+	if err != nil {
+		t.Fatalf("buildCommand: %v", err)
+	}
+	if strings.Contains(got, "--dangerously-skip-permissions") {
+		t.Errorf("unfenced command = %q, should not contain --dangerously-skip-permissions", got)
+	}
+}
+
+func TestBuildCommandFenceAppendsAutoApproveResume(t *testing.T) {
+	target := ResolvedTarget{Name: "claude", ToolName: "claude", Command: "claude", Promptable: true}
+	got, err := buildCommand(target, "", nil, true, false, true)
+	if err != nil {
+		t.Fatalf("buildCommand: %v", err)
+	}
+	if !strings.Contains(got, "--continue") || !strings.Contains(got, "--dangerously-skip-permissions") {
+		t.Errorf("fenced resume command = %q, want both --continue and --dangerously-skip-permissions", got)
+	}
+}
+
+func TestBuildCommandFenceNoAutoApproveForUserTarget(t *testing.T) {
+	// User-defined run target: ToolName is empty, so its name must not be used
+	// to infer a harness or append harness-specific flags.
+	target := ResolvedTarget{Name: "claude", Kind: TargetKindUser, Command: "my-custom-claude-wrapper"}
+	got, err := buildCommand(target, "", nil, false, false, true)
+	if err != nil {
+		t.Fatalf("buildCommand: %v", err)
+	}
+	if got != "my-custom-claude-wrapper" {
+		t.Errorf("fenced user target = %q, want command unchanged", got)
+	}
+	if strings.Contains(got, "--dangerously-skip-permissions") {
+		t.Errorf("fenced user target = %q, should not append auto_approve_args", got)
+	}
+}
+
+func TestBuildCommandResumeRequiresToolName(t *testing.T) {
+	target := ResolvedTarget{Name: "claude", Kind: TargetKindUser, Command: "my-custom-claude-wrapper"}
+	_, err := buildCommand(target, "", nil, true, false, true)
+	if err == nil || !strings.Contains(err.Error(), "resume requires a descriptor-backed target") {
+		t.Fatalf("buildCommand resume err = %v, want descriptor-backed target error", err)
 	}
 }
 

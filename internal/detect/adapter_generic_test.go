@@ -409,3 +409,39 @@ oneshot:
 		}
 	}
 }
+
+func TestGenericAdapterAutoApproveArgs(t *testing.T) {
+	yamlData := []byte(`
+name: testtool
+detect:
+  - type: path_lookup
+    command: testtool
+auto_approve_args: ['--yolo', '-y']
+`)
+	d, err := ParseDescriptor(yamlData)
+	if err != nil {
+		t.Fatalf("ParseDescriptor: %v", err)
+	}
+	a, err := NewGenericAdapter(d)
+	if err != nil {
+		t.Fatalf("NewGenericAdapter: %v", err)
+	}
+	got := a.AutoApproveArgs()
+	if len(got) != 2 || got[0] != "--yolo" || got[1] != "-y" {
+		t.Errorf("AutoApproveArgs() = %v, want [--yolo -y]", got)
+	}
+}
+
+func TestGenericAdapterAutoApproveArgsEmpty(t *testing.T) {
+	yamlData := []byte(`
+name: noflag
+detect:
+  - type: path_lookup
+    command: noflag
+`)
+	d, _ := ParseDescriptor(yamlData)
+	a, _ := NewGenericAdapter(d)
+	if got := a.AutoApproveArgs(); len(got) != 0 {
+		t.Errorf("AutoApproveArgs() = %v, want empty", got)
+	}
+}

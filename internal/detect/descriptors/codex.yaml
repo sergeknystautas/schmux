@@ -13,6 +13,7 @@ detect:
     name: codex
 capabilities: [interactive, oneshot]
 model_flag: '-m'
+auto_approve_args: ['--dangerously-bypass-approvals-and-sandbox']
 instruction:
   dir: '.codex'
   file: 'AGENTS.md'

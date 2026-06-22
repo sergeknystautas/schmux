@@ -115,6 +115,7 @@ const DEFAULT_CONFIG: ConfigResponse = {
   clipboard_sync_enabled: true,
   system_capabilities: {
     iterm2_available: false,
+    fence_available: false,
   },
   needs_restart: false,
   oneshot_targets: [],

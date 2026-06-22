@@ -100,25 +100,24 @@ func (e *Ensurer) resolveTarget(targetName string) string {
 }
 
 // ForSpawn ensures a workspace has all necessary schmux configuration
-// when a new session is being spawned. The currentTarget is the agent
+// when a new session is being spawned. currentTool is the resolved harness
 // being spawned (needed because the session doesn't exist in state yet).
-func (e *Ensurer) ForSpawn(workspaceID, currentTarget string) error {
+func (e *Ensurer) ForSpawn(workspaceID, currentTool string) error {
 	w, found := e.state.GetWorkspace(workspaceID)
 	if !found {
 		return fmt.Errorf("workspace not found: %s", workspaceID)
 	}
 	hookTools := e.workspaceHookTools(workspaceID)
-	baseTool := e.resolveTarget(currentTarget)
-	if adapter := detect.GetAdapter(baseTool); adapter != nil && adapter.SupportsHooks() {
+	if adapter := detect.GetAdapter(currentTool); adapter != nil && adapter.SupportsHooks() {
 		found := false
 		for _, t := range hookTools {
-			if t == baseTool {
+			if t == currentTool {
 				found = true
 				break
 			}
 		}
 		if !found {
-			hookTools = append(hookTools, baseTool)
+			hookTools = append(hookTools, currentTool)
 		}
 	}
 	return e.ensureWorkspace(w.Path, hookTools, w.Repo, w.VCS)

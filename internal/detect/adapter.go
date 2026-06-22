@@ -128,6 +128,10 @@ type ToolAdapter interface {
 	// Returns empty string if the tool accepts prompts as positional args.
 	PromptFlag() string
 
+	// AutoApproveArgs returns the agent's skip-approvals CLI flags, appended
+	// only when a spawn is fenced. Empty if the agent has no such mode.
+	AutoApproveArgs() []string
+
 	// PromptDelivery returns how this tool receives its initial user prompt.
 	// PromptPositional (default) passes the prompt as a CLI arg or flag.
 	// PromptSendKeys types the prompt into the terminal after the tool starts.

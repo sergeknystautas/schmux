@@ -322,6 +322,11 @@ func (a *GenericAdapter) PromptFlag() string {
 	return a.desc.PromptFlag
 }
 
+// AutoApproveArgs returns the harness's skip-approvals flags (used when fenced).
+func (a *GenericAdapter) AutoApproveArgs() []string {
+	return a.desc.AutoApproveArgs
+}
+
 // PromptDelivery returns how this tool receives its initial user prompt.
 func (a *GenericAdapter) PromptDelivery() PromptDelivery {
 	if a.desc.PromptStrategy == "send_keys" {

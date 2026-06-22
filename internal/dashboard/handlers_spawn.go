@@ -18,6 +18,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/branchsuggest"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
@@ -51,6 +52,7 @@ type SpawnHandlers struct {
 	// Callbacks into Server methods that cannot be extracted.
 	broadcastSessions   func()
 	vcsTypeForWorkspace func(ws state.Workspace) string
+	dependencyReport    func() detect.DependencyReport
 }
 
 // SpawnRequest is a type alias for contracts.SpawnRequest.
@@ -199,6 +201,28 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	// Fence is local-only and requires the fence dependency. The UI hides the
+	// toggle when unavailable; this is the server-side backstop for API
+	// clients and races. A fence-on spawn that can't be honored hard-fails —
+	// it never silently runs unfenced.
+	var fenceCommand string
+	if req.Fence {
+		if req.RemoteProfileID != "" {
+			writeJSONError(w, "fence is not supported for remote sessions", http.StatusBadRequest)
+			return
+		}
+		var st detect.DependencyStatus
+		var ok bool
+		if h.dependencyReport != nil {
+			st, ok = h.dependencyReport().Status("fence")
+		}
+		if !ok || !st.Detected {
+			writeJSONError(w, "fence not available — install fence to use fenced sessions", http.StatusBadRequest)
+			return
+		}
+		fenceCommand = st.Command
+	}
+
 	// Detect git URL in repo field and register if new
 	if req.Repo != "" && isGitURL(req.Repo) {
 		if _, found := h.config.FindRepoByURL(req.Repo); !found {
@@ -258,6 +282,8 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 			WorkspaceID:    req.WorkspaceID,
 			WorkspaceLabel: workspaceLabelCmd,
 			NewBranch:      req.NewBranch,
+			Fence:          req.Fence,
+			FenceCommand:   fenceCommand,
 		})
 		cancel()
 
@@ -442,6 +468,8 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 					PersonaPrompt:    agentPrompt,
 					StyleID:          resolvedStyleID,
 					ImageAttachments: req.ImageAttachments,
+					Fence:            req.Fence,
+					FenceCommand:     fenceCommand,
 				})
 			}
 

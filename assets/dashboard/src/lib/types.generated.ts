@@ -835,6 +835,7 @@ export interface SpawnRequest {
   style_id?: string;
   image_attachments?: string[];
   intent_shared?: boolean;
+  fence?: boolean;
 }
 
 export interface Style {
@@ -887,6 +888,7 @@ export interface SubredditUpdate {
 
 export interface SystemCapabilities {
   iterm2_available: boolean;
+  fence_available: boolean;
 }
 
 export interface TLS {

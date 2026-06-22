@@ -136,6 +136,7 @@ type AccessControl struct {
 // SystemCapabilities reports which optional system tools are available.
 type SystemCapabilities struct {
 	ITerm2Available bool `json:"iterm2_available"`
+	FenceAvailable  bool `json:"fence_available"`
 }
 
 // DashboardSXStatus represents dashboard.sx heartbeat and certificate status.

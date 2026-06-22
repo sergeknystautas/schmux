@@ -19,6 +19,7 @@ detect:
     package: '@anthropic-ai/claude-code'
 capabilities: [interactive, oneshot]
 model_flag: '--model'
+auto_approve_args: ['--dangerously-skip-permissions']
 instruction:
   dir: '.claude'
   file: 'CLAUDE.md'

@@ -13,6 +13,7 @@ detect:
     package: '@google/gemini-cli'
 capabilities: [interactive]
 model_flag: '--model'
+auto_approve_args: ['--yolo']
 prompt_flag: '-i'
 instruction:
   dir: '.gemini'

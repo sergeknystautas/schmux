@@ -152,6 +152,69 @@ The backend supports three spawn modes, toggled via slash commands in the prompt
 
 `buildCommand()` in `internal/session/manager.go` has three paths corresponding to these modes. Each tool adapter in `internal/detect/` returns its command parts for all three modes via `BuildCommandParts()`.
 
+### Fenced Local Spawns
+
+The spawn wizard can send `fence:true` for a local session when the user checks the **Fence** box. This is a per-spawn runtime choice, not a global setting or preset property. The unchecked path must remain unchanged.
+
+Fence support has two separate behaviors:
+
+1. **Process sandboxing:** the final tmux command is wrapped in the external `fence` CLI.
+2. **Known-harness unattended mode:** descriptor-backed harnesses also get their descriptor-defined `auto_approve_args`.
+
+Raw commands and user-defined run targets only get behavior 1. Schmux treats those command strings as opaque and must not infer approval flags, model args, or resume behavior from their names or command text.
+
+#### Spawn flow
+
+1. `assets/dashboard/src/routes/SpawnPage.tsx` renders the checkbox only for local spawns when `system_capabilities.fence_available` is true.
+2. `POST /api/spawn` carries `fence:true` through `contracts.SpawnRequest`.
+3. `internal/dashboard/handlers_spawn.go` rejects fenced remote spawns and fenced spawns when the dependency report has no detected `fence` command.
+4. `Manager.ResolveTarget()` resolves the selected target into a `ResolvedTarget`. Harness-specific behavior must come from the resolved harness (`ToolName` / adapter), not from loose target-name matching.
+5. `buildCommand(..., fence=true)` appends `auto_approve_args` only when the target has a descriptor-backed harness.
+6. Immediately before `tmux CreateSession`, `wrapForFence()` writes Fence launch files and replaces the tmux command with the Fence wrapper.
+
+The wrapper command has this shape:
+
+```bash
+fence -m --fence-log-file ~/.schmux/fence/<session-id>/monitor.log \
+  --settings ~/.schmux/fence/<session-id>/settings.json \
+  /bin/sh ~/.schmux/fence/<session-id>/cmd.sh
+```
+
+`cmd.sh` exports workspace-local cache env vars under `<workspace>/.cache/schmux-fence/`, then contains the final command verbatim, including env vars and harness flags. It is intentionally outside the workspace under `~/.schmux/fence/<session-id>/` so the fenced process cannot rewrite its own future launch script through workspace writes.
+
+#### Generated Fence settings
+
+`internal/fence/fence.go` writes `settings.json` extending Fence's `code` template. Schmux adds only spawn-specific policy:
+
+- `filesystem.allowRead`: the generated `cmd.sh`, so `/bin/sh` can read the launch script.
+- `filesystem.allowWrite`: the workspace path.
+- `filesystem.allowWrite`: the git worktree common dir when commits require writes outside the worktree.
+- `filesystem.allowWrite`: Go's telemetry directory under `os.UserConfigDir()/go/telemetry`, because Go reports this path through read-only env values and does not support redirecting it with session env.
+- `network.allowedDomains`: known app/test service endpoints plus model/provider endpoint hosts known from the resolved model runner, such as `mcp.posthog.com` and `api.z.ai`.
+- `network.allowAllUnixSockets`: enabled so local developer tooling can create per-run IPC sockets while still using the Fence network/domain policy for outbound traffic.
+
+The `code` template is the starting point recommended by Fence for coding agents. It does **not** mean default-deny reads of the whole computer; it protects known credential paths and restricts writes/network. If schmux needs “can only read the workspace,” that is a different policy and should not be assumed from fenced sessions.
+
+#### Monitor logs
+
+All fenced spawns run Fence monitor mode. Blocked network/filesystem events are written to:
+
+```text
+~/.schmux/fence/<session-id>/monitor.log
+```
+
+Use this log to diagnose missing network domains or policy misses. If a third-party model endpoint is known from the resolved runner, add it from that source of truth; do not guess domains from arbitrary command strings.
+
+#### Scope boundaries
+
+- Remote sessions are not fenced.
+- Oneshot commands are not fenced.
+- Quick-launch paths that bypass the visible checkbox send `fence:false`.
+- Floor-manager sessions are not fenced.
+- Fence launch directories are not eagerly cleaned up; tmux respawn and live processes may still reference them.
+
+See [Fenced Sessions](fenced-sessions.md) for the full subsystem reference.
+
 ### New Workspace
 
 Creates a fresh git clone with a clean slate:

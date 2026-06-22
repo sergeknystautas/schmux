@@ -697,6 +697,7 @@ func (s *Server) Start() error {
 			clearRemoteAuth:            s.ClearRemoteAuth,
 			onFloorManagerToggle:       s.onFloorManagerToggle,
 			onClipboardSyncToggle:      s.onClipboardSyncToggle,
+			dependencyReport:           s.dependencyReport,
 		}
 
 		// Git/VCS handler group
@@ -764,6 +765,7 @@ func (s *Server) Start() error {
 
 			broadcastSessions:   s.BroadcastSessions,
 			vcsTypeForWorkspace: s.vcsTypeForWorkspace,
+			dependencyReport:    s.dependencyReport,
 		}
 
 		// Session handler group

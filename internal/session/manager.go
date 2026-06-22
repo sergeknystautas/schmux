@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,10 +20,12 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/events"
+	"github.com/sergeknystautas/schmux/internal/fence"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
 	"github.com/sergeknystautas/schmux/internal/tmux"
@@ -478,14 +481,14 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 	})
 
 	// Build command with remote mode (uses inline content instead of local file paths)
-	command, err := buildCommand(resolved, opts.Prompt, nil, false, true)
+	command, err := buildCommand(resolved, opts.Prompt, nil, false, true, false)
 	if err != nil {
 		return nil, err
 	}
 
 	// For tools with hook support, prepend hooks provisioning to the command
 	// so hooks are in place before the agent starts (it captures hooks at startup).
-	baseTool := m.models.ResolveTargetToTool(opts.TargetName)
+	baseTool := resolved.ToolName
 	if adapter := detect.GetAdapter(baseTool); adapter != nil && adapter.SupportsHooks() {
 		command, err = adapter.WrapRemoteCommand(command)
 		if err != nil {
@@ -831,6 +834,8 @@ type SpawnOptions struct {
 	PersonaPrompt    string // Pre-resolved persona prompt content (set by handler)
 	StyleID          string
 	ImageAttachments []string // base64-encoded PNGs (decoded and written during spawn)
+	Fence            bool     // OS-level fence sandbox for this spawn (local only)
+	FenceCommand     string   // resolved fence command from the dependency report (internal-only; set by the handler)
 }
 
 // resolveWorkspace resolves the target workspace from SpawnOptions.
@@ -936,10 +941,10 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	}
 
 	// Provision agent signaling mechanism
-	baseTool := m.models.ResolveTargetToTool(opts.TargetName)
+	baseTool := resolved.ToolName
 
 	// Ensure workspace has all necessary schmux configuration (hooks, scripts, git exclude)
-	if err := m.ensurer.ForSpawn(w.ID, opts.TargetName); err != nil {
+	if err := m.ensurer.ForSpawn(w.ID, baseTool); err != nil {
 		m.logger.Warn("failed to ensure workspace config", "err", err)
 	}
 
@@ -1019,7 +1024,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		}
 	}
 
-	command, err := buildCommand(resolved, commandPrompt, model, opts.Resume, false)
+	command, err := buildCommand(resolved, commandPrompt, model, opts.Resume, false, opts.Fence)
 	if err != nil {
 		return nil, err
 	}
@@ -1065,6 +1070,10 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	}
 
 	// Create tmux session
+	command, err = m.wrapForFence(ctx, w.Path, sessionID, opts.Fence, opts.FenceCommand, fenceAllowedDomains(resolved), command)
+	if err != nil {
+		return nil, err
+	}
 	err = m.server.CreateSession(ctx, tmuxSession, w.Path, command)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tmux session: %w", err)
@@ -1164,6 +1173,10 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 	}
 
 	// Create tmux session with the raw command
+	commandWithEnv, err = m.wrapForFence(ctx, w.Path, sessionID, opts.Fence, opts.FenceCommand, nil, commandWithEnv)
+	if err != nil {
+		return nil, err
+	}
 	err = m.server.CreateSession(ctx, tmuxSession, w.Path, commandWithEnv)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tmux session: %w", err)
@@ -1252,28 +1265,30 @@ func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedT
 	return ResolvedTarget{}, fmt.Errorf("target not found: %s", targetName)
 }
 
-func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, resume bool, remoteMode bool) (string, error) {
+func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, resume bool, remoteMode bool, fence bool) (string, error) {
 	isRemote := remoteMode
 	trimmedPrompt := strings.TrimSpace(prompt)
 
-	// Resolve the base tool name for signaling injection
+	// The resolved harness is authoritative. Do not infer it from target.Name:
+	// user-defined command targets are opaque even if their names resemble a
+	// built-in harness.
 	baseTool := target.ToolName
-	if baseTool == "" {
-		if detect.IsBuiltinToolName(target.Name) {
-			baseTool = target.Name
-		}
-	}
 
 	// Handle resume mode
 	if resume {
-		// For models, use the tool name instead of model ID
-		toolName := target.ToolName
-		if toolName == "" {
-			toolName = target.Name
+		if baseTool == "" {
+			return "", fmt.Errorf("resume requires a descriptor-backed target: %s", target.Name)
 		}
-		parts, err := detect.BuildCommandParts(toolName, target.Command, detect.ToolModeResume, "", model)
+		parts, err := detect.BuildCommandParts(baseTool, target.Command, detect.ToolModeResume, "", model)
 		if err != nil {
 			return "", err
+		}
+		// When fenced, append the harness's skip-approvals flags to the
+		// resume argv before quoting/joining (descriptor-backed only).
+		if fence && baseTool != "" {
+			if adapter := detect.GetAdapter(baseTool); adapter != nil {
+				parts = append(parts, adapter.AutoApproveArgs()...)
+			}
 		}
 		// Shell-quote each token before joining. Model values can contain spaces
 		// and parentheses (e.g. antigravity's "Claude Opus 4.6 (Thinking)"), which
@@ -1303,6 +1318,16 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 			flag := adapter.ModelFlag()
 			if spec, ok := model.RunnerFor(target.ToolName); ok && spec.ModelValue != "" && flag != "" {
 				baseCommand = fmt.Sprintf("%s %s %s", baseCommand, flag, shellutil.Quote(spec.ModelValue))
+			}
+		}
+	}
+
+	// When fenced, append the harness's skip-approvals flags to the base
+	// command before prompt delivery (descriptor-backed only).
+	if fence && baseTool != "" {
+		if adapter := detect.GetAdapter(baseTool); adapter != nil {
+			for _, arg := range adapter.AutoApproveArgs() {
+				baseCommand = fmt.Sprintf("%s %s", baseCommand, shellutil.QuoteIfNeeded(arg))
 			}
 		}
 	}
@@ -1339,6 +1364,46 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 		return fmt.Sprintf("%s %s", buildEnvPrefix(target.Env), baseCommand), nil
 	}
 	return baseCommand, nil
+}
+
+// wrapForFence wraps command in the fence sandbox when enabled. The handler
+// has already rejected fence-on requests for which the dependency report says
+// fence is unavailable; this guard is local and mechanical and does not
+// re-detect dependencies. When disabled, returns today's command untouched.
+func (m *Manager) wrapForFence(ctx context.Context, workspacePath, sessionID string, enabled bool, fenceCommand string, allowedDomains []string, command string) (string, error) {
+	if !enabled {
+		return command, nil
+	}
+	if fenceCommand == "" {
+		return "", fmt.Errorf("fence not available")
+	}
+	cfg := fence.Config{
+		FenceCommand:       fenceCommand,
+		WorkspacePath:      workspacePath,
+		ExtraWritablePaths: workspace.ExtraWritablePaths(workspacePath), // git worktree → shared .git; sapling/plain clone → none
+		AllowedDomains:     allowedDomains,
+		DataDir:            schmuxdir.FenceLaunchDir(sessionID),
+	}
+	return fence.Wrap(ctx, cfg, command)
+}
+
+func fenceAllowedDomains(target ResolvedTarget) []string {
+	if target.Model == nil || target.ToolName == "" {
+		return nil
+	}
+	spec, ok := target.Model.RunnerFor(target.ToolName)
+	if !ok || spec.Endpoint == "" {
+		return nil
+	}
+	u, err := url.Parse(spec.Endpoint)
+	if err != nil {
+		return nil
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "" {
+		return nil
+	}
+	return []string{host}
 }
 
 // appendSignalingFlags appends CLI flags for signaling instruction injection.

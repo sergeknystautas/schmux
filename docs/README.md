@@ -26,28 +26,29 @@ When modifying a subsystem, read its guide first. The guide tells you which file
 
 ### Backend subsystems
 
-| File                                 | Description                                                      |
-| ------------------------------------ | ---------------------------------------------------------------- |
-| [architecture.md](architecture.md)   | Backend architecture overview, router, JSON schema               |
-| [models.md](models.md)               | Model catalog, registry, provider profiles                       |
-| [tool-adapters.md](tool-adapters.md) | ToolAdapter interface, per-agent adapters                        |
-| [sessions.md](sessions.md)           | Session lifecycle, ControlSource, spawn modes, resume            |
-| [workspaces.md](workspaces.md)       | Workspace management, VCS abstraction, recyclable workspaces     |
-| [remote.md](remote.md)               | Remote access (Cloudflare tunnel) and remote sessions (SSH/tmux) |
-| [https.md](https.md)                 | HTTPS via dashboard.sx, ACME, TLS config UI, status alerts       |
-| [timelapse.md](timelapse.md)         | Session recording, time-compressed replay, asciicast export      |
-| [git-features.md](git-features.md)   | Git graph, status watcher, commit detail, PR discovery           |
-| [floor-manager.md](floor-manager.md) | Floor manager agency, CLI tools                                  |
-| [overlays.md](overlays.md)           | Overlay compounding, file propagation, manifests                 |
-| [lore.md](lore.md)                   | Continual learning: proposals, curator, instructions             |
-| [personas.md](personas.md)           | Persona YAML files, built-ins, prompt delivery                   |
-| [comm-styles.md](comm-styles.md)     | Communication styles, per-agent defaults, prompt composition     |
-| [nudgenik.md](nudgenik.md)           | NudgeNik session status classification                           |
-| [repofeed.md](repofeed.md)           | Cross-developer activity feed                                    |
-| [telemetry.md](telemetry.md)         | PostHog telemetry, IO workspace telemetry                        |
-| [preview.md](preview.md)             | Preview proxy lifecycle, auto-detection, port allocation         |
-| [subreddit.md](subreddit.md)         | Subreddit news feed (per-repo posts, upvotes)                    |
-| [autolearn.md](autolearn.md)         | Autolearn system (continual learning, curation, merge)           |
+| File                                     | Description                                                      |
+| ---------------------------------------- | ---------------------------------------------------------------- |
+| [architecture.md](architecture.md)       | Backend architecture overview, router, JSON schema               |
+| [models.md](models.md)                   | Model catalog, registry, provider profiles                       |
+| [tool-adapters.md](tool-adapters.md)     | ToolAdapter interface, per-agent adapters                        |
+| [sessions.md](sessions.md)               | Session lifecycle, ControlSource, spawn modes, resume            |
+| [fenced-sessions.md](fenced-sessions.md) | Per-spawn Fence sandboxing, monitor logs, network allowlists     |
+| [workspaces.md](workspaces.md)           | Workspace management, VCS abstraction, recyclable workspaces     |
+| [remote.md](remote.md)                   | Remote access (Cloudflare tunnel) and remote sessions (SSH/tmux) |
+| [https.md](https.md)                     | HTTPS via dashboard.sx, ACME, TLS config UI, status alerts       |
+| [timelapse.md](timelapse.md)             | Session recording, time-compressed replay, asciicast export      |
+| [git-features.md](git-features.md)       | Git graph, status watcher, commit detail, PR discovery           |
+| [floor-manager.md](floor-manager.md)     | Floor manager agency, CLI tools                                  |
+| [overlays.md](overlays.md)               | Overlay compounding, file propagation, manifests                 |
+| [lore.md](lore.md)                       | Continual learning: proposals, curator, instructions             |
+| [personas.md](personas.md)               | Persona YAML files, built-ins, prompt delivery                   |
+| [comm-styles.md](comm-styles.md)         | Communication styles, per-agent defaults, prompt composition     |
+| [nudgenik.md](nudgenik.md)               | NudgeNik session status classification                           |
+| [repofeed.md](repofeed.md)               | Cross-developer activity feed                                    |
+| [telemetry.md](telemetry.md)             | PostHog telemetry, IO workspace telemetry                        |
+| [preview.md](preview.md)                 | Preview proxy lifecycle, auto-detection, port allocation         |
+| [subreddit.md](subreddit.md)             | Subreddit news feed (per-repo posts, upvotes)                    |
+| [autolearn.md](autolearn.md)             | Autolearn system (continual learning, curation, merge)           |
 
 ### Frontend
 

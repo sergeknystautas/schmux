@@ -11,23 +11,24 @@ Schmux uses two types of directories:
 
 `~/.schmux/`
 
-| Path                    | Purpose                                            | Created By                           | Notes                                |
-| ----------------------- | -------------------------------------------------- | ------------------------------------ | ------------------------------------ |
-| `config.json`           | Main configuration (repos, agents, workspace path) | User or `schmux init`                | Required for daemon                  |
-| `state.json`            | Runtime state (workspaces, sessions, PIDs)         | Daemon                               | Auto-managed                         |
-| `daemon.pid`            | PID file for running daemon                        | `schmux start`                       | Used to check if daemon is running   |
-| `daemon.started`        | Timestamp marker for daemon startup                | `schmux start`                       | Used for health checks               |
-| `daemon-startup.log`    | Daemon startup logs                                | Daemon                               | First few seconds of output          |
-| `secrets.json`          | Encrypted secrets storage                          | `schmux secret set`                  | Git should NEVER see this            |
-| `signaling.md`          | Agent signaling instructions template              | `ensure.SignalingInstructionsFile()` | Injected via CLI flags               |
-| `dashboard/`            | Downloaded dashboard assets                        | `internal/assets`                    | For standalone binary                |
-| `lore/<repo>/`          | Autolearn state (curated learnings)                | Autolearn curator                    | JSONL state files per repo           |
-| `overlays/<repo>/`      | Overlay files synced across workspaces             | Workspace manager                    | .env, config files, etc.             |
-| `repos/`                | Bare git clones of repositories                    | Workspace manager                    | Source for worktrees                 |
-| `schemas/`              | JSON schemas for oneshot validation                | `internal/oneshot`                   | Generated from Go structs at startup |
-| `dev-state.json`        | Dev mode state (current worktree)                  | `dev.sh` wrapper                     | Development only                     |
-| `dev-build-status.json` | Dev mode build status                              | `dev.sh` wrapper                     | Development only                     |
-| `dev-restart.json`      | Dev mode restart manifest                          | Dashboard                            | Development only                     |
+| Path                    | Purpose                                            | Created By                           | Notes                                                                  |
+| ----------------------- | -------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------- |
+| `config.json`           | Main configuration (repos, agents, workspace path) | User or `schmux init`                | Required for daemon                                                    |
+| `state.json`            | Runtime state (workspaces, sessions, PIDs)         | Daemon                               | Auto-managed                                                           |
+| `daemon.pid`            | PID file for running daemon                        | `schmux start`                       | Used to check if daemon is running                                     |
+| `daemon.started`        | Timestamp marker for daemon startup                | `schmux start`                       | Used for health checks                                                 |
+| `daemon-startup.log`    | Daemon startup logs                                | Daemon                               | First few seconds of output                                            |
+| `secrets.json`          | Encrypted secrets storage                          | `schmux secret set`                  | Git should NEVER see this                                              |
+| `signaling.md`          | Agent signaling instructions template              | `ensure.SignalingInstructionsFile()` | Injected via CLI flags                                                 |
+| `dashboard/`            | Downloaded dashboard assets                        | `internal/assets`                    | For standalone binary                                                  |
+| `lore/<repo>/`          | Autolearn state (curated learnings)                | Autolearn curator                    | JSONL state files per repo                                             |
+| `overlays/<repo>/`      | Overlay files synced across workspaces             | Workspace manager                    | .env, config files, etc.                                               |
+| `repos/`                | Bare git clones of repositories                    | Workspace manager                    | Source for worktrees                                                   |
+| `schemas/`              | JSON schemas for oneshot validation                | `internal/oneshot`                   | Generated from Go structs at startup                                   |
+| `fence/<session-id>/`   | Per-session Fence launch files and monitor log     | Fenced session spawn                 | Contains `settings.json`, `cmd.sh`, `monitor.log`; not eagerly cleaned |
+| `dev-state.json`        | Dev mode state (current worktree)                  | `dev.sh` wrapper                     | Development only                                                       |
+| `dev-build-status.json` | Dev mode build status                              | `dev.sh` wrapper                     | Development only                                                       |
+| `dev-restart.json`      | Dev mode restart manifest                          | Dashboard                            | Development only                                                       |
 
 ### Code Locations
 

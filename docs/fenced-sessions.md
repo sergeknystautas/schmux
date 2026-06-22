@@ -1,0 +1,232 @@
+# Fenced Sessions
+
+## What it does
+
+Fenced sessions let the user check **Fence** in the spawn wizard to run that spawned session under the [`fence`](https://fencesandbox.com/docs/guides/agents) OS sandbox. The feature is per-spawn and opt-in: unchecked spawns behave as they did before.
+
+The intended behavior is narrow:
+
+- Known, descriptor-backed harnesses run inside `fence` and also receive their descriptor-defined unattended/skip-approval args.
+- Raw commands and user-defined run targets run inside `fence` only; schmux treats their command strings as opaque and does not add harness flags.
+- Oneshot, remote sessions, floor-manager sessions, and launch paths without the visible spawn checkbox are out of scope.
+
+Fence is a guardrail around the process tree, not a rewrite of agent permissions. Schmux delegates OS policy to the Fence `code` template and only adds spawn-specific paths/domains.
+
+## Key files
+
+| File                                        | Purpose                                                                           |
+| ------------------------------------------- | --------------------------------------------------------------------------------- |
+| `assets/dashboard/src/routes/SpawnPage.tsx` | Renders the Fence checkbox and sends `fence` on spawn requests                    |
+| `internal/api/contracts/spawn_request.go`   | `SpawnRequest.Fence` API contract                                                 |
+| `internal/dashboard/handlers_spawn.go`      | Server-side fence gate and dependency lookup                                      |
+| `internal/session/manager.go`               | Builds final agent command, adds harness unattended args, wraps before tmux spawn |
+| `internal/fence/fence.go`                   | Writes per-session Fence settings/script and returns the wrapper command          |
+| `internal/workspace/fence_paths.go`         | Adds git worktree shared `.git` paths to Fence writable paths                     |
+| `internal/detect/descriptors/*.yaml`        | Harness `auto_approve_args` definitions                                           |
+| `internal/detect/dependency_registry.go`    | `fence` dependency entry and install hints                                        |
+| `internal/schmuxdir/schmuxdir.go`           | `~/.schmux/fence/<session-id>/` path helper                                       |
+
+## Spawn contract
+
+`POST /api/spawn` accepts:
+
+```json
+{
+  "fence": true
+}
+```
+
+`false` or omitted means unchanged behavior.
+
+When `fence:true` is accepted, the backend must either run the session fenced or fail before spawning. It must not silently run the session unfenced.
+
+Hard failures:
+
+- `fence` is not detected in the daemon dependency report.
+- The spawn is remote.
+
+## UI behavior
+
+The spawn page shows the checkbox only when:
+
+- the dependency report says `fence` is available, and
+- the selected spawn environment is local.
+
+The checkbox defaults off and is not persisted. Quick-launch shortcuts or other launch paths that do not expose this checkbox must send `fence:false`.
+
+## Command behavior
+
+### Descriptor-backed harnesses
+
+For known harnesses, fenced spawns add that harness's descriptor-defined `auto_approve_args` before wrapping the command. Examples live in `internal/detect/descriptors/*.yaml`:
+
+| Harness     | Current fenced arg                           |
+| ----------- | -------------------------------------------- |
+| Claude      | `--dangerously-skip-permissions`             |
+| Codex       | `--dangerously-bypass-approvals-and-sandbox` |
+| Gemini      | `--yolo`                                     |
+| Antigravity | `--dangerously-skip-permissions`             |
+| OpenCode    | none                                         |
+
+These args must come from the resolved harness adapter/descriptor. Do not infer them from target names, labels, command strings, or other loose matching.
+
+### Raw and user-defined commands
+
+Raw `command` spawns and user-defined run targets are opaque. When fenced, schmux wraps the final command in Fence but does not add approval args, model args, or resume args. If the command still prompts, that is a harness/command limitation, not a schmux error.
+
+## Fence wrapper
+
+The session manager builds the final command first, including:
+
+- model flags,
+- persona/style injection,
+- signaling environment variables,
+- descriptor auto-approval args when applicable.
+
+Then, immediately before `tmux CreateSession`, it calls the Fence wrapper. The wrapper writes:
+
+```text
+~/.schmux/fence/<session-id>/settings.json
+~/.schmux/fence/<session-id>/cmd.sh
+~/.schmux/fence/<session-id>/monitor.log
+```
+
+`cmd.sh` is read by `/bin/sh`. It first exports workspace-local cache environment variables, then appends the final command verbatim. This avoids nested shell quoting through `fence -c` and keeps routine tool caches out of the user's home directory while fenced.
+
+The tmux command has this shape:
+
+```bash
+fence -m --fence-log-file ~/.schmux/fence/<session-id>/monitor.log \
+  --settings ~/.schmux/fence/<session-id>/settings.json \
+  /bin/sh ~/.schmux/fence/<session-id>/cmd.sh
+```
+
+Modes:
+
+| Path                            | Mode             |
+| ------------------------------- | ---------------- |
+| `~/.schmux/fence/<session-id>/` | `0700`           |
+| `settings.json`                 | `0600`           |
+| `cmd.sh`                        | `0600`           |
+| `monitor.log`                   | created by Fence |
+
+Do not store the launch files inside the workspace. The fenced process can write the workspace, so workspace-local launch files would let the agent tamper with future respawns.
+
+## Generated Fence settings
+
+Schmux starts from Fence's `code` template. The Fence guide recommends using the `code` template for coding agents, allowlisting only the network destinations needed, and enabling monitor mode to audit blocked attempts.
+
+Generated settings add only spawn-specific entries:
+
+```json
+{
+  "extends": "code",
+  "network": {
+    "allowedDomains": ["mcp.posthog.com", "api.z.ai"],
+    "allowAllUnixSockets": true
+  },
+  "filesystem": {
+    "allowRead": ["/Users/me/.schmux/fence/<session-id>/cmd.sh"],
+    "allowWrite": ["/Users/me/workspaces/project", "/Users/me/.schmux/repos/project.git"]
+  }
+}
+```
+
+### Filesystem policy
+
+The `code` template provides credential read-deny rules and restricted write policy. Schmux appends:
+
+- the workspace path to `filesystem.allowWrite`, and
+- any VCS control path that must be writable outside the workspace, and
+- Go's telemetry directory under `os.UserConfigDir()/go/telemetry`.
+
+For git worktrees, commits write to the shared git common directory outside the worktree. `internal/workspace/fence_paths.go` finds that path with `git rev-parse --git-common-dir` and adds it to `allowWrite`.
+
+Go telemetry mode is not configurable with an environment variable: `go env GOTELEMETRY` and `GOTELEMETRYDIR` are read-only values. The official Go telemetry docs say local data and configuration live under `os.UserConfigDir()/go/telemetry`, so schmux permits that narrow path instead of trying to redirect it.
+
+The `code` template is not a full default-deny read sandbox. It is intended to protect sensitive credential paths while allowing normal development reads. If schmux needs “can only read this workspace,” that is a different policy and should be designed explicitly rather than assumed from `code`.
+
+### Local tool state
+
+Fenced launch scripts export local cache paths under:
+
+```text
+<workspace>/.cache/schmux-fence/
+```
+
+This includes Go build cache (`GOCACHE`), Staticcheck cache (`STATICCHECK_CACHE`), XDG cache, an empty Git template directory (`GIT_TEMPLATE_DIR`) so `git init` does not write default hooks, and common package-manager cache variables for npm, Yarn, Bun, pip, and uv. Schmux does not redirect `TMPDIR`/`TMP`/`TEMP`: tests often create git repos under temporary directories, and moving those directories into the writable workspace makes Fence block `.git/config` writes. Schmux also does not redirect `GOMODCACHE`: downloaded modules can legitimately contain fixture names such as `cert.pem`, which the Fence credential-write policy blocks inside writable workspaces. These are environment defaults for fenced sessions, not Fence policy exceptions.
+
+### Network policy
+
+Fence blocks outbound network except allowed domains from the template plus generated additions.
+
+Schmux can know model endpoint hosts for resolved model runners. For example, a third-party Anthropic-compatible Claude runner with endpoint `https://api.z.ai/api/anthropic` adds:
+
+```json
+"network": { "allowedDomains": ["api.z.ai"] }
+```
+
+Schmux also adds known app/test service endpoints, currently `mcp.posthog.com`.
+
+Do not guess network domains from arbitrary command strings. Unknown blocked destinations should appear in `monitor.log`, then the implementation can add a real source-of-truth if the destination is legitimate.
+
+Schmux also sets `network.allowAllUnixSockets:true` for fenced sessions. Local developer tooling commonly creates Unix sockets for IPC (for example test runners and tmux-related tests). Fence's narrower `allowUnixSockets` setting is for connecting to specific socket paths, not creating arbitrary per-run socket files.
+
+## Policy boundaries
+
+The default fenced-session policy is not a promise that every local development workflow can run to completion inside Fence. Do not expand the default policy just because monitor logs show a blocked operation.
+
+These should stay out of the default policy:
+
+- package-manager mutation outside the workspace, such as Homebrew writes under `/opt/homebrew` or `~/Library/Caches/Homebrew`,
+- agent self-update/download traffic, such as Claude Code auto-update requests,
+- Docker daemon/config access under `~/.docker` or Docker socket access,
+- language toolchain installation or upgrade downloads,
+- analytics/telemetry endpoints unrelated to schmux functionality,
+- broad home-directory cache writes, and
+- temporary directory rewrites that move arbitrary test fixtures into the writable workspace.
+
+When one of these is needed, the answer is not to silently broaden the default fence. The user should run that setup outside the fenced session, or schmux should expose an explicit opt-in configuration.
+
+## Future configuration
+
+The current implementation hardcodes the small compatibility surface needed for fenced agent work: workspace writes, git worktree control writes, known model/app domains, Unix sockets, selected local caches, and Go telemetry.
+
+Longer term, these should move behind configuration in schmux's user config (for example `~/.schmux/config.json`) instead of living as code constants. The config should support either low-level policy additions (paths/domains) or named feature presets (for example Go tooling) without making those presets implicit defaults.
+
+## Monitor logs
+
+All fenced sessions run Fence monitor mode (`-m`) and write logs to:
+
+```text
+~/.schmux/fence/<session-id>/monitor.log
+```
+
+Use this file to debug blocked network and sandbox violations. This is the first place to check when a fenced agent says an API connection, package fetch, or file operation was blocked.
+
+## Lifecycle
+
+Do not eagerly delete Fence launch directories. A tmux pane respawn may re-read `cmd.sh` and `settings.json`, and running processes may still reference the paths. v1 does not include cleanup. Safe cleanup requires checking process liveness and is intentionally out of scope.
+
+## Known limitations
+
+- Remote sessions are not fenced.
+- Oneshot commands are not fenced.
+- Raw/user-defined commands may still prompt because schmux does not know their harness-specific unattended flags.
+- OpenCode currently has no descriptor `auto_approve_args`, so it can be fenced but may not run unattended.
+- The `code` template does not imply default-deny reads of all non-workspace paths.
+- On macOS, Fence multi-token command deny rules for child processes are limited unless agent hooks are installed; do not rely on command-deny rules as the primary safety property.
+
+## Testing checklist
+
+When changing this feature, cover:
+
+- unchecked spawn leaves command unchanged,
+- checked spawn wraps the final tmux command,
+- descriptor-backed harness appends `auto_approve_args`,
+- raw/user command does not get harness args,
+- generated settings include workspace write path and git worktree common dir,
+- generated settings include known model endpoint domains,
+- wrapper command enables monitor mode and points at `monitor.log`,
+- UI does not send stale `fence:true` when the checkbox is hidden,
+- remote + fence fails before spawning.

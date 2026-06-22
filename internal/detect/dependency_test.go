@@ -74,3 +74,17 @@ func TestAllDependencies_GroupedOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestDependencyReportStatus(t *testing.T) {
+	rep := DependencyReport{Statuses: []DependencyStatus{
+		{Dependency: Dependency{ID: "fence"}, Detected: true, Command: "fence"},
+		{Dependency: Dependency{ID: "tmux"}, Detected: false},
+	}}
+	st, ok := rep.Status("fence")
+	if !ok || !st.Detected || st.Command != "fence" {
+		t.Errorf("Status(fence) = %+v, %v; want detected fence", st, ok)
+	}
+	if _, ok := rep.Status("missing"); ok {
+		t.Errorf("Status(missing) ok = true, want false")
+	}
+}

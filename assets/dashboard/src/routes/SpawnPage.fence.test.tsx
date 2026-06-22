@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { ConfigResponse, SpawnRequest, SpawnResult } from '../lib/types';
 
@@ -10,10 +9,7 @@ function makeConfig(overrides: Partial<ConfigResponse> = {}): ConfigResponse {
   return {
     workspace_path: '/home/user/ws',
     source_code_management: 'git-worktree',
-    repos: [
-      { name: 'saplingrepo', url: 'sl:saplingrepo', vcs: 'sapling' },
-      { name: 'gitrepo', url: 'https://github.com/user/gitrepo.git', vcs: 'git' },
-    ],
+    repos: [{ name: 'gitrepo', url: 'https://github.com/user/gitrepo.git', vcs: 'git' }],
     run_targets: [],
     runners: {
       claude: { available: true, capabilities: ['interactive', 'oneshot', 'streaming'] },
@@ -170,7 +166,6 @@ vi.mock('../lib/navigation', () => ({
   }),
 }));
 
-// Stub child components that are complex and irrelevant to the sapling flow.
 vi.mock('../components/WorkspaceHeader', () => ({
   default: () => <div data-testid="workspace-header" />,
 }));
@@ -178,25 +173,12 @@ vi.mock('../components/SessionTabs', () => ({
   default: () => <div data-testid="session-tabs" />,
 }));
 vi.mock('../components/PromptTextarea', () => ({
-  default: (props: {
-    value: string;
-    onChange: (v: string) => void;
-    onSelectCommand?: (cmd: string) => void;
-  }) => (
-    <div>
-      <textarea
-        data-testid="spawn-prompt"
-        value={props.value}
-        onChange={(e) => props.onChange(e.target.value)}
-      />
-      <button
-        data-testid="trigger-resume"
-        type="button"
-        onClick={() => props.onSelectCommand?.('/resume')}
-      >
-        Trigger /resume
-      </button>
-    </div>
+  default: (props: { value: string; onChange: (v: string) => void }) => (
+    <textarea
+      data-testid="spawn-prompt"
+      value={props.value}
+      onChange={(e) => props.onChange(e.target.value)}
+    />
   ),
 }));
 vi.mock('../components/Tooltip', () => ({
@@ -206,7 +188,6 @@ vi.mock('../components/RemoteHostSelector', () => ({
   default: () => <div data-testid="remote-host-selector" />,
 }));
 
-// Now import the component under test (after mocks are set up)
 import SpawnPage from './SpawnPage';
 
 function renderSpawnPage() {
@@ -217,17 +198,7 @@ function renderSpawnPage() {
   );
 }
 
-async function selectSaplingRepo() {
-  const repoSelect = (await screen.findByTestId('spawn-repo-select')) as HTMLSelectElement;
-  fireEvent.change(repoSelect, { target: { value: 'sl:saplingrepo' } });
-}
-
-async function selectClaudeAgent() {
-  const agentSelect = (await screen.findByTestId('agent-select')) as HTMLSelectElement;
-  fireEvent.change(agentSelect, { target: { value: 'claude' } });
-}
-
-describe('SpawnPage sapling flow', () => {
+describe('SpawnPage fence toggle', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
@@ -238,139 +209,29 @@ describe('SpawnPage sapling flow', () => {
     mockGetPersonas.mockResolvedValue({ personas: [] });
     mockGetStyles.mockResolvedValue({ styles: [] });
     mockSpawnSessions.mockResolvedValue([{ session_id: 'sess-1', workspace_id: 'ws-1' }]);
-    mockSuggestBranch.mockResolvedValue({ branch: 'auto/from-llm' });
   });
 
-  it('hides the branch input when a sapling repo is selected', async () => {
-    renderSpawnPage();
-    await waitFor(() => {
-      expect(screen.getByTestId('spawn-repo-select')).toBeInTheDocument();
+  it('hides the fence toggle when fence is unavailable', async () => {
+    const cfg = makeConfig({
+      system_capabilities: { iterm2_available: false, fence_available: false },
     });
-    await selectSaplingRepo();
-
-    expect(screen.queryByPlaceholderText(/feature\/my-branch/i)).not.toBeInTheDocument();
-  });
-
-  it('shows the branch input when a git repo is selected', async () => {
-    renderSpawnPage();
-    await waitFor(() => {
-      expect(screen.getByTestId('spawn-repo-select')).toBeInTheDocument();
-    });
-    const repoSelect = screen.getByTestId('spawn-repo-select') as HTMLSelectElement;
-    fireEvent.change(repoSelect, {
-      target: { value: 'https://github.com/user/gitrepo.git' },
-    });
-
-    expect(screen.getByPlaceholderText(/feature\/my-branch/i)).toBeInTheDocument();
-  });
-
-  it('calls branch suggestion for blank-prompt git spawns when configured', async () => {
-    const cfg = makeConfig({ branch_suggest: { target: 'opus' } });
     configContextValue = cfg;
     mockGetConfig.mockResolvedValue(cfg);
 
     renderSpawnPage();
-    await waitFor(() => {
-      expect(screen.getByTestId('spawn-repo-select')).toBeInTheDocument();
-    });
-    const repoSelect = screen.getByTestId('spawn-repo-select') as HTMLSelectElement;
-    fireEvent.change(repoSelect, {
-      target: { value: 'https://github.com/user/gitrepo.git' },
-    });
-    await selectClaudeAgent();
+    await waitFor(() => expect(screen.getByTestId('spawn-submit')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByTestId('spawn-submit'));
-
-    await waitFor(() => expect(mockSuggestBranch).toHaveBeenCalledWith({ prompt: '' }));
-    await waitFor(() => expect(mockSpawnSessions).toHaveBeenCalled());
-    const payload = mockSpawnSessions.mock.calls[0][0];
-    expect(payload.prompt).toBe('');
-    expect(payload.branch).toBe('auto/from-llm');
+    expect(screen.queryByTestId('fence-toggle')).not.toBeInTheDocument();
   });
 
-  it('renders the label input with the prospective workspace ID as placeholder', async () => {
-    renderSpawnPage();
-    await waitFor(() => {
-      expect(screen.getByTestId('spawn-repo-select')).toBeInTheDocument();
+  it('shows the fence toggle when fence is available and target is local', async () => {
+    const cfg = makeConfig({
+      system_capabilities: { iterm2_available: false, fence_available: true },
     });
-    await selectSaplingRepo();
-
-    const labelInput = await screen.findByTestId('workspace-label-input');
-    expect(labelInput).toHaveAttribute('placeholder', expect.stringMatching(/^saplingrepo-\d{3}$/));
-  });
-
-  it('does not error on submit when sapling repo is selected and label is empty', async () => {
-    renderSpawnPage();
-    await waitFor(() => {
-      expect(screen.getByTestId('spawn-repo-select')).toBeInTheDocument();
-    });
-    await selectSaplingRepo();
-    await selectClaudeAgent();
-
-    fireEvent.click(screen.getByTestId('spawn-submit'));
-
-    await waitFor(() => expect(mockSpawnSessions).toHaveBeenCalled());
-    const payload = mockSpawnSessions.mock.calls[0][0];
-    expect(payload.branch).toBe('');
-    expect(payload.workspace_label).toBe('');
-  });
-
-  it('passes workspace_label to spawnSessions when typed', async () => {
-    const user = userEvent.setup();
-    renderSpawnPage();
-    await waitFor(() => {
-      expect(screen.getByTestId('spawn-repo-select')).toBeInTheDocument();
-    });
-    await selectSaplingRepo();
-    await selectClaudeAgent();
-
-    const labelInput = await screen.findByTestId('workspace-label-input');
-    await user.type(labelInput, 'Login bug fix');
-
-    fireEvent.click(screen.getByTestId('spawn-submit'));
-
-    await waitFor(() => expect(mockSpawnSessions).toHaveBeenCalled());
-    const payload = mockSpawnSessions.mock.calls[0][0];
-    expect(payload.workspace_label).toBe('Login bug fix');
-    expect(payload.branch).toBe('');
-  });
-
-  it('does not call the LLM branch suggester for sapling repos', async () => {
-    // Reset config with a non-empty branch_suggest target so it would normally fire.
-    const cfg = makeConfig({ branch_suggest: { target: 'opus' } });
     configContextValue = cfg;
     mockGetConfig.mockResolvedValue(cfg);
 
-    const user = userEvent.setup();
     renderSpawnPage();
-    await waitFor(() => {
-      expect(screen.getByTestId('spawn-repo-select')).toBeInTheDocument();
-    });
-    await selectSaplingRepo();
-    await selectClaudeAgent();
-
-    await user.type(screen.getByTestId('spawn-prompt'), 'fix the login bug');
-    fireEvent.click(screen.getByTestId('spawn-submit'));
-
-    await waitFor(() => expect(mockSpawnSessions).toHaveBeenCalled());
-    expect(mockSuggestBranch).not.toHaveBeenCalled();
-  });
-
-  it('/resume sends empty branch for sapling repos', async () => {
-    renderSpawnPage();
-    await waitFor(() => {
-      expect(screen.getByTestId('spawn-repo-select')).toBeInTheDocument();
-    });
-    await selectSaplingRepo();
-    await selectClaudeAgent();
-
-    // Trigger /resume via the stubbed PromptTextarea button, which calls
-    // onSelectCommand('/resume') and exercises handleSlashCommandSelect.
-    fireEvent.click(screen.getByTestId('trigger-resume'));
-
-    await waitFor(() => expect(mockSpawnSessions).toHaveBeenCalled());
-    const payload = mockSpawnSessions.mock.calls[0][0];
-    expect(payload.branch).toBe('');
-    expect(payload.resume).toBe(true);
+    await waitFor(() => expect(screen.getByTestId('fence-toggle')).toBeInTheDocument());
   });
 });

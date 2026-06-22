@@ -349,6 +349,7 @@ func TestBuildCommand(t *testing.T) {
 		model            *detect.Model
 		resume           bool
 		remote           bool
+		fence            bool
 		wantErr          bool
 		errContains      string
 		shouldContain    []string
@@ -471,6 +472,7 @@ func TestBuildCommand(t *testing.T) {
 				Command:    "claude",
 				Promptable: true,
 				Env:        map[string]string{},
+				ToolName:   "claude",
 			},
 			prompt:  "",
 			model:   nil,
@@ -503,6 +505,7 @@ func TestBuildCommand(t *testing.T) {
 				Command:    "claude",
 				Promptable: true,
 				Env:        map[string]string{},
+				ToolName:   "claude",
 			},
 			prompt:  "",
 			model:   nil,
@@ -554,6 +557,7 @@ func TestBuildCommand(t *testing.T) {
 				Command:    "codex",
 				Promptable: true,
 				Env:        map[string]string{},
+				ToolName:   "codex",
 			},
 			prompt:  "",
 			model:   nil,
@@ -575,6 +579,7 @@ func TestBuildCommand(t *testing.T) {
 				Command:    "claude",
 				Promptable: true,
 				Env:        map[string]string{},
+				ToolName:   "claude",
 			},
 			prompt:  "fix the bug",
 			model:   nil,
@@ -599,6 +604,7 @@ func TestBuildCommand(t *testing.T) {
 				Command:    "codex",
 				Promptable: true,
 				Env:        map[string]string{},
+				ToolName:   "codex",
 			},
 			prompt:  "write tests",
 			model:   nil,
@@ -625,6 +631,7 @@ func TestBuildCommand(t *testing.T) {
 					"SCHMUX_ENABLED":    "1",
 					"SCHMUX_SESSION_ID": "remote-test-123",
 				},
+				ToolName: "claude",
 			},
 			prompt:  "deploy",
 			model:   nil,
@@ -646,7 +653,7 @@ func TestBuildCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := buildCommand(tt.target, tt.prompt, tt.model, tt.resume, tt.remote)
+			got, err := buildCommand(tt.target, tt.prompt, tt.model, tt.resume, tt.remote, tt.fence)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("buildCommand() error = %v, wantErr %v", err, tt.wantErr)
 				return

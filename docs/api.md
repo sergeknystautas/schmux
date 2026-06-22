@@ -474,6 +474,7 @@ Request:
   "command": "optional",
   "workspace_id": "optional",
   "resume": false,
+  "fence": false,
   "persona_id": "optional",
   "style_id": "optional",
   "action_id": "optional",
@@ -498,6 +499,7 @@ Contract (pre-2093ccf):
 - `style_id` is optional. Communication style override. When set, composed with persona and injected into the agent. The special value `"none"` suppresses the global default style. When absent, the per-agent-type default from `comm_styles` config is used.
 - `image_attachments` is optional. Array of base64-encoded PNG strings (max 5). Images are decoded and written to the workspace's schmux data directory (`{workspace}/.schmux/attachments/` for git, `{workspace}/.sl/schmux/attachments/` for sapling). Absolute file paths are appended to the prompt so the agent can reference them. Cannot be used with `resume`, `command`, or `remote_profile_id`.
 - `intent_shared` is optional (default `false`). When `true`, the workspace is marked as sharing its intent with the team via repofeed. Requires `repofeed.enabled` in config.
+- `fence` is optional (default `false`). When `true`, the session launches inside the `fence` OS sandbox (filesystem default-deny writes outside the workspace, credential-read denial, network allowlist via the `code` template). For descriptor-backed harnesses, schmux additionally appends the harness's skip-approvals flag (e.g. `--dangerously-skip-permissions`, `--yolo`) so the agent runs unattended; raw `command` spawns and user-defined run targets are fenced only. Local sessions only. Hard-fails when fence is not installed or when `remote_profile_id` is set ("fence is not supported for remote sessions"). A git-worktree workspace's shared `.git` common dir is added to the sandbox's writable paths so `git commit` still works. Fenced launches run Fence monitor mode and write monitor/debug denials to the per-session fence launch directory; known app/test service endpoints and model runner endpoints known at spawn time are appended to the template network allowlist. Fenced launch scripts also export workspace-local cache paths under `<workspace>/.cache/schmux-fence/` and allow Unix socket creation for local IPC-heavy developer tools.
 - `workspace_label` is optional. Cosmetic display label persisted on the workspace and surfaced in the dashboard workspace lists; falls back to the workspace ID when empty. Used by sapling workspaces today (which have no branch to display). Silently ignored when `workspace_id` is set (workspace-mode spawn) — renaming an existing workspace is out of scope here.
 - For sapling repos (`vcs == "sapling"` in config), `branch` may be empty. The "branch is required" check is skipped, the per-repo branch-conflict pre-flight is skipped (sapling workspaces with empty branch never collide), and the persisted `state.Workspace.Branch` stays empty. The sapling backend's worktree-creation template substitutes `"main"` internally so the underlying `sl` invocation gets a non-empty value, but persisted state and the API response report `branch: ""`.
 - `action_id` is optional. When set, usage is recorded against the matching spawn entry in the spawn store. When absent and a prompt exactly matches a pinned spawn entry's prompt, usage is recorded automatically.
@@ -1179,7 +1181,8 @@ Response:
   "tmux_binary": "/opt/homebrew/bin/tmux",
   "tmux_socket_name": "schmux",
   "system_capabilities": {
-    "iterm2_available": true
+    "iterm2_available": true,
+    "fence_available": true
   },
   "oneshot_targets": [
     { "id": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6 (CLI)", "source": "cli" },

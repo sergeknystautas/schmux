@@ -127,6 +127,7 @@ type ConfigHandlers struct {
 	clearRemoteAuth            func()
 	onFloorManagerToggle       func(enabled bool)
 	onClipboardSyncToggle      func()
+	dependencyReport           func() detect.DependencyReport
 }
 
 // handleDetectTools returns detected tools (GET only).
@@ -199,6 +200,13 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("Failed to read models: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	fenceAvailable := false
+	if h.dependencyReport != nil {
+		if st, ok := h.dependencyReport().Status("fence"); ok {
+			fenceAvailable = st.Detected
+		}
 	}
 
 	response := contracts.ConfigResponse{
@@ -382,6 +390,7 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 		}(),
 		SystemCapabilities: contracts.SystemCapabilities{
 			ITerm2Available: detect.ITerm2Available(),
+			FenceAvailable:  fenceAvailable,
 		},
 	}
 
