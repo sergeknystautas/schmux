@@ -44,26 +44,37 @@ func CheckUnit(ctx context.Context, client Actions, u Unit) *UnitState {
 			continue
 		}
 		ws := WorkflowState{Name: wf.Name, Path: wf.Path, WorkflowID: wf.ID}
-		latest := latestCompleted(runs, wf.ID)
-		if latest == nil {
-			// No completed run; report the newest run's status (queued/in
-			// progress), or nothing at all when the workflow never ran.
-			if newest := newestRun(runs, wf.ID); newest != nil {
-				ws.Status = newest.Status
-			}
+		newest := newestRun(runs, wf.ID)
+		if newest == nil {
 			s.Workflows = append(s.Workflows, ws)
 			continue
 		}
-		ws.RunID, ws.RunNumber, ws.Status, ws.Conclusion, ws.HTMLURL, ws.HeadSHA =
-			latest.ID, latest.RunNumber, latest.Status, latest.Conclusion, latest.HTMLURL, latest.HeadSHA
-		if latest.Conclusion == "failure" {
-			jobs, err := client.ListRunJobs(ctx, u.Token, u.Info, latest.ID)
-			if err != nil {
-				s.LastError = classify(err)
-			} else {
-				for _, j := range jobs {
-					if j.Conclusion == "failure" {
-						ws.FailedJobs = append(ws.FailedJobs, FailedJob{ID: j.ID, Name: j.Name, HTMLURL: j.HTMLURL})
+
+		if newest.Status != "completed" {
+			// Newest run is pending (queued, in_progress, etc.)
+			ws.RunID = newest.ID
+			ws.RunNumber = newest.RunNumber
+			ws.Status = newest.Status
+			ws.Conclusion = ""
+			ws.HTMLURL = newest.HTMLURL
+			ws.HeadSHA = newest.HeadSHA
+		} else {
+			// Newest run is completed
+			ws.RunID = newest.ID
+			ws.RunNumber = newest.RunNumber
+			ws.Status = newest.Status
+			ws.Conclusion = newest.Conclusion
+			ws.HTMLURL = newest.HTMLURL
+			ws.HeadSHA = newest.HeadSHA
+			if newest.Conclusion == "failure" {
+				jobs, err := client.ListRunJobs(ctx, u.Token, u.Info, newest.ID)
+				if err != nil {
+					s.LastError = classify(err)
+				} else {
+					for _, j := range jobs {
+						if j.Conclusion == "failure" {
+							ws.FailedJobs = append(ws.FailedJobs, FailedJob{ID: j.ID, Name: j.Name, HTMLURL: j.HTMLURL})
+						}
 					}
 				}
 			}
@@ -71,17 +82,6 @@ func CheckUnit(ctx context.Context, client Actions, u Unit) *UnitState {
 		s.Workflows = append(s.Workflows, ws)
 	}
 	return s
-}
-
-// latestCompleted returns the newest completed run for a workflow; runs come
-// newest-first from the API.
-func latestCompleted(runs []github.WorkflowRun, workflowID int64) *github.WorkflowRun {
-	for i := range runs {
-		if runs[i].WorkflowID == workflowID && runs[i].Status == "completed" {
-			return &runs[i]
-		}
-	}
-	return nil
 }
 
 func newestRun(runs []github.WorkflowRun, workflowID int64) *github.WorkflowRun {

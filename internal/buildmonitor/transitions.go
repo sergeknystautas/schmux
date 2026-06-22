@@ -24,10 +24,10 @@ func isFailing(w *WorkflowState) bool {
 	return w.Conclusion == "failure"
 }
 
-// anyFailing reports whether any workflow in the unit is failing.
+// anyFailing reports whether any workflow in the unit is in a failing episode.
 func anyFailing(s *UnitState) bool {
 	for i := range s.Workflows {
-		if isFailing(&s.Workflows[i]) {
+		if isFailing(&s.Workflows[i]) || s.Workflows[i].FirstFailureRunID != 0 {
 			return true
 		}
 	}
@@ -46,18 +46,25 @@ func ApplyTransitions(prev, next *UnitState) ([]TransitionEvent, bool) {
 	for i := range next.Workflows {
 		nw := &next.Workflows[i]
 		pw := prevByID[nw.WorkflowID]
+		wasFailing := pw != nil && pw.FirstFailureRunID != 0
+		isPending := nw.RunID != 0 && nw.Status != "completed"
+
 		switch {
-		case isFailing(nw) && pw == nil:
+		case isPending:
+			if wasFailing {
+				nw.FirstFailureRunID = pw.FirstFailureRunID
+				nw.SessionID = pw.SessionID
+				nw.LaunchError = pw.LaunchError
+			}
+		case isFailing(nw) && !wasFailing:
 			nw.FirstFailureRunID = nw.RunID
-			events = append(events, TransitionEvent{WorkflowID: nw.WorkflowID, Kind: TransitionEnteredFailure, FromUnknown: true, RunID: nw.RunID})
-		case isFailing(nw) && !isFailing(pw):
-			nw.FirstFailureRunID = nw.RunID
-			events = append(events, TransitionEvent{WorkflowID: nw.WorkflowID, Kind: TransitionEnteredFailure, RunID: nw.RunID})
-		case isFailing(nw): // && isFailing(pw)
+			fromUnknown := pw == nil
+			events = append(events, TransitionEvent{WorkflowID: nw.WorkflowID, Kind: TransitionEnteredFailure, FromUnknown: fromUnknown, RunID: nw.RunID})
+		case isFailing(nw) && wasFailing:
 			nw.FirstFailureRunID = pw.FirstFailureRunID
 			nw.SessionID = pw.SessionID
 			nw.LaunchError = pw.LaunchError
-		case pw != nil && isFailing(pw):
+		case !isFailing(nw) && wasFailing:
 			events = append(events, TransitionEvent{WorkflowID: nw.WorkflowID, Kind: TransitionRecovered, RunID: nw.RunID})
 		}
 	}

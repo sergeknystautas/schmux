@@ -110,7 +110,7 @@ func TestCheckUnit_RunningRun(t *testing.T) {
 	}
 }
 
-func TestCheckUnit_LatestCompletedSkipsNewerInProgress(t *testing.T) {
+func TestCheckUnit_ExposesNewerInProgress(t *testing.T) {
 	f := fakeActions{
 		workflows: []github.Workflow{{ID: 1, Name: "CI", State: "active"}},
 		runs: []github.WorkflowRun{
@@ -119,7 +119,7 @@ func TestCheckUnit_LatestCompletedSkipsNewerInProgress(t *testing.T) {
 		},
 	}
 	got := CheckUnit(context.Background(), f, testUnit)
-	if wf := got.Workflows[0]; wf.RunID != 10 || wf.Conclusion != "success" {
+	if wf := got.Workflows[0]; wf.RunID != 11 || wf.Conclusion != "" || wf.Status != "in_progress" {
 		t.Fatalf("wf=%+v", wf)
 	}
 }

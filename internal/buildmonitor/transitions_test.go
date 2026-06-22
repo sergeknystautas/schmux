@@ -201,6 +201,48 @@ func TestApplyTransitions(t *testing.T) {
 			next:        &UnitState{Workflows: []WorkflowState{{WorkflowID: 1, RunID: 10, Status: "completed", Conclusion: "success", HeadSHA: "bbb"}}},
 			wantChanged: true,
 		},
+		{
+			name:        "success to pending triggers no transitions",
+			prev:        &UnitState{Workflows: []WorkflowState{twf(1, 10, "success")}},
+			next:        &UnitState{Workflows: []WorkflowState{{WorkflowID: 1, RunID: 11, Status: "in_progress"}}},
+			wantChanged: true,
+		},
+		{
+			name:             "failure to pending triggers no transitions but carries failure fields",
+			prev:             &UnitState{Workflows: []WorkflowState{twfLaunched(1, 10, 10, "sess-1")}},
+			next:             &UnitState{Workflows: []WorkflowState{{WorkflowID: 1, RunID: 11, Status: "in_progress"}}},
+			wantChanged:      true,
+			wantFirstFailure: map[int64]int64{1: 10},
+			wantSessionID:    map[int64]string{1: "sess-1"},
+		},
+		{
+			name:             "pending failure to success recovers",
+			prev:             &UnitState{Workflows: []WorkflowState{{WorkflowID: 1, RunID: 11, Status: "in_progress", FirstFailureRunID: 10, SessionID: "sess-1"}}},
+			next:             &UnitState{Workflows: []WorkflowState{twf(1, 11, "success")}},
+			wantEvents:       []TransitionEvent{{WorkflowID: 1, Kind: TransitionRecovered, RunID: 11}},
+			wantChanged:      true,
+			wantFirstFailure: map[int64]int64{1: 0},
+			wantSessionID:    map[int64]string{1: ""},
+		},
+		{
+			name:             "pending failure to failure carries failure fields but triggers no new transition",
+			prev:             &UnitState{Workflows: []WorkflowState{{WorkflowID: 1, RunID: 11, Status: "in_progress", FirstFailureRunID: 10, SessionID: "sess-1"}}},
+			next:             &UnitState{Workflows: []WorkflowState{twf(1, 11, "failure")}},
+			wantChanged:      true,
+			wantFirstFailure: map[int64]int64{1: 10},
+			wantSessionID:    map[int64]string{1: "sess-1"},
+		},
+		{
+			name: "unit remediation fields carried while workflow is pending failure",
+			prev: &UnitState{
+				RemediationWorkspaceID: "ws-1", RemediationSHA: "abc",
+				Workflows: []WorkflowState{{WorkflowID: 1, RunID: 10, Status: "in_progress", FirstFailureRunID: 10}},
+			},
+			next:             &UnitState{Workflows: []WorkflowState{{WorkflowID: 1, RunID: 11, Status: "in_progress"}}},
+			wantChanged:      true,
+			wantUnit:         &UnitState{RemediationWorkspaceID: "ws-1", RemediationSHA: "abc"},
+			wantFirstFailure: map[int64]int64{1: 10},
+		},
 	}
 
 	for _, tt := range tests {
