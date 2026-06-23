@@ -496,7 +496,11 @@ func (h *GitHandlers) serveWorkspaceFile(w http.ResponseWriter, r *http.Request,
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if ext == ".html" {
-		w.Header().Set("Content-Security-Policy", "sandbox")
+		// allow-same-origin keeps the document in its real origin so subresources
+		// (images, CSS) loaded from the authenticated file API stay same-site and
+		// still receive the dashboard session cookie. We omit allow-scripts, so
+		// embedded JS still cannot run — no XSS via workspace-authored HTML.
+		w.Header().Set("Content-Security-Policy", "sandbox allow-same-origin")
 	}
 	http.ServeFile(w, r, cleanFullPath)
 }
@@ -575,7 +579,7 @@ func (h *GitHandlers) handleRemoteFile(w http.ResponseWriter, r *http.Request, w
 		}
 		w.Header().Set("Content-Type", contentType)
 		if ext == ".html" {
-			w.Header().Set("Content-Security-Policy", "sandbox")
+			w.Header().Set("Content-Security-Policy", "sandbox allow-same-origin")
 		}
 		io.WriteString(w, out)
 	} else {

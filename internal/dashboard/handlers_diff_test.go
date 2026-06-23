@@ -125,8 +125,8 @@ func TestServeWorkspaceFile_HtmlServedAsTextHtml(t *testing.T) {
 		t.Fatalf("expected Content-Type text/html, got %q", ct)
 	}
 	csp := rr.Header().Get("Content-Security-Policy")
-	if csp != "sandbox" {
-		t.Fatalf("expected Content-Security-Policy sandbox, got %q", csp)
+	if csp != "sandbox allow-same-origin" {
+		t.Fatalf("expected Content-Security-Policy %q, got %q", "sandbox allow-same-origin", csp)
 	}
 }
 

@@ -1813,7 +1813,7 @@ Errors:
 
 ### GET /api/file/{workspaceId}/{filepath}
 
-Serves a raw file from a workspace directory. Supports image files (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`), markdown files (`.md`, `.mdx`), HTML files (`.html`, served as `text/plain` to prevent XSS), and CSS files (`.css`). All responses include `X-Content-Type-Options: nosniff`. Verifies case-sensitive filename match on case-insensitive filesystems (macOS APFS). For remote workspaces, text files are fetched via `cat` and binary files via base64 encoding over SSH.
+Serves a raw file from a workspace directory. Supports image files (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`), markdown files (`.md`, `.mdx`), HTML files (`.html`, served as `text/html` with `Content-Security-Policy: sandbox allow-same-origin` — embedded scripts and forms are blocked, but the document keeps its origin so subresources like images and CSS load with the dashboard session cookie), and CSS files (`.css`). All responses include `X-Content-Type-Options: nosniff`. Verifies case-sensitive filename match on case-insensitive filesystems (macOS APFS). For remote workspaces, text files are fetched via `cat` and binary files via base64 encoding over SSH.
 
 Path:
 
