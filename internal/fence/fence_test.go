@@ -17,7 +17,8 @@ func TestWrapWritesArtifactsAndCommand(t *testing.T) {
 		FenceCommand:       "fence",
 		WorkspacePath:      ws,
 		ExtraWritablePaths: []string{extraWrite},
-		AllowedDomains:     []string{"api.z.ai"},
+		AllowedDomains:     []string{"mcp.posthog.com", "api.z.ai"},
+		Presets:            []string{"golang", "node", "python", "tmux"},
 		DataDir:            dir,
 	}
 	const command = `SCHMUX_ENABLED=1 SCHMUX_SESSION_ID=sess-123 claude --continue`
@@ -156,5 +157,73 @@ func TestWorkspaceExcludePatterns(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("WorkspaceExcludePatterns()[%d] = %q, want %q", i, got[i], want[i])
 		}
+	}
+}
+
+func TestWrapNoPresetsBaselineOnly(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sess")
+	ws := t.TempDir()
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, DataDir: dir}, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	cmd, _ := os.ReadFile(filepath.Join(dir, "cmd.sh"))
+	if !strings.Contains(string(cmd), "export GIT_TEMPLATE_DIR=") || !strings.Contains(string(cmd), "export XDG_CACHE_HOME=") {
+		t.Errorf("baseline caches missing: %s", cmd)
+	}
+	for _, banned := range []string{"GOCACHE", "STATICCHECK_CACHE", "GOFLAGS", "NPM_CONFIG_CACHE", "PIP_CACHE_DIR"} {
+		if strings.Contains(string(cmd), banned) {
+			t.Errorf("cmd.sh has %s without a preset: %s", banned, cmd)
+		}
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+	var s settings
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	if s.Network != nil && s.Network.AllowAllUnixSockets {
+		t.Errorf("allowAllUnixSockets should be false without tmux preset")
+	}
+	if len(s.Filesystem.AllowWrite) != 1 || s.Filesystem.AllowWrite[0] != ws {
+		t.Errorf("allowWrite = %v, want [%s] (no telemetry without golang)", s.Filesystem.AllowWrite, ws)
+	}
+}
+
+func TestWrapGolangPresetOnly(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sess")
+	ws := t.TempDir()
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"golang"}, DataDir: dir}, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	cmd, _ := os.ReadFile(filepath.Join(dir, "cmd.sh"))
+	if !strings.Contains(string(cmd), "export GOCACHE=") || !strings.Contains(string(cmd), `export GOFLAGS="${GOFLAGS:+$GOFLAGS }-modcacherw"`) {
+		t.Errorf("golang preset missing GOCACHE/GOFLAGS: %s", cmd)
+	}
+	if strings.Contains(string(cmd), "NPM_CONFIG_CACHE") {
+		t.Errorf("golang preset must not pull in node caches: %s", cmd)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+	var s settings
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	configDir, _ := os.UserConfigDir()
+	wantTel := filepath.Join(configDir, "go", "telemetry")
+	if len(s.Filesystem.AllowWrite) != 2 || s.Filesystem.AllowWrite[1] != wantTel {
+		t.Errorf("allowWrite = %v, want [%s %s]", s.Filesystem.AllowWrite, ws, wantTel)
+	}
+}
+
+func TestWrapTmuxPresetSetsUnixSockets(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sess")
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"tmux"}, DataDir: dir}, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+	var s settings
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	if s.Network == nil || !s.Network.AllowAllUnixSockets {
+		t.Errorf("tmux preset must set allowAllUnixSockets")
 	}
 }

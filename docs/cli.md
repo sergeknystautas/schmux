@@ -628,6 +628,8 @@ schmux attach $SESSION_ID
 
 The CLI reads configuration from `~/.schmux/config.json` by default. Override with `--config-dir <path>` or `SCHMUX_HOME` env var to run multiple instances side by side. See [targets.md](targets.md) for run target configuration and [PHILOSOPHY.md](PHILOSOPHY.md) for product principles.
 
+Repo-specific settings live in a separate `<repo>/.schmux/config.json` committed inside the repository — quick-launch presets and the per-repo `fence` policy (sandbox presets and allowed domains). See [workspaces.md](workspaces.md#supported-settings).
+
 Run targets can be referenced by name in the `-t` flag. Detected tools and models are also valid targets.
 
 **Example config:**

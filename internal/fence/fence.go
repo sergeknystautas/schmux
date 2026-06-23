@@ -2,8 +2,8 @@
 // agent-agnostic and VCS-agnostic: it writes a per-spawn settings file plus a
 // launch script and returns the tmux-level command string, treating the launch
 // command as opaque. The baseline sandbox policy comes from the fence "code"
-// template; schmux adds only per-session workspace, endpoint, and local-tooling
-// allowances.
+// template; schmux adds only per-session workspace, endpoint, and opt-in
+// per-language allowances.
 package fence
 
 import (
@@ -24,7 +24,8 @@ type Config struct {
 	FenceCommand       string   // from the existing dependency report's "fence" status
 	WorkspacePath      string   // cwd of the pane; writable
 	ExtraWritablePaths []string // out-of-workspace paths the VCS must write (e.g. a git worktree's shared .git). Opaque to fence.
-	AllowedDomains     []string // model/provider domains known at spawn time; appended to the code template allowlist
+	AllowedDomains     []string // model/provider + repo fence.allowed_domains
+	Presets            []string // repo fence.presets (golang/node/python/tmux)
 	DataDir            string   // where generated launch files go (~/.schmux/fence/<session-id>/)
 }
 
@@ -46,14 +47,10 @@ type settingsFilesystem struct {
 	AllowWrite []string `json:"allowWrite"`
 }
 
-var knownAllowedDomains = []string{
-	"mcp.posthog.com",
-}
-
 // fenceCacheRel is the workspace-relative directory where fence redirects
 // build-tool caches (npm, go-build, etc.) so they never touch the user's home
 // dir while fenced. It is the single source of truth for both the cache layout
-// (workspaceLocalEnv) and the git-exclude pattern (WorkspaceExcludePatterns).
+// (baselineEnv/presets) and the git-exclude pattern (WorkspaceExcludePatterns).
 const fenceCacheRel = ".cache/schmux-fence"
 
 // WorkspaceExcludePatterns returns the gitignore patterns for files fence writes
@@ -71,27 +68,50 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 	if err := os.MkdirAll(c.DataDir, 0o700); err != nil {
 		return "", fmt.Errorf("fence: creating launch dir: %w", err)
 	}
-	localEnv, err := workspaceLocalEnv(c.WorkspacePath)
-	if err != nil {
-		return "", err
+
+	cacheRoot := filepath.Join(c.WorkspacePath, filepath.FromSlash(fenceCacheRel))
+	env := baselineEnv(cacheRoot)
+	var goFlags, goTelemetry, allUnix bool
+	for _, name := range c.Presets {
+		p, ok := presets[name]
+		if !ok {
+			continue
+		}
+		for k, sub := range p.cacheEnv {
+			env[k] = filepath.Join(cacheRoot, sub)
+		}
+		goFlags = goFlags || p.goFlags
+		goTelemetry = goTelemetry || p.goTelemetry
+		allUnix = allUnix || p.allUnixSockets
+	}
+	for _, dir := range env {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return "", fmt.Errorf("fence: creating local cache dir: %w", err)
+		}
 	}
 
 	cmdPath := filepath.Join(c.DataDir, "cmd.sh")
 	settingsPath := filepath.Join(c.DataDir, "settings.json")
 	monitorLogPath := filepath.Join(c.DataDir, "monitor.log")
 
-	script := exportLines(localEnv) + `export GOFLAGS="${GOFLAGS:+$GOFLAGS }-modcacherw"` + "\n" + command
+	script := exportLines(env)
+	if goFlags {
+		script += `export GOFLAGS="${GOFLAGS:+$GOFLAGS }-modcacherw"` + "\n"
+	}
+	script += command
 	if err := os.WriteFile(cmdPath, []byte(script), 0o600); err != nil {
 		return "", fmt.Errorf("fence: writing cmd.sh: %w", err)
 	}
 
 	allowWrite := append([]string{c.WorkspacePath}, c.ExtraWritablePaths...)
-	allowWrite = append(allowWrite, knownWritablePaths()...)
+	if goTelemetry {
+		allowWrite = append(allowWrite, goTelemetryPaths()...)
+	}
 	s := settings{
 		Extends: "code",
 		Network: &settingsNetwork{
-			AllowedDomains:      mergedAllowedDomains(c.AllowedDomains),
-			AllowAllUnixSockets: true,
+			AllowedDomains:      dedupeDomains(c.AllowedDomains),
+			AllowAllUnixSockets: allUnix,
 		},
 		Filesystem: settingsFilesystem{
 			AllowRead:  []string{cmdPath},
@@ -110,46 +130,66 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 		c.FenceCommand, shellutil.Quote(monitorLogPath), shellutil.Quote(settingsPath), shellutil.Quote(cmdPath)), nil
 }
 
-func mergedAllowedDomains(spawnDomains []string) []string {
-	out := make([]string, 0, len(knownAllowedDomains)+len(spawnDomains))
-	seen := make(map[string]bool, len(knownAllowedDomains)+len(spawnDomains))
-	add := func(domains []string) {
-		for _, domain := range domains {
-			if domain == "" || seen[domain] {
-				continue
-			}
-			seen[domain] = true
-			out = append(out, domain)
+// dedupeDomains removes empties and duplicates, preserving order.
+func dedupeDomains(domains []string) []string {
+	out := make([]string, 0, len(domains))
+	seen := make(map[string]bool, len(domains))
+	for _, d := range domains {
+		if d == "" || seen[d] {
+			continue
 		}
+		seen[d] = true
+		out = append(out, d)
 	}
-	add(knownAllowedDomains)
-	add(spawnDomains)
 	return out
 }
 
-func workspaceLocalEnv(workspacePath string) (map[string]string, error) {
-	cacheRoot := filepath.Join(workspacePath, filepath.FromSlash(fenceCacheRel))
-	dirs := map[string]string{
-		"BUN_INSTALL_CACHE_DIR": filepath.Join(cacheRoot, "bun"),
-		"GIT_TEMPLATE_DIR":      filepath.Join(cacheRoot, "git-template"),
-		"GOCACHE":               filepath.Join(cacheRoot, "go-build"),
-		"NPM_CONFIG_CACHE":      filepath.Join(cacheRoot, "npm"),
-		"PIP_CACHE_DIR":         filepath.Join(cacheRoot, "pip"),
-		"STATICCHECK_CACHE":     filepath.Join(cacheRoot, "staticcheck"),
-		"UV_CACHE_DIR":          filepath.Join(cacheRoot, "uv"),
-		"XDG_CACHE_HOME":        filepath.Join(cacheRoot, "xdg"),
-		"YARN_CACHE_FOLDER":     filepath.Join(cacheRoot, "yarn"),
-		"npm_config_cache":      filepath.Join(cacheRoot, "npm"),
-	}
-	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return nil, fmt.Errorf("fence: creating local cache dir: %w", err)
-		}
-	}
-	return dirs, nil
+// preset is a named bundle of fence allowances a repo opts into via
+// .schmux/config.json fence.presets. Each is a verbatim extraction of an
+// allowance that used to be applied to every fenced session.
+type preset struct {
+	cacheEnv       map[string]string // env var -> cache subdir under the workspace cache root
+	goFlags        bool              // append GOFLAGS=-modcacherw (keep module cache writable)
+	goTelemetry    bool              // allowWrite the Go telemetry dir
+	allUnixSockets bool              // network.allowAllUnixSockets
 }
 
-func knownWritablePaths() []string {
+var presets = map[string]preset{
+	"golang": {
+		cacheEnv:    map[string]string{"GOCACHE": "go-build", "STATICCHECK_CACHE": "staticcheck"},
+		goFlags:     true,
+		goTelemetry: true,
+	},
+	"node": {
+		cacheEnv: map[string]string{
+			"NPM_CONFIG_CACHE":      "npm",
+			"npm_config_cache":      "npm",
+			"YARN_CACHE_FOLDER":     "yarn",
+			"BUN_INSTALL_CACHE_DIR": "bun",
+		},
+	},
+	"python": {
+		cacheEnv: map[string]string{"PIP_CACHE_DIR": "pip", "UV_CACHE_DIR": "uv"},
+	},
+	"tmux": {allUnixSockets: true},
+}
+
+// IsKnownPreset reports whether name is a defined fence preset.
+func IsKnownPreset(name string) bool {
+	_, ok := presets[name]
+	return ok
+}
+
+// baselineEnv are cache redirects applied to every fenced session regardless of
+// preset, keeping generic tool caches out of the user's home dir.
+func baselineEnv(cacheRoot string) map[string]string {
+	return map[string]string{
+		"GIT_TEMPLATE_DIR": filepath.Join(cacheRoot, "git-template"),
+		"XDG_CACHE_HOME":   filepath.Join(cacheRoot, "xdg"),
+	}
+}
+
+func goTelemetryPaths() []string {
 	configDir, err := os.UserConfigDir()
 	if err != nil {
 		return nil

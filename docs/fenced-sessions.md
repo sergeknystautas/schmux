@@ -116,7 +116,7 @@ Do not store the launch files inside the workspace. The fenced process can write
 
 Schmux starts from Fence's `code` template. The Fence guide recommends using the `code` template for coding agents, allowlisting only the network destinations needed, and enabling monitor mode to audit blocked attempts.
 
-Generated settings add only spawn-specific entries:
+Generated settings add only spawn-specific entries. The `allowedDomains` entries and the per-language/socket allowances (Unix sockets, Go/Node/Python caches, Go telemetry) come from the spawning repo's `.schmux/config.json` `fence` block (see [Per-repo fence config](#per-repo-fence-config)) rather than being unconditional; a repo with no `fence` block gets only the universal baseline.
 
 ```json
 {
@@ -138,7 +138,7 @@ The `code` template provides credential read-deny rules and restricted write pol
 
 - the workspace path to `filesystem.allowWrite`, and
 - any VCS control path that must be writable outside the workspace, and
-- Go's telemetry directory under `os.UserConfigDir()/go/telemetry`.
+- Go's telemetry directory under `os.UserConfigDir()/go/telemetry`, when the repo opts into the `golang` preset.
 
 For git worktrees, commits write to the shared git common directory outside the worktree. `internal/workspace/fence_paths.go` finds that path with `git rev-parse --git-common-dir` and adds it to `allowWrite`.
 
@@ -156,7 +156,13 @@ Fenced launch scripts export local cache paths under:
 
 This path is git-excluded via `fence.WorkspaceExcludePatterns()`, which the workspace ensurer folds into `.git/info/exclude` — so a workspace first fenced after creation stops leaking these caches into `git status` on its next spawn or daemon restart.
 
-This includes Go build cache (`GOCACHE`), `GOFLAGS=-modcacherw` so any Go module cache remains user-cleanable, Staticcheck cache (`STATICCHECK_CACHE`), XDG cache, an empty Git template directory (`GIT_TEMPLATE_DIR`) so `git init` does not write default hooks, and common package-manager cache variables for npm, Yarn, Bun, pip, and uv. Schmux does not redirect `TMPDIR`/`TMP`/`TEMP`: tests often create git repos under temporary directories, and moving those directories into the writable workspace makes Fence block `.git/config` writes. Schmux also does not redirect `GOMODCACHE`: downloaded modules can legitimately contain fixture names such as `cert.pem`, which the Fence credential-write policy blocks inside writable workspaces. These are environment defaults for fenced sessions, not Fence policy exceptions.
+The baseline (always on, any fenced repo) redirects `XDG_CACHE_HOME` and an empty Git template directory (`GIT_TEMPLATE_DIR`) so `git init` does not write default hooks. Everything else is opt-in via the repo's `fence.presets`:
+
+- `golang`: Go build cache (`GOCACHE`), `GOFLAGS=-modcacherw` so any Go module cache remains user-cleanable, Staticcheck cache (`STATICCHECK_CACHE`).
+- `node`: npm (`NPM_CONFIG_CACHE`/`npm_config_cache`), Yarn (`YARN_CACHE_FOLDER`), Bun (`BUN_INSTALL_CACHE_DIR`).
+- `python`: pip (`PIP_CACHE_DIR`), uv (`UV_CACHE_DIR`).
+
+Schmux does not redirect `TMPDIR`/`TMP`/`TEMP`: tests often create git repos under temporary directories, and moving those directories into the writable workspace makes Fence block `.git/config` writes. Schmux also does not redirect `GOMODCACHE`: downloaded modules can legitimately contain fixture names such as `cert.pem`, which the Fence credential-write policy blocks inside writable workspaces. These are environment defaults for fenced sessions, not Fence policy exceptions.
 
 ### Network policy
 
@@ -168,11 +174,11 @@ Schmux can know model endpoint hosts for resolved model runners. For example, a 
 "network": { "allowedDomains": ["api.z.ai"] }
 ```
 
-Schmux also adds known app/test service endpoints, currently `mcp.posthog.com`.
+A repo adds its own service endpoints (for example `mcp.posthog.com`) via `fence.allowed_domains` in its `.schmux/config.json`; schmux no longer hardcodes any app domains.
 
 Do not guess network domains from arbitrary command strings. Unknown blocked destinations should appear in `monitor.log`, then the implementation can add a real source-of-truth if the destination is legitimate.
 
-Schmux also sets `network.allowAllUnixSockets:true` for fenced sessions. Local developer tooling commonly creates Unix sockets for IPC (for example test runners and tmux-related tests). Fence's narrower `allowUnixSockets` setting is for connecting to specific socket paths, not creating arbitrary per-run socket files.
+The `tmux` preset sets `network.allowAllUnixSockets:true`. Local developer tooling commonly creates Unix sockets for IPC (for example test runners and tmux-related tests). Fence's narrower `allowUnixSockets` setting is for connecting to specific socket paths, not creating arbitrary per-run socket files.
 
 ## Policy boundaries
 
@@ -190,11 +196,31 @@ These should stay out of the default policy:
 
 When one of these is needed, the answer is not to silently broaden the default fence. The user should run that setup outside the fenced session, or schmux should expose an explicit opt-in configuration.
 
-## Future configuration
+## Per-repo fence config
 
-The current implementation hardcodes the small compatibility surface needed for fenced agent work: workspace writes, git worktree control writes, known model/app domains, Unix sockets, selected local caches, and Go telemetry.
+A repo customizes its fenced sessions through a `fence` block in its own
+`.schmux/config.json` (loaded at spawn by `workspace.LoadRepoConfig`):
 
-Longer term, these should move behind configuration in schmux's user config (for example `~/.schmux/config.json`) instead of living as code constants. The config should support either low-level policy additions (paths/domains) or named feature presets (for example Go tooling) without making those presets implicit defaults.
+```json
+{
+  "fence": {
+    "presets": ["golang", "node", "tmux"],
+    "allowed_domains": ["mcp.posthog.com"]
+  }
+}
+```
+
+- `presets` opt into core-defined bundles. Available: `golang` (GOCACHE,
+  STATICCHECK_CACHE, `GOFLAGS=-modcacherw`, Go telemetry write), `node`
+  (npm/yarn/bun caches), `python` (pip/uv caches), `tmux`
+  (`allowAllUnixSockets`, for sessions that create local sockets).
+- `allowed_domains` add network destinations to the baseline allowlist.
+
+The always-on baseline (any fenced repo) is `extends: "code"`, the workspace +
+git-worktree writable paths, the `cmd.sh` read, auto model-endpoint domains, and
+the generic `GIT_TEMPLATE_DIR`/`XDG_CACHE_HOME` caches. Anything language- or
+workload-specific is now a preset; a repo with no `fence` block gets the baseline
+only.
 
 ## Monitor logs
 

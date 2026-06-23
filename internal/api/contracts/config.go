@@ -21,6 +21,14 @@ type SaplingCommandsUpdate struct {
 // RepoConfig represents repository-specific configuration from .schmux/config.json.
 type RepoConfig struct {
 	QuickLaunch []QuickLaunch `json:"quick_launch,omitempty"`
+	Fence       *RepoFence    `json:"fence,omitempty"`
+}
+
+// RepoFence is the per-repo fence policy: presets to opt into and extra
+// network destinations to allow when a session for this repo runs fenced.
+type RepoFence struct {
+	Presets        []string `json:"presets,omitempty"`
+	AllowedDomains []string `json:"allowed_domains,omitempty"`
 }
 
 // RepoWithConfig represents a repository with its loaded configuration.

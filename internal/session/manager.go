@@ -1379,11 +1379,26 @@ func (m *Manager) wrapForFence(ctx context.Context, workspacePath, sessionID str
 	if fenceCommand == "" {
 		return "", fmt.Errorf("fence not available")
 	}
+	var presets, repoDomains []string
+	if rc, err := workspace.LoadRepoConfig(workspacePath); err != nil {
+		if m.logger != nil {
+			m.logger.Warn("fence: failed to load repo config", "err", err)
+		}
+	} else if rc != nil && rc.Fence != nil {
+		presets = rc.Fence.Presets
+		repoDomains = rc.Fence.AllowedDomains
+		for _, p := range presets {
+			if !fence.IsKnownPreset(p) && m.logger != nil {
+				m.logger.Warn("fence: unknown preset in .schmux/config.json", "preset", p)
+			}
+		}
+	}
 	cfg := fence.Config{
 		FenceCommand:       fenceCommand,
 		WorkspacePath:      workspacePath,
-		ExtraWritablePaths: workspace.ExtraWritablePaths(workspacePath), // git worktree → shared .git; sapling/plain clone → none
-		AllowedDomains:     allowedDomains,
+		ExtraWritablePaths: workspace.ExtraWritablePaths(workspacePath), // git worktree → shared .git; else none
+		AllowedDomains:     append(append([]string{}, repoDomains...), allowedDomains...),
+		Presets:            presets,
 		DataDir:            schmuxdir.FenceLaunchDir(sessionID),
 	}
 	return fence.Wrap(ctx, cfg, command)

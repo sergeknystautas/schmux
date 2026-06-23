@@ -654,6 +654,12 @@ export interface Repo {
 
 export interface RepoConfig {
   quick_launch?: QuickLaunch[];
+  fence?: RepoFence;
+}
+
+export interface RepoFence {
+  presets?: string[];
+  allowed_domains?: string[];
 }
 
 export interface RepoWithConfig {

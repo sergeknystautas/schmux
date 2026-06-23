@@ -8,5 +8,9 @@
       "name": "test all",
       "command": "./test.sh --all; npx playwright show-report test/scenarios/artifacts/playwright-report"
     }
-  ]
+  ],
+  "fence": {
+    "presets": ["golang", "node", "tmux"],
+    "allowed_domains": ["mcp.posthog.com"]
+  }
 }

@@ -43,7 +43,7 @@ if [ -n "$GO_FILES" ]; then
     echo "$GO_FILES" | xargs gofmt -w
     for f in $GO_FILES; do
         if ! was_partially_staged "$f"; then
-            git add "$f"
+            git add -f "$f"
         fi
     done
 fi
@@ -54,7 +54,7 @@ if [ -n "$PRETTIER_FILES" ]; then
     echo "$PRETTIER_FILES" | xargs npx --prefix assets/dashboard prettier --write --ignore-unknown
     for f in $PRETTIER_FILES; do
         if ! was_partially_staged "$f"; then
-            git add "$f"
+            git add -f "$f"
         fi
     done
 fi

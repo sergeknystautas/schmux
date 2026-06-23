@@ -484,6 +484,7 @@ Currently, workspace configs support:
 | Setting        | Description                                          |
 | -------------- | ---------------------------------------------------- |
 | `quick_launch` | Quick launch presets specific to this workspace/repo |
+| `fence`        | Per-repo policy for fenced (sandboxed) sessions      |
 
 ### Quick Launch
 
@@ -526,6 +527,37 @@ Workspace quick launch items are merged with global quick launch items:
 
 - Items with the same name: workspace version takes precedence
 - Items with unique names: both appear in the spawn dropdown
+
+### Fence
+
+When a session is launched with the **Fence** sandbox (the checkbox in the spawn wizard), this block controls what that repo's fenced sessions are allowed to do. Without it, a fenced session gets only a minimal universal baseline (workspace writes, git plumbing, model-endpoint domains, generic caches) — language toolchains and other extras are opt-in per repo.
+
+```json
+{
+  "fence": {
+    "presets": ["golang", "node", "tmux"],
+    "allowed_domains": ["mcp.posthog.com"]
+  }
+}
+```
+
+#### Schema
+
+| Field             | Type     | Description                                                                            |
+| ----------------- | -------- | -------------------------------------------------------------------------------------- |
+| `presets`         | string[] | Named allowance bundles to enable (see below)                                          |
+| `allowed_domains` | string[] | Extra network destinations the fenced session may reach (`*.example.com` wildcards ok) |
+
+#### Presets
+
+| Preset   | Enables                                                                 |
+| -------- | ----------------------------------------------------------------------- |
+| `golang` | Go build/staticcheck caches, `GOFLAGS=-modcacherw`, Go telemetry writes |
+| `node`   | npm / Yarn / Bun caches                                                 |
+| `python` | pip / uv caches                                                         |
+| `tmux`   | Unix-socket creation (needed by tools/tests that spin up tmux)          |
+
+Only applies when a session is fenced; ignored otherwise. Unknown preset names are skipped with a warning in the daemon log. For the full policy model, see [Fenced Sessions](fenced-sessions.md).
 
 ### Config File Watching
 
