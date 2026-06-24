@@ -1405,22 +1405,26 @@ func (m *Manager) wrapForFence(ctx context.Context, workspacePath, sessionID str
 }
 
 func fenceAllowedDomains(target ResolvedTarget) []string {
-	if target.Model == nil || target.ToolName == "" {
+	domains := append([]string{}, defaultFenceAllowedDomains[target.ToolName]...)
+	if target.Model != nil && target.ToolName != "" {
+		if spec, ok := target.Model.RunnerFor(target.ToolName); ok && spec.Endpoint != "" {
+			if u, err := url.Parse(spec.Endpoint); err == nil {
+				if host := strings.ToLower(u.Hostname()); host != "" {
+					domains = append(domains, host)
+				}
+			}
+		}
+	}
+	if len(domains) == 0 {
 		return nil
 	}
-	spec, ok := target.Model.RunnerFor(target.ToolName)
-	if !ok || spec.Endpoint == "" {
-		return nil
-	}
-	u, err := url.Parse(spec.Endpoint)
-	if err != nil {
-		return nil
-	}
-	host := strings.ToLower(u.Hostname())
-	if host == "" {
-		return nil
-	}
-	return []string{host}
+	return domains
+}
+
+var defaultFenceAllowedDomains = map[string][]string{
+	// Claude Code checks for updates and subscription auth outside the model API
+	// endpoint. These are tool-level requirements, not repo-specific policy.
+	"claude": {"platform.claude.com", "downloads.claude.ai"},
 }
 
 // appendSignalingFlags appends CLI flags for signaling instruction injection.

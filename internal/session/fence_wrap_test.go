@@ -48,19 +48,34 @@ func TestFenceAllowedDomainsFromModelEndpoint(t *testing.T) {
 		},
 	}
 	got := fenceAllowedDomains(ResolvedTarget{ToolName: "claude", Model: &model})
-	if len(got) != 1 || got[0] != "api.z.ai" {
-		t.Fatalf("fenceAllowedDomains = %v, want [api.z.ai]", got)
+	want := []string{"platform.claude.com", "downloads.claude.ai", "api.z.ai"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("fenceAllowedDomains = %v, want %v", got, want)
 	}
 }
 
-func TestFenceAllowedDomainsNoEndpoint(t *testing.T) {
+func TestFenceAllowedDomainsIncludesClaudeDefaultsWithoutEndpoint(t *testing.T) {
 	model := detect.Model{
 		ID: "claude",
 		Runners: map[string]detect.RunnerSpec{
 			"claude": {},
 		},
 	}
-	if got := fenceAllowedDomains(ResolvedTarget{ToolName: "claude", Model: &model}); got != nil {
+	want := []string{"platform.claude.com", "downloads.claude.ai"}
+	got := fenceAllowedDomains(ResolvedTarget{ToolName: "claude", Model: &model})
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("fenceAllowedDomains = %v, want %v", got, want)
+	}
+}
+
+func TestFenceAllowedDomainsNoEndpointForOtherTool(t *testing.T) {
+	model := detect.Model{
+		ID: "codex",
+		Runners: map[string]detect.RunnerSpec{
+			"codex": {},
+		},
+	}
+	if got := fenceAllowedDomains(ResolvedTarget{ToolName: "codex", Model: &model}); got != nil {
 		t.Fatalf("fenceAllowedDomains = %v, want nil", got)
 	}
 }
