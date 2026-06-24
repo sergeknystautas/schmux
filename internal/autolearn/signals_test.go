@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/events"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 func TestReadEntries_FiltersRaw(t *testing.T) {
@@ -425,6 +426,9 @@ func TestCollectIntentSignals_SkipsEmptyIntent(t *testing.T) {
 }
 
 func TestStatePath(t *testing.T) {
+	schmuxdir.Set(t.TempDir())
+	defer schmuxdir.Set("")
+
 	path, err := StatePath("test-repo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -436,11 +440,12 @@ func TestStatePath(t *testing.T) {
 	if !filepath.IsAbs(path) || !containsPath(path, expectedSuffix) {
 		t.Errorf("expected path ending with %s, got %s", expectedSuffix, path)
 	}
-	// Clean up parent dir
-	os.RemoveAll(filepath.Dir(path))
 }
 
 func TestStateDir(t *testing.T) {
+	schmuxdir.Set(t.TempDir())
+	defer schmuxdir.Set("")
+
 	dir, err := StateDir("test-repo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -456,8 +461,6 @@ func TestStateDir(t *testing.T) {
 	if !info.IsDir() {
 		t.Error("should be a directory")
 	}
-	// Clean up
-	os.RemoveAll(dir)
 }
 
 func TestStateDir_InvalidRepoName(t *testing.T) {
