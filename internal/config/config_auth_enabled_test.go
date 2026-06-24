@@ -20,10 +20,11 @@ func TestValidateAuthEnabled(t *testing.T) {
 	schmuxdir.Set(dir)
 	t.Cleanup(func() { schmuxdir.Set("") })
 
-	cert := filepath.Join(dir, "cert.pem")
-	key := filepath.Join(dir, "key.pem")
-	writeFile(t, cert, "x")
-	writeFile(t, key, "x")
+	// Dummy TLS cert/key fixtures; ValidateAuthEnabled only stats the paths.
+	// They live in testdata rather than being written at runtime so the suite
+	// runs inside the fence sandbox, which blocks writing .pem/.key files.
+	cert := filepath.Join("testdata", "tls", "cert")
+	key := filepath.Join("testdata", "tls", "key")
 	// secrets.json with valid GitHub creds
 	writeFile(t, filepath.Join(dir, "secrets.json"),
 		`{"auth":{"github":{"client_id":"Ov23liabcdef","client_secret":"deadbeefdeadbeefdeadbeef"}}}`)

@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 // mockConfig implements ConfigReader for testing.
@@ -59,14 +61,9 @@ func TestGetStatus_Empty(t *testing.T) {
 
 func TestGetStatus_WithCert(t *testing.T) {
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	t.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
-
-	dir := filepath.Join(tmpDir, ".schmux", "dashboardsx")
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
+	schmuxdir.Set(tmpDir)
+	defer schmuxdir.Set("")
+	store := installMemFS(t)
 
 	// Create a self-signed test certificate
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -88,14 +85,8 @@ func TestGetStatus_WithCert(t *testing.T) {
 	}
 
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	if err := os.WriteFile(filepath.Join(dir, "cert.pem"), certPEM, 0600); err != nil {
-		t.Fatal(err)
-	}
-
-	// Also create instance key
-	if err := os.WriteFile(filepath.Join(dir, "instance.key"), []byte("a"+string(make([]byte, 63))), 0600); err != nil {
-		t.Fatal(err)
-	}
+	store[CertPath()] = memFile{data: certPEM, mode: 0600}
+	store[InstanceKeyPath()] = memFile{data: []byte("a" + string(make([]byte, 63))), mode: 0600}
 
 	cfg := &mockConfig{
 		enabled:  true,

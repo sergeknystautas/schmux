@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"strings"
 )
 
@@ -20,7 +19,7 @@ func EnsureInstanceKey() (string, error) {
 	keyPath := InstanceKeyPath()
 
 	// Try to read existing key
-	data, err := os.ReadFile(keyPath)
+	data, err := readFile(keyPath)
 	if err == nil {
 		key := strings.TrimSpace(string(data))
 		if len(key) == 64 {
@@ -35,7 +34,7 @@ func EnsureInstanceKey() (string, error) {
 	}
 	key := hex.EncodeToString(buf)
 
-	if err := os.WriteFile(keyPath, []byte(key+"\n"), 0600); err != nil {
+	if err := writeFile(keyPath, []byte(key+"\n"), 0600); err != nil {
 		return "", fmt.Errorf("failed to write instance key: %w", err)
 	}
 

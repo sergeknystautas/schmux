@@ -54,10 +54,11 @@ func TestEnableAuth_RemovingTLSWhileEnabled_Rejected(t *testing.T) {
 	dir := t.TempDir()
 	schmuxdir.Set(dir)
 	t.Cleanup(func() { schmuxdir.Set("") })
-	cert := filepath.Join(dir, "cert.pem")
-	key := filepath.Join(dir, "key.pem")
-	_ = os.WriteFile(cert, []byte("x"), 0o600)
-	_ = os.WriteFile(key, []byte("x"), 0o600)
+	// Dummy TLS cert/key fixtures; validation only stats the paths. testdata
+	// rather than runtime writes keeps this runnable inside the fence sandbox,
+	// which blocks writing .pem/.key files.
+	cert := filepath.Join("testdata", "tls", "cert")
+	key := filepath.Join("testdata", "tls", "key")
 	_ = os.WriteFile(filepath.Join(dir, "secrets.json"),
 		[]byte(`{"auth":{"github":{"client_id":"Ov23liabcdef","client_secret":"deadbeefdeadbeef"}}}`), 0o600)
 
@@ -89,10 +90,10 @@ func TestEnableAuth_UnchangedFullFormRepost_NotBlocked(t *testing.T) {
 	dir := t.TempDir()
 	schmuxdir.Set(dir)
 	t.Cleanup(func() { schmuxdir.Set("") })
-	cert := filepath.Join(dir, "cert.pem")
-	key := filepath.Join(dir, "key.pem")
-	_ = os.WriteFile(cert, []byte("x"), 0o600)
-	_ = os.WriteFile(key, []byte("x"), 0o600)
+	// Dummy TLS cert/key fixtures (see note above); testdata, not runtime writes,
+	// so this runs inside the fence sandbox which blocks writing .pem/.key files.
+	cert := filepath.Join("testdata", "tls", "cert")
+	key := filepath.Join("testdata", "tls", "key")
 	_ = os.WriteFile(filepath.Join(dir, "secrets.json"),
 		[]byte(`{"auth":{"github":{"client_id":"Ov23liabcdef","client_secret":"deadbeefdeadbeef"}}}`), 0o600)
 

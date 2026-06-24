@@ -258,3 +258,23 @@ When changing this feature, cover:
 - wrapper command enables monitor mode and points at `monitor.log`,
 - UI does not send stale `fence:true` when the checkbox is hidden,
 - remote + fence fails before spawning.
+
+## Writing tests that run inside a fence
+
+schmux is often developed inside its own fenced sessions, so the backend and frontend unit suites are expected to pass with `FENCE_SANDBOX=1`. The `code` template's `denyWrite` blocks creating files named
+
+```
+**/.env  **/.env.*  **/*.key  **/*.pem  **/*.p12  **/*.pfx
+```
+
+by filename, everywhere the process can write — `t.TempDir()` included. `rename`/`link` into those names is blocked too, and `allowWrite` does not override the deny. A test that writes such a file fails in-fence with `operation not permitted`.
+
+Pick the remediation by what the test actually needs:
+
+| The test needs…                                              | Do this                                                              | Example                                           |
+| ------------------------------------------------------------ | -------------------------------------------------------------------- | ------------------------------------------------- |
+| a credential-named file to merely _exist_ (stat/read only)   | commit a static fixture under `testdata/` with a non-blocked name    | `internal/config/testdata/tls/{cert,key}`         |
+| _some_ file whose name is incidental                         | rename it to a non-blocked name                                      | `overlay_test.go`: `.env` → `app.conf`            |
+| to exercise production that writes a _fixed_ credential name | route the package's fs access through a seam, swap an in-memory fake | `internal/dashboardsx` (`fs.go` + `installMemFS`) |
+
+`--e2e` and `--scenarios` need the Docker socket, which the fence blocks by design — run those on the host or in CI, not inside a fence.

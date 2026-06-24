@@ -10,7 +10,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/go-acme/lego/v4/certcrypto"
@@ -174,7 +173,7 @@ func LoadOrCreateAccount(email string) (*registration.Resource, crypto.PrivateKe
 	accountPath := ACMEAccountPath()
 
 	// Try to load existing key
-	data, err := os.ReadFile(accountPath)
+	data, err := readFile(accountPath)
 	if err == nil {
 		block, _ := pem.Decode(data)
 		if block != nil {
@@ -203,7 +202,7 @@ func LoadOrCreateAccount(email string) (*registration.Resource, crypto.PrivateKe
 		Bytes: keyBytes,
 	}
 
-	if err := os.WriteFile(accountPath, pem.EncodeToMemory(pemBlock), 0600); err != nil {
+	if err := writeFile(accountPath, pem.EncodeToMemory(pemBlock), 0600); err != nil {
 		return nil, nil, fmt.Errorf("failed to save account key: %w", err)
 	}
 
@@ -215,10 +214,10 @@ func SaveCert(certBytes, keyBytes []byte) error {
 	certPath := CertPath()
 	keyPath := KeyPath()
 
-	if err := os.WriteFile(certPath, certBytes, 0600); err != nil {
+	if err := writeFile(certPath, certBytes, 0600); err != nil {
 		return fmt.Errorf("failed to write certificate: %w", err)
 	}
-	if err := os.WriteFile(keyPath, keyBytes, 0600); err != nil {
+	if err := writeFile(keyPath, keyBytes, 0600); err != nil {
 		return fmt.Errorf("failed to write key: %w", err)
 	}
 
@@ -227,7 +226,7 @@ func SaveCert(certBytes, keyBytes []byte) error {
 
 // GetCertExpiry parses the certificate and returns the NotAfter time.
 func GetCertExpiry() (time.Time, error) {
-	data, err := os.ReadFile(CertPath())
+	data, err := readFile(CertPath())
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -247,7 +246,7 @@ func GetCertExpiry() (time.Time, error) {
 
 // GetCertDomain parses the certificate and returns the common name.
 func GetCertDomain() (string, error) {
-	data, err := os.ReadFile(CertPath())
+	data, err := readFile(CertPath())
 	if err != nil {
 		return "", err
 	}

@@ -3,23 +3,16 @@
 package dashboardsx
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 func TestLoadOrCreateAccount(t *testing.T) {
-	// Use a temporary directory
 	tmpDir := t.TempDir()
 	schmuxdir.Set(tmpDir)
 	defer schmuxdir.Set("")
-
-	// Create dashboardsx dir
-	if err := os.MkdirAll(filepath.Join(tmpDir, "dashboardsx"), 0700); err != nil {
-		t.Fatal(err)
-	}
+	store := installMemFS(t)
 
 	// First call creates a new key
 	reg1, key1, err := LoadOrCreateAccount("test@example.com")
@@ -46,12 +39,11 @@ func TestLoadOrCreateAccount(t *testing.T) {
 	}
 
 	// Verify account key file permissions
-	accountPath := ACMEAccountPath()
-	info, err := os.Stat(accountPath)
-	if err != nil {
-		t.Fatal(err)
+	f, ok := store[ACMEAccountPath()]
+	if !ok {
+		t.Fatal("account key not written")
 	}
-	if perm := info.Mode().Perm(); perm != 0600 {
+	if perm := f.mode.Perm(); perm != 0600 {
 		t.Errorf("account key permissions = %o, want 0600", perm)
 	}
 }
@@ -60,38 +52,25 @@ func TestSaveCert(t *testing.T) {
 	tmpDir := t.TempDir()
 	schmuxdir.Set(tmpDir)
 	defer schmuxdir.Set("")
+	store := installMemFS(t)
 
-	if err := os.MkdirAll(filepath.Join(tmpDir, "dashboardsx"), 0700); err != nil {
-		t.Fatal(err)
-	}
-
-	certData := []byte("fake-cert-data")
-	keyData := []byte("fake-key-data")
-
-	if err := SaveCert(certData, keyData); err != nil {
+	if err := SaveCert([]byte("fake-cert-data"), []byte("fake-key-data")); err != nil {
 		t.Fatalf("SaveCert() error: %v", err)
 	}
 
-	// Verify files exist and have correct permissions
-	certPath := CertPath()
-	keyPath := KeyPath()
-
-	for _, path := range []string{certPath, keyPath} {
-		info, err := os.Stat(path)
-		if err != nil {
-			t.Fatalf("file %s not found: %v", path, err)
+	// Verify files written with correct permissions
+	for _, path := range []string{CertPath(), KeyPath()} {
+		f, ok := store[path]
+		if !ok {
+			t.Fatalf("file %s not written", path)
 		}
-		if perm := info.Mode().Perm(); perm != 0600 {
+		if perm := f.mode.Perm(); perm != 0600 {
 			t.Errorf("file %s permissions = %o, want 0600", path, perm)
 		}
 	}
 
 	// Verify content
-	data, err := os.ReadFile(certPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != "fake-cert-data" {
-		t.Errorf("cert content = %q, want %q", string(data), "fake-cert-data")
+	if got := string(store[CertPath()].data); got != "fake-cert-data" {
+		t.Errorf("cert content = %q, want %q", got, "fake-cert-data")
 	}
 }

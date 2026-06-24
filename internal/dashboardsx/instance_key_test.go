@@ -3,23 +3,16 @@
 package dashboardsx
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 func TestEnsureInstanceKey(t *testing.T) {
-	// Use a temporary directory
 	tmpDir := t.TempDir()
 	schmuxdir.Set(tmpDir)
 	defer schmuxdir.Set("")
-
-	// Create dashboardsx dir
-	if err := os.MkdirAll(filepath.Join(tmpDir, "dashboardsx"), 0700); err != nil {
-		t.Fatal(err)
-	}
+	store := installMemFS(t)
 
 	// Generate key
 	key1, err := EnsureInstanceKey()
@@ -40,12 +33,11 @@ func TestEnsureInstanceKey(t *testing.T) {
 	}
 
 	// Verify file permissions
-	keyPath := InstanceKeyPath()
-	info, err := os.Stat(keyPath)
-	if err != nil {
-		t.Fatal(err)
+	f, ok := store[InstanceKeyPath()]
+	if !ok {
+		t.Fatal("instance key not written")
 	}
-	if perm := info.Mode().Perm(); perm != 0600 {
+	if perm := f.mode.Perm(); perm != 0600 {
 		t.Errorf("key file permissions = %o, want 0600", perm)
 	}
 }

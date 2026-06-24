@@ -4,7 +4,6 @@ package dashboardsx
 
 import (
 	"math"
-	"os"
 	"time"
 )
 
@@ -38,12 +37,12 @@ func GetStatus(cfg ConfigReader) (*Status, error) {
 	}
 
 	// Check instance key
-	if _, err := os.Stat(InstanceKeyPath()); err == nil {
+	if _, err := statFile(InstanceKeyPath()); err == nil {
 		s.HasInstanceKey = true
 	}
 
 	// Check certificate
-	if _, err := os.Stat(CertPath()); err == nil {
+	if _, err := statFile(CertPath()); err == nil {
 		s.HasCert = true
 		if expiry, err := GetCertExpiry(); err == nil {
 			s.CertExpiry = expiry

@@ -61,7 +61,7 @@ func TestListOverlayFiles(t *testing.T) {
 
 	// Create test files
 	testFiles := []string{
-		".env",
+		"app.conf",
 		"config/local.json",
 		"credentials/service.json",
 	}
@@ -230,7 +230,7 @@ func TestCopyOverlayReturnsManifest(t *testing.T) {
 	// Create temp overlay source directory with test files
 	overlayDir := t.TempDir()
 	testFiles := map[string]string{
-		".env":                 "SECRET=abc123\n",
+		"app.conf":             "SECRET=abc123\n",
 		"config/local.json":    `{"key": "value"}`,
 		"data/credentials.txt": "user:pass\n",
 	}
@@ -252,7 +252,7 @@ func TestCopyOverlayReturnsManifest(t *testing.T) {
 	}
 
 	// Create .gitignore that covers the overlay files
-	gitignoreContent := ".env\nconfig/\ndata/\n"
+	gitignoreContent := "app.conf\nconfig/\ndata/\n"
 	if err := os.WriteFile(filepath.Join(workspaceDir, ".gitignore"), []byte(gitignoreContent), 0644); err != nil {
 		t.Fatalf("failed to create .gitignore: %v", err)
 	}
@@ -308,12 +308,12 @@ func TestCleanStaleOverlayFiles(t *testing.T) {
 	t.Run("removes files in old manifest but not in fresh", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
-		staleFile := filepath.Join(dir, ".env")
+		staleFile := filepath.Join(dir, "app.conf")
 		if err := os.WriteFile(staleFile, []byte("old"), 0644); err != nil {
 			t.Fatal(err)
 		}
 
-		oldManifest := map[string]string{".env": "oldhash"}
+		oldManifest := map[string]string{"app.conf": "oldhash"}
 		freshManifest := map[string]string{}
 
 		cleanStaleOverlayFiles(oldManifest, freshManifest, dir, nil, log.Default())
@@ -326,13 +326,13 @@ func TestCleanStaleOverlayFiles(t *testing.T) {
 	t.Run("preserves files present in fresh manifest", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
-		currentFile := filepath.Join(dir, ".env")
+		currentFile := filepath.Join(dir, "app.conf")
 		if err := os.WriteFile(currentFile, []byte("current"), 0644); err != nil {
 			t.Fatal(err)
 		}
 
-		oldManifest := map[string]string{".env": "oldhash"}
-		freshManifest := map[string]string{".env": "newhash"}
+		oldManifest := map[string]string{"app.conf": "oldhash"}
+		freshManifest := map[string]string{"app.conf": "newhash"}
 
 		cleanStaleOverlayFiles(oldManifest, freshManifest, dir, nil, log.Default())
 
@@ -345,7 +345,7 @@ func TestCleanStaleOverlayFiles(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 
-		oldManifest := map[string]string{".env": "hash"}
+		oldManifest := map[string]string{"app.conf": "hash"}
 		freshManifest := map[string]string{}
 
 		// File doesn't exist on disk — should not panic or error
@@ -410,7 +410,7 @@ func TestCleanStaleOverlayFiles(t *testing.T) {
 		dir := t.TempDir()
 
 		// Create stale files in nested dirs
-		for _, rel := range []string{"config/local.json", "secrets/.env", ".tool-versions"} {
+		for _, rel := range []string{"config/local.json", "secrets/app.conf", ".tool-versions"} {
 			abs := filepath.Join(dir, rel)
 			if err := os.MkdirAll(filepath.Dir(abs), 0755); err != nil {
 				t.Fatal(err)
@@ -422,7 +422,7 @@ func TestCleanStaleOverlayFiles(t *testing.T) {
 
 		oldManifest := map[string]string{
 			"config/local.json": "h1",
-			"secrets/.env":      "h2",
+			"secrets/app.conf":  "h2",
 			".tool-versions":    "h3",
 		}
 		// Only .tool-versions remains in overlay dir
@@ -433,8 +433,8 @@ func TestCleanStaleOverlayFiles(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dir, "config/local.json")); !os.IsNotExist(err) {
 			t.Error("config/local.json should have been removed")
 		}
-		if _, err := os.Stat(filepath.Join(dir, "secrets/.env")); !os.IsNotExist(err) {
-			t.Error("secrets/.env should have been removed")
+		if _, err := os.Stat(filepath.Join(dir, "secrets/app.conf")); !os.IsNotExist(err) {
+			t.Error("secrets/app.conf should have been removed")
 		}
 		if _, err := os.Stat(filepath.Join(dir, ".tool-versions")); err != nil {
 			t.Error(".tool-versions should have been preserved")
