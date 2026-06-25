@@ -71,7 +71,8 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 
 	cacheRoot := filepath.Join(c.WorkspacePath, filepath.FromSlash(fenceCacheRel))
 	env := baselineEnv(cacheRoot)
-	var goFlags, goTelemetry, allUnix bool
+	var goFlags, goTelemetry, allUnix, dockerConfig bool
+	var domains []string
 	for _, name := range c.Presets {
 		p, ok := presets[name]
 		if !ok {
@@ -83,10 +84,25 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 		goFlags = goFlags || p.goFlags
 		goTelemetry = goTelemetry || p.goTelemetry
 		allUnix = allUnix || p.allUnixSockets
+		dockerConfig = dockerConfig || p.dockerConfig
+		domains = append(domains, p.domains...)
 	}
 	for _, dir := range env {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return "", fmt.Errorf("fence: creating local cache dir: %w", err)
+		}
+	}
+	if dockerConfig {
+		if cfgDir := env["DOCKER_CONFIG"]; cfgDir != "" {
+			if extra := dockerPluginDirsFn(); len(extra) > 0 {
+				data, err := json.Marshal(map[string][]string{"cliPluginsExtraDirs": extra})
+				if err != nil {
+					return "", fmt.Errorf("fence: marshaling docker config: %w", err)
+				}
+				if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), data, 0o600); err != nil {
+					return "", fmt.Errorf("fence: writing docker config: %w", err)
+				}
+			}
 		}
 	}
 
@@ -107,10 +123,13 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 	if goTelemetry {
 		allowWrite = append(allowWrite, goTelemetryPaths()...)
 	}
+	allowedDomains := make([]string, 0, len(c.AllowedDomains)+len(domains))
+	allowedDomains = append(allowedDomains, c.AllowedDomains...)
+	allowedDomains = append(allowedDomains, domains...)
 	s := settings{
 		Extends: "code",
 		Network: &settingsNetwork{
-			AllowedDomains:      dedupeDomains(c.AllowedDomains),
+			AllowedDomains:      dedupeDomains(allowedDomains),
 			AllowAllUnixSockets: allUnix,
 		},
 		Filesystem: settingsFilesystem{
@@ -152,6 +171,8 @@ type preset struct {
 	goFlags        bool              // append GOFLAGS=-modcacherw (keep module cache writable)
 	goTelemetry    bool              // allowWrite the Go telemetry dir
 	allUnixSockets bool              // network.allowAllUnixSockets
+	dockerConfig   bool              // stage a DOCKER_CONFIG/config.json with cliPluginsExtraDirs
+	domains        []string          // append to network.allowedDomains
 }
 
 var presets = map[string]preset{
@@ -172,6 +193,24 @@ var presets = map[string]preset{
 		cacheEnv: map[string]string{"PIP_CACHE_DIR": "pip", "UV_CACHE_DIR": "uv"},
 	},
 	"tmux": {allUnixSockets: true},
+	"docker": {
+		cacheEnv:       map[string]string{"DOCKER_CONFIG": "docker"},
+		allUnixSockets: true,
+		dockerConfig:   true,
+		domains:        dockerHubPullDomains,
+	},
+}
+
+// dockerHubPullDomains are the Docker Hub auth and registry endpoints a fenced
+// `docker build` reaches client-side: buildx resolves the base image's token and
+// manifest inside the fence ("[internal] load metadata ..."), which fails without
+// these. Layer blobs are pulled by the (unfenced) buildkitd in the daemon, so the
+// Cloudflare layer CDNs are deliberately omitted. Source: Docker's official
+// Desktop allowlist (docs.docker.com/desktop/setup/allow-list), pruned to the two
+// anonymous-pull endpoints buildx needs client-side. Overridable in tests.
+var dockerHubPullDomains = []string{
+	"auth.docker.io",
+	"registry-1.docker.io",
 }
 
 // IsKnownPreset reports whether name is a defined fence preset.
@@ -195,6 +234,74 @@ func goTelemetryPaths() []string {
 		return nil
 	}
 	return []string{filepath.Join(configDir, "go", "telemetry")}
+}
+
+// dockerSystemPluginDirs are well-known locations of docker CLI plugins outside
+// ~/.docker (which the fence "code" template denies reading). Overridable in tests.
+var dockerSystemPluginDirs = []string{
+	"/Applications/Docker.app/Contents/Resources/cli-plugins",
+	"/usr/local/lib/docker/cli-plugins",
+	"/usr/libexec/docker/cli-plugins",
+	"/usr/lib/docker/cli-plugins",
+	"/opt/homebrew/lib/docker/cli-plugins",
+}
+
+// dockerPluginDirsFn returns fence-readable directories containing docker CLI
+// plugins. Overridable in tests. Runs in the unfenced daemon.
+var dockerPluginDirsFn = discoverDockerPluginDirs
+
+// discoverDockerPluginDirs returns fence-readable directories that hold docker
+// CLI plugins (buildx/compose). The fence "code" template denies ~/.docker, so
+// the plugin dirs named in DOCKER_CONFIG's cliPluginsExtraDirs must be readable
+// from outside ~/.docker. It resolves each ~/.docker/cli-plugins entry's real
+// target (Docker Desktop and brew symlink plugins to app/system dirs), drops any
+// target still under ~/.docker (unreadable while fenced), and unions with known
+// system locations. Runs in the unfenced daemon, so ~/.docker is readable here.
+func discoverDockerPluginDirs() []string {
+	var dirs []string
+	if home, err := os.UserHomeDir(); err == nil {
+		dockerDir := filepath.Join(home, ".docker")
+		cliPlugins := filepath.Join(dockerDir, "cli-plugins")
+		// Resolve dockerDir so the under-~/.docker check compares like-for-like
+		// with EvalSymlinks'd targets ($HOME / TempDir is often a symlink, e.g.
+		// macOS /var -> /private/var).
+		dockerDirReal := dockerDir
+		if r, err := filepath.EvalSymlinks(dockerDir); err == nil {
+			dockerDirReal = r
+		}
+		if entries, err := os.ReadDir(cliPlugins); err == nil {
+			for _, e := range entries {
+				target, err := filepath.EvalSymlinks(filepath.Join(cliPlugins, e.Name()))
+				if err != nil {
+					continue
+				}
+				d := filepath.Dir(target)
+				// Skip targets still under ~/.docker — unreadable while fenced.
+				if !strings.HasPrefix(d+string(filepath.Separator), dockerDirReal+string(filepath.Separator)) {
+					dirs = append(dirs, d)
+				}
+			}
+		}
+	}
+	dirs = append(dirs, dockerSystemPluginDirs...)
+	return existingUniqueDirs(dirs)
+}
+
+// existingUniqueDirs returns the input dirs that exist, deduped, order-preserving.
+func existingUniqueDirs(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, d := range in {
+		if d == "" || seen[d] {
+			continue
+		}
+		if fi, err := os.Stat(d); err != nil || !fi.IsDir() {
+			continue
+		}
+		seen[d] = true
+		out = append(out, d)
+	}
+	return out
 }
 
 func exportLines(env map[string]string) string {

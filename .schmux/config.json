@@ -10,7 +10,7 @@
     }
   ],
   "fence": {
-    "presets": ["golang", "node", "tmux"],
+    "presets": ["golang", "node", "tmux", "docker"],
     "allowed_domains": ["mcp.posthog.com"]
   }
 }

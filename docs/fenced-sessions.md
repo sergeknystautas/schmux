@@ -161,6 +161,7 @@ The baseline (always on, any fenced repo) redirects `XDG_CACHE_HOME` and an empt
 - `golang`: Go build cache (`GOCACHE`), `GOFLAGS=-modcacherw` so any Go module cache remains user-cleanable, Staticcheck cache (`STATICCHECK_CACHE`).
 - `node`: npm (`NPM_CONFIG_CACHE`/`npm_config_cache`), Yarn (`YARN_CACHE_FOLDER`), Bun (`BUN_INSTALL_CACHE_DIR`).
 - `python`: pip (`PIP_CACHE_DIR`), uv (`UV_CACHE_DIR`).
+- `docker`: access to the host Docker daemon so containerized tests (`--e2e`, `--scenarios`) run inside a fenced session. Sets `allowAllUnixSockets` (daemon socket), redirects `DOCKER_CONFIG` to a writable workspace dir, writes a `cliPluginsExtraDirs` config so `docker buildx`/`compose` resolve, and allows the two Docker Hub auth/registry endpoints `docker build` resolves base-image metadata against client-side through buildx. Implies the socket access `tmux` grants, so a repo using `docker` need not also list `tmux`.
 
 Schmux does not redirect `TMPDIR`/`TMP`/`TEMP`: tests often create git repos under temporary directories, and moving those directories into the writable workspace makes Fence block `.git/config` writes. Schmux also does not redirect `GOMODCACHE`: downloaded modules can legitimately contain fixture names such as `cert.pem`, which the Fence credential-write policy blocks inside writable workspaces. These are environment defaults for fenced sessions, not Fence policy exceptions.
 
@@ -188,13 +189,17 @@ These should stay out of the default policy:
 
 - package-manager mutation outside the workspace, such as Homebrew writes under `/opt/homebrew` or `~/Library/Caches/Homebrew`,
 - agent self-update/download traffic, such as Claude Code auto-update requests,
-- Docker daemon/config access under `~/.docker` or Docker socket access,
+- Docker daemon/config access under `~/.docker` or Docker socket access (excluded from the baseline; available via the explicit `docker` preset — see [Security note: docker preset](#security-note-docker-preset) below),
 - language toolchain installation or upgrade downloads,
 - analytics/telemetry endpoints unrelated to schmux functionality,
 - broad home-directory cache writes, and
 - temporary directory rewrites that move arbitrary test fixtures into the writable workspace.
 
 When one of these is needed, the answer is not to silently broaden the default fence. The user should run that setup outside the fenced session, or schmux should expose an explicit opt-in configuration.
+
+### Security note: docker preset
+
+Enabling the `docker` preset gives the fenced session full access to the host Docker daemon. The Docker socket is effectively root on the host: a container can mount the host filesystem (`docker run -v /:/host`) and read or write anything. The preset is an explicit per-repo opt-in for exactly this reason; do not enable it casually. It also allows two Docker Hub endpoints (`auth.docker.io`, `registry-1.docker.io`) because `docker build` resolves the base image's auth token and manifest client-side through buildx; layer blobs still pull daemon-side, so the layer CDNs are not allowlisted.
 
 ## Per-repo fence config
 
@@ -213,7 +218,9 @@ A repo customizes its fenced sessions through a `fence` block in its own
 - `presets` opt into core-defined bundles. Available: `golang` (GOCACHE,
   STATICCHECK_CACHE, `GOFLAGS=-modcacherw`, Go telemetry write), `node`
   (npm/yarn/bun caches), `python` (pip/uv caches), `tmux`
-  (`allowAllUnixSockets`, for sessions that create local sockets).
+  (`allowAllUnixSockets`, for sessions that create local sockets), `docker`
+  (Docker daemon socket + `DOCKER_CONFIG` redirect + Docker Hub pull domains,
+  for running `--e2e`/`--scenarios` inside a fence — see [Security note](#security-note-docker-preset)).
 - `allowed_domains` add network destinations to the baseline allowlist.
 
 The always-on baseline (any fenced repo) is `extends: "code"`, the workspace +
@@ -277,4 +284,4 @@ Pick the remediation by what the test actually needs:
 | _some_ file whose name is incidental                         | rename it to a non-blocked name                                      | `overlay_test.go`: `.env` → `app.conf`            |
 | to exercise production that writes a _fixed_ credential name | route the package's fs access through a seam, swap an in-memory fake | `internal/dashboardsx` (`fs.go` + `installMemFS`) |
 
-`--e2e` and `--scenarios` need the Docker socket, which the fence blocks by design — run those on the host or in CI, not inside a fence.
+`--e2e` and `--scenarios` need the Docker socket, which the _baseline_ fence blocks. Enable the `docker` fence preset (`.schmux/config.json`) to run them inside a fenced session; otherwise run them on the host or in CI.

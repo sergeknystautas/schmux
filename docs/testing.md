@@ -43,6 +43,9 @@ Testing infrastructure for schmux: Go backend unit tests, React frontend Vitest 
 # Scenario tests only (Playwright, requires Docker)
 ./test.sh --scenarios
 
+# To run the Docker suites inside a fenced schmux session, the repo must enable
+# the `docker` fence preset — see docs/fenced-sessions.md.
+
 # Or run Go tests directly
 go test ./...
 go test -v ./...

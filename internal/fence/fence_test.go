@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -170,7 +171,7 @@ func TestWrapNoPresetsBaselineOnly(t *testing.T) {
 	if !strings.Contains(string(cmd), "export GIT_TEMPLATE_DIR=") || !strings.Contains(string(cmd), "export XDG_CACHE_HOME=") {
 		t.Errorf("baseline caches missing: %s", cmd)
 	}
-	for _, banned := range []string{"GOCACHE", "STATICCHECK_CACHE", "GOFLAGS", "NPM_CONFIG_CACHE", "PIP_CACHE_DIR"} {
+	for _, banned := range []string{"GOCACHE", "STATICCHECK_CACHE", "GOFLAGS", "NPM_CONFIG_CACHE", "PIP_CACHE_DIR", "DOCKER_CONFIG"} {
 		if strings.Contains(string(cmd), banned) {
 			t.Errorf("cmd.sh has %s without a preset: %s", banned, cmd)
 		}
@@ -225,5 +226,133 @@ func TestWrapTmuxPresetSetsUnixSockets(t *testing.T) {
 	}
 	if s.Network == nil || !s.Network.AllowAllUnixSockets {
 		t.Errorf("tmux preset must set allowAllUnixSockets")
+	}
+}
+
+func TestWrapDockerPresetEnvAndSocket(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sess")
+	ws := t.TempDir()
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"docker"}, DataDir: dir}, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	cmd, _ := os.ReadFile(filepath.Join(dir, "cmd.sh"))
+	wantDocker := "export DOCKER_CONFIG='" + filepath.Join(ws, ".cache", "schmux-fence", "docker") + "'"
+	if !strings.Contains(string(cmd), wantDocker) {
+		t.Errorf("cmd.sh = %q, want %s", cmd, wantDocker)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+	var s settings
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	if s.Network == nil || !s.Network.AllowAllUnixSockets {
+		t.Errorf("docker preset must set allowAllUnixSockets")
+	}
+	for _, want := range []string{"auth.docker.io", "registry-1.docker.io"} {
+		if s.Network == nil || !slices.Contains(s.Network.AllowedDomains, want) {
+			t.Errorf("docker preset allowedDomains = %v, want %s", s.Network, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".cache", "schmux-fence", "docker")); err != nil {
+		t.Errorf("expected DOCKER_CONFIG dir: %v", err)
+	}
+	if !IsKnownPreset("docker") {
+		t.Errorf("IsKnownPreset(docker) = false, want true")
+	}
+}
+
+func TestDiscoverDockerPluginDirs(t *testing.T) {
+	eval := func(p string) string {
+		r, err := filepath.EvalSymlinks(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// A plugin symlinked to a readable dir OUTSIDE ~/.docker → its dir is included.
+	realPluginDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(realPluginDir, "docker-buildx"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cliPlugins := filepath.Join(home, ".docker", "cli-plugins")
+	if err := os.MkdirAll(cliPlugins, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(realPluginDir, "docker-buildx"), filepath.Join(cliPlugins, "docker-buildx")); err != nil {
+		t.Fatal(err)
+	}
+	// A plugin whose target stays under ~/.docker → must be excluded.
+	if err := os.WriteFile(filepath.Join(cliPlugins, "docker-compose"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	existingSys := t.TempDir()
+	orig := dockerSystemPluginDirs
+	dockerSystemPluginDirs = []string{existingSys, "/no/such/dir/cli-plugins"}
+	defer func() { dockerSystemPluginDirs = orig }()
+
+	got := discoverDockerPluginDirs()
+
+	gotSet := make(map[string]bool, len(got))
+	for _, d := range got {
+		gotSet[d] = true
+	}
+	if !gotSet[eval(realPluginDir)] {
+		t.Errorf("want symlink-target dir %s in %v", eval(realPluginDir), got)
+	}
+	if !gotSet[existingSys] {
+		t.Errorf("want existing system dir %s in %v", existingSys, got)
+	}
+	if gotSet["/no/such/dir/cli-plugins"] {
+		t.Errorf("nonexistent dir leaked into %v", got)
+	}
+	if gotSet[eval(cliPlugins)] || gotSet[cliPlugins] {
+		t.Errorf("a dir under ~/.docker leaked into %v", got)
+	}
+}
+
+func TestWrapDockerWritesPluginConfig(t *testing.T) {
+	pluginDir := t.TempDir()
+	orig := dockerPluginDirsFn
+	dockerPluginDirsFn = func() []string { return []string{pluginDir} }
+	defer func() { dockerPluginDirsFn = orig }()
+
+	dir := filepath.Join(t.TempDir(), "sess")
+	ws := t.TempDir()
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"docker"}, DataDir: dir}, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	cfgPath := filepath.Join(ws, ".cache", "schmux-fence", "docker", "config.json")
+	raw, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatalf("read docker config.json: %v", err)
+	}
+	var dc struct {
+		CliPluginsExtraDirs []string `json:"cliPluginsExtraDirs"`
+	}
+	if err := json.Unmarshal(raw, &dc); err != nil {
+		t.Fatal(err)
+	}
+	if len(dc.CliPluginsExtraDirs) != 1 || dc.CliPluginsExtraDirs[0] != pluginDir {
+		t.Errorf("cliPluginsExtraDirs = %v, want [%s]", dc.CliPluginsExtraDirs, pluginDir)
+	}
+}
+
+func TestWrapDockerNoPluginsSkipsConfig(t *testing.T) {
+	orig := dockerPluginDirsFn
+	dockerPluginDirsFn = func() []string { return nil }
+	defer func() { dockerPluginDirsFn = orig }()
+
+	dir := filepath.Join(t.TempDir(), "sess")
+	ws := t.TempDir()
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"docker"}, DataDir: dir}, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".cache", "schmux-fence", "docker", "config.json")); !os.IsNotExist(err) {
+		t.Errorf("config.json should not exist when no plugin dirs found; stat err = %v", err)
 	}
 }

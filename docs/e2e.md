@@ -61,6 +61,8 @@ All E2E runs happen in Docker. The container includes:
 
 Docker provides all isolation — no HOME overrides or env vars needed.
 
+> To run these Docker suites inside a fenced schmux session, the repo must enable the `docker` fence preset — see [`docs/fenced-sessions.md`](fenced-sessions.md).
+
 ---
 
 ## How to Run
