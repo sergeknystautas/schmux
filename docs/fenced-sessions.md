@@ -47,12 +47,27 @@ Hard failures:
 
 ## UI behavior
 
+A daemon-level `fence_mode` config flag (Experimental tab) gates the feature in
+addition to binary detection. It has three modes:
+
+- **Disabled** — the spawn checkbox is hidden and the backend rejects
+  `fence:true` (`"fenced sessions are disabled"`).
+- **Optional, default off** (the default) — the checkbox is shown and starts
+  unchecked. This is the historical behavior and is the absence of the field in
+  `config.json`.
+- **Optional, default on** — the checkbox is shown and starts checked; still
+  toggleable per spawn.
+
 The spawn page shows the checkbox only when:
 
+- `fence_mode` is not `disabled`, and
 - the dependency report says `fence` is available, and
 - the selected spawn environment is local.
 
-The checkbox defaults off and is not persisted. Quick-launch shortcuts or other launch paths that do not expose this checkbox must send `fence:false`.
+In the Experimental tab the fence card is grayed out, with an install hint, when
+the `fence` binary is not detected. The per-spawn checkbox is not persisted.
+Quick-launch shortcuts or other launch paths that do not expose this checkbox
+must send `fence:false`.
 
 ## Command behavior
 

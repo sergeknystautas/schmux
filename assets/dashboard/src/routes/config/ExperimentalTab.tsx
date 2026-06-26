@@ -64,6 +64,49 @@ export default function ExperimentalTab({ state, dispatch, models }: Experimenta
           No experimental features are available in this build.
         </p>
       )}
+
+      <div className="settings-section" data-testid="experimental-fence">
+        <div className="settings-section__header">
+          <h3 className="settings-section__title">Fence</h3>
+        </div>
+        <div className="settings-section__body">
+          <p className="wizard-step-content__description">
+            Run spawned sessions inside the fence OS sandbox.
+          </p>
+          {!state.fenceAvailable && (
+            <p className="wizard-step-content__description">
+              <span>Install fence to use sandboxed sessions.</span>{' '}
+              <a
+                href="https://fencesandbox.com/docs/guides/agents"
+                target="_blank"
+                rel="noreferrer"
+              >
+                fence docs
+              </a>
+            </p>
+          )}
+          <div role="radiogroup" style={state.fenceAvailable ? undefined : { opacity: 0.5 }}>
+            {[
+              { value: 'disabled', label: 'Disabled' },
+              { value: 'optional_off', label: 'Optional, default off' },
+              { value: 'optional_on', label: 'Optional, default on' },
+            ].map((m) => (
+              <label key={m.value} className="flex-row gap-xs cursor-pointer">
+                <input
+                  type="radio"
+                  name="fence-mode"
+                  value={m.value}
+                  checked={(state.fenceMode || 'optional_off') === m.value}
+                  disabled={!state.fenceAvailable}
+                  onChange={() => setField('fenceMode', m.value)}
+                  data-testid={`fence-mode-${m.value}`}
+                />
+                <span>{m.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

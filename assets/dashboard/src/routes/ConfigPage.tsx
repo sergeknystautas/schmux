@@ -212,6 +212,8 @@ export default function ConfigPage() {
           personasEnabled: data.personas_enabled ?? false,
           commStylesEnabled: data.comm_styles_enabled ?? false,
           backburnerEnabled: data.backburner_enabled ?? false,
+          fenceMode: data.fence_mode ?? 'optional_off',
+          fenceAvailable: data.system_capabilities?.fence_available ?? false,
           localEchoRemote: data.local_echo_remote || false,
           debugUI: data.debug_ui ?? false,
           clipboardSyncEnabled: data.clipboard_sync_enabled ?? true,

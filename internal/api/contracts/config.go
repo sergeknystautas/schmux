@@ -198,6 +198,7 @@ type ConfigResponse struct {
 	PersonasEnabled            bool                   `json:"personas_enabled,omitempty"`
 	CommStylesEnabled          bool                   `json:"comm_styles_enabled,omitempty"`
 	BackburnerEnabled          bool                   `json:"backburner_enabled,omitempty"`
+	FenceMode                  string                 `json:"fence_mode,omitempty"`
 	ClipboardSyncEnabled       bool                   `json:"clipboard_sync_enabled"`
 	SystemCapabilities         SystemCapabilities     `json:"system_capabilities"`
 	NeedsRestart               bool                   `json:"needs_restart"`
@@ -372,6 +373,7 @@ type ConfigUpdateRequest struct {
 	PersonasEnabled            *bool                       `json:"personas_enabled,omitempty"`
 	CommStylesEnabled          *bool                       `json:"comm_styles_enabled,omitempty"`
 	BackburnerEnabled          *bool                       `json:"backburner_enabled,omitempty"`
+	FenceMode                  *string                     `json:"fence_mode,omitempty"`
 	ClipboardSyncEnabled       *bool                       `json:"clipboard_sync_enabled,omitempty"`
 	AnthropicOAuthToken        *string                     `json:"anthropic_oauth_token,omitempty"`
 	Ollama                     *OllamaConfigUpdate         `json:"ollama,omitempty"`

@@ -153,6 +153,7 @@ export interface ConfigResponse {
   personas_enabled?: boolean;
   comm_styles_enabled?: boolean;
   backburner_enabled?: boolean;
+  fence_mode?: string;
   clipboard_sync_enabled: boolean;
   system_capabilities: SystemCapabilities;
   needs_restart: boolean;
@@ -202,6 +203,7 @@ export interface ConfigUpdateRequest {
   personas_enabled?: boolean;
   comm_styles_enabled?: boolean;
   backburner_enabled?: boolean;
+  fence_mode?: string;
   clipboard_sync_enabled?: boolean;
   anthropic_oauth_token?: string;
   ollama?: OllamaConfigUpdate;

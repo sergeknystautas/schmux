@@ -277,6 +277,7 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 		PersonasEnabled:      h.config.GetPersonasEnabled(),
 		CommStylesEnabled:    h.config.GetCommStylesEnabled(),
 		BackburnerEnabled:    h.config.GetBackburnerEnabled(),
+		FenceMode:            h.config.GetFenceMode(),
 		ClipboardSyncEnabled: h.config.GetClipboardSyncEnabled(),
 		LocalEchoRemote:      h.config.LocalEchoRemote,
 		SaplingCommands: func() *contracts.SaplingCommandsUpdate {
@@ -942,6 +943,19 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 
 	if req.BackburnerEnabled != nil {
 		cfg.BackburnerEnabled = *req.BackburnerEnabled
+	}
+
+	if req.FenceMode != nil {
+		switch *req.FenceMode {
+		case config.FenceModeDisabled, config.FenceModeOptionalOn:
+			cfg.FenceMode = *req.FenceMode
+		case config.FenceModeOptionalOff:
+			// optional_off is the default — store empty so omitempty keeps config.json clean.
+			cfg.FenceMode = ""
+		default:
+			writeJSONError(w, fmt.Sprintf("invalid fence_mode: %q", *req.FenceMode), http.StatusBadRequest)
+			return
+		}
 	}
 
 	if req.ClipboardSyncEnabled != nil {

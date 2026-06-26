@@ -220,6 +220,10 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 			writeJSONError(w, "fence not available — install fence to use fenced sessions", http.StatusBadRequest)
 			return
 		}
+		if h.config.GetFenceMode() == config.FenceModeDisabled {
+			writeJSONError(w, "fenced sessions are disabled", http.StatusBadRequest)
+			return
+		}
 		fenceCommand = st.Command
 	}
 

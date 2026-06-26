@@ -10,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/log"
 
+	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 )
 
@@ -62,5 +63,29 @@ func TestFenceOnUnavailableHardFails(t *testing.T) {
 	}
 	if !bytes.Contains(rr.Body.Bytes(), []byte("fence not available")) {
 		t.Errorf("body = %q, want unavailable hard-fail message", rr.Body.String())
+	}
+}
+
+func TestFenceWhenDisabledHardFails(t *testing.T) {
+	h := &SpawnHandlers{
+		logger: discardLogger(),
+		config: &config.Config{ConfigData: config.ConfigData{FenceMode: config.FenceModeDisabled}},
+		dependencyReport: func() detect.DependencyReport {
+			return detect.DependencyReport{Statuses: []detect.DependencyStatus{
+				{Dependency: detect.Dependency{ID: "fence"}, Detected: true, Command: "fence"},
+			}}
+		},
+	}
+	rr := postFence(t, h, map[string]any{
+		"fence":   true,
+		"repo":    "git@github.com:u/r.git",
+		"branch":  "main",
+		"targets": map[string]int{"claude": 1},
+	})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rr.Code)
+	}
+	if !bytes.Contains(rr.Body.Bytes(), []byte("fenced sessions are disabled")) {
+		t.Errorf("body = %q, want disabled hard-fail message", rr.Body.String())
 	}
 }

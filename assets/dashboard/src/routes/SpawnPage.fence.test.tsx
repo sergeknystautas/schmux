@@ -87,6 +87,7 @@ function makeConfig(overrides: Partial<ConfigResponse> = {}): ConfigResponse {
     personas_enabled: false,
     comm_styles_enabled: false,
     clipboard_sync_enabled: true,
+    fence_mode: 'optional_off',
     system_capabilities: { iterm2_available: false, fence_available: false },
     needs_restart: false,
     oneshot_targets: [],
@@ -233,5 +234,43 @@ describe('SpawnPage fence toggle', () => {
 
     renderSpawnPage();
     await waitFor(() => expect(screen.getByTestId('fence-toggle')).toBeInTheDocument());
+  });
+
+  it('hides the fence toggle when fence_mode is disabled even if available', async () => {
+    const cfg = makeConfig({
+      system_capabilities: { iterm2_available: false, fence_available: true },
+      fence_mode: 'disabled',
+    });
+    configContextValue = cfg;
+    mockGetConfig.mockResolvedValue(cfg);
+
+    renderSpawnPage();
+    await waitFor(() => expect(screen.getByTestId('spawn-submit')).toBeInTheDocument());
+    expect(screen.queryByTestId('fence-toggle')).not.toBeInTheDocument();
+  });
+
+  it('defaults the fence toggle unchecked when fence_mode is optional_off', async () => {
+    const cfg = makeConfig({
+      system_capabilities: { iterm2_available: false, fence_available: true },
+      fence_mode: 'optional_off',
+    });
+    configContextValue = cfg;
+    mockGetConfig.mockResolvedValue(cfg);
+
+    renderSpawnPage();
+    await waitFor(() => expect(screen.getByTestId('fence-toggle')).toBeInTheDocument());
+    expect(screen.getByTestId('fence-toggle')).not.toBeChecked();
+  });
+
+  it('defaults the fence toggle checked when fence_mode is optional_on', async () => {
+    const cfg = makeConfig({
+      system_capabilities: { iterm2_available: false, fence_available: true },
+      fence_mode: 'optional_on',
+    });
+    configContextValue = cfg;
+    mockGetConfig.mockResolvedValue(cfg);
+
+    renderSpawnPage();
+    await waitFor(() => expect(screen.getByTestId('fence-toggle')).toBeChecked());
   });
 });

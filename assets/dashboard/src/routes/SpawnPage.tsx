@@ -172,6 +172,7 @@ export default function SpawnPage() {
   const [resolvedWorkspaceId, setResolvedWorkspaceId] = useState('');
   const [environment, setEnvironment] = useState<EnvironmentSelection>({ type: 'local' });
   const skipNextPersist = useRef(false);
+  const fenceDefaultApplied = useRef(false);
   const [loading, setLoading] = useState(true);
   const [configError, setConfigError] = useState('');
   const [personas, setPersonas] = useState<Persona[]>([]);
@@ -276,8 +277,22 @@ export default function SpawnPage() {
   // Remote spawns don't need repo/branch selection — the workspace is determined
   // by the flavor's workspace_path on the remote host, not by a git clone.
   const isRemoteSpawn = environment.type === 'remote';
-  const fenceAvailable = (config?.system_capabilities?.fence_available ?? false) && !isRemoteSpawn;
+  const fenceMode = config?.fence_mode ?? 'optional_off';
+  const fenceAvailable =
+    (config?.system_capabilities?.fence_available ?? false) &&
+    fenceMode !== 'disabled' &&
+    !isRemoteSpawn;
   const fenceForRequest = fenceAvailable && fenceEnabled;
+
+  // Seed the fence checkbox default once config is known. optional_on pre-checks
+  // the box; it stays user-toggleable. optional_off leaves the initial unchecked.
+  useEffect(() => {
+    if (!config || fenceDefaultApplied.current) return;
+    fenceDefaultApplied.current = true;
+    if (fenceMode === 'optional_on') {
+      setFenceEnabled(true);
+    }
+  }, [config, fenceMode]);
 
   // Show branch input immediately when suggestion is disabled
   useEffect(() => {

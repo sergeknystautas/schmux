@@ -195,6 +195,8 @@ export type ConfigFormState = {
   personasEnabled: boolean;
   commStylesEnabled: boolean;
   backburnerEnabled: boolean;
+  fenceMode: string;
+  fenceAvailable: boolean;
   localEchoRemote: boolean;
   debugUI: boolean;
   clipboardSyncEnabled: boolean;
@@ -371,6 +373,8 @@ export const initialState: ConfigFormState = {
   personasEnabled: false,
   commStylesEnabled: false,
   backburnerEnabled: false,
+  fenceMode: 'optional_off',
+  fenceAvailable: false,
   localEchoRemote: false,
   debugUI: false,
   clipboardSyncEnabled: true,

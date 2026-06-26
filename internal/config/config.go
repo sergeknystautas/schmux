@@ -126,6 +126,7 @@ type ConfigData struct {
 	PersonasEnabled            bool                        `json:"personas_enabled,omitempty"`
 	CommStylesEnabled          bool                        `json:"comm_styles_enabled,omitempty"`
 	BackburnerEnabled          bool                        `json:"backburner_enabled,omitempty"`
+	FenceMode                  string                      `json:"fence_mode,omitempty"`
 	ClipboardSyncEnabled       *bool                       `json:"clipboard_sync_enabled,omitempty"`
 	Timelapse                  *TimelapseConfig            `json:"timelapse,omitempty"`
 
@@ -1387,6 +1388,27 @@ func (c *Config) GetBackburnerEnabled() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.BackburnerEnabled
+}
+
+// Fence mode values gate the fence feature and the spawn-checkbox default.
+// Empty (the omitted default) means FenceModeOptionalOff — today's behavior.
+const (
+	FenceModeDisabled    = "disabled"
+	FenceModeOptionalOff = "optional_off"
+	FenceModeOptionalOn  = "optional_on"
+)
+
+// GetFenceMode returns the configured fence mode, normalizing empty/unknown
+// values to FenceModeOptionalOff so callers always get one of the three values.
+func (c *Config) GetFenceMode() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	switch c.FenceMode {
+	case FenceModeDisabled, FenceModeOptionalOn:
+		return c.FenceMode
+	default:
+		return FenceModeOptionalOff
+	}
 }
 
 // GetClipboardSyncEnabled returns whether terminal clipboard sync is enabled:
