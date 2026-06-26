@@ -35,6 +35,11 @@ type Descriptor struct {
 	Skills          *SkillsDesc       `yaml:"skills"`
 	SpawnEnv        map[string]string `yaml:"spawn_env"`
 	RunnerEnv       *RunnerEnvDesc    `yaml:"runner_env"`
+	// FenceDomains are the harness's own control-plane domains the fence must
+	// allow (login/subscription auth, update checks, telemetry) — independent of
+	// the model provider, which is allowed separately via the fence "code"
+	// template and runner endpoints.
+	FenceDomains []string `yaml:"fence_domains"`
 }
 
 // RunnerEnvDesc describes env vars the adapter emits when spawning a runner.

@@ -49,3 +49,6 @@ runner_env:
     ANTHROPIC_DEFAULT_SONNET_MODEL: '{model}'
     ANTHROPIC_DEFAULT_HAIKU_MODEL: '{model}'
     CLAUDE_CODE_SUBAGENT_MODEL: '{model}'
+fence_domains:
+  - platform.claude.com
+  - downloads.claude.ai

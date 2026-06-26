@@ -28,3 +28,7 @@ signaling:
   value_template: 'model_instructions_file={path}'
 persona:
   strategy: instruction_file
+fence_domains:
+  - chatgpt.com
+  - ab.chatgpt.com
+  - auth.openai.com

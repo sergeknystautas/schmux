@@ -57,6 +57,13 @@ declarative YAML descriptors instead of hardcoded Go code. A single
   sets `ANTHROPIC_*` vars for custom endpoints) belongs in the models
   layer, not the tool layer. `GenericAdapter.BuildRunnerEnv` returns nil.
 
+- **Per-harness fence domains** — `fence_domains` (string[]) declares the
+  harness's own control-plane domains the fence must allow (login/subscription
+  auth, update checks, telemetry). Independent of the model provider; the model
+  API endpoint is allowed separately via the fence `code` template and runner
+  endpoints. Evidence-driven — populate from a fenced run's `monitor.log`, not
+  by guessing. Empty/omitted means the harness needs none.
+
 - **Override precedence** — runtime (`~/.schmux/adapters/`) wins over
   embedded contrib (`internal/detect/contrib/`), which wins over embedded
   descriptors (`internal/detect/descriptors/`). Each layer can replace the

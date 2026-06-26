@@ -68,15 +68,40 @@ func TestFenceAllowedDomainsIncludesClaudeDefaultsWithoutEndpoint(t *testing.T) 
 	}
 }
 
-func TestFenceAllowedDomainsNoEndpointForOtherTool(t *testing.T) {
-	model := detect.Model{
-		ID: "codex",
-		Runners: map[string]detect.RunnerSpec{
-			"codex": {},
-		},
+func TestFenceAllowedDomainsHarnessDefaults(t *testing.T) {
+	tests := map[string][]string{
+		"codex":       {"chatgpt.com", "ab.chatgpt.com", "auth.openai.com"},
+		"antigravity": {"oauth2.googleapis.com", "antigravity-unleash.goog", "cloudcode-pa.googleapis.com", "daily-cloudcode-pa.googleapis.com", "www.googleapis.com", "lh3.googleusercontent.com"},
 	}
-	if got := fenceAllowedDomains(ResolvedTarget{ToolName: "codex", Model: &model}); got != nil {
-		t.Fatalf("fenceAllowedDomains = %v, want nil", got)
+	for tool, want := range tests {
+		got := fenceAllowedDomains(ResolvedTarget{ToolName: tool})
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("%s = %v, want %v", tool, got, want)
+		}
+	}
+}
+
+func TestFenceAllowedDomainsNilWhenNone(t *testing.T) {
+	if got := fenceAllowedDomains(ResolvedTarget{ToolName: "gemini"}); got != nil {
+		t.Fatalf("gemini = %v, want nil", got)
+	}
+}
+
+func TestWrapForFenceWritesCodexHarnessDomains(t *testing.T) {
+	schmuxdir.Set(t.TempDir())
+	t.Cleanup(func() { schmuxdir.Set("") })
+	domains := fenceAllowedDomains(ResolvedTarget{ToolName: "codex"})
+	if _, err := (&Manager{}).wrapForFence(context.Background(), t.TempDir(), "sess-codex", true, "fence", domains, "echo hi"); err != nil {
+		t.Fatalf("wrapForFence: %v", err)
+	}
+	settings, err := os.ReadFile(filepath.Join(schmuxdir.FenceLaunchDir("sess-codex"), "settings.json"))
+	if err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+	for _, d := range []string{"chatgpt.com", "ab.chatgpt.com", "auth.openai.com"} {
+		if !strings.Contains(string(settings), d) {
+			t.Errorf("settings.json missing %q: %s", d, settings)
+		}
 	}
 }
 

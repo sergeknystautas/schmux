@@ -132,6 +132,11 @@ type ToolAdapter interface {
 	// only when a spawn is fenced. Empty if the agent has no such mode.
 	AutoApproveArgs() []string
 
+	// FenceDomains returns the harness's own control-plane domains the fence
+	// must allow (login/subscription auth, update checks, telemetry),
+	// independent of the model provider. Empty if the harness needs none.
+	FenceDomains() []string
+
 	// PromptDelivery returns how this tool receives its initial user prompt.
 	// PromptPositional (default) passes the prompt as a CLI arg or flag.
 	// PromptSendKeys types the prompt into the terminal after the tool starts.

@@ -43,3 +43,10 @@ signaling:
   strategy: instruction_file
 persona:
   strategy: instruction_file
+fence_domains:
+  - oauth2.googleapis.com
+  - antigravity-unleash.goog
+  - cloudcode-pa.googleapis.com
+  - daily-cloudcode-pa.googleapis.com
+  - www.googleapis.com
+  - lh3.googleusercontent.com

@@ -327,6 +327,11 @@ func (a *GenericAdapter) AutoApproveArgs() []string {
 	return a.desc.AutoApproveArgs
 }
 
+// FenceDomains returns the harness's own control-plane domains the fence must allow.
+func (a *GenericAdapter) FenceDomains() []string {
+	return a.desc.FenceDomains
+}
+
 // PromptDelivery returns how this tool receives its initial user prompt.
 func (a *GenericAdapter) PromptDelivery() PromptDelivery {
 	if a.desc.PromptStrategy == "send_keys" {
