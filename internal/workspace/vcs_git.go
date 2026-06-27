@@ -37,13 +37,35 @@ func (g *GitBackend) cloneBareRepo(ctx context.Context, url, path string) error 
 	return nil
 }
 
+// baseOriginURL returns the recorded remote.origin.url of a bare repo, or ""
+// if it cannot be read (missing dir, not a git repo, or no origin configured).
+// Used to verify a base on disk actually belongs to the requested remote
+// before reusing it — directory existence alone is not identity.
+func (g *GitBackend) baseOriginURL(ctx context.Context, baseDir string) string {
+	out, err := g.manager.runGit(ctx, "", RefreshTriggerExplicit, baseDir, "config", "--get", "remote.origin.url")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 func (g *GitBackend) EnsureRepoBase(ctx context.Context, repoIdentifier, basePath string) (string, error) {
 	if wb, found := g.manager.state.GetRepoBaseByURL(repoIdentifier); found {
 		if _, err := os.Stat(wb.Path); err == nil {
-			g.manager.logger.Debug("using existing worktree base", "url", repoIdentifier, "path", wb.Path)
-			return wb.Path, nil
+			if g.baseOriginURL(ctx, wb.Path) == repoIdentifier {
+				g.manager.logger.Debug("using existing worktree base", "url", repoIdentifier, "path", wb.Path)
+				return wb.Path, nil
+			}
+			// Recorded base exists but its origin no longer matches the
+			// requested URL — e.g. the repo was re-pointed to a new remote
+			// while a stale base from the old one remains on disk. Do not
+			// reuse a foreign base; fall through and re-resolve so we error
+			// rather than hand back the wrong remote.
+			g.manager.logger.Warn("recorded worktree base origin does not match requested URL; re-resolving",
+				"url", repoIdentifier, "path", wb.Path, "origin", g.baseOriginURL(ctx, wb.Path))
+		} else {
+			g.manager.logger.Warn("worktree base missing on disk, will recreate", "url", repoIdentifier)
 		}
-		g.manager.logger.Warn("worktree base missing on disk, will recreate", "url", repoIdentifier)
 	}
 
 	repo, found := g.manager.config.FindRepoByURL(repoIdentifier)
@@ -62,7 +84,15 @@ func (g *GitBackend) EnsureRepoBase(ctx context.Context, repoIdentifier, basePat
 
 	if err := g.cloneBareRepo(ctx, repoIdentifier, worktreeBasePath); err != nil {
 		if _, statErr := os.Stat(worktreeBasePath); statErr == nil {
-			g.manager.logger.Info("worktree base created by concurrent request, using existing", "path", worktreeBasePath)
+			// A directory already occupies the name-derived path. Only safe
+			// to reuse if it genuinely belongs to this remote. A stale base
+			// from a different remote (e.g. a repo moved/renamed) must not be
+			// silently adopted — that is how a workspace ends up on the wrong remote.
+			if g.baseOriginURL(ctx, worktreeBasePath) == repoIdentifier {
+				g.manager.logger.Info("worktree base created by concurrent request, using existing", "path", worktreeBasePath)
+			} else {
+				return "", fmt.Errorf("You have duplicate repo URLs that must be fixed: repo %q (%s) conflicts with existing workspaces with the same name (%s). Remove and re-add this in your configuration to resolve this duplicate conflict", repo.Name, repoIdentifier, g.baseOriginURL(ctx, worktreeBasePath))
+			}
 		} else {
 			return "", err
 		}

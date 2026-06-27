@@ -1157,6 +1157,40 @@ func (c *Config) GetWorktreeBasePath() string {
 	return filepath.Join(schmuxdir.Get(), "repos")
 }
 
+// BareBaseNamesOnDisk returns the names (without the ".git" suffix) of every
+// bare base directory present in the worktree base dir. Used so repo-name
+// generation can avoid names already taken by a base on disk, not just names
+// in config.
+func (c *Config) BareBaseNamesOnDisk() []string {
+	entries, err := os.ReadDir(c.GetWorktreeBasePath())
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() && strings.HasSuffix(e.Name(), ".git") {
+			names = append(names, strings.TrimSuffix(e.Name(), ".git"))
+		}
+	}
+	return names
+}
+
+// ConflictingBaseNames returns the names (without ".git") of bare bases on disk
+// whose origin differs from repoURL. A base whose origin matches repoURL is the
+// same repo and is omitted so it can be reused. Pass the result to
+// repoNameFromURL so a new repo whose derived name collides with a foreign base
+// gets disambiguated onto its own base.
+func (c *Config) ConflictingBaseNames(repoURL string) []string {
+	base := c.GetWorktreeBasePath()
+	var names []string
+	for _, name := range c.BareBaseNamesOnDisk() {
+		if bareRepoOrigin(filepath.Join(base, name+".git")) != repoURL {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
 // ResolveBareRepoDir returns the full directory path for a bare repo,
 // checking both the worktree base path (repos/) and the query path (query/).
 // Returns the first path where the repo exists on disk, falling back to the
@@ -4012,20 +4046,23 @@ func parseGitHubURL(repoURL string) (owner, repo string) {
 }
 
 // bareRepoMatchesURL checks if a bare repo at the given path has the expected origin URL.
-func bareRepoMatchesURL(repoPath, expectedURL string) bool {
+// bareRepoOrigin returns the recorded remote.origin.url of a bare repo, or
+// "" if it cannot be read (absent, not a git repo, or no origin configured).
+func bareRepoOrigin(repoPath string) string {
 	if _, err := os.Stat(repoPath); err != nil {
-		return false // Doesn't exist
+		return "" // Doesn't exist
 	}
-
-	// Check git remote origin URL
 	cmd := exec.Command("git", "config", "--get", "remote.origin.url")
 	cmd.Dir = repoPath
 	output, err := cmd.Output()
 	if err != nil {
-		return false // Can't verify
+		return "" // Can't verify
 	}
+	return strings.TrimSpace(string(output))
+}
 
-	return strings.TrimSpace(string(output)) == expectedURL
+func bareRepoMatchesURL(repoPath, expectedURL string) bool {
+	return bareRepoOrigin(repoPath) == expectedURL
 }
 
 // GetCommStyles returns the comm styles map (base tool name -> style name).

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -884,6 +885,42 @@ func TestAPIContract_ConfigUpdateRejectsDuplicateRepoNames(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), "duplicate repo name") {
 		t.Errorf("error message should mention duplicate repo name, got: %s", rr.Body.String())
+	}
+}
+
+// TestAPIContract_ConfigAddDisambiguatesAgainstStaleDiskBase reproduces the
+// config-screen add: a bare base for remote A already sits on disk at
+// <repos>/bach.git. Adding a repo named "bach" pointing at remote B must NOT
+// adopt A's base — B gets its own (disambiguated) bare_path.
+func TestAPIContract_ConfigAddDisambiguatesAgainstStaleDiskBase(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+
+	reposDir := cfg.GetWorktreeBasePath()
+	baseDir := filepath.Join(reposDir, "bach.git")
+	if err := os.MkdirAll(reposDir, 0o755); err != nil {
+		t.Fatalf("mkdir repos: %v", err)
+	}
+	if out, err := exec.Command("git", "init", "--bare", baseDir).CombinedOutput(); err != nil {
+		t.Fatalf("git init --bare: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", baseDir, "remote", "add", "origin", "https://example.invalid/a/bach.git").CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v\n%s", err, out)
+	}
+
+	body := []byte(`{"repos":[{"name":"bach","url":"https://example.invalid/b/bach.git"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	newTestConfigHandlers(server).handleConfigUpdate(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	repos := cfg.GetRepos()
+	if len(repos) != 1 {
+		t.Fatalf("expected 1 repo, got %d", len(repos))
+	}
+	if repos[0].BarePath == "bach.git" {
+		t.Errorf("repo adopted the stale base bach.git; expected a disambiguated bare_path, got %q", repos[0].BarePath)
 	}
 }
 

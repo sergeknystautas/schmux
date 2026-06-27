@@ -234,6 +234,7 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 			for _, r := range h.config.Repos {
 				existingNames = append(existingNames, r.Name)
 			}
+			existingNames = append(existingNames, h.config.BareBaseNamesOnDisk()...)
 			name := repoNameFromURL(req.Repo, existingNames)
 			h.config.Repos = append(h.config.Repos, config.Repo{
 				Name:     name,

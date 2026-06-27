@@ -497,6 +497,11 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 				if r.VCS == "sapling" {
 					barePath = r.Name
 				} else {
+					// Avoid adopting a bare base on disk that belongs to a
+					// different remote (e.g. a repo removed from config whose
+					// base, and its workspaces, remain). Disambiguate the name
+					// so this repo gets its own base instead of the stale one.
+					r.Name = repoNameFromURL(r.URL, cfg.ConflictingBaseNames(r.URL))
 					barePath = r.Name + ".git"
 				}
 			}

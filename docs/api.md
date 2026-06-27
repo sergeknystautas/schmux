@@ -1423,6 +1423,8 @@ The `tmux_binary` field is validated on save: the path must exist, be executable
 
 **Enabling authentication.** A request that results in `access_control.enabled=true` and touches an auth-relevant field (`access_control`, `network.tls`, `network.public_base_url`) is strictly validated. If TLS cert/key, `public_base_url`, or the GitHub `client_id`/`client_secret` are missing, the request is rejected with `400` and the live config is left unchanged (no partial in-memory enable). Enabling also ensures a usable `auth.session_secret` exists. Disabling auth is never blocked.
 
+**Bare-path disambiguation for new git repos.** When a repo is newly added (its URL not already in config), its `bare_path` is derived from the repo name (`<name>.git`). If a bare base already exists on disk at that path but belongs to a different remote (e.g. a repo previously removed from config whose base and workspaces remain), the new repo's name is disambiguated (owner-prefixed, then numeric-suffixed) so it gets its own base rather than silently adopting the foreign one. A base whose origin matches the URL is reused. Existing repos (URL already in config) keep their stored `bare_path` unchanged.
+
 Response:
 
 - 200: `{"status":"ok","message":"Config saved and reloaded. Changes are now in effect.","warnings":["optional warnings"]}`
