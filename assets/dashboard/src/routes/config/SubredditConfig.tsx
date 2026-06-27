@@ -142,12 +142,12 @@ export default function SubredditConfig({ state, dispatch, models }: ConfigPanel
             <p className="form-group__hint mb-md">
               Select which repositories should generate posts.
             </p>
-            <div className="repo-list">
+            <div className="checkbox-list">
               {state.repos.map((repo) => {
                 const slug = repoSlug(repo.name);
                 const isEnabled = state.subredditRepos[slug] !== false;
                 return (
-                  <label key={slug} className="flex-row gap-xs cursor-pointer">
+                  <label key={slug} className="checkbox-list__item">
                     <input type="checkbox" checked={isEnabled} onChange={() => toggleRepo(slug)} />
                     <span>{repo.name}</span>
                   </label>

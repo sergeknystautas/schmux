@@ -79,18 +79,18 @@ export default function RepofeedConfig({ state, dispatch }: ConfigPanelProps) {
             <p className="form-group__hint">Choose which repos to include in the repofeed.</p>
           </div>
           <div className="settings-section__body">
-            {state.repos.map((repo) => {
-              const slug = repoSlug(repo.name);
-              const enabled = state.repofeedRepos[slug] === true;
-              return (
-                <div key={slug} className="form-group">
-                  <label className="form-group__label cursor-pointer">
-                    <input type="checkbox" checked={enabled} onChange={() => toggleRepo(slug)} />{' '}
-                    {repo.name}
+            <div className="checkbox-list">
+              {state.repos.map((repo) => {
+                const slug = repoSlug(repo.name);
+                const enabled = state.repofeedRepos[slug] === true;
+                return (
+                  <label key={slug} className="checkbox-list__item">
+                    <input type="checkbox" checked={enabled} onChange={() => toggleRepo(slug)} />
+                    <span>{repo.name}</span>
                   </label>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
       )}

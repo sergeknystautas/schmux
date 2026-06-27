@@ -326,6 +326,8 @@ control, then `__hint` (`0.75rem`, faint) or `__error` (`0.75rem`, danger).
 Inputs/selects/textareas: `8px 12px`, 1px border, `--radius-md`, `0.875rem`,
 focus = accent border + `0 0 0 3px var(--color-accent-subtle)` ring (no outline).
 Collections of editable items use `.item-list`; add-forms use `.add-item-form`.
+Lists of toggleable options (e.g. selecting which repos a feature applies to) use
+`.checkbox-list` with `.checkbox-list__item` rows (a checkbox plus a `<span>` label).
 
 ### Status pills, badges, dots
 
@@ -387,7 +389,7 @@ Two sanctioned homes for styles, both consuming the same tokens:
 
 1. **`global.css`** — design tokens, shared primitives (`.btn`, `.form-group`,
    `.settings-section`, `.status-pill`, `.modal`, `.app-header`, `.wizard__*`,
-   `.item-list`, `.env-table`, …) and existing page sections. Naming:
+   `.item-list`, `.checkbox-list`, `.env-table`, …) and existing page sections. Naming:
    **kebab-case BEM-ish** — `block__element--modifier` (`.session-tab__name`,
    `.btn--primary`, `.env-badge--in-sync`).
 2. **CSS modules** (`*.module.css`) — page- or component-scoped styles that aren't

@@ -222,7 +222,7 @@ export default function BuildMonitorConfig({ state, dispatch, models }: ConfigPa
             <p className="form-group__hint">No GitHub repositories configured.</p>
           ) : (
             <div className="form-group">
-              <div className="flex-col gap-xs">
+              <div className="checkbox-list">
                 {githubRepos.map((repo) => {
                   const slug = repoSlug(repo.name);
                   const rc = state.buildMonitorRepos[repo.name] || {
@@ -233,7 +233,7 @@ export default function BuildMonitorConfig({ state, dispatch, models }: ConfigPa
 
                   return (
                     <React.Fragment key={slug}>
-                      <label className="flex-row gap-xs cursor-pointer">
+                      <label className="checkbox-list__item">
                         <input
                           type="checkbox"
                           checked={!!rc.enabled}

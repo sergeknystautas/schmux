@@ -4510,6 +4510,20 @@ a:hover {
   min-width: 140px;
 }
 
+/* Checkbox list — a compact vertical list of toggleable options (e.g. selecting
+   which repos a feature applies to). Rows are <label> with a checkbox + <span>. */
+.checkbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+.checkbox-list__item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  cursor: pointer;
+}
+
 /* Model Catalog */
 .model-catalog {
   display: flex;
