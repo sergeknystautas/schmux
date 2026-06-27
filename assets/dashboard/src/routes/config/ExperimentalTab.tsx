@@ -105,6 +105,24 @@ export default function ExperimentalTab({ state, dispatch, models }: Experimenta
               </label>
             ))}
           </div>
+          {(() => {
+            const commitFenceDisabled = !state.fenceAvailable || state.fenceMode === 'disabled';
+            return (
+              <label
+                className="flex-row gap-xs cursor-pointer mt-sm"
+                style={commitFenceDisabled ? { opacity: 0.5 } : undefined}
+              >
+                <input
+                  type="checkbox"
+                  checked={state.fenceCommit && !commitFenceDisabled}
+                  disabled={commitFenceDisabled}
+                  onChange={(e) => setField('fenceCommit', e.target.checked)}
+                  data-testid="fence-commit"
+                />
+                <span>Run commits (from the commit tab) inside the fence sandbox.</span>
+              </label>
+            );
+          })()}
         </div>
       </div>
     </div>

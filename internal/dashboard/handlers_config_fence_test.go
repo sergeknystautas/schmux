@@ -40,3 +40,22 @@ func TestConfigUpdateFenceMode(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigUpdateFenceCommit(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+	h := newTestConfigHandlers(server)
+
+	if rr := postConfig(t, h, contracts.ConfigUpdateRequest{FenceCommit: ptr(true)}); rr.Code != http.StatusOK {
+		t.Fatalf("enable status = %d (%s)", rr.Code, rr.Body.String())
+	}
+	if !cfg.FenceCommit {
+		t.Fatal("cfg.FenceCommit = false after enabling, want true")
+	}
+
+	if rr := postConfig(t, h, contracts.ConfigUpdateRequest{FenceCommit: ptr(false)}); rr.Code != http.StatusOK {
+		t.Fatalf("disable status = %d (%s)", rr.Code, rr.Body.String())
+	}
+	if cfg.FenceCommit {
+		t.Fatal("cfg.FenceCommit = true after disabling, want false")
+	}
+}

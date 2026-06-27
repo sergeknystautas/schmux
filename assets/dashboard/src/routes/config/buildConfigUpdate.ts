@@ -131,6 +131,7 @@ export function buildConfigUpdate(state: ConfigFormState): ConfigUpdateRequest {
     comm_styles_enabled: state.commStylesEnabled,
     backburner_enabled: state.backburnerEnabled,
     fence_mode: state.fenceMode,
+    fence_commit: state.fenceCommit,
     local_echo_remote: state.localEchoRemote,
     debug_ui: state.debugUI,
     clipboard_sync_enabled: state.clipboardSyncEnabled,

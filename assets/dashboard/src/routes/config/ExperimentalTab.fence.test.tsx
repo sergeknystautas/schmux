@@ -39,4 +39,28 @@ describe('ExperimentalTab fence card', () => {
       expect.objectContaining({ type: 'SET_FIELD', field: 'fenceMode', value: 'optional_on' })
     );
   });
+
+  it('reflects fenceCommit and dispatches SET_FIELD when toggled', async () => {
+    dispatch.mockClear();
+    renderTab({ fenceAvailable: true, fenceMode: 'optional_off', fenceCommit: true });
+    const checkbox = screen.getByTestId('fence-commit');
+    expect(checkbox).toBeChecked();
+    expect(checkbox).not.toBeDisabled();
+    await userEvent.click(checkbox);
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'SET_FIELD', field: 'fenceCommit', value: false })
+    );
+  });
+
+  it('disables the commit checkbox when fence is unavailable or mode is disabled', () => {
+    renderTab({ fenceAvailable: false, fenceMode: 'optional_off', fenceCommit: true });
+    const whenUnavailable = screen.getByTestId('fence-commit');
+    expect(whenUnavailable).toBeDisabled();
+    expect(whenUnavailable).not.toBeChecked();
+
+    renderTab({ fenceAvailable: true, fenceMode: 'disabled', fenceCommit: true });
+    const whenDisabled = screen.getAllByTestId('fence-commit')[1];
+    expect(whenDisabled).toBeDisabled();
+    expect(whenDisabled).not.toBeChecked();
+  });
 });

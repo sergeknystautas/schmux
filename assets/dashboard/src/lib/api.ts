@@ -978,6 +978,13 @@ export async function spawnCommitSession(
   // Build prompt: base template + pre-commit instructions + file list
   const prompt = promptTemplate + '\n\n' + PRE_COMMIT_INSTRUCTIONS + '\n\nFiles:\n' + fileList;
 
+  // Run the commit session fenced only when configured and fence is usable —
+  // mirrors the spawn backstop so the commit never hard-fails on an invalid combo.
+  const fence =
+    !!config.fence_commit &&
+    config.fence_mode !== 'disabled' &&
+    (config.system_capabilities?.fence_available ?? false);
+
   const spawnRequest: SpawnRequest = {
     repo,
     branch,
@@ -985,6 +992,7 @@ export async function spawnCommitSession(
     prompt,
     targets: { [target]: 1 },
     workspace_id: workspaceId,
+    fence,
   };
 
   return spawnSessions(spawnRequest);

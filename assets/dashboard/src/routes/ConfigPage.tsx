@@ -213,6 +213,7 @@ export default function ConfigPage() {
           commStylesEnabled: data.comm_styles_enabled ?? false,
           backburnerEnabled: data.backburner_enabled ?? false,
           fenceMode: data.fence_mode ?? 'optional_off',
+          fenceCommit: data.fence_commit ?? false,
           fenceAvailable: data.system_capabilities?.fence_available ?? false,
           localEchoRemote: data.local_echo_remote || false,
           debugUI: data.debug_ui ?? false,

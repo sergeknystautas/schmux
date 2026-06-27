@@ -278,6 +278,7 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 		CommStylesEnabled:    h.config.GetCommStylesEnabled(),
 		BackburnerEnabled:    h.config.GetBackburnerEnabled(),
 		FenceMode:            h.config.GetFenceMode(),
+		FenceCommit:          h.config.FenceCommit,
 		ClipboardSyncEnabled: h.config.GetClipboardSyncEnabled(),
 		LocalEchoRemote:      h.config.LocalEchoRemote,
 		SaplingCommands: func() *contracts.SaplingCommandsUpdate {
@@ -956,6 +957,10 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 			writeJSONError(w, fmt.Sprintf("invalid fence_mode: %q", *req.FenceMode), http.StatusBadRequest)
 			return
 		}
+	}
+
+	if req.FenceCommit != nil {
+		cfg.FenceCommit = *req.FenceCommit
 	}
 
 	if req.ClipboardSyncEnabled != nil {

@@ -1094,6 +1094,7 @@ Response:
   "comm_styles_enabled": false,
   "backburner_enabled": false,
   "fence_mode": "optional_off",
+  "fence_commit": false,
   "clipboard_sync_enabled": true,
   "repos": [{ "name": "repo", "url": "https://...", "vcs": "sapling" }],
   "run_targets": [{ "name": "target", "type": "promptable", "command": "...", "source": "user" }],
@@ -1255,6 +1256,8 @@ The legacy string form is rejected at config-load time. If you have an older con
 
 **`fence_mode`** (string, optional, default `optional_off`): Gates the fence feature and the spawn checkbox default. One of `disabled` (feature hidden; `fence:true` spawns hard-fail with "fenced sessions are disabled"), `optional_off` (checkbox shown, unchecked — the default, omitted from config when set), or `optional_on` (checkbox shown, pre-checked). Orthogonal to `system_capabilities.fence_available`, which reports whether the `fence` binary is detected.
 
+**`fence_commit`** (boolean, optional, default `false`): When `true`, the Git tab's "commit" action spawns its commit-message session inside the `fence` OS sandbox (sets `fence:true` on that spawn). The dashboard gates the toggle on `system_capabilities.fence_available` and a non-`disabled` `fence_mode`, and the client only sends `fence:true` for the commit spawn when both hold — matching the spawn endpoint's backstop so the commit never hard-fails on an invalid combo.
+
 **`clipboard_sync_enabled`** (boolean, default `true`): Controls terminal clipboard sync. When `true` (default), an agent's OSC 52 clipboard copy surfaces an approve/reject banner in the dashboard and tmux forwards OSC 52 with `set-clipboard external`. When `false`, the banner is suppressed and `set-clipboard off` is applied to every managed local tmux socket and to remote-host tmux servers, so tmux stops acting on OSC 52. Applied live on toggle with no daemon restart. Paste-into-session (keystroke forwarding) is unaffected in both states, and the OSC 52 extractor keeps stripping the sequence from the dashboard terminal stream regardless. Unlike most response fields this one omits `omitempty`, so an explicit `false` always round-trips.
 
 **`tmux_binary`**: Path to a custom tmux binary. When empty or omitted, the system default from `$PATH` is used. The path is validated on save (must exist, be executable, and output a recognized tmux version string). Changing this field flags `needs_restart`.
@@ -1300,6 +1303,7 @@ Request:
   "comm_styles_enabled": false,
   "backburner_enabled": false,
   "fence_mode": "optional_off",
+  "fence_commit": false,
   "clipboard_sync_enabled": true,
   "repos": [{ "name": "repo", "url": "https://...", "vcs": "sapling" }],
   "run_targets": [{ "name": "target", "type": "promptable", "command": "...", "source": "user" }],

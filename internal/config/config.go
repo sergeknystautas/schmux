@@ -127,6 +127,7 @@ type ConfigData struct {
 	CommStylesEnabled          bool                        `json:"comm_styles_enabled,omitempty"`
 	BackburnerEnabled          bool                        `json:"backburner_enabled,omitempty"`
 	FenceMode                  string                      `json:"fence_mode,omitempty"`
+	FenceCommit                bool                        `json:"fence_commit,omitempty"`
 	ClipboardSyncEnabled       *bool                       `json:"clipboard_sync_enabled,omitempty"`
 	Timelapse                  *TimelapseConfig            `json:"timelapse,omitempty"`
 
