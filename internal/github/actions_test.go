@@ -182,3 +182,61 @@ func TestDownloadJobLogs_NotFound(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
+
+// A permission 403 (org OAuth-app restriction, missing scope, private repo)
+// still has rate-limit quota and must NOT be reported as a rate limit — that
+// misleads operators into chasing a throttling problem that doesn't exist.
+func TestListWorkflows_403PermissionIsForbiddenNotRateLimit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-RateLimit-Remaining", "4959")
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"message":"the org has enabled OAuth App access restrictions"}`))
+	}))
+	defer srv.Close()
+	old := apiBaseURL
+	apiBaseURL = srv.URL
+	defer func() { apiBaseURL = old }()
+
+	_, err := ListWorkflows(context.Background(), "tok", RepoInfo{Owner: "o", Repo: "r"})
+	if !IsForbidden(err) {
+		t.Fatalf("err = %v, want ErrForbidden", err)
+	}
+	if _, ok := err.(*RateLimitError); ok {
+		t.Fatalf("permission 403 must not be a RateLimitError, got %v", err)
+	}
+}
+
+// A genuine primary rate limit zeroes the remaining counter; that case must
+// still surface as a RateLimitError.
+func TestListWorkflows_403RateLimitWhenRemainingZero(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"message":"API rate limit exceeded"}`))
+	}))
+	defer srv.Close()
+	old := apiBaseURL
+	apiBaseURL = srv.URL
+	defer func() { apiBaseURL = old }()
+
+	_, err := ListWorkflows(context.Background(), "tok", RepoInfo{Owner: "o", Repo: "r"})
+	if _, ok := err.(*RateLimitError); !ok {
+		t.Fatalf("err = %T (%v), want *RateLimitError", err, err)
+	}
+}
+
+// A 429 is always a rate limit regardless of headers.
+func TestListWorkflows_429IsRateLimit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+	old := apiBaseURL
+	apiBaseURL = srv.URL
+	defer func() { apiBaseURL = old }()
+
+	_, err := ListWorkflows(context.Background(), "tok", RepoInfo{Owner: "o", Repo: "r"})
+	if _, ok := err.(*RateLimitError); !ok {
+		t.Fatalf("err = %T (%v), want *RateLimitError", err, err)
+	}
+}

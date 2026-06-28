@@ -97,6 +97,8 @@ func classify(err error) string {
 	switch {
 	case github.IsUnauthorized(err):
 		return "unauthorized"
+	case github.IsForbidden(err):
+		return "forbidden (check repo access / org SSO authorization)"
 	case github.IsNotFound(err):
 		return "not found"
 	default:

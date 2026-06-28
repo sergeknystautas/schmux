@@ -140,9 +140,11 @@ type WorkflowJob struct {
 
 var ErrUnauthorized = fmt.Errorf("github: unavailable")
 var ErrNotFound = fmt.Errorf("github: unavailable")
+var ErrForbidden = fmt.Errorf("github: unavailable")
 
 func IsUnauthorized(_ error) bool { return false }
 func IsNotFound(_ error) bool     { return false }
+func IsForbidden(_ error) bool    { return false }
 
 // ListWorkflows returns an error when the GitHub module is excluded.
 func ListWorkflows(_ context.Context, _ string, _ RepoInfo) ([]Workflow, error) {

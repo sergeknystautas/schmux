@@ -3,6 +3,7 @@
 package github
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,11 +19,38 @@ var ErrUnauthorized = errors.New("github: unauthorized")
 // ErrNotFound is returned when the GitHub API responds with 404.
 var ErrNotFound = errors.New("github: not found")
 
+// ErrForbidden is returned when the GitHub API responds with 403 for a reason
+// other than rate limiting — a missing scope, a private repo, or an org
+// OAuth-app/SSO access restriction. Reporting these as rate limits sends
+// operators chasing a throttling problem that isn't there.
+var ErrForbidden = errors.New("github: forbidden")
+
 // IsUnauthorized reports whether the error is a GitHub 401.
 func IsUnauthorized(err error) bool { return errors.Is(err, ErrUnauthorized) }
 
 // IsNotFound reports whether the error is a GitHub 404.
 func IsNotFound(err error) bool { return errors.Is(err, ErrNotFound) }
+
+// IsForbidden reports whether the error is a non-rate-limit GitHub 403.
+func IsForbidden(err error) bool { return errors.Is(err, ErrForbidden) }
+
+// forbiddenError classifies a 403/429 response. GitHub overloads 403 for both
+// rate limits and genuine permission failures, so the status alone can't tell
+// them apart. A real rate limit zeroes X-RateLimit-Remaining (primary) or
+// sends Retry-After / a "rate limit" body (secondary); everything else is a
+// permission error. A 429 is always a rate limit. The body is consumed.
+func forbiddenError(resp *http.Response) error {
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return &RateLimitError{RetryAfterSec: parseRetryAfter(resp)}
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if resp.Header.Get("X-RateLimit-Remaining") == "0" ||
+		resp.Header.Get("Retry-After") != "" ||
+		bytes.Contains(bytes.ToLower(body), []byte("rate limit")) {
+		return &RateLimitError{RetryAfterSec: parseRetryAfter(resp)}
+	}
+	return ErrForbidden
+}
 
 // Workflow represents a GitHub Actions workflow definition.
 type Workflow struct {
@@ -71,8 +99,8 @@ func doActionsGET(ctx context.Context, token, path string, out any) error {
 		return json.NewDecoder(resp.Body).Decode(out)
 	case http.StatusUnauthorized:
 		return ErrUnauthorized
-	case http.StatusForbidden:
-		return &RateLimitError{RetryAfterSec: parseRetryAfter(resp)}
+	case http.StatusForbidden, http.StatusTooManyRequests:
+		return forbiddenError(resp)
 	case http.StatusNotFound:
 		return ErrNotFound
 	default:
@@ -153,8 +181,8 @@ func DownloadJobLogs(ctx context.Context, token string, info RepoInfo, jobID int
 		return data, nil
 	case http.StatusUnauthorized:
 		return nil, ErrUnauthorized
-	case http.StatusForbidden:
-		return nil, &RateLimitError{RetryAfterSec: parseRetryAfter(resp)}
+	case http.StatusForbidden, http.StatusTooManyRequests:
+		return nil, forbiddenError(resp)
 	case http.StatusNotFound:
 		return nil, ErrNotFound
 	default:

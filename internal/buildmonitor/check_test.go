@@ -131,3 +131,11 @@ func TestCheckUnit_Unauthorized(t *testing.T) {
 		t.Fatalf("expected unauthorized, got %q", got.LastError)
 	}
 }
+
+func TestCheckUnit_Forbidden(t *testing.T) {
+	f := fakeActions{err: github.ErrForbidden}
+	got := CheckUnit(context.Background(), f, testUnit)
+	if got.LastError != "forbidden (check repo access / org SSO authorization)" {
+		t.Fatalf("expected forbidden message, got %q", got.LastError)
+	}
+}

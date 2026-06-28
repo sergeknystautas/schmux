@@ -49,9 +49,8 @@ func CheckVisibility(info RepoInfo) (bool, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusForbidden {
-		retryAfter := parseRetryAfter(resp)
-		return false, &RateLimitError{RetryAfterSec: retryAfter}
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
+		return false, forbiddenError(resp)
 	}
 	if resp.StatusCode == http.StatusNotFound {
 		return false, nil
@@ -86,9 +85,8 @@ func FetchOpenPRs(info RepoInfo, repoName, repoURL string) ([]contracts.PullRequ
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusForbidden {
-		retryAfter := parseRetryAfter(resp)
-		return nil, &RateLimitError{RetryAfterSec: retryAfter}
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
+		return nil, forbiddenError(resp)
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
