@@ -190,7 +190,7 @@ Schmux can know model endpoint hosts for resolved model runners. For example, a 
 "network": { "allowedDomains": ["api.z.ai"] }
 ```
 
-A repo adds its own service endpoints (for example `mcp.posthog.com`) via `fence.allowed_domains` in its `.schmux/config.json`; schmux core no longer hardcodes app domains; each harness declares its own control-plane domains in its adapter descriptor's `fence_domains`.
+A repo adds its own service endpoints (for example `mcp.posthog.com`) via `fence.allowed_domains` in its `.schmux/config.json`; each harness declares its own control-plane domains in its adapter descriptor's `fence_domains`. Schmux core keeps a narrow always-on baseline (`baselineDomains` in `internal/fence/fence.go`) for hosts every fenced session needs regardless of harness, repo, or model — currently the GitHub Actions results endpoint `results-receiver.actions.githubusercontent.com`.
 
 Do not guess network domains from arbitrary command strings. Unknown blocked destinations should appear in `monitor.log`, then the implementation can add a real source-of-truth if the destination is legitimate.
 
@@ -239,7 +239,7 @@ A repo customizes its fenced sessions through a `fence` block in its own
 - `allowed_domains` add network destinations to the baseline allowlist.
 
 The always-on baseline (any fenced repo) is `extends: "code"`, the workspace +
-git-worktree writable paths, the `cmd.sh` read, the selected harness's `fence_domains`, auto model-endpoint domains, and
+git-worktree writable paths, the `cmd.sh` read, the core `baselineDomains` network hosts, the selected harness's `fence_domains`, auto model-endpoint domains, and
 the generic `GIT_TEMPLATE_DIR`/`XDG_CACHE_HOME` caches. Anything language- or
 workload-specific is now a preset; a repo with no `fence` block gets the baseline
 only.

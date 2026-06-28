@@ -72,7 +72,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 	cacheRoot := filepath.Join(c.WorkspacePath, filepath.FromSlash(fenceCacheRel))
 	env := baselineEnv(cacheRoot)
 	var goFlags, goTelemetry, allUnix, dockerConfig bool
-	var domains []string
+	domains := append([]string{}, baselineDomains...)
 	for _, name := range c.Presets {
 		p, ok := presets[name]
 		if !ok {
@@ -199,6 +199,14 @@ var presets = map[string]preset{
 		dockerConfig:   true,
 		domains:        dockerHubPullDomains,
 	},
+}
+
+// baselineDomains are network hosts allowed for every fenced session,
+// independent of harness, repo, model endpoint, or preset.
+var baselineDomains = []string{
+	// GitHub Actions results-upload endpoint; gh and Actions workflows inside
+	// the fence reach it when running or checking CI.
+	"results-receiver.actions.githubusercontent.com",
 }
 
 // dockerHubPullDomains are the Docker Hub auth and registry endpoints a fenced

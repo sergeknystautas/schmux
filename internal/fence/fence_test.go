@@ -82,7 +82,7 @@ func TestWrapWritesArtifactsAndCommand(t *testing.T) {
 	if s.Extends != "code" {
 		t.Errorf("extends = %q, want code", s.Extends)
 	}
-	wantDomains := []string{"mcp.posthog.com", "api.z.ai"}
+	wantDomains := append([]string{"mcp.posthog.com", "api.z.ai"}, baselineDomains...)
 	if s.Network == nil || len(s.Network.AllowedDomains) != len(wantDomains) {
 		t.Errorf("network.allowedDomains = %+v, want %v", s.Network, wantDomains)
 	} else {
