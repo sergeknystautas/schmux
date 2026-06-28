@@ -22,6 +22,7 @@ import SessionDetailPage from './routes/SessionDetailPage';
 const SpawnPage = lazy(() => import('./routes/SpawnPage'));
 const TipsPage = lazy(() => import('./routes/TipsPage'));
 const ConfigPage = lazy(() => import('./routes/ConfigPage'));
+const LogsPage = lazy(() => import('./routes/LogsPage'));
 const DiffPage = lazy(() => import('./routes/DiffPage'));
 const MarkdownPreviewPage = lazy(() => import('./routes/MarkdownPreviewPage'));
 const ImagePreviewPage = lazy(() => import('./routes/ImagePreviewPage'));
@@ -98,6 +99,7 @@ export default function App() {
                                 <Route path="/spawn" element={<SpawnPage key={location.key} />} />
                                 <Route path="/tips" element={<TipsPage />} />
                                 <Route path="/config" element={<ConfigPage />} />
+                                <Route path="/logs" element={<LogsPage />} />
                                 <Route path="/environment" element={<EnvironmentPage />} />
                                 <Route path="/overlays" element={<OverlayPage />} />
                                 <Route

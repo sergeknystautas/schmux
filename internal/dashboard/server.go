@@ -657,6 +657,7 @@ func (s *Server) Start() error {
 	r.HandleFunc("/ws/terminal/{id}", s.handleTerminalWebSocket)
 	r.HandleFunc("/ws/provision/{id}", s.handleProvisionWebSocket)
 	r.HandleFunc("/ws/dashboard", s.handleDashboardWebSocket)
+	r.HandleFunc("/ws/logs/{source}", s.handleLogsWebSocket)
 
 	// App shell + static assets
 	if s.devProxy {

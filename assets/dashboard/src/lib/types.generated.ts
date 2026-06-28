@@ -816,6 +816,31 @@ export interface SpawnEntry {
   metadata?: SpawnMetadata;
 }
 
+export interface SpawnLogRecord {
+  ts: string;
+  repo?: string;
+  branch?: string;
+  workspace_id?: string;
+  targets?: Record<string, number>;
+  command?: string;
+  nickname?: string;
+  fence?: boolean;
+  resume?: boolean;
+  remote_profile_id?: string;
+  remote_flavor?: string;
+  prompt?: string;
+  status: string;
+  results: SpawnLogResult[];
+}
+
+export interface SpawnLogResult {
+  target?: string;
+  command?: string;
+  session_id?: string;
+  workspace_id?: string;
+  error?: string;
+}
+
 export interface SpawnMetadata {
   skill_name: string;
   skill_content?: string;

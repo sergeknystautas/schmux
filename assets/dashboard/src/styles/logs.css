@@ -1,0 +1,126 @@
+/* Logs page — layout only. Colors, spacing, radii, and fonts use design tokens;
+   the source select (.select), buttons (.btn), connection status (.status-pill),
+   and per-row status (.badge) use the shared primitives. */
+
+.logs-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.logs-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-surface-alt);
+}
+
+.logs-header .select {
+  width: auto;
+}
+
+.logs-header .btn {
+  margin-left: auto;
+}
+
+.logs-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  background-color: var(--color-surface);
+}
+
+.logs-row {
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.logs-row.status-ok {
+  border-left: 3px solid var(--color-success);
+}
+
+.logs-row.status-partial {
+  border-left: 3px solid var(--color-warning);
+}
+
+.logs-row.status-failed {
+  border-left: 3px solid var(--color-danger);
+}
+
+.logs-row-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.logs-row-head:hover {
+  background-color: var(--color-surface-alt);
+}
+
+.logs-ts {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.logs-repo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-text);
+}
+
+.logs-branch,
+.logs-ws,
+.logs-models {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.logs-row-head .badge {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.logs-row-body {
+  padding: var(--spacing-sm);
+  background-color: var(--color-surface-alt);
+}
+
+.logs-prompt {
+  margin: 0 0 var(--spacing-sm);
+  padding: var(--spacing-sm);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text);
+}
+
+.logs-row-body .btn {
+  margin-bottom: var(--spacing-sm);
+}
+
+.logs-results {
+  margin: 0;
+  padding-left: var(--spacing-md);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.logs-results li {
+  margin-bottom: var(--spacing-xxs);
+}

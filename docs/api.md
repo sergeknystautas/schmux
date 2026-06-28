@@ -4137,6 +4137,20 @@ Errors:
 - 404: "remote host connection not found"
 - 503: "remote workspace support not enabled" / "provisioning terminal not available"
 
+### WS /ws/logs/{source}
+
+Dedicated read-only WebSocket for the Logs page. On connect, the server sends the source file's existing contents as backlog (one text message per JSONL line), then streams each appended line live. One connection per Logs page; the tailer stops on disconnect.
+
+Server -> client messages: one text message per line, each a JSON object (the record type for that source). Records arrive in file order — backlog first, then live appends.
+
+Sources:
+
+- `spawn` → `~/.schmux/logs/spawn.jsonl`. One `SpawnLogRecord` per line: a resolved spawn request (repo, branch, targets, full prompt, fence/resume/remote params) plus its synchronous per-target outcome (`results`) and a derived `status` of `ok` (all targets succeeded), `partial` (mixed), or `failed` (all errored). Written for every spawn attempt — command and target spawns alike — from the same sites that already log spawn outcomes, so a prompt is captured before an early failure can discard it. Append-only; survives daemon restarts.
+
+Errors:
+
+- 404: "unknown log source" (unknown `{source}` path parameter)
+
 ## Remote Workspace API
 
 ### GET /api/config/remote-profiles

@@ -26,6 +26,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/spawn"
+	"github.com/sergeknystautas/schmux/internal/spawnlog"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/style"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -57,6 +58,52 @@ type SpawnHandlers struct {
 
 // SpawnRequest is a type alias for contracts.SpawnRequest.
 type SpawnRequest = contracts.SpawnRequest
+
+// SessionResult is one target's spawn outcome, returned to the client and
+// persisted to the spawn log.
+type SessionResult struct {
+	SessionID   string `json:"session_id"`
+	WorkspaceID string `json:"workspace_id"`
+	Target      string `json:"target,omitempty"`
+	Command     string `json:"command,omitempty"`
+	Prompt      string `json:"prompt,omitempty"`
+	Nickname    string `json:"nickname,omitempty"`
+	Error       string `json:"error,omitempty"`
+}
+
+// writeSpawnLog persists one resolved spawn request plus its per-target outcome
+// to the spawn log. Best effort — a write failure is logged, never fatal.
+func writeSpawnLog(logger *log.Logger, req SpawnRequest, results []SessionResult) {
+	out := make([]contracts.SpawnLogResult, 0, len(results))
+	for _, r := range results {
+		out = append(out, contracts.SpawnLogResult{
+			Target:      r.Target,
+			Command:     r.Command,
+			SessionID:   r.SessionID,
+			WorkspaceID: r.WorkspaceID,
+			Error:       r.Error,
+		})
+	}
+	rec := contracts.SpawnLogRecord{
+		TS:              time.Now().UTC().Format(time.RFC3339),
+		Repo:            req.Repo,
+		Branch:          req.Branch,
+		WorkspaceID:     req.WorkspaceID,
+		Targets:         req.Targets,
+		Command:         req.Command,
+		Nickname:        req.Nickname,
+		Fence:           req.Fence,
+		Resume:          req.Resume,
+		RemoteProfileID: req.RemoteProfileID,
+		RemoteFlavor:    req.RemoteFlavor,
+		Prompt:          req.Prompt,
+		Status:          spawnlog.DeriveStatus(out),
+		Results:         out,
+	}
+	if err := spawnlog.Append(rec); err != nil {
+		logging.Sub(logger, "spawnlog").Warn("failed to write spawn log", "err", err)
+	}
+}
 
 // handleSpawnPost handles session spawning requests.
 func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
@@ -249,16 +296,6 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Spawn sessions
-	type SessionResult struct {
-		SessionID   string `json:"session_id"`
-		WorkspaceID string `json:"workspace_id"`
-		Target      string `json:"target,omitempty"`
-		Command     string `json:"command,omitempty"`
-		Prompt      string `json:"prompt,omitempty"`
-		Nickname    string `json:"nickname,omitempty"`
-		Error       string `json:"error,omitempty"`
-	}
-
 	results := make([]SessionResult, 0)
 
 	// Handle command-based spawn (quick launch with shell command)
@@ -318,6 +355,7 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 		if err := json.NewEncoder(w).Encode(results); err != nil {
 			writeJSONError(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
 		}
+		writeSpawnLog(h.logger, req, results)
 		return
 	}
 
@@ -508,6 +546,8 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 			hasSuccess = true
 		}
 	}
+
+	writeSpawnLog(h.logger, req, results)
 
 	// Set intent sharing on workspace if requested
 	if hasSuccess && req.IntentShared {

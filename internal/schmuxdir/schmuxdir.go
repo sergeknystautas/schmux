@@ -30,6 +30,7 @@ func PIDPath() string       { return filepath.Join(Get(), "daemon.pid") }
 func RecordingsDir() string { return filepath.Join(Get(), "recordings") }
 func BackupsDir() string    { return filepath.Join(Get(), "backups") }
 func AdaptersDir() string   { return filepath.Join(Get(), "adapters") }
+func LogsDir() string       { return filepath.Join(Get(), "logs") }
 
 // FenceLaunchDir returns the per-session directory holding fence launch
 // artifacts (settings.json, cmd.sh). Lives outside any workspace so a fenced

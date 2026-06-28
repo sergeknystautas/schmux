@@ -20,7 +20,21 @@ func TestMain(m *testing.M) {
 	detectPortsForPIDFunc = func(pid int) []preview.ListeningPort {
 		return nil
 	}
-	os.Exit(m.Run())
+
+	// Point HOME at a temp dir for the whole package run. schmuxdir.Get() falls
+	// back to $HOME/.schmux whenever its dir is unset — which the per-test
+	// schmuxdir.Set("") cleanups leave it. Without this, a spawn-log write during
+	// such a window would land in the developer's real ~/.schmux.
+	tmpHome, err := os.MkdirTemp("", "schmux-dashboard-home")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "failed to create temp home:", err)
+		os.Exit(1)
+	}
+	os.Setenv("HOME", tmpHome)
+
+	code := m.Run()
+	_ = os.RemoveAll(tmpHome)
+	os.Exit(code)
 }
 
 func tcpLookupPortOwnerForTest(port int) (int, error) {
