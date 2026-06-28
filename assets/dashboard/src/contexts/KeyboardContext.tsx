@@ -11,9 +11,7 @@ import React, {
 type KeyboardModeState = 'inactive' | 'active';
 
 type KeyboardScope =
-  | { type: 'global' }
-  | { type: 'workspace'; id: string }
-  | { type: 'session'; id: string };
+  { type: 'global' } | { type: 'workspace'; id: string } | { type: 'session'; id: string };
 
 type KeyboardContextState = {
   workspaceId: string | null;

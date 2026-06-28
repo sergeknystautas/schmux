@@ -567,23 +567,19 @@ export function useConfigForm(initialStep: number = 1) {
     const filtered = state.modelCatalog.filter((m) =>
       hasExplicit ? m.id in enabled : m.configured
     );
-    return sortModels(filtered).map(
-      (m): TargetOption => ({
-        id: m.id,
-        label: m.display_name,
-        source: 'cli',
-      })
-    );
+    return sortModels(filtered).map((m): TargetOption => ({
+      id: m.id,
+      label: m.display_name,
+      source: 'cli',
+    }));
   }, [state.modelCatalog, state.enabledModels]);
 
   const oneshotOptions = useMemo(() => {
-    return state.oneshotTargets.map(
-      (t): TargetOption => ({
-        id: t.id,
-        label: t.label,
-        source: t.source as TargetOption['source'],
-      })
-    );
+    return state.oneshotTargets.map((t): TargetOption => ({
+      id: t.id,
+      label: t.label,
+      source: t.source as TargetOption['source'],
+    }));
   }, [state.oneshotTargets]);
 
   const commandTargetNames = new Set(state.commandTargets.map((target) => target.name));

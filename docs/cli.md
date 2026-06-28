@@ -190,19 +190,21 @@ schmux spawn -t <target> [flags]
 ```
 
 **Required Flags:**
-| Flag | Description |
-|------|-------------|
+
+| Flag           | Description                                            |
+| -------------- | ------------------------------------------------------ |
 | `-t, --target` | Run target name (user target, detected tool, or model) |
 
 **Optional Flags:**
-| Flag | Description |
-|------|-------------|
-| `-p, --prompt` | Prompt for promptable targets (optional; omit for interactive use) |
+
+| Flag              | Description                                                         |
+| ----------------- | ------------------------------------------------------------------- |
+| `-p, --prompt`    | Prompt for promptable targets (optional; omit for interactive use)  |
 | `-w, --workspace` | Workspace path (e.g., `.` for current dir, or `~/ws/myproject-001`) |
-| `-r, --repo` | Repo name from config (creates new workspace) |
-| `-b, --branch` | Git branch (default: `main`) |
-| `-n, --nickname` | Optional session nickname |
-| `--json` | JSON output for scripting |
+| `-r, --repo`      | Repo name from config (creates new workspace)                       |
+| `-b, --branch`    | Git branch (default: `main`)                                        |
+| `-n, --nickname`  | Optional session nickname                                           |
+| `--json`          | JSON output for scripting                                           |
 
 **Workspace Resolution (in order of precedence):**
 
@@ -339,8 +341,9 @@ schmux tell <session-id> -m "message"
 ```
 
 **Flags:**
-| Flag | Description |
-|------|-------------|
+
+| Flag            | Description                |
+| --------------- | -------------------------- |
 | `-m, --message` | Message to send (required) |
 
 **Example:**
@@ -368,11 +371,12 @@ schmux events <session-id> [--type T] [--last N] [--json]
 ```
 
 **Flags:**
-| Flag | Description |
-|------|-------------|
+
+| Flag     | Description                                                          |
+| -------- | -------------------------------------------------------------------- |
 | `--type` | Filter by event type (`status`, `failure`, `reflection`, `friction`) |
-| `--last` | Show last N events |
-| `--json` | Raw JSON output |
+| `--last` | Show last N events                                                   |
+| `--json` | Raw JSON output                                                      |
 
 **Examples:**
 
@@ -411,10 +415,11 @@ schmux capture <session-id> [--lines N] [--json]
 ```
 
 **Flags:**
-| Flag | Description |
-|------|-------------|
+
+| Flag      | Description                              |
+| --------- | ---------------------------------------- |
 | `--lines` | Number of lines to capture (default: 50) |
-| `--json` | JSON output with metadata |
+| `--json`  | JSON output with metadata                |
 
 **Example:**
 

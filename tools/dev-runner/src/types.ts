@@ -1,11 +1,5 @@
 export type ProcessStatus =
-  | 'idle'
-  | 'starting'
-  | 'running'
-  | 'stopped'
-  | 'crashed'
-  | 'building'
-  | 'pulling';
+  'idle' | 'starting' | 'running' | 'stopped' | 'crashed' | 'building' | 'pulling';
 
 export interface RestartManifest {
   type: 'backend' | 'frontend' | 'both';

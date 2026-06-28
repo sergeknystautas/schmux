@@ -91,7 +91,7 @@ func (g *GitBackend) EnsureRepoBase(ctx context.Context, repoIdentifier, basePat
 			if g.baseOriginURL(ctx, worktreeBasePath) == repoIdentifier {
 				g.manager.logger.Info("worktree base created by concurrent request, using existing", "path", worktreeBasePath)
 			} else {
-				return "", fmt.Errorf("You have duplicate repo URLs that must be fixed: repo %q (%s) conflicts with existing workspaces with the same name (%s). Remove and re-add this in your configuration to resolve this duplicate conflict", repo.Name, repoIdentifier, g.baseOriginURL(ctx, worktreeBasePath))
+				return "", fmt.Errorf("duplicate repo URLs must be fixed: repo %q (%s) conflicts with existing workspaces with the same name (%s). Remove and re-add this in your configuration to resolve this duplicate conflict", repo.Name, repoIdentifier, g.baseOriginURL(ctx, worktreeBasePath))
 			}
 		} else {
 			return "", err

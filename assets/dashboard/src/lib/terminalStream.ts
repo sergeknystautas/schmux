@@ -245,8 +245,7 @@ export default class TerminalStream {
   onStatsUpdate: ((stats: Record<string, unknown>) => void) | null = null;
   onDiagnosticResponse: ((msg: Record<string, unknown>) => void) | null = null;
   onDiagnosticComplete:
-    | ((result: { diagDir: string; verdict: string; findings: string[] }) => void)
-    | null = null;
+    ((result: { diagDir: string; verdict: string; findings: string[] }) => void) | null = null;
 
   // Native typing: client-side input buffering for low-latency typing
   nativeTypingEnabled = false;
@@ -268,8 +267,7 @@ export default class TerminalStream {
   latestIOWorkspaceStats: Record<string, unknown> | null = null;
   onIOWorkspaceStatsUpdate: ((stats: Record<string, unknown>) => void) | null = null;
   onIOWorkspaceDiagnosticComplete:
-    | ((result: { diagDir: string; verdict: string; findings: string[] }) => void)
-    | null = null;
+    ((result: { diagDir: string; verdict: string; findings: string[] }) => void) | null = null;
 
   constructor(
     sessionId: string,
