@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { ConfigResponse } from '../lib/types';
+import { systemCapabilities } from '../lib/test-factories';
 
 // --- Config fixture ---
 
@@ -71,7 +72,7 @@ const baseConfig: ConfigResponse = {
     notify: { ntfy_topic: '', command: '' },
   },
   clipboard_sync_enabled: true,
-  system_capabilities: { iterm2_available: false, fence_available: false },
+  system_capabilities: systemCapabilities(),
   needs_restart: false,
   oneshot_targets: [],
   anthropic_oauth_token_set: false,

@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import type { ConfigResponse } from '../lib/types';
+import { systemCapabilities } from '../lib/test-factories';
 
 // --- Mocks ---
 
@@ -91,7 +92,7 @@ const configFixture: ConfigResponse = {
   personas_enabled: true,
   comm_styles_enabled: true,
   clipboard_sync_enabled: true,
-  system_capabilities: { iterm2_available: false, fence_available: false },
+  system_capabilities: systemCapabilities(),
   needs_restart: false,
   oneshot_targets: [],
   anthropic_oauth_token_set: false,

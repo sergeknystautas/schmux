@@ -1,18 +1,23 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { spawnCommitSession } from './api';
 import type { ConfigResponse } from './types.generated';
+import { makeConfig, systemCapabilities } from './test-factories';
 
 const mockFetch = vi.fn();
 
-/** Build a minimal config response, overriding the fence-related fields under test. */
+/**
+ * Build a config response for the commit-tab tests. Pins `commit_message.target`
+ * (spawnCommitSession throws when it is empty) and defaults fence to usable, then
+ * applies the per-test overrides.
+ */
 function configWith(overrides: Partial<ConfigResponse>): ConfigResponse {
-  return {
+  return makeConfig({
     commit_message: { target: 'claude' },
     fence_commit: false,
     fence_mode: 'optional_off',
-    system_capabilities: { fence_available: true },
+    system_capabilities: systemCapabilities({ fence_available: true }),
     ...overrides,
-  } as unknown as ConfigResponse;
+  });
 }
 
 /** Route the three fetches spawnCommitSession makes, returning the supplied config. */
@@ -67,7 +72,7 @@ describe('spawnCommitSession fence wiring', () => {
   });
 
   it('does not fence when fence is unavailable', async () => {
-    stubFetch(configWith({ fence_commit: true, system_capabilities: { fence_available: false } }));
+    stubFetch(configWith({ fence_commit: true, system_capabilities: systemCapabilities() }));
     await spawnCommitSession('ws-1', 'repo', 'main', ['a.ts']);
     expect(spawnFence()).toBe(false);
   });

@@ -2,101 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { ConfigResponse, SpawnRequest, SpawnResult } from '../lib/types';
-
-// --- Fixtures ---
-
-function makeConfig(overrides: Partial<ConfigResponse> = {}): ConfigResponse {
-  return {
-    workspace_path: '/home/user/ws',
-    source_code_management: 'git-worktree',
-    repos: [{ name: 'gitrepo', url: 'https://github.com/user/gitrepo.git', vcs: 'git' }],
-    run_targets: [],
-    runners: {
-      claude: { available: true, capabilities: ['interactive', 'oneshot', 'streaming'] },
-    },
-    models: [
-      {
-        id: 'claude',
-        display_name: 'Claude Code',
-        provider: 'anthropic',
-        configured: true,
-        runners: ['claude'],
-      },
-    ],
-    quick_launch: [],
-    nudgenik: { target: '', viewed_buffer_ms: 5000, seen_interval_ms: 2000 },
-    branch_suggest: { target: '' },
-    conflict_resolve: { target: '', timeout_ms: 120000 },
-    sessions: {
-      dashboard_poll_interval_ms: 5000,
-      git_status_poll_interval_ms: 10000,
-      git_clone_timeout_ms: 300000,
-      git_status_timeout_ms: 30000,
-    },
-    xterm: {
-      query_timeout_ms: 5000,
-      operation_timeout_ms: 10000,
-      use_webgl: true,
-    },
-    network: {
-      bind_address: '127.0.0.1',
-      port: 7337,
-      public_base_url: '',
-      tls: { cert_path: '', key_path: '' },
-    },
-    access_control: { enabled: false, provider: 'github', session_ttl_minutes: 1440 },
-    pr_review: { target: '' },
-    commit_message: { target: '' },
-    desync: { enabled: false, target: '' },
-    io_workspace_telemetry: { enabled: false, target: '' },
-    notifications: {
-      sound_disabled: false,
-      confirm_before_close: false,
-      suggest_dispose_after_push: true,
-    },
-    lore: { enabled: true, llm_target: '', curate_on_dispose: 'session', auto_pr: false },
-    subreddit: {
-      enabled: false,
-      target: '',
-      interval: 30,
-      checking_range: 48,
-      max_posts: 30,
-      max_age: 14,
-      repos: {},
-    },
-    repofeed: {
-      enabled: false,
-      publish_interval_seconds: 30,
-      fetch_interval_seconds: 60,
-      completed_retention_hours: 48,
-      repos: {},
-    },
-    floor_manager: { enabled: false, target: '', rotation_threshold: 150, debounce_ms: 2000 },
-    timelapse: {
-      enabled: true,
-      retention_days: 7,
-      max_file_size_mb: 50,
-      max_total_storage_mb: 500,
-    },
-    remote_access: {
-      enabled: false,
-      timeout_minutes: 0,
-      password_hash_set: false,
-      notify: { ntfy_topic: '', command: '' },
-    },
-    personas_enabled: false,
-    comm_styles_enabled: false,
-    clipboard_sync_enabled: true,
-    fence_mode: 'optional_off',
-    system_capabilities: { iterm2_available: false, fence_available: false },
-    needs_restart: false,
-    oneshot_targets: [],
-    anthropic_oauth_token_set: false,
-    ollama: { endpoint: '', reachable: false, models: [] },
-    build_monitor: { enabled: false, repos: {} },
-    ...overrides,
-  };
-}
+import { makeConfig, systemCapabilities } from '../lib/test-factories';
 
 // --- Mocks ---
 
@@ -214,7 +120,7 @@ describe('SpawnPage fence toggle', () => {
 
   it('hides the fence toggle when fence is unavailable', async () => {
     const cfg = makeConfig({
-      system_capabilities: { iterm2_available: false, fence_available: false },
+      system_capabilities: systemCapabilities(),
     });
     configContextValue = cfg;
     mockGetConfig.mockResolvedValue(cfg);
@@ -227,7 +133,7 @@ describe('SpawnPage fence toggle', () => {
 
   it('shows the fence toggle when fence is available and target is local', async () => {
     const cfg = makeConfig({
-      system_capabilities: { iterm2_available: false, fence_available: true },
+      system_capabilities: systemCapabilities({ fence_available: true }),
     });
     configContextValue = cfg;
     mockGetConfig.mockResolvedValue(cfg);
@@ -238,7 +144,7 @@ describe('SpawnPage fence toggle', () => {
 
   it('hides the fence toggle when fence_mode is disabled even if available', async () => {
     const cfg = makeConfig({
-      system_capabilities: { iterm2_available: false, fence_available: true },
+      system_capabilities: systemCapabilities({ fence_available: true }),
       fence_mode: 'disabled',
     });
     configContextValue = cfg;
@@ -251,7 +157,7 @@ describe('SpawnPage fence toggle', () => {
 
   it('defaults the fence toggle unchecked when fence_mode is optional_off', async () => {
     const cfg = makeConfig({
-      system_capabilities: { iterm2_available: false, fence_available: true },
+      system_capabilities: systemCapabilities({ fence_available: true }),
       fence_mode: 'optional_off',
     });
     configContextValue = cfg;
@@ -264,7 +170,7 @@ describe('SpawnPage fence toggle', () => {
 
   it('defaults the fence toggle checked when fence_mode is optional_on', async () => {
     const cfg = makeConfig({
-      system_capabilities: { iterm2_available: false, fence_available: true },
+      system_capabilities: systemCapabilities({ fence_available: true }),
       fence_mode: 'optional_on',
     });
     configContextValue = cfg;

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import ConfigPage from '../ConfigPage';
 import type { ConfigResponse, ConfigUpdateRequest } from '../../lib/types';
+import { systemCapabilities } from '../../lib/test-factories';
 
 // --- Mocks ---
 
@@ -145,7 +146,7 @@ const configFixture: ConfigResponse = {
     notify: { ntfy_topic: '', command: '' },
   },
   clipboard_sync_enabled: true,
-  system_capabilities: { iterm2_available: false, fence_available: false },
+  system_capabilities: systemCapabilities(),
   needs_restart: false,
   oneshot_targets: [],
   anthropic_oauth_token_set: false,
