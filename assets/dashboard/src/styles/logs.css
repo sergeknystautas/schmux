@@ -124,3 +124,32 @@
 .logs-results li {
   margin-bottom: var(--spacing-xxs);
 }
+
+.logs-subheader {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-surface-alt);
+}
+
+.logs-subheader .select {
+  width: auto;
+}
+
+.logs-subheader .btn {
+  margin-left: auto;
+}
+
+.logs-body--raw {
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+.logs-raw-line {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}

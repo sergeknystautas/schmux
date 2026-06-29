@@ -226,6 +226,10 @@ Remote flavor configuration for SSH-based remote workspaces. Accessible via the 
 
 Compare system shell environment against the tmux server environment. Shows which variables are in sync, differ, or exist only on one side. Sync buttons push individual system values to the tmux server so new sessions pick up changes without restarting.
 
+### Logs (`/logs`)
+
+Live log viewer. The Logs page has two sources. **Spawn** tails the central spawn log. **Fence** first asks you to pick a session that is currently running under the fence sandbox, then live-tails that session's blocked-operation log (raw Fence monitor lines) so you can spot rogue access and decide what to add to the repo's `fence.allowed_domains`.
+
 ### Event Monitor (`/events`, dev mode only)
 
 Real-time event monitor for the unified events system. Shows all events (status, failure, reflection, friction) from active sessions. Sidebar panel shows the last 5 events; full page view at `/events` provides a filterable table with type and session filters, auto-scroll, and expandable rows for raw JSON inspection.
