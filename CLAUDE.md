@@ -238,6 +238,7 @@ Routes:
 - `/ws/terminal/{id}` - WebSocket for live terminal output
 - `/ws/dashboard` - WebSocket for real-time session/workspace updates
 - `/ws/logs/{source}` - WebSocket for streaming a log source (backlog + live tail)
+- `/ws/logs/fence/{id}` - WebSocket tailing one fenced session's `monitor.log`
 
 ## Documentation Conventions
 

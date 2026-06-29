@@ -252,6 +252,8 @@ All fenced sessions run Fence monitor mode (`-m`) and write logs to:
 ~/.schmux/fence/<session-id>/monitor.log
 ```
 
+These per-session logs are viewable live from the dashboard: open `/logs`, choose the **Fence** source, and pick the session. The dashboard tails this file directly; it is not aggregated into a central log.
+
 Use this file to debug blocked network and sandbox violations. This is the first place to check when a fenced agent says an API connection, package fetch, or file operation was blocked.
 
 ## Lifecycle

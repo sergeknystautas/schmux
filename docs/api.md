@@ -4151,6 +4151,14 @@ Errors:
 
 - 404: "unknown log source" (unknown `{source}` path parameter)
 
+### WS /ws/logs/fence/{id}
+
+Dedicated read-only WebSocket for the Logs page "Fence" source. `{id}` is a session id; the server 404s unless it is a known session spawned with the fence sandbox (`SessionResponseItem.fence`). On connect, the server sends the session's `~/.schmux/fence/<id>/monitor.log` existing contents as backlog (one text message per line), then streams each appended line live. Lines are the Fence monitor's raw text (e.g. `[fence:http] … ✗ CONNECT 403 <domain> …`), not JSON. One connection per picked session; the tailer stops on disconnect. The id is validated before any path is built, so it cannot traverse the filesystem.
+
+Errors:
+
+- 404: "unknown fenced session" (unknown id, or a session that was not fenced)
+
 ## Remote Workspace API
 
 ### GET /api/config/remote-profiles

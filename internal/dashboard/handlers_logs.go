@@ -5,15 +5,16 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/spawnlog"
 )
 
-// handleLogsWebSocket streams a log source to the client: existing contents as
-// backlog, then each appended line live. Read-only; one dedicated connection
-// per Logs page. The tailer stops when the client disconnects.
+// handleLogsWebSocket streams a registered log source (e.g. spawn) to the Logs
+// page: existing contents as backlog, then each appended line live.
 func (s *Server) handleLogsWebSocket(w http.ResponseWriter, r *http.Request) {
 	source := chi.URLParam(r, "source")
 	path, ok := spawnlog.SourcePath(source)
@@ -21,7 +22,27 @@ func (s *Server) handleLogsWebSocket(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown log source", http.StatusNotFound)
 		return
 	}
+	s.streamLogFile(w, r, path)
+}
 
+// handleFenceLogWebSocket streams one fenced session's Fence monitor.log. The
+// session id becomes a directory name, so it is validated against the session
+// manager (must exist and be fenced) before any path is built — this both
+// scopes access to real fenced sessions and prevents path traversal.
+func (s *Server) handleFenceLogWebSocket(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	sess, err := s.session.GetSession(id)
+	if err != nil || !sess.Fence {
+		http.Error(w, "unknown fenced session", http.StatusNotFound)
+		return
+	}
+	s.streamLogFile(w, r, filepath.Join(schmuxdir.FenceLaunchDir(id), "monitor.log"))
+}
+
+// streamLogFile upgrades to a websocket and sends path's existing lines as
+// backlog (one text message per line), then live-tails appended lines until the
+// client disconnects. Read-only; the tailer stops on disconnect.
+func (s *Server) streamLogFile(w http.ResponseWriter, r *http.Request, path string) {
 	rawConn, err := s.upgradeWebSocket(w, r, 1024, 64*1024)
 	if err != nil {
 		return
