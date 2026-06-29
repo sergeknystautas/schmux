@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -137,6 +138,67 @@ func TestHandleClipboardPaste_ClipboardWriteCalled(t *testing.T) {
 	// there's no real tmux session — returns 500 "failed to send input".
 	if rr.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500 (SendInput fails without tmux), got %d", rr.Code)
+	}
+}
+
+func TestHandleClipboardPaste_FencedTypesFilePath(t *testing.T) {
+	server, _, st := newTestServer(t)
+
+	// Fenced sessions deny clipboard access inside the sandbox (mach-lookup
+	// com.apple.pasteboard.1), so the handler must NOT touch the macOS
+	// clipboard — it writes the image to a fence-readable file and types the
+	// path into the agent instead, mirroring the remote file fallback.
+	clipboardCalled := false
+	origFunc := setClipboardImageFunc
+	setClipboardImageFunc = func(string) error {
+		clipboardCalled = true
+		return nil
+	}
+	t.Cleanup(func() { setClipboardImageFunc = origFunc })
+
+	st.AddSession(state.Session{
+		ID:          "fenced-sess-1234",
+		WorkspaceID: "ws-1",
+		Target:      "test",
+		TmuxSession: "test-tmux",
+		Fence:       true,
+	})
+
+	imageData := []byte("fake-png-data")
+	body, _ := json.Marshal(clipboardPasteRequest{
+		SessionID: "fenced-sess-1234",
+		ImageB64:  base64.StdEncoding.EncodeToString(imageData),
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/clipboard-paste", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	server.handleClipboardPaste(rr, req)
+
+	if clipboardCalled {
+		t.Fatal("fenced session must not write to the macOS clipboard")
+	}
+	// Typing the path is best-effort (SendInput fails without a real tmux
+	// session), but the file is written and the path returned regardless.
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body: %s)", rr.Code, rr.Body.String())
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp["method"] != "file" {
+		t.Fatalf("expected method=file, got %q", resp["method"])
+	}
+	if resp["file_path"] == "" {
+		t.Fatal("expected file_path in response")
+	}
+	t.Cleanup(func() { os.Remove(resp["file_path"]) })
+
+	got, err := os.ReadFile(resp["file_path"])
+	if err != nil {
+		t.Fatalf("reading written image: %v", err)
+	}
+	if !bytes.Equal(got, imageData) {
+		t.Fatalf("written image = %q, want %q", got, imageData)
 	}
 }
 

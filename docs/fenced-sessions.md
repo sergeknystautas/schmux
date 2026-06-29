@@ -264,6 +264,7 @@ Do not eagerly delete Fence launch directories. A tmux pane respawn may re-read 
 
 - Remote sessions are not fenced.
 - Oneshot commands are not fenced.
+- Clipboard image paste can't use the macOS clipboard: the fence sandbox denies `mach-lookup com.apple.pasteboard.1`, so the agent can't read a pasted image even though the (unfenced) daemon can set it. `POST /api/clipboard-paste` detects a fenced session and falls back to writing the image to a `/tmp` file and typing its path into the agent (which reads images from a path), the same fallback the remote path uses when xclip is unavailable.
 - Raw/user-defined commands may still prompt because schmux does not know their harness-specific unattended flags.
 - OpenCode currently has no descriptor `auto_approve_args`, so it can be fenced but may not run unattended.
 - The `code` template does not imply default-deny reads of all non-workspace paths.

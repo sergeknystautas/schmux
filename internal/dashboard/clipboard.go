@@ -100,6 +100,26 @@ func (s *Server) handleClipboardPaste(w http.ResponseWriter, r *http.Request) {
 			"file_path": result.FilePath,
 		})
 		return
+	} else if sess.Fence {
+		// Fenced local session: the agent inside the sandbox can't read the
+		// macOS clipboard (fence denies mach-lookup com.apple.pasteboard.1), so
+		// the clipboard+Ctrl+V route can't work. Write the image to a
+		// fence-readable temp file and type its path into the agent instead —
+		// the same fallback the remote path uses when xclip is unavailable.
+		// Claude Code reads image files from a path.
+		result, err := s.fencedClipboardPaste(req.SessionID, imageData, logger)
+		if err != nil {
+			logger.Error("fenced clipboard paste failed", "err", err)
+			writeJSONError(w, "failed to paste image: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		logger.Info("clipboard image pasted", "session", req.SessionID[:min(len(req.SessionID), 8)], "size", len(imageData), "method", result.Method)
+		writeJSON(w, map[string]string{
+			"status":    "ok",
+			"method":    result.Method,
+			"file_path": result.FilePath,
+		})
+		return
 	} else {
 		// Local session: write image to local system clipboard, then send Ctrl+V
 		tmpFile, err := os.CreateTemp("", "schmux-clipboard-*.png")
@@ -161,9 +181,33 @@ func setClipboardImage(pngPath string) error {
 	return nil
 }
 
-// remoteClipboardPasteResult contains the result of a remote clipboard paste.
-type remoteClipboardPasteResult struct {
-	// FilePath is the path to the image on the remote host (set when file fallback is used).
+// fencedClipboardPaste writes the image to a fence-readable temp file and types
+// its path into the agent's input. Fenced sessions deny clipboard access, so the
+// clipboard+Ctrl+V route used for unfenced local sessions can't work. /tmp is
+// readable inside the fence and not redirected, so the agent can open the file.
+// Typing is best-effort: the file is written and its path returned even if the
+// keystroke send fails, so the path is never lost.
+func (s *Server) fencedClipboardPaste(sessionID string, imageData []byte, logger *log.Logger) (*clipboardPasteResult, error) {
+	tmpPath := filepath.Join("/tmp", fmt.Sprintf("schmux-clipboard-%s.png", uuid.New().String()[:8]))
+	if err := os.WriteFile(tmpPath, imageData, 0o600); err != nil {
+		return nil, fmt.Errorf("writing image file: %w", err)
+	}
+	tracker, err := s.session.GetTracker(sessionID)
+	if err != nil {
+		logger.Warn("fenced clipboard paste: tracker unavailable, returning file path only", "err", err)
+		return &clipboardPasteResult{Method: "file", FilePath: tmpPath}, nil
+	}
+	if _, err := tracker.SendInput("Image: " + tmpPath); err != nil {
+		logger.Warn("fenced clipboard paste: failed to type file path", "err", err)
+	}
+	logger.Info("fenced clipboard paste via file path", "path", tmpPath)
+	return &clipboardPasteResult{Method: "file", FilePath: tmpPath}, nil
+}
+
+// clipboardPasteResult contains the result of a clipboard paste that used the
+// file fallback — remote (no xclip) or local fenced (no pasteboard access).
+type clipboardPasteResult struct {
+	// FilePath is the path to the written image file (set when file fallback is used).
 	FilePath string `json:"file_path,omitempty"`
 	// Method is "clipboard" or "file" depending on which approach succeeded.
 	Method string `json:"method"`
@@ -172,7 +216,7 @@ type remoteClipboardPasteResult struct {
 // remoteClipboardPaste transfers an image to a remote host and attempts to
 // set the X11 clipboard via xclip. If xclip isn't available, falls back to
 // leaving the file on the remote host and returning its path.
-func remoteClipboardPaste(ctx context.Context, conn *remote.Connection, paneID string, imageData []byte, logger *log.Logger) (*remoteClipboardPasteResult, error) {
+func remoteClipboardPaste(ctx context.Context, conn *remote.Connection, paneID string, imageData []byte, logger *log.Logger) (*clipboardPasteResult, error) {
 	// Max 2MB for remote transfer — base64 goes through tmux send-keys
 	const maxRemoteImageSize = 2 * 1024 * 1024
 	if len(imageData) > maxRemoteImageSize {
@@ -203,7 +247,7 @@ func remoteClipboardPaste(ctx context.Context, conn *remote.Connection, paneID s
 			return nil, fmt.Errorf("failed to send Ctrl+V to remote pane: %w", err)
 		}
 		logger.Info("clipboard paste via xclip", "path", tmpPath)
-		return &remoteClipboardPasteResult{Method: "clipboard"}, nil
+		return &clipboardPasteResult{Method: "clipboard"}, nil
 	}
 
 	// xclip not available — fall back to file-based approach.
@@ -212,7 +256,7 @@ func remoteClipboardPaste(ctx context.Context, conn *remote.Connection, paneID s
 	// files when given a path.
 	logger.Info("xclip not available, typing file path into pane", "path", tmpPath)
 	if _, err := conn.SendKeys(cmdCtx, paneID, " "+tmpPath); err != nil {
-		return &remoteClipboardPasteResult{Method: "file", FilePath: tmpPath}, nil
+		return &clipboardPasteResult{Method: "file", FilePath: tmpPath}, nil
 	}
-	return &remoteClipboardPasteResult{Method: "file", FilePath: tmpPath}, nil
+	return &clipboardPasteResult{Method: "file", FilePath: tmpPath}, nil
 }
