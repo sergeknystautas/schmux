@@ -142,14 +142,41 @@
   margin-left: auto;
 }
 
-.logs-body--raw {
+.logs-fence-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
   padding: var(--spacing-xs) var(--spacing-sm);
-}
-
-.logs-raw-line {
+  border-bottom: 1px solid var(--color-border-subtle);
   font-family: var(--font-mono);
   font-size: 0.75rem;
+}
+
+.logs-fence-row .badge {
+  flex-shrink: 0;
+  background-color: var(--color-surface-alt);
+}
+
+/* Every fence line is a block; the color is just a category label. */
+.logs-fence-badge--network {
+  color: var(--color-graph-lane-1);
+}
+
+.logs-fence-badge--file {
+  color: var(--color-graph-lane-2);
+}
+
+.logs-fence-badge--system {
+  color: var(--color-graph-lane-3);
+}
+
+.logs-fence-badge--other {
+  color: var(--color-text-muted);
+}
+
+.logs-fence-msg {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--color-text);
-  white-space: pre-wrap;
-  word-break: break-word;
 }

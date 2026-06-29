@@ -22,7 +22,9 @@ vi.mock('../hooks/useLogsWebSocket', () => ({
 vi.mock('../hooks/useFenceLogWebSocket', () => ({
   default: (sessionId: string | null) => ({
     connected: sessionId != null,
-    lines: sessionId ? ['[fence:http] 10:52 ✗ CONNECT 403 www.google.com'] : [],
+    lines: sessionId
+      ? ['[fence:http] 10:52:49 ✗ CONNECT 403 www.google.com https://www.google.com:443 (0s)']
+      : [],
   }),
 }));
 
@@ -65,8 +67,12 @@ describe('LogsPage', () => {
     expect(screen.getByRole('option', { name: /alpha/ })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: /beta/ })).toBeNull();
 
-    // Pick it → raw line renders.
+    // Pick it → the line renders as a formatted row: a "network" kind badge
+    // plus the parsed message (the time/channel prefix is stripped).
     fireEvent.change(picker, { target: { value: 'sess-fenced' } });
+    expect(screen.getByText('network')).toBeInTheDocument();
     expect(screen.getByText(/CONNECT 403 www.google.com/)).toBeInTheDocument();
+    expect(screen.getByText('10:52:49')).toBeInTheDocument();
+    expect(screen.queryByText(/\[fence:http\]/)).toBeNull();
   });
 });

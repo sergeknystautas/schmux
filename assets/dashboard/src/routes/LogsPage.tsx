@@ -3,6 +3,7 @@ import '../styles/logs.css';
 import useLogsWebSocket from '../hooks/useLogsWebSocket';
 import useFenceLogWebSocket from '../hooks/useFenceLogWebSocket';
 import { useSessions } from '../contexts/SessionsContext';
+import { parseFenceLine } from '../lib/fenceLog';
 import type { SpawnLogRecord } from '../lib/types.generated';
 
 const SOURCES = [
@@ -20,6 +21,11 @@ export default function LogsPage() {
   const [source, setSource] = useState('spawn');
   return (
     <div className="logs-page">
+      <div className="app-header">
+        <div className="app-header__info">
+          <h1 className="app-header__meta">Logs</h1>
+        </div>
+      </div>
       <div className="logs-header">
         <select
           className="select"
@@ -85,7 +91,7 @@ function FenceLogView() {
   const fenced = workspaces.flatMap((ws) =>
     (ws.sessions ?? [])
       .filter((sx) => sx.fence)
-      .map((sx) => ({ id: sx.id, label: `${sx.nickname || sx.id} — ${ws.label || ws.branch}` }))
+      .map((sx) => ({ id: sx.id, label: `${ws.label || ws.branch} — ${sx.nickname || sx.id}` }))
   );
 
   const onScroll = () => {
@@ -118,12 +124,17 @@ function FenceLogView() {
         {sessionId && <ConnPill connected={connected} />}
       </div>
       {sessionId && (
-        <div className="logs-body logs-body--raw" ref={scrollRef} onScroll={onScroll}>
-          {lines.map((line, i) => (
-            <div key={i} className="logs-raw-line">
-              {line}
-            </div>
-          ))}
+        <div className="logs-body" ref={scrollRef} onScroll={onScroll}>
+          {lines.map((line, i) => {
+            const f = parseFenceLine(line);
+            return (
+              <div key={i} className="logs-fence-row">
+                <span className="logs-ts">{f.time}</span>
+                <span className={`badge logs-fence-badge--${f.kind}`}>{f.kind}</span>
+                <span className="logs-fence-msg">{f.message}</span>
+              </div>
+            );
+          })}
         </div>
       )}
     </>
