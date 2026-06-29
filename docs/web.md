@@ -228,7 +228,7 @@ Compare system shell environment against the tmux server environment. Shows whic
 
 ### Logs (`/logs`)
 
-Live log viewer. The Logs page has two sources. **Spawn** tails the central spawn log. **Fence** first asks you to pick a session that is currently running under the fence sandbox, then live-tails that session's blocked-operation log (raw Fence monitor lines) so you can spot rogue access and decide what to add to the repo's `fence.allowed_domains`.
+Live log viewer. The Logs page has three sources. **Spawn** tails the central spawn log. **Fence** first asks you to pick a session that is currently running under the fence sandbox, then live-tails that session's blocked-operation log (raw Fence monitor lines) so you can spot rogue access and decide what to add to the repo's `fence.allowed_domains`. **Oneshot** tails the central oneshot log — every non-interactive LLM call the daemon makes (commit messages, intent summaries, conflict resolution, etc.) — as expandable rows showing timestamp, transport (`cli`/`api`), model, workspace, message type, and result; expand a row for the call's metadata and any error. Metadata only: prompt bodies are never recorded.
 
 ### Event Monitor (`/events`, dev mode only)
 

@@ -1,14 +1,20 @@
 package oneshot
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/oneshotlog"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 func TestBuildOneShotCommand(t *testing.T) {
@@ -596,6 +602,7 @@ func TestExecuteTarget_DecodeFailureWrapsRaw(t *testing.T) {
 }
 
 func TestExecuteTarget_APISuffix_RoutesToDirectHTTP(t *testing.T) {
+	schmuxdir.Set(t.TempDir())
 	_, err := ExecuteTarget[unifiedTestResult](
 		context.Background(), nil, "claude-sonnet-4-6::api",
 		"some prompt", "someLabel", 5*time.Second, "")
@@ -609,11 +616,59 @@ func TestExecuteTarget_APISuffix_RoutesToDirectHTTP(t *testing.T) {
 }
 
 func TestExecuteTarget_BareID_StaysOnCLIPath(t *testing.T) {
+	schmuxdir.Set(t.TempDir())
 	_, err := ExecuteTarget[unifiedTestResult](
 		context.Background(), nil, "claude-sonnet-4-6",
 		"some prompt", "someLabel", 5*time.Second, "")
 
 	if !errors.Is(err, ErrTargetNotFound) {
 		t.Fatalf("expected ErrTargetNotFound (CLI path), got: %v", err)
+	}
+}
+
+func TestNewOneshotRecord(t *testing.T) {
+	start := time.Now()
+
+	ok := newOneshotRecord("commit-message", "claude-sonnet-4-6", "/x/y/schmux-7", "hello", start, nil)
+	if ok.Type != "commit-message" || ok.Transport != "cli" || ok.Model != "claude-sonnet-4-6" ||
+		ok.Workspace != "schmux-7" || ok.PromptChars != 5 || !ok.OK || ok.Error != "" || ok.TS == "" {
+		t.Fatalf("ok record wrong: %+v", ok)
+	}
+
+	bad := newOneshotRecord("repofeed-intent", "claude-opus::api", "", "p", start, errors.New("boom"))
+	if bad.Transport != "api" || bad.Model != "claude-opus" || bad.Workspace != "" ||
+		bad.OK || bad.Error != "boom" {
+		t.Fatalf("bad record wrong: %+v", bad)
+	}
+}
+
+func TestExecuteTarget_WritesOneshotLogOnFailure(t *testing.T) {
+	schmuxdir.Set(t.TempDir())
+	// cfg nil + bare model id → CLI path, resolveTarget returns ErrTargetNotFound.
+	_, err := ExecuteTarget[unifiedTestResult](
+		context.Background(), nil, "claude-sonnet-4-6", "hi there", "commit-message", time.Second, "/ws/schmux-9")
+	if err == nil {
+		t.Fatal("expected failure with nil cfg")
+	}
+	data, rerr := os.ReadFile(oneshotlog.Path())
+	if rerr != nil {
+		t.Fatalf("read oneshot log: %v", rerr)
+	}
+	var rec contracts.OneshotLogRecord
+	if err := json.Unmarshal(bytes.TrimSpace(data), &rec); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if rec.Type != "commit-message" || rec.Model != "claude-sonnet-4-6" || rec.Transport != "cli" ||
+		rec.OK || rec.Workspace != "schmux-9" || rec.PromptChars != 8 || rec.Error == "" {
+		t.Fatalf("unexpected record: %+v", rec)
+	}
+}
+
+func TestExecuteTarget_DisabledWritesNothing(t *testing.T) {
+	schmuxdir.Set(t.TempDir())
+	_, _ = ExecuteTarget[unifiedTestResult](
+		context.Background(), nil, "", "hi", "commit-message", time.Second, "")
+	if _, err := os.Stat(oneshotlog.Path()); !os.IsNotExist(err) {
+		t.Fatalf("expected no oneshot log file, stat err = %v", err)
 	}
 }

@@ -87,8 +87,13 @@
 }
 
 .logs-row-head .badge {
-  margin-left: auto;
   flex-shrink: 0;
+}
+
+/* The trailing status badge pushes right; any leading badges (e.g. the oneshot
+   type) stay left-packed with the rest of the row. */
+.logs-row-head .badge:last-child {
+  margin-left: auto;
 }
 
 .logs-row-body {
@@ -179,4 +184,69 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--color-text);
+}
+
+/* Oneshot rows: model is the key metric; transport is a neutral pill; the type
+   badge is a category color (graph-lane palette, never status/warning hues —
+   lanes 3 & 7 excluded); success/failure uses the shared status badge. */
+.logs-oneshot-transport {
+  flex-shrink: 0;
+  padding: 0 var(--spacing-xs);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-alt);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.logs-oneshot-model {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-text);
+}
+
+.logs-oneshot-error {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text-muted);
+}
+
+.logs-oneshot-badge {
+  background-color: var(--color-surface-alt);
+  color: var(--color-text-muted);
+}
+.logs-oneshot-badge--commit-message {
+  color: var(--color-graph-lane-1);
+}
+.logs-oneshot-badge--autolearn-intent {
+  color: var(--color-graph-lane-2);
+}
+.logs-oneshot-badge--autolearn-friction {
+  color: var(--color-graph-lane-2);
+}
+.logs-oneshot-badge--autolearn-merge {
+  color: var(--color-graph-lane-2);
+}
+.logs-oneshot-badge--nudgenik {
+  color: var(--color-graph-lane-4);
+}
+.logs-oneshot-badge--conflict-resolve {
+  color: var(--color-graph-lane-5);
+}
+.logs-oneshot-badge--compound-merge {
+  color: var(--color-graph-lane-5);
+}
+.logs-oneshot-badge--branch-suggest {
+  color: var(--color-graph-lane-6);
+}
+.logs-oneshot-badge--subreddit-bootstrap {
+  color: var(--color-graph-lane-6);
+}
+.logs-oneshot-badge--subreddit-incremental {
+  color: var(--color-graph-lane-6);
+}
+.logs-oneshot-badge--repofeed-intent {
+  color: var(--color-graph-lane-8);
 }

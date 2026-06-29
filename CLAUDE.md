@@ -234,7 +234,7 @@ Routes:
 - `/resolve-conflict/{workspaceId}` - Linear sync conflict resolution
 - `/config` - Settings editor (includes Remote tab for remote host profiles)
 - `/events` - Event monitor (dev mode only)
-- `/logs` - Logs viewer (live-tails `~/.schmux/logs/spawn.jsonl`)
+- `/logs` - Logs viewer (live-tails the spawn, fence, and oneshot log sources)
 - `/ws/terminal/{id}` - WebSocket for live terminal output
 - `/ws/dashboard` - WebSocket for real-time session/workspace updates
 - `/ws/logs/{source}` - WebSocket for streaming a log source (backlog + live tail)

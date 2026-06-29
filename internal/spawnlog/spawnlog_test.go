@@ -34,6 +34,9 @@ func TestSourcePath(t *testing.T) {
 	if _, ok := SourcePath("spawn"); !ok {
 		t.Error("spawn should be a known source")
 	}
+	if _, ok := SourcePath("oneshot"); !ok {
+		t.Error("oneshot should be a known source")
+	}
 	if _, ok := SourcePath("nope"); ok {
 		t.Error("nope should be unknown")
 	}

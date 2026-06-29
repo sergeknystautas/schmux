@@ -12,11 +12,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/directhttp"
 	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/oneshotdecode"
+	"github.com/sergeknystautas/schmux/internal/oneshotlog"
 	"github.com/sergeknystautas/schmux/internal/schema"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
@@ -259,7 +261,7 @@ func ExecuteTarget[T any](
 	targetName, prompt, schemaLabel string,
 	timeout time.Duration,
 	dir string,
-) (T, error) {
+) (result T, err error) {
 	var zero T
 	if schemaLabel == "" {
 		return zero, ErrNoSchemaLabel
@@ -268,20 +270,58 @@ func ExecuteTarget[T any](
 		return zero, ErrDisabled
 	}
 
+	// Capture every attempt below — both transports, every error path — once.
+	// Guards above return before this defer is registered: nothing was sent.
+	start := time.Now()
+	defer func() {
+		_ = oneshotlog.Append(newOneshotRecord(schemaLabel, targetName, dir, prompt, start, err))
+	}()
+
 	if _, isAPI := directhttp.StripAPISuffix(targetName); isAPI {
-		return directhttp.ExecuteAPI[T](ctx, cfg, targetName, prompt, schemaLabel, timeout, dir)
+		result, err = directhttp.ExecuteAPI[T](ctx, cfg, targetName, prompt, schemaLabel, timeout, dir)
+		return result, err
 	}
 
-	raw, err := executeTargetRaw(ctx, cfg, targetName, prompt, schemaLabel, timeout, dir)
-	if err != nil {
-		return zero, err
+	raw, rawErr := executeTargetRaw(ctx, cfg, targetName, prompt, schemaLabel, timeout, dir)
+	if rawErr != nil {
+		return zero, rawErr
 	}
 
-	result, err := decodeResponse[T](raw)
+	result, err = decodeResponse[T](raw)
 	if err != nil {
 		return zero, &InvalidResponseError{Raw: raw, Err: err}
 	}
 	return result, nil
+}
+
+// newOneshotRecord builds the log record for one ExecuteTarget call. The model
+// and transport come straight off targetName (it is the model id, or
+// <modelid>::api); workspace is the basename of the call's dir.
+func newOneshotRecord(schemaLabel, targetName, dir, prompt string, start time.Time, err error) contracts.OneshotLogRecord {
+	model, isAPI := directhttp.StripAPISuffix(targetName)
+	transport := "cli"
+	if isAPI {
+		transport = "api"
+	}
+	workspace := ""
+	if dir != "" {
+		workspace = filepath.Base(dir)
+	}
+	errStr := ""
+	if err != nil {
+		errStr = err.Error()
+	}
+	return contracts.OneshotLogRecord{
+		TS:          start.Format(time.RFC3339),
+		Type:        schemaLabel,
+		Transport:   transport,
+		Model:       model,
+		Workspace:   workspace,
+		PromptChars: len(prompt),
+		ElapsedMS:   time.Since(start).Milliseconds(),
+		OK:          err == nil,
+		Error:       errStr,
+	}
 }
 
 // decodeResponse is a thin wrapper over oneshotdecode.Decode so existing

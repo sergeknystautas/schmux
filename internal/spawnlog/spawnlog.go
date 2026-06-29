@@ -8,15 +8,18 @@ import (
 	"path/filepath"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/oneshotlog"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 // SourcePath maps a log-source name to its absolute file path and reports
-// whether the source is known. v1 has a single source: "spawn".
+// whether the source is known. Sources: "spawn", "oneshot".
 func SourcePath(name string) (string, bool) {
 	switch name {
 	case "spawn":
 		return filepath.Join(schmuxdir.LogsDir(), "spawn.jsonl"), true
+	case "oneshot":
+		return oneshotlog.Path(), true
 	default:
 		return "", false
 	}

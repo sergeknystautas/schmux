@@ -64,6 +64,7 @@ func main() {
 		reflect.TypeOf(contracts.ClipboardAckRequest{}),
 		reflect.TypeOf(contracts.ClipboardAckResponse{}),
 		reflect.TypeOf(contracts.SpawnLogRecord{}),
+		reflect.TypeOf(contracts.OneshotLogRecord{}),
 		reflect.TypeOf(contracts.SpawnLogResult{}),
 	}
 

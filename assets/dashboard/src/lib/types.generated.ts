@@ -452,6 +452,18 @@ export interface OllamaConfigUpdate {
   endpoint?: string;
 }
 
+export interface OneshotLogRecord {
+  ts: string;
+  type: string;
+  transport?: string;
+  model?: string;
+  workspace?: string;
+  prompt_chars?: number;
+  elapsed_ms?: number;
+  ok: boolean;
+  error?: string;
+}
+
 export interface OneshotTarget {
   id: string;
   label: string;

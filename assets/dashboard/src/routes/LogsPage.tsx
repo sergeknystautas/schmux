@@ -2,13 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import '../styles/logs.css';
 import useLogsWebSocket from '../hooks/useLogsWebSocket';
 import useFenceLogWebSocket from '../hooks/useFenceLogWebSocket';
+import useOneshotLogWebSocket from '../hooks/useOneshotLogWebSocket';
 import { useSessions } from '../contexts/SessionsContext';
 import { parseFenceLine } from '../lib/fenceLog';
-import type { SpawnLogRecord } from '../lib/types.generated';
+import type { SpawnLogRecord, OneshotLogRecord } from '../lib/types.generated';
 
 const SOURCES = [
   { id: 'spawn', label: 'Spawn' },
   { id: 'fence', label: 'Fence' },
+  { id: 'oneshot', label: 'Oneshot' },
 ];
 
 const STATUS_BADGE: Record<string, string> = {
@@ -40,7 +42,13 @@ export default function LogsPage() {
           ))}
         </select>
       </div>
-      {source === 'fence' ? <FenceLogView /> : <SpawnLogView />}
+      {source === 'fence' ? (
+        <FenceLogView />
+      ) : source === 'oneshot' ? (
+        <OneshotLogView />
+      ) : (
+        <SpawnLogView />
+      )}
     </div>
   );
 }
@@ -183,6 +191,73 @@ function SpawnLogRow({ rec }: { rec: SpawnLogRecord }) {
                 {r.target || r.command}: {r.error ? `failed — ${r.error}` : `ok (${r.session_id})`}
               </li>
             ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OneshotLogView() {
+  const { records, connected } = useOneshotLogWebSocket();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
+
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  };
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && stickToBottomRef.current) el.scrollTop = el.scrollHeight;
+  }, [records]);
+
+  const copyAll = () =>
+    navigator.clipboard.writeText(records.map((r) => JSON.stringify(r)).join('\n'));
+
+  return (
+    <>
+      <div className="logs-subheader">
+        <ConnPill connected={connected} />
+        <button type="button" className="btn btn--sm" onClick={copyAll}>
+          Copy all
+        </button>
+      </div>
+      <div className="logs-body" ref={scrollRef} onScroll={onScroll}>
+        {records.map((rec, i) => (
+          <OneshotLogRow key={i} rec={rec} />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function OneshotLogRow({ rec }: { rec: OneshotLogRecord }) {
+  const [expanded, setExpanded] = useState(false);
+  const status = rec.ok ? 'ok' : 'failed';
+  return (
+    <div className={`logs-row status-${status}`}>
+      <div className="logs-row-head" onClick={() => setExpanded((v) => !v)}>
+        <span className="logs-ts">{new Date(rec.ts).toISOString().slice(11, 19)}</span>
+        <span className="logs-oneshot-transport">{rec.transport}</span>
+        <span className="logs-oneshot-model">{rec.model}</span>
+        {rec.workspace && <span className="logs-ws">{rec.workspace}</span>}
+        <span className={`badge logs-oneshot-badge logs-oneshot-badge--${rec.type}`}>
+          {rec.type}
+        </span>
+        <span className={`badge ${STATUS_BADGE[status]}`}>{status}</span>
+      </div>
+      {expanded && (
+        <div className="logs-row-body">
+          <ul className="logs-results">
+            <li>type: {rec.type}</li>
+            <li>transport: {rec.transport}</li>
+            <li>model: {rec.model}</li>
+            <li>prompt: {rec.prompt_chars ?? 0} chars</li>
+            <li>elapsed: {rec.elapsed_ms ?? 0} ms</li>
+            {rec.error && <li className="logs-oneshot-error">error: {rec.error}</li>}
           </ul>
         </div>
       )}

@@ -28,6 +28,34 @@ vi.mock('../hooks/useFenceLogWebSocket', () => ({
   }),
 }));
 
+vi.mock('../hooks/useOneshotLogWebSocket', () => ({
+  default: () => ({
+    connected: true,
+    records: [
+      {
+        ts: '2026-06-29T12:00:00Z',
+        type: 'commit-message',
+        transport: 'cli',
+        model: 'claude-sonnet-4-6',
+        workspace: 'schmux-9',
+        prompt_chars: 1234,
+        elapsed_ms: 850,
+        ok: true,
+      },
+      {
+        ts: '2026-06-29T12:01:00Z',
+        type: 'repofeed-intent',
+        transport: 'api',
+        model: 'claude-opus',
+        prompt_chars: 99,
+        elapsed_ms: 120,
+        ok: false,
+        error: 'decode failed: unexpected end of JSON',
+      },
+    ],
+  }),
+}));
+
 vi.mock('../contexts/SessionsContext', () => ({
   useSessions: () => ({
     workspaces: [
@@ -76,5 +104,19 @@ describe('LogsPage', () => {
     expect(screen.getByText(/CONNECT 403 www.google.com/)).toBeInTheDocument();
     expect(screen.getByText('10:52:49')).toBeInTheDocument();
     expect(screen.queryByText(/\[fence:http\]/)).toBeNull();
+  });
+
+  it('renders oneshot rows with model + type and reveals the error on expand', () => {
+    render(<LogsPage />);
+    fireEvent.change(screen.getByLabelText('Log source'), { target: { value: 'oneshot' } });
+    expect(screen.getByText('claude-sonnet-4-6')).toBeInTheDocument();
+    expect(screen.getByText('commit-message')).toBeInTheDocument();
+    expect(screen.getByText('schmux-9')).toBeInTheDocument();
+    // Timestamp renders as HH:MM:SS, matching the Spawn and Fence views.
+    expect(screen.getByText('12:00:00')).toBeInTheDocument();
+    // The failure error is hidden until its row is expanded.
+    expect(screen.queryByText(/decode failed/)).toBeNull();
+    fireEvent.click(screen.getByText('repofeed-intent'));
+    expect(screen.getByText(/decode failed/)).toBeInTheDocument();
   });
 });

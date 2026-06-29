@@ -4148,6 +4148,7 @@ Server -> client messages: one text message per line, each a JSON object (the re
 Sources:
 
 - `spawn` → `~/.schmux/logs/spawn.jsonl`. One `SpawnLogRecord` per line: a resolved spawn request (repo, branch, targets, full prompt, fence/resume/remote params) plus its synchronous per-target outcome (`results`) and a derived `status` of `ok` (all targets succeeded), `partial` (mixed), or `failed` (all errored). Written for every spawn attempt — command and target spawns alike — from the same sites that already log spawn outcomes, so a prompt is captured before an early failure can discard it. Append-only; survives daemon restarts.
+- `oneshot` → `~/.schmux/logs/oneshot.jsonl`. One `OneshotLogRecord` per line: a single non-interactive oneshot LLM call captured centrally at `ExecuteTarget`. Fields are metadata only — `type` (schema label, e.g. `commit-message`), `transport` (`cli` or `api`), `model` (the model id), `workspace` (basename of the call's working dir, omitted when none), `prompt_chars` (prompt length — the prompt body is never persisted), `elapsed_ms`, `ok`, and `error` on failure. Written for every attempt that reaches a target (the no-op "not configured" cases are skipped). Append-only; survives daemon restarts.
 
 Errors:
 
