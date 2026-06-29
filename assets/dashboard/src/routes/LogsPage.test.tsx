@@ -49,6 +49,8 @@ describe('LogsPage', () => {
   it('renders a spawn row and reveals the prompt on expand', () => {
     render(<LogsPage />);
     expect(screen.getByText('https://example.com/godot.git')).toBeInTheDocument();
+    // Timestamp renders as HH:MM:SS, matching the Fence view's format.
+    expect(screen.getByText('15:24:06')).toBeInTheDocument();
     expect(screen.queryByText(/Downloads for the fmod specs/)).toBeNull();
     fireEvent.click(screen.getByText('https://example.com/godot.git'));
     expect(screen.getByText(/Downloads for the fmod specs/)).toBeInTheDocument();

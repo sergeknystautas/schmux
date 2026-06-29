@@ -156,7 +156,7 @@ function SpawnLogRow({ rec }: { rec: SpawnLogRecord }) {
   return (
     <div className={`logs-row status-${rec.status}`}>
       <div className="logs-row-head" onClick={() => setExpanded((v) => !v)}>
-        <span className="logs-ts">{rec.ts}</span>
+        <span className="logs-ts">{new Date(rec.ts).toISOString().slice(11, 19)}</span>
         <span className="logs-repo">{rec.repo}</span>
         <span className="logs-branch">{rec.branch}</span>
         {rec.workspace_id && <span className="logs-ws">{rec.workspace_id}</span>}
