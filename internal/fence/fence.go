@@ -207,6 +207,12 @@ var baselineDomains = []string{
 	// GitHub Actions results-upload endpoint; gh and Actions workflows inside
 	// the fence reach it when running or checking CI.
 	"results-receiver.actions.githubusercontent.com",
+	// GitHub Actions run-log/artifact download: gh streams these from Azure
+	// blob storage accounts named productionresultssaNN. fence only accepts
+	// *.domain.com wildcards (partial-label globs like productionresultssa*.…
+	// are rejected and abort the launch), so this is the tightest expressible
+	// scope — it covers all of *.blob.core.windows.net, not just GitHub's.
+	"*.blob.core.windows.net",
 }
 
 // dockerHubPullDomains are the Docker Hub auth and registry endpoints a fenced

@@ -190,7 +190,7 @@ Schmux can know model endpoint hosts for resolved model runners. For example, a 
 "network": { "allowedDomains": ["api.z.ai"] }
 ```
 
-A repo adds its own service endpoints (for example `mcp.posthog.com`) via `fence.allowed_domains` in its `.schmux/config.json`; each harness declares its own control-plane domains in its adapter descriptor's `fence_domains`. Schmux core keeps a narrow always-on baseline (`baselineDomains` in `internal/fence/fence.go`) for hosts every fenced session needs regardless of harness, repo, or model — currently the GitHub Actions results endpoint `results-receiver.actions.githubusercontent.com`.
+A repo adds its own service endpoints (for example `mcp.posthog.com`) via `fence.allowed_domains` in its `.schmux/config.json`; each harness declares its own control-plane domains in its adapter descriptor's `fence_domains`. Schmux core keeps a narrow always-on baseline (`baselineDomains` in `internal/fence/fence.go`) for hosts every fenced session needs regardless of harness, repo, or model — currently the GitHub Actions results-upload endpoint `results-receiver.actions.githubusercontent.com` and the run-log/artifact download host `*.blob.core.windows.net` (GitHub streams run logs/artifacts from Azure blob accounts named `productionresultssaNN`; fence only supports `*.domain.com` wildcards, so this is the tightest expressible scope and covers all Azure blob storage, not just GitHub's).
 
 Do not guess network domains from arbitrary command strings. Unknown blocked destinations should appear in `monitor.log`, then the implementation can add a real source-of-truth if the destination is legitimate.
 
