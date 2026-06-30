@@ -19,16 +19,33 @@ const STATUS_BADGE: Record<string, string> = {
   failed: 'badge--danger',
 };
 
+type SourceProps = { source: string; setSource: (s: string) => void };
+
 export default function LogsPage() {
   const [source, setSource] = useState('spawn');
   return (
     <div className="logs-page">
-      <div className="app-header">
-        <div className="app-header__info">
-          <h1 className="app-header__meta">Logs</h1>
-        </div>
+      {source === 'fence' ? (
+        <FenceLogView source={source} setSource={setSource} />
+      ) : source === 'oneshot' ? (
+        <OneshotLogView source={source} setSource={setSource} />
+      ) : (
+        <SpawnLogView source={source} setSource={setSource} />
+      )}
+    </div>
+  );
+}
+
+// Header for every source: title on the left; the connection pill and the
+// source select right-aligned on the same line.
+function LogsHeader({ source, setSource, connected }: SourceProps & { connected: boolean }) {
+  return (
+    <div className="app-header logs-header">
+      <div className="app-header__info">
+        <h1 className="app-header__meta">Logs</h1>
       </div>
-      <div className="logs-header">
+      <div className="app-header__actions">
+        <ConnPill connected={connected} />
         <select
           className="select"
           value={source}
@@ -42,18 +59,11 @@ export default function LogsPage() {
           ))}
         </select>
       </div>
-      {source === 'fence' ? (
-        <FenceLogView />
-      ) : source === 'oneshot' ? (
-        <OneshotLogView />
-      ) : (
-        <SpawnLogView />
-      )}
     </div>
   );
 }
 
-function SpawnLogView() {
+function SpawnLogView({ source, setSource }: SourceProps) {
   const { records, connected } = useLogsWebSocket('spawn');
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -69,17 +79,9 @@ function SpawnLogView() {
     if (el && stickToBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [records]);
 
-  const copyAll = () =>
-    navigator.clipboard.writeText(records.map((r) => JSON.stringify(r)).join('\n'));
-
   return (
     <>
-      <div className="logs-subheader">
-        <ConnPill connected={connected} />
-        <button type="button" className="btn btn--sm" onClick={copyAll}>
-          Copy all
-        </button>
-      </div>
+      <LogsHeader source={source} setSource={setSource} connected={connected} />
       <div className="logs-body" ref={scrollRef} onScroll={onScroll}>
         {records.map((rec, i) => (
           <SpawnLogRow key={i} rec={rec} />
@@ -89,7 +91,7 @@ function SpawnLogView() {
   );
 }
 
-function FenceLogView() {
+function FenceLogView({ source, setSource }: SourceProps) {
   const { workspaces } = useSessions();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const { lines, connected } = useFenceLogWebSocket(sessionId);
@@ -115,6 +117,7 @@ function FenceLogView() {
 
   return (
     <>
+      <LogsHeader source={source} setSource={setSource} connected={connected} />
       <div className="logs-subheader">
         <select
           className="select"
@@ -129,7 +132,6 @@ function FenceLogView() {
             </option>
           ))}
         </select>
-        {sessionId && <ConnPill connected={connected} />}
       </div>
       {sessionId && (
         <div className="logs-body" ref={scrollRef} onScroll={onScroll}>
@@ -198,7 +200,7 @@ function SpawnLogRow({ rec }: { rec: SpawnLogRecord }) {
   );
 }
 
-function OneshotLogView() {
+function OneshotLogView({ source, setSource }: SourceProps) {
   const { records, connected } = useOneshotLogWebSocket();
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -214,17 +216,9 @@ function OneshotLogView() {
     if (el && stickToBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [records]);
 
-  const copyAll = () =>
-    navigator.clipboard.writeText(records.map((r) => JSON.stringify(r)).join('\n'));
-
   return (
     <>
-      <div className="logs-subheader">
-        <ConnPill connected={connected} />
-        <button type="button" className="btn btn--sm" onClick={copyAll}>
-          Copy all
-        </button>
-      </div>
+      <LogsHeader source={source} setSource={setSource} connected={connected} />
       <div className="logs-body" ref={scrollRef} onScroll={onScroll}>
         {records.map((rec, i) => (
           <OneshotLogRow key={i} rec={rec} />
