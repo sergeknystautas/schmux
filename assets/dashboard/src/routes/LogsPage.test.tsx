@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
+import { formatLogTime } from '../lib/utils';
 import type { SpawnLogRecord } from '../lib/types.generated';
 
 vi.mock('../hooks/useLogsWebSocket', () => ({
@@ -77,8 +78,8 @@ describe('LogsPage', () => {
   it('renders a spawn row and reveals the prompt on expand', () => {
     render(<LogsPage />);
     expect(screen.getByText('https://example.com/godot.git')).toBeInTheDocument();
-    // Timestamp renders as HH:MM:SS, matching the Fence view's format.
-    expect(screen.getByText('15:24:06')).toBeInTheDocument();
+    // Timestamp renders as local HH:MM:SS, matching the Fence view's format.
+    expect(screen.getByText(formatLogTime('2026-06-27T15:24:06Z'))).toBeInTheDocument();
     expect(screen.queryByText(/Downloads for the fmod specs/)).toBeNull();
     fireEvent.click(screen.getByText('https://example.com/godot.git'));
     expect(screen.getByText(/Downloads for the fmod specs/)).toBeInTheDocument();
@@ -112,8 +113,8 @@ describe('LogsPage', () => {
     expect(screen.getByText('claude-sonnet-4-6')).toBeInTheDocument();
     expect(screen.getByText('commit-message')).toBeInTheDocument();
     expect(screen.getByText('schmux-9')).toBeInTheDocument();
-    // Timestamp renders as HH:MM:SS, matching the Spawn and Fence views.
-    expect(screen.getByText('12:00:00')).toBeInTheDocument();
+    // Timestamp renders as local HH:MM:SS, matching the Spawn and Fence views.
+    expect(screen.getByText(formatLogTime('2026-06-29T12:00:00Z'))).toBeInTheDocument();
     // The failure error is hidden until its row is expanded.
     expect(screen.queryByText(/decode failed/)).toBeNull();
     fireEvent.click(screen.getByText('repofeed-intent'));

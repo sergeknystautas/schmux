@@ -5,6 +5,7 @@ import useFenceLogWebSocket from '../hooks/useFenceLogWebSocket';
 import useOneshotLogWebSocket from '../hooks/useOneshotLogWebSocket';
 import { useSessions } from '../contexts/SessionsContext';
 import { parseFenceLine } from '../lib/fenceLog';
+import { formatLogTime } from '../lib/utils';
 import type { SpawnLogRecord, OneshotLogRecord } from '../lib/types.generated';
 
 const SOURCES = [
@@ -166,7 +167,7 @@ function SpawnLogRow({ rec }: { rec: SpawnLogRecord }) {
   return (
     <div className={`logs-row status-${rec.status}`}>
       <div className="logs-row-head" onClick={() => setExpanded((v) => !v)}>
-        <span className="logs-ts">{new Date(rec.ts).toISOString().slice(11, 19)}</span>
+        <span className="logs-ts">{formatLogTime(rec.ts)}</span>
         <span className="logs-repo">{rec.repo}</span>
         <span className="logs-branch">{rec.branch}</span>
         {rec.workspace_id && <span className="logs-ws">{rec.workspace_id}</span>}
@@ -234,7 +235,7 @@ function OneshotLogRow({ rec }: { rec: OneshotLogRecord }) {
   return (
     <div className={`logs-row status-${status}`}>
       <div className="logs-row-head" onClick={() => setExpanded((v) => !v)}>
-        <span className="logs-ts">{new Date(rec.ts).toISOString().slice(11, 19)}</span>
+        <span className="logs-ts">{formatLogTime(rec.ts)}</span>
         <span className="logs-oneshot-transport">{rec.transport}</span>
         <span className="logs-oneshot-model">{rec.model}</span>
         {rec.workspace && <span className="logs-ws">{rec.workspace}</span>}

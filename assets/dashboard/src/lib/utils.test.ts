@@ -4,6 +4,7 @@ import {
   truncateStart,
   splitPath,
   formatTimestamp,
+  formatLogTime,
   copyToClipboard,
   formatNudgeSummary,
   isRemoteClient,
@@ -181,6 +182,23 @@ describe('formatTimestamp', () => {
     const result1 = formatTimestamp('2024-01-01T00:00:00Z');
     const result2 = formatTimestamp('2024-12-31T23:59:59Z');
     expect(result1).not.toBe(result2);
+  });
+});
+
+describe('formatLogTime', () => {
+  it('formats as local HH:MM:SS, not UTC', () => {
+    const ts = '2024-06-15T12:30:45Z';
+    const result = formatLogTime(ts);
+    expect(result).toMatch(/^\d{2}:\d{2}:\d{2}$/);
+    // Local time, not the UTC slice that toISOString would give.
+    expect(result).toBe(new Date(ts).toLocaleTimeString([], { hour12: false }));
+  });
+
+  it('accepts string, number, and Date inputs equivalently', () => {
+    const str = '2024-06-15T12:30:45Z';
+    const date = new Date(str);
+    expect(formatLogTime(str)).toBe(formatLogTime(date));
+    expect(formatLogTime(str)).toBe(formatLogTime(date.getTime()));
   });
 });
 

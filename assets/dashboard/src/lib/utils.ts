@@ -19,6 +19,11 @@ export function formatTimestamp(timestamp: string | number | Date): string {
   return date.toLocaleString();
 }
 
+// Local-time HH:MM:SS for log rows, matching the Fence view's clock format.
+export function formatLogTime(timestamp: string | number | Date): string {
+  return new Date(timestamp).toLocaleTimeString([], { hour12: false });
+}
+
 export function formatRelativeTime(timestamp: string | number | Date): string {
   const date = new Date(timestamp);
   const now = new Date();
