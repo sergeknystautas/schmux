@@ -9,6 +9,7 @@ import type {
   FileDiff,
   CommitGraphNode,
   CommitGraphBranch,
+  DependenciesResponse,
 } from '@dashboard/lib/types.generated';
 
 export function createDemoSessions(): SessionResponse[] {
@@ -159,6 +160,36 @@ export function createPostSpawnWorkspaces(): WorkspaceResponse[] {
   ];
   base[0].session_count = base[0].sessions.length;
   return base;
+}
+
+/** Mock dependency detection — what EnvironmentSummary renders on the home page. */
+export function createDemoDependencies(): DependenciesResponse {
+  return {
+    os: 'macos',
+    groups: [
+      {
+        id: 'agents',
+        display_name: 'AI agents',
+        description: 'Installed coding agents',
+        dependencies: [
+          { id: 'claude', display_name: 'Claude Code', description: '', detected: true },
+          { id: 'codex', display_name: 'codex', description: '', detected: true },
+        ],
+      },
+      {
+        id: 'vcs',
+        display_name: 'Version control',
+        description: '',
+        dependencies: [{ id: 'git', display_name: 'Git', description: '', detected: true }],
+      },
+      {
+        id: 'terminal',
+        display_name: 'Terminal',
+        description: '',
+        dependencies: [{ id: 'tmux', display_name: 'tmux', description: '', detected: true }],
+      },
+    ],
+  };
 }
 
 /** Mock diff data for the feature/user-auth workspace */

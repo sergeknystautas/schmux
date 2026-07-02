@@ -113,6 +113,30 @@ describe('DemoShell', () => {
     expect(screen.queryByText('Loading workspaces...')).not.toBeInTheDocument();
   });
 
+  it('renders EnvironmentSummary badges after the dashboard loads', async () => {
+    // Reproduces the original flake path: the dashboard WS delivers sessions
+    // ~100ms after mount, flipping loading off and mounting EnvironmentSummary,
+    // which fetches /api/dependencies. If that mock is missing or shapeless,
+    // EnvironmentSummary crashes on data.groups — here, deterministically,
+    // instead of as a deferred cross-test failure.
+    const setup = createScenarioSetup('workspaces');
+
+    await act(async () => {
+      render(
+        <MemoryRouter initialEntries={['/']}>
+          <DemoShell setup={setup} />
+        </MemoryRouter>
+      );
+    });
+
+    await waitFor(
+      () => {
+        expect(screen.getAllByTestId('env-badge-agent').length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 }
+    );
+  });
+
   it('restores liveTransport on unmount', async () => {
     const setup = createScenarioSetup('workspaces');
 

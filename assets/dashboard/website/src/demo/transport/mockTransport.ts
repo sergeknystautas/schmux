@@ -2,7 +2,12 @@ import type { Transport } from '@dashboard/lib/transport';
 import type { WorkspaceResponse } from '@dashboard/lib/types';
 import type { TerminalRecording } from '../recordings/types';
 import { MockDashboardWebSocket, MockTerminalWebSocket } from './MockWebSocket';
-import { createDemoConfig, createDemoDiff, createDemoGitGraph } from './mockData';
+import {
+  createDemoConfig,
+  createDemoDependencies,
+  createDemoDiff,
+  createDemoGitGraph,
+} from './mockData';
 
 export interface DemoTransportOptions {
   /** Initial workspace state */
@@ -78,6 +83,16 @@ export function createDemoTransport(options: DemoTransportOptions): Transport & 
       if (url.includes('/api/spawn')) {
         return Promise.resolve(
           new Response(JSON.stringify({ sessions: [{ id: 'demo-sess-new' }] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        );
+      }
+
+      // Dependency detection — EnvironmentSummary on the home page
+      if (url.includes('/api/dependencies')) {
+        return Promise.resolve(
+          new Response(JSON.stringify(createDemoDependencies()), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
           })

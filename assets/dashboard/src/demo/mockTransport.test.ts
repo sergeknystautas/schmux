@@ -112,6 +112,22 @@ describe('createDemoTransport', () => {
       expect(Array.isArray(data.tools)).toBe(true);
     });
 
+    it('returns dependencies with groups for /api/dependencies', async () => {
+      const dt = createDemoTransport({
+        workspaces: createDemoWorkspaces(),
+        recordings: {},
+      });
+
+      const response = await dt.fetch('/api/dependencies');
+      expect(response.ok).toBe(true);
+      const data = await response.json();
+      // EnvironmentSummary reads data.groups.find(...) unconditionally — a
+      // missing/shapeless response crashes the home page render.
+      expect(Array.isArray(data.groups)).toBe(true);
+      expect(data.groups.length).toBeGreaterThan(0);
+      expect(data.groups.some((g: { id: string }) => g.id === 'agents')).toBe(true);
+    });
+
     it('returns personas with correct shape', async () => {
       const dt = createDemoTransport({
         workspaces: createDemoWorkspaces(),
@@ -269,6 +285,34 @@ describe('createDemoTransport', () => {
       const message = JSON.parse(onmessage.mock.calls[0][0].data);
       expect(message.type).toBe('sessions');
       expect(message.workspaces).toHaveLength(workspaces.length);
+    });
+
+    it('close() before open cancels deferred open and data push (no post-teardown renders)', () => {
+      // Regression guard for the deferred-render leak that made DemoShell tests
+      // nondeterministic: if close() didn't cancel its 50ms open timer,
+      // readyState would flip back to OPEN after teardown and the 100ms sessions
+      // push would deliver into a torn-down tree, crashing wherever the
+      // consumer assumed a response shape.
+      const dt = createDemoTransport({
+        workspaces: createDemoWorkspaces(),
+        recordings: {},
+      });
+
+      const ws = dt.createWebSocket('ws://localhost/ws/dashboard');
+      const onopen = vi.fn();
+      const onmessage = vi.fn();
+      ws.onopen = onopen;
+      ws.onmessage = onmessage;
+
+      // Teardown before the 50ms open fires...
+      vi.advanceTimersByTime(10);
+      ws.close();
+
+      // ...then drain every pending timer (50ms open + 100ms data push).
+      vi.advanceTimersByTime(200);
+
+      expect(onopen).not.toHaveBeenCalled();
+      expect(onmessage).not.toHaveBeenCalled();
     });
   });
 

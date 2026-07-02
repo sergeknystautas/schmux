@@ -19,11 +19,13 @@ export class MockDashboardWebSocket {
   onclose: WSListener | null = null;
   onerror: WSListener | null = null;
   url: string;
+  private openTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(url: string) {
     this.url = url;
     // Simulate async open
-    setTimeout(() => {
+    this.openTimer = setTimeout(() => {
+      this.openTimer = null;
       this.readyState = 1; // OPEN
       this.onopen?.({ type: 'open' });
     }, 50);
@@ -40,6 +42,12 @@ export class MockDashboardWebSocket {
   }
 
   close() {
+    // Cancel the pending open so readyState can't flip back to OPEN after
+    // close — otherwise deferred messages would fire into a torn-down tree.
+    if (this.openTimer !== null) {
+      clearTimeout(this.openTimer);
+      this.openTimer = null;
+    }
     this.readyState = 3; // CLOSED
     this.onclose?.({ code: 1000, reason: 'demo closed', type: 'close' });
   }
@@ -74,10 +82,12 @@ export class MockTerminalWebSocket {
   private _paused = false;
   private _currentFrame = 0;
   private _nextSeq = 0n;
+  private openTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(url: string) {
     this.url = url;
-    setTimeout(() => {
+    this.openTimer = setTimeout(() => {
+      this.openTimer = null;
       this.readyState = 1;
       this.onopen?.({ type: 'open' });
     }, 50);
@@ -144,6 +154,10 @@ export class MockTerminalWebSocket {
   }
 
   close() {
+    if (this.openTimer !== null) {
+      clearTimeout(this.openTimer);
+      this.openTimer = null;
+    }
     this.timers.forEach(clearTimeout);
     this.timers = [];
     this.readyState = 3;
