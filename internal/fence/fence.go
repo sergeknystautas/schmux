@@ -25,7 +25,7 @@ type Config struct {
 	WorkspacePath      string   // cwd of the pane; writable
 	ExtraWritablePaths []string // out-of-workspace paths the VCS must write (e.g. a git worktree's shared .git). Opaque to fence.
 	AllowedDomains     []string // model/provider + repo fence.allowed_domains
-	Presets            []string // repo fence.presets (golang/node/python/tmux)
+	Presets            []string // repo fence.presets (golang/node/python/tmux/docker/godot-editor)
 	DataDir            string   // where generated launch files go (~/.schmux/fence/<session-id>/)
 }
 
@@ -71,7 +71,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 
 	cacheRoot := filepath.Join(c.WorkspacePath, filepath.FromSlash(fenceCacheRel))
 	env := baselineEnv(cacheRoot)
-	var goFlags, goTelemetry, allUnix, dockerConfig bool
+	var goFlags, goTelemetry, allUnix, dockerConfig, godotEditor bool
 	domains := append([]string{}, baselineDomains...)
 	for _, name := range c.Presets {
 		p, ok := presets[name]
@@ -85,6 +85,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 		goTelemetry = goTelemetry || p.goTelemetry
 		allUnix = allUnix || p.allUnixSockets
 		dockerConfig = dockerConfig || p.dockerConfig
+		godotEditor = godotEditor || p.godotEditor
 		domains = append(domains, p.domains...)
 	}
 	for _, dir := range env {
@@ -122,6 +123,9 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 	allowWrite := append([]string{c.WorkspacePath}, c.ExtraWritablePaths...)
 	if goTelemetry {
 		allowWrite = append(allowWrite, goTelemetryPaths()...)
+	}
+	if godotEditor {
+		allowWrite = append(allowWrite, godotEditorPaths()...)
 	}
 	allowedDomains := make([]string, 0, len(c.AllowedDomains)+len(domains))
 	allowedDomains = append(allowedDomains, c.AllowedDomains...)
@@ -172,6 +176,7 @@ type preset struct {
 	goTelemetry    bool              // allowWrite the Go telemetry dir
 	allUnixSockets bool              // network.allowAllUnixSockets
 	dockerConfig   bool              // stage a DOCKER_CONFIG/config.json with cliPluginsExtraDirs
+	godotEditor    bool              // allowWrite the Godot editor config dir (~/Library/Application Support/Godot)
 	domains        []string          // append to network.allowedDomains
 }
 
@@ -192,7 +197,8 @@ var presets = map[string]preset{
 	"python": {
 		cacheEnv: map[string]string{"PIP_CACHE_DIR": "pip", "UV_CACHE_DIR": "uv"},
 	},
-	"tmux": {allUnixSockets: true},
+	"tmux":         {allUnixSockets: true},
+	"godot-editor": {godotEditor: true},
 	"docker": {
 		cacheEnv:       map[string]string{"DOCKER_CONFIG": "docker"},
 		allUnixSockets: true,
@@ -248,6 +254,20 @@ func goTelemetryPaths() []string {
 		return nil
 	}
 	return []string{filepath.Join(configDir, "go", "telemetry")}
+}
+
+// godotEditorPaths returns the Godot editor's per-user config directory, added to
+// allowWrite by the godot-editor preset so a fenced agent can read and modify
+// Godot editor settings, project lists, and export presets. On macOS
+// os.UserConfigDir() is ~/Library/Application Support, so this resolves to
+// ~/Library/Application Support/Godot. Reads there already pass the code template
+// (non-credential); the preset adds the otherwise-restricted write.
+func godotEditorPaths() []string {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return nil
+	}
+	return []string{filepath.Join(configDir, "Godot")}
 }
 
 // dockerSystemPluginDirs are well-known locations of docker CLI plugins outside

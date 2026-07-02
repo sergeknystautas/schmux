@@ -177,6 +177,7 @@ The baseline (always on, any fenced repo) redirects `XDG_CACHE_HOME` and an empt
 - `node`: npm (`NPM_CONFIG_CACHE`/`npm_config_cache`), Yarn (`YARN_CACHE_FOLDER`), Bun (`BUN_INSTALL_CACHE_DIR`).
 - `python`: pip (`PIP_CACHE_DIR`), uv (`UV_CACHE_DIR`).
 - `docker`: access to the host Docker daemon so containerized tests (`--e2e`, `--scenarios`) run inside a fenced session. Sets `allowAllUnixSockets` (daemon socket), redirects `DOCKER_CONFIG` to a writable workspace dir, writes a `cliPluginsExtraDirs` config so `docker buildx`/`compose` resolve, and allows the two Docker Hub auth/registry endpoints `docker build` resolves base-image metadata against client-side through buildx. Implies the socket access `tmux` grants, so a repo using `docker` need not also list `tmux`.
+- `godot-editor`: read/write access to the Godot editor's per-user config dir (`~/Library/Application Support/Godot` — `os.UserConfigDir()/Godot`) so a fenced agent can read and modify editor settings, the project list, and export presets. Adds the dir to `allowWrite`; reads there already pass the `code` template (non-credential), so only the write is newly granted.
 
 Schmux does not redirect `TMPDIR`/`TMP`/`TEMP`: tests often create git repos under temporary directories, and moving those directories into the writable workspace makes Fence block `.git/config` writes. Schmux also does not redirect `GOMODCACHE`: downloaded modules can legitimately contain fixture names such as `cert.pem`, which the Fence credential-write policy blocks inside writable workspaces. These are environment defaults for fenced sessions, not Fence policy exceptions.
 
@@ -235,7 +236,9 @@ A repo customizes its fenced sessions through a `fence` block in its own
   (npm/yarn/bun caches), `python` (pip/uv caches), `tmux`
   (`allowAllUnixSockets`, for sessions that create local sockets), `docker`
   (Docker daemon socket + `DOCKER_CONFIG` redirect + Docker Hub pull domains,
-  for running `--e2e`/`--scenarios` inside a fence — see [Security note](#security-note-docker-preset)).
+  for running `--e2e`/`--scenarios` inside a fence — see [Security note](#security-note-docker-preset)),
+  `godot-editor` (read/write the Godot editor config dir
+  `~/Library/Application Support/Godot`).
 - `allowed_domains` add network destinations to the baseline allowlist.
 
 The always-on baseline (any fenced repo) is `extends: "code"`, the workspace +

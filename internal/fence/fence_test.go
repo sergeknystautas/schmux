@@ -261,6 +261,37 @@ func TestWrapDockerPresetEnvAndSocket(t *testing.T) {
 	}
 }
 
+func TestWrapGodotEditorPresetAllowsWrite(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sess")
+	ws := t.TempDir()
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"godot-editor"}, DataDir: dir}, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+	var s settings
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatalf("UserConfigDir: %v", err)
+	}
+	wantGodot := filepath.Join(configDir, "Godot") // macOS: ~/Library/Application Support/Godot
+	if !slices.Contains(s.Filesystem.AllowWrite, wantGodot) {
+		t.Errorf("allowWrite = %v, want to contain %s", s.Filesystem.AllowWrite, wantGodot)
+	}
+	if !IsKnownPreset("godot-editor") {
+		t.Errorf("IsKnownPreset(godot-editor) = false, want true")
+	}
+	// godot-editor grants only a filesystem path; it must not add cache exports.
+	cmd, _ := os.ReadFile(filepath.Join(dir, "cmd.sh"))
+	for _, banned := range []string{"GOCACHE", "NPM_CONFIG_CACHE", "DOCKER_CONFIG"} {
+		if strings.Contains(string(cmd), banned) {
+			t.Errorf("godot-editor preset must not add %s: %s", banned, cmd)
+		}
+	}
+}
+
 func TestDiscoverDockerPluginDirs(t *testing.T) {
 	eval := func(p string) string {
 		r, err := filepath.EvalSymlinks(p)
