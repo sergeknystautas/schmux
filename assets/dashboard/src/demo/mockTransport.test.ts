@@ -239,16 +239,21 @@ describe('createDemoTransport', () => {
       expect(data.nodes[0].message).toBeTruthy();
     });
 
-    it('returns 200 with empty object for unknown endpoints', async () => {
+    it('warns loud for unknown endpoints (no longer silent)', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const dt = createDemoTransport({
         workspaces: createDemoWorkspaces(),
         recordings: {},
       });
 
       const response = await dt.fetch('/api/unknown');
+      // Missing mocks must be visible: warn names the route. We still return
+      // empty 200 (not a hard 404) so unguarded consumers like AuthProvider's
+      // getAuthMe don't throw and hang the app.
       expect(response.ok).toBe(true);
-      const data = await response.json();
-      expect(data).toEqual({});
+      expect(await response.json()).toEqual({});
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('/api/unknown'));
+      warnSpy.mockRestore();
     });
   });
 

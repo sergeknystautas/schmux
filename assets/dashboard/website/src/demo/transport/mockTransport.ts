@@ -220,7 +220,16 @@ export function createDemoTransport(options: DemoTransportOptions): Transport & 
         );
       }
 
-      // Default: return 200 empty
+      // Unknown route: warn loud. Returning shapeless `{}` used to be SILENT,
+      // so a forgotten mock quietly fed bad data to shape-assuming consumers
+      // (e.g. EnvironmentSummary on data.groups) and the resulting crash surfaced
+      // nondeterministically. We warn naming the route so the omission is visible
+      // in dev/test output. We still return empty 200 rather than a hard 404
+      // because some consumers fetch unguarded — AuthProvider's getAuthMe runs on
+      // every page with no try/catch — and a 404 would throw there and hang the
+      // app. The WS timer-cancel fix means any crash a missing mock does cause is
+      // now deterministic and test-caught, not a flaky deferred render.
+      console.warn(`[demoTransport] no mock for route, returning empty 200: ${url}`);
       return Promise.resolve(
         new Response('{}', {
           status: 200,
