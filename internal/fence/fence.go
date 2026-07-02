@@ -25,7 +25,7 @@ type Config struct {
 	WorkspacePath      string   // cwd of the pane; writable
 	ExtraWritablePaths []string // out-of-workspace paths the VCS must write (e.g. a git worktree's shared .git). Opaque to fence.
 	AllowedDomains     []string // model/provider + repo fence.allowed_domains
-	Presets            []string // repo fence.presets (golang/node/python/tmux/docker/godot-editor)
+	Presets            []string // repo fence.presets (golang/tmux/docker/godot-editor)
 	DataDir            string   // where generated launch files go (~/.schmux/fence/<session-id>/)
 }
 
@@ -186,17 +186,6 @@ var presets = map[string]preset{
 		goFlags:     true,
 		goTelemetry: true,
 	},
-	"node": {
-		cacheEnv: map[string]string{
-			"NPM_CONFIG_CACHE":      "npm",
-			"npm_config_cache":      "npm",
-			"YARN_CACHE_FOLDER":     "yarn",
-			"BUN_INSTALL_CACHE_DIR": "bun",
-		},
-	},
-	"python": {
-		cacheEnv: map[string]string{"PIP_CACHE_DIR": "pip", "UV_CACHE_DIR": "uv"},
-	},
 	"tmux":         {allUnixSockets: true},
 	"godot-editor": {godotEditor: true},
 	"docker": {
@@ -240,11 +229,23 @@ func IsKnownPreset(name string) bool {
 }
 
 // baselineEnv are cache redirects applied to every fenced session regardless of
-// preset, keeping generic tool caches out of the user's home dir.
+// preset, keeping tool caches out of the user's home dir. These are pure env-var
+// redirects into the writable workspace with no security tradeoff, so they are
+// on for everyone rather than gated behind a preset — unlike golang/tmux/docker,
+// which grant real capabilities (telemetry writes, sockets, the Docker daemon).
 func baselineEnv(cacheRoot string) map[string]string {
 	return map[string]string{
 		"GIT_TEMPLATE_DIR": filepath.Join(cacheRoot, "git-template"),
 		"XDG_CACHE_HOME":   filepath.Join(cacheRoot, "xdg"),
+		// npm/yarn/bun (node), pip/uv (python), and Playwright browsers all
+		// default to paths under the user's home dir that the fence blocks.
+		"NPM_CONFIG_CACHE":         filepath.Join(cacheRoot, "npm"),
+		"npm_config_cache":         filepath.Join(cacheRoot, "npm"),
+		"YARN_CACHE_FOLDER":        filepath.Join(cacheRoot, "yarn"),
+		"BUN_INSTALL_CACHE_DIR":    filepath.Join(cacheRoot, "bun"),
+		"PIP_CACHE_DIR":            filepath.Join(cacheRoot, "pip"),
+		"UV_CACHE_DIR":             filepath.Join(cacheRoot, "uv"),
+		"PLAYWRIGHT_BROWSERS_PATH": filepath.Join(cacheRoot, "playwright"),
 	}
 }
 

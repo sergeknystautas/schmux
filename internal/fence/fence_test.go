@@ -19,7 +19,7 @@ func TestWrapWritesArtifactsAndCommand(t *testing.T) {
 		WorkspacePath:      ws,
 		ExtraWritablePaths: []string{extraWrite},
 		AllowedDomains:     []string{"mcp.posthog.com", "api.z.ai"},
-		Presets:            []string{"golang", "node", "python", "tmux"},
+		Presets:            []string{"golang", "tmux"},
 		DataDir:            dir,
 	}
 	const command = `SCHMUX_ENABLED=1 SCHMUX_SESSION_ID=sess-123 claude --continue`
@@ -168,10 +168,14 @@ func TestWrapNoPresetsBaselineOnly(t *testing.T) {
 		t.Fatalf("Wrap: %v", err)
 	}
 	cmd, _ := os.ReadFile(filepath.Join(dir, "cmd.sh"))
-	if !strings.Contains(string(cmd), "export GIT_TEMPLATE_DIR=") || !strings.Contains(string(cmd), "export XDG_CACHE_HOME=") {
-		t.Errorf("baseline caches missing: %s", cmd)
+	// npm/pip/playwright caches are baseline redirects, on for every session.
+	for _, want := range []string{"GIT_TEMPLATE_DIR", "XDG_CACHE_HOME", "NPM_CONFIG_CACHE", "PIP_CACHE_DIR", "PLAYWRIGHT_BROWSERS_PATH"} {
+		if !strings.Contains(string(cmd), "export "+want+"=") {
+			t.Errorf("baseline export %s missing: %s", want, cmd)
+		}
 	}
-	for _, banned := range []string{"GOCACHE", "STATICCHECK_CACHE", "GOFLAGS", "NPM_CONFIG_CACHE", "PIP_CACHE_DIR", "DOCKER_CONFIG"} {
+	// Capability presets stay opt-in: no golang/docker exports without them.
+	for _, banned := range []string{"GOCACHE", "STATICCHECK_CACHE", "GOFLAGS", "DOCKER_CONFIG"} {
 		if strings.Contains(string(cmd), banned) {
 			t.Errorf("cmd.sh has %s without a preset: %s", banned, cmd)
 		}
@@ -198,9 +202,6 @@ func TestWrapGolangPresetOnly(t *testing.T) {
 	cmd, _ := os.ReadFile(filepath.Join(dir, "cmd.sh"))
 	if !strings.Contains(string(cmd), "export GOCACHE=") || !strings.Contains(string(cmd), `export GOFLAGS="${GOFLAGS:+$GOFLAGS }-modcacherw"`) {
 		t.Errorf("golang preset missing GOCACHE/GOFLAGS: %s", cmd)
-	}
-	if strings.Contains(string(cmd), "NPM_CONFIG_CACHE") {
-		t.Errorf("golang preset must not pull in node caches: %s", cmd)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
 	var s settings
@@ -283,9 +284,10 @@ func TestWrapGodotEditorPresetAllowsWrite(t *testing.T) {
 	if !IsKnownPreset("godot-editor") {
 		t.Errorf("IsKnownPreset(godot-editor) = false, want true")
 	}
-	// godot-editor grants only a filesystem path; it must not add cache exports.
+	// godot-editor grants only a filesystem path; it must not add capability-preset
+	// cache exports (baseline npm/pip caches are exported for every session).
 	cmd, _ := os.ReadFile(filepath.Join(dir, "cmd.sh"))
-	for _, banned := range []string{"GOCACHE", "NPM_CONFIG_CACHE", "DOCKER_CONFIG"} {
+	for _, banned := range []string{"GOCACHE", "DOCKER_CONFIG"} {
 		if strings.Contains(string(cmd), banned) {
 			t.Errorf("godot-editor preset must not add %s: %s", banned, cmd)
 		}

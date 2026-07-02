@@ -535,7 +535,7 @@ When a session is launched with the **Fence** sandbox (the checkbox in the spawn
 ```json
 {
   "fence": {
-    "presets": ["golang", "node", "tmux"],
+    "presets": ["golang", "tmux"],
     "allowed_domains": ["mcp.posthog.com"]
   }
 }
@@ -550,12 +550,14 @@ When a session is launched with the **Fence** sandbox (the checkbox in the spawn
 
 #### Presets
 
-| Preset   | Enables                                                                 |
-| -------- | ----------------------------------------------------------------------- |
-| `golang` | Go build/staticcheck caches, `GOFLAGS=-modcacherw`, Go telemetry writes |
-| `node`   | npm / Yarn / Bun caches                                                 |
-| `python` | pip / uv caches                                                         |
-| `tmux`   | Unix-socket creation (needed by tools/tests that spin up tmux)          |
+| Preset         | Enables                                                                        |
+| -------------- | ------------------------------------------------------------------------------ |
+| `golang`       | Go build/staticcheck caches, `GOFLAGS=-modcacherw`, Go telemetry writes        |
+| `tmux`         | Unix-socket creation (needed by tools/tests that spin up tmux)                 |
+| `docker`       | Host Docker daemon socket + `DOCKER_CONFIG` redirect + Docker Hub pull domains |
+| `godot-editor` | Read/write the Godot editor config dir (`~/Library/Application Support/Godot`) |
+
+The npm/Yarn/Bun, pip/uv, and Playwright browser cache redirects are baseline (applied to every fenced session), not presets — they are pure env-var redirects into the workspace with no security tradeoff.
 
 Only applies when a session is fenced; ignored otherwise. Unknown preset names are skipped with a warning in the daemon log. For the full policy model, see [Fenced Sessions](fenced-sessions.md).
 

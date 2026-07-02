@@ -139,7 +139,7 @@ func TestWrapForFenceAppliesRepoPresets(t *testing.T) {
 	if !strings.Contains(string(cmd), "export GOCACHE=") {
 		t.Errorf("cmd.sh missing golang GOCACHE: %s", cmd)
 	}
-	if strings.Contains(string(cmd), "PIP_CACHE_DIR") {
-		t.Errorf("python preset should not be active: %s", cmd)
+	if strings.Contains(string(cmd), "DOCKER_CONFIG") {
+		t.Errorf("docker preset should not be active: %s", cmd)
 	}
 }

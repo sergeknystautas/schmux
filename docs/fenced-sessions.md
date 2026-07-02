@@ -171,11 +171,11 @@ Fenced launch scripts export local cache paths under:
 
 This path is git-excluded via `fence.WorkspaceExcludePatterns()`, which the workspace ensurer folds into `.git/info/exclude` — so a workspace first fenced after creation stops leaking these caches into `git status` on its next spawn or daemon restart.
 
-The baseline (always on, any fenced repo) redirects `XDG_CACHE_HOME` and an empty Git template directory (`GIT_TEMPLATE_DIR`) so `git init` does not write default hooks. Everything else is opt-in via the repo's `fence.presets`:
+The baseline (always on, any fenced repo) redirects into the workspace cache: `XDG_CACHE_HOME`, an empty Git template directory (`GIT_TEMPLATE_DIR`) so `git init` does not write default hooks, the npm/Yarn/Bun caches (`NPM_CONFIG_CACHE`/`npm_config_cache`, `YARN_CACHE_FOLDER`, `BUN_INSTALL_CACHE_DIR`), the pip/uv caches (`PIP_CACHE_DIR`, `UV_CACHE_DIR`), and the Playwright browser install dir (`PLAYWRIGHT_BROWSERS_PATH`, so `playwright install`/`test-web` manage browsers and their `__dirlock` inside the fence instead of `~/Library/Caches/ms-playwright`). These are pure env-var redirects with no security tradeoff, so they are on for every session. Each starts empty, so the first fenced run repopulates it (browsers, packages) per workspace.
 
-- `golang`: Go build cache (`GOCACHE`), `GOFLAGS=-modcacherw` so any Go module cache remains user-cleanable, Staticcheck cache (`STATICCHECK_CACHE`).
-- `node`: npm (`NPM_CONFIG_CACHE`/`npm_config_cache`), Yarn (`YARN_CACHE_FOLDER`), Bun (`BUN_INSTALL_CACHE_DIR`).
-- `python`: pip (`PIP_CACHE_DIR`), uv (`UV_CACHE_DIR`).
+The remaining allowances are opt-in via the repo's `fence.presets`, because each grants a real capability beyond a cache redirect:
+
+- `golang`: Go build cache (`GOCACHE`), `GOFLAGS=-modcacherw` so any Go module cache remains user-cleanable, Staticcheck cache (`STATICCHECK_CACHE`), and a write to the Go telemetry dir.
 - `docker`: access to the host Docker daemon so containerized tests (`--e2e`, `--scenarios`) run inside a fenced session. Sets `allowAllUnixSockets` (daemon socket), redirects `DOCKER_CONFIG` to a writable workspace dir, writes a `cliPluginsExtraDirs` config so `docker buildx`/`compose` resolve, and allows the two Docker Hub auth/registry endpoints `docker build` resolves base-image metadata against client-side through buildx. Implies the socket access `tmux` grants, so a repo using `docker` need not also list `tmux`.
 - `godot-editor`: read/write access to the Godot editor's per-user config dir (`~/Library/Application Support/Godot` — `os.UserConfigDir()/Godot`) so a fenced agent can read and modify editor settings, the project list, and export presets. Adds the dir to `allowWrite`; reads there already pass the `code` template (non-credential), so only the write is newly granted.
 
@@ -225,20 +225,21 @@ A repo customizes its fenced sessions through a `fence` block in its own
 ```json
 {
   "fence": {
-    "presets": ["golang", "node", "tmux"],
+    "presets": ["golang", "tmux"],
     "allowed_domains": ["mcp.posthog.com"]
   }
 }
 ```
 
-- `presets` opt into core-defined bundles. Available: `golang` (GOCACHE,
-  STATICCHECK_CACHE, `GOFLAGS=-modcacherw`, Go telemetry write), `node`
-  (npm/yarn/bun caches), `python` (pip/uv caches), `tmux`
-  (`allowAllUnixSockets`, for sessions that create local sockets), `docker`
-  (Docker daemon socket + `DOCKER_CONFIG` redirect + Docker Hub pull domains,
-  for running `--e2e`/`--scenarios` inside a fence — see [Security note](#security-note-docker-preset)),
+- `presets` opt into core-defined bundles, each granting a real capability
+  beyond a cache redirect. Available: `golang` (GOCACHE, STATICCHECK_CACHE,
+  `GOFLAGS=-modcacherw`, Go telemetry write), `tmux` (`allowAllUnixSockets`, for
+  sessions that create local sockets), `docker` (Docker daemon socket +
+  `DOCKER_CONFIG` redirect + Docker Hub pull domains, for running
+  `--e2e`/`--scenarios` inside a fence — see [Security note](#security-note-docker-preset)),
   `godot-editor` (read/write the Godot editor config dir
-  `~/Library/Application Support/Godot`).
+  `~/Library/Application Support/Godot`). The npm/yarn/bun, pip/uv, and Playwright
+  cache redirects are baseline (every session), not presets.
 - `allowed_domains` add network destinations to the baseline allowlist.
 
 The always-on baseline (any fenced repo) is `extends: "code"`, the workspace +
