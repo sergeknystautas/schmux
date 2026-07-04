@@ -129,6 +129,7 @@ export function createDemoConfig(): ConfigResponse {
     commit_message: { target: '' },
     desync: {},
     io_workspace_telemetry: {},
+    fence_analyze: {},
     notifications: {},
     lore: {},
     subreddit: {},

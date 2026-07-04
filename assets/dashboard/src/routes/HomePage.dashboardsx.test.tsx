@@ -41,6 +41,7 @@ const baseConfig: ConfigResponse = {
   commit_message: { target: '' },
   desync: { enabled: false, target: '' },
   io_workspace_telemetry: { enabled: false, target: '' },
+  fence_analyze: { enabled: false, target: '' },
   notifications: {
     sound_disabled: false,
     confirm_before_close: false,

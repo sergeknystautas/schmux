@@ -181,6 +181,7 @@ type ConfigResponse struct {
 	CommitMessage              CommitMessage          `json:"commit_message"`
 	Desync                     Desync                 `json:"desync"`
 	IOWorkspaceTelemetry       IOWorkspaceTelemetry   `json:"io_workspace_telemetry"`
+	FenceAnalyze               FenceAnalyze           `json:"fence_analyze"`
 	Notifications              Notifications          `json:"notifications"`
 	Lore                       Lore                   `json:"lore"`
 	Subreddit                  Subreddit              `json:"subreddit"`
@@ -246,6 +247,18 @@ type IOWorkspaceTelemetry struct {
 
 // IOWorkspaceTelemetryUpdate represents partial I/O workspace telemetry config updates.
 type IOWorkspaceTelemetryUpdate struct {
+	Enabled *bool   `json:"enabled,omitempty"`
+	Target  *string `json:"target,omitempty"`
+}
+
+// FenceAnalyze represents fence-analysis configuration in the API response.
+type FenceAnalyze struct {
+	Enabled bool   `json:"enabled"`
+	Target  string `json:"target"`
+}
+
+// FenceAnalyzeUpdate represents partial fence-analysis config updates.
+type FenceAnalyzeUpdate struct {
 	Enabled *bool   `json:"enabled,omitempty"`
 	Target  *string `json:"target,omitempty"`
 }
@@ -356,6 +369,7 @@ type ConfigUpdateRequest struct {
 	CommitMessage              *CommitMessageUpdate        `json:"commit_message,omitempty"`
 	Desync                     *DesyncUpdate               `json:"desync,omitempty"`
 	IOWorkspaceTelemetry       *IOWorkspaceTelemetryUpdate `json:"io_workspace_telemetry,omitempty"`
+	FenceAnalyze               *FenceAnalyzeUpdate         `json:"fence_analyze,omitempty"`
 	Notifications              *NotificationsUpdate        `json:"notifications,omitempty"`
 	Lore                       *LoreUpdate                 `json:"lore,omitempty"`
 	Subreddit                  *SubredditUpdate            `json:"subreddit,omitempty"`

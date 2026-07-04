@@ -36,7 +36,7 @@ func (s *Server) handleFenceLogWebSocket(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "unknown fenced session", http.StatusNotFound)
 		return
 	}
-	s.streamLogFile(w, r, filepath.Join(schmuxdir.FenceLaunchDir(id), "monitor.log"))
+	s.streamLogFile(w, r, filepath.Join(schmuxdir.FenceLaunchDir(sess.WorkspaceID, id), "monitor.log"))
 }
 
 // streamLogFile upgrades to a websocket and sends path's existing lines as

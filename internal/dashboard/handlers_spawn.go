@@ -258,20 +258,16 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 			writeJSONError(w, "fence is not supported for remote sessions", http.StatusBadRequest)
 			return
 		}
-		var st detect.DependencyStatus
-		var ok bool
-		if h.dependencyReport != nil {
-			st, ok = h.dependencyReport().Status("fence")
-		}
-		if !ok || !st.Detected {
-			writeJSONError(w, "fence not available — install fence to use fenced sessions", http.StatusBadRequest)
+		cmd, errMsg, status := h.fenceCommandOrError()
+		if errMsg != "" {
+			writeJSONError(w, errMsg, status)
 			return
 		}
-		if h.config.GetFenceMode() == config.FenceModeDisabled {
-			writeJSONError(w, "fenced sessions are disabled", http.StatusBadRequest)
+		if modeMsg, modeStatus := h.fenceModeOrError(); modeMsg != "" {
+			writeJSONError(w, modeMsg, modeStatus)
 			return
 		}
-		fenceCommand = st.Command
+		fenceCommand = cmd
 	}
 
 	// Detect git URL in repo field and register if new

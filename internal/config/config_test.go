@@ -2460,6 +2460,24 @@ func TestIOWorkspaceTelemetryDefaults(t *testing.T) {
 	}
 }
 
+func TestFenceAnalyzeDefaults(t *testing.T) {
+	cfg := &Config{}
+	if cfg.GetFenceAnalyzeEnabled() {
+		t.Error("GetFenceAnalyzeEnabled() = true, want false by default")
+	}
+	if cfg.GetFenceAnalyzeTarget() != "" {
+		t.Errorf("GetFenceAnalyzeTarget() = %q, want empty", cfg.GetFenceAnalyzeTarget())
+	}
+	enabled := true
+	cfg.FenceAnalyze = &FenceAnalyzeConfig{Enabled: &enabled, Target: "  claude-opus  "}
+	if !cfg.GetFenceAnalyzeEnabled() {
+		t.Error("GetFenceAnalyzeEnabled() = false, want true")
+	}
+	if got := cfg.GetFenceAnalyzeTarget(); got != "claude-opus" {
+		t.Errorf("GetFenceAnalyzeTarget() = %q, want trimmed 'claude-opus'", got)
+	}
+}
+
 func TestModelsEnabled(t *testing.T) {
 	cfg := &Config{}
 

@@ -192,6 +192,9 @@ export type ConfigFormState = {
   ioWorkspaceTelemetryEnabled: boolean;
   ioWorkspaceTelemetryTarget: string;
 
+  fenceAnalyzeEnabled: boolean;
+  fenceAnalyzeTarget: string;
+
   personasEnabled: boolean;
   commStylesEnabled: boolean;
   backburnerEnabled: boolean;
@@ -371,6 +374,9 @@ export const initialState: ConfigFormState = {
   timelapseMaxTotalStorageMB: 500,
   ioWorkspaceTelemetryEnabled: false,
   ioWorkspaceTelemetryTarget: '',
+
+  fenceAnalyzeEnabled: false,
+  fenceAnalyzeTarget: '',
 
   personasEnabled: false,
   commStylesEnabled: false,

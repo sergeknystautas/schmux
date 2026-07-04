@@ -209,6 +209,8 @@ export default function ConfigPage() {
           timelapseMaxTotalStorageMB: data.timelapse?.max_total_storage_mb || 500,
           ioWorkspaceTelemetryEnabled: data.io_workspace_telemetry?.enabled || false,
           ioWorkspaceTelemetryTarget: data.io_workspace_telemetry?.target || '',
+          fenceAnalyzeEnabled: data.fence_analyze?.enabled || false,
+          fenceAnalyzeTarget: data.fence_analyze?.target || '',
           personasEnabled: data.personas_enabled ?? false,
           commStylesEnabled: data.comm_styles_enabled ?? false,
           backburnerEnabled: data.backburner_enabled ?? false,
@@ -1214,7 +1216,12 @@ export default function ConfigPage() {
           {currentTab === 5 && <RemoteSettingsPage />}
 
           {currentTab === 6 && (
-            <ExperimentalTab state={state} dispatch={dispatch} models={oneshotOptions} />
+            <ExperimentalTab
+              state={state}
+              dispatch={dispatch}
+              models={oneshotOptions}
+              agentModels={models}
+            />
           )}
 
           {currentTab === 7 && (

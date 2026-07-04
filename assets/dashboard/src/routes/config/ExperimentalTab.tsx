@@ -2,6 +2,7 @@ import React from 'react';
 import { EXPERIMENTAL_FEATURES } from './experimentalRegistry';
 import { useFeatures } from '../../contexts/FeaturesContext';
 import type { ConfigFormState, ConfigFormAction } from './useConfigForm';
+import TargetSelect from './TargetSelect';
 import type { TargetOption } from './TargetSelect';
 import type { Features } from '../../lib/types.generated';
 
@@ -9,9 +10,15 @@ type ExperimentalTabProps = {
   state: ConfigFormState;
   dispatch: React.Dispatch<ConfigFormAction>;
   models: TargetOption[];
+  agentModels: TargetOption[];
 };
 
-export default function ExperimentalTab({ state, dispatch, models }: ExperimentalTabProps) {
+export default function ExperimentalTab({
+  state,
+  dispatch,
+  models,
+  agentModels,
+}: ExperimentalTabProps) {
   const { features } = useFeatures();
 
   const visibleFeatures = EXPERIMENTAL_FEATURES.filter((f) => {
@@ -140,6 +147,41 @@ export default function ExperimentalTab({ state, dispatch, models }: Experimenta
               </>
             );
           })()}
+          <div className="form-group mt-sm">
+            <label
+              className="flex-row gap-xs cursor-pointer"
+              style={state.fenceAvailable ? undefined : { opacity: 0.5 }}
+            >
+              <input
+                type="checkbox"
+                checked={state.fenceAnalyzeEnabled && state.fenceAvailable}
+                disabled={!state.fenceAvailable}
+                onChange={(e) => setField('fenceAnalyzeEnabled', e.target.checked)}
+                data-testid="fence-analyze-enabled"
+              />
+              Enable fence analysis
+            </label>
+            <p className="form-group__hint">
+              When enabled, fenced sessions show an "Analyze fence" button that spawns an agent to
+              read the session's fence monitor log and recommend .schmux/config.json fence
+              exceptions.
+            </p>
+          </div>
+
+          <div className="form-group">
+            <label className="form-group__label">Target</label>
+            <TargetSelect
+              value={state.fenceAnalyzeTarget}
+              onChange={(v) => setField('fenceAnalyzeTarget', v)}
+              disabled={!state.fenceAvailable || !state.fenceAnalyzeEnabled}
+              includeDisabledOption={false}
+              options={agentModels}
+            />
+            <p className="form-group__hint">
+              When a target is selected, pressing the "Analyze fence" button spawns an agent session
+              on it to review the fence logs and propose exceptions.
+            </p>
+          </div>
         </div>
       </div>
     </div>

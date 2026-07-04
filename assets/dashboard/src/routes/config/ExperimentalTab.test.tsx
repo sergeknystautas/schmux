@@ -36,7 +36,12 @@ const dispatch = vi.fn<(action: ConfigFormAction) => void>();
 
 function renderTab(overrides: Partial<typeof initialState> = {}) {
   return render(
-    <ExperimentalTab state={{ ...initialState, ...overrides }} dispatch={dispatch} models={[]} />
+    <ExperimentalTab
+      state={{ ...initialState, ...overrides }}
+      dispatch={dispatch}
+      models={[]}
+      agentModels={[]}
+    />
   );
 }
 

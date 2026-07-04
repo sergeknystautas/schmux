@@ -122,6 +122,10 @@ export function buildConfigUpdate(state: ConfigFormState): ConfigUpdateRequest {
       enabled: state.ioWorkspaceTelemetryEnabled,
       target: state.ioWorkspaceTelemetryTarget || '',
     },
+    fence_analyze: {
+      enabled: state.fenceAnalyzeEnabled,
+      target: state.fenceAnalyzeTarget || '',
+    },
     // sapling_commands is intentionally omitted from API updates: shell commands
     // are configured directly in ~/.schmux/config.json as argv arrays. The
     // dashboard exposes a hint pointing users at the file (see AdvancedTab).

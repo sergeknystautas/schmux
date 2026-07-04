@@ -105,6 +105,7 @@ type ConfigData struct {
 	CommitMessage              *CommitMessageConfig        `json:"commit_message,omitempty"`
 	Desync                     *DesyncConfig               `json:"desync,omitempty"`
 	IOWorkspaceTelemetry       *IOWorkspaceTelemetryConfig `json:"io_workspace_telemetry,omitempty"`
+	FenceAnalyze               *FenceAnalyzeConfig         `json:"fence_analyze,omitempty"`
 	Notifications              *NotificationsConfig        `json:"notifications,omitempty"`
 	RemoteFlavors              []RemoteFlavor              `json:"remote_flavors,omitempty"`
 	RemoteProfiles             []RemoteProfile             `json:"remote_profiles,omitempty"`
@@ -333,6 +334,12 @@ type TelemetryConfig struct {
 type IOWorkspaceTelemetryConfig struct {
 	Enabled *bool  `json:"enabled,omitempty"` // enable/disable I/O workspace telemetry
 	Target  string `json:"target,omitempty"`  // run target for telemetry processing
+}
+
+// FenceAnalyzeConfig gates the "Analyze fence" button and the agent target it spawns.
+type FenceAnalyzeConfig struct {
+	Enabled *bool  `json:"enabled,omitempty"` // enable/disable the Analyze fence button
+	Target  string `json:"target,omitempty"`  // run target for the fence-analysis agent
 }
 
 // NotificationsConfig holds configuration for dashboard notifications.
@@ -1007,6 +1014,9 @@ func (c *Config) hasLegacyModelIDs() bool {
 	if c.IOWorkspaceTelemetry != nil && isLegacy(c.IOWorkspaceTelemetry.Target) {
 		return true
 	}
+	if c.FenceAnalyze != nil && isLegacy(c.FenceAnalyze.Target) {
+		return true
+	}
 
 	// Enabled models map
 	if c.Models != nil && c.Models.Enabled != nil {
@@ -1068,6 +1078,9 @@ func (c *Config) migrateModelIDs() {
 	}
 	if c.IOWorkspaceTelemetry != nil {
 		migrateTarget(&c.IOWorkspaceTelemetry.Target)
+	}
+	if c.FenceAnalyze != nil {
+		migrateTarget(&c.FenceAnalyze.Target)
 	}
 
 	// Enabled models map
@@ -2200,6 +2213,32 @@ func (c *Config) GetIOWorkspaceTelemetryTarget() string {
 		return ""
 	}
 	return strings.TrimSpace(c.IOWorkspaceTelemetry.Target)
+}
+
+// GetFenceAnalyzeEnabled returns whether the Analyze fence button is enabled.
+func (c *Config) GetFenceAnalyzeEnabled() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.FenceAnalyze == nil || c.FenceAnalyze.Enabled == nil {
+		return false
+	}
+	return *c.FenceAnalyze.Enabled
+}
+
+// GetFenceAnalyzeTarget returns the configured target for the fence-analysis agent.
+func (c *Config) GetFenceAnalyzeTarget() string {
+	if c == nil {
+		return ""
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.FenceAnalyze == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.FenceAnalyze.Target)
 }
 
 // GetNotificationSoundEnabled returns whether notification sounds are enabled.

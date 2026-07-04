@@ -32,9 +32,15 @@ func BackupsDir() string    { return filepath.Join(Get(), "backups") }
 func AdaptersDir() string   { return filepath.Join(Get(), "adapters") }
 func LogsDir() string       { return filepath.Join(Get(), "logs") }
 
-// FenceLaunchDir returns the per-session directory holding fence launch
-// artifacts (settings.json, cmd.sh). Lives outside any workspace so a fenced
-// process cannot tamper with its own future respawns.
-func FenceLaunchDir(sessionID string) string {
-	return filepath.Join(Get(), "fence", sessionID)
+// FenceWorkspaceDir returns the per-workspace directory holding every fenced
+// session's launch subdir for that workspace. Lives outside any workspace so a
+// fenced process cannot tamper with its own future respawns.
+func FenceWorkspaceDir(workspaceID string) string {
+	return filepath.Join(Get(), "fence", workspaceID)
+}
+
+// FenceLaunchDir returns the per-session directory (under the workspace dir)
+// holding fence launch artifacts (settings.json, cmd.sh, monitor.log).
+func FenceLaunchDir(workspaceID, sessionID string) string {
+	return filepath.Join(FenceWorkspaceDir(workspaceID), sessionID)
 }

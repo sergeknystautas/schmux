@@ -1070,7 +1070,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	}
 
 	// Create tmux session
-	command, err = m.wrapForFence(ctx, w.Path, sessionID, opts.Fence, opts.FenceCommand, fenceAllowedDomains(resolved), command)
+	command, err = m.wrapForFence(ctx, w.Path, w.ID, sessionID, opts.Fence, opts.FenceCommand, fenceAllowedDomains(resolved), command)
 	if err != nil {
 		return nil, err
 	}
@@ -1174,7 +1174,7 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 	}
 
 	// Create tmux session with the raw command
-	commandWithEnv, err = m.wrapForFence(ctx, w.Path, sessionID, opts.Fence, opts.FenceCommand, nil, commandWithEnv)
+	commandWithEnv, err = m.wrapForFence(ctx, w.Path, w.ID, sessionID, opts.Fence, opts.FenceCommand, nil, commandWithEnv)
 	if err != nil {
 		return nil, err
 	}
@@ -1372,7 +1372,7 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 // has already rejected fence-on requests for which the dependency report says
 // fence is unavailable; this guard is local and mechanical and does not
 // re-detect dependencies. When disabled, returns today's command untouched.
-func (m *Manager) wrapForFence(ctx context.Context, workspacePath, sessionID string, enabled bool, fenceCommand string, allowedDomains []string, command string) (string, error) {
+func (m *Manager) wrapForFence(ctx context.Context, workspacePath, workspaceID, sessionID string, enabled bool, fenceCommand string, allowedDomains []string, command string) (string, error) {
 	if !enabled {
 		return command, nil
 	}
@@ -1396,10 +1396,11 @@ func (m *Manager) wrapForFence(ctx context.Context, workspacePath, sessionID str
 	cfg := fence.Config{
 		FenceCommand:       fenceCommand,
 		WorkspacePath:      workspacePath,
-		ExtraWritablePaths: workspace.ExtraWritablePaths(workspacePath), // git worktree → shared .git; else none
+		ExtraWritablePaths: workspace.ExtraWritablePaths(workspacePath),        // git worktree → shared .git; else none
+		ExtraReadablePaths: []string{schmuxdir.FenceWorkspaceDir(workspaceID)}, // read all of this workspace's fence monitor logs
 		AllowedDomains:     append(append([]string{}, repoDomains...), allowedDomains...),
 		Presets:            presets,
-		DataDir:            schmuxdir.FenceLaunchDir(sessionID),
+		DataDir:            schmuxdir.FenceLaunchDir(workspaceID, sessionID),
 	}
 	return fence.Wrap(ctx, cfg, command)
 }

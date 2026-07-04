@@ -510,6 +510,8 @@ The per-repo `RepoConfig` (`.schmux/config.json` in the workspace) accepts a `fe
 
 Consumed at spawn for fenced sessions; ignored otherwise.
 
+**`fence_analyze`** (global config, GET/PATCH `/api/config`; object `{ enabled: boolean, target: string }`). When `enabled`, the session view shows an "Analyze fence" button for fenced sessions; pressing it calls `POST /api/sessions/{sessionId}/fence-analyze`, which spawns a fenced agent using `target` into the same workspace. The backend owns the prompt (the client sends only the session id): at analyze time the endpoint generates `fence-capabilities.md` — the closed fence vocabulary, rendered from the `presets` map — into the workspace fence directory, and the agent reads that doc, then the target session's `monitor.log`, then this repo's `.schmux/config.json`, and recommends `fence.allowed_domains` / `fence.presets` exceptions per the doc's selection and output rules. Spawning into the same workspace lets it inherit that repo's fence policy and read the workspace-scoped fence log directory.
+
 - `workspace_label` is optional. Cosmetic display label persisted on the workspace and surfaced in the dashboard workspace lists; falls back to the workspace ID when empty. Used by sapling workspaces today (which have no branch to display). Silently ignored when `workspace_id` is set (workspace-mode spawn) — renaming an existing workspace is out of scope here.
 - For sapling repos (`vcs == "sapling"` in config), `branch` may be empty. The "branch is required" check is skipped, the per-repo branch-conflict pre-flight is skipped (sapling workspaces with empty branch never collide), and the persisted `state.Workspace.Branch` stays empty. The sapling backend's worktree-creation template substitutes `"main"` internally so the underlying `sl` invocation gets a non-empty value, but persisted state and the API response report `branch: ""`.
 - `action_id` is optional. When set, usage is recorded against the matching spawn entry in the spawn store. When absent and a prompt exactly matches a pinned spawn entry's prompt, usage is recorded automatically.
@@ -765,6 +767,29 @@ Errors:
 - 409: "session is not running"
 - 500: "failed to send message: ..."
 - 503: "remote manager not available", "remote host not connected"
+
+### POST /api/sessions/{sessionId}/fence-analyze
+
+Spawn a fenced analysis agent that reads the target session's fence log and recommends `.schmux/config.json` fence changes. The browser sends only the session id; the backend builds the prompt server-side from schmuxdir-derived absolute paths (correct under `--config-dir` / `SCHMUX_HOME`) and names no presets. At analyze time the endpoint writes `fence-capabilities.md` (the closed fence vocabulary, rendered from the `presets` map) into the workspace fence directory — so it always matches the running binary — and the agent is told to read it first, then the target session's `monitor.log`, then this repo's `.schmux/config.json`. The agent spawns into the same workspace as the target session, fenced, with nickname `fence-analyze`.
+
+Request: empty body (the session id is in the path).
+
+Response: a spawn result for the new analysis session.
+
+```json
+{
+  "session_id": "sess-...",
+  "workspace_id": "ws-...",
+  "target": "claude",
+  "nickname": "fence-analyze"
+}
+```
+
+Errors:
+
+- 400: "fence analysis is disabled", "no analysis target configured", "fence not available — install fence to use fenced sessions", "fenced sessions are disabled"
+- 404: "unknown fenced session", "workspace for fenced session not found"
+- 500: "failed to spawn fence analysis agent: ..."
 
 ### GET /api/sessions/{sessionId}/events
 

@@ -19,6 +19,8 @@ const defaultProps = {
   desyncTarget: '',
   ioWorkspaceTelemetryEnabled: false,
   ioWorkspaceTelemetryTarget: '',
+  fenceAnalyzeEnabled: false,
+  fenceAnalyzeTarget: '',
   dashboardPollInterval: 5000,
   gitStatusPollInterval: 10000,
   gitCloneTimeout: 300000,

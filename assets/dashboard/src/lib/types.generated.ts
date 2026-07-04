@@ -136,6 +136,7 @@ export interface ConfigResponse {
   commit_message: CommitMessage;
   desync: Desync;
   io_workspace_telemetry: IOWorkspaceTelemetry;
+  fence_analyze: FenceAnalyze;
   notifications: Notifications;
   lore: Lore;
   subreddit: Subreddit;
@@ -186,6 +187,7 @@ export interface ConfigUpdateRequest {
   commit_message?: CommitMessageUpdate;
   desync?: DesyncUpdate;
   io_workspace_telemetry?: IOWorkspaceTelemetryUpdate;
+  fence_analyze?: FenceAnalyzeUpdate;
   notifications?: NotificationsUpdate;
   lore?: LoreUpdate;
   subreddit?: SubredditUpdate;
@@ -330,6 +332,16 @@ export interface Features {
   timelapse: boolean;
   build_monitor: boolean;
   vendor_locked: boolean;
+}
+
+export interface FenceAnalyze {
+  enabled: boolean;
+  target: string;
+}
+
+export interface FenceAnalyzeUpdate {
+  enabled?: boolean;
+  target?: string;
 }
 
 export interface FileDiff {

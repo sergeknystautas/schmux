@@ -148,6 +148,22 @@ export async function spawnSessions(request: SpawnRequest): Promise<SpawnResult[
 }
 
 /**
+ * Spawns a fenced analysis agent for a blocked session. The backend owns the
+ * prompt and the schmuxdir-derived paths; the client sends only the session id.
+ * Returns the spawned analysis session.
+ */
+export async function analyzeFence(sessionId: string): Promise<SpawnResult> {
+  const response = await apiFetch(`/api/sessions/${sessionId}/fence-analyze`, {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to spawn fence analysis agent');
+  }
+  return response.json();
+}
+
+/**
  * Checks if a branch is already in use by an existing workspace (worktree conflict).
  * Only relevant when source_code_manager is "git-worktree".
  */

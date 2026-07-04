@@ -389,3 +389,26 @@ func TestWrapDockerNoPluginsSkipsConfig(t *testing.T) {
 		t.Errorf("config.json should not exist when no plugin dirs found; stat err = %v", err)
 	}
 }
+
+func TestWrapAddsExtraReadablePaths(t *testing.T) {
+	dir := t.TempDir()
+	out, err := Wrap(context.Background(), Config{
+		FenceCommand:       "fence",
+		WorkspacePath:      t.TempDir(),
+		DataDir:            dir,
+		ExtraReadablePaths: []string{"/home/u/.schmux/fence/ws-1"},
+	}, "echo hi")
+	if err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	if out == "" {
+		t.Fatal("empty wrap command")
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "settings.json"))
+	if err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+	if !strings.Contains(string(data), "/home/u/.schmux/fence/ws-1") {
+		t.Errorf("settings.json missing extra readable path: %s", data)
+	}
+}

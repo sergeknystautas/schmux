@@ -270,6 +270,10 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 			Enabled: h.config.GetIOWorkspaceTelemetryEnabled(),
 			Target:  h.config.GetIOWorkspaceTelemetryTarget(),
 		},
+		FenceAnalyze: contracts.FenceAnalyze{
+			Enabled: h.config.GetFenceAnalyzeEnabled(),
+			Target:  h.config.GetFenceAnalyzeTarget(),
+		},
 		TmuxBinary:           h.config.TmuxBinary,
 		TmuxSocketName:       h.config.GetTmuxSocketName(),
 		RecycleWorkspaces:    h.config.RecycleWorkspaces,
@@ -732,6 +736,22 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 		// Nil out if everything is at zero value
 		if (cfg.IOWorkspaceTelemetry.Enabled == nil || !*cfg.IOWorkspaceTelemetry.Enabled) && cfg.IOWorkspaceTelemetry.Target == "" {
 			cfg.IOWorkspaceTelemetry = nil
+		}
+	}
+
+	if req.FenceAnalyze != nil {
+		if cfg.FenceAnalyze == nil {
+			cfg.FenceAnalyze = &config.FenceAnalyzeConfig{}
+		}
+		if req.FenceAnalyze.Enabled != nil {
+			enabled := *req.FenceAnalyze.Enabled
+			cfg.FenceAnalyze.Enabled = &enabled
+		}
+		if req.FenceAnalyze.Target != nil {
+			cfg.FenceAnalyze.Target = strings.TrimSpace(*req.FenceAnalyze.Target)
+		}
+		if (cfg.FenceAnalyze.Enabled == nil || !*cfg.FenceAnalyze.Enabled) && cfg.FenceAnalyze.Target == "" {
+			cfg.FenceAnalyze = nil
 		}
 	}
 

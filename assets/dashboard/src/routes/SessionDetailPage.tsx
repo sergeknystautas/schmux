@@ -7,6 +7,7 @@ import {
   disposeSession,
   reconnectRemoteHost,
   spawnSessions,
+  analyzeFence,
   getErrorMessage,
   getTimelapseRecordings,
   exportTimelapseRecording,
@@ -551,6 +552,23 @@ export default function SessionDetailPage() {
     }
   };
 
+  const handleAnalyzeFence = async () => {
+    if (!sessionId) return;
+    try {
+      const result = await analyzeFence(sessionId);
+      success('Spawned fence analysis agent');
+      if (result.session_id) {
+        await waitForSession(result.session_id);
+        navigate(`/sessions/${result.session_id}`);
+      }
+    } catch (err) {
+      alert(
+        'Fence Analysis Failed',
+        `Failed to spawn fence analysis agent: ${getErrorMessage(err, 'Unknown error')}`
+      );
+    }
+  };
+
   const handleToggleSelectionMode = () => {
     const newMode = terminalStreamRef.current?.toggleSelectionMode() ?? false;
     setSelectionMode(newMode);
@@ -896,6 +914,15 @@ export default function SessionDetailPage() {
                         stats={ioWorkspaceStats}
                         onCapture={() => terminalStreamRef.current?.sendIOWorkspaceDiagnostic()}
                       />
+                    )}
+                    {config.fence_analyze?.enabled && sessionData.fence && (
+                      <button
+                        className="btn btn--sm btn--secondary"
+                        onClick={handleAnalyzeFence}
+                        data-testid="analyze-fence"
+                      >
+                        Analyze fence
+                      </button>
                     )}
                   </div>
                   <div className="log-viewer__actions">

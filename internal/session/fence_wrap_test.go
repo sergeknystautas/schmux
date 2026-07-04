@@ -12,7 +12,7 @@ import (
 )
 
 func TestWrapForFenceDisabledReturnsUnchanged(t *testing.T) {
-	got, err := (&Manager{}).wrapForFence(context.Background(), "/ws", "sess", false, "", nil, "echo hi")
+	got, err := (&Manager{}).wrapForFence(context.Background(), "/ws", "ws", "sess", false, "", nil, "echo hi")
 	if err != nil {
 		t.Fatalf("wrapForFence: %v", err)
 	}
@@ -22,7 +22,7 @@ func TestWrapForFenceDisabledReturnsUnchanged(t *testing.T) {
 }
 
 func TestWrapForFenceMissingCommandErrors(t *testing.T) {
-	_, err := (&Manager{}).wrapForFence(context.Background(), "/ws", "sess", true, "", nil, "echo hi")
+	_, err := (&Manager{}).wrapForFence(context.Background(), "/ws", "ws", "sess", true, "", nil, "echo hi")
 	if err == nil || !strings.Contains(err.Error(), "fence not available") {
 		t.Errorf("err = %v, want 'fence not available'", err)
 	}
@@ -31,7 +31,7 @@ func TestWrapForFenceMissingCommandErrors(t *testing.T) {
 func TestWrapForFenceEnabledWraps(t *testing.T) {
 	schmuxdir.Set(t.TempDir())
 	t.Cleanup(func() { schmuxdir.Set("") })
-	got, err := (&Manager{}).wrapForFence(context.Background(), t.TempDir(), "sess-xyz", true, "fence", nil, "echo hi")
+	got, err := (&Manager{}).wrapForFence(context.Background(), t.TempDir(), "ws", "sess-xyz", true, "fence", nil, "echo hi")
 	if err != nil {
 		t.Fatalf("wrapForFence: %v", err)
 	}
@@ -91,10 +91,10 @@ func TestWrapForFenceWritesCodexHarnessDomains(t *testing.T) {
 	schmuxdir.Set(t.TempDir())
 	t.Cleanup(func() { schmuxdir.Set("") })
 	domains := fenceAllowedDomains(ResolvedTarget{ToolName: "codex"})
-	if _, err := (&Manager{}).wrapForFence(context.Background(), t.TempDir(), "sess-codex", true, "fence", domains, "echo hi"); err != nil {
+	if _, err := (&Manager{}).wrapForFence(context.Background(), t.TempDir(), "ws-codex", "sess-codex", true, "fence", domains, "echo hi"); err != nil {
 		t.Fatalf("wrapForFence: %v", err)
 	}
-	settings, err := os.ReadFile(filepath.Join(schmuxdir.FenceLaunchDir("sess-codex"), "settings.json"))
+	settings, err := os.ReadFile(filepath.Join(schmuxdir.FenceLaunchDir("ws-codex", "sess-codex"), "settings.json"))
 	if err != nil {
 		t.Fatalf("read settings: %v", err)
 	}
@@ -118,11 +118,11 @@ func TestWrapForFenceAppliesRepoPresets(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := (&Manager{}).wrapForFence(context.Background(), ws, "sess-1", true, "fence", nil, "echo hi"); err != nil {
+	if _, err := (&Manager{}).wrapForFence(context.Background(), ws, "ws-1", "sess-1", true, "fence", nil, "echo hi"); err != nil {
 		t.Fatalf("wrapForFence: %v", err)
 	}
 
-	settings, err := os.ReadFile(filepath.Join(schmuxdir.FenceLaunchDir("sess-1"), "settings.json"))
+	settings, err := os.ReadFile(filepath.Join(schmuxdir.FenceLaunchDir("ws-1", "sess-1"), "settings.json"))
 	if err != nil {
 		t.Fatalf("read settings: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestWrapForFenceAppliesRepoPresets(t *testing.T) {
 	if !strings.Contains(string(settings), `"allowAllUnixSockets": true`) {
 		t.Errorf("settings missing tmux allowAllUnixSockets: %s", settings)
 	}
-	cmd, err := os.ReadFile(filepath.Join(schmuxdir.FenceLaunchDir("sess-1"), "cmd.sh"))
+	cmd, err := os.ReadFile(filepath.Join(schmuxdir.FenceLaunchDir("ws-1", "sess-1"), "cmd.sh"))
 	if err != nil {
 		t.Fatalf("read cmd.sh: %v", err)
 	}
@@ -141,5 +141,20 @@ func TestWrapForFenceAppliesRepoPresets(t *testing.T) {
 	}
 	if strings.Contains(string(cmd), "DOCKER_CONFIG") {
 		t.Errorf("docker preset should not be active: %s", cmd)
+	}
+}
+
+func TestWrapForFenceGrantsWorkspaceLogRead(t *testing.T) {
+	schmuxdir.Set(t.TempDir())
+	t.Cleanup(func() { schmuxdir.Set("") })
+	if _, err := (&Manager{}).wrapForFence(context.Background(), t.TempDir(), "ws-9", "sess-9", true, "fence", nil, "echo hi"); err != nil {
+		t.Fatalf("wrapForFence: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(schmuxdir.FenceLaunchDir("ws-9", "sess-9"), "settings.json"))
+	if err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+	if !strings.Contains(string(data), schmuxdir.FenceWorkspaceDir("ws-9")) {
+		t.Errorf("settings.json missing workspace fence dir in allowRead: %s", data)
 	}
 }

@@ -24,9 +24,10 @@ type Config struct {
 	FenceCommand       string   // from the existing dependency report's "fence" status
 	WorkspacePath      string   // cwd of the pane; writable
 	ExtraWritablePaths []string // out-of-workspace paths the VCS must write (e.g. a git worktree's shared .git). Opaque to fence.
+	ExtraReadablePaths []string // out-of-workspace paths the process may read (e.g. the workspace's fence-log dir). Opaque to fence.
 	AllowedDomains     []string // model/provider + repo fence.allowed_domains
 	Presets            []string // repo fence.presets (golang/tmux/docker/godot-editor)
-	DataDir            string   // where generated launch files go (~/.schmux/fence/<session-id>/)
+	DataDir            string   // where generated launch files go (~/.schmux/fence/<workspace-id>/<session-id>/)
 }
 
 // settings is the generated fence settings file. Field order is fixed so the
@@ -137,7 +138,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 			AllowAllUnixSockets: allUnix,
 		},
 		Filesystem: settingsFilesystem{
-			AllowRead:  []string{cmdPath},
+			AllowRead:  append([]string{cmdPath}, c.ExtraReadablePaths...),
 			AllowWrite: allowWrite,
 		},
 	}

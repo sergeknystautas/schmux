@@ -63,6 +63,10 @@ const DEFAULT_CONFIG: ConfigResponse = {
     enabled: false,
     target: '',
   },
+  fence_analyze: {
+    enabled: false,
+    target: '',
+  },
   notifications: {
     sound_disabled: false,
     confirm_before_close: false,
