@@ -108,19 +108,36 @@ export default function ExperimentalTab({ state, dispatch, models }: Experimenta
           {(() => {
             const commitFenceDisabled = !state.fenceAvailable || state.fenceMode === 'disabled';
             return (
-              <label
-                className="flex-row gap-xs cursor-pointer mt-sm"
-                style={commitFenceDisabled ? { opacity: 0.5 } : undefined}
-              >
-                <input
-                  type="checkbox"
-                  checked={state.fenceCommit && !commitFenceDisabled}
-                  disabled={commitFenceDisabled}
-                  onChange={(e) => setField('fenceCommit', e.target.checked)}
-                  data-testid="fence-commit"
-                />
-                <span>Run commits (from the commit tab) inside the fence sandbox.</span>
-              </label>
+              <>
+                <label
+                  className="flex-row gap-xs cursor-pointer mt-sm"
+                  style={commitFenceDisabled ? { opacity: 0.5 } : undefined}
+                >
+                  <input
+                    type="checkbox"
+                    checked={state.fenceCommit && !commitFenceDisabled}
+                    disabled={commitFenceDisabled}
+                    onChange={(e) => setField('fenceCommit', e.target.checked)}
+                    data-testid="fence-commit"
+                  />
+                  <span>Run commits (from the commit tab) inside the fence sandbox.</span>
+                </label>
+                <label
+                  className="flex-row gap-xs cursor-pointer mt-sm"
+                  style={commitFenceDisabled ? { opacity: 0.5 } : undefined}
+                >
+                  <input
+                    type="checkbox"
+                    checked={state.fenceBuildMonitor && !commitFenceDisabled}
+                    disabled={commitFenceDisabled}
+                    onChange={(e) => setField('fenceBuildMonitor', e.target.checked)}
+                    data-testid="fence-build-monitor"
+                  />
+                  <span>
+                    Run build-monitor fix sessions inside the fence sandbox (skip approvals).
+                  </span>
+                </label>
+              </>
             );
           })()}
         </div>

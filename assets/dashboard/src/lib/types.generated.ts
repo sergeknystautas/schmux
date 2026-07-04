@@ -155,6 +155,7 @@ export interface ConfigResponse {
   backburner_enabled?: boolean;
   fence_mode?: string;
   fence_commit?: boolean;
+  fence_build_monitor?: boolean;
   clipboard_sync_enabled: boolean;
   system_capabilities: SystemCapabilities;
   needs_restart: boolean;
@@ -206,6 +207,7 @@ export interface ConfigUpdateRequest {
   backburner_enabled?: boolean;
   fence_mode?: string;
   fence_commit?: boolean;
+  fence_build_monitor?: boolean;
   clipboard_sync_enabled?: boolean;
   anthropic_oauth_token?: string;
   ollama?: OllamaConfigUpdate;

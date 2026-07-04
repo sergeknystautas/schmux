@@ -197,6 +197,7 @@ export type ConfigFormState = {
   backburnerEnabled: boolean;
   fenceMode: string;
   fenceCommit: boolean;
+  fenceBuildMonitor: boolean;
   fenceAvailable: boolean;
   localEchoRemote: boolean;
   debugUI: boolean;
@@ -376,6 +377,7 @@ export const initialState: ConfigFormState = {
   backburnerEnabled: false,
   fenceMode: 'optional_off',
   fenceCommit: false,
+  fenceBuildMonitor: false,
   fenceAvailable: false,
   localEchoRemote: false,
   debugUI: false,

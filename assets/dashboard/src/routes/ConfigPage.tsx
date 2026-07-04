@@ -214,6 +214,7 @@ export default function ConfigPage() {
           backburnerEnabled: data.backburner_enabled ?? false,
           fenceMode: data.fence_mode ?? 'optional_off',
           fenceCommit: data.fence_commit ?? false,
+          fenceBuildMonitor: data.fence_build_monitor ?? false,
           fenceAvailable: data.system_capabilities?.fence_available ?? false,
           localEchoRemote: data.local_echo_remote || false,
           debugUI: data.debug_ui ?? false,

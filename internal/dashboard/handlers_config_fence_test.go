@@ -59,3 +59,25 @@ func TestConfigUpdateFenceCommit(t *testing.T) {
 		t.Fatal("cfg.FenceCommit = true after disabling, want false")
 	}
 }
+
+func TestConfigUpdateFenceBuildMonitor(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+	h := newTestConfigHandlers(server)
+
+	if rr := postConfig(t, h, contracts.ConfigUpdateRequest{FenceBuildMonitor: ptr(true)}); rr.Code != http.StatusOK {
+		t.Fatalf("enable status = %d (%s)", rr.Code, rr.Body.String())
+	}
+	if !cfg.FenceBuildMonitor {
+		t.Fatal("cfg.FenceBuildMonitor = false after enabling, want true")
+	}
+	if !cfg.GetFenceBuildMonitor() {
+		t.Fatal("GetFenceBuildMonitor() = false after enabling, want true")
+	}
+
+	if rr := postConfig(t, h, contracts.ConfigUpdateRequest{FenceBuildMonitor: ptr(false)}); rr.Code != http.StatusOK {
+		t.Fatalf("disable status = %d (%s)", rr.Code, rr.Body.String())
+	}
+	if cfg.FenceBuildMonitor {
+		t.Fatal("cfg.FenceBuildMonitor = true after disabling, want false")
+	}
+}

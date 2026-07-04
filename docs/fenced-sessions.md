@@ -69,6 +69,14 @@ the `fence` binary is not detected. The per-spawn checkbox is not persisted.
 Quick-launch shortcuts or other launch paths that do not expose this checkbox
 must send `fence:false`.
 
+The Experimental tab also exposes a `fence_build_monitor` toggle. When enabled,
+build-monitor remediation sessions (both the scheduled auto-launch on first CI
+failure and the manual launch action) spawn fenced with the harness
+skip-approvals flag appended, so the agent fixes a broken build unattended.
+Unlike the interactive spawn checkbox, this path never hard-fails: if `fence`
+is unavailable or `fence_mode` is `disabled`, the session still launches
+unfenced.
+
 ## Command behavior
 
 ### Descriptor-backed harnesses

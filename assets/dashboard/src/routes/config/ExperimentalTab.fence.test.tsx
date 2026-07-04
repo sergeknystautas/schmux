@@ -63,4 +63,28 @@ describe('ExperimentalTab fence card', () => {
     expect(whenDisabled).toBeDisabled();
     expect(whenDisabled).not.toBeChecked();
   });
+
+  it('reflects fenceBuildMonitor and dispatches SET_FIELD when toggled', async () => {
+    dispatch.mockClear();
+    renderTab({ fenceAvailable: true, fenceMode: 'optional_off', fenceBuildMonitor: true });
+    const checkbox = screen.getByTestId('fence-build-monitor');
+    expect(checkbox).toBeChecked();
+    expect(checkbox).not.toBeDisabled();
+    await userEvent.click(checkbox);
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'SET_FIELD', field: 'fenceBuildMonitor', value: false })
+    );
+  });
+
+  it('disables the build-monitor checkbox when fence is unavailable or mode is disabled', () => {
+    renderTab({ fenceAvailable: false, fenceMode: 'optional_off', fenceBuildMonitor: true });
+    const whenUnavailable = screen.getByTestId('fence-build-monitor');
+    expect(whenUnavailable).toBeDisabled();
+    expect(whenUnavailable).not.toBeChecked();
+
+    renderTab({ fenceAvailable: true, fenceMode: 'disabled', fenceBuildMonitor: true });
+    const whenDisabled = screen.getAllByTestId('fence-build-monitor')[1];
+    expect(whenDisabled).toBeDisabled();
+    expect(whenDisabled).not.toBeChecked();
+  });
 });

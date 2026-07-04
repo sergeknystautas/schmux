@@ -128,6 +128,7 @@ type ConfigData struct {
 	BackburnerEnabled          bool                        `json:"backburner_enabled,omitempty"`
 	FenceMode                  string                      `json:"fence_mode,omitempty"`
 	FenceCommit                bool                        `json:"fence_commit,omitempty"`
+	FenceBuildMonitor          bool                        `json:"fence_build_monitor,omitempty"`
 	ClipboardSyncEnabled       *bool                       `json:"clipboard_sync_enabled,omitempty"`
 	Timelapse                  *TimelapseConfig            `json:"timelapse,omitempty"`
 
@@ -1444,6 +1445,14 @@ func (c *Config) GetFenceMode() string {
 	default:
 		return FenceModeOptionalOff
 	}
+}
+
+// GetFenceBuildMonitor reports whether build-monitor remediation sessions
+// should launch inside the fence sandbox (sandbox + skip-approvals).
+func (c *Config) GetFenceBuildMonitor() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.FenceBuildMonitor
 }
 
 // GetClipboardSyncEnabled returns whether terminal clipboard sync is enabled:

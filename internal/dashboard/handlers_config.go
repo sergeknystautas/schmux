@@ -279,6 +279,7 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 		BackburnerEnabled:    h.config.GetBackburnerEnabled(),
 		FenceMode:            h.config.GetFenceMode(),
 		FenceCommit:          h.config.FenceCommit,
+		FenceBuildMonitor:    h.config.FenceBuildMonitor,
 		ClipboardSyncEnabled: h.config.GetClipboardSyncEnabled(),
 		LocalEchoRemote:      h.config.LocalEchoRemote,
 		SaplingCommands: func() *contracts.SaplingCommandsUpdate {
@@ -966,6 +967,10 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 
 	if req.FenceCommit != nil {
 		cfg.FenceCommit = *req.FenceCommit
+	}
+
+	if req.FenceBuildMonitor != nil {
+		cfg.FenceBuildMonitor = *req.FenceBuildMonitor
 	}
 
 	if req.ClipboardSyncEnabled != nil {

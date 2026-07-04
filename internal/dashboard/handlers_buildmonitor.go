@@ -456,6 +456,25 @@ func (s *Server) launchBuildFailureSession(d launchDirective) {
 	go s.BroadcastSessions()
 }
 
+// buildMonitorFenceOptions decides whether build-monitor remediation sessions
+// run fenced. Returns (false, "") — graceful unfenced fallback — whenever the
+// toggle is off, fence mode is disabled, or the fence tool is unavailable.
+// (The interactive spawn handler hard-fails an un-honorable fence request; the
+// automated build-monitor path must degrade quietly instead.)
+func (s *Server) buildMonitorFenceOptions() (bool, string) {
+	if !s.config.GetFenceBuildMonitor() {
+		return false, ""
+	}
+	if s.config.GetFenceMode() == config.FenceModeDisabled {
+		return false, ""
+	}
+	st, ok := s.dependencyReport().Status("fence")
+	if !ok || !st.Detected || st.Command == "" {
+		return false, ""
+	}
+	return true, st.Command
+}
+
 // spawnBuildFailureSession downloads failed-job logs, writes the failure
 // context into the workspace, and spawns the remediation session.
 func (s *Server) spawnBuildFailureSession(ctx context.Context, d launchDirective, workspaceID, workspacePath, target string) (string, error) {
@@ -482,11 +501,14 @@ func (s *Server) spawnBuildFailureSession(ctx context.Context, d launchDirective
 	}
 	prompt := buildmonitor.BuildPrompt(info, buildmonitor.ContextDir(d.workflow.Name))
 	nickname := fmt.Sprintf("Fix %s: %s@%s", d.workflow.Name, d.repoName, buildmonitor.ShortSHA(d.workflow.HeadSHA))
+	fence, fenceCommand := s.buildMonitorFenceOptions()
 	sess, err := s.session.Spawn(ctx, session.SpawnOptions{
-		WorkspaceID: workspaceID,
-		TargetName:  target,
-		Prompt:      prompt,
-		Nickname:    nickname,
+		WorkspaceID:  workspaceID,
+		TargetName:   target,
+		Prompt:       prompt,
+		Nickname:     nickname,
+		Fence:        fence,
+		FenceCommand: fenceCommand,
 	})
 	if err != nil {
 		return "", fmt.Errorf("session launch failed: %v", err)
