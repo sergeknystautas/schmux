@@ -35,5 +35,8 @@ jobs:
       - name: Enforce API doc updates
         run: scripts/check-api-docs.sh
 
+      - name: Install fence
+        run: scripts/install-fence.sh
+
       - name: Run quick tests
         run: ./test.sh --quick --verbose
