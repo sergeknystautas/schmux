@@ -481,7 +481,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 	})
 
 	// Build command with remote mode (uses inline content instead of local file paths)
-	command, err := buildCommand(resolved, opts.Prompt, nil, false, true, false)
+	command, err := buildCommand(resolved, opts.Prompt, nil, false, true, false, "")
 	if err != nil {
 		return nil, err
 	}
@@ -829,6 +829,7 @@ type SpawnOptions struct {
 	WorkspaceID      string
 	WorkspaceLabel   string // Optional human-friendly label persisted on newly created workspaces (sapling-only today; ignored when WorkspaceID is set or when reusing an existing workspace)
 	Resume           bool
+	ResumeID         string // when set, restart resumes this specific harness conversation by id
 	NewBranch        string
 	PersonaID        string
 	PersonaPrompt    string // Pre-resolved persona prompt content (set by handler)
@@ -1024,7 +1025,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		}
 	}
 
-	command, err := buildCommand(resolved, commandPrompt, model, opts.Resume, false, opts.Fence)
+	command, err := buildCommand(resolved, commandPrompt, model, opts.Resume, false, opts.Fence, opts.ResumeID)
 	if err != nil {
 		return nil, err
 	}
@@ -1267,7 +1268,7 @@ func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedT
 	return ResolvedTarget{}, fmt.Errorf("target not found: %s", targetName)
 }
 
-func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, resume bool, remoteMode bool, fence bool) (string, error) {
+func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, resume bool, remoteMode bool, fence bool, resumeID string) (string, error) {
 	isRemote := remoteMode
 	trimmedPrompt := strings.TrimSpace(prompt)
 
@@ -1281,9 +1282,27 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 		if baseTool == "" {
 			return "", fmt.Errorf("resume requires a descriptor-backed target: %s", target.Name)
 		}
-		parts, err := detect.BuildCommandParts(baseTool, target.Command, detect.ToolModeResume, "", model)
-		if err != nil {
-			return "", err
+		var parts []string
+		if resumeID != "" {
+			// Resume a specific conversation by id. Requires the harness to
+			// declare resume_id_args; otherwise we must NOT fall back to the
+			// generic resume_args (--continue / resume --last), which could
+			// resume the wrong conversation.
+			adapter := detect.GetAdapter(baseTool)
+			if adapter == nil {
+				return "", fmt.Errorf("resume by id requires resume_id_args: %s", baseTool)
+			}
+			idArgs := adapter.ResumeIDArgs(model, resumeID)
+			if idArgs == nil {
+				return "", fmt.Errorf("resume by id requires resume_id_args: %s", baseTool)
+			}
+			parts = append(strings.Fields(target.Command), idArgs...)
+		} else {
+			var err error
+			parts, err = detect.BuildCommandParts(baseTool, target.Command, detect.ToolModeResume, "", model)
+			if err != nil {
+				return "", err
+			}
 		}
 		// When fenced, append the harness's skip-approvals flags to the
 		// resume argv before quoting/joining (descriptor-backed only).

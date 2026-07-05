@@ -74,6 +74,10 @@ type ToolAdapter interface {
 	// flags instead of model flags (resume is a flavor of interactive).
 	InteractiveArgs(model *Model, resume bool) []string
 
+	// ResumeIDArgs returns the args to resume a specific conversation by id,
+	// with {resume_id} substituted. Returns nil if the tool has no by-id resume.
+	ResumeIDArgs(model *Model, resumeID string) []string
+
 	// OneshotArgs returns extra CLI args for non-interactive oneshot mode.
 	// jsonSchema is the inline schema string (may be empty).
 	OneshotArgs(model *Model, jsonSchema string) ([]string, error)

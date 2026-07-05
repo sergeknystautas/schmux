@@ -786,6 +786,10 @@ func (m *mockStateStore) ClearSessionNudge(sessionID string) bool {
 	return m.state.ClearSessionNudge(sessionID)
 }
 
+func (m *mockStateStore) UpdateSessionResumeID(sessionID, resumeID string) bool {
+	return m.state.UpdateSessionResumeID(sessionID, resumeID)
+}
+
 func (m *mockStateStore) GetNeedsRestart() bool {
 	return m.state.GetNeedsRestart()
 }

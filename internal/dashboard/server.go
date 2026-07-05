@@ -892,6 +892,7 @@ func (s *Server) Start() error {
 			r.Post("/sessions/{sessionID}/tell", s.handleTellSession)
 			r.Post("/sessions/{sessionID}/clipboard", makeClipboardAckHandler(s.clipboardState))
 			r.Post("/sessions/{sessionID}/fence-analyze", spawnH.handleFenceAnalyze)
+			r.Post("/sessions/{sessionID}/restart", spawnH.handleRestart)
 			r.Put("/sessions-nickname/{sessionID}", sessionH.handleUpdateNickname)
 			r.Patch("/sessions-nickname/{sessionID}", sessionH.handleUpdateNickname)
 			r.Put("/sessions-xterm-title/{sessionID}", sessionH.handleUpdateXtermTitle)

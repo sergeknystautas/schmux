@@ -139,6 +139,17 @@ to swap detection paths or `prompt_strategy`) without editing OSS files.
   a subcommand (codex: `["resume", "--last"]`), `resume_args` replaces
   all interactive args, not appends to `base_args`.
 
+- **`resume_id_args` — resume a specific conversation by id** — sibling of
+  `resume_args` under `interactive:`. The `{resume_id}` placeholder is
+  substituted with the harness-native conversation id (claude:
+  `['--resume', '{resume_id}']`, opencode: `['--session', '{resume_id}']`).
+  When set, the session Restart action resumes the exact captured
+  conversation; when omitted, by-id resume is impossible and Restart is
+  rejected rather than silently falling back to `resume_args` (which could
+  resume the wrong conversation). Distinct from `resume_args` (the generic
+  `--continue` / `resume --last` path): `resume_args` resumes _some_ recent
+  conversation, `resume_id_args` resumes _this_ one.
+
 - **`command_args` goes into `Tool.Command`** — `BuildCommandParts` calls
   `strings.Fields(detectedCommand)` to split the command. `command_args`
   are appended unconditionally, so they must not be flags that require a

@@ -146,3 +146,14 @@ func TestOpencodeWrapRemoteCommand(t *testing.T) {
 		t.Error("Wrapped command should include plugin content")
 	}
 }
+
+func TestOpencodePlugin_EmitsResumeID(t *testing.T) {
+	if !strings.Contains(opencodePluginTemplate, `type: "resume_id"`) {
+		t.Fatal("plugin should emit a resume_id event")
+	}
+	for _, ev := range []string{"session.created", "message.updated"} {
+		if !strings.Contains(opencodePluginTemplate, ev) {
+			t.Errorf("plugin missing %s handling", ev)
+		}
+	}
+}

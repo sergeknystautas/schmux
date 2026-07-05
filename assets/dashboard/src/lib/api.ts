@@ -164,6 +164,23 @@ export async function analyzeFence(sessionId: string): Promise<SpawnResult> {
 }
 
 /**
+ * Restarts a session: disposes the running agent and re-spawns it in the same
+ * worktree, resuming its harness conversation by id with freshly re-resolved
+ * fence settings. Requires a captured resume_id and a local session; the
+ * backend rejects otherwise. Returns the newly spawned session.
+ */
+export async function restartSession(sessionId: string): Promise<SpawnResult> {
+  const response = await apiFetch(`/api/sessions/${sessionId}/restart`, {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to restart session');
+  }
+  return response.json();
+}
+
+/**
  * Checks if a branch is already in use by an existing workspace (worktree conflict).
  * Only relevant when source_code_manager is "git-worktree".
  */

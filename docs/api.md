@@ -275,7 +275,8 @@ Response:
         "persona_name": "optional",
         "style_id": "optional",
         "style_name": "optional",
-        "fence": false
+        "fence": false,
+        "resume_id": "optional — harness-native conversation id; when present, the session can be restarted"
       }
     ],
     "previews": [
@@ -790,6 +791,39 @@ Errors:
 - 400: "fence analysis is disabled", "no analysis target configured", "fence not available — install fence to use fenced sessions", "fenced sessions are disabled"
 - 404: "unknown fenced session", "workspace for fenced session not found"
 - 500: "failed to spawn fence analysis agent: ..."
+
+### POST /api/sessions/{sessionId}/restart
+
+Dispose a session and re-spawn it in the same worktree, resuming the agent's harness-native conversation by id with freshly re-resolved fence settings. This is how a running session picks up updated fence configuration (allowed domains, fence mode) without losing its conversation: the captured `resume_id` lets the harness resume the exact conversation, while the re-spawn rebuilds the fence command from current config.
+
+The snapshot carries the session's resolved persona/style verbatim (defaults are not re-resolved); only fence config is fresh. No prompt is injected — the agent continues its conversation. The new session's `resume_id` is seeded immediately from the snapshot so Restart stays available without waiting for the hook to re-emit.
+
+Guards (request rejected up front):
+
+- The session must have a captured `resume_id`.
+- The session must be local (`remote_host_id` empty) — remote sessions do not run the local hook pipeline.
+- The resolved harness must declare `resume_id_args` (claude, opencode); otherwise by-id resume is impossible and the request errors rather than silently falling back to a different conversation.
+- The session must not already be disposing.
+
+Request: empty body (the session id is in the path).
+
+Response: a spawn result for the new (resumed) session.
+
+```json
+{
+  "session_id": "sess-...",
+  "workspace_id": "ws-...",
+  "target": "claude",
+  "nickname": "agent"
+}
+```
+
+Errors:
+
+- 400: "session has no resume id", "restart is local-only", "harness does not support resume by id"
+- 404: "unknown session"
+- 409: "session is already disposing"
+- 500: "failed to dispose session: ...", "failed to restart session: ..."
 
 ### GET /api/sessions/{sessionId}/events
 

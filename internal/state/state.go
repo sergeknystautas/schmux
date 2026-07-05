@@ -336,6 +336,10 @@ type Session struct {
 	RemoteWindow string `json:"remote_window,omitempty"`  // tmux window ID on remote (e.g., "@3")
 	Status       string `json:"status,omitempty"`         // "provisioning", "running", "failed", "disposing" (used for all sessions during disposal, remote sessions during lifecycle)
 	Fence        bool   `json:"fence,omitempty"`          // True if spawned inside the fence sandbox (set once at spawn, local sessions only)
+	// ResumeID is the harness-native conversation id (Claude session_id /
+	// OpenCode session id), captured via hooks. Empty until captured. Enables
+	// the Restart action.
+	ResumeID string `json:"resume_id,omitempty"`
 }
 
 // New creates a new empty State instance.
@@ -898,6 +902,25 @@ func (s *State) GetNudgeSeq(sessionID string) uint64 {
 		}
 	}
 	return 0
+}
+
+// UpdateSessionResumeID sets the harness-native conversation id on a session,
+// in memory. Returns true only when the value changed (so callers persist and
+// broadcast just once). Persistence/broadcast are the caller's responsibility,
+// matching the other in-memory session setters.
+func (s *State) UpdateSessionResumeID(sessionID, resumeID string) (changed bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Sessions {
+		if s.Sessions[i].ID == sessionID {
+			if s.Sessions[i].ResumeID == resumeID {
+				return false
+			}
+			s.Sessions[i].ResumeID = resumeID
+			return true
+		}
+	}
+	return false
 }
 
 // UpdateSessionNudge atomically updates just the Nudge field for a session.

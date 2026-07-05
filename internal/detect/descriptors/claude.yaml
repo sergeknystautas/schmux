@@ -25,6 +25,7 @@ instruction:
   file: 'CLAUDE.md'
 interactive:
   resume_args: ['--continue']
+  resume_id_args: ['--resume', '{resume_id}']
 oneshot:
   model_flag: '-'
   base_args: ['-p', '--dangerously-skip-permissions', '--output-format', 'json']

@@ -962,6 +962,18 @@ func (d *Daemon) wireCallbacks(
 		"status": {dashHandler},
 	}
 
+	// Resume-id capture: persists the harness-native conversation id so the
+	// session can be restarted (dispose + resume-by-id). Idempotent — the
+	// recurring hook re-emits the same id every turn; persist + broadcast only
+	// when it actually changes.
+	resumeIDHandler := events.NewResumeIDHandler(func(sessionID, resumeID string) {
+		if st.UpdateSessionResumeID(sessionID, resumeID) {
+			_ = st.Save()
+			server.BroadcastSessions()
+		}
+	})
+	eventHandlers["resume_id"] = []events.EventHandler{resumeIDHandler}
+
 	// Monitor handler: always registered, checks debug_ui config per event.
 	// Orthogonal to devMode — debug_ui controls diagnostics independently.
 	monitorHandler := events.NewMonitorHandler(func(sessionID string, raw events.RawEvent, data []byte) {

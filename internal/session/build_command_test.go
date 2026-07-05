@@ -73,7 +73,7 @@ func TestBuildCommand_PromptableTarget(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := buildCommand(tt.target, tt.prompt, tt.model, tt.resume, tt.remoteMode, tt.fence)
+			got, err := buildCommand(tt.target, tt.prompt, tt.model, tt.resume, tt.remoteMode, tt.fence, "")
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Fatalf("expected error containing %q, got nil", tt.wantErr)
@@ -110,7 +110,7 @@ func TestBuildCommand_EnvPrefix(t *testing.T) {
 			"API_MODEL": "gpt-4",
 		},
 	}
-	got, err := buildCommand(target, "", nil, false, false, false)
+	got, err := buildCommand(target, "", nil, false, false, false, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestBuildCommand_EnvPrefixWithPromptable(t *testing.T) {
 			"TOKEN": "abc",
 		},
 	}
-	got, err := buildCommand(target, "do something", nil, false, false, false)
+	got, err := buildCommand(target, "do something", nil, false, false, false, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestBuildCommand_ModelFlagInjection(t *testing.T) {
 			"codex": {ModelValue: "codex-mini-latest"},
 		},
 	}
-	got, err := buildCommand(target, "", model, false, false, false)
+	got, err := buildCommand(target, "", model, false, false, false, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestBuildCommand_Antigravity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := buildCommand(agTarget, tt.prompt, tt.model, tt.resume, false, false)
+			got, err := buildCommand(agTarget, tt.prompt, tt.model, tt.resume, false, false, "")
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -228,7 +228,7 @@ func TestBuildCommand_ResumeMode(t *testing.T) {
 		ToolName:   "claude",
 		Promptable: true,
 	}
-	got, err := buildCommand(target, "", nil, true, false, false)
+	got, err := buildCommand(target, "", nil, true, false, false, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -247,7 +247,7 @@ func TestBuildCommand_ResumeModeWithEnv(t *testing.T) {
 			"ANTHROPIC_API_KEY": "sk-test",
 		},
 	}
-	got, err := buildCommand(target, "", nil, true, false, false)
+	got, err := buildCommand(target, "", nil, true, false, false, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestBuildCommand_ResumeModeWithEnv(t *testing.T) {
 
 func TestBuildCommandFenceAppendsAutoApproveInteractive(t *testing.T) {
 	target := ResolvedTarget{Name: "claude", ToolName: "claude", Command: "claude", Promptable: true}
-	got, err := buildCommand(target, "do something", nil, false, false, true)
+	got, err := buildCommand(target, "do something", nil, false, false, true, "")
 	if err != nil {
 		t.Fatalf("buildCommand: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestBuildCommandFenceAppendsAutoApproveInteractive(t *testing.T) {
 
 func TestBuildCommandFenceOffOmitsAutoApprove(t *testing.T) {
 	target := ResolvedTarget{Name: "claude", ToolName: "claude", Command: "claude", Promptable: true}
-	got, err := buildCommand(target, "do something", nil, false, false, false)
+	got, err := buildCommand(target, "do something", nil, false, false, false, "")
 	if err != nil {
 		t.Fatalf("buildCommand: %v", err)
 	}
@@ -283,7 +283,7 @@ func TestBuildCommandFenceOffOmitsAutoApprove(t *testing.T) {
 
 func TestBuildCommandFenceAppendsAutoApproveResume(t *testing.T) {
 	target := ResolvedTarget{Name: "claude", ToolName: "claude", Command: "claude", Promptable: true}
-	got, err := buildCommand(target, "", nil, true, false, true)
+	got, err := buildCommand(target, "", nil, true, false, true, "")
 	if err != nil {
 		t.Fatalf("buildCommand: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestBuildCommandFenceNoAutoApproveForUserTarget(t *testing.T) {
 	// User-defined run target: ToolName is empty, so its name must not be used
 	// to infer a harness or append harness-specific flags.
 	target := ResolvedTarget{Name: "claude", Kind: TargetKindUser, Command: "my-custom-claude-wrapper"}
-	got, err := buildCommand(target, "", nil, false, false, true)
+	got, err := buildCommand(target, "", nil, false, false, true, "")
 	if err != nil {
 		t.Fatalf("buildCommand: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestBuildCommandFenceNoAutoApproveForUserTarget(t *testing.T) {
 
 func TestBuildCommandResumeRequiresToolName(t *testing.T) {
 	target := ResolvedTarget{Name: "claude", Kind: TargetKindUser, Command: "my-custom-claude-wrapper"}
-	_, err := buildCommand(target, "", nil, true, false, true)
+	_, err := buildCommand(target, "", nil, true, false, true, "")
 	if err == nil || !strings.Contains(err.Error(), "resume requires a descriptor-backed target") {
 		t.Fatalf("buildCommand resume err = %v, want descriptor-backed target error", err)
 	}
@@ -364,5 +364,36 @@ func TestAppendSignalingFlags(t *testing.T) {
 				t.Errorf("appendSignalingFlags() = %q, missing %q", got, tt.wantSub)
 			}
 		})
+	}
+}
+
+func TestBuildCommand_ResumeByID(t *testing.T) {
+	target := ResolvedTarget{Name: "claude", ToolName: "claude", Command: "claude", Promptable: true}
+
+	// Regression: empty resumeID keeps the existing --continue path.
+	cmd, err := buildCommand(target, "", nil, true, false, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(cmd, "--continue") {
+		t.Fatalf("empty resumeID should use resume_args, got %q", cmd)
+	}
+
+	// By-id: resume the specific conversation.
+	cmd, err = buildCommand(target, "", nil, true, false, false, "conv-abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(cmd, "--resume") || !strings.Contains(cmd, "conv-abc") {
+		t.Fatalf("resumeID should use by-id args, got %q", cmd)
+	}
+	if strings.Contains(cmd, "--continue") {
+		t.Fatalf("by-id resume must not also pass --continue, got %q", cmd)
+	}
+
+	// Harness without resume_id_args must error, never silently fall back.
+	noID := ResolvedTarget{Name: "gemini", ToolName: "gemini", Command: "gemini", Promptable: true}
+	if _, err := buildCommand(noID, "", nil, true, false, false, "conv-abc"); err == nil {
+		t.Fatal("resumeID without resume_id_args must error")
 	}
 }

@@ -21,6 +21,7 @@ instruction:
   file: 'AGENTS.md'
 interactive:
   resume_args: ['--continue']
+  resume_id_args: ['--session', '{resume_id}']
 oneshot:
   base_args: ['run']
   schema_args: ['--format', 'json']

@@ -34,6 +34,9 @@ type SessionResponseItem struct {
 	StyleID string `json:"style_id,omitempty"`
 	// Fence is true when the session was spawned inside the fence sandbox.
 	Fence bool `json:"fence,omitempty"`
+	// ResumeID is the harness-native conversation id; when present, the session
+	// can be restarted (dispose + resume-by-id).
+	ResumeID string `json:"resume_id,omitempty"`
 }
 
 // SessionModelInfo contains model metadata for a session.

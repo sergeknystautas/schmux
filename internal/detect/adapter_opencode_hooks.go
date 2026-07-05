@@ -22,6 +22,23 @@ function appendEvent(event) {
   appendFileSync(eventsFile, line + "\n");
 }
 
+// emitResumeId captures the OpenCode session id as a resume_id event. The exact
+// payload path is not pinned to a published schema, so try the candidate paths
+// seen across SDK versions; the first non-empty id wins. No-op if none resolve.
+// Idempotent at the state layer — re-emitted every turn, same id.
+function emitResumeId(event) {
+  const id =
+    event?.properties?.info?.id ||
+    event?.properties?.info?.sessionID ||
+    event?.properties?.sessionID ||
+    event?.properties?.id ||
+    event?.data?.sessionID ||
+    event?.data?.session?.id ||
+    event?.sessionID ||
+    "";
+  if (id) appendEvent({ type: "resume_id", id });
+}
+
 function classifyError(error) {
   if (!error) return "other";
   const e = error.toLowerCase();
@@ -41,6 +58,7 @@ export default async ({ client }) => ({
 
     switch (event.type) {
       case "session.created":
+        emitResumeId(event);
         appendEvent({ type: "status", state: "working", message: "" });
         break;
       case "session.idle":
@@ -50,6 +68,7 @@ export default async ({ client }) => ({
         appendEvent({ type: "status", state: "needs_input", message: event.data?.message?.slice(0, 100) || "" });
         break;
       case "message.updated":
+        emitResumeId(event);
         if (event.data?.role === "user") {
           const intent = (event.data?.content || "").slice(0, 200);
           appendEvent({ type: "status", state: "working", message: intent, intent });

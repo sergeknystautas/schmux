@@ -1222,6 +1222,25 @@ func TestClearSessionNudge(t *testing.T) {
 	}
 }
 
+func TestUpdateSessionResumeID(t *testing.T) {
+	st := New("", nil)
+	st.Sessions = []Session{{ID: "s1"}}
+
+	if changed := st.UpdateSessionResumeID("s1", "conv-abc"); !changed {
+		t.Fatal("first set should report changed")
+	}
+	sess, _ := st.GetSession("s1")
+	if sess.ResumeID != "conv-abc" {
+		t.Fatalf("ResumeID = %q, want conv-abc", sess.ResumeID)
+	}
+	if st.UpdateSessionResumeID("s1", "conv-abc") {
+		t.Fatal("setting the same value should report no change")
+	}
+	if st.UpdateSessionResumeID("missing", "x") {
+		t.Fatal("unknown session should report no change")
+	}
+}
+
 func TestWorkspacePreviewCRUD(t *testing.T) {
 	s := New("", nil)
 	preview := WorkspacePreview{

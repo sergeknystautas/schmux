@@ -68,11 +68,12 @@ type InstructionDesc struct {
 
 // ModeDesc describes the CLI arguments for a particular execution mode.
 type ModeDesc struct {
-	BaseArgs   []string `yaml:"base_args"`
-	ResumeArgs []string `yaml:"resume_args"`
-	SchemaFlag string   `yaml:"schema_flag"`
-	SchemaArgs []string `yaml:"schema_args"`
-	ModelFlag  string   `yaml:"model_flag"`
+	BaseArgs     []string `yaml:"base_args"`
+	ResumeArgs   []string `yaml:"resume_args"`
+	ResumeIDArgs []string `yaml:"resume_id_args"`
+	SchemaFlag   string   `yaml:"schema_flag"`
+	SchemaArgs   []string `yaml:"schema_args"`
+	ModelFlag    string   `yaml:"model_flag"`
 }
 
 // SignalingDesc describes how schmux signals lifecycle events to the agent.

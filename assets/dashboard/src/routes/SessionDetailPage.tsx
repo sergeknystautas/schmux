@@ -8,6 +8,7 @@ import {
   reconnectRemoteHost,
   spawnSessions,
   analyzeFence,
+  restartSession,
   getErrorMessage,
   getTimelapseRecordings,
   exportTimelapseRecording,
@@ -569,6 +570,24 @@ export default function SessionDetailPage() {
     }
   };
 
+  const handleRestart = useCallback(async () => {
+    if (!sessionId) return;
+    const accepted = await confirm(
+      'Restart session? The running agent is interrupted, then resumed with updated settings.',
+      { danger: true }
+    );
+    if (!accepted) return;
+    try {
+      const result = await restartSession(sessionId);
+      if (result.session_id) {
+        await waitForSession(result.session_id);
+        navigate(`/sessions/${result.session_id}`);
+      }
+    } catch (err) {
+      alert('Restart Failed', `Failed to restart: ${getErrorMessage(err, 'Unknown error')}`);
+    }
+  }, [sessionId, confirm, navigate, alert, waitForSession]);
+
   const handleToggleSelectionMode = () => {
     const newMode = terminalStreamRef.current?.toggleSelectionMode() ?? false;
     setSelectionMode(newMode);
@@ -876,6 +895,37 @@ export default function SessionDetailPage() {
                         <span>{fenceText}</span>
                       </div>
                     </Tooltip>
+                    {isDevMode && config.desync?.enabled && (
+                      <StreamMetricsPanel
+                        backendStats={backendStats}
+                        frontendStats={frontendStats}
+                        onDiagnosticCapture={() => terminalStreamRef.current?.sendDiagnostic()}
+                      />
+                    )}
+                    {isDevMode && config.io_workspace_telemetry?.enabled && (
+                      <IOWorkspaceMetricsPanel
+                        stats={ioWorkspaceStats}
+                        onCapture={() => terminalStreamRef.current?.sendIOWorkspaceDiagnostic()}
+                      />
+                    )}
+                    {config.fence_analyze?.enabled && sessionData.fence && (
+                      <button
+                        className="btn btn--sm btn--secondary"
+                        onClick={handleAnalyzeFence}
+                        data-testid="analyze-fence"
+                      >
+                        Analyze fence
+                      </button>
+                    )}
+                    {sessionData.resume_id && !sessionData.remote_host_id && (
+                      <button
+                        className="btn btn--sm btn--secondary"
+                        onClick={handleRestart}
+                        data-testid="restart-session"
+                      >
+                        Restart
+                      </button>
+                    )}
                     <Tooltip
                       content={
                         localEcho
@@ -902,28 +952,6 @@ export default function SessionDetailPage() {
                         <span>Local echo</span>
                       </button>
                     </Tooltip>
-                    {isDevMode && config.desync?.enabled && (
-                      <StreamMetricsPanel
-                        backendStats={backendStats}
-                        frontendStats={frontendStats}
-                        onDiagnosticCapture={() => terminalStreamRef.current?.sendDiagnostic()}
-                      />
-                    )}
-                    {isDevMode && config.io_workspace_telemetry?.enabled && (
-                      <IOWorkspaceMetricsPanel
-                        stats={ioWorkspaceStats}
-                        onCapture={() => terminalStreamRef.current?.sendIOWorkspaceDiagnostic()}
-                      />
-                    )}
-                    {config.fence_analyze?.enabled && sessionData.fence && (
-                      <button
-                        className="btn btn--sm btn--secondary"
-                        onClick={handleAnalyzeFence}
-                        data-testid="analyze-fence"
-                      >
-                        Analyze fence
-                      </button>
-                    )}
                   </div>
                   <div className="log-viewer__actions">
                     {selectionMode ? (

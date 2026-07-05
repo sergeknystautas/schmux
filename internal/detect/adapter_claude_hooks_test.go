@@ -693,3 +693,20 @@ func TestMergeHooksForEvent_Detect(t *testing.T) {
 		}
 	})
 }
+
+func TestBuildClaudeHooksMap_ResumeIDCapture(t *testing.T) {
+	hooks := buildClaudeHooksMap("/hooks")
+	for _, event := range []string{"SessionStart", "UserPromptSubmit"} {
+		found := false
+		for _, group := range hooks[event] {
+			for _, h := range group.Hooks {
+				if strings.Contains(h.Command, "capture-session.sh") {
+					found = true
+				}
+			}
+		}
+		if !found {
+			t.Errorf("%s missing capture-session.sh hook", event)
+		}
+	}
+}

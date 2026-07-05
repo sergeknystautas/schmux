@@ -117,6 +117,22 @@ func (a *GenericAdapter) InteractiveArgs(model *Model, resume bool) []string {
 	return expandModelPlaceholder(a.desc.Interactive.BaseArgs, model, a.desc.Name, mf)
 }
 
+// ResumeIDArgs returns by-id resume args with {resume_id} substituted, or nil
+// when the descriptor declares no resume_id_args (the harness cannot resume a
+// specific conversation by id). Model placeholders are also expanded.
+func (a *GenericAdapter) ResumeIDArgs(model *Model, resumeID string) []string {
+	if a.desc.Interactive == nil || len(a.desc.Interactive.ResumeIDArgs) == 0 {
+		return nil
+	}
+	mf := a.resolveModelFlag(a.desc.Interactive)
+	args := expandModelPlaceholder(a.desc.Interactive.ResumeIDArgs, model, a.desc.Name, mf)
+	out := make([]string, len(args))
+	for i, s := range args {
+		out[i] = strings.ReplaceAll(s, "{resume_id}", resumeID)
+	}
+	return out
+}
+
 // OneshotArgs returns CLI args for oneshot mode.
 func (a *GenericAdapter) OneshotArgs(model *Model, jsonSchema string) ([]string, error) {
 	if a.desc.Oneshot == nil {

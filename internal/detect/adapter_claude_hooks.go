@@ -54,18 +54,21 @@ func statusEventWithContextCommand(state, jqField string) string {
 // When hooksDir is empty, falls back to $CLAUDE_PROJECT_DIR/.schmux/hooks/ paths.
 func buildClaudeHooksMap(hooksDir string) map[string][]claudeHookMatcherGroup {
 	// Build stop hook commands using centralized or per-workspace paths
-	var stopStatusCmd, stopAutolearnCmd, captureFailureCmd string
+	var stopStatusCmd, stopAutolearnCmd, captureFailureCmd, captureSessionCmd string
 	if hooksDir != "" {
 		stopStatusPath := filepath.Join(hooksDir, "stop-status-check.sh")
 		stopAutolearnPath := filepath.Join(hooksDir, "stop-autolearn-check.sh")
 		captureFailurePath := filepath.Join(hooksDir, "capture-failure.sh")
+		captureSessionPath := filepath.Join(hooksDir, "capture-session.sh")
 		stopStatusCmd = fmt.Sprintf(`[ -f "%s" ] && "%s" || true`, stopStatusPath, stopStatusPath)
 		stopAutolearnCmd = fmt.Sprintf(`[ -f "%s" ] && "%s" || true`, stopAutolearnPath, stopAutolearnPath)
 		captureFailureCmd = fmt.Sprintf(`[ -f "%s" ] && "%s" || true`, captureFailurePath, captureFailurePath)
+		captureSessionCmd = fmt.Sprintf(`[ -f "%s" ] && "%s" || true`, captureSessionPath, captureSessionPath)
 	} else {
 		stopStatusCmd = `[ -f "$CLAUDE_PROJECT_DIR/.schmux/hooks/stop-status-check.sh" ] && "$CLAUDE_PROJECT_DIR"/.schmux/hooks/stop-status-check.sh || true`
 		stopAutolearnCmd = `[ -f "$CLAUDE_PROJECT_DIR/.schmux/hooks/stop-autolearn-check.sh" ] && "$CLAUDE_PROJECT_DIR"/.schmux/hooks/stop-autolearn-check.sh || true`
 		captureFailureCmd = `[ -f "$CLAUDE_PROJECT_DIR/.schmux/hooks/capture-failure.sh" ] && "$CLAUDE_PROJECT_DIR"/.schmux/hooks/capture-failure.sh || true`
+		captureSessionCmd = `[ -f "$CLAUDE_PROJECT_DIR/.schmux/hooks/capture-session.sh" ] && "$CLAUDE_PROJECT_DIR"/.schmux/hooks/capture-session.sh || true`
 	}
 
 	hooks := map[string][]claudeHookMatcherGroup{
@@ -160,6 +163,23 @@ func buildClaudeHooksMap(hooksDir string) map[string][]claudeHookMatcherGroup {
 				},
 			},
 		})
+	}
+
+	// Capture the harness session id as a resume_id event on SessionStart and
+	// UserPromptSubmit. UserPromptSubmit is the recurring re-emit that defeats
+	// the event-watcher startup race (a lost startup line is recaptured next
+	// turn). The id is stable, so re-emission is idempotent at the state layer.
+	if captureSessionCmd != "" {
+		captureGroup := claudeHookMatcherGroup{
+			Hooks: []claudeHookHandler{{
+				Type:          "command",
+				Command:       captureSessionCmd,
+				StatusMessage: "schmux: resume id",
+			}},
+		}
+		for _, ev := range []string{"SessionStart", "UserPromptSubmit"} {
+			hooks[ev] = append(hooks[ev], captureGroup)
+		}
 	}
 
 	return hooks
@@ -372,6 +392,9 @@ func claudeWrapRemoteCommand(command string) (string, error) {
 //go:embed hooks/capture-failure.sh
 var claudeCaptureFailureScript []byte
 
+//go:embed hooks/capture-session.sh
+var claudeCaptureSessionScript []byte
+
 //go:embed hooks/stop-status-check.sh
 var claudeStopStatusCheckScript []byte
 
@@ -389,6 +412,7 @@ func EnsureGlobalHookScripts(homeDir string) (string, error) {
 	}
 	scripts := map[string][]byte{
 		"capture-failure.sh":      claudeCaptureFailureScript,
+		"capture-session.sh":      claudeCaptureSessionScript,
 		"stop-status-check.sh":    claudeStopStatusCheckScript,
 		"stop-autolearn-check.sh": claudeStopAutolearnCheckScript,
 	}

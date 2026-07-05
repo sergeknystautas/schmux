@@ -21,6 +21,7 @@ type SessionStore interface {
 	GetNudgeSeq(sessionID string) uint64
 	UpdateSessionNudge(sessionID, nudge string) error
 	ClearSessionNudge(sessionID string) bool
+	UpdateSessionResumeID(sessionID, resumeID string) bool
 }
 
 // WorkspaceStore defines workspace-related state operations.

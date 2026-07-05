@@ -806,6 +806,7 @@ export interface SessionResponseItem {
   persona_name?: string;
   style_id?: string;
   fence?: boolean;
+  resume_id?: string;
 }
 
 export interface Sessions {

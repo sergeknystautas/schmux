@@ -27,6 +27,8 @@ export interface SessionResponse {
   persona_name?: string;
   // True when the session was spawned inside the fence sandbox
   fence?: boolean;
+  // Harness-native conversation id; when present, the session can be restarted
+  resume_id?: string;
 }
 
 export interface WorkspaceResponse {

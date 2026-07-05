@@ -445,3 +445,23 @@ detect:
 		t.Errorf("AutoApproveArgs() = %v, want empty", got)
 	}
 }
+
+func TestGenericAdapter_ResumeIDArgs(t *testing.T) {
+	d := &Descriptor{Name: "claude", Interactive: &ModeDesc{
+		ResumeIDArgs: []string{"--resume", "{resume_id}"},
+	}}
+	a, err := NewGenericAdapter(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := a.ResumeIDArgs(nil, "conv-abc")
+	want := []string{"--resume", "conv-abc"}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("ResumeIDArgs = %v, want %v", got, want)
+	}
+
+	none, _ := NewGenericAdapter(&Descriptor{Name: "x", Interactive: &ModeDesc{}})
+	if none.ResumeIDArgs(nil, "conv-abc") != nil {
+		t.Fatal("no resume_id_args should return nil")
+	}
+}
