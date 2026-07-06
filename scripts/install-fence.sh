@@ -1,13 +1,24 @@
 #!/usr/bin/env bash
-# Install fence from the latest GitHub release, for CI. TestFenceAnalyze_Success
-# (internal/dashboard) spawns a real fenced pane, so CI needs the fence binary
-# present just like a dev box does — that is the fence parity this gives.
+# Install fence (binary + its Linux runtime deps) from the latest GitHub release,
+# for CI. TestFenceAnalyze_Success (internal/dashboard) spawns a real fenced pane,
+# so CI needs fence installed and runnable just like a dev box does — that is the
+# fence parity this gives.
 # Mirrors scripts/install-sapling.sh: resolves the tag via the releases/latest
 # web redirect to avoid api.github.com's unauthenticated rate limit. Unlike that
 # script (which runs as root inside a Docker build), this runs directly on the
 # ubuntu-latest runner as the unprivileged user, so curl/tar/ca-certificates are
 # already present and /usr/local/bin needs sudo.
 set -euo pipefail
+
+# Fence's sandbox has mandatory Linux runtime deps beyond the binary itself:
+# bubblewrap (sandboxing) and socat (network bridging), per fence's README.
+# Without them `fence -m` aborts before the pane is alive ("bwrap/socat ... not
+# found"), which surfaces as "failed to get pane PID" and is exactly what made
+# TestFenceAnalyze_Success fail even with the binary installed. bpftrace is
+# optional (filesystem-violation visibility under -m) and the test does not need
+# it. apt-get install is a no-op if the runner already ships these.
+sudo apt-get update -qq
+sudo apt-get install -y --no-install-recommends socat bubblewrap
 
 # Map system architecture to the fence asset name.
 ARCH=$(uname -m)
