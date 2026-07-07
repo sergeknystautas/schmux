@@ -46,6 +46,17 @@ func TestRenderCapabilities_PresetGrantsAndBaseline(t *testing.T) {
 					t.Errorf("doc missing domain %q for preset %q", d, name)
 				}
 			}
+			if len(p.machLookup) > 0 && !strings.Contains(doc, "macos.mach.lookup") {
+				t.Errorf("doc missing macos.mach.lookup grant for preset %q", name)
+			}
+			if len(p.machRegister) > 0 && !strings.Contains(doc, "macos.mach.register") {
+				t.Errorf("doc missing macos.mach.register grant for preset %q", name)
+			}
+			for _, m := range append(append([]string{}, p.machLookup...), p.machRegister...) {
+				if !strings.Contains(doc, m) {
+					t.Errorf("doc missing mach service pattern %q for preset %q", m, name)
+				}
+			}
 		})
 	}
 

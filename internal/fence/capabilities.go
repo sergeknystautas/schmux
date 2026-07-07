@@ -96,6 +96,14 @@ func writePresetGrants(b *strings.Builder, name string, p preset) {
 	if len(p.domains) > 0 {
 		b.WriteString("- Adds network domains: " + bq + strings.Join(p.domains, bq+", "+bq) + bq + ".\n")
 	}
+	if len(p.machLookup) > 0 {
+		b.WriteString("- Allows macOS Mach/XPC service lookups (" + bq + "macos.mach.lookup" + bq + "): " +
+			bq + strings.Join(p.machLookup, bq+", "+bq) + bq + ".\n")
+	}
+	if len(p.machRegister) > 0 {
+		b.WriteString("- Allows macOS Mach/XPC service registrations (" + bq + "macos.mach.register" + bq + "): " +
+			bq + strings.Join(p.machRegister, bq+", "+bq) + bq + ".\n")
+	}
 	b.WriteString("\n")
 }
 
@@ -110,7 +118,7 @@ const orientationText = "## You are inside a sandbox\n\n" +
 const policyLayeringText = "### Policy layering (read-only context)\n\n" +
 	"The effective sandbox policy composes, in order:\n" +
 	"1. The fence " + bq + "code" + bq + " baseline template (network and filesystem defaults).\n" +
-	"2. The selected presets above (cache redirects, GOFLAGS, unix sockets, docker config, preset domains).\n" +
+	"2. The selected presets above (cache redirects, GOFLAGS, unix sockets, docker config, preset domains, macOS Mach grants).\n" +
 	"3. The repo's " + bq + "fence.allowed_domains" + bq + ".\n" +
 	"4. schmux-added grants: write access to the workspace, and read access to this workspace's fence " +
 	"directory (that is how you can read " + bq + "monitor.log" + bq + " and this doc).\n\n" +
@@ -136,8 +144,10 @@ const logGrammarText = "## How to read monitor.log\n\n" +
 	"usually the fence working correctly — the path is outside the workspace. Presets redirect caches into " +
 	"the workspace so legitimate build writes succeed; a denied cache write often indicates a missing preset.\n" +
 	"- Channel " + bq + "logstream" + bq + ", message starting " + bq + "mach-lookup <service> (<proc>:<pid>)" + bq +
-	": a macOS system-service lookup denied. These are almost always incidental noise (telemetry, update " +
-	"checks, Apple system services) — recommend ignoring them, not allowing them.\n\n" +
+	": a macOS system-service lookup denied. Most are incidental noise (telemetry, update checks, Apple " +
+	"system services) — recommend ignoring those. The exceptions are in the selection rules below: " +
+	bq + "org.chromium.*" + bq + " denials and AppKit-init failures in a project that launches a native " +
+	"GUI map to the " + bq + "chromium" + bq + " and " + bq + "macos-gui" + bq + " presets.\n\n" +
 	"There are denial shapes this doc does not enumerate. In particular, the exact line format of a " +
 	"Unix-domain-socket denial is unverified (no in-repo example exists). When you see a " + bq + "✗" + bq +
 	" line you do not recognize, describe it verbatim. Do not guess which knob it maps to.\n\n"
@@ -148,10 +158,15 @@ const selectionText = "## Choosing a recommendation\n\n" +
 	"denial evidence itself proves the identity:\n\n" +
 	"- A denied write to a Go cache path proves Go tooling is running -> the " + bq + "golang" + bq +
 	" preset is honest.\n" +
-	"- A denied write to an npm/yarn/bun cache path proves Node tooling -> the " + bq + "node" + bq +
-	" preset is honest.\n" +
-	"- A denied write to a pip/uv cache path proves Python tooling -> the " + bq + "python" + bq +
-	" preset is honest.\n" +
+	"- npm/yarn/bun and pip/uv cache writes are already redirected into the workspace for every fenced " +
+	"session; there is no node or python preset. A denial on one of those home-dir cache paths means a " +
+	"tool bypassed the baseline redirect — report it in Gaps.\n" +
+	"- A denied Mach registration or lookup of an " + bq + "org.chromium.*" + bq + " service proves a " +
+	"Chromium browser is running -> the " + bq + "chromium" + bq + " preset is honest.\n" +
+	"- A windowed app failing during AppKit init (denied lookups of window-server services such as " +
+	bq + "com.apple.hiservices-xpcservice" + bq + " while the project launches a native GUI under test) " +
+	"-> the " + bq + "macos-gui" + bq + " preset is honest. It disables Mach IPC isolation entirely, so " +
+	"do not recommend it for anything less than a native GUI that must render.\n" +
 	"- A denied Unix-socket connection proves nothing about tmux by itself -> " + bq + "tmux" + bq +
 	" is dishonest unless the evidence shows the project actually drives tmux. Do not recommend " + bq +
 	"tmux" + bq + " just because a socket was denied.\n" +

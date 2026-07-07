@@ -35,12 +35,25 @@ type Config struct {
 type settings struct {
 	Extends    string             `json:"extends"`
 	Network    *settingsNetwork   `json:"network,omitempty"`
+	MacOS      *settingsMacOS     `json:"macos,omitempty"`
 	Filesystem settingsFilesystem `json:"filesystem"`
 }
 
 type settingsNetwork struct {
 	AllowedDomains      []string `json:"allowedDomains,omitempty"`
 	AllowAllUnixSockets bool     `json:"allowAllUnixSockets,omitempty"`
+}
+
+// settingsMacOS maps to fence's macOS-specific Seatbelt controls; fence ignores
+// it on other platforms. Mach patterns are exact service names, trailing
+// wildcards ("org.chromium.*"), or "*" (the macos-gui preset's grant).
+type settingsMacOS struct {
+	Mach settingsMach `json:"mach"`
+}
+
+type settingsMach struct {
+	Lookup   []string `json:"lookup,omitempty"`
+	Register []string `json:"register,omitempty"`
 }
 
 type settingsFilesystem struct {
@@ -74,6 +87,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 	env := baselineEnv(cacheRoot)
 	var goFlags, goTelemetry, allUnix, dockerConfig, godotEditor bool
 	domains := append([]string{}, baselineDomains...)
+	var machLookup, machRegister []string
 	for _, name := range c.Presets {
 		p, ok := presets[name]
 		if !ok {
@@ -88,6 +102,8 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 		dockerConfig = dockerConfig || p.dockerConfig
 		godotEditor = godotEditor || p.godotEditor
 		domains = append(domains, p.domains...)
+		machLookup = append(machLookup, p.machLookup...)
+		machRegister = append(machRegister, p.machRegister...)
 	}
 	for _, dir := range env {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -134,13 +150,19 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 	s := settings{
 		Extends: "code",
 		Network: &settingsNetwork{
-			AllowedDomains:      dedupeDomains(allowedDomains),
+			AllowedDomains:      dedupeStrings(allowedDomains),
 			AllowAllUnixSockets: allUnix,
 		},
 		Filesystem: settingsFilesystem{
 			AllowRead:  append([]string{cmdPath}, c.ExtraReadablePaths...),
 			AllowWrite: allowWrite,
 		},
+	}
+	if len(machLookup)+len(machRegister) > 0 {
+		s.MacOS = &settingsMacOS{Mach: settingsMach{
+			Lookup:   dedupeStrings(machLookup),
+			Register: dedupeStrings(machRegister),
+		}}
 	}
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
@@ -154,16 +176,16 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 		c.FenceCommand, shellutil.Quote(monitorLogPath), shellutil.Quote(settingsPath), shellutil.Quote(cmdPath)), nil
 }
 
-// dedupeDomains removes empties and duplicates, preserving order.
-func dedupeDomains(domains []string) []string {
-	out := make([]string, 0, len(domains))
-	seen := make(map[string]bool, len(domains))
-	for _, d := range domains {
-		if d == "" || seen[d] {
+// dedupeStrings removes empties and duplicates, preserving order.
+func dedupeStrings(in []string) []string {
+	out := make([]string, 0, len(in))
+	seen := make(map[string]bool, len(in))
+	for _, s := range in {
+		if s == "" || seen[s] {
 			continue
 		}
-		seen[d] = true
-		out = append(out, d)
+		seen[s] = true
+		out = append(out, s)
 	}
 	return out
 }
@@ -179,6 +201,8 @@ type preset struct {
 	dockerConfig   bool              // stage a DOCKER_CONFIG/config.json with cliPluginsExtraDirs
 	godotEditor    bool              // allowWrite the Godot editor config dir (~/Library/Application Support/Godot)
 	domains        []string          // append to network.allowedDomains
+	machLookup     []string          // append to macos.mach.lookup (macOS Seatbelt; ignored elsewhere)
+	machRegister   []string          // append to macos.mach.register
 }
 
 var presets = map[string]preset{
@@ -194,6 +218,26 @@ var presets = map[string]preset{
 		allUnixSockets: true,
 		dockerConfig:   true,
 		domains:        dockerHubPullDomains,
+	},
+	// Chromium's multiprocess model bootstrap-registers a per-process Mach
+	// rendezvous port and children look it up (MachPortRendezvousServer); the
+	// baseline seatbelt denies both, so even headless Chromium aborts with
+	// "bootstrap_check_in ... Permission denied (1100)".
+	"chromium": {
+		machLookup:   []string{"org.chromium.*"},
+		machRegister: []string{"org.chromium.*"},
+	},
+	// Native windowed apps (AppKit) need Mach IPC to the window server and a
+	// wide, macOS-version-dependent set of system services; the baseline denies
+	// them, so AppKit init fails before the app's code runs (e.g. windowed Godot
+	// dies on com.apple.hiservices-xpcservice). "*" is the grant proven by a
+	// live windowed-Godot run; it disables Mach IPC isolation entirely while
+	// the filesystem/network fence stays intact. A curated service list is not
+	// maintainable: allowed lookups are never logged, so misses can only be
+	// found one relaunch at a time.
+	"macos-gui": {
+		machLookup:   []string{"*"},
+		machRegister: []string{"*"},
 	},
 }
 

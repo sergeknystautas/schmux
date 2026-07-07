@@ -186,6 +186,8 @@ The remaining allowances are opt-in via the repo's `fence.presets`, because each
 - `golang`: Go build cache (`GOCACHE`), `GOFLAGS=-modcacherw` so any Go module cache remains user-cleanable, Staticcheck cache (`STATICCHECK_CACHE`), and a write to the Go telemetry dir.
 - `docker`: access to the host Docker daemon so containerized tests (`--e2e`, `--scenarios`) run inside a fenced session. Sets `allowAllUnixSockets` (daemon socket), redirects `DOCKER_CONFIG` to a writable workspace dir, writes a `cliPluginsExtraDirs` config so `docker buildx`/`compose` resolve, and allows the two Docker Hub auth/registry endpoints `docker build` resolves base-image metadata against client-side through buildx. Implies the socket access `tmux` grants, so a repo using `docker` need not also list `tmux`.
 - `godot-editor`: read/write access to the Godot editor's per-user config dir (`~/Library/Application Support/Godot` — `os.UserConfigDir()/Godot`) so a fenced agent can read and modify editor settings, the project list, and export presets. Adds the dir to `allowWrite`; reads there already pass the `code` template (non-credential), so only the write is newly granted.
+- `chromium`: macOS Mach/XPC grants (`macos.mach.lookup` and `macos.mach.register` for `org.chromium.*`) so a fenced session can run a Chromium browser (Playwright screenshots, headless page tests). Chromium's multiprocess model bootstrap-registers a per-process Mach rendezvous port and its children look it up; the baseline Seatbelt policy denies both, so even headless Chromium aborts with `bootstrap_check_in ... Permission denied (1100)`. No effect on non-macOS platforms.
+- `macos-gui`: `macos.mach.lookup` and `macos.mach.register` set to `*`, so a fenced session can run a native windowed app (GUI test suites that need real pixels — see [Security note](#security-note-macos-gui-preset)). AppKit needs Mach IPC to the window server and a wide, macOS-version-dependent set of system services; the baseline denies them, so a windowed app dies during AppKit init (e.g. windowed Godot on `com.apple.hiservices-xpcservice`) before its own code runs. A windowed app typically also needs its per-user data dir writable (Godot: the `godot-editor` preset). No effect on non-macOS platforms.
 
 Schmux does not redirect `TMPDIR`/`TMP`/`TEMP`: tests often create git repos under temporary directories, and moving those directories into the writable workspace makes Fence block `.git/config` writes. Schmux also does not redirect `GOMODCACHE`: downloaded modules can legitimately contain fixture names such as `cert.pem`, which the Fence credential-write policy blocks inside writable workspaces. These are environment defaults for fenced sessions, not Fence policy exceptions.
 
@@ -221,6 +223,10 @@ These should stay out of the default policy:
 
 When one of these is needed, the answer is not to silently broaden the default fence. The user should run that setup outside the fenced session, or schmux should expose an explicit opt-in configuration.
 
+### Security note: macos-gui preset
+
+Enabling the `macos-gui` preset sets `macos.mach.lookup` and `macos.mach.register` to `*`, which switches off Mach IPC isolation for the fenced session: the process may talk to any macOS system service (pasteboard, Apple Events, accessibility, etc.). The filesystem and network fences remain fully active, and TCC consent prompts still apply. `*` is deliberate rather than a curated service list: the set AppKit needs is wide and shifts across macOS versions, and fence never logs _allowed_ Mach lookups, so a too-narrow list can only be debugged one relaunch at a time. It was validated empirically — a windowed Godot game under fence fails AppKit init with the baseline, and runs (window, Metal renderer, control server) with this grant. Enable it only for repos whose test suite genuinely drives a native GUI.
+
 ### Security note: docker preset
 
 Enabling the `docker` preset gives the fenced session full access to the host Docker daemon. The Docker socket is effectively root on the host: a container can mount the host filesystem (`docker run -v /:/host`) and read or write anything. The preset is an explicit per-repo opt-in for exactly this reason; do not enable it casually. It also allows two Docker Hub endpoints (`auth.docker.io`, `registry-1.docker.io`) because `docker build` resolves the base image's auth token and manifest client-side through buildx; layer blobs still pull daemon-side, so the layer CDNs are not allowlisted.
@@ -246,7 +252,11 @@ A repo customizes its fenced sessions through a `fence` block in its own
   `DOCKER_CONFIG` redirect + Docker Hub pull domains, for running
   `--e2e`/`--scenarios` inside a fence — see [Security note](#security-note-docker-preset)),
   `godot-editor` (read/write the Godot editor config dir
-  `~/Library/Application Support/Godot`). The npm/yarn/bun, pip/uv, and Playwright
+  `~/Library/Application Support/Godot`), `chromium` (macOS Mach lookup/register
+  grants for `org.chromium.*`, required to run Chromium — even headless — while
+  fenced), `macos-gui` (Mach lookup/register `*`, required to run a native
+  windowed app — see [Security note](#security-note-macos-gui-preset)). The
+  npm/yarn/bun, pip/uv, and Playwright
   cache redirects are baseline (every session), not presets.
 - `allowed_domains` add network destinations to the baseline allowlist.
 

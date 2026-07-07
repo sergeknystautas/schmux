@@ -191,6 +191,60 @@ func TestWrapNoPresetsBaselineOnly(t *testing.T) {
 	if len(s.Filesystem.AllowWrite) != 1 || s.Filesystem.AllowWrite[0] != ws {
 		t.Errorf("allowWrite = %v, want [%s] (no telemetry without golang)", s.Filesystem.AllowWrite, ws)
 	}
+	if s.MacOS != nil {
+		t.Errorf("macos block should be absent without a mach-granting preset, got %+v", s.MacOS)
+	}
+}
+
+func TestWrapChromiumPresetMachGrants(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sess")
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"chromium"}, DataDir: dir}, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+	var s settings
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	if s.MacOS == nil {
+		t.Fatal("chromium preset must emit a macos block")
+	}
+	wantMach := []string{"org.chromium.*"}
+	if !slices.Equal(s.MacOS.Mach.Lookup, wantMach) {
+		t.Errorf("macos.mach.lookup = %v, want %v", s.MacOS.Mach.Lookup, wantMach)
+	}
+	if !slices.Equal(s.MacOS.Mach.Register, wantMach) {
+		t.Errorf("macos.mach.register = %v, want %v", s.MacOS.Mach.Register, wantMach)
+	}
+	// chromium grants only mach permissions — no sockets, no extra domains.
+	if s.Network != nil && s.Network.AllowAllUnixSockets {
+		t.Errorf("chromium preset must not set allowAllUnixSockets")
+	}
+	if !IsKnownPreset("chromium") {
+		t.Errorf("IsKnownPreset(chromium) = false, want true")
+	}
+}
+
+func TestWrapMacOSGuiPresetMachWildcard(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sess")
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"macos-gui"}, DataDir: dir}, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+	var s settings
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	if s.MacOS == nil {
+		t.Fatal("macos-gui preset must emit a macos block")
+	}
+	wantMach := []string{"*"}
+	if !slices.Equal(s.MacOS.Mach.Lookup, wantMach) || !slices.Equal(s.MacOS.Mach.Register, wantMach) {
+		t.Errorf("macos.mach = lookup %v register %v, want %v for both", s.MacOS.Mach.Lookup, s.MacOS.Mach.Register, wantMach)
+	}
+	if !IsKnownPreset("macos-gui") {
+		t.Errorf("IsKnownPreset(macos-gui) = false, want true")
+	}
 }
 
 func TestWrapGolangPresetOnly(t *testing.T) {
