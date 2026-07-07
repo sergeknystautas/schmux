@@ -92,4 +92,24 @@ describe('ExperimentalTab fence card', () => {
     expect(whenDisabled).toBeDisabled();
     expect(whenDisabled).not.toBeChecked();
   });
+
+  it('disables the analyze checkbox when fence is unavailable or mode is disabled', () => {
+    renderTab({ fenceAvailable: false, fenceMode: 'optional_off', fenceAnalyzeEnabled: true });
+    const whenUnavailable = screen.getByTestId('fence-analyze-enabled');
+    expect(whenUnavailable).toBeDisabled();
+    expect(whenUnavailable).not.toBeChecked();
+
+    renderTab({ fenceAvailable: true, fenceMode: 'disabled', fenceAnalyzeEnabled: true });
+    const whenDisabled = screen.getAllByTestId('fence-analyze-enabled')[1];
+    expect(whenDisabled).toBeDisabled();
+    expect(whenDisabled).not.toBeChecked();
+  });
+
+  it('disables the analyze Target select when fence is unavailable or mode is disabled', () => {
+    renderTab({ fenceAvailable: false, fenceMode: 'optional_off', fenceAnalyzeEnabled: true });
+    expect(screen.getByRole('combobox')).toBeDisabled();
+
+    renderTab({ fenceAvailable: true, fenceMode: 'disabled', fenceAnalyzeEnabled: true });
+    expect(screen.getAllByRole('combobox')[1]).toBeDisabled();
+  });
 });

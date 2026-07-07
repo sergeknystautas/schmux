@@ -31,6 +31,9 @@ export default function ExperimentalTab({
   const setField = (field: keyof ConfigFormState, value: unknown) =>
     dispatch({ type: 'SET_FIELD', field, value });
 
+  // Every fence sub-control is inert unless fence is available and the mode is not "disabled".
+  const fenceDisabled = !state.fenceAvailable || state.fenceMode === 'disabled';
+
   return (
     <div className="wizard-step-content" data-testid="config-tab-content-experimental">
       <h2 className="wizard-step-content__title">Experimental Features</h2>
@@ -112,50 +115,41 @@ export default function ExperimentalTab({
               </label>
             ))}
           </div>
-          {(() => {
-            const commitFenceDisabled = !state.fenceAvailable || state.fenceMode === 'disabled';
-            return (
-              <>
-                <label
-                  className="flex-row gap-xs cursor-pointer mt-sm"
-                  style={commitFenceDisabled ? { opacity: 0.5 } : undefined}
-                >
-                  <input
-                    type="checkbox"
-                    checked={state.fenceCommit && !commitFenceDisabled}
-                    disabled={commitFenceDisabled}
-                    onChange={(e) => setField('fenceCommit', e.target.checked)}
-                    data-testid="fence-commit"
-                  />
-                  <span>Run commits (from the commit tab) inside the fence sandbox.</span>
-                </label>
-                <label
-                  className="flex-row gap-xs cursor-pointer mt-sm"
-                  style={commitFenceDisabled ? { opacity: 0.5 } : undefined}
-                >
-                  <input
-                    type="checkbox"
-                    checked={state.fenceBuildMonitor && !commitFenceDisabled}
-                    disabled={commitFenceDisabled}
-                    onChange={(e) => setField('fenceBuildMonitor', e.target.checked)}
-                    data-testid="fence-build-monitor"
-                  />
-                  <span>
-                    Run build-monitor fix sessions inside the fence sandbox (skip approvals).
-                  </span>
-                </label>
-              </>
-            );
-          })()}
+          <label
+            className="flex-row gap-xs cursor-pointer mt-sm"
+            style={fenceDisabled ? { opacity: 0.5 } : undefined}
+          >
+            <input
+              type="checkbox"
+              checked={state.fenceCommit && !fenceDisabled}
+              disabled={fenceDisabled}
+              onChange={(e) => setField('fenceCommit', e.target.checked)}
+              data-testid="fence-commit"
+            />
+            <span>Run commits (from the commit tab) inside the fence sandbox.</span>
+          </label>
+          <label
+            className="flex-row gap-xs cursor-pointer mt-sm"
+            style={fenceDisabled ? { opacity: 0.5 } : undefined}
+          >
+            <input
+              type="checkbox"
+              checked={state.fenceBuildMonitor && !fenceDisabled}
+              disabled={fenceDisabled}
+              onChange={(e) => setField('fenceBuildMonitor', e.target.checked)}
+              data-testid="fence-build-monitor"
+            />
+            <span>Run build-monitor fix sessions inside the fence sandbox (skip approvals).</span>
+          </label>
           <div className="form-group mt-sm">
             <label
               className="flex-row gap-xs cursor-pointer"
-              style={state.fenceAvailable ? undefined : { opacity: 0.5 }}
+              style={fenceDisabled ? { opacity: 0.5 } : undefined}
             >
               <input
                 type="checkbox"
-                checked={state.fenceAnalyzeEnabled && state.fenceAvailable}
-                disabled={!state.fenceAvailable}
+                checked={state.fenceAnalyzeEnabled && !fenceDisabled}
+                disabled={fenceDisabled}
                 onChange={(e) => setField('fenceAnalyzeEnabled', e.target.checked)}
                 data-testid="fence-analyze-enabled"
               />
@@ -173,7 +167,7 @@ export default function ExperimentalTab({
             <TargetSelect
               value={state.fenceAnalyzeTarget}
               onChange={(v) => setField('fenceAnalyzeTarget', v)}
-              disabled={!state.fenceAvailable || !state.fenceAnalyzeEnabled}
+              disabled={fenceDisabled || !state.fenceAnalyzeEnabled}
               includeDisabledOption={false}
               options={agentModels}
             />
