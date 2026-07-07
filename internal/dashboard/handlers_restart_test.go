@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -10,7 +11,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
@@ -76,5 +79,90 @@ func TestHandleRestart_Guards(t *testing.T) {
 		if c.wantBody != "" && !strings.Contains(rr.Body.String(), c.wantBody) {
 			t.Errorf("%s: body = %q, want containing %q", c.id, rr.Body.String(), c.wantBody)
 		}
+	}
+}
+
+func newRestartOptionsHandler(t *testing.T) *SpawnHandlers {
+	t.Helper()
+	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
+	if err := st.AddWorkspace(state.Workspace{ID: "ws-1", Repo: "git@github.com:u/r.git", Branch: "main", Path: t.TempDir()}); err != nil {
+		t.Fatalf("AddWorkspace: %v", err)
+	}
+	if err := st.AddSession(state.Session{ID: "claude-1", WorkspaceID: "ws-1", Target: "claude", ResumeID: "conv", CreatedAt: time.Now()}); err != nil {
+		t.Fatalf("AddSession: %v", err)
+	}
+	cfg := &config.Config{}
+	mm := models.New(cfg, []detect.Tool{{Name: "claude"}, {Name: "gemini"}}, "", discardLogger())
+	return &SpawnHandlers{logger: discardLogger(), state: st, config: cfg, models: mm}
+}
+
+func getRestartOptions(t *testing.T, h *SpawnHandlers, sessionID string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := chi.NewRouter()
+	r.Get("/api/sessions/{sessionID}/restart-options", h.handleRestartOptions)
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/"+sessionID+"/restart-options", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	return rr
+}
+
+func TestHandleRestartOptions(t *testing.T) {
+	h := newRestartOptionsHandler(t)
+	rr := getRestartOptions(t, h, "claude-1")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	var resp contracts.RestartOptionsResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.CurrentTarget != "claude" {
+		t.Errorf("current_target = %q, want claude", resp.CurrentTarget)
+	}
+	found := false
+	for _, tgt := range resp.Targets {
+		if tgt == "claude" {
+			found = true
+		}
+		if tgt == "gemini" {
+			t.Errorf("targets must exclude the other-harness target 'gemini', got %v", resp.Targets)
+		}
+	}
+	if !found {
+		t.Errorf("targets must include current harness target 'claude', got %v", resp.Targets)
+	}
+	if resp.FenceAvailable {
+		t.Errorf("fence_available should be false when no dependency report is wired")
+	}
+}
+
+func postRestartBody(t *testing.T, h *SpawnHandlers, sessionID, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := chi.NewRouter()
+	r.Post("/api/sessions/{sessionID}/restart", h.handleRestart)
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/"+sessionID+"/restart", strings.NewReader(body))
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	return rr
+}
+
+func TestHandleRestart_CrossHarnessRejected(t *testing.T) {
+	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
+	if err := st.AddWorkspace(state.Workspace{ID: "ws-1", Repo: "r", Branch: "main", Path: t.TempDir()}); err != nil {
+		t.Fatalf("AddWorkspace: %v", err)
+	}
+	if err := st.AddSession(state.Session{ID: "claude-1", WorkspaceID: "ws-1", Target: "claude", ResumeID: "conv", CreatedAt: time.Now()}); err != nil {
+		t.Fatalf("AddSession: %v", err)
+	}
+	cfg := &config.Config{}
+	mm := models.New(cfg, []detect.Tool{{Name: "claude"}, {Name: "gemini"}}, "", discardLogger())
+	h := &SpawnHandlers{logger: discardLogger(), state: st, config: cfg, models: mm}
+
+	rr := postRestartBody(t, h, "claude-1", `{"target":"gemini"}`)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s; want 400", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "same harness") {
+		t.Errorf("body = %s; want 'same harness' message", rr.Body.String())
 	}
 }

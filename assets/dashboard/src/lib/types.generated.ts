@@ -754,6 +754,13 @@ export interface ResolveConflictStep {
   tmux_session?: string;
 }
 
+export interface RestartOptionsResponse {
+  current_target: string;
+  targets: string[];
+  fence: boolean;
+  fence_available: boolean;
+}
+
 export interface RunTarget {
   name: string;
   command: string;

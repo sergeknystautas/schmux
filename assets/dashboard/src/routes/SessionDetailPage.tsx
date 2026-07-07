@@ -23,6 +23,7 @@ import { useViewedSessions } from '../contexts/ViewedSessionsContext';
 import { ClipboardBanner } from '../components/ClipboardBanner';
 import { useKeyboardMode } from '../contexts/KeyboardContext';
 import Tooltip from '../components/Tooltip';
+import RestartSessionModal from '../components/RestartSessionModal';
 import useVersionInfo from '../hooks/useVersionInfo';
 import useLocalStorage, { SESSION_SIDEBAR_COLLAPSED_KEY } from '../hooks/useLocalStorage';
 import WorkspaceHeader from '../components/WorkspaceHeader';
@@ -59,6 +60,7 @@ export default function SessionDetailPage() {
     wsStatusRef.current = wsStatus;
   }, [wsStatus]);
   const [showResume, setShowResume] = useState(false);
+  const [showRestartModal, setShowRestartModal] = useState(false);
   const [followTail, setFollowTail] = useState(true);
   const [controlModeAttached, setControlModeAttached] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage<boolean>(
@@ -570,23 +572,30 @@ export default function SessionDetailPage() {
     }
   };
 
-  const handleRestart = useCallback(async () => {
-    if (!sessionId) return;
-    const accepted = await confirm(
-      'Restart session? The running agent is interrupted, then resumed with updated settings.',
-      { danger: true }
-    );
-    if (!accepted) return;
-    try {
-      const result = await restartSession(sessionId);
-      if (result.session_id) {
-        await waitForSession(result.session_id);
-        navigate(`/sessions/${result.session_id}`);
+  const handleRestart = useCallback(
+    async (e?: React.MouseEvent) => {
+      if (e?.shiftKey) {
+        setShowRestartModal(true);
+        return;
       }
-    } catch (err) {
-      alert('Restart Failed', `Failed to restart: ${getErrorMessage(err, 'Unknown error')}`);
-    }
-  }, [sessionId, confirm, navigate, alert, waitForSession]);
+      if (!sessionId) return;
+      const accepted = await confirm(
+        'Restart session? The running agent is interrupted, then resumed with updated settings.',
+        { danger: true }
+      );
+      if (!accepted) return;
+      try {
+        const result = await restartSession(sessionId);
+        if (result.session_id) {
+          await waitForSession(result.session_id);
+          navigate(`/sessions/${result.session_id}`);
+        }
+      } catch (err) {
+        alert('Restart Failed', `Failed to restart: ${getErrorMessage(err, 'Unknown error')}`);
+      }
+    },
+    [sessionId, confirm, navigate, alert, waitForSession]
+  );
 
   const handleToggleSelectionMode = () => {
     const newMode = terminalStreamRef.current?.toggleSelectionMode() ?? false;
@@ -918,13 +927,15 @@ export default function SessionDetailPage() {
                       </button>
                     )}
                     {sessionData.resume_id && !sessionData.remote_host_id && (
-                      <button
-                        className="btn btn--sm btn--secondary"
-                        onClick={handleRestart}
-                        data-testid="restart-session"
-                      >
-                        Restart
-                      </button>
+                      <Tooltip content="Shift-click for fence / endpoint options">
+                        <button
+                          className="btn btn--sm btn--secondary"
+                          onClick={handleRestart}
+                          data-testid="restart-session"
+                        >
+                          Restart
+                        </button>
+                      </Tooltip>
                     )}
                     <Tooltip
                       content={
@@ -1418,6 +1429,10 @@ export default function SessionDetailPage() {
               setReconnectModal(null);
             }}
           />
+        )}
+
+        {showRestartModal && sessionId && (
+          <RestartSessionModal sessionId={sessionId} onClose={() => setShowRestartModal(false)} />
         )}
       </>
     </React.Profiler>

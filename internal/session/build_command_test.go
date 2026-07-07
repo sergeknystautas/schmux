@@ -316,6 +316,63 @@ func TestBuildCommandResumeRequiresToolName(t *testing.T) {
 	}
 }
 
+func TestBuildCommand_ResumeByIDModelFlag(t *testing.T) {
+	model := detect.Model{
+		ID:      "claude-opus-4-6",
+		Runners: map[string]detect.RunnerSpec{"claude": {ModelValue: "claude-opus-4-6"}},
+	}
+	modelTarget := ResolvedTarget{
+		Name:       "claude-opus-4-6",
+		Command:    "claude",
+		Promptable: true,
+		ToolName:   "claude",
+		Model:      &model,
+	}
+	bareTarget := ResolvedTarget{
+		Name:       "claude",
+		Command:    "claude",
+		Promptable: true,
+		ToolName:   "claude",
+	}
+
+	// Model target: resume argv must carry both the resume id and the model flag.
+	got, err := buildCommand(modelTarget, "", &model, true, false, false, "conv-123")
+	if err != nil {
+		t.Fatalf("model target: unexpected error: %v", err)
+	}
+	for _, sub := range []string{"--resume", "conv-123", "--model", "claude-opus-4-6"} {
+		if !strings.Contains(got, sub) {
+			t.Errorf("model resume command %q missing %q", got, sub)
+		}
+	}
+
+	// Bare tool (no model): resume argv must NOT contain a model flag.
+	gotBare, err := buildCommand(bareTarget, "", nil, true, false, false, "conv-123")
+	if err != nil {
+		t.Fatalf("bare target: unexpected error: %v", err)
+	}
+	if !strings.Contains(gotBare, "conv-123") {
+		t.Errorf("bare resume command %q missing resume id", gotBare)
+	}
+	if strings.Contains(gotBare, "--model") {
+		t.Errorf("bare resume command %q should not contain --model", gotBare)
+	}
+
+	// Endpoint env must still prefix the resumed command alongside the model flag
+	// (regression-guards that a switched endpoint's env keeps flowing).
+	envTarget := modelTarget
+	envTarget.Env = map[string]string{"ANTHROPIC_BASE_URL": "https://example.test"}
+	gotEnv, err := buildCommand(envTarget, "", &model, true, false, false, "conv-123")
+	if err != nil {
+		t.Fatalf("env target: unexpected error: %v", err)
+	}
+	for _, sub := range []string{"ANTHROPIC_BASE_URL=", "--resume", "--model", "claude-opus-4-6"} {
+		if !strings.Contains(gotEnv, sub) {
+			t.Errorf("env resume command %q missing %q", gotEnv, sub)
+		}
+	}
+}
+
 func TestAppendSignalingFlags(t *testing.T) {
 	tests := []struct {
 		name       string

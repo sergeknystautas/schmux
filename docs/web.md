@@ -110,6 +110,7 @@ Watch terminal output and manage a session.
 
 - Copy attach command
 - Dispose session
+- Restart session (shown when the harness captured a `resume_id`, e.g. claude/opencode) — plain click confirms, then disposes and resumes the conversation in place. **Shift-click** opens a modal to toggle fence and switch to a different enabled target on the same harness (the resume id is harness-native, so cross-harness targets are excluded); the chosen target/fence apply to the resumed session.
 - Open diff, open workspace in VS Code
 - Open Preview (prompts for target port, opens a local ephemeral proxy URL)
 

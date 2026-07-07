@@ -49,6 +49,7 @@ func main() {
 		reflect.TypeOf(contracts.Tab{}),
 		reflect.TypeOf(contracts.DependenciesResponse{}),
 		reflect.TypeOf(contracts.SessionResponseItem{}),
+		reflect.TypeOf(contracts.RestartOptionsResponse{}),
 		reflect.TypeOf(contracts.WorkspaceResponseItem{}),
 		reflect.TypeOf(contracts.SpawnRequest{}),
 		reflect.TypeOf(contracts.RemoteProfileResponse{}),

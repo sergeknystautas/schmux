@@ -805,7 +805,19 @@ Guards (request rejected up front):
 - The resolved harness must declare `resume_id_args` (claude, opencode); otherwise by-id resume is impossible and the request errors rather than silently falling back to a different conversation.
 - The session must not already be disposing.
 
-Request: empty body (the session id is in the path).
+Request: an optional JSON body. An empty/absent body restarts with the session's current target and fence (the plain restart). A body may override either field:
+
+```json
+{
+  "target": "claude-opus-4-6",
+  "fence": false
+}
+```
+
+- `target` (optional) switches to a different enabled target that resolves to the **same harness** as the current target — the `resume_id` is harness-native, so a cross-harness target is rejected (the resumed conversation could not continue on a different harness).
+- `fence` (optional) toggles the fence sandbox on or off for the resumed session.
+
+All override validation (same-harness target, fence availability) happens before the session is disposed.
 
 Response: a spawn result for the new (resumed) session.
 
@@ -820,10 +832,38 @@ Response: a spawn result for the new (resumed) session.
 
 Errors:
 
-- 400: "session has no resume id", "restart is local-only", "harness does not support resume by id"
+- 400: "session has no resume id", "restart is local-only", "harness does not support resume by id", "restart target must use the same harness", plus the fence availability/mode errors when `fence` is set on
 - 404: "unknown session"
 - 409: "session is already disposing"
 - 500: "failed to dispose session: ...", "failed to restart session: ..."
+
+### GET /api/sessions/{sessionId}/restart-options
+
+Returns what the session can be restarted onto: the enabled targets that run on the session's current harness (so the `resume_id` stays valid), the current target, the current fence state, and whether fence can be toggled. Feeds the shift-click restart modal. The same-harness filter uses the spawn-accurate tool resolution (a model target resolves to its runner tool; a bare tool resolves to itself), so the listed targets match what a re-spawn would actually use.
+
+Subject to the same guards as `POST /restart` (captured `resume_id`, local-only, resume-capable harness, not disposing).
+
+Response:
+
+```json
+{
+  "current_target": "claude",
+  "targets": ["claude", "claude-opus-4-6"],
+  "fence": true,
+  "fence_available": true
+}
+```
+
+- `current_target` — the session's current target.
+- `targets` — enabled targets on the same harness (sorted), always including `current_target`. Other-harness and disabled targets are excluded.
+- `fence` — the session's current fence state.
+- `fence_available` — whether fence can be toggled (`true` when the fence binary is detected and fence mode is not `disabled`).
+
+Errors:
+
+- 400: "session has no resume id", "restart is local-only", "harness does not support resume by id"
+- 404: "unknown session"
+- 409: "session is already disposing"
 
 ### GET /api/sessions/{sessionId}/events
 

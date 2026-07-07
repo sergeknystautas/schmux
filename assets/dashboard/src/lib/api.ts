@@ -60,6 +60,7 @@ import type {
   StyleCreateRequest,
   StyleUpdateRequest,
   StyleListResponse,
+  RestartOptionsResponse,
 } from './types.generated';
 import { csrfHeaders } from './csrf';
 import { transport } from './transport';
@@ -165,18 +166,33 @@ export async function analyzeFence(sessionId: string): Promise<SpawnResult> {
 
 /**
  * Restarts a session: disposes the running agent and re-spawns it in the same
- * worktree, resuming its harness conversation by id with freshly re-resolved
- * fence settings. Requires a captured resume_id and a local session; the
- * backend rejects otherwise. Returns the newly spawned session.
+ * worktree, resuming its harness conversation by id. With no overrides this is
+ * the plain restart (no body). Pass overrides (from the shift-click modal) to
+ * toggle fence or switch to a different enabled target on the same harness.
  */
-export async function restartSession(sessionId: string): Promise<SpawnResult> {
+export async function restartSession(
+  sessionId: string,
+  overrides?: { target?: string; fence?: boolean }
+): Promise<SpawnResult> {
+  const hasBody = overrides !== undefined;
   const response = await apiFetch(`/api/sessions/${sessionId}/restart`, {
     method: 'POST',
-    headers: { ...csrfHeaders() },
+    headers: {
+      ...csrfHeaders(),
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(hasBody ? { body: JSON.stringify(overrides) } : {}),
   });
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to restart session');
   }
+  return response.json();
+}
+
+/** Fetches the enabled same-harness targets and fence state for the restart modal. */
+export async function getRestartOptions(sessionId: string): Promise<RestartOptionsResponse> {
+  const response = await apiFetch(`/api/sessions/${sessionId}/restart-options`);
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch restart options');
   return response.json();
 }
 
