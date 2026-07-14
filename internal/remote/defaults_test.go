@@ -51,7 +51,10 @@ func TestApplyRemoteTmuxDefaults(t *testing.T) {
 			if !reflect.DeepEqual(f.setOptCalls, wantSession) {
 				t.Errorf("session-option calls = %v, want %v", f.setOptCalls, wantSession)
 			}
-			wantExec := []string{"setenv -g DISPLAY :99"}
+			wantExec := []string{
+				"set-window-option -g remain-on-exit on",
+				"setenv -g DISPLAY :99",
+			}
 			if !reflect.DeepEqual(f.execCalls, wantExec) {
 				t.Errorf("execute calls = %v, want %v", f.execCalls, wantExec)
 			}

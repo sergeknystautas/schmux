@@ -116,6 +116,24 @@ schmux remote set-password   Set password (interactive prompt)
 
 Orchestrates AI agents running on remote hosts while keeping the schmux daemon and web dashboard on the local machine. Uses tmux control mode (`tmux -CC`) as the transport protocol -- a text-based protocol for programmatic tmux interaction over stdin/stdout of an SSH (or similar) connection.
 
+> [!WARNING]
+> Remote Sessions are experimental. The verified path is a persistent host over SSH with an existing source repository. Ephemeral hosts and flavors have automated coverage but should not be treated as production-ready workflows.
+
+### Verified persistent-host setup
+
+- Install `tmux`, the selected agent binary, and the VCS on the remote host. They must be available to the connection command's non-login shell.
+- Clone the source repository on the remote host first and set `repo_base_path` to that checkout. Schmux creates worktrees from it; it does not clone the source repository.
+- Use a connection command that supports interactive authentication, such as `ssh -tt user@{{.Hostname}} --`. SSH key authentication is not required, but interactive authentication must be repeated after daemon restarts or connection loss.
+- Set `term` to a terminal installed on the remote host, normally `xterm-256color`. Leaving it blank inherits the daemon's `TERM`, which may be machine-specific (for example, `xterm-ghostty`).
+- After a daemon restart or connection loss, reconnect the host before spawning. A failed reconnect preserves the host, workspace, and session records so the profile can be corrected and retried.
+- Remote sessions do not support Fence.
+
+Current limitations:
+
+- Transport and session control share one interactive SSH PTY carrying tmux control mode; connection failures interrupt all sessions on that host until manual reconnection.
+- There is no workflow to import an existing remote worktree if its local schmux state record has already been removed.
+- Interactive SSH behavior is not exercised by the mock-host E2E suite; it requires testing against a real remote machine.
+
 ### Key files
 
 | File                                         | Purpose                                                                                                                  |
@@ -163,7 +181,9 @@ Remote sessions support multiple version control systems (Git and Sapling) via t
 - **Why PTY for the connection process:** The connection command (SSH, etc.) often requires interactive authentication (Yubikey, MFA). A PTY enables these prompts to flow through to a WebSocket-backed terminal in the dashboard.
 - **Why FIFO response correlation:** tmux assigns sequential command IDs starting from 0, not using client-supplied IDs. The client matches responses to commands in FIFO order, which means responses from a previous control mode session (after daemon restart) are stale and must be discarded.
 - **Why no auto-reconnect on daemon restart:** Reconnection typically requires interactive authentication (e.g., Yubikey touch). `MarkStaleHostsDisconnected()` marks all previously-connected hosts as disconnected at startup; the user explicitly clicks "Reconnect" in the dashboard.
+- **Why reconnect failure preserves state:** Authentication, terminal compatibility, and network failures are retryable. Removing the host, workspace, or sessions on failure loses the recovery path and can orphan remote worktrees.
 - **Why session reconciliation uses IDs only:** After reconnection, sessions are matched to remote tmux windows strictly by window ID or pane ID. Name-based matching is deliberately avoided because tmux window names can change and cause wrong matches.
+- **Why remote panes use `remain-on-exit`:** A missing agent binary or other immediate startup failure can otherwise close the pane before schmux subscribes to its output, producing a black session that appears to be running. Retaining the pane lets the 500 ms startup check capture and return the actual terminal error; later liveness checks inspect `pane_dead` rather than treating an active SSH connection as proof that every pane is running.
 
 ### Host types: ephemeral vs persistent
 
@@ -255,6 +275,7 @@ sendKeys:  |---mutexWait---|---executeNet (stdin + FIFO)---|---classify overhead
 - The `max(0, execDur - mutexWait)` guard in `Client.SendKeys` prevents negative `ExecuteNet` values from macOS clock granularity edge cases.
 - The health probe goroutine in `RemoteSource` subscribes to output BEFORE launching the probe. Reversing this order drops terminal output during the jitter window.
 - `Execute()` returns mutex wait even on error paths.
+- Set a profile's `term` when the remote host does not recognize the daemon's terminal name (for example, use `xterm-256color` instead of `xterm-ghostty`).
 
 ### Common modification patterns
 
@@ -282,6 +303,7 @@ Ephemeral host (default):
       "workspace_path": "/home/user/project",
       "connect_command": "ssh -t {{.Flavor}} --",
       "reconnect_command": "ssh -t {{.Hostname}} --",
+      "term": "xterm-256color",
       "hostname_regex": "Connecting to (\\S+)",
       "flavors": [{ "flavor": "gpu-large", "display_name": "GPU Large" }]
     }
@@ -299,11 +321,12 @@ Persistent host:
       "display_name": "Dev Server",
       "host_type": "persistent",
       "vcs": "git",
+      "hostname": "myhost.example.com",
       "repo_base_path": "/home/user/myproject",
       "workspace_path_template": "/home/user/schmux-ws/{{.WorkspaceID}}",
-      "connect_command": "ssh user@myhost.example.com --",
-      "reconnect_command": "ssh user@myhost.example.com --",
-      "hostname_regex": "(myhost\\.example\\.com)"
+      "connect_command": "ssh user@{{.Hostname}} --",
+      "reconnect_command": "ssh user@{{.Hostname}} --",
+      "term": "xterm-256color"
     }
   ]
 }
@@ -316,19 +339,22 @@ Persistent host fields:
 | `host_type`               | Yes      | Must be `"persistent"`                                                  |
 | `repo_base_path`          | Yes      | Path to the source repo on the remote host (cwd for `git worktree add`) |
 | `workspace_path_template` | Yes      | Go template with `{{.WorkspaceID}}` for new worktree paths              |
+| `term`                    | No       | `TERM` override for the connection process; blank inherits the daemon   |
 | `remote_vcs_commands`     | No       | Custom VCS command templates (defaults derived from `vcs` field)        |
 
 The `remote_vcs_commands` object supports three optional fields: `create_worktree`, `remove_worktree`, `check_dirty`. Each is a Go template. See `RemoteVCSCommands.GetCreateWorktree()` in `internal/config/config.go` for defaults.
 
 ### Test coverage
 
-| Test file                                    | Scope                                                                                                          |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `internal/remote/manager_test.go`            | Multi-host lifecycle, flavor status, reconnection, expiry, persistent host workspace find/create/cleanup/mutex |
-| `internal/remote/workspace_vcs_test.go`      | Remote VCS template resolution for git, sapling, custom overrides                                              |
-| `internal/remote/connection_test.go`         | Connect/reconnect, PTY management, provisioning, health probe                                                  |
-| `internal/remote/controlmode/parser_test.go` | Protocol parsing, edge cases                                                                                   |
-| `internal/remote/controlmode/client_test.go` | Command execution, FIFO correlation, stale response handling, SendKeys timings                                 |
-| `internal/config/remote_profile_test.go`     | Profile CRUD, flavor resolution, persistent host validation, RemoteVCSCommands defaults                        |
-| `internal/session/remotesource_test.go`      | RemoteSource event forwarding, health probe lifecycle                                                          |
-| `internal/session/controlsource_test.go`     | ControlSource interface compliance                                                                             |
+| Test file                                    | Scope                                                                                                                                 |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `internal/remote/manager_test.go`            | Multi-host lifecycle, flavor status, failed-reconnect state preservation, expiry, persistent host workspace find/create/cleanup/mutex |
+| `internal/remote/workspace_vcs_test.go`      | Remote VCS template resolution for git, sapling, custom overrides                                                                     |
+| `internal/remote/connection_test.go`         | Connect/reconnect, PTY management, provisioning, health probe                                                                         |
+| `internal/remote/controlmode/parser_test.go` | Protocol parsing, edge cases                                                                                                          |
+| `internal/remote/controlmode/client_test.go` | Command execution, FIFO correlation, startup failure capture, pane liveness, stale response handling, SendKeys timings                |
+| `internal/config/remote_profile_test.go`     | Profile CRUD, flavor resolution, persistent host validation, RemoteVCSCommands defaults                                               |
+| `internal/dashboard/handlers_remote_test.go` | Remote profile API and failed-reconnect state preservation through the HTTP handler                                                   |
+| `internal/session/manager_test.go`           | Exact existing remote workspace reuse and remote session lifecycle                                                                    |
+| `internal/session/remotesource_test.go`      | RemoteSource event forwarding, health probe lifecycle                                                                                 |
+| `internal/session/controlsource_test.go`     | ControlSource interface compliance                                                                                                    |

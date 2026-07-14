@@ -29,7 +29,17 @@ const (
 
 	// ControlModeReadyTimeout is how long to wait for control mode to be ready.
 	ControlModeReadyTimeout = 30 * time.Second
+
+	remoteSessionStartupGrace = 500 * time.Millisecond
 )
+
+func newRemoteConnectionCommand(args []string, term string) *exec.Cmd {
+	cmd := exec.Command(args[0], args[1:]...)
+	if term != "" {
+		cmd.Env = append(os.Environ(), "TERM="+term)
+	}
+	return cmd
+}
 
 // PendingSession represents a session waiting for connection to be ready.
 type PendingSession struct {
@@ -53,6 +63,7 @@ type Connection struct {
 	host      *state.RemoteHost
 	flavor    *config.RemoteFlavor
 	flavorStr string // The flavor string (e.g., "www", "gpu")
+	term      string // Optional TERM override for the connection process
 	cmd       *exec.Cmd
 	client    *controlmode.Client
 	parser    *controlmode.Parser
@@ -129,6 +140,7 @@ type ConnectionConfig struct {
 	VCS              string
 	ConnectCommand   string
 	ReconnectCommand string
+	Term             string // Optional TERM override; empty inherits the daemon environment
 	ProvisionCommand string
 	HostnameRegex    string // Custom regex for hostname extraction (first capture group)
 	TmuxSocketName   string // Socket name for tmux isolation on remote host (default: "schmux")
@@ -156,6 +168,7 @@ func ConnectionConfigFromResolved(r config.ResolvedFlavor) ConnectionConfig {
 		VCS:              r.VCS,
 		ConnectCommand:   r.ConnectCommand,
 		ReconnectCommand: r.ReconnectCommand,
+		Term:             r.Term,
 		ProvisionCommand: r.ProvisionCommand,
 		HostnameRegex:    r.HostnameRegex,
 		HostType:         r.HostType,
@@ -213,6 +226,7 @@ func NewConnection(cfg ConnectionConfig) *Connection {
 			ProvisionCommand: cfg.ProvisionCommand,
 		},
 		flavorStr:             cfg.Flavor,
+		term:                  cfg.Term,
 		tmuxSocketName:        cfg.TmuxSocketName,
 		clipboardExternal:     cfg.ClipboardExternal == nil || *cfg.ClipboardExternal,
 		logger:                cfg.Logger,
@@ -340,7 +354,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 		return fmt.Errorf("connect command template produced empty command")
 	}
 
-	c.cmd = exec.Command(args[0], args[1:]...)
+	c.cmd = newRemoteConnectionCommand(args, c.term)
 
 	if c.logger != nil {
 		c.logger.Info("executing connect command", "host_id", c.host.ID, "cmd", cmdLine)
@@ -478,7 +492,7 @@ func (c *Connection) Reconnect(ctx context.Context, hostname string) error {
 		return fmt.Errorf("reconnect command template produced empty command")
 	}
 
-	c.cmd = exec.Command(args[0], args[1:]...)
+	c.cmd = newRemoteConnectionCommand(args, c.term)
 
 	if c.logger != nil {
 		c.logger.Info("executing reconnect command", "host_id", c.host.ID, "cmd", cmdLine)
@@ -1025,7 +1039,7 @@ func (c *Connection) CreateSession(ctx context.Context, name, workdir, command s
 	if !c.IsConnected() {
 		return "", "", fmt.Errorf("not connected")
 	}
-	return c.client.CreateWindow(ctx, name, workdir, command)
+	return c.client.CreateWindowChecked(ctx, name, workdir, command, remoteSessionStartupGrace)
 }
 
 // KillSession kills a session (tmux window) on the remote host.
@@ -1059,6 +1073,14 @@ func (c *Connection) ExecuteHealthProbe(ctx context.Context) (string, time.Durat
 		return "", 0, fmt.Errorf("not connected")
 	}
 	return c.client.Execute(ctx, "display-message -p ok")
+}
+
+// PaneRunning reports whether a remote pane still has a live process.
+func (c *Connection) PaneRunning(ctx context.Context, paneID string) (bool, error) {
+	if !c.IsConnected() {
+		return false, fmt.Errorf("not connected")
+	}
+	return c.client.PaneRunning(ctx, paneID)
 }
 
 // SubscribeOutput subscribes to output from a pane.

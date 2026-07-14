@@ -12,6 +12,7 @@ func TestResolveProfileFlavor_UsesProfileDefaults(t *testing.T) {
 		WorkspacePath:         "~/workspace",
 		ConnectCommand:        "ssh -tt {{.Flavor}} --",
 		ReconnectCommand:      "ssh -tt {{.Hostname}} --",
+		Term:                  "xterm-256color",
 		ProvisionCommand:      "git clone {{.Repo}} {{.WorkspacePath}}",
 		HostnameRegex:         `host-(\S+)`,
 		VSCodeCommandTemplate: `{{.VSCodePath}} --remote ssh-remote+{{.Hostname}} {{.Path}}`,
@@ -49,6 +50,9 @@ func TestResolveProfileFlavor_UsesProfileDefaults(t *testing.T) {
 	}
 	if resolved.ReconnectCommand != "ssh -tt {{.Hostname}} --" {
 		t.Errorf("ReconnectCommand: got %q, want %q", resolved.ReconnectCommand, "ssh -tt {{.Hostname}} --")
+	}
+	if resolved.Term != "xterm-256color" {
+		t.Errorf("Term: got %q, want xterm-256color", resolved.Term)
 	}
 	if resolved.ProvisionCommand != "git clone {{.Repo}} {{.WorkspacePath}}" {
 		t.Errorf("ProvisionCommand: got %q, want %q", resolved.ProvisionCommand, "git clone {{.Repo}} {{.WorkspacePath}}")

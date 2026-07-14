@@ -24,6 +24,7 @@ interface ProfileFormData {
   vcs: string;
   connect_command: string;
   reconnect_command: string;
+  term: string;
   provision_command: string;
   hostname_regex: string;
   vscode_command_template: string;
@@ -41,6 +42,7 @@ const emptyForm: ProfileFormData = {
   vcs: 'git',
   connect_command: '',
   reconnect_command: '',
+  term: '',
   provision_command: '',
   hostname_regex: '',
   vscode_command_template: '',
@@ -92,6 +94,7 @@ export default function RemoteSettingsPage() {
     vcs: profile.vcs,
     connect_command: profile.connect_command || '',
     reconnect_command: profile.reconnect_command || '',
+    term: profile.term || '',
     provision_command: profile.provision_command || '',
     hostname_regex: profile.hostname_regex || '',
     vscode_command_template: profile.vscode_command_template || '',
@@ -183,6 +186,7 @@ export default function RemoteSettingsPage() {
       vcs: formData.vcs,
       connect_command: formData.connect_command.trim() || undefined,
       reconnect_command: formData.reconnect_command.trim() || undefined,
+      term: formData.term.trim() || undefined,
       provision_command: formData.provision_command.trim() || undefined,
       hostname_regex: isPersistent ? undefined : formData.hostname_regex.trim() || undefined,
       vscode_command_template: formData.vscode_command_template.trim() || undefined,
@@ -309,7 +313,9 @@ export default function RemoteSettingsPage() {
                             : styles.hostTypeBadgeEphemeral
                         }`}
                       >
-                        {profile.host_type === 'persistent' ? 'persistent' : 'ephemeral'}
+                        {profile.host_type === 'persistent'
+                          ? 'existing machine'
+                          : 'provisioned machine'}
                       </span>
                       <code className={styles.vcsTag}>{profile.vcs}</code>
                     </div>
@@ -358,6 +364,7 @@ export default function RemoteSettingsPage() {
 
                     {/* Collapsible details — less important fields */}
                     {(profile.reconnect_command ||
+                      profile.term ||
                       profile.provision_command ||
                       profile.hostname_regex ||
                       profile.vscode_command_template ||
@@ -373,6 +380,12 @@ export default function RemoteSettingsPage() {
                             <>
                               <span className="text-muted">Reconnect</span>
                               <code>{profile.reconnect_command}</code>
+                            </>
+                          )}
+                          {profile.term && (
+                            <>
+                              <span className="text-muted">TERM</span>
+                              <code>{profile.term}</code>
                             </>
                           )}
                           {profile.provision_command && (
@@ -449,7 +462,7 @@ export default function RemoteSettingsPage() {
             </div>
             <form onSubmit={handleSubmit}>
               <div className="modal__body">
-                {/* Row 1: Name, Host Type, VCS */}
+                {/* Row 1: Name, machine lifecycle, VCS */}
                 <div className={styles.formGrid3}>
                   <div className="form-group">
                     <label className="form-group__label" htmlFor="display_name">
@@ -467,7 +480,7 @@ export default function RemoteSettingsPage() {
                   </div>
                   <div className={`form-group ${styles.fieldHostType}`}>
                     <label className="form-group__label" htmlFor="host_type">
-                      Host Type
+                      Machine
                     </label>
                     <select
                       id="host_type"
@@ -475,9 +488,14 @@ export default function RemoteSettingsPage() {
                       value={formData.host_type}
                       onChange={(e) => setFormData({ ...formData, host_type: e.target.value })}
                     >
-                      <option value="">Ephemeral</option>
-                      <option value="persistent">Persistent</option>
+                      <option value="">Provision a new machine</option>
+                      <option value="persistent">Use an existing machine</option>
                     </select>
+                    <span className="form-group__hint">
+                      {isPersistent
+                        ? 'Connect to one long-lived computer and create a separate worktree for each workspace.'
+                        : 'Run the connection command for each new workspace; use this when it creates or reserves a machine.'}
+                    </span>
                   </div>
                   <div className={`form-group ${styles.fieldVcs}`}>
                     <label className="form-group__label" htmlFor="vcs">
@@ -500,15 +518,16 @@ export default function RemoteSettingsPage() {
                   <div className="form-group mb-md">
                     <label className="form-group__label">Flavors *</label>
                     <span className="form-group__hint mb-sm">
-                      Each flavor represents a host type within this profile (e.g., different
-                      machine sizes).
+                      A flavor is the value passed to <code>{'{{.Flavor}}'}</code> in the connection
+                      command. Add more only when that command accepts choices such as machine sizes
+                      or GPU types.
                     </span>
                     {formData.flavors.map((f, i) => (
                       <div key={i} className={`${styles.flavorRow} mb-sm`}>
                         <div className={`form-group ${styles.flavorField}`}>
                           {i === 0 && (
                             <label className={`form-group__label ${styles.flavorLabel}`}>
-                              Flavor String *
+                              Connection Value *
                             </label>
                           )}
                           <input
@@ -610,7 +629,7 @@ export default function RemoteSettingsPage() {
 
                     <div className="form-group mb-md">
                       <label className="form-group__label" htmlFor="repo_base_path">
-                        Repo Base Path *
+                        Source Repository Path *
                       </label>
                       <input
                         type="text"
@@ -624,8 +643,8 @@ export default function RemoteSettingsPage() {
                         required
                       />
                       <span className="form-group__hint">
-                        Path to the source repo on the remote host. Used as cwd for worktree
-                        creation.
+                        Existing checkout on the remote machine. schmux runs{' '}
+                        <code>git worktree add</code> from this repository; it does not clone it.
                       </span>
                     </div>
 
@@ -672,12 +691,40 @@ export default function RemoteSettingsPage() {
                     className="input"
                     value={formData.connect_command}
                     onChange={(e) => setFormData({ ...formData, connect_command: e.target.value })}
-                    placeholder="e.g., ssh {{.Flavor}}"
+                    placeholder={
+                      isPersistent ? 'e.g., ssh -tt {{.Hostname}} --' : 'e.g., ssh {{.Flavor}} --'
+                    }
                   />
                   <span className="form-group__hint">
-                    Use <code>{'{{.Flavor}}'}</code> as placeholder. Defaults to{' '}
-                    <code>ssh {'{{.Flavor}}'}</code>. Tmux control mode flags appended
-                    automatically.
+                    {isPersistent ? (
+                      <>
+                        Command run locally to reach this machine. Use{' '}
+                        <code>{'{{.Hostname}}'}</code>; schmux appends the remote tmux command.
+                      </>
+                    ) : (
+                      <>
+                        Command that creates or reaches the selected flavor. Use{' '}
+                        <code>{'{{.Flavor}}'}</code>; schmux appends the remote tmux command.
+                      </>
+                    )}
+                  </span>
+                </div>
+
+                <div className="form-group mb-md">
+                  <label className="form-group__label" htmlFor="term">
+                    TERM <span className="font-normal text-muted">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    id="term"
+                    className="input"
+                    value={formData.term}
+                    onChange={(e) => setFormData({ ...formData, term: e.target.value })}
+                    placeholder="e.g., xterm-256color"
+                  />
+                  <span className="form-group__hint">
+                    Terminal type for the connection process. Leave blank to inherit the daemon's{' '}
+                    <code>TERM</code>.
                   </span>
                 </div>
 

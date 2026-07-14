@@ -276,7 +276,7 @@ export default function SpawnPage() {
 
   // Remote spawns don't need repo/branch selection — the workspace is determined
   // by the flavor's workspace_path on the remote host, not by a git clone.
-  const isRemoteSpawn = environment.type === 'remote';
+  const isRemoteSpawn = environment.type === 'remote' || Boolean(currentWorkspace?.remote_host_id);
   const fenceMode = config?.fence_mode ?? 'optional_off';
   const fenceAvailable =
     (config?.system_capabilities?.fence_available ?? false) &&

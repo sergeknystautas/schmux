@@ -272,6 +272,7 @@ type RemoteProfile struct {
 	WorkspacePath         string                `json:"workspace_path"`
 	ConnectCommand        string                `json:"connect_command,omitempty"`
 	ReconnectCommand      string                `json:"reconnect_command,omitempty"`
+	Term                  string                `json:"term,omitempty"`
 	ProvisionCommand      string                `json:"provision_command,omitempty"`
 	HostnameRegex         string                `json:"hostname_regex,omitempty"`
 	VSCodeCommandTemplate string                `json:"vscode_command_template,omitempty"`
@@ -298,6 +299,7 @@ type ResolvedFlavor struct {
 	WorkspacePath         string
 	ConnectCommand        string
 	ReconnectCommand      string
+	Term                  string
 	ProvisionCommand      string
 	HostnameRegex         string
 	VSCodeCommandTemplate string
@@ -3592,6 +3594,7 @@ func ResolveProfileFlavor(profile RemoteProfile, flavorStr string) (ResolvedFlav
 			WorkspacePath:         profile.WorkspacePath,
 			ConnectCommand:        profile.ConnectCommand,
 			ReconnectCommand:      profile.ReconnectCommand,
+			Term:                  profile.Term,
 			ProvisionCommand:      profile.ProvisionCommand,
 			HostnameRegex:         profile.HostnameRegex,
 			VSCodeCommandTemplate: profile.VSCodeCommandTemplate,
@@ -3612,6 +3615,7 @@ func ResolveProfileFlavor(profile RemoteProfile, flavorStr string) (ResolvedFlav
 				VCS:                   profile.VCS,
 				ConnectCommand:        profile.ConnectCommand,
 				ReconnectCommand:      profile.ReconnectCommand,
+				Term:                  profile.Term,
 				HostnameRegex:         profile.HostnameRegex,
 				VSCodeCommandTemplate: profile.VSCodeCommandTemplate,
 				HostType:              profile.HostType,

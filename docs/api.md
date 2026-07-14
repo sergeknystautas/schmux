@@ -329,6 +329,7 @@ Notes:
 - `tmux_socket` (string, optional): the tmux socket name this session was created on. Omitted when empty (pre-isolation sessions).
 - `tmux_session` (string, optional): the tmux session name used by this session.
 - Session `status` field includes `disposing` during teardown. Dispose endpoints return 200 OK if the item is already in `disposing` status (idempotent).
+- Remote session liveness is based on the remote pane process, not merely the SSH connection. An exited or missing pane is reported as not running even while its host remains connected.
 - Session `fence` field (boolean, optional): `true` when the session was spawned inside the `fence` OS sandbox. Set once at spawn (local sessions only) and persisted on the session so the dashboard can show which sessions are fenced. Omitted/`false` for unfenced and remote sessions. See the spawn `fence` option for sandbox behavior.
 - Workspace `tabs` array contains Tab objects with fields: `id`, `kind` (tab type), `label`, `route`, `closable`, `meta` (type-specific metadata), and `created_at`. Tabs are stored independently from workspaces and associated by workspace ID; the broadcast groups them under their workspace. The `diff` and `resolve-conflict` tabs have no server-side label — the frontend derives their display from workspace data (`files_changed` for diff, `resolve_conflicts` records for conflict tabs). The broadcaster serves tabs as persisted with no field rewriting.
 - Workspace `resolve_conflicts` contains persisted conflict-process records keyed by the 7-character short hash; resolve-conflict tabs point at these records via `tabs[].meta.hash`.
@@ -491,7 +492,7 @@ Contract (pre-2093ccf):
 
 - When `workspace_id` is empty, `repo` and `branch` are required.
 - **`repo` must be a repo URL**, not a repo name. If the URL is not yet in config, the server auto-registers it (generates a name, sets `bare_path`, saves config) before proceeding with workspace creation. If the resolved repo name already backs a workspace base cloned from a different URL, spawn fails with a duplicate-repo-URL error directing the user to remove and re-add the repo in config.
-- When `workspace_id` is provided, the spawn is an "existing directory spawn" and **no git operations** are performed.
+- When `workspace_id` is provided, the spawn reuses that exact local or remote workspace and **no git operations** are performed.
 - Either `targets` or `command` is required (not both). `targets` maps target name -> quantity. `command` is a raw shell command string (used by quick launch presets like "shell").
 - Target names are resolved in order: (1) model IDs and aliases (e.g., "opus", "claude-sonnet-4-6"), (2) user-defined run targets from config, (3) builtin tool names ("claude", "codex", "gemini", "opencode", "antigravity") as a fallback when the tool binary isn't detected locally (useful for remote sessions where the tool is on the remote host). Default models (selecting an agent with no specific model) use bare tool names as IDs: "claude", "codex", "gemini", "opencode", "antigravity".
 - `prompt` is optional for promptable targets (omit for interactive use). Command targets must not include `prompt`.
@@ -517,6 +518,7 @@ Consumed at spawn for fenced sessions; ignored otherwise.
 - For sapling repos (`vcs == "sapling"` in config), `branch` may be empty. The "branch is required" check is skipped, the per-repo branch-conflict pre-flight is skipped (sapling workspaces with empty branch never collide), and the persisted `state.Workspace.Branch` stays empty. The sapling backend's worktree-creation template substitutes `"main"` internally so the underlying `sl` invocation gets a non-empty value, but persisted state and the API response report `branch: ""`.
 - `action_id` is optional. When set, usage is recorded against the matching spawn entry in the spawn store. When absent and a prompt exactly matches a pinned spawn entry's prompt, usage is recorded automatically.
 - Remote workspace VCS backfill: when spawning into an existing remote workspace, the workspace's `vcs` field is updated to match the flavor's VCS type. This ensures the events file watcher uses the correct data directory (`.schmux/` for git, `.sl/schmux/` for sapling).
+- Remote agent spawns retain exited panes long enough to capture startup output. If the target exits during the 500 ms startup check, the result is an error containing the captured terminal output instead of a successful black session.
 - Prompt delivery: by default, the prompt is passed as a CLI positional argument. Adapter descriptors may set `prompt_strategy: send_keys` to instead type the prompt into the terminal via tmux after the tool starts. This is used when a tool ignores positional prompt args in interactive mode. The prompt is injected asynchronously: the daemon polls for the tool's input prompt indicator, then pastes the text and sends Enter.
 
 Resume mode (`resume: true`):
@@ -4282,6 +4284,7 @@ Response:
     "workspace_path": "/home/user/workspaces",
     "connect_command": "ssh {hostname}",
     "reconnect_command": "ssh {hostname}",
+    "term": "xterm-256color",
     "provision_command": "setup.sh",
     "hostname_regex": "dev-.*",
     "vscode_command_template": "code --remote ssh-remote+{hostname} {path}",
@@ -4299,6 +4302,7 @@ Response:
 ```
 
 - `host_type`: `"ephemeral"` (default, omitted when empty) or `"persistent"`. Persistent hosts support multiple workspaces per connection and do not expire.
+- `term`: optional `TERM` value for the connection process. When omitted, the daemon environment is inherited.
 - `hostname` (persistent only): the stable address of the remote host. Surfaced to `connect_command` and `reconnect_command` as `{{.Hostname}}`. Required for persistent profiles; rejected for ephemeral (which discover hostname at runtime via `hostname_regex`). Build defaults may use `${USER}`-style env-var substitution (e.g. `"${USER}.sb.example.net"`); expansion happens once when the daemon seeds a fresh `~/.schmux/config.json`.
 - Persistent profiles include additional fields: `repo_base_path` (source repo path on host), `workspace_path_template` (Go template with `{{.WorkspaceID}}`), and optional `remote_vcs_commands` (custom VCS command templates).
 
@@ -4315,6 +4319,7 @@ Request:
   "workspace_path": "/home/user/workspaces",
   "connect_command": "ssh {hostname}",
   "reconnect_command": "ssh {hostname}",
+  "term": "xterm-256color",
   "provision_command": "setup.sh",
   "hostname_regex": "dev-.*",
   "vscode_command_template": "code --remote ssh-remote+{hostname} {path}",
@@ -4373,6 +4378,7 @@ Request:
   "workspace_path": "/home/user/workspaces",
   "connect_command": "ssh {hostname}",
   "reconnect_command": "ssh {hostname}",
+  "term": "xterm-256color",
   "provision_command": "setup.sh",
   "hostname_regex": "dev-.*",
   "vscode_command_template": "code --remote ssh-remote+{hostname} {path}",
@@ -4472,7 +4478,7 @@ Errors:
 
 ### POST /api/remote/hosts/{id}/reconnect
 
-Starts reconnection to an existing remote host asynchronously. Returns a provisioning session ID for interactive auth via WebSocket. After reconnection, stale events watcher windows are automatically cleaned up before new ones are created.
+Starts reconnection to an existing remote host asynchronously. Returns a provisioning session ID for interactive auth via WebSocket. After reconnection, stale events watcher windows are automatically cleaned up before new ones are created. A failed reconnect leaves the host, its workspaces, and its sessions in state so the profile can be corrected and reconnection retried.
 
 Response (202):
 

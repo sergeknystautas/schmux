@@ -476,6 +476,7 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 					ProfileID:     req.RemoteProfileID,
 					FlavorStr:     req.RemoteFlavor,
 					HostID:        remoteHostID,
+					WorkspaceID:   req.WorkspaceID,
 					TargetName:    targetName,
 					Prompt:        req.Prompt,
 					Nickname:      nickname,

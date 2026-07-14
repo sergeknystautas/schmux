@@ -10,12 +10,14 @@ const mockGetRemoteProfileStatuses = vi.fn<() => Promise<RemoteProfileStatus[]>>
 const mockGetRemoteHosts = vi.fn();
 const mockConnectRemoteHost = vi.fn();
 const mockReconnectRemoteHost = vi.fn();
+const mockDismissRemoteHost = vi.fn();
 
 vi.mock('../lib/api', () => ({
   getRemoteProfileStatuses: (...args: unknown[]) => mockGetRemoteProfileStatuses(...(args as [])),
   getRemoteHosts: (...args: unknown[]) => mockGetRemoteHosts(...(args as [])),
   connectRemoteHost: (...args: unknown[]) => mockConnectRemoteHost(...args),
   reconnectRemoteHost: (...args: unknown[]) => mockReconnectRemoteHost(...args),
+  dismissRemoteHost: (...args: unknown[]) => mockDismissRemoteHost(...args),
   getErrorMessage: (_err: unknown, fallback: string) => fallback,
 }));
 
@@ -31,10 +33,11 @@ vi.mock('./ToastProvider', () => ({
 
 // Mock modal
 const mockAlert = vi.fn();
+const mockConfirm = vi.fn();
 vi.mock('./ModalProvider', () => ({
   useModal: () => ({
     alert: mockAlert,
-    confirm: vi.fn(),
+    confirm: mockConfirm,
   }),
 }));
 
@@ -306,6 +309,70 @@ describe('RemoteHostSelector', () => {
         })
       );
     });
+  });
+
+  it('allows a failed host to reconnect', async () => {
+    mockGetRemoteProfileStatuses.mockResolvedValue([
+      {
+        profile: baseProfile,
+        flavor_hosts: [
+          {
+            flavor: 'od',
+            hosts: [
+              {
+                host_id: 'host-failed',
+                hostname: 'failed.example.com',
+                status: 'failed',
+                connected: false,
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    mockReconnectRemoteHost.mockResolvedValue({ provisioning_session_id: null });
+
+    renderSelector();
+    const hostnameElements = await screen.findAllByText('failed.example.com');
+    const hostCard = hostnameElements
+      .find((el) => el.tagName.toLowerCase() === 'strong')
+      ?.closest('[role="button"]');
+
+    await userEvent.click(hostCard!);
+
+    await waitFor(() => expect(mockReconnectRemoteHost).toHaveBeenCalledWith('host-failed'));
+  });
+
+  it('allows a failed host to be dismissed', async () => {
+    mockGetRemoteProfileStatuses.mockResolvedValue([
+      {
+        profile: baseProfile,
+        flavor_hosts: [
+          {
+            flavor: 'od',
+            hosts: [
+              {
+                host_id: 'host-failed',
+                hostname: 'failed.example.com',
+                status: 'failed',
+                connected: false,
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    mockConfirm.mockResolvedValue(true);
+    mockDismissRemoteHost.mockResolvedValue(undefined);
+
+    renderSelector();
+    const dismissButton = await screen.findByRole('button', { name: 'Dismiss host' });
+    expect(dismissButton).toHaveClass('btn--secondary');
+    expect(dismissButton).not.toHaveClass('btn--danger');
+    await userEvent.click(dismissButton);
+
+    await waitFor(() => expect(mockDismissRemoteHost).toHaveBeenCalledWith('host-failed'));
+    expect(mockReconnectRemoteHost).not.toHaveBeenCalled();
   });
 
   describe('persistent host', () => {

@@ -43,6 +43,9 @@ func applyRemoteTmuxDefaults(ctx context.Context, c remoteTmuxClient, clipboardE
 	if err := c.SetOption(ctx, "window-size", "manual"); err != nil && logger != nil {
 		logger.Warn("applyRemoteTmuxDefaults: window-size", "err", err)
 	}
+	if _, _, err := c.Execute(ctx, "set-window-option -g remain-on-exit on"); err != nil && logger != nil {
+		logger.Warn("applyRemoteTmuxDefaults: remain-on-exit", "err", err)
+	}
 	if _, _, err := c.Execute(ctx, "setenv -g DISPLAY :99"); err != nil && logger != nil {
 		logger.Warn("applyRemoteTmuxDefaults: DISPLAY", "err", err)
 	}

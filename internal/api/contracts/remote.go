@@ -16,6 +16,7 @@ type RemoteProfileResponse struct {
 	WorkspacePath         string                     `json:"workspace_path"`
 	ConnectCommand        string                     `json:"connect_command,omitempty"`
 	ReconnectCommand      string                     `json:"reconnect_command,omitempty"`
+	Term                  string                     `json:"term,omitempty"`
 	ProvisionCommand      string                     `json:"provision_command,omitempty"`
 	HostnameRegex         string                     `json:"hostname_regex,omitempty"`
 	VSCodeCommandTemplate string                     `json:"vscode_command_template,omitempty"`

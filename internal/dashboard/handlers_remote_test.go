@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -233,6 +234,67 @@ func TestHandleRemoteHostDisconnect_DismissRemovesAll(t *testing.T) {
 	}
 }
 
+func TestHandleRemoteHostReconnectFailurePreservesState(t *testing.T) {
+	server, cfg, st := newTestServer(t)
+	cfg.RemoteProfiles = []config.RemoteProfile{{
+		ID:                    "persistent",
+		DisplayName:           "Persistent",
+		VCS:                   "git",
+		HostType:              config.HostTypePersistent,
+		Hostname:              "host.example.com",
+		RepoBasePath:          "/remote/repo",
+		WorkspacePathTemplate: "/remote/workspaces/{{.WorkspaceID}}",
+		ReconnectCommand:      "false",
+	}}
+	remoteManager := remote.NewManager(cfg, st, server.logger)
+	remoteManager.SetWorkspaceManager(server.workspace)
+	server.SetRemoteManager(remoteManager)
+	t.Cleanup(func() {
+		remoteManager.DisconnectAll()
+		st.FlushPending()
+	})
+
+	hostID := "remote-host"
+	st.AddRemoteHost(state.RemoteHost{
+		ID:        hostID,
+		ProfileID: "persistent",
+		Hostname:  "host.example.com",
+		Status:    state.RemoteHostStatusDisconnected,
+		HostType:  config.HostTypePersistent,
+	})
+	st.AddWorkspace(state.Workspace{ID: "remote-workspace", RemoteHostID: hostID})
+	st.AddSession(state.Session{ID: "remote-session", WorkspaceID: "remote-workspace", RemoteHostID: hostID})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/remote/hosts/"+hostID+"/reconnect", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("hostID", hostID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rr := httptest.NewRecorder()
+	newRemoteHandlers(server).handleRemoteHostReconnect(rr, req)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		host, found := st.GetRemoteHost(hostID)
+		if found && host.Status == state.RemoteHostStatusDisconnected {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("remote host did not return to disconnected after failed reconnect")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if _, found := st.GetWorkspace("remote-workspace"); !found {
+		t.Error("failed reconnect removed remote workspace")
+	}
+	if _, found := st.GetSession("remote-session"); !found {
+		t.Error("failed reconnect removed remote session")
+	}
+}
+
 func TestHandleRemoteProfileUpdate_NotFound(t *testing.T) {
 	server, _, _ := newTestServer(t)
 	remoteH := newRemoteHandlers(server)
@@ -265,6 +327,7 @@ func TestToProfileResponse_AllFields(t *testing.T) {
 		WorkspacePath:         "/data/users/$USER",
 		ConnectCommand:        "ssh $HOST",
 		ReconnectCommand:      "ssh $HOST",
+		Term:                  "xterm-256color",
 		ProvisionCommand:      "setup.sh",
 		HostnameRegex:         `devvm\d+\.example\.com`,
 		VSCodeCommandTemplate: "code --remote ssh-remote+$HOST",
@@ -290,6 +353,9 @@ func TestToProfileResponse_AllFields(t *testing.T) {
 	}
 	if resp.ReconnectCommand != p.ReconnectCommand {
 		t.Errorf("ReconnectCommand: got %q, want %q", resp.ReconnectCommand, p.ReconnectCommand)
+	}
+	if resp.Term != p.Term {
+		t.Errorf("Term: got %q, want %q", resp.Term, p.Term)
 	}
 	if resp.ProvisionCommand != p.ProvisionCommand {
 		t.Errorf("ProvisionCommand: got %q, want %q", resp.ProvisionCommand, p.ProvisionCommand)
@@ -390,6 +456,7 @@ func TestHandleCreateRemoteProfile_Persistent(t *testing.T) {
 		"workspace_path_template": "/home/user/ws/{{.WorkspaceID}}",
 		"connect_command":         "ssh {{.Hostname}} --",
 		"reconnect_command":       "ssh {{.Hostname}} --",
+		"term":                    "xterm-256color",
 		"remote_vcs_commands": map[string][]string{
 			"create_worktree": {"git", "worktree", "add", "{{.DestPath}}"},
 		},
@@ -417,6 +484,9 @@ func TestHandleCreateRemoteProfile_Persistent(t *testing.T) {
 	}
 	if resp.WorkspacePathTemplate != "/home/user/ws/{{.WorkspaceID}}" {
 		t.Errorf("WorkspacePathTemplate: got %q", resp.WorkspacePathTemplate)
+	}
+	if resp.Term != "xterm-256color" {
+		t.Errorf("Term: got %q", resp.Term)
 	}
 	if resp.RemoteVCSCommands == nil {
 		t.Fatal("RemoteVCSCommands not preserved")

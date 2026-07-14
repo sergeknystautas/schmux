@@ -7,6 +7,7 @@ import {
   getRemoteHosts,
   connectRemoteHost,
   reconnectRemoteHost,
+  dismissRemoteHost,
 } from '../lib/api';
 import { useToast } from './ToastProvider';
 import { useModal } from './ModalProvider';
@@ -53,7 +54,7 @@ export default function RemoteHostSelector({
   // Track selected flavor per profile (for profiles with multiple flavors)
   const [selectedFlavors, setSelectedFlavors] = useState<Record<string, string>>({});
   const { success: toastSuccess } = useToast();
-  const { alert } = useModal();
+  const { alert, confirm } = useModal();
   const { workspaces } = useSessions();
   const activeRef = useRef(true);
 
@@ -126,8 +127,12 @@ export default function RemoteHostSelector({
             hostId: hostStatus.host_id,
           });
         }
-      } else if (hostStatus.status === 'disconnected' || hostStatus.status === 'expired') {
-        // Disconnected/expired host - trigger reconnect
+      } else if (
+        hostStatus.status === 'disconnected' ||
+        hostStatus.status === 'expired' ||
+        hostStatus.status === 'failed'
+      ) {
+        // Inactive host - trigger reconnect
         setConnecting(profileStatus.profile.id);
         setConnectingProfileId(profileStatus.profile.id);
         setConnectingFlavor(flavorStr);
@@ -154,6 +159,26 @@ export default function RemoteHostSelector({
       }
     },
     [onChange, alert]
+  );
+
+  const handleDismissFailedHost = useCallback(
+    async (e: React.MouseEvent, hostStatus: RemoteHostStatus) => {
+      e.stopPropagation();
+      const accepted = await confirm('Dismiss this failed remote host?', {
+        danger: true,
+        confirmText: 'Dismiss',
+      });
+      if (!accepted) return;
+
+      try {
+        await dismissRemoteHost(hostStatus.host_id);
+        setProfileStatuses(await getRemoteProfileStatuses());
+        toastSuccess('Remote host dismissed');
+      } catch (err) {
+        await alert('Dismiss Failed', getErrorMessage(err, 'Failed to dismiss remote host'));
+      }
+    },
+    [alert, confirm, toastSuccess]
   );
 
   const handleSelectNewHost = useCallback(
@@ -327,6 +352,16 @@ export default function RemoteHostSelector({
                       status={hostStatus.status || 'disconnected'}
                       hostname={hostStatus.hostname}
                     />
+                    {hostStatus.status === 'failed' && (
+                      <button
+                        type="button"
+                        className="btn btn--sm btn--secondary"
+                        onClick={(e) => handleDismissFailedHost(e, hostStatus)}
+                        onKeyDown={(e) => e.stopPropagation()}
+                      >
+                        Dismiss host
+                      </button>
+                    )}
                   </div>
                 );
               }

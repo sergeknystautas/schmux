@@ -15,6 +15,52 @@ import (
 	"time"
 )
 
+func spawnRemoteExpectStartupError(t *testing.T, env *Env, profileID, flavor, personaID string) string {
+	t.Helper()
+	payload := map[string]any{
+		"remote_profile_id": profileID,
+		"remote_flavor":     flavor,
+		"prompt":            "test prompt",
+		"targets":           map[string]int{"claude": 1},
+	}
+	if personaID != "" {
+		payload["persona_id"] = personaID
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal spawn request: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, env.DaemonURL+"/api/spawn", strings.NewReader(string(body)))
+	if err != nil {
+		t.Fatalf("create spawn request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("spawn request: %v", err)
+	}
+	defer resp.Body.Close()
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read spawn response: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("spawn status = %d, body = %s", resp.StatusCode, responseBody)
+	}
+	var results []struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(responseBody, &results); err != nil {
+		t.Fatalf("decode spawn response: %v", err)
+	}
+	if len(results) != 1 || results[0].Error == "" {
+		t.Fatalf("spawn response did not contain an error: %s", responseBody)
+	}
+	return results[0].Error
+}
+
 // TestE2ERemoteBasicLifecycle tests the basic remote session lifecycle using mock connection.
 func TestE2ERemoteBasicLifecycle(t *testing.T) {
 	t.Parallel()
@@ -502,35 +548,18 @@ func TestE2ERemoteHooksProvisioning(t *testing.T) {
 		}
 	}()
 
-	// Add a mock command target for testing, then reload.
-	// "claude" is a builtin tool name resolved by the model manager,
-	// so we add a custom command target for the spawn test.
-	t.Run("InjectTestTarget", func(t *testing.T) {
-		env.AddCommandTargetToConfig("test-agent", "sh -c 'echo hello; sleep 600'")
-		env.ReloadConfig()
-	})
-
-	var sessionID string
 	t.Run("SpawnRemoteClaudeSession", func(t *testing.T) {
 		// Target "claude" triggers hooks provisioning (SupportsHooks returns true)
-		sessionID = env.SpawnRemoteSession(profileID, flavor, "claude", "do something", env.Nickname("hooks-test"))
-		if sessionID == "" {
-			t.Fatal("Expected session ID from remote spawn")
+		errMsg := spawnRemoteExpectStartupError(t, env, profileID, flavor, "")
+		if !strings.Contains(errMsg, "claude: not found") {
+			t.Fatalf("startup error = %q, want missing claude error", errMsg)
 		}
-		t.Logf("Remote Claude session spawned: %s", sessionID)
 	})
 
 	t.Run("WaitForConnection", func(t *testing.T) {
 		host := env.WaitForRemoteHostStatus(profileID, "connected", 15*time.Second)
 		if host == nil {
 			t.Fatal("Remote host did not connect")
-		}
-	})
-
-	t.Run("WaitForSessionRunning", func(t *testing.T) {
-		sess := env.WaitForSessionRunning(sessionID, 10*time.Second)
-		if sess == nil {
-			t.Fatal("Session did not become running")
 		}
 	})
 
@@ -595,10 +624,6 @@ func TestE2ERemoteHooksProvisioning(t *testing.T) {
 			t.Error("Notification hook missing elicitation_dialog matcher")
 		}
 	})
-
-	t.Run("DisposeSession", func(t *testing.T) {
-		env.DisposeSession(sessionID)
-	})
 }
 
 // TestE2ERemotePersonaFileCreated verifies that spawning a remote session with
@@ -658,11 +683,10 @@ func TestE2ERemotePersonaFileCreated(t *testing.T) {
 		env.CreatePersona(personaID, "Architect", personaPrompt)
 	})
 
-	var sessionID string
 	t.Run("SpawnRemoteWithPersona", func(t *testing.T) {
-		sessionID = env.SpawnRemoteSessionWithPersona(profileID, flavor, "claude", "hello", env.Nickname("persona-test"), personaID)
-		if sessionID == "" {
-			t.Fatal("Expected session ID from remote spawn")
+		errMsg := spawnRemoteExpectStartupError(t, env, profileID, flavor, personaID)
+		if !strings.Contains(errMsg, "claude: not found") {
+			t.Fatalf("startup error = %q, want missing claude error", errMsg)
 		}
 	})
 
@@ -670,13 +694,6 @@ func TestE2ERemotePersonaFileCreated(t *testing.T) {
 		host := env.WaitForRemoteHostStatus(profileID, "connected", 15*time.Second)
 		if host == nil {
 			t.Fatal("Remote host did not connect")
-		}
-	})
-
-	t.Run("WaitForSessionRunning", func(t *testing.T) {
-		sess := env.WaitForSessionRunning(sessionID, 10*time.Second)
-		if sess == nil {
-			t.Fatal("Session did not become running")
 		}
 	})
 
@@ -712,10 +729,6 @@ func TestE2ERemotePersonaFileCreated(t *testing.T) {
 				t.Errorf("Persona file missing expected phrase: %q", phrase)
 			}
 		}
-	})
-
-	t.Run("DisposeSession", func(t *testing.T) {
-		env.DisposeSession(sessionID)
 	})
 }
 

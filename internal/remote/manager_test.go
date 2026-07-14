@@ -767,6 +767,79 @@ func TestManager_StartConnect_CreatesWorkspace(t *testing.T) {
 	st.FlushPending()
 }
 
+func TestManager_StartReconnectFailurePreservesRemoteState(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.RemoteProfiles = []config.RemoteProfile{{
+		ID:                    "persistent",
+		DisplayName:           "Persistent",
+		VCS:                   "git",
+		HostType:              config.HostTypePersistent,
+		Hostname:              "host.example.com",
+		RepoBasePath:          "/remote/repo",
+		WorkspacePathTemplate: "/remote/workspaces/{{.WorkspaceID}}",
+		ReconnectCommand:      "false",
+	}}
+	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
+	host := state.RemoteHost{
+		ID:        "remote-host",
+		ProfileID: "persistent",
+		Hostname:  "host.example.com",
+		Status:    state.RemoteHostStatusDisconnected,
+		HostType:  config.HostTypePersistent,
+	}
+	workspaceState := state.Workspace{
+		ID:           "remote-workspace",
+		RemoteHostID: host.ID,
+		RemotePath:   "/remote/workspaces/remote-workspace",
+	}
+	sessionState := state.Session{
+		ID:           "remote-session",
+		WorkspaceID:  workspaceState.ID,
+		RemoteHostID: host.ID,
+		Status:       "provisioning",
+	}
+	if err := st.AddRemoteHost(host); err != nil {
+		t.Fatalf("AddRemoteHost() error = %v", err)
+	}
+	if err := st.AddWorkspace(workspaceState); err != nil {
+		t.Fatalf("AddWorkspace() error = %v", err)
+	}
+	if err := st.AddSession(sessionState); err != nil {
+		t.Fatalf("AddSession() error = %v", err)
+	}
+
+	mgr := NewManager(cfg, st, nil)
+	if _, err := mgr.StartReconnect(host.ID); err != nil {
+		t.Fatalf("StartReconnect() error = %v", err)
+	}
+	t.Cleanup(func() {
+		mgr.DisconnectAll()
+		st.FlushPending()
+	})
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		got, found := st.GetRemoteHost(host.ID)
+		if found && got.Status == state.RemoteHostStatusDisconnected {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("remote host did not return to disconnected after failed reconnect")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if _, found := st.GetRemoteHost(host.ID); !found {
+		t.Error("failed reconnect removed remote host")
+	}
+	if _, found := st.GetWorkspace(workspaceState.ID); !found {
+		t.Error("failed reconnect removed remote workspace")
+	}
+	if _, found := st.GetSession(sessionState.ID); !found {
+		t.Error("failed reconnect removed remote session")
+	}
+}
+
 func TestManager_ConnectMultipleHostsSameFlavor(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.RemoteProfiles = []config.RemoteProfile{{

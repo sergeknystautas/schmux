@@ -952,8 +952,7 @@ func (m *Manager) GetHostForSession(sess state.Session) *Connection {
 
 // StartReconnect begins reconnecting to a remote host and returns immediately.
 // Returns the provisioning session ID for WebSocket terminal streaming.
-// The onFail callback is called if reconnection fails (for cleanup).
-func (m *Manager) StartReconnect(hostID string, onFail func(hostID string)) (provisioningSessionID string, err error) {
+func (m *Manager) StartReconnect(hostID string) (provisioningSessionID string, err error) {
 	// Get host from state
 	host, found := m.state.GetRemoteHost(hostID)
 	if !found {
@@ -1061,10 +1060,6 @@ func (m *Manager) StartReconnect(hostID string, onFail func(hostID string)) (pro
 			m.state.SaveBatched()
 			m.notifyStateChange()
 
-			// Call failure callback for cleanup
-			if onFail != nil {
-				onFail(hostID)
-			}
 			return
 		}
 

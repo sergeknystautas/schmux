@@ -559,6 +559,82 @@ func TestClientSendKeys_MetaBackspacePreserved(t *testing.T) {
 	}
 }
 
+func TestPaneRunning(t *testing.T) {
+	tests := []struct {
+		name    string
+		dead    string
+		running bool
+	}{
+		{name: "live", dead: "0", running: true},
+		{name: "dead", dead: "1", running: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parser := NewParser(strings.NewReader(""), nil)
+			var buf strings.Builder
+			w := &ackWriter{
+				sb: &buf,
+				ackFn: func() {
+					parser.responses <- CommandResponse{Success: true, Content: tt.dead}
+				},
+			}
+			client := NewClient(w, parser, nil)
+			client.Start()
+			defer client.Close()
+
+			running, err := client.PaneRunning(context.Background(), "%3")
+			if err != nil {
+				t.Fatalf("PaneRunning returned error: %v", err)
+			}
+			if running != tt.running {
+				t.Fatalf("PaneRunning = %v, want %v", running, tt.running)
+			}
+			if !strings.Contains(buf.String(), "display-message -p -t %3 '#{pane_dead}'") {
+				t.Fatalf("unexpected command: %q", buf.String())
+			}
+		})
+	}
+}
+
+func TestCreateWindowCheckedReportsEarlyExitOutput(t *testing.T) {
+	parser := NewParser(strings.NewReader(""), nil)
+	var buf strings.Builder
+	call := 0
+	w := &ackWriter{
+		sb: &buf,
+		ackFn: func() {
+			call++
+			responses := []CommandResponse{
+				{Success: true, Content: "@3 %3"},
+				{Success: true, Content: "1"},
+				{Success: true, Content: "zsh: command not found: claude"},
+				{Success: true},
+			}
+			parser.responses <- responses[call-1]
+		},
+	}
+	client := NewClient(w, parser, nil)
+	client.Start()
+	defer client.Close()
+
+	windowID, paneID, err := client.CreateWindowChecked(
+		context.Background(), "agent", "/tmp", "claude", 0,
+	)
+	if err == nil || !strings.Contains(err.Error(), "command not found: claude") {
+		t.Fatalf("error = %v, want captured startup output", err)
+	}
+	if strings.Contains(err.Error(), "\n\n") {
+		t.Fatalf("error contains blank capture lines: %q", err)
+	}
+	if windowID != "" || paneID != "" {
+		t.Fatalf("ids = %q %q, want empty ids on failure", windowID, paneID)
+	}
+	if !strings.Contains(buf.String(), "kill-window -t @3") {
+		t.Fatalf("dead window was not cleaned up: %q", buf.String())
+	}
+}
+
 // TestCloseOrphanedChannels verifies that Close() properly cleans up
 // the channel registry (Issue 2 fix).
 func TestCloseOrphanedChannels(t *testing.T) {

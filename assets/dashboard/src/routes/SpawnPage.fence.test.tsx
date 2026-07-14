@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import type { ConfigResponse, SpawnRequest, SpawnResult } from '../lib/types';
+import type { ConfigResponse, SpawnRequest, SpawnResult, WorkspaceResponse } from '../lib/types';
 import { makeConfig, systemCapabilities } from '../lib/test-factories';
 
 // --- Mocks ---
@@ -39,6 +39,7 @@ vi.mock('../components/ModalProvider', () => ({
 }));
 
 let configContextValue: ConfigResponse | null = null;
+let workspacesContextValue: WorkspaceResponse[] = [];
 vi.mock('../contexts/ConfigContext', () => ({
   useConfig: () => ({
     config: configContextValue,
@@ -51,7 +52,7 @@ vi.mock('../contexts/ConfigContext', () => ({
 
 vi.mock('../contexts/SessionsContext', () => ({
   useSessions: () => ({
-    workspaces: [],
+    workspaces: workspacesContextValue,
     loading: false,
     error: '',
     connected: true,
@@ -112,6 +113,7 @@ describe('SpawnPage fence toggle', () => {
     sessionStorage.clear();
     const cfg = makeConfig();
     configContextValue = cfg;
+    workspacesContextValue = [];
     mockGetConfig.mockResolvedValue(cfg);
     mockGetPersonas.mockResolvedValue({ personas: [] });
     mockGetStyles.mockResolvedValue({ styles: [] });
@@ -178,5 +180,39 @@ describe('SpawnPage fence toggle', () => {
 
     renderSpawnPage();
     await waitFor(() => expect(screen.getByTestId('fence-toggle')).toBeChecked());
+  });
+
+  it('hides the fence toggle in an existing remote workspace', async () => {
+    const cfg = makeConfig({
+      system_capabilities: systemCapabilities({ fence_available: true }),
+      fence_mode: 'optional_on',
+    });
+    configContextValue = cfg;
+    mockGetConfig.mockResolvedValue(cfg);
+    workspacesContextValue = [
+      {
+        id: 'remote-ws-1',
+        repo: 'repo',
+        branch: 'branch',
+        path: '/remote/workspace',
+        session_count: 0,
+        sessions: [],
+        ahead: 0,
+        behind: 0,
+        lines_added: 0,
+        lines_removed: 0,
+        files_changed: 0,
+        remote_host_id: 'remote-host-1',
+      },
+    ];
+
+    render(
+      <MemoryRouter initialEntries={['/spawn?workspace_id=remote-ws-1']}>
+        <SpawnPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByTestId('spawn-submit')).toBeInTheDocument());
+    expect(screen.queryByTestId('fence-toggle')).not.toBeInTheDocument();
   });
 });

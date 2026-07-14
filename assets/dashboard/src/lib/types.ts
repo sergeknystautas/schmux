@@ -412,6 +412,7 @@ export interface RemoteProfile {
   workspace_path: string;
   connect_command?: string;
   reconnect_command?: string;
+  term?: string;
   provision_command?: string;
   hostname_regex?: string;
   vscode_command_template?: string;
@@ -490,6 +491,7 @@ export interface RemoteProfileCreateRequest {
   workspace_path?: string;
   connect_command?: string;
   reconnect_command?: string;
+  term?: string;
   provision_command?: string;
   hostname_regex?: string;
   vscode_command_template?: string;

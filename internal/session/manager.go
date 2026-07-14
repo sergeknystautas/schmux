@@ -458,7 +458,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 	sessionID := fmt.Sprintf("remote-%s-%s", opts.FlavorStr, uuid.New().String()[:8])
 
 	// Resolve workspace for this host.
-	ws, err := m.resolveWorkspaceForSpawn(ctx, conn, host, flavor)
+	ws, err := m.resolveWorkspaceForSpawn(ctx, conn, host, flavor, opts.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -733,6 +733,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 }
 
 // resolveWorkspaceForSpawn resolves (or creates) the workspace for a remote spawn.
+// When workspaceID is set, it reuses that exact remote workspace.
 // For persistent hosts, finds an idle+clean workspace or creates a new worktree.
 // For ephemeral hosts, gets or creates the single workspace tied to the host ID.
 func (m *Manager) resolveWorkspaceForSpawn(
@@ -740,7 +741,19 @@ func (m *Manager) resolveWorkspaceForSpawn(
 	conn *remote.Connection,
 	host state.RemoteHost,
 	flavor config.RemoteFlavor,
+	requestedWorkspaceID string,
 ) (state.Workspace, error) {
+	if requestedWorkspaceID != "" {
+		ws, found := m.state.GetWorkspace(requestedWorkspaceID)
+		if !found {
+			return state.Workspace{}, fmt.Errorf("workspace %s not found", requestedWorkspaceID)
+		}
+		if ws.RemoteHostID != host.ID {
+			return state.Workspace{}, fmt.Errorf("workspace %s does not belong to remote host %s", requestedWorkspaceID, host.ID)
+		}
+		return ws, nil
+	}
+
 	if host.HostType == config.HostTypePersistent {
 		profile, found := m.config.GetRemoteProfile(host.ProfileID)
 		if !found {
@@ -810,6 +823,7 @@ type RemoteSpawnOptions struct {
 	ProfileID     string
 	FlavorStr     string
 	HostID        string
+	WorkspaceID   string
 	TargetName    string
 	Prompt        string
 	Nickname      string
@@ -1597,10 +1611,11 @@ func (m *Manager) IsRunning(ctx context.Context, sessionID string) bool {
 		if conn == nil || !conn.IsConnected() {
 			return false
 		}
-		// Connection is active - check if session has been created
-		// Session is only running if it has a RemotePaneID (created on the remote host)
-		// If pane ID is empty, the session is still provisioning
-		return sess.RemotePaneID != ""
+		if sess.RemotePaneID == "" {
+			return false
+		}
+		running, err := conn.PaneRunning(ctx, sess.RemotePaneID)
+		return err == nil && running
 	}
 
 	// Local session handling

@@ -56,6 +56,7 @@ func toProfileResponse(p config.RemoteProfile) RemoteProfileResponse {
 		WorkspacePath:         p.WorkspacePath,
 		ConnectCommand:        p.ConnectCommand,
 		ReconnectCommand:      p.ReconnectCommand,
+		Term:                  p.Term,
 		ProvisionCommand:      p.ProvisionCommand,
 		HostnameRegex:         p.HostnameRegex,
 		VSCodeCommandTemplate: p.VSCodeCommandTemplate,
@@ -97,6 +98,7 @@ func (h *RemoteHandlers) handleCreateRemoteProfile(w http.ResponseWriter, r *htt
 		WorkspacePath         string                       `json:"workspace_path"`
 		ConnectCommand        string                       `json:"connect_command"`
 		ReconnectCommand      string                       `json:"reconnect_command"`
+		Term                  string                       `json:"term"`
 		ProvisionCommand      string                       `json:"provision_command"`
 		HostnameRegex         string                       `json:"hostname_regex"`
 		VSCodeCommandTemplate string                       `json:"vscode_command_template"`
@@ -119,6 +121,7 @@ func (h *RemoteHandlers) handleCreateRemoteProfile(w http.ResponseWriter, r *htt
 		WorkspacePath:         req.WorkspacePath,
 		ConnectCommand:        req.ConnectCommand,
 		ReconnectCommand:      req.ReconnectCommand,
+		Term:                  req.Term,
 		ProvisionCommand:      req.ProvisionCommand,
 		HostnameRegex:         req.HostnameRegex,
 		VSCodeCommandTemplate: req.VSCodeCommandTemplate,
@@ -200,6 +203,7 @@ func (h *RemoteHandlers) handleRemoteProfileUpdate(w http.ResponseWriter, r *htt
 		WorkspacePath         string                       `json:"workspace_path"`
 		ConnectCommand        string                       `json:"connect_command"`
 		ReconnectCommand      string                       `json:"reconnect_command"`
+		Term                  string                       `json:"term"`
 		ProvisionCommand      string                       `json:"provision_command"`
 		HostnameRegex         string                       `json:"hostname_regex"`
 		VSCodeCommandTemplate string                       `json:"vscode_command_template"`
@@ -222,6 +226,7 @@ func (h *RemoteHandlers) handleRemoteProfileUpdate(w http.ResponseWriter, r *htt
 		WorkspacePath:         req.WorkspacePath,
 		ConnectCommand:        req.ConnectCommand,
 		ReconnectCommand:      req.ReconnectCommand,
+		Term:                  req.Term,
 		ProvisionCommand:      req.ProvisionCommand,
 		HostnameRegex:         req.HostnameRegex,
 		VSCodeCommandTemplate: req.VSCodeCommandTemplate,
@@ -431,28 +436,7 @@ func (h *RemoteHandlers) handleRemoteHostReconnect(w http.ResponseWriter, r *htt
 	}
 
 	// Start reconnection asynchronously (returns provisioning session ID for WebSocket terminal)
-	provisioningSessionID, err := h.remoteManager.StartReconnect(hostID, func(failedHostID string) {
-		// Cleanup on failure
-		remoteLog := logging.Sub(h.logger, "remote")
-		remoteLog.Info("cleaning up failed reconnection", "host_id", failedHostID)
-		for _, sess := range h.state.GetSessionsByRemoteHostID(failedHostID) {
-			h.state.RemoveSession(sess.ID)
-		}
-		for _, ws := range h.state.GetWorkspacesByRemoteHostID(failedHostID) {
-			h.state.RemoveWorkspace(ws.ID)
-			if h.previewManager != nil {
-				if err := h.previewManager.DeleteWorkspace(ws.ID); err != nil {
-					previewLog := logging.Sub(h.logger, "preview")
-					previewLog.Warn("remote cleanup failed", "workspace_id", ws.ID, "err", err)
-				}
-			}
-		}
-		h.state.RemoveRemoteHost(failedHostID)
-		if err := h.state.Save(); err != nil {
-			remoteLog.Error("failed to save state after cleanup", "err", err)
-		}
-		h.broadcastSessions()
-	})
+	provisioningSessionID, err := h.remoteManager.StartReconnect(hostID)
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("Failed to start reconnection: %v", err), http.StatusInternalServerError)
 		return

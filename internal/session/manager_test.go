@@ -85,6 +85,53 @@ func TestNew(t *testing.T) {
 	})
 }
 
+func TestResolveWorkspaceForSpawn_RequestedRemoteWorkspace(t *testing.T) {
+	m, st := newTestManager(t)
+	ws := state.Workspace{
+		ID:           "remote-ws-001",
+		RemoteHostID: "remote-host-001",
+		RemotePath:   "/remote/worktrees/remote-ws-001",
+	}
+	if err := st.AddWorkspace(ws); err != nil {
+		t.Fatalf("AddWorkspace() error = %v", err)
+	}
+
+	got, err := m.resolveWorkspaceForSpawn(
+		context.Background(),
+		nil,
+		state.RemoteHost{ID: "remote-host-001"},
+		config.RemoteFlavor{},
+		ws.ID,
+	)
+	if err != nil {
+		t.Fatalf("resolveWorkspaceForSpawn() error = %v", err)
+	}
+	if got.ID != ws.ID {
+		t.Fatalf("workspace ID = %q, want %q", got.ID, ws.ID)
+	}
+}
+
+func TestResolveWorkspaceForSpawn_RejectsWorkspaceFromAnotherHost(t *testing.T) {
+	m, st := newTestManager(t)
+	if err := st.AddWorkspace(state.Workspace{
+		ID:           "remote-ws-001",
+		RemoteHostID: "remote-host-001",
+	}); err != nil {
+		t.Fatalf("AddWorkspace() error = %v", err)
+	}
+
+	_, err := m.resolveWorkspaceForSpawn(
+		context.Background(),
+		nil,
+		state.RemoteHost{ID: "remote-host-002"},
+		config.RemoteFlavor{},
+		"remote-ws-001",
+	)
+	if err == nil {
+		t.Fatal("resolveWorkspaceForSpawn() error = nil, want host mismatch error")
+	}
+}
+
 func TestGetAttachCommand(t *testing.T) {
 	m, st := newTestManager(t)
 

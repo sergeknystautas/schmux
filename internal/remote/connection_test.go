@@ -10,6 +10,28 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 )
 
+func TestNewRemoteConnectionCommandTermOverride(t *testing.T) {
+	t.Setenv("TERM", "xterm-ghostty")
+
+	cmd := newRemoteConnectionCommand([]string{"sh", "-c", `printf %s "$TERM"`}, "xterm-256color")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("run command: %v", err)
+	}
+	if got := string(output); got != "xterm-256color" {
+		t.Fatalf("TERM = %q, want xterm-256color", got)
+	}
+
+	cmd = newRemoteConnectionCommand([]string{"sh", "-c", `printf %s "$TERM"`}, "")
+	output, err = cmd.Output()
+	if err != nil {
+		t.Fatalf("run inherited command: %v", err)
+	}
+	if got := string(output); got != "xterm-ghostty" {
+		t.Fatalf("inherited TERM = %q, want xterm-ghostty", got)
+	}
+}
+
 func TestConnection_QueueSession(t *testing.T) {
 	cfg := ConnectionConfig{
 		ProfileID:     "test-flavor",
@@ -424,6 +446,7 @@ func TestConnectionConfigFromResolved(t *testing.T) {
 		VCS:                "hg",
 		ConnectCommand:     "ssh $HOST",
 		ReconnectCommand:   "ssh $HOST",
+		Term:               "xterm-256color",
 		ProvisionCommand:   "setup.sh",
 		HostnameRegex:      `devvm\d+`,
 	}
@@ -450,6 +473,9 @@ func TestConnectionConfigFromResolved(t *testing.T) {
 	}
 	if cc.HostnameRegex != r.HostnameRegex {
 		t.Errorf("HostnameRegex: got %q, want %q", cc.HostnameRegex, r.HostnameRegex)
+	}
+	if cc.Term != r.Term {
+		t.Errorf("Term: got %q, want %q", cc.Term, r.Term)
 	}
 	// OnStatusChange, OnProgress, Logger should be nil (not set by helper)
 	if cc.OnStatusChange != nil {

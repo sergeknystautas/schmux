@@ -508,6 +508,58 @@ func (c *Client) CreateWindow(ctx context.Context, name, workdir, command string
 	return parts[0], parts[1], nil
 }
 
+// CreateWindowChecked creates a window and rejects commands that exit during startup.
+// remain-on-exit must be enabled so the pane output is still available here.
+func (c *Client) CreateWindowChecked(ctx context.Context, name, workdir, command string, grace time.Duration) (windowID, paneID string, err error) {
+	windowID, paneID, err = c.CreateWindow(ctx, name, workdir, command)
+	if err != nil || command == "" {
+		return windowID, paneID, err
+	}
+
+	timer := time.NewTimer(grace)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+		c.killWindowBestEffort(windowID)
+		return "", "", ctx.Err()
+	}
+
+	running, err := c.PaneRunning(ctx, paneID)
+	if err != nil {
+		c.killWindowBestEffort(windowID)
+		return "", "", fmt.Errorf("check remote command startup: %w", err)
+	}
+	if running {
+		return windowID, paneID, nil
+	}
+
+	output, captureErr := c.CapturePaneLines(ctx, paneID, 100)
+	c.killWindowBestEffort(windowID)
+	output = compactPaneOutput(output)
+	if captureErr != nil || output == "" {
+		return "", "", fmt.Errorf("remote command exited during startup")
+	}
+	return "", "", fmt.Errorf("remote command exited during startup: %s", output)
+}
+
+func compactPaneOutput(output string) string {
+	lines := strings.Split(output, "\n")
+	nonempty := lines[:0]
+	for _, line := range lines {
+		if line = strings.TrimSpace(line); line != "" {
+			nonempty = append(nonempty, line)
+		}
+	}
+	return strings.Join(nonempty, "\n")
+}
+
+func (c *Client) killWindowBestEffort(windowID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_ = c.KillWindow(ctx, windowID)
+}
+
 // KillWindow kills a window by ID.
 func (c *Client) KillWindow(ctx context.Context, windowID string) error {
 	_, _, err := c.Execute(ctx, fmt.Sprintf("kill-window -t %s", windowID))
@@ -649,6 +701,15 @@ func (c *Client) CapturePaneVisible(ctx context.Context, paneID string) (string,
 	cmd := fmt.Sprintf("capture-pane -e -t %s -p", paneID)
 	output, _, err := c.Execute(ctx, cmd)
 	return output, err
+}
+
+// PaneRunning reports whether the pane still has a live process.
+func (c *Client) PaneRunning(ctx context.Context, paneID string) (bool, error) {
+	output, _, err := c.Execute(ctx, fmt.Sprintf("display-message -p -t %s '#{pane_dead}'", paneID))
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(output) == "0", nil
 }
 
 // CursorState holds the cursor position, visibility, and terminal mode state for a pane.
