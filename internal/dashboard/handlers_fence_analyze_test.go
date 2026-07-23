@@ -128,6 +128,85 @@ func TestBuildFenceAnalyzePrompt(t *testing.T) {
 	}
 }
 
+// TestBuildFenceAnalyzePrompt_CausalStructure enforces the diagnostic objective:
+// the prompt must make the agent trace what the fenced agent could not accomplish
+// through a fixed causal chain — intended operation, failed command, user-visible
+// error, the fence denial that caused it, the config fix or missing capability —
+// rather than cataloging denials. A denial that blocked nothing is not a finding.
+func TestBuildFenceAnalyzePrompt_CausalStructure(t *testing.T) {
+	const capDoc = "/tmp/schmux/fence/ws-1/fence-capabilities.md"
+	const monitorLog = "/tmp/schmux/fence/ws-1/sess-1/monitor.log"
+	prompt := buildFenceAnalyzePrompt(capDoc, monitorLog)
+
+	// The five causal elements must appear, and in causal order: intended
+	// operation -> failed command -> user-visible error -> causing denial ->
+	// config fix. Order is the point; a report that leads with denials is the
+	// objective this replaces.
+	orderedElements := []string{
+		"operation the agent intended",
+		"command or tool invocation that failed",
+		"user-visible error or nonzero result",
+		"denial that caused it",
+		"config change that resolves it",
+	}
+	from := 0
+	for i, elem := range orderedElements {
+		idx := strings.Index(prompt[from:], elem)
+		if idx < 0 {
+			t.Errorf("prompt missing causal element %d %q\nprompt=%q", i+1, elem, prompt)
+			continue
+		}
+		from += idx + len(elem)
+	}
+
+	// Point 5's second branch: when neither knob expresses the fix, the prompt
+	// must demand the concrete missing capability, not silence.
+	if !strings.Contains(prompt, "capability that is missing") {
+		t.Errorf("prompt must ask for the missing fence capability when no knob fits\nprompt=%q", prompt)
+	}
+
+	// The objective is failure-diagnosis, not denial-enumeration: a denial that
+	// stopped no operation must be excluded.
+	if !strings.Contains(prompt, "is not a finding") {
+		t.Errorf("prompt must exclude denials that blocked nothing\nprompt=%q", prompt)
+	}
+
+	// Reasoning stays at the level of commands and blocked outcomes, not
+	// syscall-level sandbox internals.
+	if !strings.Contains(prompt, "blocked outcomes") || !strings.Contains(prompt, "syscall") {
+		t.Errorf("prompt must direct reasoning to commands and blocked outcomes, not syscall internals\nprompt=%q", prompt)
+	}
+}
+
+// TestBuildFenceAnalyzePrompt_InSessionButThorough enforces both halves of the
+// output contract that were learned the hard way: the analyzer answers in the
+// session (no file, no HTML artifact — the target agent's standing instructions
+// otherwise push "reports" into a self-contained HTML file), AND it must be as
+// thorough and actionable as a written report. Relocating to chat without that
+// second demand degraded the analysis into a hedged shrug, so the prompt must
+// not signal low effort — it must require a specific, actionable conclusion.
+func TestBuildFenceAnalyzePrompt_InSessionButThorough(t *testing.T) {
+	const capDoc = "/tmp/schmux/fence/ws-1/fence-capabilities.md"
+	const monitorLog = "/tmp/schmux/fence/ws-1/sess-1/monitor.log"
+	prompt := buildFenceAnalyzePrompt(capDoc, monitorLog)
+
+	if !strings.Contains(prompt, "directly in this session") {
+		t.Errorf("prompt must tell the agent to answer inline in the session\nprompt=%q", prompt)
+	}
+	for _, want := range []string{"Do not create", "HTML report"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt must forbid producing a file/HTML report (missing %q)\nprompt=%q", want, prompt)
+		}
+	}
+	// The in-session answer must carry the rigor the report framing used to
+	// force — not a lightweight chat aside.
+	for _, want := range []string{"thorough", "actionable"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt must demand a %s in-session analysis, not a brief reply\nprompt=%q", want, prompt)
+		}
+	}
+}
+
 // TestFenceAnalyze_Success spawns a fenced analysis agent end-to-end and
 // confirms the new session is fenced. Requires tmux (skips otherwise), mirroring
 // TestSpawn_SaplingLabelLandsOnWorkspaceViaHandler. schmuxdir is redirected to a

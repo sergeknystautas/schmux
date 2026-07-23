@@ -40,7 +40,8 @@ func (h *SpawnHandlers) fenceModeOrError() (errMsg string, status int) {
 }
 
 // handleFenceAnalyze spawns a fenced analysis agent that reads the target
-// session's monitor.log and recommends .schmux/config.json fence changes. The
+// session's monitor.log to diagnose what the fenced session could not accomplish
+// and, where the fence caused it, recommends .schmux/config.json changes. The
 // prompt is built server-side from schmuxdir-derived absolute paths (correct
 // under --config-dir / SCHMUX_HOME by construction); the browser sends only a
 // session id. The prompt names no presets — the capabilities doc, which the
@@ -132,16 +133,36 @@ func (h *SpawnHandlers) handleFenceAnalyze(w http.ResponseWriter, r *http.Reques
 
 // buildFenceAnalyzePrompt builds the fence-analysis agent's prompt from the
 // absolute paths of the freshly generated capabilities doc and the target
-// session's monitor log. It deliberately names no presets: the capabilities doc
-// (read first) owns the closed vocabulary and selection rules, so the agent
-// never receives undefined tokens to confabulate meanings for.
+// session's monitor log. Its objective is diagnosis, not denial-cataloging: the
+// agent must trace what the fenced session could not accomplish and decide
+// whether the fence caused it, because sandbox denials are implementation
+// details and most block nothing the session needed. It deliberately names no
+// presets: the capabilities doc (read first) owns the closed vocabulary and
+// selection rules, so the agent never receives undefined tokens to confabulate
+// meanings for.
 func buildFenceAnalyzePrompt(capDocPath, monitorLogPath string) string {
-	return "A schmux session ran inside the fence sandbox and was blocked from some operations. " +
-		"Recommend changes to this repo's fence configuration.\n\n" +
-		"1. Read " + capDocPath + " first. It explains the sandbox, how to read the log, and the exact changes " +
-		"that may be recommended — there are only two knobs. Follow its selection, judgment, and output rules.\n" +
-		"2. Read " + monitorLogPath + " to see exactly what was denied.\n" +
+	return "A schmux session ran inside the fence sandbox. Diagnose what that agent was unable to " +
+		"accomplish and determine whether the fence caused it. A sandbox denial is an implementation " +
+		"detail, not a failure: most denials block nothing the session needed, and a denial that stopped " +
+		"no operation is not a finding. Do not catalog denials.\n\n" +
+		"1. Read " + capDocPath + " first. It explains the sandbox, how to read the log, the two-knob " +
+		"vocabulary of changes you may recommend, and the selection and judgment rules for which denials " +
+		"are honest to act on. Follow those rules.\n" +
+		"2. Read " + monitorLogPath + " — the fence's per-operation log for that session (allowed and " +
+		"denied lines).\n" +
 		"3. Read this repo's .schmux/config.json to see what is already allowed.\n\n" +
-		"Do not apply changes unless explicitly asked. Needs the documented vocabulary cannot express go in " +
-		"a Gaps section, reported rather than worked around."
+		"For each thing the agent could not do, walk the causal chain in this order:\n" +
+		"  1. The operation the agent intended.\n" +
+		"  2. The command or tool invocation that failed.\n" +
+		"  3. The user-visible error or nonzero result it produced.\n" +
+		"  4. The specific fence denial that caused it — quote the monitor.log line.\n" +
+		"  5. The supported config change that resolves it, or, if neither knob can express the fix, the " +
+		"concrete fence capability that is missing.\n\n" +
+		"Reason at the level of commands and their blocked outcomes, not syscall-level sandbox internals. " +
+		"Put needs the two knobs cannot express in a Gaps section, reported rather than worked around.\n\n" +
+		"Deliver the full analysis directly in this session as your reply. Do not create any file, HTML " +
+		"report, or other artifact — but be as thorough here as you would be in a written report: work " +
+		"every failure through the chain above and finish with the specific, actionable config changes " +
+		"(or the concrete missing capability). A vague or hedged conclusion is a failed analysis. Do not " +
+		"apply changes unless explicitly asked."
 }
