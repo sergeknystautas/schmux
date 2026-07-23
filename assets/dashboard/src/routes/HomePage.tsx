@@ -22,6 +22,7 @@ import {
   getErrorMessage,
   linearSyncFromMain,
   getCommitGraph,
+  getModels,
   getSubreddit,
   getRepofeedList,
 } from '../lib/api';
@@ -35,6 +36,7 @@ import type {
   RecentBranch,
   PullRequest,
   OverlayInfo,
+  Model,
   SubredditResponse,
   RepofeedListResponse,
 } from '../lib/types';
@@ -43,6 +45,7 @@ import RecyclableIndicator from '../components/RecyclableIndicator';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { sortWorkspaces } from '../lib/workspaceSort';
+import { selectNewModels } from '../lib/newModels';
 import styles from '../styles/home.module.css';
 
 // Helper to format relative date from ISO string
@@ -321,6 +324,7 @@ export default function HomePage() {
   const [dismissedNudges, setDismissedNudges] = useState<Set<string>>(new Set());
   const [subreddit, setSubreddit] = useState<SubredditResponse | null>(null);
   const [repofeedList, setRepofeedList] = useState<RepofeedListResponse | null>(null);
+  const [catalogModels, setCatalogModels] = useState<Model[]>([]);
   const [activeRepoTab, setActiveRepoTab] = useState<string>('');
   const activeRepo =
     subreddit?.repos?.find((r) => r.slug === activeRepoTab) ?? subreddit?.repos?.[0] ?? null;
@@ -373,6 +377,15 @@ export default function HomePage() {
       .then(setRepofeedList)
       .catch(() => {});
   }, [repofeedUpdateCount]);
+
+  // Fetch the model catalog on mount to surface recently-released configured models.
+  useEffect(() => {
+    getModels()
+      .then((r) => setCatalogModels(r.models))
+      .catch(() => {});
+  }, []);
+
+  const newModels = useMemo(() => selectNewModels(catalogModels, new Date()), [catalogModels]);
 
   const handleDismissNudge = async (repoName: string) => {
     setDismissedNudges((prev) => new Set(prev).add(repoName));
@@ -1279,6 +1292,31 @@ export default function HomePage() {
         </div>
 
         <RecyclableIndicator />
+
+        {/* New Models — recently released, configured models */}
+        {newModels.length > 0 && (
+          <div className={`${styles.sectionCard} ${styles.newModelsCard}`}>
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>
+                <span style={{ fontSize: '1.1em' }}>✨</span>
+                Newest models
+              </h2>
+            </div>
+            <div className={styles.sectionContent}>
+              <div className={styles.newModelsGrid}>
+                {newModels.map((m) => (
+                  <React.Fragment key={m.id}>
+                    <span className={styles.newModelsName}>{m.display_name}</span>
+                    <span className={styles.newModelsProvider}>{m.provider}</span>
+                    <span className={styles.newModelsDate}>
+                      {m.release_date ? formatRelativeDate(m.release_date) : ''}
+                    </span>
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Overlay Nudge Banners */}
         {overlays

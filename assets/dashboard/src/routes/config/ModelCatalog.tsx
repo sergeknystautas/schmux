@@ -9,7 +9,22 @@ type ModelCatalogProps = {
   onToggleModel: (modelId: string, enabled: boolean, defaultRunner: string) => void;
   onChangeRunner: (modelId: string, runner: string) => void;
   onModelAction: (model: Model, mode: 'add' | 'remove' | 'update') => void;
+  lastChecked?: string;
+  refreshing?: boolean;
+  onRefresh?: () => void;
 };
+
+function formatChecked(iso?: string): string {
+  if (!iso) return 'Never';
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return 'Never';
+  const mins = Math.floor((Date.now() - then) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return new Date(iso).toLocaleDateString();
+}
 
 type ProviderGroup = {
   provider: string;
@@ -316,11 +331,28 @@ export default function ModelCatalog({
   onToggleModel,
   onChangeRunner,
   onModelAction,
+  lastChecked,
+  refreshing,
+  onRefresh,
 }: ModelCatalogProps) {
   const groups = useMemo(() => groupByProvider(models, runners), [models, runners]);
 
   return (
     <div className="model-catalog">
+      {onRefresh && (
+        <div className="model-catalog__refresh">
+          <span className="model-catalog__checked">Last checked {formatChecked(lastChecked)}</span>
+          <button
+            type="button"
+            className="btn btn--sm btn--secondary"
+            data-testid="models-refresh"
+            onClick={onRefresh}
+            disabled={refreshing}
+          >
+            {refreshing ? 'Checking…' : 'Refresh'}
+          </button>
+        </div>
+      )}
       {groups.map((group) => (
         <ProviderSection
           key={group.provider}

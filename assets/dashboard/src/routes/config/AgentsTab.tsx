@@ -28,6 +28,9 @@ type AgentsTabProps = {
   onModelAction: (model: Model, mode: 'add' | 'remove' | 'update') => void;
   onAnthropicTokenAction: (mode: 'set' | 'update' | 'remove') => void;
   onOpenRunTargetEditModal: (target: import('../../lib/types').RunTargetResponse) => void;
+  modelsLastChecked?: string;
+  modelsRefreshing?: boolean;
+  onRefreshModels?: () => void;
   commitMessageTargetMissing: boolean;
   prReviewTargetMissing: boolean;
   branchSuggestTargetMissing: boolean;
@@ -43,6 +46,9 @@ export default function AgentsTab({
   runners,
   onModelAction,
   onAnthropicTokenAction,
+  modelsLastChecked,
+  modelsRefreshing,
+  onRefreshModels,
   commitMessageTargetMissing,
   prReviewTargetMissing,
   branchSuggestTargetMissing,
@@ -234,6 +240,9 @@ export default function AgentsTab({
             onToggleModel={handleToggleModel}
             onChangeRunner={handleChangeRunner}
             onModelAction={onModelAction}
+            lastChecked={modelsLastChecked}
+            refreshing={modelsRefreshing}
+            onRefresh={onRefreshModels}
           />
           <UserModelsEditor availableRunners={availableRunners} />
         </div>

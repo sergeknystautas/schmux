@@ -172,6 +172,27 @@ func LoadCache(schmuxDir string) ([]byte, error) {
 	return cache.Data, nil
 }
 
+// CacheFetchedAt returns the timestamp recorded in the cache envelope, or the
+// zero time if the cache is missing/corrupt/wrong-version.
+func CacheFetchedAt(schmuxDir string) (time.Time, error) {
+	raw, err := os.ReadFile(CachePath(schmuxDir))
+	if err != nil {
+		return time.Time{}, nil // missing cache is not an error
+	}
+	var cache registryCache
+	if err := json.Unmarshal(raw, &cache); err != nil {
+		return time.Time{}, nil
+	}
+	if cache.SchemaVersion != schemaVersion || cache.FetchedAt == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse(time.RFC3339, cache.FetchedAt)
+	if err != nil {
+		return time.Time{}, nil
+	}
+	return t, nil
+}
+
 // RegistryCutoff returns the cutoff date for filtering (12 months before now).
 func RegistryCutoff() time.Time {
 	return time.Now().AddDate(0, -recencyMonths, 0)

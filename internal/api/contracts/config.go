@@ -168,7 +168,8 @@ type ConfigResponse struct {
 	Pastebin                   []string               `json:"pastebin,omitempty"`
 	Runners                    map[string]RunnerInfo  `json:"runners"` // tool name -> runner info
 	Models                     []Model                `json:"models"`
-	EnabledModels              map[string]string      `json:"enabled_models,omitempty"` // modelID -> preferred tool
+	ModelsLastChecked          string                 `json:"models_last_checked,omitempty"` // registry last-checked (RFC3339)
+	EnabledModels              map[string]string      `json:"enabled_models,omitempty"`      // modelID -> preferred tool
 	CommStyles                 map[string]string      `json:"comm_styles,omitempty"`
 	Nudgenik                   Nudgenik               `json:"nudgenik"`
 	BranchSuggest              BranchSuggest          `json:"branch_suggest"`

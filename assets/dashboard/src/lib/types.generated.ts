@@ -123,6 +123,7 @@ export interface ConfigResponse {
   pastebin?: string[];
   runners: Record<string, RunnerInfo>;
   models: Model[];
+  models_last_checked?: string;
   enabled_models?: Record<string, string>;
   comm_styles?: Record<string, string>;
   nudgenik: Nudgenik;

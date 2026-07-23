@@ -39,6 +39,9 @@ type Manager struct {
 	config        *config.Config
 	detectedTools []detect.Tool
 	schmuxDir     string
+	// lastFetchedAt is when the registry was last successfully fetched (or the
+	// cache's fetched_at seed). Zero when never fetched.
+	lastFetchedAt time.Time
 	// Callback for catalog updates (e.g., to broadcast to WebSocket)
 	onCatalogUpdated func()
 	// Catalog sources
@@ -141,6 +144,16 @@ func (m *Manager) SetOnCatalogUpdated(callback func()) {
 	m.onCatalogUpdated = callback
 }
 
+// LastChecked returns the last registry fetch time as RFC3339, or "" if never.
+func (m *Manager) LastChecked() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.lastFetchedAt.IsZero() {
+		return ""
+	}
+	return m.lastFetchedAt.UTC().Format(time.RFC3339)
+}
+
 // buildRegistryMeta creates a map from model ID to registry metadata.
 func (m *Manager) buildRegistryMeta(registryModels []RegistryModel) {
 	m.registryMeta = make(map[string]RegistryModel, len(registryModels))
@@ -169,6 +182,9 @@ func (m *Manager) StartBackgroundFetch(ctx context.Context) {
 			m.registryModels = BuildDetectModels(models)
 			m.buildRegistryMeta(models)
 			m.rebuildCatalog()
+			if t, err := CacheFetchedAt(m.schmuxDir); err == nil && !t.IsZero() {
+				m.lastFetchedAt = t
+			}
 			m.mu.Unlock()
 			m.logger.Info("loaded cached models", "count", len(models))
 		}
@@ -187,7 +203,7 @@ func (m *Manager) StartBackgroundFetch(ctx context.Context) {
 
 func (m *Manager) fetchLoop(ctx context.Context) {
 	// Fetch immediately on startup
-	m.fetchAndUpdate()
+	_ = m.fetchAndUpdate()
 
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
@@ -197,36 +213,39 @@ func (m *Manager) fetchLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			m.fetchAndUpdate()
+			_ = m.fetchAndUpdate()
 		}
 	}
 }
 
-func (m *Manager) fetchAndUpdate() {
+// RefreshNow performs a synchronous registry fetch+update and returns any error.
+func (m *Manager) RefreshNow() error { return m.fetchAndUpdate() }
+
+func (m *Manager) fetchAndUpdate() error {
 	// Use HTTP client with timeout
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Get(RegistryURL)
 	if err != nil {
 		m.logger.Error("failed to fetch registry", "err", err)
-		return
+		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		m.logger.Error("registry fetch returned unexpected status", "status", resp.StatusCode)
-		return
+		return fmt.Errorf("registry fetch status %d", resp.StatusCode)
 	}
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		m.logger.Error("failed to read registry response", "err", err)
-		return
+		return err
 	}
 
 	models, err := ParseRegistry(data, RegistryCutoff())
 	if err != nil {
 		m.logger.Error("failed to parse registry", "err", err)
-		return
+		return err
 	}
 
 	// Save to cache
@@ -239,6 +258,7 @@ func (m *Manager) fetchAndUpdate() {
 	m.registryModels = BuildDetectModels(models)
 	m.buildRegistryMeta(models)
 	m.rebuildCatalog()
+	m.lastFetchedAt = time.Now().UTC()
 	m.mu.Unlock()
 
 	m.logger.Info("updated catalog from registry", "count", len(models))
@@ -250,6 +270,7 @@ func (m *Manager) fetchAndUpdate() {
 	if callback != nil {
 		callback()
 	}
+	return nil
 }
 
 // SetUserModels sets the user models layer and rebuilds the catalog.
@@ -284,8 +305,9 @@ func (m *Manager) LoadUserModels(path string) error {
 
 // CatalogResult holds the models and top-level runner info returned by GetCatalog.
 type CatalogResult struct {
-	Models  []contracts.Model
-	Runners map[string]contracts.RunnerInfo
+	Models      []contracts.Model
+	Runners     map[string]contracts.RunnerInfo
+	LastChecked string
 }
 
 // GetCatalog returns all models that have at least one available (detected) runner,
@@ -379,7 +401,7 @@ func (m *Manager) GetCatalog() (*CatalogResult, error) {
 
 		models = append(models, contractModel)
 	}
-	return &CatalogResult{Models: models, Runners: topRunners}, nil
+	return &CatalogResult{Models: models, Runners: topRunners, LastChecked: m.LastChecked()}, nil
 }
 
 // FindModel looks up a model by ID (or legacy alias).

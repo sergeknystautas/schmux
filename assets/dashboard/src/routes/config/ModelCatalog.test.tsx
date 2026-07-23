@@ -194,6 +194,20 @@ describe('ModelCatalog', () => {
     expect(onChangeRunner).toHaveBeenCalledWith('claude-opus-4-6', 'opencode');
   });
 
+  it('renders a refresh button and last-checked, and calls onRefresh', () => {
+    const onRefresh = vi.fn();
+    render(<ModelCatalog {...defaultProps} lastChecked="" onRefresh={onRefresh} />);
+    const btn = screen.getByTestId('models-refresh');
+    expect(screen.getByText(/never/i)).toBeInTheDocument();
+    fireEvent.click(btn);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables the refresh button while refreshing', () => {
+    render(<ModelCatalog {...defaultProps} refreshing onRefresh={() => {}} />);
+    expect(screen.getByTestId('models-refresh')).toBeDisabled();
+  });
+
   describe('secrets management', () => {
     const moonshotUnconfigured = makeModel({
       id: 'kimi-k2',

@@ -220,6 +220,7 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 		Pastebin:                   h.config.GetPastebin(),
 		Runners:                    catalog.Runners,
 		Models:                     catalog.Models,
+		ModelsLastChecked:          catalog.LastChecked,
 		EnabledModels:              h.models.GetEnabledModels(),
 		CommStyles:                 h.config.GetCommStyles(),
 		Nudgenik: contracts.Nudgenik{

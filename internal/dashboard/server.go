@@ -909,6 +909,7 @@ func (s *Server) Start() error {
 			r.Post("/auth/secrets", configH.handleAuthSecretsUpdate)
 
 			// Model routes
+			r.Post("/models/refresh", configH.handleModelsRefresh)
 			r.Get("/models/{name}/configured", configH.handleModelConfigured)
 			r.Post("/models/{name}/secrets", configH.handleModelSecretsPost)
 			r.Delete("/models/{name}/secrets", configH.handleModelSecretsDelete)

@@ -1,7 +1,11 @@
 package dashboard
 
 import (
+	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/charmbracelet/log"
@@ -124,6 +128,29 @@ func TestBuildTLS(t *testing.T) {
 			t.Errorf("expected nil TLS, got %+v", result)
 		}
 	})
+}
+
+func TestHandleModelsIncludesLastChecked(t *testing.T) {
+	mm := models.New(nil, nil, t.TempDir(), log.New(os.Stderr))
+	h := &ConfigHandlers{models: mm, logger: log.New(os.Stderr)}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/models", nil)
+	rec := httptest.NewRecorder()
+	h.handleModels(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := body["last_checked"]; !ok {
+		t.Fatal("response missing last_checked key")
+	}
+	if _, ok := body["models"]; !ok {
+		t.Fatal("response missing models key")
+	}
 }
 
 func TestValidPersonaIDRegex(t *testing.T) {

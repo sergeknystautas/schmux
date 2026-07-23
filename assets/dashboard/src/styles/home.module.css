@@ -405,6 +405,36 @@
   overflow-y: auto;
 }
 
+/* Cards that must keep their natural height in a flex column — .sectionCard's
+ * `overflow: hidden` otherwise lets flex shrink them to zero next to a flex:1
+ * sibling (e.g. Active Workspaces). */
+.newModelsCard {
+  flex-shrink: 0;
+}
+
+.newModelsGrid {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: var(--spacing-xs) var(--spacing-md);
+  align-items: baseline;
+  font-size: 0.8125rem;
+}
+
+.newModelsName {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.newModelsProvider,
+.newModelsDate {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.newModelsDate {
+  text-align: right;
+}
+
 /* Scan Button */
 .scanButton {
   display: inline-flex;

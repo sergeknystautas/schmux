@@ -48,6 +48,9 @@ func CachePath(schmuxDir string) string {
 	return ""
 }
 
+// CacheFetchedAt is a no-op stub when the model registry is excluded.
+func CacheFetchedAt(schmuxDir string) (time.Time, error) { return time.Time{}, nil }
+
 // RegistryCutoff is a no-op stub when the model registry is excluded.
 func RegistryCutoff() time.Time {
 	return time.Time{}

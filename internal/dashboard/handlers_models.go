@@ -19,8 +19,32 @@ func (h *ConfigHandlers) handleModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]any{"models": catalog.Models}); err != nil {
+	if err := json.NewEncoder(w).Encode(map[string]any{
+		"models":       catalog.Models,
+		"last_checked": catalog.LastChecked,
+	}); err != nil {
 		h.logger.Error("failed to encode response", "handler", "models", "err", err)
+	}
+}
+
+// handleModelsRefresh handles POST /api/models/refresh — forces a synchronous
+// models.dev re-fetch and returns the fresh catalog + last_checked.
+func (h *ConfigHandlers) handleModelsRefresh(w http.ResponseWriter, r *http.Request) {
+	if err := h.models.RefreshNow(); err != nil {
+		writeJSONError(w, fmt.Sprintf("Failed to refresh models: %v", err), http.StatusBadGateway)
+		return
+	}
+	catalog, err := h.models.GetCatalog()
+	if err != nil {
+		writeJSONError(w, fmt.Sprintf("Failed to read models: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]any{
+		"models":       catalog.Models,
+		"last_checked": catalog.LastChecked,
+	}); err != nil {
+		h.logger.Error("failed to encode response", "handler", "models-refresh", "err", err)
 	}
 }
 

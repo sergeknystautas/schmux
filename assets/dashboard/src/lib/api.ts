@@ -42,6 +42,7 @@ import type {
   WorkspaceResponse,
   WorkspacePreview,
   AuthUser,
+  Model,
 } from './types';
 import type {
   CreateSpawnEntryRequest,
@@ -128,6 +129,25 @@ export async function getConfig(): Promise<ConfigResponse> {
   const response = await apiFetch('/api/config');
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch config');
   return response.json();
+}
+
+export type ModelsResponse = { models: Model[]; last_checked: string };
+
+export async function getModels(): Promise<ModelsResponse> {
+  const response = await apiFetch('/api/models');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to load models');
+  const data = await response.json();
+  return { models: data.models || [], last_checked: data.last_checked || '' };
+}
+
+export async function refreshModels(): Promise<ModelsResponse> {
+  const response = await apiFetch('/api/models/refresh', {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to refresh models');
+  const data = await response.json();
+  return { models: data.models || [], last_checked: data.last_checked || '' };
 }
 
 export async function getFeatures(): Promise<Features> {

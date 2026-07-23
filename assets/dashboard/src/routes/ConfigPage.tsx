@@ -4,6 +4,7 @@ import {
   getConfig,
   configureModelSecrets,
   removeModelSecrets,
+  refreshModels,
   getOverlays,
   getBuiltinQuickLaunch,
   getPersonas,
@@ -98,6 +99,11 @@ export default function ConfigPage() {
   const saveStatusRef = useRef<SaveStatus>('idle');
   // Keep ref in sync for async callbacks
   saveStatusRef.current = saveStatus;
+
+  // Models catalog "last checked" timestamp + refresh state. Seeded from the
+  // config response (which carries models_last_checked) and updated on refresh.
+  const [modelsLastChecked, setModelsLastChecked] = useState('');
+  const [modelsRefreshing, setModelsRefreshing] = useState(false);
 
   const { dispatch, flushSave, setLastSavedConfig } = useAutoSave(
     state,
@@ -235,6 +241,7 @@ export default function ConfigPage() {
         };
 
         rawDispatch({ type: 'LOAD_CONFIG', state: loadedState });
+        setModelsLastChecked(data.models_last_checked || '');
 
         // Initialize auto-save baseline from loaded config
         setLastSavedConfig({
@@ -486,6 +493,20 @@ export default function ConfigPage() {
       });
     } catch (err) {
       alert('Load Models Failed', getErrorMessage(err, 'Failed to load models'));
+    }
+  };
+
+  // Force a synchronous models.dev re-fetch and swap in the fresh catalog.
+  const handleRefreshModels = async () => {
+    setModelsRefreshing(true);
+    try {
+      const r = await refreshModels();
+      dispatch({ type: 'SET_MODELS', models: r.models });
+      setModelsLastChecked(r.last_checked);
+    } catch (err) {
+      alert('Refresh Models Failed', getErrorMessage(err, 'Failed to refresh models'));
+    } finally {
+      setModelsRefreshing(false);
     }
   };
 
@@ -1166,6 +1187,9 @@ export default function ConfigPage() {
               onModelAction={handleModelAction}
               onAnthropicTokenAction={handleAnthropicTokenAction}
               onOpenRunTargetEditModal={openRunTargetEditModal}
+              modelsLastChecked={modelsLastChecked}
+              modelsRefreshing={modelsRefreshing}
+              onRefreshModels={handleRefreshModels}
               commitMessageTargetMissing={commitMessageTargetMissing}
               prReviewTargetMissing={prReviewTargetMissing}
               branchSuggestTargetMissing={branchSuggestTargetMissing}

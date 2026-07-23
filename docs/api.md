@@ -1781,6 +1781,8 @@ On failure:
 
 Lists available models and whether they are configured. Each model includes a `runners` list of tool names that can run it; tool-level details (availability, capabilities) are in the top-level `runners` map on the config response. Model catalog, availability, enablement, and resolution are owned by the internal model manager (`internal/models`). Model IDs are vendor-defined (e.g., `claude-sonnet-4-6`). Legacy IDs (`claude-sonnet`, `sonnet`, etc.) are automatically migrated on load. Antigravity (`agy`) models are an exception: agy's model list is auth-gated and absent from models.dev, so schmux discovers them at runtime by running `agy models` and surfaces them here (IDs prefixed `antigravity-`) once agy is detected; they refresh on an interval and broadcast via the `catalog_updated` WebSocket event.
 
+`last_checked` is the RFC3339 timestamp of the last successful models.dev registry fetch (empty string when the registry has never been fetched, e.g. offline first run). The same value is also surfaced as `models_last_checked` on the config response.
+
 Response:
 
 ```json
@@ -1801,9 +1803,21 @@ Response:
       "runners": ["claude", "opencode"],
       "required_secrets": ["ANTHROPIC_AUTH_TOKEN"]
     }
-  ]
+  ],
+  "last_checked": "2026-07-18T14:03:22Z"
 }
 ```
+
+### POST /api/models/refresh
+
+Forces a synchronous re-fetch of the models.dev registry and returns the refreshed catalog. Use this to pick up newly released models without waiting for the 24h background refresh. On success the in-memory catalog and `last_checked` are updated; on failure the existing catalog is left untouched.
+
+Response: same shape as `GET /api/models` (`{ "models": [...], "last_checked": "<rfc3339>" }`).
+
+Errors:
+
+- 502: "Failed to refresh models: ..." (registry fetch/read/parse failure or non-200 upstream status)
+- 500: "Failed to read models: ..." (catalog could not be built after a successful refresh)
 
 ### GET /api/models/{id}/configured
 

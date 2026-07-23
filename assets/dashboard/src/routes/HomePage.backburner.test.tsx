@@ -110,6 +110,7 @@ vi.mock('../lib/api', () => ({
   getCommitGraph: vi.fn().mockResolvedValue({ commits: [] }),
   getSubreddit: vi.fn().mockResolvedValue({ repos: [] }),
   getRepofeedList: vi.fn().mockResolvedValue({ repos: [] }),
+  getModels: vi.fn().mockResolvedValue({ models: [], last_checked: '' }),
   getDependencies: vi.fn().mockResolvedValue({ os: 'macos', groups: [] }),
 }));
 
