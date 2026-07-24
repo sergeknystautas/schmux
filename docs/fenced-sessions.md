@@ -279,7 +279,18 @@ All fenced sessions run Fence monitor mode (`-m`) and write logs to:
 
 These per-session logs are viewable live from the dashboard: open `/logs`, choose the **Fence** source, and pick the session. The dashboard tails this file directly; it is not aggregated into a central log.
 
-Use this file to debug blocked network and sandbox violations. This is the first place to check when a fenced agent says an API connection, package fetch, or file operation was blocked.
+Use this file to debug blocked network and sandbox violations, but do not treat it as a complete account of a failed session. It does not carry the user's instruction, the agent's attempted command and output, or every fence-caused error. For example, an OS refusal to start a nested sandbox can surface only in the command's stderr.
+
+The dashboard's **Analyze fence** action therefore snapshots the target session's full terminal scrollback into its fence launch directory and gives the analyzer all of these sources:
+
+- the session event file, including the original spawn instruction and later status/blocker events;
+- `cmd.sh`, for the exact launch command;
+- `terminal-capture.txt`, for follow-up instructions, attempted commands, output, and errors;
+- `settings.json` and the repo's `.schmux/config.json`, for effective and requested policy;
+- `monitor.log`, as corroborating denial evidence;
+- a capability document generated from the running schmux binary.
+
+The analyzer tries current repo config first. If no current preset or allowed-domain entry can express a legitimate requirement, the result must propose the least-privilege schmux fence capability needed, its security cost, and a regression test; "unsupported" alone is not a useful result. The analysis is returned as the spawned session's terminal response, not as an HTML/file artifact.
 
 ## Lifecycle
 

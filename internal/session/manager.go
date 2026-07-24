@@ -1876,6 +1876,22 @@ func (m *Manager) GetOutput(ctx context.Context, sessionID string) (string, erro
 	return "", fmt.Errorf("no tmux server available")
 }
 
+// GetPlainOutput returns the session's full terminal scrollback without ANSI
+// formatting. It is intended for diagnostics that consume terminal content as
+// text rather than replaying it in a terminal.
+func (m *Manager) GetPlainOutput(ctx context.Context, sessionID string) (string, error) {
+	sess, found := m.state.GetSession(sessionID)
+	if !found {
+		return "", fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	server := m.serverForSocket(sess.TmuxSocket)
+	if server != nil {
+		return server.CaptureOutputPlain(ctx, sess.TmuxSession)
+	}
+	return "", fmt.Errorf("no tmux server available")
+}
+
 // GetAllSessions returns all sessions.
 func (m *Manager) GetAllSessions() []state.Session {
 	return m.state.GetSessions()

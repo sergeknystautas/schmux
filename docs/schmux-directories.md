@@ -25,7 +25,7 @@ Schmux uses two types of directories:
 | `overlays/<repo>/`      | Overlay files synced across workspaces             | Workspace manager                    | .env, config files, etc.                                               |
 | `repos/`                | Bare git clones of repositories                    | Workspace manager                    | Source for worktrees                                                   |
 | `schemas/`              | JSON schemas for oneshot validation                | `internal/oneshot`                   | Generated from Go structs at startup                                   |
-| `fence/<session-id>/`   | Per-session Fence launch files and monitor log     | Fenced session spawn                 | Contains `settings.json`, `cmd.sh`, `monitor.log`; not eagerly cleaned |
+| `fence/<session-id>/`   | Fence launch files and diagnostics                 | Fenced spawn / analysis              | Contains `settings.json`, `cmd.sh`, `monitor.log`; not eagerly cleaned |
 | `dev-state.json`        | Dev mode state (current worktree)                  | `dev.sh` wrapper                     | Development only                                                       |
 | `dev-build-status.json` | Dev mode build status                              | `dev.sh` wrapper                     | Development only                                                       |
 | `dev-restart.json`      | Dev mode restart manifest                          | Dashboard                            | Development only                                                       |

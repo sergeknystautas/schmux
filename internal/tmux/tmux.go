@@ -278,14 +278,31 @@ func (s *TmuxServer) GetAttachCommand(name string) string {
 
 // CaptureOutput captures the current output of a tmux session, including full scrollback history.
 func (s *TmuxServer) CaptureOutput(ctx context.Context, name string) (string, error) {
+	return s.captureOutput(ctx, name, true)
+}
+
+// CaptureOutputPlain captures the full scrollback history without terminal
+// formatting escapes. Use it when the capture is input to diagnostics rather
+// than something that will be rendered as a terminal.
+func (s *TmuxServer) CaptureOutputPlain(ctx context.Context, name string) (string, error) {
+	return s.captureOutput(ctx, name, false)
+}
+
+func (s *TmuxServer) captureOutput(ctx context.Context, name string, includeEscapes bool) (string, error) {
 	// Validate session name to prevent command injection
 	if err := ValidateSessionName(name); err != nil {
 		return "", fmt.Errorf("invalid session name: %w", err)
 	}
-	// -e includes escape sequences for colors/attributes
-	// -p outputs to stdout
-	// -S - captures from the start of the scrollback buffer
-	cmd := s.cmd(ctx, "capture-pane", "-e", "-p", "-S", "-", "-t", name)
+	args := []string{"capture-pane"}
+	if includeEscapes {
+		args = append(args, "-e")
+	}
+	args = append(args,
+		"-p",      // output to stdout
+		"-S", "-", // capture from the start of the scrollback buffer
+		"-t", name,
+	)
+	cmd := s.cmd(ctx, args...)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 

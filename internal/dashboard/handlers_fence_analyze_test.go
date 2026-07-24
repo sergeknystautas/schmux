@@ -18,6 +18,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
+	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 )
@@ -103,107 +104,24 @@ func TestFenceAnalyze_EmptyTarget400(t *testing.T) {
 	}
 }
 
-// TestBuildFenceAnalyzePrompt verifies the server-built prompt names the
-// capabilities doc and monitor-log paths it is given and, critically, names NO
-// presets — the capabilities doc (read first) owns the closed vocabulary, so
-// undefined tokens are never handed to the agent to confabulate.
-func TestBuildFenceAnalyzePrompt(t *testing.T) {
-	const capDoc = "/tmp/schmux/fence/ws-1/fence-capabilities.md"
-	const monitorLog = "/tmp/schmux/fence/ws-1/sess-1/monitor.log"
-	prompt := buildFenceAnalyzePrompt(capDoc, monitorLog)
+func TestCaptureFenceAnalysisTerminal_UnavailableRecordsDiagnostic(t *testing.T) {
+	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
+	if err := st.AddSession(state.Session{ID: "gone", TmuxSession: "gone"}); err != nil {
+		t.Fatalf("AddSession: %v", err)
+	}
+	manager := session.New(&config.Config{}, st, "", nil, nil, discardLogger())
+	h := &SpawnHandlers{session: manager, logger: discardLogger()}
+	path := filepath.Join(t.TempDir(), fenceAnalysisTerminalFilename)
 
-	for _, want := range []string{
-		capDoc,
-		monitorLog,
-		".schmux/config.json",
-	} {
-		if !strings.Contains(prompt, want) {
-			t.Errorf("prompt missing %q\nprompt=%q", want, prompt)
-		}
+	if err := h.captureFenceAnalysisTerminal(context.Background(), "gone", path); err != nil {
+		t.Fatalf("captureFenceAnalysisTerminal: %v", err)
 	}
-	for _, preset := range []string{"golang", "node", "python", "tmux", "docker"} {
-		if strings.Contains(prompt, preset) {
-			t.Errorf("prompt must not name preset %q (the doc owns the vocabulary)\nprompt=%q", preset, prompt)
-		}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read capture diagnostic: %v", err)
 	}
-}
-
-// TestBuildFenceAnalyzePrompt_CausalStructure enforces the diagnostic objective:
-// the prompt must make the agent trace what the fenced agent could not accomplish
-// through a fixed causal chain — intended operation, failed command, user-visible
-// error, the fence denial that caused it, the config fix or missing capability —
-// rather than cataloging denials. A denial that blocked nothing is not a finding.
-func TestBuildFenceAnalyzePrompt_CausalStructure(t *testing.T) {
-	const capDoc = "/tmp/schmux/fence/ws-1/fence-capabilities.md"
-	const monitorLog = "/tmp/schmux/fence/ws-1/sess-1/monitor.log"
-	prompt := buildFenceAnalyzePrompt(capDoc, monitorLog)
-
-	// The five causal elements must appear, and in causal order: intended
-	// operation -> failed command -> user-visible error -> causing denial ->
-	// config fix. Order is the point; a report that leads with denials is the
-	// objective this replaces.
-	orderedElements := []string{
-		"operation the agent intended",
-		"command or tool invocation that failed",
-		"user-visible error or nonzero result",
-		"denial that caused it",
-		"config change that resolves it",
-	}
-	from := 0
-	for i, elem := range orderedElements {
-		idx := strings.Index(prompt[from:], elem)
-		if idx < 0 {
-			t.Errorf("prompt missing causal element %d %q\nprompt=%q", i+1, elem, prompt)
-			continue
-		}
-		from += idx + len(elem)
-	}
-
-	// Point 5's second branch: when neither knob expresses the fix, the prompt
-	// must demand the concrete missing capability, not silence.
-	if !strings.Contains(prompt, "capability that is missing") {
-		t.Errorf("prompt must ask for the missing fence capability when no knob fits\nprompt=%q", prompt)
-	}
-
-	// The objective is failure-diagnosis, not denial-enumeration: a denial that
-	// stopped no operation must be excluded.
-	if !strings.Contains(prompt, "is not a finding") {
-		t.Errorf("prompt must exclude denials that blocked nothing\nprompt=%q", prompt)
-	}
-
-	// Reasoning stays at the level of commands and blocked outcomes, not
-	// syscall-level sandbox internals.
-	if !strings.Contains(prompt, "blocked outcomes") || !strings.Contains(prompt, "syscall") {
-		t.Errorf("prompt must direct reasoning to commands and blocked outcomes, not syscall internals\nprompt=%q", prompt)
-	}
-}
-
-// TestBuildFenceAnalyzePrompt_InSessionButThorough enforces both halves of the
-// output contract that were learned the hard way: the analyzer answers in the
-// session (no file, no HTML artifact — the target agent's standing instructions
-// otherwise push "reports" into a self-contained HTML file), AND it must be as
-// thorough and actionable as a written report. Relocating to chat without that
-// second demand degraded the analysis into a hedged shrug, so the prompt must
-// not signal low effort — it must require a specific, actionable conclusion.
-func TestBuildFenceAnalyzePrompt_InSessionButThorough(t *testing.T) {
-	const capDoc = "/tmp/schmux/fence/ws-1/fence-capabilities.md"
-	const monitorLog = "/tmp/schmux/fence/ws-1/sess-1/monitor.log"
-	prompt := buildFenceAnalyzePrompt(capDoc, monitorLog)
-
-	if !strings.Contains(prompt, "directly in this session") {
-		t.Errorf("prompt must tell the agent to answer inline in the session\nprompt=%q", prompt)
-	}
-	for _, want := range []string{"Do not create", "HTML report"} {
-		if !strings.Contains(prompt, want) {
-			t.Errorf("prompt must forbid producing a file/HTML report (missing %q)\nprompt=%q", want, prompt)
-		}
-	}
-	// The in-session answer must carry the rigor the report framing used to
-	// force — not a lightweight chat aside.
-	for _, want := range []string{"thorough", "actionable"} {
-		if !strings.Contains(prompt, want) {
-			t.Errorf("prompt must demand a %s in-session analysis, not a brief reply\nprompt=%q", want, prompt)
-		}
+	if !strings.HasPrefix(string(data), "Terminal capture unavailable:") {
+		t.Errorf("capture diagnostic = %q", data)
 	}
 }
 
@@ -247,7 +165,24 @@ func TestFenceAnalyze_Success(t *testing.T) {
 	if err := st.AddWorkspace(state.Workspace{ID: "ws-tgt", Repo: "git@github.com:u/r.git", Branch: "main", Path: targetWS}); err != nil {
 		t.Fatalf("AddWorkspace: %v", err)
 	}
-	if err := st.AddSession(state.Session{ID: "sess-tgt", WorkspaceID: "ws-tgt", Fence: true, Target: "command", CreatedAt: time.Now()}); err != nil {
+	const sourceTmuxSession = "fence-analysis-source"
+	if err := tmuxServer.CreateSession(
+		context.Background(),
+		sourceTmuxSession,
+		targetWS,
+		"printf 'source-session-marker: build failed under fence\\n'; sleep 600",
+	); err != nil {
+		t.Fatalf("create source tmux session: %v", err)
+	}
+	if err := st.AddSession(state.Session{
+		ID:          "sess-tgt",
+		WorkspaceID: "ws-tgt",
+		Fence:       true,
+		Target:      "command",
+		TmuxSession: sourceTmuxSession,
+		TmuxSocket:  tmuxServer.SocketName(),
+		CreatedAt:   time.Now(),
+	}); err != nil {
 		t.Fatalf("AddSession: %v", err)
 	}
 
@@ -280,5 +215,20 @@ func TestFenceAnalyze_Success(t *testing.T) {
 	capDoc := filepath.Join(schmuxdir.FenceWorkspaceDir("ws-tgt"), "fence-capabilities.md")
 	if _, err := os.Stat(capDoc); err != nil {
 		t.Errorf("capabilities doc not written by endpoint: %v", err)
+	}
+
+	// Analysis input is a real source-session capture, not a prompt assertion:
+	// this proves the endpoint supplies terminal evidence that monitor.log does
+	// not contain.
+	terminalCapture := filepath.Join(
+		schmuxdir.FenceLaunchDir("ws-tgt", "sess-tgt"),
+		fenceAnalysisTerminalFilename,
+	)
+	captured, err := os.ReadFile(terminalCapture)
+	if err != nil {
+		t.Fatalf("read terminal capture: %v", err)
+	}
+	if !bytes.Contains(captured, []byte("source-session-marker: build failed under fence")) {
+		t.Errorf("terminal capture omitted source session output: %q", captured)
 	}
 }

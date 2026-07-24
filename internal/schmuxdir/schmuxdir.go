@@ -40,7 +40,8 @@ func FenceWorkspaceDir(workspaceID string) string {
 }
 
 // FenceLaunchDir returns the per-session directory (under the workspace dir)
-// holding fence launch artifacts (settings.json, cmd.sh, monitor.log).
+// holding fence launch artifacts (settings.json, cmd.sh, monitor.log) and any
+// later diagnostic snapshots for that session.
 func FenceLaunchDir(workspaceID, sessionID string) string {
 	return filepath.Join(FenceWorkspaceDir(workspaceID), sessionID)
 }

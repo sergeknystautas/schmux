@@ -114,12 +114,18 @@ func writePresetGrants(b *strings.Builder, name string, p preset) {
 }
 
 const orientationText = "## You are inside a sandbox\n\n" +
-	"Processes in this workspace run inside an OS sandbox called fence. Operations " +
+	"Processes in this workspace run inside an OS sandbox called fence. Many operations " +
 	"it denies are logged to a per-session " + bq + "monitor.log" + bq + " (the prompt that pointed " +
-	"you at this file gives the exact path). You may recommend changes only to " +
-	bq + "<repo>/.schmux/config.json" + bq +
-	" — specifically the two fields described below. You cannot change the sandbox itself, the baseline " +
-	"policy, or anything outside that one file.\n\n"
+	"you at this file gives the exact path) — but that log is a partial signal, not the complete record. " +
+	"Some fence-caused failures (for example a nested sandbox the OS refuses) never produce a line there " +
+	"and surface only in the failing command's own error output. Treat the failed operation and its error " +
+	"as the source of truth; " + bq + "monitor.log" + bq + " corroborates the denial cause when a line " +
+	"exists, and a quiet log is not evidence the fence caused nothing.\n\n" +
+	"First determine whether the current repo knobs can solve the failure. A repo-level recommendation may " +
+	"change only " + bq + "<repo>/.schmux/config.json" + bq + ", using the two fields described below. If " +
+	"neither field can express the needed capability, the constructive result is a concrete change to " +
+	"schmux's fence implementation — not an invented config field and not a conclusion that the session " +
+	"is simply unable to proceed.\n\n"
 
 const policyLayeringText = "### Policy layering (read-only context)\n\n" +
 	"The effective sandbox policy composes, in order:\n" +
@@ -132,10 +138,10 @@ const policyLayeringText = "### Policy layering (read-only context)\n\n" +
 	"and schmux-added grants are fixed. Every denial in " + bq + "monitor.log" + bq + " comes from this " +
 	"composed policy.\n\n"
 
-const closedWorldText = "> **Closed world.** These are the only knobs. There are no other presets, no other " +
-	"fields, and no escape hatches. A need that neither " + bq + "presets" + bq + " nor " +
-	bq + "allowed_domains" + bq + " can express is a limitation of this sandbox's vocabulary — report it " +
-	"in your Gaps section, do not improvise a workaround.\n\n"
+const closedWorldText = "> **Closed world for repo configuration.** These are the only current repo knobs. " +
+	"There are no other presets, no other fields, and no escape hatches. A need that neither " + bq +
+	"presets" + bq + " nor " + bq + "allowed_domains" + bq + " can express is a product gap. Do not " +
+	"improvise config that does not exist; specify the schmux capability that must be added.\n\n"
 
 const logGrammarText = "## How to read monitor.log\n\n" +
 	"Every line has the shape:\n" +
@@ -198,13 +204,18 @@ const judgmentText = "## Judgment: not every denial deserves an exception\n\n" +
 
 const outputContractText = "## Output contract\n\n" +
 	"For every recommendation:\n" +
-	"- Cite the specific " + bq + "monitor.log" + bq + " line(s) it resolves (quote the line).\n" +
+	"- Cite the evidence it resolves — the " + bq + "monitor.log" + bq + " line if one exists, otherwise " +
+	"the failing command's own error output (quote it).\n" +
 	"- State the predicted effect (\"adding <domain> to " + bq + "fence.allowed_domains" + bq + " stops the " +
 	bq + "CONNECT 403" + bq + " denials to <domain>\"; \"adding the <preset> preset redirects <cache> into " +
 	"the workspace and stops the file-write denials to <home path>\").\n" +
 	"- Present the resulting " + bq + "fence" + bq + " block of " + bq + "<repo>/.schmux/config.json" + bq + ".\n\n" +
 	"If a denial reflects a need this vocabulary cannot express (for example a Unix-socket connection to a " +
 	"specific socket, or a host a preset's identity does not fit), put it in a **Gaps** section — describe " +
-	"the need and the evidence, and say explicitly it cannot be satisfied with the current knobs. Do not " +
-	"improvise a workaround. Do not invent presets or fields.\n\n" +
+	"the need and the evidence, and explain why the current knobs cannot satisfy it. Then propose the " +
+	"least-privilege schmux implementation change: classify it as a new or extended preset, a safe baseline " +
+	"behavior, or a new narrow repo knob; name the concrete setting, environment redirect, wrapper, or shim " +
+	"the fence launch must generate; state the additional access and security cost; and give a regression " +
+	"test that reruns the failed operation while confirming unrelated access remains denied. Do not invent " +
+	"presets or fields as if they already exist.\n\n" +
 	"Do not apply changes unless explicitly asked.\n"
