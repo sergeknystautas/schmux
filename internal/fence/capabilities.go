@@ -93,6 +93,12 @@ func writePresetGrants(b *strings.Builder, name string, p preset) {
 		b.WriteString("- Stages a " + bq + "DOCKER_CONFIG/config.json" + bq + " registering discovered " +
 			"Docker CLI plugin directories so buildx/compose stay usable while fenced.\n")
 	}
+	if p.swiftShim {
+		b.WriteString("- Shims " + bq + "swift" + bq + " on PATH to add " + bq + "--disable-sandbox" + bq +
+			" to " + bq + "build" + bq + "/" + bq + "test" + bq + "/" + bq + "run" + bq + ", so SwiftPM's " +
+			"nested manifest/plugin sandbox (" + bq + "sandbox-exec" + bq + ", which cannot nest inside " +
+			"fence) does not abort the build with " + bq + "Invalid manifest" + bq + ".\n")
+	}
 	if len(p.domains) > 0 {
 		b.WriteString("- Adds network domains: " + bq + strings.Join(p.domains, bq+", "+bq) + bq + ".\n")
 	}
@@ -170,7 +176,12 @@ const selectionText = "## Choosing a recommendation\n\n" +
 	"- A denied Unix-socket connection proves nothing about tmux by itself -> " + bq + "tmux" + bq +
 	" is dishonest unless the evidence shows the project actually drives tmux. Do not recommend " + bq +
 	"tmux" + bq + " just because a socket was denied.\n" +
-	"- " + bq + "docker" + bq + " is honest only when the evidence shows a Docker build or run in progress.\n\n" +
+	"- " + bq + "docker" + bq + " is honest only when the evidence shows a Docker build or run in progress.\n" +
+	"- A SwiftPM build failing on its nested sandbox (" + bq + "sandbox-exec: sandbox_apply: Operation not " +
+	"permitted" + bq + " while compiling a manifest, surfacing as " + bq + "Invalid manifest" + bq + ") proves " +
+	"a " + bq + "swift build/test/run" + bq + " is running -> the " + bq + "swift" + bq + " preset is honest. " +
+	"This failure aborts the command but may not appear as a " + bq + "✗" + bq + " line in " + bq + "monitor.log" + bq +
+	"; the evidence is the command's own error output.\n\n" +
 	bq + "allowed_domains" + bq + " is per-destination, not per-tool. Recommend the specific blocked domain, " +
 	"taken verbatim from the " + bq + "CONNECT" + bq + " line. Do not broaden it.\n\n"
 

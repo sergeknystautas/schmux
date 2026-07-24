@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -194,6 +195,9 @@ func TestWrapNoPresetsBaselineOnly(t *testing.T) {
 	if s.MacOS != nil {
 		t.Errorf("macos block should be absent without a mach-granting preset, got %+v", s.MacOS)
 	}
+	if len(s.Filesystem.DenyWrite) != 0 {
+		t.Errorf("denyWrite should be empty without a preset that needs it, got %v", s.Filesystem.DenyWrite)
+	}
 }
 
 func TestWrapChromiumPresetMachGrants(t *testing.T) {
@@ -345,6 +349,141 @@ func TestWrapGodotEditorPresetAllowsWrite(t *testing.T) {
 		if strings.Contains(string(cmd), banned) {
 			t.Errorf("godot-editor preset must not add %s: %s", banned, cmd)
 		}
+	}
+}
+
+func TestWrapSwiftPresetWritesShimAndPath(t *testing.T) {
+	// Stub the host swift resolution so the test is deterministic and does not
+	// require swift installed (CI is Linux, no swift).
+	orig := swiftLookPathFn
+	swiftLookPathFn = func() string { return "/opt/toolchain/usr/bin/swift" }
+	defer func() { swiftLookPathFn = orig }()
+
+	dir := filepath.Join(t.TempDir(), "sess")
+	ws := t.TempDir()
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"swift"}, DataDir: dir}, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+
+	shimPath := filepath.Join(ws, ".cache", "schmux-fence", "swift-shim", "swift")
+	fi, err := os.Stat(shimPath)
+	if err != nil {
+		t.Fatalf("swift shim not written: %v", err)
+	}
+	if fi.Mode().Perm()&0o100 == 0 {
+		t.Errorf("swift shim mode = %o, want executable", fi.Mode().Perm())
+	}
+	shim, _ := os.ReadFile(shimPath)
+	for _, want := range []string{"/opt/toolchain/usr/bin/swift", "--disable-sandbox", "build|test|run"} {
+		if !strings.Contains(string(shim), want) {
+			t.Errorf("shim missing %q\nshim=%s", want, shim)
+		}
+	}
+
+	// cmd.sh prepends the shim dir to PATH so the shim wins over the real swift.
+	cmd, _ := os.ReadFile(filepath.Join(dir, "cmd.sh"))
+	wantPath := "export PATH='" + filepath.Join(ws, ".cache", "schmux-fence", "swift-shim") + "':$PATH"
+	if !strings.Contains(string(cmd), wantPath) {
+		t.Errorf("cmd.sh missing PATH prepend %q\ncmd=%s", wantPath, cmd)
+	}
+
+	// The swift preset grants nothing at the fence-settings level.
+	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+	var s settings
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	if s.MacOS != nil {
+		t.Errorf("swift preset must not emit a macos block, got %+v", s.MacOS)
+	}
+	if s.Network != nil && s.Network.AllowAllUnixSockets {
+		t.Errorf("swift preset must not set allowAllUnixSockets")
+	}
+	// The shim dir sits on PATH and under the writable workspace, so it must be
+	// denyWrite'd — otherwise the fenced agent could overwrite the shim or drop
+	// shadow binaries into a PATH-first directory.
+	shimDir := filepath.Join(ws, ".cache", "schmux-fence", "swift-shim")
+	if !slices.Contains(s.Filesystem.DenyWrite, shimDir) {
+		t.Errorf("swift preset must denyWrite the shim dir %q, got %v", shimDir, s.Filesystem.DenyWrite)
+	}
+	if !IsKnownPreset("swift") {
+		t.Errorf("IsKnownPreset(swift) = false, want true")
+	}
+}
+
+// TestSwiftShimInjectsDisableSandbox executes the generated shim against a stub
+// "swift" that echoes its args, proving the shim adds --disable-sandbox for
+// sandbox-using subcommands, never duplicates it, and passes other invocations
+// through untouched.
+func TestSwiftShimInjectsDisableSandbox(t *testing.T) {
+	stubDir := t.TempDir()
+	stub := filepath.Join(stubDir, "swift")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\nfor a in \"$@\"; do echo \"$a\"; done\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orig := swiftLookPathFn
+	swiftLookPathFn = func() string { return stub }
+	defer func() { swiftLookPathFn = orig }()
+
+	dir := filepath.Join(t.TempDir(), "sess")
+	ws := t.TempDir()
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"swift"}, DataDir: dir}, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	shim := filepath.Join(ws, ".cache", "schmux-fence", "swift-shim", "swift")
+
+	run := func(args ...string) []string {
+		t.Helper()
+		out, err := exec.Command("/bin/sh", append([]string{shim}, args...)...).Output()
+		if err != nil {
+			t.Fatalf("run shim %v: %v", args, err)
+		}
+		return strings.Split(strings.TrimSpace(string(out)), "\n")
+	}
+	count := func(lines []string, want string) int {
+		n := 0
+		for _, l := range lines {
+			if l == want {
+				n++
+			}
+		}
+		return n
+	}
+
+	// build injects the flag exactly once.
+	if got := run("build", "-c", "release"); count(got, "--disable-sandbox") != 1 {
+		t.Errorf("swift build args = %v, want one --disable-sandbox", got)
+	}
+	// test is also sandbox-using.
+	if got := run("test"); count(got, "--disable-sandbox") != 1 {
+		t.Errorf("swift test args = %v, want one --disable-sandbox", got)
+	}
+	// Already present: no duplication.
+	if got := run("build", "--disable-sandbox"); count(got, "--disable-sandbox") != 1 {
+		t.Errorf("swift build --disable-sandbox args = %v, want exactly one (no dup)", got)
+	}
+	// Non-sandbox invocation passes through untouched.
+	if got := run("--version"); count(got, "--disable-sandbox") != 0 {
+		t.Errorf("swift --version args = %v, must not inject --disable-sandbox", got)
+	}
+}
+
+func TestWrapSwiftPresetNoSwiftSkipsShim(t *testing.T) {
+	orig := swiftLookPathFn
+	swiftLookPathFn = func() string { return "" } // swift not installed on host
+	defer func() { swiftLookPathFn = orig }()
+
+	dir := filepath.Join(t.TempDir(), "sess")
+	ws := t.TempDir()
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"swift"}, DataDir: dir}, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".cache", "schmux-fence", "swift-shim", "swift")); !os.IsNotExist(err) {
+		t.Errorf("shim should not exist when swift is not on the host; stat err = %v", err)
+	}
+	cmd, _ := os.ReadFile(filepath.Join(dir, "cmd.sh"))
+	if strings.Contains(string(cmd), "swift-shim") {
+		t.Errorf("cmd.sh must not prepend a shim dir when swift is absent: %s", cmd)
 	}
 }
 

@@ -507,7 +507,7 @@ Contract (pre-2093ccf):
 
 The per-repo `RepoConfig` (`.schmux/config.json` in the workspace) accepts a `fence` object:
 
-- `fence.presets` (string[]) — opt-in fence presets: `golang`, `tmux`, `docker`, `godot-editor`. (npm/pip/Playwright cache redirects are baseline, applied to every fenced session — not presets.)
+- `fence.presets` (string[]) — opt-in fence presets: `golang`, `tmux`, `docker`, `godot-editor`, `chromium`, `macos-gui`, `swift`. (npm/pip/Playwright cache redirects are baseline, applied to every fenced session — not presets.)
 - `fence.allowed_domains` (string[]) — extra domains allowed when this repo runs fenced.
 
 Consumed at spawn for fenced sessions; ignored otherwise.

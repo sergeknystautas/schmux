@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -59,6 +60,7 @@ type settingsMach struct {
 type settingsFilesystem struct {
 	AllowRead  []string `json:"allowRead"`
 	AllowWrite []string `json:"allowWrite"`
+	DenyWrite  []string `json:"denyWrite,omitempty"` // overrides allowWrite; used to keep the swift shim dir tamper-proof while on PATH
 }
 
 // fenceCacheRel is the workspace-relative directory where fence redirects
@@ -85,7 +87,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 
 	cacheRoot := filepath.Join(c.WorkspacePath, filepath.FromSlash(fenceCacheRel))
 	env := baselineEnv(cacheRoot)
-	var goFlags, goTelemetry, allUnix, dockerConfig, godotEditor bool
+	var goFlags, goTelemetry, allUnix, dockerConfig, godotEditor, swiftShim bool
 	domains := append([]string{}, baselineDomains...)
 	var machLookup, machRegister []string
 	for _, name := range c.Presets {
@@ -101,6 +103,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 		allUnix = allUnix || p.allUnixSockets
 		dockerConfig = dockerConfig || p.dockerConfig
 		godotEditor = godotEditor || p.godotEditor
+		swiftShim = swiftShim || p.swiftShim
 		domains = append(domains, p.domains...)
 		machLookup = append(machLookup, p.machLookup...)
 		machRegister = append(machRegister, p.machRegister...)
@@ -124,6 +127,22 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 		}
 	}
 
+	// The swift preset writes a `swift` shim and prepends its dir to PATH so
+	// SwiftPM builds survive fence (see swiftShimScript). Skipped when swift is not
+	// on the host, mirroring docker's no-plugins case.
+	var swiftShimDir string
+	if swiftShim {
+		if realSwift := swiftLookPathFn(); realSwift != "" {
+			swiftShimDir = filepath.Join(cacheRoot, "swift-shim")
+			if err := os.MkdirAll(swiftShimDir, 0o700); err != nil {
+				return "", fmt.Errorf("fence: creating swift shim dir: %w", err)
+			}
+			if err := os.WriteFile(filepath.Join(swiftShimDir, "swift"), []byte(swiftShimScript(realSwift)), 0o700); err != nil {
+				return "", fmt.Errorf("fence: writing swift shim: %w", err)
+			}
+		}
+	}
+
 	cmdPath := filepath.Join(c.DataDir, "cmd.sh")
 	settingsPath := filepath.Join(c.DataDir, "settings.json")
 	monitorLogPath := filepath.Join(c.DataDir, "monitor.log")
@@ -131,6 +150,9 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 	script := exportLines(env)
 	if goFlags {
 		script += `export GOFLAGS="${GOFLAGS:+$GOFLAGS }-modcacherw"` + "\n"
+	}
+	if swiftShimDir != "" {
+		script += "export PATH=" + shellutil.Quote(swiftShimDir) + ":$PATH\n"
 	}
 	script += command
 	if err := os.WriteFile(cmdPath, []byte(script), 0o600); err != nil {
@@ -147,6 +169,13 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 	allowedDomains := make([]string, 0, len(c.AllowedDomains)+len(domains))
 	allowedDomains = append(allowedDomains, c.AllowedDomains...)
 	allowedDomains = append(allowedDomains, domains...)
+	// The swift shim sits on PATH under the writable workspace; denyWrite it so a
+	// fenced agent cannot overwrite it or drop shadow binaries into a PATH-first
+	// dir. denyWrite overrides allowWrite in fence's policy.
+	var denyWrite []string
+	if swiftShimDir != "" {
+		denyWrite = append(denyWrite, swiftShimDir)
+	}
 	s := settings{
 		Extends: "code",
 		Network: &settingsNetwork{
@@ -156,6 +185,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 		Filesystem: settingsFilesystem{
 			AllowRead:  append([]string{cmdPath}, c.ExtraReadablePaths...),
 			AllowWrite: allowWrite,
+			DenyWrite:  denyWrite,
 		},
 	}
 	if len(machLookup)+len(machRegister) > 0 {
@@ -200,6 +230,7 @@ type preset struct {
 	allUnixSockets bool              // network.allowAllUnixSockets
 	dockerConfig   bool              // stage a DOCKER_CONFIG/config.json with cliPluginsExtraDirs
 	godotEditor    bool              // allowWrite the Godot editor config dir (~/Library/Application Support/Godot)
+	swiftShim      bool              // put a `swift` shim on PATH that adds --disable-sandbox (SwiftPM's nested sandbox can't run inside fence)
 	domains        []string          // append to network.allowedDomains
 	machLookup     []string          // append to macos.mach.lookup (macOS Seatbelt; ignored elsewhere)
 	machRegister   []string          // append to macos.mach.register
@@ -213,6 +244,19 @@ var presets = map[string]preset{
 	},
 	"tmux":         {allUnixSockets: true},
 	"godot-editor": {godotEditor: true},
+	// SwiftPM evaluates Package.swift (and runs build-tool/command plugins) inside
+	// a nested macOS Seatbelt sandbox via sandbox-exec. That nested sandbox_apply
+	// is denied inside fence's own sandbox ("Operation not permitted"), so
+	// `swift build/test/run` aborts with "Invalid manifest". No fence setting can
+	// grant nested sandboxing and SwiftPM has no env var for it, so the preset
+	// shims `swift` on PATH to add --disable-sandbox. That turns off SwiftPM's
+	// *own* nested sandbox, NOT fence — fence still confines the build and every
+	// subprocess to workspace writes and allowed domains. The residual cost: a
+	// package's manifest/plugin code then runs with the fenced session's
+	// permissions instead of SwiftPM's stricter read-only/no-network subset.
+	// Keeping both is impossible — fence forbids the nested sandbox_apply that
+	// SwiftPM's inner sandbox needs.
+	"swift": {swiftShim: true},
 	"docker": {
 		cacheEnv:       map[string]string{"DOCKER_CONFIG": "docker"},
 		allUnixSockets: true,
@@ -271,6 +315,40 @@ var dockerHubPullDomains = []string{
 func IsKnownPreset(name string) bool {
 	_, ok := presets[name]
 	return ok
+}
+
+// swiftLookPathFn resolves the real swift binary on the host. Overridable in
+// tests. Runs in the unfenced daemon, so the resolved path is valid inside the
+// fence for local sessions.
+var swiftLookPathFn = func() string {
+	p, err := exec.LookPath("swift")
+	if err != nil {
+		return ""
+	}
+	return p
+}
+
+// swiftShimScript renders the `swift` PATH shim. SwiftPM evaluates Package.swift
+// (and runs build-tool/command plugins) inside a nested macOS Seatbelt sandbox
+// via sandbox-exec; that inner sandbox_apply is denied inside fence's own sandbox
+// ("Operation not permitted"), aborting the build with "Invalid manifest". No
+// fence setting can grant nested sandboxing and SwiftPM exposes no env var for
+// it, so the shim adds --disable-sandbox to the subcommands that sandbox
+// subprocesses (build/test/run) — never duplicating it, passing everything else
+// through — then execs the real swift by absolute path (no PATH recursion).
+func swiftShimScript(realSwift string) string {
+	return "#!/bin/sh\n" +
+		"# Generated by schmux fence (swift preset); do not edit.\n" +
+		"real=" + shellutil.Quote(realSwift) + "\n" +
+		"case \"$1\" in\n" +
+		"build|test|run)\n" +
+		"\tfor arg in \"$@\"; do\n" +
+		"\t\t[ \"$arg\" = --disable-sandbox ] && exec \"$real\" \"$@\"\n" +
+		"\tdone\n" +
+		"\tsub=$1; shift\n" +
+		"\texec \"$real\" \"$sub\" --disable-sandbox \"$@\" ;;\n" +
+		"esac\n" +
+		"exec \"$real\" \"$@\"\n"
 }
 
 // baselineEnv are cache redirects applied to every fenced session regardless of

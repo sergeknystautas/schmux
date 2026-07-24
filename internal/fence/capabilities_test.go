@@ -41,6 +41,9 @@ func TestRenderCapabilities_PresetGrantsAndBaseline(t *testing.T) {
 			if p.dockerConfig && !strings.Contains(doc, "DOCKER_CONFIG") {
 				t.Errorf("doc missing docker config grant for preset %q", name)
 			}
+			if p.swiftShim && !strings.Contains(doc, "--disable-sandbox") {
+				t.Errorf("doc missing swift shim grant for preset %q", name)
+			}
 			for _, d := range p.domains {
 				if !strings.Contains(doc, d) {
 					t.Errorf("doc missing domain %q for preset %q", d, name)
