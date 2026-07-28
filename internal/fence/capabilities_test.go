@@ -44,6 +44,9 @@ func TestRenderCapabilities_PresetGrantsAndBaseline(t *testing.T) {
 			if p.swiftShim && !strings.Contains(doc, "--disable-sandbox") {
 				t.Errorf("doc missing swift shim grant for preset %q", name)
 			}
+			if p.vercelShim && !strings.Contains(doc, "NODE_USE_ENV_PROXY") {
+				t.Errorf("doc missing vercel shim grant for preset %q", name)
+			}
 			for _, d := range p.domains {
 				if !strings.Contains(doc, d) {
 					t.Errorf("doc missing domain %q for preset %q", d, name)
@@ -112,6 +115,19 @@ func TestRenderCapabilities_GuidanceSections(t *testing.T) {
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("doc missing guidance marker %q", want)
+		}
+	}
+}
+
+func TestRenderCapabilities_VercelGuidance(t *testing.T) {
+	doc := RenderCapabilities()
+	for _, want := range []string{
+		"InvalidArgumentError: invalid onError method", // evidence shape the analyzer must recognize
+		"NODE_USE_ENV_PROXY",                           // the shim's proxy opt-in
+		"vercel.com", "api.vercel.com",                 // preset-carried domains
+	} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("doc missing vercel guidance marker %q", want)
 		}
 	}
 }

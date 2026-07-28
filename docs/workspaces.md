@@ -550,12 +550,13 @@ When a session is launched with the **Fence** sandbox (the checkbox in the spawn
 
 #### Presets
 
-| Preset         | Enables                                                                        |
-| -------------- | ------------------------------------------------------------------------------ |
-| `golang`       | Go build/staticcheck caches, `GOFLAGS=-modcacherw`, Go telemetry writes        |
-| `tmux`         | Unix-socket creation (needed by tools/tests that spin up tmux)                 |
-| `docker`       | Host Docker daemon socket + `DOCKER_CONFIG` redirect + Docker Hub pull domains |
-| `godot-editor` | Read/write the Godot editor config dir (`~/Library/Application Support/Godot`) |
+| Preset         | Enables                                                                                                               |
+| -------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `golang`       | Go build/staticcheck caches, `GOFLAGS=-modcacherw`, Go telemetry writes                                               |
+| `tmux`         | Unix-socket creation (needed by tools/tests that spin up tmux)                                                        |
+| `docker`       | Host Docker daemon socket + `DOCKER_CONFIG` redirect + Docker Hub pull domains                                        |
+| `godot-editor` | Read/write the Godot editor config dir (`~/Library/Application Support/Godot`)                                        |
+| `vercel`       | Vercel CLI proxy-compat PATH shim (Node preload + env, in the per-session launch dir) + `vercel.com`/`api.vercel.com` |
 
 The npm/Yarn/Bun, pip/uv, and Playwright browser cache redirects are baseline (applied to every fenced session), not presets — they are pure env-var redirects into the workspace with no security tradeoff.
 

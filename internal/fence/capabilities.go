@@ -99,6 +99,9 @@ func writePresetGrants(b *strings.Builder, name string, p preset) {
 			"nested manifest/plugin sandbox (" + bq + "sandbox-exec" + bq + ", which cannot nest inside " +
 			"fence) does not abort the build with " + bq + "Invalid manifest" + bq + ".\n")
 	}
+	if p.vercelShim {
+		b.WriteString("- Shims " + bq + "vercel" + bq + " on PATH (in the per-session fence launch dir, not the workspace): exports " + bq + "NODE_USE_ENV_PROXY=1" + bq + " and " + bq + "NO_UPDATE_NOTIFIER=1" + bq + " and preloads (via " + bq + "NODE_OPTIONS --require" + bq + ") a module that drops the CLI's explicit fetch dispatcher, so requests route through fence's proxy instead of dying with " + bq + "InvalidArgumentError: invalid onError method" + bq + " before any network I/O.\n")
+	}
 	if len(p.domains) > 0 {
 		b.WriteString("- Adds network domains: " + bq + strings.Join(p.domains, bq+", "+bq) + bq + ".\n")
 	}
@@ -130,7 +133,7 @@ const orientationText = "## You are inside a sandbox\n\n" +
 const policyLayeringText = "### Policy layering (read-only context)\n\n" +
 	"The effective sandbox policy composes, in order:\n" +
 	"1. The fence " + bq + "code" + bq + " baseline template (network and filesystem defaults).\n" +
-	"2. The selected presets above (cache redirects, GOFLAGS, unix sockets, docker config, preset domains, macOS Mach grants).\n" +
+	"2. The selected presets above (cache redirects, GOFLAGS, unix sockets, docker config, PATH shims, preset domains, macOS Mach grants).\n" +
 	"3. The repo's " + bq + "fence.allowed_domains" + bq + ".\n" +
 	"4. schmux-added grants: write access to the workspace, and read access to this workspace's fence " +
 	"directory (that is how you can read " + bq + "monitor.log" + bq + " and this doc).\n\n" +
@@ -188,6 +191,7 @@ const selectionText = "## Choosing a recommendation\n\n" +
 	"a " + bq + "swift build/test/run" + bq + " is running -> the " + bq + "swift" + bq + " preset is honest. " +
 	"This failure aborts the command but may not appear as a " + bq + "✗" + bq + " line in " + bq + "monitor.log" + bq +
 	"; the evidence is the command's own error output.\n\n" +
+	"- The Vercel CLI aborting with " + bq + "InvalidArgumentError: invalid onError method" + bq + " (its requests never reach the proxy, so " + bq + "monitor.log" + bq + " stays quiet — the evidence is the CLI's own stderr) proves the Vercel CLI is running on a Node that rejects its explicit fetch dispatcher -> the " + bq + "vercel" + bq + " preset is honest. The preset already carries " + bq + "vercel.com" + bq + "/" + bq + "api.vercel.com" + bq + "; update-notifier and telemetry endpoints stay denied — recommend doing nothing about those.\n\n" +
 	bq + "allowed_domains" + bq + " is per-destination, not per-tool. Recommend the specific blocked domain, " +
 	"taken verbatim from the " + bq + "CONNECT" + bq + " line. Do not broaden it.\n\n"
 

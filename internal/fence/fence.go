@@ -27,7 +27,7 @@ type Config struct {
 	ExtraWritablePaths []string // out-of-workspace paths the VCS must write (e.g. a git worktree's shared .git). Opaque to fence.
 	ExtraReadablePaths []string // out-of-workspace paths the process may read (e.g. the workspace's fence-log dir). Opaque to fence.
 	AllowedDomains     []string // model/provider + repo fence.allowed_domains
-	Presets            []string // repo fence.presets (golang/tmux/docker/godot-editor)
+	Presets            []string // repo fence.presets (golang/tmux/docker/godot-editor/chromium/macos-gui/swift/vercel)
 	DataDir            string   // where generated launch files go (~/.schmux/fence/<workspace-id>/<session-id>/)
 }
 
@@ -87,7 +87,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 
 	cacheRoot := filepath.Join(c.WorkspacePath, filepath.FromSlash(fenceCacheRel))
 	env := baselineEnv(cacheRoot)
-	var goFlags, goTelemetry, allUnix, dockerConfig, godotEditor, swiftShim bool
+	var goFlags, goTelemetry, allUnix, dockerConfig, godotEditor, swiftShim, vercelShim bool
 	domains := append([]string{}, baselineDomains...)
 	var machLookup, machRegister []string
 	for _, name := range c.Presets {
@@ -104,6 +104,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 		dockerConfig = dockerConfig || p.dockerConfig
 		godotEditor = godotEditor || p.godotEditor
 		swiftShim = swiftShim || p.swiftShim
+		vercelShim = vercelShim || p.vercelShim
 		domains = append(domains, p.domains...)
 		machLookup = append(machLookup, p.machLookup...)
 		machRegister = append(machRegister, p.machRegister...)
@@ -143,6 +144,33 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 		}
 	}
 
+	// The vercel preset writes a `vercel` shim + Node preload into the
+	// per-session launch dir (NOT the workspace: a repo could pre-position a
+	// workspace-resident shim path as a symlink and turn this WriteFile into
+	// a confused-deputy write outside the workspace) and prepends it to PATH.
+	// Skipped when vercel is not on the host, mirroring swift.
+	var vercelShimDir string
+	if vercelShim {
+		if realVercel := vercelLookPathFn(); realVercel != "" {
+			vercelShimDir = filepath.Join(c.DataDir, "vercel-shim")
+			// NODE_OPTIONS is space-split by Node with no quoting mechanism;
+			// a whitespace path would silently never load the preload.
+			if strings.ContainsAny(vercelShimDir, " \t\n") {
+				return "", fmt.Errorf("fence: vercel shim path %q contains whitespace; NODE_OPTIONS cannot reference it", vercelShimDir)
+			}
+			if err := os.MkdirAll(vercelShimDir, 0o700); err != nil {
+				return "", fmt.Errorf("fence: creating vercel shim dir: %w", err)
+			}
+			preloadPath := filepath.Join(vercelShimDir, "proxy-preload.cjs")
+			if err := os.WriteFile(preloadPath, []byte(vercelProxyPreload), 0o600); err != nil {
+				return "", fmt.Errorf("fence: writing vercel proxy preload: %w", err)
+			}
+			if err := os.WriteFile(filepath.Join(vercelShimDir, "vercel"), []byte(vercelShimScript(realVercel, preloadPath)), 0o700); err != nil {
+				return "", fmt.Errorf("fence: writing vercel shim: %w", err)
+			}
+		}
+	}
+
 	cmdPath := filepath.Join(c.DataDir, "cmd.sh")
 	settingsPath := filepath.Join(c.DataDir, "settings.json")
 	monitorLogPath := filepath.Join(c.DataDir, "monitor.log")
@@ -153,6 +181,9 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 	}
 	if swiftShimDir != "" {
 		script += "export PATH=" + shellutil.Quote(swiftShimDir) + ":$PATH\n"
+	}
+	if vercelShimDir != "" {
+		script += "export PATH=" + shellutil.Quote(vercelShimDir) + ":$PATH\n"
 	}
 	script += command
 	if err := os.WriteFile(cmdPath, []byte(script), 0o600); err != nil {
@@ -176,6 +207,11 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 	if swiftShimDir != "" {
 		denyWrite = append(denyWrite, swiftShimDir)
 	}
+	allowRead := []string{cmdPath}
+	if vercelShimDir != "" {
+		allowRead = append(allowRead, vercelShimDir)
+	}
+	allowRead = append(allowRead, c.ExtraReadablePaths...)
 	s := settings{
 		Extends: "code",
 		Network: &settingsNetwork{
@@ -183,7 +219,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 			AllowAllUnixSockets: allUnix,
 		},
 		Filesystem: settingsFilesystem{
-			AllowRead:  append([]string{cmdPath}, c.ExtraReadablePaths...),
+			AllowRead:  allowRead,
 			AllowWrite: allowWrite,
 			DenyWrite:  denyWrite,
 		},
@@ -231,6 +267,7 @@ type preset struct {
 	dockerConfig   bool              // stage a DOCKER_CONFIG/config.json with cliPluginsExtraDirs
 	godotEditor    bool              // allowWrite the Godot editor config dir (~/Library/Application Support/Godot)
 	swiftShim      bool              // put a `swift` shim on PATH that adds --disable-sandbox (SwiftPM's nested sandbox can't run inside fence)
+	vercelShim     bool              // put a `vercel` shim on PATH (per-session launch dir) that strips the CLI's incompatible fetch dispatcher and opts Node into env-proxy mode
 	domains        []string          // append to network.allowedDomains
 	machLookup     []string          // append to macos.mach.lookup (macOS Seatbelt; ignored elsewhere)
 	machRegister   []string          // append to macos.mach.register
@@ -257,6 +294,15 @@ var presets = map[string]preset{
 	// Keeping both is impossible — fence forbids the nested sandbox_apply that
 	// SwiftPM's inner sandbox needs.
 	"swift": {swiftShim: true},
+	// The Vercel CLI passes an explicit undici dispatcher to native fetch whose
+	// callback shape current Node rejects ("InvalidArgumentError: invalid
+	// onError method"), killing the request before any network I/O — so no
+	// allowed_domains entry can help. The preset shims `vercel` on PATH: a Node
+	// preload drops the explicit dispatcher and NODE_USE_ENV_PROXY=1 routes
+	// requests through fence's proxy, where the preset domains (and any repo
+	// allowed_domains) decide. NO_UPDATE_NOTIFIER=1 suppresses the
+	// npm-registry update ping instead of allowlisting it.
+	"vercel": {vercelShim: true, domains: vercelDomains},
 	"docker": {
 		cacheEnv:       map[string]string{"DOCKER_CONFIG": "docker"},
 		allUnixSockets: true,
@@ -311,6 +357,15 @@ var dockerHubPullDomains = []string{
 	"registry-1.docker.io",
 }
 
+// vercelDomains are the Vercel API/WWW endpoints the CLI needs for its core
+// account/project/domain commands. Telemetry and update-notifier endpoints
+// are deliberately absent (the preset's shim sets NO_UPDATE_NOTIFIER=1
+// instead of allowlisting the ping). Overridable in tests.
+var vercelDomains = []string{
+	"vercel.com",
+	"api.vercel.com",
+}
+
 // IsKnownPreset reports whether name is a defined fence preset.
 func IsKnownPreset(name string) bool {
 	_, ok := presets[name]
@@ -350,6 +405,62 @@ func swiftShimScript(realSwift string) string {
 		"esac\n" +
 		"exec \"$real\" \"$@\"\n"
 }
+
+// vercelLookPathFn resolves the real vercel binary on the host. Overridable
+// in tests. Runs in the unfenced daemon, so the resolved path is valid inside
+// the fence for local sessions.
+var vercelLookPathFn = func() string {
+	p, err := exec.LookPath("vercel")
+	if err != nil {
+		return ""
+	}
+	return p
+}
+
+// vercelShimScript renders the `vercel` PATH shim. The Vercel CLI passes an
+// explicit undici dispatcher to native fetch whose callback shape current
+// Node rejects ("InvalidArgumentError: invalid onError method"), killing
+// requests before any network I/O. The shim opts Node into env-proxy mode
+// (NODE_USE_ENV_PROXY=1) and preloads a module that drops the explicit
+// dispatcher so Node's own proxy-aware dispatcher handles requests — routing
+// them through fence's proxy, where allowed_domains decides. It also
+// suppresses the CLI's update notifier (NO_UPDATE_NOTIFIER=1) instead of
+// allowlisting its npm-registry ping. Both paths are bound as quoted shell
+// variables; the preload path is whitespace-free (Wrap guarantees it), which
+// NODE_OPTIONS requires. All invocations pass through to the real CLI, exec'd
+// by absolute path (no PATH recursion).
+func vercelShimScript(realVercel, preloadPath string) string {
+	return "#!/bin/sh\n" +
+		"# Generated by schmux fence (vercel preset); do not edit.\n" +
+		"real=" + shellutil.Quote(realVercel) + "\n" +
+		"preload=" + shellutil.Quote(preloadPath) + "\n" +
+		"export NODE_USE_ENV_PROXY=1\n" +
+		"export NO_UPDATE_NOTIFIER=1\n" +
+		"export NODE_OPTIONS=\"${NODE_OPTIONS:+$NODE_OPTIONS }--require $preload\"\n" +
+		"exec \"$real\" \"$@\"\n"
+}
+
+// vercelProxyPreload is the Node --require preload the vercel shim installs.
+// It wraps globalThis.fetch and drops an explicit per-request dispatcher:
+// the Vercel CLI's own undici dispatcher has a callback shape current Node
+// rejects, while Node's built-in dispatcher honors NODE_USE_ENV_PROXY=1 and
+// routes through fence's proxy. Nothing else is patched — TLS verification,
+// the global dispatcher, and every other global are untouched. It is written
+// as .cjs so Node loads it as CommonJS regardless of any ancestor
+// package.json.
+const vercelProxyPreload = `// Generated by schmux fence (vercel preset); do not edit.
+"use strict";
+const originalFetch = globalThis.fetch;
+if (typeof originalFetch === "function") {
+  globalThis.fetch = function fetch(input, init) {
+    if (init != null && typeof init === "object" && "dispatcher" in init) {
+      init = { ...init };
+      delete init.dispatcher;
+    }
+    return originalFetch.call(this, input, init);
+  };
+}
+`
 
 // baselineEnv are cache redirects applied to every fenced session regardless of
 // preset, keeping tool caches out of the user's home dir. These are pure env-var

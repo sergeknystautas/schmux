@@ -605,3 +605,170 @@ func TestWrapAddsExtraReadablePaths(t *testing.T) {
 		t.Errorf("settings.json missing extra readable path: %s", data)
 	}
 }
+
+func TestWrapVercelPresetAddsDomains(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sess")
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"vercel"}, DataDir: dir}, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+	var s settings
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"vercel.com", "api.vercel.com"} {
+		if s.Network == nil || !slices.Contains(s.Network.AllowedDomains, want) {
+			t.Errorf("vercel preset allowedDomains = %v, want %s", s.Network, want)
+		}
+	}
+	if !IsKnownPreset("vercel") {
+		t.Errorf("IsKnownPreset(vercel) = false, want true")
+	}
+}
+
+func TestWrapVercelPresetWritesShimAndPath(t *testing.T) {
+	orig := vercelLookPathFn
+	vercelLookPathFn = func() string { return "/usr/local/bin/vercel" }
+	defer func() { vercelLookPathFn = orig }()
+
+	dir := filepath.Join(t.TempDir(), "sess")
+	ws := t.TempDir()
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"vercel"}, DataDir: dir}, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+
+	shimDir := filepath.Join(dir, "vercel-shim")
+	shimPath := filepath.Join(shimDir, "vercel")
+	fi, err := os.Stat(shimPath)
+	if err != nil {
+		t.Fatalf("vercel shim not written: %v", err)
+	}
+	if fi.Mode().Perm()&0o100 == 0 {
+		t.Errorf("vercel shim mode = %o, want executable", fi.Mode().Perm())
+	}
+	shim, _ := os.ReadFile(shimPath)
+	for _, want := range []string{"/usr/local/bin/vercel", "NODE_USE_ENV_PROXY=1", "NO_UPDATE_NOTIFIER=1", "--require", "proxy-preload.cjs"} {
+		if !strings.Contains(string(shim), want) {
+			t.Errorf("shim missing %q\nshim=%s", want, shim)
+		}
+	}
+
+	preload, err := os.ReadFile(filepath.Join(shimDir, "proxy-preload.cjs"))
+	if err != nil {
+		t.Fatalf("proxy preload not written: %v", err)
+	}
+	for _, want := range []string{"globalThis.fetch", "dispatcher"} {
+		if !strings.Contains(string(preload), want) {
+			t.Errorf("preload missing %q\npreload=%s", want, preload)
+		}
+	}
+
+	// cmd.sh prepends the shim dir to PATH so the shim wins over the real vercel.
+	cmd, _ := os.ReadFile(filepath.Join(dir, "cmd.sh"))
+	wantPath := "export PATH='" + shimDir + "':$PATH"
+	if !strings.Contains(string(cmd), wantPath) {
+		t.Errorf("cmd.sh missing PATH prepend %q\ncmd=%s", wantPath, cmd)
+	}
+
+	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+	var s settings
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	// The shim lives in the per-session launch dir, outside the writable
+	// workspace: it needs an allowRead grant and no denyWrite (the fenced
+	// session has no write grant to the launch dir at all).
+	if !slices.Contains(s.Filesystem.AllowRead, shimDir) {
+		t.Errorf("allowRead = %v, want to contain shim dir %s", s.Filesystem.AllowRead, shimDir)
+	}
+	if slices.Contains(s.Filesystem.DenyWrite, shimDir) {
+		t.Errorf("denyWrite = %v, must not contain the DataDir shim dir %s", s.Filesystem.DenyWrite, shimDir)
+	}
+}
+
+// TestVercelShimSetsProxyEnv executes the generated shim against a stub
+// "vercel" that echoes the proxy env and its args, proving the shim exports
+// NODE_USE_ENV_PROXY/NO_UPDATE_NOTIFIER, appends --require to NODE_OPTIONS
+// (preserving any existing value), and passes all arguments through.
+func TestVercelShimSetsProxyEnv(t *testing.T) {
+	stubDir := t.TempDir()
+	stub := filepath.Join(stubDir, "vercel")
+	stubScript := "#!/bin/sh\n" +
+		"echo \"proxy=$NODE_USE_ENV_PROXY\"\n" +
+		"echo \"notifier=$NO_UPDATE_NOTIFIER\"\n" +
+		"echo \"nodeopts=$NODE_OPTIONS\"\n" +
+		"for a in \"$@\"; do echo \"arg=$a\"; done\n"
+	if err := os.WriteFile(stub, []byte(stubScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orig := vercelLookPathFn
+	vercelLookPathFn = func() string { return stub }
+	defer func() { vercelLookPathFn = orig }()
+
+	dir := filepath.Join(t.TempDir(), "sess")
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"vercel"}, DataDir: dir}, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	shim := filepath.Join(dir, "vercel-shim", "vercel")
+	preload := filepath.Join(dir, "vercel-shim", "proxy-preload.cjs")
+
+	cmd := exec.Command("/bin/sh", shim, "whoami", "--token", "x")
+	cmd.Env = append(os.Environ(), "NODE_OPTIONS=--max-old-space-size=4096")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("run shim: %v", err)
+	}
+	got := string(out)
+	for _, want := range []string{
+		"proxy=1",
+		"notifier=1",
+		"nodeopts=--max-old-space-size=4096 --require " + preload,
+		"arg=whoami", "arg=--token", "arg=x",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("shim output missing %q\noutput=%s", want, got)
+		}
+	}
+}
+
+func TestWrapVercelPresetNoVercelSkipsShim(t *testing.T) {
+	orig := vercelLookPathFn
+	vercelLookPathFn = func() string { return "" } // vercel not installed on host
+	defer func() { vercelLookPathFn = orig }()
+
+	dir := filepath.Join(t.TempDir(), "sess")
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"vercel"}, DataDir: dir}, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "vercel-shim", "vercel")); !os.IsNotExist(err) {
+		t.Errorf("shim should not exist when vercel is not on the host; stat err = %v", err)
+	}
+	cmd, _ := os.ReadFile(filepath.Join(dir, "cmd.sh"))
+	if strings.Contains(string(cmd), "vercel-shim") {
+		t.Errorf("cmd.sh must not prepend a shim dir when vercel is absent: %s", cmd)
+	}
+	// Domains are an identity grant: present even when the CLI is not installed.
+	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+	var s settings
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	if s.Network == nil || !slices.Contains(s.Network.AllowedDomains, "api.vercel.com") {
+		t.Errorf("allowedDomains = %v, want api.vercel.com even with no CLI on host", s.Network)
+	}
+}
+
+func TestWrapVercelPresetWhitespaceDataDirFails(t *testing.T) {
+	orig := vercelLookPathFn
+	vercelLookPathFn = func() string { return "/usr/local/bin/vercel" }
+	defer func() { vercelLookPathFn = orig }()
+
+	// NODE_OPTIONS is space-split by Node with no quoting mechanism: a shim
+	// path containing whitespace would silently never load the preload, so
+	// Wrap fails the launch instead.
+	dir := filepath.Join(t.TempDir(), "sess with space")
+	_, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"vercel"}, DataDir: dir}, "echo hi")
+	if err == nil || !strings.Contains(err.Error(), "whitespace") {
+		t.Errorf("Wrap err = %v, want a whitespace guard error", err)
+	}
+}
