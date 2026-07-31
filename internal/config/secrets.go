@@ -243,6 +243,10 @@ var legacyModelProviders = map[string]string{
 	// models.dev IDs (targets of ID migration)
 	"MiniMax-M2.1": "minimax", "MiniMax-M2.5": "minimax", "MiniMax-M2.7": "minimax",
 	"kimi-k2-thinking": "moonshot",
+	// Metered Moonshot IDs and their Kimi subscription-plan targets — same
+	// credential slot, so both sides map to "moonshot".
+	"kimi-k3": "moonshot", "kimi-k2.7-code": "moonshot", "kimi-k2.7-code-highspeed": "moonshot",
+	"k3": "moonshot", "kimi-for-coding": "moonshot", "kimi-for-coding-highspeed": "moonshot",
 	// Dated Anthropic IDs (targets of legacy migrations)
 	"claude-opus-4-5-20251101": "anthropic", "claude-opus-4-1-20250805": "anthropic",
 	"claude-sonnet-4-5-20250929": "anthropic", "claude-opus-4-20250514": "anthropic",

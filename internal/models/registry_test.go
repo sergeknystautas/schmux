@@ -33,19 +33,19 @@ const testRegistryJSON = `{
 			}
 		}
 	},
-	"moonshotai": {
-		"name": "Moonshot AI",
-		"api": "https://api.moonshot.ai/v1",
-		"env": ["MOONSHOT_API_KEY"],
+	"kimi-for-coding": {
+		"name": "Kimi For Coding",
+		"api": "https://api.kimi.com/coding/v1",
+		"env": ["KIMI_API_KEY"],
 		"models": {
-			"kimi-k2-thinking": {
-				"id": "kimi-k2-thinking",
-				"name": "Kimi K2 Thinking",
+			"k3": {
+				"id": "k3",
+				"name": "Kimi K3",
 				"tool_call": true,
-				"release_date": "2025-11-06",
+				"release_date": "2026-07-16",
 				"modalities": {"input": ["text"], "output": ["text"]},
-				"limit": {"context": 262144, "output": 262144},
-				"cost": {"input": 0.6, "output": 2.5}
+				"limit": {"context": 1048576, "output": 131072},
+				"cost": {"input": 0, "output": 0}
 			}
 		}
 	},
@@ -79,7 +79,7 @@ func TestParseRegistry(t *testing.T) {
 		t.Fatalf("ParseRegistry: %v", err)
 	}
 	// Should include claude-opus-4-6 (recent, tool_call, text output, known provider)
-	// Should include kimi-k2-thinking (recent, tool_call, text output, known provider)
+	// Should include k3 (recent, tool_call, text output, known provider)
 	// Should exclude old-model (too old)
 	// Should exclude some-model (unknown provider)
 	// Should exclude embed-model (tool_call false)
@@ -92,7 +92,7 @@ func TestParseRegistry(t *testing.T) {
 		switch models[i].ID {
 		case "claude-opus-4-6":
 			claude = &models[i]
-		case "kimi-k2-thinking":
+		case "k3":
 			kimi = &models[i]
 		}
 	}
@@ -117,9 +117,9 @@ func TestParseRegistry(t *testing.T) {
 	}
 
 	if kimi == nil {
-		t.Fatal("kimi-k2-thinking not found")
+		t.Fatal("k3 not found")
 	}
-	if kimi.Provider != "moonshotai" {
+	if kimi.Provider != "kimi-for-coding" {
 		t.Errorf("wrong provider: %q", kimi.Provider)
 	}
 }
@@ -198,13 +198,11 @@ func TestBuildDetectModels(t *testing.T) {
 			ReleaseDate:   "2026-02-05",
 		},
 		{
-			ID:            "kimi-k2-thinking",
-			DisplayName:   "Kimi K2 Thinking",
-			Provider:      "moonshotai",
-			ContextWindow: 262144,
-			CostInput:     0.6,
-			CostOutput:    2.5,
-			ReleaseDate:   "2025-11-06",
+			ID:            "k3",
+			DisplayName:   "Kimi K3",
+			Provider:      "kimi-for-coding",
+			ContextWindow: 1048576,
+			ReleaseDate:   "2026-07-16",
 		},
 	}
 
@@ -249,7 +247,7 @@ func TestBuildDetectModels(t *testing.T) {
 	if !ok {
 		t.Fatal("missing claude runner for kimi")
 	}
-	if kimiRunner.Endpoint != "https://api.moonshot.ai/anthropic" {
+	if kimiRunner.Endpoint != "https://api.kimi.com/coding" {
 		t.Errorf("endpoint: got %q", kimiRunner.Endpoint)
 	}
 	if len(kimiRunner.RequiredSecrets) != 1 || kimiRunner.RequiredSecrets[0] != "ANTHROPIC_AUTH_TOKEN" {
@@ -259,7 +257,7 @@ func TestBuildDetectModels(t *testing.T) {
 	if !ok {
 		t.Fatal("missing opencode runner for kimi")
 	}
-	if kimiOC.ModelValue != "moonshot/kimi-k2-thinking" {
+	if kimiOC.ModelValue != "kimi-for-coding/k3" {
 		t.Errorf("opencode ModelValue: got %q", kimiOC.ModelValue)
 	}
 }

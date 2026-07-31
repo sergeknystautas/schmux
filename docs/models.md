@@ -61,6 +61,14 @@ Each `ProviderProfile` in `profiles.go` maps a models.dev provider key to a runn
 
 Every registry model gets two runner entries: one for its provider's primary runner using the models.dev ID as `ModelValue`, and one for opencode using `{opencode_prefix}/{model_id}`.
 
+### Kimi comes from the subscription provider, not the metered one
+
+models.dev exposes Kimi twice: `moonshotai` (pay-as-you-go, `https://api.moonshot.ai/v1`, priced models like `kimi-k3`) and `kimi-for-coding` (subscription, `https://api.kimi.com/coding/v1`, `cost: 0`, model IDs `k3`, `k3-256k`, `kimi-for-coding`, `kimi-for-coding-highspeed`). schmux registers only `kimi-for-coding`. This mirrors Z.AI, where only `zai-coding-plan` has a profile.
+
+The two are not interchangeable by URL alone — the model IDs differ, so pointing the metered profile at the subscription host would send IDs the endpoint does not serve. The profile's `SchmuxProvider` stays `moonshot` so existing `secrets.json` entries under `providers.moonshot` keep working; one Kimi credential slot, not two. `LegacyModelIDMigrations` maps the three metered IDs that have a like-for-like subscription model (`kimi-k3`→`k3`, `kimi-k2.7-code`→`kimi-for-coding`, `kimi-k2.7-code-highspeed`→`kimi-for-coding-highspeed`); the thinking models have no equivalent and resolve to nothing, rendering as "(unavailable)" in the target picker.
+
+To go back to metered Kimi, restore the `moonshotai` profile entry.
+
 ### Default models pass no --model flag
 
 The default models have `ModelValue: ""`. No `--model` flag is passed when spawning. The harness uses its own default, so when a harness promotes a new default, schmux picks it up without knowing the model ID.

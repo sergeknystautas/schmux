@@ -21,6 +21,12 @@ var LegacyModelIDMigrations = map[string]string{
 	"default_codex":    "codex",
 	"default_gemini":   "gemini",
 	"default_opencode": "opencode",
+	// Moonshot metered IDs → Kimi subscription-plan equivalents. schmux moved from
+	// the "moonshotai" provider to "kimi-for-coding"; only these three have a
+	// like-for-like model on the subscription endpoint.
+	"kimi-k3":                  "k3",
+	"kimi-k2.7-code":           "kimi-for-coding",
+	"kimi-k2.7-code-highspeed": "kimi-for-coding-highspeed",
 	// models.dev ID normalization
 	"kimi-thinking": "kimi-k2-thinking",
 	"minimax-m2.1":  "MiniMax-M2.1",

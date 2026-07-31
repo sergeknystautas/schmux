@@ -158,6 +158,9 @@ func TestMigrateModelID_NewMigrations(t *testing.T) {
 		{"claude-haiku-4-5", "claude-haiku-4-5-20251001"},
 		// models.dev ID normalization
 		{"kimi-thinking", "kimi-k2-thinking"},
+		{"kimi-k3", "k3"},
+		{"kimi-k2.7-code", "kimi-for-coding"},
+		{"kimi-k2.7-code-highspeed", "kimi-for-coding-highspeed"},
 		{"minimax-m2.1", "MiniMax-M2.1"},
 		{"minimax-2.5", "MiniMax-M2.5"},
 		{"minimax-2.7", "MiniMax-M2.7"},
@@ -189,8 +192,8 @@ func TestLegacyIDMigrations_AllResolveToRegistryIDs(t *testing.T) {
 		"claude-opus-4-5-20251101": true, "claude-opus-4-1-20250805": true,
 		"claude-opus-4-20250514": true, "claude-sonnet-4-5-20250929": true,
 		"claude-sonnet-4-20250514": true, "claude-haiku-4-5-20251001": true,
-		// moonshotai
-		"kimi-k2-thinking": true, "kimi-k2.5": true,
+		// kimi-for-coding
+		"k3": true, "kimi-for-coding": true,
 		// zai
 		"glm-4.7": true, "glm-4.5-air": true, "glm-5": true, "glm-5-turbo": true,
 		// minimax
@@ -203,7 +206,9 @@ func TestLegacyIDMigrations_AllResolveToRegistryIDs(t *testing.T) {
 		"gemini-2.5-flash-lite": true,
 	}
 
-	// Legacy IDs with no catalog equivalent — dropped from the system
+	// Legacy IDs with no catalog equivalent — dropped from the system.
+	// The metered Moonshot models went with the move to the Kimi subscription
+	// endpoint, which has no thinking-model equivalent.
 	dropped := map[string]bool{
 		"claude-sonnet-3-5": true,
 		"claude-haiku-3-5":  true,
@@ -212,6 +217,8 @@ func TestLegacyIDMigrations_AllResolveToRegistryIDs(t *testing.T) {
 		"gemini-2.5-pro":    true,
 		"gemini-2.5-flash":  true,
 		"gemini-2.0-flash":  true,
+		"kimi-thinking":     true,
+		"kimi-k2.5":         true,
 	}
 
 	// Every old builtin model ID that was in the hardcoded list

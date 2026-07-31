@@ -24,7 +24,7 @@ const (
 type RegistryModel struct {
 	ID            string // models.dev model ID
 	DisplayName   string
-	Provider      string // models.dev provider key (e.g., "moonshotai")
+	Provider      string // models.dev provider key (e.g., "kimi-for-coding")
 	ContextWindow int
 	MaxOutput     int
 	CostInput     float64 // $/million tokens

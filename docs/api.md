@@ -1798,8 +1798,8 @@ Response:
       "runners": ["claude", "opencode"]
     },
     {
-      "id": "kimi-thinking",
-      "display_name": "kimi k2 thinking",
+      "id": "k3",
+      "display_name": "Kimi K3",
       "provider": "moonshot",
       "configured": false,
       "runners": ["claude", "opencode"],

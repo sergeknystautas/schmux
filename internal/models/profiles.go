@@ -37,13 +37,17 @@ var providerProfiles = map[string]ProviderProfile{
 		Category:       "native",
 		OpencodePrefix: "google",
 	},
-	"moonshotai": {
+	// Kimi's subscription plan, not the metered "moonshotai" provider. Both serve
+	// Kimi models but from different hosts with different model IDs, so schmux
+	// registers only the subscription one. SchmuxProvider stays "moonshot" to keep
+	// existing secrets.json entries working.
+	"kimi-for-coding": {
 		Runner:          "claude",
-		Endpoint:        "https://api.moonshot.ai/anthropic",
+		Endpoint:        "https://api.kimi.com/coding",
 		RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
 		SchmuxProvider:  "moonshot",
-		OpencodePrefix:  "moonshot",
-		UsageURL:        "https://platform.moonshot.ai/console/account",
+		OpencodePrefix:  "kimi-for-coding",
+		UsageURL:        "https://www.kimi.com/code",
 		Category:        "third-party",
 	},
 	"zai-coding-plan": {

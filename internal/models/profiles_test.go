@@ -18,10 +18,10 @@ func TestGetProfile_Anthropic(t *testing.T) {
 	}
 }
 
-func TestGetProfile_Moonshotai(t *testing.T) {
-	p, ok := GetProviderProfile("moonshotai")
+func TestGetProfile_KimiForCoding(t *testing.T) {
+	p, ok := GetProviderProfile("kimi-for-coding")
 	if !ok {
-		t.Fatal("moonshotai profile not found")
+		t.Fatal("kimi-for-coding profile not found")
 	}
 	if p.Runner != "claude" {
 		t.Errorf("expected runner 'claude', got %q", p.Runner)
@@ -29,14 +29,22 @@ func TestGetProfile_Moonshotai(t *testing.T) {
 	if p.SchmuxProvider != "moonshot" {
 		t.Errorf("expected schmux_provider 'moonshot', got %q", p.SchmuxProvider)
 	}
-	if p.OpencodePrefix != "moonshot" {
-		t.Errorf("expected opencode_prefix 'moonshot', got %q", p.OpencodePrefix)
+	if p.OpencodePrefix != "kimi-for-coding" {
+		t.Errorf("expected opencode_prefix 'kimi-for-coding', got %q", p.OpencodePrefix)
 	}
-	if p.Endpoint != "https://api.moonshot.ai/anthropic" {
+	if p.Endpoint != "https://api.kimi.com/coding" {
 		t.Errorf("wrong endpoint: %q", p.Endpoint)
 	}
 	if len(p.RequiredSecrets) != 1 || p.RequiredSecrets[0] != "ANTHROPIC_AUTH_TOKEN" {
 		t.Errorf("wrong required secrets: %v", p.RequiredSecrets)
+	}
+}
+
+// The metered Moonshot provider was replaced by the subscription plan; it must
+// not come back silently, since its model IDs 404 on the subscription endpoint.
+func TestGetProfile_MoonshotaiNotRegistered(t *testing.T) {
+	if _, ok := GetProviderProfile("moonshotai"); ok {
+		t.Error("moonshotai profile should not be registered")
 	}
 }
 
@@ -48,7 +56,7 @@ func TestGetProfile_Unknown(t *testing.T) {
 }
 
 func TestGetProfile_AllProviders(t *testing.T) {
-	expected := []string{"anthropic", "openai", "google", "moonshotai", "zai-coding-plan", "minimax"}
+	expected := []string{"anthropic", "openai", "google", "kimi-for-coding", "zai-coding-plan", "minimax"}
 	for _, name := range expected {
 		if _, ok := GetProviderProfile(name); !ok {
 			t.Errorf("missing profile for %q", name)
@@ -62,7 +70,7 @@ func TestCanonicalProvider(t *testing.T) {
 		want              string
 	}{
 		{"anthropic", "anthropic"},
-		{"moonshotai", "moonshot"},
+		{"kimi-for-coding", "moonshot"},
 		{"zai-coding-plan", "zai"},
 		{"minimax", "minimax"},
 	}
