@@ -1,13 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import CommitHistoryDAG from './CommitHistoryDAG';
-import type { WorkspaceResponse } from '../lib/types';
+import type { CommitGraphResponse, WorkspaceResponse } from '../lib/types';
 
 // API mocks — individual fns so tests can inspect call counts.
 const getCommitGraph = vi.fn();
 const getDiff = vi.fn();
 const getConfig = vi.fn();
+const commitUncommit = vi.fn();
 
 vi.mock('../lib/api', () => ({
   getCommitGraph: (...args: unknown[]) => getCommitGraph(...args),
@@ -16,7 +17,7 @@ vi.mock('../lib/api', () => ({
   commitStage: vi.fn(),
   commitAmend: vi.fn(),
   commitDiscard: vi.fn(),
-  commitUncommit: vi.fn(),
+  commitUncommit: (...args: unknown[]) => commitUncommit(...args),
   spawnCommitSession: vi.fn(),
   pushToBranch: vi.fn(),
   createTab: vi.fn(),
@@ -75,6 +76,48 @@ function makeWorkspace(overrides: Partial<WorkspaceResponse> = {}): WorkspaceRes
   } as WorkspaceResponse;
 }
 
+// Two-commit graph on branch `feat`; `headHash` is the tip the Uncommit button targets.
+function makeGraph(headHash: string, headMessage: string): CommitGraphResponse {
+  const commit = (hash: string, message: string, parents: string[]) => ({
+    hash,
+    short_hash: hash.slice(0, 7),
+    message,
+    author: 'tester',
+    timestamp: '2026-01-01T00:00:00Z',
+    parents,
+    branches: ['feat'],
+    is_head: [] as string[],
+    workspace_ids: [] as string[],
+  });
+  const head = { ...commit(headHash, headMessage, ['base000']), is_head: ['feat'] };
+  const base = { ...commit('base000', 'base commit', []), branches: ['feat', 'main'] };
+  return {
+    repo: 'test-repo',
+    nodes: [head, base],
+    branches: {
+      main: { head: 'base000', is_main: true, workspace_ids: [] },
+      feat: { head: headHash, is_main: false, workspace_ids: [] },
+    },
+    main_ahead_count: 0,
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+function renderDAG() {
+  return render(
+    <MemoryRouter>
+      <CommitHistoryDAG workspaceId="ws-1" />
+    </MemoryRouter>
+  );
+}
+
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', MockResizeObserver);
   mockWorkspaces = [makeWorkspace()];
@@ -88,6 +131,7 @@ beforeEach(() => {
   });
   getDiff.mockReset().mockResolvedValue({ files: [] });
   getConfig.mockReset().mockResolvedValue({ commit_message: {} });
+  commitUncommit.mockReset().mockResolvedValue({ success: true });
 });
 
 describe('CommitHistoryDAG', () => {
@@ -134,5 +178,65 @@ describe('CommitHistoryDAG', () => {
     await waitFor(() => {
       expect(getCommitGraph.mock.calls.length).toBeGreaterThan(afterTick1);
     });
+  });
+
+  // The uncommit POST is rejected with 409 by the backend when the hash sent no
+  // longer matches HEAD, so the button must not re-enable while the row still
+  // shows the commit that was just uncommitted.
+  it('keeps Uncommit disabled until the refetched graph has rendered', async () => {
+    getCommitGraph.mockResolvedValue(makeGraph('head111', 'head commit'));
+    renderDAG();
+
+    const button = await screen.findByRole('button', { name: 'Uncommit' });
+
+    const refetch = deferred<CommitGraphResponse>();
+    getCommitGraph.mockReturnValueOnce(refetch.promise);
+
+    fireEvent.click(button);
+    await waitFor(() => expect(commitUncommit).toHaveBeenCalledWith('ws-1', 'head111'));
+
+    // Refetch still in flight: the graph below is stale, so the button stays disabled.
+    expect(screen.getByRole('button', { name: 'Uncommitting...' })).toBeDisabled();
+
+    refetch.resolve(makeGraph('base000', 'base commit'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Uncommit' })).toBeEnabled());
+  });
+
+  it('does not drop the post-uncommit refetch when another fetch is already in flight', async () => {
+    getCommitGraph.mockResolvedValue(makeGraph('head111', 'head commit'));
+    const { rerender } = renderDAG();
+
+    const button = await screen.findByRole('button', { name: 'Uncommit' });
+
+    // Hold the uncommit POST open so a WebSocket-driven refetch can start first —
+    // this is the real ordering, since the daemon broadcasts before it responds.
+    const uncommitCall = deferred<{ success: boolean }>();
+    commitUncommit.mockReturnValueOnce(uncommitCall.promise);
+    fireEvent.click(button);
+    await waitFor(() => expect(commitUncommit).toHaveBeenCalled());
+
+    const staleFetch = deferred<CommitGraphResponse>();
+    const trailingFetch = deferred<CommitGraphResponse>();
+    getCommitGraph.mockReturnValueOnce(staleFetch.promise);
+    getCommitGraph.mockReturnValueOnce(trailingFetch.promise);
+    mockWorkspaces = [makeWorkspace({ files_changed: 2 })];
+    rerender(
+      <MemoryRouter>
+        <CommitHistoryDAG workspaceId="ws-1" />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(getCommitGraph).toHaveBeenCalledTimes(2));
+
+    // POST completes while that fetch — started before the uncommit landed — is in flight.
+    uncommitCall.resolve({ success: true });
+    staleFetch.resolve(makeGraph('head111', 'head commit'));
+
+    // The refetch must be re-issued rather than dropped, and the button must stay
+    // disabled until it renders.
+    await waitFor(() => expect(getCommitGraph).toHaveBeenCalledTimes(3));
+    expect(screen.getByRole('button', { name: 'Uncommitting...' })).toBeDisabled();
+
+    trailingFetch.resolve(makeGraph('base000', 'base commit'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Uncommit' })).toBeEnabled());
   });
 });

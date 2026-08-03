@@ -110,14 +110,14 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
   const maxCommitsRef = useRef(maxCommits);
   maxCommitsRef.current = maxCommits;
 
-  // Track in-flight fetches to prevent concurrent requests from piling up.
-  const fetchInFlightRef = useRef(false);
+  // Track the in-flight fetch (and at most one trailing fetch) so concurrent
+  // requests don't pile up — see fetchData below.
+  const fetchInFlightRef = useRef<Promise<void> | null>(null);
+  const fetchQueuedRef = useRef<Promise<void> | null>(null);
 
-  const fetchData = useCallback(async () => {
+  const runFetch = useCallback(async () => {
     const mc = maxCommitsRef.current;
     if (mc <= 0) return; // wait for container measurement
-    if (fetchInFlightRef.current) return; // skip if already fetching
-    fetchInFlightRef.current = true;
     try {
       const [graphResp, diffResp] = await Promise.all([
         getCommitGraph(workspaceId, { maxTotal: mc }),
@@ -150,9 +150,30 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
       setError(err instanceof Error ? err.message : 'Failed to load git graph');
     } finally {
       setLoading(false);
-      fetchInFlightRef.current = false;
     }
   }, [workspaceId]);
+
+  // Callers await this to know the graph on screen reflects a mutation they just
+  // made. A request that arrives mid-fetch is therefore coalesced into a single
+  // trailing fetch, never dropped: the in-flight one may have started before the
+  // mutation landed, so its data can already be stale.
+  const fetchData = useCallback((): Promise<void> => {
+    const start = (): Promise<void> => {
+      const inFlight = runFetch().finally(() => {
+        if (fetchInFlightRef.current === inFlight) fetchInFlightRef.current = null;
+      });
+      fetchInFlightRef.current = inFlight;
+      return inFlight;
+    };
+    if (!fetchInFlightRef.current) return start();
+    if (!fetchQueuedRef.current) {
+      fetchQueuedRef.current = fetchInFlightRef.current.then(() => {
+        fetchQueuedRef.current = null;
+        return start();
+      });
+    }
+    return fetchQueuedRef.current;
+  }, [runFetch]);
 
   // Initial fetch — only depends on workspaceId, not maxCommits.
   useEffect(() => {
@@ -390,7 +411,7 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
               setIsDiscarding(true);
               try {
                 await commitDiscard(workspaceId, filesToDiscard);
-                fetchData();
+                await fetchData();
               } catch (err) {
                 await alert('Discard Failed', err instanceof Error ? err.message : 'Unknown error');
               } finally {
@@ -540,7 +561,7 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
                 setIsAmending(true);
                 try {
                   await commitAmend(workspaceId, Array.from(selectedFiles));
-                  fetchData();
+                  await fetchData();
                 } catch (err) {
                   await alert('Amend Failed', err instanceof Error ? err.message : 'Unknown error');
                 } finally {
@@ -672,7 +693,10 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
                   setIsUncommitting(true);
                   try {
                     await commitUncommit(workspaceId, ln.node.hash);
-                    fetchData();
+                    // Await the refetch: re-enabling the button while the row
+                    // still shows the uncommitted commit makes the next click
+                    // post a stale hash, which the daemon rejects with 409.
+                    await fetchData();
                   } catch (err) {
                     await alert(
                       'Uncommit Failed',
