@@ -1,15 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import ActionDropdown from './ActionDropdown';
 import type { WorkspaceResponse } from '../lib/types';
 import type { SpawnEntry } from '../lib/types.generated';
 
 // Track navigations
 const mockNavigate = vi.fn();
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual('react-router-dom');
+vi.mock('react-router', async () => {
+  const actual = await vi.importActual('react-router');
   return { ...actual, useNavigate: () => mockNavigate };
 });
 

@@ -86,7 +86,7 @@ fi
 # --- TypeScript: knip (unused files, exports, deps) ---
 
 section "TypeScript unused code (knip)"
-KNIP_OUT=$(cd assets/dashboard && npx knip --no-exit-code 2>&1 | grep -v "^Configuration hints" | grep -v "knip.json") || true
+KNIP_OUT=$(cd assets/dashboard && npx --loglevel=silent knip --no-exit-code 2>&1 | grep -v "^Configuration hints" | grep -v "knip.json") || true
 if [ -n "$KNIP_OUT" ]; then
     echo "$KNIP_OUT"
     FAILED=1
@@ -122,7 +122,7 @@ section "TypeScript type errors (tsc)"
 TSC_FAILED=0
 for ts_dir in assets/dashboard tools/test-runner tools/dev-runner test/scenarios/generated; do
     if [ -f "$ts_dir/tsconfig.json" ]; then
-        TSC_OUT=$(cd "$ts_dir" && npx tsc --noEmit 2>&1) || true
+        TSC_OUT=$(cd "$ts_dir" && npx --loglevel=silent tsc --noEmit 2>&1) || true
         if [ -n "$TSC_OUT" ]; then
             echo "--- $ts_dir ---"
             echo "$TSC_OUT"

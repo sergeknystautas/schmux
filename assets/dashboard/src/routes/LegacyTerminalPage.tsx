@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 
 export default function LegacyTerminalPage() {
   const [searchParams] = useSearchParams();

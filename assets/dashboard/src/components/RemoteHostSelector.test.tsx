@@ -137,13 +137,13 @@ describe('RemoteHostSelector', () => {
 
     renderSelector();
 
-    await waitFor(() => {
-      expect(screen.queryByText('Loading remote hosts...')).not.toBeInTheDocument();
-    });
-
     // Hostname appears in both the card title (strong) and HostStatusIndicator,
-    // so use getAllByText and verify at least one exists
-    expect(screen.getAllByText('dev001.example.com').length).toBeGreaterThan(0);
+    // so use findAllByText and verify at least one exists. This waits out the
+    // gap between the profile-statuses fetch resolving and the follow-on
+    // effect that derives selectedFlavors (which gates connected-card render).
+    await waitFor(() => {
+      expect(screen.getAllByText('dev001.example.com').length).toBeGreaterThan(0);
+    });
     expect(screen.getAllByText('dev002.example.com').length).toBeGreaterThan(0);
   });
 
@@ -240,13 +240,12 @@ describe('RemoteHostSelector', () => {
 
     renderSelector();
 
-    await waitFor(() => {
-      expect(screen.queryByText('Loading remote hosts...')).not.toBeInTheDocument();
-    });
-
     // Hostname appears in both the card title (strong) and HostStatusIndicator
-    const hostnameElements = screen.getAllByText('myhost.example.com');
-    expect(hostnameElements.length).toBeGreaterThan(0);
+    let hostnameElements: HTMLElement[] = [];
+    await waitFor(() => {
+      hostnameElements = screen.getAllByText('myhost.example.com');
+      expect(hostnameElements.length).toBeGreaterThan(0);
+    });
 
     // Verify one of them is in a <strong> tag (card title)
     const strongHostname = hostnameElements.find((el) => el.tagName.toLowerCase() === 'strong');
@@ -285,15 +284,14 @@ describe('RemoteHostSelector', () => {
 
     renderSelector({ type: 'local' }, onChange);
 
-    await waitFor(() => {
-      expect(screen.queryByText('Loading remote hosts...')).not.toBeInTheDocument();
-    });
-
     // Click the connected host card - find via the <strong> title element
-    const hostnameElements = screen.getAllByText('myhost.example.com');
-    const strongEl = hostnameElements.find((el) => el.tagName.toLowerCase() === 'strong');
-    const hostCard = strongEl?.closest('[role="button"]');
-    expect(hostCard).toBeTruthy();
+    let hostCard: Element | null | undefined;
+    await waitFor(() => {
+      const hostnameElements = screen.getAllByText('myhost.example.com');
+      const strongEl = hostnameElements.find((el) => el.tagName.toLowerCase() === 'strong');
+      hostCard = strongEl?.closest('[role="button"]');
+      expect(hostCard).toBeTruthy();
+    });
 
     await act(async () => {
       await userEvent.click(hostCard!);

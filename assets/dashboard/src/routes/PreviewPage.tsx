@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import Tooltip from '../components/Tooltip';

@@ -18,7 +18,7 @@ type TooltipPlacement = 'top' | 'bottom' | 'left' | 'right';
 type TooltipVariant = 'default' | 'warning' | 'error';
 
 type TooltipProps = {
-  children: React.ReactElement;
+  children: React.ReactElement<any>;
   content: React.ReactNode;
   placement?: TooltipPlacement;
   variant?: TooltipVariant;

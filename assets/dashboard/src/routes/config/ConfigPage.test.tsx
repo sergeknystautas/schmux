@@ -1,7 +1,7 @@
 import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import ConfigPage from '../ConfigPage';
 import type { ConfigResponse, ConfigUpdateRequest } from '../../lib/types';
 import { systemCapabilities } from '../../lib/test-factories';

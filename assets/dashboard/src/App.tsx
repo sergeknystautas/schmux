@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Routes, Route, useLocation } from 'react-router-dom';
+import { Routes, Route, useLocation } from 'react-router';
 import AppShell from './components/AppShell';
 import FeatureRoute from './components/FeatureRoute';
 import ToastProvider from './components/ToastProvider';

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router';
 import { useSessions } from '../contexts/SessionsContext';
 import { useConfig } from '../contexts/ConfigContext';
 import { useFeatures } from '../contexts/FeaturesContext';

@@ -4,7 +4,7 @@ import type { WorkspaceResponse } from './types';
 import { TAB_ORDER_KEY_PREFIX } from './tabOrder';
 
 // Mock react-router-dom's useNavigate
-vi.mock('react-router-dom', () => ({
+vi.mock('react-router', () => ({
   useNavigate: vi.fn(),
 }));
 

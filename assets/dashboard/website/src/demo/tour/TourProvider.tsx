@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import Spotlight from './Spotlight';
 import Tooltip from './Tooltip';
 import type { TourScenario, TourContextValue } from './types';

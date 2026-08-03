@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, Link, useNavigate, useLocation } from 'react-router';
 import { getFileContent, getWorkspaceFileUrl, getHtmlOpenUrl, getErrorMessage } from '../lib/api';
 import { rewriteHtmlRelativePaths } from '../lib/pathUtils';
 import { useSessions } from '../contexts/SessionsContext';

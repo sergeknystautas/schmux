@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 import { getEnvironment, syncEnvironmentVar, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { DependenciesPanel } from '../components/DependenciesPanel';

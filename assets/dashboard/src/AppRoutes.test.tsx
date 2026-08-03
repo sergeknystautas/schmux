@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Outlet } from 'react-router-dom';
+import { MemoryRouter, Outlet } from 'react-router';
 import type { Features } from './lib/types.generated';
 
 // Mutable mock for FeaturesContext so each test can flip individual flags.

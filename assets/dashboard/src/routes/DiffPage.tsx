@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router';
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
 import { getDiff, diffExternal, getErrorMessage, getWorkspaceFileUrl, createTab } from '../lib/api';
 import useTheme from '../hooks/useTheme';

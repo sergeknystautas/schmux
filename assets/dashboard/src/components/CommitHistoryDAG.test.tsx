@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import CommitHistoryDAG from './CommitHistoryDAG';
 import type { WorkspaceResponse } from '../lib/types';
 

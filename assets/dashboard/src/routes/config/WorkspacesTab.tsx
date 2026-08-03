@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import AddRepoModal from '../../components/AddRepoModal';
 import { getConfig } from '../../lib/api';
 import type { ConfigFormAction, ConfigFormState } from './useConfigForm';

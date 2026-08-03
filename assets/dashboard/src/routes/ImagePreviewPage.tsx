@@ -1,4 +1,4 @@
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link } from 'react-router';
 import { getWorkspaceFileUrl } from '../lib/api';
 import { useSessions } from '../contexts/SessionsContext';
 import WorkspaceHeader from '../components/WorkspaceHeader';

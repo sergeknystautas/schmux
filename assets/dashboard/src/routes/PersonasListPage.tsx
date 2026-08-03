@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router';
 import { getPersonas, deletePersona, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';

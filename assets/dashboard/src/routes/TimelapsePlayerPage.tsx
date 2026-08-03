@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router';
 import CastPlayer from '../components/CastPlayer';
 
 export default function TimelapsePlayerPage() {

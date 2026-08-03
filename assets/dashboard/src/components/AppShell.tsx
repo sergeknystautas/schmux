@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { NavLink, Outlet, useNavigate, useParams, useLocation } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, useParams, useLocation } from 'react-router';
 import useTheme from '../hooks/useTheme';
 import useVersionInfo from '../hooks/useVersionInfo';
 import useLocalStorage from '../hooks/useLocalStorage';

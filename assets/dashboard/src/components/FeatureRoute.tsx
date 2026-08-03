@@ -1,5 +1,5 @@
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate } from 'react-router';
 import { useFeatures } from '../contexts/FeaturesContext';
 import type { Features } from '../lib/types.generated';
 

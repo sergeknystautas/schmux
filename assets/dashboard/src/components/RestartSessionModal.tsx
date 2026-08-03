@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { getRestartOptions, restartSession, getErrorMessage } from '../lib/api';
 import type { RestartOptionsResponse } from '../lib/types.generated';
 import { useSessions } from '../contexts/SessionsContext';

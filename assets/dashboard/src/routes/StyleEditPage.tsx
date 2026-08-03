@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router';
 import { getStyles, updateStyle, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';

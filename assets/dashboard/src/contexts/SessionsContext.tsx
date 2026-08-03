@@ -7,7 +7,7 @@ import React, {
   useEffect,
   useState,
 } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import useSessionsWebSocket from '../hooks/useSessionsWebSocket';
 import { useConfig } from './ConfigContext';
 import { SyncContext } from './SyncContext';

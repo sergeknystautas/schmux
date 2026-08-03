@@ -6,7 +6,7 @@ import type { ResolveConflictRecordPayload, WorkspaceResponse } from '../lib/typ
 // --- Mocks ---
 
 const navigate = vi.fn();
-vi.mock('react-router-dom', () => ({
+vi.mock('react-router', () => ({
   useNavigate: () => navigate,
 }));
 

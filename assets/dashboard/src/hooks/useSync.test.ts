@@ -5,7 +5,7 @@ import { useSync } from './useSync';
 // --- Mocks ---
 
 const navigate = vi.fn();
-vi.mock('react-router-dom', () => ({
+vi.mock('react-router', () => ({
   useNavigate: () => navigate,
 }));
 

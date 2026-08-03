@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { useSessions } from '../contexts/SessionsContext';
 import type { WorkspaceResponse, PendingNavigation } from './types';
 import { sortSessionsByTabOrder } from './tabOrder';

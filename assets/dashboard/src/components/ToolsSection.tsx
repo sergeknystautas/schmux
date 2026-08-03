@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router';
 import { useConfig } from '../contexts/ConfigContext';
 import { useCuration } from '../contexts/CurationContext';
 import { useOverlay } from '../contexts/OverlayContext';

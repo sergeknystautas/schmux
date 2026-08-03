@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import RestartSessionModal from './RestartSessionModal';
 
 const mockGetRestartOptions = vi.fn();
@@ -14,8 +14,8 @@ vi.mock('../lib/api', () => ({
   restartSession: (...a: unknown[]) => mockRestartSession(...a),
   getErrorMessage: (_e: unknown, fallback: string) => fallback,
 }));
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+vi.mock('react-router', async () => {
+  const actual = await vi.importActual<typeof import('react-router')>('react-router');
   return { ...actual, useNavigate: () => mockNavigate };
 });
 vi.mock('../contexts/SessionsContext', () => ({

@@ -80,7 +80,7 @@ export default function AutolearnPage() {
   const [activeTab, setActiveTab] = useState<'diff' | 'edit'>('diff');
 
   // Debounced edit save
-  const editTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const editTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Dev mode debug
   const [showDebug, setShowDebug] = useState(false);

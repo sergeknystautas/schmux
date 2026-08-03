@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router';
 import '@xterm/xterm/css/xterm.css';
 import TerminalStream from '../lib/terminalStream';
 import {

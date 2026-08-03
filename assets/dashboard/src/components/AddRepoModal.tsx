@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { scanLocalRepos, probeRepo, getConfig, updateConfig, getErrorMessage } from '../lib/api';
 import type { LocalRepo } from '../lib/api';
 import { useConfig } from '../contexts/ConfigContext';

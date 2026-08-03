@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router';
 import LinearSyncResolveConflictPage from './LinearSyncResolveConflictPage';
 import type { WorkspaceResponse } from '../lib/types';
 
@@ -21,8 +21,8 @@ const mockProgress = vi.fn(
   )
 );
 
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+vi.mock('react-router', async () => {
+  const actual = await vi.importActual<typeof import('react-router')>('react-router');
   return {
     ...actual,
     useNavigate: () => mockNavigate,

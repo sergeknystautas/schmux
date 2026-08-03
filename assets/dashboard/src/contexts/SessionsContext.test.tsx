@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import React from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import { SessionsProvider, useSessions } from './SessionsContext';
 import type { WorkspaceResponse } from '../lib/types';
 
@@ -12,8 +12,8 @@ let mockReturnOverrides: Record<string, unknown> = {};
 const mockNavigate = vi.fn();
 let capturedHookOpts: { onSessionDetected?: (sessionId: string) => void } | undefined;
 
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+vi.mock('react-router', async () => {
+  const actual = await vi.importActual<typeof import('react-router')>('react-router');
   return {
     ...actual,
     useNavigate: () => mockNavigate,

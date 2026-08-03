@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { useRemoteAccess } from '../contexts/RemoteAccessContext';
 import { useConfig } from '../contexts/ConfigContext';
 import { remoteAccessOn, remoteAccessOff, getErrorMessage } from '../lib/api';
