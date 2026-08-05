@@ -58,6 +58,21 @@ class MockResizeObserver {
   disconnect() {}
 }
 
+// Controllable IntersectionObserver — tests call triggerIntersect() to simulate
+// the truncation row scrolling into view.
+let intersectCallbacks: Array<(entries: Array<{ isIntersecting: boolean }>) => void> = [];
+class MockIntersectionObserver {
+  constructor(cb: (entries: Array<{ isIntersecting: boolean }>) => void) {
+    intersectCallbacks.push(cb);
+  }
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+function triggerIntersect() {
+  for (const cb of intersectCallbacks) cb([{ isIntersecting: true }]);
+}
+
 function makeWorkspace(overrides: Partial<WorkspaceResponse> = {}): WorkspaceResponse {
   return {
     id: 'ws-1',
@@ -102,6 +117,11 @@ function makeGraph(headHash: string, headMessage: string): CommitGraphResponse {
   };
 }
 
+// Same shape as makeGraph but flagged truncated, so the truncation row renders.
+function makeTruncatedGraph(headHash: string): CommitGraphResponse {
+  return { ...makeGraph(headHash, 'head commit'), local_truncated: true };
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((r) => {
@@ -120,6 +140,8 @@ function renderDAG() {
 
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', MockResizeObserver);
+  vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
+  intersectCallbacks = [];
   mockWorkspaces = [makeWorkspace()];
   mockWorkspaceLockStates = {};
   getCommitGraph.mockReset().mockResolvedValue({
@@ -238,5 +260,61 @@ describe('CommitHistoryDAG', () => {
 
     trailingFetch.resolve(makeGraph('base000', 'base commit'));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Uncommit' })).toBeEnabled());
+  });
+});
+
+describe('infinite scroll', () => {
+  it('requests 10 more commits when the truncation row scrolls into view', async () => {
+    getCommitGraph.mockReset().mockResolvedValue(makeTruncatedGraph('aaa1111'));
+    getDiff.mockResolvedValue({ files: [] });
+    renderDAG();
+
+    await waitFor(() => expect(getCommitGraph).toHaveBeenCalledTimes(1));
+    const firstMaxTotal = getCommitGraph.mock.calls[0][1].maxTotal;
+
+    triggerIntersect();
+
+    await waitFor(() => expect(getCommitGraph).toHaveBeenCalledTimes(2));
+    expect(getCommitGraph.mock.calls[1][1].maxTotal).toBe(firstMaxTotal + 10);
+  });
+
+  it('does not stack bumps while a fetch is in flight', async () => {
+    const first = deferred<CommitGraphResponse>();
+    getCommitGraph.mockReset().mockReturnValue(first.promise);
+    getDiff.mockResolvedValue({ files: [] });
+    renderDAG();
+
+    await waitFor(() => expect(getCommitGraph).toHaveBeenCalledTimes(1));
+
+    // Three intersects while the first fetch is unresolved must not produce +30.
+    triggerIntersect();
+    triggerIntersect();
+    triggerIntersect();
+
+    first.resolve(makeTruncatedGraph('aaa1111'));
+
+    // The new truncation row must be scrolled into view before the observer fires —
+    // matches real-world behavior where the user has to scroll to see the row again
+    // after the previous bump.
+    await waitFor(() => expect(intersectCallbacks.length).toBeGreaterThan(0));
+    triggerIntersect();
+
+    await waitFor(() => expect(getCommitGraph).toHaveBeenCalledTimes(2));
+    const firstMaxTotal = getCommitGraph.mock.calls[0][1].maxTotal;
+    expect(getCommitGraph.mock.calls[1][1].maxTotal).toBe(firstMaxTotal + 10);
+  });
+
+  it('stops observing when the backend reports no truncation', async () => {
+    getCommitGraph.mockReset().mockResolvedValue(makeGraph('aaa1111', 'head commit'));
+    getDiff.mockResolvedValue({ files: [] });
+    renderDAG();
+
+    await waitFor(() => expect(getCommitGraph).toHaveBeenCalledTimes(1));
+
+    triggerIntersect();
+
+    // No truncation row means nothing was observed, so no second fetch.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(getCommitGraph).toHaveBeenCalledTimes(1);
   });
 });

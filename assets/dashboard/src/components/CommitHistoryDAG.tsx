@@ -55,6 +55,9 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
   const containerRef = useRef<HTMLDivElement>(null);
   const prevFingerprintRef = useRef('');
   const [containerHeight, setContainerHeight] = useState(0);
+  const [extraRows, setExtraRows] = useState(0);
+  const truncationRowRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   // Pull workspace data early so all hooks are called before any conditional returns.
   const { workspaces } = useSessions();
@@ -100,7 +103,8 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
   const minCommits = aheadCount + 10; // all branch commits + fork point + context
   const maxCommits =
     containerHeight > 0
-      ? Math.max(minCommits, Math.floor(containerHeight / ROW_HEIGHT) - virtualRowOverhead)
+      ? Math.max(minCommits, Math.floor(containerHeight / ROW_HEIGHT) - virtualRowOverhead) +
+        extraRows
       : 0;
 
   // Use a ref for maxCommits so fetchData doesn't re-fire when diffFiles.length
@@ -199,6 +203,37 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
       fetchData();
     }
   }, [syncProgressCurrent, fetchData]);
+
+  // Load 10 more commits when the truncation row scrolls into view. That row only
+  // renders while the backend reports local_truncated, so when history runs out the
+  // row disappears and there is nothing left to observe — no "has more" bookkeeping.
+  useEffect(() => {
+    const row = truncationRowRef.current;
+    if (!row) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        // Guard the bump, not just the fetch: the observer keeps firing while the
+        // row stays in view, which would otherwise raise the count by 20 or 30.
+        if (fetchInFlightRef.current) return;
+        setExtraRows((n) => n + 10);
+      },
+      { root: scrollRef.current }
+    );
+    observer.observe(row);
+    return () => observer.disconnect();
+  }, [layout]);
+
+  // extraRows changes are the only size change that should refetch. Panel resizes
+  // deliberately do not — see the maxCommitsRef comment above.
+  const didMountExtraRows = useRef(false);
+  useEffect(() => {
+    if (!didMountExtraRows.current) {
+      didMountExtraRows.current = true;
+      return;
+    }
+    fetchData();
+  }, [extraRows, fetchData]);
 
   if (!ws) {
     return (
@@ -631,6 +666,7 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
       return (
         <div
           key={ln.hash}
+          ref={truncationRowRef}
           className="commit-dag__row commit-dag__truncation-row"
           style={{ height: lay.rowHeight }}
         >
@@ -720,7 +756,7 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
 
   return (
     <div className="commit-dag" ref={containerRef}>
-      <div className="commit-dag__scroll" style={{ overflow: 'auto', flex: 1 }}>
+      <div className="commit-dag__scroll" ref={scrollRef} style={{ overflow: 'auto', flex: 1 }}>
         <div
           className="commit-dag__container"
           style={{ position: 'relative', minHeight: totalHeight }}
