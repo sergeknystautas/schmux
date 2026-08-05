@@ -386,3 +386,50 @@ func TestHandleGitCommitStage_AlreadyStagedDeletion(t *testing.T) {
 		}
 	})
 }
+
+func TestCommitGraph_MaxCommitsDoesNotOverrideExplicitMaxTotal(t *testing.T) {
+	t.Parallel()
+	// max_total=200 is explicit, so the deprecated max_commits must be ignored.
+	// The pre-fix code inferred "unspecified" from maxTotal == 200 and let
+	// max_commits win.
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/workspaces/ws-1/commit-graph?max_total=200&max_commits=7", nil)
+
+	maxTotal, _ := parseCommitGraphLimits(req)
+
+	if maxTotal != 200 {
+		t.Errorf("expected explicit max_total=200 to win over max_commits=7, got %d", maxTotal)
+	}
+}
+
+func TestCommitGraph_MaxTotalSpecifiedReportsWhetherClientAsked(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		query     string
+		wantSpec  bool
+		wantTotal int
+	}{
+		{"no params", "", false, 200},
+		{"explicit max_total", "?max_total=50", true, 50},
+		{"explicit max_total equal to default", "?max_total=200", true, 200},
+		{"deprecated max_commits", "?max_commits=25", true, 25},
+		{"unparseable max_total", "?max_total=abc", false, 200},
+		{"above cap", "?max_total=99999", true, 5000},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet,
+				"/api/workspaces/ws-1/commit-graph"+tt.query, nil)
+
+			maxTotal, specified := parseCommitGraphLimits(req)
+
+			if maxTotal != tt.wantTotal {
+				t.Errorf("maxTotal = %d, want %d", maxTotal, tt.wantTotal)
+			}
+			if specified != tt.wantSpec {
+				t.Errorf("specified = %v, want %v", specified, tt.wantSpec)
+			}
+		})
+	}
+}

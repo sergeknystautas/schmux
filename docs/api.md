@@ -2183,8 +2183,11 @@ emit raw NULs. Response schema is unchanged.
 
 Query Parameters:
 
-- `max_total` (optional): Maximum total commits to display (default: 200). Also accepts `max_commits` for backward compatibility.
-- `main_context` (optional): Number of commits on main before fork point (default: 5). Also accepts `context` for backward compatibility.
+- `max_total` (optional): Maximum total commits to display (default: 200, capped at 5000). Also accepts `max_commits` for backward compatibility. Remote-host workspaces default to 10 instead of 200 because remote log output streams back through a tmux capture buffer; an explicit value is honored up to the same 5000 cap.
+- `main_context` (optional): Number of commits on main before fork point (default: 5). Also accepts `context` for backward compatibility. This is a floor, not a ceiling — it guarantees context below the fork point but does not limit how far back `max_total` reaches.
+
+`local_truncated` is set in the response whenever the commit log came back full, meaning older
+commits exist beyond `max_total`. Clients raise `max_total` to fetch further back.
 
 Response:
 

@@ -21,6 +21,31 @@ import (
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
+// parseCommitGraphLimits reads max_total (and the deprecated max_commits alias)
+// from the request. The second return value reports whether the client asked for
+// a specific count — remote workspaces use it to distinguish "no preference"
+// (small default) from an explicit request, which must be honored.
+func parseCommitGraphLimits(r *http.Request) (maxTotal int, specified bool) {
+	maxTotal = 200
+	if mt := r.URL.Query().Get("max_total"); mt != "" {
+		if parsed, err := strconv.Atoi(mt); err == nil && parsed > 0 {
+			maxTotal = parsed
+			specified = true
+		}
+	}
+	// For backward compatibility, also accept max_commits
+	if mt := r.URL.Query().Get("max_commits"); mt != "" && !specified {
+		if parsed, err := strconv.Atoi(mt); err == nil && parsed > 0 {
+			maxTotal = parsed
+			specified = true
+		}
+	}
+	if maxTotal > 5000 {
+		maxTotal = 5000
+	}
+	return maxTotal, specified
+}
+
 // handleWorkspaceCommitGraph handles GET /api/workspaces/{id}/commit-graph.
 func (h *GitHandlers) handleWorkspaceCommitGraph(w http.ResponseWriter, r *http.Request) {
 	ws, ok := h.requireWorkspace(w, r)
@@ -34,22 +59,7 @@ func (h *GitHandlers) handleWorkspaceCommitGraph(w http.ResponseWriter, r *http.
 	}
 
 	// Parse query params
-	// max_total: Maximum total commits to display (applied after category limits)
-	maxTotal := 200
-	if mt := r.URL.Query().Get("max_total"); mt != "" {
-		if parsed, err := strconv.Atoi(mt); err == nil && parsed > 0 {
-			maxTotal = parsed
-		}
-	}
-	// For backward compatibility, also accept max_commits
-	if mt := r.URL.Query().Get("max_commits"); mt != "" && maxTotal == 200 {
-		if parsed, err := strconv.Atoi(mt); err == nil && parsed > 0 {
-			maxTotal = parsed
-		}
-	}
-	if maxTotal > 5000 {
-		maxTotal = 5000
-	}
+	maxTotal, maxTotalSpecified := parseCommitGraphLimits(r)
 
 	// main_context: Number of commits on main BEFORE fork point (historical context)
 	mainContext := 5
@@ -70,8 +80,9 @@ func (h *GitHandlers) handleWorkspaceCommitGraph(w http.ResponseWriter, r *http.
 
 	// Delegate to remote handler if this is a remote workspace
 	if ws.RemoteHostID != "" {
-		// Cap remote to minimize SSH round-trips on large repos
-		if maxTotal > 10 {
+		// Remote log output streams back through a tmux capture buffer, so keep the
+		// default window small. An explicit max_total is honored (up to the 5000 cap).
+		if !maxTotalSpecified {
 			maxTotal = 10
 		}
 		h.handleRemoteCommitGraph(w, r, ws, maxTotal, mainContext)
@@ -205,6 +216,7 @@ func (h *GitHandlers) handleRemoteCommitGraph(w http.ResponseWriter, r *http.Req
 	// originMainHead is empty — we don't resolve it here to save a round trip.
 	// The default branch label still appears in the branches map for context.
 	resp := workspace.BuildGraphResponse(rawNodes, localBranch, defaultBranchRef, localHead, "", "", branchWorkspaces, ws.Repo, maxTotal, 0)
+	resp.LocalTruncated = len(rawNodes) >= maxTotal
 
 	// Populate dirty state from workspace VCS stats (same as local handler)
 	if ws.FilesChanged > 0 {
