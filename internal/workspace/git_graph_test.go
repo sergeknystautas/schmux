@@ -614,6 +614,52 @@ func TestGitGraph_LocalNotTruncated(t *testing.T) {
 	}
 }
 
+// setupNoDivergenceGraphTest returns a workspace sitting exactly on origin/main with
+// extraCommits commits added on top of the template's initial commit.
+func setupNoDivergenceGraphTest(t *testing.T, extraCommits int) (mgr *Manager, wsDir, wsID string) {
+	t.Helper()
+	mgr, remoteDir, wsDir, wsID := setupWorkspaceGraphTest(t, "main")
+	commitNOnRemote(t, remoteDir, wsDir, extraCommits, "main commit")
+	runGit(t, wsDir, "reset", "--hard", "origin/main")
+	return mgr, wsDir, wsID
+}
+
+func TestGitGraph_NoDivergenceHonorsMaxTotal(t *testing.T) {
+	t.Parallel()
+	// 20 extra commits + the template's initial commit = 21 reachable from HEAD.
+	mgr, _, wsID := setupNoDivergenceGraphTest(t, 20)
+
+	resp, err := mgr.GetGitGraph(context.Background(), wsID, 10, 5)
+	if err != nil {
+		t.Fatalf("GetGitGraph: %v", err)
+	}
+
+	if len(resp.Nodes) != 10 {
+		t.Errorf("expected 10 nodes for maxTotal=10, got %d", len(resp.Nodes))
+	}
+	if !resp.LocalTruncated {
+		t.Error("expected LocalTruncated=true when history exceeds maxTotal")
+	}
+}
+
+func TestGitGraph_NoDivergenceNotTruncated(t *testing.T) {
+	t.Parallel()
+	// 3 extra commits + the template's initial commit = 4 reachable from HEAD.
+	mgr, _, wsID := setupNoDivergenceGraphTest(t, 3)
+
+	resp, err := mgr.GetGitGraph(context.Background(), wsID, 200, 5)
+	if err != nil {
+		t.Fatalf("GetGitGraph: %v", err)
+	}
+
+	if len(resp.Nodes) != 4 {
+		t.Errorf("expected all 4 commits, got %d", len(resp.Nodes))
+	}
+	if resp.LocalTruncated {
+		t.Error("expected LocalTruncated=false when history fits within maxTotal")
+	}
+}
+
 func TestGitGraph_MainAheadNewestTimestamp(t *testing.T) {
 	t.Parallel()
 	mgr, remoteDir, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-timestamp")

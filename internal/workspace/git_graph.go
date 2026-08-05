@@ -116,13 +116,14 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxTotal 
 	var localTruncated bool
 
 	if defaultRefHead == "" || localHead == defaultRefHead {
-		// No divergence or no upstream — just show recent commits from HEAD
-		logCmd := cb.LogParseable([]string{"HEAD"}, mainContext+1)
+		// No divergence or no upstream — walk back from HEAD as far as asked for.
+		logCmd := cb.LogParseable([]string{"HEAD"}, maxTotal)
 		logOutput, err := runShellInDir(ctx, gitDir, logCmd)
 		if err != nil {
 			return nil, fmt.Errorf("git log failed: %w", err)
 		}
 		rawNodes = ParseGitLogOutput(logOutput)
+		localTruncated = len(rawNodes) >= maxTotal
 	} else if forkPoint == "" {
 		// No common ancestor — show both independently
 		logCmd := cb.LogParseable([]string{"HEAD", defaultRef}, maxTotal)
@@ -131,6 +132,7 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxTotal 
 			return nil, fmt.Errorf("git log failed: %w", err)
 		}
 		rawNodes = ParseGitLogOutput(logOutput)
+		localTruncated = len(rawNodes) >= maxTotal
 	} else {
 		// Normal divergence — get local commits + context (no main-ahead data)
 		maxLocal := maxTotal - mainContext
