@@ -12,7 +12,8 @@ import { usePendingNavigation } from '../lib/navigation';
 import useSidebarLayout from '../hooks/useSidebarLayout';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
-import { splitPath } from '../lib/utils';
+import Tooltip from '../components/Tooltip';
+import { copyToClipboard, splitPath } from '../lib/utils';
 import type { DiffResponse } from '../lib/types';
 
 type ExternalDiffCommand = {
@@ -48,7 +49,7 @@ export default function DiffPage() {
   const { workspaces, loading: sessionsLoading } = useSessions();
   const { simulateRemote } = useRemoteAccess();
   const { alert } = useModal();
-  const { success: toastSuccess } = useToast();
+  const { success: toastSuccess, error: toastError } = useToast();
   const { setPendingNavigation } = usePendingNavigation();
   const [openingPreview, setOpeningPreview] = useState(false);
   const [diffData, setDiffData] = useState<DiffResponse | null>(null);
@@ -435,6 +436,33 @@ export default function DiffPage() {
                 <div className="diff-content__header">
                   <h2 className="diff-content__title">
                     {selectedFile.new_path || selectedFile.old_path}
+                    <Tooltip content="Copy path">
+                      <button
+                        className="copy-field__btn"
+                        data-testid="copy-path-btn"
+                        onClick={async () => {
+                          const path = selectedFile.new_path || selectedFile.old_path || '';
+                          const ok = await copyToClipboard(path);
+                          if (ok) {
+                            toastSuccess('Copied path');
+                          } else {
+                            toastError('Failed to copy');
+                          }
+                        }}
+                      >
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                      </button>
+                    </Tooltip>
                     {/* Markdown preview: only for non-deleted files */}
                     {selectedFile.status !== 'deleted' &&
                       (selectedFile.new_path?.match(/\.(md|mdx)$/i) ||
