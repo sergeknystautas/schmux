@@ -47,14 +47,21 @@ type settingsNetwork struct {
 
 // settingsMacOS maps to fence's macOS-specific Seatbelt controls; fence ignores
 // it on other platforms. Mach patterns are exact service names, trailing
-// wildcards ("org.chromium.*"), or "*" (the macos-gui preset's grant).
+// wildcards ("org.chromium.*"), or "*" (the macos-gui preset's grant). IOKit
+// entries have no wildcard form — fence rejects anything but an exact class
+// name — so each one is a deliberate, named device grant.
 type settingsMacOS struct {
-	Mach settingsMach `json:"mach"`
+	Mach  settingsMach   `json:"mach"`
+	IOKit *settingsIOKit `json:"iokit,omitempty"`
 }
 
 type settingsMach struct {
 	Lookup   []string `json:"lookup,omitempty"`
 	Register []string `json:"register,omitempty"`
+}
+
+type settingsIOKit struct {
+	UserClientClasses []string `json:"userClientClasses,omitempty"`
 }
 
 type settingsFilesystem struct {
@@ -89,7 +96,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 	env := baselineEnv(cacheRoot)
 	var goFlags, goTelemetry, allUnix, dockerConfig, godotEditor, swiftShim, vercelShim bool
 	domains := append([]string{}, baselineDomains...)
-	var machLookup, machRegister []string
+	var machLookup, machRegister, iokitUserClients []string
 	for _, name := range c.Presets {
 		p, ok := presets[name]
 		if !ok {
@@ -108,6 +115,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 		domains = append(domains, p.domains...)
 		machLookup = append(machLookup, p.machLookup...)
 		machRegister = append(machRegister, p.machRegister...)
+		iokitUserClients = append(iokitUserClients, p.iokitUserClients...)
 	}
 	for _, dir := range env {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -224,11 +232,14 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 			DenyWrite:  denyWrite,
 		},
 	}
-	if len(machLookup)+len(machRegister) > 0 {
+	if len(machLookup)+len(machRegister)+len(iokitUserClients) > 0 {
 		s.MacOS = &settingsMacOS{Mach: settingsMach{
 			Lookup:   dedupeStrings(machLookup),
 			Register: dedupeStrings(machRegister),
 		}}
+		if len(iokitUserClients) > 0 {
+			s.MacOS.IOKit = &settingsIOKit{UserClientClasses: dedupeStrings(iokitUserClients)}
+		}
 	}
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
@@ -260,17 +271,18 @@ func dedupeStrings(in []string) []string {
 // .schmux/config.json fence.presets. Each is a verbatim extraction of an
 // allowance that used to be applied to every fenced session.
 type preset struct {
-	cacheEnv       map[string]string // env var -> cache subdir under the workspace cache root
-	goFlags        bool              // append GOFLAGS=-modcacherw (keep module cache writable)
-	goTelemetry    bool              // allowWrite the Go telemetry dir
-	allUnixSockets bool              // network.allowAllUnixSockets
-	dockerConfig   bool              // stage a DOCKER_CONFIG/config.json with cliPluginsExtraDirs
-	godotEditor    bool              // allowWrite the Godot editor config dir (~/Library/Application Support/Godot)
-	swiftShim      bool              // put a `swift` shim on PATH that adds --disable-sandbox (SwiftPM's nested sandbox can't run inside fence)
-	vercelShim     bool              // put a `vercel` shim on PATH (per-session launch dir) that strips the CLI's incompatible fetch dispatcher and opts Node into env-proxy mode
-	domains        []string          // append to network.allowedDomains
-	machLookup     []string          // append to macos.mach.lookup (macOS Seatbelt; ignored elsewhere)
-	machRegister   []string          // append to macos.mach.register
+	cacheEnv         map[string]string // env var -> cache subdir under the workspace cache root
+	goFlags          bool              // append GOFLAGS=-modcacherw (keep module cache writable)
+	goTelemetry      bool              // allowWrite the Go telemetry dir
+	allUnixSockets   bool              // network.allowAllUnixSockets
+	dockerConfig     bool              // stage a DOCKER_CONFIG/config.json with cliPluginsExtraDirs
+	godotEditor      bool              // allowWrite the Godot editor config dir (~/Library/Application Support/Godot)
+	swiftShim        bool              // put a `swift` shim on PATH that adds --disable-sandbox (SwiftPM's nested sandbox can't run inside fence)
+	vercelShim       bool              // put a `vercel` shim on PATH (per-session launch dir) that strips the CLI's incompatible fetch dispatcher and opts Node into env-proxy mode
+	domains          []string          // append to network.allowedDomains
+	machLookup       []string          // append to macos.mach.lookup (macOS Seatbelt; ignored elsewhere)
+	machRegister     []string          // append to macos.mach.register
+	iokitUserClients []string          // append to macos.iokit.userClientClasses (exact class names; no wildcard form exists)
 }
 
 var presets = map[string]preset{
@@ -325,9 +337,23 @@ var presets = map[string]preset{
 	// the filesystem/network fence stays intact. A curated service list is not
 	// maintainable: allowed lookups are never logged, so misses can only be
 	// found one relaunch at a time.
+	//
+	// Mach access alone does not get a window on screen: fence's baseline allows
+	// only the IOSurface and RootDomain user clients, so opening the GPU device
+	// is denied and MTLCreateSystemDefaultDevice() returns nil — Metal renderers
+	// fall back or abort. AGXDeviceUserClient is the exact class macOS names in
+	// the denial (`iokit-open-user-client AGXDeviceUserClient`), and granting it
+	// is what makes a device available and shaders compile.
+	//
+	// Unlike the Mach grant this list stays exact. IOKit denials ARE logged, so
+	// a missing class shows up by name in monitor.log and can be added
+	// deliberately; there is no wildcard form to reach for. The cost is real
+	// though: a user client is a direct kernel-driver interface, and this hands
+	// the sandboxed process the GPU's.
 	"macos-gui": {
-		machLookup:   []string{"*"},
-		machRegister: []string{"*"},
+		machLookup:       []string{"*"},
+		machRegister:     []string{"*"},
+		iokitUserClients: []string{"AGXDeviceUserClient"},
 	},
 }
 

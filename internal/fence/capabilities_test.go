@@ -63,6 +63,14 @@ func TestRenderCapabilities_PresetGrantsAndBaseline(t *testing.T) {
 					t.Errorf("doc missing mach service pattern %q for preset %q", m, name)
 				}
 			}
+			if len(p.iokitUserClients) > 0 && !strings.Contains(doc, "macos.iokit.userClientClasses") {
+				t.Errorf("doc missing macos.iokit.userClientClasses grant for preset %q", name)
+			}
+			for _, c := range p.iokitUserClients {
+				if !strings.Contains(doc, c) {
+					t.Errorf("doc missing IOKit user client class %q for preset %q", c, name)
+				}
+			}
 		})
 	}
 
@@ -129,5 +137,33 @@ func TestRenderCapabilities_VercelGuidance(t *testing.T) {
 		if !strings.Contains(doc, want) {
 			t.Errorf("doc missing vercel guidance marker %q", want)
 		}
+	}
+}
+
+// The doc is what an analysis agent reads before recommending a preset, so the
+// GPU grant must arrive with its cost attached rather than as a bare fact.
+func TestRenderCapabilities_IOKitGrantStatesSecurityCost(t *testing.T) {
+	doc := RenderCapabilities()
+
+	for _, want := range []string{
+		"AGXDeviceUserClient",
+		"macos.iokit.userClientClasses",
+		"kernel driver",
+		"exact class names",
+	} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("doc missing %q from the IOKit grant description", want)
+		}
+	}
+}
+
+// Agents read the log grammar to classify denials. An iokit denial that is not
+// described there gets reported as an unrecognized line instead of mapped to
+// the preset that fixes it.
+func TestRenderCapabilities_DocumentsIOKitDenialShape(t *testing.T) {
+	doc := RenderCapabilities()
+
+	if !strings.Contains(doc, "iokit-open-user-client") {
+		t.Error("doc must describe the iokit-open-user-client denial shape")
 	}
 }

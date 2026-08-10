@@ -113,6 +113,15 @@ func writePresetGrants(b *strings.Builder, name string, p preset) {
 		b.WriteString("- Allows macOS Mach/XPC service registrations (" + bq + "macos.mach.register" + bq + "): " +
 			bq + strings.Join(p.machRegister, bq+", "+bq) + bq + ".\n")
 	}
+	if len(p.iokitUserClients) > 0 {
+		b.WriteString("- Opens macOS IOKit user clients (" + bq + "macos.iokit.userClientClasses" + bq + "): " +
+			bq + strings.Join(p.iokitUserClients, bq+", "+bq) + bq + ". A user client is a direct " +
+			"interface to a kernel driver, so this is a wider grant than a Mach lookup: the sandboxed " +
+			"process talks to that device. Entries are exact class names — fence rejects wildcards, so " +
+			"this list can never widen into \"any device\". " + bq + "AGXDeviceUserClient" + bq + " is the " +
+			"GPU: without it " + bq + "MTLCreateSystemDefaultDevice()" + bq + " returns nil and Metal " +
+			"renderers fall back or abort.\n")
+	}
 	b.WriteString("\n")
 }
 
@@ -162,7 +171,13 @@ const logGrammarText = "## How to read monitor.log\n\n" +
 	": a macOS system-service lookup denied. Most are incidental noise (telemetry, update checks, Apple " +
 	"system services) — recommend ignoring those. The exceptions are in the selection rules below: " +
 	bq + "org.chromium.*" + bq + " denials and AppKit-init failures in a project that launches a native " +
-	"GUI map to the " + bq + "chromium" + bq + " and " + bq + "macos-gui" + bq + " presets.\n\n" +
+	"GUI map to the " + bq + "chromium" + bq + " and " + bq + "macos-gui" + bq + " presets.\n" +
+	"- Channel " + bq + "logstream" + bq + ", message starting " + bq + "iokit-open-user-client <class> (<proc>:<pid>)" + bq +
+	": the sandbox refused to open a kernel device interface. Unlike Mach noise these are rarely incidental — " +
+	"the denied class is named exactly, and the failure it causes is usually silent in the app (a framework " +
+	"returns nil rather than reporting a sandbox error). " + bq + "AGXDeviceUserClient" + bq + " is the GPU " +
+	"and is already granted by " + bq + "macos-gui" + bq + "; a different class denied in a project that must " +
+	"render is a Gap — name the exact class, do not ask for a broader IOKit grant, as none can be expressed.\n\n" +
 	"There are denial shapes this doc does not enumerate. In particular, the exact line format of a " +
 	"Unix-domain-socket denial is unverified (no in-repo example exists). When you see a " + bq + "✗" + bq +
 	" line you do not recognize, describe it verbatim. Do not guess which knob it maps to.\n\n"
@@ -180,8 +195,10 @@ const selectionText = "## Choosing a recommendation\n\n" +
 	"Chromium browser is running -> the " + bq + "chromium" + bq + " preset is honest.\n" +
 	"- A windowed app failing during AppKit init (denied lookups of window-server services such as " +
 	bq + "com.apple.hiservices-xpcservice" + bq + " while the project launches a native GUI under test) " +
-	"-> the " + bq + "macos-gui" + bq + " preset is honest. It disables Mach IPC isolation entirely, so " +
-	"do not recommend it for anything less than a native GUI that must render.\n" +
+	"-> the " + bq + "macos-gui" + bq + " preset is honest. It disables Mach IPC isolation entirely and " +
+	"hands the process the GPU user client, so do not recommend it for anything less than a native GUI " +
+	"that must render. A denied " + bq + "iokit-open-user-client AGXDeviceUserClient" + bq + " (or a Metal/" +
+	"OpenGL init that fails while the app has no window) points at the same preset.\n" +
 	"- A denied Unix-socket connection proves nothing about tmux by itself -> " + bq + "tmux" + bq +
 	" is dishonest unless the evidence shows the project actually drives tmux. Do not recommend " + bq +
 	"tmux" + bq + " just because a socket was denied.\n" +

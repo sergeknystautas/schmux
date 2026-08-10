@@ -251,6 +251,70 @@ func TestWrapMacOSGuiPresetMachWildcard(t *testing.T) {
 	}
 }
 
+// Windowed apps need the GPU, not just the window server: without this class
+// MTLCreateSystemDefaultDevice() returns nil inside the fence even with mach "*".
+func TestWrapMacOSGuiPresetGrantsGPUUserClient(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sess")
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"macos-gui"}, DataDir: dir}, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+	var s settings
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	if s.MacOS == nil || s.MacOS.IOKit == nil {
+		t.Fatal("macos-gui preset must emit a macos.iokit block")
+	}
+	want := []string{"AGXDeviceUserClient"}
+	if !slices.Equal(s.MacOS.IOKit.UserClientClasses, want) {
+		t.Errorf("macos.iokit.userClientClasses = %v, want exactly %v", s.MacOS.IOKit.UserClientClasses, want)
+	}
+	// The grant is per-class by construction. A wildcard would be rejected by
+	// fence, but emitting one at all would mean schmux asked for every device.
+	for _, c := range s.MacOS.IOKit.UserClientClasses {
+		if strings.Contains(c, "*") {
+			t.Errorf("macos.iokit.userClientClasses must never contain a wildcard, got %q", c)
+		}
+	}
+}
+
+// GPU access follows from the macos-gui identity claim alone. Every other
+// preset must leave the IOKit block off entirely.
+func TestOtherPresetsGrantNoIOKitAccess(t *testing.T) {
+	for _, name := range []string{"golang", "tmux", "docker", "chromium", "swift", "vercel", "godot-editor"} {
+		t.Run(name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "sess")
+			if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{name}, DataDir: dir}, "echo hi"); err != nil {
+				t.Fatalf("Wrap: %v", err)
+			}
+			raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+			if strings.Contains(string(raw), "iokit") {
+				t.Errorf("preset %q must not mention iokit, got:\n%s", name, raw)
+			}
+			var s settings
+			if err := json.Unmarshal(raw, &s); err != nil {
+				t.Fatal(err)
+			}
+			if s.MacOS != nil && s.MacOS.IOKit != nil {
+				t.Errorf("preset %q emitted an iokit block: %+v", name, s.MacOS.IOKit)
+			}
+		})
+	}
+}
+
+// A session with no presets at all must not carry a macos block for IOKit's sake.
+func TestNoPresetsEmitsNoIOKitBlock(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sess")
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), DataDir: dir}, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+	if strings.Contains(string(raw), "iokit") {
+		t.Errorf("preset-free session must not mention iokit, got:\n%s", raw)
+	}
+}
+
 func TestWrapGolangPresetOnly(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "sess")
 	ws := t.TempDir()
