@@ -11,17 +11,13 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 )
 
-// maxFileContentSize is the maximum size of file content to include in the response (1MB).
-// This matches the limit used by the diff endpoint in handlers.go.
-const maxFileContentSize = 1024 * 1024
-
 // commitHashRegex validates commit hash format (hex only, 4-40 chars).
 var commitHashRegex = regexp.MustCompile(`^[a-fA-F0-9]{4,40}$`)
 
 // GetCommitDetail returns detailed information about a specific commit.
 func (m *Manager) GetCommitDetail(ctx context.Context, workspaceID, commitHash string) (*contracts.CommitDetailResponse, error) {
 	// Validate commit hash format
-	if err := validateCommitHash(commitHash); err != nil {
+	if err := ValidateCommitHash(commitHash); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidCommit, err)
 	}
 
@@ -70,8 +66,10 @@ func (m *Manager) GetCommitDetail(ctx context.Context, workspaceID, commitHash s
 	}, nil
 }
 
-// validateCommitHash validates that a commit hash has a valid format.
-func validateCommitHash(hash string) error {
+// ValidateCommitHash validates that a commit hash has a valid format
+// (hex only, 4-40 chars, no shell metacharacters). Exported for the
+// dashboard's diff-file endpoint, which splices the hash into VCS commands.
+func ValidateCommitHash(hash string) error {
 	if hash == "" {
 		return fmt.Errorf("commit hash is empty")
 	}
@@ -175,8 +173,8 @@ func getCommitParents(ctx context.Context, gitDir, hash string) ([]string, error
 }
 
 // getCommitDiffFiles returns the file diffs for a commit.
-func getCommitDiffFiles(ctx context.Context, gitDir, hash string, parents []string) ([]contracts.FileDiff, error) {
-	var files []contracts.FileDiff
+func getCommitDiffFiles(ctx context.Context, gitDir, hash string, parents []string) ([]contracts.DiffFileSummary, error) {
+	var files []contracts.DiffFileSummary
 
 	// Determine diff range
 	var diffArgs []string
@@ -215,19 +213,6 @@ func getCommitDiffFiles(ctx context.Context, gitDir, hash string, parents []stri
 			continue // Skip unparseable lines
 		}
 
-		// Get file contents if not binary
-		if !fileDiff.IsBinary {
-			if fileDiff.Status != "deleted" && fileDiff.Status != "added" {
-				// Modified or renamed - get both old and new content
-				fileDiff.OldContent = getFileAtCommit(ctx, gitDir, parents[0], fileDiff.OldPath, fileDiff.NewPath)
-				fileDiff.NewContent = getFileAtCommit(ctx, gitDir, hash, fileDiff.NewPath, fileDiff.NewPath)
-			} else if fileDiff.Status == "added" {
-				fileDiff.NewContent = getFileAtCommit(ctx, gitDir, hash, fileDiff.NewPath, fileDiff.NewPath)
-			} else if fileDiff.Status == "deleted" {
-				fileDiff.OldContent = getFileAtCommit(ctx, gitDir, parents[0], fileDiff.OldPath, fileDiff.OldPath)
-			}
-		}
-
 		files = append(files, fileDiff)
 	}
 
@@ -235,7 +220,7 @@ func getCommitDiffFiles(ctx context.Context, gitDir, hash string, parents []stri
 }
 
 // getRootCommitFiles handles root commits which have no parent to diff against.
-func getRootCommitFiles(ctx context.Context, gitDir, hash string) ([]contracts.FileDiff, error) {
+func getRootCommitFiles(ctx context.Context, gitDir, hash string) ([]contracts.DiffFileSummary, error) {
 	// Use git show --name-status for root commits
 	cmd := exec.CommandContext(ctx, "git", "-C", gitDir, "show", "--name-status", "--format=", hash)
 	output, err := cmd.Output()
@@ -248,7 +233,7 @@ func getRootCommitFiles(ctx context.Context, gitDir, hash string) ([]contracts.F
 	numstatOutput, _ := numstatCmd.Output()
 	numstatMap := parseNumstat(string(numstatOutput))
 
-	var files []contracts.FileDiff
+	var files []contracts.DiffFileSummary
 	for _, line := range strings.Split(string(output), "\n") {
 		if line == "" {
 			continue
@@ -259,11 +244,10 @@ func getRootCommitFiles(ctx context.Context, gitDir, hash string) ([]contracts.F
 			continue
 		}
 
-		status := parts[0]
 		filePath := parts[1]
 
 		// For root commits, all files are added
-		fileDiff := contracts.FileDiff{
+		fileDiff := contracts.DiffFileSummary{
 			NewPath: filePath,
 			Status:  "added",
 		}
@@ -273,11 +257,6 @@ func getRootCommitFiles(ctx context.Context, gitDir, hash string) ([]contracts.F
 			fileDiff.IsBinary = ns.isBinary
 			fileDiff.LinesAdded = ns.added
 			fileDiff.LinesRemoved = ns.removed
-		}
-
-		// Get file content if not binary
-		if !fileDiff.IsBinary && status == "A" {
-			fileDiff.NewContent = getFileAtCommit(ctx, gitDir, hash, filePath, filePath)
 		}
 
 		files = append(files, fileDiff)
@@ -330,17 +309,17 @@ func parseNumstat(output string) map[string]numstatEntry {
 }
 
 // parseNameStatusLine parses a single line from git diff --name-status.
-func parseNameStatusLine(line string, numstatMap map[string]numstatEntry) (contracts.FileDiff, error) {
+func parseNameStatusLine(line string, numstatMap map[string]numstatEntry) (contracts.DiffFileSummary, error) {
 	parts := strings.Fields(line)
 	if len(parts) < 2 {
-		return contracts.FileDiff{}, fmt.Errorf("invalid name-status line")
+		return contracts.DiffFileSummary{}, fmt.Errorf("invalid name-status line")
 	}
 
 	statusCode := parts[0]
 	// Extract first character for status (handles R100, C100, etc.)
 	status := statusCode[0:1]
 
-	fileDiff := contracts.FileDiff{}
+	fileDiff := contracts.DiffFileSummary{}
 
 	switch status {
 	case "A":
@@ -388,36 +367,4 @@ func parseNameStatusLine(line string, numstatMap map[string]numstatEntry) (contr
 	}
 
 	return fileDiff, nil
-}
-
-// getFileAtCommit retrieves file content at a specific commit.
-func getFileAtCommit(ctx context.Context, gitDir, commit, path, fallbackPath string) string {
-	cmd := exec.CommandContext(ctx, "git", "-C", gitDir, "show", commit+":"+path)
-	output, err := cmd.Output()
-	if err != nil && fallbackPath != path {
-		// Try fallback path
-		cmd = exec.CommandContext(ctx, "git", "-C", gitDir, "show", commit+":"+fallbackPath)
-		output, err = cmd.Output()
-	}
-	if err != nil {
-		return ""
-	}
-
-	// Cap content size to match handleDiff behavior
-	if len(output) > maxFileContentSize {
-		output = output[:maxFileContentSize]
-	}
-
-	// Check for binary content (null bytes in first 8KB)
-	checkLen := len(output)
-	if checkLen > 8192 {
-		checkLen = 8192
-	}
-	for i := 0; i < checkLen; i++ {
-		if output[i] == 0 {
-			return "" // Binary file, return empty
-		}
-	}
-
-	return string(output)
 }

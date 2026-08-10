@@ -5,6 +5,7 @@ import DiffPage from './DiffPage';
 
 vi.mock('../lib/api', () => ({
   getDiff: vi.fn(),
+  getDiffFile: vi.fn(),
   diffExternal: vi.fn(),
   getWorkspaceFileUrl: (workspaceId: string, filePath: string) =>
     `/api/file/${workspaceId}/${encodeURIComponent(filePath)}`,
@@ -66,8 +67,9 @@ vi.mock('../components/SessionTabs', () => ({
   default: () => <div data-testid="session-tabs" />,
 }));
 
-import { getDiff } from '../lib/api';
+import { getDiff, getDiffFile } from '../lib/api';
 const mockGetDiff = vi.mocked(getDiff);
+const mockGetDiffFile = vi.mocked(getDiffFile);
 
 const writeTextMock = vi.fn();
 
@@ -79,8 +81,6 @@ const DIFF_DATA = {
     {
       old_path: 'docs/guide.md',
       new_path: 'docs/guide.md',
-      old_content: 'old\n',
-      new_content: 'new\n',
       status: 'modified',
       lines_added: 3,
       lines_removed: 1,
@@ -102,7 +102,15 @@ function renderAt(path: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
+  // jsdom doesn't implement scrollIntoView; the sidebar auto-scroll effect calls it.
+  Element.prototype.scrollIntoView = vi.fn();
   mockGetDiff.mockResolvedValue(DIFF_DATA);
+  mockGetDiffFile.mockResolvedValue({
+    workspace_id: 'ws-001',
+    path: 'docs/guide.md',
+    old_content: 'old\n',
+    new_content: 'new\n',
+  });
   writeTextMock.mockResolvedValue(undefined);
   Object.defineProperty(navigator, 'clipboard', {
     value: { writeText: writeTextMock },
@@ -163,5 +171,254 @@ describe('DiffPage copy path', () => {
       expect(toastErrorMock).toHaveBeenCalledWith('Failed to copy');
     });
     expect(toastSuccessMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('DiffPage content fetch', () => {
+  it('fetches content for the selected file and renders the diff', async () => {
+    mockGetDiff.mockResolvedValue({
+      workspace_id: 'ws-001',
+      repo: 'repo',
+      branch: 'main',
+      files: [
+        {
+          new_path: 'a.txt',
+          status: 'modified',
+          lines_added: 1,
+          lines_removed: 1,
+          is_binary: false,
+        },
+      ],
+    });
+    mockGetDiffFile.mockResolvedValue({
+      workspace_id: 'ws-001',
+      path: 'a.txt',
+      old_content: 'old line\n',
+      new_content: 'new line\n',
+    });
+
+    renderAt('/diff/ws-001');
+
+    await waitFor(() => {
+      expect(mockGetDiffFile).toHaveBeenCalledWith('ws-001', 'a.txt', undefined);
+    });
+  });
+
+  it('serves reselected files from the cache without refetching', async () => {
+    mockGetDiff.mockResolvedValue({
+      workspace_id: 'ws-001',
+      repo: 'repo',
+      branch: 'main',
+      files: [
+        {
+          new_path: 'a.txt',
+          status: 'modified',
+          lines_added: 1,
+          lines_removed: 0,
+          is_binary: false,
+        },
+        {
+          new_path: 'b.txt',
+          status: 'modified',
+          lines_added: 1,
+          lines_removed: 0,
+          is_binary: false,
+        },
+      ],
+    });
+    mockGetDiffFile.mockImplementation((_workspaceId: string, path: string) =>
+      Promise.resolve({
+        workspace_id: 'ws-001',
+        path,
+        old_content: '',
+        new_content: `${path} content\n`,
+      })
+    );
+
+    renderAt('/diff/ws-001');
+
+    await waitFor(() => expect(mockGetDiffFile).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByTestId('diff-file-1'));
+    await waitFor(() => expect(mockGetDiffFile).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByTestId('diff-file-0'));
+    // Cached — no third fetch.
+    await waitFor(() => expect(mockGetDiffFile).toHaveBeenCalledTimes(2));
+  });
+
+  it('passes old_path for renamed files', async () => {
+    mockGetDiff.mockResolvedValue({
+      workspace_id: 'ws-001',
+      repo: 'repo',
+      branch: 'main',
+      files: [
+        {
+          old_path: 'old.txt',
+          new_path: 'new.txt',
+          status: 'renamed',
+          lines_added: 0,
+          lines_removed: 0,
+          is_binary: false,
+        },
+      ],
+    });
+    mockGetDiffFile.mockResolvedValue({
+      workspace_id: 'ws-001',
+      path: 'new.txt',
+      old_content: '',
+      new_content: '',
+    });
+
+    renderAt('/diff/ws-001');
+
+    await waitFor(() => {
+      expect(mockGetDiffFile).toHaveBeenCalledWith('ws-001', 'new.txt', 'old.txt');
+    });
+  });
+
+  it('does not fetch content for binary files', async () => {
+    mockGetDiff.mockResolvedValue({
+      workspace_id: 'ws-001',
+      repo: 'repo',
+      branch: 'main',
+      files: [
+        {
+          new_path: 'blob.bin',
+          status: 'modified',
+          lines_added: 0,
+          lines_removed: 0,
+          is_binary: true,
+        },
+      ],
+    });
+
+    renderAt('/diff/ws-001');
+
+    await waitFor(() => expect(screen.getByText('Binary file not shown')).toBeInTheDocument());
+    expect(mockGetDiffFile).not.toHaveBeenCalled();
+  });
+
+  it('keeps cached content visible when switching back while another file loads', async () => {
+    mockGetDiff.mockResolvedValue({
+      workspace_id: 'ws-001',
+      repo: 'repo',
+      branch: 'main',
+      files: [
+        {
+          new_path: 'a.txt',
+          status: 'modified',
+          lines_added: 1,
+          lines_removed: 0,
+          is_binary: false,
+        },
+        {
+          new_path: 'b.txt',
+          status: 'modified',
+          lines_added: 1,
+          lines_removed: 0,
+          is_binary: false,
+        },
+      ],
+    });
+    let resolveB!: (v: {
+      workspace_id: string;
+      path: string;
+      old_content: string;
+      new_content: string;
+    }) => void;
+    mockGetDiffFile.mockImplementation((_workspaceId: string, path: string) => {
+      if (path === 'b.txt') {
+        return new Promise((res) => {
+          resolveB = res;
+        });
+      }
+      return Promise.resolve({ workspace_id: 'ws-001', path, old_content: '', new_content: 'a\n' });
+    });
+
+    renderAt('/diff/ws-001');
+
+    // a.txt loads and renders.
+    await waitFor(() => expect(screen.getByTestId('diff-viewer-stub')).toBeInTheDocument());
+
+    // Switch to b.txt — its fetch hangs; the pending state names the file.
+    fireEvent.click(screen.getByTestId('diff-file-1'));
+    await screen.findByText(/Loading b\.txt/);
+
+    // Switch back to cached a.txt mid-fetch — content shows, no spinner.
+    fireEvent.click(screen.getByTestId('diff-file-0'));
+    await waitFor(() => expect(screen.getByTestId('diff-viewer-stub')).toBeInTheDocument());
+    expect(screen.queryByText(/Loading b\.txt/)).not.toBeInTheDocument();
+
+    // b.txt's late response still lands in the cache — no refetch on reselect.
+    resolveB({ workspace_id: 'ws-001', path: 'b.txt', old_content: '', new_content: 'b\n' });
+    await waitFor(() => expect(mockGetDiffFile).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByTestId('diff-file-1'));
+    await waitFor(() => expect(screen.getByTestId('diff-viewer-stub')).toBeInTheDocument());
+    expect(mockGetDiffFile).toHaveBeenCalledTimes(2);
+  });
+
+  it('scopes a fetch error to its file', async () => {
+    mockGetDiff.mockResolvedValue({
+      workspace_id: 'ws-001',
+      repo: 'repo',
+      branch: 'main',
+      files: [
+        {
+          new_path: 'a.txt',
+          status: 'modified',
+          lines_added: 1,
+          lines_removed: 0,
+          is_binary: false,
+        },
+        {
+          new_path: 'b.txt',
+          status: 'modified',
+          lines_added: 1,
+          lines_removed: 0,
+          is_binary: false,
+        },
+      ],
+    });
+    mockGetDiffFile.mockImplementation((_workspaceId: string, path: string) => {
+      if (path === 'b.txt') return Promise.reject(new Error('boom'));
+      return Promise.resolve({ workspace_id: 'ws-001', path, old_content: '', new_content: 'a\n' });
+    });
+
+    renderAt('/diff/ws-001');
+
+    await waitFor(() => expect(screen.getByTestId('diff-viewer-stub')).toBeInTheDocument());
+
+    // b.txt fails.
+    fireEvent.click(screen.getByTestId('diff-file-1'));
+    await screen.findByText('Failed to load file diff');
+
+    // a.txt is unaffected by b.txt's error.
+    fireEvent.click(screen.getByTestId('diff-file-0'));
+    await waitFor(() => expect(screen.getByTestId('diff-viewer-stub')).toBeInTheDocument());
+    expect(screen.queryByText('Failed to load file diff')).not.toBeInTheDocument();
+  });
+
+  it('shows an inline error when the content fetch fails', async () => {
+    mockGetDiff.mockResolvedValue({
+      workspace_id: 'ws-001',
+      repo: 'repo',
+      branch: 'main',
+      files: [
+        {
+          new_path: 'a.txt',
+          status: 'modified',
+          lines_added: 1,
+          lines_removed: 0,
+          is_binary: false,
+        },
+      ],
+    });
+    mockGetDiffFile.mockRejectedValue(new Error('boom'));
+
+    renderAt('/diff/ws-001');
+
+    // The mocked getErrorMessage returns its fallback string regardless of the error.
+    await waitFor(() => expect(screen.getByText('Failed to load file diff')).toBeInTheDocument());
+    // The file list is still rendered — only the content pane errors.
+    expect(screen.getByTestId('diff-file-list')).toBeInTheDocument();
   });
 });

@@ -74,8 +74,6 @@ test.describe.serial('View code changes in a workspace', () => {
     interface FileDiff {
       old_path?: string;
       new_path?: string;
-      old_content?: string;
-      new_content?: string;
       status?: string;
       lines_added?: number;
       lines_removed?: number;
@@ -100,5 +98,15 @@ test.describe.serial('View code changes in a workspace', () => {
       (f) => f.new_path === 'README.md' || f.old_path === 'README.md'
     );
     expect(readmeFile).toBeDefined();
+
+    // List is metadata-only.
+    expect((readmeFile as Record<string, unknown>).old_content).toBeUndefined();
+    expect((readmeFile as Record<string, unknown>).new_content).toBeUndefined();
+
+    // Content comes from the per-file endpoint.
+    const content = await apiGet<{ path: string; old_content: string; new_content: string }>(
+      `/api/diff-file/${workspaceId}?path=README.md`
+    );
+    expect(content.new_content).toBeTruthy();
   });
 });

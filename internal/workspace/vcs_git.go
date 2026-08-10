@@ -291,7 +291,7 @@ func (g *GitBackend) GetStatus(ctx context.Context, workspacePath string) (VCSSt
 			}
 			fullPath := filepath.Join(workspacePath, filePath)
 			var lineCount int
-			if difftool.IsBinaryFile(ctx, workspacePath, filePath) {
+			if difftool.IsBinaryFile(workspacePath, filePath) {
 				lineCount = 0
 			} else {
 				lc, lcErr := countLinesCapped(fullPath, 1024*1024)

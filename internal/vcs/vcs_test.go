@@ -40,6 +40,24 @@ func TestGitDiffNumstat(t *testing.T) {
 	}
 }
 
+func TestGitDiffNameStatus(t *testing.T) {
+	cb := &GitCommandBuilder{}
+	got := cb.DiffNameStatus()
+	want := "git diff HEAD --name-status --find-renames --diff-filter=ADMR"
+	if got != want {
+		t.Errorf("DiffNameStatus() = %q, want %q", got, want)
+	}
+}
+
+func TestSaplingDiffNameStatus(t *testing.T) {
+	cb := &SaplingCommandBuilder{}
+	got := cb.DiffNameStatus()
+	want := `sl status --pager never -mad | while IFS= read -r l; do printf '%s\t%s\n' "${l%% *}" "${l#* }"; done`
+	if got != want {
+		t.Errorf("DiffNameStatus() = %q, want %q", got, want)
+	}
+}
+
 func TestSaplingDiffNumstat(t *testing.T) {
 	cb := &SaplingCommandBuilder{}
 	got := cb.DiffNumstat()

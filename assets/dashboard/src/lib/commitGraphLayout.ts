@@ -1,4 +1,4 @@
-import type { CommitGraphResponse, CommitGraphNode, FileDiff } from './types';
+import type { CommitGraphResponse, CommitGraphNode, DiffFileSummary } from './types';
 
 export interface LayoutNode {
   hash: string;
@@ -20,7 +20,7 @@ export interface LayoutNode {
     lines_removed: number;
   };
   /** File info (only on commit-file nodes) */
-  file?: FileDiff;
+  file?: DiffFileSummary;
   /** Sync summary metadata (only on sync-summary nodes) */
   syncSummary?: { count: number; newestTimestamp: string };
 }
@@ -68,7 +68,7 @@ export const ROW_HEIGHT = 28;
  */
 export function computeLayout(
   response: CommitGraphResponse,
-  files: FileDiff[] = []
+  files: DiffFileSummary[] = []
 ): CommitGraphLayout {
   const { nodes, branches } = response;
 

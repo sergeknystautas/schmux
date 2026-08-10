@@ -58,6 +58,7 @@ func main() {
 		reflect.TypeOf(contracts.RemoteProfileStatusResponse{}),
 		reflect.TypeOf(contracts.RemoteHostStatusItem{}),
 		reflect.TypeOf(contracts.DiffResponse{}),
+		reflect.TypeOf(contracts.DiffFileContentResponse{}),
 		reflect.TypeOf(contracts.PreviewResponse{}),
 		reflect.TypeOf(contracts.ResolveConflict{}),
 		reflect.TypeOf(contracts.ClipboardRequestEvent{}),

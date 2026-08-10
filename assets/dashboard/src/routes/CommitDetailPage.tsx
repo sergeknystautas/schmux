@@ -1,18 +1,28 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router';
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
-import { getCommitDetail, getErrorMessage } from '../lib/api';
+import { getCommitDetail, getDiffFile, getErrorMessage } from '../lib/api';
 import useTheme from '../hooks/useTheme';
 import { useSessions } from '../contexts/SessionsContext';
 import useSidebarLayout from '../hooks/useSidebarLayout';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import { formatRelativeTime, splitPath } from '../lib/utils';
-import type { CommitDetailResponse } from '../lib/types';
+import type { CommitDetailResponse, DiffFileContentResponse } from '../lib/types';
 
 const COMMIT_SIDEBAR_WIDTH_KEY = 'schmux-commit-sidebar-width';
 const COMMIT_KEYBOARD_FOCUS_KEY = 'schmux-commit-keyboard-focus';
 const MAX_MESSAGE_LINES = 3;
+
+// Per-file content state: the commit-detail response carries only metadata,
+// so each file's content moves through an explicit pending → loaded/error
+// lifecycle. Keeping the state per file (not global) means switching
+// selection mid-fetch never bleeds one file's spinner or error into another
+// file's pane.
+type FileContentState =
+  | { status: 'loading' }
+  | { status: 'loaded'; content: DiffFileContentResponse }
+  | { status: 'error'; message: string };
 
 export default function CommitDetailPage() {
   const { workspaceId, commitHash } = useParams();
@@ -24,6 +34,9 @@ export default function CommitDetailPage() {
   const [error, setError] = useState('');
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const [messageExpanded, setMessageExpanded] = useState(false);
+  // Cache key is `${hash}:${path}` — commit content is immutable, so entries
+  // are never invalidated.
+  const [fileContents, setFileContents] = useState<Record<string, FileContentState>>({});
   const {
     sidebarWidth,
     isResizing,
@@ -71,7 +84,36 @@ export default function CommitDetailPage() {
     loadCommit();
   }, [workspaceId, commitHash]);
 
+  // Fetch content for the selected file on demand. The entry is marked
+  // loading before the fetch starts, so the pane always has a real state for
+  // the selected file; a fetch that outlives the selection still lands in the
+  // cache (commit content is immutable, so its result never goes stale).
+  useEffect(() => {
+    const file = commitData?.files?.[selectedFileIndex];
+    if (!file || !workspaceId || !commitData) return;
+    const path = file.new_path || file.old_path || '';
+    if (!path || file.is_binary) return;
+    const key = `${commitData.hash}:${path}`;
+    if (fileContents[key]) return;
+
+    setFileContents((prev) => ({ ...prev, [key]: { status: 'loading' } }));
+    getDiffFile(workspaceId, file.new_path || '', file.old_path || undefined, commitData.hash)
+      .then((content) => {
+        setFileContents((prev) => ({ ...prev, [key]: { status: 'loaded', content } }));
+      })
+      .catch((err) => {
+        setFileContents((prev) => ({
+          ...prev,
+          [key]: { status: 'error', message: getErrorMessage(err, 'Failed to load file diff') },
+        }));
+      });
+  }, [commitData, selectedFileIndex, workspaceId, fileContents]);
+
   const selectedFile = commitData?.files?.[selectedFileIndex];
+  const selectedContentKey = selectedFile
+    ? `${commitData?.hash}:${selectedFile.new_path || selectedFile.old_path || ''}`
+    : '';
+  const selectedContentState = selectedContentKey ? fileContents[selectedContentKey] : undefined;
 
   // Count message lines
   const messageLines = commitData?.message?.split('\n') || [];
@@ -261,10 +303,21 @@ export default function CommitDetailPage() {
                   <div className="diff-viewer-wrapper" ref={contentRef}>
                     {selectedFile.is_binary ? (
                       <div className="diff-binary-notice">Binary file not shown</div>
+                    ) : !selectedContentState || selectedContentState.status === 'loading' ? (
+                      <div className="loading-state">
+                        <div className="spinner"></div>
+                        <span>
+                          Loading{' '}
+                          {splitPath(selectedFile.new_path || selectedFile.old_path || '').filename}
+                          …
+                        </span>
+                      </div>
+                    ) : selectedContentState.status === 'error' ? (
+                      <div className="diff-binary-notice">{selectedContentState.message}</div>
                     ) : (
                       <ReactDiffViewer
-                        oldValue={selectedFile.old_content || ''}
-                        newValue={selectedFile.new_content || ''}
+                        oldValue={selectedContentState.content.old_content || ''}
+                        newValue={selectedContentState.content.new_content || ''}
                         splitView={false}
                         useDarkTheme={theme === 'dark'}
                         hideLineNumbers={false}

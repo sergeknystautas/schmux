@@ -197,11 +197,39 @@ export function createDemoTransport(options: DemoTransportOptions): Transport & 
         );
       }
 
-      // Diff endpoint — returns DiffResponse with mock file diffs
+      // Per-file diff content endpoint — looks up the same demo data the list is
+      // derived from and returns just that file's content.
+      if (url.includes('/api/diff-file/')) {
+        const rest = url.split('/api/diff-file/')[1] || '';
+        const workspaceId = rest.split('?')[0];
+        const params = new URLSearchParams(rest.split('?')[1] || '');
+        const path = params.get('path') || params.get('old_path') || '';
+        const diff = createDemoDiff(workspaceId || 'demo-ws-1');
+        const file = diff.files.find((f) => (f.new_path || f.old_path) === path);
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              workspace_id: workspaceId,
+              path,
+              old_content: file?.old_content || '',
+              new_content: file?.new_content || '',
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          )
+        );
+      }
+
+      // Diff endpoint — returns the metadata-only file list (content is served
+      // per file by /api/diff-file/).
       if (url.includes('/api/diff/')) {
         const workspaceId = url.split('/api/diff/')[1]?.split('?')[0];
+        const diff = createDemoDiff(workspaceId || 'demo-ws-1');
+        const slim = {
+          ...diff,
+          files: diff.files.map(({ old_content, new_content, ...summary }) => summary),
+        };
         return Promise.resolve(
-          new Response(JSON.stringify(createDemoDiff(workspaceId || 'demo-ws-1')), {
+          new Response(JSON.stringify(slim), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
           })

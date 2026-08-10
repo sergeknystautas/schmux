@@ -801,6 +801,7 @@ func (s *Server) Start() error {
 		r.Get("/builtin-quick-launch", spawnH.handleBuiltinQuickLaunch)
 		r.Get("/commit/prompt", gitH.handleCommitPrompt)
 		r.Get("/diff/*", gitH.handleDiff)
+		r.Get("/diff-file/*", gitH.handleDiffFile)
 		r.Get("/file/*", gitH.handleFile)
 		r.Get("/overlays", wsH.handleOverlays)
 		r.Get("/prs", s.handlePRs)

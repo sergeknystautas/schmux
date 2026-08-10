@@ -601,6 +601,7 @@ func TestAPIContract_MissingIDErrors(t *testing.T) {
 		{"dispose missing id", http.MethodPost, "/api/sessions//dispose", wsH.handleDispose, "sessionID"},
 		{"dispose workspace missing id", http.MethodPost, "/api/workspaces//dispose", wsH.handleDisposeWorkspace, "workspaceID"},
 		{"diff missing id", http.MethodGet, "/api/diff/", gitH.handleDiff, ""},
+		{"diff-file missing id", http.MethodGet, "/api/diff-file/", gitH.handleDiffFile, ""},
 		{"open vscode missing id", http.MethodPost, "/api/open-vscode/", gitH.handleOpenVSCode, ""},
 		{"sessions nickname missing id", http.MethodPut, "/api/sessions-nickname/", server.sessionHandlers.handleUpdateNickname, "sessionID"},
 		{"sessions xterm-title missing id", http.MethodPut, "/api/sessions-xterm-title/", server.sessionHandlers.handleUpdateXtermTitle, "sessionID"},

@@ -34,6 +34,15 @@ func (s *SaplingCommandBuilder) DiffNumstat() string {
 	return "sl status --no-status -mad | while IFS= read -r f; do printf '0\\t0\\t%s\\n' \"$f\"; done"
 }
 
+func (s *SaplingCommandBuilder) DiffNameStatus() string {
+	// Same -mad file set as DiffNumstat's emulation, but keeping the status
+	// letters. Sapling shows files deleted from disk as "!", removed as "R".
+	// Its output is "X path" (single space), so re-emit as tab-separated
+	// "X\tpath" to match git's --name-status format — otherwise paths
+	// containing spaces would be truncated by the whitespace-split parser.
+	return `sl status --pager never -mad | while IFS= read -r l; do printf '%s\t%s\n' "${l%% *}" "${l#* }"; done`
+}
+
 func (s *SaplingCommandBuilder) ShowFile(path, revision string) string {
 	// In Sapling, "." is the working copy parent — equivalent to git's HEAD.
 	slRev := revision

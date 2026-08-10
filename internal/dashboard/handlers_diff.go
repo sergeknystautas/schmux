@@ -121,9 +121,9 @@ func (h *GitHandlers) handleDiff(w http.ResponseWriter, r *http.Request) {
 
 	readFile := func(path string) string { return readWorkingFile(ws.Path, path) }
 	isBinaryCheck := func(path string) bool {
-		return difftool.IsBinaryFile(ctx, ws.Path, path)
+		return difftool.IsBinaryFile(ws.Path, path)
 	}
-	resp, err := buildDiffResponse(run, readFile, isBinaryCheck, cb, ws.Path, ws.ID, ws.Repo, ws.Branch)
+	resp, err := buildLocalDiffResponse(run, readFile, isBinaryCheck, cb, h.vcsTypeForWorkspace(ws), ws.ID, ws.Repo, ws.Branch)
 	if err != nil {
 		h.logger.Error("diff failed", "err", err)
 		writeJSONError(w, `{"error":"diff failed"}`, http.StatusInternalServerError)
@@ -147,152 +147,169 @@ type readFileFunc = func(path string) string
 // isBinaryFunc checks whether a file in the working directory is binary.
 type isBinaryFunc = func(path string) bool
 
-// buildDiffResponse builds a diff response using VCS-agnostic commands.
-// Used by both local and remote diff handlers.
-func buildDiffResponse(run vcsRunFunc, readFile readFileFunc, isBinaryCheck isBinaryFunc, cb vcs.CommandBuilder, workspacePath, workspaceID, repo, branch string) (*diffResponse, error) {
-	type fileDiff = diffFileDiff
+// Type aliases for contracts types used throughout this file.
+type diffFileSummary = contracts.DiffFileSummary
+type diffResponse = contracts.DiffResponse
 
-	// Get numstat for file list and line counts
-	numstatOutput, _ := run(cb.DiffNumstat())
+// numstatCounts holds per-file line counts parsed from DiffNumstat output.
+type numstatCounts struct {
+	added    int
+	removed  int
+	isBinary bool
+}
 
-	files := make([]fileDiff, 0)
-	for _, line := range strings.Split(numstatOutput, "\n") {
+// parseNumstatOutput parses DiffNumstat output into a map keyed by new path
+// (rename brace-form "prefix{old => new}suffix" resolves to the new path).
+func parseNumstatOutput(output string) map[string]numstatCounts {
+	result := make(map[string]numstatCounts)
+	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
 		parts := strings.Split(line, "\t")
 		if len(parts) < 3 {
-			// Try spaces — capture-pane -J may convert tabs to spaces
+			// capture-pane -J may convert tabs to spaces
 			parts = strings.Fields(line)
 		}
 		if len(parts) < 3 {
 			continue
 		}
-
-		addedStr := parts[0]
-		deletedStr := parts[1]
-		filePath := parts[2]
-
-		isBinary := addedStr == "-" && deletedStr == "-"
-		linesAdded := 0
-		linesRemoved := 0
-		if addedStr != "-" {
-			linesAdded, _ = strconv.Atoi(addedStr)
+		key := parts[2]
+		if _, newName := parseRenamePath(key); newName != "" {
+			key = newName
 		}
-		if deletedStr != "-" {
-			linesRemoved, _ = strconv.Atoi(deletedStr)
-		}
-
-		// Check for rename: git numstat outputs "prefix{old => new}suffix"
-		if oldName, newName := parseRenamePath(filePath); oldName != "" {
-			if isBinary {
-				files = append(files, fileDiff{
-					OldPath:  oldName,
-					NewPath:  newName,
-					Status:   "renamed",
-					IsBinary: true,
-				})
-			} else {
-				oldContent, _ := run(cb.ShowFile(oldName, "HEAD"))
-				oldContent = capContent(oldContent)
-				newContent := readFile(newName)
-				files = append(files, fileDiff{
-					OldPath:      oldName,
-					NewPath:      newName,
-					OldContent:   oldContent,
-					NewContent:   newContent,
-					Status:       "renamed",
-					LinesAdded:   linesAdded,
-					LinesRemoved: linesRemoved,
-				})
-			}
-			continue
-		}
-
-		// Get old and new content to determine status
-		oldContent, _ := run(cb.ShowFile(filePath, "HEAD"))
-		oldContent = capContent(oldContent)
-
-		if isBinary {
-			status := "modified"
-			if oldContent == "" {
-				status = "added"
-			} else if readFile(filePath) == "" {
-				status = "deleted"
-			}
-			fd := fileDiff{
-				Status:   status,
-				IsBinary: true,
-			}
-			if status == "deleted" {
-				fd.OldPath = filePath
-			} else {
-				fd.NewPath = filePath
-			}
-			files = append(files, fd)
-			continue
-		}
-
-		newContent := readFile(filePath)
-
-		status := "modified"
-		if oldContent == "" {
-			status = "added"
-		} else if newContent == "" {
-			status = "deleted"
-		}
-
-		if status == "deleted" {
-			files = append(files, fileDiff{
-				OldPath:      filePath,
-				OldContent:   oldContent,
-				Status:       status,
-				LinesAdded:   linesAdded,
-				LinesRemoved: linesRemoved,
-			})
+		entry := numstatCounts{}
+		if parts[0] == "-" && parts[1] == "-" {
+			entry.isBinary = true
 		} else {
-			files = append(files, fileDiff{
-				NewPath:      filePath,
-				OldContent:   oldContent,
-				NewContent:   newContent,
-				Status:       status,
-				LinesAdded:   linesAdded,
-				LinesRemoved: linesRemoved,
-			})
+			entry.added, _ = strconv.Atoi(parts[0])
+			entry.removed, _ = strconv.Atoi(parts[1])
+		}
+		result[key] = entry
+	}
+	return result
+}
+
+// parseNameStatusOutput parses DiffNameStatus output into ordered summaries
+// with status and paths set (no line counts yet). Letter semantics differ by
+// VCS: git "R" = renamed (two paths); sapling "R" and "!" = deleted.
+// Both builders emit tab-separated lines; the whitespace-field fallback
+// exists for remote output, where tmux capture-pane may mangle tabs into
+// spaces (spaced paths degrade there, as they always have for numstat).
+// Path conventions match the pre-split API: modified/added → NewPath only,
+// deleted → OldPath only, renamed → both.
+func parseNameStatusOutput(output, vcsType string) []diffFileSummary {
+	var files []diffFileSummary
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) < 2 {
+			parts = strings.Fields(line)
+		}
+		if len(parts) < 2 {
+			continue
+		}
+		letter := parts[0][:1]
+		if vcsType == "sapling" {
+			switch letter {
+			case "A":
+				files = append(files, diffFileSummary{Status: "added", NewPath: parts[1]})
+			case "R", "!":
+				files = append(files, diffFileSummary{Status: "deleted", OldPath: parts[1]})
+			default:
+				files = append(files, diffFileSummary{Status: "modified", NewPath: parts[1]})
+			}
+			continue
+		}
+		switch letter {
+		case "A":
+			files = append(files, diffFileSummary{Status: "added", NewPath: parts[1]})
+		case "D":
+			files = append(files, diffFileSummary{Status: "deleted", OldPath: parts[1]})
+		case "R":
+			if len(parts) >= 3 {
+				files = append(files, diffFileSummary{Status: "renamed", OldPath: parts[1], NewPath: parts[2]})
+			} else {
+				files = append(files, diffFileSummary{Status: "renamed", NewPath: parts[1]})
+			}
+		default: // M and anything unexpected
+			files = append(files, diffFileSummary{Status: "modified", NewPath: parts[1]})
 		}
 	}
+	return files
+}
 
-	// Get untracked files
-	untrackedOutput, err := run(cb.UntrackedFiles())
-	if err == nil {
-		for _, filePath := range strings.Split(untrackedOutput, "\n") {
-			filePath = strings.TrimSpace(filePath)
-			if filePath == "" {
+// untrackedEntry describes one untracked file for the summary builder.
+type untrackedEntry struct {
+	path     string
+	lines    int
+	isBinary bool
+}
+
+// countLines counts lines the way the pre-split API did: a trailing newline
+// does not add an extra line; empty content is 0 lines.
+func countLines(s string) int {
+	if s == "" {
+		return 0
+	}
+	n := strings.Count(s, "\n")
+	if !strings.HasSuffix(s, "\n") {
+		n++
+	}
+	return n
+}
+
+// buildDiffSummaries joins name-status output (authoritative for status and
+// paths) with numstat output (authoritative for line counts), then appends
+// untracked entries. Join key: NewPath, falling back to OldPath (deleted).
+func buildDiffSummaries(vcsType, numstatOut, nameStatusOut string, untracked []untrackedEntry) []diffFileSummary {
+	counts := parseNumstatOutput(numstatOut)
+	files := parseNameStatusOutput(nameStatusOut, vcsType)
+	for i := range files {
+		key := files[i].NewPath
+		if key == "" {
+			key = files[i].OldPath
+		}
+		if c, ok := counts[key]; ok {
+			files[i].LinesAdded = c.added
+			files[i].LinesRemoved = c.removed
+			files[i].IsBinary = c.isBinary
+		}
+	}
+	for _, u := range untracked {
+		f := diffFileSummary{NewPath: u.path, Status: "untracked", IsBinary: u.isBinary}
+		if !u.isBinary {
+			f.LinesAdded = u.lines
+		}
+		files = append(files, f)
+	}
+	return files
+}
+
+// buildLocalDiffResponse builds a metadata-only diff list for a local
+// workspace using three cheap run calls. Content is never fetched; the
+// /api/diff-file endpoint serves per-file content on demand.
+func buildLocalDiffResponse(run vcsRunFunc, readFile readFileFunc, isBinaryCheck isBinaryFunc, cb vcs.CommandBuilder, vcsType, workspaceID, repo, branch string) (*diffResponse, error) {
+	numstatOut, _ := run(cb.DiffNumstat())
+	nameStatusOut, _ := run(cb.DiffNameStatus())
+
+	var untracked []untrackedEntry
+	if untrackedOut, err := run(cb.UntrackedFiles()); err == nil {
+		for _, p := range strings.Split(untrackedOut, "\n") {
+			p = strings.TrimSpace(p)
+			if p == "" {
 				continue
 			}
-			if isBinaryCheck(filePath) {
-				files = append(files, fileDiff{
-					NewPath:  filePath,
-					Status:   "untracked",
-					IsBinary: true,
-				})
+			if isBinaryCheck(p) {
+				untracked = append(untracked, untrackedEntry{path: p, isBinary: true})
 				continue
 			}
-			newContent := readFile(filePath)
-			lineCount := 0
-			if newContent != "" {
-				lineCount = strings.Count(newContent, "\n")
-				if !strings.HasSuffix(newContent, "\n") {
-					lineCount++
-				}
-			}
-			files = append(files, fileDiff{
-				NewPath:    filePath,
-				NewContent: newContent,
-				Status:     "untracked",
-				LinesAdded: lineCount,
-			})
+			// Content read locally just for the line count, then discarded.
+			untracked = append(untracked, untrackedEntry{path: p, lines: countLines(readFile(p))})
 		}
 	}
 
@@ -300,7 +317,75 @@ func buildDiffResponse(run vcsRunFunc, readFile readFileFunc, isBinaryCheck isBi
 		WorkspaceID: workspaceID,
 		Repo:        repo,
 		Branch:      branch,
-		Files:       files,
+		Files:       buildDiffSummaries(vcsType, numstatOut, nameStatusOut, untracked),
+	}, nil
+}
+
+// remoteDiffListDelim separates the three sections of the batched remote
+// list command (numstat / name-status / untracked-with-line-counts).
+const remoteDiffListDelim = "__SCHMUX_DIFF_DELIM__"
+
+// remoteDiffListCommand returns a single shell command producing all three
+// list sections. The untracked list can't be known before the command runs,
+// so line counts come from a shell while-loop emitting "count\tpath" lines —
+// the same emulation pattern sapling's DiffNumstat already uses.
+func remoteDiffListCommand(cb vcs.CommandBuilder) string {
+	untrackedWithCounts := fmt.Sprintf(
+		`%s | while IFS= read -r f; do [ -z "$f" ] && continue; c=$(wc -l < "$f" 2>/dev/null || echo 0); printf '%%s\t%%s\n' "$c" "$f"; done`,
+		cb.UntrackedFiles())
+	return fmt.Sprintf("%s; echo %s; %s; echo %s; %s",
+		cb.DiffNumstat(), remoteDiffListDelim, cb.DiffNameStatus(), remoteDiffListDelim, untrackedWithCounts)
+}
+
+// buildRemoteDiffResponse builds a metadata-only diff list for a remote
+// workspace using exactly one RunCommand (each RunCommand is a ~1.5s tmux
+// round-trip, so batching matters). Binary detection for untracked files
+// uses extensions — local filesystem inspection isn't possible.
+func buildRemoteDiffResponse(run vcsRunFunc, cb vcs.CommandBuilder, vcsType, workspaceID, repo, branch string) (*diffResponse, error) {
+	out, err := run(remoteDiffListCommand(cb))
+	if err != nil {
+		return nil, fmt.Errorf("remote diff list failed: %w", err)
+	}
+
+	sections := strings.SplitN(out, remoteDiffListDelim, 3)
+	numstatOut, nameStatusOut, untrackedOut := "", "", ""
+	if len(sections) > 0 {
+		numstatOut = strings.TrimSpace(sections[0])
+	}
+	if len(sections) > 1 {
+		nameStatusOut = strings.TrimSpace(sections[1])
+	}
+	if len(sections) > 2 {
+		untrackedOut = strings.TrimSpace(sections[2])
+	}
+
+	var untracked []untrackedEntry
+	for _, line := range strings.Split(untrackedOut, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) < 2 {
+			parts = strings.Fields(line)
+		}
+		if len(parts) < 2 {
+			continue
+		}
+		lines, _ := strconv.Atoi(strings.TrimSpace(parts[0]))
+		path := parts[1]
+		if isBinaryExtension(path) {
+			untracked = append(untracked, untrackedEntry{path: path, isBinary: true})
+			continue
+		}
+		untracked = append(untracked, untrackedEntry{path: path, lines: lines})
+	}
+
+	return &diffResponse{
+		WorkspaceID: workspaceID,
+		Repo:        repo,
+		Branch:      branch,
+		Files:       buildDiffSummaries(vcsType, numstatOut, nameStatusOut, untracked),
 	}, nil
 }
 
@@ -322,10 +407,6 @@ func parseRenamePath(path string) (string, string) {
 	newPart := path[open+arrow+4 : close]
 	return prefix + oldPart + suffix, prefix + newPart + suffix
 }
-
-// Type aliases for contracts types used throughout this file.
-type diffFileDiff = contracts.DiffFileDiff
-type diffResponse = contracts.DiffResponse
 
 // base64Decode decodes a base64-encoded string, trying standard then URL-safe encoding.
 func base64Decode(s string) ([]byte, error) {
@@ -600,197 +681,11 @@ func (h *GitHandlers) handleRemoteFile(w http.ResponseWriter, r *http.Request, w
 	}
 }
 
-// buildBatchedDiffResponse builds a diff response using exactly 2 run calls:
-//  1. numstat + untracked list (batched with delimiter)
-//  2. all file contents — old + new for tracked, new for untracked (batched with delimiter)
-//
-// This is the remote-optimized alternative to buildDiffResponse. Each run call
-// becomes a tmux RunCommand (~1.5s each), so batching is critical to avoid
-// a storm of 2N+2 calls for N files.
-func buildBatchedDiffResponse(run vcsRunFunc, cb vcs.CommandBuilder, workspaceID, repo, branch string) (*diffResponse, error) {
-	type fileDiff = diffFileDiff
-
-	// Phase 1: Get file list (numstat + untracked) in one run call.
-	const delim = "__SCHMUX_DIFF_DELIM__"
-	phase1Cmd := fmt.Sprintf("%s; echo %s; %s", cb.DiffNumstat(), delim, cb.UntrackedFiles())
-	phase1Out, err := run(phase1Cmd)
-	if err != nil {
-		return nil, fmt.Errorf("phase1 failed: %w", err)
-	}
-
-	phase1Parts := strings.SplitN(phase1Out, delim, 2)
-	numstatOutput := ""
-	untrackedOutput := ""
-	if len(phase1Parts) > 0 {
-		numstatOutput = strings.TrimSpace(phase1Parts[0])
-	}
-	if len(phase1Parts) > 1 {
-		untrackedOutput = strings.TrimSpace(phase1Parts[1])
-	}
-
-	// Parse numstat to get tracked modified files.
-	type fileEntry struct {
-		path         string
-		linesAdded   int
-		linesRemoved int
-		isBinary     bool
-	}
-	var trackedFiles []fileEntry
-	for _, line := range strings.Split(numstatOutput, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, "\t")
-		if len(parts) < 3 {
-			parts = strings.Fields(line)
-		}
-		if len(parts) < 3 {
-			continue
-		}
-		isBin := parts[0] == "-" && parts[1] == "-"
-		added, _ := strconv.Atoi(parts[0])
-		removed, _ := strconv.Atoi(parts[1])
-		trackedFiles = append(trackedFiles, fileEntry{
-			path: parts[2], linesAdded: added, linesRemoved: removed, isBinary: isBin,
-		})
-	}
-
-	// Parse untracked files.
-	var untrackedFiles []string
-	for _, p := range strings.Split(untrackedOutput, "\n") {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			untrackedFiles = append(untrackedFiles, p)
-		}
-	}
-
-	// Collect all non-binary files that need content fetched.
-	// For each tracked file: old content (ShowFile) + new content (FileContent).
-	// For each untracked file: new content only.
-	const fileDelim = "__SCHMUX_FILE_DELIM__"
-	var cmdParts []string
-	type contentSlot struct {
-		fileIdx     int
-		isOld       bool
-		isUntracked bool
-	}
-	var slots []contentSlot
-
-	for i, f := range trackedFiles {
-		if f.isBinary {
-			continue
-		}
-		cmdParts = append(cmdParts, cb.ShowFile(f.path, "HEAD"))
-		slots = append(slots, contentSlot{fileIdx: i, isOld: true})
-		cmdParts = append(cmdParts, cb.FileContent(f.path))
-		slots = append(slots, contentSlot{fileIdx: i, isOld: false})
-	}
-	for i, p := range untrackedFiles {
-		if isBinaryExtension(p) {
-			continue
-		}
-		cmdParts = append(cmdParts, cb.FileContent(p))
-		slots = append(slots, contentSlot{fileIdx: i, isUntracked: true})
-	}
-
-	// Phase 2: Fetch all file contents in one run call.
-	oldContents := make(map[int]string)
-	newContents := make(map[int]string)
-	untrackedContents := make(map[int]string)
-
-	if len(cmdParts) > 0 {
-		batchCmd := strings.Join(cmdParts, "; echo "+fileDelim+"; ")
-		phase2Out, err := run(batchCmd)
-		if err != nil {
-			// Fall through — return files without content
-		} else {
-			sections := strings.Split(phase2Out, fileDelim)
-			for idx, slot := range slots {
-				content := ""
-				if idx < len(sections) {
-					content = capContent(strings.TrimSpace(sections[idx]))
-				}
-				if slot.isUntracked {
-					untrackedContents[slot.fileIdx] = content
-				} else if slot.isOld {
-					oldContents[slot.fileIdx] = content
-				} else {
-					newContents[slot.fileIdx] = content
-				}
-			}
-		}
-	}
-
-	// Build response.
-	files := make([]fileDiff, 0, len(trackedFiles)+len(untrackedFiles))
-	for i, f := range trackedFiles {
-		if f.isBinary {
-			status := "modified"
-			if oldContents[i] == "" {
-				status = "added"
-			}
-			files = append(files, fileDiff{
-				NewPath: f.path, Status: status, IsBinary: true,
-			})
-			continue
-		}
-
-		oldContent := oldContents[i]
-		newContent := newContents[i]
-		status := "modified"
-		if oldContent == "" {
-			status = "added"
-		} else if newContent == "" {
-			status = "deleted"
-		}
-
-		if status == "deleted" {
-			files = append(files, fileDiff{
-				OldPath: f.path, OldContent: oldContent, Status: status,
-				LinesAdded: f.linesAdded, LinesRemoved: f.linesRemoved,
-			})
-		} else {
-			files = append(files, fileDiff{
-				NewPath: f.path, OldContent: oldContent, NewContent: newContent, Status: status,
-				LinesAdded: f.linesAdded, LinesRemoved: f.linesRemoved,
-			})
-		}
-	}
-
-	for i, p := range untrackedFiles {
-		if isBinaryExtension(p) {
-			files = append(files, fileDiff{
-				NewPath: p, Status: "untracked", IsBinary: true,
-			})
-			continue
-		}
-		content := untrackedContents[i]
-		lineCount := 0
-		if content != "" {
-			lineCount = strings.Count(content, "\n")
-			if !strings.HasSuffix(content, "\n") {
-				lineCount++
-			}
-		}
-		files = append(files, fileDiff{
-			NewPath: p, NewContent: content, Status: "untracked", LinesAdded: lineCount,
-		})
-	}
-
-	return &diffResponse{
-		WorkspaceID: workspaceID,
-		Repo:        repo,
-		Branch:      branch,
-		Files:       files,
-	}, nil
-}
-
 // handleRemoteDiff handles diff requests for remote workspaces by executing VCS
 // commands on the remote host via tmux control mode.
 //
-// Uses buildBatchedDiffResponse which makes exactly 2 RunCommands instead of
-// the per-file approach (2N+2 RunCommands) that was causing tmux channel storms.
+// Uses buildRemoteDiffResponse which makes exactly 1 RunCommand instead of
+// the per-file approach that was causing tmux channel storms.
 func (h *GitHandlers) handleRemoteDiff(w http.ResponseWriter, r *http.Request, ws state.Workspace) {
 	if h.remoteManager == nil {
 		writeJSONError(w, "remote manager not available", http.StatusServiceUnavailable)
@@ -813,7 +708,7 @@ func (h *GitHandlers) handleRemoteDiff(w http.ResponseWriter, r *http.Request, w
 		return conn.RunCommand(ctx, workdir, cmd)
 	}
 
-	resp, err := buildBatchedDiffResponse(run, cb, ws.ID, ws.Repo, ws.Branch)
+	resp, err := buildRemoteDiffResponse(run, cb, h.vcsTypeForWorkspace(ws), ws.ID, ws.Repo, ws.Branch)
 	if err != nil {
 		h.logger.Error("remote diff failed", "err", err)
 		writeJSONError(w, `{"error":"remote diff failed"}`, http.StatusInternalServerError)

@@ -845,8 +845,7 @@ func TestE2ERemoteRunCommand(t *testing.T) {
 
 		var diffResp struct {
 			Files []struct {
-				NewPath    string `json:"new_path"`
-				NewContent string `json:"new_content"`
+				NewPath string `json:"new_path"`
 			} `json:"files"`
 		}
 		if err := json.Unmarshal(body, &diffResp); err != nil {
@@ -858,9 +857,9 @@ func TestE2ERemoteRunCommand(t *testing.T) {
 		}
 
 		for _, f := range diffResp.Files {
-			t.Logf("E2E_DIFF_TEST: file=%s content_len=%d", f.NewPath, len(f.NewContent))
-			if f.NewPath == "file.txt" && strings.Contains(f.NewContent, "modified") {
-				t.Logf("E2E_DIFF_TEST: SUCCESS — RunCommand returned file content")
+			t.Logf("E2E_DIFF_TEST: file=%s", f.NewPath)
+			if f.NewPath == "file.txt" {
+				t.Logf("E2E_DIFF_TEST: SUCCESS — diff list returned file.txt")
 			}
 		}
 	}

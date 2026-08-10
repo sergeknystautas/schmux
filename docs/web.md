@@ -184,6 +184,8 @@ View git changes for a workspace.
 **Features:**
 
 - Side-by-side diff viewer
+- File list loads instantly (metadata only); each file's content is fetched
+  on selection and cached, so large changesets stay fast
 - See what agents changed
 - Compare across multiple workspaces
 

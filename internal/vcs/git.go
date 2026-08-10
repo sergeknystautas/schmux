@@ -14,6 +14,10 @@ func (g *GitCommandBuilder) DiffNumstat() string {
 	return "git diff HEAD --numstat --find-renames --diff-filter=ADMR"
 }
 
+func (g *GitCommandBuilder) DiffNameStatus() string {
+	return "git diff HEAD --name-status --find-renames --diff-filter=ADMR"
+}
+
 func (g *GitCommandBuilder) ShowFile(path, revision string) string {
 	return fmt.Sprintf("git show %s", shellutil.Quote(revision+":"+path))
 }

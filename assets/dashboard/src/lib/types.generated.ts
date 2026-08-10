@@ -66,7 +66,7 @@ export interface CommitDetailResponse {
   message: string;
   parents: string[];
   is_merge: boolean;
-  files: FileDiff[];
+  files: DiffFileSummary[];
 }
 
 export interface CommitGraphBranch {
@@ -284,11 +284,16 @@ export interface DesyncUpdate {
   target?: string;
 }
 
-export interface DiffFileDiff {
+export interface DiffFileContentResponse {
+  workspace_id: string;
+  path: string;
+  old_content: string;
+  new_content: string;
+}
+
+export interface DiffFileSummary {
   old_path?: string;
   new_path?: string;
-  old_content?: string;
-  new_content?: string;
   status?: string;
   lines_added: number;
   lines_removed: number;
@@ -299,7 +304,7 @@ export interface DiffResponse {
   workspace_id: string;
   repo: string;
   branch: string;
-  files: DiffFileDiff[];
+  files: DiffFileSummary[];
 }
 
 export interface EnvironmentResponse {
@@ -343,17 +348,6 @@ export interface FenceAnalyze {
 export interface FenceAnalyzeUpdate {
   enabled?: boolean;
   target?: string;
-}
-
-export interface FileDiff {
-  old_path?: string;
-  new_path?: string;
-  old_content?: string;
-  new_content?: string;
-  status?: string;
-  lines_added: number;
-  lines_removed: number;
-  is_binary: boolean;
 }
 
 export interface FloorManager {

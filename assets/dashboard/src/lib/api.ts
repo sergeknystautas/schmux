@@ -6,6 +6,7 @@ import type {
   DetectToolsResponse,
   DiffExternalResponse,
   DiffResponse,
+  DiffFileContentResponse,
   CommitDetailResponse,
   CommitGraphResponse,
   LinearSyncResponse,
@@ -416,6 +417,21 @@ export async function closeTab(workspaceId: string, tabId: string): Promise<{ st
 export async function getDiff(workspaceId: string): Promise<DiffResponse> {
   const response = await apiFetch(`/api/diff/${workspaceId}`);
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch diff');
+  return response.json();
+}
+
+export async function getDiffFile(
+  workspaceId: string,
+  path: string,
+  oldPath?: string,
+  commit?: string
+): Promise<DiffFileContentResponse> {
+  const params = new URLSearchParams();
+  if (path) params.set('path', path);
+  if (oldPath) params.set('old_path', oldPath);
+  if (commit) params.set('commit', commit);
+  const response = await apiFetch(`/api/diff-file/${workspaceId}?${params.toString()}`);
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch file diff');
   return response.json();
 }
 

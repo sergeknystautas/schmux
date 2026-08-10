@@ -1928,9 +1928,12 @@ Response:
 
 ### GET /api/diff/{workspaceId}
 
-Returns git diff for a workspace (tracked files + untracked).
-Returns 400 for non-git workspaces (e.g., sapling).
-Works for both local and remote workspaces — remote file content is fetched via SSH.
+Returns the workspace's working-tree diff as a metadata-only file list
+(tracked changes + untracked files). File content is served per file by
+`GET /api/diff-file/{workspaceId}`. Works for git and sapling, local and
+remote workspaces (remote uses a single batched SSH command regardless of
+changeset size). Status is derived from a name-status diff; line counts from
+numstat (sapling reports 0/0 for tracked files — its numstat is emulated).
 
 Response:
 
@@ -1941,11 +1944,12 @@ Response:
   "branch": "branch",
   "files": [
     {
-      "old_path": "optional",
-      "new_path": "file",
-      "old_content": "optional",
-      "new_content": "optional",
-      "status": "added|modified|deleted|renamed|untracked"
+      "old_path": "only for renamed/deleted",
+      "new_path": "absent for deleted",
+      "status": "added|modified|deleted|renamed|untracked",
+      "lines_added": 12,
+      "lines_removed": 3,
+      "is_binary": false
     }
   ]
 }
@@ -1955,6 +1959,49 @@ Errors:
 
 - 404: "workspace not found"
 - 400: "workspace ID is required"
+- 503: "remote host not connected" / "remote manager not available" (remote workspaces only)
+
+### GET /api/diff-file/{workspaceId}
+
+Returns one file's old/new content for the diff viewer. Serves two revision
+modes selected by the `commit` query parameter:
+
+- Without `commit` (working-tree mode): `old_content` is the file at `HEAD`,
+  `new_content` is the working-tree file.
+- With `commit=<hash>` (commit mode): `old_content` is the file at
+  `<hash>^` (first parent — merge commits diff against first parent),
+  `new_content` at `<hash>`. Content containing NUL bytes in the first 8KB
+  is served as empty (binary guard).
+
+Query parameters:
+
+- `path` — new-side file path (required except for deleted files)
+- `old_path` — old-side path, sent for renamed/copied files and for deleted
+  files (which have no `path`)
+- `commit` — optional commit hash (4-40 hex chars)
+
+A side with no content at its revision (added files have no old side,
+deleted files no new side) is an empty string; the client interprets
+emptiness via the status from the list response. Content is capped at 1MB
+per side (remote: 2000 lines per side). Works for local and remote
+workspaces; remote fetches both sides in one SSH command.
+
+Response:
+
+```json
+{
+  "workspace_id": "workspace-id",
+  "path": "src/main.go",
+  "old_content": "...",
+  "new_content": "..."
+}
+```
+
+Errors:
+
+- 400: "workspace ID is required" / "path or old_path is required" / "invalid commit hash"
+- 403: "invalid file path" (path traversal)
+- 404: "workspace not found"
 - 503: "remote host not connected" / "remote manager not available" (remote workspaces only)
 
 ### GET /api/file/{workspaceId}/{filepath}
@@ -2237,7 +2284,9 @@ Notes:
 
 ### GET /api/workspaces/{workspaceId}/commit-detail/{commitHash}
 
-Returns detailed information about a specific commit, including file diffs.
+Returns detailed information about a specific commit, including a
+metadata-only list of changed files (per-file content is served by
+`GET /api/diff-file/{workspaceId}` with the `commit` parameter).
 
 Path Parameters:
 
@@ -2259,9 +2308,7 @@ Response:
     {
       "old_path": "src/file.ts",
       "new_path": "src/file.ts",
-      "old_content": "old file content...",
-      "new_content": "new file content...",
-      "status": "modified",
+      "status": "modified|added|deleted|renamed|copied",
       "lines_added": 10,
       "lines_removed": 2,
       "is_binary": false
@@ -2280,8 +2327,8 @@ Errors:
 Notes:
 
 - For merge commits, `is_merge` is true and diff is against first parent only
-- Binary files have `is_binary: true` with empty `old_content`/`new_content`
-- File content is truncated at 1MB per file
+- `status` includes `copied` here (the commit-detail diff uses `-C`), which
+  the working-tree `/api/diff/{workspaceId}` list never emits
 - Commit hash is validated for security (hex chars only, 4-40 characters)
 
 ### GET /api/commit/prompt

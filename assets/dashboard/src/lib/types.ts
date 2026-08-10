@@ -247,27 +247,12 @@ export interface OverlayChangeEvent {
   unified_diff: string;
 }
 
-export type { FileDiff } from './types.generated';
-import type { FileDiff } from './types.generated';
-
-export interface DiffResponse {
-  workspace_id: string;
-  repo: string;
-  branch: string;
-  files: FileDiff[];
-}
-
-export interface CommitDetailResponse {
-  hash: string;
-  short_hash: string;
-  author_name: string;
-  author_email: string;
-  timestamp: string;
-  message: string;
-  parents: string[];
-  is_merge: boolean;
-  files: FileDiff[];
-}
+export type {
+  DiffResponse,
+  DiffFileSummary,
+  DiffFileContentResponse,
+  CommitDetailResponse,
+} from './types.generated';
 
 interface VSCodeServerInfo {
   hostname?: string;

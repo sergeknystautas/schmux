@@ -645,7 +645,7 @@ func (m *Manager) gitStatusWithRound(ctx context.Context, workspaceID string, tr
 			// Check if file is binary using git's detection (with fast heuristic fallback)
 			fullPath := filepath.Join(dir, filePath)
 			var lineCount int
-			if difftool.IsBinaryFile(ctx, dir, filePath) {
+			if difftool.IsBinaryFile(dir, filePath) {
 				lineCount = 0
 			} else {
 				// Count lines with a size cap to avoid loading large files

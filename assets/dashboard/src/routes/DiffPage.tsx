@@ -1,7 +1,14 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
-import { getDiff, diffExternal, getErrorMessage, getWorkspaceFileUrl, createTab } from '../lib/api';
+import {
+  getDiff,
+  getDiffFile,
+  diffExternal,
+  getErrorMessage,
+  getWorkspaceFileUrl,
+  createTab,
+} from '../lib/api';
 import useTheme from '../hooks/useTheme';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
@@ -14,12 +21,21 @@ import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import Tooltip from '../components/Tooltip';
 import { copyToClipboard, splitPath } from '../lib/utils';
-import type { DiffResponse } from '../lib/types';
+import type { DiffResponse, DiffFileContentResponse } from '../lib/types';
 
 type ExternalDiffCommand = {
   name: string;
   command: string[];
 };
+
+// Per-file content state: the list response carries only metadata, so each
+// file's content moves through an explicit pending → loaded/error lifecycle.
+// Keeping the state per file (not global) means switching selection mid-fetch
+// never bleeds one file's spinner or error into another file's pane.
+type FileContentState =
+  | { status: 'loading' }
+  | { status: 'loaded'; content: DiffFileContentResponse }
+  | { status: 'error'; message: string };
 
 // Built-in diff commands (always available). The backend at
 // internal/dashboard/handlers_diff.go is the source of truth for which builtin
@@ -59,6 +75,10 @@ export default function DiffPage() {
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const selectedFileIndexRef = useRef(0);
   const [executingDiff, setExecutingDiff] = useState<string | null>(null);
+  const [fileContents, setFileContents] = useState<Record<string, FileContentState>>({});
+  // Bumped on every list (re)load: an in-flight content fetch started against
+  // a previous list must not write into the fresh cache.
+  const contentGenRef = useRef(0);
   const prevGitStatsRef = useRef<{ files: number; added: number; removed: number } | null>(null);
 
   const {
@@ -121,6 +141,8 @@ export default function DiffPage() {
     const loadDiff = async () => {
       setLoading(true);
       setError('');
+      contentGenRef.current++;
+      setFileContents({});
       try {
         const data = await getDiff(workspaceId || '');
         setDiffData(data);
@@ -174,6 +196,8 @@ export default function DiffPage() {
       const reloadDiff = async () => {
         setLoading(true);
         setError('');
+        contentGenRef.current++;
+        setFileContents({});
         try {
           const data = await getDiff(workspaceId || '');
           setDiffData(data);
@@ -210,6 +234,8 @@ export default function DiffPage() {
   }, [workspace, workspaceId]);
 
   const selectedFile = diffData?.files?.[selectedFileIndex];
+  const selectedKey = selectedFile ? selectedFile.new_path || selectedFile.old_path || '' : '';
+  const selectedContentState = selectedKey ? fileContents[selectedKey] : undefined;
 
   // Save/restore scroll position - attach to diff-viewer-wrapper directly
   useEffect(() => {
@@ -243,6 +269,37 @@ export default function DiffPage() {
       localStorage.setItem(getSelectedFileKey(workspaceId), filePath);
     }
   }, [selectedFileIndex, workspaceId, diffData]);
+
+  // Fetch content for the selected file on demand. The entry is marked
+  // loading before the fetch starts, so the pane always has a real state for
+  // the selected file; a fetch that outlives the selection still lands in the
+  // cache (its result stays valid for this list generation).
+  useEffect(() => {
+    const file = diffData?.files?.[selectedFileIndex];
+    if (!file || !workspaceId) return;
+    const key = file.new_path || file.old_path || '';
+    if (!key || file.is_binary) return;
+    // Non-deleted images render via /api/file, not the diff viewer.
+    if (file.status !== 'deleted' && key.match(/\.(png|jpg|jpeg|webp|gif)$/i)) return;
+    if (fileContents[key]) return;
+
+    const gen = contentGenRef.current;
+    setFileContents((prev) => ({ ...prev, [key]: { status: 'loading' } }));
+    getDiffFile(workspaceId, file.new_path || '', file.old_path || undefined)
+      .then((content) => {
+        if (contentGenRef.current === gen) {
+          setFileContents((prev) => ({ ...prev, [key]: { status: 'loaded', content } }));
+        }
+      })
+      .catch((err) => {
+        if (contentGenRef.current === gen) {
+          setFileContents((prev) => ({
+            ...prev,
+            [key]: { status: 'error', message: getErrorMessage(err, 'Failed to load file diff') },
+          }));
+        }
+      });
+  }, [diffData, selectedFileIndex, workspaceId, fileContents]);
 
   // Only show loading spinner if we don't have workspace data yet
   // This prevents flash when navigating from session page (which has cached data)
@@ -549,10 +606,17 @@ export default function DiffPage() {
                     </div>
                   ) : selectedFile.is_binary ? (
                     <div className="diff-binary-notice">Binary file not shown</div>
+                  ) : !selectedContentState || selectedContentState.status === 'loading' ? (
+                    <div className="loading-state">
+                      <div className="spinner"></div>
+                      <span>Loading {splitPath(selectedKey).filename}…</span>
+                    </div>
+                  ) : selectedContentState.status === 'error' ? (
+                    <div className="diff-binary-notice">{selectedContentState.message}</div>
                   ) : (
                     <ReactDiffViewer
-                      oldValue={selectedFile.old_content || ''}
-                      newValue={selectedFile.new_content || ''}
+                      oldValue={selectedContentState.content.old_content || ''}
+                      newValue={selectedContentState.content.new_content || ''}
                       splitView={false}
                       useDarkTheme={theme === 'dark'}
                       hideLineNumbers={false}

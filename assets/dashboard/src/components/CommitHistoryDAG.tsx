@@ -14,7 +14,7 @@ import {
 } from '../lib/api';
 import { computeLayout, GRAPH_COLOR, HIGHLIGHT_COLOR, ROW_HEIGHT } from '../lib/commitGraphLayout';
 import type { CommitGraphLayout, LayoutNode, LayoutEdge, LaneLine } from '../lib/commitGraphLayout';
-import type { CommitGraphResponse, FileDiff } from '../lib/types';
+import type { CommitGraphResponse, DiffFileSummary } from '../lib/types';
 import { useSessions } from '../contexts/SessionsContext';
 import { useSyncState } from '../contexts/SyncContext';
 import { useSync } from '../hooks/useSync';
@@ -36,7 +36,7 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
   const { confirm, alert } = useModal();
   const { setPendingNavigation } = usePendingNavigation();
   const [data, setData] = useState<CommitGraphResponse | null>(null);
-  const [diffFiles, setDiffFiles] = useState<FileDiff[]>([]);
+  const [diffFiles, setDiffFiles] = useState<DiffFileSummary[]>([]);
   const [layout, setLayout] = useState<CommitGraphLayout | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -125,7 +125,7 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
     try {
       const [graphResp, diffResp] = await Promise.all([
         getCommitGraph(workspaceId, { maxTotal: mc }),
-        getDiff(workspaceId).catch(() => ({ files: [] as FileDiff[] })),
+        getDiff(workspaceId).catch(() => ({ files: [] as DiffFileSummary[] })),
       ]);
       setData(graphResp);
       const files = diffResp.files || [];

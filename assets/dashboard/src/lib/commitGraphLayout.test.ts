@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeLayout, ROW_HEIGHT } from './commitGraphLayout';
-import type { CommitGraphResponse, FileDiff } from './types';
+import type { CommitGraphResponse, DiffFileSummary } from './types';
 
 function makeNode(
   hash: string,
@@ -95,7 +95,7 @@ describe('computeLayout', () => {
   it('inserts commit workflow nodes when files are provided', () => {
     const nodes = [makeNode('head1', ['main'], [], ['main'])];
     const branches = { main: { head: 'head1', is_main: true, workspace_ids: [] } };
-    const files: FileDiff[] = [
+    const files: DiffFileSummary[] = [
       { lines_added: 5, lines_removed: 2, is_binary: false, new_path: 'file1.ts' },
       { lines_added: 3, lines_removed: 0, is_binary: false, new_path: 'file2.ts' },
     ];
@@ -127,7 +127,7 @@ describe('computeLayout', () => {
   it('creates edges through commit workflow when files present', () => {
     const nodes = [makeNode('head1', ['main'], [], ['main'])];
     const branches = { main: { head: 'head1', is_main: true, workspace_ids: [] } };
-    const files: FileDiff[] = [{ lines_added: 1, lines_removed: 0, is_binary: false }];
+    const files: DiffFileSummary[] = [{ lines_added: 1, lines_removed: 0, is_binary: false }];
     const layout = computeLayout(makeResponse(nodes, branches), files);
 
     // Should have edges: yah→actions, actions→footer, footer→head
@@ -264,7 +264,7 @@ describe('computeLayout', () => {
   it('includes dirty state on commit-actions node', () => {
     const nodes = [makeNode('head1', ['main'], [], ['main'])];
     const branches = { main: { head: 'head1', is_main: true, workspace_ids: [] } };
-    const files: FileDiff[] = [{ lines_added: 1, lines_removed: 0, is_binary: false }];
+    const files: DiffFileSummary[] = [{ lines_added: 1, lines_removed: 0, is_binary: false }];
     const dirtyState = { files_changed: 3, lines_added: 10, lines_removed: 5 };
     const layout = computeLayout(makeResponse(nodes, branches, { dirty_state: dirtyState }), files);
 
@@ -443,7 +443,7 @@ describe('computeLayout', () => {
       main: { head: 'shared', is_main: true, workspace_ids: [] },
       feature: { head: 'feat1', is_main: false, workspace_ids: [] },
     };
-    const files: FileDiff[] = [
+    const files: DiffFileSummary[] = [
       { lines_added: 10, lines_removed: 2, is_binary: false, new_path: 'app.ts' },
     ];
     const layout = computeLayout(makeResponse(nodes, branches, { main_ahead_count: 2 }), files);
@@ -470,7 +470,7 @@ describe('computeLayout', () => {
       main: { head: 'shared', is_main: true, workspace_ids: [] },
       feature: { head: 'feat1', is_main: false, workspace_ids: [] },
     };
-    const files: FileDiff[] = [{ lines_added: 1, lines_removed: 0, is_binary: false }];
+    const files: DiffFileSummary[] = [{ lines_added: 1, lines_removed: 0, is_binary: false }];
     const layout = computeLayout(makeResponse(nodes, branches), files);
 
     const workflowNodes = layout.nodes.filter(
@@ -487,7 +487,7 @@ describe('computeLayout', () => {
   it('handles many dirty files without breaking layout', () => {
     const nodes = [makeNode('head1', ['main'], [], ['main'])];
     const branches = { main: { head: 'head1', is_main: true, workspace_ids: [] } };
-    const files: FileDiff[] = Array.from({ length: 50 }, (_, i) => ({
+    const files: DiffFileSummary[] = Array.from({ length: 50 }, (_, i) => ({
       lines_added: i + 1,
       lines_removed: 0,
       is_binary: false,
@@ -519,7 +519,7 @@ describe('computeLayout', () => {
       main: { head: 'shared', is_main: true, workspace_ids: [] },
       feature: { head: 'feat1', is_main: false, workspace_ids: [] },
     };
-    const files: FileDiff[] = [{ lines_added: 1, lines_removed: 0, is_binary: false }];
+    const files: DiffFileSummary[] = [{ lines_added: 1, lines_removed: 0, is_binary: false }];
     const layout = computeLayout(makeResponse(nodes, branches, { main_ahead_count: 2 }), files);
 
     for (let i = 1; i < layout.nodes.length; i++) {
@@ -622,7 +622,7 @@ describe('computeLayout', () => {
   it('commit file nodes reference the correct file data', () => {
     const nodes = [makeNode('head1', ['main'], [], ['main'])];
     const branches = { main: { head: 'head1', is_main: true, workspace_ids: [] } };
-    const files: FileDiff[] = [
+    const files: DiffFileSummary[] = [
       { lines_added: 10, lines_removed: 5, is_binary: false, new_path: 'src/index.ts' },
       {
         lines_added: 0,
@@ -922,7 +922,7 @@ describe('computeLayout', () => {
       main: { head: 'fork', is_main: true, workspace_ids: [] },
       feature: { head: 'f000', is_main: false, workspace_ids: [] },
     };
-    const files: FileDiff[] = [
+    const files: DiffFileSummary[] = [
       { lines_added: 5, lines_removed: 2, is_binary: false, new_path: 'a.ts' },
       { lines_added: 3, lines_removed: 0, is_binary: false, new_path: 'b.ts' },
     ];
@@ -951,7 +951,7 @@ describe('computeLayout', () => {
       main: { head: 'shared', is_main: true, workspace_ids: [] },
       feature: { head: 'feat1', is_main: false, workspace_ids: [] },
     };
-    const files: FileDiff[] = [
+    const files: DiffFileSummary[] = [
       { lines_added: 1, lines_removed: 0, is_binary: false, new_path: 'a.ts' },
       { lines_added: 2, lines_removed: 1, is_binary: false, new_path: 'b.ts' },
     ];

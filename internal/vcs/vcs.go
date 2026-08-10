@@ -8,6 +8,13 @@ package vcs
 type CommandBuilder interface {
 	// DiffNumstat returns the command for numstat diff against HEAD.
 	DiffNumstat() string
+	// DiffNameStatus returns the command for a status-letter diff against HEAD.
+	// Output is one tab-separated file per line. Git emits "A\tpath", "M\tpath",
+	// "D\tpath", "R<score>\told\tnew". Sapling emits "M\tpath" / "A\tpath" /
+	// "!\tpath" ("!" = deleted from disk; "R" = removed, also deleted) — its
+	// native space-separated status output is normalized to tabs so paths with
+	// spaces survive. Status letters are mapped per VCS by the dashboard parser.
+	DiffNameStatus() string
 	// ShowFile returns the command to show a file at a given revision.
 	ShowFile(path, revision string) string
 	// FileContent returns the command to read a file from the working directory.

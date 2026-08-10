@@ -43,9 +43,9 @@ func TestValidateCommitHash(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateCommitHash(tt.hash)
+			err := ValidateCommitHash(tt.hash)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("validateCommitHash(%q) error = %v, wantErr %v", tt.hash, err, tt.wantErr)
+				t.Errorf("ValidateCommitHash(%q) error = %v, wantErr %v", tt.hash, err, tt.wantErr)
 			}
 		})
 	}
@@ -228,12 +228,6 @@ func TestGetCommitDetail_ModifiedFile(t *testing.T) {
 		if f.Status != "modified" {
 			t.Errorf("Files[0].Status = %q, want %q", f.Status, "modified")
 		}
-		if f.OldContent == "" {
-			t.Error("Files[0].OldContent is empty, want old content")
-		}
-		if f.NewContent == "" {
-			t.Error("Files[0].NewContent is empty, want new content")
-		}
 	}
 }
 
@@ -297,9 +291,6 @@ func TestGetCommitDetail_DeletedFile(t *testing.T) {
 		f := resp.Files[0]
 		if f.Status != "deleted" {
 			t.Errorf("Files[0].Status = %q, want %q", f.Status, "deleted")
-		}
-		if f.OldContent == "" {
-			t.Error("Files[0].OldContent is empty, want old content")
 		}
 	}
 }
@@ -431,9 +422,6 @@ func TestGetCommitDetail_BinaryFile(t *testing.T) {
 		f := resp.Files[0]
 		if !f.IsBinary {
 			t.Error("Files[0].IsBinary = false, want true")
-		}
-		if f.NewContent != "" {
-			t.Error("Files[0].NewContent should be empty for binary files")
 		}
 	}
 }

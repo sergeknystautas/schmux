@@ -1,16 +1,24 @@
-import type {
-  WorkspaceResponse,
-  SessionResponse,
-  DiffResponse,
-  CommitGraphResponse,
-} from '@dashboard/lib/types';
+import type { WorkspaceResponse, SessionResponse, CommitGraphResponse } from '@dashboard/lib/types';
 import type {
   ConfigResponse,
-  FileDiff,
+  DiffFileSummary,
   CommitGraphNode,
   CommitGraphBranch,
   DependenciesResponse,
 } from '@dashboard/lib/types.generated';
+
+/** Demo diff entry: summary plus the content served by /api/diff-file/. */
+export type DemoFileDiff = DiffFileSummary & {
+  old_content?: string;
+  new_content?: string;
+};
+
+export interface DemoDiffData {
+  workspace_id: string;
+  repo: string;
+  branch: string;
+  files: DemoFileDiff[];
+}
 
 export function createDemoSessions(): SessionResponse[] {
   return [
@@ -194,7 +202,7 @@ export function createDemoDependencies(): DependenciesResponse {
 }
 
 /** Mock diff data for the feature/user-auth workspace */
-export function createDemoDiff(workspaceId: string): DiffResponse {
+export function createDemoDiff(workspaceId: string): DemoDiffData {
   const workspace = createDemoWorkspaces().find((ws) => ws.id === workspaceId);
 
   if (workspaceId === 'demo-ws-2') {
@@ -207,8 +215,8 @@ export function createDemoDiff(workspaceId: string): DiffResponse {
 function createAuthDiff(
   workspace: WorkspaceResponse | undefined,
   workspaceId: string
-): DiffResponse {
-  const files: FileDiff[] = [
+): DemoDiffData {
+  const files: DemoFileDiff[] = [
     {
       old_path: 'src/auth/middleware.ts',
       new_path: 'src/auth/middleware.ts',
@@ -430,8 +438,8 @@ function createAuthDiff(
   };
 }
 
-function createRateLimiterDiff(workspace: WorkspaceResponse | undefined): DiffResponse {
-  const files: FileDiff[] = [
+function createRateLimiterDiff(workspace: WorkspaceResponse | undefined): DemoDiffData {
+  const files: DemoFileDiff[] = [
     {
       old_path: 'src/middleware/rate-limiter.ts',
       new_path: 'src/middleware/rate-limiter.ts',

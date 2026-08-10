@@ -216,10 +216,18 @@ describe('createDemoTransport', () => {
       const statuses = data.files.map((f: any) => f.status);
       expect(statuses).toContain('modified');
       expect(statuses).toContain('added');
-      // Files should have content for the diff viewer
+      // List is metadata-only — content comes from /api/diff-file/.
       const modified = data.files.find((f: any) => f.status === 'modified');
-      expect(modified.old_content).toBeTruthy();
-      expect(modified.new_content).toBeTruthy();
+      expect(modified.old_content).toBeUndefined();
+      expect(modified.new_content).toBeUndefined();
+
+      const fileResp = await dt.fetch(
+        `/api/diff-file/demo-ws-1?path=${encodeURIComponent(modified.new_path)}`
+      );
+      expect(fileResp.ok).toBe(true);
+      const fileData = await fileResp.json();
+      expect(fileData.old_content).toBeTruthy();
+      expect(fileData.new_content).toBeTruthy();
     });
 
     it('returns commit graph for /api/workspaces/{id}/commit-graph', async () => {

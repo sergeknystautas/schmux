@@ -67,3 +67,26 @@ func TestIsBinaryHeuristic_NonexistentFile(t *testing.T) {
 		t.Error("expected false for nonexistent file")
 	}
 }
+
+func TestIsBinaryFile(t *testing.T) {
+	t.Parallel()
+	// filePath is relative to repoDir — the process cwd is elsewhere, so the
+	// join inside IsBinaryFile is what makes the file readable at all.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "sound.ogg"), []byte("OggS\x00\x02binary"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("plain text\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if !IsBinaryFile(dir, "sound.ogg") {
+		t.Error("expected binary for file with null byte")
+	}
+	if IsBinaryFile(dir, "notes.txt") {
+		t.Error("expected not binary for text file")
+	}
+	if IsBinaryFile(dir, "missing.bin") {
+		t.Error("expected not binary for nonexistent file")
+	}
+}
