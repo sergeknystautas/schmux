@@ -74,12 +74,40 @@ func TestBuildLocalDiffResponse_AddedAndDeleted(t *testing.T) {
 	if len(resp.Files) != 2 {
 		t.Fatalf("expected 2 files, got %d", len(resp.Files))
 	}
-	added, deleted := resp.Files[0], resp.Files[1]
+	// Files are sorted by path, so gone.go comes before new.go.
+	deleted, added := resp.Files[0], resp.Files[1]
 	if added.Status != "added" || added.NewPath != "new.go" || added.OldPath != "" || added.LinesAdded != 3 {
 		t.Errorf("unexpected added summary: %+v", added)
 	}
 	if deleted.Status != "deleted" || deleted.OldPath != "gone.go" || deleted.NewPath != "" || deleted.LinesRemoved != 7 {
 		t.Errorf("unexpected deleted summary: %+v", deleted)
+	}
+}
+
+func TestBuildDiffSummaries_SortedByPathAcrossStatuses(t *testing.T) {
+	// Untracked files interleave with tracked changes in one path-sorted
+	// list — no grouping by status.
+	files := buildDiffSummaries("git",
+		"1\t0\tbeta.go\n0\t1\tzeta.go",
+		"M\tbeta.go\nD\tzeta.go",
+		[]untrackedEntry{{path: "alpha.go", lines: 2}, {path: "gamma.go", lines: 1}})
+
+	var got []string
+	for _, f := range files {
+		p := f.NewPath
+		if p == "" {
+			p = f.OldPath
+		}
+		got = append(got, p)
+	}
+	want := []string{"alpha.go", "beta.go", "gamma.go", "zeta.go"}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d files, got %d: %v", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("expected path order %v, got %v", want, got)
+		}
 	}
 }
 
@@ -191,14 +219,20 @@ func TestBuildLocalDiffResponse_SaplingStatuses(t *testing.T) {
 	if len(resp.Files) != 4 {
 		t.Fatalf("expected 4 files, got %d", len(resp.Files))
 	}
-	if resp.Files[0].Status != "modified" || resp.Files[1].Status != "added" || resp.Files[2].Status != "deleted" {
+	statusByPath := make(map[string]string)
+	for _, f := range resp.Files {
+		statusByPath[diffSummaryPath(f)] = f.Status
+	}
+	if statusByPath["changed.go"] != "modified" || statusByPath["added.go"] != "added" || statusByPath["missing.go"] != "deleted" {
 		t.Errorf("unexpected sapling statuses: %+v", resp.Files)
 	}
-	if resp.Files[2].OldPath != "missing.go" || resp.Files[2].NewPath != "" {
-		t.Errorf("sapling deleted file should use OldPath: %+v", resp.Files[2])
+	for _, f := range resp.Files {
+		if f.Status == "deleted" && (f.OldPath != "missing.go" || f.NewPath != "") {
+			t.Errorf("sapling deleted file should use OldPath: %+v", f)
+		}
 	}
-	if resp.Files[3].NewPath != "my notes.txt" {
-		t.Errorf("spaced path should survive tab-separated parse: %+v", resp.Files[3])
+	if _, ok := statusByPath["my notes.txt"]; !ok {
+		t.Errorf("spaced path should survive tab-separated parse: %+v", resp.Files)
 	}
 }
 

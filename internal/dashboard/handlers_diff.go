@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"text/template"
@@ -287,7 +288,20 @@ func buildDiffSummaries(vcsType, numstatOut, nameStatusOut string, untracked []u
 		}
 		files = append(files, f)
 	}
+	// One path-sorted list — untracked files interleave with tracked changes
+	// rather than trailing them as a status-grouped block.
+	sort.Slice(files, func(i, j int) bool {
+		return diffSummaryPath(files[i]) < diffSummaryPath(files[j])
+	})
 	return files
+}
+
+// diffSummaryPath returns the path a summary is displayed under.
+func diffSummaryPath(f diffFileSummary) string {
+	if f.NewPath != "" {
+		return f.NewPath
+	}
+	return f.OldPath
 }
 
 // buildLocalDiffResponse builds a metadata-only diff list for a local

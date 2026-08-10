@@ -1934,6 +1934,7 @@ Returns the workspace's working-tree diff as a metadata-only file list
 remote workspaces (remote uses a single batched SSH command regardless of
 changeset size). Status is derived from a name-status diff; line counts from
 numstat (sapling reports 0/0 for tracked files — its numstat is emulated).
+Files are sorted by path, with tracked and untracked entries interleaved.
 
 Response:
 
