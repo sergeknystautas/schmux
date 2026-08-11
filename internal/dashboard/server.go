@@ -970,6 +970,7 @@ func (s *Server) Start() error {
 				r.Post("/linear-sync-from-main", gitH.handleLinearSyncFromMain)
 				r.Post("/linear-sync-to-main", gitH.handleLinearSyncToMain)
 				r.Post("/push-to-branch", gitH.handlePushToBranch)
+				r.Post("/push-commits", gitH.handlePushCommits)
 				r.Post("/linear-sync-resolve-conflict", gitH.handleLinearSyncResolveConflict)
 
 				// VCS operation routes

@@ -1,0 +1,163 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
+import { useSync } from './useSync';
+
+const pushCommits = vi.fn();
+const getConfig = vi.fn();
+const getDevStatus = vi.fn();
+const disposeWorkspaceAll = vi.fn();
+
+vi.mock('../lib/api', () => ({
+  linearSyncFromMain: vi.fn(),
+  linearSyncToMain: vi.fn(),
+  pushToBranch: vi.fn(),
+  pushCommits: (...args: unknown[]) => pushCommits(...args),
+  linearSyncResolveConflict: vi.fn(),
+  disposeWorkspaceAll: (...args: unknown[]) => disposeWorkspaceAll(...args),
+  getErrorMessage: (_err: unknown, fallback: string) => fallback,
+  getDevStatus: (...args: unknown[]) => getDevStatus(...args),
+  getConfig: (...args: unknown[]) => getConfig(...args),
+  LinearSyncError: class LinearSyncError extends Error {},
+}));
+
+const confirm = vi.fn();
+const alert = vi.fn();
+const show = vi.fn();
+vi.mock('../components/ModalProvider', () => ({
+  useModal: () => ({ alert, confirm, show }),
+}));
+
+const toastSuccess = vi.fn();
+vi.mock('../components/ToastProvider', () => ({
+  useToast: () => ({ error: vi.fn(), success: toastSuccess }),
+}));
+
+vi.mock('../contexts/SyncContext', () => ({
+  useSyncState: () => ({ clearLinearSyncResolveConflictState: vi.fn() }),
+}));
+vi.mock('../lib/navigation', () => ({
+  usePendingNavigation: () => ({ setPendingNavigation: vi.fn() }),
+}));
+
+const navigate = vi.fn();
+vi.mock('react-router', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-router')>()),
+  useNavigate: () => navigate,
+}));
+
+// Probe component: exposes the hook's return value to the tests.
+let sync: ReturnType<typeof useSync>;
+function Probe() {
+  sync = useSync();
+  return null;
+}
+
+function renderSync() {
+  render(
+    <MemoryRouter>
+      <Probe />
+    </MemoryRouter>
+  );
+}
+
+function successResult(overrides: Record<string, unknown> = {}) {
+  return {
+    success: true,
+    target_branch: 'main',
+    per_commit: false,
+    total_commits: 2,
+    pushes_succeeded: 1,
+    ...overrides,
+  };
+}
+
+const baseOpts = {
+  hash: 'a'.repeat(40),
+  target: 'default' as const,
+  perCommit: false,
+  targetBranchName: 'main',
+  headCommit: true,
+  workspacePath: '/tmp/ws',
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  getConfig.mockResolvedValue({ notifications: { suggest_dispose_after_push: true } });
+  getDevStatus.mockResolvedValue({ source_workspace: '/somewhere/else' });
+});
+
+describe('handlePushCommits dispose suggestion', () => {
+  it('offers workspace cleanup after a full push to main, like the Push to main button', async () => {
+    pushCommits.mockResolvedValue(successResult());
+    confirm.mockResolvedValue(true);
+    renderSync();
+
+    const pushed = await sync.handlePushCommits('ws-1', baseOpts);
+
+    expect(pushed).toBe(true);
+    expect(confirm).toHaveBeenCalledWith(
+      expect.stringMatching(/Pushed 2 commits in 1 push to origin\/main\..*dispose this workspace/)
+    );
+    await waitFor(() => expect(disposeWorkspaceAll).toHaveBeenCalledWith('ws-1'));
+    expect(navigate).toHaveBeenCalledWith('/');
+  });
+
+  it('does not dispose when the cleanup prompt is declined', async () => {
+    pushCommits.mockResolvedValue(successResult());
+    confirm.mockResolvedValue(false);
+    renderSync();
+
+    await sync.handlePushCommits('ws-1', baseOpts);
+
+    expect(confirm).toHaveBeenCalled();
+    expect(disposeWorkspaceAll).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('only toasts for a partial push to main (unpushed commits remain)', async () => {
+    pushCommits.mockResolvedValue(successResult());
+    renderSync();
+
+    await sync.handlePushCommits('ws-1', { ...baseOpts, headCommit: false });
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(toastSuccess).toHaveBeenCalledWith(expect.stringContaining('Pushed 2 commits'));
+  });
+
+  it('only toasts for a push to the branch target', async () => {
+    pushCommits.mockResolvedValue(successResult({ target_branch: 'feature' }));
+    renderSync();
+
+    await sync.handlePushCommits('ws-1', {
+      ...baseOpts,
+      target: 'branch',
+      targetBranchName: 'feature',
+    });
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(toastSuccess).toHaveBeenCalledWith(expect.stringContaining('origin/feature'));
+  });
+
+  it('respects notifications.suggest_dispose_after_push = false', async () => {
+    getConfig.mockResolvedValue({ notifications: { suggest_dispose_after_push: false } });
+    pushCommits.mockResolvedValue(successResult());
+    renderSync();
+
+    await sync.handlePushCommits('ws-1', baseOpts);
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(toastSuccess).toHaveBeenCalled();
+  });
+
+  it('does not offer to dispose the live dev workspace', async () => {
+    getDevStatus.mockResolvedValue({ source_workspace: '/tmp/ws' });
+    pushCommits.mockResolvedValue(successResult());
+    renderSync();
+
+    await sync.handlePushCommits('ws-1', baseOpts);
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(toastSuccess).toHaveBeenCalledWith(expect.stringContaining('live in dev mode'));
+  });
+});

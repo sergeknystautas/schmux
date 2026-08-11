@@ -373,6 +373,21 @@ func (m *Manager) PushToBranch(ctx context.Context, workspaceID string, confirm 
 	workspacePath := w.Path
 	branch := w.Branch
 
+	// The branch-flavored push (force-with-lease) is meaningless on the default
+	// branch and would bypass LinearSyncToDefault's fast-forward-only guarantee.
+	// Rejected regardless of confirm.
+	defaultBranch, err := m.GetDefaultBranch(ctx, w.Repo)
+	if err != nil {
+		defaultBranch = "main" // same fallback as GetGitGraph
+	}
+	if branch == defaultBranch {
+		return &LinearSyncResult{
+			Success: false,
+			Branch:  branch,
+			Message: "workspace is on the default branch - use push to main instead",
+		}, nil
+	}
+
 	// 1. git fetch origin
 	m.logger.Info("push-to-branch: fetching origin", "workspace", workspaceID)
 	fetchCmd := exec.CommandContext(ctx, "git", "fetch", "origin")

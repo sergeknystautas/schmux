@@ -337,6 +337,78 @@ func (h *GitHandlers) handlePushToBranch(w http.ResponseWriter, r *http.Request)
 	}
 }
 
+// handlePushCommits handles POST /api/workspaces/{id}/push-commits.
+// Request body: {"hash": "<full sha>", "target": "default"|"branch", "per_commit": bool, "confirm": bool}
+// Pushes commits up to (and including) hash, in one push or one push per commit.
+// Behavior contract documented in docs/api.md (push-commits endpoint).
+func (h *GitHandlers) handlePushCommits(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceID")
+	if workspaceID == "" {
+		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Hash      string `json:"hash"`
+		Target    string `json:"target"`
+		PerCommit bool   `json:"per_commit"`
+		Confirm   bool   `json:"confirm"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	req.Hash = strings.TrimSpace(req.Hash)
+
+	if _, found := h.state.GetWorkspace(workspaceID); !found {
+		writeJSONError(w, fmt.Sprintf("workspace %s not found", workspaceID), http.StatusNotFound)
+		return
+	}
+
+	workspaceLog := logging.Sub(h.logger, "workspace")
+	workspaceLog.Info("push-commits", "workspace_id", workspaceID, "target", req.Target, "per_commit", req.PerCommit, "confirm", req.Confirm)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(h.config.GetGitCloneTimeoutMs())*time.Millisecond)
+	defer cancel()
+
+	result, err := h.workspace.PushCommits(ctx, workspaceID, req.Hash, req.Target, req.PerCommit, req.Confirm)
+	switch {
+	case errors.Is(err, workspace.ErrMalformedHash), errors.Is(err, workspace.ErrInvalidPushTarget):
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
+		return
+	case errors.Is(err, workspace.ErrStaleHash):
+		writeJSONError(w, err.Error(), http.StatusConflict)
+		return
+	case errors.Is(err, workspace.ErrWorkspaceLocked):
+		writeJSONError(w, "workspace is busy with another operation", http.StatusConflict)
+		return
+	case err != nil:
+		workspaceLog.Error("push-commits failed", "workspace_id", workspaceID, "err", err)
+		writeJSONError(w, fmt.Sprintf("Failed to push commits: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Anything landed on the remote → refresh status and broadcast (same
+	// best-effort pattern as push-to-branch).
+	if result.PushesSucceeded > 0 {
+		if _, err := h.workspace.UpdateVCSStatus(ctx, workspaceID); err != nil {
+			if !errors.Is(err, workspace.ErrWorkspaceLocked) {
+				workspaceLog.Warn("push-commits: failed to update git status", "err", err)
+			}
+		}
+		go h.broadcastSessions()
+	}
+
+	workspaceLog.Info("push-commits done", "workspace_id", workspaceID,
+		"success", result.Success, "pushes", result.PushesSucceeded, "reason", result.Reason)
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		h.logger.Error("failed to encode response", "handler", "push-commits", "err", err)
+	}
+}
+
 // handleLinearSyncResolveConflict handles POST requests to kick off conflict resolution.
 // Returns 202 immediately; progress is streamed via the /ws/dashboard WebSocket.
 // POST /api/workspaces/{id}/linear-sync-resolve-conflict

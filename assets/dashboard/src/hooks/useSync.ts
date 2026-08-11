@@ -4,6 +4,7 @@ import {
   linearSyncFromMain,
   linearSyncToMain,
   pushToBranch,
+  pushCommits,
   linearSyncResolveConflict,
   disposeWorkspaceAll,
   getErrorMessage,
@@ -90,6 +91,54 @@ export function useSync() {
     [alert, show, startConflictResolution, toastSuccess]
   );
 
+  // Post-push-to-main flow shared by the "Push to main" button and the
+  // per-commit push modal: honors notifications.suggest_dispose_after_push,
+  // refuses to suggest disposing the live dev workspace, and on confirm
+  // disposes the workspace and navigates home. `summary` is the completed
+  // "Pushed …" sentence (including trailing period).
+  const suggestDisposeAfterPush = useCallback(
+    async (workspaceId: string, summary: string, workspacePath?: string): Promise<void> => {
+      // Check config flag for dispose suggestion
+      let suggestDispose = true;
+      try {
+        const config = await getConfig();
+        suggestDispose = config.notifications?.suggest_dispose_after_push ?? true;
+      } catch {
+        // Config fetch failed — default to showing the prompt
+      }
+
+      if (!suggestDispose) {
+        toastSuccess(summary);
+        return;
+      }
+
+      // Check if this workspace is the live dev workspace
+      let isDevLive = false;
+      if (workspacePath) {
+        try {
+          const devStatus = await getDevStatus();
+          isDevLive = devStatus.source_workspace === workspacePath;
+        } catch {
+          // Not in dev mode or dev status unavailable — ignore
+        }
+      }
+
+      if (isDevLive) {
+        toastSuccess(`${summary} This workspace is live in dev mode — switch before disposing.`);
+        return;
+      }
+
+      const disposeConfirmed = await confirm(
+        `${summary} Are you done? Shall I dispose this workspace and sessions?`
+      );
+      if (disposeConfirmed) {
+        await disposeWorkspaceAll(workspaceId);
+        navigate('/');
+      }
+    },
+    [confirm, navigate, toastSuccess]
+  );
+
   const handleLinearSyncToMain = useCallback(
     async (workspaceId: string, defaultBranch?: string, workspacePath?: string): Promise<void> => {
       try {
@@ -97,44 +146,11 @@ export function useSync() {
         if (result.success) {
           const branch = defaultBranch || result.branch || 'main';
           const count = result.success_count ?? 0;
-
-          // Check config flag for dispose suggestion
-          let suggestDispose = true;
-          try {
-            const config = await getConfig();
-            suggestDispose = config.notifications?.suggest_dispose_after_push ?? true;
-          } catch {
-            // Config fetch failed — default to showing the prompt
-          }
-
-          if (!suggestDispose) {
-            toastSuccess(`Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}.`);
-          } else {
-            // Check if this workspace is the live dev workspace
-            let isDevLive = false;
-            if (workspacePath) {
-              try {
-                const devStatus = await getDevStatus();
-                isDevLive = devStatus.source_workspace === workspacePath;
-              } catch {
-                // Not in dev mode or dev status unavailable — ignore
-              }
-            }
-
-            if (isDevLive) {
-              toastSuccess(
-                `Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}. This workspace is live in dev mode — switch before disposing.`
-              );
-            } else {
-              const disposeConfirmed = await confirm(
-                `Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}. Are you done? Shall I dispose this workspace and sessions?`
-              );
-              if (disposeConfirmed) {
-                await disposeWorkspaceAll(workspaceId);
-                navigate('/');
-              }
-            }
-          }
+          await suggestDisposeAfterPush(
+            workspaceId,
+            `Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}.`,
+            workspacePath
+          );
         } else {
           await alert('Error', 'Sync failed.');
         }
@@ -142,7 +158,7 @@ export function useSync() {
         await alert('Error', getErrorMessage(err, 'Failed to sync or dispose'));
       }
     },
-    [alert, confirm, navigate, toastSuccess]
+    [alert, suggestDisposeAfterPush]
   );
 
   const handlePushToBranch = useCallback(
@@ -163,6 +179,89 @@ export function useSync() {
       }
     },
     [alert, toastSuccess]
+  );
+
+  const handlePushCommits = useCallback(
+    async (
+      workspaceId: string,
+      opts: {
+        hash: string;
+        target: 'default' | 'branch';
+        perCommit: boolean;
+        targetBranchName: string;
+        /** the selected commit is the branch head — a full push */
+        headCommit: boolean;
+        /** used to skip the dispose suggestion for the live dev workspace */
+        workspacePath?: string;
+      }
+    ): Promise<boolean> => {
+      const { hash, target, perCommit, targetBranchName } = opts;
+      try {
+        let result = await pushCommits(workspaceId, {
+          hash,
+          target,
+          per_commit: perCommit,
+          confirm: false,
+        });
+
+        if (result.needs_confirm) {
+          const confirmed = await show(
+            'Force push required',
+            `origin/${targetBranchName} has commits that are not in your local branch. Force pushing will overwrite them:`,
+            {
+              confirmText: 'Force push',
+              cancelText: 'Cancel',
+              danger: true,
+              detailedMessage: (result.diverged_commits ?? []).join('\n'),
+            }
+          );
+          if (!confirmed) return false;
+          result = await pushCommits(workspaceId, {
+            hash,
+            target,
+            per_commit: perCommit,
+            confirm: true,
+          });
+        }
+
+        if (result.success) {
+          const c = result.total_commits;
+          const p = result.pushes_succeeded;
+          const summary = `Pushed ${c} commit${c === 1 ? '' : 's'} in ${p} push${p === 1 ? '' : 'es'} to origin/${targetBranchName}.`;
+          if (target === 'default' && opts.headCommit) {
+            // A full push to main is the same milestone as the "Push to main"
+            // button — offer the same workspace cleanup. Partial pushes leave
+            // unpushed commits behind, so no dispose suggestion there.
+            await suggestDisposeAfterPush(workspaceId, summary, opts.workspacePath);
+          } else {
+            toastSuccess(summary);
+          }
+          return true;
+        }
+
+        if (result.reason === 'push_rejected' && result.pushes_succeeded > 0) {
+          // Partial: remote sits at the last successful push — a consistent state.
+          await show(
+            'Push partially completed',
+            `Pushed ${result.pushes_succeeded} of ${result.total_commits} commits to origin/${targetBranchName}. Push of ${(result.failed_hash ?? '').slice(0, 7)} was rejected:`,
+            {
+              confirmText: 'OK',
+              cancelText: null,
+              detailedMessage: result.message || '',
+              wide: true,
+            }
+          );
+          return true;
+        }
+
+        await alert('Push failed', result.message || 'Push failed.');
+        return false;
+      } catch (err) {
+        await alert('Push failed', getErrorMessage(err, 'Failed to push commits'));
+        return false;
+      }
+    },
+    [alert, show, toastSuccess, suggestDisposeAfterPush]
   );
 
   // Smart sync: chooses clean or conflict resolution based on workspace state
@@ -187,6 +286,7 @@ export function useSync() {
     handleLinearSyncFromMain,
     handleLinearSyncToMain,
     handlePushToBranch,
+    handlePushCommits,
     handleSmartSync,
   };
 }

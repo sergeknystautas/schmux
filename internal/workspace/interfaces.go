@@ -130,6 +130,7 @@ type WorkspaceVCS interface {
 	LinearSyncToDefault(ctx context.Context, workspaceID string) (*LinearSyncResult, error)
 	LinearSyncResolveConflict(ctx context.Context, workspaceID string, onStep ResolveConflictStepFunc) (*LinearSyncResolveConflictResult, error)
 	PushToBranch(ctx context.Context, workspaceID string, confirm bool) (*LinearSyncResult, error)
+	PushCommits(ctx context.Context, workspaceID, hash, target string, perCommit, confirm bool) (*contracts.PushCommitsResult, error)
 	CheckoutPR(ctx context.Context, pr contracts.PullRequest) (*state.Workspace, error)
 }
 

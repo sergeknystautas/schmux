@@ -8,6 +8,8 @@ type CommitGraphResponse struct {
 	MainAheadCount           int                          `json:"main_ahead_count"`                      // commits on origin/main ahead of HEAD
 	MainAheadNewestTimestamp string                       `json:"main_ahead_newest_timestamp,omitempty"` // timestamp of newest commit ahead on main
 	MainAheadNextHash        string                       `json:"main_ahead_next_hash,omitempty"`        // next main commit hash that would be rebased
+	RemoteBranchHead         string                       `json:"remote_branch_head,omitempty"`          // head of origin/<localBranch> when it exists (git only)
+	ForkPoint                string                       `json:"fork_point,omitempty"`                  // merge-base of HEAD and origin/<default> when they diverge; the "on origin/<default>" boundary when the origin head is not among the loaded nodes
 	LocalTruncated           bool                         `json:"local_truncated,omitempty"`             // true when local branch commits were truncated
 	DirtyState               *CommitGraphDirtyState       `json:"dirty_state,omitempty"`
 }

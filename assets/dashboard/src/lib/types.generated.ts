@@ -100,6 +100,8 @@ export interface CommitGraphResponse {
   main_ahead_count: number;
   main_ahead_newest_timestamp?: string;
   main_ahead_next_hash?: string;
+  remote_branch_head?: string;
+  fork_point?: string;
   local_truncated?: boolean;
   dirty_state?: CommitGraphDirtyState;
 }
@@ -560,6 +562,19 @@ export interface PullRequest {
   html_url: string;
   fork_owner?: string;
   is_fork: boolean;
+}
+
+export interface PushCommitsResult {
+  success: boolean;
+  target_branch: string;
+  per_commit: boolean;
+  total_commits: number;
+  pushes_succeeded: number;
+  failed_hash?: string;
+  reason?: string;
+  message?: string;
+  needs_confirm?: boolean;
+  diverged_commits?: string[];
 }
 
 export interface QuickLaunch {

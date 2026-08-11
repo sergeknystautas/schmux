@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router';
 import {
   getCommitGraph,
@@ -15,6 +15,7 @@ import {
 import { computeLayout, GRAPH_COLOR, HIGHLIGHT_COLOR, ROW_HEIGHT } from '../lib/commitGraphLayout';
 import type { CommitGraphLayout, LayoutNode, LayoutEdge, LaneLine } from '../lib/commitGraphLayout';
 import type { CommitGraphResponse, DiffFileSummary } from '../lib/types';
+import { reachableFrom, countUnpushed } from '../lib/commitReachability';
 import { useSessions } from '../contexts/SessionsContext';
 import { useSyncState } from '../contexts/SyncContext';
 import { useSync } from '../hooks/useSync';
@@ -22,6 +23,7 @@ import { useModal } from './ModalProvider';
 import { usePendingNavigation } from '../lib/navigation';
 import { formatRelativeTime } from '../lib/utils';
 import Tooltip from './Tooltip';
+import PushCommitsModal from './PushCommitsModal';
 
 interface CommitHistoryDAGProps {
   workspaceId: string;
@@ -69,6 +71,44 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
   const gitFingerprint = ws
     ? `${ws.ahead}:${ws.behind}:${ws.files_changed}:${ws.lines_added}:${ws.lines_removed}`
     : '';
+
+  // Reachability sets for per-commit push eligibility (see docs/git-features.md).
+  // When the workspace is ON the default branch, the branches map collapses to a
+  // single entry holding the LOCAL head (backend map-key collision), so the
+  // origin/<default> position must come from remote_branch_head instead —
+  // origin/<branch> IS origin/<default> there.
+  const defaultBranchName = ws?.default_branch || 'main';
+  const localBranchName = ws?.branch || '';
+  const onDefaultBranch = localBranchName === defaultBranchName;
+  const originMainSet = useMemo(() => {
+    const nodes = data?.nodes ?? [];
+    const head = onDefaultBranch
+      ? data?.remote_branch_head
+      : data?.branches?.[defaultBranchName]?.head;
+    // When origin/<default> is ahead, its head is excluded from the loaded
+    // nodes (collapsed into the "Pull from main" row) — fall back to the fork
+    // point, the same boundary the backend uses for branch membership.
+    const start = head && nodes.some((n) => n.hash === head) ? head : data?.fork_point;
+    return reachableFrom(start, nodes);
+  }, [data, defaultBranchName, onDefaultBranch]);
+  const localSet = useMemo(
+    () => reachableFrom(data?.branches?.[localBranchName]?.head, data?.nodes ?? []),
+    [data, localBranchName]
+  );
+  const remoteBranchSet = useMemo(
+    () => reachableFrom(data?.remote_branch_head, data?.nodes ?? []),
+    [data]
+  );
+  const [pushModalNode, setPushModalNode] = useState<LayoutNode | null>(null);
+
+  // If a background refetch drops the selected commit (amend/uncommit
+  // elsewhere), close the modal rather than offering stale counts. The
+  // backend's stale-hash 409 would catch it anyway; this is just cleaner.
+  useEffect(() => {
+    if (pushModalNode && data && !data.nodes.some((n) => n.hash === pushModalNode.node.hash)) {
+      setPushModalNode(null);
+    }
+  }, [data, pushModalNode]);
 
   // Measure container height so we can request the right number of commits
   useEffect(() => {
@@ -290,8 +330,11 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
       const commitsSynced = ws?.commits_synced_with_remote ?? false;
       const showPushToDefault = aheadCount > 0;
       // Show push-to-branch whenever the branch is not yet synced with origin.
-      // This also covers the "0 commits ahead of default but no remote branch yet" case.
-      const showPushToBranch = !commitsSynced;
+      // This also covers the "0 commits ahead of default but no remote branch yet"
+      // case (feature branches only). Hidden on the default branch: origin/<branch>
+      // IS origin/<default> there, and this path pushes with --force-with-lease,
+      // bypassing "Push to main"'s fast-forward-only guarantee.
+      const showPushToBranch = !commitsSynced && !onDefaultBranch;
       const hasLocalChanges = filesChanged > 0;
       const isBehind = behindCount > 0;
       const pushToDefaultDisabled = isBehind || hasLocalChanges;
@@ -676,6 +719,8 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
     }
     const isHeadCommit = ln.node.is_head.includes(ws?.branch || '');
     const canUncommit = isHeadCommit && (ws?.ahead ?? 0) > 0;
+    const canPushCommit =
+      !isSapling && localSet.has(ln.node.hash) && !originMainSet.has(ln.node.hash);
 
     return (
       <div
@@ -744,6 +789,23 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
                 }}
               >
                 {isUncommitting ? 'Uncommitting...' : 'Uncommit'}
+              </button>
+            </Tooltip>
+          )}
+          {/* Push renders on every unpushed row, Uncommit only on the head row —
+              Push goes last so its position is stable as the mouse moves
+              between rows. */}
+          {canPushCommit && (
+            <Tooltip content="Push commits up to here — all at once or one build per commit">
+              <button
+                className="commit-dag__push-btn"
+                data-testid="push-commit-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPushModalNode(ln);
+                }}
+              >
+                Push…
               </button>
             </Tooltip>
           )}
@@ -837,6 +899,32 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
           </div>
         </div>
       </div>
+      {pushModalNode && ws && data && (
+        <PushCommitsModal
+          workspaceId={workspaceId}
+          commitHash={pushModalNode.node.hash}
+          commitShortHash={pushModalNode.node.short_hash}
+          commitMessage={pushModalNode.node.message}
+          defaultBranch={defaultBranchName}
+          branchName={localBranchName}
+          onDefaultBranch={onDefaultBranch}
+          behind={(ws.behind ?? 0) > 0}
+          defaultBranchOrphaned={ws.default_branch_orphaned ?? false}
+          dirty={(ws.files_changed ?? 0) > 0}
+          branchTargetAvailable={!ws.remote_branch_is_fork}
+          branchAlreadyPushed={remoteBranchSet.has(pushModalNode.node.hash)}
+          countToMain={countUnpushed(pushModalNode.node.hash, data.nodes, originMainSet)}
+          countToBranch={
+            remoteBranchSet.size > 0
+              ? countUnpushed(pushModalNode.node.hash, data.nodes, remoteBranchSet)
+              : null
+          }
+          headCommit={pushModalNode.node.is_head.includes(ws.branch)}
+          workspacePath={ws.path}
+          onClose={() => setPushModalNode(null)}
+          onPushed={fetchData}
+        />
+      )}
     </div>
   );
 }

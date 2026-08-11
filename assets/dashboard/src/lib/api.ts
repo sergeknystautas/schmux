@@ -63,6 +63,7 @@ import type {
   StyleUpdateRequest,
   StyleListResponse,
   RestartOptionsResponse,
+  PushCommitsResult,
 } from './types.generated';
 import { csrfHeaders } from './csrf';
 import { transport } from './transport';
@@ -728,6 +729,24 @@ export async function pushToBranch(workspaceId: string): Promise<LinearSyncRespo
   });
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to push to branch');
+  }
+  return response.json();
+}
+
+export async function pushCommits(
+  workspaceId: string,
+  req: { hash: string; target: 'default' | 'branch'; per_commit: boolean; confirm: boolean }
+): Promise<PushCommitsResult> {
+  const response = await apiFetch(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/push-commits`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+      body: JSON.stringify(req),
+    }
+  );
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to push commits');
   }
   return response.json();
 }

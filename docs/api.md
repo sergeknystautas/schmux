@@ -2216,7 +2216,69 @@ Notes:
 - Fails if local is behind origin (would overwrite newer remote commits)
 - If branches have diverged (e.g., after rebase), returns `needs_confirm: true` with list of commits that would be overwritten
 - Call again with `confirm: true` to proceed with force-push
+- Rejected (`success: false`, regardless of `confirm`) when the workspace is on
+  the default branch — the force-with-lease path would bypass the
+  fast-forward-only guarantee of `linear-sync-to-main`, which is the sanctioned
+  push there
 - Updates workspace git status after successful push
+
+### POST /api/workspaces/{workspaceID}/push-commits
+
+Push the current branch's commits up to (and including) a chosen commit, either
+as a single push or as one push per commit (oldest first) so CI systems that
+build per push produce one build per commit.
+
+Request body:
+
+```json
+{
+  "hash": "<full 40- or 64-char commit sha>",
+  "target": "default",
+  "per_commit": true,
+  "confirm": false
+}
+```
+
+- `hash` must be a full hex sha of a commit reachable from the workspace HEAD.
+- `target: "default"` pushes to `origin/<defaultBranch>` (fast-forward only).
+  `target: "branch"` pushes to `origin/<workspace branch>` with
+  `--force-with-lease`; when the remote branch has diverged and `confirm` is
+  false, the response carries `needs_confirm: true` plus `diverged_commits`
+  and nothing is pushed — retry with `confirm: true` to force.
+- `per_commit: true` pushes each commit in `<base>..<hash>` individually,
+  oldest first, back-to-back. A rejected push stops the loop; the remote is
+  left at the last successful push (always a consistent fast-forward state).
+
+Response 200 (`PushCommitsResult`):
+
+```json
+{
+  "success": true,
+  "target_branch": "main",
+  "per_commit": true,
+  "total_commits": 3,
+  "pushes_succeeded": 3,
+  "failed_hash": "",
+  "reason": "",
+  "message": "",
+  "needs_confirm": false,
+  "diverged_commits": []
+}
+```
+
+`reason` (set when `success` is false): `dirty`, `nothing_to_push`, `behind`,
+`diverged`, `no_remote_default`, `no_base`, `push_rejected`, `unsupported`.
+`message` carries human-readable detail (including git output for
+`push_rejected`). `target: "branch"` from a workspace on the default branch is
+rejected with `reason: "unsupported"` — use `target: "default"` there (the
+fast-forward-only path).
+
+Errors: `400` malformed hash or invalid target; `404` unknown workspace;
+`409` stale hash (graph changed — refresh) or workspace busy; `500` fetch or
+other infrastructure failure.
+
+The full remote-state behavior is covered in `docs/git-features.md` (per-commit
+push section).
 
 ### GET /api/workspaces/{workspaceId}/commit-graph
 
@@ -2264,6 +2326,7 @@ Response:
   },
   "main_ahead_count": 3,
   "main_ahead_next_hash": "abc123...",
+  "remote_branch_head": "def456...",
   "dirty_state": {
     "files_changed": 2,
     "lines_added": 10,
@@ -2281,6 +2344,15 @@ Errors:
 Notes:
 
 - `dirty_state` is only included when there are uncommitted changes
+- `remote_branch_head` (optional): head sha of `origin/<branch>` as of the last
+  fetch, when the remote branch exists. Git only. Populated on the default
+  branch too, where it is the origin/<default> position — the dashboard needs
+  it there because the `branches` map collapses to a single entry holding the
+  local head. Used for per-commit push eligibility and exact push counts.
+- `fork_point` (optional): merge-base of HEAD and `origin/<default>` when they
+  diverge. When origin/<default> is ahead, its head is excluded from `nodes`
+  (collapsed into the pull-from-main summary), so this is the dashboard's
+  boundary for the "already on origin/<default>" reachability set.
 - Delegates to remote handler for remote workspaces
 
 ### GET /api/workspaces/{workspaceId}/commit-detail/{commitHash}

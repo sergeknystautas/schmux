@@ -5325,6 +5325,40 @@ a:hover {
   cursor: not-allowed;
 }
 
+.commit-dag__push-btn {
+  display: none;
+  margin-left: auto;
+  padding: 0 6px;
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition:
+    color var(--duration-fast) var(--easing),
+    border-color var(--duration-fast) var(--easing);
+}
+
+.commit-dag__row:hover .commit-dag__push-btn {
+  display: inline-block;
+}
+
+.commit-dag__push-btn:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+/* When both buttons render (head commit), the uncommit button claims the auto
+   margin so the pair sits flush right; the push button follows it, keeping
+   Push in the same rightmost position on every row. */
+.commit-dag__uncommit-btn ~ .commit-dag__push-btn {
+  margin-left: 6px;
+}
+
 .commit-dag__commit-row {
   padding-left: var(--spacing-xs);
 }

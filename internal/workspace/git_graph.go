@@ -64,6 +64,17 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxTotal 
 		m.logger.Debug("ResolveRef upstream failed", "workspace", workspaceID, "vcs", ws.VCS, "ref", defaultRef, "err", drhErr)
 	}
 
+	// Resolve origin/<localBranch> so the dashboard can compute exact
+	// per-commit push counts. Git only. Also populated when the workspace is ON
+	// the default branch: branchesMap collapses to a single entry there (local
+	// and default branch share the map key, and the local head wins), so this
+	// field is the only unambiguous origin position the frontend can use for
+	// push eligibility.
+	var remoteBranchHead string
+	if ws.VCS != "sapling" {
+		remoteBranchHead, _ = runShellInDir(ctx, gitDir, cb.ResolveRef("origin/"+localBranch))
+	}
+
 	if localHead == "" {
 		return nil, fmt.Errorf("cannot resolve HEAD in workspace %s", workspaceID)
 	}
@@ -149,6 +160,12 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxTotal 
 	resp.LocalTruncated = localTruncated
 	resp.MainAheadNewestTimestamp = mainAheadNewestTimestamp
 	resp.MainAheadNextHash = mainAheadNextHash
+	resp.RemoteBranchHead = remoteBranchHead
+	// When origin/<default> is ahead, its head is excluded from the loaded
+	// nodes (summarized in the "Pull from main" row), so the fork point is the
+	// frontend's only boundary for the "on origin/<default>" reachability set —
+	// the same fallback BuildGraphResponse uses for branch membership.
+	resp.ForkPoint = forkPoint
 	return resp, nil
 }
 

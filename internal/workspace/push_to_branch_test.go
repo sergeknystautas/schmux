@@ -384,3 +384,41 @@ func TestPushToBranch_RebasedWithExtraOriginCommits_Confirmed(t *testing.T) {
 		t.Errorf("PushToBranch() should succeed with confirm=true, got: %+v", result)
 	}
 }
+
+// PushToBranch on the default branch would force-with-lease push
+// origin/<default>, bypassing
+// LinearSyncToDefault's fast-forward-only guarantee. Rejected regardless of
+// confirm — this closes the only force route to the default branch.
+func TestPushToBranch_DefaultBranchRejected(t *testing.T) {
+	t.Parallel()
+	remoteDir, cloneDir, m, st, workspaceID := setupPushTest(t)
+	m.setDefaultBranch(remoteDir, "main")
+
+	before := strings.TrimSpace(runGitOut(t, remoteDir, "rev-parse", "main"))
+	writeFile(t, cloneDir, "a.txt", "a")
+	runGit(t, cloneDir, "add", ".")
+	runGit(t, cloneDir, "commit", "-m", "local commit on main")
+
+	st.AddWorkspace(state.Workspace{
+		ID:     workspaceID,
+		Repo:   remoteDir,
+		Branch: "main",
+		Path:   cloneDir,
+	})
+
+	for _, confirm := range []bool{false, true} {
+		result, err := m.PushToBranch(context.Background(), workspaceID, confirm)
+		if err != nil {
+			t.Fatalf("PushToBranch(confirm=%v) error: %v", confirm, err)
+		}
+		if result.Success {
+			t.Errorf("PushToBranch(confirm=%v) must not succeed on the default branch, got: %+v", confirm, result)
+		}
+		if !strings.Contains(result.Message, "default") {
+			t.Errorf("PushToBranch(confirm=%v) message should mention the default branch, got: %q", confirm, result.Message)
+		}
+	}
+	if got := strings.TrimSpace(runGitOut(t, remoteDir, "rev-parse", "main")); got != before {
+		t.Errorf("origin/main moved from %s to %s despite rejection", before, got)
+	}
+}

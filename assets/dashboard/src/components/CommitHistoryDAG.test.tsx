@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import CommitHistoryDAG from './CommitHistoryDAG';
 import type { CommitGraphResponse, WorkspaceResponse } from '../lib/types';
@@ -39,6 +39,7 @@ vi.mock('../hooks/useSync', () => ({
     handleSmartSync: vi.fn(),
     handleLinearSyncToMain: vi.fn(),
     handlePushToBranch: vi.fn(),
+    handlePushCommits: vi.fn(),
   }),
 }));
 vi.mock('./ModalProvider', () => ({
@@ -316,5 +317,216 @@ describe('infinite scroll', () => {
     // No truncation row means nothing was observed, so no second fetch.
     await new Promise((r) => setTimeout(r, 0));
     expect(getCommitGraph).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Three commits on `feat` ahead of `main`; `base000` is the merge base already
+// on origin/main. The feature-branch commits (head111, c200000, c100000) should
+// each get a Push button; base000 should not (already on origin/main).
+function makePushableGraph(): CommitGraphResponse {
+  const commit = (hash: string, message: string, parents: string[], branches: string[]) => ({
+    hash,
+    short_hash: hash.slice(0, 7),
+    message,
+    author: 'tester',
+    timestamp: '2026-01-01T00:00:00Z',
+    parents,
+    branches,
+    is_head: [] as string[],
+    workspace_ids: [] as string[],
+  });
+  const head = { ...commit('head111', 'head commit', ['c200000'], ['feat']), is_head: ['feat'] };
+  const c2 = commit('c200000', 'second commit', ['c100000'], ['feat']);
+  const c1 = commit('c100000', 'first commit', ['base000'], ['feat']);
+  const base = commit('base000', 'base commit', [], ['feat', 'main']);
+  return {
+    repo: 'test-repo',
+    nodes: [head, c2, c1, base],
+    branches: {
+      main: { head: 'base000', is_main: true, workspace_ids: [] },
+      feat: { head: 'head111', is_main: false, workspace_ids: [] },
+    },
+    main_ahead_count: 3,
+  };
+}
+
+// Workspace ON the default branch, two commits ahead of origin/main. Mirrors
+// the backend's response shape for this case: the branches map collapses to a
+// single 'main' entry holding the LOCAL head (map-key collision), and
+// remote_branch_head carries the origin/main position.
+function makeOnMainGraph(): CommitGraphResponse {
+  const commit = (hash: string, message: string, parents: string[]) => ({
+    hash,
+    short_hash: hash.slice(0, 7),
+    message,
+    author: 'tester',
+    timestamp: '2026-01-01T00:00:00Z',
+    parents,
+    branches: ['main'],
+    is_head: [] as string[],
+    workspace_ids: [] as string[],
+  });
+  const local2 = { ...commit('local22', 'local two', ['local11']), is_head: ['main'] };
+  const local1 = commit('local11', 'local one', ['base000']);
+  const base = commit('base000', 'origin base', []);
+  return {
+    repo: 'test-repo',
+    nodes: [local2, local1, base],
+    branches: {
+      main: { head: 'local22', is_main: true, workspace_ids: ['ws-1'] },
+    },
+    remote_branch_head: 'base000',
+    main_ahead_count: 0,
+  };
+}
+
+// Feature branch 1 commit ahead while origin/main has moved ahead: the backend
+// omits the main-ahead commits from nodes (they collapse into the "Pull from
+// main" row), so branches.main.head names a hash that is NOT among the loaded
+// nodes and fork_point is the only "on origin/main" boundary.
+function makeBehindMainGraph(): CommitGraphResponse {
+  const commit = (hash: string, message: string, parents: string[], branches: string[]) => ({
+    hash,
+    short_hash: hash.slice(0, 7),
+    message,
+    author: 'tester',
+    timestamp: '2026-01-01T00:00:00Z',
+    parents,
+    branches,
+    is_head: [] as string[],
+    workspace_ids: [] as string[],
+  });
+  const local = {
+    ...commit('local11', 'my only commit', ['fork000'], ['feat']),
+    is_head: ['feat'],
+  };
+  const fork = commit('fork000', 'fork point', ['ctx1000'], ['feat', 'main']);
+  const ctx1 = commit('ctx1000', 'older main history', ['ctx2000'], ['feat', 'main']);
+  const ctx2 = commit('ctx2000', 'even older history', [], ['feat', 'main']);
+  return {
+    repo: 'test-repo',
+    nodes: [local, fork, ctx1, ctx2],
+    branches: {
+      main: { head: 'maintip', is_main: true, workspace_ids: [] }, // NOT in nodes
+      feat: { head: 'local11', is_main: false, workspace_ids: [] },
+    },
+    fork_point: 'fork000',
+    main_ahead_count: 1,
+  };
+}
+
+describe('push button eligibility when behind main', () => {
+  it('falls back to fork_point when origin/main head is not in the loaded nodes', async () => {
+    getCommitGraph.mockResolvedValue(makeBehindMainGraph());
+    renderDAG();
+
+    await screen.findByText('my only commit');
+    // Only the single local commit is unpushed — not the fork point or the
+    // context commits below it.
+    expect(screen.getAllByTestId('push-commit-btn')).toHaveLength(1);
+  });
+
+  it('counts 1 commit in the modal, not the whole loaded graph', async () => {
+    getCommitGraph.mockResolvedValue(makeBehindMainGraph());
+    renderDAG();
+
+    const message = await screen.findByText('my only commit');
+    const row = message.closest<HTMLElement>('.commit-dag__row')!;
+    fireEvent.click(within(row).getByTestId('push-commit-btn'));
+
+    expect(await screen.findByTestId('push-modal')).toBeInTheDocument();
+    // One commit: the submit button says so, and the mode choice (a false
+    // choice at n=1) is omitted entirely. The workspace is behind main, so the
+    // modal opens on the branch target where the count is an estimate ("up to").
+    expect(screen.getByTestId('push-modal-submit').textContent).toMatch(
+      /Push up to 1 commit \(1 push\)/
+    );
+    expect(screen.queryByTestId('push-modal-mode-percommit-label')).not.toBeInTheDocument();
+  });
+});
+
+describe('you-are-here push buttons', () => {
+  it('hides "Push to branch" on the default branch, keeping "Push to main"', async () => {
+    mockWorkspaces = [
+      makeWorkspace({ branch: 'main', default_branch: 'main', ahead: 2, behind: 0 }),
+    ];
+    getCommitGraph.mockResolvedValue(makeOnMainGraph());
+    renderDAG();
+
+    await screen.findByText('local two');
+    expect(screen.getByText('Push to main')).toBeInTheDocument();
+    expect(screen.queryByText('Push to branch')).not.toBeInTheDocument();
+  });
+
+  it('shows both buttons on a feature branch', async () => {
+    getCommitGraph.mockResolvedValue(makePushableGraph());
+    renderDAG();
+
+    await screen.findByText('head commit');
+    expect(screen.getByText('Push to main')).toBeInTheDocument();
+    expect(screen.getByText('Push to branch')).toBeInTheDocument();
+  });
+});
+
+describe('push button eligibility', () => {
+  it('shows Push on unpushed commits when the workspace is on the default branch', async () => {
+    mockWorkspaces = [makeWorkspace({ branch: 'main', default_branch: 'main' })];
+    getCommitGraph.mockResolvedValue(makeOnMainGraph());
+    renderDAG();
+
+    await screen.findByText('local two');
+    // The two local-only commits get Push buttons; the origin/main base does not.
+    expect(screen.getAllByTestId('push-commit-btn')).toHaveLength(2);
+  });
+
+  it('shows Push on unpushed feature-branch commits but not on commits already on main', async () => {
+    getCommitGraph.mockResolvedValue(makePushableGraph());
+    renderDAG();
+
+    const pushButtons = await screen.findAllByTestId('push-commit-btn');
+    expect(pushButtons).toHaveLength(3);
+  });
+
+  // Push renders on every unpushed row but Uncommit only on the head row, so
+  // Push must be the LAST (rightmost) button — otherwise it shifts position
+  // between rows as the mouse moves up and down the graph.
+  it('renders Push after Uncommit on the head row', async () => {
+    getCommitGraph.mockResolvedValue(makePushableGraph());
+    renderDAG();
+
+    const headMessage = await screen.findByText('head commit');
+    const row = headMessage.closest<HTMLElement>('.commit-dag__row')!;
+    const uncommit = within(row).getByRole('button', { name: 'Uncommit' });
+    const push = within(row).getByTestId('push-commit-btn');
+    expect(uncommit.compareDocumentPosition(push) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('hides Push for sapling workspaces', async () => {
+    mockWorkspaces = [makeWorkspace({ vcs: 'sapling' })];
+    getCommitGraph.mockResolvedValue(makePushableGraph());
+    renderDAG();
+
+    // Wait for a commit row to render so the assertion is not vacuously true.
+    await screen.findByText('head commit');
+    expect(screen.queryAllByTestId('push-commit-btn')).toHaveLength(0);
+  });
+
+  it('opens the push modal with counts when Push… is clicked', async () => {
+    getCommitGraph.mockResolvedValue(makePushableGraph());
+    renderDAG();
+
+    // Target the tip commit's row so the count assertion is deterministic
+    // regardless of render order. head111 has 3 unpushed ancestors-or-self.
+    const headMessage = await screen.findByText('head commit');
+    const row = headMessage.closest<HTMLElement>('.commit-dag__row')!;
+    fireEvent.click(within(row).getByTestId('push-commit-btn'));
+
+    expect(await screen.findByTestId('push-modal')).toBeInTheDocument();
+    // All 3 feature-branch commits are unpushed → per-commit mode advertises 3 pushes.
+    expect(screen.getByTestId('push-modal-mode-percommit-label').textContent).toMatch(/3 pushes/);
+
+    // Cancel closes it.
+    fireEvent.click(screen.getByTestId('push-modal-cancel'));
+    await waitFor(() => expect(screen.queryByTestId('push-modal')).not.toBeInTheDocument());
   });
 });

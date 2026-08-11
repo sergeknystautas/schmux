@@ -999,3 +999,116 @@ func TestBuildGraphResponse_BranchMembershipWithSaplingNodes(t *testing.T) {
 		t.Error("expected my-feature to have IsMain=false")
 	}
 }
+
+func TestGetGitGraph_RemoteBranchHead(t *testing.T) {
+	t.Parallel()
+	remoteDir, cloneDir, m, st, workspaceID := setupPushTest(t)
+	m.setDefaultBranch(remoteDir, "main")
+	addPushWorkspace(t, st, workspaceID, remoteDir, cloneDir, "feature")
+
+	runGit(t, cloneDir, "checkout", "-b", "feature")
+	pushed := commitFile(t, cloneDir, "a.txt", "a", "commit a")
+	runGit(t, cloneDir, "push", "origin", "feature")
+	commitFile(t, cloneDir, "b.txt", "b", "commit b") // local-only
+
+	graph, err := m.GetGitGraph(context.Background(), workspaceID, 50, 5)
+	if err != nil {
+		t.Fatalf("GetGitGraph() error: %v", err)
+	}
+	if graph.RemoteBranchHead != pushed {
+		t.Errorf("RemoteBranchHead = %q, want %q", graph.RemoteBranchHead, pushed)
+	}
+}
+
+func TestGetGitGraph_RemoteBranchHeadEmptyWhenUnpushed(t *testing.T) {
+	t.Parallel()
+	remoteDir, cloneDir, m, st, workspaceID := setupPushTest(t)
+	m.setDefaultBranch(remoteDir, "main")
+	addPushWorkspace(t, st, workspaceID, remoteDir, cloneDir, "feature")
+
+	runGit(t, cloneDir, "checkout", "-b", "feature")
+	commitFile(t, cloneDir, "a.txt", "a", "commit a")
+
+	graph, err := m.GetGitGraph(context.Background(), workspaceID, 50, 5)
+	if err != nil {
+		t.Fatalf("GetGitGraph() error: %v", err)
+	}
+	if graph.RemoteBranchHead != "" {
+		t.Errorf("RemoteBranchHead = %q, want empty (origin/feature does not exist)", graph.RemoteBranchHead)
+	}
+}
+
+// On the default branch, branches[<default>] holds the LOCAL head (map-key
+// collision with the local branch entry), so remote_branch_head is the only
+// unambiguous origin/<default> position — it must be populated here too.
+func TestGetGitGraph_RemoteBranchHeadOnDefaultBranch(t *testing.T) {
+	t.Parallel()
+	remoteDir, cloneDir, m, st, workspaceID := setupPushTest(t)
+	m.setDefaultBranch(remoteDir, "main")
+	addPushWorkspace(t, st, workspaceID, remoteDir, cloneDir, "main")
+
+	originHead := strings.TrimSpace(runGitOut(t, cloneDir, "rev-parse", "origin/main"))
+	localHead := commitFile(t, cloneDir, "a.txt", "a", "local-only commit")
+
+	graph, err := m.GetGitGraph(context.Background(), workspaceID, 50, 5)
+	if err != nil {
+		t.Fatalf("GetGitGraph() error: %v", err)
+	}
+	if graph.RemoteBranchHead != originHead {
+		t.Errorf("RemoteBranchHead = %q, want origin/main position %q", graph.RemoteBranchHead, originHead)
+	}
+	if got := graph.Branches["main"].Head; got != localHead {
+		t.Errorf("branches[main].head = %q, want local head %q (documents the collision)", got, localHead)
+	}
+}
+
+// When origin/main is ahead, its head is excluded from the loaded nodes (it is
+// summarized in the "Pull from main" row), so fork_point is the frontend's only
+// boundary for the "on origin/main" reachability set.
+func TestGetGitGraph_ForkPointWhenBehindMain(t *testing.T) {
+	t.Parallel()
+	remoteDir, cloneDir, m, st, workspaceID := setupPushTest(t)
+	m.setDefaultBranch(remoteDir, "main")
+	addPushWorkspace(t, st, workspaceID, remoteDir, cloneDir, "feature")
+
+	forkPoint := strings.TrimSpace(runGitOut(t, cloneDir, "rev-parse", "HEAD"))
+
+	// One local commit on a feature branch...
+	runGit(t, cloneDir, "checkout", "-b", "feature")
+	commitFile(t, cloneDir, "local.txt", "l", "local commit")
+
+	// ...while origin/main advances past the fork point.
+	otherDir := filepath.Join(t.TempDir(), "other")
+	runGit(t, filepath.Dir(otherDir), "clone", remoteDir, "other")
+	runGit(t, otherDir, "config", "user.email", "other@test.com")
+	runGit(t, otherDir, "config", "user.name", "Other")
+	commitFile(t, otherDir, "ahead.txt", "a", "main moved ahead")
+	runGit(t, otherDir, "push", "origin", "main")
+	runGit(t, cloneDir, "fetch", "origin")
+
+	graph, err := m.GetGitGraph(context.Background(), workspaceID, 50, 5)
+	if err != nil {
+		t.Fatalf("GetGitGraph() error: %v", err)
+	}
+	if graph.ForkPoint != forkPoint {
+		t.Errorf("ForkPoint = %q, want %q", graph.ForkPoint, forkPoint)
+	}
+	// The situation this field exists for: origin/main's head is NOT among the
+	// loaded nodes, but the fork point IS.
+	originHead := strings.TrimSpace(runGitOut(t, cloneDir, "rev-parse", "origin/main"))
+	var haveOriginHead, haveForkPoint bool
+	for _, n := range graph.Nodes {
+		if n.Hash == originHead {
+			haveOriginHead = true
+		}
+		if n.Hash == forkPoint {
+			haveForkPoint = true
+		}
+	}
+	if haveOriginHead {
+		t.Errorf("origin/main head %s unexpectedly present in loaded nodes", originHead)
+	}
+	if !haveForkPoint {
+		t.Errorf("fork point %s missing from loaded nodes", forkPoint)
+	}
+}

@@ -55,6 +55,7 @@ export interface WorkspaceResponse {
   label?: string; // Optional human-friendly display label (sapling-only today)
   conflict_on_branch?: string; // Branch where sync conflict was detected
   commits_synced_with_remote?: boolean; // true if local HEAD matches origin/{branch}
+  default_branch_orphaned?: boolean; // true if origin/default has no common ancestor with HEAD
   remote_branch_exists?: boolean; // true if branch exists on any remote
   remote_branch_is_fork?: boolean; // true if remote branch is on a non-origin remote (fork)
   local_unique_commits?: number; // commits in local not in remote
