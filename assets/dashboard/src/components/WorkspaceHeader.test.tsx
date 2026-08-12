@@ -174,3 +174,19 @@ describe('WorkspaceHeader branch display (workspaceDisplayLabel wiring)', () => 
     expect(screen.getByText('My Custom Label')).toBeInTheDocument();
   });
 });
+
+describe('WorkspaceHeader (new repo) badge', () => {
+  it('shows (new repo) linking to the commit graph for local: workspaces', async () => {
+    await renderHeader(makeWorkspace({ repo: 'local:talkback' }));
+    const badge = screen.getByText('(new repo)');
+    expect(badge).toBeInTheDocument();
+    expect(badge.closest('a')).toHaveAttribute('href', expect.stringContaining('/commits/'));
+    // ahead/behind pair and (local only) are suppressed
+    expect(screen.queryByText('(local only)')).not.toBeInTheDocument();
+  });
+
+  it('does not show (new repo) for remote-backed workspaces', async () => {
+    await renderHeader(makeWorkspace({ repo: 'https://github.com/x/y' }));
+    expect(screen.queryByText('(new repo)')).not.toBeInTheDocument();
+  });
+});

@@ -64,6 +64,9 @@ import type {
   StyleListResponse,
   RestartOptionsResponse,
   PushCommitsResult,
+  GitHubConnectStatus,
+  GitHubConnectRequest,
+  GitHubConnectResult,
 } from './types.generated';
 import { csrfHeaders } from './csrf';
 import { transport } from './transport';
@@ -748,6 +751,30 @@ export async function pushCommits(
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to push commits');
   }
+  return response.json();
+}
+
+export async function getGitHubConnectStatus(workspaceId: string): Promise<GitHubConnectStatus> {
+  const response = await apiFetch(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/github-connect`
+  );
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch GitHub connect status');
+  return response.json();
+}
+
+export async function runGitHubConnect(
+  workspaceId: string,
+  request: GitHubConnectRequest
+): Promise<GitHubConnectResult> {
+  const response = await apiFetch(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/github-connect`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+      body: JSON.stringify(request),
+    }
+  );
+  if (!response.ok) await parseErrorResponse(response, 'Failed to connect repository to GitHub');
   return response.json();
 }
 

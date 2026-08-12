@@ -2267,11 +2267,14 @@ Response 200 (`PushCommitsResult`):
 ```
 
 `reason` (set when `success` is false): `dirty`, `nothing_to_push`, `behind`,
-`diverged`, `no_remote_default`, `no_base`, `push_rejected`, `unsupported`.
+`diverged`, `no_remote_default`, `no_base`, `push_rejected`, `unsupported`,
+`no_origin`.
 `message` carries human-readable detail (including git output for
 `push_rejected`). `target: "branch"` from a workspace on the default branch is
 rejected with `reason: "unsupported"` — use `target: "default"` there (the
-fast-forward-only path).
+fast-forward-only path). A workspace with no origin remote (a `local:` repo
+that hasn't been connected to GitHub yet) returns `reason: "no_origin"`
+without attempting a fetch.
 
 Errors: `400` malformed hash or invalid target; `404` unknown workspace;
 `409` stale hash (graph changed — refresh) or workspace busy; `500` fetch or
@@ -2279,6 +2282,45 @@ other infrastructure failure.
 
 The full remote-state behavior is covered in `docs/git-features.md` (per-commit
 push section).
+
+### GET /api/workspaces/{id}/github-connect
+
+Detection for the "Connect to GitHub" flow. Reports whether the workspace is
+still backed by a `local:` repo, what the git origin looks like, whether the
+`gh` CLI is available, and the ordered step plan a POST would execute.
+
+Response: `GitHubConnectStatus`
+
+- `eligible` — true when the workspace state repo or its config entry is still `local:`
+- `gh` — `{available, username}` from `gh auth status`
+- `owners` — gh username followed by org logins (omitted when gh unavailable)
+- `origin_url`, `remote_reachable`, `remote_has_refs` — git origin probe
+- `config_url_is_local`, `state_repo_is_local` — schmux registration state
+- `plan` — ordered `{step, needed, reason}`; steps: `set_origin`, `create_repo`,
+  `update_config`, `link_workspaces`, `initial_push`
+- `name`, `default_branch` — dialog prefills
+
+Errors: `404` unknown workspace.
+
+### POST /api/workspaces/{id}/github-connect
+
+Body: `{owner, name, visibility, default_branch}` (`GitHubConnectRequest`).
+`owner`/`name`/`visibility` are ignored unless repo creation is needed;
+`visibility` defaults to `private`, `default_branch` to `main`.
+
+Re-detects server-side, then executes only the needed steps in order:
+set origin (before creation, so the target is durably recorded), create the
+repo via `gh`, rewrite the config entry URL (merging into an existing entry
+with the same URL rather than duplicating), relink every `local:` workspace,
+and push `HEAD` under the default-branch name when the remote has no refs.
+Stops at the first failure; the flow is idempotent and re-running skips
+completed steps.
+
+Response: `GitHubConnectResult` — `{success, repo_url, steps: [{step, status, detail}]}`
+with step status `done|skipped|failed|not_run`.
+
+Errors: `400` (not eligible, missing owner/name, gh unavailable when creation
+is needed), `404` (unknown workspace), `409` (workspace locked).
 
 ### GET /api/workspaces/{workspaceId}/commit-graph
 

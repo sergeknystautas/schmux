@@ -163,3 +163,24 @@ func ListRunJobs(_ context.Context, _ string, _ RepoInfo, _ int64) ([]WorkflowJo
 
 // IsAvailable reports whether the GitHub module is included in this build.
 func IsAvailable() bool { return false }
+
+// CLI is a no-op stub when the GitHub module is excluded.
+type CLI struct{}
+
+// NewCLI returns a disabled gh CLI wrapper.
+func NewCLI() *CLI { return &CLI{} }
+
+// RepoURL returns the canonical https URL for owner/name.
+func (c *CLI) RepoURL(owner, name string) string {
+	return "https://github.com/" + owner + "/" + name
+}
+
+// CreateRepo returns an error when the GitHub module is excluded.
+func (c *CLI) CreateRepo(_ context.Context, _, _ string, _ bool) error {
+	return fmt.Errorf("GitHub integration is not available in this build")
+}
+
+// ListOwners returns an error when the GitHub module is excluded.
+func (c *CLI) ListOwners(_ context.Context) ([]string, error) {
+	return nil, fmt.Errorf("GitHub integration is not available in this build")
+}

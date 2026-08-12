@@ -320,3 +320,50 @@ func TestScan_Integration(t *testing.T) {
 		t.Errorf("expected state branch to be feature, got %s", wsUpdated.Branch)
 	}
 }
+
+// TestScan_KeepsLocalRepoWorkspace: a workspace backed by a local: repo has no
+// origin remote, so it never appears in fsRepos — Scan must not remove it.
+func TestScan_KeepsLocalRepoWorkspace(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+
+	wsPath := filepath.Join(tmpDir, "talkback-001")
+	if err := os.MkdirAll(wsPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"init"},
+		{"config", "user.email", "test@test"},
+		{"config", "user.name", "test"},
+		{"checkout", "-b", "main"},
+		{"commit", "--allow-empty", "-m", "Initial commit"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = wsPath
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	cfg.Repos = []config.Repo{{Name: "talkback", URL: "local:talkback", BarePath: "talkback.git"}}
+	st := state.New(statePath, nil)
+	st.AddWorkspace(state.Workspace{ID: "talkback-001", Repo: "local:talkback", Branch: "main", Path: wsPath})
+	m := New(cfg, st, statePath, testLogger())
+
+	result, err := m.Scan()
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	if len(result.Removed) != 0 {
+		t.Errorf("expected 0 removed, got %d (%v)", len(result.Removed), result.Removed)
+	}
+	if _, found := st.GetWorkspace("talkback-001"); !found {
+		t.Error("local: workspace must survive a scan")
+	}
+}

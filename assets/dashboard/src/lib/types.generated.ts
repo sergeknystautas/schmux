@@ -366,6 +366,45 @@ export interface FloorManagerUpdate {
   debounce_ms?: number;
 }
 
+export interface GitHubConnectPlanStep {
+  step: string;
+  needed: boolean;
+  reason: string;
+}
+
+export interface GitHubConnectRequest {
+  owner: string;
+  name: string;
+  visibility: string;
+  default_branch: string;
+}
+
+export interface GitHubConnectResult {
+  success: boolean;
+  repo_url?: string;
+  steps: GitHubConnectStepResult[];
+}
+
+export interface GitHubConnectStatus {
+  eligible: boolean;
+  gh: GitHubStatus;
+  owners?: string[];
+  origin_url?: string;
+  remote_reachable: boolean;
+  remote_has_refs: boolean;
+  config_url_is_local: boolean;
+  state_repo_is_local: boolean;
+  plan: GitHubConnectPlanStep[];
+  name: string;
+  default_branch: string;
+}
+
+export interface GitHubConnectStepResult {
+  step: string;
+  status: string;
+  detail?: string;
+}
+
 export interface GitHubStatus {
   available: boolean;
   username?: string;

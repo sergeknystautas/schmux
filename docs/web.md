@@ -215,7 +215,7 @@ In-app iframe for workspace dev server previews. Proxied through the daemon's pr
 
 ### Git Graph (`/commits/:workspaceId`)
 
-Interactive commit graph for a workspace's git history.
+Interactive commit graph for a workspace's git history. Workspaces backed by a `local:` repo show a "Connect to GitHub" banner above the graph (see [Connect a Local Repo to GitHub](#connect-a-local-repo-to-github)); their push controls are hidden until an origin exists.
 
 ### Conflict Resolution (`/resolve-conflict/:workspaceId/:tabId`)
 
@@ -366,3 +366,32 @@ The spawn wizard accepts git URLs directly in the repository input, eliminating 
 - Config entry is registered before cloning starts. A failed clone leaves the entry in config.
 - URL matching is exact-string. `https://...` and `git@...` for the same repo are treated as different entries.
 - Plain name validation rejects `:` to prevent collision with the `local:` prefix sentinel.
+
+## Connect a Local Repo to GitHub
+
+A repo created by the plain-name spawn path (`local:<name>`) exists only on disk: no origin remote, no GitHub repository, and a config entry whose URL is the `local:` sentinel. This flow promotes it to a real remote-backed repo.
+
+**Entry points:**
+
+- **Workspace header** shows a `(new repo)` badge instead of the ahead/behind pair, linking to the commit graph.
+- **Git graph** shows a "Connect to GitHub" banner opening the connect dialog.
+
+Push controls (`Push to branch`, per-commit push) are hidden for these workspaces — there is nowhere to push. The backend agrees: `POST /push-commits` returns `reason: "no_origin"` rather than failing on the fetch.
+
+**The dialog** previews a five-step plan from `GET /api/workspaces/{id}/github-connect`, marking each step needed or already satisfied, and prefills the repo name and a `main` default branch. Owner (gh account + orgs), visibility, and default branch are editable. Repo creation requires an authenticated `gh` CLI; when it is missing the dialog explains that instead of offering a dead Connect button.
+
+**The steps** (executed by `POST` in order, stopping at the first failure):
+
+1. `set_origin` — point git origin at the target, _before_ creating it, so a crash mid-flow leaves a resumable breadcrumb
+2. `create_repo` — `gh repo create`
+3. `update_config` — rewrite the config entry's `local:` URL (merging into an existing entry with the same URL rather than duplicating)
+4. `link_workspaces` — relink every workspace still recorded against `local:<name>`
+5. `initial_push` — push `HEAD` to the chosen default branch, which becomes GitHub's default
+
+Results render per-step (`done` / `skipped` / `failed` / `not_run`). Detection re-runs server-side on every request, so the flow is idempotent — re-running after a partial failure skips what already succeeded. On success the daemon broadcasts fresh state over `/ws/dashboard`, so the banner and badge disappear without a reload.
+
+**Gotchas:**
+
+- Errors stay in the dialog as a persistent banner (never a toast) so the underlying git or `gh` output can be read and copied.
+- The config entry stores the origin URL verbatim; the workspace scanner reconciles state against the on-disk origin, so the two strings must match exactly.
+- `Scan` never removes `local:` workspaces. They have no origin remote, so the scanner's remote-URL probe can't see them — without the exemption a healthy workspace would be reaped, including mid-connect.

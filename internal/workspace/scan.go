@@ -107,6 +107,13 @@ func (m *Manager) Scan() (ScanResult, error) {
 
 		fsInfo, foundInFS := fsRepos[dirName]
 		if !foundInFS {
+			// local: repos have no origin remote, so they can never appear in
+			// fsRepos (the remote-URL probe fails) — removing them here would
+			// delete a healthy workspace. They also stay "local:" mid-way
+			// through the GitHub connect flow; never remove them.
+			if strings.HasPrefix(ws.Repo, "local:") {
+				continue
+			}
 			// Workspace no longer exists or is not a git repo - remove it
 			m.state.RemoveWorkspace(ws.ID)
 			result.Removed = append(result.Removed, ws)

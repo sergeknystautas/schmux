@@ -4,6 +4,7 @@ import { useSessions } from '../contexts/SessionsContext';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import CommitHistoryDAG from '../components/CommitHistoryDAG';
+import GitHubConnectBanner from '../components/GitHubConnectBanner';
 
 export default function CommitGraphPage() {
   const { workspaceId } = useParams();
@@ -29,6 +30,7 @@ export default function CommitGraphPage() {
     <>
       <WorkspaceHeader workspace={workspace} />
       <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
+      {workspace.repo?.startsWith('local:') && <GitHubConnectBanner workspaceId={workspaceId} />}
       <CommitHistoryDAG workspaceId={workspaceId} />
     </>
   );

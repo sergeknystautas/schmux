@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -613,5 +614,42 @@ func TestPushCommits_BranchTargetOnDefaultBranchRejected(t *testing.T) {
 	}
 	if got := strings.TrimSpace(runGitOut(t, remoteDir, "rev-parse", "main")); got != before {
 		t.Errorf("origin/main moved from %s to %s despite rejection", before, got)
+	}
+}
+
+func TestPushCommits_NoOriginRemote(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	st := state.New(statePath, nil)
+
+	wsPath := filepath.Join(tmpDir, "talkback-001")
+	if err := os.MkdirAll(wsPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, wsPath, "init")
+	runGit(t, wsPath, "config", "user.email", "test@test")
+	runGit(t, wsPath, "config", "user.name", "test")
+	runGit(t, wsPath, "checkout", "-b", "feature/x")
+	runGit(t, wsPath, "commit", "--allow-empty", "-m", "Initial commit")
+	hash := strings.TrimSpace(runGitOut(t, wsPath, "rev-parse", "HEAD"))
+
+	st.AddWorkspace(state.Workspace{ID: "talkback-001", Repo: "local:talkback", Branch: "feature/x", Path: wsPath})
+	m := New(cfg, st, statePath, testLogger())
+
+	res, err := m.PushCommits(context.Background(), "talkback-001", hash, "branch", false, false)
+	if err != nil {
+		t.Fatalf("expected structured result, got error: %v", err)
+	}
+	if res.Success {
+		t.Error("expected Success=false")
+	}
+	if res.Reason != PushReasonNoOrigin {
+		t.Errorf("expected reason %q, got %q", PushReasonNoOrigin, res.Reason)
 	}
 }

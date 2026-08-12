@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import {
   openVSCode,
   disposeWorkspace,
@@ -193,6 +193,7 @@ export default function WorkspaceHeader({
 
   // Git-specific UI should only appear for git-managed workspaces
   const isGit = !workspace.vcs || workspace.vcs === 'git';
+  const isNewRepo = isGit && (workspace.repo?.startsWith('local:') ?? false);
 
   const hasRunningSessions = workspace.sessions?.some((s) => s.running) ?? false;
 
@@ -217,7 +218,15 @@ export default function WorkspaceHeader({
             ) : (
               <span className="app-header__branch">{displayBranch}</span>
             )}
-            {isGit && (
+            {isNewRepo && (
+              <Tooltip content="Not connected to a remote repository yet — connect it from the commit graph">
+                <Link to={`/commits/${workspace.id}`} className="app-header__git-status">
+                  {branchIcon}
+                  <span style={{ opacity: 0.6 }}>(new repo)</span>
+                </Link>
+              </Tooltip>
+            )}
+            {isGit && !isNewRepo && (
               <>
                 <Tooltip content={`${behind} behind main, ${ahead} ahead of main`}>
                   <span className="app-header__git-status">

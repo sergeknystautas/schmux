@@ -21,6 +21,7 @@ const (
 	PushReasonNoBase          = "no_base"
 	PushReasonPushRejected    = "push_rejected"
 	PushReasonUnsupported     = "unsupported"
+	PushReasonNoOrigin        = "no_origin"
 )
 
 // fullCommitShaRe matches a full sha1 (40) or sha256 (64) hex object name.
@@ -58,6 +59,21 @@ func (m *Manager) PushCommits(ctx context.Context, workspaceID, hash, target str
 	defer m.UnlockWorkspace(workspaceID)
 
 	dir := w.Path
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	// A workspace without an origin remote (e.g. a repo created via the
+	// "new repository" spawn path) has nowhere to push. Fail structurally
+	// instead of letting `git fetch origin` blow up as a 500.
+	if !m.gitHasOriginRemote(ctx, dir) {
+		return &contracts.PushCommitsResult{
+			Reason:  PushReasonNoOrigin,
+			Message: "workspace has no origin remote",
+		}, nil
+	}
+
 	run := func(args ...string) (string, error) {
 		cmd := exec.CommandContext(ctx, "git", args...)
 		cmd.Dir = dir

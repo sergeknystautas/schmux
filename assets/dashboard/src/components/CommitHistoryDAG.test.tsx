@@ -466,6 +466,15 @@ describe('you-are-here push buttons', () => {
     expect(screen.getByText('Push to main')).toBeInTheDocument();
     expect(screen.getByText('Push to branch')).toBeInTheDocument();
   });
+
+  it('hides "Push to branch" for local: workspaces', async () => {
+    mockWorkspaces = [makeWorkspace({ repo: 'local:talkback' })];
+    getCommitGraph.mockResolvedValue(makePushableGraph());
+    renderDAG();
+
+    await screen.findByText('head commit');
+    expect(screen.queryByText('Push to branch')).not.toBeInTheDocument();
+  });
 });
 
 describe('push button eligibility', () => {
@@ -507,6 +516,15 @@ describe('push button eligibility', () => {
     renderDAG();
 
     // Wait for a commit row to render so the assertion is not vacuously true.
+    await screen.findByText('head commit');
+    expect(screen.queryAllByTestId('push-commit-btn')).toHaveLength(0);
+  });
+
+  it('hides per-commit push for local: workspaces', async () => {
+    mockWorkspaces = [makeWorkspace({ repo: 'local:talkback' })];
+    getCommitGraph.mockResolvedValue(makePushableGraph());
+    renderDAG();
+
     await screen.findByText('head commit');
     expect(screen.queryAllByTestId('push-commit-btn')).toHaveLength(0);
   });

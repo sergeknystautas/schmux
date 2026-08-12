@@ -3,7 +3,7 @@ package contracts
 // PushCommitsResult is the response body for POST /api/workspaces/{id}/push-commits.
 // Reason values (set when Success is false) are defined in internal/workspace/push_commits.go:
 // "dirty", "nothing_to_push", "behind", "diverged", "no_remote_default",
-// "no_base", "push_rejected", "unsupported".
+// "no_base", "push_rejected", "unsupported", "no_origin".
 type PushCommitsResult struct {
 	Success         bool     `json:"success"`
 	TargetBranch    string   `json:"target_branch"`              // branch name pushed to (without "origin/")

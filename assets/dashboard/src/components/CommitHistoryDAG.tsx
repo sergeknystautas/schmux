@@ -68,6 +68,7 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
   const lockState = workspaceLockStates[workspaceId];
   const isSyncing = syncing || !!lockState?.locked;
   const isSapling = ws?.vcs === 'sapling';
+  const isLocalRepo = ws?.repo?.startsWith('local:') ?? false;
   const gitFingerprint = ws
     ? `${ws.ahead}:${ws.behind}:${ws.files_changed}:${ws.lines_added}:${ws.lines_removed}`
     : '';
@@ -334,7 +335,7 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
       // case (feature branches only). Hidden on the default branch: origin/<branch>
       // IS origin/<default> there, and this path pushes with --force-with-lease,
       // bypassing "Push to main"'s fast-forward-only guarantee.
-      const showPushToBranch = !commitsSynced && !onDefaultBranch;
+      const showPushToBranch = !isLocalRepo && !commitsSynced && !onDefaultBranch;
       const hasLocalChanges = filesChanged > 0;
       const isBehind = behindCount > 0;
       const pushToDefaultDisabled = isBehind || hasLocalChanges;
@@ -720,7 +721,7 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
     const isHeadCommit = ln.node.is_head.includes(ws?.branch || '');
     const canUncommit = isHeadCommit && (ws?.ahead ?? 0) > 0;
     const canPushCommit =
-      !isSapling && localSet.has(ln.node.hash) && !originMainSet.has(ln.node.hash);
+      !isSapling && !isLocalRepo && localSet.has(ln.node.hash) && !originMainSet.has(ln.node.hash);
 
     return (
       <div

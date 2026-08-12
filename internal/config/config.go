@@ -2386,9 +2386,7 @@ func (c *Config) Reload() error {
 	c.mu.Unlock()
 
 	// Invalidate repo URL cache
-	c.repoURLMu.Lock()
-	c.repoURLCache = nil
-	c.repoURLMu.Unlock()
+	c.invalidateRepoURLCache()
 
 	return nil
 }
@@ -2582,9 +2580,7 @@ func (c *Config) Save() error {
 	}
 
 	// Invalidate the repo URL cache since repos may have changed
-	c.repoURLMu.Lock()
-	c.repoURLCache = nil
-	c.repoURLMu.Unlock()
+	c.invalidateRepoURLCache()
 
 	return nil
 }
