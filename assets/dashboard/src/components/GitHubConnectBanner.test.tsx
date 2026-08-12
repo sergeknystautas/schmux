@@ -34,9 +34,7 @@ describe('GitHubConnectBanner', () => {
 
   it('renders the banner and opens the dialog with create fields', async () => {
     render(<GitHubConnectBanner workspaceId="talkback-001" />);
-    expect(
-      screen.getByText('This repo only exists in this workspace — connect it to GitHub.')
-    ).toBeInTheDocument();
+    expect(screen.getByText('This repository exists only in this workspace')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: /connect to github/i }));
     await waitFor(() => expect(api.getGitHubConnectStatus).toHaveBeenCalledWith('talkback-001'));
@@ -134,7 +132,71 @@ describe('GitHubConnectBanner', () => {
     await userEvent.click(screen.getByRole('button', { name: /connect to github/i }));
     await waitFor(() => expect(api.getGitHubConnectStatus).toHaveBeenCalled());
 
-    expect(screen.getByText(/gh CLI/i)).toBeInTheDocument();
+    expect(screen.getByText(/GitHub CLI/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^connect$/i })).toBeDisabled();
+  });
+
+  it('renders the dialog as a labelled modal and closes it on Escape', async () => {
+    render(<GitHubConnectBanner workspaceId="talkback-001" />);
+    await userEvent.click(screen.getByRole('button', { name: /connect to github/i }));
+    await waitFor(() => expect(api.getGitHubConnectStatus).toHaveBeenCalled());
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(dialog).toHaveAccessibleName('Connect to GitHub');
+
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('renders each plan step as a status pill with its own text label', async () => {
+    vi.mocked(api.getGitHubConnectStatus).mockResolvedValue({
+      ...fullPlanStatus,
+      plan: [
+        { step: 'set_origin', needed: false, reason: 'origin already set' },
+        { step: 'create_repo', needed: true, reason: 'no reachable remote repository' },
+        { step: 'update_config', needed: true, reason: 'schmux config still records a local repo' },
+        {
+          step: 'link_workspaces',
+          needed: true,
+          reason: 'workspace still linked to the local repo',
+        },
+        { step: 'initial_push', needed: true, reason: 'remote has no branches yet' },
+      ],
+    });
+    render(<GitHubConnectBanner workspaceId="talkback-001" />);
+    await userEvent.click(screen.getByRole('button', { name: /connect to github/i }));
+    await waitFor(() => expect(api.getGitHubConnectStatus).toHaveBeenCalled());
+
+    // Status is never colour alone — satisfied and outstanding steps each carry
+    // a readable label rather than a bespoke glyph.
+    expect(screen.getAllByText('Pending')).toHaveLength(4);
+    expect(screen.getAllByText('Done')).toHaveLength(1);
+    expect(screen.getByText('Set git origin')).toBeInTheDocument();
+  });
+
+  it('labels executed steps with their result status', async () => {
+    vi.mocked(api.runGitHubConnect).mockResolvedValue({
+      success: false,
+      steps: [
+        { step: 'set_origin', status: 'done', detail: '' },
+        { step: 'create_repo', status: 'failed', detail: 'gh repo create failed: name taken' },
+        { step: 'update_config', status: 'not_run', detail: '' },
+        { step: 'link_workspaces', status: 'not_run', detail: '' },
+        { step: 'initial_push', status: 'not_run', detail: '' },
+      ],
+    });
+    render(<GitHubConnectBanner workspaceId="talkback-001" />);
+    await userEvent.click(screen.getByRole('button', { name: /connect to github/i }));
+    await waitFor(() => expect(api.getGitHubConnectStatus).toHaveBeenCalled());
+
+    await userEvent.click(screen.getByRole('button', { name: /^connect$/i }));
+
+    expect(await screen.findByText('Failed')).toBeInTheDocument();
+    expect(screen.getAllByText('Not run')).toHaveLength(3);
+    // The failure detail stays on screen so it can be read and copied.
+    expect(
+      screen.getByText(/Create GitHub repository: gh repo create failed: name taken/)
+    ).toBeInTheDocument();
   });
 });

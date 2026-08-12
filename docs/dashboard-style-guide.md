@@ -3,6 +3,14 @@
 **Status:** Active — the design system for the schmux web dashboard. New and changed
 UI is reviewed against this guide.
 
+> **Building or changing dashboard UI?** Run the `dashboard-style-check` skill
+> (`.claude/skills/schmux-dashboard-style-check/`) before presenting the work. It is the
+> pre-flight checklist against this guide, and it exists because the most common failure
+> is not ignorance of this document — it is hand-rolling markup that duplicates a
+> primitive defined here. Most notably: `global.css` has **no bare `input`/`select`/
+> `textarea` element rules**, so a control without `.input`/`.select`/`.textarea` renders
+> as an unstyled native widget.
+
 ## Purpose and scope
 
 This guide codifies the design system already practiced by the best surfaces of the

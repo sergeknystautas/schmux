@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getGitHubConnectStatus, runGitHubConnect, getErrorMessage } from '../lib/api';
 import type { GitHubConnectStatus, GitHubConnectResult } from '../lib/types.generated';
+import useFocusTrap from '../hooks/useFocusTrap';
+import styles from './GitHubConnectBanner.module.css';
 
 const STEP_LABELS: Record<string, string> = {
   set_origin: 'Set git origin',
@@ -9,6 +11,24 @@ const STEP_LABELS: Record<string, string> = {
   link_workspaces: 'Link workspace to repository',
   initial_push: 'Push history to default branch',
 };
+
+/** Status-pill variant + label per executed step status. Status is never
+ *  colour alone — every pill carries its own text. */
+const RESULT_PILLS: Record<string, { variant: string; label: string }> = {
+  done: { variant: 'status-pill--running', label: 'Done' },
+  skipped: { variant: 'status-pill--stopped', label: 'Skipped' },
+  failed: { variant: 'status-pill--error', label: 'Failed' },
+  not_run: { variant: 'status-pill--stopped', label: 'Not run' },
+};
+
+function StatusPill({ variant, label }: { variant: string; label: string }) {
+  return (
+    <span className={`status-pill ${variant}`}>
+      <span className="status-pill__dot" />
+      {label}
+    </span>
+  );
+}
 
 interface GitHubConnectBannerProps {
   workspaceId: string;
@@ -24,6 +44,9 @@ export default function GitHubConnectBanner({ workspaceId }: GitHubConnectBanner
   const [name, setName] = useState('');
   const [visibility, setVisibility] = useState<'private' | 'public'>('private');
   const [defaultBranch, setDefaultBranch] = useState('main');
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  useFocusTrap(modalRef, open);
 
   const fetchStatus = useCallback(
     async (surfaceError: boolean) => {
@@ -46,6 +69,22 @@ export default function GitHubConnectBanner({ workspaceId }: GitHubConnectBanner
   useEffect(() => {
     void fetchStatus(false);
   }, [fetchStatus]);
+
+  const close = useCallback(() => setOpen(false), []);
+
+  // Escape closes the dialog, except mid-run where cancelling would strand the
+  // pipeline's progress off-screen.
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !running) {
+        e.preventDefault();
+        close();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [open, running, close]);
 
   const openDialog = useCallback(() => {
     setOpen(true);
@@ -85,81 +124,100 @@ export default function GitHubConnectBanner({ workspaceId }: GitHubConnectBanner
 
   return (
     <>
-      <div className="banner github-connect-banner">
-        <span>This repo only exists in this workspace — connect it to GitHub.</span>
+      <div className={`banner banner--info ${styles.banner}`}>
+        <span className={styles.bannerText}>
+          <span className={styles.bannerTitle}>This repository exists only in this workspace</span>
+          <span className={styles.bannerHint}>
+            Connect it to GitHub to push commits and open pull requests.
+          </span>
+        </span>
         <button type="button" className="btn btn--primary" onClick={openDialog}>
           Connect to GitHub
         </button>
       </div>
+
       {open && (
-        <div className="modal-overlay" onClick={() => !running && setOpen(false)}>
-          <div
-            className="modal"
-            role="dialog"
-            aria-labelledby="github-connect-title"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="github-connect-title"
+        >
+          <div ref={modalRef} className="modal modal--wide">
             <div className="modal__header">
               <h2 className="modal__title" id="github-connect-title">
                 Connect to GitHub
               </h2>
             </div>
+
             <div className="modal__body">
               {!status && !error && (
-                <p className="text-muted">
-                  <span className="spinner" /> Checking GitHub and the workspace's remote…
+                <p className={styles.loading}>
+                  <span className="spinner spinner--small" />
+                  Checking GitHub and the workspace&rsquo;s remote&hellip;
                 </p>
               )}
+
               {status && !result && (
                 <>
-                  <ul className="github-connect-steps">
+                  <ul className={styles.steps}>
                     {status.plan.map((p) => (
-                      <li
-                        key={p.step}
-                        className={
-                          p.needed
-                            ? 'github-connect-steps__item github-connect-steps__item--needed'
-                            : 'github-connect-steps__item'
-                        }
-                      >
-                        {p.needed ? '○' : '✓'} {STEP_LABELS[p.step] ?? p.step}
-                        <span className="text-muted"> — {p.reason}</span>
+                      <li key={p.step} className={styles.step}>
+                        <StatusPill
+                          variant={p.needed ? 'status-pill--stopped' : 'status-pill--running'}
+                          label={p.needed ? 'Pending' : 'Done'}
+                        />
+                        <span className={styles.stepBody}>
+                          <span className={p.needed ? styles.stepLabel : styles.stepLabelMuted}>
+                            {STEP_LABELS[p.step] ?? p.step}
+                          </span>
+                          <span className={styles.stepReason}>{p.reason}</span>
+                        </span>
                       </li>
                     ))}
                   </ul>
+
                   {ghBlocked && (
-                    <p className="text-muted">
-                      Creating the repository requires the gh CLI to be installed and authenticated
-                      (<code>gh auth login</code>).
-                    </p>
+                    <div className={styles.section}>
+                      <p className="form-group__error">
+                        Creating the repository requires the GitHub CLI to be installed and
+                        authenticated. Run <code>gh auth login</code>, then reopen this dialog.
+                      </p>
+                    </div>
                   )}
+
                   {needsCreate && !ghBlocked && (
-                    <>
-                      <div className="form-group">
-                        <label className="form-group__label" htmlFor="ghc-owner">
-                          Owner
-                        </label>
-                        <select
-                          id="ghc-owner"
-                          value={owner}
-                          onChange={(e) => setOwner(e.target.value)}
-                        >
-                          {(status.owners ?? []).map((o) => (
-                            <option key={o} value={o}>
-                              {o}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="form-group">
-                        <label className="form-group__label" htmlFor="ghc-name">
-                          Repository name
-                        </label>
-                        <input
-                          id="ghc-name"
-                          value={name}
-                          onChange={(e) => setName(e.target.value)}
-                        />
+                    <div className={styles.section}>
+                      <h3 className={styles.sectionTitle}>New repository</h3>
+                      <div className={styles.formRow}>
+                        <div className="form-group">
+                          <label className="form-group__label" htmlFor="ghc-owner">
+                            Owner
+                          </label>
+                          <select
+                            id="ghc-owner"
+                            className="select"
+                            value={owner}
+                            onChange={(e) => setOwner(e.target.value)}
+                          >
+                            {(status.owners ?? []).map((o) => (
+                              <option key={o} value={o}>
+                                {o}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="form-group">
+                          <label className="form-group__label" htmlFor="ghc-name">
+                            Repository name
+                          </label>
+                          <input
+                            id="ghc-name"
+                            className="input"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                          />
+                        </div>
                       </div>
                       <div className="form-group">
                         <label className="form-group__label" htmlFor="ghc-visibility">
@@ -167,52 +225,79 @@ export default function GitHubConnectBanner({ workspaceId }: GitHubConnectBanner
                         </label>
                         <select
                           id="ghc-visibility"
+                          className="select"
                           value={visibility}
                           onChange={(e) => setVisibility(e.target.value as 'private' | 'public')}
                         >
                           <option value="private">Private</option>
                           <option value="public">Public</option>
                         </select>
+                        <p className="form-group__hint">
+                          {owner && name.trim()
+                            ? `Creates github.com/${owner}/${name.trim()}`
+                            : 'Choose an owner and name for the new repository.'}
+                        </p>
                       </div>
-                    </>
+                    </div>
                   )}
-                  {needsPush && (
-                    <div className="form-group">
-                      <label className="form-group__label" htmlFor="ghc-branch">
-                        Default branch
-                      </label>
-                      <input
-                        id="ghc-branch"
-                        value={defaultBranch}
-                        onChange={(e) => setDefaultBranch(e.target.value)}
-                      />
+
+                  {needsPush && !ghBlocked && (
+                    <div className={styles.section}>
+                      <h3 className={styles.sectionTitle}>Initial push</h3>
+                      <div className="form-group">
+                        <label className="form-group__label" htmlFor="ghc-branch">
+                          Default branch
+                        </label>
+                        <input
+                          id="ghc-branch"
+                          className="input"
+                          value={defaultBranch}
+                          onChange={(e) => setDefaultBranch(e.target.value)}
+                        />
+                        <p className="form-group__hint">
+                          This workspace&rsquo;s history is pushed under this name, which becomes
+                          the repository&rsquo;s default branch.
+                        </p>
+                      </div>
                     </div>
                   )}
                 </>
               )}
+
               {result && (
-                <ul className="github-connect-steps">
-                  {result.steps.map((s) => (
-                    <li key={s.step} className="github-connect-steps__item">
-                      {s.status === 'done' ? '✓' : s.status === 'skipped' ? '–' : '✗'}{' '}
-                      {STEP_LABELS[s.step] ?? s.step}
-                      {s.detail && <span className="text-muted"> — {s.detail}</span>}
-                    </li>
-                  ))}
+                <ul className={styles.steps}>
+                  {result.steps.map((s) => {
+                    const pill = RESULT_PILLS[s.status] ?? RESULT_PILLS.not_run;
+                    return (
+                      <li key={s.step} className={styles.step}>
+                        <StatusPill variant={pill.variant} label={pill.label} />
+                        <span className={styles.stepBody}>
+                          <span className={styles.stepLabel}>{STEP_LABELS[s.step] ?? s.step}</span>
+                          {s.detail && <span className={styles.stepDetail}>{s.detail}</span>}
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
+
               {result?.success && (
-                <p>Connected. This workspace is now linked to {result.repo_url}.</p>
+                <div className={styles.section}>
+                  <p>
+                    Connected to <span className={styles.repoUrl}>{result.repo_url}</span>
+                  </p>
+                </div>
               )}
-              {error && <div className="banner banner--error">{error}</div>}
+
+              {error && (
+                <div className={styles.section}>
+                  <p className="form-group__error">{error}</p>
+                </div>
+              )}
             </div>
+
             <div className="modal__footer">
-              <button
-                type="button"
-                className="btn"
-                onClick={() => setOpen(false)}
-                disabled={running}
-              >
+              <button type="button" className="btn" onClick={close} disabled={running}>
                 {result?.success ? 'Close' : 'Cancel'}
               </button>
               {!result?.success && (
@@ -226,7 +311,8 @@ export default function GitHubConnectBanner({ workspaceId }: GitHubConnectBanner
                 >
                   {running ? (
                     <>
-                      <span className="spinner" /> Connecting
+                      <span className="spinner spinner--small" />
+                      Connecting
                     </>
                   ) : (
                     'Connect'

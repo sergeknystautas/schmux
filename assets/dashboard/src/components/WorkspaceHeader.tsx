@@ -222,7 +222,7 @@ export default function WorkspaceHeader({
               <Tooltip content="Not connected to a remote repository yet — connect it from the commit graph">
                 <Link to={`/commits/${workspace.id}`} className="app-header__git-status">
                   {branchIcon}
-                  <span style={{ opacity: 0.6 }}>(new repo)</span>
+                  <span className="text-muted">new repo</span>
                 </Link>
               </Tooltip>
             )}

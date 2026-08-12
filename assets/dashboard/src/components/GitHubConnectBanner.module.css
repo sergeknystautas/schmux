@@ -1,0 +1,107 @@
+/* Connect-to-GitHub banner and dialog. Layout only — all color, spacing,
+   radius and motion come from tokens; controls use the shared .banner,
+   .modal, .form-group, .input/.select and .status-pill primitives. */
+
+.banner {
+  justify-content: space-between;
+  margin: var(--spacing-md) var(--spacing-xl);
+}
+
+.bannerText {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xxs);
+}
+
+.bannerTitle {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.bannerHint {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+/* Step plan / result list */
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 7rem 1fr;
+  align-items: baseline;
+  gap: var(--spacing-md);
+}
+
+.stepBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xxs);
+}
+
+.stepLabel {
+  font-size: 0.875rem;
+  color: var(--color-text);
+}
+
+.stepLabelMuted {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.stepReason {
+  font-size: 0.75rem;
+  color: var(--color-text-faint);
+}
+
+.stepDetail {
+  font-size: 0.75rem;
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+/* Sections inside the dialog body */
+
+.section {
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-lg);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.sectionTitle {
+  margin: 0 0 var(--spacing-md);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.formRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.repoUrl {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}

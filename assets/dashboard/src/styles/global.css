@@ -3735,36 +3735,6 @@ body {
   color: var(--color-text-muted);
 }
 
-/* GitHub connect banner + dialog (commit graph page) */
-.github-connect-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-md);
-  margin: var(--spacing-md) var(--spacing-lg);
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--color-info-subtle);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-}
-
-.github-connect-steps {
-  list-style: none;
-  margin: 0 0 var(--spacing-md);
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-
-.github-connect-steps__item {
-  color: var(--color-text-muted);
-}
-
-.github-connect-steps__item--needed {
-  color: var(--color-text);
-}
-
 .text-success {
   color: var(--color-success);
 }

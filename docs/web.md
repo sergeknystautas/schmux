@@ -378,7 +378,7 @@ A repo created by the plain-name spawn path (`local:<name>`) exists only on disk
 
 Push controls (`Push to branch`, per-commit push) are hidden for these workspaces — there is nowhere to push. The backend agrees: `POST /push-commits` returns `reason: "no_origin"` rather than failing on the fetch.
 
-**The dialog** previews a five-step plan from `GET /api/workspaces/{id}/github-connect`, marking each step needed or already satisfied, and prefills the repo name and a `main` default branch. Owner (gh account + orgs), visibility, and default branch are editable. Repo creation requires an authenticated `gh` CLI; when it is missing the dialog explains that instead of offering a dead Connect button.
+**The dialog** previews a five-step plan from `GET /api/workspaces/{id}/github-connect`, marking each step Pending or Done with a `.status-pill`, and prefills the repo name and a `main` default branch. Owner (gh account + orgs), visibility, and default branch are editable. Repo creation requires an authenticated `gh` CLI; when it is missing the dialog explains that instead of offering a dead Connect button.
 
 **The steps** (executed by `POST` in order, stopping at the first failure):
 
@@ -392,6 +392,6 @@ Results render per-step (`done` / `skipped` / `failed` / `not_run`). Detection r
 
 **Gotchas:**
 
-- Errors stay in the dialog as a persistent banner (never a toast) so the underlying git or `gh` output can be read and copied.
+- Errors stay in the dialog as persistent inline error text (never a toast) so the underlying git or `gh` output can be read and copied.
 - The config entry stores the origin URL verbatim; the workspace scanner reconciles state against the on-disk origin, so the two strings must match exactly.
 - `Scan` never removes `local:` workspaces. They have no origin remote, so the scanner's remote-URL probe can't see them — without the exemption a healthy workspace would be reaped, including mid-connect.

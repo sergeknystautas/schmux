@@ -207,7 +207,7 @@ Changes to API-related packages (`internal/dashboard/`, `internal/nudgenik/`, `i
 
 ## Web Dashboard Guidelines
 
-See `docs/dev/react.md` for React architecture and `docs/web.md` for UX patterns. **For the visual design system — tokens, primitives, page templates, and the compliance rubric — see [`docs/dashboard-style-guide.md`](docs/dashboard-style-guide.md); all dashboard CSS and markup must follow it (no hardcoded palette colors, no undefined-token references).** For API contracts, see `docs/api.md`. Key principles:
+See `docs/dev/react.md` for React architecture and `docs/web.md` for UX patterns. **For the visual design system — tokens, primitives, page templates, and the compliance rubric — see [`docs/dashboard-style-guide.md`](docs/dashboard-style-guide.md); all dashboard CSS and markup must follow it (no hardcoded palette colors, no undefined-token references). Before presenting any new or changed dashboard UI, run the `dashboard-style-check` skill (checklist at `.claude/skills/schmux-dashboard-style-check/SKILL.md`) — most notably, `global.css` has no bare `input`/`select`/`textarea` rules, so a control without `.input`/`.select`/`.textarea` renders unstyled.** For API contracts, see `docs/api.md`. Key principles:
 
 - **CLI-first**: web dashboard is for observability/orchestration
 - **Status-first**: running/stopped/error visually consistent everywhere
