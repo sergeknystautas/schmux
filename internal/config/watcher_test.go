@@ -164,27 +164,51 @@ func TestConfigWatcher_DebouncesRapidWrites(t *testing.T) {
 	}
 	defer w.Stop()
 
-	// Write 5 times rapidly
+	count := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return broadcastCount
+	}
+
+	// Write 5 times rapidly. The gap has to be long enough that fsnotify
+	// delivers five distinct events (with no gap at all they coalesce and
+	// the assertion below passes even with the debounce broken), but every
+	// gap also has to stay under configDebounce or the debounce fires
+	// mid-sequence and the count exceeds 2. 5ms keeps both true with two
+	// orders of magnitude of slack against the 500ms window.
 	for i := 1; i <= 5; i++ {
 		writeConfigFile(t, configPath, "rapid")
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
 	}
 
-	// Wait for debounce to settle (500ms debounce + margin)
-	time.Sleep(1500 * time.Millisecond)
-
-	mu.Lock()
-	count := broadcastCount
-	mu.Unlock()
-
-	if count == 0 {
-		t.Error("broadcast should have fired at least once")
+	// Poll for the debounce to fire rather than sleeping past it.
+	if !waitFor(3*time.Second, func() bool { return count() > 0 }) {
+		t.Fatal("broadcast should have fired at least once")
 	}
-	if count > 2 {
+
+	// Give a second debounce cycle a chance to fire, so the coalescing
+	// assertion below is a real check and not just an early read.
+	time.Sleep(configDebounce + 200*time.Millisecond)
+
+	if got := count(); got > 2 {
 		// Debounce should collapse rapid writes. Allow up to 2 (some editors
 		// produce separate WRITE+CREATE events that may not fully coalesce).
-		t.Errorf("expected at most 2 broadcasts from debouncing, got %d", count)
+		t.Errorf("expected at most 2 broadcasts from debouncing, got %d", got)
 	}
+}
+
+// waitFor polls cond every 10ms up to timeout, returning whether it became
+// true. Used so tests wait on the condition they care about instead of a
+// single sleep sized to match a debounce window.
+func waitFor(timeout time.Duration, cond func() bool) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return cond()
 }
 
 func TestConfigWatcher_StopIsSafe(t *testing.T) {

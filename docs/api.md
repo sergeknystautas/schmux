@@ -4404,6 +4404,19 @@ Build monitor update notification:
 - Sent when a build monitor check pass (scheduled or manual) changed any unit's observable state
 - Clients should re-fetch `/api/build-monitor` to get updated status
 
+Config update notification:
+
+```json
+{
+  "type": "config_updated"
+}
+```
+
+- Sent when the daemon reloads `config.json` after it changed on disk outside the API — the daemon watches the config file, so config can change without the client issuing a `POST/PUT /api/config`
+- Clients should re-fetch `/api/config`; a client holding an editor open should expect its view to go stale
+- Writes the daemon makes itself are suppressed for 750ms after its own save, so a successful `POST/PUT /api/config` does not also produce this event
+- External writes are debounced 500ms after the last write, so an editor that saves several times in quick succession produces one reload and one broadcast
+
 ### WS /ws/provision/{provisionId}
 
 Streams PTY I/O for remote host provisioning. Provides interactive terminal access during remote host setup.

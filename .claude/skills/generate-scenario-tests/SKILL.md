@@ -38,6 +38,14 @@ You are generating Playwright test files from plain English scenario description
 - Always call `waitForHealthy()` in `beforeAll`
 - Always call `waitForDashboardLive(page)` after navigation
 - Set reasonable timeouts for async operations (15s for spawn, 10s for WebSocket)
+- **Never use `page.waitForTimeout()` to wait for something to happen** — a fixed
+  sleep is a guess at how slow CI is, and the test fails whenever the guess is
+  short. Wait on the condition instead: `expect(locator)` assertions for UI,
+  `expect.poll(() => apiGet(...))` for debounced auto-saves, and a probe loop for
+  external state (see `waitForShellPrompt` in `tui-clipboard-write.spec.ts`).
+  A fixed wait is only correct for a **negative** assertion — proving something
+  does _not_ appear — since there is no condition to poll for. Say so in a
+  comment when you use one.
 
 ## Output
 

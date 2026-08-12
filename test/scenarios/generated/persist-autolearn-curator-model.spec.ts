@@ -71,8 +71,16 @@ test.describe.serial('Persist lore curator model selection', () => {
       .locator('select');
     await curateSelect.selectOption('workspace');
 
-    // Wait briefly for auto-save to complete
-    await page.waitForTimeout(500);
+    // Poll the API until the debounced auto-save has landed. A fixed wait here
+    // races the save, and the reload below would then read the old value.
+    await expect
+      .poll(
+        async () =>
+          (await apiGet<{ lore: { curate_on_dispose: string } }>('/api/config')).lore
+            .curate_on_dispose,
+        { timeout: 10_000 }
+      )
+      .toBe('workspace');
 
     // Reload the page completely (URL still has ?tab=experimental)
     await page.reload();

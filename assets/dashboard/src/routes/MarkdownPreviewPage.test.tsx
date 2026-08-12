@@ -56,6 +56,19 @@ async function findScrollContainer(): Promise<HTMLDivElement> {
   return container;
 }
 
+// The scroll listener is attached in a passive effect. RTL's async queries resolve
+// as soon as React commits the content to the DOM, and React may flush that effect
+// a macrotask later — so firing a single scroll right after `findScrollContainer`
+// races the listener and intermittently writes nothing. Retry the scroll until it
+// sticks; no fixed number of ticks is a reliable barrier.
+async function scrollAndExpectSaved(container: HTMLDivElement, top: number, key: string) {
+  Object.defineProperty(container, 'scrollTop', { value: top, writable: true });
+  await waitFor(() => {
+    fireEvent.scroll(container);
+    expect(localStorage.getItem(key)).toBe(String(top));
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
@@ -114,10 +127,7 @@ describe('MarkdownPreviewPage scroll memory', () => {
     renderAt('/diff/ws-001/md/README.md');
     const container = await findScrollContainer();
 
-    Object.defineProperty(container, 'scrollTop', { value: 250, writable: true });
-    fireEvent.scroll(container);
-
-    expect(localStorage.getItem('schmux-markdown-scroll-position-ws-001-README.md')).toBe('250');
+    await scrollAndExpectSaved(container, 250, 'schmux-markdown-scroll-position-ws-001-README.md');
   });
 
   it('restores scrollTop from localStorage on mount', async () => {
@@ -144,10 +154,8 @@ describe('MarkdownPreviewPage scroll memory', () => {
     renderAt('/diff/ws-001/md/README.md');
     const container = await findScrollContainer();
 
-    Object.defineProperty(container, 'scrollTop', { value: 100, writable: true });
-    fireEvent.scroll(container);
+    await scrollAndExpectSaved(container, 100, 'schmux-markdown-scroll-position-ws-001-README.md');
 
-    expect(localStorage.getItem('schmux-markdown-scroll-position-ws-001-README.md')).toBe('100');
     expect(localStorage.getItem('schmux-markdown-scroll-position-ws-001-OTHER.md')).toBe('999');
   });
 });

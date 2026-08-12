@@ -6,6 +6,7 @@ import {
   waitForHealthy,
   waitForSessionRunning,
   waitForDashboardLive,
+  sleep,
 } from './helpers';
 import { getTmuxSessionName } from './helpers-terminal';
 import { execSync } from 'child_process';
@@ -105,6 +106,45 @@ function shellQuote(s: string): string {
   );
 }
 
+let shellProbeSeq = 0;
+
+/**
+ * Block until the pane's shell is accepting input. The tests below type at
+ * the prompt (`printf …`, `bash <script>`); keystrokes sent while bash is
+ * still initialising are dropped, and the test then hangs waiting for a
+ * banner that never comes. A fixed sleep only guesses at how long startup
+ * takes — this probes for it by echoing a marker and waiting for the shell
+ * to actually run it.
+ *
+ * Goes through `tmux send-keys`, which bypasses the daemon's
+ * SendInput/echo-buffer pipeline (see sendWSInput above), so the probe
+ * cannot pollute the input-echo suppression heuristic.
+ */
+async function waitForShellPrompt(tmuxSession: string, timeoutMs = 15_000): Promise<void> {
+  const socket = getTmuxSocket();
+  const id = `${Date.now()}-${++shellProbeSeq}`;
+  // The typed line carries `$((21*2))`; only the shell's own output carries
+  // `-42-`. Waiting on the expanded form means a pane that echoes typed input
+  // can't satisfy the check before bash has actually run anything — and a pane
+  // that doesn't echo still satisfies it.
+  const expanded = `shell-ready-42-${id}`;
+  const cmd = `echo shell-ready-$((21*2))-${id}`;
+  execSync(`tmux -L ${socket} send-keys -t '${tmuxSession}' -l ${shellQuote(cmd)}`);
+  execSync(`tmux -L ${socket} send-keys -t '${tmuxSession}' Enter`);
+
+  const deadline = Date.now() + timeoutMs;
+  let pane = '';
+  while (Date.now() < deadline) {
+    pane = execSync(`tmux -L ${socket} capture-pane -p -t '${tmuxSession}'`).toString();
+    if (pane.includes(expanded)) return;
+    await sleep(100);
+  }
+  throw new Error(
+    `shell prompt in ${tmuxSession} not ready after ${timeoutMs}ms ` +
+      `(waiting for ${expanded}). Pane:\n${pane.slice(-1000)}`
+  );
+}
+
 test.describe('TUI clipboard write (OSC 52)', () => {
   let repoPath: string;
   let sessionId: string;
@@ -145,9 +185,7 @@ test.describe('TUI clipboard write (OSC 52)', () => {
     await waitForDashboardLive(page);
     await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
 
-    // Give the shell prompt a moment to settle (so our printf doesn't
-    // arrive while bash is still initialising).
-    await page.waitForTimeout(500);
+    await waitForShellPrompt(tmuxName);
 
     const payload = 'hello-clipboard-test';
     emitOSC52(tmuxName, payload);
@@ -182,7 +220,7 @@ test.describe('TUI clipboard write (OSC 52)', () => {
     await page.evaluate((s) => navigator.clipboard.writeText(s), sentinel);
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(sentinel);
 
-    await page.waitForTimeout(500);
+    await waitForShellPrompt(tmuxName);
 
     const payload = 'rejected-clipboard-payload';
     emitOSC52(tmuxName, payload);
@@ -321,7 +359,7 @@ test.describe('TUI clipboard write (OSC 52)', () => {
     await waitForDashboardLive(page);
     await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
 
-    await page.waitForTimeout(500);
+    await waitForShellPrompt(tmuxName);
 
     // Negative control: prove suppression is targeted, not a blanket
     // "swallow every OSC 52 from inside the pane". The OSC 52 payload

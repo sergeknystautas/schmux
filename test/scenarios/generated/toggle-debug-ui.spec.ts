@@ -45,8 +45,13 @@ test.describe.serial('Toggle debug UI from settings', () => {
       .locator('input[type="checkbox"]');
     await debugCheckbox.check();
 
-    // Wait briefly for auto-save to complete
-    await page.waitForTimeout(500);
+    // Poll the API until the debounced auto-save has landed. A fixed wait here
+    // races the save: too short and the next test reads the pre-save config.
+    await expect
+      .poll(async () => (await apiGet<{ debug_ui?: boolean }>('/api/config')).debug_ui, {
+        timeout: 10_000,
+      })
+      .toBe(true);
   });
 
   test('API confirms debug_ui=true after enabling', async () => {
@@ -78,8 +83,13 @@ test.describe.serial('Toggle debug UI from settings', () => {
       .locator('input[type="checkbox"]');
     await debugCheckbox.uncheck();
 
-    // Wait briefly for auto-save to complete
-    await page.waitForTimeout(500);
+    // Poll the API until the debounced auto-save has landed. `debug_ui` is
+    // `omitempty`, so it is absent rather than false once disabled.
+    await expect
+      .poll(async () => (await apiGet<{ debug_ui?: boolean }>('/api/config')).debug_ui, {
+        timeout: 10_000,
+      })
+      .toBeFalsy();
   });
 
   test('API confirms debug_ui=false after disabling', async () => {

@@ -35,8 +35,17 @@ test.describe.serial('Configure a new repository', () => {
     // Verify the repo appears in the list (use exact match on the item name span)
     await expect(page.locator('.item-list__item-name', { hasText: repoName })).toBeVisible();
 
-    // Wait briefly for auto-save to complete
-    await page.waitForTimeout(500);
+    // Poll the API until the debounced auto-save has landed. A fixed wait here
+    // races the save: too short and the next test reads the pre-save config.
+    await expect
+      .poll(
+        async () => {
+          const config = await apiGet<{ repos: Array<{ name: string }> }>('/api/config');
+          return config.repos.some((r) => r.name === repoName);
+        },
+        { timeout: 10_000 }
+      )
+      .toBe(true);
   });
 
   test('new repo appears in config API', async () => {
