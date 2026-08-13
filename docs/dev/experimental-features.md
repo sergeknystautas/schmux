@@ -111,7 +111,7 @@ go build -tags "noposthog noupdate nomodelregistry nodashboardsx norepofeed nosu
     - `ToolsSection.tsx` `!features.<name>` if the feature has a sidebar nav item
     - `App.tsx` `<FeatureRoute feature="<name>">` if the feature owns a route
     - Inline `features.<name> &&` for any section that lives inside another page
-11. Add rows to the exclusion tag table in `.claude/commands/commit.md`
+11. Add rows to the exclusion tag table in `.agents/skills/commit/SKILL.md`
 12. Verify: `go build -tags no<feature> ./cmd/schmux`
 
 ## Checklist: Adding a Build Tag to an Existing Feature

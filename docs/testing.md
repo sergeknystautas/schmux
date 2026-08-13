@@ -12,7 +12,7 @@ Testing infrastructure for schmux: Go backend unit tests, React frontend Vitest 
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | `test.sh`                                       | Unified test runner with `--quick`, `--all`, `--e2e`, `--scenarios`, `--race`, `--coverage` flags |
 | `Dockerfile.e2e`                                | Docker container for E2E tests (tmux, Go binary, schmux config)                                   |
-| `.claude/commands/commit.md`                    | Definition-of-done enforcement (runs tests before committing)                                     |
+| `.agents/skills/commit/SKILL.md`                | Shared Claude/Codex definition-of-done workflow                                                   |
 | `test/scenarios/*.md`                           | Scenario files — plain English descriptions of user goals                                         |
 | `test/scenarios/generated/*.spec.ts`            | Generated Playwright tests from scenario files                                                    |
 | `test/scenarios/generated/helpers.ts`           | Shared test harness (setup, teardown, API client)                                                 |
@@ -276,13 +276,13 @@ Generated test files live in `test/scenarios/generated/` and are committed to th
 
 ## Definition of Done
 
-The `/commit` command (`.claude/commands/commit.md`) enforces a definition of done at the commit boundary. Agents commit via `/commit`; the command runs checks before proceeding.
+The `/commit` workflow (`.agents/skills/commit/SKILL.md`) enforces a definition of done at the commit boundary. Codex discovers it as a project skill; `.claude/commands/commit.md` is Claude Code's thin slash-command entry point.
 
 ### Mechanical checks (automated)
 
 1. **Categorize staged files** into behavioral (Go, TypeScript, package files) and non-behavioral (docs, scripts, config).
 2. **API docs check** — if any staged file is in `internal/dashboard/`, `internal/config/`, `internal/state/`, `internal/workspace/`, `internal/session/`, or `internal/tmux/`, then `docs/api.md` must also be staged.
-3. **Run tests** — `go vet ./...` and `./test.sh --quick` for behavioral changes. Skipped for non-behavioral-only commits.
+3. **Run tests and static analysis** — `go vet ./...`, `./test.sh`, and `./badcode.sh` for behavioral changes. Skipped for non-behavioral-only commits.
 
 ### Judgment checks (agent self-assessment)
 
@@ -293,7 +293,7 @@ The `/commit` command (`.claude/commands/commit.md`) enforces a definition of do
 ### Design rationale
 
 - **Hard-enforces for agents** via `/commit`; humans can still run `git commit` directly when appropriate.
-- **Auditable** — the DoD criteria are readable in `.claude/commands/commit.md`.
+- **Auditable** — the DoD criteria are readable in `.agents/skills/commit/SKILL.md`.
 - **Future extensibility** — the criteria are structured as configuration-like steps, anticipating a future product feature where per-workspace DoD config lives in `.schmux/config.json`.
 
 ---
