@@ -3879,7 +3879,7 @@ The daemon runs this same check pass on the configured `build_monitor.interval` 
 
 Manually launches a remediation workspace + agent session for a failing run shown on the build monitor page. Always creates a fresh, unique workspace (branch `fix/<workflow-slug>-<short-sha>-<suffix>`), even for a run that already has one. Requires the feature enabled, the repo monitored with an authorized identity, and `build_monitor.target` configured.
 
-The failed jobs' logs are downloaded and written into the worktree under `.schmux/build-monitor/<workflow-slug>/` (`failure.json`, `logs/<job-id>.log`) before the session spawns; the agent prompt's first instruction is `git reset --hard <failing-sha>` (moves the branch to the failing commit — never a detaching `git checkout`).
+The failed jobs' logs are downloaded and written into the worktree under `.schmux/build-monitor/<workflow-slug>/` (`failure.json`, `logs/<job-id>.log`) before the session spawns. The agent prompt requires an investigation update before any code changes: observed issue, cause and supporting evidence, reproduction and observations, and proposed fix. Investigation setup uses `git reset --hard <failing-sha>` to move the branch to the failing commit (never a detaching `git checkout`).
 
 Response:
 

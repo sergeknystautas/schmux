@@ -168,6 +168,12 @@ func TestBuildPrompt(t *testing.T) {
 	prompt := BuildPrompt(info, ContextDir(info.Workflow.Name))
 	for _, want := range []string{
 		"git reset --hard abc1234def5678",
+		"Before changing any code",
+		"Issue: explain the observed failure",
+		"Cause: explain what caused the failure to start happening",
+		"Reproduction: explain how you reproduced the failure",
+		"Proposed fix: explain the specific change",
+		"After sending the investigation update",
 		"E2E Tests",
 		"run #7",
 		"https://github.com/owner/repo-a/actions/runs/11",
@@ -178,6 +184,11 @@ func TestBuildPrompt(t *testing.T) {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt missing %q:\n%s", want, prompt)
 		}
+	}
+	beforeChange := strings.Index(prompt, "Before changing any code")
+	afterUpdate := strings.Index(prompt, "After sending the investigation update")
+	if beforeChange == -1 || afterUpdate == -1 || beforeChange >= afterUpdate {
+		t.Errorf("prompt does not require the investigation update before implementation:\n%s", prompt)
 	}
 	// The move-to-commit instruction must be reset --hard (stays on the
 	// branch) — a launched agent obeyed a literal `git checkout <sha>`

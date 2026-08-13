@@ -163,7 +163,12 @@ func BuildPrompt(info FailureInfo, contextDir string) string {
 	fmt.Fprintf(&b, "CI failure: workflow %q on %s (run #%d) failed.\n", w.Name, info.Repo, w.RunNumber)
 	fmt.Fprintf(&b, "Run: %s\n", w.HTMLURL)
 	fmt.Fprintf(&b, "Failing commit: %s\n\n", w.HeadSHA)
-	fmt.Fprintf(&b, "First, move this branch to the failing commit: git reset --hard %s\n", w.HeadSHA)
+	b.WriteString("First, investigate the failure. Before changing any code, send the user an update that covers all four points:\n")
+	b.WriteString("1. Issue: explain the observed failure.\n")
+	b.WriteString("2. Cause: explain what caused the failure to start happening, with supporting evidence.\n")
+	b.WriteString("3. Reproduction: explain how you reproduced the failure and what you observed.\n")
+	b.WriteString("4. Proposed fix: explain the specific change you would make and why.\n\n")
+	fmt.Fprintf(&b, "For the investigation, move this branch to the failing commit: git reset --hard %s\n", w.HeadSHA)
 	b.WriteString("(Do not use git checkout for this — it detaches HEAD.)\n\n")
 	if len(w.FailedJobs) > 0 {
 		b.WriteString("Failed jobs:\n")
@@ -174,6 +179,6 @@ func BuildPrompt(info FailureInfo, contextDir string) string {
 	}
 	fmt.Fprintf(&b, "Failure details: %s/failure.json. Full job logs: %s/logs/.\n\n", contextDir, contextDir)
 	b.WriteString("Other remediation sessions for the same commit may share this workspace.\n")
-	b.WriteString("Diagnose the root cause from the logs, fix it on this branch, and validate the fix.\n")
+	b.WriteString("After sending the investigation update, fix the root cause on this branch and validate the fix.\n")
 	return b.String()
 }
