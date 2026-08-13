@@ -45,7 +45,6 @@ test.describe.serial('Quick launch a session from a recent branch', () => {
     await spawnSession({
       repo: repoPath,
       branch: 'main',
-      prompt: 'init',
       targets: { 'echo-agent': 1 },
     });
 

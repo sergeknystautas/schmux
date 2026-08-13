@@ -11,7 +11,7 @@ and repository pre-filled, then navigate to the spawn page.
 
 - The daemon is running with at least one repository configured
 - The repository has at least one branch with recent commit activity
-- At least one promptable agent is configured
+- At least one agent is configured
 
 ## Verifications
 
