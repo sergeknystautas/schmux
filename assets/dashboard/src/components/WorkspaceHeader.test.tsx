@@ -190,3 +190,29 @@ describe('WorkspaceHeader (new repo) badge', () => {
     expect(screen.queryByText('new repo')).not.toBeInTheDocument();
   });
 });
+
+describe('WorkspaceHeader GitHub button', () => {
+  it('links HTTPS GitHub remotes to the repository page', async () => {
+    await renderHeader(makeWorkspace({ repo: 'https://github.com/acme/widget.git' }));
+
+    expect(screen.getByRole('link', { name: 'Open ws-1 on GitHub' })).toHaveAttribute(
+      'href',
+      'https://github.com/acme/widget'
+    );
+  });
+
+  it('links SSH GitHub remotes to the repository page', async () => {
+    await renderHeader(makeWorkspace({ repo: 'git@github.com:acme/widget.git' }));
+
+    expect(screen.getByRole('link', { name: 'Open ws-1 on GitHub' })).toHaveAttribute(
+      'href',
+      'https://github.com/acme/widget'
+    );
+  });
+
+  it('is hidden for non-GitHub remotes', async () => {
+    await renderHeader(makeWorkspace({ repo: 'https://gitlab.com/acme/widget.git' }));
+
+    expect(screen.queryByRole('link', { name: 'Open ws-1 on GitHub' })).not.toBeInTheDocument();
+  });
+});
