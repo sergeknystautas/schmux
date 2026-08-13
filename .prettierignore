@@ -2,4 +2,5 @@ assets/dashboard/dist/
 assets/dashboard/node_modules/
 *.generated.ts
 internal/persona/builtins/
+internal/style/builtins/
 .cache/

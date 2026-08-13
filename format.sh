@@ -1,8 +1,17 @@
 #!/bin/bash
 set -euo pipefail
 
-# Exit code 2 from formatters (gofmt, prettier) means "nothing to format" — not an error.
-trap 'rc=$?; [ $rc -eq 2 ] && exit 0; exit $rc' EXIT
+report_result() {
+    local rc=$?
+    trap - EXIT
+    if [ "$rc" -eq 0 ]; then
+        echo "FORMAT_RESULT=PASS"
+    else
+        echo "FORMAT_RESULT=FAIL exit_code=$rc" >&2
+    fi
+    exit "$rc"
+}
+trap report_result EXIT
 
 cd "$(dirname "$0")"
 
