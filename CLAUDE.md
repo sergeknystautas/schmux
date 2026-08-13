@@ -253,4 +253,5 @@ Design specs live in `docs/specs/`. Implementation plans live in `docs/plans/`. 
 - [`docs/api.md`](docs/api.md) - Daemon HTTP API contract (client-agnostic)
 - [`docs/dev/react.md`](docs/dev/react.md) - React architecture
 - [`docs/dev/architecture.md`](docs/dev/architecture.md) - Backend architecture
+- [`docs/dev/determinism.md`](docs/dev/determinism.md) - Finding non-deterministic tests (`./scripts/determinism.sh`); run this when a build fails and the test, not the code, looks at fault
 - [`AGENTS.md`](AGENTS.md) - Architecture guidelines (for non-Claude agents)
