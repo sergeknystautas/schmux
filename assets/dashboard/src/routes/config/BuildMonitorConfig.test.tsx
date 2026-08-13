@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import userEvent from '@testing-library/user-event';
 import BuildMonitorConfig from './BuildMonitorConfig';
@@ -108,10 +108,12 @@ describe('BuildMonitorConfig', () => {
       },
     });
     await screen.findByTestId('build-monitor-enable-my-repo');
-    expect(dispatch).toHaveBeenCalledWith({
-      type: 'SET_FIELD',
-      field: 'buildMonitorRepos',
-      value: { 'My Repo': { enabled: true, github_login: 'octocat' } },
+    await waitFor(() => {
+      expect(dispatch).toHaveBeenCalledWith({
+        type: 'SET_FIELD',
+        field: 'buildMonitorRepos',
+        value: { 'My Repo': { enabled: true, github_login: 'octocat' } },
+      });
     });
   });
 
