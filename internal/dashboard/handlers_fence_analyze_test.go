@@ -130,6 +130,21 @@ func TestCaptureFenceAnalysisTerminal_UnavailableRecordsDiagnostic(t *testing.T)
 // TestSpawn_SaplingLabelLandsOnWorkspaceViaHandler. schmuxdir is redirected to a
 // temp dir so fence.Wrap writes nothing under the real home.
 func TestFenceAnalyze_Success(t *testing.T) {
+	// Spawn reads the new pane's PID, so the fenced command has to still be
+	// running when it does; if the pane has already exited, tmux has torn the
+	// session down and the read comes back empty. The analysis target below is
+	// `claude`, which CI does not install — and installing it is a large
+	// download for the one thing needed here, a process that stays up. Stand
+	// one in instead. Fence itself stays real (CI installs it via
+	// scripts/install-fence.sh); only the agent it wraps is substituted. Set
+	// before the first tmux call, since tmux seeds a new session's environment
+	// from the client that created it.
+	stubDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stubDir, "claude"), []byte("#!/bin/sh\nexec sleep 600\n"), 0o755); err != nil {
+		t.Fatalf("write claude stand-in: %v", err)
+	}
+	t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
 	socketName := fmt.Sprintf("schmux-test-fa-%d", time.Now().UnixNano())
 	tmuxServer := tmux.NewTmuxServer("tmux", socketName, nil)
 	if err := tmuxServer.Check(); err != nil {
