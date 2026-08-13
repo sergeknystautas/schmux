@@ -3,7 +3,6 @@ package dashboard
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -11,50 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/log"
-	"github.com/sergeknystautas/schmux/internal/preview"
 	"github.com/sergeknystautas/schmux/internal/state"
-	"github.com/sergeknystautas/schmux/internal/workspace"
 )
-
-// newPreviewManager returns a preview.Manager wired to the given state store,
-// using a small cap and an ephemeral port block so tests don't collide.
-func newPreviewManager(t *testing.T, st *state.State, maxPerWorkspace int) *preview.Manager {
-	t.Helper()
-	logger := log.NewWithOptions(io.Discard, log.Options{})
-	m := preview.NewManager(
-		st,
-		maxPerWorkspace, // maxPerWorkspace
-		100,             // maxGlobal — large enough not to matter for individual tests
-		false,           // networkAccess
-		54000,           // portBase — away from default 53000 to avoid clashes
-		10,              // blockSize
-		false,           // tlsEnabled
-		"",              // tlsCertPath
-		"",              // tlsKeyPath
-		logger,
-		nil, // portDetector — not needed for handler tests
-	)
-	// Wire a minimal workspace manager so tab operations don't nil-panic.
-	m.SetWorkspaceManager(&noopTabWorkspaceManager{st: st})
-	return m
-}
-
-// noopTabWorkspaceManager satisfies workspace.WorkspaceManager for tests that
-// only need tab operations to not crash.
-type noopTabWorkspaceManager struct {
-	workspace.WorkspaceManager
-	st *state.State
-}
-
-func (m *noopTabWorkspaceManager) OpenPreviewTab(_, _ string, _ int) (*state.Tab, error) {
-	return &state.Tab{}, nil
-}
-
-func (m *noopTabWorkspaceManager) CloseTab(wsID, tabID string) error {
-	_ = m.st.RemoveTab(wsID, tabID)
-	return nil
-}
 
 // startEchoServer starts a real TCP listener that serves minimal HTTP responses.
 // It returns the port number and a cleanup function that closes the listener.
@@ -141,9 +98,6 @@ func TestHandlePreviewsCreate(t *testing.T) {
 		}
 		st.AddSession(sess)
 
-		server.previewManager = newPreviewManager(t, st, 3)
-		t.Cleanup(func() { server.previewManager.Stop() })
-
 		wsH := newTestWorkspaceHandlers(server)
 		req := postPreviewRequest(t, ws.ID, createPreviewRequest{
 			TargetPort:      port,
@@ -170,9 +124,6 @@ func TestHandlePreviewsCreate(t *testing.T) {
 		server.lookupPortOwner = tcpLookupPortOwner
 		port := startEchoServer(t)
 		ws := addWorkspaceToServer(t, st, "ws-happy-nosession")
-
-		server.previewManager = newPreviewManager(t, st, 3)
-		t.Cleanup(func() { server.previewManager.Stop() })
 
 		wsH := newTestWorkspaceHandlers(server)
 		req := postPreviewRequest(t, ws.ID, createPreviewRequest{
@@ -204,9 +155,6 @@ func TestHandlePreviewsCreate(t *testing.T) {
 		ln.Close()
 
 		ws := addWorkspaceToServer(t, st, "ws-no-listen")
-		server.previewManager = newPreviewManager(t, st, 3)
-		t.Cleanup(func() { server.previewManager.Stop() })
-
 		wsH := newTestWorkspaceHandlers(server)
 		req := postPreviewRequest(t, ws.ID, createPreviewRequest{
 			TargetPort: unusedPort,
@@ -223,9 +171,6 @@ func TestHandlePreviewsCreate(t *testing.T) {
 	t.Run("non-loopback host", func(t *testing.T) {
 		server, _, st := newTestServer(t)
 		ws := addWorkspaceToServer(t, st, "ws-nonloopback")
-		server.previewManager = newPreviewManager(t, st, 3)
-		t.Cleanup(func() { server.previewManager.Stop() })
-
 		wsH := newTestWorkspaceHandlers(server)
 		req := postPreviewRequest(t, ws.ID, createPreviewRequest{
 			TargetPort: 3000,
@@ -243,9 +188,6 @@ func TestHandlePreviewsCreate(t *testing.T) {
 	t.Run("invalid port zero", func(t *testing.T) {
 		server, _, st := newTestServer(t)
 		ws := addWorkspaceToServer(t, st, "ws-badport")
-		server.previewManager = newPreviewManager(t, st, 3)
-		t.Cleanup(func() { server.previewManager.Stop() })
-
 		wsH := newTestWorkspaceHandlers(server)
 		req := postPreviewRequest(t, ws.ID, createPreviewRequest{
 			TargetPort: 0,
@@ -260,10 +202,7 @@ func TestHandlePreviewsCreate(t *testing.T) {
 
 	// ── scenario 17: workspace not found ─────────────────────────────────────
 	t.Run("workspace not found", func(t *testing.T) {
-		server, _, st := newTestServer(t)
-		server.previewManager = newPreviewManager(t, st, 3)
-		t.Cleanup(func() { server.previewManager.Stop() })
-
+		server, _, _ := newTestServer(t)
 		wsH := newTestWorkspaceHandlers(server)
 		req := postPreviewRequest(t, "nonexistent-ws", createPreviewRequest{
 			TargetPort: 3000,
@@ -282,9 +221,6 @@ func TestHandlePreviewsCreate(t *testing.T) {
 		server.lookupPortOwner = tcpLookupPortOwner
 		port := startEchoServer(t)
 		ws := addWorkspaceToServer(t, st, "ws-dedup")
-
-		server.previewManager = newPreviewManager(t, st, 3)
-		t.Cleanup(func() { server.previewManager.Stop() })
 
 		wsH := newTestWorkspaceHandlers(server)
 
@@ -322,9 +258,6 @@ func TestHandlePreviewsCreate(t *testing.T) {
 		st.AddSession(state.Session{ID: "sess-a", WorkspaceID: ws.ID, Target: "claude", TmuxSession: "tmux-a"})
 		st.AddSession(state.Session{ID: "sess-b", WorkspaceID: ws.ID, Target: "claude", TmuxSession: "tmux-b"})
 
-		server.previewManager = newPreviewManager(t, st, 3)
-		t.Cleanup(func() { server.previewManager.Stop() })
-
 		wsH := newTestWorkspaceHandlers(server)
 
 		// First POST with sess-a.
@@ -357,12 +290,9 @@ func TestHandlePreviewsCreate(t *testing.T) {
 	// ── scenario 20: workspace cap ───────────────────────────────────────────
 	t.Run("workspace cap exceeded", func(t *testing.T) {
 		const cap = 2
-		server, _, st := newTestServer(t)
+		server, _, st := newTestServerWithPreviewLimit(t, cap)
 		server.lookupPortOwner = tcpLookupPortOwner
 		ws := addWorkspaceToServer(t, st, "ws-cap")
-
-		server.previewManager = newPreviewManager(t, st, cap)
-		t.Cleanup(func() { server.previewManager.Stop() })
 
 		wsH := newTestWorkspaceHandlers(server)
 
@@ -392,9 +322,6 @@ func TestHandlePreviewsCreate(t *testing.T) {
 	t.Run("malformed body", func(t *testing.T) {
 		server, _, st := newTestServer(t)
 		ws := addWorkspaceToServer(t, st, "ws-badbody")
-		server.previewManager = newPreviewManager(t, st, 3)
-		t.Cleanup(func() { server.previewManager.Stop() })
-
 		wsH := newTestWorkspaceHandlers(server)
 		req := makeWorkspaceRequest(t, http.MethodPost,
 			"/api/workspaces/"+ws.ID+"/previews",

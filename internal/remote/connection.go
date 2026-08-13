@@ -354,18 +354,19 @@ func (c *Connection) Connect(ctx context.Context) error {
 		return fmt.Errorf("connect command template produced empty command")
 	}
 
-	c.cmd = newRemoteConnectionCommand(args, c.term)
+	cmd := newRemoteConnectionCommand(args, c.term)
 
 	if c.logger != nil {
 		c.logger.Info("executing connect command", "host_id", c.host.ID, "cmd", cmdLine)
 	}
 
 	// Start command with PTY for interactive terminal (auth prompts work)
-	ptmx, err := pty.StartWithSize(c.cmd, &pty.Winsize{Rows: 24, Cols: 80})
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 80})
 	if err != nil {
 		c.mu.Unlock()
 		return fmt.Errorf("failed to start remote connection with PTY: %w", err)
 	}
+	c.cmd = cmd
 	c.pty = ptmx
 
 	// Use PTY for both reading and writing
@@ -375,13 +376,13 @@ func (c *Connection) Connect(ctx context.Context) error {
 	c.mu.Unlock()
 
 	if c.logger != nil {
-		c.logger.Info("PTY started", "host_id", c.host.ID, "pid", c.cmd.Process.Pid, "provisioning_session", c.provisioningSessionID)
+		c.logger.Info("PTY started", "host_id", c.host.ID, "pid", cmd.Process.Pid, "provisioning_session", c.provisioningSessionID)
 	}
 
 	// Monitor SSH process lifecycle. This goroutine waits for the process to exit
 	// and updates the connection status to "disconnected" when it dies.
 	// It is also the sole caller of cmd.Wait() to reap the process.
-	go c.monitorProcess()
+	go c.monitorProcess(cmd)
 
 	// Monitor context cancellation during setup - kill process if context is canceled.
 	// Once Connect() returns, the monitoring stops so the caller's defer cancel()
@@ -415,18 +416,27 @@ func (c *Connection) Connect(ctx context.Context) error {
 	// Create pipe so parseProvisioningOutput (sole PTY reader) can forward
 	// data to the control mode parser without two goroutines competing on the PTY fd.
 	controlPR, controlPW := io.Pipe()
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		_ = controlPR.Close()
+		_ = controlPW.Close()
+		close(connectDone)
+		return fmt.Errorf("connection closed during setup")
+	}
 	c.controlPipeWriter = controlPW
+	c.mu.Unlock()
 
 	// Parse PTY output for hostname and UUID during provisioning.
 	// This is the ONLY goroutine that reads from the PTY.
 	// It broadcasts raw bytes to WebSocket subscribers and tees to the control mode pipe.
-	go c.parseProvisioningOutput(c.pty)
+	go c.parseProvisioningOutputTo(ptmx, controlPW)
 
 	// Wait for control mode to be ready (reads from pipe, not PTY directly)
 	if c.logger != nil {
 		c.logger.Info("waiting for control mode", "host_id", c.host.ID)
 	}
-	if err := c.waitForControlMode(ctx, controlPR); err != nil {
+	if err := c.waitForControlMode(ctx, controlPR, ptmx); err != nil {
 		close(connectDone)
 		c.Close()
 		return err
@@ -449,6 +459,10 @@ func (c *Connection) Connect(ctx context.Context) error {
 // Reconnect reconnects to an existing host by hostname.
 func (c *Connection) Reconnect(ctx context.Context, hostname string) error {
 	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return fmt.Errorf("connection already closed")
+	}
 	c.hostname = hostname
 	c.host.Hostname = hostname
 	c.host.Status = state.RemoteHostStatusConnecting
@@ -492,18 +506,19 @@ func (c *Connection) Reconnect(ctx context.Context, hostname string) error {
 		return fmt.Errorf("reconnect command template produced empty command")
 	}
 
-	c.cmd = newRemoteConnectionCommand(args, c.term)
+	cmd := newRemoteConnectionCommand(args, c.term)
 
 	if c.logger != nil {
 		c.logger.Info("executing reconnect command", "host_id", c.host.ID, "cmd", cmdLine)
 	}
 
 	// Start command with PTY for interactive terminal
-	ptmx, err := pty.StartWithSize(c.cmd, &pty.Winsize{Rows: 24, Cols: 80})
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 80})
 	if err != nil {
 		c.mu.Unlock()
 		return fmt.Errorf("failed to start remote reconnection with PTY: %w", err)
 	}
+	c.cmd = cmd
 	c.pty = ptmx
 	c.stdin = ptmx
 	c.stdout = ptmx
@@ -512,11 +527,11 @@ func (c *Connection) Reconnect(ctx context.Context, hostname string) error {
 	c.notifyStatusChange()
 
 	if c.logger != nil {
-		c.logger.Info("PTY started for reconnection", "host_id", c.host.ID, "pid", c.cmd.Process.Pid, "provisioning_session", c.provisioningSessionID)
+		c.logger.Info("PTY started for reconnection", "host_id", c.host.ID, "pid", cmd.Process.Pid, "provisioning_session", c.provisioningSessionID)
 	}
 
 	// Monitor SSH process lifecycle (same as Connect).
-	go c.monitorProcess()
+	go c.monitorProcess(cmd)
 
 	// Monitor context cancellation during setup - kill process if context is canceled.
 	// Once Reconnect() returns, the monitoring stops so the caller's defer cancel()
@@ -537,18 +552,27 @@ func (c *Connection) Reconnect(ctx context.Context, hostname string) error {
 	// Create pipe so parseProvisioningOutput (sole PTY reader) can forward
 	// data to the control mode parser without two goroutines competing on the PTY fd.
 	controlPR, controlPW := io.Pipe()
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		_ = controlPR.Close()
+		_ = controlPW.Close()
+		close(connectDone)
+		return fmt.Errorf("connection closed during setup")
+	}
 	c.controlPipeWriter = controlPW
+	c.mu.Unlock()
 
 	// Parse PTY output during reconnection.
 	// This is the ONLY goroutine that reads from the PTY.
 	// It broadcasts raw bytes to WebSocket subscribers and tees to the control mode pipe.
-	go c.parseProvisioningOutput(c.pty)
+	go c.parseProvisioningOutputTo(ptmx, controlPW)
 
 	// Wait for control mode (reads from pipe, not PTY directly)
 	if c.logger != nil {
 		c.logger.Info("reconnecting, waiting for control mode", "host_id", c.host.ID)
 	}
-	if err := c.waitForControlMode(ctx, controlPR); err != nil {
+	if err := c.waitForControlMode(ctx, controlPR, ptmx); err != nil {
 		close(connectDone)
 		c.Close()
 		return err
@@ -577,7 +601,7 @@ func (c *Connection) Reconnect(ctx context.Context, hostname string) error {
 // It also broadcasts raw bytes to PTY subscribers for WebSocket terminal streaming
 // and forwards data to the control mode parser via controlPipeWriter.
 // This MUST be the only goroutine reading from the PTY.
-func (c *Connection) parseProvisioningOutput(r io.Reader) {
+func (c *Connection) parseProvisioningOutputTo(r io.Reader, controlPipeWriter *io.PipeWriter) {
 	if c.logger != nil {
 		c.logger.Debug("parseProvisioningOutput started", "host_id", c.host.ID)
 	}
@@ -595,8 +619,8 @@ func (c *Connection) parseProvisioningOutput(r io.Reader) {
 			c.broadcastPTYOutput(chunk)
 
 			// Forward to control mode parser pipe
-			if pipeOpen && c.controlPipeWriter != nil {
-				if _, werr := c.controlPipeWriter.Write(chunk); werr != nil {
+			if pipeOpen && controlPipeWriter != nil {
+				if _, werr := controlPipeWriter.Write(chunk); werr != nil {
 					if c.logger != nil {
 						c.logger.Debug("control pipe write error (expected during shutdown)", "host_id", c.host.ID, "err", werr)
 					}
@@ -698,8 +722,8 @@ func (c *Connection) parseProvisioningOutput(r io.Reader) {
 	}
 
 	// Close the control pipe writer so the control mode parser gets EOF
-	if c.controlPipeWriter != nil {
-		c.controlPipeWriter.Close()
+	if controlPipeWriter != nil {
+		_ = controlPipeWriter.Close()
 	}
 
 	if c.logger != nil {
@@ -709,13 +733,21 @@ func (c *Connection) parseProvisioningOutput(r io.Reader) {
 
 // waitForControlMode waits for tmux control mode to be ready.
 // The reader parameter provides the data source for the control mode parser.
-func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader) error {
-	// Create parser with the provided reader
-	c.parser = controlmode.NewParser(reader, c.logger, c.host.ID)
-	c.client = controlmode.NewClient(c.stdin, c.parser, c.logger)
+func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader, writer io.Writer) error {
+	// Construct resources before publishing them so Close never observes a
+	// partially initialized parser or client.
+	parser := controlmode.NewParser(reader, c.logger, c.host.ID)
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		parser.Close()
+		return fmt.Errorf("connection closed before control mode setup")
+	}
+	c.parser = parser
+	c.mu.Unlock()
 
 	// Start the parser in background
-	go c.parser.Run()
+	go parser.Run()
 
 	// Wait for the parser to see the first control mode protocol line (%)
 	// before sending any commands. During provisioning, SSH/auth output
@@ -729,7 +761,7 @@ func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader) e
 	}
 
 	select {
-	case <-c.parser.ControlModeReady():
+	case <-parser.ControlModeReady():
 		if c.logger != nil {
 			c.logger.Info("control mode protocol detected, sending ready check", "host_id", c.host.ID)
 		}
@@ -737,18 +769,32 @@ func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader) e
 		return fmt.Errorf("control mode not ready: %w", ctx.Err())
 	}
 
-	// Start the client (processes responses/output/events)
-	c.client.Start()
+	client := controlmode.NewClient(writer, parser, c.logger)
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		client.Close()
+		return fmt.Errorf("connection closed before control mode became ready")
+	}
+	c.client = client
+	// Start while holding c.mu so Close cannot call client.Close concurrently
+	// with Start's initialization of lifecycle state.
+	client.Start()
+	c.mu.Unlock()
 
 	// Now it's safe to send commands - tmux is in control mode
-	if err := c.client.WaitForReady(ctx, ControlModeReadyTimeout); err != nil {
+	if err := client.WaitForReady(ctx, ControlModeReadyTimeout); err != nil {
 		return fmt.Errorf("control mode not ready: %w", err)
 	}
-	c.client.MarkSynced()
+	client.MarkSynced()
 
 	// Update status to connected
-	c.controlModeEstablished.Store(true)
 	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return fmt.Errorf("connection closed while control mode was starting")
+	}
+	c.controlModeEstablished.Store(true)
 	c.host.Status = state.RemoteHostStatusConnected
 	c.host.ConnectedAt = time.Now()
 	// Persistent hosts do not expire — keep ExpiresAt at zero.
@@ -772,7 +818,7 @@ func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader) e
 		fallbackCtx, fallbackCancel := context.WithTimeout(ctx, 5*time.Second)
 		defer fallbackCancel()
 
-		if resp, _, err := c.client.Execute(fallbackCtx, "display-message -p '#{host}'"); err == nil {
+		if resp, _, err := client.Execute(fallbackCtx, "display-message -p '#{host}'"); err == nil {
 			h := strings.TrimSpace(resp)
 			if h != "" {
 				c.mu.Lock()
@@ -792,7 +838,7 @@ func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader) e
 	}
 
 	// Log the remote tmux version for diagnosing version-specific control mode issues.
-	if resp, _, err := c.client.Execute(ctx, "display-message -p '#{version}'"); err == nil {
+	if resp, _, err := client.Execute(ctx, "display-message -p '#{version}'"); err == nil {
 		v := strings.TrimSpace(resp)
 		if c.logger != nil {
 			c.logger.Info("remote tmux version", "host_id", c.host.ID, "version", v)
@@ -810,7 +856,7 @@ func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader) e
 	//     AI agents) can access the X11 clipboard via xclip. Must run BEFORE
 	//     sessions are spawned so the agent process inherits DISPLAY at startup.
 	//     :99 is the conventional Xvfb display started during provisioning.
-	applyRemoteTmuxDefaults(ctx, c.client, c.ClipboardExternal(), c.logger)
+	applyRemoteTmuxDefaults(ctx, client, c.ClipboardExternal(), c.logger)
 
 	// Connection ready - drain pending session queue
 	c.drainPendingQueue(ctx)
@@ -825,6 +871,11 @@ func (c *Connection) Close() error {
 		c.mu.Lock()
 		c.closed = true
 		c.host.Status = state.RemoteHostStatusDisconnected
+		controlPipeWriter := c.controlPipeWriter
+		client := c.client
+		cmd := c.cmd
+		ptmx := c.pty
+		stderr := c.stderr
 		c.mu.Unlock()
 
 		c.notifyStatusChange()
@@ -837,13 +888,13 @@ func (c *Connection) Close() error {
 		c.connectCancelMu.Unlock()
 
 		// Close control pipe writer (unblocks parseProvisioningOutput if blocked on write)
-		if c.controlPipeWriter != nil {
-			c.controlPipeWriter.Close()
+		if controlPipeWriter != nil {
+			_ = controlPipeWriter.Close()
 		}
 
 		// Close client
-		if c.client != nil {
-			c.client.Close()
+		if client != nil {
+			client.Close()
 		}
 
 		// Kill the process BEFORE closing the PTY. On some kernels, closing
@@ -851,18 +902,18 @@ func (c *Connection) Close() error {
 		// what actually tears down the backing fd and unblocks readers.
 		// Don't call cmd.Wait() here — the monitorProcess goroutine is the
 		// sole caller of Wait() to avoid double-wait races.
-		if c.cmd != nil && c.cmd.Process != nil {
-			c.cmd.Process.Kill()
+		if cmd != nil && cmd.Process != nil {
+			_ = cmd.Process.Kill()
 		}
 
 		// Close PTY (this also closes stdin/stdout since they point to it)
-		if c.pty != nil {
-			c.pty.Close()
+		if ptmx != nil {
+			_ = ptmx.Close()
 		}
 
 		// Close stderr if separate (shouldn't be with PTY but check anyway)
-		if c.stderr != nil {
-			c.stderr.Close()
+		if stderr != nil {
+			_ = stderr.Close()
 		}
 
 		// Close PTY subscriber channels
@@ -890,14 +941,14 @@ func (c *Connection) Close() error {
 // This is the sole goroutine that calls cmd.Wait() to reap the process and avoid
 // zombie processes. When the SSH process dies (network failure, remote close, kill),
 // this updates the connection status to "disconnected" so the dashboard reflects reality.
-func (c *Connection) monitorProcess() {
-	if c.cmd == nil {
+func (c *Connection) monitorProcess(cmd *exec.Cmd) {
+	if cmd == nil {
 		return
 	}
 
 	// Wait for the process to exit. This blocks until the process terminates.
 	// It is the ONLY place cmd.Wait() is called to avoid double-wait races.
-	err := c.cmd.Wait()
+	err := cmd.Wait()
 
 	c.mu.RLock()
 	hostID := c.host.ID
@@ -914,8 +965,8 @@ func (c *Connection) monitorProcess() {
 	}
 
 	exitCode := -1
-	if c.cmd.ProcessState != nil {
-		exitCode = c.cmd.ProcessState.ExitCode()
+	if cmd.ProcessState != nil {
+		exitCode = cmd.ProcessState.ExitCode()
 	}
 	if c.logger != nil {
 		c.logger.Warn("SSH process exited unexpectedly", "host_id", hostID, "hostname", hostname, "exit_code", exitCode, "err", err)

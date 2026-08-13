@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -51,13 +52,22 @@ func TestOllamaRegistry_UpdateAndSnapshot(t *testing.T) {
 }
 
 func TestStartOllamaProbeLoop_CallsRefreshImmediatelyAndOnTick(t *testing.T) {
-	var calls int
-	fakeProbe := func() { calls++ }
+	var calls atomic.Int32
+	fakeProbe := func() { calls.Add(1) }
 	stop := make(chan struct{})
-	go LoopOllamaProbe(10*time.Millisecond, fakeProbe, stop)
-	time.Sleep(35 * time.Millisecond)
+	done := make(chan struct{})
+	go func() {
+		LoopOllamaProbe(10*time.Millisecond, fakeProbe, stop)
+		close(done)
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for calls.Load() < 3 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
 	close(stop)
-	if calls < 3 {
-		t.Errorf("expected >=3 calls, got %d", calls)
+	<-done
+	if got := calls.Load(); got < 3 {
+		t.Errorf("expected >=3 calls, got %d", got)
 	}
 }

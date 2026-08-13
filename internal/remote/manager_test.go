@@ -40,6 +40,10 @@ func TestManager_ConnectRace(t *testing.T) {
 
 	mgr := NewManager(cfg, st, nil)
 	mgr.SetWorkspaceManager(&noopWM{st: st})
+	t.Cleanup(func() {
+		mgr.DisconnectAll()
+		st.FlushPending()
+	})
 
 	// Launch multiple goroutines trying to StartConnect to same profile+flavor.
 	// Each should get a unique provisioning session ID (no 1:1 enforcement).

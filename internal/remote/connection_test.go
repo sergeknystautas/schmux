@@ -150,7 +150,7 @@ func TestConnection_ProvisioningOutput(t *testing.T) {
 
 	// Simulate provisioning output
 	output := strings.NewReader("Starting provisioning\nAllocating resources\nCompleted")
-	go conn.parseProvisioningOutput(output)
+	go conn.parseProvisioningOutputTo(output, nil)
 
 	// Poll for parsing to complete (expect 3 progress messages)
 	deadline := time.Now().Add(2 * time.Second)
@@ -191,7 +191,7 @@ func TestConnection_HostnameExtraction(t *testing.T) {
 
 	// Simulate provisioning output with hostname
 	output := strings.NewReader("Establish ControlMaster connection to dev12345.example.com\n")
-	go conn.parseProvisioningOutput(output)
+	go conn.parseProvisioningOutputTo(output, nil)
 
 	// Poll until hostname is extracted
 	deadline := time.Now().Add(2 * time.Second)
@@ -233,7 +233,7 @@ func TestConnection_HostnameExtractionNoMatch(t *testing.T) {
 	output := strings.NewReader("Connecting to remote host...\nAuthentication successful\nSetting up environment\n")
 	done := make(chan struct{})
 	go func() {
-		conn.parseProvisioningOutput(output)
+		conn.parseProvisioningOutputTo(output, nil)
 		close(done)
 	}()
 

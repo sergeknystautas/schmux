@@ -4607,6 +4607,9 @@ Errors:
 - 404: error message (plain text)
 - 500: "Failed to save config"
 
+Remote connection lifecycle: daemon shutdown cancels and drains in-flight
+connect and reconnect attempts before saving the final disconnected state.
+
 ### GET /api/remote/hosts
 
 Returns all remote hosts with their connection status.

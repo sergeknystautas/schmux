@@ -41,8 +41,8 @@ func TestConfigWatcher_ReloadsOnExternalChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if cfg.Repos[0].Name != "Initial" {
-		t.Fatalf("initial Name: got %q", cfg.Repos[0].Name)
+	if got := cfg.GetRepos()[0].Name; got != "Initial" {
+		t.Fatalf("initial Name: got %q", got)
 	}
 
 	// Track broadcast calls
@@ -62,12 +62,13 @@ func TestConfigWatcher_ReloadsOnExternalChange(t *testing.T) {
 	// Wait for reload (debounce 500ms + margin)
 	deadline := time.After(3 * time.Second)
 	for {
-		if cfg.Repos[0].Name == "Modified" {
+		name := cfg.GetRepos()[0].Name
+		if name == "Modified" {
 			break
 		}
 		select {
 		case <-deadline:
-			t.Fatalf("config was not reloaded within timeout; Name=%q", cfg.Repos[0].Name)
+			t.Fatalf("config was not reloaded within timeout; Name=%q", name)
 		case <-time.After(50 * time.Millisecond):
 		}
 	}

@@ -17,7 +17,22 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/preview"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/workspace"
 )
+
+type noopTabWorkspaceManager struct {
+	workspace.WorkspaceManager
+	st *state.State
+}
+
+func (m *noopTabWorkspaceManager) OpenPreviewTab(_, _ string, _ int) (*state.Tab, error) {
+	return &state.Tab{}, nil
+}
+
+func (m *noopTabWorkspaceManager) CloseTab(wsID, tabID string) error {
+	_ = m.st.RemoveTab(wsID, tabID)
+	return nil
+}
 
 // newAutodetectPreviewManager creates a preview manager wired with a noop workspace manager.
 func newAutodetectPreviewManager(st *state.State, logger *log.Logger) *preview.Manager {

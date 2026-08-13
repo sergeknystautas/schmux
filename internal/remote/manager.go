@@ -22,8 +22,9 @@ type Manager struct {
 	state  state.StateStore
 	logger *log.Logger
 
-	connections map[string]*Connection // hostID -> connection
-	mu          sync.RWMutex
+	connections  map[string]*Connection // hostID -> connection
+	mu           sync.RWMutex
+	connectionWG sync.WaitGroup
 
 	// Per-host mutex for workspace find-or-create and dispose operations.
 	// Prevents concurrent spawns from claiming the same idle workspace,
@@ -150,7 +151,9 @@ func (m *Manager) StartConnect(profileID, flavorStr string) (provisioningSession
 	connectCtx, connectCancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	conn.SetConnectCancel(connectCancel)
 
+	m.connectionWG.Add(1)
 	go func() {
+		defer m.connectionWG.Done()
 		ctx := connectCtx
 		defer connectCancel()
 
@@ -540,6 +543,9 @@ func (m *Manager) DisconnectAll() {
 
 	for _, conn := range connections {
 		conn.Close()
+	}
+	m.connectionWG.Wait()
+	for _, conn := range connections {
 		m.state.UpdateRemoteHostStatus(conn.host.ID, state.RemoteHostStatusDisconnected)
 	}
 	if err := m.state.Save(); err != nil {
@@ -1042,10 +1048,17 @@ func (m *Manager) StartReconnect(hostID string) (provisioningSessionID string, e
 		m.logger.Info("StartReconnect", "host_id", hostID, "hostname", host.Hostname, "session_id", sessionID)
 	}
 
+	// Create and register the reconnect context before starting the goroutine so
+	// DisconnectAll can cancel an in-progress reconnect immediately.
+	reconnectCtx, reconnectCancel := context.WithTimeout(context.Background(), 120*time.Second)
+	conn.SetConnectCancel(reconnectCancel)
+
 	// Reconnect in background
+	m.connectionWG.Add(1)
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-		defer cancel()
+		defer m.connectionWG.Done()
+		ctx := reconnectCtx
+		defer reconnectCancel()
 
 		if err := conn.Reconnect(ctx, host.Hostname); err != nil {
 			if m.logger != nil {

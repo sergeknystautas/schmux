@@ -28,6 +28,10 @@ import (
 )
 
 func newTestServer(t *testing.T) (*Server, *config.Config, *state.State) {
+	return newTestServerWithPreviewLimit(t, config.DefaultPreviewMaxPerWorkspace)
+}
+
+func newTestServerWithPreviewLimit(t *testing.T, previewMaxPerWorkspace int) (*Server, *config.Config, *state.State) {
 	t.Helper()
 
 	schmuxdir.Set(t.TempDir())
@@ -36,6 +40,12 @@ func newTestServer(t *testing.T) (*Server, *config.Config, *state.State) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = t.TempDir()
+	cfg.Network = &config.NetworkConfig{
+		PreviewMaxPerWorkspace: previewMaxPerWorkspace,
+		PreviewMaxGlobal:       100,
+		PreviewPortBase:        54000,
+		PreviewPortBlockSize:   10,
+	}
 	cfg.RunTargets = []config.RunTarget{
 		{Name: "command", Command: "echo command"},
 	}
