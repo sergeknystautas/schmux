@@ -11,6 +11,13 @@ import (
 	"strings"
 )
 
+const (
+	RemediationClaimed    = "claimed"
+	RemediationLaunched   = "launched"
+	RemediationFailed     = "failed"
+	maxRecentRemediations = 50
+)
+
 // FailureInfo is everything the launcher knows about one workflow failure.
 // Workflow is a snapshot taken when the failure was detected.
 type FailureInfo struct {
@@ -34,6 +41,49 @@ func PlanLaunches(events []TransitionEvent) []int64 {
 	return ids
 }
 
+// ClaimRemediation atomically reserves a workflow run for auto-remediation in
+// the caller's state mutation. A run already present in the durable ledger is
+// never claimed twice, regardless of later status snapshots.
+func ClaimRemediation(s *UnitState, workflow WorkflowState, observedAt string) bool {
+	if workflow.WorkflowID == 0 || workflow.FirstFailureRunID == 0 {
+		return false
+	}
+	if remediationIndex(s, workflow.WorkflowID, workflow.FirstFailureRunID) >= 0 {
+		return false
+	}
+	s.RecentRemediations = append(s.RecentRemediations, RemediationRecord{
+		WorkflowID:      workflow.WorkflowID,
+		WorkflowName:    workflow.Name,
+		RunID:           workflow.FirstFailureRunID,
+		HeadSHA:         workflow.HeadSHA,
+		FirstObservedAt: observedAt,
+		Status:          RemediationClaimed,
+	})
+	if len(s.RecentRemediations) > maxRecentRemediations {
+		s.RecentRemediations = append([]RemediationRecord(nil), s.RecentRemediations[len(s.RecentRemediations)-maxRecentRemediations:]...)
+	}
+	return true
+}
+
+// StampRemediationWorkspace associates the claimed run with its workspace.
+func StampRemediationWorkspace(s *UnitState, workflowID, runID int64, workspaceID string) bool {
+	i := remediationIndex(s, workflowID, runID)
+	if i < 0 || s.RecentRemediations[i].WorkspaceID == workspaceID {
+		return false
+	}
+	s.RecentRemediations[i].WorkspaceID = workspaceID
+	return true
+}
+
+func remediationIndex(s *UnitState, workflowID, runID int64) int {
+	for i := range s.RecentRemediations {
+		if s.RecentRemediations[i].WorkflowID == workflowID && s.RecentRemediations[i].RunID == runID {
+			return i
+		}
+	}
+	return -1
+}
+
 // StampWorkspace records the episode workspace on the unit. The first
 // stamp wins; later calls are refused so the episode keeps one workspace.
 func StampWorkspace(s *UnitState, workspaceID, sha string) bool {
@@ -45,23 +95,39 @@ func StampWorkspace(s *UnitState, workspaceID, sha string) bool {
 	return true
 }
 
-// StampLaunch records a launch outcome on a workflow, guarded by the
-// failure episode: it applies only while the workflow is still failing on
-// the same FirstFailureRunID the launch was planned for.
+// StampLaunch records a launch outcome in the durable ledger. It also updates
+// the current workflow row when the same failure episode is still active.
 func StampLaunch(s *UnitState, workflowID, episodeRunID int64, sessionID, launchErr string) bool {
+	changed := false
+	if i := remediationIndex(s, workflowID, episodeRunID); i >= 0 {
+		r := &s.RecentRemediations[i]
+		status := RemediationLaunched
+		if launchErr != "" {
+			status = RemediationFailed
+		}
+		if r.SessionID != sessionID || r.LaunchError != launchErr || r.Status != status {
+			r.SessionID = sessionID
+			r.LaunchError = launchErr
+			r.Status = status
+			changed = true
+		}
+	}
 	for i := range s.Workflows {
 		w := &s.Workflows[i]
 		if w.WorkflowID != workflowID {
 			continue
 		}
 		if !isFailing(w) || w.FirstFailureRunID != episodeRunID {
-			return false
+			return changed
+		}
+		if w.SessionID == sessionID && w.LaunchError == launchErr {
+			return changed
 		}
 		w.SessionID = sessionID
 		w.LaunchError = launchErr
 		return true
 	}
-	return false
+	return changed
 }
 
 var workflowSlugRe = regexp.MustCompile(`[^a-z0-9]+`)

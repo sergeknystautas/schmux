@@ -62,12 +62,15 @@ func TestCollectUnitDirectives(t *testing.T) {
 		{WorkflowID: 2, Kind: buildmonitor.TransitionEnteredFailure, FromUnknown: true, RunID: 22},
 	}
 	base := launchDirective{slug: "repo-a", repoName: "Repo A", repoURL: "https://github.com/o/r", repo: "o/r", login: "octocat"}
-	got := collectUnitDirectives(base, events, st)
+	got := collectUnitDirectives(base, events, st, "2026-08-13T08:00:00Z")
 	if len(got) != 1 {
 		t.Fatalf("got %d directives, want 1 (FromUnknown excluded): %+v", len(got), got)
 	}
 	if got[0].workflow.WorkflowID != 1 || got[0].workflow.HeadSHA != "abc" || got[0].slug != "repo-a" {
 		t.Fatalf("directive = %+v", got[0])
+	}
+	if got := collectUnitDirectives(base, events, st, "2026-08-13T08:05:00Z"); len(got) != 0 {
+		t.Fatalf("duplicate check produced directives: %+v", got)
 	}
 }
 

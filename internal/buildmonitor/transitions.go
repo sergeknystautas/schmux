@@ -2,6 +2,8 @@
 
 package buildmonitor
 
+import "slices"
+
 // Transition kinds reported by ApplyTransitions.
 const (
 	TransitionEnteredFailure = "entered_failure"
@@ -42,6 +44,7 @@ func ApplyTransitions(prev, next *UnitState) ([]TransitionEvent, bool) {
 	var events []TransitionEvent
 
 	prevByID := prevWorkflowsByID(prev)
+	carryRecentRemediations(prev, next)
 
 	for i := range next.Workflows {
 		nw := &next.Workflows[i]
@@ -50,6 +53,15 @@ func ApplyTransitions(prev, next *UnitState) ([]TransitionEvent, bool) {
 		isPending := nw.RunID != 0 && nw.Status != "completed"
 
 		switch {
+		case nw.RunID == 0:
+			// The runs endpoint is a bounded snapshot. Absence means unknown,
+			// not recovery; retain an active failure episode until a completed
+			// non-failing run is actually observed.
+			if wasFailing {
+				nw.FirstFailureRunID = pw.FirstFailureRunID
+				nw.SessionID = pw.SessionID
+				nw.LaunchError = pw.LaunchError
+			}
 		case isPending:
 			if wasFailing {
 				nw.FirstFailureRunID = pw.FirstFailureRunID
@@ -79,6 +91,33 @@ func ApplyTransitions(prev, next *UnitState) ([]TransitionEvent, bool) {
 	return events, unitChanged(prev, next, prevByID)
 }
 
+// carryRecentRemediations preserves the durable ledger across fresh API
+// snapshots and migrates active pre-ledger launch state on first read.
+func carryRecentRemediations(prev, next *UnitState) {
+	if prev == nil {
+		return
+	}
+	next.RecentRemediations = append([]RemediationRecord(nil), prev.RecentRemediations...)
+	for i := range prev.Workflows {
+		w := &prev.Workflows[i]
+		if w.FirstFailureRunID == 0 || (w.SessionID == "" && w.LaunchError == "") || remediationIndex(next, w.WorkflowID, w.FirstFailureRunID) >= 0 {
+			continue
+		}
+		status := RemediationLaunched
+		if w.LaunchError != "" {
+			status = RemediationFailed
+		}
+		next.RecentRemediations = append(next.RecentRemediations, RemediationRecord{
+			WorkflowID: w.WorkflowID, WorkflowName: w.Name, RunID: w.FirstFailureRunID,
+			HeadSHA: w.HeadSHA, Status: status, WorkspaceID: prev.RemediationWorkspaceID,
+			SessionID: w.SessionID, LaunchError: w.LaunchError,
+		})
+	}
+	if len(next.RecentRemediations) > maxRecentRemediations {
+		next.RecentRemediations = append([]RemediationRecord(nil), next.RecentRemediations[len(next.RecentRemediations)-maxRecentRemediations:]...)
+	}
+}
+
 // prevWorkflowsByID indexes a prior unit state's workflows by workflow ID.
 // Workflows with ID 0 (state written before workflow IDs were recorded) are
 // skipped; they re-baseline as unknown on the next check.
@@ -104,6 +143,9 @@ func unitChanged(prev, next *UnitState, prevByID map[int64]*WorkflowState) bool 
 		return true
 	}
 	if prev.RemediationWorkspaceID != next.RemediationWorkspaceID || prev.RemediationSHA != next.RemediationSHA {
+		return true
+	}
+	if !slices.Equal(prev.RecentRemediations, next.RecentRemediations) {
 		return true
 	}
 	if len(prev.Workflows) != len(next.Workflows) {

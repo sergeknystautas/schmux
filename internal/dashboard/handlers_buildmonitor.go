@@ -84,11 +84,14 @@ type launchDirective struct {
 
 // collectUnitDirectives expands a unit's entered_failure events into launch
 // directives, snapshotting each workflow's state row.
-func collectUnitDirectives(base launchDirective, events []buildmonitor.TransitionEvent, st *buildmonitor.UnitState) []launchDirective {
+func collectUnitDirectives(base launchDirective, events []buildmonitor.TransitionEvent, st *buildmonitor.UnitState, observedAt string) []launchDirective {
 	var out []launchDirective
 	for _, id := range buildmonitor.PlanLaunches(events) {
 		for i := range st.Workflows {
 			if st.Workflows[i].WorkflowID == id {
+				if !buildmonitor.ClaimRemediation(st, st.Workflows[i], observedAt) {
+					continue
+				}
 				d := base
 				d.workflow = st.Workflows[i]
 				out = append(out, d)
@@ -280,6 +283,15 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (buildMonitorResp
 			s.logger.Warn("failed to read previous build monitor state; treating as first check", "slug", slug, "err", readErr)
 		}
 		events, unitChanged := buildmonitor.ApplyTransitions(prev, state)
+		var unitDirectives []launchDirective
+		if launching {
+			base := launchDirective{
+				slug: slug, repoName: repo.Name, repoURL: repo.URL,
+				repo: info.Owner + "/" + info.Repo, info: info,
+				login: repoCfg.GitHubLogin,
+			}
+			unitDirectives = collectUnitDirectives(base, events, state, state.CheckedAt)
+		}
 
 		if writeErr := buildmonitor.WriteState(buildMonitorUnitStatePath(slug), state); writeErr != nil {
 			s.logger.Error("failed to write build monitor state", "slug", slug, "err", writeErr)
@@ -290,14 +302,7 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (buildMonitorResp
 				// stale state — and re-broadcast on every subsequent tick.
 				changed = true
 			}
-			if launching {
-				base := launchDirective{
-					slug: slug, repoName: repo.Name, repoURL: repo.URL,
-					repo: info.Owner + "/" + info.Repo, info: info,
-					login: repoCfg.GitHubLogin,
-				}
-				directives = append(directives, collectUnitDirectives(base, events, state)...)
-			}
+			directives = append(directives, unitDirectives...)
 		}
 
 		unitResp := buildMonitorUnitResponse{
@@ -436,10 +441,17 @@ func (s *Server) launchBuildFailureSession(d launchDirective) {
 			return
 		}
 		wsID, wsPath = ws.ID, ws.Path
-		s.mutateBuildMonitorState(d.slug, func(st *buildmonitor.UnitState) bool {
-			return buildmonitor.StampWorkspace(st, ws.ID, d.workflow.HeadSHA)
-		})
 	}
+	s.mutateBuildMonitorState(d.slug, func(st *buildmonitor.UnitState) bool {
+		changed := false
+		if createdWorkspace && buildmonitor.StampWorkspace(st, wsID, d.workflow.HeadSHA) {
+			changed = true
+		}
+		if buildmonitor.StampRemediationWorkspace(st, d.workflow.WorkflowID, episodeRunID, wsID) {
+			changed = true
+		}
+		return changed
+	})
 
 	sessionID, err := s.spawnBuildFailureSession(ctx, d, wsID, wsPath, target)
 	if err != nil {

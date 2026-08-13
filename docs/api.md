@@ -3873,7 +3873,7 @@ Requires no request body. The check runs with a 30-second timeout per request.
 
 Response: Same as `GET /api/build-monitor` with updated `checked_at` timestamps.
 
-The daemon runs this same check pass on the configured `build_monitor.interval` (default 5 minutes). Both manual and scheduled checks broadcast `build_monitor_updated` on `/ws/dashboard` when any unit's observable state changed (workflow set, name/path, run/status/conclusion/failed jobs, or unit error — `checked_at` alone does not count). The broadcast fires only for units whose state was successfully persisted.
+The daemon runs this same check pass on the configured `build_monitor.interval` (default 5 minutes). Both manual and scheduled checks broadcast `build_monitor_updated` on `/ws/dashboard` when any unit's observable state changed (workflow set, name/path, run/status/conclusion/failed jobs, or unit error — `checked_at` alone does not count). The broadcast fires only for units whose state was successfully persisted. A workflow returned without a matching run is treated as unknown, not recovered; an active failure episode closes only after a completed non-failing run is observed.
 
 ### POST /api/build-monitor/repos/{slug}/failures/{run_id}/launch-workspace
 
@@ -3893,6 +3893,8 @@ Response:
 Errors: `400` (feature disabled, no target, no identity), `404` (repo not monitored, run not a known failing run), `409` (state predates SHA recording — run a check first), `500` (workspace/session creation failed).
 
 Auto-launch shares this machinery: on a workflow's first hard failure the daemon launches asynchronously after the check pass, records the workspace as the unit's `remediation_workspace_id` (first failure of an episode) and the session as the workflow's `session_id`, then broadcasts `build_monitor_updated`. Additional workflows failing during the same episode get sessions in the recorded workspace. Launch failures land in the workflow's `launch_error`.
+
+Before asynchronous provisioning begins, the daemon atomically claims the GitHub workflow/run ID in the unit's persisted build-monitor state. Each unit retains its 50 most recent claims, including launch status, workspace, session, and error. A claimed run is never auto-launched again if GitHub temporarily omits it, returns stale data, or the daemon restarts. Manual launches intentionally bypass this auto-launch deduplication and continue to create a fresh workspace.
 
 ### GET /api/build-monitor/identities
 

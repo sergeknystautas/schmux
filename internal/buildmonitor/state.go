@@ -24,6 +24,24 @@ type UnitState struct {
 	// none is. Additional workflow failures get sessions in this workspace.
 	RemediationWorkspaceID string `json:"remediation_workspace_id,omitempty"`
 	RemediationSHA         string `json:"remediation_sha,omitempty"`
+	// RecentRemediations is a bounded ledger of auto-remediation claims. A
+	// GitHub run ID remains here after its current failure episode ends so a
+	// transient or stale status snapshot cannot launch that run again.
+	RecentRemediations []RemediationRecord `json:"recent_remediations,omitempty"`
+}
+
+// RemediationRecord is the durable auto-launch record for one workflow run.
+// WorkflowID + RunID is the deduplication key within a unit.
+type RemediationRecord struct {
+	WorkflowID      int64  `json:"workflow_id"`
+	WorkflowName    string `json:"workflow_name,omitempty"`
+	RunID           int64  `json:"run_id"`
+	HeadSHA         string `json:"head_sha,omitempty"`
+	FirstObservedAt string `json:"first_observed_at,omitempty"`
+	Status          string `json:"status"`
+	WorkspaceID     string `json:"workspace_id,omitempty"`
+	SessionID       string `json:"session_id,omitempty"`
+	LaunchError     string `json:"launch_error,omitempty"`
 }
 
 // WorkflowState is the latest-run snapshot for one active workflow in a

@@ -23,6 +23,56 @@ func TestPlanLaunches(t *testing.T) {
 	}
 }
 
+func TestClaimRemediation_DeduplicatesAndBoundsHistory(t *testing.T) {
+	st := &UnitState{}
+	w := twfFailing(1, 11, 11)
+	w.Name = "CI"
+	w.HeadSHA = "abc"
+	if !ClaimRemediation(st, w, "2026-08-13T08:00:00Z") {
+		t.Fatal("first claim should succeed")
+	}
+	if ClaimRemediation(st, w, "2026-08-13T08:05:00Z") {
+		t.Fatal("same workflow run must not be claimed twice")
+	}
+	if got := st.RecentRemediations[0]; got.Status != RemediationClaimed || got.WorkflowName != "CI" || got.HeadSHA != "abc" {
+		t.Fatalf("record = %+v", got)
+	}
+
+	for runID := int64(12); runID < 12+maxRecentRemediations; runID++ {
+		w.RunID = runID
+		w.FirstFailureRunID = runID
+		if !ClaimRemediation(st, w, "later") {
+			t.Fatalf("claim %d was refused", runID)
+		}
+	}
+	if len(st.RecentRemediations) != maxRecentRemediations {
+		t.Fatalf("history length = %d, want %d", len(st.RecentRemediations), maxRecentRemediations)
+	}
+	if st.RecentRemediations[0].RunID != 12 {
+		t.Fatalf("oldest retained run = %d, want 12", st.RecentRemediations[0].RunID)
+	}
+}
+
+func TestRemediationLedgerSurvivesRecovery(t *testing.T) {
+	prev := &UnitState{Workflows: []WorkflowState{twfFailing(1, 11, 11)}}
+	if !ClaimRemediation(prev, prev.Workflows[0], "now") {
+		t.Fatal("claim failed")
+	}
+
+	recovered := &UnitState{Workflows: []WorkflowState{twf(1, 12, "success")}}
+	ApplyTransitions(prev, recovered)
+	if len(recovered.RecentRemediations) != 1 {
+		t.Fatalf("history lost on recovery: %+v", recovered.RecentRemediations)
+	}
+
+	reappeared := &UnitState{Workflows: []WorkflowState{twf(1, 11, "failure")}}
+	ApplyTransitions(recovered, reappeared)
+	reappeared.Workflows[0].FirstFailureRunID = 11
+	if ClaimRemediation(reappeared, reappeared.Workflows[0], "later") {
+		t.Fatal("previously claimed run was claimed again after recovery")
+	}
+}
+
 func TestStampWorkspace_FirstWins(t *testing.T) {
 	st := &UnitState{}
 	if !StampWorkspace(st, "ws-1", "abc") {
@@ -75,6 +125,27 @@ func TestStampLaunch(t *testing.T) {
 		}
 		if st.Workflows[0].LaunchError != "boom" {
 			t.Fatalf("LaunchError = %q", st.Workflows[0].LaunchError)
+		}
+	})
+	t.Run("stamps durable record after current workflow disappears", func(t *testing.T) {
+		st := &UnitState{RecentRemediations: []RemediationRecord{{WorkflowID: 1, RunID: 11, Status: RemediationClaimed}}}
+		if !StampLaunch(st, 1, 11, "sess-1", "") {
+			t.Fatal("expected ledger stamp")
+		}
+		if got := st.RecentRemediations[0]; got.Status != RemediationLaunched || got.SessionID != "sess-1" {
+			t.Fatalf("record = %+v", got)
+		}
+	})
+	t.Run("stamps durable record after current workflow recovers", func(t *testing.T) {
+		st := &UnitState{
+			Workflows:          []WorkflowState{twf(1, 12, "success")},
+			RecentRemediations: []RemediationRecord{{WorkflowID: 1, RunID: 11, Status: RemediationClaimed}},
+		}
+		if !StampLaunch(st, 1, 11, "sess-1", "") {
+			t.Fatal("expected ledger stamp")
+		}
+		if got := st.RecentRemediations[0]; got.Status != RemediationLaunched || got.SessionID != "sess-1" {
+			t.Fatalf("record = %+v", got)
 		}
 	})
 }
