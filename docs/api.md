@@ -2331,7 +2331,8 @@ Internal: the upstream ref is resolved via `vcs.CommandBuilder.DefaultBranchRef`
 (`origin/<branch>` for git, `remote/<branch>` for sapling). Local commit-log
 queries use the NUL-byte field separator on git (safe against `|` characters in
 commit subjects); sapling continues to use pipe delimiters since templates can't
-emit raw NULs. Response schema is unchanged.
+emit raw NULs. A `local:` repository with no origin falls back to `main` for the
+branch label and returns its local `HEAD` history. Response schema is unchanged.
 
 Query Parameters:
 

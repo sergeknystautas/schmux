@@ -46,6 +46,34 @@ func setupWorkspaceGraphTest(t *testing.T, branch string) (mgr *Manager, remoteD
 	return
 }
 
+func TestGetGitGraph_LocalRepoWithoutOrigin(t *testing.T) {
+	t.Parallel()
+
+	wsDir := t.TempDir()
+	runGit(t, wsDir, "init")
+	runGit(t, wsDir, "config", "user.email", "test@test")
+	runGit(t, wsDir, "config", "user.name", "Test")
+	runGit(t, wsDir, "checkout", "-b", "feature/local")
+	runGit(t, wsDir, "commit", "--allow-empty", "-m", "Initial commit")
+
+	cfg := config.CreateDefault(filepath.Join(t.TempDir(), "config.json"))
+	cfg.Repos = []config.Repo{{Name: "local", URL: "local:local", BarePath: "local.git"}}
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath, nil)
+	st.AddWorkspace(state.Workspace{
+		ID: "local-001", Repo: "local:local", Branch: "feature/local", Path: wsDir,
+	})
+	mgr := New(cfg, st, statePath, testLogger())
+
+	graph, err := mgr.GetGitGraph(context.Background(), "local-001", 50, 5)
+	if err != nil {
+		t.Fatalf("GetGitGraph() error: %v", err)
+	}
+	if len(graph.Nodes) != 1 || graph.Nodes[0].Message != "Initial commit" {
+		t.Fatalf("graph nodes = %+v, want the local initial commit", graph.Nodes)
+	}
+}
+
 // commitOnWorkspace adds a commit to the workspace's current branch.
 func commitOnWorkspace(t *testing.T, wsDir, filename, msg string) {
 	t.Helper()

@@ -46,8 +46,8 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxTotal 
 	cb := vcs.NewCommandBuilder(ws.VCS)
 
 	// Detect default branch (use cached version keyed by repo URL)
-	defaultBranch, err := m.GetDefaultBranch(ctx, ws.Repo)
-	if err != nil {
+	defaultBranch, defaultBranchErr := m.GetDefaultBranch(ctx, ws.Repo)
+	if defaultBranchErr != nil {
 		defaultBranch = "main" // fallback if detection fails
 	}
 	// Use VCS-aware ref naming: "origin/main" for git, "remote/main" for sapling.
@@ -125,6 +125,7 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxTotal 
 	// Determine what to log
 	var rawNodes []RawNode
 	var localTruncated bool
+	var err error
 
 	if defaultRefHead == "" || localHead == defaultRefHead {
 		// No divergence or no upstream — walk back from HEAD as far as asked for.
