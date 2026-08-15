@@ -1,0 +1,64 @@
+/* Remote Branches page — column widths and cell text for the shared
+ * .session-table primitive (table-layout: fixed), same approach as .env-table. */
+
+.branchTable th:first-child,
+.branchTable td:first-child {
+  width: 30%;
+}
+
+.branchTable th:nth-child(2),
+.branchTable td:nth-child(2) {
+  width: 14%;
+}
+
+.branchTable th:nth-child(3),
+.branchTable td:nth-child(3) {
+  width: 10%;
+}
+
+.branchTable th:nth-child(4),
+.branchTable td:nth-child(4) {
+  width: auto;
+}
+
+/* Rows are the click target; .session-table already supplies the hover fill. */
+.branchRow:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.branchRow[aria-busy='true'] {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.branchCell {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+}
+
+.branchName {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-text);
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.subject {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

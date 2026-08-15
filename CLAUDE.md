@@ -232,6 +232,7 @@ Routes:
 - `/preview/{workspaceId}/{previewId}` - Web preview iframe
 - `/git/{workspaceId}` - Git commit graph
 - `/resolve-conflict/{workspaceId}` - Linear sync conflict resolution
+- `/branches` - Remote branches (origin branch list, launch a session from one)
 - `/config` - Settings editor (includes Remote tab for remote host profiles)
 - `/events` - Event monitor (dev mode only)
 - `/logs` - Logs viewer (live-tails the spawn, fence, and oneshot log sources)

@@ -225,6 +225,10 @@ Linear sync conflict resolution progress view for a persisted resolve-conflict t
 
 Remote flavor configuration for SSH-based remote workspaces. Accessible via the "Remote" tab in `/config`.
 
+### Remote Branches (`/branches`)
+
+Full-page list of recent branches on the configured repos' origins, read from the bare query clones the daemon keeps in sync (newest first, up to 50, default branch excluded). Each row shows the branch, its repo, how long ago it was committed, and the last commit subject; clicking a row prepares a spawn from that branch — repo, branch, and a prompt summarizing recent commits — and hands off to `/spawn`. **Refresh** fetches from origin before rebuilding the list. The Home page's Recent Branches card shows the top few of the same list and links here.
+
 ### Environment (`/environment`)
 
 Compare system shell environment against the tmux server environment. Shows which variables are in sync, differ, or exist only on one side. Sync buttons push individual system values to the tmux server so new sessions pick up changes without restarting.

@@ -1513,15 +1513,20 @@ export default function HomePage() {
                 <GitBranchIcon />
                 Recent Branches
               </h2>
-              <button
-                className={styles.scanButton}
-                onClick={handleRefreshBranches}
-                disabled={branchesRefreshing}
-                title="Refresh branches from remote"
-              >
-                <RefreshIcon />
-                {branchesRefreshing ? 'Refreshing...' : 'Refresh'}
-              </button>
+              <div className={styles.sectionHeaderActions}>
+                <Link to="/branches" className={styles.viewAllLink} data-testid="branches-view-all">
+                  View all
+                </Link>
+                <button
+                  className={styles.scanButton}
+                  onClick={handleRefreshBranches}
+                  disabled={branchesRefreshing}
+                  title="Refresh branches from remote"
+                >
+                  <RefreshIcon />
+                  {branchesRefreshing ? 'Refreshing...' : 'Refresh'}
+                </button>
+              </div>
             </div>
             <div className={styles.sectionContent}>
               {branchesLoading ? (

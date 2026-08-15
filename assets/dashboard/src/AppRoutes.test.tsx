@@ -108,6 +108,7 @@ vi.mock('./routes/RepofeedPage', () => stubPage('repofeed'));
 vi.mock('./routes/TimelapsePage', () => stubPage('timelapse-list'));
 vi.mock('./routes/TimelapsePlayerPage', () => stubPage('timelapse-player'));
 vi.mock('./routes/EnvironmentPage', () => stubPage('environment'));
+vi.mock('./routes/BranchesPage', () => stubPage('branches'));
 
 import App from './App';
 
@@ -162,4 +163,13 @@ describe('App route guards', () => {
       expect(screen.queryByTestId(`page-${pageStub}`)).not.toBeInTheDocument();
     });
   }
+});
+
+describe('Unguarded routes', () => {
+  it('renders /branches with no feature gate', async () => {
+    renderAt('/branches');
+    await waitFor(() => {
+      expect(screen.getByTestId('page-branches')).toBeInTheDocument();
+    });
+  });
 });

@@ -47,6 +47,7 @@ const RepofeedPage = lazy(() => import('./routes/RepofeedPage'));
 const TimelapsePage = lazy(() => import('./routes/TimelapsePage'));
 const TimelapsePlayerPage = lazy(() => import('./routes/TimelapsePlayerPage'));
 const EnvironmentPage = lazy(() => import('./routes/EnvironmentPage'));
+const BranchesPage = lazy(() => import('./routes/BranchesPage'));
 
 export default function App() {
   const location = useLocation();
@@ -101,6 +102,7 @@ export default function App() {
                                 <Route path="/config" element={<ConfigPage />} />
                                 <Route path="/logs" element={<LogsPage />} />
                                 <Route path="/environment" element={<EnvironmentPage />} />
+                                <Route path="/branches" element={<BranchesPage />} />
                                 <Route path="/overlays" element={<OverlayPage />} />
                                 <Route
                                   path="/build-monitor"

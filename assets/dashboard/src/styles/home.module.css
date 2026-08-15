@@ -385,6 +385,23 @@
   overflow: hidden;
 }
 
+.sectionHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.viewAllLink {
+  font-size: 0.75rem;
+  color: var(--color-accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.viewAllLink:hover {
+  text-decoration: underline;
+}
+
 /* =============================================================================
  * RIGHT COLUMN - Workspaces Table
  * ============================================================================= */

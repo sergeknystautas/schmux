@@ -236,6 +236,14 @@ describe('HomePage with workspaces (active user)', () => {
     expect(screen.getByTestId('recent-branches')).toBeInTheDocument();
   });
 
+  it('branches card has a View all link to /branches', () => {
+    currentWorkspaces = [mockWorkspace];
+    currentDevMode = true;
+    renderPage();
+    const link = screen.getByTestId('branches-view-all');
+    expect(link).toHaveAttribute('href', '/branches');
+  });
+
   it('does NOT render branches section when dev mode is off', () => {
     currentWorkspaces = [mockWorkspace];
     currentDevMode = false;
