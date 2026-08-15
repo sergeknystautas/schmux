@@ -92,6 +92,7 @@ type StateStore interface {
 	GetRepoBases() []RepoBase
 	GetRepoBaseByURL(repoURL string) (RepoBase, bool)
 	AddRepoBase(wb RepoBase) error
+	RemoveRepoBase(repoURL string) error
 
 	// PR discovery state
 	GetPullRequests() []contracts.PullRequest

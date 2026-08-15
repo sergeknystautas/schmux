@@ -1528,6 +1528,9 @@ func (m *Manager) dispose(ctx context.Context, workspaceID string, force bool, s
 		if err := m.state.Save(); err != nil {
 			return fmt.Errorf("failed to save state: %w", err)
 		}
+		if err := m.CleanupUnusedRepoBases(ctx); err != nil {
+			m.logger.Warn("failed to clean up unused repo bases", "err", err)
+		}
 		m.logger.Info("disposed (remote)", "id", workspaceID)
 		return nil
 	}
@@ -1674,6 +1677,9 @@ func (m *Manager) dispose(ctx context.Context, workspaceID string, force bool, s
 	}
 	if err := m.state.Save(); err != nil {
 		return fmt.Errorf("failed to save state: %w", err)
+	}
+	if err := m.CleanupUnusedRepoBases(ctx); err != nil {
+		m.logger.Warn("failed to clean up unused repo bases", "err", err)
 	}
 
 	// Clean up per-workspace maps to prevent unbounded growth

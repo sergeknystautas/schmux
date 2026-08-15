@@ -143,6 +143,7 @@ type WorkspaceInfra interface {
 	FetchOriginQueries(ctx context.Context)
 	RefreshOverlay(ctx context.Context, workspaceID string) error
 	EnsureOverlayDirs(repos []config.Repo) error
+	CleanupUnusedRepoBases(ctx context.Context) error
 }
 
 // WorkspaceManager defines the full interface for workspace operations.

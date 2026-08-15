@@ -1125,6 +1125,19 @@ func (s *State) AddRepoBase(wb RepoBase) error {
 	return nil
 }
 
+// RemoveRepoBase removes the repo base associated with repoURL from state.
+func (s *State) RemoveRepoBase(repoURL string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, wb := range s.RepoBases {
+		if wb.RepoURL == repoURL {
+			s.RepoBases = append(s.RepoBases[:i], s.RepoBases[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+
 func (s *State) GetRepoBaseByURL(repoURL string) (RepoBase, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

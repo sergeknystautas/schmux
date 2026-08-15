@@ -935,6 +935,182 @@ func TestAPIContract_ConfigAddDisambiguatesAgainstStaleDiskBase(t *testing.T) {
 	}
 }
 
+// TestAPIContract_ConfigRemoveCleansUnusedBareBase reproduces replacing a
+// configured repo with a different remote that has the same short name. Once
+// the old repo has no workspaces and is removed from config, its bare base must
+// not force the replacement repo to use an owner-prefixed name.
+func TestAPIContract_ConfigRemoveCleansUnusedBareBase(t *testing.T) {
+	server, cfg, st := newTestServer(t)
+
+	const (
+		name   = "bach-godot-fmod-ext"
+		oldURL = "https://github.com/sergeknystautas/bach-godot-fmod-ext.git"
+		newURL = "https://github.com/lordbaltogames/bach-godot-fmod-ext"
+	)
+
+	baseDir := filepath.Join(cfg.GetWorktreeBasePath(), name+".git")
+	if err := os.MkdirAll(cfg.GetWorktreeBasePath(), 0o755); err != nil {
+		t.Fatalf("mkdir repos: %v", err)
+	}
+	if out, err := exec.Command("git", "init", "--bare", baseDir).CombinedOutput(); err != nil {
+		t.Fatalf("git init --bare: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", baseDir, "remote", "add", "origin", oldURL).CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v\n%s", err, out)
+	}
+	cfg.Repos = []config.Repo{{Name: name, URL: oldURL, BarePath: name + ".git"}}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save old repo config: %v", err)
+	}
+	if err := st.AddRepoBase(state.RepoBase{RepoURL: oldURL, Path: baseDir}); err != nil {
+		t.Fatalf("add old repo base: %v", err)
+	}
+
+	removeReq := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader([]byte(`{"repos":[]}`)))
+	removeRR := httptest.NewRecorder()
+	newTestConfigHandlers(server).handleConfigUpdate(removeRR, removeReq)
+	if removeRR.Code != http.StatusOK {
+		t.Fatalf("remove repo: expected 200, got %d: %s", removeRR.Code, removeRR.Body.String())
+	}
+
+	if _, err := os.Stat(baseDir); !os.IsNotExist(err) {
+		t.Fatalf("unused bare base still exists after config removal: %v", err)
+	}
+	if _, found := st.GetRepoBaseByURL(oldURL); found {
+		t.Fatal("unused bare base still exists in state after config removal")
+	}
+
+	addBody := []byte(`{"repos":[{"name":"bach-godot-fmod-ext","url":"https://github.com/lordbaltogames/bach-godot-fmod-ext"}]}`)
+	addReq := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(addBody))
+	addRR := httptest.NewRecorder()
+	newTestConfigHandlers(server).handleConfigUpdate(addRR, addReq)
+	if addRR.Code != http.StatusOK {
+		t.Fatalf("add replacement repo: expected 200, got %d: %s", addRR.Code, addRR.Body.String())
+	}
+
+	repos := cfg.GetRepos()
+	if len(repos) != 1 {
+		t.Fatalf("expected 1 repo, got %d", len(repos))
+	}
+	if repos[0].Name != name {
+		t.Errorf("replacement repo name = %q, want %q", repos[0].Name, name)
+	}
+}
+
+func TestAPIContract_ConfigRemoveKeepsBareBaseUsedByWorkspace(t *testing.T) {
+	server, cfg, st := newTestServer(t)
+
+	const (
+		name    = "bach-godot-fmod-ext"
+		repoURL = "https://github.com/sergeknystautas/bach-godot-fmod-ext.git"
+	)
+	baseDir := filepath.Join(cfg.GetWorktreeBasePath(), name+".git")
+	if err := os.MkdirAll(cfg.GetWorktreeBasePath(), 0o755); err != nil {
+		t.Fatalf("mkdir repos: %v", err)
+	}
+	if out, err := exec.Command("git", "init", "--bare", baseDir).CombinedOutput(); err != nil {
+		t.Fatalf("git init --bare: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", baseDir, "remote", "add", "origin", repoURL).CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v\n%s", err, out)
+	}
+	cfg.Repos = []config.Repo{{Name: name, URL: repoURL, BarePath: name + ".git"}}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save repo config: %v", err)
+	}
+	if err := st.AddRepoBase(state.RepoBase{RepoURL: repoURL, Path: baseDir}); err != nil {
+		t.Fatalf("add repo base: %v", err)
+	}
+	if err := st.AddWorkspace(state.Workspace{ID: name + "-001", Repo: repoURL, Path: t.TempDir()}); err != nil {
+		t.Fatalf("add workspace: %v", err)
+	}
+
+	removeReq := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader([]byte(`{"repos":[]}`)))
+	removeRR := httptest.NewRecorder()
+	newTestConfigHandlers(server).handleConfigUpdate(removeRR, removeReq)
+	if removeRR.Code != http.StatusOK {
+		t.Fatalf("remove repo: expected 200, got %d: %s", removeRR.Code, removeRR.Body.String())
+	}
+
+	if _, err := os.Stat(baseDir); err != nil {
+		t.Fatalf("bare base used by a workspace was removed: %v", err)
+	}
+	if _, found := st.GetRepoBaseByURL(repoURL); !found {
+		t.Fatal("repo base used by a workspace was removed from state")
+	}
+}
+
+func TestAPIContract_LastWorkspaceDisposeCleansRemovedRepoBase(t *testing.T) {
+	server, cfg, st := newTestServer(t)
+
+	sourceDir := t.TempDir()
+	if out, err := exec.Command("git", "init", "-b", "main", sourceDir).CombinedOutput(); err != nil {
+		t.Fatalf("git init source: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", sourceDir, "config", "user.email", "test@example.com").CombinedOutput(); err != nil {
+		t.Fatalf("git config email: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", sourceDir, "config", "user.name", "Test User").CombinedOutput(); err != nil {
+		t.Fatalf("git config name: %v\n%s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, "README.md"), []byte("test\n"), 0o644); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+	if out, err := exec.Command("git", "-C", sourceDir, "add", "README.md").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", sourceDir, "commit", "-m", "initial").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+
+	const name = "replaceable-repo"
+	baseDir := filepath.Join(cfg.GetWorktreeBasePath(), name+".git")
+	if err := os.MkdirAll(cfg.GetWorktreeBasePath(), 0o755); err != nil {
+		t.Fatalf("mkdir repos: %v", err)
+	}
+	if out, err := exec.Command("git", "clone", "--bare", sourceDir, baseDir).CombinedOutput(); err != nil {
+		t.Fatalf("git clone --bare: %v\n%s", err, out)
+	}
+	workspaceDir := filepath.Join(cfg.GetWorkspacePath(), name+"-001")
+	if err := os.MkdirAll(cfg.GetWorkspacePath(), 0o755); err != nil {
+		t.Fatalf("mkdir workspaces: %v", err)
+	}
+	if out, err := exec.Command("git", "-C", baseDir, "worktree", "add", "-b", "feature", workspaceDir, "main").CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v\n%s", err, out)
+	}
+
+	cfg.Repos = []config.Repo{{Name: name, URL: sourceDir, BarePath: name + ".git"}}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save repo config: %v", err)
+	}
+	if err := st.AddRepoBase(state.RepoBase{RepoURL: sourceDir, Path: baseDir}); err != nil {
+		t.Fatalf("add repo base: %v", err)
+	}
+	if err := st.AddWorkspace(state.Workspace{ID: name + "-001", Repo: sourceDir, Branch: "feature", Path: workspaceDir}); err != nil {
+		t.Fatalf("add workspace: %v", err)
+	}
+
+	removeReq := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader([]byte(`{"repos":[]}`)))
+	removeRR := httptest.NewRecorder()
+	newTestConfigHandlers(server).handleConfigUpdate(removeRR, removeReq)
+	if removeRR.Code != http.StatusOK {
+		t.Fatalf("remove repo: expected 200, got %d: %s", removeRR.Code, removeRR.Body.String())
+	}
+	if _, err := os.Stat(baseDir); err != nil {
+		t.Fatalf("base should remain while workspace exists: %v", err)
+	}
+
+	if err := server.workspace.DisposeForce(context.Background(), name+"-001"); err != nil {
+		t.Fatalf("dispose last workspace: %v", err)
+	}
+	if _, err := os.Stat(baseDir); !os.IsNotExist(err) {
+		t.Fatalf("unused bare base still exists after last workspace disposal: %v", err)
+	}
+	if _, found := st.GetRepoBaseByURL(sourceDir); found {
+		t.Fatal("unused bare base still exists in state after last workspace disposal")
+	}
+}
+
 func TestAPIContract_DebugMode_MiddlewareBlocks(t *testing.T) {
 	server, _, _ := newTestServer(t)
 

@@ -1599,6 +1599,22 @@ func TestRepoBaseCRUD(t *testing.T) {
 			t.Error("GetRepoBases should return a copy, not the original slice")
 		}
 	})
+
+	t.Run("RemoveRepoBase removes only matching URL", func(t *testing.T) {
+		otherURL := "git@github.com:user/other.git"
+		if err := s.AddRepoBase(RepoBase{RepoURL: otherURL, Path: "/other/path"}); err != nil {
+			t.Fatalf("AddRepoBase() error: %v", err)
+		}
+		if err := s.RemoveRepoBase("git@github.com:user/repo.git"); err != nil {
+			t.Fatalf("RemoveRepoBase() error: %v", err)
+		}
+		if _, found := s.GetRepoBaseByURL("git@github.com:user/repo.git"); found {
+			t.Error("removed repo base is still present")
+		}
+		if _, found := s.GetRepoBaseByURL(otherURL); !found {
+			t.Error("RemoveRepoBase removed a different repo base")
+		}
+	})
 }
 
 func TestUpdateOverlayManifestEntry(t *testing.T) {

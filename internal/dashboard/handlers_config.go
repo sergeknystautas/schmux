@@ -1112,6 +1112,9 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 	// Ensure overlay directories exist for all repos if repos were actually updated
 	newRepos := cfg.GetRepos()
 	if !reposEqual(oldRepos, newRepos) {
+		if err := h.workspace.CleanupUnusedRepoBases(r.Context()); err != nil {
+			h.logger.Warn("failed to clean up unused repo bases", "err", err)
+		}
 		if err := h.workspace.EnsureOverlayDirs(newRepos); err != nil {
 			h.logger.Warn("failed to ensure overlay directories", "err", err)
 			// Don't fail the request for this - overlay dirs can be created manually

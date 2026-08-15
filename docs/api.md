@@ -1534,6 +1534,8 @@ The `tmux_binary` field is validated on save: the path must exist, be executable
 
 **Bare-path disambiguation for new git repos.** When a repo is newly added (its URL not already in config), its `bare_path` is derived from the repo name (`<name>.git`). If a bare base already exists on disk at that path but belongs to a different remote (e.g. a repo previously removed from config whose base and workspaces remain), the new repo's name is disambiguated (owner-prefixed, then numeric-suffixed) so it gets its own base rather than silently adopting the foreign one. A base whose origin matches the URL is reused. Existing repos (URL already in config) keep their stored `bare_path` unchanged.
 
+When a repo is removed from config, the server deletes its managed bare base and state entry once no workspace references that repo URL. If a workspace still exists, cleanup is deferred until the last workspace is permanently disposed. Bases with linked worktrees and paths outside the configured managed repo directory are retained. This prevents an unused base from forcing an owner-prefixed name when a different remote with the same short repo name is added later.
+
 Response:
 
 - 200: `{"status":"ok","message":"Config saved and reloaded. Changes are now in effect.","warnings":["optional warnings"]}`

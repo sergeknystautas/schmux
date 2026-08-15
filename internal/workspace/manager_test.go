@@ -734,6 +734,10 @@ func (m *mockStateStore) AddRepoBase(wb state.RepoBase) error {
 	return m.state.AddRepoBase(wb)
 }
 
+func (m *mockStateStore) RemoveRepoBase(repoURL string) error {
+	return m.state.RemoveRepoBase(repoURL)
+}
+
 func (m *mockStateStore) GetSessions() []state.Session {
 	return m.state.GetSessions()
 }
