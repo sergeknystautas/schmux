@@ -249,4 +249,44 @@ describe('backburner workspaces', () => {
     const ids = Array.from(rows).map((row) => row.getAttribute('data-testid'));
     expect(ids).toEqual(['workspace-ws-a', 'workspace-ws-b', 'workspace-ws-c']);
   });
+
+  it('shows plain count when no workspaces are backburnered', () => {
+    currentConfig = { ...baseConfig, backburner_enabled: true };
+    currentWorkspaces = [makeWorkspace({ id: 'ws-a' }), makeWorkspace({ id: 'ws-b' })];
+    renderPage();
+
+    expect(screen.getAllByText('Active Workspaces (2)').length).toBeGreaterThan(0);
+  });
+
+  it('shows active/backburnered split when some workspaces are backburnered', () => {
+    currentConfig = { ...baseConfig, backburner_enabled: true };
+    currentWorkspaces = [
+      makeWorkspace({ id: 'ws-a' }),
+      makeWorkspace({ id: 'ws-b', backburner: true }),
+      makeWorkspace({ id: 'ws-c', backburner: true }),
+      makeWorkspace({ id: 'ws-d', backburner: true }),
+    ];
+    renderPage();
+
+    expect(screen.getAllByText('Active Workspaces (1/3)').length).toBeGreaterThan(0);
+  });
+
+  it('shows 0/backburnered split when all workspaces are backburnered', () => {
+    currentConfig = { ...baseConfig, backburner_enabled: true };
+    currentWorkspaces = [makeWorkspace({ id: 'ws-a', backburner: true })];
+    renderPage();
+
+    expect(screen.getAllByText('Active Workspaces (0/1)').length).toBeGreaterThan(0);
+  });
+
+  it('shows plain count when backburner_enabled is false even if workspaces are flagged', () => {
+    currentConfig = { ...baseConfig, backburner_enabled: false };
+    currentWorkspaces = [
+      makeWorkspace({ id: 'ws-a' }),
+      makeWorkspace({ id: 'ws-b', backburner: true }),
+    ];
+    renderPage();
+
+    expect(screen.getAllByText('Active Workspaces (2)').length).toBeGreaterThan(0);
+  });
 });

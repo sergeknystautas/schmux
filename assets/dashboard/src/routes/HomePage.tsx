@@ -590,6 +590,14 @@ export default function HomePage() {
     };
   }, [workspaces, config.tmux_socket_name]);
 
+  const backburnerCount = config.backburner_enabled
+    ? workspaces.filter((ws) => ws.backburner).length
+    : 0;
+  const workspaceCountLabel =
+    backburnerCount > 0
+      ? `${workspaces.length - backburnerCount}/${backburnerCount}`
+      : `${workspaces.length}`;
+
   // Sort backburnered workspaces to the bottom when feature is enabled
   const sortedHomeWorkspaces = useMemo(() => {
     if (!workspaces || !config.backburner_enabled) return workspaces;
@@ -603,7 +611,7 @@ export default function HomePage() {
         <div className={styles.sectionHeader}>
           <h2 className={styles.sectionTitle}>
             <FolderIcon />
-            Active Workspaces ({workspaces.length})
+            Active Workspaces ({workspaceCountLabel})
           </h2>
           <div className={styles.headerActions}>
             <Tooltip content="Sync workspaces that are behind main">
@@ -1176,7 +1184,7 @@ export default function HomePage() {
           <div className={styles.sectionHeader}>
             <h2 className={styles.sectionTitle}>
               <FolderIcon />
-              Active Workspaces ({workspaces.length})
+              Active Workspaces ({workspaceCountLabel})
             </h2>
             <div className={styles.headerActions}>
               <Tooltip content="Sync workspaces that are behind main">
