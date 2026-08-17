@@ -152,3 +152,22 @@ func TestBuildCommandParts_OpencodeInteractive(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
+
+// TestCodexResumeIDArgs pins codex's resume-by-conversation-id args and the
+// unchanged position-based fallback.
+func TestCodexResumeIDArgs(t *testing.T) {
+	adapter := GetAdapter("codex")
+	if adapter == nil {
+		t.Fatal("GetAdapter(codex) returned nil")
+	}
+	const id = "01a00bad-57f5-7973-946c-ce74930dd83a"
+	got := adapter.ResumeIDArgs(nil, id)
+	want := []string{"resume", id}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ResumeIDArgs() = %v, want %v", got, want)
+	}
+	// Position-based fallback must not change.
+	if args := adapter.InteractiveArgs(nil, true); !reflect.DeepEqual(args, []string{"resume", "--last"}) {
+		t.Errorf("InteractiveArgs(resume) = %v, want [resume --last]", args)
+	}
+}

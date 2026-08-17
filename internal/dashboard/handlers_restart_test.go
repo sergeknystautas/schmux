@@ -33,6 +33,8 @@ func newRestartHandler(t *testing.T) *SpawnHandlers {
 		{ID: "remote-1", WorkspaceID: "ws-1", Target: "claude", ResumeID: "conv", RemoteHostID: "host-1", CreatedAt: now},
 		{ID: "disposing-1", WorkspaceID: "ws-1", Target: "claude", ResumeID: "conv", Status: "disposing", CreatedAt: now},
 		{ID: "gemini-1", WorkspaceID: "ws-1", Target: "gemini", ResumeID: "conv", CreatedAt: now},
+		{ID: "codex-1", WorkspaceID: "ws-1", Target: "codex", ResumeID: "0199aa-bb", CreatedAt: now},
+		{ID: "codex-no-id", WorkspaceID: "ws-1", Target: "codex", ResumeID: "", CreatedAt: now},
 	}
 	for _, s := range sessions {
 		if err := st.AddSession(s); err != nil {
@@ -78,6 +80,30 @@ func TestHandleRestart_Guards(t *testing.T) {
 		}
 		if c.wantBody != "" && !strings.Contains(rr.Body.String(), c.wantBody) {
 			t.Errorf("%s: body = %q, want containing %q", c.id, rr.Body.String(), c.wantBody)
+		}
+	}
+}
+
+// TestRestartEligibility_Codex covers codex resume-by-id: a session with a
+// resume id is eligible, one without is rejected by the shared guard.
+func TestRestartEligibility_Codex(t *testing.T) {
+	h := newRestartHandler(t)
+	cases := []struct {
+		id       string
+		wantMsg  string
+		wantCode int
+	}{
+		{"codex-1", "", 0},
+		{"codex-no-id", "session has no resume id", http.StatusBadRequest},
+	}
+	for _, c := range cases {
+		sess, ok := h.state.GetSession(c.id)
+		if !ok {
+			t.Fatalf("session %s not found", c.id)
+		}
+		_, msg, code := h.restartEligibility(sess)
+		if msg != c.wantMsg || code != c.wantCode {
+			t.Errorf("%s: got (%q, %d), want (%q, %d)", c.id, msg, code, c.wantMsg, c.wantCode)
 		}
 	}
 }

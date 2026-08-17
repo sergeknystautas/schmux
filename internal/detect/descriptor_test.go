@@ -194,3 +194,23 @@ detect:
 		t.Fatalf("metadata not parsed: %+v", d)
 	}
 }
+
+// TestParseDescriptor_GlobalJSONSettingsMerge pins that descriptors may declare
+// the harness-global hooks strategy used by codex.
+func TestParseDescriptor_GlobalJSONSettingsMerge(t *testing.T) {
+	d, err := ParseDescriptor([]byte(`name: probe-tool
+detect:
+  - type: path_lookup
+    command: probe-tool
+hooks:
+  strategy: global-json-settings-merge
+  settings_file: '~/.probe/hooks.json'
+  ownership_prefix: 'probe:'
+`))
+	if err != nil {
+		t.Fatalf("ParseDescriptor: %v", err)
+	}
+	if d.Hooks.Strategy != "global-json-settings-merge" || d.Hooks.SettingsFile != "~/.probe/hooks.json" {
+		t.Errorf("hooks block = %+v", d.Hooks)
+	}
+}

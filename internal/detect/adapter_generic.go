@@ -197,8 +197,11 @@ func (a *GenericAdapter) SupportsHooks() bool {
 	return a.hookStrategy.SupportsHooks()
 }
 
-// SetupHooks delegates to the hook strategy.
+// SetupHooks delegates to the hook strategy, passing the descriptor's hooks
+// block so the strategy reads its target path and ownership prefix from the
+// descriptor (descriptor says where, strategy says how).
 func (a *GenericAdapter) SetupHooks(ctx HookContext) error {
+	ctx.Hooks = a.desc.Hooks
 	return a.hookStrategy.SetupHooks(ctx)
 }
 
@@ -376,7 +379,11 @@ func (a *GenericAdapter) GitExcludePatterns() []string {
 		patterns = append(patterns, a.desc.Instruction.Dir+"/")
 	}
 	if a.desc.Hooks != nil {
-		if a.desc.Hooks.SettingsFile != "" {
+		// Only workspace-relative settings files belong in the exclude;
+		// global files (~/.codex/hooks.json) live outside the worktree.
+		if a.desc.Hooks.SettingsFile != "" &&
+			!strings.HasPrefix(a.desc.Hooks.SettingsFile, "~") &&
+			!filepath.IsAbs(a.desc.Hooks.SettingsFile) {
 			patterns = append(patterns, a.desc.Hooks.SettingsFile)
 		}
 		if a.desc.Hooks.PluginDir != "" && a.desc.Hooks.PluginFile != "" {

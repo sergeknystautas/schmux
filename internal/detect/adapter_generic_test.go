@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -463,5 +464,57 @@ func TestGenericAdapter_ResumeIDArgs(t *testing.T) {
 	none, _ := NewGenericAdapter(&Descriptor{Name: "x", Interactive: &ModeDesc{}})
 	if none.ResumeIDArgs(nil, "conv-abc") != nil {
 		t.Fatal("no resume_id_args should return nil")
+	}
+}
+
+// recordingHookStrategy captures the HookContext it was handed so tests can
+// assert what the adapter passes down.
+type recordingHookStrategy struct{ got HookContext }
+
+func (r *recordingHookStrategy) SupportsHooks() bool                          { return true }
+func (r *recordingHookStrategy) SetupHooks(ctx HookContext) error             { r.got = ctx; return nil }
+func (r *recordingHookStrategy) CleanupHooks(_ string) error                  { return nil }
+func (r *recordingHookStrategy) WrapRemoteCommand(cmd string) (string, error) { return cmd, nil }
+
+// TestGenericAdapterSetupHooksPassesDescriptorHooks pins the WHERE/HOW split:
+// the descriptor says where to inject, the strategy says how.
+func TestGenericAdapterSetupHooksPassesDescriptorHooks(t *testing.T) {
+	rec := &recordingHookStrategy{}
+	RegisterHookStrategy("test-recording-hooks", rec)
+	desc := &Descriptor{
+		Name:  "probe-tool",
+		Hooks: &HooksDesc{Strategy: "test-recording-hooks", SettingsFile: "~/.probe/hooks.json", OwnershipPrefix: "probe:"},
+	}
+	a, err := NewGenericAdapter(desc)
+	if err != nil {
+		t.Fatalf("NewGenericAdapter: %v", err)
+	}
+	if err := a.SetupHooks(HookContext{WorkspacePath: "/ws"}); err != nil {
+		t.Fatalf("SetupHooks: %v", err)
+	}
+	if rec.got.Hooks != desc.Hooks {
+		t.Errorf("strategy received Hooks = %+v, want the adapter's own descriptor Hooks %+v", rec.got.Hooks, desc.Hooks)
+	}
+	if rec.got.WorkspacePath != "/ws" {
+		t.Errorf("strategy received WorkspacePath = %q, want /ws", rec.got.WorkspacePath)
+	}
+}
+
+// TestGitExcludePatterns_HomeAbsoluteSettingsFileExcluded pins that a
+// harness-global settings file never becomes a workspace git exclude.
+func TestGitExcludePatterns_HomeAbsoluteSettingsFileExcluded(t *testing.T) {
+	desc := &Descriptor{
+		Name:        "probe-tool",
+		Instruction: &InstructionDesc{Dir: ".probe"},
+		Hooks:       &HooksDesc{SettingsFile: "~/.probe/hooks.json"},
+	}
+	a, err := NewGenericAdapter(desc)
+	if err != nil {
+		t.Fatalf("NewGenericAdapter: %v", err)
+	}
+	got := a.GitExcludePatterns()
+	want := []string{".probe/"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("GitExcludePatterns() = %v, want %v (home-absolute settings file must not become a workspace exclude)", got, want)
 	}
 }

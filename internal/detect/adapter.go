@@ -50,6 +50,11 @@ type HookContext struct {
 	HooksDir      string // ~/.schmux/hooks/
 	SessionID     string
 	WorkspaceID   string
+	// Hooks is the descriptor's hooks block, populated by the adapter so
+	// strategies read WHERE to inject (path, ownership prefix) from the
+	// descriptor rather than hardcoding it. Nil when the descriptor
+	// declares no hooks block.
+	Hooks *HooksDesc
 }
 
 // SpawnContext provides context for spawning a session with persona and workspace info.

@@ -219,7 +219,7 @@ func TestAdapterSupportsHooks(t *testing.T) {
 		want bool
 	}{
 		{"claude", true},
-		{"codex", false},
+		{"codex", true},
 		{"gemini", false},
 		{"opencode", true},
 	}

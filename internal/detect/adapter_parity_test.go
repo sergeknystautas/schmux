@@ -56,8 +56,8 @@ func TestCodexParity(t *testing.T) {
 	if a.PersonaInjection() != PersonaInstructionFile {
 		t.Errorf("PersonaInjection = %v", a.PersonaInjection())
 	}
-	if a.SupportsHooks() {
-		t.Error("SupportsHooks should be false")
+	if !a.SupportsHooks() {
+		t.Error("SupportsHooks should be true (global-json-settings-merge)")
 	}
 
 	// InteractiveArgs — no model, no resume

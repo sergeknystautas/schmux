@@ -1,6 +1,7 @@
 #!/bin/bash
-# Schmux: capture the Claude Code session id as a resume_id event.
-# Called by SessionStart and UserPromptSubmit hooks. Reads hook JSON from stdin.
+# Schmux: capture the harness session id as a resume_id event.
+# Called by claude's SessionStart/UserPromptSubmit hooks and codex's
+# UserPromptSubmit hook. Reads hook JSON from stdin.
 set -euo pipefail
 [ -n "${SCHMUX_EVENTS_FILE:-}" ] || exit 0
 ID=$(jq -r '.session_id // empty' 2>/dev/null || true)

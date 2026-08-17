@@ -9,19 +9,20 @@ declarative YAML descriptors instead of hardcoded Go code. A single
 
 ## Key files
 
-| File                                        | Purpose                                                                           |
-| ------------------------------------------- | --------------------------------------------------------------------------------- |
-| `internal/detect/descriptor.go`             | YAML schema structs + `ParseDescriptor` with strict validation                    |
-| `internal/detect/adapter_generic.go`        | `GenericAdapter` — the only `ToolAdapter` implementation                          |
-| `internal/detect/loader.go`                 | Loads descriptors from embedded dirs and `~/.schmux/adapters/`, registers at init |
-| `internal/detect/hook_strategy.go`          | `HookStrategy` interface + strategy registry + `none` strategy                    |
-| `internal/detect/hooks_json_settings.go`    | `json-settings-merge` strategy (Claude)                                           |
-| `internal/detect/hooks_plugin_file.go`      | `plugin-file` strategy (OpenCode)                                                 |
-| `internal/detect/adapter_claude_hooks.go`   | Hook merge logic + `EnsureGlobalHookScripts` (shared)                             |
-| `internal/detect/adapter_opencode_hooks.go` | TypeScript plugin template (shared)                                               |
-| `internal/detect/setup_templates.go`        | Embedded file templates for `setup_files`                                         |
-| `internal/detect/descriptors/*.yaml`        | Builtin agent descriptors (embedded into binary)                                  |
-| `internal/detect/contrib/`                  | External descriptors (empty in OSS, populated by CI)                              |
+| File                                        | Purpose                                                                                      |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `internal/detect/descriptor.go`             | YAML schema structs + `ParseDescriptor` with strict validation                               |
+| `internal/detect/adapter_generic.go`        | `GenericAdapter` — the only `ToolAdapter` implementation                                     |
+| `internal/detect/loader.go`                 | Loads descriptors from embedded dirs and `~/.schmux/adapters/`, registers at init            |
+| `internal/detect/hook_strategy.go`          | `HookStrategy` interface + strategy registry + `none` strategy                               |
+| `internal/detect/hooks_json_settings.go`    | `json-settings-merge` strategy (Claude)                                                      |
+| `internal/detect/hooks_plugin_file.go`      | `plugin-file` strategy (OpenCode)                                                            |
+| `internal/detect/hooks_codex_json.go`       | `global-json-settings-merge` strategy (Codex) — merges into a harness-global JSON hooks file |
+| `internal/detect/adapter_claude_hooks.go`   | Hook merge logic + `EnsureGlobalHookScripts` (shared)                                        |
+| `internal/detect/adapter_opencode_hooks.go` | TypeScript plugin template (shared)                                                          |
+| `internal/detect/setup_templates.go`        | Embedded file templates for `setup_files`                                                    |
+| `internal/detect/descriptors/*.yaml`        | Builtin agent descriptors (embedded into binary)                                             |
+| `internal/detect/contrib/`                  | External descriptors (empty in OSS, populated by CI)                                         |
 
 ## Architecture decisions
 
@@ -142,13 +143,25 @@ to swap detection paths or `prompt_strategy`) without editing OSS files.
 - **`resume_id_args` — resume a specific conversation by id** — sibling of
   `resume_args` under `interactive:`. The `{resume_id}` placeholder is
   substituted with the harness-native conversation id (claude:
-  `['--resume', '{resume_id}']`, opencode: `['--session', '{resume_id}']`).
+  `['--resume', '{resume_id}']`, opencode: `['--session', '{resume_id}']`,
+  codex: `['resume', '{resume_id}']`).
   When set, the session Restart action resumes the exact captured
   conversation; when omitted, by-id resume is impossible and Restart is
   rejected rather than silently falling back to `resume_args` (which could
   resume the wrong conversation). Distinct from `resume_args` (the generic
   `--continue` / `resume --last` path): `resume_args` resumes _some_ recent
   conversation, `resume_id_args` resumes _this_ one.
+
+- **Codex hooks need a one-time trust** — codex gates each hook behind a
+  `trusted_hash` in `~/.codex/config.toml`, keyed by
+  `<hooks file>:<event>:<group index>:<hook index>`. After schmux merges its
+  capture hook, the next interactive codex session shows codex's "Hooks need
+  review" startup prompt once; until the user accepts, no `resume_id` is
+  captured (and `codex exec` skips untrusted hooks silently). The merge
+  appends schmux's group last so the user's existing groups keep their
+  indexes and stay trusted. Codex also fires `SessionStart` only at the first
+  prompt, not at launch — which is why the capture registers on
+  `UserPromptSubmit` alone.
 
 - **`command_args` goes into `Tool.Command`** — `BuildCommandParts` calls
   `strings.Fields(detectedCommand)` to split the command. `command_args`

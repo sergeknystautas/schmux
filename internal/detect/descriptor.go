@@ -113,7 +113,7 @@ var (
 	validCapabilities        = map[string]bool{"interactive": true, "oneshot": true}
 	validSignalingStrategies = map[string]bool{"hooks": true, "cli_flag": true, "instruction_file": true, "none": true, "": true}
 	validPersonaStrategies   = map[string]bool{"cli_flag": true, "instruction_file": true, "config_overlay": true, "none": true, "": true}
-	validHooksStrategies     = map[string]bool{"json-settings-merge": true, "plugin-file": true, "none": true, "": true}
+	validHooksStrategies     = map[string]bool{"json-settings-merge": true, "plugin-file": true, "global-json-settings-merge": true, "none": true, "": true}
 	validPromptStrategies    = map[string]bool{"send_keys": true, "": true}
 )
 
