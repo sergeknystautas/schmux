@@ -12,7 +12,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -928,4 +930,227 @@ func TestE2ESaplingDiffAndDiscard(t *testing.T) {
 			t.Errorf("staged.txt should appear in sl status after staging, got:\n%s", string(out))
 		}
 	})
+}
+
+// procDescendants walks /proc and returns pid plus all its descendants.
+func procDescendants(t *testing.T, root int) []int {
+	t.Helper()
+	children := map[int][]int{}
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		t.Fatalf("read /proc: %v", err)
+	}
+	for _, ent := range entries {
+		pid, err := strconv.Atoi(ent.Name())
+		if err != nil {
+			continue
+		}
+		stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+		if err != nil {
+			continue
+		}
+		// stat: pid (comm) state ppid ... — comm may contain spaces; parse
+		// from after the last ')'.
+		rest := string(stat[bytes.LastIndexByte(stat, ')')+2:])
+		var state string
+		var ppid int
+		fmt.Sscanf(rest, "%s %d", &state, &ppid)
+		children[ppid] = append(children[ppid], pid)
+	}
+	pids := []int{root}
+	frontier := []int{root}
+	for len(frontier) > 0 {
+		var next []int
+		for _, p := range frontier {
+			next = append(next, children[p]...)
+		}
+		pids = append(pids, next...)
+		frontier = next
+	}
+	return pids
+}
+
+func pidAlive(pid int) bool { return syscall.Kill(pid, 0) == nil }
+
+// sessionPanePID reads the tmux session name from the API and queries tmux for the pane PID.
+func sessionPanePID(t *testing.T, env *Env, sessionID string) int {
+	t.Helper()
+	var tmuxSession, tmuxSocket string
+	for _, s := range env.GetAPISessions() {
+		if s.ID == sessionID {
+			tmuxSession = s.TmuxSession
+			tmuxSocket = s.TmuxSocket
+			break
+		}
+	}
+	if tmuxSession == "" {
+		t.Fatalf("no tmux session for session %s", sessionID)
+	}
+	if tmuxSocket == "" {
+		tmuxSocket = "schmux"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "tmux", "-L", tmuxSocket, "list-panes", "-t", tmuxSession, "-F", "#{pane_pid}")
+	cmd.Env = append(os.Environ(), "TMUX_TMPDIR="+env.HomeDir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("tmux list-panes failed: %v\nOutput: %s", err, out)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(strings.Split(string(out), "\n")[0]))
+	if err != nil {
+		t.Fatalf("parse pane pid from %q: %v", out, err)
+	}
+	return pid
+}
+
+// awaitTree polls until the process tree under root has at least min members
+// (pane shell + agent + grandchildren) or the deadline passes.
+func awaitTree(t *testing.T, root, min int) []int {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		tree := procDescendants(t, root)
+		if len(tree) >= min {
+			return tree
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("tree under pane %d never reached %d procs: %v", root, min, tree)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func setupDisposeRepo(t *testing.T, env *Env, name string) string {
+	t.Helper()
+	workspaceRoot := t.TempDir()
+	env.CreateConfig(workspaceRoot)
+	env.SetSourceCodeManagement("git")
+	repoPath := workspaceRoot + "/" + name
+	os.MkdirAll(repoPath, 0755)
+	RunCmd(t, repoPath, "git", "init", "-b", "main")
+	RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
+	RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
+	os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# x\n"), 0644)
+	RunCmd(t, repoPath, "git", "add", ".")
+	RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
+	env.AddRepoToConfig(name, "file://"+repoPath)
+	return "file://" + repoPath
+}
+
+func disposeSession(t *testing.T, env *Env, sessionID string) *http.Response {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, env.DaemonURL+"/api/sessions/"+sessionID+"/dispose", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("dispose request failed: %v", err)
+	}
+	return resp
+}
+
+func TestFencedDisposeKillsStubbornTree(t *testing.T) {
+	t.Parallel()
+	env := New(t)
+	repoURL := setupDisposeRepo(t, env, "fenced-dispose-repo")
+	env.DaemonStart()
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	sessionID := env.SpawnSessionFenced(repoURL, "main", "stubborn", "", env.Nickname("fdisp"))
+	if sessionID == "" {
+		t.Fatal("expected session ID from fenced spawn")
+	}
+	panePID := sessionPanePID(t, env, sessionID)
+	// fence stub is exec'd away by setsid; expect sh + inner sh + sleeps
+	tree := awaitTree(t, panePID, 3)
+
+	bystander := exec.Command("sleep", "600")
+	bystander.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := bystander.Start(); err != nil {
+		t.Fatalf("bystander: %v", err)
+	}
+	t.Cleanup(func() { bystander.Process.Kill(); bystander.Wait() })
+
+	resp := disposeSession(t, env, sessionID)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("dispose returned %d: %s", resp.StatusCode, body)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var alive []int
+		for _, pid := range tree {
+			if pidAlive(pid) {
+				alive = append(alive, pid)
+			}
+		}
+		if len(alive) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("tree pids still alive after fenced dispose: %v", alive)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !pidAlive(bystander.Process.Pid) {
+		t.Error("unrelated bystander process was killed")
+	}
+	for _, s := range env.GetAPISessions() {
+		if s.ID == sessionID {
+			t.Error("session still present after dispose")
+		}
+	}
+}
+
+func TestUnfencedDisposeUnchanged(t *testing.T) {
+	t.Parallel()
+	env := New(t)
+	repoURL := setupDisposeRepo(t, env, "unfenced-dispose-repo")
+	env.DaemonStart()
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	sessionID := env.SpawnSession(repoURL, "main", "stubborn", "", env.Nickname("udisp"))
+	if sessionID == "" {
+		t.Fatal("expected session ID from spawn")
+	}
+	panePID := sessionPanePID(t, env, sessionID)
+	tree := awaitTree(t, panePID, 2) // pane shell + stubborn agent
+	// Unfenced disposal must not engage the reaper: the signal-ignoring tree
+	// may leak (today's contract). Clean it up ourselves.
+	t.Cleanup(func() {
+		for _, pid := range tree {
+			syscall.Kill(pid, syscall.SIGKILL)
+		}
+	})
+
+	start := time.Now()
+	resp := disposeSession(t, env, sessionID)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("dispose returned %d: %s", resp.StatusCode, body)
+	}
+	// Grace is 500ms in e2e; an unfenced dispose must return without the
+	// reaper's grace+escalation wait (~4.5s). Generous bound for slow CI.
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Errorf("unfenced dispose took %v; reaper may have engaged", elapsed)
+	}
+	for _, s := range env.GetAPISessions() {
+		if s.ID == sessionID {
+			t.Error("session still present after dispose")
+		}
+	}
 }

@@ -15,6 +15,10 @@ FROM schmux-e2e-base
 # Copy pre-built binary (cross-compiled locally)
 COPY build/schmux-linux /usr/local/bin/schmux
 
+# Stub fence on PATH so detect finds it and fenced spawns work in e2e.
+COPY test/e2e/fence-stub.sh /usr/local/bin/fence
+RUN chmod +x /usr/local/bin/fence
+
 # Copy pre-built E2E test binary (cross-compiled locally)
 COPY build/e2e-test /home/e2e/e2e-test
 

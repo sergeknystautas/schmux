@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -62,6 +63,7 @@ type Manager struct {
 	telemetry               telemetry.Telemetry                                // optional, for usage tracking
 	recorderFactory         func(sessionID string, outputLog *OutputLog, gapCh <-chan SourceEvent, width, height int) Runnable
 	queueTimeout            time.Duration // timeout for queued remote sessions; 0 = default (5m)
+	reaper                  *reaper       // terminates fenced session process trees
 }
 
 // remoteSignalMonitor holds a watcher pane and its metadata for a remote session.
@@ -122,6 +124,7 @@ func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace
 		trackers:        make(map[string]*SessionRuntime),
 		remoteDetectors: make(map[string]*remoteSignalMonitor),
 		remoteManager:   nil,
+		reaper:          newReaper(logger),
 	}
 }
 
@@ -1711,13 +1714,56 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 	if disposeServer != nil {
 		sessionExists = disposeServer.SessionExists(ctx, sess.TmuxSession)
 	}
-	if sessionExists {
-		var killErr error
-		if disposeServer != nil {
-			killErr = disposeServer.KillSession(ctx, sess.TmuxSession)
+
+	// Enumerate the fenced process tree BEFORE killing tmux — the fenced
+	// agent lives outside the pane's process group, so tmux's SIGHUP alone
+	// can leave it running (see reaper.go).
+	// The live pane PID from tmux is the enumeration root; the persisted
+	// sess.Pid is written once at spawn and could since have been reused.
+	var fencedProcs []procIdent
+	if sess.Fence && sessionExists {
+		panePID, err := disposeServer.GetPanePID(ctx, sess.TmuxSession)
+		if err != nil {
+			m.logger.Warn("fenced dispose: cannot resolve pane pid, skipping reap", "session", sessionID, "err", err)
+		} else if fencedProcs, err = m.reaper.enumerate(ctx, panePID); err != nil {
+			m.logger.Warn("fenced dispose: enumeration failed, skipping reap", "session", sessionID, "pane_pid", panePID, "err", err)
+			fencedProcs = nil
+		} else {
+			var pids []string
+			for _, p := range fencedProcs {
+				pids = append(pids, strconv.Itoa(p.PID))
+			}
+			m.logger.Info("fenced dispose: enumerated tree", "session", sessionID, "tmux_session", sess.TmuxSession, "pids", pids)
 		}
-		if err := killErr; err != nil {
+	}
+
+	if sessionExists {
+		if err := disposeServer.KillSession(ctx, sess.TmuxSession); err != nil {
 			return fmt.Errorf("failed to kill tmux session %s: %w", sess.TmuxSession, err)
+		}
+	}
+
+	if len(fencedProcs) > 0 {
+		// Killing tmux was the point of no return: the reap phase runs under
+		// a manager-owned context so a caller's cancellation (restart passes
+		// the request context; startup recovery uses a fixed 30s) cannot
+		// abandon a half-signaled tree.
+		grace := m.config.DisposeGracePeriod()
+		reapCtx, reapCancel := context.WithTimeout(context.Background(), grace+10*time.Second)
+		report, reapErr := m.reaper.reap(reapCtx, fencedProcs, grace)
+		reapCancel()
+		m.logger.Info("fenced dispose: reap finished",
+			"session", sessionID,
+			"enumerated", len(report.Enumerated),
+			"graceful_exit", report.GracefulExit,
+			"grace_elapsed", report.GraceElapsed,
+			"sigterm_groups", report.SigtermGroups,
+			"sigterm_pids", report.SigtermPIDs,
+			"sigkill_groups", report.SigkillGroups,
+			"sigkill_pids", report.SigkillPIDs,
+			"survivors", len(report.Survivors))
+		if reapErr != nil {
+			return fmt.Errorf("session %s: %w", sessionID, reapErr)
 		}
 	}
 

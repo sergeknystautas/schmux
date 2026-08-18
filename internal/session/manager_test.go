@@ -1789,3 +1789,30 @@ func TestSpawn_NoTmux(t *testing.T) {
 		t.Errorf("expected Linux install hint, got: %v", err)
 	}
 }
+
+func TestDispose_FencedWithoutTmuxTakesSkipPath(t *testing.T) {
+	// Not newTestManager: its state store has no path and Dispose calls
+	// state.Save(), which requires one (same reason TestDispose_CleansUpTracker
+	// hand-rolls construction).
+	cfg := &config.Config{}
+	cfg.WorkspacePath = "/tmp/workspaces"
+	statePath := t.TempDir() + "/state.json"
+	st := state.New(statePath, nil)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	m := New(cfg, st, statePath, wm, nil, nil)
+
+	st.AddWorkspace(state.Workspace{ID: "ws1", Path: "/tmp/workspaces/ws1"})
+	st.AddSession(state.Session{
+		ID:          "fenced-1",
+		WorkspaceID: "ws1",
+		TmuxSession: "schmux-nonexistent-fenced",
+		Fence:       true,
+	})
+
+	if err := m.Dispose(context.Background(), "fenced-1"); err != nil {
+		t.Fatalf("fenced dispose with no tmux must fall back to legacy path: %v", err)
+	}
+	if _, found := st.GetSession("fenced-1"); found {
+		t.Error("session should be removed from state")
+	}
+}

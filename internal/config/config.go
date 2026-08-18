@@ -53,7 +53,7 @@ const (
 	DefaultPreviewMaxGlobal           = 20
 	DefaultPreviewPortBase            = 53000
 	DefaultPreviewPortBlockSize       = 10
-	DefaultDisposeGracePeriodMs       = 30000 // 30 seconds
+	DefaultDisposeGracePeriodMs       = 5000 // 5 seconds; agents that ignore the pty hangup (codex) never exit on their own, so a long grace only delays SIGTERM
 
 	// Default auth session TTL in minutes
 	DefaultAuthSessionTTLMinutes = 1440
@@ -2742,7 +2742,7 @@ func (c *Config) GetGitStatusTimeoutMs() int {
 	return c.Sessions.GitStatusTimeoutMs
 }
 
-// GetDisposeGracePeriodMs returns the dispose grace period in ms. Defaults to 30000 (30s).
+// GetDisposeGracePeriodMs returns the dispose grace period in ms. Defaults to 5000 (5s).
 func (c *Config) GetDisposeGracePeriodMs() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

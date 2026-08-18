@@ -39,6 +39,8 @@ type APISession struct {
 	LastOutputAt string `json:"last_output_at,omitempty"`
 	Running      bool   `json:"running"`
 	AttachCmd    string `json:"attach_cmd"`
+	TmuxSocket   string `json:"tmux_socket,omitempty"`
+	TmuxSession  string `json:"tmux_session,omitempty"`
 	NudgeState   string `json:"nudge_state,omitempty"`
 	NudgeSummary string `json:"nudge_summary,omitempty"`
 	NudgeSeq     uint64 `json:"nudge_seq,omitempty"`
@@ -326,6 +328,9 @@ func (e *Env) CreateConfig(workspacePath string) {
 		{Name: "echo", Command: "sh -c 'echo hello; sleep 600'"},
 		// Echoes input back for websocket output tests (emits START first for reliable bootstrap).
 		{Name: "cat", Command: "sh -c 'echo START; exec cat'"},
+		// Ignores HUP and TERM with a busy grandchild — the codex-shaped
+		// tree that fenced disposal must SIGKILL (grace is 500ms here).
+		{Name: "stubborn", Command: `sh -c 'trap "" HUP TERM; sh -c "trap \"\" HUP TERM; while :; do sleep 1; done" & while :; do sleep 1; done'`},
 	}
 
 	if err := cfg.Save(); err != nil {
@@ -673,6 +678,78 @@ func (e *Env) SpawnSession(repoURL, branch, target, prompt, nickname string) str
 	}
 
 	// Parse response to get session ID
+	type SpawnResult struct {
+		SessionID   string `json:"session_id"`
+		WorkspaceID string `json:"workspace_id"`
+		Target      string `json:"target"`
+		Error       string `json:"error,omitempty"`
+	}
+
+	var results []SpawnResult
+	if err := json.NewDecoder(spawnResp.Body).Decode(&results); err != nil {
+		e.T.Logf("Failed to decode spawn response: %v", err)
+		return ""
+	}
+
+	if len(results) > 0 && results[0].Error != "" {
+		e.T.Fatalf("Spawn failed: %s", results[0].Error)
+	}
+
+	if len(results) > 0 {
+		return results[0].SessionID
+	}
+
+	return ""
+}
+
+// SpawnSessionFenced is SpawnSession with the fence sandbox enabled.
+// E2E fences with the stub at /usr/local/bin/fence (see Dockerfile.e2e).
+func (e *Env) SpawnSessionFenced(repoURL, branch, target, prompt, nickname string) string {
+	e.T.Helper()
+	if !e.daemonStarted {
+		e.T.Skip("Skipping spawn: daemon did not start")
+		return ""
+	}
+	e.T.Logf("Spawning fenced session via API: repo=%s branch=%s target=%s nickname=%s", repoURL, branch, target, nickname)
+
+	type SpawnRequest struct {
+		Repo     string         `json:"repo"`
+		Branch   string         `json:"branch"`
+		Prompt   string         `json:"prompt"`
+		Nickname string         `json:"nickname,omitempty"`
+		Fence    bool           `json:"fence"`
+		Targets  map[string]int `json:"targets"`
+	}
+
+	spawnReqBody := SpawnRequest{
+		Repo:     repoURL,
+		Branch:   branch,
+		Prompt:   prompt,
+		Nickname: nickname,
+		Fence:    true,
+		Targets:  map[string]int{target: 1},
+	}
+
+	reqBody, err := json.Marshal(spawnReqBody)
+	if err != nil {
+		e.T.Fatalf("Failed to marshal spawn request: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	spawnReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, e.DaemonURL+"/api/spawn", bytes.NewReader(reqBody))
+	spawnReq.Header.Set("Content-Type", "application/json")
+	spawnResp, err := http.DefaultClient.Do(spawnReq)
+	cancel()
+	if err != nil {
+		e.T.Fatalf("Failed to spawn: %v", err)
+	}
+	defer spawnResp.Body.Close()
+
+	if spawnResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(spawnResp.Body)
+		e.T.Fatalf("Spawn returned non-200: %d\nBody: %s", spawnResp.StatusCode, body)
+	}
+
 	type SpawnResult struct {
 		SessionID   string `json:"session_id"`
 		WorkspaceID string `json:"workspace_id"`
