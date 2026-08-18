@@ -80,3 +80,5 @@ internal/detect/contrib/*.yaml
 
 # SwiftPM build artifacts for the desktop-macos helper
 native/desktop-macos/.build/
+# Copied WebRTC.xcframework (built via native/webrtc-build; not committed)
+native/desktop-macos/Frameworks/

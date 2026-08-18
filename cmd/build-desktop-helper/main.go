@@ -19,6 +19,10 @@ func main() {
 	}
 	pkgDir := filepath.Join(root, "native", "desktop-macos")
 
+	if err := syncWebRTCFramework(root, pkgDir); err != nil {
+		fatalf("sync WebRTC.xcframework: %v", err)
+	}
+
 	if err := run(root, "swift", "build", "-c", "release", "--package-path", pkgDir); err != nil {
 		fatalf("swift build failed: %v", err)
 	}
@@ -60,6 +64,43 @@ func run(dir, name string, args ...string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// syncWebRTCFramework copies our built WebRTC.xcframework (from native/webrtc-build,
+// on the external drive) into native/desktop-macos/Frameworks/ so the helper's
+// Package.swift local binary target resolves. Source overridable via
+// SCHMUX_WEBRTC_XCFRAMEWORK; defaults to the native/webrtc-build output path.
+func syncWebRTCFramework(root, pkgDir string) error {
+	src := os.Getenv("SCHMUX_WEBRTC_XCFRAMEWORK")
+	if src == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		src = filepath.Join(home, "dev-ext", "webrtc-build", "build", "_build",
+			"macos_arm64", "release", "webrtc", "WebRTC.xcframework")
+	}
+	if _, err := os.Stat(src); err != nil {
+		return fmt.Errorf("not found at %s (build it via native/webrtc-build, or set SCHMUX_WEBRTC_XCFRAMEWORK): %w", src, err)
+	}
+	fwDir := filepath.Join(pkgDir, "Frameworks")
+	dst := filepath.Join(fwDir, "WebRTC.xcframework")
+	if err := os.RemoveAll(dst); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(fwDir, 0o755); err != nil {
+		return err
+	}
+	// rsync for fast incremental copies on repeat builds; cp -R fallback.
+	if _, err := exec.LookPath("rsync"); err == nil {
+		if err := run(root, "rsync", "-a", "--delete", src+"/", dst+"/"); err != nil {
+			return err
+		}
+	} else if err := run(root, "cp", "-R", src, dst); err != nil {
+		return err
+	}
+	fmt.Printf("synced WebRTC.xcframework <- %s\n", src)
+	return nil
 }
 
 func findRepoRoot() (string, error) {

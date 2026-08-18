@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>schmux audio-stream answerer</title>
+  <style>
+    body { font: 14px/1.5 -apple-system, sans-serif; max-width: 720px; margin: 24px auto; padding: 0 16px; }
+    h1 { font-size: 18px; }
+    textarea { width: 100%; height: 160px; box-sizing: border-box; font: 11px ui-monospace, monospace; }
+    button { font: inherit; padding: 6px 14px; margin: 8px 0; }
+    .hint { color: #555; }
+    .ok { color: #080; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>schmux audio-stream — answerer</h1>
+  <p class="hint">Run <code>schmux-desktop-macos audio-stream</code>; paste its offer JSON below, then click “Create answer”. Copy the answer JSON back to the helper.</p>
+
+  <p>1. Offer from the helper:</p>
+  <textarea id="offer" placeholder='{"type":"offer","sdp":"..."}'></textarea>
+  <button id="go">Create answer</button>
+
+  <p>2. Answer to paste back into the helper:</p>
+  <textarea id="answer" readonly placeholder="(appears here)"></textarea>
+
+  <p class="hint">3. When connected you should hear a 440 Hz tone — with no Microphone permission requested.</p>
+  <audio id="audio" autoplay controls></audio>
+  <p id="status"></p>
+
+<script>
+let pc;
+const $ = id => document.getElementById(id);
+
+async function onceIceComplete(pc) {
+  if (pc.iceGatheringState === 'complete') return;
+  await new Promise(res => {
+    const check = () => { if (pc.iceGatheringState === 'complete') { pc.onicegatheringstatechange = null; res(); } };
+    pc.onicegatheringstatechange = check;
+  });
+}
+
+$('go').onclick = async () => {
+  const offer = JSON.parse($('offer').value.trim());
+  pc = new RTCPeerConnection();
+  pc.ontrack = e => { $('audio').srcObject = e.streams[0]; $('status').textContent = 'received audio track'; };
+  pc.oniceconnectionstatechange = () => { $('status').textContent = 'ice: ' + pc.iceConnectionState; };
+  await pc.setRemoteDescription(offer);
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  await onceIceComplete(pc);
+  $('answer').value = JSON.stringify({ type: pc.localDescription.type, sdp: pc.localDescription.sdp });
+  $('status').innerHTML = '<span class="ok">answer ready — paste it into the helper.</span>';
+};
+</script>
+</body>
+</html>
