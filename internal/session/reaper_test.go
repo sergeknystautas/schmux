@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -119,6 +120,33 @@ func TestAliveValidated_StartTimeMismatch(t *testing.T) {
 	}
 }
 
+func TestAliveValidated_ZombieIsExited(t *testing.T) {
+	requireProcTools(t)
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux retains an un-waited child as a visible zombie")
+	}
+	root := spawnTree(t, "true")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		state, err := procState(context.Background(), root)
+		if err == nil && strings.HasPrefix(state, "Z") {
+			start, err := procStartTime(context.Background(), root)
+			if err != nil {
+				t.Fatalf("procStartTime: %v", err)
+			}
+			p := procIdent{PID: root, PGID: root, Start: start}
+			if p.aliveValidated(context.Background()) {
+				t.Fatal("zombie must count as exited")
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pid %d never became a zombie: state=%q err=%v", root, state, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func enumerateAfter(t *testing.T, r *reaper, root int) []procIdent {
 	t.Helper()
 	return awaitEnumerate(t, r, root, 1)
@@ -180,7 +208,7 @@ func TestReap_SigkillEscalation_AndIsolation(t *testing.T) {
 		t.Errorf("expected SIGKILL escalation: %+v", report)
 	}
 	for _, p := range procs {
-		if syscall.Kill(p.PID, 0) == nil {
+		if p.aliveValidated(context.Background()) {
 			t.Errorf("pid %d still alive after reap", p.PID)
 		}
 	}
@@ -197,11 +225,11 @@ func TestReap_PIDReuseGuardSendsNoSignals(t *testing.T) {
 		signaled = append(signaled, pid)
 		return nil
 	}
-	// A live PID with a mismatched start time: reuse. Use the test process's
-	// own PGID — its members' parents are neither PID 1 nor in the tree, so
-	// the group check stays empty. (Never use PGID 1 here: launchd's group
-	// members have PPID 1 and would falsely count as tree members.)
-	procs := []procIdent{{PID: os.Getpid(), PGID: syscall.Getpgrp(), Start: "bogus"}}
+	// A live PID with a mismatched start time: reuse. Give it a dedicated
+	// process group so unrelated orphaned members of the test runner's group
+	// cannot be mistaken for members of this synthetic tree.
+	bystander := spawnTree(t, "exec sleep 60")
+	procs := []procIdent{{PID: bystander, PGID: bystander, Start: "bogus"}}
 
 	report, err := r.reap(context.Background(), procs, 100*time.Millisecond)
 	if err != nil {

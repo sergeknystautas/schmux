@@ -734,7 +734,7 @@ Notes:
 
 Dispose a session. Sets the session status to `disposing` and broadcasts immediately for visual feedback before starting teardown. Returns 200 OK if the session is already disposing (idempotent). Reverts status on failure.
 
-For fenced sessions (`fence: true`), disposal verifies process termination: the session's process tree is enumerated before the tmux session is killed, the daemon waits up to `sessions.dispose_grace_period_ms` (default 5000) for the tree to exit, then escalates SIGTERM → SIGKILL (2-second windows) against the enumerated processes only. Success is reported only after no tree process remains; a process that survives SIGKILL yields a 500 naming the surviving PIDs, and a later dispose retries. Well-behaved fenced sessions and all unfenced sessions dispose as fast as before. The response can therefore block for up to the grace period plus ~5 seconds for a stuck fenced session.
+For fenced sessions (`fence: true`), disposal verifies process termination: the session's process tree is enumerated before the tmux session is killed, the daemon waits up to `sessions.dispose_grace_period_ms` (default 5000) for the tree to exit, then escalates SIGTERM → SIGKILL (2-second windows) against the enumerated processes only. Success is reported only after no live tree process remains; Linux zombie entries count as exited because they have already terminated and only await collection by their parent. A process that survives SIGKILL yields a 500 naming the surviving PIDs, and a later dispose retries. Well-behaved fenced sessions and all unfenced sessions dispose as fast as before. The response can therefore block for up to the grace period plus ~5 seconds for a stuck fenced session.
 
 Response:
 

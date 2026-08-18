@@ -57,6 +57,10 @@ func (r *reaper) enumerate(ctx context.Context, rootPID int) ([]procIdent, error
 	}
 	var procs []procIdent
 	for _, pid := range pids {
+		state, err := procState(ctx, pid)
+		if err != nil || strings.HasPrefix(state, "Z") {
+			continue // exited during the walk
+		}
 		pgid, err := currentPGID(ctx, pid)
 		if err != nil {
 			continue // exited during the walk
@@ -78,6 +82,10 @@ func (r *reaper) enumerate(ctx context.Context, rootPID int) ([]procIdent, error
 // by an unrelated process; it must never be signaled.
 func (p procIdent) aliveValidated(ctx context.Context) bool {
 	if syscall.Kill(p.PID, 0) != nil {
+		return false
+	}
+	state, err := procState(ctx, p.PID)
+	if err != nil || strings.HasPrefix(state, "Z") {
 		return false
 	}
 	start, err := procStartTime(ctx, p.PID)
@@ -118,6 +126,18 @@ func procStartTime(ctx context.Context, pid int) (string, error) {
 		return "", fmt.Errorf("no start time for pid %d", pid)
 	}
 	return s, nil
+}
+
+func procState(ctx context.Context, pid int) (string, error) {
+	out, err := exec.CommandContext(ctx, "ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return "", err
+	}
+	state := strings.TrimSpace(string(out))
+	if state == "" {
+		return "", fmt.Errorf("no state for pid %d", pid)
+	}
+	return state, nil
 }
 
 func psIntField(ctx context.Context, pid int, field string) (int, error) {
@@ -230,6 +250,10 @@ func (r *reaper) liveTreePIDs(ctx context.Context, procs []procIdent) []procIden
 	for pgid := range groups {
 		for _, pid := range groupMemberPIDs(ctx, pgid) {
 			if seen[pid] {
+				continue
+			}
+			state, err := procState(ctx, pid)
+			if err != nil || strings.HasPrefix(state, "Z") {
 				continue
 			}
 			ppid, err := currentPPID(ctx, pid)
