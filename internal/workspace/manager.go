@@ -950,8 +950,11 @@ func (m *Manager) prepare(ctx context.Context, workspaceID, branch string) error
 
 // autoSyncFromDefault rebases the workspace's branch onto origin/<defaultBranch>
 // so freshly created or recycled workspaces start at the latest default-branch tip.
-// Skips when the workspace is on the default branch, when there's no remote, or for
-// non-git/local-only repos. Conflicts and other failures are logged but do not fail
+// Skips when the workspace is on the default branch, when there's no remote, for
+// non-git/local-only repos, or when the branch exists on origin — a published
+// branch's sync point is origin/<branch> (prepare already rebased onto it), and
+// rebasing it onto the default would rewrite pushed history, diverging local
+// from remote. Conflicts and other failures are logged but do not fail
 // workspace setup — the user can resolve them later via the Sync UI.
 func (m *Manager) autoSyncFromDefault(ctx context.Context, workspaceID string) {
 	w, found := m.state.GetWorkspace(workspaceID)
@@ -966,6 +969,15 @@ func (m *Manager) autoSyncFromDefault(ctx context.Context, workspaceID string) {
 	}
 	defaultBranch, err := m.GetDefaultBranch(ctx, w.Repo)
 	if err != nil || defaultBranch == "" || w.Branch == defaultBranch {
+		return
+	}
+	remoteExists, err := m.gitRemoteBranchExists(ctx, w.Path, w.Branch)
+	if err != nil {
+		m.logger.Warn("auto-sync from default skipped (remote branch check failed)", "id", workspaceID, "branch", w.Branch, "err", err)
+		return
+	}
+	if remoteExists {
+		m.logger.Debug("auto-sync from default skipped (branch exists on origin)", "id", workspaceID, "branch", w.Branch)
 		return
 	}
 	result, err := m.LinearSyncFromDefault(ctx, workspaceID)

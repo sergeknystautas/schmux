@@ -747,9 +747,11 @@ func TestGetOrCreate_RecycleSameDivergedBranch(t *testing.T) {
 }
 
 // TestGetOrCreate_RecycleAutoSyncsFromDefault verifies that when a recyclable
-// workspace is reused, the branch is rebased onto the latest origin/<default>
-// so the user starts work on top of the most recent default-branch commits.
-// Without this, a feature branch left behind main would be served stale.
+// workspace is reused on a local-only branch (one that does not exist on
+// origin), the branch is rebased onto the latest origin/<default> so the user
+// starts work on top of the most recent default-branch commits. Without this,
+// a feature branch left behind main would be served stale. Branches that DO
+// exist on origin are exempt — see TestGetOrCreate_RemoteBranchKeepsBranchPoint.
 func TestGetOrCreate_RecycleAutoSyncsFromDefault(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -760,7 +762,6 @@ func TestGetOrCreate_RecycleAutoSyncsFromDefault(t *testing.T) {
 	st := state.New(statePath, nil)
 
 	repoDir := gitTestWorkTree(t)
-	gitTestBranch(t, repoDir, "feature-1") // creates feature-1, returns to main
 
 	cfg := &config.Config{}
 	cfg.WorkspacePath = t.TempDir()
@@ -769,12 +770,17 @@ func TestGetOrCreate_RecycleAutoSyncsFromDefault(t *testing.T) {
 	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
 	manager := New(cfg, st, statePath, testLogger())
 
-	// First run: create + dispose to leave a recyclable workspace on feature-1.
+	// First run: create the workspace, which mints feature-1 locally (the
+	// branch does not exist on origin), commit on it so it diverges from
+	// main, then dispose to leave a recyclable workspace.
 	ws1, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
 	if err != nil {
 		t.Fatalf("GetOrCreate failed: %v", err)
 	}
 	workspacePath := ws1.Path
+	writeFile(t, workspacePath, "branch.txt", "feature-1")
+	runGit(t, workspacePath, "add", ".")
+	runGit(t, workspacePath, "commit", "-m", "feature-1: local commit")
 	if err := manager.Dispose(context.Background(), ws1.ID); err != nil {
 		t.Fatalf("Dispose failed: %v", err)
 	}
@@ -805,6 +811,47 @@ func TestGetOrCreate_RecycleAutoSyncsFromDefault(t *testing.T) {
 	behind := strings.TrimSpace(runGitOut(t, workspacePath, "rev-list", "--count", "HEAD..origin/main"))
 	if behind != "0" {
 		t.Errorf("expected 0 commits behind origin/main, got %s", behind)
+	}
+}
+
+// TestGetOrCreate_RemoteBranchKeepsBranchPoint verifies that a workspace
+// created for a branch that already exists on origin ends up exactly at the
+// remote branch tip. Auto-sync from default must not rebase a published
+// branch onto origin/<default> — rewriting its history diverges the local
+// copy from the remote, which blocks push (non-fast-forward) and dispose
+// ("unpushed commits").
+func TestGetOrCreate_RemoteBranchKeepsBranchPoint(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath, nil)
+
+	repoDir := gitTestWorkTree(t)
+	gitTestBranch(t, repoDir, "feature-1") // branch exists on origin, back on main
+	// Land a commit on main after the branch point so the branch and main diverge.
+	writeFile(t, repoDir, "main-new.txt", "landed after branch")
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "main: post-branch commit")
+	remoteTip := strings.TrimSpace(runGitOut(t, repoDir, "rev-parse", "feature-1"))
+
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
+	cfg.WorktreeBasePath = t.TempDir()
+	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
+	manager := New(cfg, st, statePath, testLogger())
+
+	ws, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
+	if err != nil {
+		t.Fatalf("GetOrCreate failed: %v", err)
+	}
+
+	head := strings.TrimSpace(runGitOut(t, ws.Path, "rev-parse", "HEAD"))
+	if head != remoteTip {
+		log := runGitOut(t, ws.Path, "log", "--oneline", "-10")
+		t.Errorf("expected HEAD at origin/feature-1 tip %s, got %s; git log:\n%s", remoteTip[:8], head[:8], log)
 	}
 }
 
