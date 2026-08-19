@@ -406,6 +406,13 @@ body {
   padding: var(--spacing-xs) 0;
 }
 
+.server-load__values {
+  font-family: Menlo, Monaco, 'Courier New', monospace;
+  font-size: 10px;
+  color: var(--color-text-faint);
+  padding: var(--spacing-xs) 0;
+}
+
 .typing-perf__chart {
   margin-top: 15px;
 }

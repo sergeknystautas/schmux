@@ -504,3 +504,33 @@ func TestBroadcastConfigUpdated(t *testing.T) {
 		t.Errorf("message type = %q, want config_updated", msg["type"])
 	}
 }
+
+func TestBroadcastServerLoad(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+
+	conn, cleanup := dialTestDashboardWS(t, srv)
+	defer cleanup()
+
+	// Consume initial state messages (sessions + github_status)
+	readDashboardMsg(t, conn, 2*time.Second)
+
+	srv.broadcastServerLoad()
+
+	msg := readDashboardMsg(t, conn, 3*time.Second)
+	if msg["type"] != "server_load" {
+		t.Fatalf("message type = %q, want %q", msg["type"], "server_load")
+	}
+	load, ok := msg["load"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("load field missing or wrong type: %v", msg["load"])
+	}
+	for _, key := range []string{"one", "five", "fifteen"} {
+		v, ok := load[key].(float64)
+		if !ok {
+			t.Fatalf("load[%q] missing or wrong type: %v", key, load[key])
+		}
+		if v < 0 {
+			t.Errorf("load[%q] = %v, want >= 0", key, v)
+		}
+	}
+}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { transport } from '../lib/transport';
+import { updateServerLoad, type ServerLoadAvg } from '../lib/serverLoad';
 import type {
   WorkspaceResponse,
   LinearSyncResolveConflictStatePayload,
@@ -43,6 +44,14 @@ function isNumber(v: unknown): v is number {
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function isServerLoadMessage(
+  data: Record<string, unknown>
+): data is Record<string, unknown> & { type: 'server_load'; load: ServerLoadAvg } {
+  if (data.type !== 'server_load' || !isObject(data.load)) return false;
+  const load = data.load as Record<string, unknown>;
+  return isNumber(load.one) && isNumber(load.five) && isNumber(load.fifteen);
 }
 
 function isSessionsMessage(
@@ -383,6 +392,8 @@ export default function useSessionsWebSocket(opts?: {
           setBuildMonitorUpdateCount((prev) => prev + 1);
         } else if (data.type === 'config_updated') {
           onConfigUpdatedRef.current?.();
+        } else if (isServerLoadMessage(data)) {
+          updateServerLoad(data.load);
         } else if (isClipboardRequestMessage(data)) {
           // A new clipboardRequest for the same session replaces the
           // previous entry — the daemon only ever holds one pending
@@ -416,6 +427,10 @@ export default function useSessionsWebSocket(opts?: {
       if (!mountedRef.current) return;
       setConnected(false);
       setStale(true);
+      // Reset boundary: a backend that never sends server_load (debug off,
+      // older daemon) must show the waiting state after reconnect, not a
+      // value from the previous runtime.
+      updateServerLoad(null);
       wsRef.current = null;
 
       // Schedule reconnect with exponential backoff and jitter
@@ -438,6 +453,7 @@ export default function useSessionsWebSocket(opts?: {
 
     return () => {
       mountedRef.current = false;
+      updateServerLoad(null);
       if (reconnectTimeoutRef.current) {
         window.clearTimeout(reconnectTimeoutRef.current);
       }

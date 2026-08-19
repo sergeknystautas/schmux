@@ -41,6 +41,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/spawn"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/style"
+	"github.com/sergeknystautas/schmux/internal/sysstat"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
 	"github.com/sergeknystautas/schmux/internal/update"
@@ -150,6 +151,10 @@ type Server struct {
 	broadcastReady   chan struct{}
 	broadcastOnce    sync.Once
 	broadcastStopped bool
+
+	// Host load average broadcast loop
+	loadProbe      *sysstat.LoadProbe
+	serverLoadDone chan struct{}
 
 	// Per-session rotation locks to prevent concurrent rotations
 	rotationLocks   map[string]*sync.Mutex
@@ -343,6 +348,8 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		broadcastDone:        make(chan struct{}),
 		broadcastExited:      make(chan struct{}),
 		broadcastReady:       make(chan struct{}),
+		loadProbe:            sysstat.NewLoadProbe(),
+		serverLoadDone:       make(chan struct{}),
 		connectLimiter:       NewRateLimiter(connectRateLimit, connectRateWindow),
 		previewStreamBuffers: make(map[string]string),
 		previewCandidates:    make(map[string]*previewCandidate),
@@ -423,6 +430,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		})
 	}
 	go s.broadcastLoop()
+	go s.serverLoadLoop()
 	go s.previewReconcileLoop()
 	go s.previewAutodetectLoop()
 	// Start rate limiter cleanup goroutines
@@ -1165,6 +1173,7 @@ func (s *Server) Stop() error {
 
 		// Signal the broadcast loop to exit
 		close(s.broadcastDone)
+		close(s.serverLoadDone)
 	})
 
 	// Wait for broadcastLoop goroutine to exit
@@ -1204,6 +1213,7 @@ func (s *Server) CloseForTest() {
 		}
 		s.broadcastMu.Unlock()
 		close(s.broadcastDone)
+		close(s.serverLoadDone)
 	})
 	<-s.broadcastExited
 	if s.previewManager != nil {
@@ -1719,6 +1729,48 @@ func (s *Server) broadcastToAllDashboardConns(payload []byte) {
 			conn.Close()
 		}
 	}
+}
+
+// serverLoadInterval is how often the host load average is broadcast.
+const serverLoadInterval = 5 * time.Second
+
+// serverLoadLoop broadcasts the host load average to dashboard clients
+// every 5s while the debug UI is enabled. Server owns this single ticker
+// — LoadProbe is passive — so debug on/off transitions and shutdown have
+// exactly one code path.
+func (s *Server) serverLoadLoop() {
+	ticker := time.NewTicker(serverLoadInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			if s.config.GetDebugUI() {
+				s.broadcastServerLoad()
+			}
+		case <-s.serverLoadDone:
+			return
+		}
+	}
+}
+
+// broadcastServerLoad samples the load average and sends it to all
+// connected dashboard clients. Read failures skip this tick; clients
+// keep their last value until the next successful sample.
+func (s *Server) broadcastServerLoad() {
+	avg, err := s.loadProbe.Read()
+	if err != nil {
+		logging.Sub(s.logger, "ws/dashboard").Debug("load average sample failed", "err", err)
+		return
+	}
+	payload, err := json.Marshal(map[string]interface{}{
+		"type": "server_load",
+		"load": avg,
+	})
+	if err != nil {
+		logging.Sub(s.logger, "ws/dashboard").Error("failed to marshal server_load message", "err", err)
+		return
+	}
+	s.broadcastToAllDashboardConns(payload)
 }
 
 // BroadcastOverlayChange sends an overlay change event to all connected dashboard WebSocket clients.

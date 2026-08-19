@@ -4259,6 +4259,17 @@ GitHub CLI status (sent on connect and when status changes):
 }
 ```
 
+Server load average (debug UI only — broadcast every 5s while `debug_ui` is enabled, not sent otherwise):
+
+```json
+{
+  "type": "server_load",
+  "load": { "one": 2.22, "five": 3.18, "fifteen": 3.28 }
+}
+```
+
+Values are the host's 1, 5, and 15 minute load averages. Clients should treat the message as optional: a daemon with debug UI off (or an older daemon) never sends it.
+
 Notes:
 
 - Sessions updates use trailing debounce (100ms) to coalesce rapid changes into single broadcasts

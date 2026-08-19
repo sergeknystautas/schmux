@@ -9,6 +9,7 @@ import KeyboardModeIndicator from './KeyboardModeIndicator';
 import TypingPerformance from './TypingPerformance';
 import CurationStatus from './CurationStatus';
 import TmuxDiagnostic from './TmuxDiagnostic';
+import ServerLoad from './ServerLoad';
 import EventMonitor from './EventMonitor';
 import ConnectionProgressModal from './ConnectionProgressModal';
 import { useConfig } from '../contexts/ConfigContext';
@@ -1044,6 +1045,7 @@ export default function AppShell() {
           {isDebugMode && <EventMonitor />}
           {isDebugMode && <TmuxDiagnostic />}
           {isDebugMode && <TypingPerformance />}
+          {isDebugMode && <ServerLoad />}
           {features.tunnel && <RemoteAccessPanel />}
           <SidebarUser navCollapsed={navCollapsed} />
           <ToolsSection navCollapsed={navCollapsed} />
