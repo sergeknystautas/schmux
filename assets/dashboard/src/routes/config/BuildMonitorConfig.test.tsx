@@ -14,7 +14,7 @@ const baseState = {
     { name: 'Other', url: 'https://gitlab.com/x/y' },
   ],
   buildMonitorRepos: {},
-  buildMonitorInterval: 5,
+  buildMonitorInterval: 60,
   buildMonitorTarget: '',
   buildMonitorAutoWorkspace: false,
 } as any;
@@ -168,7 +168,7 @@ describe('BuildMonitorConfig', () => {
     const dispatch = vi.fn();
     renderPanel({ dispatch });
     const input = await screen.findByLabelText(/check interval/i);
-    expect(input).toHaveValue(5);
+    expect(input).toHaveValue(60);
     // Type into the input — the controlled value won't actually update since
     // dispatch is a mock, but verify that changes dispatch SET_FIELD actions.
     const user = userEvent.setup();

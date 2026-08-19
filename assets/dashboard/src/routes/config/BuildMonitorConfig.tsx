@@ -128,26 +128,27 @@ export default function BuildMonitorConfig({ state, dispatch, models }: ConfigPa
         <div className="settings-section__body">
           <div className="form-group">
             <label className="form-group__label" htmlFor="bm-interval">
-              Check interval (minutes)
+              Check interval (seconds)
             </label>
             <input
               id="bm-interval"
               type="number"
               className="input"
               style={{ maxWidth: '120px' }}
-              min={1}
+              min={15}
               value={state.buildMonitorInterval}
               onChange={(e) =>
                 dispatch({
                   type: 'SET_FIELD',
                   field: 'buildMonitorInterval',
-                  value: Math.max(1, parseInt(e.target.value, 10) || 1),
+                  value: Math.max(15, parseInt(e.target.value, 10) || 60),
                 })
               }
               data-testid="build-monitor-interval"
             />
             <p className="form-group__hint">
-              How often the daemon checks GitHub Actions for the enabled repos.
+              How often the daemon checks GitHub Actions for the enabled repos and workspace
+              branches.
             </p>
           </div>
         </div>

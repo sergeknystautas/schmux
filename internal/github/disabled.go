@@ -184,3 +184,17 @@ func (c *CLI) CreateRepo(_ context.Context, _, _ string, _ bool) error {
 func (c *CLI) ListOwners(_ context.Context) ([]string, error) {
 	return nil, fmt.Errorf("GitHub integration is not available in this build")
 }
+
+// BranchPR identifies the open pull request for a branch head (stub).
+type BranchPR struct {
+	Number  int
+	HTMLURL string
+}
+
+// FetchOpenPRForBranch returns an error when the GitHub module is excluded.
+func FetchOpenPRForBranch(_ context.Context, _ string, _ RepoInfo, _ string) (*BranchPR, error) {
+	return nil, fmt.Errorf("GitHub integration is not available in this build")
+}
+
+// SetAPIBaseURLForTest is a no-op when the GitHub module is excluded.
+func SetAPIBaseURLForTest(_ string) func() { return func() {} }

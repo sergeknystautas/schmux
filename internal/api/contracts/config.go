@@ -522,8 +522,8 @@ type RemoteAccess struct {
 // BuildMonitorConfig represents build monitor configuration.
 type BuildMonitorConfig struct {
 	Enabled                     bool                              `json:"enabled,omitempty"`
-	Interval                    int                               `json:"interval,omitempty"` // minutes between scheduled checks; <=0 means default (5)
-	Target                      string                            `json:"target,omitempty"`   // agent target for remediation sessions; empty disables launching
+	IntervalSeconds             int                               `json:"interval_seconds,omitempty"` // seconds between check passes; <=0 means default (60), floor 15
+	Target                      string                            `json:"target,omitempty"`           // agent target for remediation sessions; empty disables launching
 	AutoWorkspaceOnFirstFailure bool                              `json:"auto_workspace_on_first_failure,omitempty"`
 	Repos                       map[string]BuildMonitorRepoConfig `json:"repos,omitempty"` // request: keyed by repo NAME; stored slug-keyed (handler converts)
 }

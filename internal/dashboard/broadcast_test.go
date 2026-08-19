@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/workspacestatus"
 )
 
 // dialTestDashboardWS creates a test HTTP server with the dashboard WebSocket
@@ -483,6 +484,41 @@ func TestBroadcastIncludesWorkspaceStatus(t *testing.T) {
 	ws := workspaces[0].(map[string]interface{})
 	if ws["status"] != "running" {
 		t.Errorf("expected status=running, got %v", ws["status"])
+	}
+}
+
+// TestBroadcastIncludesCIStatusFromCache exercises the public wiring path
+// (cache → broadcast payload), not the private field. The cache is written
+// by the build monitor check pass; this test writes it directly to assert
+// the broadcast path reads from it correctly.
+func TestBroadcastIncludesCIStatusFromCache(t *testing.T) {
+	srv, _, st := newTestServer(t)
+
+	st.AddWorkspace(state.Workspace{
+		ID:     "ws-ci",
+		Repo:   "https://github.com/acme/widget",
+		Branch: "feature",
+		Path:   t.TempDir(),
+		Status: state.WorkspaceStatusRunning,
+	})
+	srv.workspaceStatus.Store("ws-ci", workspacestatus.Entry{
+		Status: workspacestatus.Status{CIStatus: workspacestatus.CISuccess, CIURL: "https://run", PRNumber: 7, PRURL: "https://pr"},
+	})
+
+	conn, cleanup := dialTestDashboardWS(t, srv)
+	defer cleanup()
+
+	msg := readDashboardMsg(t, conn, 3*time.Second)
+	workspaces := msg["workspaces"].([]interface{})
+	if len(workspaces) == 0 {
+		t.Fatal("no workspaces in broadcast")
+	}
+	ws := workspaces[0].(map[string]interface{})
+	if ws["ci_status"] != "success" || ws["ci_url"] != "https://run" {
+		t.Errorf("ci fields = %v %v, want success https://run", ws["ci_status"], ws["ci_url"])
+	}
+	if ws["pr_number"] != float64(7) || ws["pr_url"] != "https://pr" {
+		t.Errorf("pr fields = %v %v, want 7 https://pr", ws["pr_number"], ws["pr_url"])
 	}
 }
 

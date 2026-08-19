@@ -47,6 +47,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/update"
 	"github.com/sergeknystautas/schmux/internal/version"
 	"github.com/sergeknystautas/schmux/internal/workspace"
+	"github.com/sergeknystautas/schmux/internal/workspacestatus"
 )
 
 const (
@@ -244,6 +245,10 @@ type Server struct {
 	autolearnHandlers *AutolearnHandlers
 	gitHandlers       *GitHandlers
 
+	// workspaceStatus holds per-workspace CI/PR results written by the build
+	// monitor check pass and read by the sessions response.
+	workspaceStatus *workspacestatus.Cache
+
 	// Persona manager
 	personaManager *persona.Manager
 
@@ -406,6 +411,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 	}
 
 	// Initialize session handler group (needed before Start() for test access)
+	s.workspaceStatus = workspacestatus.NewCache()
 	s.sessionHandlers = &SessionHandlers{
 		config:         s.config,
 		state:          st,
@@ -420,6 +426,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		broadcastSessions:                 s.BroadcastSessions,
 		getLinearSyncResolveConflictState: s.getLinearSyncResolveConflictState,
 
+		workspaceStatus:    s.workspaceStatus,
 		defaultBranchCache: make(map[string]defaultBranchEntry),
 	}
 
@@ -778,24 +785,10 @@ func (s *Server) Start() error {
 			dependencyReport:    s.dependencyReport,
 		}
 
-		// Session handler group
-		sessionH := &SessionHandlers{
-			config:         s.config,
-			state:          s.state,
-			session:        s.session,
-			workspace:      s.workspace,
-			models:         s.models,
-			remoteManager:  s.remoteManager,
-			previewManager: s.previewManager,
-			personaManager: s.personaManager,
-			logger:         s.logger,
-
-			broadcastSessions:                 s.BroadcastSessions,
-			getLinearSyncResolveConflictState: s.getLinearSyncResolveConflictState,
-
-			defaultBranchCache: make(map[string]defaultBranchEntry),
-		}
-		s.sessionHandlers = sessionH
+		// Session handler group: reuse the instance built in NewServer.
+		// Rebuilding it here would discard fields wired between NewServer
+		// and Start (e.g. SetWorkspaceStatusProvider).
+		sessionH := s.sessionHandlers
 
 		// Read-only endpoints (no CSRF needed)
 		r.Get("/healthz", s.handleHealthz)

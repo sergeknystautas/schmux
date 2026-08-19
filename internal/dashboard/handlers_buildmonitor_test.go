@@ -19,7 +19,7 @@ func TestApplyBuildMonitor_ConvertsNameKeysToSlug(t *testing.T) {
 	cfg := &config.Config{}
 	req := &contracts.BuildMonitorConfig{
 		Enabled:                     true,
-		Interval:                    10,
+		IntervalSeconds:             90,
 		Target:                      " claude ",
 		AutoWorkspaceOnFirstFailure: true,
 		Repos: map[string]contracts.BuildMonitorRepoConfig{
@@ -33,8 +33,8 @@ func TestApplyBuildMonitor_ConvertsNameKeysToSlug(t *testing.T) {
 	if cfg.BuildMonitor.Repos["my-repo"].GitHubLogin != "octocat" {
 		t.Fatalf("expected GitHubLogin octocat, got %q", cfg.BuildMonitor.Repos["my-repo"].GitHubLogin)
 	}
-	if cfg.BuildMonitor.Interval != 10 {
-		t.Fatalf("expected Interval 10, got %d", cfg.BuildMonitor.Interval)
+	if cfg.BuildMonitor.IntervalSeconds != 90 {
+		t.Fatalf("expected IntervalSeconds 90, got %d", cfg.BuildMonitor.IntervalSeconds)
 	}
 	if cfg.BuildMonitor.Target != "claude" {
 		t.Fatalf("expected trimmed Target claude, got %q", cfg.BuildMonitor.Target)

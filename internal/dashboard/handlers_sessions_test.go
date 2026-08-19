@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/workspacestatus"
 )
 
 func TestBuildSessionsResponse_ExcludesRecyclableWorkspaces(t *testing.T) {
@@ -92,5 +93,51 @@ func TestBuildSessionsResponse_SurfacesFenceFlag(t *testing.T) {
 	}
 	if !sawOpen {
 		t.Fatal("sess-open not found in response")
+	}
+}
+
+func TestBuildSessionsResponseIncludesWorkspaceStatus(t *testing.T) {
+	server, _, st := newTestServer(t)
+	st.AddWorkspace(state.Workspace{
+		ID:     "ws1",
+		Repo:   "test",
+		Branch: "main",
+		Path:   "/tmp/ws1",
+		Status: state.WorkspaceStatusRunning,
+	})
+	server.workspaceStatus.Store("ws1", workspacestatus.Entry{
+		Status: workspacestatus.Status{CIStatus: workspacestatus.CISuccess, CIURL: "https://run", PRNumber: 7, PRURL: "https://pr"},
+	})
+
+	items := server.sessionHandlers.buildSessionsResponse()
+	var item *WorkspaceResponseItem
+	for i := range items {
+		if items[i].ID == "ws1" {
+			item = &items[i]
+		}
+	}
+	if item == nil {
+		t.Fatal("workspace ws1 missing from response")
+	}
+	if item.CIStatus != "success" || item.CIURL != "https://run" || item.PRNumber != 7 || item.PRURL != "https://pr" {
+		t.Errorf("status fields = %q %q %d %q", item.CIStatus, item.CIURL, item.PRNumber, item.PRURL)
+	}
+}
+
+func TestBuildSessionsResponseOmitsStatusWhenProviderNil(t *testing.T) {
+	server, _, st := newTestServer(t)
+	st.AddWorkspace(state.Workspace{
+		ID:     "ws1",
+		Repo:   "test",
+		Branch: "main",
+		Path:   "/tmp/ws1",
+		Status: state.WorkspaceStatusRunning,
+	})
+
+	items := server.sessionHandlers.buildSessionsResponse()
+	for _, item := range items {
+		if item.CIStatus != "" || item.PRNumber != 0 {
+			t.Errorf("expected empty status fields, got %q %d", item.CIStatus, item.PRNumber)
+		}
 	}
 }

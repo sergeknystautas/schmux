@@ -134,6 +134,7 @@ type WorkspaceVCS interface {
 	CheckoutPR(ctx context.Context, pr contracts.PullRequest) (*state.Workspace, error)
 	DetectGitHubConnect(ctx context.Context, workspaceID string) (*ConnectDetection, error)
 	RunGitHubConnect(ctx context.Context, workspaceID string, req contracts.GitHubConnectRequest, gh GitHubRepoCreator) (*contracts.GitHubConnectResult, error)
+	GetRemoteBranchHead(ctx context.Context, workspaceID string) (RemoteBranchHead, error)
 }
 
 // WorkspaceInfra defines infrastructure and overlay operations.

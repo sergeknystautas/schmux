@@ -87,7 +87,7 @@ export function buildConfigUpdate(state: ConfigFormState): ConfigUpdateRequest {
     },
     build_monitor: {
       enabled: state.buildMonitorEnabled,
-      interval: state.buildMonitorInterval,
+      interval_seconds: state.buildMonitorInterval,
       target: state.buildMonitorTarget,
       auto_workspace_on_first_failure: state.buildMonitorAutoWorkspace,
       repos: state.buildMonitorRepos,

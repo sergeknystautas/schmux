@@ -88,6 +88,7 @@ Watch terminal output and manage a session.
 **Workspace header:**
 
 - Workspace info, branch (clickable when remote exists), ahead/behind counts
+- CI status badge (empty box/pulsing/red/green, linking to the workflow run) and `PR #N` link for the branch's open PR — shown for build-monitor-enabled repos, fed by the build monitor check pass
 - Line changes (+N/-M color-coded)
 - Horizontal wrapping tabs for session switching
 

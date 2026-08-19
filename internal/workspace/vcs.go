@@ -21,6 +21,17 @@ type VCSBackend interface {
 	FetchQueryRepo(ctx context.Context, path string) error
 	ListRecentBranches(ctx context.Context, path string, limit int) ([]RecentBranch, error)
 	GetBranchLog(ctx context.Context, path, branch string, limit int) ([]string, error)
+	// GetRemoteBranchHead resolves the remote-tracking head of a branch:
+	// its commit SHA and the URL of the remote it lives on (origin, or the
+	// branch's tracking remote for fork workflows). Errors when the branch
+	// has no remote counterpart or the backend cannot resolve one.
+	GetRemoteBranchHead(ctx context.Context, workspacePath, branch string) (RemoteBranchHead, error)
+}
+
+// RemoteBranchHead identifies where a branch's remote counterpart points.
+type RemoteBranchHead struct {
+	SHA       string // commit SHA of the remote-tracking ref
+	RemoteURL string // URL of the remote the ref belongs to
 }
 
 type VCSStatus struct {

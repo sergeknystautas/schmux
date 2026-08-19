@@ -134,6 +134,16 @@ func (m *Manager) backendForWorkspace(workspaceID string) VCSBackend {
 	return m.backends["git"]
 }
 
+// GetRemoteBranchHead resolves the remote-tracking head of a workspace's
+// branch via its VCS backend.
+func (m *Manager) GetRemoteBranchHead(ctx context.Context, workspaceID string) (RemoteBranchHead, error) {
+	w, found := m.state.GetWorkspace(workspaceID)
+	if !found {
+		return RemoteBranchHead{}, fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+	return m.backendForWorkspace(workspaceID).GetRemoteBranchHead(ctx, w.Path, w.Branch)
+}
+
 func (m *Manager) SetGitWatcher(gw *GitWatcher) {
 	m.gitWatcher = gw
 }

@@ -2028,7 +2028,7 @@ func startBuildMonitorScheduler(ctx context.Context, cfg *config.Config, server 
 			server.RunBuildMonitorCheck(ctx)
 			// Re-read the interval each tick so config changes apply
 			// without a daemon restart.
-			interval := time.Duration(cfg.GetBuildMonitorInterval()) * time.Minute
+			interval := cfg.GetBuildMonitorIntervalSeconds()
 			timer.Reset(interval)
 		case <-ctx.Done():
 			return

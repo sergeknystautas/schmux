@@ -180,6 +180,9 @@ func (s *Server) handleBuildMonitorCheck(w http.ResponseWriter, r *http.Request)
 // build_monitor_updated when anything changed. Called by the daemon scheduler.
 func (s *Server) RunBuildMonitorCheck(ctx context.Context) {
 	if !s.config.GetBuildMonitorEnabled() {
+		if s.workspaceStatus.Clear() {
+			s.BroadcastSessions()
+		}
 		return
 	}
 	if _, changed, directives := s.runBuildMonitorCheckPass(ctx); changed || len(directives) > 0 {
@@ -207,6 +210,9 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (buildMonitorResp
 		Units:            []buildMonitorUnitResponse{}, // never nil: JSON must be [], not null
 	}
 	if !response.Enabled {
+		if s.workspaceStatus.Clear() {
+			s.BroadcastSessions()
+		}
 		return response, false, nil
 	}
 
@@ -219,6 +225,7 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (buildMonitorResp
 	var directives []launchDirective
 	launching := s.config.GetBuildMonitorTarget() != "" && s.config.GetBuildMonitorAutoWorkspace()
 	changed := false
+	liveWorkspaces := map[string]bool{}
 	for _, repo := range repos {
 		if !github.IsGitHubURL(repo.URL) {
 			continue
@@ -276,6 +283,10 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (buildMonitorResp
 		}
 		state.CheckedAt = time.Now().UTC().Format(time.RFC3339)
 
+		if s.checkUnitWorkspaces(ctx, repo.URL, branch, token, state, liveWorkspaces) {
+			changed = true
+		}
+
 		prev, readErr := buildmonitor.ReadState(buildMonitorUnitStatePath(slug))
 		if readErr != nil {
 			// The launcher acts on transitions, so a corrupt file silently
@@ -318,6 +329,12 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (buildMonitorResp
 			RemediationWorkspaceID: state.RemediationWorkspaceID,
 		}
 		response.Units = append(response.Units, unitResp)
+	}
+	if s.workspaceStatus.DropExcept(liveWorkspaces) {
+		changed = true
+	}
+	if changed {
+		s.BroadcastSessions()
 	}
 	return response, changed, directives
 }

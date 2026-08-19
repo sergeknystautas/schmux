@@ -338,7 +338,7 @@ export const initialState: ConfigFormState = {
 
   buildMonitorEnabled: false,
   buildMonitorRepos: {},
-  buildMonitorInterval: 5,
+  buildMonitorInterval: 60,
   buildMonitorTarget: '',
   buildMonitorAutoWorkspace: false,
 

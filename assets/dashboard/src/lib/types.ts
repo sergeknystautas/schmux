@@ -60,6 +60,10 @@ export interface WorkspaceResponse {
   remote_branch_is_fork?: boolean; // true if remote branch is on a non-origin remote (fork)
   local_unique_commits?: number; // commits in local not in remote
   remote_unique_commits?: number; // commits in remote not in local
+  ci_status?: string; // "none" | "pending" | "failure" | "success"; absent when GitHub unavailable or no remote branch
+  ci_url?: string; // link target for the build chip
+  pr_number?: number; // open PR for the branch
+  pr_url?: string;
   previews?: WorkspacePreview[];
   tabs?: Tab[];
   resolve_conflicts?: ResolveConflictRecordPayload[];

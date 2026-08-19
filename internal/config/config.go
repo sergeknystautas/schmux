@@ -406,9 +406,12 @@ type SubredditConfig struct {
 
 // BuildMonitorConfig represents configuration for the build monitor feature.
 type BuildMonitorConfig struct {
-	Enabled  bool   `json:"enabled,omitempty"`
-	Interval int    `json:"interval,omitempty"` // minutes between scheduled checks; <=0 means default (5)
-	Target   string `json:"target,omitempty"`   // agent target for remediation sessions; empty disables launching
+	Enabled bool `json:"enabled,omitempty"`
+	// IntervalSeconds is the seconds between check passes (build monitor
+	// units AND workspace CI/PR status); <=0 means default (60), floor 15.
+	// Replaces the legacy minutes-based "interval" key, which is ignored.
+	IntervalSeconds int    `json:"interval_seconds,omitempty"`
+	Target          string `json:"target,omitempty"` // agent target for remediation sessions; empty disables launching
 	// AutoWorkspaceOnFirstFailure launches a remediation workspace + session
 	// automatically when a workflow first enters the failing state.
 	AutoWorkspaceOnFirstFailure bool                              `json:"auto_workspace_on_first_failure,omitempty"`
@@ -1595,15 +1598,18 @@ func (c *Config) GetBuildMonitorRepo(slug string) (BuildMonitorRepoConfig, bool)
 	return r, ok
 }
 
-// GetBuildMonitorInterval returns the scheduled check interval in minutes,
-// defaulting to 5.
-func (c *Config) GetBuildMonitorInterval() int {
+// GetBuildMonitorIntervalSeconds returns the check pass interval, defaulting
+// to 60s (floor 15s).
+func (c *Config) GetBuildMonitorIntervalSeconds() time.Duration {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c.BuildMonitor == nil || c.BuildMonitor.Interval <= 0 {
-		return 5
+	if c.BuildMonitor == nil || c.BuildMonitor.IntervalSeconds <= 0 {
+		return 60 * time.Second
 	}
-	return c.BuildMonitor.Interval
+	if c.BuildMonitor.IntervalSeconds < 15 {
+		return 15 * time.Second
+	}
+	return time.Duration(c.BuildMonitor.IntervalSeconds) * time.Second
 }
 
 // GetBuildMonitorTarget returns the agent target for remediation sessions,

@@ -342,7 +342,7 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 		},
 		BuildMonitor: contracts.BuildMonitorConfig{
 			Enabled:                     h.config.GetBuildMonitorEnabled(),
-			Interval:                    h.config.GetBuildMonitorInterval(),
+			IntervalSeconds:             int(h.config.GetBuildMonitorIntervalSeconds() / time.Second),
 			Target:                      h.config.GetBuildMonitorTarget(),
 			AutoWorkspaceOnFirstFailure: h.config.GetBuildMonitorAutoWorkspace(),
 			Repos:                       h.buildMonitorReposResponse(),
@@ -1293,7 +1293,7 @@ func applyBuildMonitor(cfg *config.Config, in *contracts.BuildMonitorConfig) {
 		cfg.BuildMonitor = &config.BuildMonitorConfig{}
 	}
 	cfg.BuildMonitor.Enabled = in.Enabled
-	cfg.BuildMonitor.Interval = in.Interval
+	cfg.BuildMonitor.IntervalSeconds = in.IntervalSeconds
 	cfg.BuildMonitor.Target = strings.TrimSpace(in.Target)
 	cfg.BuildMonitor.AutoWorkspaceOnFirstFailure = in.AutoWorkspaceOnFirstFailure
 	out := make(map[string]config.BuildMonitorRepoConfig, len(in.Repos))

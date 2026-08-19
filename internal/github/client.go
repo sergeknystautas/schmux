@@ -21,6 +21,13 @@ const (
 // apiBaseURL is the GitHub API base URL. Var for testing.
 var apiBaseURL = "https://api.github.com"
 
+// SetAPIBaseURLForTest overrides the GitHub API base URL; returns a restore func.
+func SetAPIBaseURLForTest(u string) func() {
+	orig := apiBaseURL
+	apiBaseURL = u
+	return func() { apiBaseURL = orig }
+}
+
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 // RateLimitError is returned when the GitHub API rate limit is exceeded.

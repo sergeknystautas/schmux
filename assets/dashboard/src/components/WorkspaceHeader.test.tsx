@@ -216,3 +216,47 @@ describe('WorkspaceHeader GitHub button', () => {
     expect(screen.queryByRole('link', { name: 'Open ws-1 on GitHub' })).not.toBeInTheDocument();
   });
 });
+
+describe('WorkspaceHeader CI and PR indicators', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockConfig = {};
+    mockWorkspaceLockStates = {};
+  });
+
+  it.each([
+    ['success', 'CI: passing'],
+    ['failure', 'CI: failing'],
+    ['pending', 'CI: running'],
+    ['none', 'CI: no runs yet'],
+  ])('renders the %s badge with a link to ci_url', async (status, label) => {
+    await renderHeader(makeWorkspace({ ci_status: status, ci_url: 'https://example.com/run' }));
+    const badge = screen.getByLabelText(label);
+    expect(badge).toBeInTheDocument();
+    expect(badge.closest('a')).toHaveAttribute('href', 'https://example.com/run');
+  });
+
+  it('renders the badge without a link when ci_url is absent', async () => {
+    await renderHeader(makeWorkspace({ ci_status: 'none' }));
+    const badge = screen.getByLabelText('CI: no runs yet');
+    expect(badge.closest('a')).toBeNull();
+  });
+
+  it('hides the CI badge when ci_status is absent', async () => {
+    await renderHeader(makeWorkspace({}));
+    expect(screen.queryByLabelText(/^CI:/)).toBeNull();
+  });
+
+  it('renders the PR link when an open PR exists', async () => {
+    await renderHeader(
+      makeWorkspace({ pr_number: 42, pr_url: 'https://github.com/acme/widget/pull/42' })
+    );
+    const link = screen.getByRole('link', { name: 'PR #42' });
+    expect(link).toHaveAttribute('href', 'https://github.com/acme/widget/pull/42');
+  });
+
+  it('hides the PR link when no open PR exists', async () => {
+    await renderHeader(makeWorkspace({}));
+    expect(screen.queryByText(/^PR #/)).toBeNull();
+  });
+});

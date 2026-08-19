@@ -22,7 +22,7 @@ export interface BranchSuggestUpdate {
 
 export interface BuildMonitorConfig {
   enabled?: boolean;
-  interval?: number;
+  interval_seconds?: number;
   target?: string;
   auto_workspace_on_first_failure?: boolean;
   repos?: Record<string, BuildMonitorRepoConfig>;
@@ -1093,6 +1093,10 @@ export interface WorkspaceResponseItem {
   remote_branch_is_fork: boolean;
   local_unique_commits: number;
   remote_unique_commits: number;
+  ci_status?: string;
+  ci_url?: string;
+  pr_number?: number;
+  pr_url?: string;
   previews?: PreviewResponse[];
   tabs: Tab[];
   resolve_conflicts?: ResolveConflict[];

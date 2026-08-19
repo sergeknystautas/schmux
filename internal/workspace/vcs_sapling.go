@@ -314,3 +314,9 @@ func (s *SaplingBackend) ListRecentBranches(ctx context.Context, path string, li
 func (s *SaplingBackend) GetBranchLog(ctx context.Context, path, branch string, limit int) ([]string, error) {
 	return nil, nil
 }
+
+// GetRemoteBranchHead is not supported for sapling; such workspaces are
+// ineligible for GitHub CI/PR indicators.
+func (s *SaplingBackend) GetRemoteBranchHead(_ context.Context, _, _ string) (RemoteBranchHead, error) {
+	return RemoteBranchHead{}, fmt.Errorf("remote head resolution not supported for sapling")
+}

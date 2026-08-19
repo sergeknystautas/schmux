@@ -27,6 +27,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
+	"github.com/sergeknystautas/schmux/internal/workspacestatus"
 )
 
 // Type aliases for contracts types used throughout this file.
@@ -53,6 +54,10 @@ type SessionHandlers struct {
 	// Cached default branches: repoURL -> {branch, fetchedAt}
 	defaultBranchCache   map[string]defaultBranchEntry
 	defaultBranchCacheMu sync.RWMutex
+
+	// workspaceStatus serves cached GitHub CI/PR status per workspace.
+	// written by the build monitor check pass
+	workspaceStatus *workspacestatus.Cache
 }
 
 // buildSessionsResponse builds the sessions/workspaces response data.
@@ -189,6 +194,15 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 				items = append(items, toPreviewResponse(p))
 			}
 			workspaceMap[ws.ID].Previews = items
+		}
+
+		if h.workspaceStatus != nil {
+			if st, ok := h.workspaceStatus.Get(ws.ID); ok {
+				workspaceMap[ws.ID].CIStatus = st.CIStatus
+				workspaceMap[ws.ID].CIURL = st.CIURL
+				workspaceMap[ws.ID].PRNumber = st.PRNumber
+				workspaceMap[ws.ID].PRURL = st.PRURL
+			}
 		}
 
 		// Populate tabs from top-level state — no field rewriting.

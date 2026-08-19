@@ -195,7 +195,7 @@ export default function ConfigPage() {
           repofeedRepos: data.repofeed?.repos || {},
           buildMonitorEnabled: data.build_monitor?.enabled ?? false,
           buildMonitorRepos: data.build_monitor?.repos || {},
-          buildMonitorInterval: data.build_monitor?.interval ?? 5,
+          buildMonitorInterval: data.build_monitor?.interval_seconds ?? 60,
           buildMonitorTarget: data.build_monitor?.target ?? '',
           buildMonitorAutoWorkspace: data.build_monitor?.auto_workspace_on_first_failure ?? false,
           remoteAccessEnabled: data.remote_access?.enabled || false,

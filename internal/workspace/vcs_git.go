@@ -362,3 +362,36 @@ func (g *GitBackend) ListRecentBranches(ctx context.Context, path string, limit 
 func (g *GitBackend) GetBranchLog(ctx context.Context, path, branch string, limit int) ([]string, error) {
 	return nil, nil
 }
+
+// GetRemoteBranchHead resolves the branch's remote-tracking ref: origin first,
+// then the branch's configured tracking remote (fork workflow).
+func (g *GitBackend) GetRemoteBranchHead(ctx context.Context, workspacePath, branch string) (RemoteBranchHead, error) {
+	m := g.manager
+	remote := ""
+	if exists, _ := m.gitRemoteBranchExists(ctx, workspacePath, branch); exists {
+		remote = "origin"
+	} else {
+		tracking, _ := m.gitBranchTrackingRemote(ctx, "", RefreshTriggerExplicit, workspacePath, branch)
+		if tracking != "" && tracking != "origin" {
+			ref := "refs/remotes/" + tracking + "/" + branch
+			if err := m.runGitErr(ctx, "", RefreshTriggerExplicit, workspacePath, "show-ref", "--verify", "--quiet", ref); err == nil {
+				remote = tracking
+			}
+		}
+	}
+	if remote == "" {
+		return RemoteBranchHead{}, fmt.Errorf("branch %s has no remote counterpart", branch)
+	}
+	shaOut, err := m.runGit(ctx, "", RefreshTriggerExplicit, workspacePath, "rev-parse", "refs/remotes/"+remote+"/"+branch)
+	if err != nil {
+		return RemoteBranchHead{}, fmt.Errorf("resolving remote head of %s: %w", branch, err)
+	}
+	urlOut, err := m.runGit(ctx, "", RefreshTriggerExplicit, workspacePath, "remote", "get-url", remote)
+	if err != nil {
+		return RemoteBranchHead{}, fmt.Errorf("resolving URL of remote %s: %w", remote, err)
+	}
+	return RemoteBranchHead{
+		SHA:       strings.TrimSpace(string(shaOut)),
+		RemoteURL: strings.TrimSpace(string(urlOut)),
+	}, nil
+}
