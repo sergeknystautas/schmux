@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 func gitCmd(t *testing.T, dir string, args ...string) string {
@@ -83,5 +85,57 @@ func TestGitGetRemoteBranchHead_NoRemote(t *testing.T) {
 	m := newTestManager(t, newTestState(t))
 	if _, err := m.gitBackend.GetRemoteBranchHead(context.Background(), work, "feature"); err == nil {
 		t.Fatal("expected error for branch with no remote")
+	}
+}
+
+func TestGitStatusReportsRemoteHeadSHA(t *testing.T) {
+	work, _, sha := setupOriginClone(t)
+	m := newTestManager(t, newTestState(t))
+	_, _, _, _, _, _, _, _, _, _, _, _, remoteHeadSHA := m.gitStatus(context.Background(), "ws-test", RefreshTriggerExplicit, work, "https://example.com/repo.git")
+	if remoteHeadSHA != sha {
+		t.Errorf("remoteHeadSHA = %q, want %q", remoteHeadSHA, sha)
+	}
+
+	// A new push moves the remote ref; the next status reflects it.
+	gitCmd(t, work, "commit", "--allow-empty", "-m", "c2")
+	gitCmd(t, work, "push", "origin", "feature")
+	newSHA := gitCmd(t, work, "rev-parse", "HEAD")
+	_, _, _, _, _, _, _, _, _, _, _, _, remoteHeadSHA = m.gitStatus(context.Background(), "ws-test", RefreshTriggerExplicit, work, "https://example.com/repo.git")
+	if remoteHeadSHA != newSHA {
+		t.Errorf("after push remoteHeadSHA = %q, want %q", remoteHeadSHA, newSHA)
+	}
+}
+
+func TestGitStatusRemoteHeadSHAEmptyWithoutRemote(t *testing.T) {
+	base := t.TempDir()
+	work := filepath.Join(base, "solo")
+	gitCmd(t, base, "init", work)
+	gitCmd(t, work, "checkout", "-b", "feature")
+	gitCmd(t, work, "commit", "--allow-empty", "-m", "c1")
+	m := newTestManager(t, newTestState(t))
+	_, _, _, _, _, _, _, _, _, _, _, _, remoteHeadSHA := m.gitStatus(context.Background(), "ws-test", RefreshTriggerExplicit, work, "https://example.com/repo.git")
+	if remoteHeadSHA != "" {
+		t.Errorf("remoteHeadSHA = %q, want empty for local-only branch", remoteHeadSHA)
+	}
+}
+
+func TestUpdateVCSStatusStoresRemoteHeadSHA(t *testing.T) {
+	work, _, sha := setupOriginClone(t)
+	st := newTestState(t)
+	m := newTestManager(t, st)
+	if err := st.AddWorkspace(state.Workspace{
+		ID: "ws-head", Repo: "https://example.com/repo.git", Branch: "feature", Path: work,
+	}); err != nil {
+		t.Fatalf("AddWorkspace: %v", err)
+	}
+	if _, err := m.UpdateVCSStatus(context.Background(), "ws-head"); err != nil {
+		t.Fatalf("UpdateVCSStatus: %v", err)
+	}
+	w, ok := st.GetWorkspace("ws-head")
+	if !ok {
+		t.Fatal("workspace missing")
+	}
+	if w.RemoteHeadSHA != sha {
+		t.Errorf("state RemoteHeadSHA = %q, want %q", w.RemoteHeadSHA, sha)
 	}
 }

@@ -157,6 +157,7 @@ type Workspace struct {
 	RemoteBranchIsFork      bool              `json:"-"`                            // true if remote branch is on a non-origin remote (fork)
 	LocalUniqueCommits      int               `json:"-"`                            // commits in local not in remote (left count)
 	RemoteUniqueCommits     int               `json:"-"`                            // commits in remote not in local (right count)
+	RemoteHeadSHA           string            `json:"-"`                            // commit SHA of the remote branch head ("" when no remote branch)
 	RemoteHostID            string            `json:"remote_host_id,omitempty"`     // Empty for local workspaces
 	RemotePath              string            `json:"remote_path,omitempty"`        // Path on remote host
 	ConflictOnBranch        *string           `json:"conflict_on_branch,omitempty"` // Branch name where sync conflict was detected

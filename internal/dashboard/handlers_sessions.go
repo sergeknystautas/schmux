@@ -197,11 +197,20 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 		}
 
 		if h.workspaceStatus != nil {
-			if st, ok := h.workspaceStatus.Get(ws.ID); ok {
-				workspaceMap[ws.ID].CIStatus = st.CIStatus
-				workspaceMap[ws.ID].CIURL = st.CIURL
-				workspaceMap[ws.ID].PRNumber = st.PRNumber
-				workspaceMap[ws.ID].PRURL = st.PRURL
+			if e, ok := h.workspaceStatus.Lookup(ws.ID); ok {
+				item := workspaceMap[ws.ID]
+				if ws.RemoteHeadSHA != "" && e.HeadSHA != "" && ws.RemoteHeadSHA != e.HeadSHA {
+					// The remote branch moved past the commit this result is
+					// for: show "no runs yet for this commit" instead of a
+					// stale badge. The next pass fetches the new head. The PR
+					// link survives pushes, so it is served either way.
+					item.CIStatus = workspacestatus.CINone
+				} else {
+					item.CIStatus = e.Status.CIStatus
+					item.CIURL = e.Status.CIURL
+				}
+				item.PRNumber = e.Status.PRNumber
+				item.PRURL = e.Status.PRURL
 			}
 		}
 

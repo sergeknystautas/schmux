@@ -44,6 +44,7 @@ type VCSStatus struct {
 	FilesChanged          int
 	SyncedWithRemote      bool
 	RemoteBranchExists    bool
+	RemoteHeadSHA         string
 	LocalUniqueCommits    int
 	RemoteUniqueCommits   int
 	DefaultBranchOrphaned bool

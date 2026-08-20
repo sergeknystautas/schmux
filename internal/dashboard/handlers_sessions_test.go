@@ -141,3 +141,55 @@ func TestBuildSessionsResponseOmitsStatusWhenProviderNil(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildSessionsResponseDowngradesStaleCIStatus(t *testing.T) {
+	entry := workspacestatus.Entry{
+		Status:  workspacestatus.Status{CIStatus: workspacestatus.CIFailure, CIURL: "https://old-run", PRNumber: 7, PRURL: "https://pr"},
+		HeadSHA: "old-sha",
+	}
+	tests := []struct {
+		name          string
+		remoteHeadSHA string // on the workspace
+		entryHeadSHA  string // overrides entry.HeadSHA
+		wantCIStatus  string
+		wantCIURL     string
+	}{
+		{"match serves full status", "old-sha", "old-sha", "failure", "https://old-run"},
+		{"mismatch downgrades to none without url", "new-sha", "old-sha", "none", ""},
+		{"empty workspace sha serves as-is", "", "old-sha", "failure", "https://old-run"},
+		{"empty entry sha serves as-is", "new-sha", "", "failure", "https://old-run"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server, _, st := newTestServer(t)
+			if err := st.AddWorkspace(state.Workspace{
+				ID: "ws1", Repo: "https://github.com/acme/widget", Branch: "feature",
+				Path: t.TempDir(), Status: state.WorkspaceStatusRunning,
+				RemoteBranchExists: true, RemoteHeadSHA: tt.remoteHeadSHA,
+			}); err != nil {
+				t.Fatalf("AddWorkspace: %v", err)
+			}
+			e := entry
+			e.HeadSHA = tt.entryHeadSHA
+			server.workspaceStatus.Store("ws1", e)
+
+			items := server.sessionHandlers.buildSessionsResponse()
+			var item *WorkspaceResponseItem
+			for i := range items {
+				if items[i].ID == "ws1" {
+					item = &items[i]
+				}
+			}
+			if item == nil {
+				t.Fatal("ws1 missing from response")
+			}
+			if item.CIStatus != tt.wantCIStatus || item.CIURL != tt.wantCIURL {
+				t.Errorf("ci = (%q, %q), want (%q, %q)", item.CIStatus, item.CIURL, tt.wantCIStatus, tt.wantCIURL)
+			}
+			// PR fields are never downgraded.
+			if item.PRNumber != 7 || item.PRURL != "https://pr" {
+				t.Errorf("pr = (%d, %q), want (7, https://pr)", item.PRNumber, item.PRURL)
+			}
+		})
+	}
+}

@@ -515,12 +515,12 @@ func (m *Manager) hasCommonAncestorInstrumented(ctx context.Context, workspaceID
 }
 
 // gitStatus calculates the git status for a workspace directory.
-// Returns: (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, localUnique int, remoteUnique int, currentBranch string)
-func (m *Manager) gitStatus(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir, repoURL string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, remoteBranchIsFork bool, localUnique int, remoteUnique int, currentBranch string) {
+// Returns: (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, localUnique int, remoteUnique int, currentBranch string, remoteHeadSHA string)
+func (m *Manager) gitStatus(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir, repoURL string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, remoteBranchIsFork bool, localUnique int, remoteUnique int, currentBranch string, remoteHeadSHA string) {
 	return m.gitStatusWithRound(ctx, workspaceID, trigger, dir, repoURL, nil)
 }
 
-func (m *Manager) gitStatusWithRound(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir, repoURL string, round *pollRound) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, remoteBranchIsFork bool, localUnique int, remoteUnique int, currentBranch string) {
+func (m *Manager) gitStatusWithRound(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir, repoURL string, round *pollRound) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, remoteBranchIsFork bool, localUnique int, remoteUnique int, currentBranch string, remoteHeadSHA string) {
 	// Extract sub-caches from the poll round (nil-safe)
 	var fetchRound *gitFetchPollRound
 	var wtCache *worktreeListCache
@@ -608,6 +608,11 @@ func (m *Manager) gitStatusWithRound(ctx context.Context, workspaceID string, tr
 				}
 			}
 			commitsSyncedWithRemote = (localUnique == 0 && remoteUnique == 0)
+			// Record where the remote branch points so the dashboard can
+			// detect CI results computed for an older head.
+			if shaOut, shaErr := m.runGit(ctx, workspaceID, trigger, dir, "rev-parse", remoteRef); shaErr == nil {
+				remoteHeadSHA = strings.TrimSpace(string(shaOut))
+			}
 		}
 	}
 
@@ -660,7 +665,7 @@ func (m *Manager) gitStatusWithRound(ctx context.Context, workspaceID string, tr
 		}
 	}
 
-	return dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSyncedWithRemote, remoteBranchExists, remoteBranchIsFork, localUnique, remoteUnique, currentBranch
+	return dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSyncedWithRemote, remoteBranchExists, remoteBranchIsFork, localUnique, remoteUnique, currentBranch, remoteHeadSHA
 }
 
 // countLinesCapped counts newlines in a file up to maxBytes.

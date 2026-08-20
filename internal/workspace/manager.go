@@ -1158,6 +1158,7 @@ func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, worksp
 		fresh.RemoteBranchExists = status.RemoteBranchExists
 		fresh.LocalUniqueCommits = status.LocalUniqueCommits
 		fresh.RemoteUniqueCommits = status.RemoteUniqueCommits
+		fresh.RemoteHeadSHA = status.RemoteHeadSHA
 		if status.CurrentBranch != "" {
 			fresh.Branch = status.CurrentBranch
 		}
@@ -1168,7 +1169,7 @@ func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, worksp
 	}
 
 	// Git-specific status path
-	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSynced, remoteBranchExists, remoteBranchIsFork, localUnique, remoteUnique, currentBranch := m.gitStatusWithRound(ctx, workspaceID, trigger, w.Path, w.Repo, round)
+	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSynced, remoteBranchExists, remoteBranchIsFork, localUnique, remoteUnique, currentBranch, remoteHeadSHA := m.gitStatusWithRound(ctx, workspaceID, trigger, w.Path, w.Repo, round)
 
 	// Use branch from gitStatus; fall back to existing state if empty/detached
 	actualBranch := currentBranch
@@ -1210,6 +1211,7 @@ func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, worksp
 	fresh.RemoteBranchIsFork = remoteBranchIsFork
 	fresh.LocalUniqueCommits = localUnique
 	fresh.RemoteUniqueCommits = remoteUnique
+	fresh.RemoteHeadSHA = remoteHeadSHA
 
 	if err := m.state.UpdateWorkspace(fresh); err != nil {
 		return nil, fmt.Errorf("failed to update workspace in state: %w", err)

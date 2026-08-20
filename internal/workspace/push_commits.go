@@ -133,7 +133,7 @@ func (m *Manager) PushCommits(ctx context.Context, workspaceID, hash, target str
 	}
 
 	// Reject any local dirt (same rule as LinearSyncToDefault / PushToBranch).
-	dirty, _, _, linesAdded, linesRemoved, filesChanged, _, _, remoteBranchIsFork, _, _, _ := m.gitStatus(ctx, workspaceID, RefreshTriggerExplicit, dir, w.Repo)
+	dirty, _, _, linesAdded, linesRemoved, filesChanged, _, _, remoteBranchIsFork, _, _, _, _ := m.gitStatus(ctx, workspaceID, RefreshTriggerExplicit, dir, w.Repo)
 	if dirty || linesAdded != 0 || linesRemoved != 0 || filesChanged != 0 {
 		res.Reason = PushReasonDirty
 		res.Message = "workspace has local changes - commit or discard them before pushing"

@@ -260,6 +260,9 @@ func (g *GitBackend) GetStatus(ctx context.Context, workspacePath string) (VCSSt
 				}
 			}
 			status.SyncedWithRemote = (status.LocalUniqueCommits == 0 && status.RemoteUniqueCommits == 0)
+			if shaOut, shaErr := g.manager.runGit(ctx, "", RefreshTriggerExplicit, workspacePath, "rev-parse", remoteRef); shaErr == nil {
+				status.RemoteHeadSHA = strings.TrimSpace(string(shaOut))
+			}
 		}
 	}
 
