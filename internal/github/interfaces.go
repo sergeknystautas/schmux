@@ -13,11 +13,11 @@ import (
 // Consumers depend on this abstraction instead of the concrete Discovery type.
 type DiscoveryProvider interface {
 	GetPRs() ([]contracts.PullRequest, *time.Time, string)
-	Refresh(repos []config.Repo) ([]contracts.PullRequest, *int, error)
+	Refresh(repos []config.Repo, cfg *config.Config) ([]contracts.PullRequest, *int, error)
 	GetPublicRepos() []string
 	FindPR(repoURL string, prNumber int) (contracts.PullRequest, bool)
 	Seed(prs []contracts.PullRequest, publicRepos []string)
-	SetTarget(target string, getRepos func() []config.Repo)
+	SetTarget(target string, getRepos func() []config.Repo, cfg *config.Config)
 	Stop()
 }
 

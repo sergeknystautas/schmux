@@ -25,6 +25,7 @@ type Discovery struct {
 	ticker   *time.Ticker
 	stopChan chan struct{}
 	getRepos func() []config.Repo
+	cfg      *config.Config
 }
 
 // NewDiscovery creates a new Discovery instance.
@@ -64,10 +65,12 @@ func (d *Discovery) GetPublicRepos() []string {
 
 // Refresh discovers GitHub repos and fetches PRs.
 // Returns the fetched PRs and any rate limit retry-after value.
-func (d *Discovery) Refresh(repos []config.Repo) ([]contracts.PullRequest, *int, error) {
+// The cfg parameter is used to resolve per-repo GitHub OAuth tokens.
+func (d *Discovery) Refresh(repos []config.Repo, cfg *config.Config) ([]contracts.PullRequest, *int, error) {
 	// Step 1: Find GitHub repos and check visibility
 	var publicRepos []string
 	repoMap := make(map[string]config.Repo) // repoURL -> repo config
+	tokenMap := make(map[string]string)     // repoURL -> resolved token
 
 	for _, repo := range repos {
 		if !IsGitHubURL(repo.URL) {
@@ -81,7 +84,15 @@ func (d *Discovery) Refresh(repos []config.Repo) ([]contracts.PullRequest, *int,
 			continue
 		}
 
-		isPublic, err := CheckVisibility(info)
+		// Resolve per-repo OAuth token (empty when not configured).
+		var token string
+		if cfg != nil {
+			if login := cfg.GetGitHubLogin(repo.URL); login != "" {
+				token, _ = config.GetGitHubToken(login)
+			}
+		}
+
+		readable, err := CheckVisibility(info, token)
 		if err != nil {
 			var rle *RateLimitError
 			if errors.As(err, &rle) {
@@ -96,24 +107,25 @@ func (d *Discovery) Refresh(repos []config.Repo) ([]contracts.PullRequest, *int,
 			}
 			continue
 		}
-		if !isPublic {
+		if !readable {
 			if d.logger != nil {
-				d.logger.Info("skipping private/missing repo", "url", repo.URL)
+				d.logger.Info("skipping unreadable repo", "url", repo.URL)
 			}
 			continue
 		}
 
 		publicRepos = append(publicRepos, repo.URL)
 		repoMap[repo.URL] = repo
+		tokenMap[repo.URL] = token
 	}
 
-	// Step 2: Fetch PRs for public repos
+	// Step 2: Fetch PRs for visible repos
 	var allPRs []contracts.PullRequest
 	for _, repoURL := range publicRepos {
 		repo := repoMap[repoURL]
 		info, _ := ParseRepoURL(repoURL) // already validated above
 
-		prs, err := FetchOpenPRs(info, repo.Name, repoURL)
+		prs, err := FetchOpenPRs(info, repo.Name, repoURL, tokenMap[repoURL])
 		if err != nil {
 			var rle *RateLimitError
 			if errors.As(err, &rle) {
@@ -161,7 +173,7 @@ func (d *Discovery) FindPR(repoURL string, prNumber int) (contracts.PullRequest,
 // SetTarget enables or disables PR discovery polling based on target configuration.
 // Call with non-empty target and a function that returns current repos to start polling.
 // Call with empty target to stop.
-func (d *Discovery) SetTarget(target string, getRepos func() []config.Repo) {
+func (d *Discovery) SetTarget(target string, getRepos func() []config.Repo, cfg *config.Config) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -171,11 +183,12 @@ func (d *Discovery) SetTarget(target string, getRepos func() []config.Repo) {
 	if enabled && !wasEnabled {
 		// Start polling
 		d.getRepos = getRepos
+		d.cfg = cfg
 		d.stopChan = make(chan struct{})
 		d.ticker = time.NewTicker(1 * time.Hour)
 		go d.poll()
 		// Trigger immediate refresh
-		go d.Refresh(getRepos())
+		go d.Refresh(getRepos(), cfg)
 	} else if !enabled && wasEnabled {
 		// Stop polling
 		d.stop()
@@ -201,6 +214,7 @@ func (d *Discovery) stop() {
 		d.stopChan = nil
 	}
 	d.getRepos = nil
+	d.cfg = nil
 }
 
 // poll runs the hourly refresh loop until stopped.
@@ -215,9 +229,10 @@ func (d *Discovery) poll() {
 		case <-tickerC:
 			d.mu.RLock()
 			getRepos := d.getRepos
+			cfg := d.cfg
 			d.mu.RUnlock()
 			if getRepos != nil {
-				d.Refresh(getRepos())
+				d.Refresh(getRepos(), cfg)
 			}
 		case <-d.stopChan:
 			return

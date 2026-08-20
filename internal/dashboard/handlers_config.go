@@ -1086,7 +1086,7 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 
 	// Update PR discovery polling based on new config
 	// Pass a function so poll always uses current repos list
-	h.prDiscovery.SetTarget(cfg.GetPrReviewTarget(), func() []config.Repo { return cfg.GetRepos() })
+	h.prDiscovery.SetTarget(cfg.GetPrReviewTarget(), func() []config.Repo { return cfg.GetRepos() }, cfg)
 
 	// Refresh autolearn executor when target changes
 

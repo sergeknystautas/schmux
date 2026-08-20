@@ -3317,3 +3317,71 @@ func TestGetClipboardSyncEnabled(t *testing.T) {
 		t.Errorf("explicit true: got false, want true")
 	}
 }
+
+func TestGetGitHubLogin(t *testing.T) {
+	tests := []struct {
+		name      string
+		repos     []Repo
+		bmRepos   map[string]BuildMonitorRepoConfig
+		repoURL   string
+		wantLogin string
+	}{
+		{
+			name: "repo-level login takes precedence",
+			repos: []Repo{
+				{Name: "myrepo", URL: "https://github.com/org/myrepo", GitHubLogin: "alice"},
+			},
+			bmRepos: map[string]BuildMonitorRepoConfig{
+				"myrepo": {Enabled: true, GitHubLogin: "bob"},
+			},
+			repoURL:   "https://github.com/org/myrepo",
+			wantLogin: "alice",
+		},
+		{
+			name: "falls back to build monitor config",
+			repos: []Repo{
+				{Name: "myrepo", URL: "https://github.com/org/myrepo"},
+			},
+			bmRepos: map[string]BuildMonitorRepoConfig{
+				"myrepo": {Enabled: true, GitHubLogin: "bob"},
+			},
+			repoURL:   "https://github.com/org/myrepo",
+			wantLogin: "bob",
+		},
+		{
+			name: "empty when neither configured",
+			repos: []Repo{
+				{Name: "myrepo", URL: "https://github.com/org/myrepo"},
+			},
+			bmRepos:   map[string]BuildMonitorRepoConfig{},
+			repoURL:   "https://github.com/org/myrepo",
+			wantLogin: "",
+		},
+		{
+			name: "empty when repo not found",
+			repos: []Repo{
+				{Name: "myrepo", URL: "https://github.com/org/myrepo", GitHubLogin: "alice"},
+			},
+			bmRepos:   map[string]BuildMonitorRepoConfig{},
+			repoURL:   "https://github.com/org/other",
+			wantLogin: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				ConfigData: ConfigData{
+					Repos: tt.repos,
+					BuildMonitor: &BuildMonitorConfig{
+						Repos: tt.bmRepos,
+					},
+				},
+			}
+			got := cfg.GetGitHubLogin(tt.repoURL)
+			if got != tt.wantLogin {
+				t.Errorf("GetGitHubLogin(%q) = %q, want %q", tt.repoURL, got, tt.wantLogin)
+			}
+		})
+	}
+}

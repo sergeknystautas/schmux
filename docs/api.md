@@ -2685,7 +2685,7 @@ Notes:
 - PR discovery only runs when `pr_review.target` is configured in your config
 - Automatic polling is enabled only when PR discovery is needed (e.g., after config change or manual refresh)
 - On daemon startup, PRs are discovered if the target is configured
-- Only public GitHub repos are queried (unauthenticated API, 60 req/hour limit)
+- Public GitHub repos are queried unauthenticated (60 req/hour limit). Private repos are included when the repo has `github_login` set (on the `Repo` entry, or the legacy `build_monitor.repos` entry) and a matching GitHub OAuth identity has been authorized — the same identity connected for the build monitor. Repos without a configured identity are skipped silently, as before.
 - Limited to 5 open PRs per repo
 
 ### POST /api/prs/refresh

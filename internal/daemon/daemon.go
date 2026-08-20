@@ -1547,7 +1547,7 @@ func (d *Daemon) startBackgroundJobs(
 
 	// Initialize PR discovery polling based on current config
 	// Pass a function so poll always uses current repos list
-	prDiscovery.SetTarget(cfg.GetPrReviewTarget(), func() []config.Repo { return cfg.GetRepos() })
+	prDiscovery.SetTarget(cfg.GetPrReviewTarget(), func() []config.Repo { return cfg.GetRepos() }, cfg)
 }
 
 // initCompound creates and starts the overlay compounder for bidirectional

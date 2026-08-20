@@ -125,16 +125,16 @@ func (s *Server) handleBuildMonitorGet(w http.ResponseWriter, r *http.Request) {
 		if !s.config.GetBuildMonitorRepoEnabled(slug) {
 			continue
 		}
-		repoCfg, ok := bmRepos[slug]
-		if !ok {
+		if _, ok := bmRepos[slug]; !ok {
 			continue
 		}
 
+		login := s.config.GetGitHubLogin(repo.URL)
 		unit := buildMonitorUnitResponse{
 			Slug:        slug,
 			RepoName:    repo.Name,
-			Configured:  repoCfg.GitHubLogin != "",
-			GitHubLogin: repoCfg.GitHubLogin,
+			Configured:  login != "",
+			GitHubLogin: login,
 		}
 
 		// Parse owner/repo from URL
@@ -234,8 +234,7 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (buildMonitorResp
 		if !s.config.GetBuildMonitorRepoEnabled(slug) {
 			continue
 		}
-		repoCfg, ok := bmRepos[slug]
-		if !ok {
+		if _, ok := bmRepos[slug]; !ok {
 			continue
 		}
 
@@ -251,15 +250,16 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (buildMonitorResp
 		}
 
 		// Resolve token
-		token, err := config.GetGitHubToken(repoCfg.GitHubLogin)
+		login := s.config.GetGitHubLogin(repo.URL)
+		token, err := config.GetGitHubToken(login)
 		if err != nil || token == "" {
 			unit := buildMonitorUnitResponse{
 				Slug:        slug,
 				RepoName:    repo.Name,
 				Repo:        info.Owner + "/" + info.Repo,
 				Branch:      branch,
-				Configured:  repoCfg.GitHubLogin != "",
-				GitHubLogin: repoCfg.GitHubLogin,
+				Configured:  login != "",
+				GitHubLogin: login,
 				LastError:   "no token — authorize identity first",
 			}
 			response.Units = append(response.Units, unit)
@@ -299,7 +299,7 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (buildMonitorResp
 			base := launchDirective{
 				slug: slug, repoName: repo.Name, repoURL: repo.URL,
 				repo: info.Owner + "/" + info.Repo, info: info,
-				login: repoCfg.GitHubLogin,
+				login: login,
 			}
 			unitDirectives = collectUnitDirectives(base, events, state, state.CheckedAt)
 		}
@@ -324,8 +324,8 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (buildMonitorResp
 			Workflows:              state.Workflows,
 			CheckedAt:              state.CheckedAt,
 			LastError:              state.LastError,
-			Configured:             repoCfg.GitHubLogin != "",
-			GitHubLogin:            repoCfg.GitHubLogin,
+			Configured:             login != "",
+			GitHubLogin:            login,
 			RemediationWorkspaceID: state.RemediationWorkspaceID,
 		}
 		response.Units = append(response.Units, unitResp)
@@ -574,11 +574,6 @@ func (s *Server) handleBuildMonitorLaunch(w http.ResponseWriter, r *http.Request
 		writeJSONError(w, "Repo is not monitored", http.StatusNotFound)
 		return
 	}
-	repoCfg, ok := s.config.GetBuildMonitorRepo(slug)
-	if !ok || repoCfg.GitHubLogin == "" {
-		writeJSONError(w, "Repo has no authorized identity", http.StatusBadRequest)
-		return
-	}
 	var repoName, repoURL string
 	for _, repo := range s.config.GetRepos() {
 		if repoSlug(repo.Name) == slug {
@@ -588,6 +583,11 @@ func (s *Server) handleBuildMonitorLaunch(w http.ResponseWriter, r *http.Request
 	}
 	if repoURL == "" {
 		writeJSONError(w, "Unknown repo", http.StatusNotFound)
+		return
+	}
+	login := s.config.GetGitHubLogin(repoURL)
+	if login == "" {
+		writeJSONError(w, "Repo has no authorized identity", http.StatusBadRequest)
 		return
 	}
 	info, err := github.ParseRepoURL(repoURL)
@@ -631,7 +631,7 @@ func (s *Server) handleBuildMonitorLaunch(w http.ResponseWriter, r *http.Request
 	d := launchDirective{
 		slug: slug, repoName: repoName, repoURL: repoURL,
 		repo: info.Owner + "/" + info.Repo, info: info,
-		login: repoCfg.GitHubLogin, workflow: *wf,
+		login: login, workflow: *wf,
 	}
 	sessionID, err := s.spawnBuildFailureSession(ctx, d, ws.ID, ws.Path, target)
 	if err != nil {

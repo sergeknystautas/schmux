@@ -39,9 +39,11 @@ func (e *RateLimitError) Error() string {
 	return fmt.Sprintf("GitHub API rate limit exceeded, retry after %d seconds", e.RetryAfterSec)
 }
 
-// CheckVisibility checks whether a GitHub repo is public.
-// Returns true if the repo is public, false if private or not found.
-func CheckVisibility(info RepoInfo) (bool, error) {
+// CheckVisibility checks whether a GitHub repo is readable with the given
+// credentials. Returns true if the repo exists and is accessible, false if
+// it is private/missing and no token was provided. When a token is provided,
+// a 404 returns an error instead of a silent skip.
+func CheckVisibility(info RepoInfo, token string) (bool, error) {
 	url := fmt.Sprintf("%s/repos/%s", apiBaseURL, info.APIPath())
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -49,6 +51,9 @@ func CheckVisibility(info RepoInfo) (bool, error) {
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", userAgent)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -60,6 +65,9 @@ func CheckVisibility(info RepoInfo) (bool, error) {
 		return false, forbiddenError(resp)
 	}
 	if resp.StatusCode == http.StatusNotFound {
+		if token != "" {
+			return false, fmt.Errorf("repo %s not found or token lacks access", info.APIPath())
+		}
 		return false, nil
 	}
 	if resp.StatusCode != http.StatusOK {
@@ -67,17 +75,15 @@ func CheckVisibility(info RepoInfo) (bool, error) {
 		return false, fmt.Errorf("unexpected status %d checking repo visibility: %s", resp.StatusCode, string(body))
 	}
 
-	var repoData struct {
-		Private bool `json:"private"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&repoData); err != nil {
-		return false, fmt.Errorf("failed to decode repo response: %w", err)
-	}
-	return !repoData.Private, nil
+	// Any 200 response means the repo is readable — we don't care about
+	// the private flag anymore, just that we can see it.
+	return true, nil
 }
 
-// FetchOpenPRs fetches open pull requests for a public GitHub repo.
-func FetchOpenPRs(info RepoInfo, repoName, repoURL string) ([]contracts.PullRequest, error) {
+// FetchOpenPRs fetches open pull requests for a GitHub repo.
+// When token is non-empty, the request is authenticated (required for
+// private repos).
+func FetchOpenPRs(info RepoInfo, repoName, repoURL, token string) ([]contracts.PullRequest, error) {
 	url := fmt.Sprintf("%s/repos/%s/pulls?state=open&per_page=%d", apiBaseURL, info.APIPath(), maxPRs)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -85,6 +91,9 @@ func FetchOpenPRs(info RepoInfo, repoName, repoURL string) ([]contracts.PullRequ
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", userAgent)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {

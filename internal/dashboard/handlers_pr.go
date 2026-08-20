@@ -35,7 +35,7 @@ func (s *Server) handlePRs(w http.ResponseWriter, r *http.Request) {
 
 // handlePRRefresh handles POST /api/prs/refresh - re-runs PR discovery.
 func (s *Server) handlePRRefresh(w http.ResponseWriter, r *http.Request) {
-	prs, retryAfter, err := s.prDiscovery.Refresh(s.config.GetRepos())
+	prs, retryAfter, err := s.prDiscovery.Refresh(s.config.GetRepos(), s.config)
 	if err != nil {
 		cached, _, _ := s.prDiscovery.GetPRs()
 		if cached == nil {

@@ -15,11 +15,11 @@ import (
 // DiscoveryProvider defines the interface for PR discovery and lifecycle management.
 type DiscoveryProvider interface {
 	GetPRs() ([]contracts.PullRequest, *time.Time, string)
-	Refresh(repos []config.Repo) ([]contracts.PullRequest, *int, error)
+	Refresh(repos []config.Repo, cfg *config.Config) ([]contracts.PullRequest, *int, error)
 	GetPublicRepos() []string
 	FindPR(repoURL string, prNumber int) (contracts.PullRequest, bool)
 	Seed(prs []contracts.PullRequest, publicRepos []string)
-	SetTarget(target string, getRepos func() []config.Repo)
+	SetTarget(target string, getRepos func() []config.Repo, cfg *config.Config)
 	Stop()
 }
 
@@ -38,7 +38,7 @@ func (d *Discovery) GetPRs() ([]contracts.PullRequest, *time.Time, string) {
 	return nil, nil, ""
 }
 
-func (d *Discovery) Refresh(_ []config.Repo) ([]contracts.PullRequest, *int, error) {
+func (d *Discovery) Refresh(_ []config.Repo, _ *config.Config) ([]contracts.PullRequest, *int, error) {
 	return nil, nil, fmt.Errorf("GitHub integration is not available in this build")
 }
 
@@ -50,7 +50,7 @@ func (d *Discovery) FindPR(_ string, _ int) (contracts.PullRequest, bool) {
 
 func (d *Discovery) Seed(_ []contracts.PullRequest, _ []string) {}
 
-func (d *Discovery) SetTarget(_ string, _ func() []config.Repo) {}
+func (d *Discovery) SetTarget(_ string, _ func() []config.Repo, _ *config.Config) {}
 
 func (d *Discovery) Stop() {}
 
@@ -100,12 +100,12 @@ func (e *RateLimitError) Error() string {
 }
 
 // CheckVisibility returns false when the GitHub module is excluded.
-func CheckVisibility(_ RepoInfo) (bool, error) {
+func CheckVisibility(_ RepoInfo, _ string) (bool, error) {
 	return false, fmt.Errorf("GitHub integration is not available in this build")
 }
 
 // FetchOpenPRs returns an error when the GitHub module is excluded.
-func FetchOpenPRs(_ RepoInfo, _, _ string) ([]contracts.PullRequest, error) {
+func FetchOpenPRs(_ RepoInfo, _, _, _ string) ([]contracts.PullRequest, error) {
 	return nil, fmt.Errorf("GitHub integration is not available in this build")
 }
 

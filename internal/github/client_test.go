@@ -14,9 +14,11 @@ func TestCheckVisibility(t *testing.T) {
 		name       string
 		statusCode int
 		body       string
+		token      string
 		wantPublic bool
 		wantErr    bool
 		wantRate   bool
+		wantAuth   string // expected Authorization header value
 	}{
 		{
 			name:       "public repo",
@@ -25,13 +27,13 @@ func TestCheckVisibility(t *testing.T) {
 			wantPublic: true,
 		},
 		{
-			name:       "private repo",
-			statusCode: 200,
-			body:       `{"private": true}`,
+			name:       "private repo unauthenticated",
+			statusCode: 404,
+			body:       `{"message": "Not Found"}`,
 			wantPublic: false,
 		},
 		{
-			name:       "not found",
+			name:       "not found unauthenticated",
 			statusCode: 404,
 			body:       `{"message": "Not Found"}`,
 			wantPublic: false,
@@ -42,6 +44,30 @@ func TestCheckVisibility(t *testing.T) {
 			body:       `{"message": "rate limit exceeded"}`,
 			wantErr:    true,
 			wantRate:   true,
+		},
+		{
+			name:       "private repo authenticated",
+			statusCode: 200,
+			body:       `{"private": true}`,
+			token:      "tok123",
+			wantPublic: true,
+			wantAuth:   "Bearer tok123",
+		},
+		{
+			name:       "public repo authenticated",
+			statusCode: 200,
+			body:       `{"private": false}`,
+			token:      "tok123",
+			wantPublic: true,
+			wantAuth:   "Bearer tok123",
+		},
+		{
+			name:       "not found authenticated",
+			statusCode: 404,
+			body:       `{"message": "Not Found"}`,
+			token:      "tok123",
+			wantErr:    true,
+			wantAuth:   "Bearer tok123",
 		},
 	}
 
@@ -54,6 +80,15 @@ func TestCheckVisibility(t *testing.T) {
 				if r.Header.Get("Accept") != "application/vnd.github+json" {
 					t.Errorf("expected Accept header for GitHub API")
 				}
+				if tt.wantAuth != "" {
+					if got := r.Header.Get("Authorization"); got != tt.wantAuth {
+						t.Errorf("expected Authorization %q, got %q", tt.wantAuth, got)
+					}
+				} else {
+					if got := r.Header.Get("Authorization"); got != "" {
+						t.Errorf("expected no Authorization header, got %q", got)
+					}
+				}
 				w.WriteHeader(tt.statusCode)
 				w.Write([]byte(tt.body))
 			}))
@@ -64,7 +99,7 @@ func TestCheckVisibility(t *testing.T) {
 			defer func() { setAPIBaseURL(origBase) }()
 			setAPIBaseURL(server.URL)
 
-			isPublic, err := CheckVisibility(RepoInfo{Owner: "user", Repo: "repo"})
+			isPublic, err := CheckVisibility(RepoInfo{Owner: "user", Repo: "repo"}, tt.token)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("CheckVisibility() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -113,7 +148,7 @@ func TestFetchOpenPRs(t *testing.T) {
 	defer func() { setAPIBaseURL(origBase) }()
 	setAPIBaseURL(server.URL)
 
-	prs, err := FetchOpenPRs(RepoInfo{Owner: "user", Repo: "repo"}, "repo", "git@github.com:user/repo.git")
+	prs, err := FetchOpenPRs(RepoInfo{Owner: "user", Repo: "repo"}, "repo", "git@github.com:user/repo.git", "")
 	if err != nil {
 		t.Fatalf("FetchOpenPRs() error = %v", err)
 	}
@@ -156,7 +191,7 @@ func TestFetchOpenPRs_RateLimit(t *testing.T) {
 	defer func() { setAPIBaseURL(origBase) }()
 	setAPIBaseURL(server.URL)
 
-	_, err := FetchOpenPRs(RepoInfo{Owner: "user", Repo: "repo"}, "repo", "git@github.com:user/repo.git")
+	_, err := FetchOpenPRs(RepoInfo{Owner: "user", Repo: "repo"}, "repo", "git@github.com:user/repo.git", "")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -166,6 +201,46 @@ func TestFetchOpenPRs_RateLimit(t *testing.T) {
 	}
 	if rle.RetryAfterSec != 120 {
 		t.Errorf("expected RetryAfterSec 120, got %d", rle.RetryAfterSec)
+	}
+}
+
+func TestFetchOpenPRs_AuthHeader(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer tok456" {
+			t.Errorf("expected Authorization %q, got %q", "Bearer tok456", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+	}))
+	defer server.Close()
+
+	origBase := apiBaseURL
+	defer func() { setAPIBaseURL(origBase) }()
+	setAPIBaseURL(server.URL)
+
+	_, err := FetchOpenPRs(RepoInfo{Owner: "user", Repo: "repo"}, "repo", "git@github.com:user/repo.git", "tok456")
+	if err != nil {
+		t.Fatalf("FetchOpenPRs() error = %v", err)
+	}
+}
+
+func TestFetchOpenPRs_NoAuthHeader(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Errorf("expected no Authorization header, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]map[string]interface{}{})
+	}))
+	defer server.Close()
+
+	origBase := apiBaseURL
+	defer func() { setAPIBaseURL(origBase) }()
+	setAPIBaseURL(server.URL)
+
+	_, err := FetchOpenPRs(RepoInfo{Owner: "user", Repo: "repo"}, "repo", "git@github.com:user/repo.git", "")
+	if err != nil {
+		t.Fatalf("FetchOpenPRs() error = %v", err)
 	}
 }
 

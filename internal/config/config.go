@@ -633,6 +633,7 @@ type Repo struct {
 	VCS                   string   `json:"vcs,omitempty"`
 	OverlayPaths          []string `json:"overlay_paths,omitempty"`
 	OverlayNudgeDismissed bool     `json:"overlay_nudge_dismissed,omitempty"`
+	GitHubLogin           string   `json:"github_login,omitempty"`
 }
 
 // ShellCommand is an argv-array config value for shell-executed commands
@@ -1596,6 +1597,44 @@ func (c *Config) GetBuildMonitorRepo(slug string) (BuildMonitorRepoConfig, bool)
 	}
 	r, ok := c.BuildMonitor.Repos[slug]
 	return r, ok
+}
+
+// GetGitHubLogin returns the GitHub OAuth login configured for a repo.
+// Repo-level config takes precedence over the legacy build-monitor field.
+func (c *Config) GetGitHubLogin(repoURL string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for _, repo := range c.Repos {
+		if repo.URL == repoURL {
+			if repo.GitHubLogin != "" {
+				return repo.GitHubLogin
+			}
+			if c.BuildMonitor != nil && c.BuildMonitor.Repos != nil {
+				if bmCfg, ok := c.BuildMonitor.Repos[repoSlug(repo.Name)]; ok {
+					return bmCfg.GitHubLogin
+				}
+			}
+			break
+		}
+	}
+	return ""
+}
+
+// repoSlug creates a URL-safe slug from a repo name. Mirrors
+// dashboard.repoSlug — BuildMonitorConfig.Repos is keyed by this slug.
+func repoSlug(name string) string {
+	result := make([]byte, 0, len(name))
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if c >= 'a' && c <= 'z' || c >= '0' && c <= '9' {
+			result = append(result, c)
+		} else if c >= 'A' && c <= 'Z' {
+			result = append(result, c+32) // lowercase
+		} else {
+			result = append(result, '-')
+		}
+	}
+	return string(result)
 }
 
 // GetBuildMonitorIntervalSeconds returns the check pass interval, defaulting
