@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -117,23 +118,35 @@ func (s *TmuxServer) StartServer(ctx context.Context) error {
 }
 
 // CreateSession creates a new tmux session with the given name, directory, and command.
-func (s *TmuxServer) CreateSession(ctx context.Context, name, dir, command string) error {
+func (s *TmuxServer) CreateSession(ctx context.Context, name, dir, command string) (int, error) {
 	// Validate session name to prevent command injection
 	if err := ValidateSessionName(name); err != nil {
-		return fmt.Errorf("invalid session name: %w", err)
+		return 0, fmt.Errorf("invalid session name: %w", err)
 	}
 
+	// -P -F prints the new pane's PID from the same server command that forks
+	// the pane, so the PID is captured atomically. A follow-up query (e.g.
+	// GetPanePID) can race the pane's lifecycle and read an empty pane_pid.
 	args := []string{
 		"new-session",
-		"-d",       // detached
+		"-d", // detached
+		"-P", "-F", "#{pane_pid}",
 		"-s", name, // session name
 		"-c", dir, // working directory
 		command,
 	}
 
 	cmd := s.cmd(ctx, args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to create tmux session: %w: %s", err, string(output))
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return 0, fmt.Errorf("failed to create tmux session: %w: %s", err, stderr.String())
+	}
+	pidStr := strings.TrimSpace(stdout.String())
+	pid, err := strconv.Atoi(pidStr)
+	if err != nil || pid <= 0 {
+		return 0, fmt.Errorf("failed to parse pane PID from new-session output %q", pidStr)
 	}
 
 	// Set scrollback to 10000 lines (tmux default is 2000)
@@ -143,7 +156,7 @@ func (s *TmuxServer) CreateSession(ctx context.Context, name, dir, command strin
 		}
 	}
 
-	return nil
+	return pid, nil
 }
 
 // KillSession kills a tmux session.

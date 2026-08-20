@@ -942,7 +942,7 @@ func TestNicknameExists(t *testing.T) {
 		t.Cleanup(func() {
 			_ = server.KillSession(ctx, tmuxName)
 		})
-		if err := server.CreateSession(ctx, tmuxName, t.TempDir(), "sleep 600"); err != nil {
+		if _, err := server.CreateSession(ctx, tmuxName, t.TempDir(), "sleep 600"); err != nil {
 			t.Skipf("cannot create tmux session: %v", err)
 		}
 
@@ -1016,7 +1016,7 @@ func TestGenerateUniqueNickname(t *testing.T) {
 			_ = server.KillSession(ctx, tmuxName)
 		})
 
-		if err := server.CreateSession(ctx, tmuxName, t.TempDir(), "sleep 600"); err != nil {
+		if _, err := server.CreateSession(ctx, tmuxName, t.TempDir(), "sleep 600"); err != nil {
 			t.Skipf("cannot create tmux session: %v", err)
 		}
 

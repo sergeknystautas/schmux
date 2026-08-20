@@ -25,7 +25,7 @@ func benchSetup(tb testing.TB) (tracker *SessionRuntime, outputCh <-chan Sequenc
 	tmuxName = fmt.Sprintf("bench-%d", time.Now().UnixNano())
 	ctx := context.Background()
 
-	if err := benchServer.CreateSession(ctx, tmuxName, "/tmp", "cat"); err != nil {
+	if _, err := benchServer.CreateSession(ctx, tmuxName, "/tmp", "cat"); err != nil {
 		tb.Fatalf("failed to create tmux session: %v", err)
 	}
 
@@ -76,7 +76,7 @@ func benchSetupStressed(tb testing.TB) (tracker *SessionRuntime, outputCh <-chan
 	ctx := context.Background()
 
 	cmd := `sh -c 'while true; do seq 1 50; sleep 0.05; done & exec cat'`
-	if err := benchServer.CreateSession(ctx, tmuxName, "/tmp", cmd); err != nil {
+	if _, err := benchServer.CreateSession(ctx, tmuxName, "/tmp", cmd); err != nil {
 		tb.Fatalf("failed to create stressed tmux session: %v", err)
 	}
 

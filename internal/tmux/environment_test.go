@@ -21,7 +21,7 @@ func TestShowEnvironment(t *testing.T) {
 		_ = server.KillSession(ctx, sessName)
 	})
 
-	if err := server.CreateSession(ctx, sessName, t.TempDir(), "sleep 600"); err != nil {
+	if _, err := server.CreateSession(ctx, sessName, t.TempDir(), "sleep 600"); err != nil {
 		t.Skip("cannot create tmux session:", err)
 	}
 
@@ -49,7 +49,7 @@ func TestSetEnvironment(t *testing.T) {
 		_ = server.KillSession(ctx, sessName)
 	})
 
-	if err := server.CreateSession(ctx, sessName, t.TempDir(), "sleep 600"); err != nil {
+	if _, err := server.CreateSession(ctx, sessName, t.TempDir(), "sleep 600"); err != nil {
 		t.Skip("cannot create tmux session:", err)
 	}
 

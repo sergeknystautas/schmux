@@ -215,8 +215,8 @@ func (m *Manager) spawn(ctx context.Context) error {
 			return fmt.Errorf("failed to build command: %w", err)
 		}
 
-		// Create tmux session
-		if createErr := m.server.CreateSession(ctx, m.sessionName, m.workDir, command); createErr != nil {
+		// Create tmux session (pane PID unused here)
+		if _, createErr := m.server.CreateSession(ctx, m.sessionName, m.workDir, command); createErr != nil {
 			return fmt.Errorf("failed to create tmux session: %w", createErr)
 		}
 	}
@@ -261,7 +261,7 @@ func (m *Manager) spawnResume(ctx context.Context) error {
 			return err
 		}
 
-		if createErr := m.server.CreateSession(ctx, m.sessionName, m.workDir, command); createErr != nil {
+		if _, createErr := m.server.CreateSession(ctx, m.sessionName, m.workDir, command); createErr != nil {
 			return createErr
 		}
 	}

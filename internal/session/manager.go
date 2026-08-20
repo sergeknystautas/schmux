@@ -1092,7 +1092,9 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	if err != nil {
 		return nil, err
 	}
-	err = m.server.CreateSession(ctx, tmuxSession, w.Path, command)
+	// CreateSession reports the pane PID atomically from the creation command,
+	// so no follow-up PID query can race the pane's lifecycle.
+	pid, err := m.server.CreateSession(ctx, tmuxSession, w.Path, command)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tmux session: %w", err)
 	}
@@ -1107,13 +1109,6 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 
 	// Configure status bar: process on left, time on right, clear center
 	m.server.ConfigureStatusBar(ctx, tmuxSession)
-
-	// Get the PID of the agent process from tmux pane
-	var pid int
-	pid, err = m.server.GetPanePID(ctx, tmuxSession)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get pane PID: %w", err)
-	}
 
 	// Create session state with cached PID (no Prompt field)
 	sess := state.Session{
@@ -1196,20 +1191,15 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 	if err != nil {
 		return nil, err
 	}
-	err = m.server.CreateSession(ctx, tmuxSession, w.Path, commandWithEnv)
+	// CreateSession reports the pane PID atomically from the creation command,
+	// so no follow-up PID query can race the pane's lifecycle.
+	pid, err := m.server.CreateSession(ctx, tmuxSession, w.Path, commandWithEnv)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tmux session: %w", err)
 	}
 
 	// Configure status bar: process on left, time on right, clear center
 	m.server.ConfigureStatusBar(ctx, tmuxSession)
-
-	// Get the PID of the process from tmux pane
-	var pid int
-	pid, err = m.server.GetPanePID(ctx, tmuxSession)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get pane PID: %w", err)
-	}
 
 	// Create session state (Target uses a stable value for command-based sessions)
 	sess := state.Session{

@@ -181,7 +181,7 @@ func TestFenceAnalyze_Success(t *testing.T) {
 		t.Fatalf("AddWorkspace: %v", err)
 	}
 	const sourceTmuxSession = "fence-analysis-source"
-	if err := tmuxServer.CreateSession(
+	if _, err := tmuxServer.CreateSession(
 		context.Background(),
 		sourceTmuxSession,
 		targetWS,

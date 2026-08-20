@@ -2,6 +2,8 @@ package tmux
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -75,7 +77,7 @@ func TestContextCancellation(t *testing.T) {
 	defer cancel()
 
 	t.Run("CreateSession rejects cancelled context", func(t *testing.T) {
-		err := testServer.CreateSession(expiredCtx, "test", "/tmp", "echo test")
+		_, err := testServer.CreateSession(expiredCtx, "test", "/tmp", "echo test")
 		if err == nil {
 			t.Error("expected error from cancelled context, got nil")
 		}
@@ -473,5 +475,32 @@ func TestGetAttachCommandValidation(t *testing.T) {
 				t.Errorf("GetAttachCommand(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestCreateSessionReturnsPanePID(t *testing.T) {
+	server := NewTmuxServer("tmux", "default", nil)
+	if err := server.Check(); err != nil {
+		t.Skip("tmux not available")
+	}
+	ctx := context.Background()
+	sessName := fmt.Sprintf("schmux-pid-test-%d", os.Getpid())
+	_ = server.KillSession(ctx, sessName)
+	t.Cleanup(func() { _ = server.KillSession(ctx, sessName) })
+
+	pid, err := server.CreateSession(ctx, sessName, t.TempDir(), "sleep 600")
+	if err != nil {
+		t.Skip("cannot create tmux session:", err)
+	}
+	if pid <= 0 {
+		t.Fatalf("CreateSession pid = %d, want > 0", pid)
+	}
+	// The atomically captured PID must match a query on the still-live pane.
+	queried, err := server.GetPanePID(ctx, sessName)
+	if err != nil {
+		t.Fatalf("GetPanePID: %v", err)
+	}
+	if pid != queried {
+		t.Errorf("CreateSession pid = %d, GetPanePID = %d", pid, queried)
 	}
 }
