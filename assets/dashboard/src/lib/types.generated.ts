@@ -12,6 +12,16 @@ export interface AccessControlUpdate {
   session_ttl_minutes?: number;
 }
 
+export interface BranchDivergenceResponse {
+  branch: string;
+  local_head: string;
+  remote_head: string;
+  local_commits: DivergenceCommit[];
+  remote_commits: DivergenceCommit[];
+  local_total: number;
+  remote_total: number;
+}
+
 export interface BranchSuggest {
   target?: string;
 }
@@ -307,6 +317,14 @@ export interface DiffResponse {
   repo: string;
   branch: string;
   files: DiffFileSummary[];
+}
+
+export interface DivergenceCommit {
+  hash: string;
+  short_hash: string;
+  author: string;
+  timestamp: string;
+  subject: string;
 }
 
 export interface EnvironmentResponse {

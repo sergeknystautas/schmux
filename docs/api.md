@@ -2181,17 +2181,60 @@ Notes:
 - Updates workspace git status after sync
 - Supports both on-main and feature-branch workflows
 
+### GET /api/workspaces/{workspaceId}/branch-divergence
+
+Fetches origin, then reports how the workspace branch differs from
+`origin/<branch>` in both directions. Each commit list is capped at 10
+entries (newest first); `local_total`/`remote_total` give full counts.
+`local_head`/`remote_head`/`branch` are the reviewed tuple a confirmed
+force push binds to via `expected_local`/`expected_remote` on
+`POST push-to-branch`.
+
+Response `200`:
+
+```json
+{
+  "branch": "feature/foo",
+  "local_head": "f6e5d4c…",
+  "remote_head": "9a8b7c6…",
+  "local_commits": [
+    {
+      "hash": "…",
+      "short_hash": "a1b2c3d",
+      "author": "Jane Doe",
+      "timestamp": "2026-08-19T14:03:11-07:00",
+      "subject": "fix the thing"
+    }
+  ],
+  "remote_commits": [],
+  "local_total": 1,
+  "remote_total": 0
+}
+```
+
+When `origin/<branch>` does not exist, `remote_head` is `""`,
+`remote_commits` is empty, and every commit reachable from `HEAD` counts
+as local-only. Errors: `404` unknown workspace, `500` git failure.
+
 ### POST /api/workspaces/{workspaceId}/push-to-branch
 
 Pushes the workspace's current branch to `origin/{branch}` using `--force-with-lease`, creating the remote branch if necessary.
 
-Request body (optional):
+Request body:
 
 ```json
-{
-  "confirm": true
-}
+{ "confirm": false, "expected_local": "", "expected_remote": "" }
 ```
+
+- `confirm`: required to push when the branches have diverged (otherwise
+  `needs_confirm: true` is returned).
+- `expected_local` / `expected_remote` (optional, only meaningful with
+  `confirm: true`): the reviewed snapshot from
+  `GET branch-divergence`. When set, the push fails if `HEAD` no longer
+  equals `expected_local` ("local branch changed since review"), and the
+  lease is explicit (`--force-with-lease=refs/heads/<branch>:<expected_remote>`)
+  so a remote change since review fails the push instead of being
+  overwritten. When omitted, the legacy bare `--force-with-lease` is used.
 
 Response (success):
 

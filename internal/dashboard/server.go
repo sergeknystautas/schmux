@@ -970,6 +970,7 @@ func (s *Server) Start() error {
 				// Linear sync routes
 				r.Post("/linear-sync-from-main", gitH.handleLinearSyncFromMain)
 				r.Post("/linear-sync-to-main", gitH.handleLinearSyncToMain)
+				r.Get("/branch-divergence", gitH.handleGetBranchDivergence)
 				r.Post("/push-to-branch", gitH.handlePushToBranch)
 				r.Post("/push-commits", gitH.handlePushCommits)
 				r.Get("/github-connect", gitH.handleGitHubConnectStatus)

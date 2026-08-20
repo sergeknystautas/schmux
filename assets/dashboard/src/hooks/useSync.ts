@@ -168,10 +168,17 @@ export function useSync() {
         if (result.success) {
           const branch = branchName || 'current branch';
           toastSuccess(`Pushed to origin/${branch}`);
+        } else if (result.needs_confirm) {
+          await alert(
+            'Push rejected',
+            `origin/${branchName || 'the branch'} has commits that aren't in your local branch. ` +
+              'Hold Shift and click Push to branch to review what would be overwritten and force push.'
+          );
         } else {
           await alert(
             'Error',
-            'Push failed. The remote branch may have commits that are not in your local branch.'
+            result.message ||
+              'Push failed. The remote branch may have commits that are not in your local branch.'
           );
         }
       } catch (err) {

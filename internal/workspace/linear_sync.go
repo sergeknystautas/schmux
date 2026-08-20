@@ -362,9 +362,15 @@ func (m *Manager) LinearSyncToDefault(ctx context.Context, workspaceID string) (
 
 // PushToBranch pushes the current branch to origin using --force-with-lease.
 // Creates the branch on origin if it doesn't exist.
-// Fails if local is behind origin (would overwrite newer remote commits).
+// Fails if local is behind origin (would overwrite newer remote commits) —
+// regardless of confirm.
 // If branches have diverged and confirm=false, returns NeedsConfirm=true with divergent commit info.
-func (m *Manager) PushToBranch(ctx context.Context, workspaceID string, confirm bool) (*LinearSyncResult, error) {
+// When confirm=true with expectedLocal/expectedRemote set (the force-push modal path),
+// the push is bound to that reviewed snapshot: HEAD must still equal expectedLocal,
+// and the lease names expectedRemote explicitly, so a remote or local change since
+// review fails the push instead of overwriting unreviewed commits.
+// confirm=true with empty expected values keeps the legacy bare-lease behavior.
+func (m *Manager) PushToBranch(ctx context.Context, workspaceID string, confirm bool, expectedLocal, expectedRemote string) (*LinearSyncResult, error) {
 	w, found := m.state.GetWorkspace(workspaceID)
 	if !found {
 		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
@@ -443,6 +449,23 @@ func (m *Manager) PushToBranch(ctx context.Context, workspaceID string, confirm 
 					DivergedCommits: divergedCommits,
 				}, nil
 			}
+
+			// confirm=true on a diverged branch. Bind to the reviewed snapshot when given.
+			if expectedLocal != "" {
+				headCmd := exec.CommandContext(ctx, "git", "rev-parse", "HEAD")
+				headCmd.Dir = workspacePath
+				headOut, err := headCmd.Output()
+				if err != nil {
+					return nil, fmt.Errorf("git rev-parse HEAD failed: %w", err)
+				}
+				if strings.TrimSpace(string(headOut)) != expectedLocal {
+					return &LinearSyncResult{
+						Success: false,
+						Branch:  branch,
+						Message: "local branch changed since review - reopen the push options to see the new state",
+					}, nil
+				}
+			}
 		}
 	}
 
@@ -457,7 +480,11 @@ func (m *Manager) PushToBranch(ctx context.Context, workspaceID string, confirm 
 
 	// 4. Push to origin/branch
 	m.logger.Info("push-to-branch: pushing", "workspace", workspaceID, "branch", branch)
-	pushCmd := exec.CommandContext(ctx, "git", "push", "--force-with-lease", "origin", "HEAD:"+branch)
+	lease := "--force-with-lease"
+	if expectedRemote != "" {
+		lease = fmt.Sprintf("--force-with-lease=refs/heads/%s:%s", branch, expectedRemote)
+	}
+	pushCmd := exec.CommandContext(ctx, "git", "push", lease, "origin", "HEAD:"+branch)
 	pushCmd.Dir = workspacePath
 	if output, err := pushCmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("git push origin HEAD:%s failed: %w: %s", branch, err, string(output))

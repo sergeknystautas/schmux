@@ -62,7 +62,7 @@ func TestPushToBranch_NoRemoteBranch(t *testing.T) {
 		Path:   cloneDir,
 	})
 
-	result, err := m.PushToBranch(context.Background(), workspaceID, false)
+	result, err := m.PushToBranch(context.Background(), workspaceID, false, "", "")
 
 	if err != nil {
 		t.Fatalf("PushToBranch() error: %v", err)
@@ -98,7 +98,7 @@ func TestPushToBranch_RemoteCaughtUp(t *testing.T) {
 		Path:   cloneDir,
 	})
 
-	result, err := m.PushToBranch(context.Background(), workspaceID, false)
+	result, err := m.PushToBranch(context.Background(), workspaceID, false, "", "")
 
 	if err != nil {
 		t.Fatalf("PushToBranch() error: %v", err)
@@ -143,7 +143,7 @@ func TestPushToBranch_RemoteHasNewerCommits(t *testing.T) {
 		Path:   cloneDir,
 	})
 
-	result, err := m.PushToBranch(context.Background(), workspaceID, false)
+	result, err := m.PushToBranch(context.Background(), workspaceID, false, "", "")
 
 	if err != nil {
 		t.Fatalf("PushToBranch() error: %v", err)
@@ -198,7 +198,7 @@ func TestPushToBranch_RebasedSamePatches_NeedsConfirm(t *testing.T) {
 	})
 
 	// Without confirm, should return needs_confirm=true
-	result, err := m.PushToBranch(context.Background(), workspaceID, false)
+	result, err := m.PushToBranch(context.Background(), workspaceID, false, "", "")
 
 	if err != nil {
 		t.Fatalf("PushToBranch() error: %v", err)
@@ -250,7 +250,7 @@ func TestPushToBranch_RebasedSamePatches_Confirmed(t *testing.T) {
 	})
 
 	// With confirm=true, should push successfully
-	result, err := m.PushToBranch(context.Background(), workspaceID, true)
+	result, err := m.PushToBranch(context.Background(), workspaceID, true, "", "")
 
 	if err != nil {
 		t.Fatalf("PushToBranch() error: %v", err)
@@ -304,7 +304,7 @@ func TestPushToBranch_RebasedWithExtraOriginCommits_NeedsConfirm(t *testing.T) {
 	})
 
 	// Without confirm, should return needs_confirm with diverged commits
-	result, err := m.PushToBranch(context.Background(), workspaceID, false)
+	result, err := m.PushToBranch(context.Background(), workspaceID, false, "", "")
 
 	if err != nil {
 		t.Fatalf("PushToBranch() error: %v", err)
@@ -375,7 +375,7 @@ func TestPushToBranch_RebasedWithExtraOriginCommits_Confirmed(t *testing.T) {
 	})
 
 	// With confirm=true, should push (overwriting the "other" commit)
-	result, err := m.PushToBranch(context.Background(), workspaceID, true)
+	result, err := m.PushToBranch(context.Background(), workspaceID, true, "", "")
 
 	if err != nil {
 		t.Fatalf("PushToBranch() error: %v", err)
@@ -407,7 +407,7 @@ func TestPushToBranch_DefaultBranchRejected(t *testing.T) {
 	})
 
 	for _, confirm := range []bool{false, true} {
-		result, err := m.PushToBranch(context.Background(), workspaceID, confirm)
+		result, err := m.PushToBranch(context.Background(), workspaceID, confirm, "", "")
 		if err != nil {
 			t.Fatalf("PushToBranch(confirm=%v) error: %v", confirm, err)
 		}
@@ -420,5 +420,134 @@ func TestPushToBranch_DefaultBranchRejected(t *testing.T) {
 	}
 	if got := strings.TrimSpace(runGitOut(t, remoteDir, "rev-parse", "main")); got != before {
 		t.Errorf("origin/main moved from %s to %s despite rejection", before, got)
+	}
+}
+
+// TestPushToBranch_ConfirmExpectedLocalMismatch: HEAD moved since review → fail, no push.
+func TestPushToBranch_ConfirmExpectedLocalMismatch(t *testing.T) {
+	t.Parallel()
+	m, st, workspaceID := divergedSetup(t)
+	w, _ := st.GetWorkspace(workspaceID)
+
+	// Reviewed HEAD
+	headBefore := strings.TrimSpace(runGitOut(t, w.Path, "rev-parse", "HEAD"))
+	remoteHead := strings.TrimSpace(runGitOut(t, w.Path, "rev-parse", "origin/feature"))
+
+	// Agent commits after the review
+	writeFile(t, w.Path, "late.txt", "late")
+	runGit(t, w.Path, "add", ".")
+	runGit(t, w.Path, "commit", "-m", "late local commit")
+
+	result, err := m.PushToBranch(context.Background(), workspaceID, true, headBefore, remoteHead)
+	if err != nil {
+		t.Fatalf("PushToBranch() error: %v", err)
+	}
+	if result.Success {
+		t.Errorf("PushToBranch() should fail when HEAD changed since review, got %+v", result)
+	}
+	if !strings.Contains(result.Message, "changed since review") {
+		t.Errorf("Message should mention 'changed since review', got %q", result.Message)
+	}
+	// Remote untouched: still one commit ahead of the reviewed remote head
+	if got := strings.TrimSpace(runGitOut(t, w.Path, "rev-parse", "origin/feature")); got != remoteHead {
+		t.Errorf("origin/feature moved despite failed push: %q → %q", remoteHead, got)
+	}
+}
+
+// TestPushToBranch_ConfirmStaleLease: origin moved since review → lease fails, no overwrite.
+func TestPushToBranch_ConfirmStaleLease(t *testing.T) {
+	t.Parallel()
+	m, st, workspaceID := divergedSetup(t)
+	w, _ := st.GetWorkspace(workspaceID)
+
+	localHead := strings.TrimSpace(runGitOut(t, w.Path, "rev-parse", "HEAD"))
+	reviewedRemote := strings.TrimSpace(runGitOut(t, w.Path, "rev-parse", "origin/feature"))
+
+	// Someone pushes again after the review
+	remoteDir := w.Repo
+	thirdDir := filepath.Join(t.TempDir(), "third")
+	runGit(t, filepath.Dir(thirdDir), "clone", remoteDir, "third")
+	runGit(t, thirdDir, "config", "user.email", "third@test.com")
+	runGit(t, thirdDir, "config", "user.name", "Third")
+	runGit(t, thirdDir, "checkout", "feature")
+	writeFile(t, thirdDir, "d.txt", "d")
+	runGit(t, thirdDir, "add", ".")
+	runGit(t, thirdDir, "commit", "-m", "commit d")
+	runGit(t, thirdDir, "push", "origin", "feature")
+
+	result, err := m.PushToBranch(context.Background(), workspaceID, true, localHead, reviewedRemote)
+	if err == nil && result.Success {
+		t.Fatalf("PushToBranch() should fail with a stale lease, got %+v", result)
+	}
+	// The unreviewed commit d must still be on origin
+	if got := strings.TrimSpace(runGitOut(t, w.Path, "log", "-1", "--format=%s", "refs/remotes/origin/feature")); got != "commit d" {
+		// fetch fresh to check (push attempt may have updated refs)
+		runGit(t, w.Path, "fetch", "origin")
+		got = strings.TrimSpace(runGitOut(t, w.Path, "log", "-1", "--format=%s", "origin/feature"))
+		if got != "commit d" {
+			t.Errorf("origin/feature head = %q, want %q (unreviewed commit must survive)", got, "commit d")
+		}
+	}
+}
+
+// TestPushToBranch_ConfirmFreshSnapshot: reviewed tuple still accurate → push succeeds.
+func TestPushToBranch_ConfirmFreshSnapshot(t *testing.T) {
+	t.Parallel()
+	m, st, workspaceID := divergedSetup(t)
+	w, _ := st.GetWorkspace(workspaceID)
+
+	localHead := strings.TrimSpace(runGitOut(t, w.Path, "rev-parse", "HEAD"))
+	remoteHead := strings.TrimSpace(runGitOut(t, w.Path, "rev-parse", "origin/feature"))
+
+	result, err := m.PushToBranch(context.Background(), workspaceID, true, localHead, remoteHead)
+	if err != nil {
+		t.Fatalf("PushToBranch() error: %v", err)
+	}
+	if !result.Success {
+		t.Errorf("PushToBranch() should succeed with a fresh snapshot, got %+v", result)
+	}
+	// origin/feature now matches local HEAD
+	runGit(t, w.Path, "fetch", "origin")
+	if got := strings.TrimSpace(runGitOut(t, w.Path, "rev-parse", "origin/feature")); got != localHead {
+		t.Errorf("origin/feature = %q, want local HEAD %q", got, localHead)
+	}
+}
+
+// TestPushToBranch_ConfirmBehindStillRejected: behind stays pull/merge-only, even confirmed.
+func TestPushToBranch_ConfirmBehindStillRejected(t *testing.T) {
+	t.Parallel()
+	remoteDir, cloneDir, m, st, workspaceID := setupPushTest(t)
+
+	runGit(t, cloneDir, "checkout", "-b", "feature")
+	writeFile(t, cloneDir, "a.txt", "a")
+	runGit(t, cloneDir, "add", ".")
+	runGit(t, cloneDir, "commit", "-m", "commit a")
+	runGit(t, cloneDir, "push", "origin", "feature")
+
+	otherDir := filepath.Join(t.TempDir(), "other")
+	runGit(t, filepath.Dir(otherDir), "clone", remoteDir, "other")
+	runGit(t, otherDir, "config", "user.email", "other@test.com")
+	runGit(t, otherDir, "config", "user.name", "Other")
+	runGit(t, otherDir, "checkout", "feature")
+	writeFile(t, otherDir, "c.txt", "c")
+	runGit(t, otherDir, "add", ".")
+	runGit(t, otherDir, "commit", "-m", "remote commit c")
+	runGit(t, otherDir, "push", "origin", "feature")
+	runGit(t, cloneDir, "fetch", "origin")
+
+	st.AddWorkspace(state.Workspace{ID: workspaceID, Repo: remoteDir, Branch: "feature", Path: cloneDir})
+
+	localHead := strings.TrimSpace(runGitOut(t, cloneDir, "rev-parse", "HEAD"))
+	remoteHead := strings.TrimSpace(runGitOut(t, cloneDir, "rev-parse", "origin/feature"))
+
+	result, err := m.PushToBranch(context.Background(), workspaceID, true, localHead, remoteHead)
+	if err != nil {
+		t.Fatalf("PushToBranch() error: %v", err)
+	}
+	if result.Success {
+		t.Errorf("PushToBranch() must reject behind even with confirm, got %+v", result)
+	}
+	if !strings.Contains(result.Message, "behind") {
+		t.Errorf("Message should mention 'behind', got %q", result.Message)
 	}
 }

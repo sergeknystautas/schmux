@@ -3,6 +3,8 @@ import { useNavigate, Link } from 'react-router';
 import {
   getCommitGraph,
   getDiff,
+  getBranchDivergence,
+  getErrorMessage,
   commitStage,
   commitAmend,
   commitDiscard,
@@ -15,6 +17,7 @@ import {
 import { computeLayout, GRAPH_COLOR, HIGHLIGHT_COLOR, ROW_HEIGHT } from '../lib/commitGraphLayout';
 import type { CommitGraphLayout, LayoutNode, LayoutEdge, LaneLine } from '../lib/commitGraphLayout';
 import type { CommitGraphResponse, DiffFileSummary } from '../lib/types';
+import type { BranchDivergenceResponse } from '../lib/types.generated';
 import { reachableFrom, countUnpushed } from '../lib/commitReachability';
 import { useSessions } from '../contexts/SessionsContext';
 import { useSyncState } from '../contexts/SyncContext';
@@ -24,6 +27,7 @@ import { usePendingNavigation } from '../lib/navigation';
 import { formatRelativeTime } from '../lib/utils';
 import Tooltip from './Tooltip';
 import PushCommitsModal from './PushCommitsModal';
+import ForcePushModal from './ForcePushModal';
 
 interface CommitHistoryDAGProps {
   workspaceId: string;
@@ -45,6 +49,7 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
   const [syncing, setSyncing] = useState(false);
   const [ffToMainSyncing, setFfToMainSyncing] = useState(false);
   const [pushToBranchSyncing, setPushToBranchSyncing] = useState(false);
+  const [pushToBranchChecking, setPushToBranchChecking] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const knownFilesRef = useRef<Set<string>>(new Set());
   const [isCommitting, setIsCommitting] = useState(false);
@@ -53,6 +58,9 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
   const [isUncommitting, setIsUncommitting] = useState(false);
   const [isNavigatingCommit, setIsNavigatingCommit] = useState<string | null>(null);
   const [commitMessageConfigured, setCommitMessageConfigured] = useState(false);
+  const [forcePushDivergence, setForcePushDivergence] = useState<BranchDivergenceResponse | null>(
+    null
+  );
   const { handleSmartSync, handleLinearSyncToMain, handlePushToBranch } = useSync();
   const containerRef = useRef<HTMLDivElement>(null);
   const prevFingerprintRef = useRef('');
@@ -364,6 +372,11 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
         pushToBranchTooltip = `Push commits to origin/${branchName}`;
       }
 
+      // The shift+click flow — check origin, review, push — is one operation as
+      // far as the button is concerned, so it stays busy until the modal closes.
+      const pushToBranchBusy =
+        pushToBranchSyncing || pushToBranchChecking || forcePushDivergence !== null;
+
       const onPushToDefaultClick = async () => {
         if (!ws || pushToDefaultDisabled || ffToMainSyncing || isSyncing) return;
         setFfToMainSyncing(true);
@@ -374,8 +387,36 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
         }
       };
 
-      const onPushToBranchClick = async () => {
-        if (!ws || pushToBranchSyncing || isSyncing) return;
+      const onPushToBranchClick = async (e: React.MouseEvent) => {
+        if (!ws || pushToBranchBusy || isSyncing) return;
+        if (e.shiftKey) {
+          let divergence: BranchDivergenceResponse;
+          // The divergence check fetches origin, so it is slow enough to need
+          // its own pending state — otherwise shift+click looks like a no-op.
+          setPushToBranchChecking(true);
+          try {
+            divergence = await getBranchDivergence(ws.id);
+          } catch (err) {
+            await alert('Error', getErrorMessage(err, 'Failed to check branch divergence'));
+            return;
+          } finally {
+            setPushToBranchChecking(false);
+          }
+          if (divergence.remote_commits.length > 0 && divergence.local_commits.length > 0) {
+            setForcePushDivergence(divergence);
+            return;
+          }
+          if (divergence.remote_commits.length > 0) {
+            // Strictly behind: pull/merge-only, no force option.
+            await alert(
+              'Push rejected',
+              `origin/${branchName} has commits that aren't in your local branch. ` +
+                `Pull or merge the latest from origin/${branchName} first.`
+            );
+            return;
+          }
+          // Remote side empty (fast-forward or new branch): nothing to force — normal push.
+        }
         setPushToBranchSyncing(true);
         try {
           await handlePushToBranch(ws.id, branchName);
@@ -404,9 +445,9 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
         <button
           className="commit-dag__push-to-branch-button"
           onClick={onPushToBranchClick}
-          disabled={pushToBranchDisabled || pushToBranchSyncing || isSyncing}
+          disabled={pushToBranchDisabled || pushToBranchBusy || isSyncing}
         >
-          {pushToBranchSyncing ? (
+          {pushToBranchBusy ? (
             <>
               <span className="spinner" /> Pushing
             </>
@@ -924,6 +965,13 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
           workspacePath={ws.path}
           onClose={() => setPushModalNode(null)}
           onPushed={fetchData}
+        />
+      )}
+      {forcePushDivergence && ws && (
+        <ForcePushModal
+          workspaceId={ws.id}
+          divergence={forcePushDivergence}
+          onClose={() => setForcePushDivergence(null)}
         />
       )}
     </div>

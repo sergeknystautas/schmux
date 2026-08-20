@@ -9,11 +9,17 @@ const getCommitGraph = vi.fn();
 const getDiff = vi.fn();
 const getConfig = vi.fn();
 const commitUncommit = vi.fn();
+const getBranchDivergence = vi.fn();
+const handlePushToBranch = vi.fn();
+const alertMock = vi.fn();
 
 vi.mock('../lib/api', () => ({
   getCommitGraph: (...args: unknown[]) => getCommitGraph(...args),
   getDiff: (...args: unknown[]) => getDiff(...args),
   getConfig: (...args: unknown[]) => getConfig(...args),
+  getBranchDivergence: (...args: unknown[]) => getBranchDivergence(...args),
+  getErrorMessage: (err: unknown, fallback: string) =>
+    err instanceof Error ? err.message : fallback,
   commitStage: vi.fn(),
   commitAmend: vi.fn(),
   commitDiscard: vi.fn(),
@@ -38,12 +44,15 @@ vi.mock('../hooks/useSync', () => ({
   useSync: () => ({
     handleSmartSync: vi.fn(),
     handleLinearSyncToMain: vi.fn(),
-    handlePushToBranch: vi.fn(),
+    handlePushToBranch: (...args: unknown[]) => handlePushToBranch(...args),
     handlePushCommits: vi.fn(),
   }),
 }));
 vi.mock('./ModalProvider', () => ({
-  useModal: () => ({ alert: vi.fn(), confirm: vi.fn() }),
+  useModal: () => ({ alert: alertMock, confirm: vi.fn() }),
+}));
+vi.mock('./ToastProvider', () => ({
+  useToast: () => ({ success: vi.fn(), error: vi.fn() }),
 }));
 vi.mock('../lib/navigation', () => ({
   usePendingNavigation: () => ({ setPendingNavigation: vi.fn() }),
@@ -546,5 +555,167 @@ describe('push button eligibility', () => {
     // Cancel closes it.
     fireEvent.click(screen.getByTestId('push-modal-cancel'));
     await waitFor(() => expect(screen.queryByTestId('push-modal')).not.toBeInTheDocument());
+  });
+});
+
+describe('shift+click force push', () => {
+  // Renders the DAG with a pushable feature branch and returns the button.
+  async function renderPushableDAG() {
+    getCommitGraph.mockResolvedValue(makePushableGraph());
+    renderDAG();
+    await screen.findByText('head commit');
+    return screen.getByText('Push to branch');
+  }
+
+  beforeEach(() => {
+    getBranchDivergence.mockReset();
+    handlePushToBranch.mockReset();
+    alertMock.mockClear();
+  });
+
+  it('opens ForcePushModal when diverged', async () => {
+    getBranchDivergence.mockResolvedValue({
+      branch: 'feature/foo',
+      local_head: 'a'.repeat(40),
+      remote_head: 'b'.repeat(40),
+      local_commits: [
+        {
+          hash: 'a'.repeat(40),
+          short_hash: 'aaaaaaa',
+          author: 'Alice',
+          timestamp: '2026-08-19T12:00:00Z',
+          subject: 'local work',
+        },
+      ],
+      remote_commits: [
+        {
+          hash: 'b'.repeat(40),
+          short_hash: 'bbbbbbb',
+          author: 'Bob',
+          timestamp: '2026-08-19T11:00:00Z',
+          subject: 'remote work',
+        },
+      ],
+      local_total: 1,
+      remote_total: 1,
+    });
+    const button = await renderPushableDAG();
+    fireEvent.click(button, { shiftKey: true });
+    await screen.findByTestId('force-push-modal');
+    expect(handlePushToBranch).not.toHaveBeenCalled();
+  });
+
+  it('shows a pending state on the button while the divergence check runs', async () => {
+    let resolveDivergence: (value: unknown) => void = () => {};
+    getBranchDivergence.mockReturnValue(
+      new Promise((resolve) => {
+        resolveDivergence = resolve;
+      })
+    );
+    const button = await renderPushableDAG();
+    fireEvent.click(button, { shiftKey: true });
+
+    // Button reacts immediately — the fetch runs origin, so a silent button
+    // reads as a dead click.
+    await waitFor(() => expect(screen.getByText('Pushing')).toBeInTheDocument());
+    expect(screen.getByText('Pushing').closest('button')).toBeDisabled();
+
+    resolveDivergence({
+      branch: 'feature/foo',
+      local_head: 'a'.repeat(40),
+      remote_head: 'b'.repeat(40),
+      local_commits: [
+        {
+          hash: 'a'.repeat(40),
+          short_hash: 'aaaaaaa',
+          author: 'Alice',
+          timestamp: '2026-08-19T12:00:00Z',
+          subject: 'local work',
+        },
+      ],
+      remote_commits: [
+        {
+          hash: 'b'.repeat(40),
+          short_hash: 'bbbbbbb',
+          author: 'Bob',
+          timestamp: '2026-08-19T11:00:00Z',
+          subject: 'remote work',
+        },
+      ],
+      local_total: 1,
+      remote_total: 1,
+    });
+
+    // The flow is not over when the modal opens — the button stays busy until
+    // the user decides, like the plain push-to-branch button does.
+    await screen.findByTestId('force-push-modal');
+    expect(screen.getByText('Pushing')).toBeInTheDocument();
+    expect(screen.getByText('Pushing').closest('button')).toBeDisabled();
+
+    // Closing the modal releases it.
+    fireEvent.click(screen.getByTestId('force-push-modal-cancel'));
+    await waitFor(() => expect(screen.getByText('Push to branch')).toBeInTheDocument());
+  });
+
+  it('falls through to a normal push when the remote side is empty', async () => {
+    getBranchDivergence.mockResolvedValue({
+      branch: 'feature/foo',
+      local_head: 'a'.repeat(40),
+      remote_head: '',
+      local_commits: [
+        {
+          hash: 'a'.repeat(40),
+          short_hash: 'aaaaaaa',
+          author: 'Alice',
+          timestamp: '2026-08-19T12:00:00Z',
+          subject: 'local work',
+        },
+      ],
+      remote_commits: [],
+      local_total: 1,
+      remote_total: 0,
+    });
+    const button = await renderPushableDAG();
+    fireEvent.click(button, { shiftKey: true });
+    await waitFor(() => expect(handlePushToBranch).toHaveBeenCalled());
+    expect(screen.queryByTestId('force-push-modal')).not.toBeInTheDocument();
+  });
+
+  it('alerts without a modal when strictly behind', async () => {
+    getBranchDivergence.mockResolvedValue({
+      branch: 'feature/foo',
+      local_head: 'a'.repeat(40),
+      remote_head: 'b'.repeat(40),
+      local_commits: [],
+      remote_commits: [
+        {
+          hash: 'b'.repeat(40),
+          short_hash: 'bbbbbbb',
+          author: 'Bob',
+          timestamp: '2026-08-19T11:00:00Z',
+          subject: 'remote work',
+        },
+      ],
+      local_total: 0,
+      remote_total: 1,
+    });
+    const button = await renderPushableDAG();
+    fireEvent.click(button, { shiftKey: true });
+    await waitFor(() =>
+      expect(alertMock).toHaveBeenCalledWith(
+        'Push rejected',
+        expect.stringContaining('Pull or merge')
+      )
+    );
+    expect(screen.queryByTestId('force-push-modal')).not.toBeInTheDocument();
+    expect(handlePushToBranch).not.toHaveBeenCalled();
+  });
+
+  it('alerts when the divergence fetch fails', async () => {
+    getBranchDivergence.mockRejectedValue(new Error('boom'));
+    const button = await renderPushableDAG();
+    fireEvent.click(button, { shiftKey: true });
+    await waitFor(() => expect(alertMock).toHaveBeenCalled());
+    expect(screen.queryByTestId('force-push-modal')).not.toBeInTheDocument();
   });
 });

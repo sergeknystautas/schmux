@@ -258,6 +258,30 @@ func (h *GitHandlers) handleLinearSyncToMain(w http.ResponseWriter, r *http.Requ
 	}
 }
 
+// handleGetBranchDivergence handles GET requests for branch divergence info.
+// GET /api/workspaces/{id}/branch-divergence
+func (h *GitHandlers) handleGetBranchDivergence(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceID")
+	if workspaceID == "" {
+		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
+		return
+	}
+	if _, found := h.state.GetWorkspace(workspaceID); !found {
+		writeJSONError(w, fmt.Sprintf("workspace %s not found", workspaceID), http.StatusNotFound)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(h.config.GetGitCloneTimeoutMs())*time.Millisecond)
+	defer cancel()
+
+	result, err := h.workspace.GetBranchDivergence(ctx, workspaceID)
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, result)
+}
+
 // handlePushToBranch handles POST requests to push commits to origin/branch.
 // POST /api/workspaces/{id}/push-to-branch
 //
@@ -273,7 +297,9 @@ func (h *GitHandlers) handlePushToBranch(w http.ResponseWriter, r *http.Request)
 
 	// Parse request body
 	var req struct {
-		Confirm bool `json:"confirm"`
+		Confirm        bool   `json:"confirm"`
+		ExpectedLocal  string `json:"expected_local"`
+		ExpectedRemote string `json:"expected_remote"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
@@ -300,7 +326,7 @@ func (h *GitHandlers) handlePushToBranch(w http.ResponseWriter, r *http.Request)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(h.config.GetGitCloneTimeoutMs())*time.Millisecond)
 	defer cancel()
 
-	result, err := h.workspace.PushToBranch(ctx, workspaceID, req.Confirm)
+	result, err := h.workspace.PushToBranch(ctx, workspaceID, req.Confirm, req.ExpectedLocal, req.ExpectedRemote)
 	if err != nil {
 		workspaceLog.Error("push-to-branch failed", "workspace_id", workspaceID, "err", err)
 		w.Header().Set("Content-Type", "application/json")

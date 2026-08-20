@@ -112,6 +112,12 @@ Watch terminal output and manage a session.
 - Copy attach command
 - Dispose session
 - Restart session (shown when the harness captured a `resume_id`, e.g. claude/opencode) — plain click confirms, then disposes and resumes the conversation in place. **Shift-click** opens a modal to toggle fence and switch to a different enabled target on the same harness (the resume id is harness-native, so cross-harness targets are excluded); the chosen target/fence apply to the resumed session.
+- **Shift+click "Push to branch"** opens a divergence review instead of pushing: commits that exist
+  only on origin (would be overwritten) and only locally (would be pushed), then Cancel or
+  **Force Push**. The force push is bound to the reviewed commits — if local HEAD or origin moved
+  since the review, it fails safely instead of overwriting. A normal click that gets rejected for
+  divergence tells you about the Shift shortcut. (Strictly-behind branches stay pull/merge-only —
+  no force option.)
 - Open diff, open workspace in VS Code
 - Open Preview (prompts for target port, opens a local ephemeral proxy URL)
 

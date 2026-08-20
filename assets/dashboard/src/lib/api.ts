@@ -67,6 +67,7 @@ import type {
   GitHubConnectStatus,
   GitHubConnectRequest,
   GitHubConnectResult,
+  BranchDivergenceResponse,
 } from './types.generated';
 import { csrfHeaders } from './csrf';
 import { transport } from './transport';
@@ -725,10 +726,22 @@ export async function linearSyncToMain(workspaceId: string): Promise<LinearSyncR
   return response.json();
 }
 
-export async function pushToBranch(workspaceId: string): Promise<LinearSyncResponse> {
+export async function getBranchDivergence(workspaceId: string): Promise<BranchDivergenceResponse> {
+  const response = await apiFetch(`/api/workspaces/${workspaceId}/branch-divergence`);
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to get branch divergence');
+  }
+  return response.json();
+}
+
+export async function pushToBranch(
+  workspaceId: string,
+  opts?: { confirm?: boolean; expected_local?: string; expected_remote?: string }
+): Promise<LinearSyncResponse> {
   const response = await apiFetch(`/api/workspaces/${workspaceId}/push-to-branch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify(opts ?? {}),
   });
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to push to branch');

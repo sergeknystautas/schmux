@@ -312,6 +312,8 @@ export interface LinearSyncResponse {
   branch?: string;
   is_pre_commit_hook_error?: boolean;
   pre_commit_error_detail?: string;
+  needs_confirm?: boolean;
+  diverged_commits?: string[];
 }
 
 interface ConflictResolution {

@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router';
 import { useSync } from './useSync';
 
 const pushCommits = vi.fn();
+const pushToBranch = vi.fn();
 const getConfig = vi.fn();
 const getDevStatus = vi.fn();
 const disposeWorkspaceAll = vi.fn();
@@ -11,7 +12,7 @@ const disposeWorkspaceAll = vi.fn();
 vi.mock('../lib/api', () => ({
   linearSyncFromMain: vi.fn(),
   linearSyncToMain: vi.fn(),
-  pushToBranch: vi.fn(),
+  pushToBranch: (...args: unknown[]) => pushToBranch(...args),
   pushCommits: (...args: unknown[]) => pushCommits(...args),
   linearSyncResolveConflict: vi.fn(),
   disposeWorkspaceAll: (...args: unknown[]) => disposeWorkspaceAll(...args),
@@ -159,5 +160,52 @@ describe('handlePushCommits dispose suggestion', () => {
 
     expect(confirm).not.toHaveBeenCalled();
     expect(toastSuccess).toHaveBeenCalledWith(expect.stringContaining('live in dev mode'));
+  });
+});
+
+describe('handlePushToBranch', () => {
+  beforeEach(() => {
+    pushToBranch.mockReset();
+    alert.mockClear();
+    toastSuccess.mockClear();
+  });
+
+  it('toasts on success', async () => {
+    pushToBranch.mockResolvedValue({ success: true });
+    renderSync();
+    await sync.handlePushToBranch('ws-1', 'feature/foo');
+    expect(pushToBranch).toHaveBeenCalledWith('ws-1');
+    expect(toastSuccess).toHaveBeenCalledWith('Pushed to origin/feature/foo');
+    expect(alert).not.toHaveBeenCalled();
+  });
+
+  it('needs_confirm shows the Shift hint', async () => {
+    pushToBranch.mockResolvedValue({ success: false, needs_confirm: true });
+    renderSync();
+    await sync.handlePushToBranch('ws-1', 'feature/foo');
+    expect(alert).toHaveBeenCalledWith('Push rejected', expect.stringContaining('Shift'));
+    expect(alert).toHaveBeenCalledWith(
+      'Push rejected',
+      expect.stringContaining('origin/feature/foo')
+    );
+  });
+
+  it('behind failure shows the pull/merge message without the Shift hint', async () => {
+    pushToBranch.mockResolvedValue({
+      success: false,
+      message: 'local branch is behind origin - pull or merge first',
+    });
+    renderSync();
+    await sync.handlePushToBranch('ws-1', 'feature/foo');
+    expect(alert).toHaveBeenCalledWith('Error', expect.stringContaining('behind'));
+    const [, message] = alert.mock.calls[0];
+    expect(message).not.toContain('Shift');
+  });
+
+  it('API error alerts with the error message', async () => {
+    pushToBranch.mockRejectedValue(new Error('network down'));
+    renderSync();
+    await sync.handlePushToBranch('ws-1', 'feature/foo');
+    expect(alert).toHaveBeenCalledWith('Error', expect.any(String));
   });
 });
