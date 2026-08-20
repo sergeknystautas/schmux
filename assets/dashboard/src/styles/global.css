@@ -4579,9 +4579,25 @@ a:hover {
 }
 .checkbox-list__item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--spacing-xs);
   cursor: pointer;
+  font-size: 0.875rem;
+}
+/* A ref (branch/workspace name, path) belonging to a checkbox row sits on its
+   own line, so a long name uses the full row width instead of splitting around
+   the label. */
+.checkbox-list__ref {
+  display: block;
+}
+.checkbox-list__item input {
+  accent-color: var(--color-accent);
+  flex: none;
+  /* Pin the control to the FIRST line of a label that wraps, instead of letting
+     it float to the middle of the whole text block. 4px is exactly half the
+     leading of a 0.875rem/1.5 line box around a 13px control, so single-line
+     rows sit precisely where align-items: center used to put them. */
+  margin-top: var(--spacing-xs);
 }
 
 /* Model Catalog */

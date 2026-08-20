@@ -3,14 +3,18 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
 func (h *WorkspaceHandlers) handleDispose(w http.ResponseWriter, r *http.Request) {
@@ -148,6 +152,31 @@ func (h *WorkspaceHandlers) handleDisposeWorkspaceAll(w http.ResponseWriter, r *
 	if devPath := h.devSourceWorkspacePath(); devPath != "" {
 		if ws, ok := h.state.GetWorkspace(workspaceID); ok && ws.Path == devPath {
 			writeJSONError(w, "cannot dispose workspace that is live in dev mode", http.StatusConflict)
+			return
+		}
+	}
+
+	// Optional body. An absent body is valid and means "dispose only".
+	var req contracts.DisposeWorkspaceAllRequest
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+			writeJSONError(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Deleting the remote branch runs first, before anything is marked or
+	// destroyed: if it fails, the workspace is left completely untouched and
+	// the user can retry or clear the checkbox.
+	if req.DeleteRemoteBranch {
+		if err := h.workspace.DeleteRemoteBranch(r.Context(), workspaceID); err != nil {
+			status := http.StatusBadRequest
+			if errors.Is(err, workspace.ErrRemoteBranchNotMerged) {
+				status = http.StatusConflict
+			}
+			logging.Sub(h.logger, "workspace").Error("dispose-all remote branch delete failed",
+				"workspace_id", workspaceID, "err", err)
+			writeJSONError(w, err.Error(), status)
 			return
 		}
 	}

@@ -66,6 +66,13 @@ type RestartRequest struct {
 	Fence  *bool   `json:"fence,omitempty"`
 }
 
+// DisposeWorkspaceAllRequest is the optional body for
+// POST /api/workspaces/{id}/dispose-all. An absent or empty body decodes to the
+// zero value, so existing callers that send no body keep working.
+type DisposeWorkspaceAllRequest struct {
+	DeleteRemoteBranch bool `json:"delete_remote_branch,omitempty"`
+}
+
 // WorkspaceResponseItem represents a workspace in the API response.
 type WorkspaceResponseItem struct {
 	ID                      string                `json:"id"`

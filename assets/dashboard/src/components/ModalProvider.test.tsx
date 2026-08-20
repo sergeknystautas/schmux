@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ModalProvider, { useModal } from './ModalProvider';
 
@@ -297,5 +297,127 @@ describe('ModalProvider', () => {
     expect(secondOpened).toBe(true);
     expect(screen.getByText('Second')).toBeInTheDocument();
     expect(screen.getByText('Second modal content')).toBeInTheDocument();
+  });
+});
+
+function ConfirmWithCheckboxHarness({ onResult }: { onResult: (r: unknown) => void }) {
+  const { confirmWithCheckbox } = useModal();
+  return (
+    <button
+      onClick={async () =>
+        onResult(
+          await confirmWithCheckbox('All done?', {
+            checkbox: {
+              label: 'Delete remote branch',
+              code: 'origin/feature/x',
+              note: '(closes PR #123)',
+              defaultChecked: true,
+            },
+          })
+        )
+      }
+    >
+      open
+    </button>
+  );
+}
+
+describe('confirmWithCheckbox', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('renders the checkbox checked by default and reports it', async () => {
+    const user = userEvent.setup();
+    let result: unknown;
+    render(
+      <ModalProvider>
+        <ConfirmWithCheckboxHarness onResult={(r) => (result = r)} />
+      </ModalProvider>
+    );
+    await user.click(screen.getByText('open'));
+    const box = screen.getByTestId('modal-checkbox') as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    await user.click(screen.getByText('Confirm'));
+    await waitFor(() => expect(result).toEqual({ confirmed: true, checked: true }));
+  });
+
+  it('reports an unchecked box', async () => {
+    const user = userEvent.setup();
+    let result: unknown;
+    render(
+      <ModalProvider>
+        <ConfirmWithCheckboxHarness onResult={(r) => (result = r)} />
+      </ModalProvider>
+    );
+    await user.click(screen.getByText('open'));
+    await user.click(screen.getByTestId('modal-checkbox'));
+    await user.click(screen.getByText('Confirm'));
+    await waitFor(() => expect(result).toEqual({ confirmed: true, checked: false }));
+  });
+
+  // Confirming with the keyboard must report the same box the user sees. The
+  // keydown listener is registered in an effect, so it has to be re-registered
+  // when `checked` changes or it resolves with a stale value.
+  it('reports an unchecked box when confirming with Enter', async () => {
+    const user = userEvent.setup();
+    let result: unknown;
+    render(
+      <ModalProvider>
+        <ConfirmWithCheckboxHarness onResult={(r) => (result = r)} />
+      </ModalProvider>
+    );
+    await user.click(screen.getByText('open'));
+    await user.click(screen.getByTestId('modal-checkbox'));
+    expect((screen.getByTestId('modal-checkbox') as HTMLInputElement).checked).toBe(false);
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    await waitFor(() => expect(result).toEqual({ confirmed: true, checked: false }));
+  });
+
+  it('reports a checked box when confirming with Enter', async () => {
+    const user = userEvent.setup();
+    let result: unknown;
+    render(
+      <ModalProvider>
+        <ConfirmWithCheckboxHarness onResult={(r) => (result = r)} />
+      </ModalProvider>
+    );
+    await user.click(screen.getByText('open'));
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    await waitFor(() => expect(result).toEqual({ confirmed: true, checked: true }));
+  });
+
+  // The style guide reserves --font-mono for branch names, so the ref must carry
+  // the .mono class rather than render as prose alongside the label.
+  it('renders the branch ref in mono and the PR note muted', async () => {
+    const user = userEvent.setup();
+    render(
+      <ModalProvider>
+        <ConfirmWithCheckboxHarness onResult={() => {}} />
+      </ModalProvider>
+    );
+    await user.click(screen.getByText('open'));
+    expect(screen.getByText('origin/feature/x')).toHaveClass('mono');
+    expect(screen.getByText('(closes PR #123)')).toHaveClass('text-muted');
+  });
+
+  it('resolves null on cancel', async () => {
+    const user = userEvent.setup();
+    let result: unknown = 'unset';
+    render(
+      <ModalProvider>
+        <ConfirmWithCheckboxHarness onResult={(r) => (result = r)} />
+      </ModalProvider>
+    );
+    await user.click(screen.getByText('open'));
+    await user.click(screen.getByText('Cancel'));
+    await waitFor(() => expect(result).toBeNull());
   });
 });

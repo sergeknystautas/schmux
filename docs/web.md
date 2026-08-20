@@ -332,6 +332,8 @@ Effects: Stops tracking, closes stream, tmux session deleted
 Type workspace ID to confirm: myproject-001
 ```
 
+**Post-push cleanup**: After a full push to the default branch, the cleanup prompt offers **Delete remote branch**, checked by default, when the workspace's branch exists on `origin`, is not a fork branch, is not the default branch, and is a local git workspace. When an open PR is known, the label names it, because deleting the branch closes the PR. Confirming with the box checked deletes `origin/<branch>` before disposing; if that deletion fails, nothing is disposed. With `recycle_workspaces` off, the local branch is removed along with the worktree; with recycling on, the workspace becomes recyclable and keeps its local branch.
+
 ---
 
 ## Pastebin

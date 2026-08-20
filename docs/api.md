@@ -1065,6 +1065,8 @@ Dispose a workspace and all its sessions.
 
 Sets workspace and all session statuses to `disposing` and broadcasts immediately before starting teardown. Returns 200 OK if already disposing (idempotent). Reverts workspace status on failure. Disposes all sessions concurrently first, then disposes the workspace itself. Both phases run with independent server-side timeouts and will complete even if the client disconnects.
 
+Body (optional): `{"delete_remote_branch": bool}`. Absent or empty body means `false`. When true, the branch is deleted from `origin` **before** anything is disposed. The deletion refuses unless `origin/<branch>` is contained in `origin/<default>`, and carries a `--force-with-lease` on the SHA it proved, so a concurrent push rejects the delete rather than losing commits.
+
 Response:
 
 ```json
@@ -1073,7 +1075,9 @@ Response:
 
 Errors:
 
-- 400 with JSON: `{"error":"..."}` (e.g., dirty workspace)
+- 409 with JSON: `{"error":"..."}` — `origin/<branch>` has commits not on the default branch.
+- 400 with JSON: `{"error":"..."}` — the workspace does not qualify (fork branch, default branch, remote host, non-git VCS, no origin remote) or another validation failure.
+- On any deletion failure nothing is disposed and the workspace is left untouched.
 
 ### DELETE /api/workspaces/{workspaceId}/purge
 

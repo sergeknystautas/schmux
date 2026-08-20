@@ -24,7 +24,14 @@ function renderModal(overrides: Partial<Parameters<typeof PushCommitsModal>[0]> 
     countToMain: 3,
     countToBranch: 2,
     headCommit: false,
-    workspacePath: '/tmp/ws',
+    disposeContext: {
+      workspaceId: 'ws-1',
+      workspacePath: '/tmp/ws',
+      branch: 'feature',
+      defaultBranch: 'main',
+      remoteBranchExists: true,
+      remoteBranchIsFork: false,
+    },
     onClose: vi.fn(),
     onPushed: vi.fn().mockResolvedValue(undefined),
     ...overrides,
@@ -84,7 +91,7 @@ describe('PushCommitsModal', () => {
         perCommit: false,
         targetBranchName: 'main',
         headCommit: false,
-        workspacePath: '/tmp/ws',
+        disposeContext: props.disposeContext,
       })
     );
     await waitFor(() => expect(props.onPushed).toHaveBeenCalled());
@@ -93,19 +100,19 @@ describe('PushCommitsModal', () => {
 
   it('passes headCommit through so a full push to main can offer cleanup', async () => {
     handlePushCommits.mockResolvedValue(true);
-    renderModal({ headCommit: true });
+    const props = renderModal({ headCommit: true });
     fireEvent.click(screen.getByTestId('push-modal-submit'));
     await waitFor(() =>
       expect(handlePushCommits).toHaveBeenCalledWith(
         'ws-1',
-        expect.objectContaining({ headCommit: true, workspacePath: '/tmp/ws' })
+        expect.objectContaining({ headCommit: true, disposeContext: props.disposeContext })
       )
     );
   });
 
   it('submits per-commit push to branch', async () => {
     handlePushCommits.mockResolvedValue(true);
-    renderModal();
+    const props = renderModal();
     fireEvent.click(screen.getByTestId('push-modal-target-branch'));
     fireEvent.click(screen.getByTestId('push-modal-mode-percommit'));
     fireEvent.click(screen.getByTestId('push-modal-submit'));
@@ -116,7 +123,7 @@ describe('PushCommitsModal', () => {
         perCommit: true,
         targetBranchName: 'feature',
         headCommit: false,
-        workspacePath: '/tmp/ws',
+        disposeContext: props.disposeContext,
       })
     );
   });
@@ -144,7 +151,7 @@ describe('PushCommitsModal', () => {
 
   it('submits per_commit=false when the mode choice is hidden', async () => {
     handlePushCommits.mockResolvedValue(true);
-    renderModal({ countToMain: 1, countToBranch: 1 });
+    const props = renderModal({ countToMain: 1, countToBranch: 1 });
     fireEvent.click(screen.getByTestId('push-modal-submit'));
     await waitFor(() =>
       expect(handlePushCommits).toHaveBeenCalledWith('ws-1', {
@@ -153,7 +160,7 @@ describe('PushCommitsModal', () => {
         perCommit: false,
         targetBranchName: 'main',
         headCommit: false,
-        workspacePath: '/tmp/ws',
+        disposeContext: props.disposeContext,
       })
     );
   });

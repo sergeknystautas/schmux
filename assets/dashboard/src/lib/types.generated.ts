@@ -319,6 +319,10 @@ export interface DiffResponse {
   files: DiffFileSummary[];
 }
 
+export interface DisposeWorkspaceAllRequest {
+  delete_remote_branch?: boolean;
+}
+
 export interface DivergenceCommit {
   hash: string;
   short_hash: string;

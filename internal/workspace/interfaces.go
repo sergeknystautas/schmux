@@ -132,6 +132,7 @@ type WorkspaceVCS interface {
 	GetBranchDivergence(ctx context.Context, workspaceID string) (*contracts.BranchDivergenceResponse, error)
 	PushToBranch(ctx context.Context, workspaceID string, confirm bool, expectedLocal, expectedRemote string) (*LinearSyncResult, error)
 	PushCommits(ctx context.Context, workspaceID, hash, target string, perCommit, confirm bool) (*contracts.PushCommitsResult, error)
+	DeleteRemoteBranch(ctx context.Context, workspaceID string) error
 	CheckoutPR(ctx context.Context, pr contracts.PullRequest) (*state.Workspace, error)
 	DetectGitHubConnect(ctx context.Context, workspaceID string) (*ConnectDetection, error)
 	RunGitHubConnect(ctx context.Context, workspaceID string, req contracts.GitHubConnectRequest, gh GitHubRepoCreator) (*contracts.GitHubConnectResult, error)

@@ -11,9 +11,10 @@ vi.mock('react-router', () => ({
 
 const alert = vi.fn().mockResolvedValue(undefined);
 const confirm = vi.fn().mockResolvedValue(true);
+const confirmWithCheckbox = vi.fn().mockResolvedValue({ confirmed: true, checked: false });
 const show = vi.fn().mockResolvedValue(true);
 vi.mock('../components/ModalProvider', () => ({
-  useModal: () => ({ alert, confirm, show }),
+  useModal: () => ({ alert, confirm, confirmWithCheckbox, show }),
 }));
 
 const toastError = vi.fn();
@@ -142,6 +143,14 @@ describe('useSync', () => {
   });
 
   describe('handleLinearSyncToMain', () => {
+    const ctx = {
+      workspaceId: 'ws-1',
+      branch: 'feature',
+      defaultBranch: 'main',
+      remoteBranchExists: true,
+      remoteBranchIsFork: false,
+    };
+
     it('does not show success dialog after dispose — navigates directly to /', async () => {
       mockLinearSyncToMain.mockResolvedValue({
         success: true,
@@ -152,10 +161,10 @@ describe('useSync', () => {
       mockDisposeWorkspaceAll.mockResolvedValue(undefined);
 
       const { result } = renderHook(() => useSync());
-      await act(() => result.current.handleLinearSyncToMain('ws-1'));
+      await act(() => result.current.handleLinearSyncToMain(ctx));
 
-      expect(confirm).toHaveBeenCalled();
-      expect(mockDisposeWorkspaceAll).toHaveBeenCalledWith('ws-1');
+      expect(confirmWithCheckbox).toHaveBeenCalled();
+      expect(mockDisposeWorkspaceAll).toHaveBeenCalledWith('ws-1', { deleteRemoteBranch: false });
       // No success alert after dispose
       expect(alert).not.toHaveBeenCalled();
       expect(navigate).toHaveBeenCalledWith('/');
@@ -167,10 +176,10 @@ describe('useSync', () => {
         branch: 'main',
         success_count: 1,
       });
-      confirm.mockResolvedValue(false);
+      confirmWithCheckbox.mockResolvedValue(null);
 
       const { result } = renderHook(() => useSync());
-      await act(() => result.current.handleLinearSyncToMain('ws-1'));
+      await act(() => result.current.handleLinearSyncToMain(ctx));
 
       expect(mockDisposeWorkspaceAll).not.toHaveBeenCalled();
       expect(navigate).not.toHaveBeenCalled();
@@ -187,7 +196,7 @@ describe('useSync', () => {
       });
 
       const { result } = renderHook(() => useSync());
-      await act(() => result.current.handleLinearSyncToMain('ws-1', 'main', '/tmp/ws'));
+      await act(() => result.current.handleLinearSyncToMain({ ...ctx, workspacePath: '/tmp/ws' }));
 
       expect(toastSuccess).toHaveBeenCalledWith(expect.stringContaining('dev mode'));
       expect(confirm).not.toHaveBeenCalled();

@@ -883,6 +883,137 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 	})
 }
 
+func TestAPIContract_DisposeAll_DeleteRemoteBranch(t *testing.T) {
+	gitAt := func(t *testing.T, dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v in %s: %v: %s", args, dir, err, out)
+		}
+	}
+
+	mergedWorkspaceRepo := func(t *testing.T, merged bool) (wsPath, remotePath string) {
+		t.Helper()
+		if _, err := exec.LookPath("git"); err != nil {
+			t.Skip("git not available")
+		}
+		base := t.TempDir()
+		remotePath = filepath.Join(base, "remote.git")
+		if err := os.MkdirAll(remotePath, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		gitAt(t, remotePath, "init", "--bare", "-b", "main")
+
+		wsPath = filepath.Join(base, "ws")
+		if err := os.MkdirAll(wsPath, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		gitAt(t, wsPath, "init", "-b", "main")
+		gitAt(t, wsPath, "config", "user.email", "test@test")
+		gitAt(t, wsPath, "config", "user.name", "test")
+		gitAt(t, wsPath, "remote", "add", "origin", remotePath)
+		gitAt(t, wsPath, "commit", "--allow-empty", "-m", "init")
+		gitAt(t, wsPath, "push", "origin", "main:refs/heads/main")
+		gitAt(t, wsPath, "checkout", "-b", "feature/x")
+		gitAt(t, wsPath, "commit", "--allow-empty", "-m", "work")
+		gitAt(t, wsPath, "push", "origin", "feature/x:refs/heads/feature/x")
+		if merged {
+			gitAt(t, wsPath, "push", "origin", "feature/x:refs/heads/main")
+		}
+		gitAt(t, wsPath, "fetch", "origin")
+		return wsPath, remotePath
+	}
+
+	remoteHasBranch := func(t *testing.T, remotePath, branch string) bool {
+		t.Helper()
+		cmd := exec.Command("git", "for-each-ref", "--format=%(refname)", "refs/heads/"+branch)
+		cmd.Dir = remotePath
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("for-each-ref in %s: %v", remotePath, err)
+		}
+		return strings.TrimSpace(string(out)) != ""
+	}
+
+	postDisposeAll := func(t *testing.T, wsH *WorkspaceHandlers, id, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		var r *http.Request
+		if body == "" {
+			r = httptest.NewRequest(http.MethodPost, "/api/workspaces/"+id+"/dispose-all", nil)
+		} else {
+			r = httptest.NewRequest(http.MethodPost, "/api/workspaces/"+id+"/dispose-all", strings.NewReader(body))
+		}
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("workspaceID", id)
+		r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+		rr := httptest.NewRecorder()
+		wsH.handleDisposeWorkspaceAll(rr, r)
+		return rr
+	}
+
+	server, _, st := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(server)
+
+	t.Run("empty body still disposes without touching the remote branch", func(t *testing.T) {
+		wsPath, remotePath := mergedWorkspaceRepo(t, true)
+		if err := st.AddWorkspace(state.Workspace{
+			ID: "ws-plain", Repo: remotePath, Branch: "feature/x", Path: wsPath,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		rr := postDisposeAll(t, wsH, "ws-plain", "")
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+		if !remoteHasBranch(t, remotePath, "feature/x") {
+			t.Fatal("remote branch deleted without being asked")
+		}
+	})
+
+	t.Run("delete_remote_branch:true deletes the branch before disposing", func(t *testing.T) {
+		wsPath, remotePath := mergedWorkspaceRepo(t, true)
+		if err := st.AddWorkspace(state.Workspace{
+			ID: "ws-del", Repo: remotePath, Branch: "feature/x", Path: wsPath,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		rr := postDisposeAll(t, wsH, "ws-del", `{"delete_remote_branch":true}`)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+		if remoteHasBranch(t, remotePath, "feature/x") {
+			t.Fatal("remote branch survived the delete")
+		}
+	})
+
+	t.Run("aborts entirely when the remote delete fails", func(t *testing.T) {
+		// merged=false: feature/x has a commit that never reached main, so the
+		// containment guard refuses.
+		wsPath, remotePath := mergedWorkspaceRepo(t, false)
+		if err := st.AddWorkspace(state.Workspace{
+			ID: "ws-abort", Repo: remotePath, Branch: "feature/x", Path: wsPath,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		rr := postDisposeAll(t, wsH, "ws-abort", `{"delete_remote_branch":true}`)
+		if rr.Code != http.StatusConflict {
+			t.Fatalf("expected 409, got %d: %s", rr.Code, rr.Body.String())
+		}
+		// This is the guarantee the whole ordering exists to provide.
+		got, found := st.GetWorkspace("ws-abort")
+		if !found {
+			t.Fatal("workspace was removed despite the delete failing")
+		}
+		if got.Status == "disposing" {
+			t.Fatal("workspace was marked disposing despite the delete failing")
+		}
+		if !remoteHasBranch(t, remotePath, "feature/x") {
+			t.Fatal("remote branch was deleted despite the containment guard")
+		}
+	})
+}
+
 func TestAPIContract_ConfigUpdateRejectsDuplicateRepoNames(t *testing.T) {
 	server, _, _ := newTestServer(t)
 

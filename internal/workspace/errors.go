@@ -22,4 +22,11 @@ var (
 	// ErrConnectMissingTarget is returned when repo creation or origin setup is
 	// needed but the request has no owner/name.
 	ErrConnectMissingTarget = errors.New("owner and repo name are required to create the repository")
+
+	// ErrRemoteBranchNotDeletable means the workspace does not qualify for remote
+	// branch deletion (fork, default branch, remote host, or non-git VCS).
+	ErrRemoteBranchNotDeletable = errors.New("workspace's remote branch is not deletable")
+	// ErrRemoteBranchNotMerged means origin/<branch> holds commits that are not on
+	// the default branch, so deleting it would destroy them.
+	ErrRemoteBranchNotMerged = errors.New("remote branch has commits not on the default branch")
 )

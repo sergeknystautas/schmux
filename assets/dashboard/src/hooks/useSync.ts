@@ -18,9 +18,22 @@ import { useSyncState } from '../contexts/SyncContext';
 import { usePendingNavigation } from '../lib/navigation';
 import type { WorkspaceResponse } from '../lib/types';
 
+/** Everything the post-push cleanup prompt needs about a workspace. */
+export interface DisposeSuggestionContext {
+  workspaceId: string;
+  workspacePath?: string;
+  branch: string;
+  defaultBranch: string;
+  remoteBranchExists: boolean;
+  remoteBranchIsFork: boolean;
+  remoteHostId?: string;
+  vcs?: string;
+  prNumber?: number;
+}
+
 export function useSync() {
   const navigate = useNavigate();
-  const { alert, confirm, show } = useModal();
+  const { alert, confirm, show, confirmWithCheckbox } = useModal();
   const { error: toastError, success: toastSuccess } = useToast();
   const { clearLinearSyncResolveConflictState } = useSyncState();
   const { setPendingNavigation } = usePendingNavigation();
@@ -97,7 +110,7 @@ export function useSync() {
   // disposes the workspace and navigates home. `summary` is the completed
   // "Pushed …" sentence (including trailing period).
   const suggestDisposeAfterPush = useCallback(
-    async (workspaceId: string, summary: string, workspacePath?: string): Promise<void> => {
+    async (ctx: DisposeSuggestionContext, summary: string): Promise<void> => {
       // Check config flag for dispose suggestion
       let suggestDispose = true;
       try {
@@ -114,10 +127,10 @@ export function useSync() {
 
       // Check if this workspace is the live dev workspace
       let isDevLive = false;
-      if (workspacePath) {
+      if (ctx.workspacePath) {
         try {
           const devStatus = await getDevStatus();
-          isDevLive = devStatus.source_workspace === workspacePath;
+          isDevLive = devStatus.source_workspace === ctx.workspacePath;
         } catch {
           // Not in dev mode or dev status unavailable — ignore
         }
@@ -128,28 +141,57 @@ export function useSync() {
         return;
       }
 
-      const disposeConfirmed = await confirm(
-        `${summary} Are you done? Shall I dispose this workspace and sessions?`
-      );
+      const message = `${summary} Are you done? Shall I dispose this workspace and sessions?`;
+
+      // The branch is deletable only when it exists on origin (not a fork), is
+      // not the default branch, and lives in a local git workspace. The backend
+      // re-checks all of this and holds the real safety property; this gate only
+      // decides whether to offer the choice.
+      const canDeleteRemoteBranch =
+        ctx.remoteBranchExists &&
+        !ctx.remoteBranchIsFork &&
+        ctx.branch !== ctx.defaultBranch &&
+        !ctx.remoteHostId &&
+        (!ctx.vcs || ctx.vcs === 'git');
+
+      let disposeConfirmed = false;
+      let deleteRemoteBranch = false;
+
+      if (canDeleteRemoteBranch) {
+        // Split so the modal can render the ref in mono: the style guide reserves
+        // --font-mono for branch names, and it separates the ref from the prose.
+        const result = await confirmWithCheckbox(message, {
+          checkbox: {
+            label: 'Delete remote branch',
+            code: `origin/${ctx.branch}`,
+            note: ctx.prNumber ? `(closes PR #${ctx.prNumber})` : undefined,
+            defaultChecked: true,
+          },
+        });
+        disposeConfirmed = result?.confirmed ?? false;
+        deleteRemoteBranch = disposeConfirmed && (result?.checked ?? false);
+      } else {
+        disposeConfirmed = (await confirm(message)) ?? false;
+      }
+
       if (disposeConfirmed) {
-        await disposeWorkspaceAll(workspaceId);
+        await disposeWorkspaceAll(ctx.workspaceId, { deleteRemoteBranch });
         navigate('/');
       }
     },
-    [confirm, navigate, toastSuccess]
+    [confirm, confirmWithCheckbox, navigate, toastSuccess]
   );
 
   const handleLinearSyncToMain = useCallback(
-    async (workspaceId: string, defaultBranch?: string, workspacePath?: string): Promise<void> => {
+    async (ctx: DisposeSuggestionContext): Promise<void> => {
       try {
-        const result = await linearSyncToMain(workspaceId);
+        const result = await linearSyncToMain(ctx.workspaceId);
         if (result.success) {
-          const branch = defaultBranch || result.branch || 'main';
+          const branch = ctx.defaultBranch || result.branch || 'main';
           const count = result.success_count ?? 0;
           await suggestDisposeAfterPush(
-            workspaceId,
-            `Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}.`,
-            workspacePath
+            ctx,
+            `Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}.`
           );
         } else {
           await alert('Error', 'Sync failed.');
@@ -198,8 +240,8 @@ export function useSync() {
         targetBranchName: string;
         /** the selected commit is the branch head — a full push */
         headCommit: boolean;
-        /** used to skip the dispose suggestion for the live dev workspace */
-        workspacePath?: string;
+        /** everything the post-push cleanup prompt needs; also skips the prompt for the live dev workspace */
+        disposeContext: DisposeSuggestionContext;
       }
     ): Promise<boolean> => {
       const { hash, target, perCommit, targetBranchName } = opts;
@@ -239,7 +281,7 @@ export function useSync() {
             // A full push to main is the same milestone as the "Push to main"
             // button — offer the same workspace cleanup. Partial pushes leave
             // unpushed commits behind, so no dispose suggestion there.
-            await suggestDisposeAfterPush(workspaceId, summary, opts.workspacePath);
+            await suggestDisposeAfterPush(opts.disposeContext, summary);
           } else {
             toastSuccess(summary);
           }

@@ -5,13 +5,14 @@ import { useSync } from './useSync';
 
 const pushCommits = vi.fn();
 const pushToBranch = vi.fn();
+const linearSyncToMain = vi.fn();
 const getConfig = vi.fn();
 const getDevStatus = vi.fn();
 const disposeWorkspaceAll = vi.fn();
 
 vi.mock('../lib/api', () => ({
   linearSyncFromMain: vi.fn(),
-  linearSyncToMain: vi.fn(),
+  linearSyncToMain: (...args: unknown[]) => linearSyncToMain(...args),
   pushToBranch: (...args: unknown[]) => pushToBranch(...args),
   pushCommits: (...args: unknown[]) => pushCommits(...args),
   linearSyncResolveConflict: vi.fn(),
@@ -23,10 +24,11 @@ vi.mock('../lib/api', () => ({
 }));
 
 const confirm = vi.fn();
+const confirmWithCheckbox = vi.fn();
 const alert = vi.fn();
 const show = vi.fn();
 vi.mock('../components/ModalProvider', () => ({
-  useModal: () => ({ alert, confirm, show }),
+  useModal: () => ({ alert, confirm, confirmWithCheckbox, show }),
 }));
 
 const toastSuccess = vi.fn();
@@ -79,7 +81,14 @@ const baseOpts = {
   perCommit: false,
   targetBranchName: 'main',
   headCommit: true,
-  workspacePath: '/tmp/ws',
+  disposeContext: {
+    workspaceId: 'ws-1',
+    workspacePath: '/tmp/ws',
+    branch: 'feature',
+    defaultBranch: 'main',
+    remoteBranchExists: false,
+    remoteBranchIsFork: false,
+  },
 };
 
 beforeEach(() => {
@@ -100,7 +109,9 @@ describe('handlePushCommits dispose suggestion', () => {
     expect(confirm).toHaveBeenCalledWith(
       expect.stringMatching(/Pushed 2 commits in 1 push to origin\/main\..*dispose this workspace/)
     );
-    await waitFor(() => expect(disposeWorkspaceAll).toHaveBeenCalledWith('ws-1'));
+    await waitFor(() =>
+      expect(disposeWorkspaceAll).toHaveBeenCalledWith('ws-1', { deleteRemoteBranch: false })
+    );
     expect(navigate).toHaveBeenCalledWith('/');
   });
 
@@ -207,5 +218,103 @@ describe('handlePushToBranch', () => {
     renderSync();
     await sync.handlePushToBranch('ws-1', 'feature/foo');
     expect(alert).toHaveBeenCalledWith('Error', expect.any(String));
+  });
+});
+
+// Build a context literal for tests. `over` lets each case tweak one field.
+const ctx = (over: Record<string, unknown> = {}) => ({
+  workspaceId: 'ws-1',
+  branch: 'feature/x',
+  defaultBranch: 'main',
+  remoteBranchExists: true,
+  remoteBranchIsFork: false,
+  ...over,
+});
+
+describe('post-push cleanup: delete remote branch', () => {
+  beforeEach(() => {
+    linearSyncToMain.mockResolvedValue({ success: true, branch: 'main', success_count: 2 });
+  });
+
+  it('offers the checkbox, checked, for an eligible workspace', async () => {
+    confirmWithCheckbox.mockResolvedValue({ confirmed: true, checked: true });
+    renderSync();
+
+    await sync.handleLinearSyncToMain(ctx());
+
+    expect(confirmWithCheckbox).toHaveBeenCalledWith(
+      expect.stringContaining('Are you done?'),
+      expect.objectContaining({
+        checkbox: {
+          label: 'Delete remote branch',
+          code: 'origin/feature/x',
+          note: undefined,
+          defaultChecked: true,
+        },
+      })
+    );
+    await waitFor(() =>
+      expect(disposeWorkspaceAll).toHaveBeenCalledWith('ws-1', { deleteRemoteBranch: true })
+    );
+    expect(navigate).toHaveBeenCalledWith('/');
+  });
+
+  it('names the PR in the label when one is open', async () => {
+    confirmWithCheckbox.mockResolvedValue({ confirmed: true, checked: true });
+    renderSync();
+
+    await sync.handleLinearSyncToMain(ctx({ prNumber: 123 }));
+
+    expect(confirmWithCheckbox).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        checkbox: {
+          label: 'Delete remote branch',
+          code: 'origin/feature/x',
+          note: '(closes PR #123)',
+          defaultChecked: true,
+        },
+      })
+    );
+  });
+
+  it('passes deleteRemoteBranch false when the user clears the box', async () => {
+    confirmWithCheckbox.mockResolvedValue({ confirmed: true, checked: false });
+    renderSync();
+
+    await sync.handleLinearSyncToMain(ctx());
+
+    await waitFor(() =>
+      expect(disposeWorkspaceAll).toHaveBeenCalledWith('ws-1', { deleteRemoteBranch: false })
+    );
+  });
+
+  it.each([
+    ['no remote branch', { remoteBranchExists: false }],
+    ['fork branch', { remoteBranchIsFork: true }],
+    ['on the default branch', { branch: 'main' }],
+    ['remote host workspace', { remoteHostId: 'host-1' }],
+    ['sapling workspace', { vcs: 'sapling' }],
+  ])('falls back to a plain confirm when %s', async (_name, over) => {
+    confirm.mockResolvedValue(true);
+    renderSync();
+
+    await sync.handleLinearSyncToMain(ctx(over));
+
+    expect(confirm).toHaveBeenCalled();
+    expect(confirmWithCheckbox).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(disposeWorkspaceAll).toHaveBeenCalledWith('ws-1', { deleteRemoteBranch: false })
+    );
+  });
+
+  it('does not dispose when the user cancels', async () => {
+    confirmWithCheckbox.mockResolvedValue(null);
+    renderSync();
+
+    await sync.handleLinearSyncToMain(ctx());
+
+    expect(confirmWithCheckbox).toHaveBeenCalled();
+    expect(disposeWorkspaceAll).not.toHaveBeenCalled();
   });
 });

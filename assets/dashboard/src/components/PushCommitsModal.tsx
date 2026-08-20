@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSync } from '../hooks/useSync';
+import { useSync, type DisposeSuggestionContext } from '../hooks/useSync';
 import useFocusTrap from '../hooks/useFocusTrap';
 import Tooltip from './Tooltip';
 
@@ -28,8 +28,8 @@ export interface PushCommitsModalProps {
   countToBranch: number | null;
   /** the selected commit is the branch head — a full push to main offers workspace cleanup */
   headCommit: boolean;
-  /** used to skip the cleanup suggestion for the live dev workspace */
-  workspacePath?: string;
+  /** workspace facts needed to decide whether to offer the delete-remote-branch checkbox */
+  disposeContext: DisposeSuggestionContext;
   onClose: () => void;
   /** refetch the graph after a push landed */
   onPushed: () => Promise<void>;
@@ -52,7 +52,7 @@ export default function PushCommitsModal(props: PushCommitsModalProps) {
     countToMain,
     countToBranch,
     headCommit,
-    workspacePath,
+    disposeContext,
     onClose,
     onPushed,
   } = props;
@@ -116,7 +116,7 @@ export default function PushCommitsModal(props: PushCommitsModalProps) {
         perCommit: effectivePerCommit,
         targetBranchName,
         headCommit,
-        workspacePath,
+        disposeContext,
       });
       if (pushed) {
         await onPushed();

@@ -21,7 +21,7 @@ import type { BranchDivergenceResponse } from '../lib/types.generated';
 import { reachableFrom, countUnpushed } from '../lib/commitReachability';
 import { useSessions } from '../contexts/SessionsContext';
 import { useSyncState } from '../contexts/SyncContext';
-import { useSync } from '../hooks/useSync';
+import { useSync, type DisposeSuggestionContext } from '../hooks/useSync';
 import { useModal } from './ModalProvider';
 import { usePendingNavigation } from '../lib/navigation';
 import { formatRelativeTime } from '../lib/utils';
@@ -89,6 +89,21 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
   const defaultBranchName = ws?.default_branch || 'main';
   const localBranchName = ws?.branch || '';
   const onDefaultBranch = localBranchName === defaultBranchName;
+  // Build the context the post-push cleanup prompt needs. A bare repository or
+  // a workspace that hasn't reported remote state yet yields the same shape —
+  // call sites only consume the fields they need to decide whether to offer
+  // the delete-remote-branch checkbox.
+  const disposeContext = (): DisposeSuggestionContext => ({
+    workspaceId,
+    workspacePath: ws?.path,
+    branch: localBranchName,
+    defaultBranch: defaultBranchName,
+    remoteBranchExists: ws?.remote_branch_exists ?? false,
+    remoteBranchIsFork: ws?.remote_branch_is_fork ?? false,
+    remoteHostId: ws?.remote_host_id,
+    vcs: ws?.vcs,
+    prNumber: ws?.pr_number,
+  });
   const originMainSet = useMemo(() => {
     const nodes = data?.nodes ?? [];
     const head = onDefaultBranch
@@ -381,7 +396,7 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
         if (!ws || pushToDefaultDisabled || ffToMainSyncing || isSyncing) return;
         setFfToMainSyncing(true);
         try {
-          await handleLinearSyncToMain(ws.id, defaultBranch, ws.path);
+          await handleLinearSyncToMain(disposeContext());
         } finally {
           setFfToMainSyncing(false);
         }
@@ -962,7 +977,7 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
               : null
           }
           headCommit={pushModalNode.node.is_head.includes(ws.branch)}
-          workspacePath={ws.path}
+          disposeContext={disposeContext()}
           onClose={() => setPushModalNode(null)}
           onPushed={fetchData}
         />

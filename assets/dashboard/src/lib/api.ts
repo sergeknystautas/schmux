@@ -378,11 +378,13 @@ export async function dismissRepofeedIntent(
 }
 
 export async function disposeWorkspaceAll(
-  workspaceId: string
+  workspaceId: string,
+  opts?: { deleteRemoteBranch?: boolean }
 ): Promise<{ status: string; sessions_disposed: number }> {
   const response = await apiFetch(`/api/workspaces/${workspaceId}/dispose-all`, {
     method: 'POST',
-    headers: { ...csrfHeaders() },
+    headers: { ...csrfHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ delete_remote_branch: opts?.deleteRemoteBranch ?? false }),
   });
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to dispose workspace and sessions');

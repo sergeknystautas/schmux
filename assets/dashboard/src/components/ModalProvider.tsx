@@ -8,7 +8,8 @@ type ModalBase = {
   danger: boolean;
   detailedMessage: string;
   wide: boolean;
-  resolve: (value: boolean | string | null) => void;
+  checkbox?: { label: string; code?: string; note?: string; defaultChecked: boolean };
+  resolve: (value: boolean | string | null | { confirmed: boolean; checked: boolean }) => void;
 };
 
 type AlertModal = ModalBase & {
@@ -36,6 +37,7 @@ type ModalOptions = {
   errorMessage?: string;
   password?: boolean;
   wide?: boolean;
+  checkbox?: { label: string; code?: string; note?: string; defaultChecked: boolean };
 };
 
 type ModalOptionsInput = ModalOptions | string;
@@ -45,6 +47,12 @@ type ModalContextValue = {
   alert: (title: string, message: string) => Promise<boolean | null>;
   confirm: (message: string, options?: ModalOptionsInput) => Promise<boolean | null>;
   prompt: (title: string, options?: ModalOptionsInput) => Promise<string | null>;
+  confirmWithCheckbox: (
+    message: string,
+    options: ModalOptions & {
+      checkbox: { label: string; code?: string; note?: string; defaultChecked: boolean };
+    }
+  ) => Promise<{ confirmed: boolean; checked: boolean } | null>;
 };
 
 const ModalContext = createContext<ModalContextValue | null>(null);
@@ -57,6 +65,7 @@ export function useModal() {
 
 export default function ModalProvider({ children }: { children: React.ReactNode }) {
   const [modal, setModal] = useState<ModalState | null>(null);
+  const [checked, setChecked] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
 
   useFocusTrap(modalRef, !!modal);
@@ -64,7 +73,9 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
   const show = (title: string, message: string, options: ModalOptionsInput = {}) =>
     new Promise<boolean | null>((resolve) => {
       const normalizedOptions = typeof options === 'string' ? {} : options;
-      const resolveModal = resolve as (value: boolean | string | null) => void;
+      const resolveModal = resolve as (
+        value: boolean | string | null | { confirmed: boolean; checked: boolean }
+      ) => void;
       setModal({
         title,
         message,
@@ -74,6 +85,7 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
         danger: normalizedOptions.danger || false,
         detailedMessage: normalizedOptions.detailedMessage || '',
         wide: normalizedOptions.wide || false,
+        checkbox: normalizedOptions.checkbox,
         resolve: resolveModal,
       });
     });
@@ -84,10 +96,36 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
   const confirm = (message: string, options: ModalOptionsInput = {}) =>
     show('Confirm Action', message, options);
 
+  const confirmWithCheckbox = (
+    message: string,
+    options: ModalOptions & {
+      checkbox: { label: string; code?: string; note?: string; defaultChecked: boolean };
+    }
+  ) =>
+    new Promise<{ confirmed: boolean; checked: boolean } | null>((resolve) => {
+      setChecked(options.checkbox.defaultChecked);
+      const resolveModal = resolve as (
+        value: boolean | string | null | { confirmed: boolean; checked: boolean }
+      ) => void;
+      setModal({
+        title: 'Confirm Action',
+        message,
+        confirmText: options.confirmText || 'Confirm',
+        cancelText: options.cancelText !== undefined ? options.cancelText : 'Cancel',
+        danger: options.danger || false,
+        detailedMessage: options.detailedMessage || '',
+        wide: options.wide || false,
+        checkbox: options.checkbox,
+        resolve: resolveModal,
+      });
+    });
+
   const prompt = (title: string, options: ModalOptionsInput = {}) =>
     new Promise<string | null>((resolve) => {
       const normalizedOptions = typeof options === 'string' ? {} : options;
-      const resolveModal = resolve as (value: boolean | string | null) => void;
+      const resolveModal = resolve as (
+        value: boolean | string | null | { confirmed: boolean; checked: boolean }
+      ) => void;
       setModal({
         title,
         isPrompt: true,
@@ -105,12 +143,14 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
       });
     });
 
-  const api = useMemo(() => ({ show, alert, confirm, prompt }), []);
+  const api = useMemo(() => ({ show, alert, confirm, confirmWithCheckbox, prompt }), []);
 
   const close = (result: boolean | string | null) => {
     if (!modal) return;
     if (modal.isPrompt) {
       modal.resolve(result); // result is the input value or null
+    } else if (modal.checkbox && typeof result === 'boolean') {
+      modal.resolve({ confirmed: result, checked });
     } else {
       modal.resolve(result);
     }
@@ -144,7 +184,10 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [modal]);
+    // `checked` is a dependency because close() reads it: without it the
+    // listener keeps the value the checkbox had when the modal opened, and
+    // confirming with Enter reports a stale box.
+  }, [modal, checked]);
 
   return (
     <ModalContext.Provider value={api}>
@@ -186,6 +229,29 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
                   {'message' in modal ? <p>{modal.message}</p> : null}
                   {modal.detailedMessage ? (
                     <p className="text-muted">{modal.detailedMessage}</p>
+                  ) : null}
+                  {modal.checkbox ? (
+                    <div className="checkbox-list mt-md">
+                      <label className="checkbox-list__item">
+                        <input
+                          type="checkbox"
+                          data-testid="modal-checkbox"
+                          checked={checked}
+                          onChange={(e) => setChecked(e.target.checked)}
+                        />
+                        <span>
+                          {modal.checkbox.label}
+                          {modal.checkbox.code ? (
+                            <span className="checkbox-list__ref">
+                              <span className="mono">{modal.checkbox.code}</span>
+                              {modal.checkbox.note ? (
+                                <span className="text-muted"> {modal.checkbox.note}</span>
+                              ) : null}
+                            </span>
+                          ) : null}
+                        </span>
+                      </label>
+                    </div>
                   ) : null}
                 </>
               )}
