@@ -2732,10 +2732,15 @@ Response:
 Process:
 
 1. Looks up PR metadata from discovery cache
-2. Fetches `refs/pull/{number}/head` into the bare clone
-3. Creates workspace on branch `pr/{number}` (or `pr/{fork-owner}/{number}` for forks)
-4. Launches session using `pr_review.target` with PR context as prompt
-5. Returns workspace and session IDs for navigation
+2. Fetches `origin` and checks whether the PR's head branch exists there
+3. If it does (the common same-repo case), creates the workspace directly on that branch, so it gets a normal remote-tracking setup
+4. If it does not (fork PRs, or a deleted head branch), fetches `refs/pull/{number}/head` and creates the workspace on branch `pr/{number}` (or `pr/{fork-owner}/{number}` for forks)
+5. Launches session using `pr_review.target` with PR context as prompt
+6. Returns workspace and session IDs for navigation
+
+Note: the branch check is made against origin rather than the PR's `is_fork` flag, which reports whether the _head repo_ is a fork and so mislabels same-repo PRs when the base repo is itself a fork.
+
+Workspaces created on the PR's real head branch report `remote_branch_exists`, which is what workspace CI status and PR chips key off (see `GET /api/sessions`). Workspaces created from a PR ref have no remote counterpart and therefore carry neither.
 
 Errors:
 
