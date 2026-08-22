@@ -30,5 +30,7 @@ func (s *Server) handleBuildMonitorLaunch(w http.ResponseWriter, _ *http.Request
 // RunBuildMonitorCheck is a no-op when the build monitor is excluded from the build.
 func (s *Server) RunBuildMonitorCheck(_ context.Context) {}
 
+func (s *Server) repoHasActiveWorkflows(_ string) bool { return false }
+
 // BroadcastBuildMonitor is a no-op when the build monitor is excluded from the build.
 func (s *Server) BroadcastBuildMonitor() {}

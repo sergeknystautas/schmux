@@ -105,6 +105,34 @@ func TestPassPopulatesWorkspaceStatus(t *testing.T) {
 	}
 }
 
+func TestPassKeepsNewHeadPendingForOneMissingRunCheck(t *testing.T) {
+	srv, _ := setupUnifiedPass(t, `{"workflow_runs": []}`, `[]`)
+
+	srv.runBuildMonitorCheckPass(context.Background())
+	first, ok := srv.workspaceStatus.Get("ws1")
+	if !ok || first.CIStatus != workspacestatus.CIPending {
+		t.Fatalf("first status = (%+v, %v), want pending", first, ok)
+	}
+
+	srv.runBuildMonitorCheckPass(context.Background())
+	second, ok := srv.workspaceStatus.Get("ws1")
+	if !ok || second.CIStatus != workspacestatus.CINone {
+		t.Fatalf("second status = (%+v, %v), want none", second, ok)
+	}
+}
+
+func TestRepoHasActiveWorkflowsReadsBuildMonitorUnitState(t *testing.T) {
+	srv, _ := setupUnifiedPass(t, `{"workflow_runs": []}`, `[]`)
+	srv.runBuildMonitorCheckPass(context.Background())
+
+	if !srv.repoHasActiveWorkflows("https://github.com/acme/widget") {
+		t.Fatal("repo with an active workflow reported no workflows")
+	}
+	if srv.repoHasActiveWorkflows("https://github.com/other/repo") {
+		t.Fatal("unmonitored repo reported active workflows")
+	}
+}
+
 func TestPassSkipsWorkspaceOfUnmonitoredRepo(t *testing.T) {
 	runs := `{"workflow_runs": []}`
 	srv, _ := setupUnifiedPass(t, runs, `[]`)

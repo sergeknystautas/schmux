@@ -426,8 +426,9 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		broadcastSessions:                 s.BroadcastSessions,
 		getLinearSyncResolveConflictState: s.getLinearSyncResolveConflictState,
 
-		workspaceStatus:    s.workspaceStatus,
-		defaultBranchCache: make(map[string]defaultBranchEntry),
+		workspaceStatus:        s.workspaceStatus,
+		repoHasActiveWorkflows: s.repoHasActiveWorkflows,
+		defaultBranchCache:     make(map[string]defaultBranchEntry),
 	}
 
 	if mgr, ok := wm.(*workspace.Manager); ok {

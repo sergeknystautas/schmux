@@ -151,17 +151,20 @@ func TestBuildSessionsResponseDowngradesStaleCIStatus(t *testing.T) {
 		name          string
 		remoteHeadSHA string // on the workspace
 		entryHeadSHA  string // overrides entry.HeadSHA
+		actionsActive bool
 		wantCIStatus  string
 		wantCIURL     string
 	}{
-		{"match serves full status", "old-sha", "old-sha", "failure", "https://old-run"},
-		{"mismatch downgrades to none without url", "new-sha", "old-sha", "none", ""},
-		{"empty workspace sha serves as-is", "", "old-sha", "failure", "https://old-run"},
-		{"empty entry sha serves as-is", "new-sha", "", "failure", "https://old-run"},
+		{"match serves full status", "old-sha", "old-sha", true, "failure", "https://old-run"},
+		{"mismatch is pending when repo has workflows", "new-sha", "old-sha", true, "pending", ""},
+		{"mismatch is none without workflows", "new-sha", "old-sha", false, "none", ""},
+		{"empty workspace sha serves as-is", "", "old-sha", true, "failure", "https://old-run"},
+		{"empty entry sha serves as-is", "new-sha", "", true, "failure", "https://old-run"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server, _, st := newTestServer(t)
+			server.sessionHandlers.repoHasActiveWorkflows = func(string) bool { return tt.actionsActive }
 			if err := st.AddWorkspace(state.Workspace{
 				ID: "ws1", Repo: "https://github.com/acme/widget", Branch: "feature",
 				Path: t.TempDir(), Status: state.WorkspaceStatusRunning,
@@ -191,5 +194,24 @@ func TestBuildSessionsResponseDowngradesStaleCIStatus(t *testing.T) {
 				t.Errorf("pr = (%d, %q), want (7, https://pr)", item.PRNumber, item.PRURL)
 			}
 		})
+	}
+}
+
+func TestBuildSessionsResponseMarksFirstRemotePushPendingFromRepoWorkflows(t *testing.T) {
+	server, _, st := newTestServer(t)
+	server.sessionHandlers.repoHasActiveWorkflows = func(repoURL string) bool {
+		return repoURL == "https://github.com/acme/widget"
+	}
+	if err := st.AddWorkspace(state.Workspace{
+		ID: "ws1", Repo: "https://github.com/acme/widget", Branch: "feature",
+		Path: t.TempDir(), Status: state.WorkspaceStatusRunning,
+		RemoteBranchExists: true, RemoteHeadSHA: "new-sha",
+	}); err != nil {
+		t.Fatalf("AddWorkspace: %v", err)
+	}
+
+	items := server.sessionHandlers.buildSessionsResponse()
+	if len(items) != 1 || items[0].CIStatus != workspacestatus.CIPending {
+		t.Fatalf("items = %+v, want first pushed head pending", items)
 	}
 }

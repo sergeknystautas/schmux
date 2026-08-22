@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/buildmonitor"
+	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspacestatus"
@@ -22,6 +23,25 @@ const workspaceStatusTTL = 5 * time.Minute
 
 // workspaceStatusMaxBackoff caps the rate-limit backoff.
 const workspaceStatusMaxBackoff = 30 * time.Minute
+
+// repoHasActiveWorkflows reads the build monitor's repo-level workflow state.
+// Workflow availability belongs to the monitored unit, never to a workspace.
+func (s *Server) repoHasActiveWorkflows(repoURL string) bool {
+	if !s.config.GetBuildMonitorEnabled() {
+		return false
+	}
+	repo, found := s.config.FindRepoByURL(repoURL)
+	if !found || !s.config.GetBuildMonitorRepoEnabled(repoSlug(repo.Name)) {
+		return false
+	}
+	login := s.config.GetGitHubLogin(repoURL)
+	token, err := config.GetGitHubToken(login)
+	if err != nil || token == "" {
+		return false
+	}
+	unit, err := buildmonitor.ReadState(buildMonitorUnitStatePath(repoSlug(repo.Name)))
+	return err == nil && unit != nil && len(unit.Workflows) > 0
+}
 
 // checkUnitWorkspaces refreshes CI/PR status for the live local workspaces of
 // one monitored repo, using the unit's already-resolved identity token. Marks
@@ -67,6 +87,7 @@ func (s *Server) refreshWorkspaceStatus(ctx context.Context, token string, w sta
 	}
 
 	next := workspacestatus.Entry{Repo: ciRepo, Branch: w.Branch, HeadSHA: headSHA, FetchedAt: now}
+	newHead := !hadPrev || prev.HeadSHA != headSHA
 	skipCI := hadPrev && prev.Terminal && prev.HeadSHA == headSHA && now.Sub(prev.FetchedAt) < workspaceStatusTTL
 	switch {
 	case skipCI:
@@ -84,6 +105,12 @@ func (s *Server) refreshWorkspaceStatus(ctx context.Context, token string, w sta
 		}
 		next.Status.CIStatus, next.Status.CIURL = workspacestatus.Aggregate(runs, headSHA)
 		next.Terminal = next.Status.CIStatus == workspacestatus.CISuccess || next.Status.CIStatus == workspacestatus.CIFailure
+	}
+	if next.Status.CIStatus == workspacestatus.CINone && newHead && unit != nil && len(unit.Workflows) > 0 {
+		// GitHub may not expose the run immediately after a push. Keep one
+		// missing-run check pending; a second miss for the same head settles to
+		// "none" for workflows excluded by branch or path filters.
+		next.Status.CIStatus = workspacestatus.CIPending
 	}
 
 	// PRs appear without new commits, so this lookup runs every pass.

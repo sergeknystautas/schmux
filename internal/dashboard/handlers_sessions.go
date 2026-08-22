@@ -57,7 +57,8 @@ type SessionHandlers struct {
 
 	// workspaceStatus serves cached GitHub CI/PR status per workspace.
 	// written by the build monitor check pass
-	workspaceStatus *workspacestatus.Cache
+	workspaceStatus        *workspacestatus.Cache
+	repoHasActiveWorkflows func(repoURL string) bool
 }
 
 // buildSessionsResponse builds the sessions/workspaces response data.
@@ -67,6 +68,18 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 
 	workspaceMap := make(map[string]*WorkspaceResponseItem)
 	workspaces := h.state.GetWorkspaces()
+	repoWorkflowState := make(map[string]bool)
+	repoWorkflowStateRead := make(map[string]bool)
+	hasActiveWorkflows := func(repoURL string) bool {
+		if repoWorkflowStateRead[repoURL] {
+			return repoWorkflowState[repoURL]
+		}
+		repoWorkflowStateRead[repoURL] = true
+		if h.repoHasActiveWorkflows != nil {
+			repoWorkflowState[repoURL] = h.repoHasActiveWorkflows(repoURL)
+		}
+		return repoWorkflowState[repoURL]
+	}
 	ctx := context.Background()
 	for _, ws := range workspaces {
 		// Hide recyclable workspaces from the dashboard
@@ -196,15 +209,20 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 			workspaceMap[ws.ID].Previews = items
 		}
 
+		ciStatusFound := false
 		if h.workspaceStatus != nil {
 			if e, ok := h.workspaceStatus.Lookup(ws.ID); ok {
+				ciStatusFound = true
 				item := workspaceMap[ws.ID]
 				if ws.RemoteHeadSHA != "" && e.HeadSHA != "" && ws.RemoteHeadSHA != e.HeadSHA {
 					// The remote branch moved past the commit this result is
-					// for: show "no runs yet for this commit" instead of a
-					// stale badge. The next pass fetches the new head. The PR
-					// link survives pushes, so it is served either way.
-					item.CIStatus = workspacestatus.CINone
+					// for. Consult the repo's workflow list rather than stale
+					// workspace data to decide whether the new run is pending.
+					if hasActiveWorkflows(ws.Repo) {
+						item.CIStatus = workspacestatus.CIPending
+					} else {
+						item.CIStatus = workspacestatus.CINone
+					}
 				} else {
 					item.CIStatus = e.Status.CIStatus
 					item.CIURL = e.Status.CIURL
@@ -212,6 +230,11 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 				item.PRNumber = e.Status.PRNumber
 				item.PRURL = e.Status.PRURL
 			}
+		}
+		if !ciStatusFound && ws.RemoteBranchExists && ws.RemoteHeadSHA != "" && hasActiveWorkflows(ws.Repo) {
+			// The first git-status refresh can observe a newly pushed branch
+			// before the per-workspace GitHub check has produced a cache entry.
+			workspaceMap[ws.ID].CIStatus = workspacestatus.CIPending
 		}
 
 		// Populate tabs from top-level state — no field rewriting.
