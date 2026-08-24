@@ -277,6 +277,10 @@ export default function useSessionsWebSocket(opts?: {
       setStale(false);
       // Reset reconnect delay on successful connection
       reconnectDelayRef.current = RECONNECT_DELAY_MS;
+      // Refetch build monitor state on every (re)connection: broadcasts
+      // sent while disconnected (e.g. across a daemon restart) are gone,
+      // so the last-fetched snapshot may be stale.
+      setBuildMonitorUpdateCount((c) => c + 1);
       // Snapshot-as-source-of-truth: drop any locally-held clipboard
       // requests so the upcoming snapshot burst (clipboardRequest events
       // for currently-pending entries) is the only source of state. Any

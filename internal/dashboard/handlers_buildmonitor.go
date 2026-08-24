@@ -18,18 +18,40 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/logging"
-	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/session"
+	"github.com/sergeknystautas/schmux/internal/state"
 )
 
-// buildMonitorStateDir returns the directory for build monitor state files.
-func buildMonitorStateDir() string {
-	return filepath.Join(schmuxdir.Get(), "build-monitor")
-}
-
 // buildMonitorUnitStatePath returns the path to a unit's state file.
+// (buildMonitorStateDir lives in server.go, untagged.)
 func buildMonitorUnitStatePath(slug string) string {
 	return filepath.Join(buildMonitorStateDir(), slug+".json")
+}
+
+// hydrateBuildMonitor seeds the monitor's commit store from the durable unit
+// snapshots at startup so CI chips show last-known status before the first
+// check pass completes. (The page reads the snapshot files directly.) No-op
+// when the feature is disabled.
+func (s *Server) hydrateBuildMonitor() {
+	if !s.config.GetBuildMonitorEnabled() {
+		return
+	}
+	snapshots := map[string]*buildmonitor.UnitState{}
+	for _, repo := range s.config.GetRepos() {
+		slug := repoSlug(repo.Name)
+		if !s.config.GetBuildMonitorRepoEnabled(slug) {
+			continue
+		}
+		st, err := buildmonitor.ReadState(buildMonitorUnitStatePath(slug))
+		if err != nil {
+			s.logger.Warn("build monitor: cannot read unit state, skipping hydration", "slug", slug, "err", err)
+			continue
+		}
+		if st != nil {
+			snapshots[slug] = st
+		}
+	}
+	s.buildMonitor.Hydrate(snapshots)
 }
 
 // githubActionsClient adapts the github package functions to the buildmonitor.Actions interface.
@@ -45,28 +67,6 @@ func (githubActionsClient) ListRepoRuns(ctx context.Context, token string, info 
 
 func (githubActionsClient) ListRunJobs(ctx context.Context, token string, info github.RepoInfo, runID int64) ([]github.WorkflowJob, error) {
 	return github.ListRunJobs(ctx, token, info, runID)
-}
-
-// buildMonitorUnitResponse is the JSON shape for a single unit (one monitored
-// repo) in the API response.
-type buildMonitorUnitResponse struct {
-	Slug                   string                       `json:"slug"`
-	RepoName               string                       `json:"repo_name"`
-	Repo                   string                       `json:"repo"`
-	Branch                 string                       `json:"branch,omitempty"`
-	Workflows              []buildmonitor.WorkflowState `json:"workflows,omitempty"`
-	CheckedAt              string                       `json:"checked_at,omitempty"`
-	LastError              string                       `json:"last_error,omitempty"`
-	Configured             bool                         `json:"configured"`
-	GitHubLogin            string                       `json:"github_login,omitempty"`
-	RemediationWorkspaceID string                       `json:"remediation_workspace_id,omitempty"`
-}
-
-// buildMonitorResponse is the JSON shape for GET /api/build-monitor.
-type buildMonitorResponse struct {
-	Enabled          bool                       `json:"enabled"`
-	LaunchConfigured bool                       `json:"launch_configured"`
-	Units            []buildMonitorUnitResponse `json:"units"`
 }
 
 // launchDirective is one workflow failure the launcher should remediate.
@@ -101,12 +101,12 @@ func collectUnitDirectives(base launchDirective, events []buildmonitor.Transitio
 	return out
 }
 
-// handleBuildMonitorGet returns the persisted build monitor state for all enabled units.
+// handleBuildMonitorGet serves the build monitor's live state for all enabled units.
 func (s *Server) handleBuildMonitorGet(w http.ResponseWriter, r *http.Request) {
-	response := buildMonitorResponse{
+	response := contracts.BuildMonitorResponse{
 		Enabled:          s.config.GetBuildMonitorEnabled(),
 		LaunchConfigured: s.config.GetBuildMonitorTarget() != "",
-		Units:            []buildMonitorUnitResponse{}, // never nil: JSON must be [], not null
+		Units:            []contracts.BuildMonitorUnit{}, // never nil: JSON must be [], not null
 	}
 
 	if !response.Enabled {
@@ -130,33 +130,77 @@ func (s *Server) handleBuildMonitorGet(w http.ResponseWriter, r *http.Request) {
 		}
 
 		login := s.config.GetGitHubLogin(repo.URL)
-		unit := buildMonitorUnitResponse{
+		unit := contracts.BuildMonitorUnit{
 			Slug:        slug,
 			RepoName:    repo.Name,
 			Configured:  login != "",
 			GitHubLogin: login,
 		}
 
-		// Parse owner/repo from URL
 		info, err := github.ParseRepoURL(repo.URL)
-		if err == nil {
-			unit.Repo = info.Owner + "/" + info.Repo
+		if err != nil {
+			response.Units = append(response.Units, unit)
+			continue
 		}
+		unit.Repo = info.Owner + "/" + info.Repo
 
-		// Read persisted state
-		state, _ := buildmonitor.ReadState(buildMonitorUnitStatePath(slug))
-		if state != nil {
-			unit.Branch = state.Branch
-			unit.Workflows = state.Workflows
-			unit.CheckedAt = state.CheckedAt
-			unit.LastError = state.LastError
-			unit.RemediationWorkspaceID = state.RemediationWorkspaceID
+		// The durable unit file is the only copy of the snapshot (the pass
+		// writes it, launch stamps write it); the head commit's status comes
+		// from the single Status derivation.
+		if st, _ := buildmonitor.ReadState(buildMonitorUnitStatePath(slug)); st != nil {
+			unit.Branch = st.Branch
+			unit.HeadSHA = st.HeadSHA
+			unit.Workflows = toContractWorkflows(st.Workflows)
+			unit.CheckedAt = st.CheckedAt
+			unit.LastError = st.LastError
+			unit.RemediationWorkspaceID = st.RemediationWorkspaceID
+			if status, _, ok := s.buildMonitor.Status(info, st.HeadSHA); ok {
+				unit.Status = status
+			}
 		}
 
 		response.Units = append(response.Units, unit)
 	}
 
 	writeJSON(w, response)
+}
+
+func toContractWorkflows(in []buildmonitor.WorkflowState) []contracts.BuildMonitorWorkflow {
+	if len(in) == 0 {
+		return []contracts.BuildMonitorWorkflow{}
+	}
+	out := make([]contracts.BuildMonitorWorkflow, 0, len(in))
+	for _, wf := range in {
+		out = append(out, contracts.BuildMonitorWorkflow{
+			Name:        wf.Name,
+			Path:        wf.Path,
+			RunID:       wf.RunID,
+			RunNumber:   wf.RunNumber,
+			Status:      wf.Status,
+			Conclusion:  wf.Conclusion,
+			HTMLURL:     wf.HTMLURL,
+			HeadSHA:     wf.HeadSHA,
+			SessionID:   wf.SessionID,
+			LaunchError: wf.LaunchError,
+			FailedJobs:  toContractFailedJobs(wf.FailedJobs),
+		})
+	}
+	return out
+}
+
+func toContractFailedJobs(in []buildmonitor.FailedJob) []contracts.BuildMonitorFailedJob {
+	if len(in) == 0 {
+		return []contracts.BuildMonitorFailedJob{}
+	}
+	out := make([]contracts.BuildMonitorFailedJob, 0, len(in))
+	for _, j := range in {
+		out = append(out, contracts.BuildMonitorFailedJob{
+			ID:      j.ID,
+			Name:    j.Name,
+			HTMLURL: j.HTMLURL,
+		})
+	}
+	return out
 }
 
 // handleBuildMonitorCheck fetches fresh status for all enabled units,
@@ -177,43 +221,47 @@ func (s *Server) handleBuildMonitorCheck(w http.ResponseWriter, r *http.Request)
 }
 
 // RunBuildMonitorCheck executes one scheduled check pass and broadcasts
-// build_monitor_updated when anything changed. Called by the daemon scheduler.
+// build_monitor_updated when anything changed. Called by the daemon scheduler,
+// unconditionally: the enabled flag is pass input so the monitor itself
+// observes and handles the enabled→disabled transition.
 func (s *Server) RunBuildMonitorCheck(ctx context.Context) {
-	if !s.config.GetBuildMonitorEnabled() {
-		if s.workspaceStatus.Clear() {
-			s.BroadcastSessions()
-		}
-		return
+	_, changed, directives := s.runBuildMonitorCheckPass(ctx)
+	// Every enabled pass advances CheckedAt, which the page displays, so
+	// notify after each one — not only on status changes. A disable
+	// transition reports changed once and then goes quiet.
+	if changed || s.config.GetBuildMonitorEnabled() {
+		s.BroadcastBuildMonitor()
 	}
-	if _, changed, directives := s.runBuildMonitorCheckPass(ctx); changed || len(directives) > 0 {
-		if changed {
-			s.BroadcastBuildMonitor()
-		}
-		if len(directives) > 0 {
-			go s.runBuildMonitorLaunches(directives)
-		}
+	if len(directives) > 0 {
+		go s.runBuildMonitorLaunches(directives)
 	}
 }
 
-// runBuildMonitorCheckPass executes one full check pass over all enabled
-// units, persisting each unit's state with transition data. Returns the API
-// response, whether any unit's observable state changed, and any launch
-// directives for auto-remediation. Serialized by buildMonitorCheckMu so a
-// scheduler tick and a manual check cannot interleave state-file writes.
-func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (buildMonitorResponse, bool, []launchDirective) {
+// runBuildMonitorCheckPass gathers inputs (units + watched heads), asks the
+// build monitor to run a commit-centric pass, refreshes PR visibility per
+// repo, and translates the result into the API response plus any launch
+// directives. Serialized by buildMonitorCheckMu so a scheduler tick and a
+// manual check cannot interleave.
+func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (contracts.BuildMonitorResponse, bool, []launchDirective) {
 	s.buildMonitorCheckMu.Lock()
 	defer s.buildMonitorCheckMu.Unlock()
 
-	response := buildMonitorResponse{
+	response := contracts.BuildMonitorResponse{
 		Enabled:          s.config.GetBuildMonitorEnabled(),
 		LaunchConfigured: s.config.GetBuildMonitorTarget() != "",
-		Units:            []buildMonitorUnitResponse{}, // never nil: JSON must be [], not null
+		Units:            []contracts.BuildMonitorUnit{}, // never nil: JSON must be [], not null
 	}
+
+	// Disabled is a state update through the monitor, not a cleanup the
+	// dashboard performs: the monitor observes enabled=false and drops its
+	// fetched knowledge as part of the transition.
 	if !response.Enabled {
-		if s.workspaceStatus.Clear() {
+		passResult := s.buildMonitor.CheckPass(ctx, githubActionsClient{}, false, nil, nil)
+		changed := passResult.Changed || s.prTracker.Clear()
+		if changed {
 			s.BroadcastSessions()
 		}
-		return response, false, nil
+		return response, changed, nil
 	}
 
 	repos := s.config.GetRepos()
@@ -222,10 +270,120 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (buildMonitorResp
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	var directives []launchDirective
+	// Gather unit + head inputs once.
+	units, heads, eligibleByRepo, noTokenUnits := s.buildMonitorInputs(ctx, repos, bmRepos)
+	// Add the no-token placeholders so the response keeps the configured/non-configured
+	// shape users expect even before they authorize.
+	response.Units = append(response.Units, noTokenUnits...)
+
+	passResult := s.buildMonitor.CheckPass(ctx, client, true, units, heads)
+	sessionsChanged := false
+
+	// Build the API response from the monitor's live state. Iterating the
+	// pass inputs keeps no-token repos from being appended twice.
+	for _, u := range units {
+		login := s.config.GetGitHubLogin(repoURLByName(repos, u.RepoName))
+		unitResp := contracts.BuildMonitorUnit{
+			Slug:        u.Slug,
+			RepoName:    u.RepoName,
+			Repo:        u.Info.Owner + "/" + u.Info.Repo,
+			Branch:      u.Branch,
+			HeadSHA:     u.HeadSHA,
+			Configured:  login != "",
+			GitHubLogin: login,
+		}
+		if st := passResult.UnitStates[u.Slug]; st != nil {
+			unitResp.Workflows = toContractWorkflows(st.Workflows)
+			unitResp.CheckedAt = st.CheckedAt
+			unitResp.LastError = st.LastError
+			unitResp.RemediationWorkspaceID = st.RemediationWorkspaceID
+			if unitResp.HeadSHA == "" {
+				unitResp.HeadSHA = st.HeadSHA
+			}
+		}
+		if status, _, ok := s.buildMonitor.Status(u.Info, u.HeadSHA); ok {
+			unitResp.Status = status
+		}
+		response.Units = append(response.Units, unitResp)
+
+		// Refresh PR visibility for eligible workspaces of this repo.
+		token, err := config.GetGitHubToken(login)
+		if err == nil && token != "" {
+			if s.prTracker.Refresh(ctx, token, u.Info, eligibleByRepo[u.Info]) {
+				sessionsChanged = true
+			}
+		}
+	}
+
+	// Build directives from the unit transition events the monitor surfaced.
 	launching := s.config.GetBuildMonitorTarget() != "" && s.config.GetBuildMonitorAutoWorkspace()
-	changed := false
-	liveWorkspaces := map[string]bool{}
+	var directives []launchDirective
+	if launching {
+		for _, u := range units {
+			events := passResult.Events[u.Slug]
+			if len(events) == 0 {
+				continue
+			}
+			st := passResult.UnitStates[u.Slug]
+			if st == nil {
+				continue
+			}
+			base := launchDirective{
+				slug: u.Slug, repoName: u.RepoName, repoURL: repoURLByName(repos, u.RepoName),
+				repo: u.Info.Owner + "/" + u.Info.Repo, info: u.Info,
+				login: s.config.GetGitHubLogin(repoURLByName(repos, u.RepoName)),
+			}
+			directives = append(directives, collectUnitDirectives(base, events, st, st.CheckedAt)...)
+		}
+	}
+
+	// Drop evicted workspaces from the PR tracker.
+	liveIDs := map[string]bool{}
+	for _, pws := range eligibleByRepo {
+		for _, pw := range pws {
+			liveIDs[pw.ID] = true
+		}
+	}
+	prChanged := s.prTracker.DropExcept(liveIDs)
+
+	changed := passResult.Changed || sessionsChanged || prChanged
+	if changed {
+		s.BroadcastSessions()
+	}
+	return response, changed, directives
+}
+
+// repoURLByName finds a configured repo's URL by display name.
+func repoURLByName(repos []config.Repo, name string) string {
+	for _, repo := range repos {
+		if repo.Name == name {
+			return repo.URL
+		}
+	}
+	return ""
+}
+
+// buildMonitorInputs assembles unit + watched-head inputs for one check pass.
+// Workspaces are resolved to (CI repo, branch, head SHA) here — including
+// fork CI repos — so no workspace identity crosses the monitor boundary. Also
+// returns placeholders for repos with no GitHub identity token (so the API
+// response still surfaces "Configured=false"), plus eligible workspaces
+// grouped by base repo for the PR refresh step.
+func (s *Server) buildMonitorInputs(
+	ctx context.Context,
+	repos []config.Repo,
+	bmRepos map[string]config.BuildMonitorRepoConfig,
+) (
+	[]buildmonitor.UnitInput,
+	[]buildmonitor.HeadInput,
+	map[github.RepoInfo][]prWorkspace,
+	[]contracts.BuildMonitorUnit,
+) {
+	var units []buildmonitor.UnitInput
+	var heads []buildmonitor.HeadInput
+	eligible := map[github.RepoInfo][]prWorkspace{}
+	var placeholders []contracts.BuildMonitorUnit
+
 	for _, repo := range repos {
 		if !github.IsGitHubURL(repo.URL) {
 			continue
@@ -237,23 +395,20 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (buildMonitorResp
 		if _, ok := bmRepos[slug]; !ok {
 			continue
 		}
-
 		info, err := github.ParseRepoURL(repo.URL)
 		if err != nil {
 			continue
 		}
 
-		// Resolve the repo's default branch
-		branch := "main" // fallback
-		if defBranch, err := s.workspace.GetDefaultBranch(ctx, repo.URL); err == nil {
+		branch := "main"
+		if defBranch, err := s.workspace.GetDefaultBranch(ctx, repo.URL); err == nil && defBranch != "" {
 			branch = defBranch
 		}
 
-		// Resolve token
 		login := s.config.GetGitHubLogin(repo.URL)
 		token, err := config.GetGitHubToken(login)
 		if err != nil || token == "" {
-			unit := buildMonitorUnitResponse{
+			placeholders = append(placeholders, contracts.BuildMonitorUnit{
 				Slug:        slug,
 				RepoName:    repo.Name,
 				Repo:        info.Owner + "/" + info.Repo,
@@ -261,82 +416,57 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (buildMonitorResp
 				Configured:  login != "",
 				GitHubLogin: login,
 				LastError:   "no token — authorize identity first",
-			}
-			response.Units = append(response.Units, unit)
+			})
 			continue
 		}
 
-		unit := buildmonitor.Unit{
-			Slug:     slug,
-			RepoName: repo.Name,
-			Repo:     info.Owner + "/" + info.Repo,
-			Info:     info,
-			Branch:   branch,
-			Token:    token,
+		headSHA, err := s.workspace.GetRemoteHeadSHA(ctx, repo.URL, branch)
+		if err != nil {
+			s.logger.Debug("build monitor: default-branch head unresolvable", "repo", repo.Name, "err", err)
 		}
 
-		state := buildmonitor.CheckUnit(ctx, client, unit)
-		if ctx.Err() != nil {
-			// The pass was canceled (client disconnect or daemon shutdown);
-			// results are tainted with context errors — do not persist them.
-			break
-		}
-		state.CheckedAt = time.Now().UTC().Format(time.RFC3339)
+		units = append(units, buildmonitor.UnitInput{
+			Slug:      slug,
+			RepoName:  repo.Name,
+			Branch:    branch,
+			Token:     token,
+			Info:      info,
+			HeadSHA:   headSHA,
+			StatePath: buildMonitorUnitStatePath(slug),
+		})
 
-		if s.checkUnitWorkspaces(ctx, repo.URL, branch, token, state, liveWorkspaces) {
-			changed = true
-		}
-
-		prev, readErr := buildmonitor.ReadState(buildMonitorUnitStatePath(slug))
-		if readErr != nil {
-			// The launcher acts on transitions, so a corrupt file silently
-			// re-baselining must at least be visible in the logs.
-			s.logger.Warn("failed to read previous build monitor state; treating as first check", "slug", slug, "err", readErr)
-		}
-		events, unitChanged := buildmonitor.ApplyTransitions(prev, state)
-		var unitDirectives []launchDirective
-		if launching {
-			base := launchDirective{
-				slug: slug, repoName: repo.Name, repoURL: repo.URL,
-				repo: info.Owner + "/" + info.Repo, info: info,
-				login: login,
+		// Eligible workspaces: same base repo, branch exists, not remote, not
+		// recyclable, remote head known. Each becomes a watched head under its
+		// CI repo (fork-resolved). The head comes from the SAME stored fields
+		// the sessions read path uses (ciRepoForWorkspace + RemoteHeadSHA) —
+		// never from a separate git derivation — so the watch set and the CI
+		// chips cannot ask about different commits.
+		for _, w := range s.state.GetWorkspaces() {
+			if w.Repo != repo.URL || !w.RemoteBranchExists || w.RemoteHostID != "" || w.Status == state.WorkspaceStatusRecyclable {
+				continue
 			}
-			unitDirectives = collectUnitDirectives(base, events, state, state.CheckedAt)
-		}
-
-		if writeErr := buildmonitor.WriteState(buildMonitorUnitStatePath(slug), state); writeErr != nil {
-			s.logger.Error("failed to write build monitor state", "slug", slug, "err", writeErr)
-		} else {
-			if unitChanged {
-				// Broadcast only what is persisted: clients refetch GET, which
-				// reads from disk, so a failed write would make them refetch
-				// stale state — and re-broadcast on every subsequent tick.
-				changed = true
+			if w.RemoteHeadSHA == "" {
+				continue
 			}
-			directives = append(directives, unitDirectives...)
-		}
+			if w.RemoteBranchIsFork && !github.IsGitHubURL(w.RemoteBranchURL) {
+				continue
+			}
+			heads = append(heads, buildmonitor.HeadInput{
+				Info:   ciRepoForWorkspace(w),
+				Branch: w.Branch,
+				SHA:    w.RemoteHeadSHA,
+				Token:  token,
+			})
 
-		unitResp := buildMonitorUnitResponse{
-			Slug:                   slug,
-			RepoName:               repo.Name,
-			Repo:                   info.Owner + "/" + info.Repo,
-			Branch:                 branch,
-			Workflows:              state.Workflows,
-			CheckedAt:              state.CheckedAt,
-			LastError:              state.LastError,
-			Configured:             login != "",
-			GitHubLogin:            login,
-			RemediationWorkspaceID: state.RemediationWorkspaceID,
+			pw := prWorkspace{ID: w.ID, URL: w.Repo, Branch: w.Branch}
+			if w.RemoteBranchIsFork {
+				pw.ForkRemoteURL = w.RemoteBranchURL
+			}
+			eligible[info] = append(eligible[info], pw)
 		}
-		response.Units = append(response.Units, unitResp)
 	}
-	if s.workspaceStatus.DropExcept(liveWorkspaces) {
-		changed = true
-	}
-	if changed {
-		s.BroadcastSessions()
-	}
-	return response, changed, directives
+
+	return units, heads, eligible, placeholders
 }
 
 // BroadcastBuildMonitor sends a build_monitor_updated message to all

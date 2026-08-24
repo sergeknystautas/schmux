@@ -3,8 +3,9 @@ package dashboard
 import (
 	"testing"
 
+	"github.com/sergeknystautas/schmux/internal/buildmonitor"
+	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/state"
-	"github.com/sergeknystautas/schmux/internal/workspacestatus"
 )
 
 func TestBuildSessionsResponse_ExcludesRecyclableWorkspaces(t *testing.T) {
@@ -96,18 +97,20 @@ func TestBuildSessionsResponse_SurfacesFenceFlag(t *testing.T) {
 	}
 }
 
-func TestBuildSessionsResponseIncludesWorkspaceStatus(t *testing.T) {
+func TestBuildSessionsResponseSurfacesCIIconFromMonitor(t *testing.T) {
 	server, _, st := newTestServer(t)
-	st.AddWorkspace(state.Workspace{
-		ID:     "ws1",
-		Repo:   "test",
-		Branch: "main",
-		Path:   "/tmp/ws1",
-		Status: state.WorkspaceStatusRunning,
-	})
-	server.workspaceStatus.Store("ws1", workspacestatus.Entry{
-		Status: workspacestatus.Status{CIStatus: workspacestatus.CISuccess, CIURL: "https://run", PRNumber: 7, PRURL: "https://pr"},
-	})
+	repo := github.RepoInfo{Owner: "acme", Repo: "widget"}
+	if err := st.AddWorkspace(state.Workspace{
+		ID: "ws1", Repo: "https://github.com/acme/widget", Branch: "main",
+		Path: t.TempDir(), Status: state.WorkspaceStatusRunning,
+		RemoteBranchExists: true, RemoteHeadSHA: "head-sha",
+	}); err != nil {
+		t.Fatalf("AddWorkspace: %v", err)
+	}
+	server.buildMonitor.SetEnabledForTest(true)
+	server.buildMonitor.SetRepoMetaForTest(repo, true, "")
+	server.buildMonitor.RecordCommitForTest(repo, "head-sha", buildmonitor.StatusSuccess, "https://run", true)
+	server.prTracker.entries["ws1"] = PRRef{Number: 7, URL: "https://pr"}
 
 	items := server.sessionHandlers.buildSessionsResponse()
 	var item *WorkspaceResponseItem
@@ -119,8 +122,11 @@ func TestBuildSessionsResponseIncludesWorkspaceStatus(t *testing.T) {
 	if item == nil {
 		t.Fatal("workspace ws1 missing from response")
 	}
-	if item.CIStatus != "success" || item.CIURL != "https://run" || item.PRNumber != 7 || item.PRURL != "https://pr" {
-		t.Errorf("status fields = %q %q %d %q", item.CIStatus, item.CIURL, item.PRNumber, item.PRURL)
+	if item.CIStatus != "success" || item.CIURL != "https://run" {
+		t.Errorf("ci = (%q, %q), want (success, https://run)", item.CIStatus, item.CIURL)
+	}
+	if item.PRNumber != 7 || item.PRURL != "https://pr" {
+		t.Errorf("pr = (%d, %q), want (7, https://pr)", item.PRNumber, item.PRURL)
 	}
 }
 
@@ -133,6 +139,9 @@ func TestBuildSessionsResponseOmitsStatusWhenProviderNil(t *testing.T) {
 		Path:   "/tmp/ws1",
 		Status: state.WorkspaceStatusRunning,
 	})
+	// Both providers nil — chip absent, no PR.
+	server.buildMonitor = nil
+	server.prTracker = nil
 
 	items := server.sessionHandlers.buildSessionsResponse()
 	for _, item := range items {
@@ -142,54 +151,55 @@ func TestBuildSessionsResponseOmitsStatusWhenProviderNil(t *testing.T) {
 	}
 }
 
-func TestBuildSessionsResponseDowngradesStaleCIStatus(t *testing.T) {
-	entry := workspacestatus.Entry{
-		Status:  workspacestatus.Status{CIStatus: workspacestatus.CIFailure, CIURL: "https://old-run", PRNumber: 7, PRURL: "https://pr"},
-		HeadSHA: "old-sha",
+func TestBuildSessionsResponseQueuedForUnwatchedActiveRepo(t *testing.T) {
+	// Regression: a brand-new workspace whose head the monitor has not yet
+	// checked should surface queued when the repo has active workflows — the
+	// status from a previous check pass is not required.
+	server, _, st := newTestServer(t)
+	repo := github.RepoInfo{Owner: "acme", Repo: "widget"}
+	if err := st.AddWorkspace(state.Workspace{
+		ID: "ws1", Repo: "https://github.com/acme/widget", Branch: "feature",
+		Path: t.TempDir(), Status: state.WorkspaceStatusRunning,
+		RemoteBranchExists: true, RemoteHeadSHA: "new-sha",
+	}); err != nil {
+		t.Fatalf("AddWorkspace: %v", err)
 	}
-	tests := []struct {
-		name          string
-		remoteHeadSHA string // on the workspace
-		entryHeadSHA  string // overrides entry.HeadSHA
-		wantCIStatus  string
-		wantCIURL     string
-	}{
-		{"match serves full status", "old-sha", "old-sha", "failure", "https://old-run"},
-		{"mismatch downgrades to none without url", "new-sha", "old-sha", "none", ""},
-		{"empty workspace sha serves as-is", "", "old-sha", "failure", "https://old-run"},
-		{"empty entry sha serves as-is", "new-sha", "", "failure", "https://old-run"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			server, _, st := newTestServer(t)
-			if err := st.AddWorkspace(state.Workspace{
-				ID: "ws1", Repo: "https://github.com/acme/widget", Branch: "feature",
-				Path: t.TempDir(), Status: state.WorkspaceStatusRunning,
-				RemoteBranchExists: true, RemoteHeadSHA: tt.remoteHeadSHA,
-			}); err != nil {
-				t.Fatalf("AddWorkspace: %v", err)
-			}
-			e := entry
-			e.HeadSHA = tt.entryHeadSHA
-			server.workspaceStatus.Store("ws1", e)
+	server.buildMonitor.SetEnabledForTest(true)
+	server.buildMonitor.SetRepoMetaForTest(repo, true, "")
 
-			items := server.sessionHandlers.buildSessionsResponse()
-			var item *WorkspaceResponseItem
-			for i := range items {
-				if items[i].ID == "ws1" {
-					item = &items[i]
-				}
-			}
-			if item == nil {
-				t.Fatal("ws1 missing from response")
-			}
-			if item.CIStatus != tt.wantCIStatus || item.CIURL != tt.wantCIURL {
-				t.Errorf("ci = (%q, %q), want (%q, %q)", item.CIStatus, item.CIURL, tt.wantCIStatus, tt.wantCIURL)
-			}
-			// PR fields are never downgraded.
-			if item.PRNumber != 7 || item.PRURL != "https://pr" {
-				t.Errorf("pr = (%d, %q), want (7, https://pr)", item.PRNumber, item.PRURL)
-			}
-		})
+	items := server.sessionHandlers.buildSessionsResponse()
+	var item *WorkspaceResponseItem
+	for i := range items {
+		if items[i].ID == "ws1" {
+			item = &items[i]
+		}
+	}
+	if item == nil {
+		t.Fatal("ws1 missing from response")
+	}
+	if item.CIStatus != "queued" || item.CIURL != "" {
+		t.Errorf("ci = (%q, %q), want (queued, \"\")", item.CIStatus, item.CIURL)
+	}
+}
+
+func TestBuildSessionsResponseChipAbsentWhenNoWorkflows(t *testing.T) {
+	server, _, st := newTestServer(t)
+	repo := github.RepoInfo{Owner: "acme", Repo: "widget"}
+	if err := st.AddWorkspace(state.Workspace{
+		ID: "ws1", Repo: "https://github.com/acme/widget", Branch: "feature",
+		Path: t.TempDir(), Status: state.WorkspaceStatusRunning,
+		RemoteBranchExists: true, RemoteHeadSHA: "sha",
+	}); err != nil {
+		t.Fatalf("AddWorkspace: %v", err)
+	}
+	// Repo has no workflows → repo not active → chip absent.
+	server.buildMonitor.SetEnabledForTest(true)
+	server.buildMonitor.SetRepoMetaForTest(repo, false, "")
+
+	items := server.sessionHandlers.buildSessionsResponse()
+	for _, item := range items {
+		if item.ID == "ws1" && item.CIStatus != "" {
+			t.Errorf("expected absent chip, got CIStatus=%q", item.CIStatus)
+		}
 	}
 }

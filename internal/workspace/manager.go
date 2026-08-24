@@ -343,6 +343,14 @@ func (m *Manager) repoLock(repoURL string) *sync.Mutex {
 	return lock
 }
 
+// GetRemoteHeadSHA returns the head commit SHA of branch on the remote.
+func (m *Manager) GetRemoteHeadSHA(ctx context.Context, repoURL, branch string) (string, error) {
+	if isLocalRepoURL(repoURL) {
+		return "", fmt.Errorf("local repo %s has no remote heads", repoURL)
+	}
+	return probeRemoteHeadSHA(ctx, repoURL, branch)
+}
+
 // GetDefaultBranch returns the cached default branch for a repo URL.
 // Returns an error if the default branch cannot be determined.
 // Uses negative caching ("unknown") to avoid repeated failed git commands.
@@ -1169,7 +1177,7 @@ func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, worksp
 	}
 
 	// Git-specific status path
-	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSynced, remoteBranchExists, remoteBranchIsFork, localUnique, remoteUnique, currentBranch, remoteHeadSHA := m.gitStatusWithRound(ctx, workspaceID, trigger, w.Path, w.Repo, round)
+	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSynced, remoteBranchExists, remoteBranchIsFork, localUnique, remoteUnique, currentBranch, remoteHeadSHA, remoteBranchURL := m.gitStatusWithRound(ctx, workspaceID, trigger, w.Path, w.Repo, round)
 
 	// Use branch from gitStatus; fall back to existing state if empty/detached
 	actualBranch := currentBranch
@@ -1212,6 +1220,7 @@ func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, worksp
 	fresh.LocalUniqueCommits = localUnique
 	fresh.RemoteUniqueCommits = remoteUnique
 	fresh.RemoteHeadSHA = remoteHeadSHA
+	fresh.RemoteBranchURL = remoteBranchURL
 
 	if err := m.state.UpdateWorkspace(fresh); err != nil {
 		return nil, fmt.Errorf("failed to update workspace in state: %w", err)

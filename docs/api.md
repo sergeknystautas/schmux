@@ -253,7 +253,7 @@ Response:
     "remote_branch_is_fork": false,
     "local_unique_commits": 0,
     "remote_unique_commits": 0,
-    "ci_status": "success", // optional; "none" | "pending" | "failure" | "success", GitHub CI status of the remote branch head
+    "ci_status": "success", // optional; "queued" | "in_progress" | "failure" | "success", GitHub CI status of the remote branch head
     "ci_url": "https://github.com/.../actions/runs/...", // optional; link target for the build chip
     "pr_number": 42, // optional; open PR number for the branch
     "pr_url": "https://github.com/.../pull/42", // optional; link target for the PR chip
@@ -340,7 +340,7 @@ Notes:
 - `files_changed` counts each file with uncommitted changes individually, including untracked files inside newly-created directories (the server passes `-u` to `git status --porcelain` so new dirs are not collapsed to a single entry).
 - `commits_synced_with_remote` is `true` when the local HEAD matches the remote branch (no unique commits on either side). Considers both `origin/<branch>` and the branch's configured tracking remote (fork workflows).
 - `remote_branch_exists` is `true` when the branch exists on any remote (origin or a configured tracking remote such as a fork).
-- Workspace `ci_status` / `ci_url` / `pr_number` / `pr_url` are populated by the **build monitor check pass** for workspaces whose repo is enabled in the build monitor with a connected identity (`github_login` in `build_monitor.repos`). Absent when the build monitor is disabled, the repo isn't monitored, the workspace is a remote-host workspace, or the branch has no remote. `ci_status` is one of `none` (no runs yet for the remote head), `pending` (a run is queued or in progress), `failure` (the newest run per workflow shows failure or timed_out), `success` (all matching runs completed successfully). PRs are open only — a merged or closed PR is omitted. The pass uses the repo's per-identity OAuth token, not the `gh` CLI. `ci_status` is also served as `none` (with no `ci_url`) when the remote branch head has moved past the commit the cached CI result was computed for — the badge blanks within one git-status sweep (~10s) of a push and repopulates on the next build monitor pass. `pr_number`/`pr_url` are unaffected by this downgrade.
+- Workspace `ci_status` / `ci_url` are derived by the **build monitor** — the single owner of CI status, keyed by `(repo, commit SHA)` — at the moment the sessions payload is built, for the workspace's remote head commit (fork workspaces are looked up under the fork's repo). The check pass watches each eligible workspace's head using the same stored workspace fields this read path uses (remote head SHA, fork repo), so the commit the monitor fetches and the commit the chip asks about are one and the same by construction. `ci_status` is one of `queued` (no run yet for the remote head, or the run is queued), `in_progress` (a run is currently running), `failure` (the newest run per workflow shows failure or timed_out), `success` (all matching runs completed successfully); it is absent when the build monitor is disabled, the branch has no remote head, the repo has no active workflows, or the repo's last fetch errored. A commit the monitor has not fetched yet (e.g. a just-pushed head) derives `queued` immediately when the repo has active workflows — no waiting for the next check pass. `pr_number` / `pr_url` come from the dashboard's PR tracker for eligible workspaces (those whose repo is enabled in the build monitor with a connected identity, `github_login` in `build_monitor.repos`), refreshed by the check pass using the repo's per-identity OAuth token, not the `gh` CLI. PRs are open only — a merged or closed PR is omitted.
 - `remote_branch_is_fork` is `true` when the remote branch is on a non-origin remote. The dashboard displays "(fork)" instead of "(local only)" in this case.
 - `local_unique_commits` / `remote_unique_commits`: number of commits unique to local/remote respectively (compared against the remote branch, not the default branch).
 - Unrecognized workspace sub-routes return 404.
@@ -3849,6 +3849,8 @@ Configuration is via the config API:
 
 Returns the build monitor status for all enabled units. Each unit is one monitored repo; a unit carries the latest run status of every active GitHub Actions workflow on the repo's default branch.
 
+The response shape is contractual (`internal/api/contracts/buildmonitor.go`: `BuildMonitorResponse`, `BuildMonitorUnit`, `BuildMonitorWorkflow`, `BuildMonitorFailedJob`). TypeScript types are auto-generated into `assets/dashboard/src/lib/types.generated.ts` via `go run ./cmd/gen-types`.
+
 Response (enabled with checked units):
 
 ```json
@@ -3929,13 +3931,13 @@ Fields:
 
 ### POST /api/build-monitor/check
 
-Fetches fresh GitHub Actions status for all enabled units, persists the results, and returns the same shape as `GET /api/build-monitor`. Also refreshes the workspace `ci_status` / `ci_url` / `pr_number` / `pr_url` fields for eligible workspaces (those whose repo is enabled with a connected identity) and triggers a sessions broadcast on `/ws/dashboard` when they change.
+Fetches fresh GitHub Actions status for all enabled units, records the results in the build monitor's commit store (and durable remediation bookkeeping), and returns the same shape as `GET /api/build-monitor`. Also refreshes `pr_number` / `pr_url` for eligible workspaces (those whose repo is enabled with a connected identity) and triggers a sessions broadcast on `/ws/dashboard` when anything changed. Workspace `ci_status` / `ci_url` need no refresh: they are derived from the commit store when the sessions payload is built. The commit store is persisted (`~/.schmux/build-monitor/commits.json`) at the end of every pass and reloaded at daemon startup, so recorded statuses — including feature-branch heads that appear in no unit snapshot — survive a restart instead of degrading to `queued`.
 
 Requires no request body. The check runs with a 30-second timeout per request.
 
 Response: Same as `GET /api/build-monitor` with updated `checked_at` timestamps.
 
-The daemon runs this same check pass on the configured `build_monitor.interval_seconds` (default 60 seconds). Both manual and scheduled checks broadcast `build_monitor_updated` on `/ws/dashboard` when any unit's observable state changed (workflow set, name/path, run/status/conclusion/failed jobs, or unit error — `checked_at` alone does not count). The broadcast fires only for units whose state was successfully persisted. A workflow returned without a matching run is treated as unknown, not recovered; an active failure episode closes only after a completed non-failing run is observed.
+The daemon runs this same check pass on the configured `build_monitor.interval_seconds` (default 60 seconds). Scheduled checks broadcast `build_monitor_updated` on `/ws/dashboard` after every pass while the feature is enabled — each pass advances `checked_at`, which clients display — and once more on the pass that observes the feature turning off. Clients also refetch on every WebSocket (re)connection, since broadcasts sent while disconnected are lost. A workflow returned without a matching run is treated as unknown, not recovered; an active failure episode closes only after a completed non-failing run is observed.
 
 ### POST /api/build-monitor/repos/{slug}/failures/{run_id}/launch-workspace
 

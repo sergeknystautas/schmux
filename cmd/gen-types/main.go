@@ -74,6 +74,7 @@ func main() {
 		reflect.TypeOf(contracts.SpawnLogRecord{}),
 		reflect.TypeOf(contracts.OneshotLogRecord{}),
 		reflect.TypeOf(contracts.SpawnLogResult{}),
+		reflect.TypeOf(contracts.BuildMonitorResponse{}),
 	}
 
 	typeMap := collectTypes(rootTypes)

@@ -25,6 +25,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/assets"
 	"github.com/sergeknystautas/schmux/internal/autolearn"
+	"github.com/sergeknystautas/schmux/internal/buildmonitor"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/difftool"
@@ -47,7 +48,6 @@ import (
 	"github.com/sergeknystautas/schmux/internal/update"
 	"github.com/sergeknystautas/schmux/internal/version"
 	"github.com/sergeknystautas/schmux/internal/workspace"
-	"github.com/sergeknystautas/schmux/internal/workspacestatus"
 )
 
 const (
@@ -245,9 +245,12 @@ type Server struct {
 	autolearnHandlers *AutolearnHandlers
 	gitHandlers       *GitHandlers
 
-	// workspaceStatus holds per-workspace CI/PR results written by the build
-	// monitor check pass and read by the sessions response.
-	workspaceStatus *workspacestatus.Cache
+	// buildMonitor is the single owner of CI status: a commit-centric store
+	// keyed by (repo, SHA). SessionHandlers reads Status; the scheduler and
+	// manual checks drive CheckPass; prTracker is the dashboard-owned PR-only
+	// seam.
+	buildMonitor *buildmonitor.Monitor
+	prTracker    *PRTracker
 
 	// Persona manager
 	personaManager *persona.Manager
@@ -411,7 +414,9 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 	}
 
 	// Initialize session handler group (needed before Start() for test access)
-	s.workspaceStatus = workspacestatus.NewCache()
+	s.buildMonitor = buildmonitor.NewMonitor(time.Now, filepath.Join(buildMonitorStateDir(), "commits.json"))
+	s.prTracker = NewPRTracker()
+	s.hydrateBuildMonitor()
 	s.sessionHandlers = &SessionHandlers{
 		config:         s.config,
 		state:          st,
@@ -426,7 +431,8 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		broadcastSessions:                 s.BroadcastSessions,
 		getLinearSyncResolveConflictState: s.getLinearSyncResolveConflictState,
 
-		workspaceStatus:    s.workspaceStatus,
+		buildMonitor:       s.buildMonitor,
+		prTracker:          s.prTracker,
 		defaultBranchCache: make(map[string]defaultBranchEntry),
 	}
 
@@ -592,6 +598,13 @@ func (s *Server) ClearRemoteAuth() {
 	s.remoteTunnelURL = ""
 	s.remoteNonces = make(map[string]*remoteNonce)
 	s.remoteTokenMu.Unlock()
+}
+
+// buildMonitorStateDir returns the directory for build monitor state files.
+// Untagged (unlike the rest of the build monitor handlers) because the
+// monitor's commit-store path is wired at server construction.
+func buildMonitorStateDir() string {
+	return filepath.Join(schmuxdir.Get(), "build-monitor")
 }
 
 // LogDashboardAssetPath logs where dashboard assets are being served from.

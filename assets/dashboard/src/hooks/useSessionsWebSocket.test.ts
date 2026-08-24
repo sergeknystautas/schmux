@@ -159,6 +159,34 @@ describe('useSessionsWebSocket', () => {
     expect(MockWebSocket.instances).toHaveLength(3);
   });
 
+  it('bumps buildMonitorUpdateCount on connect, broadcast, and reconnect', () => {
+    const { result } = renderHook(() => useSessionsWebSocket());
+    const ws1 = lastWS();
+    expect(result.current.buildMonitorUpdateCount).toBe(0);
+
+    // Connect: broadcasts sent before the connection existed are gone, so
+    // the consumer must refetch.
+    act(() => {
+      openWS(ws1);
+    });
+    expect(result.current.buildMonitorUpdateCount).toBe(1);
+
+    act(() => {
+      sendMsg(ws1, { type: 'build_monitor_updated' });
+    });
+    expect(result.current.buildMonitorUpdateCount).toBe(2);
+
+    // Daemon restart: close, reconnect — the fresh connection refetches.
+    act(() => {
+      ws1.onclose?.({ code: 1000 });
+      vi.advanceTimersByTime(3000);
+    });
+    act(() => {
+      openWS(lastWS());
+    });
+    expect(result.current.buildMonitorUpdateCount).toBe(3);
+  });
+
   it('handles remote_access_status message', () => {
     const { result } = renderHook(() => useSessionsWebSocket());
     const ws = lastWS();

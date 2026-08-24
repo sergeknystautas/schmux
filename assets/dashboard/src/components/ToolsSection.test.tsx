@@ -3,6 +3,7 @@ import { render, screen, act, cleanup, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import ToolsSection from './ToolsSection';
+import { BuildMonitorProvider } from '../contexts/BuildMonitorContext';
 
 let mockProposalVersion = 0;
 
@@ -74,9 +75,7 @@ vi.mock('../contexts/SessionsContext', () => ({
   useSessions: () => ({ buildMonitorUpdateCount: mockBuildMonitorUpdateCount }),
 }));
 
-function stubBuildMonitorFetch(
-  units: Array<{ slug: string; workflows: Array<{ conclusion?: string }> }>
-) {
+function stubBuildMonitorFetch(units: Array<{ slug: string; status?: string }>) {
   return vi.spyOn(globalThis, 'fetch').mockImplementation((url: string | URL | Request) => {
     if (url.toString() === '/api/build-monitor') {
       return Promise.resolve(Response.json({ enabled: true, units }));
@@ -85,9 +84,11 @@ function stubBuildMonitorFetch(
   });
 }
 
-// Wrapper component with router
+// Wrapper component with router + BuildMonitorProvider (consumed by ToolsSection)
 const TestWrapper = ({ children }: { children: React.ReactNode }) => (
-  <MemoryRouter>{children}</MemoryRouter>
+  <MemoryRouter>
+    <BuildMonitorProvider>{children}</BuildMonitorProvider>
+  </MemoryRouter>
 );
 
 // Helper to render with act
@@ -283,9 +284,9 @@ describe('ToolsSection', () => {
 
     it('shows the failing repo count when repos are failing', async () => {
       stubBuildMonitorFetch([
-        { slug: 'a', workflows: [{ conclusion: 'failure' }, { conclusion: 'success' }] },
-        { slug: 'b', workflows: [{ conclusion: 'success' }] },
-        { slug: 'c', workflows: [{ conclusion: 'failure' }] },
+        { slug: 'a', status: 'failure' },
+        { slug: 'b', status: 'success' },
+        { slug: 'c', status: 'failure' },
       ]);
       await renderWithAct(<ToolsSection />);
       const link = await screen.findByRole('link', { name: /build monitor/i });
@@ -293,14 +294,14 @@ describe('ToolsSection', () => {
     });
 
     it('shows no badge when all workflows are healthy', async () => {
-      stubBuildMonitorFetch([{ slug: 'a', workflows: [{ conclusion: 'success' }] }]);
+      stubBuildMonitorFetch([{ slug: 'a', status: 'success' }]);
       await renderWithAct(<ToolsSection />);
       const link = await screen.findByRole('link', { name: /build monitor/i });
       await waitFor(() => expect(link).not.toHaveTextContent(/\d/));
     });
 
     it('shows no badge when a unit only has an error', async () => {
-      stubBuildMonitorFetch([{ slug: 'a', workflows: [] }]);
+      stubBuildMonitorFetch([{ slug: 'a' }]);
       await renderWithAct(<ToolsSection />);
       const link = await screen.findByRole('link', { name: /build monitor/i });
       await waitFor(() => expect(link).not.toHaveTextContent(/\d/));

@@ -2,9 +2,28 @@ package workspace
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestProbeRemoteHeadSHA(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-b", "main")
+	writeFile(t, dir, "f.txt", "x")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init")
+	want := strings.TrimRight(runGitOut(t, dir, "rev-parse", "HEAD"), "\n")
+
+	sha, err := probeRemoteHeadSHA(context.Background(), dir, "main")
+	if err != nil || sha != want {
+		t.Fatalf("got (%q, %v), want (%q, nil)", sha, err, want)
+	}
+	missing, err := probeRemoteHeadSHA(context.Background(), dir, "no-such-branch")
+	if err != nil || missing != "" {
+		t.Fatalf("missing ref: got (%q, %v), want (\"\", nil)", missing, err)
+	}
+}
 
 func TestParseDefaultBranch(t *testing.T) {
 	tests := []struct {

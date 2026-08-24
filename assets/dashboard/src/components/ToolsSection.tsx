@@ -4,7 +4,7 @@ import { useConfig } from '../contexts/ConfigContext';
 import { useCuration } from '../contexts/CurationContext';
 import { useOverlay } from '../contexts/OverlayContext';
 import { useFeatures } from '../contexts/FeaturesContext';
-import { useSessions } from '../contexts/SessionsContext';
+import { useBuildMonitor } from '../contexts/BuildMonitorContext';
 import { getAutolearnBatches } from '../lib/api';
 import { getAllSpawnEntries } from '../lib/spawn-api';
 import Tooltip from './Tooltip';
@@ -34,7 +34,7 @@ export default function ToolsSection({
   const { proposalVersion } = useCuration();
   const { overlayUnreadCount, markOverlaysRead } = useOverlay();
   const { features } = useFeatures();
-  const { buildMonitorUpdateCount } = useSessions();
+  const { data: buildMonitorData } = useBuildMonitor();
 
   // Persist collapsed state
   useEffect(() => {
@@ -87,23 +87,12 @@ export default function ToolsSection({
     [loreCounts]
   );
 
-  // Build monitor: count of repos with at least one failing workflow.
-  // Fetched on mount and whenever the daemon broadcasts build_monitor_updated.
-  const [failingRepoCount, setFailingRepoCount] = useState(0);
-  useEffect(() => {
-    if (!features.build_monitor) return;
-    fetch('/api/build-monitor')
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((data) => {
-        const units: Array<{ workflows?: Array<{ conclusion?: string }> }> = data?.units || [];
-        setFailingRepoCount(
-          units.filter((u) => (u.workflows || []).some((w) => w.conclusion === 'failure')).length
-        );
-      })
-      .catch(() => {
-        // Non-critical — leave the previous count in place.
-      });
-  }, [features.build_monitor, buildMonitorUpdateCount]);
+  // Build monitor: count of repos whose derived head status is 'failure'.
+  // Driven by the shared BuildMonitorContext (refetches on broadcast).
+  const failingRepoCount = useMemo(
+    () => buildMonitorData.units.filter((u) => u.status === 'failure').length,
+    [buildMonitorData]
+  );
 
   const menuItems = [
     {

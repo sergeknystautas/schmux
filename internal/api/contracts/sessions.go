@@ -103,7 +103,7 @@ type WorkspaceResponseItem struct {
 	RemoteBranchIsFork      bool                  `json:"remote_branch_is_fork"`        // true if remote branch is on a non-origin remote (fork)
 	LocalUniqueCommits      int                   `json:"local_unique_commits"`         // commits in local not in remote
 	RemoteUniqueCommits     int                   `json:"remote_unique_commits"`        // commits in remote not in local
-	CIStatus                string                `json:"ci_status,omitempty"`          // "none" | "pending" | "failure" | "success"; absent when GitHub unavailable or no remote branch
+	CIStatus                string                `json:"ci_status,omitempty"`          // "queued" | "in_progress" | "failure" | "success"; absent when CI unavailable, repo has no workflows, or no remote branch
 	CIURL                   string                `json:"ci_url,omitempty"`             // most recent workflow run for the remote head
 	PRNumber                int                   `json:"pr_number,omitempty"`          // open PR for the branch
 	PRURL                   string                `json:"pr_url,omitempty"`

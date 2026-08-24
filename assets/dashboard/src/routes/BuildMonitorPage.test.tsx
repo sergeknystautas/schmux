@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import userEvent from '@testing-library/user-event';
 import BuildMonitorPage from './BuildMonitorPage';
+import { BuildMonitorProvider } from '../contexts/BuildMonitorContext';
 
 const mockNavigate = vi.fn();
 vi.mock('react-router', async (importOriginal) => {
@@ -13,7 +14,9 @@ vi.mock('react-router', async (importOriginal) => {
 function renderPage() {
   return render(
     <MemoryRouter>
-      <BuildMonitorPage />
+      <BuildMonitorProvider>
+        <BuildMonitorPage />
+      </BuildMonitorProvider>
     </MemoryRouter>
   );
 }
@@ -131,7 +134,7 @@ describe('BuildMonitorPage', () => {
     renderPage();
     expect(await screen.findByText('Passing')).toBeInTheDocument();
     expect(screen.getByText('Failing')).toBeInTheDocument();
-    expect(screen.getByText('No runs yet')).toBeInTheDocument();
+    expect(screen.getByText('Queued')).toBeInTheDocument();
     expect(screen.getByText('CI')).toBeInTheDocument();
     expect(screen.getByText('Tests')).toBeInTheDocument();
     expect(screen.getByText('Release')).toBeInTheDocument();
@@ -210,7 +213,9 @@ describe('BuildMonitorPage', () => {
     mockBuildMonitorUpdateCount = 1;
     rerender(
       <MemoryRouter>
-        <BuildMonitorPage />
+        <BuildMonitorProvider>
+          <BuildMonitorPage />
+        </BuildMonitorProvider>
       </MemoryRouter>
     );
 

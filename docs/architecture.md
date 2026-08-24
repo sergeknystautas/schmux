@@ -229,9 +229,24 @@ Handlers use `errors.Is(err, pkg.ErrXxx)` instead of string matching.
 
 Experimental features can be compiled out via build tags. Each feature has a `*_disabled.go` stub that provides no-op implementations:
 
-`nogithub`, `notunnel`, `nodashboardsx`, `norepofeed`, `nosubreddit`, `noautolearn`, `nofloormanager`, `notimelapse`, `noposthog`, `noupdate`, `nomodelregistry`, `nopersonas`, `nocommstyles`
+`nogithub`, `notunnel`, `nodashboardsx`, `norepofeed`, `nosubreddit`, `noautolearn`, `nofloormanager`, `notimelapse`, `noposthog`, `noupdate`, `nomodelregistry`, `nopersonas`, `nocommstyles`, `nobuildmonitor`
 
 Features are included by default; tags exclude them. Each disabled stub exposes `IsAvailable() bool` returning `false`.
+
+## Build monitor and CI status
+
+`internal/buildmonitor` is the **single owner of CI status**. It owns:
+
+- A commit-status store keyed by `(repo, SHA)` — one source of truth for "is this commit green?"
+- A `Monitor.WorkspaceChip(ChipInput)` derivation that maps a workspace's current head commit to a chip value (`queued | in_progress | failure | success`, absent when the commit is unknown or the repo has no workflows)
+- A `Monitor.CheckPass(...)` that runs one CI status pass per unit, persists unit state, and records transitions for remediation orchestration
+- A workspace→commit watch index — the only per-workspace data the monitor holds. It stores no results.
+
+Remediation orchestration (launching a workspace+session for a failing run) is a separate concern owned by the dashboard. The monitor emits transition events; the dashboard decides what to launch. The buildmonitor package does not import `workspace`, `session`, `spawn`, or `dashboard`; data flows in as inputs and out as a `PassResult`.
+
+The dashboard translates chip derivation into the sessions response: per-workspace `ci_status` / `ci_url` are read off the monitor at broadcast time. PR tracking lives in `internal/dashboard/workspace_prs.go` (a dashboard-owned tracker — legacy seam that pre-dates the monitor's commit-centric model).
+
+Frontend wiring: `assets/dashboard/src/contexts/BuildMonitorContext.tsx` owns the `/api/build-monitor` fetch+refetch (driven by `buildMonitorUpdateCount` from `SessionsContext`). The page (`routes/BuildMonitorPage.tsx`) and the toolbar (`components/ToolsSection.tsx`) consume that context. The chip in the workspace header (`components/CIStatusChip.tsx`) is a thin component over the sessions payload's `ci_status` / `ci_url` fields.
 
 ## Data flow: spawning a session
 

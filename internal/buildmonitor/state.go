@@ -15,6 +15,7 @@ type UnitState struct {
 	RepoName  string          `json:"repo_name"`
 	Repo      string          `json:"repo"`
 	Branch    string          `json:"branch"`
+	HeadSHA   string          `json:"head_sha,omitempty"`
 	Workflows []WorkflowState `json:"workflows,omitempty"`
 	CheckedAt string          `json:"checked_at,omitempty"`
 	LastError string          `json:"last_error,omitempty"`

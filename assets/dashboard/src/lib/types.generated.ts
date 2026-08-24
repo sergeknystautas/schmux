@@ -38,9 +38,50 @@ export interface BuildMonitorConfig {
   repos?: Record<string, BuildMonitorRepoConfig>;
 }
 
+export interface BuildMonitorFailedJob {
+  id?: number;
+  name: string;
+  html_url: string;
+}
+
 export interface BuildMonitorRepoConfig {
   enabled?: boolean;
   github_login: string;
+}
+
+export interface BuildMonitorResponse {
+  enabled: boolean;
+  launch_configured: boolean;
+  units: BuildMonitorUnit[];
+}
+
+export interface BuildMonitorUnit {
+  slug: string;
+  repo_name: string;
+  repo: string;
+  branch?: string;
+  head_sha?: string;
+  status?: string;
+  workflows?: BuildMonitorWorkflow[];
+  checked_at?: string;
+  last_error?: string;
+  configured: boolean;
+  github_login?: string;
+  remediation_workspace_id?: string;
+}
+
+export interface BuildMonitorWorkflow {
+  name: string;
+  path: string;
+  run_id?: number;
+  run_number?: number;
+  status?: string;
+  conclusion?: string;
+  html_url?: string;
+  head_sha?: string;
+  session_id?: string;
+  launch_error?: string;
+  failed_jobs?: BuildMonitorFailedJob[];
 }
 
 export interface ClipboardAckRequest {

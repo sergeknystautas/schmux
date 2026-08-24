@@ -9,8 +9,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
+	"github.com/sergeknystautas/schmux/internal/buildmonitor"
+	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/state"
-	"github.com/sergeknystautas/schmux/internal/workspacestatus"
 )
 
 // dialTestDashboardWS creates a test HTTP server with the dashboard WebSocket
@@ -487,23 +488,25 @@ func TestBroadcastIncludesWorkspaceStatus(t *testing.T) {
 	}
 }
 
-// TestBroadcastIncludesCIStatusFromCache exercises the public wiring path
-// (cache → broadcast payload), not the private field. The cache is written
-// by the build monitor check pass; this test writes it directly to assert
-// the broadcast path reads from it correctly.
-func TestBroadcastIncludesCIStatusFromCache(t *testing.T) {
+// TestBroadcastIncludesCIStatusFromMonitor exercises the public wiring path
+// (monitor + PR tracker → broadcast payload). The monitor is written by the
+// build monitor check pass; this test writes it directly to assert the
+// broadcast path reads from it correctly.
+func TestBroadcastIncludesCIStatusFromMonitor(t *testing.T) {
 	srv, _, st := newTestServer(t)
 
-	st.AddWorkspace(state.Workspace{
-		ID:     "ws-ci",
-		Repo:   "https://github.com/acme/widget",
-		Branch: "feature",
-		Path:   t.TempDir(),
-		Status: state.WorkspaceStatusRunning,
-	})
-	srv.workspaceStatus.Store("ws-ci", workspacestatus.Entry{
-		Status: workspacestatus.Status{CIStatus: workspacestatus.CISuccess, CIURL: "https://run", PRNumber: 7, PRURL: "https://pr"},
-	})
+	if err := st.AddWorkspace(state.Workspace{
+		ID: "ws-ci", Repo: "https://github.com/acme/widget", Branch: "feature",
+		Path: t.TempDir(), Status: state.WorkspaceStatusRunning,
+		RemoteBranchExists: true, RemoteHeadSHA: "head-sha",
+	}); err != nil {
+		t.Fatalf("AddWorkspace: %v", err)
+	}
+	repo := github.RepoInfo{Owner: "acme", Repo: "widget"}
+	srv.buildMonitor.SetEnabledForTest(true)
+	srv.buildMonitor.SetRepoMetaForTest(repo, true, "")
+	srv.buildMonitor.RecordCommitForTest(repo, "head-sha", buildmonitor.StatusSuccess, "https://run", true)
+	srv.prTracker.entries["ws-ci"] = PRRef{Number: 7, URL: "https://pr"}
 
 	conn, cleanup := dialTestDashboardWS(t, srv)
 	defer cleanup()

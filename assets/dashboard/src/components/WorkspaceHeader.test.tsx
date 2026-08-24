@@ -227,8 +227,8 @@ describe('WorkspaceHeader CI and PR indicators', () => {
   it.each([
     ['success', 'CI: passing'],
     ['failure', 'CI: failing'],
-    ['pending', 'CI: running'],
-    ['none', 'CI: no runs yet'],
+    ['in_progress', 'CI: running'],
+    ['queued', 'CI: queued'],
   ])('renders the %s badge with a link to ci_url', async (status, label) => {
     await renderHeader(makeWorkspace({ ci_status: status, ci_url: 'https://example.com/run' }));
     const badge = screen.getByLabelText(label);
@@ -237,8 +237,8 @@ describe('WorkspaceHeader CI and PR indicators', () => {
   });
 
   it('renders the badge without a link when ci_url is absent', async () => {
-    await renderHeader(makeWorkspace({ ci_status: 'none' }));
-    const badge = screen.getByLabelText('CI: no runs yet');
+    await renderHeader(makeWorkspace({ ci_status: 'queued' }));
+    const badge = screen.getByLabelText('CI: queued');
     expect(badge.closest('a')).toBeNull();
   });
 

@@ -51,6 +51,22 @@ func isLocalPath(s string) bool {
 	return strings.HasPrefix(s, "/") || strings.HasPrefix(s, "~") || strings.HasPrefix(s, ".")
 }
 
+// probeRemoteHeadSHA returns the head SHA of branch on the remote at repoURL
+// via git ls-remote. "" means the ref does not exist.
+func probeRemoteHeadSHA(ctx context.Context, repoURL, branch string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "ls-remote", repoURL, "refs/heads/"+branch)
+	cmd.Env = append(cmd.Environ(), "GIT_TERMINAL_PROMPT=0")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("ls-remote %s %s: %v: %s", repoURL, branch, err, out)
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) < 1 {
+		return "", nil
+	}
+	return fields[0], nil
+}
+
 // probeLocalRepo checks a local directory for VCS markers and detects the default branch.
 func probeLocalRepo(ctx context.Context, path string) ProbeResult {
 	// Check for git repo

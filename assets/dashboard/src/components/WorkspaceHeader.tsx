@@ -15,6 +15,7 @@ import { useConfig } from '../contexts/ConfigContext';
 import { useSync } from '../hooks/useSync';
 import useDevStatus from '../hooks/useDevStatus';
 import Tooltip from './Tooltip';
+import CIStatusChip from './CIStatusChip';
 import { ArrowDownIcon, ArrowUpIcon } from './Icons';
 import type { WorkspaceResponse } from '../lib/types';
 import { workspaceDisplayLabel } from '../lib/workspace-display';
@@ -29,44 +30,6 @@ function githubWebUrl(repo: string): string | null {
     /^(?:https?:\/\/github\.com\/|git@github\.com:)([^/]+\/[^/]+?)(?:\.git)?\/?$/i
   );
   return match ? `https://github.com/${match[1]}` : null;
-}
-
-const ciLabels: Record<string, string> = {
-  success: 'CI: passing',
-  failure: 'CI: failing',
-  pending: 'CI: running',
-  none: 'CI: no runs yet',
-};
-
-const ciCheckIcon = (
-  <svg width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-    <path
-      d="M3 8.5L6.5 12L13 4.5"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </svg>
-);
-
-const ciCrossIcon = (
-  <svg width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-    <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-  </svg>
-);
-
-function ciBadgeContent(status: string) {
-  switch (status) {
-    case 'success':
-      return ciCheckIcon;
-    case 'failure':
-      return ciCrossIcon;
-    case 'pending':
-      return <span className="app-header__ci-dot" />;
-    default:
-      return <span className="app-header__ci-box" />;
-  }
 }
 
 export default function WorkspaceHeader({
@@ -329,26 +292,7 @@ export default function WorkspaceHeader({
               </>
             )}
             {workspace.ci_status && (
-              <Tooltip content={ciLabels[workspace.ci_status] ?? 'CI status'}>
-                {workspace.ci_url ? (
-                  <a
-                    href={workspace.ci_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`app-header__ci app-header__ci--${workspace.ci_status}`}
-                    aria-label={ciLabels[workspace.ci_status] ?? 'CI status'}
-                  >
-                    {ciBadgeContent(workspace.ci_status)}
-                  </a>
-                ) : (
-                  <span
-                    className={`app-header__ci app-header__ci--${workspace.ci_status}`}
-                    aria-label={ciLabels[workspace.ci_status] ?? 'CI status'}
-                  >
-                    {ciBadgeContent(workspace.ci_status)}
-                  </span>
-                )}
-              </Tooltip>
+              <CIStatusChip status={workspace.ci_status} url={workspace.ci_url} />
             )}
             {workspace.pr_number && workspace.pr_url ? (
               <Tooltip content={`Open pull request #${workspace.pr_number}`}>

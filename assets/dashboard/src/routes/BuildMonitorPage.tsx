@@ -1,82 +1,29 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useFeatures } from '../contexts/FeaturesContext';
 import { useSessions } from '../contexts/SessionsContext';
-
-interface FailedJob {
-  name: string;
-  html_url: string;
-}
-
-interface BuildMonitorWorkflow {
-  name: string;
-  path: string;
-  run_id?: number;
-  run_number?: number;
-  status?: string;
-  conclusion?: string;
-  html_url?: string;
-  head_sha?: string;
-  session_id?: string;
-  launch_error?: string;
-  failed_jobs: FailedJob[];
-}
-
-interface BuildMonitorUnit {
-  slug: string;
-  repo_name: string;
-  repo: string;
-  branch?: string;
-  workflows: BuildMonitorWorkflow[];
-  checked_at?: string;
-  last_error?: string;
-  configured: boolean;
-  github_login?: string;
-  remediation_workspace_id?: string;
-}
-
-interface BuildMonitorResponse {
-  enabled: boolean;
-  launch_configured?: boolean;
-  units: BuildMonitorUnit[];
-}
-
-// Defend against null/absent arrays in the wire shape (Go nil slices marshal
-// to null; workflows and failed_jobs are omitempty).
-function normalize(d: any): BuildMonitorResponse {
-  return {
-    enabled: !!d?.enabled,
-    launch_configured: !!d?.launch_configured,
-    units: (d?.units || []).map((u: any) => ({
-      ...u,
-      workflows: (u.workflows || []).map((w: any) => ({
-        ...w,
-        failed_jobs: w.failed_jobs || [],
-      })),
-    })),
-  };
-}
+import { useBuildMonitor } from '../contexts/BuildMonitorContext';
+import type { BuildMonitorWorkflow } from '../lib/types.generated';
 
 function workflowBadge(wf: BuildMonitorWorkflow): { text: string; className: string } {
   if (wf.conclusion === 'success') return { text: 'Passing', className: 'badge badge--success' };
   if (wf.conclusion === 'failure') return { text: 'Failing', className: 'badge badge--danger' };
-  if (wf.status === 'in_progress' || wf.status === 'queued')
-    return { text: 'Running', className: 'badge badge--info' };
-  return { text: 'No runs yet', className: 'badge badge--neutral' };
+  if (wf.status === 'in_progress') return { text: 'Running', className: 'badge badge--info' };
+  // queued or no run for the head
+  return { text: 'Queued', className: 'badge badge--neutral' };
 }
 
 export default function BuildMonitorPage() {
   const { features } = useFeatures();
-  const { buildMonitorUpdateCount, sessionsById } = useSessions();
-  const [data, setData] = useState<BuildMonitorResponse>({ enabled: false, units: [] });
-  const [checking, setChecking] = useState(false);
-  const [error, setError] = useState('');
+  const { sessionsById } = useSessions();
+  const { data, error, checking, checkNow } = useBuildMonitor();
   const navigate = useNavigate();
   const [launching, setLaunching] = useState<number | null>(null); // run_id being launched
+  const [launchError, setLaunchError] = useState('');
 
   const handleLaunch = (slug: string, runId: number) => {
     setLaunching(runId);
-    setError('');
+    setLaunchError('');
     fetch(`/api/build-monitor/repos/${slug}/failures/${runId}/launch-workspace`, { method: 'POST' })
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -87,41 +34,8 @@ export default function BuildMonitorPage() {
         navigate(`/sessions/${d.session_id}`);
       })
       .catch((e) => {
-        setError(e.message);
+        setLaunchError(e.message);
         setLaunching(null);
-      });
-  };
-
-  const fetchData = useCallback(() => {
-    fetch('/api/build-monitor')
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((d: BuildMonitorResponse) => setData(normalize(d)))
-      .catch((e) => setError(e.message));
-  }, []);
-
-  // Initial fetch + live refetch when the daemon broadcasts build_monitor_updated.
-  useEffect(() => {
-    fetchData();
-  }, [fetchData, buildMonitorUpdateCount]);
-
-  const handleCheckNow = () => {
-    setChecking(true);
-    setError('');
-    fetch('/api/build-monitor/check', { method: 'POST' })
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((d: BuildMonitorResponse) => {
-        setData(normalize(d));
-        setChecking(false);
-      })
-      .catch((e) => {
-        setError(e.message);
-        setChecking(false);
       });
   };
 
@@ -163,7 +77,7 @@ export default function BuildMonitorPage() {
         <div className="app-header__actions">
           <button
             className="btn btn--primary"
-            onClick={handleCheckNow}
+            onClick={checkNow}
             disabled={checking || data.units.length === 0}
           >
             {checking ? 'Checking…' : 'Check now'}
@@ -212,7 +126,7 @@ export default function BuildMonitorPage() {
                     )}
                   </div>
                 )}
-                {unit.workflows.map((wf) => {
+                {unit.workflows?.map((wf) => {
                   const badge = workflowBadge(wf);
                   return (
                     <div className="flex-row gap-md" key={wf.path || wf.name}>
@@ -253,7 +167,7 @@ export default function BuildMonitorPage() {
                       {wf.launch_error && (
                         <span className="item-list__item-detail text-error">{wf.launch_error}</span>
                       )}
-                      {wf.failed_jobs.length > 0 && (
+                      {wf.failed_jobs && wf.failed_jobs.length > 0 && (
                         <span className="item-list__item-detail">
                           Failed jobs:{' '}
                           {wf.failed_jobs.map((j, i) => (
@@ -269,7 +183,7 @@ export default function BuildMonitorPage() {
                     </div>
                   );
                 })}
-                {unit.checked_at && unit.workflows.length === 0 && !unit.last_error && (
+                {unit.checked_at && unit.workflows?.length === 0 && !unit.last_error && (
                   <div className="item-list__item-detail">No active workflows on this branch.</div>
                 )}
                 {!unit.checked_at && !unit.last_error && (
@@ -285,6 +199,8 @@ export default function BuildMonitorPage() {
           ))}
         </div>
       )}
+
+      {launchError && <p className="form-group__error mb-md">Launch failed: {launchError}</p>}
     </div>
   );
 }

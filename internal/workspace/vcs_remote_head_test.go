@@ -91,7 +91,7 @@ func TestGitGetRemoteBranchHead_NoRemote(t *testing.T) {
 func TestGitStatusReportsRemoteHeadSHA(t *testing.T) {
 	work, _, sha := setupOriginClone(t)
 	m := newTestManager(t, newTestState(t))
-	_, _, _, _, _, _, _, _, _, _, _, _, remoteHeadSHA := m.gitStatus(context.Background(), "ws-test", RefreshTriggerExplicit, work, "https://example.com/repo.git")
+	_, _, _, _, _, _, _, _, _, _, _, _, remoteHeadSHA, _ := m.gitStatus(context.Background(), "ws-test", RefreshTriggerExplicit, work, "https://example.com/repo.git")
 	if remoteHeadSHA != sha {
 		t.Errorf("remoteHeadSHA = %q, want %q", remoteHeadSHA, sha)
 	}
@@ -100,7 +100,7 @@ func TestGitStatusReportsRemoteHeadSHA(t *testing.T) {
 	gitCmd(t, work, "commit", "--allow-empty", "-m", "c2")
 	gitCmd(t, work, "push", "origin", "feature")
 	newSHA := gitCmd(t, work, "rev-parse", "HEAD")
-	_, _, _, _, _, _, _, _, _, _, _, _, remoteHeadSHA = m.gitStatus(context.Background(), "ws-test", RefreshTriggerExplicit, work, "https://example.com/repo.git")
+	_, _, _, _, _, _, _, _, _, _, _, _, remoteHeadSHA, _ = m.gitStatus(context.Background(), "ws-test", RefreshTriggerExplicit, work, "https://example.com/repo.git")
 	if remoteHeadSHA != newSHA {
 		t.Errorf("after push remoteHeadSHA = %q, want %q", remoteHeadSHA, newSHA)
 	}
@@ -113,7 +113,7 @@ func TestGitStatusRemoteHeadSHAEmptyWithoutRemote(t *testing.T) {
 	gitCmd(t, work, "checkout", "-b", "feature")
 	gitCmd(t, work, "commit", "--allow-empty", "-m", "c1")
 	m := newTestManager(t, newTestState(t))
-	_, _, _, _, _, _, _, _, _, _, _, _, remoteHeadSHA := m.gitStatus(context.Background(), "ws-test", RefreshTriggerExplicit, work, "https://example.com/repo.git")
+	_, _, _, _, _, _, _, _, _, _, _, _, remoteHeadSHA, _ := m.gitStatus(context.Background(), "ws-test", RefreshTriggerExplicit, work, "https://example.com/repo.git")
 	if remoteHeadSHA != "" {
 		t.Errorf("remoteHeadSHA = %q, want empty for local-only branch", remoteHeadSHA)
 	}

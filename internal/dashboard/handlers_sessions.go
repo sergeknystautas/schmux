@@ -16,7 +16,9 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/buildmonitor"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
@@ -27,7 +29,6 @@ import (
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
-	"github.com/sergeknystautas/schmux/internal/workspacestatus"
 )
 
 // Type aliases for contracts types used throughout this file.
@@ -55,9 +56,22 @@ type SessionHandlers struct {
 	defaultBranchCache   map[string]defaultBranchEntry
 	defaultBranchCacheMu sync.RWMutex
 
-	// workspaceStatus serves cached GitHub CI/PR status per workspace.
-	// written by the build monitor check pass
-	workspaceStatus *workspacestatus.Cache
+	// buildMonitor owns all CI status; the response derives chips by asking
+	// it about each workspace's (CI repo, remote head SHA).
+	buildMonitor *buildmonitor.Monitor
+	prTracker    *PRTracker
+}
+
+// ciRepoForWorkspace resolves the repo whose Actions runs cover a workspace's
+// remote branch: the fork for fork branches, else the base repo.
+func ciRepoForWorkspace(ws state.Workspace) github.RepoInfo {
+	if ws.RemoteBranchIsFork && ws.RemoteBranchURL != "" {
+		if info, err := github.ParseRepoURL(ws.RemoteBranchURL); err == nil {
+			return info
+		}
+	}
+	info, _ := github.ParseRepoURL(ws.Repo)
+	return info
 }
 
 // buildSessionsResponse builds the sessions/workspaces response data.
@@ -196,21 +210,18 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 			workspaceMap[ws.ID].Previews = items
 		}
 
-		if h.workspaceStatus != nil {
-			if e, ok := h.workspaceStatus.Lookup(ws.ID); ok {
+		if h.buildMonitor != nil {
+			if st, url, ok := h.buildMonitor.Status(ciRepoForWorkspace(ws), ws.RemoteHeadSHA); ok {
 				item := workspaceMap[ws.ID]
-				if ws.RemoteHeadSHA != "" && e.HeadSHA != "" && ws.RemoteHeadSHA != e.HeadSHA {
-					// The remote branch moved past the commit this result is
-					// for: show "no runs yet for this commit" instead of a
-					// stale badge. The next pass fetches the new head. The PR
-					// link survives pushes, so it is served either way.
-					item.CIStatus = workspacestatus.CINone
-				} else {
-					item.CIStatus = e.Status.CIStatus
-					item.CIURL = e.Status.CIURL
-				}
-				item.PRNumber = e.Status.PRNumber
-				item.PRURL = e.Status.PRURL
+				item.CIStatus = st
+				item.CIURL = url
+			}
+		}
+		if h.prTracker != nil {
+			if pr, ok := h.prTracker.Get(ws.ID); ok {
+				item := workspaceMap[ws.ID]
+				item.PRNumber = pr.Number
+				item.PRURL = pr.URL
 			}
 		}
 

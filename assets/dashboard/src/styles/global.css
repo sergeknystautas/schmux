@@ -2382,11 +2382,20 @@ body {
   color: var(--color-danger);
 }
 
-.app-header__ci-box {
+.app-header__ci--in_progress {
+  color: var(--color-warning);
+}
+
+.app-header__ci--queued {
+  color: var(--color-text-muted);
+}
+
+.app-header__ci-circle {
   width: 10px;
   height: 10px;
-  border: 1px solid var(--color-text-muted);
-  border-radius: 2px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  background: transparent;
 }
 
 .app-header__ci-dot {
