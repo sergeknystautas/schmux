@@ -211,7 +211,7 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 		}
 
 		if h.buildMonitor != nil {
-			if st, url, ok := h.buildMonitor.Status(ciRepoForWorkspace(ws), ws.RemoteHeadSHA); ok {
+			if st, url, ok := h.buildMonitor.Status(ciRepoForWorkspace(ws), ws.Branch, ws.RemoteHeadSHA); ok {
 				item := workspaceMap[ws.ID]
 				item.CIStatus = st
 				item.CIURL = url

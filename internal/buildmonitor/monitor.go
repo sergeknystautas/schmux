@@ -25,9 +25,10 @@ const (
 )
 
 type commitKey struct {
-	owner string
-	repo  string
-	sha   string
+	owner  string
+	repo   string
+	branch string
+	sha    string
 }
 
 type commitStatus struct {
@@ -45,11 +46,12 @@ type repoMeta struct {
 }
 
 // Monitor owns all CI knowledge: an in-memory store of commit statuses keyed
-// by (repo, SHA) plus per-repo metadata, and the durable unit state files
+// by (repo, branch, SHA) plus per-repo metadata, and the durable unit state files
 // (read and written via ReadState/WriteState — there is no second in-memory
 // copy of those). Nothing is keyed by workspace — callers resolve a
-// workspace to its (repo, head SHA) and ask Status. All methods are safe for
-// concurrent use.
+// workspace to its (repo, branch, head SHA) and ask Status. Branch is part of
+// the identity because GitHub can run the same commit on multiple branches
+// with different results. All methods are safe for concurrent use.
 type Monitor struct {
 	mu        sync.Mutex
 	now       func() time.Time
@@ -74,14 +76,14 @@ func repoKey(info github.RepoInfo) commitKey {
 	return commitKey{owner: info.Owner, repo: info.Repo}
 }
 
-// Status derives the CI status of one commit in one repo — the single
-// derivation behind every CI indicator. ok=false → absent (no icon).
+// Status derives the CI status of one branch head — the single derivation
+// behind every CI indicator. ok=false → absent (no icon).
 //
 // Precedence: disabled → absent; unknown/empty commit → absent; repo error →
 // absent; recorded commit → its status; unrecorded commit in a repo with
 // active workflows → queued; otherwise absent.
-func (m *Monitor) Status(repo github.RepoInfo, sha string) (string, string, bool) {
-	if sha == "" {
+func (m *Monitor) Status(repo github.RepoInfo, branch, sha string) (string, string, bool) {
+	if branch == "" || sha == "" {
 		return "", "", false
 	}
 	m.mu.Lock()
@@ -93,7 +95,7 @@ func (m *Monitor) Status(repo github.RepoInfo, sha string) (string, string, bool
 	if haveMeta && meta.lastError != "" {
 		return "", "", false
 	}
-	if c, ok := m.commits[commitKey{owner: repo.Owner, repo: repo.Repo, sha: sha}]; ok {
+	if c, ok := m.commits[commitKey{owner: repo.Owner, repo: repo.Repo, branch: branch, sha: sha}]; ok {
 		return c.status, c.url, true
 	}
 	if haveMeta && meta.hasWorkflows {
@@ -132,7 +134,7 @@ func (m *Monitor) Hydrate(snapshots map[string]*UnitState) {
 		if t, err := time.Parse(time.RFC3339, st.CheckedAt); err == nil {
 			fetchedAt = t
 		}
-		m.commits[commitKey{owner: owner, repo: name, sha: st.HeadSHA}] = commitStatus{
+		m.commits[commitKey{owner: owner, repo: name, branch: st.Branch, sha: st.HeadSHA}] = commitStatus{
 			status: status, url: url, terminal: isTerminal(status), fetchedAt: fetchedAt,
 		}
 	}
@@ -146,6 +148,7 @@ func (m *Monitor) Hydrate(snapshots map[string]*UnitState) {
 type storedCommit struct {
 	Owner     string    `json:"owner"`
 	Repo      string    `json:"repo"`
+	Branch    string    `json:"branch"`
 	SHA       string    `json:"sha"`
 	Status    string    `json:"status"`
 	URL       string    `json:"url,omitempty"`
@@ -164,14 +167,14 @@ func (m *Monitor) persistCommits() {
 	stored := make([]storedCommit, 0, len(m.commits))
 	for k, c := range m.commits {
 		stored = append(stored, storedCommit{
-			Owner: k.owner, Repo: k.repo, SHA: k.sha,
+			Owner: k.owner, Repo: k.repo, Branch: k.branch, SHA: k.sha,
 			Status: c.status, URL: c.url, Terminal: c.terminal, FetchedAt: c.fetchedAt,
 		})
 	}
 	m.mu.Unlock()
 	sort.Slice(stored, func(i, j int) bool {
 		a, b := stored[i], stored[j]
-		return a.Owner+"/"+a.Repo+"@"+a.SHA < b.Owner+"/"+b.Repo+"@"+b.SHA
+		return a.Owner+"/"+a.Repo+"@"+a.Branch+"@"+a.SHA < b.Owner+"/"+b.Repo+"@"+b.Branch+"@"+b.SHA
 	})
 	data, err := json.MarshalIndent(stored, "", "  ")
 	if err != nil {
@@ -195,7 +198,13 @@ func (m *Monitor) loadCommitsLocked() {
 		return
 	}
 	for _, c := range stored {
-		m.commits[commitKey{owner: c.Owner, repo: c.Repo, sha: c.SHA}] = commitStatus{
+		// Stores written before branch became part of CI identity cannot be
+		// attributed safely. Unit snapshots still hydrate default-branch state;
+		// watched branches are fetched again on the next pass.
+		if c.Branch == "" {
+			continue
+		}
+		m.commits[commitKey{owner: c.Owner, repo: c.Repo, branch: c.Branch, sha: c.SHA}] = commitStatus{
 			status: c.Status, url: c.URL, terminal: c.Terminal, fetchedAt: c.FetchedAt,
 		}
 	}
@@ -220,18 +229,18 @@ func unitStateRuns(st *UnitState) []github.WorkflowRun {
 
 // --- pass-side mutation (called only from the serialized check pass) ---
 
-func (m *Monitor) recordCommit(repo github.RepoInfo, sha, status, url string, terminal bool) {
+func (m *Monitor) recordCommit(repo github.RepoInfo, branch, sha, status, url string, terminal bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.commits[commitKey{owner: repo.Owner, repo: repo.Repo, sha: sha}] = commitStatus{
+	m.commits[commitKey{owner: repo.Owner, repo: repo.Repo, branch: branch, sha: sha}] = commitStatus{
 		status: status, url: url, terminal: terminal, fetchedAt: m.now(),
 	}
 }
 
 // commitFreshLocked reports whether a recorded terminal result is fresh
 // enough to reuse without refetching.
-func (m *Monitor) commitFreshLocked(repo github.RepoInfo, sha string) bool {
-	c, ok := m.commits[commitKey{owner: repo.Owner, repo: repo.Repo, sha: sha}]
+func (m *Monitor) commitFreshLocked(repo github.RepoInfo, branch, sha string) bool {
+	c, ok := m.commits[commitKey{owner: repo.Owner, repo: repo.Repo, branch: branch, sha: sha}]
 	return ok && c.terminal && m.now().Sub(c.fetchedAt) < terminalResultTTL
 }
 

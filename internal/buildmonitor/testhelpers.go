@@ -12,8 +12,8 @@ import (
 // read paths without spinning up the full GitHub API surface.
 
 // RecordCommitForTest seeds the commit store from outside the package.
-func (m *Monitor) RecordCommitForTest(repo github.RepoInfo, sha, status, url string, terminal bool) {
-	m.recordCommit(repo, sha, status, url, terminal)
+func (m *Monitor) RecordCommitForTest(repo github.RepoInfo, branch, sha, status, url string, terminal bool) {
+	m.recordCommit(repo, branch, sha, status, url, terminal)
 }
 
 // SetRepoMetaForTest seeds per-repo metadata from outside the package.

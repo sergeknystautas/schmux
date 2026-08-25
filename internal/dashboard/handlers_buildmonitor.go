@@ -154,7 +154,7 @@ func (s *Server) handleBuildMonitorGet(w http.ResponseWriter, r *http.Request) {
 			unit.CheckedAt = st.CheckedAt
 			unit.LastError = st.LastError
 			unit.RemediationWorkspaceID = st.RemediationWorkspaceID
-			if status, _, ok := s.buildMonitor.Status(info, st.HeadSHA); ok {
+			if status, _, ok := s.buildMonitor.Status(info, st.Branch, st.HeadSHA); ok {
 				unit.Status = status
 			}
 		}
@@ -301,7 +301,7 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (contracts.BuildM
 				unitResp.HeadSHA = st.HeadSHA
 			}
 		}
-		if status, _, ok := s.buildMonitor.Status(u.Info, u.HeadSHA); ok {
+		if status, _, ok := s.buildMonitor.Status(u.Info, u.Branch, u.HeadSHA); ok {
 			unitResp.Status = status
 		}
 		response.Units = append(response.Units, unitResp)

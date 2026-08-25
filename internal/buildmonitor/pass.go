@@ -39,8 +39,8 @@ type PassResult struct {
 	UnitStates map[string]*UnitState        // slug → post-transition state (persisted when Changed=true)
 }
 
-// CheckPass executes one full commit-centric pass: per-unit CI fetch, watched
-// head resolution, durable unit state with transitions, and the commit store
+// CheckPass executes one full branch-head pass: per-unit CI fetch, watched
+// head resolution, durable unit state with transitions, and the status-store
 // updates that Status reads.
 //
 // enabled is observed world state, not a control signal: the scheduler ticks
@@ -68,18 +68,19 @@ func (m *Monitor) CheckPass(ctx context.Context, actions Actions, enabled bool, 
 	live := map[commitKey]bool{}
 	for _, u := range units {
 		if u.HeadSHA != "" {
-			live[commitKey{owner: u.Info.Owner, repo: u.Info.Repo, sha: u.HeadSHA}] = true
+			live[commitKey{owner: u.Info.Owner, repo: u.Info.Repo, branch: u.Branch, sha: u.HeadSHA}] = true
 		}
 	}
 	for _, h := range heads {
 		if h.SHA != "" {
-			live[commitKey{owner: h.Info.Owner, repo: h.Info.Repo, sha: h.SHA}] = true
+			live[commitKey{owner: h.Info.Owner, repo: h.Info.Repo, branch: h.Branch, sha: h.SHA}] = true
 		}
 	}
 
 	// Pass-level run cache: the unit's branch fetch also serves watched heads
 	// on the same (repo, branch).
 	runsCache := map[fetchKey][]github.WorkflowRun{}
+	jobsCache := map[int64]jobFetch{}
 
 	for _, unit := range units {
 		prev, readErr := ReadState(unit.StatePath)
@@ -120,7 +121,7 @@ func (m *Monitor) CheckPass(ctx context.Context, actions Actions, enabled bool, 
 			continue
 		}
 
-		state, unitChanged, passErr := m.checkUnit(ctx, actions, unit, prev, active, runsCache)
+		state, unitChanged, passErr := m.checkUnit(ctx, actions, unit, prev, active, runsCache, jobsCache)
 		if passErr != nil {
 			if prev != nil {
 				result.UnitStates[unit.Slug] = prev
@@ -151,7 +152,7 @@ func (m *Monitor) CheckPass(ctx context.Context, actions Actions, enabled bool, 
 		result.UnitStates[unit.Slug] = state
 	}
 
-	m.checkHeads(ctx, actions, heads, runsCache)
+	m.checkHeads(ctx, actions, heads, runsCache, jobsCache)
 	m.pruneExcept(live)
 	m.persistCommits()
 	return result
@@ -159,6 +160,11 @@ func (m *Monitor) CheckPass(ctx context.Context, actions Actions, enabled bool, 
 
 type fetchKey struct {
 	owner, repo, branch string
+}
+
+type jobFetch struct {
+	jobs []github.WorkflowJob
+	err  error
 }
 
 // noteFetchError records a fetch failure for the repo: rate limits advance
@@ -177,13 +183,14 @@ func (m *Monitor) noteFetchError(info github.RepoInfo, err error) {
 }
 
 // checkUnit builds a fresh unit snapshot for one repo's default-branch head.
-func (m *Monitor) checkUnit(ctx context.Context, actions Actions, unit UnitInput, prev *UnitState, active []github.Workflow, runsCache map[fetchKey][]github.WorkflowRun) (*UnitState, bool, error) {
+func (m *Monitor) checkUnit(ctx context.Context, actions Actions, unit UnitInput, prev *UnitState, active []github.Workflow, runsCache map[fetchKey][]github.WorkflowRun, jobsCache map[int64]jobFetch) (*UnitState, bool, error) {
 	key := fetchKey{owner: unit.Info.Owner, repo: unit.Info.Repo, branch: unit.Branch}
 	runs, err := actions.ListRepoRuns(ctx, unit.Token, unit.Info, unit.Branch)
 	if err != nil {
 		m.noteFetchError(unit.Info, err)
 		return nil, false, err
 	}
+	runs = runsWithEffectiveStatus(ctx, actions, unit.Token, unit.Info, runs, unit.HeadSHA, jobsCache)
 	runsCache[key] = runs
 
 	state := &UnitState{
@@ -209,7 +216,7 @@ func (m *Monitor) checkUnit(ctx context.Context, actions Actions, unit UnitInput
 		if newest.Status == "completed" {
 			ws.Conclusion = newest.Conclusion
 			if newest.Conclusion == "failure" {
-				jobs, err := actions.ListRunJobs(ctx, unit.Token, unit.Info, newest.ID)
+				jobs, err := listRunJobsCached(ctx, actions, unit.Token, unit.Info, newest.ID, jobsCache)
 				if err != nil {
 					state.LastError = classify(err)
 				} else {
@@ -229,7 +236,7 @@ func (m *Monitor) checkUnit(ctx context.Context, actions Actions, unit UnitInput
 	if !ok {
 		status, url = StatusQueued, ""
 	}
-	m.recordCommit(unit.Info, unit.HeadSHA, status, url, isTerminal(status))
+	m.recordCommit(unit.Info, unit.Branch, unit.HeadSHA, status, url, isTerminal(status))
 
 	state.CheckedAt = m.now().UTC().Format(time.RFC3339)
 
@@ -240,7 +247,7 @@ func (m *Monitor) checkUnit(ctx context.Context, actions Actions, unit UnitInput
 // checkHeads resolves CI status for each watched head commit, deduping run
 // fetches per (repo, branch) and reusing the pass's unit fetches. A recorded
 // terminal result fresh within terminalResultTTL is kept without refetching.
-func (m *Monitor) checkHeads(ctx context.Context, actions Actions, heads []HeadInput, runsCache map[fetchKey][]github.WorkflowRun) {
+func (m *Monitor) checkHeads(ctx context.Context, actions Actions, heads []HeadInput, runsCache map[fetchKey][]github.WorkflowRun, jobsCache map[int64]jobFetch) {
 	fetched := map[fetchKey]bool{}
 
 	for _, h := range heads {
@@ -250,7 +257,7 @@ func (m *Monitor) checkHeads(ctx context.Context, actions Actions, heads []HeadI
 		key := fetchKey{owner: h.Info.Owner, repo: h.Info.Repo, branch: h.Branch}
 
 		m.mu.Lock()
-		fresh := m.commitFreshLocked(h.Info, h.SHA)
+		fresh := m.commitFreshLocked(h.Info, h.Branch, h.SHA)
 		backingOff := m.backingOffLocked(h.Info)
 		m.mu.Unlock()
 		if fresh {
@@ -275,12 +282,52 @@ func (m *Monitor) checkHeads(ctx context.Context, actions Actions, heads []HeadI
 			runsCache[key] = runs
 		}
 
-		status, url, aggregated := AggregateRuns(runs, h.SHA)
+		effectiveRuns := runsWithEffectiveStatus(ctx, actions, h.Token, h.Info, runs, h.SHA, jobsCache)
+		status, url, aggregated := AggregateRuns(effectiveRuns, h.SHA)
 		if !aggregated {
 			status, url = StatusQueued, ""
 		}
-		m.recordCommit(h.Info, h.SHA, status, url, isTerminal(status))
+		m.recordCommit(h.Info, h.Branch, h.SHA, status, url, isTerminal(status))
 	}
+}
+
+// runsWithEffectiveStatus corrects a GitHub Actions inconsistency: the runs
+// endpoint can keep a workflow run at "queued" after the jobs endpoint shows
+// one or more jobs in progress. Only the newest matching run per workflow can
+// affect AggregateRuns, so only those runs need job lookups.
+func runsWithEffectiveStatus(ctx context.Context, actions Actions, token string, info github.RepoInfo, runs []github.WorkflowRun, headSHA string, jobsCache map[int64]jobFetch) []github.WorkflowRun {
+	effective := append([]github.WorkflowRun(nil), runs...)
+	seen := map[int64]bool{}
+	for i := range effective {
+		run := &effective[i]
+		if run.HeadSHA != headSHA || seen[run.WorkflowID] {
+			continue
+		}
+		seen[run.WorkflowID] = true
+		if run.Status == "completed" || run.Status == "in_progress" {
+			continue
+		}
+		jobs, err := listRunJobsCached(ctx, actions, token, info, run.ID, jobsCache)
+		if err != nil {
+			continue
+		}
+		for _, job := range jobs {
+			if job.Status == "in_progress" {
+				run.Status = "in_progress"
+				break
+			}
+		}
+	}
+	return effective
+}
+
+func listRunJobsCached(ctx context.Context, actions Actions, token string, info github.RepoInfo, runID int64, cache map[int64]jobFetch) ([]github.WorkflowJob, error) {
+	if fetched, ok := cache[runID]; ok {
+		return fetched.jobs, fetched.err
+	}
+	jobs, err := actions.ListRunJobs(ctx, token, info, runID)
+	cache[runID] = jobFetch{jobs: jobs, err: err}
+	return jobs, err
 }
 
 func isTerminal(status string) bool {

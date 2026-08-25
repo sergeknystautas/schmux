@@ -109,7 +109,7 @@ func TestBuildSessionsResponseSurfacesCIIconFromMonitor(t *testing.T) {
 	}
 	server.buildMonitor.SetEnabledForTest(true)
 	server.buildMonitor.SetRepoMetaForTest(repo, true, "")
-	server.buildMonitor.RecordCommitForTest(repo, "head-sha", buildmonitor.StatusSuccess, "https://run", true)
+	server.buildMonitor.RecordCommitForTest(repo, "main", "head-sha", buildmonitor.StatusSuccess, "https://run", true)
 	server.prTracker.entries["ws1"] = PRRef{Number: 7, URL: "https://pr"}
 
 	items := server.sessionHandlers.buildSessionsResponse()

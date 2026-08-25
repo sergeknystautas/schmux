@@ -68,7 +68,7 @@ func TestCheckPass_UnitHeadNoRunsQueued(t *testing.T) {
 		t.Errorf("expected Changed=true (first pass persists)")
 	}
 	// Head with no runs → recorded as queued.
-	st, _, ok := m.Status(gh("acme", "app"), "h1")
+	st, _, ok := m.Status(gh("acme", "app"), "main", "h1")
 	if !ok || st != StatusQueued {
 		t.Errorf("status = (%q, %v), want (queued, true)", st, ok)
 	}
@@ -76,6 +76,30 @@ func TestCheckPass_UnitHeadNoRunsQueued(t *testing.T) {
 		t.Fatalf("missing unit state in result")
 	} else if len(st.Workflows) != 1 || st.Workflows[0].RunID != 0 {
 		t.Errorf("workflow row = %+v, want empty-run row", st.Workflows)
+	}
+}
+
+func TestCheckPass_DefaultBranchQueuedRunWithRunningJobIsInProgress(t *testing.T) {
+	dir := t.TempDir()
+	actions := &passFakeActions{
+		workflows: []github.Workflow{{ID: 1, Name: "CI", State: "active"}},
+		runsByBranch: map[string][]github.WorkflowRun{
+			"main": {{ID: 7, WorkflowID: 1, Status: "queued", HeadSHA: "h1", HTMLURL: "https://run/7"}},
+		},
+		jobs: map[int64][]github.WorkflowJob{
+			7: {{ID: 70, Name: "test", Status: "in_progress"}},
+		},
+	}
+	m := NewMonitor(time.Now, "")
+
+	res := m.CheckPass(context.Background(), actions, true, []UnitInput{testUnit(dir)}, nil)
+
+	wf := res.UnitStates["r"].Workflows[0]
+	if wf.Status != "in_progress" {
+		t.Fatalf("default-branch workflow status = %q, want in_progress", wf.Status)
+	}
+	if got, url, ok := m.Status(gh("acme", "app"), "main", "h1"); !ok || got != StatusInProgress || url != "https://run/7" {
+		t.Fatalf("default-branch status = (%q, %q, %v), want (in_progress, https://run/7, true)", got, url, ok)
 	}
 }
 
@@ -114,8 +138,127 @@ func TestCheckPass_HeadOnUnitBranchReusesUnitFetch(t *testing.T) {
 	if got := actions.listRunsCalls.Load(); got != 1 {
 		t.Errorf("ListRepoRuns calls = %d, want 1 (unit fetch reused)", got)
 	}
-	if st, _, ok := m.Status(gh("acme", "app"), "h1"); !ok || st != StatusSuccess {
+	if st, _, ok := m.Status(gh("acme", "app"), "main", "h1"); !ok || st != StatusSuccess {
 		t.Errorf("status = (%q, %v), want (success, true)", st, ok)
+	}
+}
+
+func TestCheckPass_SameCommitOnDifferentBranchesKeepsSeparateStatuses(t *testing.T) {
+	dir := t.TempDir()
+	actions := &passFakeActions{
+		workflows: []github.Workflow{{ID: 1, Name: "CI", State: "active"}},
+		runsByBranch: map[string][]github.WorkflowRun{
+			"main":      {{ID: 7, WorkflowID: 1, Status: "completed", Conclusion: "success", HeadSHA: "shared-head"}},
+			"feature-a": {{ID: 8, WorkflowID: 1, Status: "queued", HeadSHA: "shared-head"}},
+			"feature-b": {{ID: 9, WorkflowID: 1, Status: "in_progress", HeadSHA: "shared-head"}},
+		},
+	}
+	m := NewMonitor(time.Now, "")
+	unit := testUnit(dir)
+	unit.HeadSHA = "shared-head"
+	heads := []HeadInput{
+		{Info: gh("acme", "app"), Branch: "feature-a", SHA: "shared-head", Token: "tok"},
+		{Info: gh("acme", "app"), Branch: "feature-b", SHA: "shared-head", Token: "tok"},
+	}
+
+	res := m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, heads)
+
+	if len(res.Events) != 0 {
+		t.Fatalf("non-default branch runs produced default-branch transition events: %+v", res.Events)
+	}
+	m.mu.Lock()
+	stored := len(m.commits)
+	m.mu.Unlock()
+	if stored != 3 {
+		t.Fatalf("stored commit statuses = %d, want 3 (same SHA on three branches)", stored)
+	}
+	assertStatus := func(branch, want string) {
+		t.Helper()
+		if got, _, ok := m.Status(gh("acme", "app"), branch, "shared-head"); !ok || got != want {
+			t.Errorf("%s status = (%q, %v), want (%q, true)", branch, got, ok, want)
+		}
+	}
+	assertStatus("main", StatusSuccess)
+	assertStatus("feature-a", StatusQueued)
+	assertStatus("feature-b", StatusInProgress)
+
+	// A later pass must advance a queued remote branch independently of the
+	// successful default-branch run for the same commit.
+	actions.runsByBranch["feature-a"] = []github.WorkflowRun{{ID: 8, WorkflowID: 1, Status: "in_progress", HeadSHA: "shared-head"}}
+	_ = m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, heads)
+	assertStatus("main", StatusSuccess)
+	assertStatus("feature-a", StatusInProgress)
+	assertStatus("feature-b", StatusInProgress)
+	if got := actions.listRunsCalls.Load(); got != 6 {
+		t.Errorf("ListRepoRuns calls = %d, want 6 (all three branches on both passes)", got)
+	}
+}
+
+func TestCheckPass_QueuedRunAdvancesWhenAJobStarts(t *testing.T) {
+	dir := t.TempDir()
+	actions := &passFakeActions{
+		workflows: []github.Workflow{{ID: 1, Name: "CI", State: "active"}},
+		runsByBranch: map[string][]github.WorkflowRun{
+			"main":    {{ID: 7, WorkflowID: 1, Status: "completed", Conclusion: "success", HeadSHA: "main-head"}},
+			"feature": {{ID: 8, WorkflowID: 1, Status: "queued", HeadSHA: "feature-head", HTMLURL: "https://run/8"}},
+		},
+		jobs: map[int64][]github.WorkflowJob{
+			8: {{ID: 80, Name: "test", Status: "queued"}},
+		},
+	}
+	m := NewMonitor(time.Now, "")
+	unit := testUnit(dir)
+	unit.HeadSHA = "main-head"
+	heads := []HeadInput{{Info: gh("acme", "app"), Branch: "feature", SHA: "feature-head", Token: "tok"}}
+
+	_ = m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, heads)
+	if got, _, ok := m.Status(gh("acme", "app"), "feature", "feature-head"); !ok || got != StatusQueued {
+		t.Fatalf("initial feature status = (%q, %v), want (queued, true)", got, ok)
+	}
+
+	// GitHub can leave the workflow run itself queued after jobs have begun.
+	// A manual check must observe the job state and advance the branch badge.
+	actions.jobs[8] = []github.WorkflowJob{{ID: 80, Name: "test", Status: "in_progress"}}
+	_ = m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, heads)
+	if got, url, ok := m.Status(gh("acme", "app"), "feature", "feature-head"); !ok || got != StatusInProgress || url != "https://run/8" {
+		t.Fatalf("refreshed feature status = (%q, %q, %v), want (in_progress, https://run/8, true)", got, url, ok)
+	}
+}
+
+func TestCheckPass_OnlyDefaultBranchFailuresProduceTransitionEvents(t *testing.T) {
+	dir := t.TempDir()
+	actions := &passFakeActions{
+		workflows: []github.Workflow{{ID: 1, Name: "CI", State: "active"}},
+		runsByBranch: map[string][]github.WorkflowRun{
+			"main":    {{ID: 7, WorkflowID: 1, Status: "completed", Conclusion: "success", HeadSHA: "main-ok"}},
+			"feature": {{ID: 8, WorkflowID: 1, Status: "queued", HeadSHA: "feature-head"}},
+		},
+	}
+	m := NewMonitor(time.Now, "")
+	unit := testUnit(dir)
+	unit.HeadSHA = "main-ok"
+	heads := []HeadInput{{Info: gh("acme", "app"), Branch: "feature", SHA: "feature-head", Token: "tok"}}
+
+	baseline := m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, heads)
+	if len(baseline.Events) != 0 {
+		t.Fatalf("baseline produced transition events: %+v", baseline.Events)
+	}
+
+	actions.runsByBranch["feature"] = []github.WorkflowRun{{ID: 8, WorkflowID: 1, Status: "completed", Conclusion: "failure", HeadSHA: "feature-head"}}
+	featureFailure := m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, heads)
+	if len(featureFailure.Events) != 0 {
+		t.Fatalf("non-default branch failure produced transition events: %+v", featureFailure.Events)
+	}
+	if got, _, ok := m.Status(gh("acme", "app"), "feature", "feature-head"); !ok || got != StatusFailure {
+		t.Fatalf("feature status = (%q, %v), want (failure, true)", got, ok)
+	}
+
+	unit.HeadSHA = "main-fail"
+	actions.runsByBranch["main"] = []github.WorkflowRun{{ID: 9, WorkflowID: 1, Status: "completed", Conclusion: "failure", HeadSHA: "main-fail"}}
+	defaultFailure := m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, heads)
+	events := defaultFailure.Events[unit.Slug]
+	if len(events) != 1 || events[0].Kind != TransitionEnteredFailure || events[0].RunID != 9 {
+		t.Fatalf("default-branch failure events = %+v, want one entered_failure for run 9", events)
 	}
 }
 
@@ -132,10 +275,13 @@ func TestCheckPass_HeadMovedMidFlightRowsHaveNoRun(t *testing.T) {
 	unit := testUnit(dir)
 	unit.HeadSHA = "h_new"
 	res := m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, nil)
+	if len(res.Events) != 0 {
+		t.Fatalf("failure for an old default-branch head produced transition events: %+v", res.Events)
+	}
 	if res.UnitStates["r"].Workflows[0].RunID != 0 {
 		t.Errorf("expected empty-run row when head moved, got %+v", res.UnitStates["r"].Workflows[0])
 	}
-	st, _, ok := m.Status(gh("acme", "app"), "h_new")
+	st, _, ok := m.Status(gh("acme", "app"), "main", "h_new")
 	if !ok || st != StatusQueued {
 		t.Errorf("status = (%q, %v), want (queued, true)", st, ok)
 	}
@@ -205,7 +351,7 @@ func TestCheckPass_RateLimitKeepsPriorCommit(t *testing.T) {
 	m := NewMonitor(time.Now, "")
 	m.setEnabled()
 	// Pre-seed a terminal commit; the pass's inputs keep it referenced.
-	m.recordCommit(gh("acme", "app"), "h1", StatusSuccess, "u", true)
+	m.recordCommit(gh("acme", "app"), "main", "h1", StatusSuccess, "u", true)
 
 	actions := &passFakeActions{
 		workflows:    []github.Workflow{{ID: 1, Name: "CI", State: "active"}},
@@ -215,12 +361,12 @@ func TestCheckPass_RateLimitKeepsPriorCommit(t *testing.T) {
 	heads := []HeadInput{{Info: gh("acme", "app"), Branch: "main", SHA: "h1", Token: "tok"}}
 	_ = m.CheckPass(context.Background(), actions, true, []UnitInput{testUnit(dir)}, heads)
 	// Repo has a rate-limit error now → status is absent per spec edge case.
-	if _, _, ok := m.Status(gh("acme", "app"), "h1"); ok {
+	if _, _, ok := m.Status(gh("acme", "app"), "main", "h1"); ok {
 		t.Errorf("status should be absent on rate-limited repo")
 	}
 	// Commit should still be in the store (still referenced by the inputs).
 	m.mu.Lock()
-	_, present := m.commits[commitKey{owner: "acme", repo: "app", sha: "h1"}]
+	_, present := m.commits[commitKey{owner: "acme", repo: "app", branch: "main", sha: "h1"}]
 	m.mu.Unlock()
 	if !present {
 		t.Error("commit should be retained when rate-limited")
@@ -257,7 +403,7 @@ func TestCheckPass_RateLimitBackoffSkipsFetches(t *testing.T) {
 	if got := actions.listWorkflowsCall.Load(); got != 2 {
 		t.Errorf("ListWorkflows calls = %d, want 2 after backoff", got)
 	}
-	if _, _, ok := m.Status(gh("acme", "app"), "h1"); !ok {
+	if _, _, ok := m.Status(gh("acme", "app"), "main", "h1"); !ok {
 		t.Error("status should derive again after backoff clears")
 	}
 }
@@ -288,7 +434,7 @@ func TestCheckPass_TerminalResultTTLSkipsRefetch(t *testing.T) {
 	if got := actions.listRunsCalls.Load(); got != 3 {
 		t.Errorf("ListRepoRuns calls = %d, want 3 (feature skipped within TTL)", got)
 	}
-	if st, _, _ := m.Status(gh("acme", "app"), "f1"); st != StatusSuccess {
+	if st, _, _ := m.Status(gh("acme", "app"), "feature", "f1"); st != StatusSuccess {
 		t.Errorf("status = %q, want success (fresh terminal kept)", st)
 	}
 
@@ -298,7 +444,7 @@ func TestCheckPass_TerminalResultTTLSkipsRefetch(t *testing.T) {
 	if got := actions.listRunsCalls.Load(); got != 5 {
 		t.Errorf("ListRepoRuns calls = %d, want 5 after TTL", got)
 	}
-	if st, _, _ := m.Status(gh("acme", "app"), "f1"); st != StatusFailure {
+	if st, _, _ := m.Status(gh("acme", "app"), "feature", "f1"); st != StatusFailure {
 		t.Errorf("status = %q, want failure after TTL refetch", st)
 	}
 }
@@ -313,7 +459,7 @@ func TestCheckPass_DisabledTransition(t *testing.T) {
 	}
 	m := NewMonitor(time.Now, "")
 	_ = m.CheckPass(context.Background(), actions, true, []UnitInput{testUnit(dir)}, nil)
-	if _, _, ok := m.Status(gh("acme", "app"), "h1"); !ok {
+	if _, _, ok := m.Status(gh("acme", "app"), "main", "h1"); !ok {
 		t.Fatal("status should derive while enabled")
 	}
 
@@ -322,7 +468,7 @@ func TestCheckPass_DisabledTransition(t *testing.T) {
 	if !res.Changed {
 		t.Error("disabled transition should report Changed when data was held")
 	}
-	if _, _, ok := m.Status(gh("acme", "app"), "h1"); ok {
+	if _, _, ok := m.Status(gh("acme", "app"), "main", "h1"); ok {
 		t.Error("status should be absent while disabled")
 	}
 
@@ -333,7 +479,7 @@ func TestCheckPass_DisabledTransition(t *testing.T) {
 
 	// Re-enable: fetches resume.
 	_ = m.CheckPass(context.Background(), actions, true, []UnitInput{testUnit(dir)}, nil)
-	if _, _, ok := m.Status(gh("acme", "app"), "h1"); !ok {
+	if _, _, ok := m.Status(gh("acme", "app"), "main", "h1"); !ok {
 		t.Error("status should derive after re-enable")
 	}
 }
@@ -347,7 +493,7 @@ func TestCheckPass_UnauthorizedSetsRepoMeta(t *testing.T) {
 	m := NewMonitor(time.Now, "")
 	_ = m.CheckPass(context.Background(), actions, true, []UnitInput{testUnit(dir)}, nil)
 	// Unauthorized → repo meta has an error → status absent.
-	if _, _, ok := m.Status(gh("acme", "app"), "h1"); ok {
+	if _, _, ok := m.Status(gh("acme", "app"), "main", "h1"); ok {
 		t.Error("expected status absent on unauthorized repo")
 	}
 }
@@ -356,7 +502,7 @@ func TestCheckPass_PruneKeepsInputReferencedCommits(t *testing.T) {
 	dir := t.TempDir()
 	m := NewMonitor(time.Now, "")
 	m.setEnabled()
-	m.recordCommit(gh("acme", "app"), "h1", StatusSuccess, "u", true)
+	m.recordCommit(gh("acme", "app"), "main", "h1", StatusSuccess, "u", true)
 
 	actions := &passFakeActions{
 		workflows: []github.Workflow{{ID: 1, Name: "CI", State: "active"}},
@@ -369,7 +515,7 @@ func TestCheckPass_PruneKeepsInputReferencedCommits(t *testing.T) {
 		t.Fatal("missing unit state")
 	}
 	m.mu.Lock()
-	_, present := m.commits[commitKey{owner: "acme", repo: "app", sha: "h1"}]
+	_, present := m.commits[commitKey{owner: "acme", repo: "app", branch: "main", sha: "h1"}]
 	m.mu.Unlock()
 	if !present {
 		t.Error("commit should remain when unit-referenced")
@@ -380,7 +526,7 @@ func TestCheckPass_PruneDropsUnreferencedCommits(t *testing.T) {
 	dir := t.TempDir()
 	m := NewMonitor(time.Now, "")
 	m.setEnabled()
-	m.recordCommit(gh("acme", "app"), "stale", StatusSuccess, "u", true)
+	m.recordCommit(gh("acme", "app"), "main", "stale", StatusSuccess, "u", true)
 
 	actions := &passFakeActions{
 		workflows: []github.Workflow{{ID: 1, Name: "CI", State: "active"}},
@@ -390,7 +536,7 @@ func TestCheckPass_PruneDropsUnreferencedCommits(t *testing.T) {
 	}
 	_ = m.CheckPass(context.Background(), actions, true, []UnitInput{testUnit(dir)}, nil)
 	m.mu.Lock()
-	_, present := m.commits[commitKey{owner: "acme", repo: "app", sha: "stale"}]
+	_, present := m.commits[commitKey{owner: "acme", repo: "app", branch: "main", sha: "stale"}]
 	m.mu.Unlock()
 	if present {
 		t.Error("commit not referenced by any input should be pruned")
@@ -462,7 +608,7 @@ func TestCheckPass_CommitStoreSurvivesRestart(t *testing.T) {
 	m1 := NewMonitor(time.Now, storePath)
 	heads := []HeadInput{{Info: gh("acme", "app"), Branch: "feature", SHA: "f1", Token: "tok"}}
 	_ = m1.CheckPass(context.Background(), actions, true, []UnitInput{testUnit(dir)}, heads)
-	if st, _, ok := m1.Status(gh("acme", "app"), "f1"); !ok || st != StatusSuccess {
+	if st, _, ok := m1.Status(gh("acme", "app"), "feature", "f1"); !ok || st != StatusSuccess {
 		t.Fatalf("pre-restart status = (%q, %v), want (success, true)", st, ok)
 	}
 
@@ -473,7 +619,7 @@ func TestCheckPass_CommitStoreSurvivesRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	m2.Hydrate(map[string]*UnitState{"r": prev})
-	st, url, ok := m2.Status(gh("acme", "app"), "f1")
+	st, url, ok := m2.Status(gh("acme", "app"), "feature", "f1")
 	if !ok || st != StatusSuccess || url != "https://run8" {
 		t.Fatalf("post-restart status = (%q, %q, %v), want (success, https://run8, true)", st, url, ok)
 	}

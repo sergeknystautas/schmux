@@ -245,8 +245,8 @@ type Server struct {
 	autolearnHandlers *AutolearnHandlers
 	gitHandlers       *GitHandlers
 
-	// buildMonitor is the single owner of CI status: a commit-centric store
-	// keyed by (repo, SHA). SessionHandlers reads Status; the scheduler and
+	// buildMonitor is the single owner of CI status: a branch-head store keyed
+	// by (repo, branch, SHA). SessionHandlers reads Status; the scheduler and
 	// manual checks drive CheckPass; prTracker is the dashboard-owned PR-only
 	// seam.
 	buildMonitor *buildmonitor.Monitor

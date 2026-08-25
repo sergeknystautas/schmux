@@ -20,13 +20,13 @@ type Monitor struct{}
 func NewMonitor(_ func() time.Time, _ string) *Monitor { return &Monitor{} }
 
 // Status returns "", "", false — no CI data when the feature is compiled out.
-func (m *Monitor) Status(_ github.RepoInfo, _ string) (string, string, bool) {
+func (m *Monitor) Status(_ github.RepoInfo, _, _ string) (string, string, bool) {
 	return "", "", false
 }
 
 // Test-only accessors, mirroring testhelpers.go, so dashboard-package tests
 // that seed a Monitor compile under nobuildmonitor. They are no-ops: there is
 // no store to seed.
-func (m *Monitor) RecordCommitForTest(_ github.RepoInfo, _, _, _ string, _ bool) {}
-func (m *Monitor) SetRepoMetaForTest(_ github.RepoInfo, _ bool, _ string)        {}
-func (m *Monitor) SetEnabledForTest(_ bool)                                      {}
+func (m *Monitor) RecordCommitForTest(_ github.RepoInfo, _, _, _, _ string, _ bool) {}
+func (m *Monitor) SetRepoMetaForTest(_ github.RepoInfo, _ bool, _ string)           {}
+func (m *Monitor) SetEnabledForTest(_ bool)                                         {}

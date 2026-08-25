@@ -505,7 +505,7 @@ func TestBroadcastIncludesCIStatusFromMonitor(t *testing.T) {
 	repo := github.RepoInfo{Owner: "acme", Repo: "widget"}
 	srv.buildMonitor.SetEnabledForTest(true)
 	srv.buildMonitor.SetRepoMetaForTest(repo, true, "")
-	srv.buildMonitor.RecordCommitForTest(repo, "head-sha", buildmonitor.StatusSuccess, "https://run", true)
+	srv.buildMonitor.RecordCommitForTest(repo, "feature", "head-sha", buildmonitor.StatusSuccess, "https://run", true)
 	srv.prTracker.entries["ws-ci"] = PRRef{Number: 7, URL: "https://pr"}
 
 	conn, cleanup := dialTestDashboardWS(t, srv)

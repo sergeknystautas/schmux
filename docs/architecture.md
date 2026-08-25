@@ -237,14 +237,14 @@ Features are included by default; tags exclude them. Each disabled stub exposes 
 
 `internal/buildmonitor` is the **single owner of CI status**. It owns:
 
-- A commit-status store keyed by `(repo, SHA)` — one source of truth for "is this commit green?"
-- A `Monitor.WorkspaceChip(ChipInput)` derivation that maps a workspace's current head commit to a chip value (`queued | in_progress | failure | success`, absent when the commit is unknown or the repo has no workflows)
-- A `Monitor.CheckPass(...)` that runs one CI status pass per unit, persists unit state, and records transitions for remediation orchestration
-- A workspace→commit watch index — the only per-workspace data the monitor holds. It stores no results.
+- A branch-head status store keyed by `(repo, branch, SHA)` — GitHub may run the same commit on multiple branches with different results, so branch is part of CI identity
+- A `Monitor.Status(repo, branch, SHA)` derivation that maps a workspace's current remote branch head to a chip value (`queued | in_progress | failure | success`, absent when the head is unknown or the repo has no workflows)
+- A `Monitor.CheckPass(...)` that runs one CI status pass per unit, reconciles queued run records against job status (GitHub may start jobs before advancing the run), persists unit state, and records transitions for remediation orchestration
+- A pass-owned watch set of branch heads supplied by the dashboard; the monitor stores no workspace identity
 
-Remediation orchestration (launching a workspace+session for a failing run) is a separate concern owned by the dashboard. The monitor emits transition events; the dashboard decides what to launch. The buildmonitor package does not import `workspace`, `session`, `spawn`, or `dashboard`; data flows in as inputs and out as a `PassResult`.
+Remediation orchestration (launching a workspace+session for a failing run) is a separate concern owned by the dashboard. The monitor emits transition events only for monitored units, which always represent the current default-branch head; watched non-default branches update CI chips but never emit remediation events. The dashboard decides what to launch. The buildmonitor package does not import `workspace`, `session`, `spawn`, or `dashboard`; data flows in as inputs and out as a `PassResult`.
 
-The dashboard translates chip derivation into the sessions response: per-workspace `ci_status` / `ci_url` are read off the monitor at broadcast time. PR tracking lives in `internal/dashboard/workspace_prs.go` (a dashboard-owned tracker — legacy seam that pre-dates the monitor's commit-centric model).
+The dashboard translates chip derivation into the sessions response: per-workspace `ci_status` / `ci_url` are read off the monitor at broadcast time. PR tracking lives in `internal/dashboard/workspace_prs.go` (a dashboard-owned tracker — legacy seam that pre-dates the monitor's branch-head model).
 
 Frontend wiring: `assets/dashboard/src/contexts/BuildMonitorContext.tsx` owns the `/api/build-monitor` fetch+refetch (driven by `buildMonitorUpdateCount` from `SessionsContext`). The page (`routes/BuildMonitorPage.tsx`) and the toolbar (`components/ToolsSection.tsx`) consume that context. The chip in the workspace header (`components/CIStatusChip.tsx`) is a thin component over the sessions payload's `ci_status` / `ci_url` fields.
 

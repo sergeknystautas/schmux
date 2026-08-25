@@ -103,7 +103,7 @@ func TestBuildMonitorGetServesHydratedStateAfterRestart(t *testing.T) {
 	}
 	// A watched feature-branch head recorded by the previous process — it
 	// exists in no unit snapshot, only in the persisted commit store.
-	commits := `[{"owner":"o","repo":"r","sha":"f1","status":"success","url":"https://run9","terminal":true,"fetched_at":"2026-08-20T10:00:00Z"}]`
+	commits := `[{"owner":"o","repo":"r","branch":"feature","sha":"f1","status":"success","url":"https://run9","terminal":true,"fetched_at":"2026-08-20T10:00:00Z"}]`
 	if err := os.WriteFile(filepath.Join(buildMonitorStateDir(), "commits.json"), []byte(commits), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestBuildMonitorGetServesHydratedStateAfterRestart(t *testing.T) {
 	// The feature-branch head from the persisted commit store must survive
 	// the restart too — this is what workspace CI chips read.
 	info := github.RepoInfo{Owner: "o", Repo: "r"}
-	if status, url, ok := server.buildMonitor.Status(info, "f1"); !ok || status != "success" || url != "https://run9" {
+	if status, url, ok := server.buildMonitor.Status(info, "feature", "f1"); !ok || status != "success" || url != "https://run9" {
 		t.Errorf("watched head after restart = (%q, %q, %v), want (success, https://run9, true)", status, url, ok)
 	}
 }
