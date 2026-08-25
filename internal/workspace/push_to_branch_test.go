@@ -72,6 +72,51 @@ func TestPushToBranch_NoRemoteBranch(t *testing.T) {
 	}
 }
 
+// TestPushToBranch_RemoteBranchDeletedOutOfBand pushes after the remote branch
+// was deleted elsewhere (another client, GitHub UI), leaving a stale
+// origin/<branch> tracking ref in the workspace clone. The stale ref must not
+// arm the force-with-lease against a branch that no longer exists - the push
+// should recreate the branch instead of failing with "(stale info)".
+func TestPushToBranch_RemoteBranchDeletedOutOfBand(t *testing.T) {
+	t.Parallel()
+	remoteDir, cloneDir, m, st, workspaceID := setupPushTest(t)
+
+	// Create feature branch and push it
+	runGit(t, cloneDir, "checkout", "-b", "feature")
+	writeFile(t, cloneDir, "feature.txt", "v1")
+	runGit(t, cloneDir, "add", ".")
+	runGit(t, cloneDir, "commit", "-m", "feature commit")
+	runGit(t, cloneDir, "push", "origin", "feature")
+
+	// Delete the branch on the remote out-of-band, directly in the bare repo,
+	// so the workspace clone keeps its stale origin/feature tracking ref.
+	runGit(t, remoteDir, "update-ref", "-d", "refs/heads/feature")
+
+	// Add another local commit so there is something to push
+	writeFile(t, cloneDir, "feature.txt", "v2")
+	runGit(t, cloneDir, "add", ".")
+	runGit(t, cloneDir, "commit", "-m", "second commit")
+
+	st.AddWorkspace(state.Workspace{
+		ID:     workspaceID,
+		Repo:   remoteDir,
+		Branch: "feature",
+		Path:   cloneDir,
+	})
+
+	result, err := m.PushToBranch(context.Background(), workspaceID, false, "", "")
+	if err != nil {
+		t.Fatalf("PushToBranch() error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("PushToBranch() should recreate a remotely-deleted branch, got: %+v", result)
+	}
+	localHead := strings.TrimSpace(runGitOut(t, cloneDir, "rev-parse", "HEAD"))
+	if got := strings.TrimSpace(runGitOut(t, remoteDir, "rev-parse", "refs/heads/feature")); got != localHead {
+		t.Errorf("remote feature = %s, want local HEAD %s", got, localHead)
+	}
+}
+
 // TestPushToBranch_RemoteCaughtUp pushes when local is ahead (fast-forward).
 // confirm=false is fine since no confirmation is needed for fast-forward.
 func TestPushToBranch_RemoteCaughtUp(t *testing.T) {

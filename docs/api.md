@@ -2222,7 +2222,7 @@ as local-only. Errors: `404` unknown workspace, `500` git failure.
 
 ### POST /api/workspaces/{workspaceId}/push-to-branch
 
-Pushes the workspace's current branch to `origin/{branch}` using `--force-with-lease`, creating the remote branch if necessary.
+Pushes the workspace's current branch to `origin/{branch}` using `--force-with-lease`, creating the remote branch if necessary. The fetch before the push prunes stale tracking refs, so a branch deleted on the remote after its last push is recreated by the next push instead of failing the lease with "stale info".
 
 Request body:
 

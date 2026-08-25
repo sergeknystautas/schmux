@@ -394,9 +394,11 @@ func (m *Manager) PushToBranch(ctx context.Context, workspaceID string, confirm 
 		}, nil
 	}
 
-	// 1. git fetch origin
+	// 1. git fetch origin. Prune so a branch deleted on the remote doesn't
+	// leave a stale tracking ref that would arm the force-with-lease against a
+	// branch that no longer exists (git rejects that push with "stale info").
 	m.logger.Info("push-to-branch: fetching origin", "workspace", workspaceID)
-	fetchCmd := exec.CommandContext(ctx, "git", "fetch", "origin")
+	fetchCmd := exec.CommandContext(ctx, "git", "fetch", "origin", "--prune")
 	fetchCmd.Dir = workspacePath
 	if output, err := fetchCmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("git fetch origin failed: %w: %s", err, string(output))
