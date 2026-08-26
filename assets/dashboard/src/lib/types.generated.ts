@@ -23,11 +23,11 @@ export interface BranchDivergenceResponse {
 }
 
 export interface BranchSuggest {
-  target?: string;
+  targets?: string[];
 }
 
 export interface BranchSuggestUpdate {
-  target?: string;
+  targets?: string[];
 }
 
 export interface BuildMonitorConfig {
@@ -543,13 +543,13 @@ export interface NotificationsUpdate {
 }
 
 export interface Nudgenik {
-  target?: string;
+  targets?: string[];
   viewed_buffer_ms: number;
   seen_interval_ms: number;
 }
 
 export interface NudgenikUpdate {
-  target?: string;
+  targets?: string[];
   viewed_buffer_ms?: number;
   seen_interval_ms?: number;
 }

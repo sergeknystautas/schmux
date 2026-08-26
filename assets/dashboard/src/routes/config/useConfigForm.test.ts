@@ -378,8 +378,6 @@ describe('useConfigForm', () => {
         result.current.dispatch({
           type: 'LOAD_CONFIG',
           state: {
-            nudgenikTarget: 'nonexistent',
-            branchSuggestTarget: 'nonexistent',
             conflictResolveTarget: 'nonexistent',
             prReviewTarget: 'nonexistent',
             commitMessageTarget: 'nonexistent',
@@ -387,32 +385,9 @@ describe('useConfigForm', () => {
           },
         });
       });
-      expect(result.current.nudgenikTargetMissing).toBe(true);
-      expect(result.current.branchSuggestTargetMissing).toBe(true);
       expect(result.current.conflictResolveTargetMissing).toBe(true);
       expect(result.current.prReviewTargetMissing).toBe(true);
       expect(result.current.commitMessageTargetMissing).toBe(true);
-    });
-
-    it('target missing flags are false when target is empty', () => {
-      const { result } = renderHook(() => useConfigForm());
-      // All targets default to ''
-      expect(result.current.nudgenikTargetMissing).toBe(false);
-      expect(result.current.branchSuggestTargetMissing).toBe(false);
-    });
-
-    it('target missing flags are false when target appears in oneshotTargets', () => {
-      const { result } = renderHook(() => useConfigForm());
-      act(() => {
-        result.current.dispatch({
-          type: 'LOAD_CONFIG',
-          state: {
-            nudgenikTarget: 'claude-sonnet',
-            oneshotTargets: [{ id: 'claude-sonnet', label: 'Claude Sonnet (CLI)', source: 'cli' }],
-          },
-        });
-      });
-      expect(result.current.nudgenikTargetMissing).toBe(false);
     });
 
     it('target missing flags are false for ::api selections surfaced by the backend', () => {
@@ -424,7 +399,6 @@ describe('useConfigForm', () => {
         result.current.dispatch({
           type: 'LOAD_CONFIG',
           state: {
-            branchSuggestTarget: 'claude-sonnet-4-6::api',
             commitMessageTarget: 'llama3.2:latest::api',
             oneshotTargets: [
               { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (CLI)', source: 'cli' },
@@ -442,7 +416,6 @@ describe('useConfigForm', () => {
           },
         });
       });
-      expect(result.current.branchSuggestTargetMissing).toBe(false);
       expect(result.current.commitMessageTargetMissing).toBe(false);
     });
   });
@@ -624,7 +597,7 @@ describe('useConfigForm', () => {
     it('detects usage in nudgenik', () => {
       const { result } = renderHook(() => useConfigForm());
       act(() => {
-        result.current.dispatch({ type: 'SET_FIELD', field: 'nudgenikTarget', value: 'claude' });
+        result.current.dispatch({ type: 'SET_FIELD', field: 'nudgenikTargets', value: ['claude'] });
       });
       const usage = result.current.checkTargetUsage('claude');
       expect(usage.inNudgenik).toBeTruthy();

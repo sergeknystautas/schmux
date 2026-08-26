@@ -68,7 +68,7 @@ func TestHandleHasNudgenik(t *testing.T) {
 	t.Run("enabled when target configured", func(t *testing.T) {
 		cfg := &config.Config{}
 		cfg.WorkspacePath = "/tmp/workspaces"
-		cfg.Nudgenik = &config.NudgenikConfig{Target: "any-target"}
+		cfg.Nudgenik = &config.NudgenikConfig{Targets: []string{"any-target"}}
 		st := state.New("", nil)
 		statePath := t.TempDir() + "/state.json"
 		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))

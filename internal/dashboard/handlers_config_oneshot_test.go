@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
@@ -125,5 +126,53 @@ func TestConfigResponse_OllamaFields(t *testing.T) {
 	}
 	if len(resp.Ollama.Models) != 1 || resp.Ollama.Models[0] != "test-model" {
 		t.Errorf("expected Models=[test-model], got %v", resp.Ollama.Models)
+	}
+}
+
+// TestConfigGetPut_RoundTripsTargetChains verifies GET returns the ordered
+// chains and PUT applies + clears them ([] disables).
+func TestConfigGetPut_RoundTripsTargetChains(t *testing.T) {
+	server, _, _ := newTestServer(t)
+	handlers := newTestConfigHandlers(server)
+
+	// PUT a two-entry chain.
+	body := `{"nudgenik": {"targets": ["MiniMax-M3::api", "GLM-5.3::api"]}, "branch_suggest": {"targets": ["GLM-5.3::api"]}}`
+	putReq := httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(body))
+	putRR := httptest.NewRecorder()
+	handlers.handleConfigUpdate(putRR, putReq)
+	if putRR.Code != http.StatusOK {
+		t.Fatalf("PUT: status = %d, body = %s", putRR.Code, putRR.Body.String())
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	getRR := httptest.NewRecorder()
+	handlers.handleConfigGet(getRR, getReq)
+	var resp contracts.ConfigResponse
+	if err := json.NewDecoder(getRR.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode GET: %v", err)
+	}
+	if got := resp.Nudgenik.Targets; len(got) != 2 || got[0] != "MiniMax-M3::api" || got[1] != "GLM-5.3::api" {
+		t.Errorf("nudgenik.targets = %v, want [MiniMax-M3::api GLM-5.3::api]", got)
+	}
+	if got := resp.BranchSuggest.Targets; len(got) != 1 || got[0] != "GLM-5.3::api" {
+		t.Errorf("branch_suggest.targets = %v, want [GLM-5.3::api]", got)
+	}
+
+	// PUT [] clears → disabled.
+	clearBody := `{"branch_suggest": {"targets": []}}`
+	clearReq := httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(clearBody))
+	clearRR := httptest.NewRecorder()
+	handlers.handleConfigUpdate(clearRR, clearReq)
+	if clearRR.Code != http.StatusOK {
+		t.Fatalf("clear PUT: status = %d, body = %s", clearRR.Code, clearRR.Body.String())
+	}
+	getRR2 := httptest.NewRecorder()
+	handlers.handleConfigGet(getRR2, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+	var resp2 contracts.ConfigResponse
+	if err := json.NewDecoder(getRR2.Body).Decode(&resp2); err != nil {
+		t.Fatalf("decode GET2: %v", err)
+	}
+	if len(resp2.BranchSuggest.Targets) != 0 {
+		t.Errorf("branch_suggest.targets after clear = %v, want empty", resp2.BranchSuggest.Targets)
 	}
 }

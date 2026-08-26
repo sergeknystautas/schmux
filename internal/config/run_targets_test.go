@@ -132,18 +132,18 @@ func TestValidateNudgenikConfig(t *testing.T) {
 			wantErr:  false,
 		},
 		{
-			name:     "empty target",
-			nudgenik: &NudgenikConfig{Target: ""},
+			name:     "empty targets",
+			nudgenik: &NudgenikConfig{Targets: nil},
 			wantErr:  false,
 		},
 		{
-			name:     "whitespace-only target",
-			nudgenik: &NudgenikConfig{Target: "   "},
-			wantErr:  false,
+			name:     "whitespace-only target entry",
+			nudgenik: &NudgenikConfig{Targets: []string{"   "}},
+			wantErr:  true,
 		},
 		{
 			name:     "valid target",
-			nudgenik: &NudgenikConfig{Target: "claude-haiku"},
+			nudgenik: &NudgenikConfig{Targets: []string{"claude-haiku"}},
 			wantErr:  false,
 		},
 	}

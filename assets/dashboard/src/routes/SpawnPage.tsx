@@ -271,8 +271,8 @@ export default function SpawnPage() {
     }
   }, [inExistingWorkspace, resolvedWorkspaceId, workspaceExists, sessionsLoading, navigate]);
 
-  // Get branch suggest target from config
-  const branchSuggestTarget = config?.branch_suggest?.target || '';
+  // Whether branch suggestion is configured (any target in the chain)
+  const branchSuggestEnabled = Boolean(config?.branch_suggest?.targets?.length);
 
   // Remote spawns don't need repo/branch selection — the workspace is determined
   // by the flavor's workspace_path on the remote host, not by a git clone.
@@ -296,10 +296,10 @@ export default function SpawnPage() {
 
   // Show branch input immediately when suggestion is disabled
   useEffect(() => {
-    if (mode === 'fresh' && !branchSuggestTarget && config && !isSapling) {
+    if (mode === 'fresh' && !branchSuggestEnabled && config && !isSapling) {
       setShowBranchInput(true);
     }
-  }, [mode, branchSuggestTarget, config, isSapling]);
+  }, [mode, branchSuggestEnabled, config, isSapling]);
 
   useEffect(() => {
     return () => {
@@ -620,7 +620,7 @@ export default function SpawnPage() {
           return false;
         }
       }
-      if (mode === 'fresh' && !isSapling && !branchSuggestTarget && !branch.trim()) {
+      if (mode === 'fresh' && !isSapling && !branchSuggestEnabled && !branch.trim()) {
         toastError('Please enter a branch name');
         return false;
       }
@@ -637,7 +637,7 @@ export default function SpawnPage() {
     repo,
     repos,
     newRepoName,
-    branchSuggestTarget,
+    branchSuggestEnabled,
     branch,
     prompt,
     environment.type,
@@ -889,7 +889,7 @@ export default function SpawnPage() {
         // User provided a branch name — use it directly, skip suggestion
         actualBranch = branch.trim();
         actualNickname = nickname;
-      } else if (branchSuggestTarget) {
+      } else if (branchSuggestEnabled) {
         // Call branch suggest API
         setEngagePhase('naming');
         const { result, error } = await generateBranchName(prompt);
@@ -921,7 +921,7 @@ export default function SpawnPage() {
       mode === 'workspace' &&
       createBranch &&
       prompt.trim() &&
-      branchSuggestTarget &&
+      branchSuggestEnabled &&
       !isSaplingWorkspace
     ) {
       // Call branch suggest API to get new branch name
@@ -982,7 +982,7 @@ export default function SpawnPage() {
     mode,
     createBranch,
     prompt,
-    branchSuggestTarget,
+    branchSuggestEnabled,
     environment,
     prefillWorkspaceId,
     modelSelectionMode,

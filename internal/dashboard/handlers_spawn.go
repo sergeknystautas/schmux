@@ -612,9 +612,9 @@ func (h *SpawnHandlers) handleSuggestBranch(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	targetName := h.config.GetBranchSuggestTarget()
+	targets := h.config.GetBranchSuggestTargets()
 	workspaceLog := logging.Sub(h.logger, "workspace")
-	workspaceLog.Info("asking for branch suggestion", "target", targetName)
+	workspaceLog.Info("asking for branch suggestion", "targets", strings.Join(targets, ","))
 
 	// Generate branch suggestion
 	result, err := branchsuggest.AskForPrompt(r.Context(), h.config, req.Prompt)

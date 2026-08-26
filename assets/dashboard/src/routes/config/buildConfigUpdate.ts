@@ -25,11 +25,13 @@ export function buildConfigUpdate(state: ConfigFormState): ConfigUpdateRequest {
     ),
     pastebin: state.pastebin,
     nudgenik: {
-      target: state.nudgenikTarget || '',
+      targets: state.nudgenikTargets.map((t) => t.trim()).filter((t) => t !== ''),
       viewed_buffer_ms: state.viewedBuffer,
       seen_interval_ms: state.nudgenikSeenInterval,
     },
-    branch_suggest: { target: state.branchSuggestTarget || '' },
+    branch_suggest: {
+      targets: state.branchSuggestTargets.map((t) => t.trim()).filter((t) => t !== ''),
+    },
     conflict_resolve: { target: state.conflictResolveTarget || '' },
     pr_review: { target: state.prReviewTarget || '' },
     commit_message: { target: state.commitMessageTarget || '' },

@@ -133,7 +133,7 @@ func (h *ConfigHandlers) handleModelSecretsDelete(w http.ResponseWriter, r *http
 	}
 
 	if h.models.IsTargetInUse(model.ID) {
-		writeJSONError(w, "model is in use by nudgenik or quick launch", http.StatusBadRequest)
+		writeJSONError(w, "model is in use by nudgenik, branch suggestion, or quick launch", http.StatusBadRequest)
 		return
 	}
 	if model.Provider != "" && model.Provider != "anthropic" {

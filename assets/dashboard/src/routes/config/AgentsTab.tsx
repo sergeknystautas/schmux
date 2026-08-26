@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import TargetSelect from './TargetSelect';
+import TargetChain from './TargetChain';
 import type { TargetOption } from './TargetSelect';
 import ModelCatalog from './ModelCatalog';
 import UserModelsEditor from './UserModelsEditor';
@@ -10,7 +11,7 @@ type AgentsTabProps = {
   state: {
     commitMessageTarget: string;
     prReviewTarget: string;
-    branchSuggestTarget: string;
+    branchSuggestTargets: string[];
     conflictResolveTarget: string;
     enabledModels: Record<string, string>;
     anthropicOAuthTokenSet: boolean;
@@ -33,7 +34,6 @@ type AgentsTabProps = {
   onRefreshModels?: () => void;
   commitMessageTargetMissing: boolean;
   prReviewTargetMissing: boolean;
-  branchSuggestTargetMissing: boolean;
   conflictResolveTargetMissing: boolean;
 };
 
@@ -51,7 +51,6 @@ export default function AgentsTab({
   onRefreshModels,
   commitMessageTargetMissing,
   prReviewTargetMissing,
-  branchSuggestTargetMissing,
   conflictResolveTargetMissing,
 }: AgentsTabProps) {
   const availableRunners = useMemo(() => {
@@ -188,19 +187,18 @@ export default function AgentsTab({
 
           <div className="form-group">
             <label className="form-group__label">Branch Suggestion</label>
-            <TargetSelect
-              value={state.branchSuggestTarget}
+            <TargetChain
+              idPrefix="branch-suggest"
+              value={state.branchSuggestTargets}
               onChange={(v) =>
-                dispatch({ type: 'SET_FIELD', field: 'branchSuggestTarget', value: v })
+                dispatch({ type: 'SET_FIELD', field: 'branchSuggestTargets', value: v })
               }
               options={oneshotOptions}
             />
             <p className="form-group__hint">
-              Select a model for branch name suggestion, or leave disabled.
+              Ordered targets for branch name suggestion. Falls back to the next target when one is
+              rate-limited (429). Leave empty to disable.
             </p>
-            {branchSuggestTargetMissing && (
-              <p className="form-group__error">Selected target is not available.</p>
-            )}
           </div>
 
           <div className="form-group">

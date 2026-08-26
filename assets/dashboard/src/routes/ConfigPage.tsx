@@ -88,7 +88,6 @@ export default function ConfigPage() {
     dispatch: rawDispatch,
     models,
     oneshotOptions,
-    branchSuggestTargetMissing,
     conflictResolveTargetMissing,
     prReviewTargetMissing,
     commitMessageTargetMissing,
@@ -148,8 +147,8 @@ export default function ConfigPage() {
           pastebin: (data.pastebin || [])
             .slice()
             .sort((a: string, b: string) => a.localeCompare(b)),
-          nudgenikTarget: data.nudgenik?.target || '',
-          branchSuggestTarget: data.branch_suggest?.target || '',
+          nudgenikTargets: data.nudgenik?.targets ?? [],
+          branchSuggestTargets: data.branch_suggest?.targets ?? [],
           conflictResolveTarget: data.conflict_resolve?.target || '',
           prReviewTarget: data.pr_review?.target || '',
           commitMessageTarget: data.commit_message?.target || '',
@@ -1192,7 +1191,6 @@ export default function ConfigPage() {
               onRefreshModels={handleRefreshModels}
               commitMessageTargetMissing={commitMessageTargetMissing}
               prReviewTargetMissing={prReviewTargetMissing}
-              branchSuggestTargetMissing={branchSuggestTargetMissing}
               conflictResolveTargetMissing={conflictResolveTargetMissing}
             />
           )}

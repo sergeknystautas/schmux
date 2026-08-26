@@ -242,56 +242,117 @@ func executeTargetRaw(ctx context.Context, cfg *config.Config, targetName, promp
 	return Execute(timeoutCtx, target.ToolName, target.Command, prompt, schemaLabel, target.Env, dir, target.Model)
 }
 
-// ExecuteTarget runs the configured oneshot target with prompt and decodes the
-// response into T using the schema registered under schemaLabel.
-//
-// Errors (precedence order):
-//   - ErrNoSchemaLabel   when schemaLabel is empty
-//   - ErrDisabled        when targetName is empty
-//   - ErrTargetNotFound  when targetName is not in config
-//   - ErrInvalidResponse (wrapped in *InvalidResponseError) when decode fails
-//
-// The raw response on decode failure is accessible via errors.As:
-//
-//	var ire *oneshot.InvalidResponseError
-//	if errors.As(err, &ire) { log("raw:", ire.Raw) }
-func ExecuteTarget[T any](
-	ctx context.Context,
-	cfg *config.Config,
-	targetName, prompt, schemaLabel string,
-	timeout time.Duration,
-	dir string,
-) (result T, err error) {
-	var zero T
-	if schemaLabel == "" {
-		return zero, ErrNoSchemaLabel
-	}
-	if targetName == "" {
-		return zero, ErrDisabled
-	}
+// attemptFunc executes one target attempt. Seamed out so the chain's
+// advance-on-429 policy is testable without HTTP.
+type attemptFunc[T any] func(ctx context.Context, cfg *config.Config, targetName, prompt, schemaLabel string, timeout time.Duration, dir string) (T, error)
 
-	// Capture every attempt below — both transports, every error path — once.
-	// Guards above return before this defer is registered: nothing was sent.
+// executeTargetAttempt runs one transport attempt against a single target
+// and appends one oneshot log record for it — win or lose, API or CLI.
+func executeTargetAttempt[T any](
+	ctx context.Context, cfg *config.Config,
+	targetName, prompt, schemaLabel string,
+	timeout time.Duration, dir string,
+) (result T, err error) {
 	start := time.Now()
 	defer func() {
 		_ = oneshotlog.Append(newOneshotRecord(schemaLabel, targetName, dir, prompt, start, err))
 	}()
 
 	if _, isAPI := directhttp.StripAPISuffix(targetName); isAPI {
-		result, err = directhttp.ExecuteAPI[T](ctx, cfg, targetName, prompt, schemaLabel, timeout, dir)
-		return result, err
+		return directhttp.ExecuteAPI[T](ctx, cfg, targetName, prompt, schemaLabel, timeout, dir)
 	}
 
 	raw, rawErr := executeTargetRaw(ctx, cfg, targetName, prompt, schemaLabel, timeout, dir)
 	if rawErr != nil {
+		var zero T
 		return zero, rawErr
 	}
 
 	result, err = decodeResponse[T](raw)
 	if err != nil {
+		var zero T
 		return zero, &InvalidResponseError{Raw: raw, Err: err}
 	}
 	return result, nil
+}
+
+// ExecuteTargetChain runs the configured target chain in order. A rate-limit
+// response (HTTP 429) from one target advances to the next; every other error
+// returns immediately. Each attempt is logged as its own oneshot record.
+//
+// Errors (precedence order):
+//   - ErrNoSchemaLabel   when schemaLabel is empty
+//   - ErrDisabled        when targetNames is empty
+//   - the last attempt's error when every target is rate-limited
+//   - the failing attempt's error for any non-429 failure
+func ExecuteTargetChain[T any](
+	ctx context.Context,
+	cfg *config.Config,
+	targetNames []string,
+	prompt, schemaLabel string,
+	timeout time.Duration,
+	dir string,
+) (T, error) {
+	if schemaLabel == "" {
+		var zero T
+		return zero, ErrNoSchemaLabel
+	}
+	if len(targetNames) == 0 {
+		var zero T
+		return zero, ErrDisabled
+	}
+	return runTargetChain(ctx, cfg, targetNames, prompt, schemaLabel, timeout, dir, executeTargetAttempt[T])
+}
+
+// runTargetChain is the loop behind ExecuteTargetChain. attempt is injected
+// by tests; production callers pass executeTargetAttempt.
+func runTargetChain[T any](
+	ctx context.Context, cfg *config.Config,
+	targetNames []string,
+	prompt, schemaLabel string,
+	timeout time.Duration, dir string,
+	attempt attemptFunc[T],
+) (T, error) {
+	var zero T
+	if len(targetNames) == 0 {
+		return zero, ErrDisabled
+	}
+	var lastErr error
+	for _, targetName := range targetNames {
+		if err := ctx.Err(); err != nil {
+			return zero, err
+		}
+		result, err := attempt(ctx, cfg, targetName, prompt, schemaLabel, timeout, dir)
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+		var rle *directhttp.RateLimitError
+		if !errors.As(err, &rle) {
+			return zero, err // only 429 fails over (spec: Failover predicate)
+		}
+	}
+	return zero, lastErr
+}
+
+// ExecuteTarget runs a single oneshot target with prompt and decodes the
+// response into T using the schema registered under schemaLabel. It is a
+// one-element wrapper over ExecuteTargetChain; single-target behavior and
+// the error surface are unchanged for all existing callers. An empty
+// targetName maps to an empty chain so ErrDisabled fires exactly as before
+// (a literal []string{""} would otherwise be attempted, not guarded).
+func ExecuteTarget[T any](
+	ctx context.Context,
+	cfg *config.Config,
+	targetName, prompt, schemaLabel string,
+	timeout time.Duration,
+	dir string,
+) (T, error) {
+	var names []string
+	if targetName != "" {
+		names = []string{targetName}
+	}
+	return ExecuteTargetChain[T](ctx, cfg, names, prompt, schemaLabel, timeout, dir)
 }
 
 // newOneshotRecord builds the log record for one ExecuteTarget call. The model

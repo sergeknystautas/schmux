@@ -25,9 +25,9 @@ func TestIsEnabled(t *testing.T) {
 		{name: "nil config", cfg: nil, want: false},
 		{name: "empty config", cfg: &config.Config{}, want: false},
 		{name: "nil branch suggest", cfg: branchSuggestCfg(nil), want: false},
-		{name: "empty target", cfg: branchSuggestCfg(&config.BranchSuggestConfig{Target: ""}), want: false},
-		{name: "whitespace target", cfg: branchSuggestCfg(&config.BranchSuggestConfig{Target: "  "}), want: false},
-		{name: "target set", cfg: branchSuggestCfg(&config.BranchSuggestConfig{Target: "claude"}), want: true},
+		{name: "empty targets", cfg: branchSuggestCfg(&config.BranchSuggestConfig{Targets: nil}), want: false},
+		{name: "whitespace target", cfg: branchSuggestCfg(&config.BranchSuggestConfig{Targets: []string{"  "}}), want: false},
+		{name: "target set", cfg: branchSuggestCfg(&config.BranchSuggestConfig{Targets: []string{"claude"}}), want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -59,7 +59,7 @@ func TestAskForPrompt_Validation(t *testing.T) {
 		},
 		{
 			name:    "empty target string",
-			cfg:     branchSuggestCfg(&config.BranchSuggestConfig{Target: ""}),
+			cfg:     branchSuggestCfg(&config.BranchSuggestConfig{Targets: nil}),
 			prompt:  "add dark mode",
 			wantErr: oneshot.ErrDisabled,
 		},

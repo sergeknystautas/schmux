@@ -89,14 +89,14 @@ type Model struct {
 
 // Nudgenik represents NudgeNik configuration.
 type Nudgenik struct {
-	Target         string `json:"target,omitempty"`
-	ViewedBufferMs int    `json:"viewed_buffer_ms"`
-	SeenIntervalMs int    `json:"seen_interval_ms"`
+	Targets        []string `json:"targets,omitempty"`
+	ViewedBufferMs int      `json:"viewed_buffer_ms"`
+	SeenIntervalMs int      `json:"seen_interval_ms"`
 }
 
 // BranchSuggest represents branch name suggestion configuration.
 type BranchSuggest struct {
-	Target string `json:"target,omitempty"`
+	Targets []string `json:"targets,omitempty"`
 }
 
 // ConflictResolve represents conflict resolution configuration.
@@ -283,14 +283,14 @@ type Notifications struct {
 
 // NudgenikUpdate represents partial nudgenik updates.
 type NudgenikUpdate struct {
-	Target         *string `json:"target,omitempty"`
-	ViewedBufferMs *int    `json:"viewed_buffer_ms,omitempty"`
-	SeenIntervalMs *int    `json:"seen_interval_ms,omitempty"`
+	Targets        *[]string `json:"targets,omitempty"`
+	ViewedBufferMs *int      `json:"viewed_buffer_ms,omitempty"`
+	SeenIntervalMs *int      `json:"seen_interval_ms,omitempty"`
 }
 
 // BranchSuggestUpdate represents partial branch suggest updates.
 type BranchSuggestUpdate struct {
-	Target *string `json:"target,omitempty"`
+	Targets *[]string `json:"targets,omitempty"`
 }
 
 // ConflictResolveUpdate represents partial conflict resolve updates.

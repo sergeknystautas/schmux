@@ -224,12 +224,12 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 		EnabledModels:              h.models.GetEnabledModels(),
 		CommStyles:                 h.config.GetCommStyles(),
 		Nudgenik: contracts.Nudgenik{
-			Target:         h.config.GetNudgenikTarget(),
+			Targets:        h.config.GetNudgenikTargets(),
 			ViewedBufferMs: h.config.GetNudgenikViewedBufferMs(),
 			SeenIntervalMs: h.config.GetNudgenikSeenIntervalMs(),
 		},
 		BranchSuggest: contracts.BranchSuggest{
-			Target: h.config.GetBranchSuggestTarget(),
+			Targets: h.config.GetBranchSuggestTargets(),
 		},
 		ConflictResolve: contracts.ConflictResolve{
 			Target:    h.config.GetConflictResolveTarget(),
@@ -572,9 +572,8 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 		if cfg.Nudgenik == nil {
 			cfg.Nudgenik = &config.NudgenikConfig{}
 		}
-		if req.Nudgenik.Target != nil {
-			target := strings.TrimSpace(*req.Nudgenik.Target)
-			cfg.Nudgenik.Target = target
+		if req.Nudgenik.Targets != nil {
+			cfg.Nudgenik.Targets = config.CleanTargets(*req.Nudgenik.Targets)
 		}
 		if req.Nudgenik.ViewedBufferMs != nil && *req.Nudgenik.ViewedBufferMs > 0 {
 			cfg.Nudgenik.ViewedBufferMs = *req.Nudgenik.ViewedBufferMs
@@ -582,7 +581,7 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 		if req.Nudgenik.SeenIntervalMs != nil && *req.Nudgenik.SeenIntervalMs > 0 {
 			cfg.Nudgenik.SeenIntervalMs = *req.Nudgenik.SeenIntervalMs
 		}
-		if cfg.Nudgenik.Target == "" && cfg.Nudgenik.ViewedBufferMs <= 0 && cfg.Nudgenik.SeenIntervalMs <= 0 {
+		if len(cfg.Nudgenik.Targets) == 0 && cfg.Nudgenik.ViewedBufferMs <= 0 && cfg.Nudgenik.SeenIntervalMs <= 0 {
 			cfg.Nudgenik = nil
 		}
 	}
@@ -591,10 +590,10 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 		if cfg.BranchSuggest == nil {
 			cfg.BranchSuggest = &config.BranchSuggestConfig{}
 		}
-		if req.BranchSuggest.Target != nil {
-			cfg.BranchSuggest.Target = strings.TrimSpace(*req.BranchSuggest.Target)
+		if req.BranchSuggest.Targets != nil {
+			cfg.BranchSuggest.Targets = config.CleanTargets(*req.BranchSuggest.Targets)
 		}
-		if cfg.BranchSuggest.Target == "" {
+		if len(cfg.BranchSuggest.Targets) == 0 {
 			cfg.BranchSuggest = nil
 		}
 	}

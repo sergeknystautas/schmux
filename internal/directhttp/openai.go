@@ -62,11 +62,7 @@ func callOpenAI(ctx context.Context, p openaiCallParams) (string, error) {
 		return "", fmt.Errorf("read body: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		snippet := string(respBody)
-		if len(snippet) > 512 {
-			snippet = snippet[:512]
-		}
-		return "", fmt.Errorf("%w: %d %s: %s", ErrHTTP, resp.StatusCode, resp.Status, snippet)
+		return "", httpError(resp.StatusCode, string(respBody))
 	}
 	var parsed openaiResponse
 	if err := json.Unmarshal(respBody, &parsed); err != nil {

@@ -50,13 +50,41 @@ func validateQuickLaunch(presets []QuickLaunch) error {
 	return nil
 }
 
+// CleanTargets trims entries and drops blanks, preserving order. Returns nil
+// when nothing remains.
+func CleanTargets(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, t := range in {
+		if v := strings.TrimSpace(t); v != "" {
+			out = append(out, v)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 func validateNudgenikConfig(nudgenik *NudgenikConfig) error {
 	if nudgenik == nil {
 		return nil
 	}
-	targetName := strings.TrimSpace(nudgenik.Target)
-	if targetName == "" {
+	for _, t := range nudgenik.Targets {
+		if strings.TrimSpace(t) == "" {
+			return fmt.Errorf("%w: nudgenik targets must be non-empty", ErrInvalidConfig)
+		}
+	}
+	return nil
+}
+
+func validateBranchSuggestConfig(bs *BranchSuggestConfig) error {
+	if bs == nil {
 		return nil
+	}
+	for _, t := range bs.Targets {
+		if strings.TrimSpace(t) == "" {
+			return fmt.Errorf("%w: branch_suggest targets must be non-empty", ErrInvalidConfig)
+		}
 	}
 	return nil
 }

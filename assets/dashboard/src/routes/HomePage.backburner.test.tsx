@@ -126,7 +126,7 @@ const baseConfig: Partial<ConfigResponse> = {
   },
   models: [],
   quick_launch: [],
-  nudgenik: { target: '', viewed_buffer_ms: 5000, seen_interval_ms: 2000 },
+  nudgenik: { targets: [], viewed_buffer_ms: 5000, seen_interval_ms: 2000 },
   sessions: {
     dashboard_poll_interval_ms: 5000,
     git_status_poll_interval_ms: 10000,

@@ -1,5 +1,5 @@
 import React from 'react';
-import TargetSelect from './TargetSelect';
+import TargetChain from './TargetChain';
 import type { ConfigPanelProps } from './ConfigPanelProps';
 import type { ConfigFormState } from './useConfigForm';
 
@@ -11,11 +11,6 @@ export default function NudgenikConfig({ state, models, dispatch }: ConfigPanelP
       value,
     });
 
-  const nudgenikTargetMissing =
-    !!state.nudgenikTarget &&
-    state.nudgenikTarget !== '__disabled__' &&
-    !models.some((o) => o.id === state.nudgenikTarget);
-
   return (
     <div className="settings-section">
       <div className="settings-section__header">
@@ -24,17 +19,16 @@ export default function NudgenikConfig({ state, models, dispatch }: ConfigPanelP
       <div className="settings-section__body">
         <div className="form-group">
           <label className="form-group__label">Target</label>
-          <TargetSelect
-            value={state.nudgenikTarget}
-            onChange={(v) => setField('nudgenikTarget', v)}
+          <TargetChain
+            idPrefix="nudgenik"
+            value={state.nudgenikTargets}
+            onChange={(v) => setField('nudgenikTargets', v)}
             options={models}
           />
           <p className="form-group__hint">
-            Select a model for NudgeNik session feedback, or leave disabled.
+            Ordered targets for NudgeNik session feedback. Falls back to the next target when one is
+            rate-limited (429). Leave empty to disable.
           </p>
-          {nudgenikTargetMissing && (
-            <p className="form-group__error">Selected target is not available.</p>
-          )}
         </div>
 
         <div className="form-row">

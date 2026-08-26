@@ -2518,8 +2518,8 @@ func TestMigrateModelIDs(t *testing.T) {
 			{Name: "test", Target: "claude-opus"},
 			{Name: "test2", Target: "minimax"},
 		},
-		Nudgenik:             &NudgenikConfig{Target: "claude-sonnet"},
-		BranchSuggest:        &BranchSuggestConfig{Target: "claude-haiku"},
+		Nudgenik:             &NudgenikConfig{Targets: []string{"claude-sonnet"}},
+		BranchSuggest:        &BranchSuggestConfig{Targets: []string{"claude-haiku"}},
 		ConflictResolve:      &ConflictResolveConfig{Target: "opus"},
 		PrReview:             &PrReviewConfig{Target: "sonnet"},
 		CommitMessage:        &CommitMessageConfig{Target: "haiku"},
@@ -2548,11 +2548,11 @@ func TestMigrateModelIDs(t *testing.T) {
 	}
 
 	// Nested config targets
-	if cfg.Nudgenik.Target != "claude-sonnet-4-6" {
-		t.Errorf("Nudgenik.Target = %q, want %q", cfg.Nudgenik.Target, "claude-sonnet-4-6")
+	if len(cfg.Nudgenik.Targets) != 1 || cfg.Nudgenik.Targets[0] != "claude-sonnet-4-6" {
+		t.Errorf("Nudgenik.Targets = %v, want [claude-sonnet-4-6]", cfg.Nudgenik.Targets)
 	}
-	if cfg.BranchSuggest.Target != "claude-haiku-4-5-20251001" {
-		t.Errorf("BranchSuggest.Target = %q, want %q", cfg.BranchSuggest.Target, "claude-haiku-4-5-20251001")
+	if len(cfg.BranchSuggest.Targets) != 1 || cfg.BranchSuggest.Targets[0] != "claude-haiku-4-5-20251001" {
+		t.Errorf("BranchSuggest.Targets = %v, want [claude-haiku-4-5-20251001]", cfg.BranchSuggest.Targets)
 	}
 	if cfg.ConflictResolve.Target != "claude-opus-4-6" {
 		t.Errorf("ConflictResolve.Target = %q, want %q", cfg.ConflictResolve.Target, "claude-opus-4-6")
@@ -2600,14 +2600,14 @@ func TestMigrateModelIDs(t *testing.T) {
 func TestHasLegacyModelIDs(t *testing.T) {
 	// No legacy IDs
 	cfg := &Config{ConfigData: ConfigData{
-		Nudgenik: &NudgenikConfig{Target: "claude-opus-4-6"},
+		Nudgenik: &NudgenikConfig{Targets: []string{"claude-opus-4-6"}},
 	}}
 	if cfg.hasLegacyModelIDs() {
 		t.Error("should return false when no legacy IDs present")
 	}
 
 	// Legacy ID in nudgenik
-	cfg.Nudgenik.Target = "claude-opus"
+	cfg.Nudgenik.Targets = []string{"claude-opus"}
 	if !cfg.hasLegacyModelIDs() {
 		t.Error("should return true when legacy ID in nudgenik target")
 	}
@@ -2659,8 +2659,8 @@ func TestMigrateModelIDs_ViaLoad(t *testing.T) {
 		t.Fatalf("Load() failed: %v", err)
 	}
 
-	if cfg.Nudgenik.Target != "claude-sonnet-4-6" {
-		t.Errorf("after Load, Nudgenik.Target = %q, want %q", cfg.Nudgenik.Target, "claude-sonnet-4-6")
+	if len(cfg.Nudgenik.Targets) != 1 || cfg.Nudgenik.Targets[0] != "claude-sonnet-4-6" {
+		t.Errorf("after Load, Nudgenik.Targets = %v, want [claude-sonnet-4-6]", cfg.Nudgenik.Targets)
 	}
 	if cfg.QuickLaunch[0].Target != "claude-opus-4-6" {
 		t.Errorf("after Load, QuickLaunch[0].Target = %q, want %q", cfg.QuickLaunch[0].Target, "claude-opus-4-6")

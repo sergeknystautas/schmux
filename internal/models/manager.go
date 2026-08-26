@@ -589,8 +589,14 @@ func (m *Manager) GetEnabledModels() map[string]string {
 	return result
 }
 
-// IsTargetInUse returns true if the target (by name or model ID) is referenced
-// by nudgenik or quick launch configuration.
+// apiSuffix mirrors directhttp.APISuffix. Local copy — importing
+// internal/directhttp would create a cycle (directhttp imports models).
+const apiSuffix = "::api"
+
+// IsTargetInUse returns true if the target (by name or model ID) is
+// referenced by the nudgenik or branch-suggest chains, or by quick launch
+// configuration. Chain entries are compared with the ::api suffix stripped,
+// and every fallback counts, not just the primary.
 func (m *Manager) IsTargetInUse(targetName string) bool {
 	if m.config == nil || targetName == "" {
 		return false
@@ -602,9 +608,17 @@ func (m *Manager) IsTargetInUse(targetName string) bool {
 		canonicalName = model.ID
 	}
 
-	if m.config.GetNudgenikTarget() == canonicalName {
-		return true
+	for _, chain := range [][]string{
+		m.config.GetNudgenikTargets(),
+		m.config.GetBranchSuggestTargets(),
+	} {
+		for _, entry := range chain {
+			if strings.TrimSuffix(entry, apiSuffix) == canonicalName {
+				return true
+			}
+		}
 	}
+
 	for _, preset := range m.config.GetQuickLaunch() {
 		if preset.Target == canonicalName {
 			return true

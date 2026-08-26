@@ -70,8 +70,8 @@ export type ConfigFormState = {
   pastebin: string[];
   modelCatalog: Model[];
   runners: Record<string, RunnerInfo>;
-  nudgenikTarget: string;
-  branchSuggestTarget: string;
+  nudgenikTargets: string[];
+  branchSuggestTargets: string[];
   conflictResolveTarget: string;
   prReviewTarget: string;
   commitMessageTarget: string;
@@ -270,8 +270,8 @@ export const initialState: ConfigFormState = {
   externalDiffCleanupMinutes: 60,
   modelCatalog: [],
   runners: {},
-  nudgenikTarget: '',
-  branchSuggestTarget: '',
+  nudgenikTargets: [],
+  branchSuggestTargets: [],
   conflictResolveTarget: '',
   prReviewTarget: '',
   commitMessageTarget: '',
@@ -598,11 +598,6 @@ export function useConfigForm(initialStep: number = 1) {
   // flag every ::api selection as "not available".
   const oneshotTargetIds = new Set(oneshotOptions.map((o) => o.id));
 
-  const nudgenikTargetMissing =
-    state.nudgenikTarget.trim() !== '' && !oneshotTargetIds.has(state.nudgenikTarget.trim());
-  const branchSuggestTargetMissing =
-    state.branchSuggestTarget.trim() !== '' &&
-    !oneshotTargetIds.has(state.branchSuggestTarget.trim());
   const conflictResolveTargetMissing =
     state.conflictResolveTarget.trim() !== '' &&
     !oneshotTargetIds.has(state.conflictResolveTarget.trim());
@@ -615,8 +610,8 @@ export function useConfigForm(initialStep: number = 1) {
   const checkTargetUsage = useCallback(
     (targetName: string) => {
       const inQuickLaunch = state.quickLaunch.some((item) => item.target === targetName);
-      const inNudgenik = state.nudgenikTarget === targetName;
-      const inBranchSuggest = state.branchSuggestTarget === targetName;
+      const inNudgenik = state.nudgenikTargets.includes(targetName);
+      const inBranchSuggest = state.branchSuggestTargets.includes(targetName);
       const inConflictResolve = state.conflictResolveTarget === targetName;
       const inPrReview = state.prReviewTarget === targetName;
       const inCommitMessage = state.commitMessageTarget === targetName;
@@ -639,8 +634,6 @@ export function useConfigForm(initialStep: number = 1) {
     oneshotOptions,
     modelTargetNames,
     commandTargetNames,
-    nudgenikTargetMissing,
-    branchSuggestTargetMissing,
     conflictResolveTargetMissing,
     prReviewTargetMissing,
     commitMessageTargetMissing,

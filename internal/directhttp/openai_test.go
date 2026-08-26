@@ -47,3 +47,20 @@ func TestCallOpenAI_Non2xxReturnsErrHTTP(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestCallOpenAI_429ReturnsRateLimitError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"message":"rate limited"}}`))
+	}))
+	defer server.Close()
+
+	_, err := callOpenAI(context.Background(), openaiCallParams{Endpoint: server.URL})
+	var rle *RateLimitError
+	if !errors.As(err, &rle) {
+		t.Fatalf("expected *RateLimitError, got %T: %v", err, err)
+	}
+	if rle.Status != 429 {
+		t.Errorf("Status = %d, want 429", rle.Status)
+	}
+}

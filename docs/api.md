@@ -700,7 +700,7 @@ Errors:
 
 Notes:
 
-- Requires `branch_suggest.target` to be configured
+- Requires `branch_suggest.targets` to be configured
 - The target generates a git-compatible branch name
 
 ### POST /api/prepare-branch-spawn
@@ -1241,7 +1241,8 @@ Response:
   ],
   "enabled_models": { "claude-sonnet-4-6": "claude" },
   "comm_styles": { "claude": "pirate", "codex": "caveman" },
-  "nudgenik": { "target": "optional", "viewed_buffer_ms": 0, "seen_interval_ms": 0 },
+  "nudgenik": { "targets": ["MiniMax-M3::api"], "viewed_buffer_ms": 0, "seen_interval_ms": 0 },
+  "branch_suggest": { "targets": ["MiniMax-M3::api", "GLM-5.3::api"] },
   "compound": { "target": "", "debounce_ms": 2000, "enabled": true, "suppression_ttl_ms": 5000 },
   "sessions": {
     "dashboard_poll_interval_ms": 0,
@@ -1386,6 +1387,14 @@ The legacy string form is rejected at config-load time. If you have an older con
 
 **`oneshot_targets`** (array): Flat list of model options for the one-shot feature picker (branch-suggest, commit-message, nudgenik, etc.). Each entry has `id` (stored value; may carry `::api` suffix for direct-HTTP transport), `label` (human-readable dropdown text with `(CLI)`/`(API)`/`(Ollama API)` suffix), and `source` (`"cli"`, `"anthropic_api"`, `"third_party_api"`, or `"ollama_api"`). The list is the union of CLI-capable models, Anthropic API models (when OAuth token is set), third-party models with claude runners and API keys, and Ollama models from the latest probe.
 
+`nudgenik.targets` and `branch_suggest.targets` are ordered chains: the first
+entry is the primary, later entries are fallbacks. When a target's API
+transport returns HTTP 429 (rate limit — transient or plan-usage), the call
+retries on the next entry. Only 429 responses trigger failover. Each attempt
+is written as its own record in the oneshot log. In update payloads,
+`targets: null` (or absent) leaves the value unchanged; `targets: []`
+disables the feature.
+
 **`anthropic_oauth_token_set`** (boolean): Whether an Anthropic subscription OAuth token is currently stored. The token itself is never returned to the client.
 
 **`ollama`** (object): Ollama integration status. `endpoint` is the configured URL (blank = auto-detect), `reachable` indicates the last probe succeeded, `models` lists model ids from the last successful `/api/tags` probe.
@@ -1440,7 +1449,8 @@ Request:
   "pastebin": ["text to paste 1", "text to paste 2"],
   "enabled_models": { "claude-sonnet-4-6": "claude" },
   "comm_styles": { "claude": "pirate", "codex": "caveman" },
-  "nudgenik": { "target": "optional", "viewed_buffer_ms": 0, "seen_interval_ms": 0 },
+  "nudgenik": { "targets": ["MiniMax-M3::api"], "viewed_buffer_ms": 0, "seen_interval_ms": 0 },
+  "branch_suggest": { "targets": ["MiniMax-M3::api", "GLM-5.3::api"] },
   "compound": { "target": "", "debounce_ms": 2000, "enabled": true, "suppression_ttl_ms": 5000 },
   "sessions": {
     "dashboard_poll_interval_ms": 0,
@@ -1876,7 +1886,7 @@ Response:
 
 Errors:
 
-- 400: "model is in use by nudgenik or quick launch"
+- 400: "model is in use by nudgenik, branch suggestion, or quick launch"
 
 ### GET /api/user-models
 

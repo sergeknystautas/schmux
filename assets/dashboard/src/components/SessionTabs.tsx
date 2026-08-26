@@ -507,7 +507,7 @@ export default function SessionTabs({
     navigate(`/sessions/${sessionId}`);
   };
 
-  const nudgenikEnabled = Boolean(config?.nudgenik?.target);
+  const nudgenikEnabled = Boolean(config?.nudgenik?.targets?.length);
 
   // Helper to render a session tab
   const renderSessionTab = (sess: SessionResponse) => {

@@ -14,7 +14,7 @@ func TestGetCompoundTarget_FallbackChain(t *testing.T) {
 			name: "explicit compound target used",
 			cfg: &Config{ConfigData: ConfigData{
 				Compound: &CompoundConfig{Target: "compound-model"},
-				Nudgenik: &NudgenikConfig{Target: "nudgenik-model"},
+				Nudgenik: &NudgenikConfig{Targets: []string{"nudgenik-model"}},
 			}},
 			want: "compound-model",
 		},
@@ -22,14 +22,14 @@ func TestGetCompoundTarget_FallbackChain(t *testing.T) {
 			name: "falls back to nudgenik when compound target empty",
 			cfg: &Config{ConfigData: ConfigData{
 				Compound: &CompoundConfig{Target: ""},
-				Nudgenik: &NudgenikConfig{Target: "nudgenik-model"},
+				Nudgenik: &NudgenikConfig{Targets: []string{"nudgenik-model"}},
 			}},
 			want: "nudgenik-model",
 		},
 		{
 			name: "falls back to nudgenik when compound nil",
 			cfg: &Config{ConfigData: ConfigData{
-				Nudgenik: &NudgenikConfig{Target: "nudgenik-model"},
+				Nudgenik: &NudgenikConfig{Targets: []string{"nudgenik-model"}},
 			}},
 			want: "nudgenik-model",
 		},
@@ -42,7 +42,7 @@ func TestGetCompoundTarget_FallbackChain(t *testing.T) {
 			name: "returns empty when nudgenik also empty",
 			cfg: &Config{ConfigData: ConfigData{
 				Compound: &CompoundConfig{Target: ""},
-				Nudgenik: &NudgenikConfig{Target: ""},
+				Nudgenik: &NudgenikConfig{Targets: nil},
 			}},
 			want: "",
 		},
@@ -57,7 +57,7 @@ func TestGetCompoundTarget_FallbackChain(t *testing.T) {
 			name: "whitespace-only compound falls back to nudgenik",
 			cfg: &Config{ConfigData: ConfigData{
 				Compound: &CompoundConfig{Target: "   "},
-				Nudgenik: &NudgenikConfig{Target: "nudge"},
+				Nudgenik: &NudgenikConfig{Targets: []string{"nudge"}},
 			}},
 			want: "nudge",
 		},
@@ -83,7 +83,7 @@ func TestGetLoreTarget_FallbackChain(t *testing.T) {
 			cfg: &Config{ConfigData: ConfigData{
 				Lore:     &LoreConfig{Target: "lore-model"},
 				Compound: &CompoundConfig{Target: "compound-model"},
-				Nudgenik: &NudgenikConfig{Target: "nudgenik-model"},
+				Nudgenik: &NudgenikConfig{Targets: []string{"nudgenik-model"}},
 			}},
 			want: "lore-model",
 		},
@@ -92,7 +92,7 @@ func TestGetLoreTarget_FallbackChain(t *testing.T) {
 			cfg: &Config{ConfigData: ConfigData{
 				Lore:     &LoreConfig{Target: ""},
 				Compound: &CompoundConfig{Target: "compound-model"},
-				Nudgenik: &NudgenikConfig{Target: "nudgenik-model"},
+				Nudgenik: &NudgenikConfig{Targets: []string{"nudgenik-model"}},
 			}},
 			want: "compound-model",
 		},
@@ -101,14 +101,14 @@ func TestGetLoreTarget_FallbackChain(t *testing.T) {
 			cfg: &Config{ConfigData: ConfigData{
 				Lore:     &LoreConfig{Target: ""},
 				Compound: &CompoundConfig{Target: ""},
-				Nudgenik: &NudgenikConfig{Target: "nudgenik-model"},
+				Nudgenik: &NudgenikConfig{Targets: []string{"nudgenik-model"}},
 			}},
 			want: "nudgenik-model",
 		},
 		{
 			name: "falls back to nudgenik when lore and compound nil",
 			cfg: &Config{ConfigData: ConfigData{
-				Nudgenik: &NudgenikConfig{Target: "nudgenik-model"},
+				Nudgenik: &NudgenikConfig{Targets: []string{"nudgenik-model"}},
 			}},
 			want: "nudgenik-model",
 		},

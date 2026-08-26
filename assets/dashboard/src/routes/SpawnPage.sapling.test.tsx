@@ -183,7 +183,7 @@ describe('SpawnPage sapling flow', () => {
   });
 
   it('calls branch suggestion for blank-prompt git spawns when configured', async () => {
-    const cfg = makeConfig({ branch_suggest: { target: 'opus' } });
+    const cfg = makeConfig({ branch_suggest: { targets: ['opus'] } });
     configContextValue = cfg;
     mockGetConfig.mockResolvedValue(cfg);
 
@@ -255,7 +255,7 @@ describe('SpawnPage sapling flow', () => {
 
   it('does not call the LLM branch suggester for sapling repos', async () => {
     // Reset config with a non-empty branch_suggest target so it would normally fire.
-    const cfg = makeConfig({ branch_suggest: { target: 'opus' } });
+    const cfg = makeConfig({ branch_suggest: { targets: ['opus'] } });
     configContextValue = cfg;
     mockGetConfig.mockResolvedValue(cfg);
 

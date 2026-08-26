@@ -68,7 +68,7 @@ func IsEnabled(cfg *config.Config) bool {
 	if cfg == nil {
 		return false
 	}
-	return cfg.GetNudgenikTarget() != ""
+	return len(cfg.GetNudgenikTargets()) > 0
 }
 
 // Result is the parsed NudgeNik response.
@@ -103,9 +103,9 @@ func AskForExtracted(ctx context.Context, cfg *config.Config, extracted string) 
 		return Result{}, ErrNoResponse
 	}
 
-	targetName := ""
+	targets := []string{}
 	if cfg != nil {
-		targetName = cfg.GetNudgenikTarget()
+		targets = cfg.GetNudgenikTargets()
 	}
 
 	input := strings.Replace(Prompt, "{{AGENT_LAST_RESPONSE}}", extracted, 1)
@@ -113,7 +113,7 @@ func AskForExtracted(ctx context.Context, cfg *config.Config, extracted string) 
 	timeoutCtx, cancel := context.WithTimeout(ctx, nudgenikTimeout)
 	defer cancel()
 
-	result, err := oneshot.ExecuteTarget[Result](timeoutCtx, cfg, targetName, input, schema.LabelNudgeNik, nudgenikTimeout, "")
+	result, err := oneshot.ExecuteTargetChain[Result](timeoutCtx, cfg, targets, input, schema.LabelNudgeNik, nudgenikTimeout, "")
 	if err != nil {
 		return Result{}, err
 	}

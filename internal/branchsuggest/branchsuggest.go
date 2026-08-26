@@ -62,7 +62,7 @@ func IsEnabled(cfg *config.Config) bool {
 	if cfg == nil {
 		return false
 	}
-	return cfg.GetBranchSuggestTarget() != ""
+	return len(cfg.GetBranchSuggestTargets()) > 0
 }
 
 // Result is the parsed branch suggestion response.
@@ -82,14 +82,14 @@ type Result struct {
 //   - oneshot.ErrInvalidResponse   (LLM output not parseable)
 //   - ErrInvalidBranch             (LLM returned an invalid branch name)
 func AskForPrompt(ctx context.Context, cfg *config.Config, userPrompt string) (Result, error) {
-	targetName := ""
+	var targets []string
 	if cfg != nil {
-		targetName = cfg.GetBranchSuggestTarget()
+		targets = cfg.GetBranchSuggestTargets()
 	}
 
 	input := branchSuggestPrompt(userPrompt)
 
-	result, err := oneshot.ExecuteTarget[Result](ctx, cfg, targetName, input, schema.LabelBranchSuggest, branchSuggestTimeout, "")
+	result, err := oneshot.ExecuteTargetChain[Result](ctx, cfg, targets, input, schema.LabelBranchSuggest, branchSuggestTimeout, "")
 	if err != nil {
 		return Result{}, err
 	}

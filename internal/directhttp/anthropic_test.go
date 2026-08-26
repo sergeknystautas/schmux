@@ -143,6 +143,61 @@ func TestCallAnthropic_Non2xxReturnsErrHTTP(t *testing.T) {
 	}
 }
 
+func TestCallAnthropic_429ReturnsRateLimitError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"rate_limit_error","message":"Token Plan usage limit reached"}}`))
+	}))
+	defer server.Close()
+
+	out, err := callAnthropic(context.Background(), anthropicCallParams{
+		Endpoint: server.URL,
+		Token:    "sk-test",
+	})
+	if err == nil || out != "" {
+		t.Fatalf("expected error, got out=%q err=%v", out, err)
+	}
+	var rle *RateLimitError
+	if !errors.As(err, &rle) {
+		t.Fatalf("expected *RateLimitError, got %T: %v", err, err)
+	}
+	if rle.Status != 429 {
+		t.Errorf("Status = %d, want 429", rle.Status)
+	}
+	if !strings.Contains(rle.Body, "rate_limit_error") {
+		t.Errorf("Body should carry the response body, got %q", rle.Body)
+	}
+	// Message text must keep today's format so log-line matching still works.
+	want := "direct-HTTP: non-2xx response: 429 429 Too Many Requests:"
+	if !strings.HasPrefix(err.Error(), want) {
+		t.Errorf("Error() = %q, want prefix %q", err.Error(), want)
+	}
+	// RateLimitError must still satisfy ErrHTTP matching.
+	if !errors.Is(err, ErrHTTP) {
+		t.Error("RateLimitError should unwrap to ErrHTTP")
+	}
+}
+
+func TestCallAnthropic_500StaysPlainErrHTTP(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"api_error"}}`))
+	}))
+	defer server.Close()
+
+	_, err := callAnthropic(context.Background(), anthropicCallParams{
+		Endpoint: server.URL,
+		Token:    "sk-test",
+	})
+	var rle *RateLimitError
+	if errors.As(err, &rle) {
+		t.Fatalf("500 must not be a RateLimitError, got %v", err)
+	}
+	if !errors.Is(err, ErrHTTP) {
+		t.Fatalf("500 should still be ErrHTTP, got %v", err)
+	}
+}
+
 func TestCallAnthropic_RequestBodyShape(t *testing.T) {
 	var gotBody anthropicRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -388,9 +388,9 @@ type RemoteAccessConfig struct {
 
 // NudgenikConfig represents configuration for the NudgeNik assistant.
 type NudgenikConfig struct {
-	Target         string `json:"target,omitempty"`
-	ViewedBufferMs int    `json:"viewed_buffer_ms,omitempty"`
-	SeenIntervalMs int    `json:"seen_interval_ms,omitempty"`
+	Targets        []string `json:"targets,omitempty"`
+	ViewedBufferMs int      `json:"viewed_buffer_ms,omitempty"`
+	SeenIntervalMs int      `json:"seen_interval_ms,omitempty"`
 }
 
 // SubredditConfig represents configuration for the subreddit digest feature.
@@ -453,7 +453,7 @@ type TimelapseConfig struct {
 
 // BranchSuggestConfig represents configuration for branch name suggestion.
 type BranchSuggestConfig struct {
-	Target string `json:"target,omitempty"`
+	Targets []string `json:"targets,omitempty"`
 }
 
 // ConflictResolveConfig represents configuration for conflict resolution.
@@ -846,6 +846,49 @@ var migrations = []Migration{
 		},
 	},
 	{
+		Name: "target_string_to_targets_list",
+		Detect: func(raw map[string]json.RawMessage, cfg *Config) bool {
+			for _, section := range []string{"nudgenik", "branch_suggest"} {
+				var sec map[string]json.RawMessage
+				if data, ok := raw[section]; ok && json.Unmarshal(data, &sec) == nil {
+					if _, has := sec["target"]; has {
+						return true
+					}
+				}
+			}
+			return false
+		},
+		Apply: func(raw map[string]json.RawMessage, cfg *Config) error {
+			migrateSection := func(secRaw json.RawMessage, targets *[]string) {
+				var sec map[string]json.RawMessage
+				if err := json.Unmarshal(secRaw, &sec); err != nil {
+					return
+				}
+				legacy, ok := sec["target"]
+				if !ok || len(legacy) == 0 || string(legacy) == "null" {
+					return
+				}
+				var target string
+				if err := json.Unmarshal(legacy, &target); err != nil {
+					return // non-string value: leave as-is, load continues
+				}
+				if strings.TrimSpace(target) == "" {
+					return // blank legacy value stays disabled (spec)
+				}
+				if len(*targets) == 0 {
+					*targets = []string{target}
+				}
+			}
+			if cfg.Nudgenik != nil {
+				migrateSection(raw["nudgenik"], &cfg.Nudgenik.Targets)
+			}
+			if cfg.BranchSuggest != nil {
+				migrateSection(raw["branch_suggest"], &cfg.BranchSuggest.Targets)
+			}
+			return nil
+		},
+	},
+	{
 		Name: "migrate_legacy_model_ids",
 		Detect: func(raw map[string]json.RawMessage, cfg *Config) bool {
 			return cfg.hasLegacyModelIDs()
@@ -911,8 +954,12 @@ var migrations = []Migration{
 					return true
 				}
 			}
-			if cfg.Nudgenik != nil && types.IsBuiltinToolName(cfg.Nudgenik.Target) {
-				return true
+			if cfg.Nudgenik != nil {
+				for _, t := range cfg.Nudgenik.Targets {
+					if types.IsBuiltinToolName(t) {
+						return true
+					}
+				}
 			}
 			if cfg.Compound != nil && types.IsBuiltinToolName(cfg.Compound.Target) {
 				return true
@@ -929,8 +976,12 @@ var migrations = []Migration{
 					cfg.QuickLaunch[i].Target = resolve(cfg.QuickLaunch[i].Target)
 				}
 			}
-			if cfg.Nudgenik != nil && types.IsBuiltinToolName(cfg.Nudgenik.Target) {
-				cfg.Nudgenik.Target = resolve(cfg.Nudgenik.Target)
+			if cfg.Nudgenik != nil {
+				for i, t := range cfg.Nudgenik.Targets {
+					if types.IsBuiltinToolName(t) {
+						cfg.Nudgenik.Targets[i] = resolve(t)
+					}
+				}
 			}
 			if cfg.Compound != nil && types.IsBuiltinToolName(cfg.Compound.Target) {
 				cfg.Compound.Target = resolve(cfg.Compound.Target)
@@ -987,11 +1038,19 @@ func (c *Config) hasLegacyModelIDs() bool {
 	}
 
 	// Nested config targets
-	if c.Nudgenik != nil && isLegacy(c.Nudgenik.Target) {
-		return true
+	if c.Nudgenik != nil {
+		for _, t := range c.Nudgenik.Targets {
+			if isLegacy(t) {
+				return true
+			}
+		}
 	}
-	if c.BranchSuggest != nil && isLegacy(c.BranchSuggest.Target) {
-		return true
+	if c.BranchSuggest != nil {
+		for _, t := range c.BranchSuggest.Targets {
+			if isLegacy(t) {
+				return true
+			}
+		}
 	}
 	if c.ConflictResolve != nil && isLegacy(c.ConflictResolve.Target) {
 		return true
@@ -1052,11 +1111,18 @@ func (c *Config) migrateModelIDs() {
 		}
 	}
 
+	migrateTargets := func(targets *[]string) {
+		for i, t := range *targets {
+			if t != "" {
+				(*targets)[i] = types.MigrateModelID(t)
+			}
+		}
+	}
 	if c.Nudgenik != nil {
-		migrateTarget(&c.Nudgenik.Target)
+		migrateTargets(&c.Nudgenik.Targets)
 	}
 	if c.BranchSuggest != nil {
-		migrateTarget(&c.BranchSuggest.Target)
+		migrateTargets(&c.BranchSuggest.Targets)
 	}
 	if c.ConflictResolve != nil {
 		migrateTarget(&c.ConflictResolve.Target)
@@ -1128,6 +1194,9 @@ func (c *Config) validate(strict bool) ([]string, error) {
 		return nil, err
 	}
 	if err := validateNudgenikConfig(c.Nudgenik); err != nil {
+		return nil, err
+	}
+	if err := validateBranchSuggestConfig(c.BranchSuggest); err != nil {
 		return nil, err
 	}
 	if err := validateCompoundConfig(c.Compound); err != nil {
@@ -1308,12 +1377,27 @@ func (c *Config) GetNudgenikTarget() string {
 	return c.getNudgenikTargetLocked()
 }
 
+// GetNudgenikTargets returns the configured nudgenik target chain: trimmed,
+// blank entries dropped, order preserved. Index 0 is the primary.
+func (c *Config) GetNudgenikTargets() []string {
+	if c == nil || c.Nudgenik == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return CleanTargets(c.Nudgenik.Targets)
+}
+
 // getNudgenikTargetLocked is the lock-free implementation. Caller must hold mu.
 func (c *Config) getNudgenikTargetLocked() string {
 	if c == nil || c.Nudgenik == nil {
 		return ""
 	}
-	return strings.TrimSpace(c.Nudgenik.Target)
+	targets := CleanTargets(c.Nudgenik.Targets)
+	if len(targets) == 0 {
+		return ""
+	}
+	return targets[0]
 }
 
 // GetSubredditEnabled returns whether the subreddit digest is enabled.
@@ -1763,7 +1847,7 @@ func (c *Config) GetTimelapseMaxTotalStorageMB() int {
 	return *c.Timelapse.MaxTotalStorageMB
 }
 
-// GetBranchSuggestTarget returns the configured branch suggestion target name, if any.
+// GetBranchSuggestTarget returns the primary branch suggestion target.
 func (c *Config) GetBranchSuggestTarget() string {
 	if c == nil {
 		return ""
@@ -1773,7 +1857,22 @@ func (c *Config) GetBranchSuggestTarget() string {
 	if c.BranchSuggest == nil {
 		return ""
 	}
-	return strings.TrimSpace(c.BranchSuggest.Target)
+	targets := CleanTargets(c.BranchSuggest.Targets)
+	if len(targets) == 0 {
+		return ""
+	}
+	return targets[0]
+}
+
+// GetBranchSuggestTargets returns the configured branch suggestion target
+// chain: trimmed, blank entries dropped, order preserved.
+func (c *Config) GetBranchSuggestTargets() []string {
+	if c == nil || c.BranchSuggest == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return CleanTargets(c.BranchSuggest.Targets)
 }
 
 // GetCompoundTarget returns the configured compound target name.

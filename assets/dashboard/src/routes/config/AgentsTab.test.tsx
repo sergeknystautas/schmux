@@ -30,7 +30,7 @@ const defaultProps = {
   state: {
     commitMessageTarget: '',
     prReviewTarget: '',
-    branchSuggestTarget: '',
+    branchSuggestTargets: [] as string[],
     conflictResolveTarget: '',
     enabledModels: {} as Record<string, string>,
     anthropicOAuthTokenSet: false,
@@ -50,7 +50,6 @@ const defaultProps = {
   onOpenRunTargetEditModal: vi.fn(),
   commitMessageTargetMissing: false,
   prReviewTargetMissing: false,
-  branchSuggestTargetMissing: false,
   conflictResolveTargetMissing: false,
 };
 
@@ -88,6 +87,17 @@ describe('AgentsTab', () => {
     expect(screen.getByText('Conflict Resolution')).toBeInTheDocument();
   });
 
+  it('renders Branch Suggestion as an ordered target chain', () => {
+    render(
+      <AgentsTab
+        {...defaultProps}
+        state={{ ...defaultProps.state, branchSuggestTargets: ['claude-sonnet-4-6'] }}
+      />
+    );
+    expect(screen.getByText('Primary')).toBeInTheDocument();
+    expect(screen.getByText('Add fallback')).toBeInTheDocument();
+  });
+
   it('restricts task-assignment dropdowns by capability and shows full catalog in Model Catalog', () => {
     const alpha: TargetOption = { id: 'alpha', label: 'Alpha', source: 'cli' };
     const beta: TargetOption = { id: 'beta', label: 'Beta', source: 'cli' };
@@ -102,6 +112,7 @@ describe('AgentsTab', () => {
     render(
       <AgentsTab
         {...defaultProps}
+        state={{ ...defaultProps.state, branchSuggestTargets: ['alpha'] }}
         models={[alpha, beta]}
         oneshotOptions={[alpha]}
         modelCatalog={[

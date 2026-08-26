@@ -1877,9 +1877,8 @@ func startNudgeNikChecker(ctx context.Context, cfg *config.Config, st *state.Sta
 
 // checkInactiveSessionsForNudge checks all sessions for inactivity and asks NudgeNik if needed.
 func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *state.State, sm *session.Manager, onUpdate func(), logger *log.Logger) {
-	// Check if nudgenik is enabled (non-empty target)
-	target := cfg.GetNudgenikTarget()
-	if target == "" {
+	// Check if nudgenik is enabled (non-empty target chain)
+	if len(cfg.GetNudgenikTargets()) == 0 {
 		return
 	}
 
@@ -1912,8 +1911,7 @@ func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *
 		}
 
 		// Session is inactive and has no nudge, ask NudgeNik
-		targetName := cfg.GetNudgenikTarget()
-		logger.Info("asking", "session_id", sess.ID, "target", targetName)
+		logger.Info("asking", "session_id", sess.ID, "targets", strings.Join(cfg.GetNudgenikTargets(), ","))
 		nudge := askNudgeNikForSession(ctx, cfg, sess, sm, logger)
 		if nudge != "" {
 			if ok := st.UpdateSessionFunc(sess.ID, func(s *state.Session) { s.Nudge = nudge }); !ok {
