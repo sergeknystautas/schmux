@@ -1,8 +1,10 @@
 package detect
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -708,5 +710,152 @@ func TestBuildClaudeHooksMap_ResumeIDCapture(t *testing.T) {
 		if !found {
 			t.Errorf("%s missing capture-session.sh hook", event)
 		}
+	}
+}
+
+// runStopHook executes an embedded Stop hook script against an events file and
+// returns its stdout. Stop hooks are shell scripts, so the only way to test the
+// contract that matters -- that Claude Code can parse the block decision -- is
+// to run them.
+func runStopHook(t *testing.T, script []byte, name, eventsFile, hookInput string) string {
+	t.Helper()
+	for _, bin := range []string{"bash", "jq"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			t.Skipf("%s not available", bin)
+		}
+	}
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, script, 0700); err != nil {
+		t.Fatalf("write %s: %v", name, err)
+	}
+	cmd := exec.Command("bash", path)
+	cmd.Stdin = strings.NewReader(hookInput)
+	cmd.Env = append(os.Environ(), "SCHMUX_EVENTS_FILE="+eventsFile)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("%s failed: %v (stderr: %s)", name, err, stderr.String())
+	}
+	return stdout.String()
+}
+
+// writeEvents writes JSONL lines to a temp events file and returns its path.
+func writeEvents(t *testing.T, lines ...string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	body := ""
+	for _, l := range lines {
+		body += l + "\n"
+	}
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+		t.Fatalf("write events: %v", err)
+	}
+	return path
+}
+
+// A block payload built by string concatenation was unparseable because the
+// reason text embeds a JSON example. Claude Code logged a hook_non_blocking_error
+// and silently discarded the block, so the gates never fired.
+func TestStopHookBlockPayloadIsValidJSON(t *testing.T) {
+	tests := []struct {
+		name   string
+		script []byte
+		file   string
+		events []string
+	}{
+		{
+			name:   "autolearn with no reflection",
+			script: claudeStopAutolearnCheckScript,
+			file:   "stop-autolearn-check.sh",
+			events: []string{`{"ts":"t","type":"status","state":"working","message":"x"}`},
+		},
+		{
+			name:   "status gate with no reported status",
+			script: claudeStopStatusCheckScript,
+			file:   "stop-status-check.sh",
+			events: []string{`{"ts":"t","type":"status","state":"idle","message":""}`},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := runStopHook(t, tt.script, tt.file, writeEvents(t, tt.events...), `{"stop_hook_active":false}`)
+			var decision struct {
+				Decision string `json:"decision"`
+				Reason   string `json:"reason"`
+			}
+			if err := json.Unmarshal([]byte(out), &decision); err != nil {
+				t.Fatalf("block payload is not valid JSON: %v\npayload: %s", err, out)
+			}
+			if decision.Decision != "block" {
+				t.Errorf("decision = %q, want %q", decision.Decision, "block")
+			}
+			if decision.Reason == "" {
+				t.Error("block payload should carry a reason")
+			}
+		})
+	}
+}
+
+// The "schmux: signaling" Stop hook appends an idle heartbeat before the status
+// gate runs, so the newest status event is always idle. The gate must judge the
+// last status the agent actually reported, or it blocks every stop.
+func TestStopStatusCheckSkipsIdleHeartbeat(t *testing.T) {
+	idle := `{"ts":"t4","type":"status","state":"idle","message":""}`
+	tests := []struct {
+		name      string
+		events    []string
+		wantBlock bool
+	}{
+		{
+			name:   "completed then idle heartbeat",
+			events: []string{`{"ts":"t1","type":"status","state":"completed","message":"done"}`, idle},
+		},
+		{
+			name:   "working with message then idle heartbeat",
+			events: []string{`{"ts":"t1","type":"status","state":"working","message":"x"}`, idle},
+		},
+		{
+			name:   "malformed line does not abort the scan",
+			events: []string{`{"type":"status","state":"completed"`, `{"ts":"t1","type":"status","state":"needs_input","message":"?"}`, idle},
+		},
+		{
+			name:      "working with empty message still blocks",
+			events:    []string{`{"ts":"t1","type":"status","state":"working","message":""}`, idle},
+			wantBlock: true,
+		},
+		{
+			name:      "only idle heartbeats blocks",
+			events:    []string{idle},
+			wantBlock: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := runStopHook(t, claudeStopStatusCheckScript, "stop-status-check.sh", writeEvents(t, tt.events...), `{"stop_hook_active":false}`)
+			gotBlock := strings.Contains(out, `"block"`)
+			if gotBlock != tt.wantBlock {
+				t.Errorf("block = %v, want %v (stdout: %q)", gotBlock, tt.wantBlock, out)
+			}
+		})
+	}
+}
+
+// stop_hook_active guards against a block loop: once Claude Code is already
+// continuing because of a previous block, both gates must stay silent.
+func TestStopHooksSilentWhenStopHookActive(t *testing.T) {
+	events := writeEvents(t, `{"ts":"t","type":"status","state":"idle","message":""}`)
+	for _, tt := range []struct {
+		name   string
+		script []byte
+	}{
+		{"stop-status-check.sh", claudeStopStatusCheckScript},
+		{"stop-autolearn-check.sh", claudeStopAutolearnCheckScript},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if out := runStopHook(t, tt.script, tt.name, events, `{"stop_hook_active":true}`); out != "" {
+				t.Errorf("expected no output, got %q", out)
+			}
+		})
 	}
 }
