@@ -306,11 +306,11 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 			SuggestDisposeAfterPush: h.config.GetSuggestDisposeAfterPush(),
 		},
 		Lore: contracts.Lore{
-			Enabled:         h.config.GetLoreEnabled(),
-			LLMTarget:       h.config.GetLoreTargetRaw(),
-			CurateOnDispose: h.config.GetLoreCurateOnDispose(),
-			AutoPR:          h.config.GetLoreAutoPR(),
-			PublicRuleMode:  h.config.GetLorePublicRuleMode(),
+			Enabled:         h.config.GetAutolearnEnabled(),
+			LLMTarget:       h.config.GetAutolearnTargetRaw(),
+			CurateOnDispose: h.config.GetAutolearnCurateOnDispose(),
+			AutoPR:          h.config.GetAutolearnAutoPR(),
+			PublicRuleMode:  h.config.GetAutolearnPublicRuleMode(),
 		},
 		Subreddit: contracts.Subreddit{
 			Enabled:       h.config.GetSubredditEnabled(),
@@ -772,34 +772,39 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 	}
 
 	if req.Lore != nil {
-		if cfg.Lore == nil {
-			cfg.Lore = &config.LoreConfig{}
+		// The API field is named "lore" for backward compatibility, but the
+		// autolearn config section is the single source of truth. Writes go to
+		// Autolearn, and the legacy Lore section is dropped so the two can no
+		// longer drift apart.
+		if cfg.Autolearn == nil {
+			cfg.Autolearn = &config.AutolearnConfig{}
 		}
 		if req.Lore.Enabled != nil {
 			enabled := *req.Lore.Enabled
-			cfg.Lore.Enabled = &enabled
+			cfg.Autolearn.Enabled = &enabled
 		}
 		if req.Lore.LLMTarget != nil {
-			cfg.Lore.Target = strings.TrimSpace(*req.Lore.LLMTarget)
+			cfg.Autolearn.Target = strings.TrimSpace(*req.Lore.LLMTarget)
 		}
 		if req.Lore.CurateOnDispose != nil {
 			v := *req.Lore.CurateOnDispose
 			switch v {
 			case "session", "workspace", "never":
-				cfg.Lore.CurateOnDispose = v
+				cfg.Autolearn.CurateOnDispose = v
 			}
 		}
 		if req.Lore.AutoPR != nil {
 			autoPR := *req.Lore.AutoPR
-			cfg.Lore.AutoPR = &autoPR
+			cfg.Autolearn.AutoPR = &autoPR
 		}
 		if req.Lore.PublicRuleMode != nil {
 			v := *req.Lore.PublicRuleMode
 			switch v {
 			case "direct_push", "create_pr":
-				cfg.Lore.PublicRuleMode = v
+				cfg.Autolearn.PublicRuleMode = v
 			}
 		}
+		cfg.Lore = nil
 	}
 
 	if req.Subreddit != nil {

@@ -1419,6 +1419,12 @@ disables the feature.
 
 Update the config. All fields are optional; omitted fields are unchanged.
 
+The `lore` field is named for backward compatibility: it reads and writes the
+`autolearn` section of `config.json`, which is the single source of truth for
+the continual-learning system. A legacy top-level `lore` section in
+`config.json` is still honored on load when no `autolearn` section exists, and
+is dropped from the file the next time this endpoint writes the field.
+
 Request:
 
 ```json
@@ -2892,7 +2898,7 @@ Response:
   "curator_configured": false,
   "curate_on_dispose": "session",
   "llm_target": "",
-  "issues": ["No LLM target configured — curator cannot run. Set lore.llm_target in config."]
+  "issues": ["No LLM target configured — curator cannot run. Set autolearn.llm_target in config."]
 }
 ```
 

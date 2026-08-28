@@ -532,6 +532,7 @@ type AutolearnConfig struct {
 	CurateOnDispose  string   `json:"curate_on_dispose,omitempty"`  // "session", "workspace", or "never" (default: "session")
 	CurateDebounceMs int      `json:"curate_debounce_ms,omitempty"` // debounce for auto-curation (default 30000)
 	Target           string   `json:"llm_target,omitempty"`         // LLM target for curator (falls back to compound target)
+	AutoPR           *bool    `json:"auto_pr,omitempty"`            // auto-create PR after pushing autolearn branch (default: false)
 	InstructionFiles []string `json:"instruction_files,omitempty"`  // instruction file patterns to manage
 	PublicRuleMode   string   `json:"public_rule_mode,omitempty"`   // "direct_push" (default) or "create_pr"
 	PruneAfterDays   int      `json:"prune_after_days,omitempty"`   // days before pruning applied/dismissed entries (default 30)
@@ -1930,6 +1931,24 @@ func (c *Config) GetCompoundSuppressionTTLMs() int {
 	return c.Compound.SuppressionTTLMs
 }
 
+// applyLoreAlias populates Autolearn from the legacy Lore section when only
+// Lore is configured. Lore is a read-only fallback for old config files; all
+// writes go to the Autolearn section.
+func (c *Config) applyLoreAlias() {
+	if c.Autolearn == nil && c.Lore != nil {
+		c.Autolearn = &AutolearnConfig{
+			Enabled:          c.Lore.Enabled,
+			CurateOnDispose:  c.Lore.CurateOnDispose,
+			CurateDebounceMs: c.Lore.CurateDebounceMs,
+			Target:           c.Lore.Target,
+			AutoPR:           c.Lore.AutoPR,
+			InstructionFiles: c.Lore.InstructionFiles,
+			PublicRuleMode:   c.Lore.PublicRuleMode,
+			PruneAfterDays:   c.Lore.PruneAfterDays,
+		}
+	}
+}
+
 // DefaultInstructionFiles are the instruction file patterns checked by the lore curator.
 var DefaultInstructionFiles = []string{
 	"CLAUDE.md",
@@ -2126,6 +2145,20 @@ func (c *Config) GetAutolearnTargetRaw() string {
 		return ""
 	}
 	return c.Autolearn.Target
+}
+
+// GetAutolearnAutoPR returns whether to auto-create a PR after pushing an autolearn branch.
+// Defaults to false if not explicitly configured.
+func (c *Config) GetAutolearnAutoPR() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Autolearn == nil || c.Autolearn.AutoPR == nil {
+		return false
+	}
+	return *c.Autolearn.AutoPR
 }
 
 // GetAutolearnCurateOnDispose returns the autolearn curate-on-dispose mode.
@@ -2498,6 +2531,7 @@ func (c *Config) Reload() error {
 	if err := json.Unmarshal(data, &newCfg); err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
+	newCfg.applyLoreAlias()
 
 	// Validate before applying (matches Load behavior)
 	if err := newCfg.Validate(); err != nil {
@@ -2616,17 +2650,7 @@ func Load(configPath string) (*Config, error) {
 	}
 
 	// Alias: populate Autolearn from Lore if only Lore is configured
-	if cfg.Autolearn == nil && cfg.Lore != nil {
-		cfg.Autolearn = &AutolearnConfig{
-			Enabled:          cfg.Lore.Enabled,
-			CurateOnDispose:  cfg.Lore.CurateOnDispose,
-			CurateDebounceMs: cfg.Lore.CurateDebounceMs,
-			Target:           cfg.Lore.Target,
-			InstructionFiles: cfg.Lore.InstructionFiles,
-			PublicRuleMode:   cfg.Lore.PublicRuleMode,
-			PruneAfterDays:   cfg.Lore.PruneAfterDays,
-		}
-	}
+	cfg.applyLoreAlias()
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {

@@ -68,8 +68,8 @@ func validateAutolearnRepo(next http.Handler) http.Handler {
 
 // handleAutolearnStatus returns the autolearn system configuration status.
 func (h *AutolearnHandlers) handleAutolearnStatus(w http.ResponseWriter, r *http.Request) {
-	enabled := h.config.GetLoreEnabled()
-	curateOnDispose := h.config.GetLoreCurateOnDispose()
+	enabled := h.config.GetAutolearnEnabled()
+	curateOnDispose := h.config.GetAutolearnCurateOnDispose()
 	llmTarget := h.config.GetAutolearnTarget()
 	curatorConfigured := h.config.GetAutolearnTarget() != ""
 
@@ -795,7 +795,7 @@ func (h *AutolearnHandlers) handleAutolearnMerge(w http.ResponseWriter, r *http.
 
 	// Run merge in background
 	pendingStore := h.autolearnPendingMergeStore
-	instrFiles := h.config.GetLoreInstructionFiles()
+	instrFiles := h.config.GetAutolearnInstructionFiles()
 	logger := h.logger
 	broadcastCuratorEvent := h.broadcastCuratorEvent
 
@@ -960,7 +960,7 @@ func (h *AutolearnHandlers) handleAutolearnPush(w http.ResponseWriter, r *http.R
 	}
 
 	// 3. Compute instrFiles and targetFile
-	instrFiles := h.config.GetLoreInstructionFiles()
+	instrFiles := h.config.GetAutolearnInstructionFiles()
 	targetFile := "CLAUDE.md"
 	if len(instrFiles) > 0 {
 		targetFile = instrFiles[0]
@@ -1097,8 +1097,8 @@ func (h *AutolearnHandlers) handleAutolearnPush(w http.ResponseWriter, r *http.R
 
 	// 10. Push based on config mode
 	mode := "direct_push"
-	if h.config != nil && h.config.Lore != nil {
-		mode = h.config.Lore.GetPublicRuleMode()
+	if h.config != nil && h.config.Autolearn != nil {
+		mode = h.config.Autolearn.GetPublicRuleMode()
 	}
 	if mode == "create_pr" {
 		branch := fmt.Sprintf("autolearn/learnings-%s", time.Now().Format("2006-01-02"))

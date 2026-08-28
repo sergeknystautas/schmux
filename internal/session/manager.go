@@ -481,6 +481,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": workspaceID,
 		"SCHMUX_EVENTS_FILE":  filepath.Join(state.SchmuxDataDirForVCS(remotePath, flavor.VCS), "events", sessionID+".jsonl"),
+		"SCHMUX_CONFIG_FILE":  schmuxdir.ConfigPath(),
 	})
 
 	// Build command with remote mode (uses inline content instead of local file paths)
@@ -1013,6 +1014,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": w.ID,
 		"SCHMUX_EVENTS_FILE":  filepath.Join(state.SchmuxDataDir(w.Path), "events", sessionID+".jsonl"),
+		"SCHMUX_CONFIG_FILE":  schmuxdir.ConfigPath(),
 	})
 
 	// Write initial spawn event with full prompt
@@ -1171,6 +1173,7 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": w.ID,
 		"SCHMUX_EVENTS_FILE":  filepath.Join(state.SchmuxDataDir(w.Path), "events", sessionID+".jsonl"),
+		"SCHMUX_CONFIG_FILE":  schmuxdir.ConfigPath(),
 	}
 	commandWithEnv := fmt.Sprintf("%s %s", buildEnvPrefix(schmuxEnv), opts.Command)
 

@@ -6,6 +6,15 @@ ACTIVE=$(echo "$INPUT" | jq -r '.stop_hook_active // false')
 [ "$ACTIVE" = "true" ] && exit 0
 [ -n "${SCHMUX_EVENTS_FILE:-}" ] || exit 0
 
+# Autolearn can be toggled at runtime; honor the current config on every
+# invocation instead of only at hook install time. A missing or unreadable
+# config means enabled (preserve previous behavior).
+CONFIG_FILE="${SCHMUX_CONFIG_FILE:-$HOME/.schmux/config.json}"
+if [ -f "$CONFIG_FILE" ]; then
+  ENABLED=$(jq -r '(.autolearn // .lore // {}).enabled != false' "$CONFIG_FILE" 2>/dev/null || echo true)
+  [ "$ENABLED" = "false" ] && exit 0
+fi
+
 if grep -q '"type":"reflection"' "$SCHMUX_EVENTS_FILE" 2>/dev/null; then
   exit 0
 fi
