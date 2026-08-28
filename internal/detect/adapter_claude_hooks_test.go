@@ -724,13 +724,20 @@ func runStopHook(t *testing.T, script []byte, name, eventsFile, hookInput string
 			t.Skipf("%s not available", bin)
 		}
 	}
-	path := filepath.Join(t.TempDir(), name)
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, name)
 	if err := os.WriteFile(path, script, 0700); err != nil {
 		t.Fatalf("write %s: %v", name, err)
 	}
 	cmd := exec.Command("bash", path)
 	cmd.Stdin = strings.NewReader(hookInput)
-	cmd.Env = append(os.Environ(), "SCHMUX_EVENTS_FILE="+eventsFile)
+	// Point SCHMUX_CONFIG_FILE at a non-existent path so the scripts don't
+	// read the developer's real ~/.schmux/config.json. Tests must not depend
+	// on the test machine's schmux configuration.
+	cmd.Env = append(os.Environ(),
+		"SCHMUX_EVENTS_FILE="+eventsFile,
+		"SCHMUX_CONFIG_FILE="+filepath.Join(tmp, "config.json"),
+	)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
