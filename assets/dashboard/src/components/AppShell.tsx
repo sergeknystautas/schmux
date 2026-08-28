@@ -748,8 +748,12 @@ export default function AppShell() {
               const remoteDisconnected = isRemote && workspace.remote_host_status !== 'connected';
 
               // Dev mode: is this workspace eligible and is it the live one?
+              // Only the schmux source workspace (and any workspace sharing its repo)
+              // is eligible — when devSourceRepo is unresolved (devStatus not yet loaded
+              // or the source workspace isn't in the list), don't show the button on
+              // every workspace.
               const isDevEligible =
-                isDevMode && !isRemote && (!devSourceRepo || workspace.repo === devSourceRepo);
+                isDevMode && !isRemote && !!devSourceRepo && workspace.repo === devSourceRepo;
               const isDevLive = isDevEligible && devStatus?.source_workspace === workspace.path;
 
               return (
