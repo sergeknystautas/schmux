@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -39,6 +40,28 @@ type devStateInfo struct {
 	SourceWorkspace string `json:"source_workspace"`
 }
 
+const schmuxModulePath = "github.com/sergeknystautas/schmux"
+
+// isSchmuxWorkspace identifies the codebase from its Go module declaration.
+// This deliberately does not depend on which workspace currently serves dev
+// mode: on a fresh dev-mode startup, that source may not be managed by schmux.
+func isSchmuxWorkspace(workspacePath string) bool {
+	file, err := os.Open(filepath.Join(workspacePath, "go.mod"))
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) == 2 && fields[0] == "module" {
+			return fields[1] == schmuxModulePath
+		}
+	}
+	return false
+}
+
 // devViteProxyPort is the port the dev-runner spawns Vite on (`vite --port N
 // --strictPort`). Hardcoded here and in tools/dev-runner/src/App.tsx as
 // VITE_PORT; the two must change together in the same commit. Drift is only
@@ -75,9 +98,16 @@ func (s *Server) devSourceWorkspacePath() string {
 // handleDevStatus returns the current dev mode state.
 func (s *Server) handleDevStatus(w http.ResponseWriter, r *http.Request) {
 	schmuxDir := schmuxdir.Get()
+	schmuxWorkspaces := make([]string, 0)
+	for _, workspace := range s.state.GetWorkspaces() {
+		if workspace.RemoteHostID == "" && isSchmuxWorkspace(workspace.Path) {
+			schmuxWorkspaces = append(schmuxWorkspaces, workspace.ID)
+		}
+	}
 
 	response := map[string]any{
-		"active": true,
+		"active":            true,
+		"schmux_workspaces": schmuxWorkspaces,
 	}
 
 	// Read dev state (source workspace)
@@ -130,6 +160,10 @@ func (s *Server) handleDevRebuild(w http.ResponseWriter, r *http.Request) {
 	ws, ok := s.state.GetWorkspace(req.WorkspaceID)
 	if !ok {
 		writeJSONError(w, "Workspace not found", http.StatusNotFound)
+		return
+	}
+	if ws.RemoteHostID != "" || !isSchmuxWorkspace(ws.Path) {
+		writeJSONError(w, "Workspace is not a schmux codebase", http.StatusBadRequest)
 		return
 	}
 

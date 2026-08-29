@@ -19,6 +19,7 @@ import { sortSessionsByTabOrder, TAB_ORDER_KEY_PREFIX } from '../lib/tabOrder';
 import { sortWorkspaces } from '../lib/workspaceSort';
 import { workspaceDisplayLabel } from '../lib/workspace-display';
 import type { SessionResponse, WorkspaceResponse } from '../lib/types';
+import { isDevWorkspaceEligible } from './AppShell';
 
 function makeSession(id: string): SessionResponse {
   return {
@@ -198,5 +199,21 @@ describe('AppShell sidebar — workspace name display via workspaceDisplayLabel'
     // through unchanged when label is empty.
     const ws = makeWorkspace('myrepo-011', 'remote-host.example.com');
     expect(workspaceDisplayLabel(ws, 'remote-host.example.com')).toBe('remote-host.example.com');
+  });
+});
+
+describe('AppShell sidebar — dev workspace eligibility', () => {
+  const devStatus = {
+    active: true,
+    schmux_workspaces: ['schmux-002'],
+  };
+
+  it('allows a local schmux workspace even when it is not the dev source', () => {
+    expect(isDevWorkspaceEligible(true, false, 'schmux-002', devStatus)).toBe(true);
+  });
+
+  it('rejects workspaces not identified by the backend and remote workspaces', () => {
+    expect(isDevWorkspaceEligible(true, false, 'other-001', devStatus)).toBe(false);
+    expect(isDevWorkspaceEligible(true, true, 'schmux-002', devStatus)).toBe(false);
   });
 });

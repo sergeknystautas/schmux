@@ -116,7 +116,9 @@ Each workspace card in the sidebar shows a button when dev mode is active:
 - **"Test"** — Switch to this workspace (rebuild + restart from its code)
 - **"Rebuild"** — Appears when this workspace is already the live source (rebuild + restart)
 
-Only workspaces in the same repository as the dev source are eligible.
+Only local schmux codebases are eligible. The daemon identifies them directly
+from the schmux module declaration in each workspace's `go.mod`; eligibility
+does not depend on which checkout currently serves dev mode.
 
 ### How it works
 
@@ -388,4 +390,6 @@ The dashboard auto-reconnects via WebSocket after the daemon restarts. If state 
 
 ### "Test" button missing on workspaces
 
-The button only appears for workspaces in the same repository as the dev source workspace, and only when the daemon is running in dev mode. Workspaces from different repos are not eligible for switching.
+The button only appears while the daemon is running in dev mode and the local
+workspace's `go.mod` declares `github.com/sergeknystautas/schmux`. It does not
+depend on the current dev source being a schmux-managed workspace.

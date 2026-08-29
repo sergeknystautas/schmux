@@ -4930,6 +4930,7 @@ Response:
 {
   "active": true,
   "source_workspace": "/path/to/current/worktree",
+  "schmux_workspaces": ["schmux-002", "schmux-003"],
   "last_build": {
     "success": true,
     "workspace_path": "/path/to/worktree",
@@ -4938,6 +4939,10 @@ Response:
   }
 }
 ```
+
+`schmux_workspaces` contains the IDs of local workspaces whose `go.mod`
+declares the schmux module. It is independent of `source_workspace`, so it is
+populated even when dev mode starts from a checkout that schmux does not manage.
 
 ### POST /api/dev/rebuild
 
@@ -4961,6 +4966,7 @@ Response:
 Errors:
 
 - 400: missing workspace_id, invalid type
+- 400: workspace is not a local schmux codebase
 - 404: workspace not found
 
 ### GET /api/dev/log-level

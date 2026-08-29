@@ -56,6 +56,15 @@ const NAV_COLLAPSED_KEY = 'schmux-nav-collapsed';
 const WORKSPACE_SORT_KEY = 'schmux-workspace-sort';
 type WorkspaceSortMode = 'alpha' | 'time';
 
+export function isDevWorkspaceEligible(
+  isDevMode: boolean,
+  isRemote: boolean,
+  workspaceId: string,
+  devStatus: DevStatus | null
+): boolean {
+  return isDevMode && !isRemote && !!devStatus?.schmux_workspaces.includes(workspaceId);
+}
+
 export default function AppShell() {
   const { toggleTheme } = useTheme();
   const { config, getRepoName } = useConfig();
@@ -120,6 +129,10 @@ export default function AppShell() {
   const [devRebuildPhase, setDevRebuildPhase] = useState<'building' | 'restarting' | null>(
     'building'
   );
+  const devWorkspacePathsKey = useMemo(
+    () => workspaces?.map((workspace) => `${workspace.id}:${workspace.path}`).join('\n') ?? '',
+    [workspaces]
+  );
 
   // Persist workspace sort preference
   useEffect(() => {
@@ -175,7 +188,7 @@ export default function AppShell() {
     getDevStatus()
       .then(setDevStatus)
       .catch(() => {});
-  }, [isDevMode, connected]);
+  }, [isDevMode, connected, devWorkspacePathsKey]);
 
   // Autolearn pending proposal counts
   const [loreCounts, setLoreCounts] = useState<Record<string, number>>({});
@@ -210,10 +223,6 @@ export default function AppShell() {
     () => Object.values(loreCounts).reduce((sum, n) => sum + n, 0),
     [loreCounts]
   );
-
-  // Identify which workspaces are dev-eligible (same repo as source)
-  const devSourceWorkspace = workspaces?.find((ws) => ws.path === devStatus?.source_workspace);
-  const devSourceRepo = devSourceWorkspace?.repo;
 
   const handleDevRebuild = async (workspaceId: string, type: 'frontend' | 'backend' | 'both') => {
     try {
@@ -747,13 +756,13 @@ export default function AppShell() {
                   : workspace.branch;
               const remoteDisconnected = isRemote && workspace.remote_host_status !== 'connected';
 
-              // Dev mode: is this workspace eligible and is it the live one?
-              // Only the schmux source workspace (and any workspace sharing its repo)
-              // is eligible — when devSourceRepo is unresolved (devStatus not yet loaded
-              // or the source workspace isn't in the list), don't show the button on
-              // every workspace.
-              const isDevEligible =
-                isDevMode && !isRemote && !!devSourceRepo && workspace.repo === devSourceRepo;
+              // The backend identifies schmux codebases directly from their go.mod.
+              const isDevEligible = isDevWorkspaceEligible(
+                isDevMode,
+                isRemote,
+                workspace.id,
+                devStatus
+              );
               const isDevLive = isDevEligible && devStatus?.source_workspace === workspace.path;
 
               return (
