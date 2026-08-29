@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import type { ConfigResponse, SpawnRequest, SpawnResult } from '../lib/types';
 import { makeConfig as baseMakeConfig } from '../lib/test-factories';
+import { resetSpawnInflightForTests } from '../lib/spawn-inflight';
 
 // --- Fixtures ---
 
@@ -150,6 +151,7 @@ describe('SpawnPage sapling flow', () => {
     vi.clearAllMocks();
     localStorage.clear();
     sessionStorage.clear();
+    resetSpawnInflightForTests();
     const cfg = makeConfig();
     configContextValue = cfg;
     mockGetConfig.mockResolvedValue(cfg);

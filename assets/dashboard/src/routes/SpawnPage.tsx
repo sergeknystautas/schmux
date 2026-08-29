@@ -1,13 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useSearchParams, useNavigate, useLocation } from 'react-router';
-import {
-  getConfig,
-  spawnSessions,
-  getErrorMessage,
-  suggestBranch,
-  getPersonas,
-  getStyles,
-} from '../lib/api';
+import { getConfig, getErrorMessage, getPersonas, getStyles } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
@@ -21,61 +14,15 @@ import Tooltip from '../components/Tooltip';
 import RemoteHostSelector, { type EnvironmentSelection } from '../components/RemoteHostSelector';
 import { getSpawnEntries, getPromptHistory } from '../lib/spawn-api';
 import type { AutocompleteItem } from '../components/PromptAutocomplete';
-import type { Model, RepoResponse, SpawnResult, SuggestBranchResponse } from '../lib/types';
+import type { Model, RepoResponse, SpawnRequest } from '../lib/types';
 import type { Persona, SpawnEntry, PromptHistoryEntry, Style } from '../lib/types.generated';
-import { WORKSPACE_EXPANDED_KEY } from '../lib/constants';
-
-// ============================================================================
-// Layer 2: Session Storage Draft (Active Draft)
-// Per-tab, cleared on successful spawn
-// ============================================================================
-
-interface SpawnDraft {
-  prompt: string;
-  targetCounts: Record<string, number>;
-  modelSelectionMode: 'single' | 'multiple' | 'advanced';
-  // Only for fresh spawns (no workspace_id)
-  repo?: string;
-  newRepoName?: string;
-  // Only for workspace mode
-  createBranch?: boolean;
-  imageAttachments?: string[]; // base64-encoded PNGs
-}
-
-function getSpawnDraftKey(workspaceId: string | null): string {
-  return `spawn-draft-${workspaceId || 'fresh'}`;
-}
-
-function loadSpawnDraft(workspaceId: string | null): SpawnDraft | null {
-  try {
-    const key = getSpawnDraftKey(workspaceId);
-    const stored = sessionStorage.getItem(key);
-    if (stored) {
-      return JSON.parse(stored) as SpawnDraft;
-    }
-  } catch (err) {
-    console.warn('Failed to load spawn draft:', err);
-  }
-  return null;
-}
-
-function saveSpawnDraft(workspaceId: string | null, draft: SpawnDraft): void {
-  try {
-    const key = getSpawnDraftKey(workspaceId);
-    sessionStorage.setItem(key, JSON.stringify(draft));
-  } catch (err) {
-    console.warn('Failed to save spawn draft:', err);
-  }
-}
-
-function clearSpawnDraft(workspaceId: string | null): void {
-  try {
-    const key = getSpawnDraftKey(workspaceId);
-    sessionStorage.removeItem(key);
-  } catch (err) {
-    console.warn('Failed to clear spawn draft:', err);
-  }
-}
+import {
+  useSpawnInflight,
+  startSpawn,
+  consumeSpawnError,
+  getSpawnFormKey,
+} from '../lib/spawn-inflight';
+import { loadSpawnDraft, saveSpawnDraft, type SpawnDraft } from '../lib/spawn-draft';
 
 // ============================================================================
 // Layer 3: Local Storage (Long-term Memory)
@@ -162,9 +109,6 @@ export default function SpawnPage() {
   const [newRepoName, setNewRepoName] = useState('');
   const [prompt, setPrompt] = useState('');
   const [nickname, setNickname] = useState('');
-  const [engagePhase, setEngagePhase] = useState<'idle' | 'naming' | 'spawning' | 'waiting'>(
-    'idle'
-  );
   const [showBranchInput, setShowBranchInput] = useState(false);
   const [createBranch, setCreateBranch] = useState(false);
   const [fenceEnabled, setFenceEnabled] = useState(false);
@@ -232,9 +176,14 @@ export default function SpawnPage() {
   })();
   const initialized = useRef(false);
 
-  const isMounted = useRef(true);
   const navigate = useNavigate();
   const inExistingWorkspace = mode === 'workspace';
+
+  // App-level in-flight lock for this form (workspaceId || 'fresh').
+  // Owns the spawn sequence so it survives unmounts.
+  const inflight = useSpawnInflight(urlWorkspaceId);
+  const engagePhase = inflight?.phase ?? 'idle';
+  const formDisabled = inflight !== undefined;
 
   // Get current workspace for header display
   const currentWorkspace = workspaces?.find((ws) => ws.id === resolvedWorkspaceId);
@@ -300,12 +249,6 @@ export default function SpawnPage() {
       setShowBranchInput(true);
     }
   }, [mode, branchSuggestEnabled, config, isSapling]);
-
-  useEffect(() => {
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
 
   // Load config and data
   useEffect(() => {
@@ -491,14 +434,22 @@ export default function SpawnPage() {
   }, [modelSelectionMode, availableModels]);
 
   // Persist to sessionStorage on changes
+  const lastInflightPhase = useRef<'naming' | 'spawning' | 'waiting' | undefined>(undefined);
   useEffect(() => {
+    const wasWaiting = lastInflightPhase.current === 'waiting';
+    lastInflightPhase.current = inflight?.phase;
     if (!initialized.current) return;
     if (skipNextPersist.current) {
       skipNextPersist.current = false;
       return;
     }
-    // Don't save if spawn succeeded (navigating away)
-    if (engagePhase === 'waiting') return;
+    // Don't save while a spawn is in flight — nothing can legitimately change.
+    if (inflight) return;
+    // A spawn just completed (waiting → cleared): the store's draft clear is
+    // authoritative; re-saving here would resurrect the submitted prompt from
+    // stale field state. Errored spawns clear from naming/spawning instead,
+    // and their draft should survive for retry.
+    if (wasWaiting) return;
 
     const draft: SpawnDraft = {
       prompt,
@@ -527,7 +478,7 @@ export default function SpawnPage() {
     createBranch,
     imageAttachments,
     urlWorkspaceId,
-    engagePhase,
+    inflight,
   ]);
 
   // Handle autocomplete selection: apply learned defaults from spawn entries
@@ -584,21 +535,6 @@ export default function SpawnPage() {
     });
   };
 
-  const generateBranchName = useCallback(
-    async (
-      promptText: string
-    ): Promise<{ result: SuggestBranchResponse | null; error: string | null }> => {
-      try {
-        const result = await suggestBranch({ prompt: promptText });
-        return { result, error: null };
-      } catch (err) {
-        console.error('Failed to suggest branch:', err);
-        return { result: null, error: getErrorMessage(err, 'Unknown error') };
-      }
-    },
-    []
-  );
-
   const validateForm = useCallback(() => {
     // Remote spawns don't require repo/branch - they use the remote host's workspace
     const isRemote = environment.type === 'remote';
@@ -645,78 +581,13 @@ export default function SpawnPage() {
     isSapling,
   ]);
 
-  // Handle spawn result: check for errors, navigate on success, return true if successful
-  const handleSpawnResult = useCallback(
-    (response: SpawnResult[]): boolean => {
-      const hasSuccess = response.some((r) => !r.error);
-      if (!hasSuccess) {
-        const errors = response.filter((r) => r.error).map((r) => r.error);
-        const unique = [...new Set(errors)];
-        const combinedError = unique.join('; ');
-        if (combinedError.includes('tmux is required')) {
-          setTmuxError(combinedError);
-        } else {
-          alert('Spawn Failed', `Spawn failed: ${combinedError}`);
-        }
-        setEngagePhase('idle');
-        return false;
-      }
-      setTmuxError('');
-      clearSpawnDraft(urlWorkspaceId);
-      setImageAttachments([]);
-      const successfulResults = response.filter((r) => !r.error);
-      if (successfulResults.length === 1 && successfulResults[0].session_id) {
-        setPendingNavigation({ type: 'session', id: successfulResults[0].session_id });
-      } else if (successfulResults.length > 0) {
-        const workspaceId = successfulResults[0].workspace_id;
-        if (workspaceId) {
-          setPendingNavigation({ type: 'workspace', id: workspaceId });
-        }
-      }
-      setEngagePhase('waiting');
-
-      // Auto-expand workspace(s) in sidebar
-      const workspaceIds = [
-        ...new Set(
-          response
-            .filter((r) => !r.error)
-            .map((r) => r.workspace_id)
-            .filter(Boolean)
-        ),
-      ] as string[];
-      let expanded: Record<string, boolean> = {};
-      try {
-        expanded = JSON.parse(localStorage.getItem(WORKSPACE_EXPANDED_KEY) || '{}') as Record<
-          string,
-          boolean
-        >;
-      } catch (err) {
-        console.warn('Failed to parse workspace expanded state:', err);
-        expanded = {};
-      }
-      let changed = false;
-      workspaceIds.forEach((id) => {
-        if (expanded[id] !== true) {
-          expanded[id] = true;
-          changed = true;
-        }
-      });
-      if (changed) {
-        localStorage.setItem(WORKSPACE_EXPANDED_KEY, JSON.stringify(expanded));
-      }
-      return true;
-    },
-    [urlWorkspaceId, toastError, setPendingNavigation]
-  );
-
   // Handle slash command selection - immediately spawns instead of switching mode
   const handleSlashCommandSelect = useCallback(
     async (command: string) => {
-      if (engagePhase !== 'idle') return;
+      if (formDisabled) return;
       setTmuxError('');
 
       if (command === '/resume') {
-        // Resume: spawn immediately with currently selected agent
         const selectedTargets: Record<string, number> = {};
         Object.entries(targetCounts).forEach(([name, count]) => {
           if (count > 0) selectedTargets[name] = count;
@@ -725,21 +596,17 @@ export default function SpawnPage() {
           toastError('Select an agent first');
           return;
         }
-        setEngagePhase('spawning');
-        try {
-          const actualRepo =
-            repo === '__new__'
-              ? /^(https?:\/\/|git@|ssh:\/\/|git:\/\/)/.test(newRepoName.trim())
-                ? newRepoName.trim()
-                : `local:${newRepoName.trim()}`
-              : repo;
-          const actualBranch =
-            mode === 'fresh'
-              ? isSapling
-                ? ''
-                : branch.trim() || getDefaultBranch(actualRepo)
-              : '';
-          const response = await spawnSessions({
+        const actualRepo =
+          repo === '__new__'
+            ? /^(https?:\/\/|git@|ssh:\/\/|git:\/\/)/.test(newRepoName.trim())
+              ? newRepoName.trim()
+              : `local:${newRepoName.trim()}`
+            : repo;
+        const actualBranch =
+          mode === 'fresh' ? (isSapling ? '' : branch.trim() || getDefaultBranch(actualRepo)) : '';
+        void startSpawn({
+          workspaceId: urlWorkspaceId,
+          request: {
             repo: mode === 'fresh' ? actualRepo : '',
             branch: actualBranch,
             prompt: '',
@@ -754,29 +621,21 @@ export default function SpawnPage() {
             persona_id: selectedPersonaId || undefined,
             style_id: selectedStyleId || undefined,
             intent_shared: shareIntent || undefined,
-          });
-          if (handleSpawnResult(response)) {
+          },
+          onSuccess: () => {
             saveLastRepo(actualRepo);
             saveLastTargetCounts(selectedTargets);
-          }
-        } catch (err) {
-          const errorMsg = getErrorMessage(err, 'Unknown error');
-          if (errorMsg.includes('tmux is required')) {
-            setTmuxError(errorMsg);
-          } else {
-            alert('Spawn Failed', `Failed to spawn: ${errorMsg}`);
-          }
-          setEngagePhase('idle');
-        }
+          },
+          setPendingNavigation,
+        });
         return;
       }
 
       if (command.startsWith('/quick ')) {
-        // Quick launch: spawn immediately
         const quickName = command.slice('/quick '.length);
-        setEngagePhase('spawning');
-        try {
-          const response = await spawnSessions({
+        void startSpawn({
+          workspaceId: urlWorkspaceId,
+          request: {
             repo: '',
             branch: '',
             prompt: '',
@@ -785,36 +644,28 @@ export default function SpawnPage() {
             workspace_id: prefillWorkspaceId || '',
             quick_launch_name: quickName,
             fence: fenceForRequest,
-          });
-          handleSpawnResult(response);
-        } catch (err) {
-          const errorMsg = getErrorMessage(err, 'Unknown error');
-          if (errorMsg.includes('tmux is required')) {
-            setTmuxError(errorMsg);
-          } else {
-            alert('Spawn Failed', `Failed to spawn: ${errorMsg}`);
-          }
-          setEngagePhase('idle');
-        }
+          },
+          setPendingNavigation,
+        });
         return;
       }
 
       // Command target: spawn immediately with the command
-      setEngagePhase('spawning');
-      try {
-        const actualRepo =
-          repo === '__new__'
-            ? /^(https?:\/\/|git@|ssh:\/\/|git:\/\/)/.test(newRepoName.trim())
-              ? newRepoName.trim()
-              : `local:${newRepoName.trim()}`
-            : repo;
-        const actualBranch =
-          mode === 'fresh'
-            ? isSapling
-              ? ''
-              : branch.trim() || getDefaultBranch(actualRepo)
-            : branch;
-        const response = await spawnSessions({
+      const actualRepo =
+        repo === '__new__'
+          ? /^(https?:\/\/|git@|ssh:\/\/|git:\/\/)/.test(newRepoName.trim())
+            ? newRepoName.trim()
+            : `local:${newRepoName.trim()}`
+          : repo;
+      const actualBranch =
+        mode === 'fresh'
+          ? isSapling
+            ? ''
+            : branch.trim() || getDefaultBranch(actualRepo)
+          : branch;
+      void startSpawn({
+        workspaceId: urlWorkspaceId,
+        request: {
           repo: actualRepo,
           branch: actualBranch,
           prompt: '',
@@ -827,22 +678,15 @@ export default function SpawnPage() {
           remote_host_id: environment.type === 'remote' ? environment.hostId : undefined,
           persona_id: selectedPersonaId || undefined,
           style_id: selectedStyleId || undefined,
-        });
-        if (handleSpawnResult(response)) {
+        },
+        onSuccess: () => {
           saveLastRepo(actualRepo);
-        }
-      } catch (err) {
-        const errorMsg = getErrorMessage(err, 'Unknown error');
-        if (errorMsg.includes('tmux is required')) {
-          setTmuxError(errorMsg);
-        } else {
-          alert('Spawn Failed', `Failed to spawn: ${errorMsg}`);
-        }
-        setEngagePhase('idle');
-      }
+        },
+        setPendingNavigation,
+      });
     },
     [
-      engagePhase,
+      formDisabled,
       targetCounts,
       prefillWorkspaceId,
       repo,
@@ -851,15 +695,19 @@ export default function SpawnPage() {
       branch,
       environment,
       getDefaultBranch,
-      handleSpawnResult,
       toastError,
       selectedPersonaId,
       selectedStyleId,
       isSapling,
+      urlWorkspaceId,
+      setPendingNavigation,
+      fenceForRequest,
+      shareIntent,
     ]
   );
 
-  const handleEngage = useCallback(async () => {
+  const handleEngage = useCallback(() => {
+    if (formDisabled) return;
     if (!validateForm()) return;
     setTmuxError('');
 
@@ -874,49 +722,29 @@ export default function SpawnPage() {
           ? newRepoName.trim()
           : `local:${newRepoName.trim()}`
         : repo;
+
     let actualBranch = branch;
     let actualNickname = nickname;
-    let newBranch: string | undefined;
+    let suggest: { prompt: string; into: 'branch' | 'new_branch' } | undefined;
 
-    // Fresh mode: need to determine branch
     if (mode === 'fresh') {
       if (isSapling) {
-        // Sapling repos have no branch concept — backend substitutes "main"
-        // only at the sapling backend boundary; persist empty branch.
+        // Sapling repos have no branch concept — backend substitutes "main".
         actualBranch = '';
-        actualNickname = nickname;
       } else if (branch.trim()) {
-        // User provided a branch name — use it directly, skip suggestion
         actualBranch = branch.trim();
-        actualNickname = nickname;
       } else if (branchSuggestEnabled) {
-        // Call branch suggest API
-        setEngagePhase('naming');
-        const { result, error } = await generateBranchName(prompt);
-        if (!isMounted.current) return;
-        if (result && result.branch.trim()) {
-          actualBranch = result.branch;
-        } else {
-          // Abort — reveal branch input so user can provide one
-          setShowBranchInput(true);
-          setEngagePhase('idle');
-          alert(
-            'Branch Suggestion Failed',
-            `Branch suggestion failed: ${error}. Please enter a branch name.`
-          );
-          return;
-        }
+        actualBranch = '';
+        suggest = { prompt, into: 'branch' };
       } else {
-        // No suggestion available and no branch provided — shouldn't reach here
-        // due to validateForm, but guard anyway
+        // validateForm already ensured a branch when suggestion is off.
         actualBranch = getDefaultBranch(actualRepo);
         actualNickname = '';
       }
     }
 
-    // Workspace mode with "Create new branch" checked
-    // Defensive: createBranch checkbox is hidden for sapling workspaces, but
-    // guard explicitly against future code changes that might decouple them.
+    // Workspace mode + Create-branch: ask the suggest API to name the new branch.
+    // Defensive: createBranch is hidden for sapling workspaces, but guard anyway.
     if (
       mode === 'workspace' &&
       createBranch &&
@@ -924,55 +752,40 @@ export default function SpawnPage() {
       branchSuggestEnabled &&
       !isSaplingWorkspace
     ) {
-      // Call branch suggest API to get new branch name
-      setEngagePhase('naming');
-      const { result, error } = await generateBranchName(prompt);
-      if (!isMounted.current) return;
-      if (result && result.branch.trim()) {
-        newBranch = result.branch;
-      } else {
-        setEngagePhase('idle');
-        alert('Branch Suggestion Failed', `Branch suggestion failed: ${error}. Please try again.`);
-        return;
-      }
+      suggest = { prompt, into: 'new_branch' };
     }
 
-    // Spawn
-    setEngagePhase('spawning');
+    const request: SpawnRequest = {
+      repo: actualRepo,
+      branch: actualBranch,
+      prompt,
+      nickname: actualNickname.trim(),
+      targets: selectedTargets,
+      workspace_id: prefillWorkspaceId || '',
+      remote_profile_id: environment.type === 'remote' ? environment.profileId : undefined,
+      remote_flavor: environment.type === 'remote' ? environment.flavor : undefined,
+      remote_host_id: environment.type === 'remote' ? environment.hostId : undefined,
+      persona_id: selectedPersonaId || undefined,
+      style_id: selectedStyleId || undefined,
+      image_attachments: imageAttachments.length > 0 ? imageAttachments : undefined,
+      workspace_label: isSapling ? workspaceLabel.trim() : undefined,
+      fence: fenceForRequest,
+    };
 
-    try {
-      const response = await spawnSessions({
-        repo: actualRepo,
-        branch: actualBranch,
-        prompt,
-        nickname: actualNickname.trim(),
-        targets: selectedTargets,
-        workspace_id: prefillWorkspaceId || '',
-        remote_profile_id: environment.type === 'remote' ? environment.profileId : undefined,
-        remote_flavor: environment.type === 'remote' ? environment.flavor : undefined,
-        remote_host_id: environment.type === 'remote' ? environment.hostId : undefined,
-        new_branch: newBranch,
-        persona_id: selectedPersonaId || undefined,
-        style_id: selectedStyleId || undefined,
-        image_attachments: imageAttachments.length > 0 ? imageAttachments : undefined,
-        workspace_label: isSapling ? workspaceLabel.trim() : undefined,
-        fence: fenceForRequest,
-      });
-      if (handleSpawnResult(response)) {
+    void startSpawn({
+      workspaceId: urlWorkspaceId,
+      request,
+      suggest,
+      onSuccess: () => {
         saveLastRepo(actualRepo);
         saveLastTargetCounts(selectedTargets);
         saveLastModelSelectionMode(modelSelectionMode);
-      }
-    } catch (err) {
-      const errorMsg = getErrorMessage(err, 'Unknown error');
-      if (errorMsg.includes('tmux is required')) {
-        setTmuxError(errorMsg);
-      } else {
-        alert('Spawn Failed', `Failed to spawn: ${errorMsg}`);
-      }
-      setEngagePhase('idle');
-    }
+        setImageAttachments([]);
+      },
+      setPendingNavigation,
+    });
   }, [
+    formDisabled,
     validateForm,
     targetCounts,
     repo,
@@ -987,16 +800,35 @@ export default function SpawnPage() {
     prefillWorkspaceId,
     modelSelectionMode,
     getDefaultBranch,
-    generateBranchName,
-    toastError,
-    handleSpawnResult,
     selectedPersonaId,
     selectedStyleId,
     imageAttachments,
     isSapling,
     isSaplingWorkspace,
     workspaceLabel,
+    fenceForRequest,
+    urlWorkspaceId,
+    setPendingNavigation,
   ]);
+
+  // Surface a stored spawn failure exactly once — whether it happened while
+  // this form was mounted or while the user was elsewhere.
+  useEffect(() => {
+    if (!inflight?.error) return;
+    const consumed = consumeSpawnError(getSpawnFormKey(urlWorkspaceId));
+    if (!consumed) return;
+    if (consumed.error.includes('tmux is required')) {
+      setTmuxError(consumed.error);
+    } else if (consumed.failedPhase === 'naming') {
+      if (mode === 'fresh') setShowBranchInput(true);
+      alert(
+        'Branch Suggestion Failed',
+        `Branch suggestion failed: ${consumed.error}. Please enter a branch name.`
+      );
+    } else {
+      alert('Spawn Failed', `Failed to spawn: ${consumed.error}`);
+    }
+  }, [inflight, urlWorkspaceId, mode, alert]);
 
   // Global Cmd+Enter handler to submit form from any input on the spawn page
   useEffect(() => {
@@ -1015,6 +847,7 @@ export default function SpawnPage() {
   // Handle paste events for image attachments
   useEffect(() => {
     const handlePaste = async (e: ClipboardEvent) => {
+      if (formDisabled) return;
       if (!e.clipboardData?.items) return;
 
       // Find image item in clipboard
@@ -1049,7 +882,7 @@ export default function SpawnPage() {
 
     document.addEventListener('paste', handlePaste);
     return () => document.removeEventListener('paste', handlePaste);
-  }, [imageAttachments.length]);
+  }, [imageAttachments.length, formDisabled]);
 
   if (loading) {
     return (
@@ -1097,7 +930,7 @@ export default function SpawnPage() {
           <RemoteHostSelector
             value={environment}
             onChange={setEnvironment}
-            disabled={engagePhase !== 'idle'}
+            disabled={formDisabled}
           />
         )}
 
@@ -1122,6 +955,7 @@ export default function SpawnPage() {
             ]}
             onSelectCommand={handleSlashCommandSelect}
             onSubmit={handleEngage}
+            disabled={formDisabled}
             data-testid="spawn-prompt"
             autocompleteEntries={acEntries}
             autocompleteHistory={acHistory}
@@ -1157,6 +991,7 @@ export default function SpawnPage() {
                     onClick={() =>
                       setImageAttachments((prev) => prev.filter((_, i) => i !== index))
                     }
+                    disabled={formDisabled}
                     style={{
                       background: 'none',
                       border: 'none',
@@ -1199,6 +1034,7 @@ export default function SpawnPage() {
                           <select
                             className="select"
                             data-testid="agent-select"
+                            disabled={formDisabled}
                             value={
                               availableModels.find((item) => (targetCounts[item.name] || 0) > 0)
                                 ?.name || ''
@@ -1237,6 +1073,7 @@ export default function SpawnPage() {
                               data-testid="persona-select"
                               className="select"
                               data-tour="spawn-persona-select"
+                              disabled={formDisabled}
                               value={selectedPersonaId}
                               onChange={(e) => setSelectedPersonaId(e.target.value)}
                             >
@@ -1255,6 +1092,7 @@ export default function SpawnPage() {
                             <select
                               data-testid="style-select"
                               className="select"
+                              disabled={formDisabled}
                               value={selectedStyleId}
                               onChange={(e) => setSelectedStyleId(e.target.value)}
                             >
@@ -1275,6 +1113,7 @@ export default function SpawnPage() {
                             className="select"
                             data-tour="spawn-repo-select"
                             required
+                            disabled={formDisabled}
                             value={repo}
                             data-testid="spawn-repo-select"
                             onChange={(event) => {
@@ -1300,6 +1139,7 @@ export default function SpawnPage() {
                               type="text"
                               id="branch"
                               className="input"
+                              disabled={formDisabled}
                               value={branch}
                               onChange={(event) => setBranch(event.target.value)}
                               placeholder="e.g. feature/my-branch"
@@ -1312,6 +1152,7 @@ export default function SpawnPage() {
                             <input
                               type="text"
                               className="input"
+                              disabled={formDisabled}
                               value={workspaceLabel}
                               onChange={(event) => setWorkspaceLabel(event.target.value)}
                               placeholder={prospectiveWorkspaceId}
@@ -1325,6 +1166,7 @@ export default function SpawnPage() {
                           type="text"
                           id="newRepoName"
                           className="input mt-sm"
+                          disabled={formDisabled}
                           value={newRepoName}
                           onChange={(event) => setNewRepoName(event.target.value)}
                           placeholder="Name or git URL"
@@ -1346,6 +1188,7 @@ export default function SpawnPage() {
                           <select
                             className="select"
                             data-testid="agent-select"
+                            disabled={formDisabled}
                             value={
                               availableModels.find((item) => (targetCounts[item.name] || 0) > 0)
                                 ?.name || ''
@@ -1383,6 +1226,7 @@ export default function SpawnPage() {
                             <select
                               data-testid="persona-select"
                               className="select"
+                              disabled={formDisabled}
                               value={selectedPersonaId}
                               onChange={(e) => setSelectedPersonaId(e.target.value)}
                             >
@@ -1401,6 +1245,7 @@ export default function SpawnPage() {
                             <select
                               data-testid="style-select"
                               className="select"
+                              disabled={formDisabled}
                               value={selectedStyleId}
                               onChange={(e) => setSelectedStyleId(e.target.value)}
                             >
@@ -1435,6 +1280,7 @@ export default function SpawnPage() {
                           id="repo"
                           className="select"
                           required
+                          disabled={formDisabled}
                           value={repo}
                           data-testid="spawn-repo-select"
                           onChange={(event) => {
@@ -1459,6 +1305,7 @@ export default function SpawnPage() {
                               type="text"
                               id="newRepoName"
                               className="input"
+                              disabled={formDisabled}
                               value={newRepoName}
                               onChange={(event) => setNewRepoName(event.target.value)}
                               placeholder="Name or git URL"
@@ -1483,6 +1330,7 @@ export default function SpawnPage() {
                     <button
                       type="button"
                       className="btn mb-sm"
+                      disabled={formDisabled}
                       onClick={() => setModelSelectionMode('single')}
                     >
                       Single agent
@@ -1503,6 +1351,7 @@ export default function SpawnPage() {
                               key={item.name}
                               type="button"
                               className={`btn${isSelected ? ' btn--primary' : ''}`}
+                              disabled={formDisabled}
                               onClick={() => toggleAgent(item.name)}
                               data-testid={`agent-${item.name}`}
                               style={{
@@ -1562,7 +1411,7 @@ export default function SpawnPage() {
                                 type="button"
                                 className="btn"
                                 onClick={() => updateTargetCount(item.name, -1)}
-                                disabled={count === 0}
+                                disabled={formDisabled || count === 0}
                                 style={{
                                   padding: '2px 8px',
                                   fontSize: '0.75rem',
@@ -1591,6 +1440,7 @@ export default function SpawnPage() {
                               <button
                                 type="button"
                                 className="btn"
+                                disabled={formDisabled}
                                 onClick={() => updateTargetCount(item.name, 1)}
                                 style={{
                                   padding: '2px 8px',
@@ -1629,6 +1479,7 @@ export default function SpawnPage() {
                           <select
                             data-testid="persona-select"
                             className="select flex-1"
+                            disabled={formDisabled}
                             value={selectedPersonaId}
                             onChange={(e) => setSelectedPersonaId(e.target.value)}
                           >
@@ -1644,6 +1495,7 @@ export default function SpawnPage() {
                           <select
                             data-testid="style-select"
                             className="select flex-1"
+                            disabled={formDisabled}
                             value={selectedStyleId}
                             onChange={(e) => setSelectedStyleId(e.target.value)}
                           >
@@ -1675,6 +1527,7 @@ export default function SpawnPage() {
                   type="text"
                   id="branch"
                   className="input w-full"
+                  disabled={formDisabled}
                   value={branch}
                   onChange={(event) => setBranch(event.target.value)}
                   placeholder="Branch (e.g. feature/my-branch)"
@@ -1687,6 +1540,7 @@ export default function SpawnPage() {
               <input
                 type="text"
                 className="input w-full"
+                disabled={formDisabled}
                 value={workspaceLabel}
                 onChange={(event) => setWorkspaceLabel(event.target.value)}
                 placeholder={prospectiveWorkspaceId}
@@ -1745,7 +1599,7 @@ export default function SpawnPage() {
                         type="checkbox"
                         checked={createBranch}
                         onChange={(e) => setCreateBranch(e.target.checked)}
-                        disabled={engagePhase !== 'idle'}
+                        disabled={formDisabled}
                       />
                       Create new branch from here
                     </label>
@@ -1758,6 +1612,7 @@ export default function SpawnPage() {
                     type="checkbox"
                     checked={shareIntent}
                     onChange={(e) => setShareIntent(e.target.checked)}
+                    disabled={formDisabled}
                     data-testid="share-intent-toggle"
                   />
                   Share activity with team
@@ -1769,7 +1624,7 @@ export default function SpawnPage() {
                     type="checkbox"
                     checked={fenceEnabled}
                     onChange={(e) => setFenceEnabled(e.target.checked)}
-                    disabled={engagePhase !== 'idle'}
+                    disabled={formDisabled}
                     data-testid="fence-toggle"
                   />
                   Fence (sandbox + skip approvals)
@@ -1780,7 +1635,7 @@ export default function SpawnPage() {
           <button
             className="btn btn--primary flex-row gap-sm"
             onClick={handleEngage}
-            disabled={engagePhase !== 'idle'}
+            disabled={formDisabled}
             data-tour="spawn-submit"
             data-testid="spawn-submit"
           >

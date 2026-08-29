@@ -14,6 +14,7 @@ interface PromptTextareaProps {
   commands: string[];
   onSelectCommand: (command: string) => void;
   onSubmit?: () => void;
+  disabled?: boolean;
   'data-testid'?: string;
   // Autocomplete props (optional)
   autocompleteEntries?: SpawnEntry[];
@@ -119,6 +120,7 @@ export default function PromptTextarea({
   commands,
   onSelectCommand,
   onSubmit,
+  disabled = false,
   'data-testid': dataTestId,
   autocompleteEntries,
   autocompleteHistory,
@@ -141,7 +143,7 @@ export default function PromptTextarea({
   // Show autocomplete when: 3+ chars, no slash prefix, not dismissed
   const acQuery = value.trim();
   const showAutocomplete =
-    hasAutocomplete && !acDismissed && acQuery.length >= 3 && !acQuery.startsWith('/');
+    !disabled && hasAutocomplete && !acDismissed && acQuery.length >= 3 && !acQuery.startsWith('/');
 
   // Debounced function to check if textarea should expand
   const checkShouldExpand = useDebouncedCallback(() => {
@@ -164,6 +166,7 @@ export default function PromptTextarea({
   const beforeCursor = value.substring(0, cursorPosRef.current);
   const slashMatch = beforeCursor.match(/\/([\w ]*)$/);
   const slashActive =
+    !disabled &&
     !dismissed &&
     !!slashMatch &&
     (slashMatch.index === 0 || /\s/.test(beforeCursor[slashMatch.index! - 1]));
@@ -319,6 +322,7 @@ export default function PromptTextarea({
         rows={expanded ? 20 : 5}
         className="textarea"
         autoFocus
+        disabled={disabled}
         data-testid={dataTestId}
         style={{
           border: 'none',
