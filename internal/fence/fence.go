@@ -27,7 +27,7 @@ type Config struct {
 	ExtraWritablePaths []string // out-of-workspace paths the VCS must write (e.g. a git worktree's shared .git). Opaque to fence.
 	ExtraReadablePaths []string // out-of-workspace paths the process may read (e.g. the workspace's fence-log dir). Opaque to fence.
 	AllowedDomains     []string // model/provider + repo fence.allowed_domains
-	Presets            []string // repo fence.presets (golang/tmux/docker/godot-editor/chromium/macos-gui/swift/vercel)
+	Presets            []string // repo fence.presets (golang/tmux/docker/godot-editor/chromium/macos-gui/spine/swift/vercel)
 	DataDir            string   // where generated launch files go (~/.schmux/fence/<workspace-id>/<session-id>/)
 }
 
@@ -94,7 +94,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 
 	cacheRoot := filepath.Join(c.WorkspacePath, filepath.FromSlash(fenceCacheRel))
 	env := baselineEnv(cacheRoot)
-	var goFlags, goTelemetry, allUnix, dockerConfig, godotEditor, swiftShim, vercelShim bool
+	var goFlags, goTelemetry, allUnix, dockerConfig, godotEditor, spineState, swiftShim, vercelShim bool
 	domains := append([]string{}, baselineDomains...)
 	var machLookup, machRegister, iokitUserClients []string
 	for _, name := range c.Presets {
@@ -110,6 +110,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 		allUnix = allUnix || p.allUnixSockets
 		dockerConfig = dockerConfig || p.dockerConfig
 		godotEditor = godotEditor || p.godotEditor
+		spineState = spineState || p.spineState
 		swiftShim = swiftShim || p.swiftShim
 		vercelShim = vercelShim || p.vercelShim
 		domains = append(domains, p.domains...)
@@ -205,6 +206,9 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 	if godotEditor {
 		allowWrite = append(allowWrite, godotEditorPaths()...)
 	}
+	if spineState {
+		allowWrite = append(allowWrite, spineStatePaths()...)
+	}
 	allowedDomains := make([]string, 0, len(c.AllowedDomains)+len(domains))
 	allowedDomains = append(allowedDomains, c.AllowedDomains...)
 	allowedDomains = append(allowedDomains, domains...)
@@ -277,6 +281,7 @@ type preset struct {
 	allUnixSockets   bool              // network.allowAllUnixSockets
 	dockerConfig     bool              // stage a DOCKER_CONFIG/config.json with cliPluginsExtraDirs
 	godotEditor      bool              // allowWrite the Godot editor config dir (~/Library/Application Support/Godot)
+	spineState       bool              // allowWrite the Spine editor's per-user state dir (~/Library/Application Support/Spine)
 	swiftShim        bool              // put a `swift` shim on PATH that adds --disable-sandbox (SwiftPM's nested sandbox can't run inside fence)
 	vercelShim       bool              // put a `vercel` shim on PATH (per-session launch dir) that strips the CLI's incompatible fetch dispatcher and opts Node into env-proxy mode
 	domains          []string          // append to network.allowedDomains
@@ -293,6 +298,18 @@ var presets = map[string]preset{
 	},
 	"tmux":         {allUnixSockets: true},
 	"godot-editor": {godotEditor: true},
+	// The Spine editor rewrites its per-user state on every launch: it opens
+	// ~/Library/Application Support/Spine/spine.log without checking fopen's
+	// result (a denied write there ends in SIGSEGV inside JNI_CreateJavaVM,
+	// before Spine's own code runs), rotates settings/start-N.json to .bak,
+	// creates UUID-named temp files in the dir root, and chmods the dir. A
+	// literal-file grant was spiked first and failed — the launcher aborts on
+	// the settings backup — so the grant is the Spine state dir, recursively
+	// (the godot-editor shape). Deliberately NOT granted, per the same spike's
+	// denial log: writes inside /Applications/Spine.app, and the
+	// IOHIDParamUserClient / AppleNVMeEANUC IOKit user clients — none proved
+	// fatal to a successful export.
+	"spine": {spineState: true},
 	// SwiftPM evaluates Package.swift (and runs build-tool/command plugins) inside
 	// a nested macOS Seatbelt sandbox via sandbox-exec. That nested sandbox_apply
 	// is denied inside fence's own sandbox ("Operation not permitted"), so
@@ -529,6 +546,21 @@ func godotEditorPaths() []string {
 		return nil
 	}
 	return []string{filepath.Join(configDir, "Godot")}
+}
+
+// spineStatePaths returns the Spine editor's per-user state directory, added
+// to allowWrite by the spine preset. On macOS os.UserConfigDir() is
+// ~/Library/Application Support, so this resolves to
+// ~/Library/Application Support/Spine. The whole dir, not spine.log alone:
+// Spine's launcher rotates settings backups and creates UUID-named temp files
+// there on every start, and a spiked literal-file grant aborted on the first
+// settings write. Sibling Application Support dirs stay unwritable.
+func spineStatePaths() []string {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return nil
+	}
+	return []string{filepath.Join(configDir, "Spine")}
 }
 
 // dockerSystemPluginDirs are well-known locations of docker CLI plugins outside

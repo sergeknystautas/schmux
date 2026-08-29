@@ -556,6 +556,10 @@ When a session is launched with the **Fence** sandbox (the checkbox in the spawn
 | `tmux`         | Unix-socket creation (needed by tools/tests that spin up tmux)                                                        |
 | `docker`       | Host Docker daemon socket + `DOCKER_CONFIG` redirect + Docker Hub pull domains                                        |
 | `godot-editor` | Read/write the Godot editor config dir (`~/Library/Application Support/Godot`)                                        |
+| `spine`        | Read/write the Spine editor state dir (`~/Library/Application Support/Spine`)                                         |
+| `chromium`     | macOS Mach lookup/register grants for `org.chromium.*` (Chromium browsers, even headless)                             |
+| `macos-gui`    | macOS Mach lookup/register `*` + the `AGXDeviceUserClient` (GPU) IOKit user client (native windowed apps)             |
+| `swift`        | `swift` PATH shim adding `--disable-sandbox` to `build`/`test`/`run` (SwiftPM's nested sandbox cannot run in fence)   |
 | `vercel`       | Vercel CLI proxy-compat PATH shim (Node preload + env, in the per-session launch dir) + `vercel.com`/`api.vercel.com` |
 
 The npm/Yarn/Bun, pip/uv, and Playwright browser cache redirects are baseline (applied to every fenced session), not presets — they are pure env-var redirects into the workspace with no security tradeoff.

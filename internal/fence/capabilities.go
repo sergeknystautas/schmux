@@ -89,6 +89,19 @@ func writePresetGrants(b *strings.Builder, name string, p preset) {
 		b.WriteString("- Sets " + bq + "network.allowAllUnixSockets = true" + bq +
 			" (permits any Unix-domain socket connection).\n")
 	}
+	if p.godotEditor {
+		b.WriteString("- Allows writing the Godot editor's per-user config dir (" + bq +
+			"~/Library/Application Support/Godot" + bq + "): editor settings, project list, export presets.\n")
+	}
+	if p.spineState {
+		b.WriteString("- Allows writing the Spine editor's per-user state dir (" + bq +
+			"~/Library/Application Support/Spine" + bq + "), recursively: its launch log, settings " +
+			"(rotated on every start), cache, and updater metadata. Spine's launcher SIGSEGVs if it " +
+			"cannot write " + bq + "spine.log" + bq + " and aborts if it cannot rotate its settings, " +
+			"so nothing narrower launches. Grants no sibling Application Support dir, no write inside " +
+			bq + "Spine.app" + bq + ", and no IOKit class — Spine's denied " + bq + "AppleNVMeEANUC" + bq +
+			" and " + bq + "IOHIDParamUserClient" + bq + " opens are nonfatal and stay denied.\n")
+	}
 	if p.dockerConfig {
 		b.WriteString("- Stages a " + bq + "DOCKER_CONFIG/config.json" + bq + " registering discovered " +
 			"Docker CLI plugin directories so buildx/compose stay usable while fenced.\n")
@@ -209,6 +222,13 @@ const selectionText = "## Choosing a recommendation\n\n" +
 	"This failure aborts the command but may not appear as a " + bq + "✗" + bq + " line in " + bq + "monitor.log" + bq +
 	"; the evidence is the command's own error output.\n\n" +
 	"- The Vercel CLI aborting with " + bq + "InvalidArgumentError: invalid onError method" + bq + " (its requests never reach the proxy, so " + bq + "monitor.log" + bq + " stays quiet — the evidence is the CLI's own stderr) proves the Vercel CLI is running on a Node that rejects its explicit fetch dispatcher -> the " + bq + "vercel" + bq + " preset is honest. The preset already carries " + bq + "vercel.com" + bq + "/" + bq + "api.vercel.com" + bq + "; update-notifier and telemetry endpoints stay denied — recommend doing nothing about those.\n\n" +
+	"- The Spine editor dying from SIGSEGV during " + bq + "JNI_CreateJavaVM" + bq + " right after a denied " +
+	bq + "file-write-data ~/Library/Application Support/Spine/spine.log" + bq + " (it fprintfs an unchecked " +
+	"null " + bq + "FILE*" + bq + "), or its launcher aborting on a denied write under that dir, proves the " +
+	"Spine editor/CLI is running -> the " + bq + "spine" + bq + " preset is honest. Spine's launch also draws " +
+	"denied " + bq + "iokit-open-user-client" + bq + " lines (" + bq + "AppleNVMeEANUC" + bq + ", " +
+	bq + "IOHIDParamUserClient" + bq + ") and writes into " + bq + "Spine.app" + bq + "; a live export " +
+	"succeeds with all of those still denied — recommend doing nothing about them.\n\n" +
 	bq + "allowed_domains" + bq + " is per-destination, not per-tool. Recommend the specific blocked domain, " +
 	"taken verbatim from the " + bq + "CONNECT" + bq + " line. Do not broaden it.\n\n"
 

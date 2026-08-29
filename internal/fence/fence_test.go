@@ -282,7 +282,7 @@ func TestWrapMacOSGuiPresetGrantsGPUUserClient(t *testing.T) {
 // GPU access follows from the macos-gui identity claim alone. Every other
 // preset must leave the IOKit block off entirely.
 func TestOtherPresetsGrantNoIOKitAccess(t *testing.T) {
-	for _, name := range []string{"golang", "tmux", "docker", "chromium", "swift", "vercel", "godot-editor"} {
+	for _, name := range []string{"golang", "tmux", "docker", "chromium", "swift", "vercel", "godot-editor", "spine"} {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "sess")
 			if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{name}, DataDir: dir}, "echo hi"); err != nil {
@@ -413,6 +413,78 @@ func TestWrapGodotEditorPresetAllowsWrite(t *testing.T) {
 		if strings.Contains(string(cmd), banned) {
 			t.Errorf("godot-editor preset must not add %s: %s", banned, cmd)
 		}
+	}
+}
+
+// The spine preset's whole grant is one recursive path: the Spine editor's
+// per-user state dir. Everything else Spine gets denied on launch (writes into
+// Spine.app, the AppleNVMeEANUC and IOHIDParamUserClient user clients) is
+// nonfatal — a live export succeeds with them denied — so the settings must not
+// mention any of it.
+func TestWrapSpinePresetAllowsOnlyStateDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sess")
+	ws := t.TempDir()
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"spine"}, DataDir: dir}, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+	var s settings
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatalf("UserConfigDir: %v", err)
+	}
+	// Exactly workspace + Spine state dir — no sibling dirs, nothing else.
+	wantSpine := filepath.Join(configDir, "Spine") // macOS: ~/Library/Application Support/Spine
+	wantWrite := []string{ws, wantSpine}
+	if !slices.Equal(s.Filesystem.AllowWrite, wantWrite) {
+		t.Errorf("allowWrite = %v, want exactly %v", s.Filesystem.AllowWrite, wantWrite)
+	}
+	// No write grant may reach into the app bundle.
+	for _, w := range s.Filesystem.AllowWrite {
+		if strings.HasPrefix(w, "/Applications") {
+			t.Errorf("spine preset must not grant writes under /Applications, got %q", w)
+		}
+	}
+	// Spine's denied IOKit opens are nonfatal and must stay denied: no macos
+	// block at all, and no mention of the classes anywhere in the settings.
+	if s.MacOS != nil {
+		t.Errorf("spine preset must not emit a macos block, got %+v", s.MacOS)
+	}
+	for _, banned := range []string{"AppleNVMeEANUC", "IOHIDParamUserClient", "iokit"} {
+		if strings.Contains(string(raw), banned) {
+			t.Errorf("spine preset settings must not mention %q:\n%s", banned, raw)
+		}
+	}
+	// Filesystem-only preset: no capability toggles, shims, or domains.
+	if s.Network != nil && s.Network.AllowAllUnixSockets {
+		t.Errorf("spine preset must not set allowAllUnixSockets")
+	}
+	if !IsKnownPreset("spine") {
+		t.Errorf("IsKnownPreset(spine) = false, want true")
+	}
+	cmd, _ := os.ReadFile(filepath.Join(dir, "cmd.sh"))
+	for _, banned := range []string{"GOCACHE", "DOCKER_CONFIG", "-shim"} {
+		if strings.Contains(string(cmd), banned) {
+			t.Errorf("spine preset must not add %s: %s", banned, cmd)
+		}
+	}
+}
+
+// Pin the closed preset enum: adding, renaming, or removing a preset must be a
+// deliberate change here too. The per-preset tests above prove each existing
+// preset's emitted settings are unchanged by spine's addition.
+func TestPresetEnumIsExactly(t *testing.T) {
+	want := []string{"chromium", "docker", "godot-editor", "golang", "macos-gui", "spine", "swift", "tmux", "vercel"}
+	got := make([]string, 0, len(presets))
+	for name := range presets {
+		got = append(got, name)
+	}
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Errorf("preset enum = %v, want %v", got, want)
 	}
 }
 

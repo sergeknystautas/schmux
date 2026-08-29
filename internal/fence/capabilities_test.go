@@ -41,6 +41,12 @@ func TestRenderCapabilities_PresetGrantsAndBaseline(t *testing.T) {
 			if p.dockerConfig && !strings.Contains(doc, "DOCKER_CONFIG") {
 				t.Errorf("doc missing docker config grant for preset %q", name)
 			}
+			if p.godotEditor && !strings.Contains(doc, "Application Support/Godot") {
+				t.Errorf("doc missing Godot config-dir grant for preset %q", name)
+			}
+			if p.spineState && !strings.Contains(doc, "Application Support/Spine") {
+				t.Errorf("doc missing Spine state-dir grant for preset %q", name)
+			}
 			if p.swiftShim && !strings.Contains(doc, "--disable-sandbox") {
 				t.Errorf("doc missing swift shim grant for preset %q", name)
 			}
@@ -136,6 +142,24 @@ func TestRenderCapabilities_VercelGuidance(t *testing.T) {
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("doc missing vercel guidance marker %q", want)
+		}
+	}
+}
+
+// The analyzer must recognize Spine's crash signature (the log-write denial
+// that ends in SIGSEGV) and must be told the denials that a successful export
+// leaves in place, so it never recommends widening for them.
+func TestRenderCapabilities_SpineGuidance(t *testing.T) {
+	doc := RenderCapabilities()
+	for _, want := range []string{
+		"JNI_CreateJavaVM",     // crash signature: SIGSEGV before Spine's own code runs
+		"spine.log",            // the causal denied write
+		"AppleNVMeEANUC",       // stays denied — nonfatal
+		"IOHIDParamUserClient", // stays denied — nonfatal
+		"Spine.app",            // app-bundle writes stay denied — nonfatal
+	} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("doc missing spine guidance marker %q", want)
 		}
 	}
 }
