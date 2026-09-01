@@ -325,10 +325,10 @@ func TestCheckBranchNamespaceConflict(t *testing.T) {
 	}
 }
 
-// TestGitPullRebase_MultipleBranchesConfig reproduces "Cannot rebase onto multiple branches"
+// TestGitRebaseOntoRemoteBranch_MultipleBranchesConfig reproduces "Cannot rebase onto multiple branches"
 // by manually crafting a broken .git/config with multiple merge refs, then verifies
-// that schmux's gitPullRebase with explicit origin/<branch> works around it.
-func TestGitPullRebase_MultipleBranchesConfig(t *testing.T) {
+// that schmux's explicit origin/<branch> rebase works around it.
+func TestGitRebaseOntoRemoteBranch_MultipleBranchesConfig(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -373,7 +373,7 @@ func TestGitPullRebase_MultipleBranchesConfig(t *testing.T) {
 		t.Log("Confirmed: raw 'git pull --rebase' fails with broken config")
 	}
 
-	// Now test that schmux's gitPullRebase with explicit branch works
+	// Now test that schmux's explicit remote-branch rebase works.
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
@@ -382,17 +382,17 @@ func TestGitPullRebase_MultipleBranchesConfig(t *testing.T) {
 	ctx := context.Background()
 
 	// This should work because we explicitly specify origin/main
-	err = m.gitPullRebase(ctx, cloneDir, "main")
+	err = m.gitRebaseOntoRemoteBranch(ctx, cloneDir, "main")
 	if err != nil {
-		t.Errorf("gitPullRebase with explicit branch should work: %v", err)
+		t.Errorf("gitRebaseOntoRemoteBranch with explicit branch should work: %v", err)
 	} else {
-		t.Log("SUCCESS: gitPullRebase(origin main) works despite broken upstream config")
+		t.Log("SUCCESS: explicit origin/main rebase works despite broken upstream config")
 	}
 }
 
-// TestGitPullRebase_WithBranchParameter tests that gitPullRebase takes
-// a branch parameter and explicitly pulls from origin/<branch>.
-func TestGitPullRebase_WithBranchParameter(t *testing.T) {
+// TestGitRebaseOntoRemoteBranch_WithBranchParameter tests that the requested
+// origin/<branch> ref is used.
+func TestGitRebaseOntoRemoteBranch_WithBranchParameter(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -418,20 +418,57 @@ func TestGitPullRebase_WithBranchParameter(t *testing.T) {
 	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
 
-	// gitPullRebase with explicit origin/<branch> should work
-	err := m.gitPullRebase(ctx, cloneDir, "main")
+	// An explicit origin/<branch> rebase should work.
+	err := m.gitRebaseOntoRemoteBranch(ctx, cloneDir, "main")
 	if err != nil {
-		t.Errorf("gitPullRebase(main) failed: %v", err)
+		t.Errorf("gitRebaseOntoRemoteBranch(main) failed: %v", err)
 	}
 
 	// Switch to feature branch and pull
 	runGit(t, cloneDir, "checkout", "feature")
-	err = m.gitPullRebase(ctx, cloneDir, "feature")
+	err = m.gitRebaseOntoRemoteBranch(ctx, cloneDir, "feature")
 	if err != nil {
-		t.Errorf("gitPullRebase(feature) failed: %v", err)
+		t.Errorf("gitRebaseOntoRemoteBranch(feature) failed: %v", err)
+	}
+}
+
+// TestGitRebaseOntoRemoteBranch_UsesFetchedRemoteRef verifies that preparation does not
+// contact the remote a second time after its initial fetch. Besides avoiding
+// redundant I/O, this keeps the rebase independent of FETCH_HEAD, which other
+// status fetches may update concurrently.
+func TestGitRebaseOntoRemoteBranch_UsesFetchedRemoteRef(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
 	}
 
-	t.Log("gitPullRebase() takes branch parameter - explicitly pulls from origin/<branch>")
+	remoteDir := gitTestWorkTree(t)
+	tmpDir := t.TempDir()
+	cloneDir := filepath.Join(tmpDir, "clone")
+	runGit(t, tmpDir, "clone", remoteDir, "clone")
+
+	writeFile(t, remoteDir, "remote.txt", "remote change")
+	runGit(t, remoteDir, "add", ".")
+	runGit(t, remoteDir, "commit", "-m", "remote change")
+	runGit(t, cloneDir, "fetch", "origin")
+	wantHead := strings.TrimSpace(runGitOut(t, cloneDir, "rev-parse", "origin/main"))
+
+	// Break the remote after fetching. A second fetch would now fail, while a
+	// rebase onto the fetched origin/main ref remains valid.
+	runGit(t, cloneDir, "remote", "set-url", "origin", filepath.Join(tmpDir, "missing"))
+
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	if err := m.gitRebaseOntoRemoteBranch(context.Background(), cloneDir, "main"); err != nil {
+		t.Fatalf("gitRebaseOntoRemoteBranch() should use the fetched ref: %v", err)
+	}
+	if got := strings.TrimSpace(runGitOut(t, cloneDir, "rev-parse", "HEAD")); got != wantHead {
+		t.Fatalf("HEAD = %s, want fetched origin/main %s", got, wantHead)
+	}
 }
 
 // TestCheckGitSafety_PushedToOriginBranch verifies that checkGitSafety reports

@@ -242,20 +242,22 @@ func (m *Manager) isUpToDateWithDefault(ctx context.Context, dir, repoURL string
 	return m.runGitErr(ctx, "", RefreshTriggerExplicit, dir, "merge-base", "--is-ancestor", "HEAD", "origin/"+defaultBranch) == nil
 }
 
-// gitPullRebase runs git pull --rebase origin <branch>.
-// For cloned repos with an origin remote, this avoids relying on potentially incorrect
-// upstream config. For local repos without origin, skips the pull.
-func (m *Manager) gitPullRebase(ctx context.Context, dir, branch string) error {
+// gitRebaseOntoRemoteBranch rebases onto the already-fetched origin/<branch> ref.
+// prepare fetches before calling this function. Using the remote-tracking ref
+// directly avoids git pull's FETCH_HEAD, which a concurrent status fetch can
+// overwrite between pull's fetch and rebase phases.
+func (m *Manager) gitRebaseOntoRemoteBranch(ctx context.Context, dir, branch string) error {
 	// Check if origin remote exists
 	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, dir, "remote", "get-url", "origin"); err != nil {
-		// No origin remote - local-only repo, nothing to pull
-		m.logger.Debug("no origin remote, skipping pull")
+		// No origin remote - local-only repo, nothing to rebase onto.
+		m.logger.Debug("no origin remote, skipping rebase")
 		return nil
 	}
 
-	// Explicitly pull from origin/<branch> to avoid broken upstream config
-	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, dir, "pull", "--rebase", "origin", branch); err != nil {
-		return fmt.Errorf("git pull failed: %w", err)
+	// Rebase the explicit remote-tracking ref to avoid both upstream config and
+	// the transient FETCH_HEAD file shared by fetch operations.
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, dir, "rebase", "origin/"+branch); err != nil {
+		return fmt.Errorf("git rebase failed: %w", err)
 	}
 
 	return nil

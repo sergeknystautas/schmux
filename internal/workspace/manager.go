@@ -953,10 +953,10 @@ func (m *Manager) prepare(ctx context.Context, workspaceID, branch string) error
 		return fmt.Errorf("git checkout failed: %w", err)
 	}
 
-	// Pull with rebase (working dir is now clean)
+	// Rebase onto the remote branch (working dir is now clean).
 	if remoteBranchExists {
-		if err := m.gitPullRebase(ctx, w.Path, branch); err != nil {
-			return fmt.Errorf("git pull --rebase failed (conflicts?): %w", err)
+		if err := m.gitRebaseOntoRemoteBranch(ctx, w.Path, branch); err != nil {
+			return fmt.Errorf("git rebase onto origin/%s failed (conflicts?): %w", branch, err)
 		}
 	} else {
 		m.logger.Debug("no origin remote ref, skipping pull", "branch", branch)
