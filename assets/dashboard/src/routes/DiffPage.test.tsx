@@ -67,7 +67,8 @@ vi.mock('../components/SessionTabs', () => ({
   default: () => <div data-testid="session-tabs" />,
 }));
 
-import { getDiff, getDiffFile } from '../lib/api';
+import { createTab, getDiff, getDiffFile } from '../lib/api';
+const mockCreateTab = vi.mocked(createTab);
 const mockGetDiff = vi.mocked(getDiff);
 const mockGetDiffFile = vi.mocked(getDiffFile);
 
@@ -111,10 +112,46 @@ beforeEach(() => {
     old_content: 'old\n',
     new_content: 'new\n',
   });
+  mockCreateTab.mockResolvedValue({
+    id: 'tab-mermaid',
+    route: '/diff/ws-001/mmd/docs%2Farchitecture.mmd',
+    status: 'ok',
+  });
   writeTextMock.mockResolvedValue(undefined);
   Object.defineProperty(navigator, 'clipboard', {
     value: { writeText: writeTextMock },
     configurable: true,
+  });
+});
+
+describe('DiffPage Mermaid preview', () => {
+  it('offers a preview for .mmd files and opens a Mermaid tab', async () => {
+    mockGetDiff.mockResolvedValue({
+      ...DIFF_DATA,
+      files: [
+        {
+          ...DIFF_DATA.files[0],
+          old_path: 'docs/architecture.mmd',
+          new_path: 'docs/architecture.mmd',
+        },
+      ],
+    });
+    mockGetDiffFile.mockResolvedValue({
+      workspace_id: 'ws-001',
+      path: 'docs/architecture.mmd',
+      old_content: 'graph TD; A-->B',
+      new_content: 'graph TD; A-->C',
+    });
+
+    renderAt('/diff/ws-001');
+    fireEvent.click(await screen.findByTitle('Preview Mermaid diagram'));
+
+    await waitFor(() => {
+      expect(mockCreateTab).toHaveBeenCalledWith('ws-001', {
+        kind: 'mermaid',
+        filepath: 'docs/architecture.mmd',
+      });
+    });
   });
 });
 

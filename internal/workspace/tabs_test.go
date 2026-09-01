@@ -186,6 +186,35 @@ func TestOpenMarkdownTab(t *testing.T) {
 	}
 }
 
+func TestOpenMermaidTab(t *testing.T) {
+	st := newTestState(t)
+	m := newTestManager(t, st)
+	m.SetBroadcastFn(func() {})
+
+	ws := state.Workspace{ID: "ws1", Repo: "repo", Branch: "main", Path: "/tmp/ws1"}
+	st.AddWorkspace(ws)
+
+	tab, err := m.OpenMermaidTab("ws1", "docs/architecture.mmd")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tab.Kind != "mermaid" {
+		t.Errorf("expected kind mermaid, got %s", tab.Kind)
+	}
+	if tab.Route != "/diff/ws1/mmd/docs%2Farchitecture.mmd" {
+		t.Errorf("expected encoded route, got %s", tab.Route)
+	}
+	if tab.Label != "architecture.mmd" {
+		t.Errorf("expected label architecture.mmd, got %s", tab.Label)
+	}
+	if !tab.Closable {
+		t.Error("mermaid tab should be closable")
+	}
+	if tab.Meta["filepath"] != "docs/architecture.mmd" {
+		t.Errorf("expected meta filepath, got %s", tab.Meta["filepath"])
+	}
+}
+
 func TestOpenHtmlTab(t *testing.T) {
 	st := newTestState(t)
 	m := newTestManager(t, st)

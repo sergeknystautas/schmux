@@ -4104,6 +4104,45 @@ a:hover {
   border: none;
 }
 
+/* Rendered Mermaid document; the wrapper supplies scrolling for large diagrams. */
+.diff-mermaid-frame {
+  margin: 0 auto;
+  padding: var(--spacing-lg);
+  text-align: center;
+}
+
+.diff-mermaid-frame svg {
+  display: block;
+  width: 100%;
+  max-width: none !important;
+  height: auto;
+  margin: 0 auto;
+}
+
+.diff-mermaid-controls {
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.diff-mermaid-zoom {
+  min-width: 4ch;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.diff-mermaid-viewport--pannable {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.diff-mermaid-viewport--panning {
+  cursor: grabbing;
+}
+
 /* Inline notice that scripts are disabled in the HTML preview. */
 .diff-content__script-warning {
   color: var(--color-warning);

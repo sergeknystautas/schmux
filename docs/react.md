@@ -35,6 +35,7 @@ The schmux frontend is a single-page application built with React 18 that provid
 | @dnd-kit/core + sortable    | Drag-and-drop tab reordering |
 | react-diff-viewer-continued | Diff visualization           |
 | react-markdown + remark-gfm | Markdown rendering           |
+| mermaid                     | Mermaid diagram rendering    |
 | qrcode.react                | QR code generation           |
 
 ### Build
@@ -157,7 +158,9 @@ All routes are nested under `AppShell` (sidebar + `<Outlet />`).
 | `/spawn`                                | SpawnPage                     |
 | `/diff/:workspaceId`                    | DiffPage                      |
 | `/diff/:workspaceId/md/:filepath`       | MarkdownPreviewPage           |
+| `/diff/:workspaceId/mmd/:filepath`      | MermaidPreviewPage            |
 | `/diff/:workspaceId/img/:filepath`      | ImagePreviewPage              |
+| `/diff/:workspaceId/html/:filepath`     | HtmlPreviewPage               |
 | `/commits/:workspaceId`                 | GitGraphPage                  |
 | `/commits/:workspaceId/:commitHash`     | GitCommitPage                 |
 | `/preview/:workspaceId/:previewId`      | PreviewPage                   |

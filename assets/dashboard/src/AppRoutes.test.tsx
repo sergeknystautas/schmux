@@ -88,6 +88,7 @@ vi.mock('./routes/TipsPage', () => stubPage('tips'));
 vi.mock('./routes/ConfigPage', () => stubPage('config'));
 vi.mock('./routes/DiffPage', () => stubPage('diff'));
 vi.mock('./routes/MarkdownPreviewPage', () => stubPage('md-preview'));
+vi.mock('./routes/MermaidPreviewPage', () => stubPage('mmd-preview'));
 vi.mock('./routes/ImagePreviewPage', () => stubPage('img-preview'));
 vi.mock('./routes/PreviewPage', () => stubPage('preview'));
 vi.mock('./routes/CommitGraphPage', () => stubPage('commit-graph'));
@@ -170,6 +171,13 @@ describe('Unguarded routes', () => {
     renderAt('/branches');
     await waitFor(() => {
       expect(screen.getByTestId('page-branches')).toBeInTheDocument();
+    });
+  });
+
+  it('renders a Mermaid file preview', async () => {
+    renderAt('/diff/ws-001/mmd/architecture.mmd');
+    await waitFor(() => {
+      expect(screen.getByTestId('page-mmd-preview')).toBeInTheDocument();
     });
   });
 });

@@ -42,6 +42,12 @@ func (h *WorkspaceHandlers) handleTabCreate(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		tab, err = h.workspace.OpenMarkdownTab(workspaceID, req.Filepath)
+	case "mermaid":
+		if req.Filepath == "" {
+			writeJSONError(w, "filepath is required for mermaid tabs", http.StatusBadRequest)
+			return
+		}
+		tab, err = h.workspace.OpenMermaidTab(workspaceID, req.Filepath)
 	case "html":
 		if req.Filepath == "" {
 			writeJSONError(w, "filepath is required for html tabs", http.StatusBadRequest)

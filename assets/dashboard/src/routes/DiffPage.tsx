@@ -547,6 +547,33 @@ export default function DiffPage() {
                           {openingPreview ? <span className="spinner spinner--small" /> : 'Preview'}
                         </button>
                       )}
+                    {/* Mermaid preview: only for non-deleted .mmd files */}
+                    {selectedFile.status !== 'deleted' &&
+                      (selectedFile.new_path?.match(/\.mmd$/i) ||
+                        selectedFile.old_path?.match(/\.mmd$/i)) && (
+                        <button
+                          className="btn btn--sm btn--secondary"
+                          title="Preview Mermaid diagram"
+                          disabled={openingPreview}
+                          onClick={async () => {
+                            const filepath = selectedFile.new_path || '';
+                            if (workspaceId) {
+                              setOpeningPreview(true);
+                              try {
+                                const { route } = await createTab(workspaceId, {
+                                  kind: 'mermaid',
+                                  filepath,
+                                });
+                                setPendingNavigation({ type: 'tab', workspaceId, tabRoute: route });
+                              } catch {
+                                setOpeningPreview(false);
+                              }
+                            }
+                          }}
+                        >
+                          {openingPreview ? <span className="spinner spinner--small" /> : 'Preview'}
+                        </button>
+                      )}
                     {/* Image preview: only for non-deleted image files */}
                     {selectedFile.status !== 'deleted' &&
                       (selectedFile.new_path?.match(/\.(png|jpg|jpeg|webp|gif)$/i) ||

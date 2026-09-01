@@ -38,6 +38,9 @@ func TestServeWorkspaceFile_AlwaysNoCache(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspacePath, "hello.md"), []byte("# hi\n"), 0644); err != nil {
 		t.Fatalf("write md: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(workspacePath, "diagram.mmd"), []byte("graph TD; A-->B\n"), 0644); err != nil {
+		t.Fatalf("write mmd: %v", err)
+	}
 	pngBytes := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
 	if err := os.WriteFile(filepath.Join(workspacePath, "pic.png"), pngBytes, 0644); err != nil {
 		t.Fatalf("write png: %v", err)
@@ -60,6 +63,7 @@ func TestServeWorkspaceFile_AlwaysNoCache(t *testing.T) {
 
 	cases := []struct{ name, file string }{
 		{"markdown", "hello.md"},
+		{"mermaid", "diagram.mmd"},
 		{"image", "pic.png"},
 		{"html", "page.html"},
 		{"css", "style.css"},

@@ -125,6 +125,44 @@ func TestHandleTabCreate_Html(t *testing.T) {
 	}
 }
 
+func TestHandleTabCreate_Mermaid(t *testing.T) {
+	srv, _, st := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(srv)
+	if err := st.AddWorkspace(state.Workspace{
+		ID:     "ws-tab-mermaid",
+		Repo:   "https://example.com/repo.git",
+		Branch: "main",
+		Path:   t.TempDir(),
+	}); err != nil {
+		t.Fatalf("failed to add workspace: %v", err)
+	}
+
+	body, _ := json.Marshal(createTabRequest{
+		Kind:     "mermaid",
+		Filepath: "docs/architecture.mmd",
+	})
+	req := makeTabRequest(t, http.MethodPost, "/api/workspaces/ws-tab-mermaid/tabs", "ws-tab-mermaid", "", body)
+	rr := httptest.NewRecorder()
+	wsH.handleTabCreate(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("POST tabs: status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if result["route"] != "/diff/ws-tab-mermaid/mmd/docs%2Farchitecture.mmd" {
+		t.Fatalf("unexpected route %q", result["route"])
+	}
+
+	tabs := st.GetWorkspaceTabs("ws-tab-mermaid")
+	if len(tabs) != 1 || tabs[0].Kind != "mermaid" {
+		t.Fatalf("expected one mermaid tab, got %+v", tabs)
+	}
+}
+
 func TestHandleTabCreate_DisallowedKind(t *testing.T) {
 	srv, _, st := newTestServer(t)
 	wsH := newTestWorkspaceHandlers(srv)

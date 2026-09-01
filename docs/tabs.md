@@ -57,6 +57,8 @@ Who creates a tab depends on **who knows the tab needs to exist**:
 | `resolve-conflict` | Server — one per conflict event                   | Server detects conflicts during sync |
 | `commit`           | Client API — user clicks commit hash in git graph | User-initiated navigation            |
 | `markdown`         | Client API — user clicks "view" in diff           | User-initiated navigation            |
+| `mermaid`          | Client API — user clicks "view" in diff           | User-initiated navigation            |
+| `html`             | Client API — user clicks "view" in diff           | User-initiated navigation            |
 
 **Rule:** If the server is the source of truth for _when something exists_ (workspace has VCS, preview detected, conflict occurred), the server creates the tab. If the **user's action** is what creates the need (clicking a hash, clicking "view"), the client calls `POST /api/workspaces/{id}/tabs` and the server stores and broadcasts.
 
@@ -72,6 +74,8 @@ The server is a persistence and broadcast layer for client-initiated tabs. It do
 | `resolve-conflict` | User — close button         | Yes      |
 | `commit`           | User — close button         | Yes      |
 | `markdown`         | User — close button         | Yes      |
+| `mermaid`          | User — close button         | Yes      |
+| `html`             | User — close button         | Yes      |
 
 Closing a tab calls `DELETE /api/workspaces/{id}/tabs/{tabId}`. For preview tabs, this cascades to `previewManager.Delete()` for proxy teardown.
 
@@ -87,6 +91,8 @@ Tab creation is idempotent by `(kind, dedup_key)` within a workspace:
 | `resolve-conflict` | commit hash                     |
 | `commit`           | commit hash                     |
 | `markdown`         | filepath                        |
+| `mermaid`          | filepath                        |
+| `html`             | filepath                        |
 
 ### Migration
 

@@ -26,6 +26,7 @@ const ConfigPage = lazy(() => import('./routes/ConfigPage'));
 const LogsPage = lazy(() => import('./routes/LogsPage'));
 const DiffPage = lazy(() => import('./routes/DiffPage'));
 const MarkdownPreviewPage = lazy(() => import('./routes/MarkdownPreviewPage'));
+const MermaidPreviewPage = lazy(() => import('./routes/MermaidPreviewPage'));
 const ImagePreviewPage = lazy(() => import('./routes/ImagePreviewPage'));
 const HtmlPreviewPage = lazy(() => import('./routes/HtmlPreviewPage'));
 const PreviewPage = lazy(() => import('./routes/PreviewPage'));
@@ -80,6 +81,10 @@ export default function App() {
                                   <Route
                                     path="/diff/:workspaceId/md/:filepath"
                                     element={<MarkdownPreviewPage />}
+                                  />
+                                  <Route
+                                    path="/diff/:workspaceId/mmd/:filepath"
+                                    element={<MermaidPreviewPage />}
                                   />
                                   <Route
                                     path="/diff/:workspaceId/html/:filepath"

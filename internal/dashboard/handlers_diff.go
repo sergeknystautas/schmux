@@ -563,6 +563,7 @@ func (h *GitHandlers) serveWorkspaceFile(w http.ResponseWriter, r *http.Request,
 		".gif":  "image/gif",
 		".md":   "text/markdown; charset=utf-8",
 		".mdx":  "text/markdown; charset=utf-8",
+		".mmd":  "text/plain; charset=utf-8",
 		".html": "text/html; charset=utf-8",
 		".css":  "text/css; charset=utf-8",
 	}
@@ -649,6 +650,7 @@ func (h *GitHandlers) handleRemoteFile(w http.ResponseWriter, r *http.Request, w
 		".gif":  "image/gif",
 		".md":   "text/markdown; charset=utf-8",
 		".mdx":  "text/markdown; charset=utf-8",
+		".mmd":  "text/plain; charset=utf-8",
 		".html": "text/html; charset=utf-8",
 		".css":  "text/css; charset=utf-8",
 	}
@@ -662,7 +664,7 @@ func (h *GitHandlers) handleRemoteFile(w http.ResponseWriter, r *http.Request, w
 	defer cancel()
 
 	workdir := ws.RemotePath
-	isText := ext == ".md" || ext == ".mdx" || ext == ".html" || ext == ".css"
+	isText := ext == ".md" || ext == ".mdx" || ext == ".mmd" || ext == ".html" || ext == ".css"
 
 	if isText {
 		// Text files: fetch via cat

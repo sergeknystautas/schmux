@@ -397,6 +397,7 @@ export async function createTab(
   params:
     | { kind: 'commit'; hash: string }
     | { kind: 'markdown'; filepath: string }
+    | { kind: 'mermaid'; filepath: string }
     | { kind: 'html'; filepath: string }
 ): Promise<{ id: string; route: string; status: string }> {
   const response = await apiFetch(`/api/workspaces/${workspaceId}/tabs`, {
