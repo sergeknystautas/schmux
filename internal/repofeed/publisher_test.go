@@ -5,7 +5,6 @@ package repofeed
 import (
 	"context"
 	"encoding/json"
-	"sync"
 	"testing"
 	"time"
 
@@ -117,35 +116,35 @@ func TestPublisher_LockForPush_ConcurrentSafety(t *testing.T) {
 		DisplayName:    "Test",
 	})
 
-	// Run 10 goroutines trying to lock simultaneously — exactly one should win each round
+	// Run 10 goroutines trying to lock simultaneously. Keep the winning lock
+	// held until every contender has returned so late scheduling cannot create a
+	// second, sequential winner in the same round.
 	const rounds = 5
 	for round := 0; round < rounds; round++ {
-		var wg sync.WaitGroup
-		winners := make(chan int, 10)
+		start := make(chan struct{})
+		results := make(chan func(), 10)
 
-		for i := 0; i < 10; i++ {
-			wg.Add(1)
-			go func(id int) {
-				defer wg.Done()
-				unlock := p.LockForPush()
-				if unlock != nil {
-					winners <- id
-					time.Sleep(time.Millisecond) // hold briefly
-					unlock()
+		for range 10 {
+			go func() {
+				<-start
+				results <- p.LockForPush()
+			}()
+		}
+		close(start)
+
+		var winner func()
+		for range 10 {
+			if unlock := <-results; unlock != nil {
+				if winner != nil {
+					t.Fatalf("round %d: expected exactly 1 winner, got at least 2", round)
 				}
-			}(i)
+				winner = unlock
+			}
 		}
-
-		wg.Wait()
-		close(winners)
-
-		count := 0
-		for range winners {
-			count++
+		if winner == nil {
+			t.Fatalf("round %d: expected exactly 1 winner, got 0", round)
 		}
-		if count != 1 {
-			t.Errorf("round %d: expected exactly 1 winner, got %d", round, count)
-		}
+		winner()
 	}
 }
 
