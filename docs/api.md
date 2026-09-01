@@ -4534,9 +4534,27 @@ Errors:
 
 ### WS /ws/logs/{source}
 
-Dedicated read-only WebSocket for the Logs page. On connect, the server sends the source file's existing contents as backlog (one text message per JSONL line), then streams each appended line live. One connection per Logs page; the tailer stops on disconnect.
+Dedicated paging and live-stream WebSocket for the Logs page. On connect, the server sends the newest 100 records of the source file in a typed paging envelope, then streams each appended line live as `append` messages. Older pages are loaded on demand via the `load_older` client command; that paging command is the only accepted client input. One connection per Logs page; the tailer stops on disconnect.
 
-Server -> client messages: one text message per line, each a JSON object (the record type for that source). Records arrive in file order — backlog first, then live appends.
+Server -> client envelope (newest-first history, then `history_end`):
+
+```json
+{"type":"history","line":"<raw log line>"}
+{"type":"history_end","has_more":true}
+{"type":"append","line":"<raw log line>"}
+{"type":"history_error","message":"<read error>"}
+```
+
+- `history` carries one raw line. The `line` field is the raw bytes the source wrote; for Spawn and Oneshot it is a JSON object string (the record type for that source), for Fence it is plain text.
+- `history_end.has_more` is the only signal for additional history. `true` means another page is available via `load_older`; `false` is terminal.
+- `append` carries records written after the connection snapshot. Arriving during an in-flight older page does not affect placement: `append` always prepends at the top, `history` always appends at the bottom.
+- `history_error` is sent when stream setup or a history read fails. A subsequent `load_older` retries setup when no stream exists, or reads from the unchanged history boundary after a page-read failure; the client surfaces a Retry button.
+
+Client -> server command:
+
+```json
+{ "type": "load_older" }
+```
 
 Sources:
 
@@ -4549,7 +4567,9 @@ Errors:
 
 ### WS /ws/logs/fence/{id}
 
-Dedicated read-only WebSocket for the Logs page "Fence" source. `{id}` is a session id; the server 404s unless it is a known session spawned with the fence sandbox (`SessionResponseItem.fence`). On connect, the server sends the session's `~/.schmux/fence/<id>/monitor.log` existing contents as backlog (one text message per line), then streams each appended line live. Lines are the Fence monitor's raw text (e.g. `[fence:http] … ✗ CONNECT 403 <domain> …`), not JSON. One connection per picked session; the tailer stops on disconnect. The id is validated before any path is built, so it cannot traverse the filesystem.
+Dedicated paging and live-stream WebSocket for the Logs page "Fence" source. `{id}` is a session id; the server 404s unless it is a known session spawned with the fence sandbox (`SessionResponseItem.fence`). On connect, the server sends the newest 100 lines of the session's `~/.schmux/fence/<id>/monitor.log` in the same paging envelope as `/ws/logs/{source}`, then streams each appended line live. Lines are the Fence monitor's raw text (e.g. `[fence:http] … ✗ CONNECT 403 <domain> …`), not JSON. One connection per picked session; the tailer stops on disconnect. The id is validated before any path is built, so it cannot traverse the filesystem.
+
+Server -> client envelope and client `load_older` command are identical to `/ws/logs/{source}`.
 
 Errors:
 

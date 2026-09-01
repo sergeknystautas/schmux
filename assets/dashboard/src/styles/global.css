@@ -81,7 +81,8 @@ body,
 .markdown-preview-content,
 .commit-workflow__file-list,
 .overlay-event__diff,
-.session-tabs__main {
+.session-tabs__main,
+.logs-body {
   scrollbar-width: thin;
   scrollbar-color: var(--color-border) transparent;
 }
@@ -101,7 +102,8 @@ body::-webkit-scrollbar,
 .markdown-preview-content::-webkit-scrollbar,
 .commit-workflow__file-list::-webkit-scrollbar,
 .overlay-event__diff::-webkit-scrollbar,
-.session-tabs__main::-webkit-scrollbar {
+.session-tabs__main::-webkit-scrollbar,
+.logs-body::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
@@ -121,7 +123,8 @@ body::-webkit-scrollbar-track,
 .markdown-preview-content::-webkit-scrollbar-track,
 .commit-workflow__file-list::-webkit-scrollbar-track,
 .overlay-event__diff::-webkit-scrollbar-track,
-.session-tabs__main::-webkit-scrollbar-track {
+.session-tabs__main::-webkit-scrollbar-track,
+.logs-body::-webkit-scrollbar-track {
   background: transparent;
 }
 
@@ -140,7 +143,8 @@ body::-webkit-scrollbar-thumb,
 .markdown-preview-content::-webkit-scrollbar-thumb,
 .commit-workflow__file-list::-webkit-scrollbar-thumb,
 .overlay-event__diff::-webkit-scrollbar-thumb,
-.session-tabs__main::-webkit-scrollbar-thumb {
+.session-tabs__main::-webkit-scrollbar-thumb,
+.logs-body::-webkit-scrollbar-thumb {
   background: var(--color-border);
   border-radius: 4px;
 }
@@ -160,7 +164,8 @@ body::-webkit-scrollbar-thumb:hover,
 .markdown-preview-content::-webkit-scrollbar-thumb:hover,
 .commit-workflow__file-list::-webkit-scrollbar-thumb:hover,
 .overlay-event__diff::-webkit-scrollbar-thumb:hover,
-.session-tabs__main::-webkit-scrollbar-thumb:hover {
+.session-tabs__main::-webkit-scrollbar-thumb:hover,
+.logs-body::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-muted);
 }
 

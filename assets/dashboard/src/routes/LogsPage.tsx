@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import '../styles/logs.css';
 import useLogsWebSocket from '../hooks/useLogsWebSocket';
 import useFenceLogWebSocket from '../hooks/useFenceLogWebSocket';
@@ -6,6 +6,7 @@ import useOneshotLogWebSocket from '../hooks/useOneshotLogWebSocket';
 import { useSessions } from '../contexts/SessionsContext';
 import { parseFenceLine } from '../lib/fenceLog';
 import { formatLogTime } from '../lib/utils';
+import PagedLogBody from '../components/PagedLogBody';
 import type { SpawnLogRecord, OneshotLogRecord } from '../lib/types.generated';
 
 const SOURCES = [
@@ -65,29 +66,23 @@ function LogsHeader({ source, setSource, connected }: SourceProps & { connected:
 }
 
 function SpawnLogView({ source, setSource }: SourceProps) {
-  const { records, connected } = useLogsWebSocket('spawn');
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const stickToBottomRef = useRef(true);
-
-  const onScroll = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-  };
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el && stickToBottomRef.current) el.scrollTop = el.scrollHeight;
-  }, [records]);
-
+  const { records, connected, hasMore, loadingOlder, historyError, loadOlder } =
+    useLogsWebSocket('spawn');
   return (
     <>
       <LogsHeader source={source} setSource={setSource} connected={connected} />
-      <div className="logs-body" ref={scrollRef} onScroll={onScroll}>
-        {records.map((rec, i) => (
-          <SpawnLogRow key={i} rec={rec} />
+      <PagedLogBody
+        newestItemId={records[0]?.id}
+        itemCount={records.length}
+        hasMore={hasMore}
+        loadingOlder={loadingOlder}
+        historyError={historyError}
+        loadOlder={loadOlder}
+      >
+        {records.map(({ id, value }) => (
+          <SpawnLogRow key={id} itemId={id} rec={value} />
         ))}
-      </div>
+      </PagedLogBody>
     </>
   );
 }
@@ -95,26 +90,14 @@ function SpawnLogView({ source, setSource }: SourceProps) {
 function FenceLogView({ source, setSource }: SourceProps) {
   const { workspaces } = useSessions();
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const { lines, connected } = useFenceLogWebSocket(sessionId);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const stickToBottomRef = useRef(true);
+  const { lines, connected, hasMore, loadingOlder, historyError, loadOlder } =
+    useFenceLogWebSocket(sessionId);
 
   const fenced = workspaces.flatMap((ws) =>
     (ws.sessions ?? [])
       .filter((sx) => sx.fence)
       .map((sx) => ({ id: sx.id, label: `${ws.label || ws.branch} — ${sx.nickname || sx.id}` }))
   );
-
-  const onScroll = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-  };
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el && stickToBottomRef.current) el.scrollTop = el.scrollHeight;
-  }, [lines]);
 
   return (
     <>
@@ -135,18 +118,25 @@ function FenceLogView({ source, setSource }: SourceProps) {
         </select>
       </div>
       {sessionId && (
-        <div className="logs-body" ref={scrollRef} onScroll={onScroll}>
-          {lines.map((line, i) => {
-            const f = parseFenceLine(line);
+        <PagedLogBody
+          newestItemId={lines[0]?.id}
+          itemCount={lines.length}
+          hasMore={hasMore}
+          loadingOlder={loadingOlder}
+          historyError={historyError}
+          loadOlder={loadOlder}
+        >
+          {lines.map(({ id, value }) => {
+            const f = parseFenceLine(value);
             return (
-              <div key={i} className="logs-fence-row">
+              <div key={id} className="logs-fence-row" data-log-item-id={id}>
                 <span className="logs-ts">{f.time}</span>
                 <span className={`badge logs-fence-badge--${f.kind}`}>{f.kind}</span>
                 <span className="logs-fence-msg">{f.message}</span>
               </div>
             );
           })}
-        </div>
+        </PagedLogBody>
       )}
     </>
   );
@@ -161,11 +151,11 @@ function ConnPill({ connected }: { connected: boolean }) {
   );
 }
 
-function SpawnLogRow({ rec }: { rec: SpawnLogRecord }) {
+function SpawnLogRow({ itemId, rec }: { itemId: number; rec: SpawnLogRecord }) {
   const [expanded, setExpanded] = useState(false);
   const models = rec.targets ? Object.keys(rec.targets).join(', ') : rec.command || '';
   return (
-    <div className={`logs-row status-${rec.status}`}>
+    <div className={`logs-row status-${rec.status}`} data-log-item-id={itemId}>
       <div className="logs-row-head" onClick={() => setExpanded((v) => !v)}>
         <span className="logs-ts">{formatLogTime(rec.ts)}</span>
         <span className="logs-repo">{rec.repo}</span>
@@ -202,38 +192,32 @@ function SpawnLogRow({ rec }: { rec: SpawnLogRecord }) {
 }
 
 function OneshotLogView({ source, setSource }: SourceProps) {
-  const { records, connected } = useOneshotLogWebSocket();
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const stickToBottomRef = useRef(true);
-
-  const onScroll = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-  };
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el && stickToBottomRef.current) el.scrollTop = el.scrollHeight;
-  }, [records]);
-
+  const { records, connected, hasMore, loadingOlder, historyError, loadOlder } =
+    useOneshotLogWebSocket();
   return (
     <>
       <LogsHeader source={source} setSource={setSource} connected={connected} />
-      <div className="logs-body" ref={scrollRef} onScroll={onScroll}>
-        {records.map((rec, i) => (
-          <OneshotLogRow key={i} rec={rec} />
+      <PagedLogBody
+        newestItemId={records[0]?.id}
+        itemCount={records.length}
+        hasMore={hasMore}
+        loadingOlder={loadingOlder}
+        historyError={historyError}
+        loadOlder={loadOlder}
+      >
+        {records.map(({ id, value }) => (
+          <OneshotLogRow key={id} itemId={id} rec={value} />
         ))}
-      </div>
+      </PagedLogBody>
     </>
   );
 }
 
-function OneshotLogRow({ rec }: { rec: OneshotLogRecord }) {
+function OneshotLogRow({ itemId, rec }: { itemId: number; rec: OneshotLogRecord }) {
   const [expanded, setExpanded] = useState(false);
   const status = rec.ok ? 'ok' : 'failed';
   return (
-    <div className={`logs-row status-${status}`}>
+    <div className={`logs-row status-${status}`} data-log-item-id={itemId}>
       <div className="logs-row-head" onClick={() => setExpanded((v) => !v)}>
         <span className="logs-ts">{formatLogTime(rec.ts)}</span>
         <span className="logs-oneshot-transport">{rec.transport}</span>

@@ -235,3 +235,21 @@
 .logs-oneshot-badge--repofeed-intent {
   color: var(--color-graph-lane-8);
 }
+
+/* PagedLogBody terminal row — sentinel, loading, and Retry all share this
+   shell so the visual rhythm matches the rest of the page. Colors come from
+   existing tokens; no new primitives are introduced. */
+.logs-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  color: var(--color-text-muted);
+  border-top: 1px solid var(--color-border-subtle);
+  font-size: 0.75rem;
+}
+
+.logs-history-row--error {
+  color: var(--color-danger);
+}

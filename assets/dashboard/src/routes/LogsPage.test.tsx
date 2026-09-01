@@ -1,20 +1,46 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { formatLogTime } from '../lib/utils';
-import type { SpawnLogRecord } from '../lib/types.generated';
+import type { LogStreamItem } from '../hooks/useLogStream';
+import type { SpawnLogRecord, OneshotLogRecord } from '../lib/types.generated';
 
 vi.mock('../hooks/useLogsWebSocket', () => ({
-  default: (): { records: SpawnLogRecord[]; connected: boolean } => ({
+  default: (): {
+    records: LogStreamItem<SpawnLogRecord>[];
+    connected: boolean;
+    hasMore: boolean;
+    loadingOlder: boolean;
+    historyError: string | null;
+    loadOlder: () => void;
+  } => ({
     connected: true,
+    hasMore: false,
+    loadingOlder: false,
+    historyError: null,
+    loadOlder: vi.fn(),
     records: [
       {
-        ts: '2026-06-27T15:24:06Z',
-        repo: 'https://example.com/godot.git',
-        branch: 'feature/fmod',
-        targets: { claude: 1 },
-        prompt: 'look at ~/Downloads for the fmod specs',
-        status: 'failed',
-        results: [{ target: 'claude', error: 'duplicate repo URLs' }],
+        id: 1,
+        value: {
+          ts: '2026-06-27T15:24:06Z',
+          repo: 'https://example.com/godot.git',
+          branch: 'feature/fmod',
+          targets: { claude: 1 },
+          prompt: 'look at ~/Downloads for the fmod specs',
+          status: 'failed',
+          results: [{ target: 'claude', error: 'duplicate repo URLs' }],
+        },
+      },
+      {
+        id: 2,
+        value: {
+          ts: '2026-06-27T15:23:06Z',
+          repo: 'https://example.com/older.git',
+          branch: 'feature/older',
+          targets: { codex: 1 },
+          status: 'ok',
+          results: [{ target: 'codex', session_id: 'session-old' }],
+        },
       },
     ],
   }),
@@ -23,8 +49,22 @@ vi.mock('../hooks/useLogsWebSocket', () => ({
 vi.mock('../hooks/useFenceLogWebSocket', () => ({
   default: (sessionId: string | null) => ({
     connected: sessionId != null,
+    hasMore: false,
+    loadingOlder: false,
+    historyError: null,
+    loadOlder: vi.fn(),
     lines: sessionId
-      ? ['[fence:http] 10:52:49 ✗ CONNECT 403 www.google.com https://www.google.com:443 (0s)']
+      ? [
+          {
+            id: 1,
+            value:
+              '[fence:http] 10:53:49 ✗ CONNECT 403 www.google.com https://www.google.com:443 (0s)',
+          },
+          {
+            id: 2,
+            value: '[fence:logstream] 10:52:49 ✗ file-write-create /private/etc/older',
+          },
+        ]
       : [],
   }),
 }));
@@ -32,26 +72,36 @@ vi.mock('../hooks/useFenceLogWebSocket', () => ({
 vi.mock('../hooks/useOneshotLogWebSocket', () => ({
   default: () => ({
     connected: true,
+    hasMore: false,
+    loadingOlder: false,
+    historyError: null,
+    loadOlder: vi.fn(),
     records: [
       {
-        ts: '2026-06-29T12:00:00Z',
-        type: 'commit-message',
-        transport: 'cli',
-        model: 'claude-sonnet-4-6',
-        workspace: 'schmux-9',
-        prompt_chars: 1234,
-        elapsed_ms: 850,
-        ok: true,
+        id: 1,
+        value: {
+          ts: '2026-06-29T12:01:00Z',
+          type: 'repofeed-intent',
+          transport: 'api',
+          model: 'claude-opus',
+          prompt_chars: 99,
+          elapsed_ms: 120,
+          ok: false,
+          error: 'decode failed: unexpected end of JSON',
+        },
       },
       {
-        ts: '2026-06-29T12:01:00Z',
-        type: 'repofeed-intent',
-        transport: 'api',
-        model: 'claude-opus',
-        prompt_chars: 99,
-        elapsed_ms: 120,
-        ok: false,
-        error: 'decode failed: unexpected end of JSON',
+        id: 2,
+        value: {
+          ts: '2026-06-29T12:00:00Z',
+          type: 'commit-message',
+          transport: 'cli',
+          model: 'claude-sonnet-4-6',
+          workspace: 'schmux-9',
+          prompt_chars: 1234,
+          elapsed_ms: 850,
+          ok: true,
+        },
       },
     ],
   }),
@@ -103,7 +153,7 @@ describe('LogsPage', () => {
     fireEvent.change(picker, { target: { value: 'sess-fenced' } });
     expect(screen.getByText('network')).toBeInTheDocument();
     expect(screen.getByText(/CONNECT 403 www.google.com/)).toBeInTheDocument();
-    expect(screen.getByText('10:52:49')).toBeInTheDocument();
+    expect(screen.getByText('10:53:49')).toBeInTheDocument();
     expect(screen.queryByText(/\[fence:http\]/)).toBeNull();
   });
 
@@ -119,5 +169,32 @@ describe('LogsPage', () => {
     expect(screen.queryByText(/decode failed/)).toBeNull();
     fireEvent.click(screen.getByText('repofeed-intent'));
     expect(screen.getByText(/decode failed/)).toBeInTheDocument();
+  });
+
+  it('shows every source newest-first in document order', () => {
+    render(<LogsPage />);
+
+    const newerSpawn = screen.getByText('https://example.com/godot.git');
+    const olderSpawn = screen.getByText('https://example.com/older.git');
+    expect(
+      newerSpawn.compareDocumentPosition(olderSpawn) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('Log source'), { target: { value: 'fence' } });
+    fireEvent.change(screen.getByLabelText('Fenced session'), {
+      target: { value: 'sess-fenced' },
+    });
+    const newerFence = screen.getByText('10:53:49');
+    const olderFence = screen.getByText('10:52:49');
+    expect(
+      newerFence.compareDocumentPosition(olderFence) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('Log source'), { target: { value: 'oneshot' } });
+    const newerOneshot = screen.getByText('claude-opus');
+    const olderOneshot = screen.getByText('claude-sonnet-4-6');
+    expect(
+      newerOneshot.compareDocumentPosition(olderOneshot) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 });

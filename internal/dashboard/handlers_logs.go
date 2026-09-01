@@ -1,20 +1,57 @@
 package dashboard
 
 import (
-	"bufio"
-	"io"
+	"encoding/json"
 	"net/http"
-	"os"
 	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
+	"github.com/sergeknystautas/schmux/internal/logstream"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/spawnlog"
 )
 
+const logsPageSize = 100
+
+// Server -> client envelope. Each connection begins with up to `pageSize`
+// history messages (newest-first), then one history_end. Requested older pages
+// use the same framing.
+type logServerMessage struct {
+	Type    string `json:"type"`
+	Line    string `json:"line,omitempty"`
+	HasMore *bool  `json:"has_more,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+// Client -> server command envelope.
+type logClientMessage struct {
+	Type string `json:"type"`
+}
+
+func writeLogMessage(conn *wsConn, msg logServerMessage) error {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	return conn.WriteMessage(websocket.TextMessage, data)
+}
+
+// writeLogPage sends each `page.Lines` entry as a history message (newest-first),
+// then a history_end with the HasMore flag. The HasMore pointer is required so
+// `history_end` always carries `has_more` even when false.
+func writeLogPage(conn *wsConn, page logstream.Page) error {
+	for _, line := range page.Lines {
+		if err := writeLogMessage(conn, logServerMessage{Type: "history", Line: string(line)}); err != nil {
+			return err
+		}
+	}
+	hasMore := page.HasMore
+	return writeLogMessage(conn, logServerMessage{Type: "history_end", HasMore: &hasMore})
+}
+
 // handleLogsWebSocket streams a registered log source (e.g. spawn) to the Logs
-// page: existing contents as backlog, then each appended line live.
+// page: an initial page of newest history, then live appends.
 func (s *Server) handleLogsWebSocket(w http.ResponseWriter, r *http.Request) {
 	source := chi.URLParam(r, "source")
 	path, ok := spawnlog.SourcePath(source)
@@ -39,9 +76,11 @@ func (s *Server) handleFenceLogWebSocket(w http.ResponseWriter, r *http.Request)
 	s.streamLogFile(w, r, filepath.Join(schmuxdir.FenceLaunchDir(sess.WorkspaceID, id), "monitor.log"))
 }
 
-// streamLogFile upgrades to a websocket and sends path's existing lines as
-// backlog (one text message per line), then live-tails appended lines until the
-// client disconnects. Read-only; the tailer stops on disconnect.
+// streamLogFile upgrades to a WebSocket and translates logstream events into
+// the typed paged protocol: an initial page of newest history, then live
+// appends. Client `load_older` commands request the next page. History reads
+// are serialized in the read loop so Retry can reuse the unchanged server
+// boundary.
 func (s *Server) streamLogFile(w http.ResponseWriter, r *http.Request, path string) {
 	rawConn, err := s.upgradeWebSocket(w, r, 1024, 64*1024)
 	if err != nil {
@@ -50,39 +89,67 @@ func (s *Server) streamLogFile(w http.ResponseWriter, r *http.Request, path stri
 	conn := &wsConn{conn: rawConn}
 	defer conn.Close()
 
-	// Backlog: send existing lines, remembering the offset we reached so the
-	// tailer resumes exactly there — no gaps, no duplicates.
-	var offset int64
-	if f, err := os.Open(path); err == nil {
-		scanner := bufio.NewScanner(f)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-		for scanner.Scan() {
-			line := scanner.Bytes()
-			if len(line) == 0 {
-				continue
-			}
-			if err := conn.WriteMessage(websocket.TextMessage, line); err != nil {
-				f.Close()
-				return
-			}
+	var stream *logstream.Stream
+	defer func() {
+		if stream != nil {
+			stream.Close()
 		}
-		offset, _ = f.Seek(0, io.SeekCurrent)
-		f.Close()
-	}
+	}()
 
-	// Live tail. wsConn serializes concurrent writes with its mutex.
-	tailer, err := spawnlog.NewTailer(path, offset, func(line []byte) {
-		_ = conn.WriteMessage(websocket.TextMessage, line)
-	})
-	if err != nil {
-		return
-	}
-	defer tailer.Stop()
-
-	// Block until the client disconnects (read loop returns on close/error).
-	for {
-		if _, _, err := conn.ReadMessage(); err != nil {
+	sendOlder := func() {
+		if stream == nil {
 			return
+		}
+		page, err := stream.LoadOlder()
+		if err != nil {
+			_ = writeLogMessage(conn, logServerMessage{Type: "history_error", Message: err.Error()})
+			return
+		}
+		if err := writeLogPage(conn, page); err != nil {
+			_ = conn.Close()
+		}
+	}
+
+	startStream := func() {
+		next, err := logstream.New(
+			path,
+			logsPageSize,
+			func(line []byte) {
+				if err := writeLogMessage(conn, logServerMessage{Type: "append", Line: string(line)}); err != nil {
+					_ = conn.Close()
+				}
+			},
+			func(error) {
+				// Live watcher failure — disconnect so the client sees Disconnected.
+				_ = conn.Close()
+			},
+		)
+		if err != nil {
+			// No Stream exists yet, so no offsets have been claimed. Keep the
+			// socket open and let load_older retry construction after the
+			// underlying filesystem problem is fixed.
+			if writeErr := writeLogMessage(conn, logServerMessage{Type: "history_error", Message: err.Error()}); writeErr != nil {
+				_ = conn.Close()
+			}
+			return
+		}
+		stream = next
+		sendOlder()
+	}
+	startStream()
+
+	for {
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		var msg logClientMessage
+		if json.Unmarshal(data, &msg) == nil && msg.Type == "load_older" {
+			if stream == nil {
+				startStream()
+			} else {
+				sendOlder()
+			}
 		}
 	}
 }
