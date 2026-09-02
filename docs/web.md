@@ -198,7 +198,8 @@ View git changes for a workspace.
 - Preview changed Markdown, image, HTML, and Mermaid (`.mmd`) files; Mermaid previews
   keep Mermaid's light node palette in both dashboard themes (raising edge contrast in
   dark mode) and support toolbar or Ctrl/Cmd-scroll zoom, drag-to-pan, and
-  double-click-to-fit, with zoom and scroll position retained per workspace file
+  double-click-to-fit, with zoom and scroll position retained per workspace file;
+  rendered diagrams can be opened as standalone SVGs in a new tab
 
 ### Settings (`/config`)
 

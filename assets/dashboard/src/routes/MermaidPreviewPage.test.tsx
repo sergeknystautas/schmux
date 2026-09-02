@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import MermaidPreviewPage from './MermaidPreviewPage';
+import MermaidPreviewPage, { makeStandaloneSvg } from './MermaidPreviewPage';
 
 vi.mock('mermaid', () => ({
   default: {
@@ -44,6 +44,13 @@ import { getFileContent } from '../lib/api';
 
 const mockGetFileContent = vi.mocked(getFileContent);
 const mockRender = vi.mocked(mermaid.render);
+const mockCreateObjectURL = vi.fn(() => 'blob:mermaid-preview');
+const mockRevokeObjectURL = vi.fn();
+
+Object.defineProperties(URL, {
+  createObjectURL: { configurable: true, value: mockCreateObjectURL },
+  revokeObjectURL: { configurable: true, value: mockRevokeObjectURL },
+});
 
 function renderAt(path: string) {
   return render(
@@ -67,6 +74,15 @@ beforeEach(() => {
 });
 
 describe('MermaidPreviewPage', () => {
+  it('normalizes HTML line breaks into a valid standalone SVG document', () => {
+    const svg = makeStandaloneSvg(
+      '<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><p>first<br>second</p></foreignObject></svg>'
+    );
+    const document = new DOMParser().parseFromString(svg, 'image/svg+xml');
+
+    expect(document.querySelector('parsererror')).toBeNull();
+  });
+
   it('renders the Mermaid source as an SVG', async () => {
     renderAt(`/diff/ws-001/mmd/${encodeURIComponent('docs/architecture.mmd')}`);
 
@@ -194,5 +210,14 @@ describe('MermaidPreviewPage', () => {
     await waitFor(() => expect(mockRender).toHaveBeenCalled());
     expect(link).toHaveAttribute('href', '/api/file/ws-001/docs%2Farchitecture.mmd');
     expect(link).toHaveAttribute('download', 'architecture.mmd');
+  });
+
+  it('opens the rendered SVG in a new tab', async () => {
+    renderAt('/diff/ws-001/mmd/architecture.mmd');
+
+    const link = await screen.findByTestId('open-mermaid-svg');
+    expect(link).toHaveAttribute('href', 'blob:mermaid-preview');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(mockCreateObjectURL).toHaveBeenCalledWith(expect.any(Blob));
   });
 });

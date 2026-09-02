@@ -57,6 +57,17 @@ function getPreviewTheme(): PreviewTheme {
   return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
 }
 
+export function makeStandaloneSvg(svg: string): string {
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = svg;
+  const svgElement = wrapper.querySelector('svg');
+  const normalizedSvg = svgElement ? new XMLSerializer().serializeToString(svgElement) : svg;
+  const lineColor = getComputedStyle(document.documentElement)
+    .getPropertyValue('--color-text-muted')
+    .trim();
+  return lineColor ? normalizedSvg.split('var(--color-text-muted)').join(lineColor) : normalizedSvg;
+}
+
 export default function MermaidPreviewPage() {
   const { workspaceId, filepath } = useParams();
   const navigate = useNavigate();
@@ -71,6 +82,7 @@ export default function MermaidPreviewPage() {
   const [renderedSvg, setRenderedSvg] = useState('');
   const [renderVersion, setRenderVersion] = useState(0);
   const [renderError, setRenderError] = useState('');
+  const [openSvgUrl, setOpenSvgUrl] = useState('');
   const [theme, setTheme] = useState<PreviewTheme>(getPreviewTheme);
   const [zoom, setZoom] = useState(() => loadMermaidViewState(viewStateKey).zoom);
   const [isPanning, setIsPanning] = useState(false);
@@ -173,6 +185,19 @@ export default function MermaidPreviewPage() {
       cancelled = true;
     };
   }, [content, error, loading, renderId, theme]);
+
+  useEffect(() => {
+    if (!renderedSvg) {
+      setOpenSvgUrl('');
+      return;
+    }
+
+    const url = URL.createObjectURL(
+      new Blob([makeStandaloneSvg(renderedSvg)], { type: 'image/svg+xml' })
+    );
+    setOpenSvgUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [renderedSvg]);
 
   useEffect(() => {
     const saved = loadMermaidViewState(viewStateKey);
@@ -393,6 +418,18 @@ export default function MermaidPreviewPage() {
               >
                 Fit
               </button>
+              {openSvgUrl && (
+                <a
+                  className="btn btn--sm btn--secondary"
+                  data-testid="open-mermaid-svg"
+                  title="Open rendered SVG in new tab"
+                  href={openSvgUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Open
+                </a>
+              )}
               <a
                 className="btn btn--sm btn--secondary"
                 data-testid="download-mermaid"
